@@ -27,7 +27,10 @@ return function(ctx)
     abilities = ctx.include("templates/abilities.lua"),
     -- Hand-written buffs, then one per visible v3 status (E218).
     buffs = ctx.include("templates/status_buffs.lua").apply(ctx.include("templates/buffs.lua"),
-      ctx.include("templates/authored_heroes.lua").abilities, ctx.include("templates/item_texts_v3.lua")),
+      -- the v3 test heroes (scripts/v3_test_heroes.lua) show their statuses too
+      (function() local all = {} for _, a in ipairs(ctx.include("templates/authored_heroes.lua").abilities or {}) do all[#all + 1] = a end
+        for _, a in ipairs(ctx.include("templates/v3_test_heroes.lua").abilities or {}) do all[#all + 1] = a end return all end)(),
+      ctx.include("templates/item_texts_v3.lua")),
     summons = ctx.include("templates/summons.lua"),
     creeps = ctx.include("templates/creeps.lua"),
     projectile_kinds = ctx.include("templates/projectile_kinds.lua"),

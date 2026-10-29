@@ -1,0 +1,19 @@
+[package]
+name = "hero_a07_impl"
+version = "0.1.0"
+edition = "2021"
+description = "A07 (honda_tadakatsu) ability scripts generated from docs/character_pipeline/packages/honda_tadakatsu/v3.lua; dll/ builds them into hero_a07.dll (M3')"
+
+[lib]
+name = "hero_a07_impl"
+# rlib only: base_content's tests link it in-process. The DLL is the separate package in dll/.
+crate-type = ["rlib"]
+
+[dependencies]
+abi_stable = "0.11"
+ability_kit = { path = "../../ability_kit" }
+
+[features]
+default = []
+runtime-lua-content = ["ability_kit/runtime-lua-content"]
+compiled-content-only = ["ability_kit/compiled-content-only"]

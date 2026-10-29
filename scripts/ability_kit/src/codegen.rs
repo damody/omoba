@@ -144,6 +144,8 @@ pub struct Tether {
     /// `edge_distance` (body edges) instead of `distance`.
     pub edge: bool,
     pub root_after_source_death: bool,
+    /// (ability, expire damage path, root damage path) for a test damage trace.
+    pub trace: (&'static str, &'static str, &'static str),
 }
 
 /// A generated `projectile` (host ability_projectile): flies from the caster, hits hostile units;
@@ -164,6 +166,8 @@ pub struct Proj {
     pub dodgeable: bool,
     pub vision: Option<Fixed64>,
     pub end_radius: Option<Fixed64>,
+    /// `from` a point: the flight starts there instead of at the caster.
+    pub start: Option<Vec2>,
 }
 
 /// The status payload key that holds a counted status' stacks (v3 `stacking = { ... }`).
@@ -477,9 +481,10 @@ impl<'a, 'w> Cx<'a, 'w> {
             self.world.add_stat_buff(to, RStr::from_str(&id), duration, RStr::from_str(&serde_json::Value::Object(payload).to_string()));
         }
         for buff in status.state_buffs { self.world.add_buff(to, RStr::from_str(buff), duration); }
-        // A shared host control (`stun` for every status) also leaves this status's source row, so a
-        // dispel judges it by its own class (omoba-core dispel::CONTROL_SOURCE_PREFIX).
-        let controls: Vec<&str> = status.state_buffs.iter().copied().filter(|b| matches!(*b, "stun" | "root" | "silence")).collect();
+        // A shared host state (`stun`, `disarm`, `physical_immune`… one key for every status) also leaves
+        // this status's source row, so a dispel judges it by its own class and removing the status
+        // takes the states only it held (omoba-core dispel::CONTROL_SOURCE_PREFIX, dispel::remove_status).
+        let controls: Vec<&str> = status.state_buffs.to_vec();
         if !controls.is_empty() {
             let row = format!("{}{}", dispel::CONTROL_SOURCE_PREFIX, status.id);
             self.world.add_stat_buff(to, RStr::from_str(&row), duration, RStr::from_str(&dispel::control_source_payload(&controls).to_string()));
@@ -611,7 +616,9 @@ impl<'a, 'w> Cx<'a, 'w> {
             ..tether::Spec::new(self.caster.id, self.caster.gen, t.amount, t.kind, t.root, t.range) }
             .checked().ok_or("v3: invalid tether")?;
         let id = id.replace("{caster}", &format!("{}:{}", self.caster.id, self.caster.gen));
-        self.world.add_stat_buff(to, RStr::from_str(&id), duration, RStr::from_str(&link.payload().to_string()));
+        let mut payload = link.payload();
+        if self.damage_trace_enabled() { payload = tether::with_trace(payload, t.trace.0, t.trace.1, t.trace.2); }
+        self.world.add_stat_buff(to, RStr::from_str(&id), duration, RStr::from_str(&payload.to_string()));
         Ok(())
     }
 
@@ -653,6 +660,17 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// `set_health` (原作 SetHealth: no damage or heal event).
     pub fn set_health(&mut self, unit: EntityHandle, value: Fixed64) -> Res {
         self.hero_command(unit, hero_command::Command::Health { value: value.max(Fixed64::ZERO) })
+    }
+    /// `issue_order` stop / hold / move / attack_move of `unit` (a hero), as its owner's order.
+    pub fn order(&mut self, unit: EntityHandle, kind: hero_command::OrderKind, at: Vec2) -> Res {
+        let raw = |v: Fixed64| i32::try_from(v.raw()).map_err(|_| "v3: order point out of range");
+        let at = match kind { hero_command::OrderKind::Stop | hero_command::OrderKind::Hold => (0, 0), _ => (raw(at.x)?, raw(at.y)?) };
+        self.hero_command(unit, hero_command::Command::Order { kind, at })
+    }
+    /// `order_attack`: `unit` (a hero) attacks `target` as if its owner ordered it; not locked.
+    pub fn order_attack(&mut self, unit: EntityHandle, target: EntityHandle) -> Res {
+        if !target.is_valid() { return Ok(()); }
+        self.hero_command(unit, hero_command::Command::OrderAttack { target: (target.id, target.gen as i32) })
     }
 
     // ---- damage before it lands (omoba-core scripting::damage_pre) -------------------------------
@@ -727,6 +745,7 @@ impl<'a, 'w> Cx<'a, 'w> {
         if p.dodgeable && p.homing.is_some() { payload = ability_projectile::with_dodgeable(payload); }
         if let Some(v) = p.vision { payload = ability_projectile::with_vision(payload, v); }
         if let (Some(e), None) = (p.end_radius, p.homing) { payload = ability_projectile::with_end_radius(payload, e); }
+        if let Some(at) = p.start { payload = ability_projectile::with_start(payload, at); }
         if let Some((step, args)) = on_hit {
             let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
             let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec() }
@@ -892,6 +911,14 @@ pub fn ability_ffi<S: AbilityScript + 'static>(id: &str, script: S) -> AbilityDe
     AbilityDefFFI { def_json: def_json.into(), script: AbilityScript_TO::from_value(script, TD_Opaque) }
 }
 
+/// The `def_json` of a generated item script: the shop catalog's item (`kind = item`); `None`
+/// for an item the catalog does not have (it registers nothing).
+pub fn item_ffi<S: AbilityScript + 'static>(id: &str, passive: bool, script: S) -> Option<AbilityDefFFI> {
+    let def = crate::metadata::item_def(id, passive)?;
+    let def_json = serde_json::to_string(&def).expect("AbilityDef serializes");
+    Some(AbilityDefFFI { def_json: def_json.into(), script: AbilityScript_TO::from_value(script, TD_Opaque) })
+}
+
 #[cfg(test)]
 mod projectile_tests {
     use super::*;
@@ -899,7 +926,7 @@ mod projectile_tests {
     fn caster() -> EntityHandle { EntityHandle { id: 3, gen: 1 } }
     fn proj(homing: Option<EntityHandle>) -> Proj {
         Proj { homing, aim: Vec2::new(Fixed64::from_i32(600), Fixed64::ZERO), speed: Fixed64::from_i32(900), radius: Fixed64::ZERO,
-            distance: Fixed64::from_i32(600), max_hits: 1, buildings: false, dodgeable: true, vision: None, end_radius: None }
+            distance: Fixed64::from_i32(600), max_hits: 1, buildings: false, dodgeable: true, vision: None, end_radius: None, start: None }
     }
 
     /// A tracking bolt with no radius (A34W) and a linear wave (A34R) are valid host flights.

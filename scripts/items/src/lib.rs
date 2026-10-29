@@ -39,3 +39,27 @@ fn content_marker() -> RStr<'static> { ability_kit::module::content_marker() }
 
 #[sabi_extern_fn]
 fn content_identity() -> RStr<'static> { ability_kit::module::content_identity() }
+
+#[cfg(test)]
+mod tests {
+    use omoba_core::ability_meta::{AbilityDef, AbilityKind, TargetType};
+    use omoba_template_ids::MobaItemTargetShapeConst as Shape;
+
+    /// items.dll (M7): each generated item is an item script (never a hero ability) whose target
+    /// and rank-1 costs are the shop catalog's.
+    #[test]
+    fn every_generated_item_registers_as_its_catalog_item() {
+        let all = super::generated::registry::abilities();
+        assert!(!all.is_empty(), "some item generates");
+        for ffi in all.iter() {
+            let def: AbilityDef = serde_json::from_str(ffi.def_json.as_str()).expect("def json");
+            assert_eq!(def.kind, AbilityKind::Item, "{}", def.id);
+            let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+                .find(|item| item.source_ref.is_some_and(|r| r.ends_with(&format!(":{}", def.id)))).expect("catalog item");
+            let target = match item.target.shape { Shape::Self_ => TargetType::None, Shape::Point => TargetType::Point, Shape::Unit => TargetType::Unit };
+            assert_eq!(def.target_type, target, "{}", def.id);
+            let rank = def.get_level_data(1).expect("rank 1");
+            assert_eq!(rank.cooldown, item.cooldown.to_f32_for_render(), "{}", def.id);
+        }
+    }
+}

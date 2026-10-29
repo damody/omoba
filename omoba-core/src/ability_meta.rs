@@ -202,6 +202,19 @@ pub struct AbilityDef {
     /// 自由擴充欄位（供特定 handler 讀取）
     #[serde(default)]
     pub properties: HashMap<String, serde_json::Value>,
+    /// `item`: an item's generated script (items.dll, M7). Hero ability UI, bots and SkillCast
+    /// never take it; the item use path runs it (game_processor, ScriptItemTransaction).
+    #[serde(default)]
+    pub kind: AbilityKind,
+}
+
+/// What a registered script is: a hero ability or an item.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AbilityKind {
+    #[default]
+    Ability,
+    Item,
 }
 
 fn default_cast_type() -> CastType {

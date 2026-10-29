@@ -84,4 +84,26 @@ test('ability_level reads the host rank (ext)', function()
   assert(some(function(s) return has(s, 'cx.ability_level(u, ') end), 'an ability_level read')
 end)
 
+test('a taunt status taunts through cx.taunt and its removal ends it', function()
+  local h
+  for _, x in ipairs(sources.heroes(b.root)) do if x.package == 'akiyama_nobutomo' then h = x end end
+  local doc = assert(v3.load_file(h.path))
+  local ab
+  for _, a in ipairs(doc.abilities) do if a.id == 'b24_taunt' then ab = a end end
+  -- only the taunt: drop the parts the generator still blocks (include_illusions, the stop order)
+  local each = ab.events.on_cast[1]
+  local flags = {}
+  for _, fl in ipairs(each.select.flags or {}) do if fl ~= 'include_illusions' then flags[#flags + 1] = fl end end
+  each.select.flags = flags
+  local branch = each.actions[2].actions[1].actions[1]
+  branch.otherwise = nil
+  each.actions[3] = nil -- the later stop order
+  doc.abilities = { ab }
+  local files = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'x' })
+  local text = assert(files['src/generated/b24_taunt.rs'], 'b24_taunt generates')
+  assert(has(text, 'cx.taunt(to, cx.caster, duration)?;'), 'the apply taunts')
+  assert(has(text, 'given by the taunt above'), 'the attack order is the taunt')
+  assert(has(text, 'cx.end_taunt(from)?;'), 'removing the status ends the taunt')
+end)
+
 print(('%d tests passed'):format(count))

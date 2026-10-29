@@ -1,33 +1,22 @@
 //! M3' ④：產生的 Rust 取代的手寫 handler（取代 IR 之後的重播比對用；M5 換完一位就刪那位）。
-//! 稻姬的 handler 在 hero_a02_impl（`legacy-handlers` feature），其餘還在本 crate 的 heroes/。
-use abi_stable::{sabi_trait::TD_Opaque, std_types::RBox};
+//! M5（2026-10-30）：A02、B01、C17 已全部改跑產生的 Rust，它們的 handler 已刪除；剩 B04 的兩招。
+use abi_stable::std_types::RBox;
 use omb_script_abi::{ability::AbilityScript_TO, script::UnitScript_TO};
 
-/// The Rust handlers of the abilities that now run generated Rust.
+/// The Rust handlers of the abilities that now run generated Rust. M5 (2026-10-30): A02, B01 and
+/// C17 run generated Rust everywhere and their handlers are gone; B04's two stay until all of B04
+/// generates.
 pub(crate) fn handler_scripts() -> Vec<(&'static str, AbilityScript_TO<'static, RBox<()>>)> {
-    use crate::heroes::B01_saika_magoichi as b01;
     use crate::heroes::B02_date_masamune as b04;
-    use crate::heroes::C17_oichi as c17;
-    let mut handlers = vec![
+    vec![
         ("b04_fire_blast", b04::b04_fire_blast_ffi().script),
         ("b04_flame_swiftness", b04::b04_flame_swiftness_ffi().script),
-        ("b01_sniper_mode", b01::b01_sniper_mode_ffi().script),
-        ("b01_saika_corps", b01::b01_saika_corps_ffi().script),
-        ("b01_rain_iron_cannon", b01::b01_rain_iron_cannon_ffi().script),
-        ("b01_three_stage", b01::b01_three_stage_ffi().script),
-        ("c17_light_chain", c17::c17_light_chain_ffi().script),
-        ("c17_victory_blessing", c17::c17_victory_blessing_ffi().script),
-        ("c17_divine_strike", c17::c17_divine_strike_ffi().script),
-        ("c17_aurora_guard", c17::c17_aurora_guard_ffi().script),
-        ("c17_devotion", c17::c17_devotion_ffi().script),
-    ];
-    handlers.extend(hero_a02_impl::handler_scripts());
-    handlers
+    ]
 }
 
-/// The Rust hero UnitScripts the generated ones replaced.
+/// The Rust hero UnitScripts the generated ones replaced (none left since M5).
 pub(crate) fn handler_units() -> Vec<(&'static str, UnitScript_TO<'static, RBox<()>>)> {
-    vec![("oichi", UnitScript_TO::from_value(crate::heroes::C17_oichi::hero_unit::hero_unit_script(), TD_Opaque))]
+    Vec::new()
 }
 
 #[cfg(test)]

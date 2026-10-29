@@ -13,6 +13,11 @@ crate-type = ["rlib"]
 abi_stable = "0.11"
 ability_kit = { path = "../ability_kit" }
 
+[dev-dependencies]
+omoba-core = { path = "../../omoba-core", default-features = false }
+omoba-template-ids = { path = "../../omoba-template-ids" }
+serde_json = "1.0"
+
 [features]
 default = []
 runtime-lua-content = ["ability_kit/runtime-lua-content"]

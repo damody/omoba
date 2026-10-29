@@ -34,6 +34,8 @@ pub mod projection_policy;
 pub mod presentation_cue;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod buff_visual_state;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod runtime_fact_state;
 pub mod attack_visual_state;
 pub mod channel_visual_state;
 #[cfg(not(target_arch = "wasm32"))]

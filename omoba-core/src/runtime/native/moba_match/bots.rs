@@ -135,17 +135,34 @@ fn disclosed_boss_ids(runtime:&TeamVisibilityRuntime,team:u32,bosses:&[&str])->V
 /// (no boss) in a nearest-neighbour tour from the camp nearest `home`, so the jungler farms its own
 /// jungle instead of crossing the map to the enemy's or to the bosses; ties keep authoring order.
 /// Other maps keep the ring of every camp in authoring order. Camp homes, sides and tags are
-/// public map data; no camp state is read.
-fn jungle_patrol_points(camps:&[MobaJungleCamp],side:usize,home:Vec2)->Vec<Vec2> {
+/// public map data; no camp state is read. On a sided map only the camps `beats` admits are
+/// toured (E252: a level-one jungler fed 50 deaths a match to a 3,582 HP camp).
+fn jungle_patrol_points(camps:&[MobaJungleCamp],side:usize,home:Vec2,beats:impl Fn(&MobaJungleCamp)->bool)->Vec<Vec2> {
     let point=|camp:&MobaJungleCamp|Vec2::new(Fixed64::from_i32(camp.definition.position.0),Fixed64::from_i32(camp.definition.position.1));
     if !camps.iter().any(|camp|camp.definition.side.is_some()) {return camps.iter().map(point).collect();}
     let mut own:Vec<Vec2>=camps.iter().filter(|camp|usize::from(camp.definition.side.unwrap_or(u8::MAX))==side
-        && !camp.definition.has_tag(omoba_template_ids::MobaUnitTag::Boss)).map(point).collect();
+        && !camp.definition.has_tag(omoba_template_ids::MobaUnitTag::Boss) && beats(camp)).map(point).collect();
     let mut tour=Vec::with_capacity(own.len());let mut at=home;
     while let Some((index,_))=own.iter().enumerate().min_by_key(|(index,p)|((**p-at).length_squared().raw(),*index)) {
         at=own.remove(index);tour.push(at);
     }
     tour
+}
+
+/// A camp's authored strength (E252): total HP and total damage per second of its leader and
+/// members, from the public template (no growth, timer or aggro is read).
+fn camp_strength(camp:&omoba_template_ids::MobaJungleConst)->(i128,i128) {
+    let dps=|damage:i32,interval_ms:i32|i128::from(damage.max(0))*1000*1024/i128::from(interval_ms.max(1));
+    camp.members.iter().fold((i128::from(camp.hp),dps(camp.damage,camp.attack_interval_ms)),|(hp,rate),member|
+        (hp+i128::from(member.hp),rate+dps(member.damage,member.attack_interval_ms.unwrap_or(camp.attack_interval_ms))))
+}
+
+/// Whether a hero of `hp` health dealing `dps` (raw per second) kills the camp before it kills
+/// the hero, both trading at full rate: camp HP / hero DPS < hero HP / camp DPS (E252). The bot
+/// reads only its own hero's health and attack; spells and items are a safety margin.
+fn beats_camp(camp:&omoba_template_ids::MobaJungleConst,hp:Fixed64,dps:Fixed64)->bool {
+    let (camp_hp,camp_dps)=camp_strength(camp);
+    camp_hp*1024*camp_dps < i128::from(hp.raw())*i128::from(dps.raw())
 }
 
 fn public_control_priority(bytes:&[u8])->Option<u8> {
@@ -554,6 +571,23 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
         let immobilized=buffs.as_ref().is_some_and(|store|store.is_rooted(entity));
         let recall_blocked=buffs.as_ref().is_some_and(|store|super::recall_control_blocked(store,entity));
         let home=state.bot_home(assignment.lane,slot.side);
+        // E252: a jungler on a sided map tours only the own camps its hero beats (own maximum
+        // health and attack against the camp's public template); while it beats none it plays
+        // its lane like a mid laner and farms no camp. Items and casts keep the jungle role.
+        let jungle_points=(assignment.role==BotRole::Jungle).then(|| {
+            let hp=properties.get(entity).map_or(Fixed64::ZERO,|p|p.mhp);
+            let dps=match (attacks.get(entity),buffs.as_ref()) {
+                (Some(attack),Some(store))=>{
+                    let stats=crate::runtime::ability_runtime::UnitStats::from_refs(store,false);
+                    let interval=stats.final_attack_interval(attack.asd.v,entity).max(Fixed64::from_raw(1));
+                    stats.final_atk(attack.atk_physic.v,entity)/interval
+                }
+                _=>Fixed64::ZERO,
+            };
+            jungle_patrol_points(&state.jungle_camps,slot.side,home,|camp|beats_camp(&camp.definition,hp,dps))
+        });
+        let laning=BotAssignment {role:BotRole::Mid,..*assignment};
+        let combat_assignment=if sided_camps && jungle_points.as_ref().is_some_and(Vec::is_empty) {&laning} else {assignment};
         let radius=radii.get(entity).map(|r|r.0).unwrap_or_else(||CollisionRadius::default().0);
         let shop_radius=super::super::shop::shop_radius(&state);
         let purchase=match (inventories.get(entity),gold.get(entity),registry.as_ref()) {
@@ -620,7 +654,7 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
             continue;
         }
         // Compute once for normal attack and all offensive ability intentions.
-        let focus=role_combat_focus(assignment,team,own.position,seen);
+        let focus=role_combat_focus(combat_assignment,team,own.position,seen);
         let active_target=commands.get(entity).and_then(|q|match q.active {
             Some(HeroCommand::AttackTarget {target,..})=>Some(disclosed_identity(target)),_=>None,
         });
@@ -706,8 +740,8 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
         }
         // Static camp locations are public map data. Keep the formal movement
         // destination until arrival; never consult hidden camp timers/state.
-        let destination = if assignment.role == BotRole::Jungle {
-            let points = jungle_patrol_points(&state.jungle_camps, slot.side, home);
+        let destination = if combat_assignment.role == BotRole::Jungle {
+            let points = jungle_points.clone().unwrap_or_default();
             let active = commands.get(entity).and_then(|q| match q.active {
                 Some(HeroCommand::AttackMove {pos}) => Some(pos), _ => None,
             });
@@ -726,7 +760,7 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 .final_attack_range(attack.range.v,entity),
             _=>Fixed64::ZERO,
         };
-        let action = match navigable_combat_decision(assignment, team, own.position, destination, seen, attack_focus,attack_range,
+        let action = match navigable_combat_decision(combat_assignment, team, own.position, destination, seen, attack_focus,attack_range,
             |point| !immobilized && crate::runtime::native::tick::hero_command_tick::static_travel_reachable(
                 own.position,point,radius,&regions)) {
             Decision::Hold => {
@@ -744,8 +778,8 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 if immobilized {continue;}
                 let reachable=|point|crate::runtime::native::tick::hero_command_tick::static_travel_reachable(
                     own.position,point,radius,&regions);
-                let destination=if assignment.role==BotRole::Jungle {
-                    let points=jungle_patrol_points(&state.jungle_camps,slot.side,home);
+                let destination=if combat_assignment.role==BotRole::Jungle {
+                    let points=jungle_points.clone().unwrap_or_default();
                     reachable_patrol_destination(&points,own.position,destination,reachable)
                 } else {
                     reachable_lane_destination(&state.routes[assignment.lane][slot.side],own.position,destination,reachable)
@@ -818,7 +852,7 @@ mod tests {
         let camps:Vec<_>=map.jungle_camps.iter().copied().map(MobaJungleCamp::new).collect();
         for side in 0..2 {
             let home=point(omoba_template_ids::moba_team_point(map.fountains,side).unwrap());
-            let tour=jungle_patrol_points(&camps,side,home);
+            let tour=jungle_patrol_points(&camps,side,home,|_|true);
             let mut own:Vec<_>=map.jungle_camps.iter().filter(|c|c.side==Some(side as u8)).map(|c|point(c.position)).collect();
             assert_eq!(tour.len(),11);
             assert!(map.jungle_camps.iter().filter(|c|c.has_tag(omoba_template_ids::MobaUnitTag::Boss) || c.side!=Some(side as u8))
@@ -831,7 +865,31 @@ mod tests {
         }
         let training=omoba_template_ids::moba_map_by_name("three_lane_training").unwrap();
         let camps:Vec<_>=training.jungle_camps.iter().copied().map(MobaJungleCamp::new).collect();
-        assert_eq!(jungle_patrol_points(&camps,1,p(0)),training.jungle_camps.iter().map(|c|point(c.position)).collect::<Vec<_>>());
+        assert_eq!(jungle_patrol_points(&camps,1,p(0),|_|false),training.jungle_camps.iter().map(|c|point(c.position)).collect::<Vec<_>>(),
+            "maps without sided camps tour every camp");
+    }
+    /// E252: a jungler tours only the camps its own health and attack beat at full trade; a
+    /// level-one hero beats none of nobu's, so it lanes; a strong one tours the easy camps first.
+    #[test]
+    fn nobu_junglers_tour_only_the_camps_their_hero_beats() {
+        let map=omoba_template_ids::moba_map_by_name("nobu").unwrap();
+        let camps:Vec<_>=map.jungle_camps.iter().copied().map(MobaJungleCamp::new).collect();
+        let f=Fixed64::from_i32;
+        let home=Vec2::new(f(7445),f(-7518));
+        // A level-one hero: 1,400 HP, about 30 damage per second.
+        assert!(jungle_patrol_points(&camps,0,home,|c|beats_camp(&c.definition,f(1400),f(30))).is_empty());
+        // The easiest camp (3 x 926 HP, about 92 per second): 2,778 HP x 92 against 2,500 HP x 150.
+        let easy=camps.iter().find(|c|c.definition.side==Some(0) && c.definition.members.len()==2
+            && camp_strength(&c.definition).0==2778).expect("the assassins' camp");
+        assert!(beats_camp(&easy.definition,f(2500),f(150)));
+        assert!(!beats_camp(&easy.definition,f(1400),f(30)));
+        let strong=jungle_patrol_points(&camps,0,home,|c|beats_camp(&c.definition,f(2500),f(150)));
+        let all=jungle_patrol_points(&camps,0,home,|_|true);
+        assert!(!strong.is_empty() && strong.len()<all.len(),"some camps, not every camp: {} of {}",strong.len(),all.len());
+        assert!(strong.iter().all(|p|all.contains(p)));
+        // Strength is symmetric: both sides admit the same number of camps.
+        let away=Vec2::new(f(-7391),f(7203));
+        assert_eq!(jungle_patrol_points(&camps,1,away,|c|beats_camp(&c.definition,f(2500),f(150))).len(),strong.len());
     }
     /// E187 §5.4: a boss is recognized by its disclosed presentation identity only while the team
     /// currently sees it; other identities and stale payloads are not bosses.

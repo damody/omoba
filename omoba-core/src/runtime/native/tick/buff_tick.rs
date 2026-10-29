@@ -103,15 +103,34 @@ impl<'a> System<'a> for Sys {
             let from = data.entities.is_alive(source).then(|| data.positions.get(source).map(|p| p.0)).flatten();
             let radius = |e: specs::Entity| data.radii.get(e).map_or(omoba_sim::Fixed64::ZERO, |r| r.0);
             let distance = from.map(|from| spec.measured((at - from).length(), radius(source), radius(*target)));
-            let Some((amount, root, root_damage)) = spec.settlement(alive(source), distance) else { continue; };
             let zero = omoba_sim::Fixed64::ZERO;
             let split = |amount: omoba_sim::Fixed64| match spec.kind {
                 omb_script_abi::types::DamageKind::Physical => (amount, zero, zero),
                 omb_script_abi::types::DamageKind::Magical => (zero, amount, zero),
                 omb_script_abi::types::DamageKind::Pure => (zero, zero, amount),
             };
+            // Test damage trace: the v3 path of each damage, as a tag right before it.
+            let trace = omoba_core::runtime::native::tether::trace(payload);
+            let tag = |outcomes: &mut Vec<Outcome>, root: bool| if let Some((ability, expire, root_path)) = &trace {
+                outcomes.push(Outcome::ScriptDamageTag { ability: ability.clone(), path: if root { root_path.clone() } else { expire.clone() } });
+            };
+            let source_alive = alive(source);
+            // A dead caster's expire damage still goes out, requiring a live source: the damage
+            // pipeline drops it (and a trace records it skipped) instead of it never existing.
+            if !source_alive {
+                // a caster gone with its position measures at the far end, like the root
+                let skipped = spec.settle(distance.unwrap_or(spec.range)).0;
+                if skipped > zero {
+                    let (phys, magi, real) = split(skipped);
+                    tag(&mut data.outcomes, false);
+                    data.outcomes.push(Outcome::RawDamage { pos: at, phys, magi, real, source, target: *target,
+                        damage_profile: spec.profile() | omb_script_abi::types::DamageProfile::REQUIRE_SOURCE_ALIVE.bits(), origin: None });
+                }
+            }
+            let Some((amount, root, root_damage)) = spec.settlement(source_alive, distance) else { continue; };
             if amount > zero {
                 let (phys, magi, real) = split(amount);
+                tag(&mut data.outcomes, false);
                 data.outcomes.push(Outcome::RawDamage { pos: at, phys, magi, real, source, target: *target,
                     damage_profile: spec.profile(), origin: None });
             }
@@ -122,6 +141,7 @@ impl<'a> System<'a> for Sys {
                     let (phys, magi, real) = split(root_damage);
                     // The root modifier's own Damage action (C17W C17.txt:109-114) has an
                     // inflictor; the distance damage (AMHC:Damage, C17.lua:188) has none (E188).
+                    tag(&mut data.outcomes, true);
                     data.outcomes.push(Outcome::RawDamage { pos: at, phys, magi, real, source, target: *target,
                         damage_profile: spec.profile() | omb_script_abi::types::DamageProfile::SPELL.bits(), origin: None });
                 }
@@ -282,7 +302,11 @@ mod tests {
             if !caster_alive {world.write_storage::<CProperty>().get_mut(source).unwrap().hp=Fixed64::ZERO;}
             world.write_resource::<DeltaTime>().0=Fixed64::from_i32(3);run_now::<Sys>(&world);
             let batch=std::mem::take(&mut *world.write_resource::<Vec<Outcome>>());
-            let damage:Vec<_>=batch.iter().filter_map(|o|match o {Outcome::RawDamage {target:t,magi,..} if *t==target=>Some(*magi),_=>None}).collect();
+            // A packet requiring a live source is dropped by the damage pipeline (a test trace records
+            // it skipped): with a dead caster the distance damage goes out flagged and never lands.
+            let alive_only=omb_script_abi::types::DamageProfile::REQUIRE_SOURCE_ALIVE.bits();
+            let damage:Vec<_>=batch.iter().filter_map(|o|match o {Outcome::RawDamage {target:t,magi,damage_profile,..} if *t==target && damage_profile&alive_only==0=>Some(*magi),_=>None}).collect();
+            let skipped:Vec<_>=batch.iter().filter_map(|o|match o {Outcome::RawDamage {target:t,magi,damage_profile,..} if *t==target && damage_profile&alive_only!=0=>Some(*magi),_=>None}).collect();
             let roots:Vec<_>=batch.iter().filter_map(|o|match o {Outcome::AddBuff {target:t,buff_id,duration,..} if *t==target && buff_id=="root"=>Some(*duration),_=>None}).collect();
             // Edge distance 500 − 30 − 30 = 440: root 0.3 + 1.5 × 0.56.
             let (expected_damage, expected_root)=spec.settle(Fixed64::from_i32(440));
@@ -291,6 +315,7 @@ mod tests {
             if caster_alive {want.push(expected_damage);}
             want.push(Fixed64::from_i32(5));
             assert_eq!(damage,want,"alive {caster_alive}: distance damage only with a live caster; root damage always");
+            assert_eq!(skipped,if caster_alive {vec![]} else {vec![expected_damage]},"alive {caster_alive}: the dead caster's distance damage goes out flagged");
         }
     }
 

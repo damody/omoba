@@ -94,6 +94,7 @@ pub fn build_ability_def_from_const(
         effects_preview,
         conditions: Vec::new(),
         properties: HashMap::new(),
+        kind: Default::default(),
     }
 }
 

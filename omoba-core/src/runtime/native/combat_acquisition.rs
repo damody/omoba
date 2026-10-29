@@ -209,7 +209,8 @@ fn read_candidate(
     let gated = match view.match_state {
         Some(state) => state.current_match_target_attackable(target),
         None => view.attack_gate.map(|gate| gate.allows(target)).unwrap_or(true),
-    } && view.buffs.is_none_or(|buffs| !super::rules::vocab::invulnerable(buffs, target));
+    } && view.buffs.is_none_or(|buffs| !super::rules::vocab::invulnerable(buffs, target)
+        && !super::rules::vocab::attack_immune(buffs, target));
     let key = entity_key(target);
     Some(AttackCandidate {
         key,

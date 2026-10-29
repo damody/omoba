@@ -28,20 +28,20 @@ use super::*;
 use serde_json::{json, Value};
 
 const ENEMY: &str = "training_luminary";
-const GIVEN: &[&str] = &["learned", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges"];
+const GIVEN: &[&str] = &["learned", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line"];
 const WHEN: &[&str] = &["cast", "wait", "caster_dies", "target_dies", "owner_dies", "owner_respawns", "toggle", "cast_until_over_cap"];
 /// A document entry the ported hero does not have at all: a difference, not a harness gap.
 const MISSING: &str = "missing entry: ";
 const CHECKED: &[&str] = &["cast_accepted", "cast_rejected", "cast_cancelled", "mana_spent", "cooldown_started",
     "cooldown_not_started", "no_effects", "then_cast_accepted", "approach_until",
     "caster_invisibility_broken", "caster_invisibility_kept", "damage_to_magic_immune", "selectors_skip_magic_immune",
-    "status_removed", "status_kept", "passive_stats", "toggled_off", "charge_spent", "charge_restore", "summon_cap"];
+    "status_removed", "status_kept", "passive_stats", "toggled_off", "charge_spent", "charge_restore", "summon_cap", "damage_skipped_if_source_dead", "damage", "moved_toward"];
 /// A check that found nothing to judge (marks an error as unsupported, not failed).
 const UNOBSERVED: &str = "unobserved: ";
 
 /// Expectations a scenario may carry that the harness cannot judge: the scenario is unsupported
 /// rather than passed on the others alone.
-const UNJUDGED: &[&str] = &["damage_skipped_if_source_dead", "statuses_follow_immune_to"];
+const UNJUDGED: &[&str] = &["statuses_follow_immune_to"];
 
 fn root() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
@@ -140,7 +140,12 @@ fn real(value: Fixed64) -> f64 { value.raw() as f64 / 1024.0 }
 fn ticks(seconds: f64) -> u32 { (seconds.max(0.0) * 60.0).ceil() as u32 }
 
 #[derive(Clone, Copy, Debug)]
-struct CastResult { accepted: bool, mana_spent: f64, charges: Option<(u16, u16)> }
+struct CastResult { accepted: bool, mana_spent: f64, charges: Option<(u16, u16)>, refused: Option<&'static str> }
+
+impl CastResult {
+    /// " (NOT_ENOUGH_MANA)" when the cast trace gave a reason it was refused (E254).
+    fn why(&self) -> String { self.refused.map(|code| format!(" ({code})")).unwrap_or_default() }
+}
 
 enum Verdict { Pass, Fail(String), Unsupported(String), PassNoted(String) }
 
@@ -158,6 +163,10 @@ struct Run {
     sustain: bool,
     /// The keys the caster and the target held when the harness killed the caster after the cast.
     held_at_death: Vec<(specs::Entity, String)>,
+    /// A point cast aims here instead of at the target (no_unit_in_line: the target stands aside).
+    aim: Option<omoba_sim::Vec2>,
+    /// The tick the harness killed the caster after the cast (damage_skipped_if_source_dead).
+    died_at: Option<u64>,
 }
 
 impl Run {
@@ -196,7 +205,7 @@ impl Run {
             target_pos: point.map(|p| Vec2I { x: p.x.raw() as i32, y: p.y.raw() as i32 }) })) };
         match target {
             "unit" => Ok(cast(Some(self.target), None)),
-            "point" | "direction" => Ok(cast(None, Some(at))),
+            "point" | "direction" => Ok(cast(None, Some(self.aim.unwrap_or(at)))),
             "none" => Ok(cast(None, None)),
             other => Err(format!("cast target {other}")),
         }
@@ -236,6 +245,7 @@ impl Run {
         let input = self.input(target)?;
         let (mut previous, mut spent) = (self.mana(), 0.0);
         let charges_before = self.charges();
+        let traced_from = self.world.read_resource::<omoba_core::runtime::native::cast_trace::CastTrace>().0.len();
         let fresh: Vec<String> = entry_runtime_ids(&self.entry).into_iter().filter(|id| !holds(self, self.caster, id)).collect();
         // The authority's admission (omb state/core.rs) drops an order naming a unit the team does
         // not see; the driver takes inputs after admission, so the harness admits the same way (E223).
@@ -252,7 +262,16 @@ impl Run {
             accepted |= self.observe(cooldown, &mut previous, &mut spent, &fresh);
             if accepted && death.is_none() { break; }
         }
-        let result = CastResult { accepted, mana_spent: spent, charges: charges_before.zip(self.charges()) };
+        // Why the host refused it (B's cast trace): the first refusal or script error of this entry.
+        let refused = if accepted { None } else {
+            use omoba_core::runtime::native::cast_trace::{CastTrace, CastTraceResult};
+            let (caster, entry) = (self.caster, self.entry.clone());
+            let trace = self.world.read_resource::<CastTrace>();
+            let code = trace.0.iter().skip(traced_from).filter(|row| row.caster == caster && row.ability == entry)
+                .find_map(|row| match &row.result { CastTraceResult::Rejected(code) => Some(*code), CastTraceResult::ScriptError { code, .. } => Some(*code), _ => None });
+            code
+        };
+        let result = CastResult { accepted, mana_spent: spent, charges: charges_before.zip(self.charges()), refused };
         self.casts.push(result);
         Ok(result)
     }
@@ -268,12 +287,16 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let [caster, enemy] = hero_pair(&world);
     let slot = world.read_storage::<Hero>().get(caster).unwrap().abilities.iter().position(|id| *id == entry)
         .ok_or_else(|| format!("{MISSING}{hero} has no {entry}"))? as u32;
+    // An entry the hero lists but no script implements yet (A13's entries the generator cannot
+    // lower; E245) is a coverage gap, not a difference.
+    if driver.scripts_mut().get_ability(&entry).is_none() { return Err(format!("no AbilityScript for {entry} (not generated yet)")); }
     let range = value(&entry, rank, "cast_range").filter(|r| *r > 0.0).unwrap_or(300.0);
     let mut distance = (range * 0.5).clamp(60.0, 400.0);
     let (mut team, mut types) = ("enemy".to_owned(), Vec::<String>::new());
     let origin = omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(isolated_skill_origin_y()));
     let mut mana: Option<(bool, f64)> = None;
     let (mut immune, mut dead, mut hidden, mut invisible) = (false, false, false, false);
+    let mut clear_line = false;
     for given in s["given"].as_array().unwrap() {
         match given["kind"].as_str().unwrap() {
             "learned" => {}
@@ -304,12 +327,20 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
                 immune = true;
             },
             "toggled_on" | "charges" => {} // after the setup (run)
+            // Nobody on the cast's line (a hook case, E245): the enemy hero stands well aside.
+            "no_unit_in_line" => clear_line = true,
             other => return Err(format!("given {other}")),
         }
     }
+    // Every hit is traced (B's damage_trace; E244): who dealt it, the v3 effect path and whether
+    // it landed or was skipped because its source had died.
+    world.insert(omoba_core::runtime::native::damage_trace::DamageTrace::default());
+    // Why a cast was refused (B's cast_trace; E254).
+    world.insert(omoba_core::runtime::native::cast_trace::CastTrace::default());
     let at = origin + omoba_sim::Vec2::new(fixed(distance), Fixed64::ZERO);
     world.write_storage::<Pos>().get_mut(caster).unwrap().0 = origin;
     world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = at;
+    if clear_line { world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = origin + omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(1500)); }
     for unit in [caster, enemy] { set_hold(&mut world, unit); disarm_attack(&mut world, unit); }
     let caster_team = world.read_storage::<Faction>().get(caster).unwrap().team_id;
     // An entry whose passive stats the scenario reads is learned rank by rank through the
@@ -318,6 +349,8 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let passive = s["expect"].as_array().into_iter().flatten().any(|e| e["kind"] == "passive_stats");
     let target = match team.as_str() {
         "self" => caster,
+        // An ally hero (E256): the match has two heroes, so the other one joins the caster's team.
+        "ally" if types.is_empty() || types.iter().any(|t| t == "hero") => { ally_hero(&mut world, enemy, caster_team); enemy }
         "ally" if !types.is_empty() && !types.iter().any(|t| t == "creep" || t == "all") => return Err(format!("ally target types {types:?}")),
         "ally" => spawn_body(&mut world, distance as i32, isolated_skill_origin_y(), caster_team, 800, None),
         // `all` takes heroes too: the enemy hero (E240).
@@ -377,7 +410,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     }
     let last = world.read_storage::<Hero>().get(caster).unwrap().clone();
     let target_at = world.read_storage::<Pos>().get(target).map(|pos| pos.0).unwrap_or(at);
-    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new() };
+    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim: clear_line.then_some(at) };
     // Let auto-learn settle the ranks set above (it learns passives at their hero level).
     run.step(2);
     if passive {
@@ -486,6 +519,62 @@ fn deathless(run: &Run, unit: specs::Entity) -> bool {
     DEATHLESS.with(|ids| ids.borrow().iter().any(|id| buffs.iter_for(unit).any(|(key, _)| omoba_core::runtime::native::dispel::runtime_id_matches(id, key))))
 }
 
+/// A status's own triggers other than attack events (E249):
+/// - `on_take_damage_pre` that cancels an enemy's non-physical damage: an enemy's magical and pure
+///   hits leave the holder's life where it was (or higher, a heal back);
+/// - `on_removed`: the status is dispelled, and the statuses its trigger removes from or puts on
+///   the holder are gone or there (only when the dispel itself would not do it).
+fn status_trigger(run: &mut Run, holder: specs::Entity, step: &Value, expectation: &Value, status: &Value) -> Verdict {
+    use omoba_core::runtime::native::dispel;
+    let effects: Vec<&Value> = expectation["effects"].as_array().into_iter().flatten().collect();
+    let entry = run.entry.clone();
+    match step["event"].as_str() {
+        Some("on_take_damage_pre") => {
+            let cancels = effects.iter().any(|f| f["op"] == "modify_damage" && f["args"]["cancel"] == true
+                && f["conds"].as_array().into_iter().flatten().any(|c| c.as_str().is_some_and(|c| c.contains("not event.damage.is_physical") && c.contains("is_enemy(event.attacker, self)"))));
+            if !cancels { return Verdict::Unsupported("on_take_damage_pre that does not cancel an enemy's non-physical damage".into()); }
+            let enemy = run.enemy;
+            for (magi, pure, name) in [(300, 0, "magical"), (0, 300, "pure")] {
+                let hp = |run: &Run| run.world.read_storage::<CProperty>().get(holder).map(|p| real(p.hp)).unwrap_or(0.0);
+                let before = hp(run);
+                run.world.write_resource::<Vec<Outcome>>().push(Outcome::Damage { pos: omoba_sim::Vec2::ZERO, phys: Fixed64::ZERO,
+                    magi: Fixed64::from_i32(magi), real: Fixed64::from_i32(pure), source: enemy, target: holder, damage_profile: 0, predeclared: false });
+                run.step(3);
+                let after = hp(run);
+                if after < before - 0.5 { return Verdict::Fail(format!("on_take_damage_pre: an enemy's {name} hit took {:.1} life under the status", before - after)); }
+            }
+            Verdict::PassNoted("enemy magical and pure hits cancelled".into())
+        }
+        Some("on_removed") => {
+            let id_of = |f: &Value| f["args"]["status"].as_str().and_then(|st| status_runtime_id(&entry, st));
+            let plain = |f: &&&Value| f["conds"].as_array().is_none_or(|c| c.is_empty());
+            let gone: Vec<String> = effects.iter().filter(plain).filter(|f| f["op"] == "remove_status" && f["args"]["from"] == "self").filter_map(|f| id_of(f)).collect();
+            let put: Vec<String> = effects.iter().filter(plain).filter(|f| f["op"] == "apply_status" && f["args"]["to"] == "self").filter_map(|f| id_of(f)).collect();
+            if gone.is_empty() && put.is_empty() { return Verdict::Unsupported("on_removed without a status it removes or applies".into()); }
+            let runtime_id = status["runtime_id"].as_str().unwrap_or("").to_owned();
+            // The dispel that ends this status must not end the others itself.
+            let ends = |id: &str| dispel::registry().declared(id).is_some_and(|rule| !matches!(rule.class, dispel::Class::None | dispel::Class::DeathOnly));
+            if !ends(&runtime_id) { return Verdict::Unsupported(format!("{runtime_id} cannot be dispelled to fire on_removed")); }
+            if gone.iter().any(|id| ends(id)) { return Verdict::Unsupported("the dispel would remove the trigger's statuses too".into()); }
+            if let Some(missing) = gone.iter().find(|id| !holds(run, holder, id)) { return Verdict::Unsupported(format!("{missing} was not on the holder")); }
+            let hostile = { let f = run.world.read_storage::<Faction>(); f.get(holder).zip(f.get(run.caster)).is_some_and(|(h, c)| h.is_hostile_to(c)) };
+            let purge = match status["visibility"].as_str() {
+                Some("debuff") => dispel::Purge::Debuffs,
+                Some("buff") => dispel::Purge::Buffs,
+                _ => if hostile { dispel::Purge::Debuffs } else { dispel::Purge::Buffs },
+            };
+            dispel::dispel(&run.world, holder, dispel::Strength::Strong, purge);
+            run.step(2);
+            if holds(run, holder, &runtime_id) { return Verdict::Unsupported(format!("{runtime_id} was not dispelled")); }
+            let left: Vec<&String> = gone.iter().filter(|id| holds(run, holder, id)).collect();
+            let missing: Vec<&String> = put.iter().filter(|id| !holds(run, holder, id)).collect();
+            if left.is_empty() && missing.is_empty() { Verdict::PassNoted(format!("on_removed: removed {gone:?}, applied {put:?}")) }
+            else { Verdict::Fail(format!("on_removed: still on the holder {left:?}, not applied {missing:?}")) }
+        }
+        other => Verdict::Unsupported(format!("status event {other:?}")),
+    }
+}
+
 /// A dead holder's life ended with its statuses, whatever its entity still lists (a hero's body
 /// is kept until it respawns as a new entity).
 fn living(run: &Run, holder: specs::Entity) -> bool {
@@ -512,6 +601,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         ("dispel", Some("strong")) => Some(dispel::Strength::Strong),
         ("holder_dies", _) | ("wait", _) | ("observe", _) => None,
         ("status_event", _) if step["event"] == "on_attack_hit" || step["event"] == "on_attack_windup" => None,
+        ("status_event", _) if step["event"] == "on_take_damage_pre" || step["event"] == "on_removed" => None,
         _ => return Verdict::Unsupported(format!("status step {kind}")),
     };
     let expect = s["expect"].as_array().unwrap();
@@ -519,7 +609,8 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
     // What the holder's attack does (E229): the statuses its hit puts on the target, and the mana
     // its windup spends (an orb's cost per attack; the caster starts with a full pool).
     let (mut on_hit, mut spend) = (Vec::new(), None);
-    if kind == "status_event" {
+    let attack_event = kind == "status_event" && (step["event"] == "on_attack_hit" || step["event"] == "on_attack_windup");
+    if attack_event {
         let holds_for_full_mana = |c: &str| ATTACK_HIT_CONDS.contains(&c) || c.starts_with("not (self.mana < ");
         for f in expectation["effects"].as_array().into_iter().flatten() {
             if f["conds"].as_array().into_iter().flatten().any(|c| !holds_for_full_mana(c.as_str().unwrap_or(""))) { continue; }
@@ -547,13 +638,14 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
     };
     // A runtime id several statuses share (`stun`) is one BuffStore entry, dispelled by the
     // strictest class among them (dispel.rs): this status's own class cannot show through it.
+    let mut shared_class: Option<String> = None;
     if strength.is_some() {
         let own = expectation["dispel"].as_str().unwrap_or("basic");
         let class = dispel::registry().declared(&runtime_id).map(|rule| rule.class);
         let named = |c: dispel::Class| match c { dispel::Class::Basic => "basic", dispel::Class::Strong => "strong", dispel::Class::DeathOnly => "death_only", dispel::Class::None => "none" };
         match class {
             None => return Verdict::Fail(format!("{runtime_id} has no dispel class in the content")),
-            Some(c) if named(c) != own => return Verdict::Unsupported(format!("{runtime_id} is shared and dispelled as {}; this status is {own}", named(c))),
+            Some(c) if named(c) != own => shared_class = Some(format!("{runtime_id} is shared and dispelled as {}; this status is {own}", named(c))),
             Some(_) => {}
         }
     }
@@ -563,6 +655,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         Err(e) if e.starts_with(MISSING) => return Verdict::Fail(e),
         Err(e) => return Verdict::Unsupported(e),
     };
+
     let (entry, rank) = (run.entry.clone(), run.rank);
     // `it`/`target` of an ally-or-self cast is the caster too (B06W's rally on every ally, C17E cast
     // on oneself; E229): the target first, then the caster.
@@ -580,14 +673,24 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
     let mut holder = find(&run);
     let kind_of = omoba_template_ids::ability_by_name(&entry).and_then(omoba_template_ids::active_ability_const).map(|c| c.target_type);
     let window = value(&entry, rank, "cast_point").unwrap_or(0.0) + 2.0;
-    for aim in ["enemy", "self"] {
+    // Then at an ally hero (E256): a buff an entry gives allies only (C17W's guard) — the other
+    // hero joins the caster's team.
+    for aim in ["enemy", "self", "ally"] {
         if holder.is_some() { break; }
+        if aim == "ally" && !(status["visibility"] == "buff" && matches!(on.as_str(), "target" | "it")) { break; }
         let target = match kind_of {
             Some(omoba_template_ids::TargetTypeC::Unit) => "unit",
             Some(omoba_template_ids::TargetTypeC::Point) => "point",
             _ => "none",
         };
         if aim == "self" { if target != "unit" { break; } run.target = run.caster; }
+        if aim == "ally" {
+            if target != "unit" { break; }
+            let (enemy, team) = (run.enemy, run.world.read_storage::<Faction>().get(run.caster).map(|f| f.team_id).unwrap_or(0));
+            ally_hero(&mut run.world, enemy, team);
+            run.target = enemy;
+            run.step(2);
+        }
         {
             let mut heroes = run.world.write_storage::<Hero>();
             if let Some(h) = heroes.get_mut(run.caster) { h.ability_cooldowns.clear(); }
@@ -611,17 +714,27 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         }
         if holder.is_some() { set_hold(&mut run.world, run.caster); disarm_attack(&mut run.world, run.caster); }
     }
+    // A shared control follows its own status's class when the holder carries that status's
+    // control row (B's `__ctl:<status>`, generated heroes); a handler's shared stun does not.
+    if let (Some(why), Some(h)) = (&shared_class, holder) {
+        // The row is keyed by the v3 status id or by its runtime id (ability_kit since 04:07; E249).
+        let rows = [format!("{}{}", dispel::CONTROL_SOURCE_PREFIX, status["status"].as_str().unwrap_or("")), format!("{}{}", dispel::CONTROL_SOURCE_PREFIX, runtime_id)];
+        let has_row = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(h).any(|(key, _)| rows.iter().any(|row| key == row));
+        if !has_row { return Verdict::Unsupported(why.clone()); }
+    }
     let Some(holder) = holder else {
+        if let Some(why) = shared_class { return Verdict::Unsupported(why); }
         let keys = |unit: specs::Entity| -> String {
             let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
-            let mut keys: Vec<String> = buffs.iter_for(unit).map(|(key, _)| key.to_owned()).filter(|key| !key.starts_with("v3_conformance")).collect();
+            let mut keys: Vec<String> = buffs.iter_for(unit).map(|(key, _)| key.to_owned()).filter(|key| !key.starts_with("v3_conformance") && !key.starts_with(omoba_core::runtime::native::dispel::CONTROL_SOURCE_PREFIX)).collect();
             keys.sort();
             keys.join(" ")
         };
         let (caster, enemy) = (run.caster, run.enemy);
         return Verdict::Unsupported(format!("{runtime_id} not observed after casting [caster: {}] [enemy: {}]", keys(caster), keys(enemy)));
     };
-    if kind == "status_event" {
+    if kind == "status_event" && !attack_event { return status_trigger(&mut run, holder, step, expectation, status); }
+    if attack_event {
         // The holder attacks the enemy hero; every status the hit applies lands on it.
         let enemy = run.enemy;
         if let Some(attack) = run.world.write_storage::<TAttack>().get_mut(holder) { attack.asd_count = Fixed64::ZERO; }
@@ -674,7 +787,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
             if living(&run, holder) && deathless(&run, holder) { return Verdict::Unsupported("the holder's statuses cancel every hit: it cannot die".into()); }
             if living(&run, holder) {
                 let mut keys: Vec<String> = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>()
-                    .iter_for(holder).map(|(key, _)| key.to_owned()).filter(|key| !key.starts_with("v3_conformance")).collect();
+                    .iter_for(holder).map(|(key, _)| key.to_owned()).filter(|key| !key.starts_with("v3_conformance") && !key.starts_with(omoba_core::runtime::native::dispel::CONTROL_SOURCE_PREFIX)).collect();
                 keys.sort();
                 return Verdict::Fail(format!("holder_dies: the holder survived a lethal hit with {runtime_id} (holding {})", keys.join(", ")));
             }
@@ -717,7 +830,7 @@ fn run(hero: &str, s: &Value) -> Verdict {
     // statuses are looked for on a body below (check_statuses).
     let toggling = s["when"].as_array().unwrap().iter().any(|w| w["kind"] == "toggle");
     let expectations: Vec<&Value> = s["expect"].as_array().unwrap().iter()
-        .filter(|e| CHECKED.contains(&e["kind"].as_str().unwrap_or("")) || (toggling && e["kind"] == "status_applied")).collect();
+        .filter(|e| CHECKED.contains(&e["kind"].as_str().unwrap_or("")) || ((toggling || s["case"] == "hook") && e["kind"] == "status_applied")).collect();
     if expectations.is_empty() { return Verdict::Unsupported("no checked expectation".into()); }
     // A status a death expectation names is read through its runtime id.
     if expectations.iter().any(|e| (e["kind"] == "status_removed" || e["kind"] == "status_kept") && e["runtime_id"].as_str().is_none()) {
@@ -824,8 +937,11 @@ fn run(hero: &str, s: &Value) -> Verdict {
                     .filter(|e| e["kind"] == "status_removed" || e["kind"] == "status_kept")
                     .filter_map(|e| Some((if matches!(e["on"].as_str(), Some("caster" | "self")) { run.caster } else { run.target }, e["runtime_id"].as_str()?.to_owned())))
                     .collect();
+                // Not when a damage is to come due after the death (damage_skipped_if_source_dead):
+                // waiting would let it land first (C17W's break damage shares on_expire with the root).
+                let skipped_after = s["expect"].as_array().into_iter().flatten().any(|e| e["kind"] == "damage_skipped_if_source_dead");
                 for _ in 0..ticks(3.0) {
-                    if named.iter().all(|(unit, id)| holds(&run, *unit, id)) { break; }
+                    if skipped_after || named.iter().all(|(unit, id)| holds(&run, *unit, id)) { break; }
                     run.step(1);
                 }
                 let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
@@ -833,6 +949,7 @@ fn run(hero: &str, s: &Value) -> Verdict {
                     .flat_map(|unit| buffs.iter_for(unit).map(move |(key, _)| (unit, key.to_owned())).collect::<Vec<_>>()).collect();
                 drop(buffs);
                 run.held_at_death = held;
+                run.died_at = Some(run.world.read_resource::<Tick>().0);
                 let (caster, enemy) = (run.caster, run.enemy);
                 run.kill(enemy, caster);
                 run.step(3);
@@ -858,6 +975,10 @@ fn run(hero: &str, s: &Value) -> Verdict {
         i += 1;
     }
     let mut failures = Vec::new();
+    // An expectation the harness cannot observe here leaves the scenario unsupported, but the
+    // others are still checked, so a failing one is not hidden behind it (E244).
+    let mut unobserved: Vec<String> = Vec::new();
+    let mut judged = Vec::new();
     for e in expectations {
         let kind = e["kind"].as_str().unwrap();
         // A learned passive's stats need no cast (E227).
@@ -881,7 +1002,7 @@ fn run(hero: &str, s: &Value) -> Verdict {
         let Some(cast) = run.casts.get(nth - 1).copied() else { return Verdict::Unsupported(format!("{kind}: no cast {nth}")); };
         let check: Result<(), String> = (|| match kind {
             "cast_accepted" | "then_cast_accepted" | "approach_until" =>
-                if cast.accepted { Ok(()) } else { Err(format!("cast {nth} was not accepted")) },
+                if cast.accepted { Ok(()) } else { Err(format!("cast {nth} was not accepted{}", cast.why())) },
             "cast_rejected" | "cast_cancelled" =>
                 if cast.accepted { Err(format!("cast {nth} was accepted ({kind} expected, reason {})", e["reason"])) } else { Ok(()) },
             "mana_spent" => {
@@ -907,7 +1028,7 @@ fn run(hero: &str, s: &Value) -> Verdict {
             // Only an admitted cast breaks invisibility; what is read is the invisibility the caster
             // had (an entry that grants its own, A02T, puts a new one on afterwards; E227).
             "caster_invisibility_broken" | "caster_invisibility_kept" => {
-                if !cast.accepted { return Err(format!("{UNOBSERVED}the cast was not accepted here")); }
+                if !cast.accepted { return Err(format!("{UNOBSERVED}the cast was not accepted here{}", cast.why())); }
                 let kept = holds(&run, run.caster, "v3_conformance_invisible");
                 match (kind == "caster_invisibility_broken", kept) {
                     (true, false) | (false, true) => Ok(()),
@@ -934,6 +1055,10 @@ fn run(hero: &str, s: &Value) -> Verdict {
                 // Applied later (a projectile still flying): the death says nothing about it here.
                 if !before { return Err(format!("{UNOBSERVED}{id} was not on the unit before the death")); }
                 if living(&run, unit) && deathless(&run, unit) { return Err(format!("{UNOBSERVED}the unit's statuses cancel every hit: it cannot die")); }
+                // An invulnerable caster (B08D during its fang; E253) survives the lethal hit: the death
+                // the scenario asks for does not happen.
+                let invulnerable = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(unit).any(|(key, _)| key.contains("invulnerable"));
+                if living(&run, unit) && invulnerable { return Err(format!("{UNOBSERVED}the unit is invulnerable: it cannot die")); }
                 let now = living(&run, unit) && holds(&run, unit, id);
                 match (kind == "status_removed", now) {
                     (true, false) | (false, true) => Ok(()),
@@ -943,10 +1068,45 @@ fn run(hero: &str, s: &Value) -> Verdict {
             }
             // A toggle's own statuses (E229): the one it puts on the caster is there, and the ones
             // its on_toggle_off removes are gone.
+            // A toggle's status on the caster right away; a hook case's on the caster or the target
+            // within 3 s (the hook still flies; E245).
             "status_applied" => {
-                let id = e["summary"]["runtime_id"].as_str().ok_or_else(|| format!("{UNOBSERVED}status without runtime_id"))?;
-                if !matches!(e["to"].as_str(), Some("caster" | "self")) { return Err(format!("{UNOBSERVED}status to {}", e["to"])); }
-                if holds(&run, run.caster, id) { Ok(()) } else { Err(format!("{id} is not on the caster")) }
+                let id = e["summary"]["runtime_id"].as_str().map(str::to_owned)
+                    .or_else(|| e["status"].as_str().and_then(|status| status_runtime_id(&entry, status)))
+                    .ok_or_else(|| format!("{UNOBSERVED}status without runtime_id"))?;
+                let unit = match e["to"].as_str() { Some("caster" | "self") => run.caster, Some("target" | "it") if s["case"] == "hook" => run.target,
+                    _ => return Err(format!("{UNOBSERVED}status to {}", e["to"])) };
+                for _ in 0..ticks(3.0) { if holds(&run, unit, &id) { break; } run.step(1); }
+                if holds(&run, unit, &id) { Ok(()) } else { Err(format!("{id} is not on the {}", e["to"].as_str().unwrap_or("unit"))) }
+            }
+            // The hit the caster deals the unit (E245): the damage trace's amount of that type before
+            // mitigation is the document's, within 3 s.
+            "damage" => {
+                use omoba_core::runtime::native::damage_trace::DamageTrace;
+                let amount = expr(&e["amount"], &entry, rank)?;
+                let unit = match e["to"].as_str() { Some("caster" | "self") => run.caster, _ => run.target };
+                let (caster, kind_of) = (run.caster, e["type"].as_str().unwrap_or("").to_owned());
+                let seen = |run: &Run| -> Vec<f64> {
+                    run.world.read_resource::<DamageTrace>().0.iter().filter(|r| r.source == caster && r.target == unit)
+                        .map(|r| real(match kind_of.as_str() { "physical" => r.before.0, "magical" => r.before.1, "pure" => r.before.2, _ => r.before.0 + r.before.1 + r.before.2 }))
+                        .filter(|v| *v > 0.0).collect()
+                };
+                for _ in 0..ticks(3.0) { if !seen(&run).is_empty() { break; } run.step(1); }
+                let hits = seen(&run);
+                if hits.iter().any(|v| (v - amount).abs() <= (amount * 0.01).max(1.0)) { Ok(()) }
+                else { Err(format!("{kind_of} hits {hits:?}, expected {amount}")) }
+            }
+            // The unit is pulled back toward where the cast came from (E245): within 3 s it ends
+            // nearer the caster's start than where it stood.
+            "moved_toward" => {
+                if e["toward"] != "cast_origin" { return Err(format!("{UNOBSERVED}moved toward {}", e["toward"])); }
+                let unit = match e["who"].as_str() { Some("caster" | "self") => run.caster, _ => run.target };
+                let origin = omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(isolated_skill_origin_y()));
+                let start = real((run.target_at - origin).length());
+                let distance = |run: &Run| run.world.read_storage::<Pos>().get(unit).map(|p| real((p.0 - origin).length())).unwrap_or(start);
+                for _ in 0..ticks(3.0) { if distance(&run) < start - 50.0 { break; } run.step(1); }
+                let now = distance(&run);
+                if now < start - 50.0 { Ok(()) } else { Err(format!("the unit is {now:.0} from the cast origin, it stood {start:.0}")) }
             }
             // The earliest summon is gone, the limit's worth remain, and nobody was paid for it.
             "summon_cap" => {
@@ -960,6 +1120,32 @@ fn run(hero: &str, s: &Value) -> Verdict {
                     Err(format!("gold rose by {} (the summon's bounty is {bounty}) when the earliest summon was removed", gold_now - before))
                 }
                 else { Ok(()) }
+            }
+            // A damage that needs its source alive (v3 §4 require_source_alive) and comes due after
+            // the caster died is skipped (E244): the trace of the dead caster's hits from then on
+            // shows it skipped and never applied. The document's path names the damage; until a
+            // handler tags its hits, a hit needing a living source stands for it.
+            "damage_skipped_if_source_dead" => {
+                use omoba_core::runtime::native::damage_trace::{DamageTrace, DamageTraceResult};
+                let Some(died) = run.died_at else { return Err(format!("{UNOBSERVED}the caster did not die after the cast")) };
+                let path = e["path"].as_str().unwrap_or("").to_owned();
+                let dead = run.caster;
+                let rows = |run: &Run| -> Vec<(DamageTraceResult, bool)> {
+                    let alive_bit = omb_script_abi::types::DamageProfile::REQUIRE_SOURCE_ALIVE.bits();
+                    run.world.read_resource::<DamageTrace>().0.iter()
+                        .filter(|r| r.source == dead && r.tick >= died)
+                        .filter(|r| if r.path.is_empty() { r.profile & alive_bit != 0 } else { r.path == path })
+                        .map(|r| (r.result, r.path.is_empty())).collect()
+                };
+                for _ in 0..ticks(6.0) { if !rows(&run).is_empty() { break; } run.step(1); }
+                let found = rows(&run);
+                if found.iter().any(|(r, _)| *r == DamageTraceResult::Applied) { Err(format!("{path} landed after the caster died")) }
+                else if found.iter().any(|(r, _)| *r == DamageTraceResult::SkippedSourceDead) { Ok(()) }
+                else {
+                    let all: Vec<String> = run.world.read_resource::<DamageTrace>().0.iter().filter(|r| r.source == dead)
+                        .map(|r| format!("{}@{}{}:{:?}", r.path, r.tick, if r.tick >= died { "+" } else { "-" }, r.result)).collect();
+                    Err(format!("{UNOBSERVED}{path} did not come due after the death (the caster's hits: [{}])", all.join(", ")))
+                }
             }
             "charge_spent" => {
                 let count = expr(&e["count"], &entry, rank)?;
@@ -987,12 +1173,19 @@ fn run(hero: &str, s: &Value) -> Verdict {
             }
             other => Err(format!("unchecked {other}")),
         })();
-        if let Err(err) = check {
-            if let Some(why) = err.strip_prefix(UNOBSERVED) { return Verdict::Unsupported(why.to_owned()); }
-            failures.push(format!("{kind}: {err}"));
+        match check {
+            Ok(()) => judged.push(kind.to_owned()),
+            Err(err) => match err.strip_prefix(UNOBSERVED) {
+                Some(why) => unobserved.push(why.to_owned()),
+                None => failures.push(format!("{kind}: {err}")),
+            },
         }
     }
     if !failures.is_empty() { return Verdict::Fail(failures.join("; ")); }
+    if !unobserved.is_empty() {
+        let why = unobserved.join("; ");
+        return Verdict::Unsupported(if judged.is_empty() { why } else { format!("{why} (passed: {})", judged.join(", ")) });
+    }
     if s["case"] == "normal" {
         let mut notes = Vec::new();
         match check_damage(hero, s) {
@@ -1292,6 +1485,11 @@ fn passive_stats(run: &Run, e: &Value, entry: &str, rank: usize) -> Result<(), S
     if wrong.is_empty() { Ok(()) } else { Err(wrong.join(", ")) }
 }
 
+/// The other hero joins `team` (an ally hero target; E256). Faction decides who is hostile.
+fn ally_hero(world: &mut World, hero: specs::Entity, team: i32) {
+    if let Some(f) = world.write_storage::<Faction>().get_mut(hero) { f.team_id = team; }
+}
+
 /// The runtime id of one status the entry's v3 block declares.
 fn status_runtime_id(entry: &str, status: &str) -> Option<String> {
     let doc: Value = serde_json::from_str(omoba_template_ids::V3_CATALOG_JSON).ok()?;
@@ -1488,6 +1686,9 @@ fn use_handlers(driver: &mut SimulationDriver) {
     for (id, script) in crate::legacy_handlers::handler_units() { assert!(driver.scripts_mut().replace_unit_script(id, script), "{id}"); }
 }
 
+/// Documents whose hero is only partly ported: results are written, differences do not fail.
+const REPORT_ONLY: &[&str] = &["A13"];
+
 fn conformance(id: &str) {
     let doc = document(id);
     let hero = doc["document"].as_str().and_then(|p| p.split('/').rev().nth(1)).unwrap().to_owned();
@@ -1520,6 +1721,12 @@ fn conformance(id: &str) {
     std::fs::write(dir.join(format!("{id}.json")), serde_json::to_vec_pretty(&json!({"id": id, "hero": hero, "counts": counts, "scenarios": rows})).unwrap()).unwrap();
     eprintln!("v3 conformance {id} ({hero}): {counts:?}");
     if !fixed_known.is_empty() { eprintln!("{id}: listed differences now pass (remove them): {fixed_known:?}"); }
+    // A test-only hero still being ported (A13: only its hook is generated; E245) reports its
+    // results without failing, until its entries all have scripts.
+    if REPORT_ONLY.contains(&id) {
+        if !unexpected.is_empty() { eprintln!("{id} (report only): {} scenario(s) differ:\n{}", unexpected.len(), unexpected.join("\n")); }
+        return;
+    }
     assert!(unexpected.is_empty(), "{id}: {} scenario(s) differ from the v3 document and are not listed:\n{}", unexpected.len(), unexpected.join("\n"));
 }
 
@@ -1533,7 +1740,7 @@ macro_rules! conformance_tests {
 conformance_tests! {
     b01_saika_magoichi => "B01", c17_oichi => "C17", a02_inahime => "A02", a07_honda_tadakatsu => "A07",
     a34_omatsu => "A34", b04_date_masamune => "B04", b06_sanada_yukimura => "B06", b08_asai_nagamasa => "B08",
-    b29_murakami_yoshikiyo => "B29", c15_tamako => "C15",
+    b29_murakami_yoshikiyo => "B29", c15_tamako => "C15", a13_hattori_hanzo => "A13",
 }
 
 

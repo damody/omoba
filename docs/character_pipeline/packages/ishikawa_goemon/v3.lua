@@ -307,7 +307,7 @@ return function(ctx)
                 { op = "take_gold", from = "target", amount = "$bag_gold" },
               } },
             } },
-            { op = "issue_order", who = "caster", order = "attack", target = "target" },
+            { op = "order_attack", who = "caster", target = "target" },
             { op = "apply_status", status = "c06t_stun", to = "target" },
             { op = "apply_status", status = "c06t_mark", to = "caster" },
           },

@@ -887,6 +887,12 @@ impl HeroSourceStats {
 pub(crate) fn validate_hero_sources(heroes:&[HeroEntry],roster:Option<&HeroSourceRoster>)->Result<(),String> {
     let mut claimed=BTreeSet::new();
     for hero in heroes.iter().filter(|hero|!hero.tombstone) {
+        if let Some(id)=&hero.source_stats {
+            if !hero.test_only {return Err(format!("hero '{}': source_stats is for test_only heroes (a playable hero uses source_ref)",hero.id));}
+            let entry=roster.and_then(|roster|roster.heroes.iter().find(|entry|&entry.id==id))
+                .ok_or_else(||format!("hero '{}' source_stats names '{id}', which is not a roster hero",hero.id))?;
+            entry.stats.validate(id).map_err(|error|format!("hero '{}': {error}",hero.id))?;
+        }
         match (&hero.source_ref,hero.test_only) {
             (Some(_),true)=>return Err(format!("hero '{}' is both test_only and source_ref; pick one",hero.id)),
             (None,false)=>return Err(format!("hero '{}' has no source_ref: only heroes of the source site may be in the game (mark fixtures test_only)",hero.id)),

@@ -184,10 +184,15 @@ dependencies = [
  "abi_stable",
  "ability_kit",
  "hero_a02_impl",
+ "hero_a07_impl",
  "hero_a13_impl",
+ "hero_a34_impl",
  "hero_b01_impl",
  "hero_b04_impl",
+ "hero_b29_impl",
+ "hero_c15_impl",
  "hero_c17_impl",
+ "items_impl",
  "omb-script-abi",
  "omoba-content-model",
  "omoba-core",
@@ -671,12 +676,24 @@ version = "0.1.0"
 dependencies = [
  "abi_stable",
  "ability_kit",
- "omb-script-abi",
  "omoba-core",
- "omoba-sim",
- "omoba-template-ids",
- "serde_json",
  "specs",
+]
+
+[[package]]
+name = "hero_a07"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a07_impl",
+]
+
+[[package]]
+name = "hero_a07_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
 ]
 
 [[package]]
@@ -689,6 +706,22 @@ dependencies = [
 
 [[package]]
 name = "hero_a13_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a34"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a34_impl",
+]
+
+[[package]]
+name = "hero_a34_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -713,6 +746,38 @@ dependencies = [
 
 [[package]]
 name = "hero_b04_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b29"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b29_impl",
+]
+
+[[package]]
+name = "hero_b29_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_c15"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c15_impl",
+]
+
+[[package]]
+name = "hero_c15_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -781,6 +846,9 @@ version = "0.1.0"
 dependencies = [
  "abi_stable",
  "ability_kit",
+ "omoba-core",
+ "omoba-template-ids",
+ "serde_json",
 ]
 
 [[package]]

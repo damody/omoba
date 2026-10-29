@@ -166,8 +166,14 @@ impl DamageProfile {
     /// (the source's `AMHC:Damage`, amhc.lua:540, returns without damage once the attacker is
     /// dead; omoba-core `rules::damage`). Stripped with SPELL before TD layers and presentation.
     pub const REQUIRE_SOURCE_ALIVE: Self = Self(1 << 9);
+    /// Not a type: v3 damage flag `ignore_armor` — the physical part ignores the target's armor
+    /// (omoba-core `rules::damage::defenses`). Stripped with SPELL.
+    pub const IGNORE_ARMOR: Self = Self(1 << 10);
+    /// Not a type: v3 damage flag `hp_removal` — life removal (a cost paid in health): shields do
+    /// not absorb it (omoba-core `handle_damage`). Stripped with SPELL.
+    pub const HP_REMOVAL: Self = Self(1 << 11);
     /// The non-type marks above.
-    pub const FLAG_BITS: u32 = Self::SPELL.0 | Self::REQUIRE_SOURCE_ALIVE.0;
+    pub const FLAG_BITS: u32 = Self::SPELL.0 | Self::REQUIRE_SOURCE_ALIVE.0 | Self::IGNORE_ARMOR.0 | Self::HP_REMOVAL.0;
     pub const KNOWN_BITS: u32 = Self::TYPE_BITS | Self::FLAG_BITS;
 
     pub const fn from_bits(bits: u32) -> Option<Self> {
@@ -447,7 +453,9 @@ mod tests {
         assert_eq!(DamageProfile::from_bits(spell.bits()), Some(spell));
         let alive = DamageProfile::NORMAL.union(DamageProfile::REQUIRE_SOURCE_ALIVE);
         assert_eq!(DamageProfile::from_bits(alive.bits()), Some(alive));
-        assert_eq!(DamageProfile::from_bits(DamageProfile::NORMAL.bits() | (1 << 10)), None);
+        let flagged = DamageProfile::NORMAL.union(DamageProfile::IGNORE_ARMOR).union(DamageProfile::HP_REMOVAL);
+        assert_eq!(DamageProfile::from_bits(flagged.bits()), Some(flagged));
+        assert_eq!(DamageProfile::from_bits(DamageProfile::NORMAL.bits() | (1 << 12)), None);
         assert_eq!(
             DamageProfile::from_bits(DamageProfile::KNOWN_BITS | (1 << 31)),
             None

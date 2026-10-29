@@ -42,6 +42,11 @@ pub struct Packet {
     pub profile: u32,
 }
 
+/// The credit a script named for the damage packet being settled (v3 `damage.credit`,
+/// `Outcome::ScriptDamageCredit`); `handle_damage` takes it into [`Packet::credit`].
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DamageCredit(pub Option<Entity>);
+
 impl Packet {
     pub fn new(source: Entity, target: Entity, physical: Fixed64, magical: Fixed64, pure: Fixed64, profile: u32) -> Self {
         Self { source, credit: source, target, physical, magical, pure, profile }
@@ -134,7 +139,9 @@ pub fn defenses(world: &World, target: Entity, physical: Fixed64, magical: Fixed
     let stats = UnitStats::from_refs(&buffs, world.read_storage::<IsBuilding>().get(target).is_some());
     let physical = if attack { physical_block(&buffs, target, physical) } else { physical };
     let damage = DamageTypes::new(physical, magical, pure);
-    let armor = if physical > Fixed64::ZERO { stats.checked_final_armor(armor, target)? } else { Fixed64::ZERO };
+    // v3 `ignore_armor`: the physical part as if the target had no armor.
+    let ignore_armor = profile & DamageProfile::IGNORE_ARMOR.bits() != 0;
+    let armor = if physical > Fixed64::ZERO && !ignore_armor { stats.checked_final_armor(armor, target)? } else { Fixed64::ZERO };
     let resistance = if magical <= Fixed64::ZERO { Fixed64::ZERO } else {
         let base = if hero {
             let rules = world.try_fetch::<crate::runtime::MobaMatch>().and_then(|state| state.config.game_rules);

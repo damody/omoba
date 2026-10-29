@@ -163,6 +163,8 @@ pub struct ReplicaHost {
     staging: IncompleteSnapshotStaging,
     expected_team_sequence: u64,
     fog: omoba_core::runtime::fog_grid::FogGridRetention,
+    /// Runtime facts of the latest applied frame (runtime_fact_state), replayed until the next.
+    runtime_facts: Vec<omoba_core::game_proto::TeamPublicEvent>,
     stage_profile: Option<ReplicaStageDurations>,
     owner_ward_recovery: bool,
     owner_ward_recovery_budget: omoba_core::runtime::ward_transport::OwnerWardRecoveryBudget,
@@ -227,6 +229,7 @@ impl ReplicaHost {
             staging: IncompleteSnapshotStaging::default(),
             expected_team_sequence: start.next_team_sequence,
             fog,
+            runtime_facts: Vec::new(),
             stage_profile: None,
             owner_ward_recovery: omoba_core::runtime::ward_transport::negotiate_ward_protocol(
                 start.ward_protocol_version,
@@ -385,6 +388,23 @@ impl ReplicaHost {
         if let Some(grid) = self.fog.latest() {
             source.public_events.push(grid.presentation_event().expect("validated retained fog"));
         }
+        source.public_events.retain(|event| event.event_kind != crate::presentation_bridge::FALLEN_TREES_EVENT_KIND);
+        if let Some(fallen) = self.stepper.fallen_trees() {
+            source.public_events.push(crate::presentation_bridge::fallen_trees_event(&fallen));
+        }
+        // Runtime facts and the night metric come with every applied MOBA frame; between frames
+        // the latest ones stay (runtime_fact_state).
+        if source.public_events.iter().any(crate::presentation_bridge::is_night_metric) {
+            let facts: Vec<_> = source.public_events.iter()
+                .filter(|event| crate::presentation_bridge::is_runtime_fact(event)).cloned().collect();
+            if facts.len() != self.runtime_facts.len() {
+                log::info!("runtime facts: {} event(s) (night metric included)", facts.len());
+            }
+            self.runtime_facts = facts;
+        } else {
+            source.public_events.retain(|event| !crate::presentation_bridge::is_runtime_fact(event));
+            source.public_events.extend(self.runtime_facts.iter().cloned());
+        }
         source.disclosed_summoners = self.stepper.disclosed_summoners();
         source.hero_attributes = self.stepper.disclosed_hero_attributes();
         source
@@ -476,6 +496,8 @@ impl ReplicaHost {
         }
         let recovered_fog = omoba_core::runtime::fog_grid::FogGridRetention::from_rebase(manifest)
             .map_err(|error| ClientRuntimeError::Replica(error.into()))?;
+        // Replica ids of the old view mean nothing after a rebase.
+        self.runtime_facts.clear();
         let bytes = self
             .staging
             .finish(manifest)

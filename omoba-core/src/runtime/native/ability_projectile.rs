@@ -201,7 +201,7 @@ impl Spec {
         if buff_id != BUFF || payload.as_object()?.len() != 1 { return None; }
         let row = payload.get(KEY)?.as_object()?;
         let optional = ["slow", "control", "dot", "buildings", "forced", "retarget_radius", "bounce",
-            "dodgeable", "end_radius", "dot_interval", "hit_stack", "delay", "healing_reduction", "vision", "on_hit"].iter().filter(|key| row.contains_key(**key)).count();
+            "dodgeable", "end_radius", "dot_interval", "hit_stack", "delay", "healing_reduction", "vision", "on_hit", "start"].iter().filter(|key| row.contains_key(**key)).count();
         if row.len() != 15 + optional { return None; }
         let raw = |name: &str| row.get(name)?.as_i64().map(Fixed64::from_raw);
         let id = |value: &Value, name: &str| value.get(name)?.as_u64().and_then(|v| u32::try_from(v).ok());
@@ -269,6 +269,7 @@ impl Spec {
         if row.contains_key("healing_reduction") && healing_reduction_of(payload).is_none() { return None; }
         if row.contains_key("vision") && vision_of(payload).is_none() { return None; }
         if row.contains_key("on_hit") && on_hit_of(payload).is_none() { return None; }
+        if row.contains_key("start") && start_of(payload).is_none() { return None; }
         (spec.valid() && duration == spec.lifetime).then_some(spec)
     }
 }
@@ -373,6 +374,17 @@ pub fn healing_reduction_of(payload: &Value) -> Option<(Fixed64, Fixed64)> {
 
 /// The flight gives its caster's team plain sight of `radius` (1..=reveal_zone::MAX_RADIUS) around itself.
 pub fn with_vision(payload: Value, radius: Fixed64) -> Value { with_row(payload, "vision", json!(radius.raw())) }
+
+/// The flight starts at `at` instead of at its caster (v3 `projectile.from` a point).
+pub fn with_start(payload: Value, at: Vec2) -> Value { with_row(payload, "start", json!([at.x.raw(), at.y.raw()])) }
+
+/// The payload's start point; None when absent or off the supported map.
+pub fn start_of(payload: &Value) -> Option<Vec2> {
+    let row = payload.get(KEY)?.as_object()?.get("start")?.as_array()?;
+    if row.len() != 2 { return None; }
+    let at = Vec2::new(Fixed64::from_raw(row[0].as_i64()?), Fixed64::from_raw(row[1].as_i64()?));
+    supported(at).then_some(at)
+}
 
 /// The payload's flight vision radius; None when absent or out of range.
 pub fn vision_of(payload: &Value) -> Option<Fixed64> {
@@ -560,7 +572,7 @@ pub fn admitted(world: &World, target: Entity, buff_id: &str, duration: Fixed64,
         || expected_source.is_some_and(|expected| expected != source) { return None; }
     if world.read_storage::<CProperty>().get(source).is_none_or(|p| p.hp <= Fixed64::ZERO) { return None; }
     let faction = world.read_storage::<Faction>().get(source).cloned()?;
-    let origin = world.read_storage::<Pos>().get(source).map(|p| p.0).filter(|p| supported(*p))?;
+    let origin = start_of(payload).or_else(|| world.read_storage::<Pos>().get(source).map(|p| p.0)).filter(|p| supported(*p))?;
     if let Some(live) = world.try_fetch::<AbilityProjectiles>() {
         if live.0.len() >= MAX_LIVE || live.per_source(source) >= MAX_LIVE_PER_SOURCE { return None; }
     }
@@ -604,7 +616,7 @@ pub fn launch(world: &mut World, target: Entity, buff_id: &str, duration: Fixed6
     let spec = admitted(world, target, buff_id, duration, payload, None)?;
     let source = target;
     if !homing_target_disclosed(world, world.read_storage::<Faction>().get(source)?, spec.motion) { return None; }
-    let from = world.read_storage::<Pos>().get(source)?.0;
+    let from = match start_of(payload) { Some(at) => at, None => world.read_storage::<Pos>().get(source)?.0 };
     let faction = world.read_storage::<Faction>().get(source).cloned()?;
     let mut origin = super::moba_match::capture_projectile_origin(world, source)?;
     origin.script = None;

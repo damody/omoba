@@ -14,4 +14,7 @@ pub use codegen::*;
 
 // Host components work line B adds (M5): more `impl Cx` methods, same glob export.
 mod host_ext;
-pub use host_ext::StatusFilter;
+pub use host_ext::{DmgExtra, StatusFilter};
+pub use omoba_core::runtime::native::hero_command::OrderKind;
+/// Attribute names for `Cx::unit_num` / `unit_flag` / `unit_ref`.
+pub use omb_script_abi::ext::unit_attr;

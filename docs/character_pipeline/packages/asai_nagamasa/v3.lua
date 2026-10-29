@@ -48,7 +48,7 @@ return function(ctx)
           en = { name = "Fang Slash",
             body = "Slashes a fang wave in the target direction (radius {radius}, travels {distance} at speed {speed}) that pierces enemy heroes and creeps, dealing {damage} magic damage to each once; the wave grants {vision_radius} vision while flying. Cannot issue new orders for {command_lock} seconds after casting." },
         },
-        target = { type = "direction", range = "$cast_range", team = "enemy", types = { "hero", "creep" } },
+        target = { type = "direction", vector_length = "$distance", range = "$cast_range", team = "enemy", types = { "hero", "creep" } },
         cast = { cast_point = "$cast_point" },
         cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
         statuses = {
@@ -270,7 +270,7 @@ return function(ctx)
           en = { name = "Sky Fang",
             body = "Slashes a huge fang wave in the target direction (radius {radius}, travels {distance} at speed {speed}) that pierces enemy heroes and creeps, dealing {damage} magic damage to each once." },
         },
-        target = { type = "direction", range = "$cast_range", team = "enemy", types = { "hero", "creep" } },
+        target = { type = "direction", vector_length = "$distance", range = "$cast_range", team = "enemy", types = { "hero", "creep" } },
         cast = { cast_point = "$cast_point" },
         cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
         requires = { hero_level = "$required_level" },

@@ -67,6 +67,11 @@ pub(super) fn admit(world:&World,caster:Entity,skill:&str,rank:u32,faction:Optio
             && super::super::dispel::PurgeSpec::from_payload(buff_id,*duration,payload).is_none(){return false;}
         if (payload.get(super::super::mana_burn::KEY).is_some() || buff_id==super::super::mana_burn::BUFF)
             && super::super::mana_burn::admitted(world,*target,buff_id,*duration,payload).is_none(){return false;}
+        if (buff_id==super::super::ability_slots::ACTIVE_BUFF || buff_id==super::super::ability_slots::SWAP_BUFF
+            || payload.get(super::super::ability_slots::ACTIVE_KEY).is_some() || payload.get(super::super::ability_slots::SWAP_KEY).is_some())
+            && !super::super::ability_slots::admitted(world,*target,buff_id,*duration,payload){return false;}
+        if (payload.get(super::super::mana_burn::SET_KEY).is_some() || buff_id==super::super::mana_burn::SET_BUFF)
+            && super::super::mana_burn::set_admitted(world,*target,buff_id,*duration,payload).is_none(){return false;}
         if (payload.get(super::super::script_gold::KEY).is_some() || buff_id==super::super::script_gold::BUFF)
             && super::super::script_gold::admitted(world,*target,buff_id,*duration,payload).is_none(){return false;}
         if (payload.get(super::super::reveal_zone::KEY).is_some() || buff_id==super::super::reveal_zone::BUFF)

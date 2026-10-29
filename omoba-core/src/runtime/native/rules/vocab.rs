@@ -61,6 +61,10 @@ pub const STATS: &[(&str, StatKey, Unit)] = &[
     ("incoming_physical_pct", StatKey::IncomingPhysicalDamagePercentage, Unit::Fraction),
     // 吸血比例（unit_stats 的 Lifesteal，夾在 0～1）。
     ("lifesteal_pct", StatKey::Lifesteal, Unit::Fraction),
+    // 減速抗性、技能吸血、施法前搖縮短（比例；UnitStats、handle_damage）。
+    ("slow_resistance_pct", StatKey::SlowResistance, Unit::Fraction),
+    ("spell_lifesteal_pct", StatKey::SpellLifesteal, Unit::Fraction),
+    ("cast_point_reduction_pct", StatKey::CastPointReduction, Unit::Fraction),
 ];
 
 /// 規則層直接讀的狀態旗標（BuffStore 的狀態 id 就是 v3 名稱）。
@@ -82,11 +86,35 @@ pub mod state {
     pub const COMMAND_RESTRICTED: &str = "command_restricted";
     /// 嘲諷／強制攻擊（taunt.rs）：payload `taunt_target` 指名對象；期間拒絕新指令。
     pub const TAUNT: &str = "taunt";
+    /// 幻象（`create_illusion` 產生的單位帶這個狀態；`is_illusion` 讀它）。
+    pub const ILLUSION: &str = "illusion";
+    /// 原作 MODIFIER_STATE_DISARMED：不能普攻（英雄、兵、塔、召喚物），可以移動與施法
+    /// （BuffStore::is_disarmed，暈眩與變形也算）。
+    pub const DISARM: &str = "disarm";
+    /// 原作 MODIFIER_STATE_MUTED：不能使用道具（BuffStore::is_muted，變形也算；暈眩不算，被控仍可用道具是既有規則）。
+    pub const MUTE: &str = "mute";
+    /// 原作 MODIFIER_STATE_HEXED：變形；同時不能普攻、施法、用道具（is_disarmed／is_silenced／
+    /// is_muted 都算），模型由呈現換掉。
+    pub const HEX: &str = "hex";
+    /// 原作 MODIFIER_STATE_EVADE_DISABLED：閃避歸零（UnitStats::evasion_chance）。
+    pub const EVADE_DISABLED: &str = "evade_disabled";
+    /// 原作 MODIFIER_STATE_CANNOT_MISS：普攻不會失手，也無視目標閃避（UnitStats::miss_chance、
+    /// UnitStats::evasion_against）。
+    pub const CANNOT_MISS: &str = "cannot_miss";
+    /// 原作 MODIFIER_STATE_ATTACK_IMMUNE：不會被普攻選為目標；已飛行中的普攻落空（技能照常命中）。
+    pub const ATTACK_IMMUNE: &str = "attack_immune";
+    /// 攻速減益無效（C14T 龍化）：負的攻速加成與小於 1 的攻速倍率不算（UnitStats::final_attack_speed_mult）。
+    pub const ATTACK_SLOW_IMMUNE: &str = "attack_slow_immune";
 }
 
 /// 單位是否無敵（[`state::INVULNERABLE`]）。
 pub fn invulnerable(buffs: &crate::runtime::BuffStore, entity: specs::Entity) -> bool {
     buffs.has(entity, state::INVULNERABLE)
+}
+
+/// 普攻是否打不到目標（原作 ATTACK_IMMUNE；無敵另由傷害入口擋）。
+pub fn attack_immune(buffs: &crate::runtime::BuffStore, entity: specs::Entity) -> bool {
+    buffs.has(entity, state::ATTACK_IMMUNE)
 }
 
 /// v3 stat 名稱的執行期落點；不認得回傳 None。
@@ -120,6 +148,23 @@ const STATE_EFFECTS: &[(&str, StateEffect)] = &[
     ("stun", StateEffect::Buff("stun")),
     ("root", StateEffect::Buff("root")),
     ("silence", StateEffect::Buff("silence")),
+    // 規則層以狀態 buff 讀的旗標（上面 `state` 模組；名稱就是 BuffStore 的 key）。
+    ("disarm", StateEffect::Buff("disarm")),
+    ("mute", StateEffect::Buff("mute")),
+    ("hex", StateEffect::Buff("hex")),
+    ("evade_disabled", StateEffect::Buff("evade_disabled")),
+    ("cannot_miss", StateEffect::Buff("cannot_miss")),
+    ("attack_immune", StateEffect::Buff("attack_immune")),
+    ("attack_slow_immune", StateEffect::Buff("attack_slow_immune")),
+    ("physical_immune", StateEffect::Buff("physical_immune")),
+    ("melee_attack", StateEffect::Buff("melee_attack")),
+    ("ranged_attack", StateEffect::Buff("ranged_attack")),
+    ("block_disabled", StateEffect::Buff("block_disabled")),
+    ("flying_for_pathing", StateEffect::Buff("flying_for_pathing")),
+    ("invulnerable", StateEffect::Buff("invulnerable")),
+    ("command_restricted", StateEffect::Buff("command_restricted")),
+    // 技能選取預設排除（rules::targeting::UNTARGETABLE_BY_SPELLS）。
+    ("untargetable_by_spells", StateEffect::Buff("tag_untargetable_by_spells")),
 ];
 
 /// 狀態旗標的 host 落點；不認得回傳 None（載入失敗）。

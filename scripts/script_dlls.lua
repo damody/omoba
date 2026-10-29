@@ -8,7 +8,8 @@ local M={}
 -- {{module=..., file=..., hero=...?}, ...}: base_content first, then hero_dlls.lua order (the
 -- host loads them in this order; abilities register in it).
 function M.modules()
-  local modules={{module='base_content',file='base_content.dll'}}
+  -- items.dll (M7): the shop items' generated scripts (kind = item); no hero
+  local modules={{module='base_content',file='base_content.dll'},{module='items',file='items.dll'}}
   for _,row in ipairs(require('hero_dlls')) do
     modules[#modules+1]={module=row.package,file=row.package..'.dll',hero=row.hero}
   end

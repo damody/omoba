@@ -92,6 +92,23 @@ function M.style(kind, prompt)
 end
 
 function M.asset(id) return M.ROOT .. "/NS_" .. id .. ".NS_" .. id end
+-- One shared Niagara system per shape (its particle colours follow the user parameter Tint).
+M.SHAPE_ROOT = "/Game/Omoba/VFX/CueShapes"
+function M.shape_asset(shape) return M.SHAPE_ROOT .. "/NS_shape_" .. shape .. ".NS_shape_" .. shape end
+
+-- The commandlet spec for -shapes: the six shape systems at unit scale and time, and every cue's
+-- colour source (a reviewed reference image, else the colour from its original particle's path).
+function M.shapes_spec(spec)
+  local shapes, names = {}, {}
+  for name in pairs(M.SHAPES) do names[#names + 1] = name end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    shapes[#shapes + 1] = { id = "shape_" .. name, template = M.SHAPES[name].template, emitters = M.SHAPES[name].emitters, scale = 1, time = 1 }
+  end
+  local tints = {}
+  for _, c in ipairs(spec.cues) do tints[#tints + 1] = { id = c.id, reference = c.reference, color = c.color } end
+  return { schema = "omoba.cue-vfx-shapes.v1", shapes = shapes, tints = tints }
+end
 
 -- Cues mapped to an original particle that is not imported (M6): the particle's path names what it is
 -- (techies_base_attack_explosion, zuus_lightning_bolt...). Its words give the colour; the words and the
@@ -170,10 +187,18 @@ function M.build(root, only, batches)
   return { schema = "omoba.cue-vfx-spec.v1", cues = cues }
 end
 
+-- Generic cues of the runtime facts (OmRuntimeFacts.cpp): placeholders replayed while the fact lasts.
+-- A zone's ring (orange-red: it hurts) outlives its 1.5 s replay and is sized by the zone's radius; a tether's
+-- ribbon its 0.5 s one.
+M.RUNTIME_FACT_CUES = {
+  { id = "ground_damage_zone", row = "Kind=Area,Color=(R=1.000,G=0.450,B=0.150,A=1.0),PlaceholderSeconds=1.6" },
+  { id = "runtime_tether", row = "Kind=Link,PlaceholderSizeCm=16,PlaceholderSeconds=0.6" },
+}
+
 -- The CueOverrides map of every built cue (Config/DefaultGame.ini, [/Script/OmRuntime.OmCueSettings]),
 -- one line as the config system writes a TMap.
 M.INI_SECTION = "[/Script/OmRuntime.OmCueSettings]"
-function M.ini_lines(spec)
+function M.ini_lines(spec, tints)
   local rows = {}
   for _, c in ipairs(spec.cues) do
     local ph, extra = M.PLACEHOLDERS[c.shape], ""
@@ -183,24 +208,42 @@ function M.ini_lines(spec)
       if ph.size then extra = extra .. string.format(",PlaceholderSizeCm=%g", ph.size) end
       if ph.seconds then extra = extra .. string.format(",PlaceholderSeconds=%g", ph.seconds) end
     end
-    rows[#rows + 1] = string.format('("%s",(Effect="%s"%s))', c.id, M.asset(c.id), extra)
+    -- shared shape system: this cue's colour and scale are parameters of it
+    local tint = tints and tints[c.id]
+    if tints then
+      if tint then extra = extra .. string.format(",EffectTint=(R=%.3f,G=%.3f,B=%.3f,A=1.0)", tint[1], tint[2], tint[3]) end
+      extra = extra .. string.format(",EffectScale=%g", c.scale or 1)
+    end
+    rows[#rows + 1] = string.format('("%s",(Effect="%s"%s))', c.id, tints and M.shape_asset(c.shape) or M.asset(c.id), extra)
+  end
+  local built = {}
+  for _, c in ipairs(spec.cues) do built[c.id] = true end
+  for _, r in ipairs(M.RUNTIME_FACT_CUES) do
+    if not built[r.id] then rows[#rows + 1] = string.format('("%s",(%s))', r.id, r.row) end
   end
   return { M.INI_SECTION, "CueOverrides=(" .. table.concat(rows, ",") .. ")" }
 end
 
 function M.main(args)
-  local out, only, ini, batches
+  local out, only, ini, batches, shapes_out, tints_in
   local i = 1
   while i <= #args do
     if args[i] == "--spec" then out = args[i + 1]; i = i + 1
     elseif args[i] == "--only" then only = {}; for id in args[i + 1]:gmatch("[^,]+") do only[id] = true end; i = i + 1
     elseif args[i] == "--ini" then ini = true
+    elseif args[i] == "--shapes" then shapes_out = args[i + 1]; i = i + 1
+    elseif args[i] == "--tints" then tints_in = args[i + 1]; i = i + 1
     elseif args[i] == "--batches" then batches = {}; for n in args[i + 1]:gmatch("%d+") do batches[#batches + 1] = tonumber(n) end; i = i + 1
     else error("unknown argument " .. args[i]) end
     i = i + 1
   end
   local spec = M.build(b.root, only, batches)
-  if ini then for _, l in ipairs(M.ini_lines(spec)) do print(l) end end
+  if shapes_out then
+    local f = assert(io.open(shapes_out, "wb")); f:write(json.encode(M.shapes_spec(spec))); f:close()
+    print("wrote " .. shapes_out)
+  end
+  local tints = tints_in and json.decode(assert(io.open(tints_in, "rb")):read("a")) or nil
+  if ini then for _, l in ipairs(M.ini_lines(spec, tints)) do print(l) end end
   if out then
     local f = assert(io.open(out, "wb")); f:write(json.encode(spec)); f:close()
     print("wrote " .. out .. " (" .. #spec.cues .. " cues)")

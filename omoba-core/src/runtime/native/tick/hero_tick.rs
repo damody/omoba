@@ -164,7 +164,7 @@ impl<'a> System<'a> for Sys {
                     let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
 
                     // Stun 狀態：暈眩中不攻擊、不累積冷卻（asd_count 凍結）
-                    if tr.buff_store.is_stunned(e) || tr.buff_store.has(e,super::super::recovery_channel::STATUS)
+                    if tr.buff_store.is_disarmed(e) || tr.buff_store.has(e,super::super::recovery_channel::STATUS)
                         || tr.buff_store.has(e,super::super::ability_channel::STATUS) {
                         if let Some(timing) = atk.animation_timing.as_mut() { timing.paused = true; }
                         return (e.id(), outcomes);

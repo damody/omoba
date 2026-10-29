@@ -87,11 +87,28 @@ impl<'a> UnitStats<'a> {
             let bonus_c = sums.bonus_equipment;
             // Percentage（含 ice tower 用的 MoveSpeedBonus，當 -50% 寫進去）
             let pct = sums.percentage;
+            // Slow resistance (v3 slow_resistance_pct) shrinks the negative part only.
+            let resist = self.buffs.sum_add(e, StatKey::SlowResistance).clamp(Fixed64::ZERO, Fixed64::ONE);
+            let pct = if resist > Fixed64::ZERO { pct - self.negative_move_percentage(e) * resist } else { pct };
             // Buff flat post-percentage：不被 slow 削弱、不疊到 base/equipment 上
             let buff_bonus = sums.bonus_buff;
             (base_eff + bonus_c) * (Fixed64::ONE + pct) + buff_bonus
         };
         self.apply_move_clamp_sums(effective, sums)
+    }
+
+    /// The negative entries of the percentage move-speed keys (the slows), as one sum.
+    fn negative_move_percentage(&self, e: Entity) -> Fixed64 {
+        const KEYS: [&str; 4] = ["movespeed_bonus_percentage", "movespeed_bonus_percentage_unique",
+            "movespeed_bonus_percentage_unique_2", "move_speed_bonus"];
+        self.buffs.iter_for(e).flat_map(|(_, entry)| KEYS.iter().filter_map(|key| entry.payload.get(*key)))
+            .map(super::buff_store::read_fixed_from_payload).filter(|v| *v < Fixed64::ZERO)
+            .fold(Fixed64::ZERO, |sum, v| sum + v)
+    }
+
+    /// Spell lifesteal (v3 spell_lifesteal_pct), 0..1.
+    pub fn spell_lifesteal(&self, e: Entity) -> Fixed64 {
+        self.buffs.sum_add(e, StatKey::SpellLifesteal).clamp(Fixed64::ZERO, Fixed64::ONE)
     }
 
     fn apply_move_clamp_sums(&self, v: Fixed64, sums: super::buff_store::MoveSpeedSums) -> Fixed64 {
@@ -171,7 +188,10 @@ impl<'a> UnitStats<'a> {
         if fixed > Fixed64::ZERO {
             return fixed;
         }
+        let slow_immune = self.buffs.has(e, "attack_slow_immune");
         let as_bonus = self.buffs.sum_add(e, StatKey::AttackSpeedBonusConstant);
+        // Attack slow immunity: the negative entries do not count.
+        let as_bonus = if slow_immune { as_bonus - self.negative_entries(e, StatKey::AttackSpeedBonusConstant) } else { as_bonus };
         let hundred = Fixed64::from_i32(100);
         let one_tenth = Fixed64::from_raw(102); // 0.1 in Q22.10 (102/1024 ≈ 0.0996)
         let constant_mult_raw = Fixed64::ONE + as_bonus / hundred;
@@ -181,12 +201,20 @@ impl<'a> UnitStats<'a> {
             constant_mult_raw
         };
         let extra_mult = self.buffs.product_mult(e, StatKey::AttackSpeedMultiplier);
+        let extra_mult = if slow_immune { extra_mult.max(Fixed64::ONE) } else { extra_mult };
         let v = constant_mult * extra_mult;
         if v < one_tenth {
             one_tenth
         } else {
             v
         }
+    }
+
+    /// Sum of the negative raw entries of an additive stat (attack slow immunity removes them).
+    fn negative_entries(&self, e: Entity, stat: StatKey) -> Fixed64 {
+        Fixed64::from_raw(self.buffs.iter_for(e)
+            .filter_map(|(_, entry)| entry.payload.get(stat.as_str()).and_then(serde_json::Value::as_i64))
+            .filter(|raw| *raw < 0).fold(0i64, |sum, raw| sum.saturating_add(raw)))
     }
 
     /// 射程 = base + ATTACK_RANGE_BONUS + ATTACK_RANGE_BONUS_UNIQUE，
@@ -271,13 +299,21 @@ impl<'a> UnitStats<'a> {
 
     // ================= 命中率 =================
 
+    /// The target's evasion against `attacker`'s ordinary attack: none when the attacker cannot miss.
+    pub fn evasion_against(&self, attacker: Entity, target: Entity) -> Fixed64 {
+        if self.buffs.has(attacker, "cannot_miss") { return Fixed64::ZERO; }
+        self.evasion_chance(target)
+    }
+
     pub fn evasion_chance(&self, e: Entity) -> Fixed64 {
+        if self.buffs.has(e, "evade_disabled") { return Fixed64::ZERO; }
         let v = self.buffs.sum_add(e, StatKey::EvasionConstant)
             - self.buffs.sum_add(e, StatKey::NegativeEvasionConstant);
         clamp_fx(v, Fixed64::ZERO, Fixed64::ONE)
     }
 
     pub fn miss_chance(&self, e: Entity) -> Fixed64 {
+        if self.buffs.has(e, "cannot_miss") { return Fixed64::ZERO; }
         clamp_fx(
             self.buffs.sum_add(e, StatKey::MissPercentage),
             Fixed64::ZERO,
@@ -350,7 +386,8 @@ impl<'a> UnitStats<'a> {
 
     pub fn cast_time_mult(&self, e: Entity) -> Fixed64 {
         let one_tenth = Fixed64::from_raw(102);
-        let v = Fixed64::ONE + self.buffs.sum_add(e, StatKey::CastTimePercentage);
+        let v = Fixed64::ONE + self.buffs.sum_add(e, StatKey::CastTimePercentage)
+            - self.buffs.sum_add(e, StatKey::CastPointReduction);
         if v < one_tenth {
             one_tenth
         } else {
@@ -635,6 +672,48 @@ mod tests {
     use super::*;
     use serde_json::json;
     use specs::{Builder, World, WorldExt};
+
+    /// v3 slow_resistance_pct (only slows shrink) and cast_point_reduction_pct.
+    #[test]
+    fn slow_resistance_and_cast_point_reduction() {
+        let mut w=World::new();let e=w.create_entity().build();let mut b=BuffStore::default();
+        let speed=|b:&BuffStore|UnitStats::from_refs(b,false).final_move_speed(Fixed64::from_i32(300),e);
+        b.add(e,"haste",Fixed64::ONE,json!({"movespeed_bonus_percentage":Fixed64::from_raw(205).raw()}));
+        b.add(e,"frost",Fixed64::ONE,json!({"move_speed_bonus":-0.5,"slow_factor":0.5}));
+        let slowed=speed(&b);
+        b.add(e,"steady",Fixed64::ONE,json!({ StatKey::SlowResistance.as_str(): 512 }));
+        // 300 × (1 + 0.2 − 0.5 × (1 − 0.5)).
+        assert_eq!(speed(&b),Fixed64::from_i32(300)*(Fixed64::ONE+Fixed64::from_raw(205)-Fixed64::from_raw(256)));
+        assert!(speed(&b)>slowed);
+        let cast=|b:&BuffStore|UnitStats::from_refs(b,false).cast_time_mult(e);
+        assert_eq!(cast(&b),Fixed64::ONE);
+        b.add(e,"quick",Fixed64::ONE,json!({ StatKey::CastPointReduction.as_str(): 256 }));
+        assert_eq!(cast(&b),Fixed64::from_raw(768));
+    }
+
+    /// v3 states evade_disabled, cannot_miss, attack_slow_immune, and the control predicates
+    /// disarm / mute / hex (rules::vocab::state).
+    #[test]
+    fn rule_layer_states_change_accuracy_attack_speed_and_controls() {
+        let mut w=World::new();let (a,t)=(w.create_entity().build(),w.create_entity().build());let mut b=BuffStore::default();
+        b.add(t,"dodge",Fixed64::ONE,json!({ StatKey::EvasionConstant.as_str(): 512 }));
+        b.add(a,"blinded",Fixed64::ONE,json!({ StatKey::MissPercentage.as_str(): 256 }));
+        let s=|b:&BuffStore|{let s=UnitStats::from_refs(b,false);(s.evasion_chance(t).raw(),s.evasion_against(a,t).raw(),s.miss_chance(a).raw())};
+        assert_eq!(s(&b),(512,512,256));
+        b.add(a,"cannot_miss",Fixed64::ONE,json!({}));assert_eq!(s(&b),(512,0,0),"true strike ignores evasion and blindness");
+        b.remove(a,"cannot_miss");b.add(t,"evade_disabled",Fixed64::ONE,json!({}));assert_eq!(s(&b),(0,0,256));
+        let key=StatKey::AttackSpeedBonusConstant.as_str();
+        b.add(a,"haste",Fixed64::ONE,json!({ key: 50*1024 }));b.add(a,"frost",Fixed64::ONE,json!({ key: -80*1024 }));
+        b.add(a,"cripple",Fixed64::ONE,json!({ StatKey::AttackSpeedMultiplier.as_str(): 512 }));
+        let mult=|b:&BuffStore|UnitStats::from_refs(b,false).final_attack_speed_mult(a);
+        assert!(mult(&b)<Fixed64::ONE);
+        b.add(a,"attack_slow_immune",Fixed64::ONE,json!({}));
+        assert_eq!(mult(&b),Fixed64::from_raw(1536),"only the +50 counts and the multiplier stays at 1");
+        for (state,disarmed,silenced,muted) in [("disarm",true,false,false),("mute",false,false,true),("hex",true,true,true),("stun",true,true,false)] {
+            let mut b=BuffStore::default();b.add(a,state,Fixed64::ONE,json!({}));
+            assert_eq!((b.is_disarmed(a),b.is_silenced(a),b.is_muted(a)),(disarmed,silenced,muted),"{state}");
+        }
+    }
 
     #[test]
     fn checked_mana_multiplier_preserves_discount_markup_free_family_and_legacy_float() {

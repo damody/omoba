@@ -118,7 +118,8 @@ impl<'a> System<'a> for Sys {
                 crate::runtime::native::rules::attack::roll_critical(&sources,master_seed,tick,key_of(attacker),attacker,None)
             } else {None};
             let rolls=Rolls {source_key:key_of(attacker),target_key:key_of(damage_inst.target),critical,
-                block:if damage_inst.damage_flags.can_dodge {crate::runtime::native::rules::damage::block_amount(&tr.buffs,damage_inst.target)}else{Fixed64::ZERO}};
+                block:if damage_inst.damage_flags.can_dodge {crate::runtime::native::rules::damage::block_amount(&tr.buffs,damage_inst.target)}else{Fixed64::ZERO},
+                true_strike:tr.buffs.has(attacker,crate::runtime::native::rules::vocab::state::CANNOT_MISS)};
             let (result,source_missed) = calculate_damage_with(&damage_inst, &unit_stats, master_seed, tick, &rolls);
             // An ordinary instant attack (lane, jungle and lane towers) runs the attack pipeline's
             // windup, launch and judgement in this one tick (rules::attack::instant).
@@ -221,6 +222,8 @@ struct Rolls {
     critical: Option<Fixed64>,
     /// The target's physical block against an attack (rules::damage::block_amount).
     block: Fixed64,
+    /// The attacker cannot miss (rules::vocab CANNOT_MISS): the target's evasion does not roll.
+    true_strike: bool,
 }
 
 /// Legacy single-source entry (tests): entity-id keys, the stats' crit tuple, no block.
@@ -237,7 +240,7 @@ fn calculate_damage(
     let critical=(damage_inst.damage_flags.can_crit
         && super::super::attack_accuracy::source_crits(master_seed,tick,source_key,chance)).then_some(multiplier);
     calculate_damage_with(damage_inst,unit_stats,master_seed,tick,&Rolls {source_key,
-        target_key:u64::from(damage_inst.target.id()),critical,block:Fixed64::ZERO}).0
+        target_key:u64::from(damage_inst.target.id()),critical,block:Fixed64::ZERO,true_strike:false}).0
 }
 
 /// 計算傷害的核心函數；回傳結果與「是否攻擊者失手」。
@@ -274,7 +277,7 @@ fn calculate_damage_with(
         .unwrap_or_default();
 
     // 檢查閃避 — Phase 1c.3: deterministic SimRng stream per (victim, OP_DODGE)
-    if damage_inst.damage_flags.can_dodge && super::super::attack_accuracy::target_evades(
+    if damage_inst.damage_flags.can_dodge && !rolls.true_strike && super::super::attack_accuracy::target_evades(
         master_seed,tick,rolls.target_key,dodge_chance) {
         result.is_dodged = true;
         result.actual_damage = DamageTypes::physical_only(Fixed64::ZERO);

@@ -19,6 +19,11 @@ ability_kit = { path = "../ability_kit" }
 # M3' ④: B04's fire blast and flame swiftness run its generated Rust (the rest of B04 is still
 # hand-written here until M5 gives it its own DLL).
 hero_b04_impl = { path = "../heroes/date_masamune" }
+# M5: abilities whose generated Rust conformance found equal to the handler (target/e229/g11-compare.txt)
+hero_a07_impl = { path = "../heroes/honda_tadakatsu" }
+hero_a34_impl = { path = "../heroes/omatsu" }
+hero_b29_impl = { path = "../heroes/murakami_yoshikiyo" }
+hero_c15_impl = { path = "../heroes/tamako" }
 omoba-core = { path = "../../omoba-core", default-features = false }
 omoba-content-model = { path = "../../omoba-content-model" }
 omoba-template-ids = { path = "../../omoba-template-ids" }
@@ -33,11 +38,13 @@ runtime-lua-content = ["omoba-template-ids/runtime-lua-content", "ability_kit/ru
 compiled-content-only = ["omoba-template-ids/compiled-content-only", "omoba-core/compiled-content-only"]
 
 [dev-dependencies]
-hero_a02_impl = { path = "../heroes/inahime", features = ["legacy-handlers"] }
+hero_a02_impl = { path = "../heroes/inahime" }
 hero_b01_impl = { path = "../heroes/saika_magoichi" }
 hero_c17_impl = { path = "../heroes/oichi" }
 # test_only (scripts/v3_test_heroes.lua): no DLL of its own yet; conformance runs its scenarios
 hero_a13_impl = { path = "../heroes/hattori_hanzo" }
+# items.dll's scripts (M7), linked like a launch loads them
+items_impl = { path = "../items" }
 prost = "0.13"
 specs = { path = "../../specs" }
 omoba-core = { path = "../../omoba-core", default-features = false, features = ["kcp", "test-support"] }

@@ -369,6 +369,15 @@ impl SpecsDisclosedWorldStepper {
         self.synchronize_specs_membership(disclosed)
     }
 
+    /// Indices of the map trees that are down in this replica (E242), ascending; None on a map
+    /// without destructible trees.
+    pub fn fallen_trees(&self) -> Option<Vec<u32>> {
+        self.filtered
+            .world
+            .try_fetch::<crate::runtime::native::tree_cut::ReplicaTrees>()
+            .map(|trees| trees.fallen.iter().copied().collect())
+    }
+
     /// Read-only copy of the roster installed at bootstrap and refreshed by
     /// `fixed_step`. This is the only disclosed summoner store.
     pub fn disclosed_summoners(

@@ -2082,14 +2082,26 @@ pub fn populate_tower_upgrade_registry(ecs: &mut World) {
 
 /// 第 3 階段 omfx 端幫助程式：從腳本登錄複製能力元數據
 /// 進入 ECS 端“AbilityRegistry”資源。
+/// The script ids (v3 item ids) of the items whose active is a generated script (items.dll,
+/// M7). Installed with the registry on authority and replicas alike (same DLL set).
+#[derive(Debug, Default, Clone)]
+pub struct ScriptedItems(pub std::collections::BTreeSet<String>);
+
 pub fn populate_ability_registry(ecs: &mut World, registry: &crate::scripting::ScriptRegistry) {
     use omoba_core::runtime::ability_runtime::AbilityRegistry;
     let mut reg = AbilityRegistry::new();
-    for (_id, def, _script) in registry.iter_abilities() {
+    let mut items = ScriptedItems::default();
+    for (id, def, _script) in registry.iter_abilities() {
+        // items.dll scripts are items, not hero abilities (UI, bots, casts)
+        if def.kind == crate::ability_meta::AbilityKind::Item {
+            if def.ability_type != crate::ability_meta::AbilityType::Passive { items.0.insert(id.to_string()); }
+            continue;
+        }
         reg.register(def.clone());
     }
-    log::info!("[ability_registry] {} abilities loaded", reg.len());
+    log::info!("[ability_registry] {} abilities loaded, {} scripted items", reg.len(), items.0.len());
     ecs.insert(reg);
+    ecs.insert(items);
 }
 
 #[cfg(test)]

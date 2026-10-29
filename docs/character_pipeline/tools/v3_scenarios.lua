@@ -343,12 +343,38 @@ local function entry_scenarios(doc, def, entry_kind, out)
       end
       local after = { { kind = "caster_dies", after = "cast" } }
       local exp_d = {}
+      -- Only statuses on the scenario's target side that land before the death (E246): not the
+      -- other team's branch (`is_enemy(caster, target)` against an ally, and the reverse), and not
+      -- ones a later block applies (a tether's on_expire, a delay); a projectile's on_hit lands
+      -- soon after the cast and stays.
+      local side = valid_target and valid_target.team == "ally" and "ally" or "enemy"
+      -- A delay's or repeat's actions carry no condition; their paths sit under its path (E251).
+      local later = {}
+      for _, e in ipairs(base_effects) do
+        if e.op == "delay" or e.op == "repeat" then later[#later + 1] = e.path end
+      end
+      local function deferred(path)
+        for _, outer in ipairs(later) do
+          if path and path:sub(1, #outer + 1) == outer .. "." then return true end
+        end
+        return false
+      end
+      local function this_branch(conds)
+        for _, c in ipairs(conds or {}) do
+          if side == "enemy" and c == "not (is_enemy(caster, target))" then return false end
+          if side == "ally" and c == "is_enemy(caster, target)" then return false end
+          if c:match("^[%w_]+%.on_expire$") or c:match("^delay%.") or c:match("^repeat%.") then return false end
+        end
+        return true
+      end
       for _, a in ipairs(applied) do
+        if not this_branch(a.conds) or deferred(a.path) then goto continue end
         local s = a.status or {}
         local on_caster = a.to == "caster" or a.to == "self"
         local kept = s.scope == "hero" or s.scope == "unit" or s.scope == "permanent"
         exp_d[#exp_d + 1] = { kind = (on_caster and not kept) and "status_removed" or "status_kept", status = a.id, on = a.to, runtime_id = runtime_key(s),
           rule = on_caster and "v3.md §12：狀態隨持有者死亡移除，scope hero/unit/permanent 例外" or "施加者死亡不移除別人身上的狀態" }
+        ::continue::
       end
       for _, e in ipairs(late) do
         if e.op == "damage" and not (e.args and e.args.require_source_alive == false) then

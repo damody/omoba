@@ -1257,6 +1257,7 @@ fn snapshot_envelope_cached(
             && p[..4] == 0_u32.to_le_bytes()
             && p[4..12] == omoba_core::runtime::SINGLE_LANE_PHASE_METRIC_ID.to_le_bytes())
     });
+    let facts = runtime_facts_of(&snapshot);
     let effects = snapshot.external_effects.iter().filter_map(|effect| {
         use omoba_core::runtime::presentation_cue::{DamagePresentationCue, presentation_effect_id};
         if effect.effect_kind != omoba_core::runtime::FactKind::DirectCombat as u32 { return None; }
@@ -1348,6 +1349,11 @@ fn snapshot_envelope_cached(
             ward_input_correlations: Vec::new(),
             shop_transaction_correlations: Vec::new(),
             combat_preferences: snapshot.combat_preferences.clone(),
+            fallen_trees: fallen_trees_of(&snapshot.public_events),
+            ground_zones: facts.zones,
+            links: facts.links,
+            illusions: facts.illusions,
+            time_of_day: time_of_day_of(&snapshot.public_events),
         }),
     )
 }
@@ -1429,6 +1435,81 @@ fn render_lifecycle_event(directive: RenderMemoryDirective) -> RenderLifecycleEv
             )),
         },
     }
+}
+
+/// Local presentation event (never on the wire): the replica's fallen map trees (E242), as
+/// little-endian u32 indices. The replica host adds it; the snapshot carries it as `fallen_trees`.
+pub const FALLEN_TREES_EVENT_KIND: u32 = 0x5452_0001;
+
+pub fn fallen_trees_event(fallen: &[u32]) -> omoba_core::game_proto::TeamPublicEvent {
+    omoba_core::game_proto::TeamPublicEvent {
+        event_kind: FALLEN_TREES_EVENT_KIND,
+        subject: None,
+        sanitized_payload: fallen.iter().flat_map(|index| index.to_le_bytes()).collect(),
+        stable_sub_index: 0,
+    }
+}
+
+/// The runtime facts a frame carries: per-entity facts (runtime_fact_state) and the night metric.
+pub fn is_runtime_fact(event: &omoba_core::game_proto::TeamPublicEvent) -> bool {
+    event.event_kind == omoba_core::runtime::runtime_fact_state::EVENT_KIND || is_night_metric(event)
+}
+
+/// The public HUD night metric (every MOBA tick; 0 by day).
+pub fn is_night_metric(event: &omoba_core::game_proto::TeamPublicEvent) -> bool {
+    night_remaining_raw(event).is_some()
+}
+
+fn night_remaining_raw(event: &omoba_core::game_proto::TeamPublicEvent) -> Option<i64> {
+    let bytes = &event.sanitized_payload;
+    (event.event_kind == omoba_core::runtime::FactKind::Hud as u32 && bytes.len() == 20 && bytes[0..4] == 0_u32.to_le_bytes()
+        && bytes[4..12] == omoba_core::runtime::native::rules::world::NIGHT_METRIC_ID.to_le_bytes())
+        .then(|| i64::from_le_bytes(bytes[12..20].try_into().unwrap()))
+}
+
+fn time_of_day_of(events: &[omoba_core::game_proto::TeamPublicEvent]) -> u32 {
+    events.iter().find_map(night_remaining_raw).map_or(0, |raw| if raw > 0 { 2 } else { 1 })
+}
+
+pub const LINK_CUE_ID: &str = "runtime_tether";
+
+#[derive(Default)]
+struct RuntimeFactRows {
+    zones: Vec<omoba_core::game_proto::PresentationGroundZone>,
+    links: Vec<omoba_core::game_proto::PresentationLink>,
+    illusions: Vec<omoba_core::game_proto::PresentationEntityKey>,
+}
+
+/// Zones, tethers and illusions of the entities in this snapshot; a fact naming an entity the
+/// snapshot does not hold is dropped.
+fn runtime_facts_of(snapshot: &FilteredRenderSnapshot) -> RuntimeFactRows {
+    use omoba_core::game_proto::{PresentationEntityKey, PresentationGroundZone, PresentationLink};
+    use omoba_core::runtime::runtime_fact_state::{RuntimeFactState, EVENT_KIND};
+    let epoch_of = |id: u64| snapshot.entities.iter().find(|entity| entity.replica_id == id)
+        .map(|entity| PresentationEntityKey { render_id: id, disclosure_epoch: entity.disclosure_epoch });
+    let mut rows = RuntimeFactRows::default();
+    for event in snapshot.public_events.iter().filter(|event| event.event_kind == EVENT_KIND) {
+        let Some(owner) = event.subject.as_ref().and_then(|id| epoch_of(id.value)) else { continue };
+        let Some(state) = RuntimeFactState::decode(&event.sanitized_payload) else { continue };
+        for zone in &state.zones {
+            rows.zones.push(PresentationGroundZone { zone_key: zone.key, source: Some(owner.clone()),
+                cue_id: RuntimeFactState::zone_cue(zone).into(), x_raw: zone.center.0, y_raw: zone.center.1,
+                end_x_raw: zone.end.0, end_y_raw: zone.end.1, radius_raw: zone.radius_raw });
+        }
+        for link in &state.links {
+            let Some(source) = epoch_of(link.source).filter(|key| key.disclosure_epoch == link.source_epoch) else { continue };
+            rows.links.push(PresentationLink { link_key: link.key, source: Some(source), target: Some(owner.clone()), cue_id: LINK_CUE_ID.into() });
+        }
+        if state.illusion { rows.illusions.push(owner); }
+    }
+    rows
+}
+
+fn fallen_trees_of(events: &[omoba_core::game_proto::TeamPublicEvent]) -> Vec<u32> {
+    events.iter().filter(|event| event.event_kind == FALLEN_TREES_EVENT_KIND)
+        .filter(|event| event.sanitized_payload.len() % 4 == 0)
+        .flat_map(|event| event.sanitized_payload.chunks_exact(4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect::<Vec<_>>())
+        .collect()
 }
 
 type DemoFog = (
@@ -1872,6 +1953,54 @@ mod tests {
         let bytes = snapshot_envelope(1, 2, 1, snapshot, 0).encode_to_vec();
         let decoded = RendererIpcEnvelope::decode(bytes.as_slice()).unwrap();
         assert_eq!(decoded.magic, PRESENTATION_MAGIC);
+    }
+
+    #[test]
+    fn runtime_facts_become_zones_links_illusions_and_night() {
+        use omoba_core::game_proto::{ReplicaEntityId, TeamPublicEvent};
+        use omoba_core::runtime::runtime_fact_state::{LinkFact, RuntimeFactState, ZoneFact, EVENT_KIND};
+        let entity = |replica_id, disclosure_epoch| omoba_core::runtime::FilteredRenderEntity {
+            replica_id, disclosure_epoch, entity_kind: 1, components: Default::default() };
+        let facts = |subject: u64, state: RuntimeFactState| TeamPublicEvent { event_kind: EVENT_KIND,
+            subject: Some(ReplicaEntityId { value: subject }), sanitized_payload: state.encode().unwrap(), stable_sub_index: 0 };
+        let night = |raw: i64| {
+            let mut payload = 0_u32.to_le_bytes().to_vec();
+            payload.extend(omoba_core::runtime::native::rules::world::NIGHT_METRIC_ID.to_le_bytes());
+            payload.extend(raw.to_le_bytes());
+            TeamPublicEvent { event_kind: omoba_core::runtime::FactKind::Hud as u32, subject: None, sanitized_payload: payload, stable_sub_index: 0 }
+        };
+        let zone_buff = omoba_template_ids::buff_by_name("ground_damage_zone").unwrap().raw();
+        let snapshot = FilteredRenderSnapshot {
+            team_id: 1, replica_tick: 17, entities: vec![entity(4, 3), entity(5, 2)],
+            public_events: vec![
+                facts(4, RuntimeFactState { zones: vec![ZoneFact { key: 1, buff: zone_buff, center: (1024, 2048), end: (1024, 2048), radius_raw: 3072 }],
+                    links: vec![], illusion: true }),
+                facts(5, RuntimeFactState { links: vec![LinkFact { key: 2, source: 4, source_epoch: 3 }, LinkFact { key: 3, source: 4, source_epoch: 9 }], ..Default::default() }),
+                facts(99, RuntimeFactState { illusion: true, ..Default::default() }),
+                night(5 * 1024),
+            ],
+            external_effects: vec![], memory_directives: vec![], remembered_presentations: Default::default(), hero_attributes: Default::default(),
+            disclosed_summoners: Default::default(), authoritative_mode: None, combat_preferences: None,
+        };
+        assert!(snapshot.public_events.iter().all(is_runtime_fact));
+        let Some(renderer_ipc_envelope::Payload::Snapshot(view)) = snapshot_envelope(1, 17, 5, snapshot.clone(), 0).payload else { panic!() };
+        assert_eq!(view.ground_zones.len(), 1);
+        let zone = &view.ground_zones[0];
+        assert_eq!((zone.cue_id.as_str(), zone.x_raw, zone.radius_raw), ("ground_damage_zone", 1024, 3072));
+        assert_eq!(zone.source.as_ref().map(|key| (key.render_id, key.disclosure_epoch)), Some((4, 3)));
+        assert_eq!(view.links.len(), 1, "a tether to a stale life of its source is dropped");
+        assert_eq!(view.links[0].target.as_ref().unwrap().render_id, 5);
+        assert_eq!(view.links[0].cue_id, LINK_CUE_ID);
+        assert_eq!(view.illusions.len(), 1, "a fact naming an entity outside the snapshot is dropped");
+        assert_eq!(view.time_of_day, 2, "night");
+        let mut day = snapshot.clone();
+        day.public_events = vec![night(0)];
+        let Some(renderer_ipc_envelope::Payload::Snapshot(view)) = snapshot_envelope(1, 17, 5, day, 0).payload else { panic!() };
+        assert_eq!((view.time_of_day, view.ground_zones.len()), (1, 0));
+        let mut none = snapshot;
+        none.public_events.clear();
+        let Some(renderer_ipc_envelope::Payload::Snapshot(view)) = snapshot_envelope(1, 17, 5, none, 0).payload else { panic!() };
+        assert_eq!(view.time_of_day, 0, "no MOBA frame, time unknown");
     }
 
     #[test]

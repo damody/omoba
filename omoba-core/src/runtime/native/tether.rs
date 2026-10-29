@@ -26,6 +26,22 @@ use serde_json::{json, Value};
 use specs::{Entity, world::Generation};
 
 pub const KEY: &str = "__tether_v1";
+/// Test damage trace only (damage_trace.rs): `{"ability", "expire", "root"}` names the ability
+/// and the v3 effect paths of the expire damage and the root damage. Scripts add it only when the
+/// world records a trace, so live payloads never carry it.
+pub const TRACE_KEY: &str = "__tether_trace_v1";
+
+/// The trace row of a tether payload: (ability, expire damage path, root damage path).
+pub fn trace(payload: &Value) -> Option<(String, String, String)> {
+    let row = payload.get(TRACE_KEY)?;
+    Some((row.get("ability")?.as_str()?.to_owned(), row.get("expire")?.as_str()?.to_owned(), row.get("root")?.as_str()?.to_owned()))
+}
+
+/// Adds the trace row to a tether payload.
+pub fn with_trace(mut payload: Value, ability: &str, expire: &str, root: &str) -> Value {
+    payload[TRACE_KEY] = json!({ "ability": ability, "expire": expire, "root": root });
+    payload
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Spec {
@@ -74,7 +90,8 @@ impl Spec {
         json!({ (KEY): row })
     }
     pub fn from_payload(payload: &Value) -> Option<Self> {
-        if payload.as_object()?.len() != 1 { return None; }
+        let traced = usize::from(payload.get(TRACE_KEY).is_some());
+        if payload.as_object()?.len() != 1 + traced { return None; }
         let row = payload.get(KEY)?.as_object()?;
         let optional = ["root_far_raw", "root_damage_raw", "edge", "root_after_source_death"].iter().filter(|k| row.contains_key(**k)).count();
         if row.len() != 6 + optional { return None; }

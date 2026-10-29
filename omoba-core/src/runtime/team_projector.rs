@@ -199,6 +199,8 @@ pub struct TeamViewProjector {
     latest_external_property_by_replica: BTreeMap<u64, Vec<u8>>,
     fog_grid: Option<crate::runtime::fog_grid::AuthorityFogGrid>,
     pending_fog_event: Option<TeamPublicEvent>,
+    /// This frame's runtime facts per replica id, already in the team form (runtime_fact_state).
+    runtime_facts: BTreeMap<u64, Vec<u8>>,
     prepared_mode: Option<AuthoritativeModePresentation>,
     /// M3' ② script DLLs the authority swapped before this tick (dev hot reload).
     pending_script_swaps: Vec<crate::game_proto::ScriptModuleSwap>,
@@ -755,6 +757,7 @@ impl TeamViewProjector {
             latest_external_property_by_replica: BTreeMap::new(),
             fog_grid: None,
             pending_fog_event: None,
+            runtime_facts: BTreeMap::new(),
             prepared_mode: None,
             pending_script_swaps: Vec::new(),
             combat_preferences: None,
@@ -833,6 +836,7 @@ impl TeamViewProjector {
         visible: &BTreeSet<u64>,
         baselines: &BTreeMap<u64, Vec<u8>>,
     ) {
+        let mut raw_facts = Vec::new();
         for canonical_id in visible {
             let Some(mapping) = self.identity.replica_for(unpack_canonical(*canonical_id)) else {
                 continue;
@@ -843,7 +847,13 @@ impl TeamViewProjector {
             if let Some((epoch, kind, components)) =
                 self.hash_entities.get_mut(&mapping.replica_id.get())
             {
-                let next_components = team_safe_components(baseline, self.team_id);
+                let (next_components, facts) = team_safe_components_with_facts(baseline, self.team_id);
+                if let Some(facts) = facts {
+                    let own = next_components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
+                        .and_then(|bytes| crate::runtime::decode_demo_render_state(bytes))
+                        .is_some_and(|state| state.team_id == self.team_id);
+                    raw_facts.push((mapping.replica_id.get(), own, facts));
+                }
                 // This is the server-side expected view used by checkpoint
                 // validation, not a per-tick state replication path. Visible
                 // entities continue through player-view lockstep; only an
@@ -859,6 +869,18 @@ impl TeamViewProjector {
                 }
             }
         }
+        // A tether reaches this team only while its source is disclosed to it too.
+        let source_of = |canonical: u64| {
+            if !visible.contains(&canonical) { return None; }
+            let mapping = self.identity.replica_for(unpack_canonical(canonical))?;
+            self.hash_entities.contains_key(&mapping.replica_id.get())
+                .then_some((mapping.replica_id.get(), mapping.disclosure_epoch))
+        };
+        let team_facts: BTreeMap<u64, Vec<u8>> = raw_facts.into_iter().filter_map(|(replica_id, own, bytes)| {
+            let state = crate::runtime::runtime_fact_state::RuntimeFactState::decode(&bytes)?;
+            Some((replica_id, state.for_team(self.team_id, own, source_of)?.encode()?))
+        }).collect();
+        self.runtime_facts = team_facts;
     }
 
     pub fn enqueue_visible_demo_repairs(
@@ -1470,6 +1492,11 @@ impl TeamViewProjector {
             );
         }
         if let Some(event) = self.pending_fog_event.take() { public_events.push(event); }
+        for (&id, bytes) in &self.runtime_facts {
+            if !self.hash_entities.contains_key(&id) { continue; }
+            public_events.push(TeamPublicEvent { event_kind: crate::runtime::runtime_fact_state::EVENT_KIND,
+                subject: Some(ProtoReplicaEntityId { value: id }), sanitized_payload: bytes.clone(), stable_sub_index: 0 });
+        }
         for (&id, (_, _, components)) in &self.hash_entities {
             if let Some(range)=components.get(&crate::runtime::attack_visual_state::RANGE_SCHEMA_ID){
                 public_events.push(TeamPublicEvent {event_kind:crate::runtime::FactKind::DisclosedAttackRange as u32,subject:Some(ProtoReplicaEntityId {value:id}),sanitized_payload:range.clone(),stable_sub_index:0});
@@ -1923,7 +1950,14 @@ fn expected_team_hash(
 }
 
 fn team_safe_components(bytes: &[u8], team: u32) -> BTreeMap<u32, Vec<u8>> {
+    team_safe_components_with_facts(bytes, team).0
+}
+
+/// The team-safe components plus the raw runtime facts, which never reach a replica baseline
+/// (the projector re-sends them per team, runtime_fact_state).
+fn team_safe_components_with_facts(bytes: &[u8], team: u32) -> (BTreeMap<u32, Vec<u8>>, Option<Vec<u8>>) {
     let mut components = decode_safe_components_for_hash(bytes);
+    let facts = components.remove(&crate::runtime::runtime_fact_state::SCHEMA_ID);
     let owns=components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
         .and_then(|bytes|crate::runtime::decode_demo_render_state(bytes))
         .is_some_and(|state|state.team_id==team && state.owner_player_id!=0);
@@ -1948,7 +1982,7 @@ fn team_safe_components(bytes: &[u8], team: u32) -> BTreeMap<u32, Vec<u8>> {
             }
         }
     }
-    components
+    (components, facts)
 }
 
 fn decode_safe_components_for_hash(bytes: &[u8]) -> BTreeMap<u32, Vec<u8>> {
@@ -2180,6 +2214,50 @@ mod ability_cue_projection_tests {
         }
         projector.hash_entities.clear();let hidden=projector.build_step(4,&BTreeSet::new(),&[],vec![],&[],&[]).unwrap();
         assert!(!hidden.public_events.iter().any(|event|event.event_kind==crate::runtime::FactKind::OwnerBuffVisual as u32));
+    }
+
+    #[test]
+    fn runtime_facts_reach_each_team_as_events_never_as_replica_components() {
+        use crate::runtime::runtime_fact_state::{LinkFact, RuntimeFactState, ZoneFact, EVENT_KIND, SCHEMA_ID};
+        let render = |team_id| (crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID, crate::runtime::encode_demo_render_state(
+            crate::runtime::DemoRenderState { x_raw: 0, y_raw: 0, team_id, kind: 3, owner_player_id: 0 }));
+        let (caster, target) = ((1u64 << 32) | 7, (1u64 << 32) | 8);
+        let zone_buff = omoba_template_ids::buff_by_name("ground_damage_zone").unwrap().raw();
+        // The caster (team 1) holds a zone and is an illusion; its target is tethered to it.
+        let caster_facts = RuntimeFactState { zones: vec![ZoneFact { key: 5, buff: zone_buff, center: (0, 0), end: (0, 0), radius_raw: 1024 }],
+            links: vec![], illusion: true }.encode().unwrap();
+        let target_facts = RuntimeFactState { links: vec![LinkFact { key: 6, source: caster, source_epoch: 0 }], ..Default::default() }.encode().unwrap();
+        let baselines = BTreeMap::from([
+            (caster, crate::runtime::encode_disclosed_baseline(&[render(1), (SCHEMA_ID, caster_facts)])),
+            (target, crate::runtime::encode_disclosed_baseline(&[render(2), (SCHEMA_ID, target_facts)])),
+        ]);
+        let view = |team: u32, visible: &[u64]| {
+            let mut projector = TeamViewProjector::new(team, TeamProjectorConfig::default());
+            let mut ids = BTreeMap::new();
+            for canonical in visible {
+                let mapping = projector.identity.disclose(unpack_canonical(*canonical)).unwrap();
+                projector.hash_entities.insert(mapping.replica_id.get(), (mapping.disclosure_epoch, 0, BTreeMap::new()));
+                ids.insert(*canonical, (mapping.replica_id.get(), mapping.disclosure_epoch));
+            }
+            let visible: BTreeSet<u64> = visible.iter().copied().collect();
+            projector.refresh_expected_visible_components(1, &visible, &baselines);
+            assert!(projector.hash_entities.values().all(|(_, _, components)| !components.contains_key(&SCHEMA_ID)),
+                "the raw facts never reach a replica baseline or checkpoint");
+            let step = projector.build_step(1, &visible, &[], vec![], &[], &[]).unwrap();
+            let facts: BTreeMap<u64, RuntimeFactState> = step.public_events.iter().filter(|e| e.event_kind == EVENT_KIND)
+                .map(|e| (e.subject.as_ref().unwrap().value, RuntimeFactState::decode(&e.sanitized_payload).unwrap())).collect();
+            (facts, ids)
+        };
+        let (own, ids) = view(1, &[caster, target]);
+        assert!(own[&ids[&caster].0].illusion, "the owner team knows its illusion");
+        assert_eq!(own[&ids[&caster].0].zones.len(), 1);
+        let link = own[&ids[&target].0].links[0];
+        assert_eq!((link.source, link.source_epoch), ids[&caster], "the tether source as this team's replica");
+        let (enemy, enemy_ids) = view(2, &[caster, target]);
+        assert!(!enemy[&enemy_ids[&caster].0].illusion, "another team never learns which unit is an illusion");
+        assert_ne!(enemy[&enemy_ids[&caster].0].zones[0].key, own[&ids[&caster].0].zones[0].key, "keys never correlate across teams");
+        let (hidden, hidden_ids) = view(2, &[target]);
+        assert!(!hidden.contains_key(&hidden_ids[&target].0), "a tether whose source is hidden is not sent");
     }
 
     #[test]

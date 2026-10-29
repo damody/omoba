@@ -38,6 +38,15 @@ pub enum Outcome {
         cues: Vec<CastSettlementCue>,
         aggression_target: Option<Entity>,
     },
+    /// Host-local scripted item use (items.dll, M7): settlement commits the use (cooldown, shared
+    /// cooldowns, consumable, mana) and then the effects, or neither when the item changed.
+    ScriptItemTransaction {
+        owner: Entity,
+        owner_pid: u32,
+        slot: u32,
+        item_id: String,
+        outcomes: Vec<Outcome>,
+    },
     /// Batch pre-admission result of a `ScriptCastTransaction` (host-only).
     ScriptCastPreAdmitted { transaction: Box<Outcome>, admitted: bool },
     /// Internal completion marker inserted only after transaction admission.
@@ -233,6 +242,11 @@ pub enum Outcome {
     ScriptDamageTag {
         ability: String,
         path: String,
+    },
+    /// v3 `damage.credit`: the next damage packet of the same script run credits kills and
+    /// assists to `credit` (`rules::damage::Packet::credit`). Settles nothing.
+    ScriptDamageCredit {
+        credit: Entity,
     },
     ScriptRemoveBuff {
         target: Entity,

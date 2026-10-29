@@ -95,6 +95,47 @@ mod tests {
         crate::runtime::process_outcomes(world,&mut crate::runtime::RuntimeEventVecSink::default()).unwrap();
     }
     fn hp(world:&World,target:Entity)->Fixed64 {world.read_storage::<CProperty>().get(target).unwrap().hp}
+
+    /// v3 spell_lifesteal_pct: an ability's hp loss heals its source; an attack's does not.
+    #[test]
+    fn spell_lifesteal_heals_the_source_by_the_hp_lost() {
+        let (mut world,source,target)=fixture(0,0);
+        world.write_storage::<CProperty>().insert(source,CProperty{hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(1000),
+            msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).unwrap();
+        world.write_resource::<crate::runtime::BuffStore>().add(source,"thirst",Fixed64::from_i32(10),
+            serde_json::json!({ omb_script_abi::stat_keys::StatKey::SpellLifesteal.as_str(): 256 }));
+        flush(&mut world,vec![raw(source,target,0,0,80)]);
+        assert_eq!(hp(&world,source),Fixed64::from_i32(100),"no SPELL, no spell lifesteal");
+        let spell=match raw(source,target,0,0,80) {Outcome::RawDamage{source,target,pos,phys,magi,real,origin,..}=>Outcome::RawDamage{
+            source,target,pos,phys,magi,real,origin,damage_profile:DamageProfile::NORMAL.union(DamageProfile::SPELL).bits()},_=>unreachable!()};
+        flush(&mut world,vec![spell]);
+        assert_eq!(hp(&world,source),Fixed64::from_i32(120),"a quarter of 80");
+    }
+
+    /// v3 damage flags `ignore_armor` and `hp_removal`, and `damage.credit` (one packet only).
+    #[test]
+    fn ignore_armor_hp_removal_and_a_credit_for_the_next_packet() {
+        let flagged=|source:Entity,target:Entity,phys:i32,real:i32,flag:DamageProfile|match raw(source,target,phys,0,real) {
+            Outcome::RawDamage{source,target,pos,phys,magi,real,origin,..}=>Outcome::RawDamage{source,target,pos,phys,magi,real,origin,
+                damage_profile:DamageProfile::NORMAL.union(flag).bits()},_=>unreachable!()};
+        let (mut world,source,target)=fixture(20,0);
+        flush(&mut world,vec![raw(source,target,100,0,0)]);
+        let armored=Fixed64::from_i32(1000)-hp(&world,target);
+        assert!(armored<Fixed64::from_i32(100),"armor reduces {armored:?}");
+        flush(&mut world,vec![flagged(source,target,100,0,DamageProfile::IGNORE_ARMOR)]);
+        assert_eq!(Fixed64::from_i32(1000)-armored-hp(&world,target),Fixed64::from_i32(100));
+        let (mut world,source,target)=fixture(0,0);
+        world.write_resource::<crate::runtime::BuffStore>().grant_damage_shield(target,Fixed64::from_i32(500),Fixed64::from_i32(10));
+        flush(&mut world,vec![raw(source,target,0,0,50)]);
+        assert_eq!(hp(&world,target),Fixed64::from_i32(1000),"the shield takes ordinary damage");
+        flush(&mut world,vec![flagged(source,target,0,50,DamageProfile::HP_REMOVAL)]);
+        assert_eq!(hp(&world,target),Fixed64::from_i32(950),"no shield absorbs life removal");
+        let credit=world.create_entity().build();
+        flush(&mut world,vec![Outcome::ScriptDamageCredit{credit},raw(source,target,0,0,1),raw(source,target,0,0,1)]);
+        assert!(world.read_resource::<crate::runtime::native::rules::damage::DamageCredit>().0.is_none(),"taken by one packet");
+        flush(&mut world,vec![Outcome::ScriptDamageCredit{credit}]);
+        assert!(world.read_resource::<crate::runtime::native::rules::damage::DamageCredit>().0.is_none(),"never outlives the batch");
+    }
     fn leech(source:Entity,target:Entity)->Outcome {
         Outcome::DamageWithLeech {damage:Box::new(Outcome::Damage {source,target,pos:Vec2::ZERO,
             phys:Fixed64::from_i32(60),magi:Fixed64::from_i32(30),real:Fixed64::from_i32(10),

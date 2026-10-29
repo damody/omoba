@@ -151,6 +151,9 @@ fn dispatch_scripts(
     // status_event: the holder-side combat events of this tick, resolved after the event hooks.
     let status_combat: Vec<ScriptEvent> = events.iter().filter(|event| matches!(event,
         ScriptEvent::AttackHit {..} | ScriptEvent::Damage {..})).cloned().collect();
+    // status_event ABILITY_EXECUTED: the units whose cast succeeded or who used an item, in order.
+    let mut status_executed: Vec<Entity> = events.iter().filter_map(|event| match event {
+        ScriptEvent::ItemUsed { owner, .. } => Some(*owner), _ => None }).collect();
     let events:Vec<_>=events.into_iter().map(|event|(event,false))
         .chain(releases.into_iter().map(|event|(event,true))).collect();
     if tagged.is_empty() && events.is_empty() && windups.0.is_empty() && windups.1.is_empty()
@@ -208,6 +211,11 @@ fn dispatch_scripts(
         let formal_casts = enforce_learned_ranks
             || world.try_fetch::<super::super::cast_windup::FormalCastRules>().is_some();
         let cache = ParallelAdapterCache::new(&*world, rng_seed);
+        // Test cast trace (cast_trace.rs): accepted casts here, judged ones from cast_outcomes below.
+        let trace_casts = super::super::cast_trace::enabled(world);
+        let trace_tick = cache.tick.0 as u64;
+        let mut trace_rows: Vec<super::super::cast_trace::CastTraceRow> = Vec::new();
+        let mut script_errors: Vec<(Entity, String, String)> = Vec::new();
         let mut event_outcomes = Vec::new();
         let mut visual_events = Vec::new();
         let mut targeted_aggression = Vec::new();
@@ -222,6 +230,11 @@ fn dispatch_scripts(
             let invocation_entity = event_invocation_entity(&ev);
             if releasing {windups.result(invocation_entity,false);}
             let is_cast = matches!(&ev, ScriptEvent::SkillCast { .. });
+            // items.dll: the use commits only with a successful effect (ScriptItemTransaction)
+            let item_use = match &ev {
+                ScriptEvent::ItemCast { owner, owner_pid, slot, item_id, .. } => Some((*owner, *owner_pid, *slot, item_id.clone())),
+                _ => None,
+            };
             if is_cast && formal_casts {
                 if world.try_fetch::<crate::comp::GamePause>().is_some_and(|pause|pause.is_paused) {reject_cast!(cast_outcomes,ev,releasing,code::GAME_NOT_ACTIVE);}
                 if world.try_fetch::<crate::runtime::MobaMatch>().is_some_and(|state|state.phase!=crate::runtime::MobaMatchPhase::Playing) {reject_cast!(cast_outcomes,ev,releasing,code::GAME_NOT_ACTIVE);}
@@ -234,6 +247,10 @@ fn dispatch_scripts(
             // gameplay admission. Never sample a later HUD/snapshot level.
             let (cast_level, cast_rank) = match &ev {
                 ScriptEvent::SkillCast {caster, skill_id, ..} => {
+                    // v3 set_ability_active(false): the ability cannot be cast (ability_slots.rs).
+                    if super::super::ability_slots::inactive(&cache.buffs, *caster, skill_id) {
+                        reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);
+                    }
                     let hero = cast_heroes.get(caster).or_else(|| cache.hero.get(*caster));
                     let raw = hero.map(|hero| hero.get_ability_level(skill_id));
                     let require_learned = enforce_learned_ranks || hero.is_some_and(|hero| hero.mana_pool.is_some());
@@ -353,12 +370,24 @@ fn dispatch_scripts(
                     visual_events.truncate(visual_checkpoint);
                 }
             } else if adapter.hook_panicked()
-                || (is_cast && !adapter.cast_succeeded()) {
+                || ((is_cast || item_use.is_some()) && !adapter.cast_succeeded()) {
                 adapter.discard_cast();
                 visual_events.truncate(visual_checkpoint);
             }
             commit_script_mana(&mut adapter,&cache,&mut cast_heroes);
             let cast_ok = adapter.cast_succeeded();
+            if is_cast && cast_ok { status_executed.push(invocation_entity); }
+            let script_error = adapter.take_script_error();
+            if trace_casts && is_cast {
+                if let Some(skill_id) = &settlement_skill {
+                    if cast_ok {
+                        trace_rows.push(super::super::cast_trace::CastTraceRow { tick: trace_tick, caster: invocation_entity,
+                            ability: skill_id.clone(), result: super::super::cast_trace::CastTraceResult::Accepted });
+                    } else if let Some(error) = script_error {
+                        script_errors.push((invocation_entity, skill_id.clone(), error));
+                    }
+                }
+            }
             if is_cast && !cast_ok && !releasing {
                 if let Some(skill_id) = &settlement_skill {
                     cast_outcomes.push((invocation_entity, skill_id.clone(),
@@ -366,6 +395,12 @@ fn dispatch_scripts(
                 }
             }
             let produced = adapter.finish();
+            if let Some((owner, owner_pid, slot, item_id)) = item_use {
+                if cast_ok {
+                    event_outcomes.push(crate::comp::Outcome::ScriptItemTransaction { owner, owner_pid, slot, item_id, outcomes: produced });
+                }
+                continue;
+            }
             let has_summons = produced.iter().any(|outcome|matches!(outcome,crate::comp::Outcome::SpawnSummoned {..}));
             let has_channel=produced.iter().any(|outcome|matches!(outcome,crate::comp::Outcome::ScriptRecoveryChannel {..}|crate::comp::Outcome::ScriptAbilityChannel {..}));
             if is_cast && cast_ok && (managed_cast || has_summons || has_channel) {
@@ -385,6 +420,20 @@ fn dispatch_scripts(
             }
         }
         drop(cache);
+        if trace_casts {
+            use super::super::cast_trace::{CastTraceResult as R, CastTraceRow};
+            let judged = cast_outcomes.iter().map(|(caster, ability, rejection)| {
+                let result = match rejection {
+                    None => R::WindupStarted,
+                    Some(code) => match script_errors.iter().find(|(c, a, _)| c == caster && a == ability) {
+                        Some((_, _, error)) => R::ScriptError { code, error: error.clone() },
+                        None => R::Rejected(code),
+                    },
+                };
+                CastTraceRow { tick: trace_tick, caster: *caster, ability: ability.clone(), result }
+            }).collect::<Vec<_>>();
+            super::super::cast_trace::record(world, trace_rows.into_iter().chain(judged));
+        }
         if !cast_outcomes.is_empty() {
             let authoritative = world.try_fetch::<crate::runtime::MobaMatch>().is_some();
             if let Some(mut journal) = world.try_fetch_mut::<code::OwnerCommandOutcomes>() {
@@ -491,7 +540,7 @@ fn dispatch_scripts(
     // scheduled_effect: due schedules after the delayed effects, serial, same pulse rule.
     dispatch_scheduled_effects(world, registry, rng_seed, dt, event_count as u64 + tagged.len() as u64 + 8192);
     // status_event: holder combat events, then statuses that ended, serial, same pulse rule.
-    dispatch_status_events(world, registry, rng_seed, &status_combat, event_count as u64 + tagged.len() as u64 + 12288);
+    dispatch_status_events(world, registry, rng_seed, &status_combat, &status_executed, event_count as u64 + tagged.len() as u64 + 12288);
     let on_tick_compute_ns = on_tick_compute_started.elapsed().as_nanos();
     drop(on_tick_span);
 
@@ -712,10 +761,11 @@ fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_
 /// `on_status_event` of the abilities whose marked statuses (omoba-core `status_event`) saw an
 /// event: first this tick's attack hits and damage of their holders (event order, then the
 /// holder's rows in id order), then the rows that left their holders (in the order they left).
-fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, combat: &[ScriptEvent], ordinal_base: u64) {
+fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, combat: &[ScriptEvent],
+    executed: &[Entity], ordinal_base: u64) {
     use super::super::status_event as se;
     let ended = world.write_resource::<crate::runtime::BuffStore>().drain_status_ended();
-    if combat.is_empty() && ended.is_empty() {
+    if combat.is_empty() && executed.is_empty() && ended.is_empty() {
         return;
     }
     let damage_kind = |k: &DamageKind| match k { DamageKind::Physical => 0u8, DamageKind::Magical => 1, DamageKind::Pure => 2 };
@@ -742,6 +792,7 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
                 _ => {}
             }
         }
+        for caster in executed { on_holder(*caster, se::ABILITY_EXECUTED, None, Fixed64::ZERO, 0); }
     }
     for (holder, id, payload, kind) in ended {
         if let Some(s) = se::Spec::from_payload(&payload).filter(|s| s.listens(kind)) {
@@ -797,7 +848,7 @@ fn filter_ready_on_ticks(
         .into_iter()
         .filter(|(ent, uid)| {
             if summons.get(*ent).is_some_and(|summon|summon.is_expired() || moves.get(*ent).is_some()
-                || buffs.is_stunned(*ent)) {
+                || buffs.is_disarmed(*ent)) {
                 return false;
             }
             if towers.get(*ent).is_none() || uid == "tower_ice" {
@@ -856,7 +907,7 @@ fn event_invocation_entity(ev: &ScriptEvent) -> Entity {
         ScriptEvent::SkillCast { caster, .. }
         | ScriptEvent::SkillLearn { caster, .. }
         | ScriptEvent::SpentMana { caster, .. } => *caster,
-        ScriptEvent::ItemUsed { owner, .. } => *owner,
+        ScriptEvent::ItemUsed { owner, .. } | ScriptEvent::ItemCast { owner, .. } => *owner,
         ScriptEvent::AttackHit { attacker, .. }
         | ScriptEvent::ProjectileHit { attacker, .. }
         | ScriptEvent::AttackStart { attacker, .. }
@@ -993,7 +1044,7 @@ fn visual_event_from_script_event(ev: &ScriptEvent, tick: u64) -> Option<ScriptV
             event.secondary = skill_target_entity(target);
             event
         }
-        ScriptEvent::Damage { .. } | ScriptEvent::SkillLearn { .. } | ScriptEvent::ItemUsed { .. } => return None,
+        ScriptEvent::Damage { .. } | ScriptEvent::SkillLearn { .. } | ScriptEvent::ItemUsed { .. } | ScriptEvent::ItemCast { .. } => return None,
     };
     Some(event)
 }
@@ -1324,6 +1375,7 @@ fn dispatch_one(
                     .unwrap_or_else(|| "{}".to_string());
 
                 let mut handler_rejection = None;
+                let mut handler_error = None;
                 // v3: a cast breaks the caster's invisibility unless the ability says otherwise
                 // (rules::status::invisibility_broken_by_cast); this cast's own statuses land after it.
                 let invisibility_mark = adapter.outcome_count();
@@ -1358,6 +1410,7 @@ fn dispatch_one(
                         Ok(abi_stable::std_types::RResult::RErr(error)) => {
                             log::warn!("[scripting] ability '{}' execute returned error: {}", skill_id, error);
                             handler_rejection = Some(super::super::command_outcome::classify_handler_error(error.as_str()));
+                            handler_error = Some(error.to_string());
                             false
                         }
                         Ok(_) => true,
@@ -1385,7 +1438,10 @@ fn dispatch_one(
                     log::info!("[scripting] cast ok ability='{}' caster={} rank={}", skill_id, caster.id(), level);
                     adapter.mark_cast_succeeded();
                 }
-                else { adapter.note_cast_rejection(handler_rejection.unwrap_or(super::super::command_outcome::CAST_REJECTED)); }
+                else {
+                    adapter.note_cast_rejection(handler_rejection.unwrap_or(super::super::command_outcome::CAST_REJECTED));
+                    if let Some(error) = handler_error { adapter.note_script_error(error); }
+                }
                 if exec_ok && cooldown.is_some_and(|duration| duration > Fixed64::ZERO) {
                     adapter.start_cooldown(
                         caster,
@@ -1620,6 +1676,29 @@ fn dispatch_one(
             with_script(adapter, registry, owner, move |script, handle, world_dyn| {
                 script.on_skill_cast(handle, (&*skill_id).into(), Target::None, world_dyn);
             });
+        }
+
+        ScriptEvent::ItemCast { owner, item_id, target, .. } => {
+            // items.dll (M7): the item's generated effect, rank 1, as the owner's cast
+            let Some((def, script)) = super::super::game_processor::item_script_id(&item_id)
+                .and_then(|script| registry.get_ability(script)) else { return };
+            if def.kind != crate::ability_meta::AbilityKind::Item || def.ability_type == AbilityType::Passive { return; }
+            let level_json = def.get_level_data(1).and_then(|data| serde_json::to_string(data).ok())
+                .unwrap_or_else(|| "{}".to_string());
+            let target_abi = match target {
+                SkillTarget::Entity(e) => Target::Entity(ParallelWorldAdapter::entity_to_handle(e)),
+                SkillTarget::Point { x, y } => Target::Point(Vec2 { x, y }),
+                SkillTarget::None => Target::None,
+            };
+            let handle = ParallelWorldAdapter::entity_to_handle(owner);
+            let mut world_dyn = world_dyn_of(adapter);
+            let r = catch_unwind(AssertUnwindSafe(|| script.execute(handle, target_abi, 1, (&*level_json).into(), &mut world_dyn)));
+            drop(world_dyn);
+            match r {
+                Ok(abi_stable::std_types::RResult::ROk(())) => adapter.mark_cast_succeeded(),
+                Ok(abi_stable::std_types::RResult::RErr(error)) => log::warn!("[scripting] item '{}' execute returned error: {}", item_id, error),
+                Err(_) => log::error!("[scripting] panic in AbilityScript::execute of item {}", item_id),
+            }
         }
     }
 }

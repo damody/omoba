@@ -29,6 +29,14 @@ pub fn start_temporary_night(world: &mut World, duration: Fixed64) {
     night.until = Some(night.until.map_or(until, |old| old.max(until)));
 }
 
+/// 夜晚剩餘時間的公開 HUD 指標（每個 tick 都送，白天為 0），呈現層用它調暗地圖光源。
+pub const NIGHT_METRIC_ID: u64 = 0x4d4e_4947_4854_3031;
+
+/// 比賽時間 `now` 時夜晚還剩多久；白天為 0。
+pub fn night_remaining(world: &World, now: Fixed64) -> Fixed64 {
+    world.try_fetch::<TemporaryNight>().and_then(|night| night.until).map_or(Fixed64::ZERO, |until| (until - now).max(Fixed64::ZERO))
+}
+
 /// `game.is_night`。
 pub fn is_night(world: &World) -> bool {
     let time = now(world);
@@ -51,6 +59,8 @@ mod tests {
         assert!(!is_night(&world));
         start_temporary_night(&mut world, Fixed64::from_i32(5));
         assert!(is_night(&world));
+        assert_eq!(night_remaining(&world, Fixed64::from_i32(1)), Fixed64::from_i32(4));
+        assert_eq!(night_remaining(&world, Fixed64::from_i32(9)), Fixed64::ZERO, "never negative");
         start_temporary_night(&mut world, Fixed64::from_i32(2));
         assert_eq!(world.read_resource::<TemporaryNight>().until, Some(Fixed64::from_i32(5)));
         world.write_resource::<TemporaryNight>().until = Some(Fixed64::ZERO);

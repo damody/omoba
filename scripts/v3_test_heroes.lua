@@ -64,6 +64,8 @@ local function ability_row(package, ab, compiled)
     levels = levels,
     extras = extras,
     ue = { native_only = true },
+    -- the compiled v3 block (status dispel classes, values, text: V3_CATALOG_JSON), as hero_author adds it
+    v3 = block,
   }
 end
 
@@ -125,6 +127,8 @@ local check = arg[1] == "--check"
 local text = render()
 local f = io.open(OUT, "rb")
 local old = f and f:read("a"); if f then f:close() end
+-- keep the file's line endings (land_to_live may write CRLF); compare without them
+if old and old:find("\r\n", 1, true) then text = text:gsub("\r?\n", "\r\n") end
 if check then
   if old ~= text then io.stderr:write(OUT .. " is out of date: run tools\\lua\\lua.exe scripts\\v3_test_heroes.lua\n"); os.exit(1) end
   print("ok " .. OUT)

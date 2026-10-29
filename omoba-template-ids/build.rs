@@ -1092,8 +1092,10 @@ fn emit_tower_render_metadata(out: &mut String, entries: &[TowerEntry]) {
 fn emit_hero_source_stats(out: &mut String, entries: &[HeroEntry], roster: Option<&HeroSourceRoster>) {
     let mut arms = String::new();
     for (index, hero) in entries.iter().enumerate() {
-        let (false, Some(source), Some(roster)) = (hero.tombstone, hero.source_ref.as_deref(), roster) else { continue };
-        let id = source.rsplit_once(':').map(|(_, id)| id).expect("validated source_ref");
+        // a playable hero's source_ref, or a test_only hero's source_stats (validated in the roster)
+        let source = hero.source_ref.as_deref().map(|r| r.rsplit_once(':').map(|(_, id)| id).expect("validated source_ref"))
+            .or(hero.source_stats.as_deref());
+        let (false, Some(id), Some(roster)) = (hero.tombstone, source, roster) else { continue };
         let stats = &roster.heroes.iter().find(|entry| entry.id == id).expect("validated roster hero").stats;
         let fixed = |value: Option<f64>| fixed64_lit(value.expect("validated source stat") as f32);
         let required = stats.required().map(|(name, value)| format!("{name}: {}", fixed(value)));

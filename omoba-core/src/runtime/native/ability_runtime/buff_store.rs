@@ -653,7 +653,18 @@ impl BuffStore {
     }
 
     pub fn is_silenced(&self, entity: Entity) -> bool {
-        self.has(entity, BuffId::Silence.as_str()) || self.has(entity, BuffId::Stun.as_str())
+        self.has(entity, BuffId::Silence.as_str()) || self.has(entity, BuffId::Stun.as_str()) || self.has(entity, "hex")
+    }
+
+    /// Cannot start an ordinary attack (rules::vocab::state DISARM; stun and hex too).
+    pub fn is_disarmed(&self, entity: Entity) -> bool {
+        self.has(entity, "disarm") || self.has(entity, BuffId::Stun.as_str()) || self.has(entity, "hex")
+    }
+
+    /// Cannot use items (rules::vocab::state MUTE; hex too). Stun does not mute: the item rules let a
+    /// controlled hero use items (self-cleanse items).
+    pub fn is_muted(&self, entity: Entity) -> bool {
+        self.has(entity, "mute") || self.has(entity, "hex")
     }
 
     /// Closed hostile slow producers only. Do not infer debuffs from a negative

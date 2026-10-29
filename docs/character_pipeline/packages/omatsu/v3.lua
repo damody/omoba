@@ -172,7 +172,7 @@ return function(ctx)
           en = { name = "Frost Breath",
             body = "Breathes frost forward (a linear projectile at speed {projectile_speed} traveling {distance}, its hit radius widening from {start_radius} to {end_radius}), piercing enemies along the way. Each enemy hit takes {damage} magic damage, then {dot_damage} magic damage every {dot_interval} seconds for {dot_duration} seconds. While Rapid Cooling is active, hitting a hero adds a stack of magic resistance reduction." },
         },
-        target = { type = "direction", range = "$cast_range" },
+        target = { type = "direction", vector_length = "$distance", range = "$cast_range" },
         cast = { cast_point = "$cast_point" },
         cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
         statuses = {

@@ -2004,6 +2004,61 @@ pub struct TeamPresentationSnapshot {
     >,
     #[prost(message, optional, tag = "27")]
     pub combat_preferences: ::core::option::Option<CombatPreferencesProjection>,
+    /// Indices into the compiled map's trees (MobaMapConst::trees) that are down now (E242); the
+    /// renderer draws the map's trees minus these. Public: every team sees the same trees.
+    #[prost(uint32, repeated, tag = "28")]
+    pub fallen_trees: ::prost::alloc::vec::Vec<u32>,
+    /// Runtime facts of the latest frame (runtime_fact_state): ground zones of disclosed casters,
+    /// tethers whose two ends are both disclosed, and this team's own illusions. Replayed while listed.
+    #[prost(message, repeated, tag = "29")]
+    pub ground_zones: ::prost::alloc::vec::Vec<PresentationGroundZone>,
+    #[prost(message, repeated, tag = "30")]
+    pub links: ::prost::alloc::vec::Vec<PresentationLink>,
+    #[prost(message, repeated, tag = "31")]
+    pub illusions: ::prost::alloc::vec::Vec<PresentationEntityKey>,
+    /// 0 unknown, 1 day, 2 night (public temporary_night).
+    #[prost(uint32, tag = "32")]
+    pub time_of_day: u32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct PresentationEntityKey {
+    #[prost(uint64, tag = "1")]
+    pub render_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub disclosure_epoch: u64,
+}
+/// A ground zone held by a disclosed caster: the disc at (x, y), or the capsule to (end_x, end_y).
+/// Q10 world coordinates. The key is stable for the zone's life and salted per team.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PresentationGroundZone {
+    #[prost(uint64, tag = "1")]
+    pub zone_key: u64,
+    #[prost(message, optional, tag = "2")]
+    pub source: ::core::option::Option<PresentationEntityKey>,
+    #[prost(string, tag = "3")]
+    pub cue_id: ::prost::alloc::string::String,
+    #[prost(sint64, tag = "4")]
+    pub x_raw: i64,
+    #[prost(sint64, tag = "5")]
+    pub y_raw: i64,
+    #[prost(sint64, tag = "6")]
+    pub end_x_raw: i64,
+    #[prost(sint64, tag = "7")]
+    pub end_y_raw: i64,
+    #[prost(sint64, tag = "8")]
+    pub radius_raw: i64,
+}
+/// A tether from source to target; both ends are disclosed to this team.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PresentationLink {
+    #[prost(uint64, tag = "1")]
+    pub link_key: u64,
+    #[prost(message, optional, tag = "2")]
+    pub source: ::core::option::Option<PresentationEntityKey>,
+    #[prost(message, optional, tag = "3")]
+    pub target: ::core::option::Option<PresentationEntityKey>,
+    #[prost(string, tag = "4")]
+    pub cue_id: ::prost::alloc::string::String,
 }
 /// Bounded owner+epoch+actor+renderer-request+authority-input row.
 /// phase: 1 forwarded, 2 applied to presentation, 3 transport uncertain, 4 local rejected.

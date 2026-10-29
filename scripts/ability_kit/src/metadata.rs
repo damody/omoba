@@ -34,6 +34,23 @@ fn target_type_from(c: TargetTypeC) -> TargetType {
 }
 
 /// The full `AbilityDef` of a catalog ability, or None when the catalog does not carry it.
+/// The `AbilityDef` of a shop item's generated script (items.dll, M7): rank 1 with the catalog's
+/// cooldown, mana cost and target range; `kind = item`. `id` is the v3 item id; the catalog item
+/// cites it as its source (`source_ref` `…:<id>`). `passive`: an item with no active.
+pub fn item_def(id: &str, passive: bool) -> Option<AbilityDef> {
+    use omoba_template_ids::MobaItemTargetShapeConst as Shape;
+    let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+        .find(|item| item.source_ref.and_then(|r| r.rsplit_once(':')).is_some_and(|(_, source)| source == id))?;
+    let target = match item.target.shape { Shape::Self_ => "none", Shape::Point => "point", Shape::Unit => "unit" };
+    let def = serde_json::json!({
+        "id": id, "name": item.name, "kind": "item",
+        "ability_type": if passive { "passive" } else { "active" }, "target_type": target, "max_level": 1,
+        "levels": { "1": { "cooldown": item.cooldown.to_f32_for_render(), "mana_cost": item.mana_cost.to_f32_for_render(),
+            "cast_time": 0.0, "range": item.target.range.to_f32_for_render() } },
+    });
+    serde_json::from_value(def).ok()
+}
+
 pub fn ability_def(name: &str) -> Option<AbilityDef> {
     let id = omoba_template_ids::ability_by_name(name)?;
     let c = active_ability_const(id)?;
@@ -81,5 +98,6 @@ pub fn ability_def(name: &str) -> Option<AbilityDef> {
         effects_preview: Vec::new(),
         conditions: Vec::new(),
         properties: HashMap::new(),
+        kind: Default::default(),
     })
 }

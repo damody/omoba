@@ -115,7 +115,7 @@ return function(ctx)
           en = { name = "Slaughter Shot",
             body = "If above {hp_gate} health, Morimasa pays {hp_cost_pct} of his maximum health (none during {@a24_bloodbath}) and adds {shield_ratio} times that amount to {@a24_blood_shield}. Fires a blood shot in the target direction that travels {distance} at speed {speed} with a width of {width} and bursts on the first enemy hit, dealing {damage} plus {max_hp_pct} of each target's maximum health as magic damage to enemy non-building units within {radius} and slowing them by {slow} for {slow_time} seconds; spell-immune units take {immune_pct} of it as pure damage instead." },
         },
-        target = { type = "direction" },
+        target = { type = "direction", vector_length = "$distance" },
         cast = { cast_point = "$cast_point" },
         cost = { cooldown = "$cooldown", cooldown_start = "on_cast" },
         flags = { "pierce_magic_immune" },

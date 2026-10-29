@@ -128,6 +128,15 @@ pub enum ScriptEvent {
         owner: Entity,
         item_id: String,
     },
+    /// An admitted use of a scripted item (items.dll, M7): dispatch runs its `execute` (rank 1)
+    /// and, when it succeeds, emits `Outcome::ScriptItemTransaction`; nothing is spent before.
+    ItemCast {
+        owner: Entity,
+        owner_pid: u32,
+        slot: u32,
+        item_id: String,
+        target: SkillTarget,
+    },
 }
 
 /// Skill-id prefix of an item use passed to `UnitScript::on_skill_cast`.

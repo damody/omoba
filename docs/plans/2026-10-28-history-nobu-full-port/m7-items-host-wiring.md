@@ -32,3 +32,39 @@
 
 - 不改商店、合成、價格：仍由 `item_shop_v3` 與目錄負責。
 - 不產生「尚未開放」的道具：它們不在 items.dll，照目錄或照規定不可購買。
+
+## 實作（影子，2026-10-30，請 B 審）
+
+照 B 的決定做：道具使用採「先 execute 再提交」，與英雄技能同一套 cast transaction（成本與效果一起提交，不靠 RErr 回滾）。AbilityDef 加 `kind`。影子在 `target/lineA/host`，B 審過後用 land_to_live 放回。
+
+- **AbilityDef.kind**：`omoba-core/src/ability_meta.rs` 新增 `AbilityKind { Ability, Item }`，serde 預設 `ability`。
+  - `populate_ability_registry`（initialization.rs）跳過 item，英雄技能 UI、bot、SkillCast 都看不到道具。
+  - 另外裝 World resource `ScriptedItems`（有主動的 item script id），authority 與 replica 都裝（同一組 DLL）。
+- **item 的 def**：`ability_kit::item_ffi(id, passive, script)` 與 `metadata::item_def`。
+  - 用 catalog `source_ref` 的 `…:<v3 id>` 對到商店目錄，產生 rank 1 的 cooldown、mana、range 與 target type。
+  - 目錄沒有的道具（原作 KV 已註解掉）回傳 None，不註冊。
+- **產生器**：
+  - 道具的 registry 現在真的列出道具。原本只收 kind ability，所以 items.dll 的 registry 是空的。
+  - 道具的 `active`（events、target、flags）現在當成 cast 程式。原本完全沒讀 `active`，主動效果被默默略過，沒有 blocker。
+  - cost 的 cooldown、mana、cooldown_groups 由 host 依目錄結算；charges、cooldown_start 不是 on_cast、kind 不是 active 時擋下。
+  - `cast.cast_point` 列為 gap：host 使用道具時沒有前搖。
+  - 道具產生數因此從 67 件改為 50 件，是實際數字。
+- **使用流程**：
+  - `drain_pending_item_uses` 遇到 `ScriptedItems` 的道具，改走 `queue_scripted_item_use`：只做准入（擁有者、格子、冷卻、目錄 target 形狀／範圍／隊伍／可見／魔免、法力），不扣任何東西，排 `ScriptEvent::ItemCast`。
+  - dispatch 的序列迴圈以 rank 1 呼叫該道具的 `execute`（同一個 adapter 與 mana transaction）。成功才輸出 `Outcome::ScriptItemTransaction`，失敗就丟棄。
+- **結算**（game_processor）：`ScriptItemTransaction` 重新確認道具仍在格子且就緒、法力付得起，接著一起提交：
+  - 冷卻、共用冷卻、消耗品、法力、shop undo、home speed_up。
+  - 推 `ItemUsed`，持有者的 unit hook 與 status ABILITY_EXECUTED 會看到。
+  - 然後才結算效果。條件不成立時，使用與效果都不生效。
+- **DLL 集合**：`scripts/script_dlls.lua` 的 modules 在 base_content 之後加 `items.dll`。
+- **測試**：
+  - items_impl：每件產生的道具都以 kind=item 註冊，target 與 cooldown 等於目錄。
+  - base_content `scripted_item_use`：把目錄的 active 拿掉，只剩 script 能產生狀態；使用後狀態套上、冷卻開始，冷卻中再用不生效。
+  - base_content 中名稱含 item 的 46 個測試都通過。
+- **還沒做**：第二階段（被動觸發的 on_learn 與 marker），以及 replica 對 ItemCast 的處理（replica 是否跑 item 佇列）。這些請 B 看 filtered_specs 的需要。
+
+### B 審查（2026-10-30）
+
+- 召喚：道具結算沒有跑 plan_summons，效果含 SpawnSummoned 時整筆拒絕並記 log。目前 6 件主動道具都不召喚。
+- 已知 gap：dispatch 已留下的 visual cue，在結算因道具改變而拒絕時不會撤回（只影響呈現）。
+- replica 不必另外處理：ItemCast 只在知道擁有者背包的世界排入（authority 與擁有者那一隊的 replica），commit 只讀擁有者自己的 Inventory、Gold 與冷卻。

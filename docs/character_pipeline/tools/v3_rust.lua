@@ -148,6 +148,8 @@ local STATUS_TRIGGERS = {
   on_take_damage = { 8, { 5 } }, on_deal_damage = { 16, { 6 } },
   -- before the damage lands: AbilityScript::on_damage_pre (omoba-core scripting::damage_pre)
   on_take_damage_pre = { 32, { 7 } }, on_deal_damage_pre = { 64, { 8 } },
+  -- the holder executed an ability or used an item (no event fields)
+  on_ability_executed = { 128, { 9 } },
 }
 M.STATUS_TRIGGERS = STATUS_TRIGGERS
 -- `periodic`, `periodic_2`, ...: every periodic trigger of a status
@@ -339,6 +341,27 @@ local UNIT_ATTRS = {
   is_channeling = { "bool", "cx.has_buff(%s, \"ability_channel\")" },
   hp_pct = { "num", "cx.hp_pct(%s)" }, forward = { "vec", "cx.forward(%s)" },
 }
+-- the attributes the host reads through GameWorld::ext UNIT_ATTR (line B; names in
+-- omb_script_abi::ext::unit_attr): v3 name -> { type, kit read, unit_attr constant }
+do
+  local EXT = {
+    level = { "num", "unit_num", "LEVEL" }, str = { "num", "unit_num", "STR" }, agi = { "num", "unit_num", "AGI" },
+    int = { "num", "unit_num", "INT" }, max_mana = { "num", "unit_num", "MAX_MANA" },
+    attack_speed_mult = { "num", "unit_num", "ATTACK_SPEED_MULT" }, projectile_speed = { "num", "unit_num", "PROJECTILE_SPEED" },
+    base_magic_resist = { "num", "unit_num", "BASE_MAGIC_RESIST" }, base_attack_range = { "num", "unit_num", "BASE_ATTACK_RANGE" },
+    is_illusion = { "bool", "unit_flag", "IS_ILLUSION" }, is_invulnerable = { "bool", "unit_flag", "IS_INVULNERABLE" },
+    is_invisible = { "bool", "unit_flag", "IS_INVISIBLE" }, is_creep = { "bool", "unit_flag", "IS_CREEP" },
+    is_ranged = { "bool", "unit_flag", "IS_RANGED" },
+    owner = { "unit", "unit_ref", "OWNER" }, attack_target = { "unit", "unit_ref", "ATTACK_TARGET" },
+    -- the player's single gold pool (a summon reads its owner's; line-gamemode E243)
+    gold = { "num", "unit_num", "GOLD" },
+  }
+  for name, e in pairs(EXT) do
+    -- the operand first: a read takes &mut cx
+    UNIT_ATTRS[name] = { e[1], "{ let u = %s; cx." .. e[2] .. "(u, ability_kit::unit_attr::" .. e[3] .. ") }" }
+  end
+  UNIT_ATTRS.missing_mana = { "num", "{ let u = %s; cx.unit_num(u, ability_kit::unit_attr::MAX_MANA) - cx.mana(u) }" }
+end
 
 -- -> code, type; on a form it does not lower: records the blocker, returns a typed placeholder
 function Gen:expr(node, ctx)
@@ -388,6 +411,18 @@ function Gen:expr(node, ctx)
     -- rules.<a>.<b>: a rules-layer constant
     local parts, base = {}, node
     while base.k == "field" do table.insert(parts, 1, base.name); base = base.obj end
+    -- `game.*` facts (GameWorld::ext GAME_ATTR)
+    if base.k == "id" and base.name == "game" and #parts == 1 and not scope_find(ctx.scope, "game") then
+      if parts[1] == "is_night" then return "cx.is_night()", "bool" end
+      if parts[1] == "time" then return "cx.game_time()", "num" end
+      self:block("attr:game." .. parts[1]); return "Fixed64::ZERO", "err"
+    end
+    -- the running ability: its rank is cx.rank in every generated context; readiness by its id
+    if base.k == "id" and base.name == "ability" and #parts == 1 and not scope_find(ctx.scope, "ability") and not ctx.event then
+      if parts[1] == "level" then return "Fixed64::from_i32(i32::from(cx.rank))", "num" end
+      local id = self.entry and self.entry.kind == "ability" and self.entry.def.id
+      if parts[1] == "is_ready" and id then return string.format("cx.ability_ready(cx.caster, %s)", rust_str(id)), "bool" end
+    end
     if base.k == "id" and base.name == "rules" and not scope_find(ctx.scope, "rules") then
       local t = self.opts.rules
       for _, p in ipairs(parts) do t = type(t) == "table" and t[p] or nil end
@@ -632,7 +667,8 @@ local function emit_statuses(m, root)
     local buffs, payload = {}, {}
     for _, st in ipairs(s.states or {}) do
       local e = voc.states[st]
-      if not e then p[#p + 1] = "state:" .. st
+      if st == "taunt" then -- cx.taunt next to every apply (Gen:taunting)
+      elseif not e then p[#p + 1] = "state:" .. st
       elseif e.buff then buffs[#buffs + 1] = rust_str(e.buff)
       else payload[#payload + 1] = string.format("(StatKey::%s, %d)", e.payload, e.raw) end
     end
@@ -701,9 +737,9 @@ end
 ---------------------------------------------------------------------------
 local ACTION_FIELDS = {
   apply_status = set({ "op", "status", "to", "duration", "source", "stacks" }),
-  -- tags, exclude_tags, exclude_source_tags, source_is, source_ability, min_duration, min_remaining:
-  -- the host does not know status tags or sources yet (line B), so they stay blocked
-  remove_status = set({ "op", "status", "from", "dispel", "only", "team_of_source", "except", "states", "limit" }),
+  -- exclude_source_tags, source_is, source_ability, min_duration, min_remaining: the host does not
+  -- judge status sources or durations yet (line B), so they stay blocked
+  remove_status = set({ "op", "status", "from", "dispel", "only", "team_of_source", "except", "states", "limit", "tags", "exclude_tags" }),
   damage = set({ "op", "to", "amount", "type", "require_source_alive", "flags", "source" }),
   teleport = set({ "op", "who", "to", "find_clear_space", "max_distance" }),
   add_stacks = set({ "op", "to", "status", "count", "max", "refresh" }),
@@ -711,6 +747,10 @@ local ACTION_FIELDS = {
   modify_cooldown = set({ "op", "of", "ability", "mode", "amount" }),
   set_ability_level = set({ "op", "of", "ability", "level" }),
   set_health = set({ "op", "to", "value" }),
+  order_attack = set({ "op", "who", "target" }),
+  -- force (a forced order) and queue (queued after the current one) are not lowered
+  issue_order = set({ "op", "who", "order", "target", "at" }),
+  create_pickup = set({ "op", "at", "who", "cue", "killable", "on_pickup", "lifetime" }),
   heal = set({ "op", "to", "amount", "source" }),
   restore_mana = set({ "op", "to", "amount", "source" }),
   cue = false, -- presentation: any fields
@@ -872,6 +912,15 @@ function Gen:tether(a, ctx, line)
     if #list ~= 1 or list[1].op ~= "damage" or list[1].type ~= dmg.type or not is_val(parse(list[1].amount)) then return shape("root damage") end
     root_damage = self:value(list[1].amount, { owner = so, scope = ctx.scope, event = ctx.event, pre = ctx.pre, cast = ctx.cast }, "num")
   end
+  -- the v3 paths of the two damages the host settles (test damage trace)
+  local expire_path, root_path = "?", ""
+  for i, x in ipairs(a.on_expire) do
+    if x == dmg then expire_path = ((self.paths and self.paths[a.on_expire]) or "?") .. "[" .. i .. "]" end
+  end
+  if trig then
+    local list = trig[1] and trig or trig.actions
+    root_path = ((self.paths and self.paths[list]) or "?") .. "[1]"
+  end
   -- the expire program reads `target` as the tethered unit: only the cast target is admitted
   if a.to ~= "target" then return shape("to is not the cast target") end
   local to = self:value(a.to, ctx, "unit")
@@ -887,6 +936,7 @@ function Gen:tether(a, ctx, line)
     .. line("        root_damage: " .. root_damage .. ",")
     .. line("        edge: " .. tostring(d.fn == "edge_distance") .. ",")
     .. line("        root_after_source_death: " .. tostring(dmg.require_source_alive ~= false) .. ",")
+    .. line("        trace: (" .. rust_str(self.entry.def.id) .. ", " .. rust_str(expire_path) .. ", " .. rust_str(root_path) .. "),")
     .. line("    };")
     .. line("    cx.tether(to, " .. rust_str(self.entry.def.id .. ":{caster}") .. ", duration, link)?;")
     .. line("}")
@@ -895,7 +945,9 @@ end
 -- list table -> its v3 effect path ("events.on_cast", "statuses[1].triggers.on_created", ...):
 -- every array of actions under `node`, the path written the way line B's damage trace reports it
 local function is_action_list(t) return type(t) == "table" and type(t[1]) == "table" and t[1].op ~= nil end
-local function effect_paths(node, path, out)
+-- (the scenario generator`s spelling, v3_scenarios.lua: a trigger written { filter, actions } is
+-- addressed as its actions, and a status by its id: `statuses.<id>.triggers.on_created[1]`)
+local function effect_paths(node, path, out, key)
   out = out or {}
   if type(node) ~= "table" then return out end
   if is_action_list(node) then
@@ -906,8 +958,19 @@ local function effect_paths(node, path, out)
   local array = node[1] ~= nil
   for k, v in pairs(node) do
     if type(v) == "table" then
-      local p = array and type(k) == "number" and (path .. "[" .. k .. "]") or ((path ~= "" and (path .. ".") or "") .. tostring(k))
-      effect_paths(v, p, out)
+      local p
+      if array and type(k) == "number" then
+        p = (key == "statuses" and type(v.id) == "string") and (path .. "." .. v.id) or (path .. "[" .. k .. "]")
+      else
+        p = (path ~= "" and (path .. ".") or "") .. tostring(k)
+      end
+      if key == "triggers" and type(v.actions) == "table" then
+        -- a trigger { filter, actions }: its actions are the trigger
+        effect_paths(v.actions, p, out, k)
+        for k2, v2 in pairs(v) do if k2 ~= "actions" and type(v2) == "table" then effect_paths(v2, p .. "." .. tostring(k2), out, k2) end end
+      else
+        effect_paths(v, p, out, k)
+      end
     end
   end
   return out
@@ -920,7 +983,14 @@ function Gen:actions(list, ctx, indent)
   for i, a in ipairs(list or {}) do
     local prev = self.cur_path
     self.cur_path = base and (base .. "[" .. i .. "]") or "?"
-    out[#out + 1] = self:action(a, ctx, indent)
+    local before = list[i - 1]
+    if a.op == "issue_order" and a.order == "attack" and a.target == "caster" and before and before.op == "apply_status"
+      and before.to == a.who and self:taunts(before.status) then
+      -- the taunt just applied (cx.taunt, host taunt.rs) already orders `who` to attack the caster
+      out[#out + 1] = indent .. "// issue_order attack: given by the taunt above (host taunt.rs)\n"
+    else
+      out[#out + 1] = self:action(a, ctx, indent)
+    end
     self.cur_path = prev
   end
   return table.concat(out)
@@ -971,12 +1041,49 @@ function Gen:counted_status(a, ctx, line)
   return out .. line("}")
 end
 
+-- whether a declared status holds the state `taunt` (host taunt.rs through cx.taunt)
+function Gen:taunts(status)
+  local so = status and self.m.statuses[status]
+  if not so then return false end
+  for _, st in ipairs(so.def.states or {}) do if st == "taunt" then return true end end
+  return false
+end
+
+-- apply_status of a taunting status: every apply in the code also taunts `to`, the applier taunting
+-- (`source` for apply_status_from, else the caster); removing it ends the taunt.
+local function with_taunt(code, call, by)
+  local found = false
+  local out = code:gsub("([ \t]*)(cx%." .. call .. "%b()%?;)(\r?\n)", function(ws, stmt, nl)
+    found = true
+    return ws .. stmt .. nl .. ws .. "cx.taunt(to, " .. by .. ", duration)?;" .. nl
+  end)
+  return out, found
+end
+
 function Gen:action(a, ctx, ind)
+  if (a.op == "apply_status" or a.op == "remove_status") and not a.__taunt and self:taunts(a.status) then
+    local inner = {}
+    for key, v in pairs(a) do inner[key] = v end
+    inner.__taunt = true
+    local code = self:action(inner, ctx, ind)
+    if code == "" then return code end
+    if a.op == "remove_status" then
+      local out, found = code:gsub("([ \t]*)(cx%.remove_status%(from, [^\n]-%?;)(\r?\n)", "%1%2%3%1cx.end_taunt(from)?;%3")
+      if found == 0 then self:block("state:taunt removal") end
+      return out
+    end
+    local n1, n2
+    code, n1 = with_taunt(code, "apply_status_from", "source")
+    code, n2 = with_taunt(code, "apply_status", "cx.caster")
+    if not (n1 or n2) then self:block("state:taunt on this apply form") end
+    -- remove_on ends the status row; the host does not end its taunt with it
+    return code
+  end
   local op = a.op
   local allowed = ACTION_FIELDS[op]
   if allowed == nil then self:block("action:" .. tostring(op)); return "" end
   if allowed then
-    for _, k in ipairs(sorted_keys(a)) do if not allowed[k] and k ~= "notes" then self:block("action:" .. op .. "." .. k) end end
+    for _, k in ipairs(sorted_keys(a)) do if not allowed[k] and k ~= "notes" and k ~= "__taunt" then self:block("action:" .. op .. "." .. k) end end
   end
   local I = ind
   local function line(s) return I .. s .. "\n" end
@@ -1052,14 +1159,21 @@ function Gen:action(a, ctx, ind)
     for _, name in ipairs(a.states or {}) do
       local e = self.opts.vocab.states[name]
       local buff = e and e.buff
-      if buff == "stun" or buff == "root" or buff == "silence" then states[#states + 1] = rust_str(buff)
+      -- the controls the host purge takes (omoba-core dispel::is_control)
+      if buff == "stun" or buff == "root" or buff == "silence" or buff == "disarm" or buff == "mute" or buff == "hex" then states[#states + 1] = rust_str(buff)
       else self:block("action:remove_status.states:" .. tostring(name)) end
     end
     local limit = a.limit ~= nil and ("Some(" .. self:value(a.limit, ctx, "num") .. ")") or "None"
-    return line("{") .. line("    let from = " .. from .. ";")
-      .. line("    cx.remove_statuses(from, ability_kit::StatusFilter { dispel: " .. opt_str(a.dispel) .. ", only: " .. opt_str(a.only)
-        .. ", team_of_source: " .. rust_str(a.team_of_source or "any") .. ", except: &[" .. table.concat(except, ", ")
-        .. "], states: &[" .. table.concat(states, ", ") .. "], limit: " .. limit .. " })?;") .. line("}")
+    local filter = "ability_kit::StatusFilter { dispel: " .. opt_str(a.dispel) .. ", only: " .. opt_str(a.only)
+      .. ", team_of_source: " .. rust_str(a.team_of_source or "any") .. ", except: &[" .. table.concat(except, ", ")
+      .. "], states: &[" .. table.concat(states, ", ") .. "], limit: " .. limit .. " }"
+    if a.tags ~= nil or a.exclude_tags ~= nil then
+      -- by the statuses' catalog tags (host reads them)
+      local function list(t) local o = {} for _, x in ipairs(t or {}) do o[#o + 1] = rust_str(x) end return "&[" .. table.concat(o, ", ") .. "]" end
+      return line("{") .. line("    let from = " .. from .. ";")
+        .. line("    cx.remove_statuses_tagged(from, " .. filter .. ", " .. list(a.tags) .. ", " .. list(a.exclude_tags) .. ")?;") .. line("}")
+    end
+    return line("{") .. line("    let from = " .. from .. ";") .. line("    cx.remove_statuses(from, " .. filter .. ")?;") .. line("}")
   elseif op == "remove_status" then
     if not self.m.statuses[a.status] then self:block("action:remove_status without a declared status"); return "" end
     for _, k in ipairs({ "dispel", "only", "team_of_source", "except", "states", "limit" }) do
@@ -1310,6 +1424,44 @@ function Gen:action(a, ctx, ind)
     local amount = self:value(amount_expr, ctx, "num")
     return line("{") .. line("    let of = " .. of .. ";") .. line("    let amount = " .. amount .. ";")
       .. line(string.format("    cx.cooldown_%s(of, %s, amount)?;", mode == "reduce" and "reduce" or "start", abcode)) .. line("}")
+  elseif op == "create_pickup" then
+    -- host pickup (line-gamemode): the picker gets `gold`; only that on_pickup is lowered
+    local give = a.on_pickup and #a.on_pickup == 1 and a.on_pickup[1]
+    local picker = give and (give.to == "it.hero" or give.to == "it")
+    if not (give and give.op == "give_gold" and picker and give.reliable ~= true and give.show == nil) then
+      self:block("action:create_pickup.on_pickup (only one give_gold to the picker)"); return ""
+    end
+    local who = ({ any = "any", ally = "allies", enemy = "enemies" })[a.who or "any"]
+    if not who then self:block("action:create_pickup.who:" .. tostring(a.who)); return "" end
+    if a.cue then self:gap("create_pickup.cue: the host pickup draws its own bag") end
+    local at = self:value(a.at, ctx, "point")
+    local gold = self:value(give.amount, ctx, "num")
+    local lifetime = a.lifetime ~= nil and self:value(a.lifetime, ctx, "num") or "Fixed64::ZERO"
+    return line("{") .. line("    let at = " .. at .. ";") .. line("    let gold = " .. gold .. ";")
+      .. line(string.format("    cx.create_pickup(at, gold, %s, %s, %s)?;", rust_str(who), tostring(a.killable == true), lifetime)) .. line("}")
+  elseif op == "issue_order" then
+    -- as the owner's order (hero_command; only heroes take it); nothing is locked
+    local who = self:value(a.who, ctx, "unit")
+    if a.order == "attack" and a.target ~= nil and a.at == nil then
+      self:gap("issue_order: only a hero takes the order")
+      local target = self:value(a.target, ctx, "unit")
+      return line("{") .. line("    let who = " .. who .. ";") .. line("    let target = " .. target .. ";") .. line("    cx.order_attack(who, target)?;") .. line("}")
+    end
+    local kinds = { stop = "Stop", hold = "Hold", move = "Move", attack_move = "AttackMove" }
+    local kind = kinds[a.order]
+    if not kind or a.target ~= nil then self:block("action:issue_order.order:" .. tostring(a.order)); return "" end
+    local at = "Vec2::ZERO"
+    if kind == "Move" or kind == "AttackMove" then
+      if a.at == nil then self:block("action:issue_order " .. a.order .. " without at"); return "" end
+      at = self:value(a.at, ctx, "point")
+    elseif a.at ~= nil then self:block("action:issue_order " .. a.order .. " with at"); return "" end
+    self:gap("issue_order: only a hero takes the order")
+    return line("{") .. line("    let who = " .. who .. ";") .. line("    let at = " .. at .. ";")
+      .. line("    cx.order(who, ability_kit::OrderKind::" .. kind .. ", at)?;") .. line("}")
+  elseif op == "order_attack" then
+    local who = self:value(a.who, ctx, "unit")
+    local target = self:value(a.target, ctx, "unit")
+    return line("{") .. line("    let who = " .. who .. ";") .. line("    let target = " .. target .. ";") .. line("    cx.order_attack(who, target)?;") .. line("}")
   elseif op == "set_health" then
     local to = self:value(a.to, ctx, "unit")
     local value = self:value(a.value, ctx, "num")
@@ -1366,7 +1518,14 @@ function Gen:action(a, ctx, ind)
     return out
   elseif op == "projectile" then
     if not self.entry then self:block("action:projectile in a routine"); return "" end
-    if a.from ~= nil and a.from ~= "caster" and not (a.from == "self" and self.entry) then self:block("action:projectile.from:" .. tostring(a.from)) end
+    -- `from` another point or unit: the flight starts there (host ability_projectile `start`)
+    local start = "None"
+    if a.from ~= nil and a.from ~= "caster" and not (a.from == "self" and self.entry) then
+      local code, ty = self:value(a.from, ctx)
+      if ty == "point" then start = "Some(" .. code .. ")"
+      elseif ty == "unit" then start = "Some(cx.pos(" .. code .. ")?)"
+      else self:block("action:projectile.from:" .. tostring(a.from)) end
+    end
     if a.team ~= nil and a.team ~= "enemy" then self:block("action:projectile.team:" .. tostring(a.team)) end
     local tk = types_key(a.types)
     local buildings = tk:find("building", 1, true) ~= nil
@@ -1387,7 +1546,9 @@ function Gen:action(a, ctx, ind)
     else
       distance = self:value(a.distance, ctx, "num")
       local dir = self:value(a.direction, ctx, "vec")
-      aim = "ability_kit::offset(cx.pos(cx.caster)?, " .. dir .. ", " .. distance .. ")"
+      -- from its start point when it has one (`from` a point or unit), else from the caster
+      local origin = start ~= "None" and start:match("^Some%((.*)%)$") or "cx.pos(cx.caster)?"
+      aim = "ability_kit::offset(" .. origin .. ", " .. dir .. ", " .. distance .. ")"
     end
     local max_hits = "1"
     if a.max_hits ~= nil then max_hits = "u16::try_from(ability_kit::floor(" .. self:value(a.max_hits, ctx, "num") .. ").raw() >> 10).unwrap_or(1)"
@@ -1412,8 +1573,8 @@ function Gen:action(a, ctx, ind)
       on_hit = string.format("Some((%d, &args[..]))", step)
     end
     return line("{") .. args_line
-      .. line(string.format("    let p = Proj { homing: %s, aim: %s, speed: %s, radius: %s, distance: %s, max_hits: %s, buildings: %s, dodgeable: %s, vision: %s, end_radius: %s };",
-        homing, aim, speed, radius, distance, max_hits, buildings and "true" or "false", a.dodgeable and "true" or "false", vision, end_radius))
+      .. line(string.format("    let p = Proj { homing: %s, aim: %s, speed: %s, radius: %s, distance: %s, max_hits: %s, buildings: %s, dodgeable: %s, vision: %s, end_radius: %s, start: %s };",
+        homing, aim, speed, radius, distance, max_hits, buildings and "true" or "false", a.dodgeable and "true" or "false", vision, end_radius, start))
       .. line("    cx.projectile(ID, p, " .. on_hit .. ")?;") .. line("}")
   elseif op == "set_state" or op == "clear_state" then
     local v = self.m.vars[a.var]
@@ -1448,7 +1609,8 @@ local RUST_TYPE = { num = "Fixed64", bool = "bool", unit = "EntityHandle", point
 -- `target` and the ability's own `flags` (no_target_self, self_cast_allowed …) -> the cast check
 local function target_spec(g, target, ability_flags)
   target = target or {}
-  local allowed = set({ "type", "range", "aoe_radius", "team", "types", "flags", "ability_flags", "notes" })
+  -- vector_length / min_range: the indicator preview only (Unreal OmCastTargeting)
+  local allowed = set({ "type", "range", "aoe_radius", "team", "types", "flags", "ability_flags", "notes", "vector_length", "min_range" })
   for _, k in ipairs(sorted_keys(target)) do if not allowed[k] then g:block("target." .. k) end end
   local ty = target.type or "point"
   if ty ~= "unit" and ty ~= "none" and ty ~= "point" and ty ~= "direction" then g:block("target.type:" .. ty) end
@@ -1623,6 +1785,24 @@ local function emit_entry(m, o, opts, status_problems)
   local g = new_gen(m, o, opts)
   g.status_problems = status_problems
   g.paths = effect_paths(def, "")
+  -- an item's active is its cast program: its events, target and flags; the host settles its
+  -- cost from the shop catalog (cooldown, mana, cooldown groups) and uses it without a windup
+  if o.kind == "item" and def.active ~= nil then
+    local act = def.active
+    if act.kind ~= "active" then g:block("item.active.kind:" .. tostring(act.kind)) end
+    for _, k in ipairs(sorted_keys(act)) do
+      if k ~= "kind" and k ~= "target" and k ~= "cost" and k ~= "cast" and k ~= "events" and k ~= "flags" then g:block("item.active." .. k) end
+    end
+    for _, k in ipairs(sorted_keys(act.cost or {})) do
+      if k ~= "cooldown" and k ~= "mana" and k ~= "cooldown_groups" and k ~= "cooldown_start" then g:block("item.active.cost." .. k) end
+    end
+    if (act.cost or {}).cooldown_start ~= nil and act.cost.cooldown_start ~= "on_cast" then g:block("item.active.cost.cooldown_start:" .. tostring(act.cost.cooldown_start)) end
+    for _, k in ipairs(sorted_keys(act.cast or {})) do
+      if k == "cast_point" then g:gap("item cast_point: the host uses items without a windup")
+      elseif k ~= "immediate" and k ~= "ignore_backswing" then g:block("item.active.cast." .. k) end
+    end
+    def = setmetatable({ events = act.events, target = act.target, flags = act.flags }, { __index = o.def })
+  end
   local struct = camel(def.id)
   local fns = {}
   -- a cast program reads `target`, `point` and `direction`; a passive trigger reads `event`
@@ -1753,7 +1933,10 @@ local function emit_entry(m, o, opts, status_problems)
               .. "        let owner = cx.self_unit;\n" .. string.format("        cx.schedule(owner, ID, %d, first, &args)?;\n    }\n", step)
           else
             local filter, actions = trigger_parts(tr)
-            local evented = t[2] ~= nil and name ~= "on_removed" and name ~= "on_expired" and name ~= "on_death"
+            -- on_ability_executed of the holder only; its event carries no ability (event.* stays blocked)
+            local executed = name == "on_ability_executed"
+            if executed and tr.who ~= nil and tr.who ~= "self" then g:block("status_trigger:on_ability_executed.who:" .. tostring(tr.who)) end
+            local evented = t[2] ~= nil and name ~= "on_removed" and name ~= "on_expired" and name ~= "on_death" and not executed
             local pre = name == "on_take_damage_pre" or name == "on_deal_damage_pre"
             local ctx = { owner = so, scope = scope_child(nil), event = evented, pre = pre }
             local cond = filter and g:value(filter, ctx, "bool") or nil
@@ -1917,7 +2100,13 @@ pub fn on_owner_respawn(owner: EntityHandle, world: &mut GameWorldDyn<'_>) {
       end
     end
   end
-  s[#s + 1] = "\npub fn ffi() -> AbilityDefFFI { ability_kit::ability_ffi(ID, " .. struct .. ") }\n"
+  if o.kind == "item" then
+    -- a shop item: its AbilityDef is the catalog's (kind = item); passive without an active
+    -- None for an item the shop catalog does not have (it does not exist in the source)
+    s[#s + 1] = "\npub fn ffi() -> Option<AbilityDefFFI> { ability_kit::item_ffi(ID, " .. tostring(def.active == nil) .. ", " .. struct .. ") }\n"
+  else
+    s[#s + 1] = "\npub fn ffi() -> AbilityDefFFI { ability_kit::ability_ffi(ID, " .. struct .. ") }\n"
+  end
   return table.concat(s), blockers, { owner_triggers = owner_triggers }, g
 end
 
@@ -2048,7 +2237,7 @@ function M.generate(doc, opts)
     if #e.blockers == 0 then
       files[gen .. id .. ".rs"] = e.text
       mods[#mods + 1] = id
-      if e.o.kind == "ability" then ffis[#ffis + 1] = id end
+      if e.o.kind == "ability" or e.o.kind == "item" then ffis[#ffis + 1] = id end
     end
     for _, ev in ipairs(e.facts.owner_triggers or {}) do owner_calls[ev][#owner_calls[ev] + 1] = id end
     local gaps = {}
@@ -2083,8 +2272,14 @@ function M.generate(doc, opts)
   rg[#rg + 1] = string.format("/// The hero id of this DLL (m3-rust-codegen-design §3.1).\npub const HERO_ID: &str = %s;\n\n", rust_str(doc.id))
   local pushes = {}
   for _, id in ipairs(ffis) do pushes[#pushes + 1] = "super::" .. id .. "::ffi()" end
-  rg[#rg + 1] = "/// Every ability of the document.\npub fn abilities() -> RVec<AbilityDefFFI> {\n"
-    .. (#pushes == 0 and "    RVec::new()\n" or ("    RVec::from(vec![\n        " .. table.concat(pushes, ",\n        ") .. ",\n    ])\n")) .. "}\n"
+  if doc.kind == "items" then
+    -- the items the shop catalog has (item_ffi is None for the others)
+    rg[#rg + 1] = "/// Every item of the document the shop catalog has.\npub fn abilities() -> RVec<AbilityDefFFI> {\n"
+      .. (#pushes == 0 and "    RVec::new()\n" or ("    [\n        " .. table.concat(pushes, ",\n        ") .. ",\n    ].into_iter().flatten().collect()\n")) .. "}\n"
+  else
+    rg[#rg + 1] = "/// Every ability of the document.\npub fn abilities() -> RVec<AbilityDefFFI> {\n"
+      .. (#pushes == 0 and "    RVec::new()\n" or ("    RVec::from(vec![\n        " .. table.concat(pushes, ",\n        ") .. ",\n    ])\n")) .. "}\n"
+  end
   local has_owner = #owner_calls.on_ability_executed + #owner_calls.on_respawn > 0
   if has_owner then
     local casts, respawns = {}, {}

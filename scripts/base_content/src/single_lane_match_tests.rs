@@ -9927,7 +9927,8 @@ fn source_spell_books_60hz_slow_stun_through_immunity_vision_burn_and_buildings(
     {
         let buffs=w.read_resource::<BuffStore>();
         let caster=omb_script_abi::types::EntityHandle {id:hero.id(),gen:hero.gen().id() as u32};
-        let slow=buffs.get(enemy,&omb_script_abi::buff_ids::generic_slow_buff_id("spell_book",caster)).expect("the slow");
+        // items.dll (M7): the generated status keeps its slow in the `<runtime id>:slow` row
+        let slow=buffs.get(enemy,&format!("{}:slow",omb_script_abi::buff_ids::generic_slow_buff_id("spell_book",caster))).expect("the slow");
         assert_eq!(slow.payload["move_speed_bonus"],serde_json::json!(-307),"30%");
         assert!(slow.remaining<=Fixed64::from_i32(4) && slow.remaining>Fixed64::from_raw(3*1024+900));
     }
@@ -12629,7 +12630,8 @@ mod h01_formal {
     use abi_stable::{sabi_trait::prelude::TD_Opaque,RMut};
     use omb_script_abi::{ability::AbilityScript,world::GameWorld_TO};
     use omoba_core::runtime::scripting::parallel_world_adapter::{ParallelAdapterCache,ParallelWorldAdapter};
-    use crate::heroes::B01_saika_magoichi::No7_rain_iron_cannon_class::RainIronCannonClassHandler;
+    // M5: the generated passive (scripts/heroes/saika_magoichi), same on_attack_hit hook as the handler had
+    use hero_b01_impl::generated::b01_rain_iron_cannon::B01RainIronCannon as RainIronCannonClassHandler;
 
     fn gunners(w:&World,owner:specs::Entity)->Vec<specs::Entity> {
         (&w.entities(),&w.read_storage::<SummonedUnit>()).join().filter(|(_,s)|s.summoner==owner&&!s.is_expired()).map(|(e,_)|e).collect()
@@ -13534,42 +13536,7 @@ pub(crate) mod live_soak_replica_parity {
         out
     }
 
-    /// M3' ④: the generated heroes cast every ability on a script (the recorded bot matches never use
-    /// Saika's actives). Saika (player 1) and Oichi (player 2), every rank learned, fight in lane;
-    /// both cast each slot in turn. The authority state digest must match the Rust handlers' every tick.
-    #[test]
-    fn generated_scripted_casts_match_rust_handlers_every_tick() {
-        let toward=|from:omoba_sim::Vec2,to:omoba_sim::Vec2|from+(to-from)*Fixed64::from_raw(256);
-        generated_scripted_casts_compare(["saika_magoichi","oichi"],true,&|tick,pair,[saika,oichi]| match tick%240 {
-            5=>vec![(1,attack_move(oichi)),(2,attack_move(saika))],
-            // Saika: sniper (Q), a gunner toward Oichi (W), three stage (R).
-            60=>vec![(1,cast(0,None))],
-            90=>vec![(1,cast_at(1,toward(saika,oichi)))],
-            120=>vec![(1,cast(3,None))],
-            // Oichi: chain of light on Saika (Q), blessing on herself (W), strike and aurora at Saika (E, R).
-            70=>vec![(2,cast(0,Some(pair[0])))],
-            100=>vec![(2,cast(1,None))],
-            130=>vec![(2,cast_at(2,saika))],
-            160=>vec![(2,cast_at(3,saika))],
-            _=>Vec::new(),
-        });
-    }
 
-    /// M5: A02 (venom arrow toggled on and off, wind prayer, shadow meld; wind drift learned) against Oichi.
-    /// Without mana, so every cast lands on its tick (level 18 set directly keeps the level-1 mana).
-    #[test]
-    fn generated_scripted_a02_casts_match_rust_handlers_every_tick() {
-        generated_scripted_casts_compare(["inahime","oichi"],false,&|tick,pair,[inahime,oichi]| match tick%480 {
-            5|245=>vec![(1,attack_move(oichi)),(2,attack_move(inahime))],
-            // Venom arrow on at 60, off at 300 (the host turns it off without mana too).
-            60|300=>vec![(1,cast(0,None))],
-            100=>vec![(1,cast(1,None))],
-            140=>vec![(1,cast(3,None))],
-            70=>vec![(2,cast(0,Some(pair[0])))],
-            110=>vec![(2,cast(1,None))],
-            _=>Vec::new(),
-        });
-    }
 
     /// M5: B04 fire blast (W) at Oichi; flame swiftness (E) learned. Without mana, like A02.
     #[test]
@@ -13658,84 +13625,6 @@ pub(crate) mod live_soak_replica_parity {
         assert_eq!(first,None,"generated Rust and Rust handlers diverge");
     }
 
-    /// M3' ④: the generated Rust runs B01 exactly like the Rust handlers it replaced. Replays the
-    /// accepted-input record (SOAK_ACCEPTED_INPUTS / SOAK_ROLE_PLAN, as above) twice on the
-    /// authority — the generated scripts (the registry default, hero DLL crates) and the handlers
-    /// (legacy_handlers.rs) — and
-    /// compares the authority state digest every tick. Skips without a record.
-    #[test]
-    fn generated_replay_matches_rust_handlers_every_tick() {
-        use omoba_core::runtime::native::moba_match::bots::RoleBotMatchPlan;
-        let (Ok(record),Ok(plan))=(std::env::var("SOAK_ACCEPTED_INPUTS"),std::env::var("SOAK_ROLE_PLAN")) else {return;};
-        let text=std::fs::read_to_string(&record).unwrap();
-        let mut lines=text.lines();
-        let header:serde_json::Value=serde_json::from_str(lines.next().expect("header line")).unwrap();
-        let (seed,fps)=(header["seed"].as_u64().unwrap(),header["step_fps"].as_u64().unwrap() as u32);
-        let unhex=|text:&str|->Vec<u8> {(0..text.len()).step_by(2).map(|i|u8::from_str_radix(&text[i..i+2],16).unwrap()).collect()};
-        let mut by_elapsed:std::collections::BTreeMap<i64,Vec<(u32,PlayerInput)>>=std::collections::BTreeMap::new();
-        for line in lines.filter(|line|!line.trim().is_empty()) {
-            let row:serde_json::Value=serde_json::from_str(line).unwrap();
-            let Some(elapsed)=row["elapsed_raw"].as_i64() else {continue};
-            for entry in row["inputs"].as_array().unwrap() {
-                let input=<PlayerInput as prost::Message>::decode(unhex(entry[1].as_str().unwrap()).as_slice()).unwrap();
-                by_elapsed.entry(elapsed).or_default().push((entry[0].as_u64().unwrap() as u32,input));
-            }
-        }
-        let plan:RoleBotMatchPlan=serde_json::from_slice(&std::fs::read(&plan).unwrap()).unwrap();
-        let (config,_bots)=plan.compile_with_tick_rate(seed,fps).unwrap();
-        let last=by_elapsed.keys().last().copied().unwrap_or(0);
-        let ticks=std::env::var("SOAK_REPLAY_TICKS").ok().and_then(|v|v.parse().ok())
-            .unwrap_or_else(||(last/(1024/i64::from(fps)).max(1)) as u32+600);
-        let evidence=std::cell::RefCell::new([0u32;3]);
-        let run=|handlers:bool|->Vec<u64> {
-            let (mut authority,mut driver)=world(config.clone(),SimulationTickProfile::Production60Hz);
-            if handlers {
-                // SOAK_LEGACY_ONLY=id,id: replace only these handlers (bisects a divergence).
-                let only=std::env::var("SOAK_LEGACY_ONLY").ok();
-                for (id,script) in crate::legacy_handlers::handler_scripts() {
-                    if only.as_deref().is_some_and(|only|!only.split(',').any(|o|o==id)) {continue;}
-                    assert!(driver.scripts_mut().replace_ability_script(id,script),"{id}");
-                }
-                for (id,script) in crate::legacy_handlers::handler_units() {assert!(driver.scripts_mut().replace_unit_script(id,script),"{id}");}
-            }
-            driver.step(&mut authority,[]).unwrap();
-            let first=driver.step(&mut authority,[]).unwrap();project_tick(&mut authority,first);
-            let mut order=1u64;
-            let mut digests=Vec::with_capacity(ticks as usize);
-            let diag=std::env::var("SOAK_IR_DIAG_TICK").ok().and_then(|v|v.parse::<usize>().ok());
-            for _ in 0..ticks {
-                let elapsed=authority.read_resource::<MobaMatch>().elapsed.raw();
-                let requested=by_elapsed.get(&elapsed).cloned().unwrap_or_default();
-                let (executed,accepted)=admit(&authority,requested,&mut order);
-                let result=driver.step(&mut authority,executed).unwrap();
-                authority.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
-                project_tick(&mut authority,result);
-                digests.push(authority_state_digest(&authority));
-                if diag==Some(digests.len()-1) {
-                    let path=std::env::temp_dir().join(format!("ir_diag_{}.txt",if handlers {"rust"} else {"generated"}));
-                    std::fs::write(&path,authority_state_lines(&authority).join("\n")).unwrap();
-                    eprintln!("ir diag: wrote {}",path.display());
-                }
-                if !handlers {
-                    // The generated Rust actually ran: B01's statuses and summons appear.
-                    let buffs=authority.read_resource::<BuffStore>();
-                    let mut e=evidence.borrow_mut();
-                    for (id,slot) in [("b01_sniper_mode",0usize),("b01_three_stage",1)] {
-                        if (&authority.entities()).join().any(|entity|buffs.has(entity,id)) {e[slot]+=1;}
-                    }
-                    e[2]=e[2].max(authority.read_storage::<ScriptUnitTag>().join().filter(|tag|tag.unit_id=="b01_saika_corps_gunner").count() as u32);
-                }
-            }
-            digests
-        };
-        let generated=run(false);
-        let rust=run(true);
-        let first=generated.iter().zip(&rust).position(|(a,b)|a!=b);
-        let e=evidence.borrow();
-        eprintln!("generated replay: {} ticks compared, first difference {:?}; sniper {} ticks, three stage {} ticks, gunners at most {}",
-            generated.len(),first,e[0],e[1],e[2]);
-        assert_eq!(first,None,"generated Rust and Rust handlers diverge");
-    }
 }
 
 /// split16: G-2 pulse channels must keep both team replicas identical to the
@@ -15127,3 +15016,42 @@ mod v3_conformance;
 /// E242: tree cuts reach every replica on the same step.
 #[path = "tree_cut_replica_tests.rs"]
 mod tree_cut_replica;
+
+/// E243: a dropped gold bag is taken identically on every replica.
+#[path = "pickup_replica_tests.rs"]
+mod pickup_replica;
+
+/// items.dll (M7): a scripted item's use runs its generated effect and commits the cooldown with
+/// it; a use whose effect cannot run spends nothing.
+mod scripted_item_use {
+    use super::*;
+
+    fn give(w: &mut World, hero: specs::Entity, item: &str) {
+        w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0] =
+            Some(ItemInstance { item_id: item.into(), cooldown_remaining: 0.0 });
+    }
+    fn slot_cooldown(w: &World, hero: specs::Entity) -> f32 {
+        w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().map_or(-1.0, |i| i.cooldown_remaining)
+    }
+
+    #[test]
+    fn a_scripted_self_item_applies_its_status_and_starts_its_cooldown() {
+        let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+        d.step(&mut w, []).unwrap();
+        let [hero, _] = hero_pair(&w);
+        set_hold(&mut w, hero);
+        give(&mut w, hero, "the_poketto_of_meiso");
+        // the catalog's own active is gone: only the generated script can produce the status
+        { let mut reg = w.write_resource::<ItemRegistry>(); let cfg = reg.items.get_mut("the_poketto_of_meiso").unwrap();
+          let mut cfg2 = (**cfg).clone(); cfg2.active = None; *cfg = std::sync::Arc::new(cfg2); }
+        let cooldown = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|i| i.id == "the_poketto_of_meiso").unwrap().cooldown;
+        d.step(&mut w, [item_use(0, None, None, None)]).unwrap();
+        for _ in 0..3 { if w.read_resource::<BuffStore>().has(hero, "modifier_poketto_of_meiso") { break; } d.step(&mut w, []).unwrap(); }
+        assert!(w.read_resource::<BuffStore>().has(hero, "modifier_poketto_of_meiso"), "the generated effect ran");
+        assert!(slot_cooldown(&w, hero) > 0.0 && slot_cooldown(&w, hero) <= cooldown.to_f32_for_render(), "the use committed its cooldown");
+        // on cooldown: a second use is not admitted and changes nothing
+        let before = slot_cooldown(&w, hero);
+        d.step(&mut w, [item_use(0, None, None, None)]).unwrap();
+        assert!(slot_cooldown(&w, hero) < before);
+    }
+}

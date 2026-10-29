@@ -29,6 +29,8 @@ pub const DEAL_DAMAGE: u8 = 6;
 /// Before the damage lands (scripting::damage_pre; `on_damage_pre`, not `on_status_event`).
 pub const TAKE_DAMAGE_PRE: u8 = 7;
 pub const DEAL_DAMAGE_PRE: u8 = 8;
+/// The holder executed an ability or used an item (原作 OnAbilityExecuted); `other` is none.
+pub const ABILITY_EXECUTED: u8 = 9;
 
 /// `Spec.mask` bits: which events the status listens to.
 pub const ON_END: u32 = 1 << 0;
@@ -38,7 +40,9 @@ pub const ON_TAKE_DAMAGE: u32 = 1 << 3;
 pub const ON_DEAL_DAMAGE: u32 = 1 << 4;
 pub const ON_TAKE_DAMAGE_PRE: u32 = 1 << 5;
 pub const ON_DEAL_DAMAGE_PRE: u32 = 1 << 6;
-pub const ALL: u32 = ON_END | ON_ATTACK_HIT | ON_ATTACKED | ON_TAKE_DAMAGE | ON_DEAL_DAMAGE | ON_TAKE_DAMAGE_PRE | ON_DEAL_DAMAGE_PRE;
+pub const ON_ABILITY_EXECUTED: u32 = 1 << 7;
+pub const ALL: u32 = ON_END | ON_ATTACK_HIT | ON_ATTACKED | ON_TAKE_DAMAGE | ON_DEAL_DAMAGE | ON_TAKE_DAMAGE_PRE | ON_DEAL_DAMAGE_PRE
+    | ON_ABILITY_EXECUTED;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
@@ -83,6 +87,7 @@ impl Spec {
             DEAL_DAMAGE => ON_DEAL_DAMAGE,
             TAKE_DAMAGE_PRE => ON_TAKE_DAMAGE_PRE,
             DEAL_DAMAGE_PRE => ON_DEAL_DAMAGE_PRE,
+            ABILITY_EXECUTED => ON_ABILITY_EXECUTED,
             _ => 0,
         };
         self.mask & bit != 0
@@ -108,6 +113,7 @@ mod tests {
         let payload = json!({ "magic_resist": 1, (KEY): s.row() });
         assert_eq!(Spec::from_payload(&payload), Some(s.clone()));
         assert!(s.listens(EXPIRED) && s.listens(CLEARED) && s.listens(TAKE_DAMAGE) && !s.listens(ATTACK_HIT));
+        assert!(!s.listens(ABILITY_EXECUTED) && spec(ON_ABILITY_EXECUTED).listens(ABILITY_EXECUTED));
         let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 9);
         assert_eq!(Spec::from_payload(&bad), None, "unknown event bits");
         let mut bad = payload.clone(); bad[KEY]["status"] = json!("B16T");

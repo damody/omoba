@@ -16,6 +16,127 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 上午（遊戲模式線：nobu 一面倒的原因與修正；E252，已放回 live）
+
+- **原因**：
+  - 不是地圖不對稱：雙方巡營順序對稱。
+  - 隊伍 1 的打野一級就打 3,582 HP 的烏龜營，10 分鐘內死 25 次，全死在烏龜手上；整局沒有任何野怪被打死。隊伍 2 的打野沒去打營。
+- **修正**（`moba_match/bots.rs`，放回 live）：
+  - 只在有分邊營地的地圖生效：打野只巡自己英雄打得過的營地（營地 HP×每秒傷害 < 英雄最大 HP×每秒傷害，營地數值取公開模板）。
+  - 一個都打不過時先上中路；quick 與訓練圖不變。
+- **量測**（release headless）：
+
+| 設定 | 結果 | 局長中位 | 雙方死亡 |
+|---|---|---|---|
+| nobu 原陣容 5 局 | 隊伍 2 勝 4 | 43.5 分 | 19～33 |
+| nobu 對調陣容 5 局 | 隊伍 1 勝 5 | 43.5 分 | 24～44 |
+| quick 原陣容 12 局 | 隊伍 2 勝 10 | 6.8 分 | — |
+| quick 對調陣容 12 局 | 隊伍 1 勝 12 | 6.2 分 | — |
+
+- **結論**：
+  - 地圖邊不偏（nobu 6:4、quick 14:10）。
+  - 贏的一直是同一組陣容：本多、真田、玉子、稻姬、阿松。這是陣容強弱（E165），不是地圖、兵線、塔或泉水。
+  - 另一組陣容裡的 B01 雜賀孫市、C17 阿市，產生的 Rust 目前有 27 項測試失敗，可能也讓那組變弱。
+  - nobu 的局長約 40～50 分，照原作數值是正常長度；10 分鐘的實機驗收用 quick。
+- **量測工具**：M3' 之後要建置並複製整組 script DLL（base_content＋hero_*），`target/e187/build.sh`、`measure.sh` 已改。
+
+## 2026-10-30 清晨（遊戲模式線：base_content 27 項失敗的分流）
+
+- **二分**：用 `git archive` 取出 commit 快照放在影子裡（沒有切分支），只跑相關的測試。
+  - 722630e4（M3' 之前）：97 過，0 失敗。
+  - 5a684594（M3'：產生 Rust、每英雄一個 DLL、刪除 IR）：27 項全部失敗，和 live 現在的失敗清單相同。
+  - 所以 27 項都是 M3' 那次造成的，不是之後的 land。快照在 `target/e187/g722630e4`、`g5a684594`。
+- **分流**：全部用到 M3' 改成產生 Rust、拆成英雄 DLL 的兩位英雄。
+
+| 測試（base_content） | 用到的英雄／技能 | 現象 | 負責 |
+|---|---|---|---|
+| summon_formal、summon_cast_formal、summon_combat_formal、summon_focus_formal、summon_formation_formal、summon_navigation_formal、summon_presentation_formal、summon_priority_formal、summon_projectile_formal、owned_summon_orders_formal ×3 | B01 雜賀眾（saika_reinforcements 召喚） | 產生的 handler 沒有建出召喚；「real ability handler must produce a native settlement envelope」 | 線 A（產生碼）；缺 ability_kit 元件時找線 B |
+| cast_windup_formal、cast_damage_interruption_formal、cast_preparation_public_status_formal、cast_progress_formal、cast_time_modifier_formal、checked_mana_modifiers_windup、cooldown_windup | B01 召喚技的施法前搖（cast_preparation） | 沒有出現 cast_preparation，或召喚數為 0 | 線 A |
+| self_transform_formal | B01 三段擊（three_stage_transform） | rank 1 結果不同 | 線 A |
+| passive_cone_formal、passive_cone_tests::passive_cone_real_normal_launch | B01 被動錐形 | rank 1 結果不同 | 線 A |
+| script_attack_accuracy_formal | B01 | 結果不同 | 線 A |
+| extra_action_slot::a_passive_fifth_slot | B01 第五格被動 | 被動 D 沒有學到 | 線 A |
+| piercing_hero_skills_on_magic_immune | C17 阿市 | 「大地震撼 stunned the magic-immune hero」 | 線 A |
+| generated_scripted_casts、generated_scripted_a02_casts | 產生的 Rust 與 Rust handler 逐 tick 比對 | 不一致 | 線 A（已在處理） |
+
+- 已通知線 A（整批），副本給線 B。沒有屬於遊戲模式線的項目。
+
+## 2026-10-30 清晨（遊戲模式線：C06T 豪奪的 host 能力——讀金錢、地上金袋；E243，已放回 live）
+
+- **放回 live**：10 個檔，codegen、cargo、server 都通過。影子是 `target/e187/t16`，基底 `b16`，就是放回當下的 live。
+- **讀金錢**：`unit_attr::GOLD = "gold"`，接在線 B 的 `GameWorld::ext` UNIT_ATTR 裡；ability_kit 提供 `Cx::gold_of(u)`。採單一金錢池（FC-129～131 修好後的定義），召喚物讀主人的。
+- **地上金袋**：
+  - `Cx::create_pickup(at, gold, who, killable, lifetime)`，新模組 `pickup.rs`。
+  - 只在 authority 生成，是中立單位 `item_money`，依視野揭露。
+  - 兩隊都能下令打它，不會被自動索敵；killable 時一下就摧毀，摧毀不給錢。
+  - 150 內最近、符合 who 的英雄自動撿起，金錢加進金錢池。
+  - 可選壽命；原作沒有壽命，C06T 不帶。
+- **測試**：
+  - omoba-core 1378 項全過，含 `pickup` 6 項。
+  - base_content 新增 `pickup_replica` 對拍：金袋生成、英雄撿起，兩隊 replica 每步一致。
+  - base_content 有 27 個失敗，和 b16 完全相同，是 live 原本就有的。
+- **協調**：
+  - 線 B 一直沒回覆；這段期間它把 ext op 4 做成通用 UNIT_ATTR，所以改照它的設計加屬性，並從 live 重建影子後才放回（E243）。
+  - 已通知線 A（可以寫 hook）、線 B（改了哪些地方）、線 C（`item_money` 需要金袋外觀）。
+
+## 2026-10-30 清晨（history-nobu 工作線 C：v3 target 型別預覽、金袋參考圖）
+
+- **v3 target 型別**（回覆線 A，已放回 live，UBT 通過）：
+  - `OmCastTargeting::ParseType`：direction 和 tree 當 point，unit_or_point 當 unit，其他新型別仍是 Other。
+  - direction 若帶 `vector_length`，畫成從施法者出發、同長度的直線（和 vector 技能同一套預覽）。
+  - 測試：`Om.Runtime.CastTargetingCatalog` 通過。
+  - UE 的游標類型仍讀 content 的 target_type。
+- **金袋外觀**（線 gamemode 要求，`item_money`，C06T 豪奪）：
+  - Grok 參考圖已完成，放在 `omfue/SourceArt/Structures/TripoStaticV1/gold_bag/reference/`，已記入 asset-ledger。第一張有內框，退回 1 次。
+  - Tripo 建模（約 25 點）和下載 FBX 要等使用者同意。拿到模型後，在 world_units.lua 加靜態模型的一列並 import。
+
+## 2026-10-30 清晨（history-nobu 工作線 C：執行期呈現事實——地面區域、繫繩、幻象、夜晚——從 host 做到 UE；E247，已放回 live）
+
+- **資料來源與揭露**：
+  - replica 拿不到 buff 的 payload，所以改由權威端產生（E247）。
+  - visibility.rs 對每個實體算出 `runtime_fact_state`：
+    - 它握有的 `damage_zone`（圓或膠囊，含獨立區域）；
+    - 身上的 `__tether_v1` 繫繩（來源記 canonical id）；
+    - 有沒有 `illusion` 狀態。
+  - team_projector 先把這個元件從 replica 基線和 checkpoint 拿掉，每個 frame 再對每個已揭露的實體送一個隊伍事件（`0x5246_0001`）：
+    - 繫繩來源換成該隊的 replica id 和 epoch，**兩端都揭露才送**；
+    - 幻象旗標**只送給同隊**；
+    - key 依隊伍加鹽，兩隊之間無法對照。
+  - 夜晚：每個 MOBA tick 送公開 Hud 指標 `NIGHT_METRIC_ID`（剩餘夜晚 raw，白天為 0）。目前 `temporary_night` 還沒有產生者，只做好接收端。
+- **傳遞路徑**：
+  - replica_host 保留最近一個 frame 的事實；收到含夜晚指標的 frame 才更新，rebase 時清空。
+  - presentation_bridge 填入 proto 新欄位 `TeamPresentationSnapshot` 29～32（ground_zones、links、illusions、time_of_day），既有欄位不動。
+  - bridge 在 `OmFrameHeader` 尾端新增 `OmGroundZone`、`OmLink`、幻象陣列和 `time_of_day`；header 816 → 864 bytes。
+  - UE `FOmRuntimeFacts::FromFrame` 交給 `FOmRuntimeFactsPresenter`，由 OmWorldBridgeActor 每個 frame 呼叫：
+    - 區域每 1.5 秒重播一次 cue；目錄裡沒有這個 cue 時，改用通用的 `ground_damage_zone`。
+    - 繫繩每 0.5 秒拉一次光帶。
+    - 幻象套金色 overlay。
+    - 夜晚把地圖的方向光調到 0.35 倍。
+  - 新的入口 `AOmUnitActor::PlayRuntimeFactCue` 直接查 cue 目錄，不經戰鬥 epoch 的閘門。
+  - `cue_vfx.lua` 的 `M.RUNTIME_FACT_CUES` 產生兩個通用 cue：`ground_damage_zone`（Area 環，1.6 秒）和 `runtime_tether`（Link 光帶）。DefaultGame.ini 同步加入。
+- **測試**：
+  - omoba-core：`runtime_fact_state` 3 項，以及 team_projector 的 `runtime_facts_reach_each_team_as_events_never_as_replica_components`（兩隊、來源隱藏、幻象只給同隊）。全套 1376 項通過。
+  - client-runtime：`runtime_facts_become_zones_links_illusions_and_night` 通過，共 167 項通過。另有 1 個失敗 `owner_shop_ready_keeps_epoch_slots_and_catalog_only_buy_wire`（重複配方 3≠1），未改的 live 一樣失敗，和這次無關。
+  - bridge：`runtime_facts_reach_the_frame_and_drop_rows_without_entities` 通過，header 大小斷言已更新，共 153 項通過。
+  - cue_vfx_test：55 項。
+  - UE：`Om.Runtime.RuntimeFacts`、`RuntimeFactsFrame`、`CueCatalog`、`CueCatalogPresentation`、`GroundZoneStatus`、`StatusLook` 全部 Success。
+- **放回**：land_to_live 21 個檔，codegen、cargo、server、bridge、UBT 全部通過。第一次 UBT 因 struct 沒有匯出而連結失敗，已修正（E247）。
+- **實機驗證**（各局都帶時限並等機器鎖；UE 用影子 `target/ue-shadow-c`；Rust 執行檔用自己的 `target/lineC-bins`，因為共用的 release exe 被別的程序鎖住）：
+  - **繫繩**：阿市聚光燈（`target/lineC-facts3/spotlight/oichi`）。光鍊罰則命中敵方後，client 印出 `runtime facts: 2 event(s)`，UE 印出 `OM_RUNTIME_FACTS links=1`，約 3 秒後消失。
+    - 第一次實機事實有到，光帶卻沒畫出來：cue 帶的是 tick 0，被戰鬥視覺池丟掉（E247）。
+    - 改成帶 frame tick 後，frame 120 截圖看得到阿市與敵人之間的淡紫光帶（已親自看過）。
+  - **地面區域**：玉子線上自動駕駛 300 秒（`target/lineC-facts4/tamako-lane5`）。爆裂箭鋪火時，UE 每段約 15 秒印出 `zones=1`。
+    - 截圖 shot-007：沿箭路出現一排環，HUD 同時顯示「持續區域（剩餘12.2秒）」（已親自看過）。
+    - 中途改了兩件事：
+      1. 線狀區域原本畫成中點的一個巨大圓環，看不到；改成沿線一排、各為區域半徑的環，最多 12 個。
+      2. 非呈現的 control frame 不再清掉事實；原本每 0.5 秒會掉一格。
+    - 通用區域的環色改成橘紅。
+  - **幻象、夜晚**：上架英雄沒有會產生它們的技能，`temporary_night` 也還沒有產生者。改由 Rust 測試（team_projector 兩隊、presentation_bridge 夜晚）和 UE 測試（金色 overlay、方向光 0.35 倍）驗證。
+  - 診斷 log 保留：client 的 `runtime facts: N event(s)`，UE 的 `OM_RUNTIME_FACTS zones= links= illusions= time= played=`。
+- **沒做**：
+  - model_override（B 沒排程）。
+  - 聚光燈 autopilot 對玉子爆裂箭（方向技）的施放會被跳過，屬於 autopilot，另案。
+
 ## 2026-10-30 凌晨（遊戲模式 E187 續：host 端砍樹、nobu 完整量測、UE 結果畫面複驗；E242，已放回 live）
 
 - **host 端砍樹（已放回 live，10 個檔，codegen、cargo、server 通過；細節 errors.md E242）**：
@@ -25,6 +146,70 @@
   - 已通知 line-a-codegen 從 coverage 報告移除這兩項。
 - **nobu 完整量測**（`runs/t11nobu6`，3 局並行，沒有和 UE 局同時跑）：3/3 打完，40.7／52.7／57.3 分（中位 52.7），三局都是隊伍 2 勝，隊伍 1 英雄死 71～87 次。nobu 的局長和一面倒還要調。
 - **UE quick 結果畫面複驗（`target/e187/ue-quick10`，線 C 修正之後）**：tick 20574（5.7 分）自然結束；印出 `OM_MATCH_RESULT_UI ... outcome=Defeat`，結果畫面有出現並截圖（result-p1.png，已親自看過）；啟動器正常收尾、清理成功，不是被時限收掉。
+
+## 2026-10-30 凌晨（history-nobu 工作線 C：第 2～9 批呈現盤點）
+
+- 重新產生 `m6-batch2..9-presentation.md`：
+  - 頭像：82 位都是原作圖或生成圖，沒有佔位。
+  - 技能圖示：每位英雄都是「原作或生成／全部」相等。
+  - 狀態說明：每位英雄都是「有說明／全部」相等。
+  - cue：視覺 cue 全部有 Niagara（共用形狀系統）；只有 sound 與 gesture 沒有。
+- 指示器：
+  - 遊戲的施放輸入與指示器依 runtime catalog 的 target kind（`EOmGameplayInputTargetKind`）決定，v3 的 `target.type` 只用在說明框的距離預覽（`OmCastTargeting`）。
+  - v3 裡 UE 預覽還不認得的型別有三種：`direction`（6 招）、`unit_or_point`（3 招）、`tree`（2 招）。它們上架時由工作線 A 的產生器對應到既有的 target kind，UE 不需另做。
+  - 若產生器新增 target kind，再補 UE 預覽。
+- 剩下要等 runtime 的：分身、隱身幽影的實機效果、地面區域、繫繩、日夜。UE 呈現器已放回 live，等 B 的欄位。
+
+## 2026-10-30 凌晨（history-nobu 工作線 C：cue 特效改成 6 個共用系統，339 MB → 3.5 MB；已放回 live）
+
+- **做法**：
+  - 每種形狀一個共用 Niagara 系統，放在 `/Game/Omoba/VFX/CueShapes/NS_shape_<形狀>`，共 6 個：ring、aura、buff、burst、trail、slash。
+  - commandlet 的 `-shapes` 模式用 NiagaraEditor 的 stack API，把每個 emitter 的 InitializeParticle Color 連到 user parameter `User.Tint`。
+  - 每個 cue 的顏色由 commandlet 算出，寫到 `-tints-out`；參考圖取發光色，原作路徑取關鍵字色。
+- **cue 設定改成「形狀＋參數」**：
+  - `DefaultGame.ini` 的 570 筆 `CueOverrides` 都指向共用系統，加上 `EffectTint`（顏色）與 `EffectScale`（大小）。
+  - 遊戲在 `CatalogCue` 產生特效時，設定 `Tint` 並依 `EffectScale` 縮放元件；方向沿用施放方向的旋轉。
+  - `FOmCueOverride` 新增 `EffectTint`、`EffectScale`。
+- **體積**：`omfue/Content/Omoba/VFX/Cues` 的 570 個資產（339 MB）已從工作目錄刪除，現在 CueShapes 只有 3.5 MB。
+  - 注意：那 570 個資產已在 omfue 的 9fa7a28 commit 裡，歷史仍保留 339 MB；這次刪除需要主 session 一起 commit。
+- **截圖**：`target/cue-vfx/shared1/shapes-00.png`（遊戲實際路徑，每類 2 個）。
+  - 看過了，同一個 ring 系統分別帶出白色（a15e_moonfall）和粉紅（a25d_message），顏色參數有生效。
+  - 色調比逐 cue 版本淡一些：只給色相，亮度取範本本身。
+- **修正我造成的回歸**：`Om.Runtime.CueCatalog` 原本假設 `a01e_net` 沒有專案覆寫；我把第 1 批原作 cue 加進設定後，它就一直失敗。改成「有覆寫時必須指定特效」，Success。
+- **測試**：`cue_vfx_test` 53 項、`CueCatalog`、`CueCatalogPresentation`、`M6PresentationFallbacks`、`CueShapeSheet` 都 Success。
+- **放回 live**：7 檔（commandlet、`OmEditor.Build.cs` 加上 NiagaraEditor、`OmCueCatalog.h`／`.cpp`、`OmUnitActor.cpp`、`OmCueCatalogTests.cpp`、`DefaultGame.ini`），codegen＋UBT 通過。
+
+## 2026-10-30 凌晨（history-nobu 工作線 C：砍掉的樹從畫面移除；已放回 live）
+
+- **資料流**：
+  - replica 世界的 `tree_cut::ReplicaTrees.fallen`（line-gamemode 的 E242）由 `SpecsDisclosedWorldStepper::fallen_trees()` 讀出。
+  - replica host 把它做成本地呈現事件（`FALLEN_TREES_EVENT_KIND`，不上線路），和迷霧格同一種做法。
+  - presentation bridge 解成 `TeamPresentationSnapshot.fallen_trees`（proto 新欄位 28）。
+  - UE bridge 畫地圖樹時跳過這些索引，未知的索引忽略。
+- **晚進場**：replica 從開局資料重建 fallen 集合（`cut_set_of`），所以晚進場也正確。
+- **放回 live**：7 檔（`proto/game.proto`、`generated/game.rs`、`filtered_specs.rs`、`replica_host.rs`、`presentation_bridge.rs`、bridge 的 `driver.rs` 與 `lib.rs`），codegen、cargo、server、bridge 檢查都通過。
+- **測試**：bridge 的 `public_map_trees_reach_the_renderer_with_or_without_fog` 加了「倒一棵樹、未知索引被忽略」，通過；client runtime 的 presentation 測試 45 項通過。
+- **還沒驗證**：實機局裡實際砍樹的畫面。自動駕駛不一定會放砍樹技能，等有砍樹的英雄上架後再拍。
+
+## 2026-10-30 凌晨（history-nobu 工作線 C：第 1～9 批所有視覺 cue 都有特效；已放回 live）
+
+- **第 1～9 批的原作 cue**：
+  - 對到原作 Dota／nobu 粒子、但素材沒有匯入的視覺 cue（effect、aura、projectile、impact、area、link、channel、summon；sound 與 gesture 不算），原本都播通用佔位。
+  - `cue_vfx.lua --batches 1,…,9` 依原作粒子的路徑字詞決定形狀（和參考圖描述同一套規則）與顏色（`M.PATH_COLORS`：火、雷、冰、毒、血、聖光、暗、水、土、風），用同一條 commandlet 產生 Niagara。
+  - 有審過參考圖的 cue 一律以參考圖為準。
+  - **結果**：570 個 cue 有特效（73 個依參考圖、497 個依原作路徑），`DefaultGame.ini` 的 `CueOverrides` 有 570 筆。
+- **截圖**（遊戲實際路徑＋地面 55° 斜視角）：
+  - 第 1 批 55 個原作 cue：`target/cue-vfx/b1orig/shapes-00..04.png`；
+  - 第 1～9 批抽樣 12 個：`target/cue-vfx/all9sample/shapes-00.png`。
+  - 都看過了，光環、光團、光帶、地面環照形狀分得開。
+  - **限制**：很多原作路徑只有英雄名（例如 hero_xxx），沒有能判斷顏色的字，所以落在預設的米白色；光環的地面環一律用 aura 這個 kind 的綠色。
+- **大小問題**：每個 cue 都是一份複製的 Niagara 系統，`omfue/Content/Omoba/VFX/Cues` 共 339 MB（570 個）。
+  - 較好的做法：每種形狀共用一個系統，顏色走 user parameter。
+  - 這需要在 Editor 把範本的顏色模組綁到 user parameter，排進 M8 美術打磨。
+- **測試**：`cue_vfx_test` 51 項通過。放回 live 的是 `DefaultGame.ini`；資產直接寫在 live 的 Content。
+- **M8 美術打磨待辦**（主 session 決定）：
+  - trail 用真正的 Ribbon renderer、slash 用弧形 mesh 或 velocity-aligned sprite；
+  - 依形狀共用 Niagara 系統、改用 user parameter 顏色，縮小資產體積。
 
 ## 2026-10-30 凌晨（history-nobu 工作線 C：拖尾與斬擊的方向光帶；6 類一眼分得開；已放回 live）
 
@@ -103,7 +288,8 @@
   - widget 在 world 裡；沒有 world 的 widget 不會 tick，遊戲中的 HUD 一定有 world。
   - 驗證只靠 widget 自己 tick，不送新的 state，就會完成呈現。
   - 既有的 `NativeMatchResult`、`MatchTermination*` 都 Success。
-- 放回 live 3 檔（codegen＋UBT）。實機局還沒驗證，請 line-gamemode 下次開局時確認。
+- 放回 live 3 檔（codegen＋UBT）。
+- **實機已驗證**（line-gamemode，ue-quick10）：5.7 分自然結束後印出 `OM_MATCH_RESULT_UI`（outcome=Defeat），結果畫面有出現也截到圖；啟動器正常收尾，不是被時限收掉。
 
 ## 2026-10-30 凌晨（history-nobu 工作線 C：runtime 事實的 UE 呈現器；已放回 live，等 B 的欄位）
 
@@ -194,6 +380,106 @@
   - **樹沒有畫出來**（presentation `trees=0`）：bridge 只在沒有 fog grid 時才送樹（driver.rs:1021-1024），而且資料取自 runtime snapshot，不是地圖的靜態樹。nobu 的樹和 24 營要在 UE 畫出來，需要另外接線（UE 呈現）。
 - **nobu 完整量測**（`runs/t11nobu5`，3 局並行，與 UE 局同時跑）：seed 1 在 40.7 分打完（隊伍 2 勝）；seed 2、3 撞到 4500 秒牆鐘上限。
 - **待續**：nobu 的樹與營地在 UE 的呈現（bridge 從地圖取靜態樹，不受 fog 條件限制）；可砍樹（v3 的 destroy_trees）；晚進場的結果畫面 bug（已交線 C）。
+
+## 2026-10-30（history-nobu 工作線 B：status remove_on owner_death 與 taunt 結束；已放回 live）
+
+- dispel Registry 從 catalog 讀狀態的 `remove_on`。單位死亡時（`handle_death`，該單位刪除前），`dispel::remove_owned_by` 移除它施加、且 `remove_on` 含 owner_death 的狀態（含只有這些狀態持有的共用 state），以及它施加的 taunt（嘲諷者死亡，嘲諷結束）。英雄死亡也走這條路徑。
+- 其他 remove_on（death、unequip、attack、cast、channel_end）沒有動。
+- 測試：`statuses_removed_on_their_owners_death`。omoba-core lib 1393 個全過（A 已修好 tether 測試）。
+- 交給 A：B08 的 projectile 從一個點出發，模組 ability_projectile 歸 A（准入時以施放者位置為起點）；reveal.ignore_terrain 待確認歸屬。
+
+## 2026-10-30（history-nobu 工作線 B：remove_status 的 tags／exclude_tags；已放回 live）
+
+- `PurgeSpec` 加 `tags`、`exclude_tags`。dispel Registry 從 catalog 讀狀態的 `tags`；per-source key 先對回狀態 id 再查。kit 用 `cx.remove_statuses_tagged(from, StatusFilter{..}, tags, exclude_tags)`，`StatusFilter` 不變，原本的 `remove_statuses` 等同不帶 tags。
+- 目前 live 的內容沒有狀態帶 tags（用到的 4 招、3 件道具都還沒上架），所以只用 catalog 片段測試：`purges_by_tags_and_exclude_tags`。
+
+## 2026-10-30（history-nobu 工作線 B：__ctl 驅散回歸、set_ability_active、swap_abilities、on_order_targeted 事件點；已放回 live）
+
+- **回歸修正（conformance 回報）**：04:07 那批把 `__ctl:` 列改用 runtime id。A34W、B29 地裂這類 runtime id 是共用 "stun" 的狀態，列名成了 `__ctl:stun`，dispel 取到共用 key 的 strong，basic 驅散移除不了它們的 basic 暈眩（8 個情境 pass→fail）。
+  - codegen 的列名改回 v3 狀態 id。
+  - dispel 查來源列的類別時，先用狀態 id，再用 runtime key。
+  - `dispel::remove_status` 從 catalog 把 runtime id（含 `{caster}` pattern）對回狀態 id，再找來源列。
+  - 新增測試涵蓋以上三點。
+- **set_ability_active**（23 處）：`cx.set_ability_active(of, ability, active)` → envelope `__ability_active`，在英雄身上留永久列 `__ability_inactive:<ability>`，施放准入時以 CAST_REJECTED 拒絕。
+- **swap_abilities**（13 處）：`cx.swap_abilities(on, from, to, duration, cooldown_policy)` → envelope `__ability_swap`。
+  - `to` 取代 `from` 的欄位（Hero.abilities 就是欄位順序）；`to` 沒有等級時沿用 `from` 的。
+  - cooldown_policy：continue 時各技能保有自己的冷卻；reset 清掉 `to` 的冷卻；freeze 沒有招式用到，不支援。
+  - 有 duration 時用計時列 `__ability_swap_timer:<to>`，到期由 `ability_slots::settle`（每批結算後）換回。
+  - 未做：欄位變動送到 client／UE 的呈現，是線 C 的範圍。
+- **on_order_targeted 事件點**（線 A 的 status_event ORDER_TARGETED）：英雄接受攻擊指令、或施放以單位為目標的技能時，記一列 `order_targets::OrderTargets {tick, target, orderer, kind}`。dispatch 用 `order_targets::take` 取走；新 tick 記錄時丟掉舊列，不會累積。
+  - 沒用 `ScriptEvent::Order`：它會產生呈現用的 visual event。
+- **issue_order**：主 session 依 D7 決定只在 v3 有 2 招以上時開共用命令。統計結果：attack 30、stop 15、move 7、cast 2、attack_move 1、follow 1。stop、move 達門檻，建議由 A 加在 hero_command envelope（與 order_attack 同一處），已寫進共用筆記。
+- **帶 status 的 limit**（independent 實例只移除一個）：產生器目前整個擋下 independent 疊加，實例 key 格式未定，先提案 `<runtime_id>#<序號>`、移除序號最小的，與 A 對齊後再做。
+- 測試：`inactive_abilities_and_timed_swaps_round_trip`、`rows_of_the_current_tick_are_taken_once_and_older_ones_dropped`、dispel 兩項。omoba-core 只剩既有的 tether 失敗。
+
+## 2026-10-30 清晨（history-nobu 工作線 B：本機 60Hz 雙人基線量測；set_mana、UNITS_IN_RANGE、CastTrace；已放回 live）
+
+- **主 session 指派的 `verify_moba_local_baseline`**（run `m3p-b3-20261030`，量測前請 C、gamemode 暫停）：
+  - 第一次被 C 的實機局佔住 live_match 鎖，這個腳本不能排隊；等鎖空出來才開始。
+  - 結果未通過門檻：
+    - server tick_compute 平均 13.63 ms（上限 5 ms），最大 134 ms。
+    - UE game_frame_interval 最大 400 ms、presentation_work 平均 3.0 ms（上限 2 ms）。
+    - client replica_step、IPC 都通過。
+    - 另外有 5491 筆「unknown or wrong-scope OM_PERF record」錯誤：server 的 `tick_phase`、`observer_step`、`system_time` 紀錄，moba_performance_report 不認得，是收集器與報表的版本落差。
+  - 每 tick 時間分布（tick_phase）：dispatcher 3.8 ms、visibility_wave_b 3.1 ms、script_dispatch 2.4 ms、frame_send 1.9 ms、repair_channels 1.2 ms。
+  - **不能歸因到 M3'**：
+    - 基準檔是 2026-10-06 凍結的，之後沒有同一工作量的 M3' 前實測可比。
+    - 改比 e187 的 ue-quick 系列（同一種 UE 工作量，跨 M3' 前後）的 server tick_compute 平均：M3' 前 quick1 5.98、quick3 6.12 ms；M3' 後 quick4～10 是 16.59、11.50、9.75、17.59、5.20、7.73、6.10 ms。M3' 後最低的 5.20 ms 比 M3' 前還低，差異主要來自機器負載。
+    - 這次量完時機器上仍有 7 個 rustc／UnrealEditor／headless 程序。
+    - 再加上 headless 的交錯量測（同上一筆，IR 3.17 ms、產生版 3.13 ms），M3' 沒有退步。
+  - 要得到可比的絕對數字，需要主 session 讓所有線同時停下再量一次；OM_PERF 報表的落差另外處理。
+- **set_mana**（A34 急速冷卻）：閉合 envelope `__mana_set`（mana_burn.rs 的 `SetSpec`、`apply_set`），夾在 0 到法力上限之間，任何腳本情境都能用；kit 用 `cx.set_mana(to, value)`。`cx.burn_mana_from(source, to, amount)`：原作 ReduceMana 不記來源，效果與 burn_mana 相同。
+- **UNITS_IN_RANGE**（ext op 9；op 8 給 A 的 ORDER_ATTACK）：`ExtValue::Units` 清單型別。依隊伍 ally（含自己）／enemy／both 篩選，近的在前，同距離依 entity id；其他條件由 selector 篩選。kit 用 `cx.units_in_range(center, radius, of, team)`。
+- **CastTrace**（conformance 要的，`omoba-core runtime::native::cast_trace`）：只有世界插入 `CastTrace` 時才記錄。每列有 tick、caster、ability 與結果：Accepted、WindupStarted、Rejected(碼)、ScriptError{碼, Err 文字}。
+- dodge_projectiles 的 from_team=any：host 原本就躲所有隊伍的追蹤投射物，不用改。
+- 測試：`set_mana_clamps_to_the_pool_and_leaves_a_unit_without_mana`、`ext_reads_unit_ability_and_game_attributes`（加 UNITS_IN_RANGE）。omoba-core 只剩既有的 tether 失敗。
+- 刪掉 `tools/ir_probe`（只剩空資料夾）。
+
+## 2026-10-30（history-nobu 工作線 B：M3' ④ 受控效能量測；新 stat 三項，已放回 live）
+
+- **M3' ④ 效能（受控）**：持 `performance`＋`live_match` 機器鎖（`target/m3p/perf5.lua`），release `moba-headless`，10 位英雄 role plan，600 秒／36000 tick，IR 版（④ 前，`perf-base`）與產生版（`perf-tree`）交錯 5 輪，看 `step_wall_ms_mean`：
+  - IR 版：3.78／6.43／3.13／3.17／3.14，中位數 3.17 ms。
+  - 產生版：4.71／3.10／3.17／3.07／3.13，中位數 3.13 ms。
+  - 前兩輪有我自己的測試建置同時在跑。第 3～5 輪兩版都在 3.07～3.17 ms，**產生的 Rust 沒有比 IR 慢**。
+  - 機器鎖擋得住其他量測與實機局，但擋不住其他 session 的建置，所以單輪偏高的數字不代表退步。
+  - run_10000 走 omfx（已停止維護），仍以這個量測代替。M3' ④ 的驗收至此完成：5 局重播每 tick 相同，效能沒有退步。
+- **新 stat**（StatKey 141～143，只往後加；`rules::vocab::STATS` 給產生器）：
+  - `slow_resistance_pct` → `SlowResistance`：只縮小移速的負百分比（減速），正的加速不變。
+  - `spell_lifesteal_pct` → `SpellLifesteal`：帶 SPELL 的傷害打在敵方非建築上，實際扣的血依比例回給來源。普攻不算。
+  - `cast_point_reduction_pct` → `CastPointReduction`：施法時間倍率減去本值（下限 0.1）。
+- 測試：`slow_resistance_and_cast_point_reduction`、`spell_lifesteal_heals_the_source_by_the_hp_lost`；script-abi 的 ALL 長度改為 144。
+- 修正上一批（damage flags）漏改的 script-abi 測試 `damage_profile_rejects_zero_and_unknown_bits`：它把 1<<10 當成未知位元，改成驗 IGNORE_ARMOR／HP_REMOVAL 有效、1<<12 無效。
+
+## 2026-10-30（history-nobu 工作線 B：damage flags 與 damage.credit；已放回 live）
+
+- `DamageProfile` 新增旗標位元（只往後加）：`IGNORE_ARMOR`(1<<10)、`HP_REMOVAL`(1<<11)，與 SPELL 一樣在減免前事件後剝掉。
+  - `ignore_armor`：`rules::damage::defenses` 的物理部分不看護甲。
+  - `hp_removal`（付血）：`handle_damage` 不經護盾吸收；kit 不加 SPELL，不吃法術增幅。
+- `damage.credit`：ext op `DAMAGE_CREDIT`(7) → `Outcome::ScriptDamageCredit`。只套用在下一個傷害封包（中間可隔一個 trace 標記）；`handle_damage` 從 `rules::damage::DamageCredit` 取出放進 `Packet::credit`，擊殺與助攻記錄跟著它。沒被取走的 credit 不會留到下一批。
+- kit：`cx.damage_ex_at(ability, path, to, amount, kind, Dmg, DmgExtra { hp_removal, ignore_armor, credit })`。`Dmg` 不加欄位，因為產生器用字面值建構。
+- 測試：`ignore_armor_hp_removal_and_a_credit_for_the_next_packet`。omoba-core 其他測試全過，只有 `tether_settles_edge_distance_far_root_and_root_damage_even_after_the_caster_dies` 失敗；它在 live 也失敗，是本批以外的既有問題。
+- status 語意的分工判斷：`unique_group` 可由產生器在 payload 放 `__aggregation_family`（BuffStore 已有同族取最強）；`immune_to` 可由產生器在 apply_status 前靜態檢查 `has_buff`。這兩項不需要 host。`reapply_if_removed`（A22T、覺悟酒）需要 host 在驅散時判斷，而且要配合 `immune_to` 擋下重套，留待下一批。
+
+## 2026-10-30（history-nobu 工作線 B：規則層狀態第 1 批；已放回 live）
+
+- 新狀態（`rules::vocab::state`，BuffStore 的狀態 key 就是 v3 名稱）：
+  - `disarm`：不能普攻（英雄 hero_tick、兵、召喚物 summon_target_allowed、腳本塔／召喚物 dispatch）；可以移動與施法。`BuffStore::is_disarmed` 也算 stun 與 hex。lane 塔照舊不吃控制。
+  - `mute`：不能用道具（`apply_resolved_item_use`）。`is_muted` 也算 hex；暈眩不算（既有「被控仍可用道具」規則不動）。
+  - `hex`：同時算 silence、disarm、mute；模型交呈現（線 C）。
+  - `evade_disabled`：閃避歸零。`cannot_miss`：自己的失手率歸零，也無視目標閃避（damage_tick 的 `Rolls.true_strike`、projectile_tick 的 `UnitStats::evasion_against`）。
+  - `attack_immune`：不是普攻目標（combat_acquisition、lane 選目標），已飛行的普攻落空；技能照常命中。lane 選目標順便排除無敵單位。
+  - `attack_slow_immune`：負的攻速加成不算，攻速倍率不低於 1。
+- 產生器可用的狀態（`STATE_EFFECTS`）一併補上 host 早已支援的 `physical_immune`、`melee_attack`、`ranged_attack`、`block_disabled`、`flying_for_pathing`、`invulnerable`、`command_restricted`、`untargetable_by_spells`（落在 `tag_untargetable_by_spells`）。
+- 共用狀態跟著狀態走：codegen 的 `apply_status` 為每個持有共用 state 的狀態留 `__ctl:<runtime id>` 列（以前只有 stun／root／silence，且用 v3 id）；host `dispel::remove_status` 在腳本移除狀態時一起移除它的來源列，以及只有它持有的共用 state（別的狀態仍持有就留著）。修掉「remove_status 後 stun／physical_immune 等留到原本時間才消失」。dispel 查來源列的規則時 runtime id 與 v3 id 都認。
+- 沒做：`blind`（原作 MODIFIER_STATE_BLIND 是失去視野，要接視野系統）、`break`／`passives_disabled`、hex 的移速。
+- 測試：`rule_layer_states_change_accuracy_attack_speed_and_controls`、`removing_a_status_takes_the_shared_states_only_it_held`；omoba-core lib 全過。base_content 有一批既有失敗（live 同樣失敗，例如 `cast_windup_formal_60hz_defers_effects_and_cancels_without_resource_debit` 召喚數 0≠2），本批不增不減。
+
+## 2026-10-30（history-nobu 工作線 B：ext 讀取 API；已放回 live）
+
+- `GameWorld::ext` 新增三個 op（script-abi `ext.rs`，只往後加）：`UNIT_ATTR`(4)、`UNIT_ABILITY_ATTR`(5)、`GAME_ATTR`(6)，以屬性名稱分派，名稱常數在 `ext::{unit_attr, ability_attr, game_attr}`。不知道的名稱回傳錯誤；死掉或不存在的單位讀成 0／false／沒有單位。
+- 單位屬性：level、str／agi／int（等級成長＋加成，與 attributes.rs 同一算法）、max_mana、is_illusion（狀態 `illusion`，新增 `rules::vocab::state::ILLUSION`，create_illusion 之後要掛它）、is_channeling（`ability_channel` 狀態）、is_invulnerable、is_invisible、is_creep、is_ranged、owner（召喚者）、attack_target、attack_speed_mult、projectile_speed、base_magic_resist、base_attack_range、cast_range_bonus。技能屬性：cooldown_remaining、is_ready（已學、冷卻好、有充能）。對局：is_night、time。
+- kit：`cx.unit_num／unit_flag／unit_ref(unit, unit_attr::X)`、`cx.ability_cooldown`、`cx.ability_ready`、`cx.is_night`、`cx.game_time`；`ability_kit::unit_attr` 重新匯出。damage、attack_interval、attack_range、mana、armor、name 等已有 GameWorld 方法，不重複。
+- 沒做：gold（經濟歸 line-gamemode）、dt（產生器用 tick 常數）、全圖／友軍範圍選取（下一批，需要回傳單位清單）。測試：`ext_reads_unit_ability_and_game_attributes`。
 
 ## 2026-10-30（history-nobu 工作線 B：remove_status 篩選、damage_from_at；已放回 live）
 
@@ -328,7 +614,126 @@
   - `damage { source }` 改走有傷害追蹤的 `damage_from_at`。
   - destroy_trees 不再列為 host 缺口（E242）。
   - 英雄技能 115→116 招產生；remove_status 的 dispel、team_of_source、states 和沒有宣告狀態的阻擋都消失了。
+- 2026-10-30 工作線 A：taunt 與 ext 屬性讀取已放回 live。
+  - taunt 狀態：status 的 states 有 `taunt` 時，每次套用都接著 `cx.taunt(to, 施加者, duration)`，移除時接 `cx.end_taunt`（新加在 host_ext.rs）。
+  - B24 在 taunt 之後緊跟的 attack 命令由 taunt 代下。
+  - remove_on 不會結束 taunt，已列為 gap。
+  - 單位屬性透過 ext 讀取：level、str/agi/int、max_mana、owner、attack_target 等，以及 ability.level、ability.is_ready、game.is_night、game.time。
+  - 英雄技能 116→127 招產生，wave1 17→20 招（m6-wave1-unlock.md 已重產）。forms 測試加了 taunt 一項（10 項）。
+  - 友軍範圍選取需要 host 查詢，已請 B 提供 ext op。
+  - C06T 的 issue_order 改用 taunt 時，鎖住多久要主 session 決定。
+- 2026-10-30 工作線 A：M5 第一批放回 live，conformance g11 比對 0 差異的 7 招改跑產生的 Rust：
+  - 招式：a07_unscathed、a34_frost_bolt／iceberg_strike／frost_breath、b29_ground_slam、c15_precise_light／scatter_shot。
+  - live 新增英雄 crate：honda_tadakatsu、omatsu、murakami_yoshikiyo、tamako。
+  - base_content 的 abilities() 依 B04 的做法替換這些招式的 script；B08 等全部能產生再換。
+- 同日另外放回：
+  - status_event ABILITY_EXECUTED，產生器接上狀態觸發 on_ability_executed。
+  - tether 兩筆傷害帶 trace path；施法者已死時斷鏈傷害仍送出並帶 REQUIRE_SOURCE_ALIVE，trace 記為 skipped。
+  - v3_test_heroes 的技能列帶 v3 block，A13 狀態才有驅散類別。
+  - items.dll 接線在影子做完（m7-items-host-wiring.md「實作」），等 B 審；修正 E246（道具 active 沒被讀到）。
+- 2026-10-30 工作線 A：M5 驗收證據（主 session 決定先驗 (A) 再刪比對 (C)）。
+  - 實驗只在影子做，不放回 live；腳本 target/lineA/exp.lua。
+    - 去掉產生版狀態 payload 的 `source_entity_id/gen`（差異 a）。
+    - 把 B 的「狀態移除時帶走它持有的共用 state」退回只移除狀態列，並不寫 `__ctl:<runtime id>` 列（差異 b）。手寫 handler 早於這個修正。
+  - 結果：`generated_scripted_a02`（inahime＋oichi）、`generated_scripted_casts`（saika＋oichi）、`generated_scripted_b04`（date＋oichi）三項都 5400 tick 每 tick 相同。
+  - 結論：產生版與手寫 handler 的差異只有 a 與 b 兩項。
+    - a 是刻意的：dispel 與 purge 的 team_of_source 要讀施放者。
+    - b 是 host 修正：A02T 融影術被施法破隱時，手寫版會殘留 no_unit_collision，產生版正確（E250）。
+  - 這些差異不只出現在 buff 列，也透過投射物擷取的 `ProjectileScriptSource.buffs` 進到 replay digest。
+- 2026-10-30 工作線 A：base_content 27 項失敗。
+  - 都是 M3' 造成的：B01 改成自己的 DLL 後，retained 的舊 loadout handler 沒人註冊。
+  - 已在測試 get_manifest 補註冊 sniper_mode、saika_reinforcements、rain_iron_cannon、three_stage_technique，放回 live。
+- 2026-10-30 工作線 A（B 量測結束後）：以下都已放回 live。
+  - M5 (C)：刪除 A02、B01、C17 的手寫 handler 與逐 tick 比對。刪掉的有 base_content 的 C17 模組、B01 的 b01_* handler 與 b01_test_support、hero_a02_impl 的 legacy-handlers；B01 的 4 個 retained 舊技能保留。h01 的被動測試改用產生版 `B01RainIronCannon`。
+  - items.dll host 接線（B 審過）：先 execute 再一起提交；效果會召喚就拒絕；cue 不撤回列為 gap。
+  - order_attack：hero_command OrderAttack，不鎖定；kit 是 `cx.order_attack`，v3 是 `op = "order_attack"`。
+  - 產生器接上 gold_of 與 create_pickup，C06T 豪奪能產生。
+  - tether 測試照新行為更新：施法者已死時，斷鏈傷害帶 REQUIRE_SOURCE_ALIVE 送出，再被丟棄。
+  - live 的完整 base_content 正在重跑確認。
+- 2026-10-30 工作線 A：live 的 base_content 失敗從 27 項降為 1 項（589 通過、20 ignored，加上 hero_a02_impl 與 items_impl）。
+  - 剩下 `piercing_hero_skills_on_magic_immune`（B29 大地震撼對魔免英雄的手寫 handler 暈眩），已交給 B（host 魔免與 control 規則）。
+  - magic_immunity::ability_pierces 補讀 v3 的 `pierce_magic_immune` ability flag。
+- 2026-10-30 工作線 A：同批另外放回的有：
+  - issue_order（stop、hold、move、attack_move、attack）走 hero_command，不鎖定。
+  - direction 技能的 `target.vector_length = "$distance"`（B08 兩招、A34E、A24），讓 UE 畫成從施法者出發的直線；產生器允許 vector_length、min_range。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
+
+## 2026-10-30（conformance：友方英雄目標；E256，已放回 live）
+
+- 測試世界只有兩位英雄；把另一位改成施法者那隊當友方英雄。C17W 光之鎖鏈的友方分支（guard 的驅散、死亡、到期、可見性與 normal/ally）24 個轉為通過，沒有新失敗。
+- 結果：10 位 1672 通過、15 (b)、0 (c)、602 unsupported；產生版與手寫 0 差異。
+- 下一批：被動的普攻事件（`event on_attack_hit` 的傷害，用 DamageTrace 的 path 判斷）。
+
+## 2026-10-30（conformance：驅散退步修好、(c) 歸零、接上 CastTrace；E254，已放回 live）
+
+- B 的 land16（`__ctl:<v3 狀態 id>`）放回後重跑：A34W、B29 地裂 basic 暈眩 8 個通過，已從 known_differences 刪除。
+- harness 插入 CastTrace，施放沒被接受時說明附上 Rejected／ScriptError 碼。
+- 結果：10 位 1648 通過、15 (b)、0 (c)、626 unsupported；產生版與手寫 0 差異；A13 100 通過、12 fail（替身術，預期）。
+
+## 2026-10-30（conformance：performance 鎖釋放後全量重跑；E253，已放回 live）
+
+- 10 位 1644 通過、15 (b)、8 (c)、628 unsupported；產生版與手寫 0 差異。和刪除手寫 handler 前的基準（`target/e229/baseline-before-C`）逐筆比：C15 百箭 r1～r3 轉為通過、C15 爆裂箭 4 個情境照 E251 移除，沒有退步。
+- A13：a13r_debuff 圖示修好，4 個轉為通過；100 通過、12 fail（替身術不在 loadout，預期）、348 unsupported。
+- E251 去掉延後期望後，B08D 無盡之牙「施放後死亡」露出新 fail：施法者無敵、死不了。harness 對無敵的單位記 unsupported（E253，已放回）。
+
+## 2026-10-30（conformance：產生器排除 delay／repeat 的延後狀態、known_differences 註明負責線、baseline 整理；E251）
+
+- B 持有 performance 鎖（05:40 起）期間只做輕負載的事，放回時只跑 codegen 檢查。
+- 情境產生器：「施放後施法者死亡」再排除 path 落在 delay／repeat 底下的狀態。已上架的 10 位裡，受影響的都原本就是 unsupported：B29 地裂 r1～r4 預期轉為通過，C15 爆裂箭 r1～r4 的情境消失（只剩延後的燃燒）。
+- known_differences 的 8 筆 (c) 改寫：負責線是 B（dispel.rs），修好的條件是 basic 驅散後不再有 stun，通過後立刻刪。
+- m5-conformance-baseline：開頭新增「現況」一節（每位英雄的結果與執行方式、(b)／(c) 的負責與條件、還量不到的項目），第 2 節的檢查範圍補到 E251。更正：目前是 1637 通過、15 (b)、8 (c)、633 unsupported。
+- hook cases：A13E 鎖鏈鐮的 12 個情境已全數通過；C06T 還沒有 hook 宣告。
+- 鎖釋放後：全量重跑已換上的英雄。
+- A 已修 A13 a13r_debuff 沒有圖示（v3 測試英雄的技能也傳進 status_buffs），鎖釋放後的全量重跑一併驗證。A 預告 M5 走 (C)：刪除 A02、B01、C17 的手寫 handler，之後 legacy_handlers 只剩 B04 兩招，這三位的手寫對照會失效，改以「換上前後的 live 結果」逐筆比對。
+
+## 2026-10-30（conformance：on_take_damage_pre／on_removed、控制列 key 退步；E249，已放回 live）
+
+- performance 鎖釋放後同步並全量重跑。新增：A07W 的 on_take_damage_pre（敵方魔法、純粹傷害被取消）與 on_removed（guard 移除連帶移除 convert）r1～r4 各 4 個通過；C17W 施放後死亡（E248 產生器修正）4 個通過。
+- **退步**：A34W 寒冰箭、B29 地裂的 basic 暈眩 basic 驅散不掉（8 個）。ability_kit 04:07 版把控制列寫成 `__ctl:stun`（runtime id），dispel 用共用 key 的 strong。已列入 known_differences（c），回報 A（改回 v3 狀態 id）與 B。
+- 結果：10 位 1637 通過、15 (b)、8 (c)、633 unsupported；產生版與手寫 0 差異；A13 96 通過、16 fail（report-only）。（先前寫 1629／637 是 harness 還不認 runtime id 列名時的數字，strong 驅散 8 個被記成 unsupported。）
+- 追記：B 說明 `__ctl:` 列以 runtime id 命名是 B 的設計（ability_kit 照約定寫）。用同步後的 live 重跑，8 個仍 fail，問題在 dispel 依 runtime id 列判斷類別；已把重現方式交給 B，更正給 A。B 也排了 CastTrace（施放被拒碼與腳本 Err）。
+
+## 2026-10-30（conformance：施放後死亡只列同分支、死亡前的狀態；E248，已放回 live）
+
+- 情境產生器的「施放後施法者死亡」排除其他陣營分支與延後區塊（tether on_expire、delay、repeat）才套上的狀態。105 份文件只有 C17W 的 4 個情境改變，沒有情境消失。
+- 只跑 codegen 檢查放回：B 的 run_10000 效能量測持有 performance 鎖（04:29 起），量測結束前不跑 cargo 全量。
+- hook cases：目前只有 A13 寫了 hook（鎖鏈鐮，12 個情境已全數通過）；C06T 還沒有 hook 宣告。
+
+## 2026-10-30（conformance：C17W 死後斷鏈傷害）
+
+- A 修正後重跑 C17：c17_light_chain r1～r4 施法者死後，trace 記到斷鏈傷害 `events.on_cast[1].actions[1].on_expire[2]` 為 SkippedSourceDead，`damage_skipped_if_source_dead` 通過。
+- 情境整體仍 unsupported：同一情境要求 root（斷鏈時才套）與 c17w_guard（友方分支）在死亡前就在目標上，這是產生器把不同分支、不同時間點的狀態放進同一情境。待辦：「施放後死亡」只列死亡前、同一分支會套上的狀態。
+
+## 2026-10-30（conformance：A 把 7 招換上 live、A13 hook 全數通過）
+
+- 7 招（A07W、A34W／A34E／A34R、B29 地裂、C15 精準之光／散射）換成產生的 Rust 後，和換上前的 live（手寫）逐筆比：0 退步，46 個 unsupported 轉為通過，與影子預測一致。legacy_handlers 沒收這 7 招，對照模式對它們無效（已告訴 A）。
+- A13：A 修正 test_only 英雄的法力（鎖鏈鐮被拒原因是 NOT_ENOUGH_MANA，法力上限 0）。鎖鏈鐮 hook 3 個 case × r1～r4 全部通過，第一個 AI 寫的 hook 通過情境比對。剩 16 fail：替身術不在 loadout 12（預期）、a13r_debuff 沒有 buff 圖示 4（已回報 A）。
+- 結果：10 位 1633 通過、15 (b)、0 (c)、645 unsupported；A13（report-only）96 通過、16 fail、348 unsupported。
+- 已向 B 提 CastTrace（施放被拒碼與腳本 Err），之後「施放沒被接受」可以直接寫出原因。
+
+## 2026-10-30（conformance：C17W tether 傷害修正後重跑）
+
+- A 讓 tether 的兩筆傷害帶 path，並在施法者死後仍送出斷鏈傷害。重跑後 root 傷害帶 path（`statuses[1].triggers.on_created[1]`，Applied），但斷鏈傷害 `events.on_cast[1].actions[1].on_expire[2]` 在施法者死後仍沒有任何紀錄，C17W 的 4 個情境維持 unsupported；B08 不變。已回報 A：施法者死亡時 tether 可能走死亡清理，不是到期結算。
+
+## 2026-10-30（conformance：A13 重跑）
+
+- A 補上 test_only 英雄技能列的 v3 block 後重跑 A13：驅散類別 96 個 fail 與 evasion 單位 8 個都解決（後者是 catalog 查不到 pct 單位，harness 換算本來就照 vocab）。8 通過、24 fail、428 unsupported。
+- 剩：替身術不在 loadout 12 個（預期）；鎖鏈鐮 hook 施放不成立 12 個，連 followthrough 都沒套上。原因碼與腳本 Err 測試讀不到，已把輸入內容交給 A，並建議加 CastTrace。
+
+## 2026-10-30（conformance：A13 整招 hook、hook 期望種類、共用控制依類別驅散；E245，已放回 live）
+
+- A13 服部半藏加進 conformance（report-only）：460 情境，126 fail（狀態沒有驅散類別 96、鎖鏈鐮 vector 目標用 point 施放被拒 12、伊賀忍術 evasion 單位 8、替身術不在 loadout 12），334 unsupported（含 3 招還沒產生）。已回報 A。
+- harness 補上 hook cases 的 status_applied（目標）、damage（DamageTrace）、moved_toward、no_unit_in_line；有 `__ctl:<狀態>` 列時共用 stun 依狀態本身類別驗驅散。
+- 其他 10 位與上一輪 0 差異；1587 通過、15 (b)、0 (c)、691 unsupported。
+- 影子（gen_<id> 換掉手寫的 10 招）重比：A07W guard 的 8 個 fail 消失（A 補了狀態 payload 的施放者）；A34 寒冰箭、B29 地裂的 stun 驅散 16 個因 B 的 `__ctl` 列轉為通過；剩 B08 混用時的 rank 標記說明差異。這 10 招換上 live 不會退步。
+
+## 2026-10-30（conformance：傷害 trace 接上 damage_skipped_if_source_dead；E244，已放回 live）
+
+- 測試世界開 B 的 DamageTrace。「施法者死後跳過的傷害」以 path 與結果判斷；有這個期望時施放後立刻殺，不等狀態落地。
+- 一個看不到的期望不再遮住同一情境的其他期望（失敗仍會報出）。
+- C17W：死後 on_expire 有執行，但斷鏈傷害沒有任何 trace 紀錄；請 A 讓產生碼照常呼叫 damage_at，並替狀態 triggers 的傷害帶 path。
+- live：1587 通過、15 (b)、0 (c)、691 unsupported；產生版與手寫 0 差異。
+- B 已排定共用 stun key 的驅散類別（第 2 批第一項）。
 
 ## 2026-10-30（conformance：A 修投射物後重比 9 招；A13E 整招 hook）
 

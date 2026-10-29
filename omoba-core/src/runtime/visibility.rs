@@ -1229,6 +1229,13 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                     .unwrap_or(crate::runtime::buff_visual_state::BuffVisualSnapshot {buffs:crate::runtime::buff_visual_state::BuffVisualState(vec![]),channel_totals:vec![]});
                 disclosed.push((crate::runtime::buff_visual_state::SCHEMA_ID,state.encode().expect("bounded generated buff IDs")));
             }
+            // Ground zones, tethers and the illusion flag (runtime_fact_state); the team projector
+            // re-sends them per team and never forwards this component to a replica.
+            if moba {
+                if let Some(state)=buffs.as_ref().and_then(|store|crate::runtime::runtime_fact_state::RuntimeFactState::from_store(store,entity)) {
+                    disclosed.push((crate::runtime::runtime_fact_state::SCHEMA_ID,state.encode().expect("bounded runtime facts")));
+                }
+            }
             if let Some(tower) = towers.get(entity) {
                 let mut safe = tower.clone();
                 safe.nearby_creeps.clear();

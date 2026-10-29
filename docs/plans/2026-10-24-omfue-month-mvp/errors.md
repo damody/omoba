@@ -2,6 +2,165 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E256 conformance：友方英雄當目標（C17W 光之鎖鏈的友方分支）（2026-10-30，conformance session）
+
+- **現象**：C17W 對友方施放的 guard 狀態、`normal/ally` 共 24 個情境一直 unsupported。測試世界固定兩位英雄（施法者與敵方的 training_luminary），沒有友方英雄可以當目標。
+- **做法（harness）**：陣營只看 `Faction.team_id`，所以把另一位英雄改成施法者那隊，當成友方英雄。
+  - `target_unit` 是友方英雄的情境：直接這樣處理。
+  - 給目標的增益（buff）狀態：套狀態的嘗試順序從「對敵人、對自己」再加「對友方英雄」。
+- **結果**：C17W r1～r4 的 guard（驅散、死亡、到期、可見性）與 normal/ally 共 24 個轉為通過，沒有新失敗。10 位：1672 通過、15 (b)、0 (c)、602 unsupported；產生版與手寫 0 差異。已放回。
+- **以後如何避免**：測試世界缺某種單位時，先看敵友是怎麼判定的；能用既有單位改陣營模擬，就不需要另外生英雄。
+
+## E255 陣容 A 一直輸：雜賀孫市、村上義清在 bot 施放政策裡一條都沒有，bot 從不放技能；M3' 的產生 Rust 沒有變差（2026-10-30，e187 遊戲模式 session；進行中）
+
+- 編號先占用，內容完成後補上。
+
+## E254 conformance：B 修正控制列後 8 筆 (c) 通過並刪除；harness 接上 CastTrace（2026-10-30，conformance session）
+
+- **驅散退步已修**：B 把 `__ctl:` 列名改回 `__ctl:<v3 狀態 id>`，dispel 查類別時先用 v3 狀態 id（land16）。A34W 寒冰箭、B29 地裂的 basic 暈眩 basic 驅散 r1～r4 共 8 個轉為通過，已從 known_differences 刪除，(c) 歸零。
+- **CastTrace**：每個情境的世界插入 B 的 `cast_trace::CastTrace`。施放沒被接受時，從這次施放之後的紀錄裡，找這個施法者、這招的第一個 Rejected 碼或 ScriptError 碼，附在說明後面（例如「cast 1 was not accepted (NOT_ENOUGH_MANA)」）。這一輪沒有施放不被接受的情境，所以說明裡還沒出現原因碼。
+- **結果**：10 位 2289 情境：1648 通過、15 (b)、0 (c)、626 unsupported；產生版與手寫 0 差異。A13（report-only）100 通過、12 fail（替身術不在 loadout）、348 unsupported。已放回。
+- **以後如何避免**：known_differences 只暫放已交出、有負責人的退步，修好立刻刪除（主 session 的規則）。
+
+## E253 conformance：E251 之後 B08D 無盡之牙「施放後死亡」變成 fail，其實是施法者無敵、死不了（2026-10-30，conformance session）
+
+- **現象**：E251 的產生器修正去掉延後才套上的期望後，`b08_endless_fang/r1/death/caster_dies_after_cast` 剩下的期望（施法者的 b08_endless_fang_invulnerable、stun 要在死亡後移除）被實際檢查，結果是「still on the unit」，test 失敗。
+- **根因（a，harness）**：無盡之牙期間施法者無敵，harness 的致死一擊殺不死他，情境要的死亡沒有發生。持有者無敵的情況（holder_dies）早就記 unsupported，「施放後死亡」漏了。
+- **修正**：檢查 status_removed／kept 時，單位還活著且帶有無敵狀態，就記 unsupported（「the unit is invulnerable: it cannot die」）。已放回。
+- **全量重跑（performance 鎖釋放後）**：10 位 1644 通過、15 (b)、8 (c)、628 unsupported；A13 100 通過、12 fail（a13r_debuff 圖示修好，4 個轉為通過；剩替身術不在 loadout）、348 unsupported。和刪除手寫 handler 前的基準逐筆比：C15 百箭 r1～r3 轉為通過、C15 爆裂箭 4 個情境照 E251 移除，沒有退步；產生版與手寫 0 差異。
+- **以後如何避免**：產生器移除不可觀察的期望後，原本被遮住的期望會開始被檢查，要整批重跑確認，不能假設只會變好。
+
+## E252 nobu 隊伍 1 的打野一級就打 3,582 HP 的烏龜營，每局送 50 次頭；打野改成只打打得過的營地（2026-10-30，e187 遊戲模式 session；已放回 live）
+
+- **現象**：nobu 3 局都是隊伍 2 勝，隊伍 1 的英雄死 71～87 次。
+- **根因**：
+  - 不是地圖不對稱：雙方巡營順序對稱，第一站都是烏龜營（3,582 HP、每秒約 260 傷害）。
+  - 帶 log 重跑 600 秒：隊伍 1 打野（淺井長政）死 25 次，全都死在 giant_tortoise 手上；整局沒有任何野怪被打死。隊伍 2 打野根本沒去打營。
+  - 打野 bot 沒有判斷打不打得過，一級英雄（1,400 HP、每秒約 30 傷害）直接打原作數值的營地，重生後又回去。
+- **修正**（`moba_match/bots.rs`）：
+  - 只在有分邊營地的地圖生效：打野只巡自己英雄「打得過」的自家營地。判斷式是「營地總 HP ÷ 英雄每秒傷害 < 英雄最大 HP ÷ 營地每秒傷害」，營地數值取公開模板，英雄只讀自己的最大 HP 與攻擊。
+  - 一個都打不過時，照自己的路線像中路一樣上線，也不打野怪；出裝與施法仍照打野。
+  - 沒有分邊營地的地圖（quick、訓練圖）不變。
+- **測試**：bots 79 項全過，新增 `nobu_junglers_tour_only_the_camps_their_hero_beats`。
+- **量測**（release headless，nobu 上限 3600 秒）：
+  - 600 秒帶 log：淺井長政打死 17 隻野怪、自己死 3 次。
+  - 原陣容 5 局：隊伍 2 勝 4，局長中位 43.5 分；對調陣容 5 局：隊伍 1 勝 5，中位 43.5 分。雙方各死 19～44 次。
+  - 地圖邊合計 6:4。贏的一直是同一組陣容（本多、真田、玉子、稻姬、阿松），和 quick 一樣：quick 原陣容隊伍 2 勝 10/12，對調後隊伍 1 勝 12/12。這是陣容強弱（E165），不是地圖。
+  - 陣容 A 包含 B01 雜賀孫市與 C17 阿市，兩位的產生 Rust 目前有 27 項測試失敗（M3'），可能也讓陣容 A 變弱。
+- **錯誤 2：錯誤編號又撞號**：程式註解先寫 E244，寫紀錄時才發現 E244 已被 conformance 使用，改成 E252。
+- **以後如何避免**：
+  - 量測出現一面倒時，先跑對調陣容區分「地圖邊」和「陣容」，再帶 log 看是誰、被什麼殺。
+  - bot 進入有原作數值的內容（營地、魔王）之前，要有「打不打得過」的判斷。
+  - 錯誤編號：在把號碼寫進程式之前，就先在 errors.md 寫入標題占號（E242 已記過，這次在程式寫好、紀錄還沒寫時又被別人搶先）。
+
+## E251 conformance：「施放後施法者死亡」也排除 delay／repeat 裡才套上的狀態；known_differences 的退步註明負責線（2026-10-30，conformance session）
+
+- **現象**：E248 留下的限制。delay 與 repeat 的 actions 沒有條件標記，只寫在裡面、延後才套上的狀態，仍被列成「死亡前要在身上」。例如 C15 爆裂箭的地面燃燒、B29 地裂的 b29e_phased。
+- **修正（c3，情境產生器）**：`v3_scenarios.lua` 改依 path 判斷，path 落在某個 delay／repeat 底下的狀態不列入。105 份文件中有 116 個情境少了期望、84 個情境整個消失（只剩延後狀態、沒有其他期望）。已上架的 10 位裡受影響的都原本就是 unsupported：B29 地裂 r1～r4 預期轉為通過；C15 爆裂箭 r1～r4 消失；B08 無盡之牙、C15 百箭各少一項。
+- **known_differences**：A34W、B29 地裂 basic 暈眩的 8 筆 (c) 改寫說明：負責線是 B（dispel.rs），修好的條件是 basic 驅散後持有者不再有 stun，通過後立刻刪除。依主 session 的規則，known_differences 只暫放已交出、有負責人的退步。
+- 只跑 codegen 檢查放回（B 持有 performance 鎖，05:40 起）。
+- **以後如何避免**：沒有條件標記的巢狀區塊（delay、repeat）要用 path 判斷時序。
+
+## E250 A02T 融影術的手寫 handler 在狀態被移除後留下 no_unit_collision；產生版正確（2026-10-30，工作線 A）
+
+- **現象**：M5 逐 tick 比對 `generated_scripted_a02`。施法破隱移除 `a02_shadow_meld` 後，手寫 handler 的英雄身上還留著 `no_unit_collision` 約 21 秒；產生版會一起移除。
+- **根因**：手寫 handler 把無碰撞當成另一個同時長的獨立 buff（`add_buff(NO_UNIT_COLLISION, duration)`），狀態列被提前移除時沒有人帶走它。產生版的狀態以 state_buffs 持有，B 的 host 修正（`dispel::remove_status` 與 `__ctl:<runtime id>` 列）讓狀態移除時一起拿掉只有它持有的共用 state。
+- **修正**：不修手寫 handler。產生版就是正確行為，M5 換成產生版之後，這個手寫 handler 會連同逐 tick 比對一起刪除。
+- **以後**：狀態的附帶 state 一律寫在 v3 的 `states`，由狀態持有，不要另外加獨立 buff。M5 驗收時差異只能來自已知、刻意的 host 修正，並記下實驗證據（execution-status 2026-10-30）。
+## E249 conformance：狀態的 on_take_damage_pre／on_removed 觸發；ability_kit 的控制列 key 改成 runtime id，basic 驅散移除不了 basic 暈眩（2026-10-30，conformance session）
+
+- **做法（harness）**：
+  - `on_take_damage_pre` 會取消敵方非物理傷害的狀態：敵方各打一次魔法與純粹傷害，持有者生命不能減少。A07W 的 a07w_convert r1～r4 通過。
+  - `on_removed`：用驅散移除狀態（只在那次驅散不會直接移除觸發目標時），檢查觸發移除的狀態不在、套上的狀態在。A07W 的 a07w_guard 移除時連帶移除 convert，r1～r4 通過。
+  - 共用 stun 的控制列 key 同時認 `__ctl:<v3 狀態 id>` 與 `__ctl:<runtime_id>`，由實際驅散結果判斷。
+- **發現（c，交給 A）**：ability_kit/src/codegen.rs（04:07 版）把控制列寫成 `__ctl:<runtime_id>`，例如 `__ctl:stun`。dispel 依列名找狀態類別時拿到共用 key 的 strong，所以 A34W 寒冰箭的 a34w_freeze、B29 地裂的 b29w_stun（v3 都是 basic）basic 驅散不掉。04:07 前是 `__ctl:a34w_freeze`，這 8 個是通過的。已列入 known_differences（c），請 A 改回 v3 狀態 id；通過後會提示刪除。
+- **結果**：10 位 1637 通過、15 (b)、8 (c)、633 unsupported（新增 A07W 8、C17W 4 通過；A34／B29 的 basic 驅散 8 個轉為已知 c，strong 驅散 8 個仍通過）。產生版與手寫 0 差異。A13 不變（96 通過、16 fail，report-only）。已放回。
+- **以後如何避免**：產生碼寫給 host 的 key 格式變更時，要同時跑 conformance；用 runtime id 當列名會讓共用 key 的狀態失去各自身分。
+
+## E248 conformance：「施放後施法者死亡」把其他分支與延後區塊的狀態也列成死亡前要在（2026-10-30，conformance session）
+
+- **現象**：C17W 光之鎖鏈 r1～r4 的 `death/caster_dies_after_cast` 一直 unsupported。死後跳過的斷鏈傷害已經驗證通過（SkippedSourceDead），但同一情境還要求 root 與 c17w_guard 在死亡前就在目標身上。
+- **根因（c3，情境產生器）**：產生器把這招所有 apply_status 都列進去。root 在 tether 的 on_expire（斷鏈時）才套上，c17w_guard 只在對友方施放的分支；對敵方施放、施放後立刻死亡時，這兩項都不可能成立。
+- **修正**：`v3_scenarios.lua` 的「施放後死亡」只列這個情境目標陣營那一分支的狀態（`is_enemy(caster, target)` 與其否定依目標陣營排除），並排除在延後區塊（`<op>.on_expire`、`delay.*`、`repeat.*` 條件）才套上的狀態；投射物 on_hit 的狀態保留（harness 會等它落地，E241）。105 份文件只有這 4 個情境改變（3 項期望變 1 項），沒有情境消失。放回 live（只跑 codegen 檢查；B 的效能量測持有 performance 鎖）。
+- **限制**：delay 的 actions 沒有條件標記，延後套上的狀態若只在 delay 裡，還會被列入；之後依 path 判斷。
+- **以後如何避免**：情境的期望要對同一時間點、同一分支成立；產生器組合期望時要檢查條件是否互相排斥。
+
+## E247 執行期呈現事實原本打算從 replica 讀，但 replica 只有 buff 的 id 和剩餘時間；新結構沒有匯出，UBT 連結才失敗（2026-10-30，工作線 C）
+
+- **現象**：
+  - 計畫是讓 replica host 從 team replica 的 BuffStore 讀出地面區域（`damage_zone`）和繫繩（`__tether_v1`）。
+  - 實際上 replica 只收到 `BuffVisualState`，也就是 buff id 和剩餘時間，payload 一律不送，所以位置、半徑、繫繩來源都讀不到。
+  - 另外，`FOmRuntimeFacts::FromFrame` 是 OmRuntime 的靜態函式，被 OmGenerated 和 OmEditor 呼叫。第一次 land 時 UBT 連結失敗（LNK2019）。
+- **根因**：
+  - buff payload 刻意不揭露（buff_visual_state 只送目錄 id），replica 的世界本來就沒有這些事實。
+  - 新的 struct 沒標 `OMRUNTIME_API`。class 有標，但 struct 的靜態函式要另外標。
+- **修正**：
+  - 由權威端產生：visibility.rs 在實體的揭露基線放 `runtime_fact_state` 元件。team_projector 把它從 replica 基線和 checkpoint 拿掉，每個 frame 改成各隊的事件。事件中的繫繩來源換成該隊的 replica id，兩端都揭露才送；幻象只送給同隊；key 依隊伍加鹽。
+  - struct 補上 `OMRUNTIME_API`。
+- **第三個問題（實機才看到）**：
+  - 繫繩事實已經送到 UE（`OM_RUNTIME_FACTS links=1`），畫面上卻沒有光帶。
+  - 原因是呈現器發的 cue 帶 tick 0。共用的戰鬥視覺池（`UOmCombatVisualSubsystem::Emit`）只收目前 frame 視窗內、而且不早於單位出生 tick 的 cue，所以 tick 0 被靜默丟掉。
+  - 自動化測試的世界沒有設定 scope，所以抓不到。
+  - 修正：`FOmRuntimeFacts::FromFrame` 帶出 frame tick，cue 用它；測試補上 tick 斷言。
+- **以後**：
+  - 要從 replica 讀某個 runtime 狀態前，先查 `secure_replica_component_allowlist` 和 visibility.rs 實際送了什麼。
+  - 跨模組呼叫的 UE struct 一律標模組 API。
+  - 任何不是從 frame 事件來的 cue，都要帶目前的 frame tick，再進戰鬥視覺池。
+  - 新的呈現路徑一定要開實機看一次，也要留一行 log（例如 `OM_RUNTIME_FACTS`），讓下一次能分辨是資料沒到，還是沒有畫出來。
+
+## E246 產生器沒讀道具的 `active`，主動效果被默默略過；items.dll 的 registry 也是空的（2026-10-30，工作線 A）
+
+- **現象**：codegen-coverage 報告 67 件道具已產生，但接上 host 後，道具的 execute 回傳「passive ability cannot be cast actively」，`items_impl::abilities()` 也是空的。
+- **根因**：
+  - v3_rust.lua 的 model 把道具整件當成 entry，emit_entry 只讀 `def.events`，道具的主動寫在 `def.active.events`，所以從來沒有產生，也沒有 blocker。
+  - registry 只收 `kind == "ability"` 的 entry，道具一件都沒有註冊。
+  - 這兩件事因為 items.dll 從沒被載入，一直沒人發現。
+- **修正**：
+  - 道具的 `active`（events、target、flags）當成 cast 程式；不支援的 kind、cost、cast 欄位擋下，`cast_point` 列為 gap。
+  - registry 收道具，用 `item_ffi`（AbilityDef kind=item；目錄沒有的道具不註冊）。
+  - 修正後道具實際產生 50 件。
+- **以後**：
+  - 新的文件區塊（例如道具的 active）要有一個「整個區塊都被讀到」的檢查：產生器對 entry 的每個頂層欄位，不是處理就是擋下。
+  - 「已產生」的數字要有端對端測試支撐，不能只看沒有 blocker（base_content `scripted_item_use` 把目錄效果拿掉，只剩 script 能產生結果）。
+## E245 conformance：A13 服部半藏（第一個整招 hook）加進 conformance；hook cases 的期望種類；共用控制狀態依各自類別驅散（2026-10-30，conformance session）
+
+- **做法**：
+  - A13 加進 conformance，設為 report-only（結果照寫，差異不讓測試失敗），直到它的招式都有 script。沒有 AbilityScript 的招式（產生器還擋著的 3 招）記 unsupported「not generated yet」，視為覆蓋率缺口，不算行為不符。
+  - hook cases 用到的期望：`status_applied` 到施法者或目標（最多等 3 秒）、`damage`（讀 DamageTrace 該類型的結算前量）、`moved_toward cast_origin`（3 秒內離施法起點比原本近 50 以上）、`no_unit_in_line`（敵方英雄站到線外，施放點仍在線上）。
+  - B 的 `__ctl:<狀態>` 列：共用的 stun key 若持有者帶有該狀態自己的控制列，就照狀態本身的類別驗驅散；手寫 handler 的暈眩沒有這一列，照舊記 unsupported。buff 清單的說明略過 `__ctl:` 前綴。
+- **A13 結果（交給 A）**：460 個情境，126 fail、334 unsupported。所有 A13 狀態在 content 都沒有驅散類別（96 個）；鎖鏈鐮的 target 是 vector，cases 用 point 施放被拒（12 個）；伊賀忍術被動的 evasion_pct 讀到 0.110，文件是 11（8 個）；替身術不在 loadout（12 個，預期）。
+- **其他 10 位**：與上一輪逐筆 0 差異；產生版與手寫 0 差異；1587 通過、15 (b)、0 (c)、691 unsupported。共用 stun 的 30 個情境都在仍跑手寫 handler 的英雄上，維持 unsupported。
+- **以後如何避免**：test_only 英雄進 content 時，要連同它的狀態一起進驅散 registry 與 catalog，否則所有狀態情境都會失敗。
+
+## E244 conformance：接上 B 的傷害 trace 檢查「攻擊者死後跳過的傷害」；一個看不到的期望不再遮住其他期望（2026-10-30，conformance session）
+
+- **做法**：
+  - 每個情境的世界都插入 `damage_trace::DamageTrace`。`damage_skipped_if_source_dead`：施法者被 harness 殺死後（最多再等 6 秒），找該施法者在死亡 tick 之後、path 等於文件 path 的傷害（path 空白時改看帶 REQUIRE_SOURCE_ALIVE 的傷害）。出現 Applied 就是 fail，出現 SkippedSourceDead 就是通過，都沒有就記 unsupported，並在說明列出施法者死後的所有傷害紀錄。
+  - 有這個期望的情境，「施放後死亡」不再等狀態落地（E241），以免要跳過的傷害先結算。
+  - 一個情境中有期望看不到時，其他期望仍會檢查：有失敗就是 fail；都沒失敗但有看不到的，記 unsupported，說明列出所有看不到的原因與已通過的檢查。
+- **發現（交給 A）**：C17W「施放後施法者死亡」時，死後 on_expire 有執行（root 在死後才套上），但斷鏈傷害 `events.on_cast[1].actions[1].on_expire[2]` 在 trace 裡完全沒有紀錄，既不是 Applied，也不是 SkippedSourceDead。唯一一筆死後傷害是 path 空白的 root on_created 傷害。請 A 讓產生碼仍呼叫 `damage_at`（由 host 記 SkippedSourceDead），並讓狀態 triggers 的傷害也帶 path。
+- **結果**：1587 通過、15 (b)、0 (c)、691 unsupported，產生版與手寫 handler 0 差異，沒有新失敗。已放回。
+- **以後如何避免**：同一情境裡時序互相衝突的期望（死前要有的狀態、死後才結算的傷害）不能用同一個等待點；「沒看到」要區分成「被跳過」和「根本沒發生」，這要靠執行端留下紀錄。
+
+## E243 地上可撿的金袋 create_pickup 與讀取金錢（C06T 豪奪的 host 能力；2026-10-30，e187 遊戲模式 session）
+
+- **依據**：
+  - 原作 `C06.lua:255-266`：對方金錢 > 50 時扣 50，金袋落在施法者周圍。
+  - `item_money`（`npc_items_custom_load.txt:17155-17201`）：撿起即用、ItemKillable 1、沒有壽命；撿起時給 50（`item_money.lua:5`）。
+  - FC-129～131 已修：本作每位玩家只有一個金錢池（線 B 的 `script_gold`），沒有可靠／不可靠金錢之分。
+- **讀取金錢**：加在線 B 的 `GameWorld::ext` 單位屬性 `unit_attr::GOLD = "gold"`。回傳單位所屬玩家金錢池的整數金錢；召喚物讀主人的；世界裡沒有這個池時回 0（例如 replica 上的敵方英雄）。ability_kit 提供 `Cx::gold_of(u)`。
+  - replica 上讀到 0 時，C06T 腳本不會送扣款與金袋請求；authority 會送，但兩者都只在 authority 生效，所以 cast 准入結果一致。
+- **金袋**：新模組 `omoba-core/src/runtime/native/pickup.rs`，`Cx::create_pickup(at, gold, who, killable, lifetime)`：
+  - 寫法和 tree_cut 相同：請求只在 authority 排隊（replica 丟掉）。下一個 active tick 開頭生成一個中立單位（identity `item_money`），依視野揭露，迷霧下隱藏。
+  - 中立單位本來就不會被自動索敵，兩隊都可以下令攻擊。`killable` 時一下就摧毀，摧毀不給錢；不可摧毀時列為無敵。
+  - 每個 active tick，範圍 150 內、`who` 允許的最近英雄撿起（同距離取 canonical id 較小者），金錢用 `script_gold::settle` 加進單一金錢池。可選的壽命到了就消失；原作沒有壽命，C06T 不帶。
+  - 推定：Dota 要下撿取指令，這裡是走近 150 就自動撿起；bot 不會特地去撿。
+- **測試**：
+  - omoba-core `pickup` 6 項：生成時機、最近者撿起、同距離的決勝、`who` 限制、一擊摧毀與無敵、壽命、payload 上下限、replica 丟棄請求、`gold` 屬性（含召喚物讀主人）。
+  - base_content `pickup_replica`：金袋生成、英雄走過去撿起，兩隊 replica 每步都和 authority 一致。
+- **協調**：開工前已向線 B 說明要改的檔，等了約 40 分鐘沒有回覆。這期間 B 把 ext op 4 用成通用的 `UNIT_ATTR`，所以我改成在它的屬性表加 `gold`，不另開 op（照「衝突以 B 為準」）。放回前從 live 重建影子 t16，在目前的 live 上重跑全部測試。
+- **以後如何避免**：shared 介面（ext op、ability_kit）在等回覆的期間可能被改掉。放回前一定要比對 live 與影子基底，看這些檔有沒有動過；動過就從 live 重建影子，不要硬做 3-way。
+
 ## E242 host 端砍樹（destroy_trees）：authority 決定、公開 Hud fact 送到每一隊 replica；寫進程式的錯誤編號撞號；CRLF 檔又被 sed -i 改壞一次（2026-10-30，e187 遊戲模式 session；已放回 live）
 
 - **內容**（影子 `target/e187/t13`，基底 `b13`，放回 10 個檔；之後的編號更正又放回 8 個檔）：

@@ -46,4 +46,12 @@ ok(c[1] == 1.0 and c[2] < 0.6, 'an explosion particle is fiery')
 ok(M.path_color('particles/units/heroes/hero_zuus/zuus_lightning_bolt.vpcf')[3] == 1.0, 'lightning is blue-white')
 ok(#M.path_color('particles/x/unknown.vpcf') == 3, 'unknown words still get a colour')
 ok(M.style('effect', M.path_words('particles/hero_x/x_aoe_explosion.vpcf')) == 'burst', 'path words pick the shape')
+local shared = M.ini_lines({ cues = { { id = 'r', shape = 'ring', keep = true, scale = 1.3 } } }, { r = { 1, 0.5, 0.25 } })[2]
+ok(shared:find('("r",(Effect="/Game/Omoba/VFX/CueShapes/NS_shape_ring.NS_shape_ring",bKeepPlaceholder=True,PlaceholderShape=1,PlaceholderAnchor=2,PlaceholderSeconds=0.9,EffectTint=(R=1.000,G=0.500,B=0.250,A=1.0),EffectScale=1.3))', 1, true), 'a cue is its shape system plus its colour and scale')
+ok(shared:find('("ground_damage_zone",(Kind=Area,Color=(R=1.000,G=0.450,B=0.150,A=1.0),PlaceholderSeconds=1.6))', 1, true)
+  and shared:find('("runtime_tether",(Kind=Link,', 1, true), 'the runtime-fact cues ride along as placeholders')
+local own = M.ini_lines({ cues = { { id = 'runtime_tether', shape = 'trail', keep = true } } })[2]
+ok(select(2, own:gsub('"runtime_tether"', '')) == 1, 'a built cue of the same id wins')
+local shapes = M.shapes_spec({ cues = { { id = 'r', color = { 1, 0, 0 } } } })
+ok(#shapes.shapes == 6 and shapes.tints[1].id == 'r', 'six shared systems, one tint row per cue')
 print('cue_vfx_test: ' .. checks .. ' checks passed')

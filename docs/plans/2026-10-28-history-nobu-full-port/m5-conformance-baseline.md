@@ -2,6 +2,31 @@
 
 建立日期：2026-10-29。負責：已移植英雄 conformance 測試（M5 前置）session。錯誤紀錄：`docs/plans/2026-10-24-omfue-month-mvp/errors.md` 的 E207。
 
+## 0. 現況（2026-10-30 早上，目前的 live；E256 之後）
+
+| 文件 | 英雄 | 情境 | 通過 | 已知差異 | unsupported | 執行 |
+|---|---|---|---|---|---|---|
+| A02 | inahime | 168 | 142 | 0 | 26 | 產生的 Rust（hero_a02） |
+| A07 | honda_tadakatsu | 208 | 143 | 15 (b) | 50 | A07W 產生，其餘手寫 |
+| A34 | omatsu | 297 | 238 | 0 | 59 | A34W／A34E／A34R 產生，A34T 手寫 |
+| B01 | saika_magoichi | 116 | 97 | 0 | 19 | 產生的 Rust（hero_b01） |
+| B04 | date_masamune | 189 | 120 | 0 | 69 | 火焰強襲、炎之迅捷產生，其餘手寫 |
+| B06 | sanada_yukimura | 276 | 169 | 0 | 107 | 手寫 |
+| B08 | asai_nagamasa | 292 | 197 | 0 | 95 | 手寫（全部能產生時再換） |
+| B29 | murakami_yoshikiyo | 251 | 178 | 0 | 73 | 地裂產生，其餘手寫 |
+| C15 | tamako | 245 | 174 | 0 | 71 | 精準之光、散射產生，其餘手寫 |
+| C17 | oichi | 247 | 214 | 0 | 33 | 產生的 Rust（hero_c17） |
+| **合計** | | **2289** | **1672** | **15 (b)、0 (c)** | **602** | |
+| A13（report-only） | hattori_hanzo | 460 | 100 | 12 fail | 348 | 鎖鏈鐮為 hook，其餘 3 招尚未產生 |
+
+- **(b) 15 筆**：都是 `a07_rouse_free`（port 沒有 A07D2 這一招）。
+- **(c) 0 筆**：A34W、B29 地裂 basic 暈眩的 8 筆（控制列以 runtime id 命名造成）已由 B 修好、刪除（E254）。施放沒被接受時，說明會附上 CastTrace 的原因碼。
+- **A13 的 12 個 fail**：替身術不在 loadout（預期）。a13r_debuff 的圖示已由 A 修好。鎖鏈鐮 hook 的 3 個 case × r1～r4 全部通過。
+- **產生版與手寫**：`V3_CONFORMANCE_HANDLERS=1` 換回 `legacy_handlers` 的手寫版，逐筆 0 差異。A07W、A34 三招、B29 地裂、C15 兩招沒有收進 legacy_handlers，這 7 招是用換上前後的 live 結果逐筆比對（0 退步，46 個轉為通過）。
+- **比對工具**：`tools\lua\lua.exe scripts\v3_conformance_report.lua summary DIR`／`compare BEFORE AFTER [ID ...]`。
+- **還量不到的大項**：quirk 文字政策 288 個；仍由手寫 handler 跑的狀態 key 與 v3 不同（B04W、B06R、B08E 等）；施放被拒的原因（等 B 的 CastTrace）。
+- 下面第 3 節以後是歷次的結果與發現，依時間保留。
+
 ## 1. 做了什麼
 
 - 情境來自 M0 的產生器 `docs/character_pipeline/tools/v3_scenarios.lua`：每招、每個 rank 都有 normal、資源、冷卻、目標、魔免、驅散、死亡、可見性與 quirk 情境，期望值只寫 value 名稱。
@@ -35,17 +60,23 @@ cargo test --release --manifest-path scripts/Cargo.toml -p base_content --lib --
 | 被動數值、建築、預設 key（E227） | `passive_stats`：被動照玩家流程逐級學（`UpgradeAbility`），讀被動自己的 buff（key 是技能 id）中 vocabulary StatKey 的值；`owner_dies`／`owner_respawns` 後再讀一次。建築目標：最近的敵方 `IsBuilding`，期望拒絕。沒寫 runtime_id 的狀態用執行器的預設 key（IR 英雄用得到，handler 英雄找不到時不算失敗）。施法者隱形改看原本的隱形 buff 是否被移除 |
 | 狀態事件（E220） | `periodic` 的動作只有對持有者自己的 damage 時：每次扣血等於文件的量，間隔等於 interval（誤差 1 tick） |
 | toggle、普攻事件、召喚、charges（E229） | 施放被接受也包括「技能的狀態出現在施法者身上」（toggle 沒有冷卻也不扣魔，稻姬毒箭）。`toggle` on／off：施法者身上有法球狀態／`on_toggle_off` 移除的狀態不在。狀態要靠普攻才套得上時（法球命中），施放後讓施法者攻擊敵方英雄。持有者身上狀態的 `on_attack_hit`／`on_attack_windup`：攻擊後，`apply_status` 到 `event.target` 的狀態出現在被攻擊者身上，`spend_mana` 的單 tick 扣魔等於文件。一般施放的 `create_unit`：施放後新出現的該 template 單位數等於 count（不超過 limit_per_owner），召喚者是施法者，存在時間等於 lifetime。沒有指定法力的情境，法力上限至少夠付這招（B01T r3 比英雄基礎法力貴） |
+| 疊層、位移、法力（E229） | `stacking = refresh`：再施放後仍只有一筆、剩餘時間回到持續時間。`leap` 的落點可以是把點夾到最大距離的 `let`。`burn_mana`：對滿法力的敵方英雄量最大單 tick 扣魔 |
+| 召喚上限、hook（E239） | `create_unit` 的 `limit_per_owner`＋`over_limit = remove_oldest`：超過上限時最早那位消失、沒有付賞金。hook 宣告的 `cases`（情境詞彙）產生 `case = "hook"` 的情境；只寫文字的產生 `hook_behavior`（unsupported）；整招是 hook（`hook = "<名稱>"`）時一般情境照常產生 |
+| 產生版對照（E238、E240） | `V3_CONFORMANCE_HANDLERS=1` 換回 `legacy_handlers` 的手寫版，結果寫到 `target/v3-conformance-handlers`；尚未換上 live 的招式在影子以 `gen_<id>` rlib 換掉比對 |
+| 死後傷害（E244） | 測試世界開 B 的 `DamageTrace`。`damage_skipped_if_source_dead`：施法者死後，同一 v3 effect path 的傷害應記為 SkippedSourceDead。一個看不到的期望不再遮住同一情境的其他期望 |
+| 「施放後死亡」（E241、E248、E251） | 殺死前最多等 3 秒讓投射物帶的狀態落地；有死後傷害期望時立刻殺。只列目標陣營那一分支、死亡前會套上的狀態（排除 tether on_expire、delay、repeat 裡的） |
+| A13 與 hook 期望（E245） | 沒有 AbilityScript 的招式記「not generated yet」。hook cases 的 `status_applied`（目標）、`damage`（DamageTrace 結算前量）、`moved_toward cast_origin`、`no_unit_in_line`。共用控制狀態：持有者帶 `__ctl:<狀態 id 或 runtime id>` 時依實際驅散結果判斷 |
+| 狀態觸發（E249） | `on_take_damage_pre`：取消敵方非物理傷害（敵方魔法、純粹各打一次，生命不減）。`on_removed`：驅散狀態後，觸發移除的狀態不在、套上的狀態在 |
+| 友方英雄（E256） | 另一位英雄改成施法者那隊，當友方英雄目標；給目標的增益狀態依序試對敵人、對自己、對友方英雄施放 |
+| fix-candidate（E237） | `v3_conformance::fix_candidates`：FC-005（B08 不清空別人給的護盾）、FC-025（A07W 擋下非物理致死）、FC-046（A07R 連續 4 次沒暴擊後必中） |
 
 尚未檢查（記為 unsupported）：
-- 共用 runtime id、而類別不同的狀態（basic 的 stun 30 個；BuffStore 一個 key 只有一筆，host 取最嚴格的 strong）。
-- 其他狀態事件（on_attack_hit、on_created、on_removed、on_take_damage…，需要普攻或流程），以及 periodic 裡 damage 以外的動作。施放後觀察不到的狀態、沒有 `runtime_id` 的狀態。
-- 法力（burn_mana、set_mana）、leap 與 set_health 等其他效果；給友軍的治療與增益；只能打英雄的技能的傷害量（英雄有抗性）；條件分支裡的效果。
-- `caster_state`（隱形）、戰爭迷霧與看不見的目標、建築目標、友方英雄目標、charges 與 toggle、事件觸發（`event`、`owner_dies`）。
-- 期望值中的 `passive_stats`、`quirk_policy`。
+- quirk 的文字政策（`quirk_policy`），無法機械判定。
+- 仍由手寫 handler 跑、key 與 v3 不同的狀態（B04W、B06R、B08E 等）；換成產生的 Rust 後自然可查。
+- 其他狀態事件：on_created、on_ability_executed、on_attack_launch 的非傷害動作、periodic 裡 damage 以外的動作；被動的事件觸發（`event`）多半帶狀態變數或機率。
+- 施放被拒的原因碼（等 B 的 CastTrace）。
 
-M5 改成資料執行後，要逐項補上這些檢查。
-
-## 3. 結果（2026-10-29 晚間，目前的 live；E226 追補與 E229 之後）
+## 3. 歷次結果（2026-10-29 晚間起，最新在前）
 
 | 文件 | 英雄 | 情境 | 通過 | 已知差異 | unsupported |
 |---|---|---|---|---|---|
@@ -61,7 +92,9 @@ M5 改成資料執行後，要逐項補上這些檢查。
 | C15 | tamako | 249 | 167 | 0 | 82 |
 | **合計** | | **2289** | **1563** | **15 (b)、0 (c)** | **711** |
 
-- **2026-10-30 最新（E239、E240）**：情境 2293（加 B01E 召喚上限 4 個），1575 通過、15 (b)、0 (c)、703 unsupported。A02、B01、C17 與 B04 兩招已是產生的 Rust，與 `legacy_handlers` 的手寫版逐筆 0 差異；C17E 的 `types = {"all"}` 目標 8 個轉為通過。
+- **2026-10-30（E249、E251）**：10 位 2293 情境：1637 通過、15 (b)、8 (c)、633 unsupported。8 筆 (c) 是 A34W、B29 地裂的 basic 暈眩 basic 驅散不掉（控制列以 runtime id 命名，交給 B）。產生版與手寫 handler 逐筆 0 差異。A13（report-only）96 通過、16 fail、348 unsupported。
+- **2026-10-30（7 招換上 live、A13）**：10 位 2293 情境：1633 通過、15 (b)、0 (c)、645 unsupported。A02、B01、C17、B04 兩招、A07W、A34 三招、B29 地裂、C15 兩招都是產生的 Rust；換上前後逐筆 0 退步。A13 服部半藏（test_only，report-only）460 情境：96 通過、16 fail（替身術不在 loadout 12、a13r_debuff 沒有圖示 4）、348 unsupported；鎖鏈鐮 hook 12 個情境全部通過。
+- **2026-10-30（E239、E240）**：情境 2293（加 B01E 召喚上限 4 個），1575 通過、15 (b)、0 (c)、703 unsupported。A02、B01、C17 與 B04 兩招已是產生的 Rust，與 `legacy_handlers` 的手寫版逐筆 0 差異；C17E 的 `types = {"all"}` 目標 8 個轉為通過。
 
 - **FC-005／025／046 放回後（2026-10-30，E237）**：A07 毫髮無傷照 FC-025 擋下敵方非物理致死，guard 另擋物理，所以「持有者死亡」情境不會發生，10 筆 (b) 改記 unsupported、從 known_differences 刪除；剩下的 15 筆 (b) 都是 `a07_rouse_free`（port 沒有 A07D2）。三項的專用測試在 `v3_conformance::fix_candidates`。
 

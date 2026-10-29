@@ -1146,6 +1146,10 @@ pub struct HeroDefinition {
     /// selection, never seated by a bot or a match recipe.
     #[serde(default)]
     pub test_only: bool,
+    /// A test_only hero built from a source hero's v3 document (scripts/v3_test_heroes.lua): the
+    /// roster id whose unit stats it uses, attribute conversion included. It stays unplayable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_stats: Option<String>,
 }
 
 /// Q, W, E, R. Every hero has these slots.

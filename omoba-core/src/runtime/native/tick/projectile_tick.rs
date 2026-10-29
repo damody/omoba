@@ -190,9 +190,10 @@ impl<'a> System<'a> for Sys {
                             let missed=tr.origins.as_ref().and_then(|origins|origins.0.get(&e)).is_some_and(|o|o.source==proj.owner&&o.attack_missed);
                             let target_key=crate::runtime::native::rules::chance::roll_key(target,
                                 tr.heroes.get(target).and(tr.owners.get(target)).map(|owner|owner.player_id));
-                            let evaded=missed||(normal&&super::super::attack_accuracy::target_evades(
-                                tr.master_seed.0,tr.tick.0 as u32,target_key,
-                                crate::runtime::UnitStats::from_refs(&tr.buffs,false).evasion_chance(target)));
+                            // An attack on an attack-immune target misses (rules::vocab::ATTACK_IMMUNE).
+                            let evaded=missed||(normal&&(crate::runtime::native::rules::vocab::attack_immune(&tr.buffs,target)
+                                ||super::super::attack_accuracy::target_evades(tr.master_seed.0,tr.tick.0 as u32,target_key,
+                                crate::runtime::UnitStats::from_refs(&tr.buffs,false).evasion_against(proj.owner,target))));
                             // The ordinary attack's judgement event (rules::attack).
                             if normal || missed {
                                 outcomes.push(Outcome::AttackJudged {attacker:proj.owner,target,projectile:e,hit:!evaded,source_missed:missed});

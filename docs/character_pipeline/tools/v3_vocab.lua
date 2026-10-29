@@ -438,6 +438,8 @@ V.ACTIONS = {
   -- the unit pays mana itself (fires on_mana_spent), unlike burn_mana
   spend_mana = { from = "unit!", amount = "expr!", ability = "ability" },
   set_health = { to = "unit!", value = "expr!" },
+  -- the unit's current command becomes attacking `target`, as an owner's order would; not locked
+  order_attack = { who = "unit!", target = "unit!" },
   set_mana = { to = "unit!", value = "expr!" },
   -- statuses
   apply_status = { status = "status!", to = "unit!", duration = "expr", stacks = "expr", source = "unit",

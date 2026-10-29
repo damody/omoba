@@ -214,6 +214,15 @@ pub enum StatKey {
     ManaRegenMaxPercentage = 139,
     /// 法力回復量的增幅（v3 `mana_regen_amp_pct`）；生命的對應是 `HpRegenAmplifyPercentage`。
     ManaRegenAmplifyPercentage = 140,
+    /// 減速抗性（v3 `slow_resistance_pct`，比例 0～1）：移速的負百分比加成乘上 (1 − 本值)；
+    /// omoba-core `UnitStats::final_move_speed`。
+    SlowResistance = 141,
+    /// 技能吸血（v3 `spell_lifesteal_pct`，比例）：帶 SPELL 的傷害對敵方非建築造成的實際扣血，
+    /// 依本值回復來源；omoba-core `handle_damage`。
+    SpellLifesteal = 142,
+    /// 施法前搖縮短（v3 `cast_point_reduction_pct`，比例）：施法時間倍率減去本值；
+    /// omoba-core `UnitStats::cast_time_mult`。
+    CastPointReduction = 143,
 }
 
 impl StatKey {
@@ -365,6 +374,9 @@ impl StatKey {
             StatKey::HealthRegenMaxPercentage => "health_regen_max_percentage",
             StatKey::ManaRegenMaxPercentage => "mana_regen_max_percentage",
             StatKey::ManaRegenAmplifyPercentage => "mana_regen_amplify_percentage",
+            StatKey::SlowResistance => "slow_resistance",
+            StatKey::SpellLifesteal => "spell_lifesteal",
+            StatKey::CastPointReduction => "cast_point_reduction",
         }
     }
 
@@ -522,6 +534,9 @@ impl StatKey {
             "health_regen_max_percentage" => Some(StatKey::HealthRegenMaxPercentage),
             "mana_regen_max_percentage" => Some(StatKey::ManaRegenMaxPercentage),
             "mana_regen_amplify_percentage" => Some(StatKey::ManaRegenAmplifyPercentage),
+            "slow_resistance" => Some(StatKey::SlowResistance),
+            "spell_lifesteal" => Some(StatKey::SpellLifesteal),
+            "cast_point_reduction" => Some(StatKey::CastPointReduction),
             _ => None,
         }
     }
@@ -670,6 +685,9 @@ impl StatKey {
             StatKey::HealthRegenMaxPercentage => StatSection::All,
             StatKey::ManaRegenMaxPercentage => StatSection::All,
             StatKey::ManaRegenAmplifyPercentage => StatSection::All,
+            StatKey::SlowResistance => StatSection::NonBuilding,
+            StatKey::SpellLifesteal => StatSection::All,
+            StatKey::CastPointReduction => StatSection::All,
         }
     }
 
@@ -817,6 +835,9 @@ impl StatKey {
             StatKey::HealthRegenMaxPercentage => Aggregation::SumAdd,
             StatKey::ManaRegenMaxPercentage => Aggregation::SumAdd,
             StatKey::ManaRegenAmplifyPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::SlowResistance => Aggregation::SumAdd,
+            StatKey::SpellLifesteal => Aggregation::SumAdd,
+            StatKey::CastPointReduction => Aggregation::SumAdd,
         }
     }
 
@@ -830,7 +851,7 @@ impl StatKey {
 }
 
 /// 按 discriminant 排序的所有 `StatKey` variant — 供 gen-docs / 遍歷測試使用。
-pub const ALL: &[StatKey; 141] = &[
+pub const ALL: &[StatKey; 144] = &[
     StatKey::PreattackBonusDamage,
     StatKey::PreattackBonusDamageProc,
     StatKey::PreattackBonusDamagePostCrit,
@@ -972,6 +993,9 @@ pub const ALL: &[StatKey; 141] = &[
     StatKey::HealthRegenMaxPercentage,
     StatKey::ManaRegenMaxPercentage,
     StatKey::ManaRegenAmplifyPercentage,
+    StatKey::SlowResistance,
+    StatKey::SpellLifesteal,
+    StatKey::CastPointReduction,
 ];
 
 #[cfg(test)]
@@ -979,8 +1003,8 @@ mod tests {
     use super::{Aggregation, StatKey, StatSection, ALL};
 
     #[test]
-    fn all_array_length_is_141() {
-        assert_eq!(ALL.len(), 141);
+    fn all_array_length_is_144() {
+        assert_eq!(ALL.len(), 144);
     }
 
     #[test]

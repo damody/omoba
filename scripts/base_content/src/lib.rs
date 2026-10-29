@@ -94,6 +94,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
         v.extend(hero_b01_impl::units());
         v.extend(hero_c17_impl::units());
         v.extend(hero_a13_impl::units());
+        v.extend(items_impl::units());
         v
     }
     #[sabi_extern_fn]
@@ -103,6 +104,14 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
         v.extend(hero_b01_impl::abilities());
         v.extend(hero_c17_impl::abilities());
         v.extend(hero_a13_impl::abilities());
+        // B01's retained legacy abilities (templates/heroes.lua retained_abilities): tests pin that
+        // loadout, and hero_b01 (its own DLL) registers only the generated b01_* ones
+        v.push(heroes::B01_saika_magoichi::sniper_mode_ffi());
+        v.push(heroes::B01_saika_magoichi::saika_reinforcements_ffi());
+        v.push(heroes::B01_saika_magoichi::rain_iron_cannon_ffi());
+        v.push(heroes::B01_saika_magoichi::three_stage_technique_ffi());
+        // items.dll scripts (M7), linked like a launch loads them
+        v.extend(items_impl::abilities());
         v
     }
     Manifest {
@@ -199,10 +208,20 @@ fn abilities() -> RVec<AbilityDefFFI> {
     include!(concat!(env!("OUT_DIR"), "/hero_ability_registry.rs"));
     // M3' ④: B04's fire blast and flame swiftness run its generated Rust (heroes/date_masamune);
     // its other abilities stay hand-written here until B04 gets its own DLL (M5).
+    // M5: the abilities conformance found equal to their handler run their generated Rust too
+    // (2026-10-30, target/e229/g11-compare.txt: 0 differences beside reports the handler could not
+    // make); the rest of those heroes stay hand-written until all of a hero generates.
     for entry in v.iter_mut() {
         let generated = match entry.script.ability_id().as_str() {
             "b04_fire_blast" => hero_b04_impl::generated::b04_fire_blast::ffi(),
             "b04_flame_swiftness" => hero_b04_impl::generated::b04_flame_swiftness::ffi(),
+            "a07_unscathed" => hero_a07_impl::generated::a07_unscathed::ffi(),
+            "a34_frost_bolt" => hero_a34_impl::generated::a34_frost_bolt::ffi(),
+            "a34_iceberg_strike" => hero_a34_impl::generated::a34_iceberg_strike::ffi(),
+            "a34_frost_breath" => hero_a34_impl::generated::a34_frost_breath::ffi(),
+            "b29_ground_slam" => hero_b29_impl::generated::b29_ground_slam::ffi(),
+            "c15_precise_light" => hero_c15_impl::generated::c15_precise_light::ffi(),
+            "c15_scatter_shot" => hero_c15_impl::generated::c15_scatter_shot::ffi(),
             _ => continue,
         };
         // The metadata stays the catalog one the handler used; only the script changes.

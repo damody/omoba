@@ -289,6 +289,8 @@ fn emit_replica_delta(world: &mut World, state: &MobaMatch, active: bool) {
             },
         ),
         (SINGLE_LANE_LENGTH_METRIC_ID, state.config.lane_length.raw()),
+        // Public night (temporary_night); the presentation dims the map while it lasts.
+        (super::rules::world::NIGHT_METRIC_ID, super::rules::world::night_remaining(world, state.elapsed).raw()),
     ]
     .into_iter()
     .enumerate()
@@ -819,6 +821,8 @@ pub struct MobaMatch {
     pub(crate) invulnerable_summons: std::collections::BTreeSet<(u32, i32)>,
     /// Fallen map trees and their regrow times (E242).
     pub(crate) trees: super::tree_cut::TreeCuts,
+    /// Live ground pickups (E243).
+    pub(crate) pickups: super::pickup::Pickups,
 }
 
 impl MobaMatch {
@@ -1533,9 +1537,12 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         ward_policies: BTreeMap::new(),
         invulnerable_summons: std::collections::BTreeSet::new(),
         trees: Default::default(),
+        pickups: Default::default(),
     };
     world.insert(state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name)
         .map(crate::runtime::brush_vision::BrushVisionRegions::from_map).unwrap_or_default());
+    // Pickup requests queue on the authority only (E243).
+    world.insert(super::pickup::PendingPickups::default());
     if let Some(map) = state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name) {
         *world.write_resource::<BlockedRegions>() =
             crate::runtime::moba_map_layout::compiled_blocked_regions(map);
@@ -2161,6 +2168,8 @@ fn apply_owner_scheme_inputs(world:&mut World,state:&mut MobaMatch,allow_movemen
 impl MobaMatch {
     /// The map trees currently down (E242).
     pub fn fallen_trees(&self) -> std::collections::BTreeSet<u32> { self.trees.fallen() }
+    /// The live ground pickup bodies (E243).
+    pub fn pickup_bodies(&self) -> Vec<Entity> { self.pickups.0.values().map(|pickup| pickup.entity).collect() }
 }
 
 pub fn begin_moba_match_tick(world: &mut World) -> bool {
@@ -2246,6 +2255,8 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
         let elapsed = state.elapsed;
         super::tree_cut::tick(world, &mut state.trees, map, elapsed);
     }
+    // Ground pickups spawn, expire and are taken before any movement (E243).
+    super::pickup::tick(world, &mut state);
     for team in 0..state.heroes.len() {
         if state.heroes[team].entity.is_none() {
             state.heroes[team].hero.tick_cooldowns(dt);
@@ -2328,6 +2339,9 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
             .filter(|other| {
                 state.structure_unlocked(other)
             })
+            // 無敵與攻擊免疫的單位不是普攻目標（rules::vocab）。
+            .filter(|other| !crate::runtime::native::rules::vocab::invulnerable(&buffs,other.entity)
+                && !crate::runtime::native::rules::vocab::attack_immune(&buffs,other.entity))
             .filter(|other| matches!(other.role,LaneRole::Hero | LaneRole::Base | LaneRole::NexusTower) || other.lane == unit.lane)
             .filter_map(|other| {
                 positions
@@ -2363,7 +2377,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
         if let Some((target, target_pos, distance)) = target {
             if distance <= range * range {
                 if unit.role==LaneRole::Creep {attack_faces.push((unit.entity,source_pos,target_pos));}
-                if tracked.attack_remaining <= Fixed64::ZERO {
+                if tracked.attack_remaining <= Fixed64::ZERO && !(unit.role==LaneRole::Creep && buffs.is_disarmed(unit.entity)) {
                     let base=Fixed64::from_i32(bodies.get(unit.entity).map_or(
                         if unit.role.is_tower() {90} else {24},|body|body.base_damage));
                     let base=if unit.role==LaneRole::Creep {npc_stats.normal_attack_physical(base,unit.entity)} else {base};
@@ -3420,6 +3434,7 @@ pub fn single_lane_replay_digest(world: &World) -> String {
     hash.update(format!("|tower-plating:{:?}:{:?}",state.config.tower_plating_rules,state.tower_plates));
     hash.update(format!("|base-structures:{:?}|barracks-fall:{:?}",state.base_structures,state.barracks_fall));
     if !state.trees.is_empty() { hash.update(format!("|trees:{:?}",state.trees)); }
+    if !state.pickups.is_empty() { hash.update(format!("|pickups:{:?}",state.pickups)); }
     if let Some(material) = surrender::hash_material(&state) { hash.update(material); }
     // The step envelope must keep the current wire tick even while no gameplay
     // can execute. It is not a running gameplay clock during pause/terminal.
@@ -3879,6 +3894,7 @@ pub(crate) fn stop_command_match(hero: Entity, phase: MobaMatchPhase) -> MobaMat
         ward_policies: BTreeMap::new(),
         invulnerable_summons: std::collections::BTreeSet::new(),
         trees: Default::default(),
+        pickups: Default::default(),
     }
 }
 
@@ -3938,6 +3954,7 @@ pub(crate) fn communication_roster_match(
         ward_policies: BTreeMap::new(),
         invulnerable_summons: std::collections::BTreeSet::new(),
         trees: Default::default(),
+        pickups: Default::default(),
     }
 }
 

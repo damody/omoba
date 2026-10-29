@@ -62,6 +62,8 @@ pub fn admits_target(buffs: &BuffStore, caster: Option<&Faction>, target_faction
 pub fn ability_pierces(skill_id: &str) -> bool {
     omoba_template_ids::ability_by_name(skill_id).and_then(omoba_template_ids::ability_const)
         .is_some_and(|ability| ability.pierces_magic_immunity)
+        // a v3 document says it in its ability flags (B29T, flags = { "pierce_magic_immune" })
+        || super::rules::status::has_ability_flag(skill_id, "pierce_magic_immune")
 }
 
 /// Strong dispel of what enemies applied (dispel.rs, E214): statuses of class `basic` or

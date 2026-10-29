@@ -50,6 +50,10 @@ pub struct ParallelAdapterCache<'a> {
     summon_placements: super::super::summon_navigation::PlacementReservations,
     /// Test worlds with a `DamageTrace`: scripts tag their damage (ext DAMAGE_TAG).
     damage_trace: bool,
+    /// Gold pools (unit attribute `gold`, E243); absent in worlds that keep none.
+    gold: Option<ReadStorage<'a, Gold>>,
+    /// `game.is_night` this tick (ext GAME_ATTR).
+    night: bool,
 }
 
 impl<'a> ParallelAdapterCache<'a> {
@@ -96,6 +100,8 @@ impl<'a> ParallelAdapterCache<'a> {
             attack_gate: world.try_fetch::<crate::runtime::filtered_specs::DisclosedAttackabilityGate>().map(Into::into),
             filtered: world.try_fetch::<crate::runtime::filtered_specs::DisclosedMovementPriority>().is_some(),
             damage_trace: super::super::damage_trace::enabled(world),
+            gold: world.has_value::<specs::storage::MaskedStorage<Gold>>().then(||world.read_storage::<Gold>()),
+            night: super::super::rules::world::is_night(world),
         }
     }
 }
@@ -109,6 +115,8 @@ pub struct ParallelWorldAdapter<'a> {
     cast_succeeded: bool,
     /// Owner-visible code for a cast handler that did not succeed.
     cast_rejection: Option<&'static str>,
+    /// The `Err` text of a cast handler that did not succeed (test cast trace).
+    script_error: Option<String>,
     hook_panicked: bool,
     mana_transaction: bool,
     mana_views: HashMap<Entity, crate::runtime::ability_runtime::ManaPool>,
@@ -521,6 +529,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             overlay_pos: HashMap::new(),
             cast_succeeded: false,
             cast_rejection: None,
+            script_error: None,
             hook_panicked: false,
             mana_transaction: false,
             mana_views: HashMap::new(),
@@ -560,6 +569,8 @@ impl<'a> ParallelWorldAdapter<'a> {
     pub(crate) fn note_cast_rejection(&mut self, code: &'static str) { self.cast_rejection = Some(code); }
 
     pub(crate) fn cast_rejection(&self) -> Option<&'static str> { self.cast_rejection }
+    pub(crate) fn note_script_error(&mut self, error: String) { self.script_error = Some(error); }
+    pub(crate) fn take_script_error(&mut self) -> Option<String> { self.script_error.take() }
 
     pub(crate) fn stage_recovery_channel(&mut self,caster:Entity,spec:super::super::recovery_channel::Spec)->bool {
         let Some(owner)=self.cache.player_owner.get(caster).map(|owner|owner.player_id).filter(|owner|*owner>0)else{return false;};
@@ -656,6 +667,52 @@ impl<'a> ParallelWorldAdapter<'a> {
         if self.retired_source(entity).is_some() {self.projectile_source_buffs.as_ref().unwrap_or(&self.cache.buffs)}
         else {&self.cache.buffs}
     }
+    /// ext UNIT_ATTR: a v3 unit attribute (omb_script_abi::ext::unit_attr); `None` for an unknown name.
+    fn unit_attr(&self, unit:EntityHandle, attr:&str)->Option<omb_script_abi::ext::ExtValue> {
+        use omb_script_abi::ext::{unit_attr as name, ExtValue as V};
+        use super::super::attributes::AttributeTotals;
+        use super::super::rules::vocab::state;
+        let entity=Self::handle_to_entity(unit).filter(|entity|self.cache.entities.is_alive(*entity));
+        let buffs=|entity:Entity|self.source_buffs(entity);
+        let has=|state:&str|entity.is_some_and(|entity|buffs(entity).has(entity,state));
+        let num=|f:&dyn Fn(Entity)->Option<Fixed64>|V::Num(entity.and_then(f).unwrap_or(Fixed64::ZERO));
+        let hero=entity.and_then(|entity|self.cache.hero.get(entity));
+        let totals=|entity:Entity|hero.map(|hero|AttributeTotals::of(hero,buffs(entity),entity));
+        let handle=|of:Option<Entity>|of.filter(|of|self.cache.entities.is_alive(*of)).map_or(V::None,|of|V::Unit(Self::entity_to_handle(of)));
+        Some(match attr {
+            name::LEVEL=>V::Num(match (entity,hero) {(Some(_),Some(hero))=>Fixed64::from_i32(hero.level),(Some(_),None)=>Fixed64::ONE,_=>Fixed64::ZERO}),
+            name::STR=>num(&|e|totals(e).map(|t|t.strength)),
+            name::AGI=>num(&|e|totals(e).map(|t|t.agility)),
+            name::INT=>num(&|e|totals(e).map(|t|t.intelligence)),
+            name::MAX_MANA=>num(&|e|self.mana_views.get(&e).map(|pool|pool.maximum())
+                .or_else(||hero.and_then(|hero|hero.mana_pool.as_ref()).map(|pool|pool.maximum()))),
+            name::IS_ILLUSION=>V::Bool(has(state::ILLUSION)),
+            name::IS_CHANNELING=>V::Bool(has(super::super::ability_channel::STATUS)),
+            name::IS_INVULNERABLE=>V::Bool(has(state::INVULNERABLE)),
+            name::IS_INVISIBLE=>V::Bool(entity.is_some_and(|e|buffs(e).stealth_level(e)>0)),
+            name::IS_CREEP=>V::Bool(entity.is_some_and(|e|self.cache.creep.get(e).is_some())),
+            name::IS_RANGED=>V::Bool(entity.is_some_and(|e|self.source_attack(e).is_some()
+                && super::super::rules::attack::is_ranged(buffs(e),e,true))),
+            name::OWNER=>handle(entity.and_then(|e|self.cache.summoned.as_ref()?.get(e).map(|summon|summon.summoner))),
+            name::ATTACK_TARGET=>handle(entity.and_then(|e|self.source_attack(e)?.committed_target)),
+            name::ATTACK_SPEED_MULT=>num(&|e|Some(UnitStats::from_refs(buffs(e),self.source_is_building(e)).final_attack_speed_mult(e))),
+            name::PROJECTILE_SPEED=>num(&|e|self.source_attack(e).map(|attack|attack.bullet_speed)),
+            name::BASE_MAGIC_RESIST=>num(&|e|self.source_property(e).map(|property|property.def_magic)),
+            name::BASE_ATTACK_RANGE=>num(&|e|self.source_attack(e).map(|attack|attack.range.v)),
+            name::CAST_RANGE_BONUS=>num(&|e|Some(buffs(e).sum_add(e,omb_script_abi::stat_keys::StatKey::CastRangeBonus)
+                +buffs(e).sum_add(e,omb_script_abi::stat_keys::StatKey::CastRangeBonusStacking))),
+            // The unit's own pool, else the pool of a unit its player owns that has one (a summon's hero).
+            name::GOLD=>num(&|e|{
+                let pools=self.cache.gold.as_ref()?;
+                pools.get(e).map(|pool|pool.0).or_else(||{
+                    let player=self.cache.player_owner.get(e)?.player_id;
+                    (&self.cache.entities,&self.cache.player_owner,pools).join()
+                        .find(|(_,owner,_)|owner.player_id==player).map(|(_,_,pool)|pool.0)
+                }).map(Fixed64::from_i32)
+            }),
+            _=>return None,
+        })
+    }
     fn attribute_projectile_outcome(&self, outcome:Outcome, source:Entity)->Outcome {
         match self.projectile_origin.as_ref().filter(|origin|origin.source==source) {
             Some(origin)=>Outcome::ProjectileContext {origin:origin.clone(),outcome:Box::new(outcome)},
@@ -705,7 +762,7 @@ impl<'a> ParallelWorldAdapter<'a> {
         // death/stun. Ordinary summon acquisition keeps all source admission.
         let committed=self.projectile_origin.as_ref().is_some_and(|origin|origin.source==source);
         if radius<=Fixed64::ZERO || source==target
-            || (!committed && (!self.cache.entities.is_alive(source) || self.cache.buffs.is_stunned(source)
+            || (!committed && (!self.cache.entities.is_alive(source) || self.cache.buffs.is_disarmed(source)
                 || !self.cache.cprop.get(source).is_some_and(|h|h.hp>Fixed64::ZERO)))
             || !self.cache.entities.is_alive(target)
             || !self.cache.cprop.get(target).is_some_and(|h|h.hp>Fixed64::ZERO) {return false;}
@@ -1592,6 +1649,47 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                     .map_or(0, |hero| hero.get_ability_level(ability.as_str()).max(0));
                 ROk(V::Num(Fixed64::from_i32(level)))
             }
+            (op::DAMAGE_CREDIT, [A::Unit(credit)]) => {
+                match Self::handle_to_entity(*credit).filter(|credit| self.cache.entities.is_alive(*credit)) {
+                    Some(credit) => { self.outcomes.push(Outcome::ScriptDamageCredit { credit }); ROk(V::None) }
+                    None => ROk(V::None),
+                }
+            }
+            (op::UNITS_IN_RANGE, [A::Point(center), A::Num(radius), A::Unit(of), A::Str(team)]) => {
+                let Some(team) = (match team.as_str() { "ally" => Some(Some(true)), "enemy" => Some(Some(false)), "both" => Some(None), _ => None })
+                    else { return RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown team {team}"))) };
+                let Some(mine) = Self::handle_to_entity(*of).and_then(|of| self.source_faction(of)).map(|f| f.team_id)
+                    else { return ROk(V::Units(abi_stable::std_types::RVec::new())) };
+                if *radius < Fixed64::ZERO { return ROk(V::Units(abi_stable::std_types::RVec::new())); }
+                let r2 = *radius * *radius;
+                let mut found: Vec<_> = (&self.cache.entities, &self.cache.pos, &self.cache.faction).join()
+                    .filter(|(_, pos, faction)| pos.0.distance_squared(*center) <= r2 && team.is_none_or(|ally| (faction.team_id == mine) == ally))
+                    .map(|(entity, pos, _)| (pos.0.distance_squared(*center).raw(), entity.id(), entity)).collect();
+                found.sort_by_key(|(distance, id, _)| (*distance, *id));
+                ROk(V::Units(found.into_iter().map(|(_, _, entity)| Self::entity_to_handle(entity)).collect()))
+            }
+            (op::UNIT_ATTR, [A::Unit(unit), A::Str(attr)]) => match self.unit_attr(*unit, attr.as_str()) {
+                Some(value) => ROk(value),
+                None => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown unit attribute {attr}"))),
+            },
+            (op::UNIT_ABILITY_ATTR, [A::Unit(unit), A::Str(ability), A::Str(attr)]) => {
+                use omb_script_abi::ext::ability_attr as name;
+                let hero = Self::handle_to_entity(*unit).and_then(|entity| self.cache.hero.get(entity));
+                let ability = ability.as_str();
+                match attr.as_str() {
+                    name::COOLDOWN_REMAINING => ROk(V::Num(hero.map_or(Fixed64::ZERO, |hero| hero.get_cooldown(ability)))),
+                    name::IS_READY => ROk(V::Bool(hero.is_some_and(|hero| hero.get_ability_level(ability) > 0 && hero.cast_ready(ability)))),
+                    _ => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown ability attribute {attr}"))),
+                }
+            }
+            (op::GAME_ATTR, [A::Str(attr)]) => {
+                use omb_script_abi::ext::game_attr as name;
+                match attr.as_str() {
+                    name::IS_NIGHT => ROk(V::Bool(self.cache.night)),
+                    name::TIME => ROk(V::Num(self.cache.moba.as_ref().map_or(Fixed64::ZERO, |state| state.elapsed))),
+                    _ => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown game attribute {attr}"))),
+                }
+            }
             (op, _) => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown op {op} or arguments"))),
         }
     }
@@ -1825,6 +1923,73 @@ mod tests {
         world.insert(BlockedRegions::default());
         world.insert(Tick(42));
         world
+    }
+
+    #[test]
+    fn ext_reads_unit_ability_and_game_attributes() {
+        use omb_script_abi::ext::{ability_attr, game_attr, op, unit_attr as name, ExtArg as A, ExtValue as V};
+        use abi_stable::std_types::RSlice;
+        use omb_script_abi::stat_keys::StatKey;
+        let mut world=world_for_adapter_tests();world.register::<SummonedUnit>();
+        let mut hero=Hero::new("inahime".into(),"inahime".into(),String::new());
+        hero.strength=20;hero.level=3;hero.level_growth.strength_per_level=Fixed64::from_i32(2);
+        hero.mana_pool=Some(crate::runtime::ability_runtime::ManaPool::new(Fixed64::from_i32(50),Fixed64::from_i32(300)).unwrap());
+        hero.ability_levels.insert("a02_q".into(),2);hero.start_cooldown("a02_w",Fixed64::from_i32(4));
+        hero.ability_levels.insert("a02_w".into(),1);
+        let me=world.create_entity().with(Pos(Vec2::ZERO)).with(Faction::new(FactionType::Player,1)).with(hero).with(TAttack::new(Fixed64::from_i32(30),Fixed64::ONE,Fixed64::from_i32(500),Fixed64::from_i32(900)))
+            .with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::from_i32(25)}).build();
+        let summon=world.create_entity().with(SummonedUnit::new_fixed(me,Some(Fixed64::from_i32(30)))).build();
+        let at=|x:i32|Pos(Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO));
+        let enemy=world.create_entity().with(at(50)).with(Faction::new(FactionType::Enemy,2)).build();
+        let ally=world.create_entity().with(at(80)).with(Faction::new(FactionType::Player,1)).build();
+        world.create_entity().with(at(500)).with(Faction::new(FactionType::Player,1)).build();
+        {
+            let mut buffs=world.write_resource::<BuffStore>();
+            buffs.add(me,"str_aura",Fixed64::from_i32(5),json!({ StatKey::StatsStrengthBonus.as_str(): 6 * 1024 }));
+            buffs.add(summon,crate::runtime::native::rules::vocab::state::ILLUSION,Fixed64::from_i32(5),json!({}));
+            buffs.add(me,crate::runtime::native::ability_channel::STATUS,Fixed64::from_i32(5),json!({}));
+        }
+        crate::runtime::native::rules::world::start_temporary_night(&mut world,Fixed64::from_i32(3));
+        let cache=ParallelAdapterCache::new(&world,1);let mut adapter=ParallelWorldAdapter::new(&cache,me);
+        let (h,s)=(ParallelWorldAdapter::entity_to_handle(me),ParallelWorldAdapter::entity_to_handle(summon));
+        let mut unit=|u:EntityHandle,attr:&str|adapter.ext(op::UNIT_ATTR,RSlice::from_slice(&[A::Unit(u),A::Str(attr.into())])).into_result();
+        let n=|v:i32|Ok(V::Num(Fixed64::from_i32(v)));
+        assert_eq!(unit(h,name::LEVEL),n(3));
+        assert_eq!(unit(s,name::LEVEL),n(1));
+        assert_eq!(unit(EntityHandle::INVALID,name::LEVEL),n(0));
+        assert_eq!(unit(h,name::STR),n(30),"20 + 2 per level above 1 + 6 bonus");
+        assert_eq!(unit(s,name::STR),n(0));
+        assert_eq!(unit(h,name::MAX_MANA),n(300));
+        assert_eq!(unit(s,name::IS_ILLUSION),Ok(V::Bool(true)));
+        assert_eq!(unit(h,name::IS_ILLUSION),Ok(V::Bool(false)));
+        assert_eq!(unit(h,name::IS_CHANNELING),Ok(V::Bool(true)));
+        assert_eq!(unit(h,name::IS_RANGED),Ok(V::Bool(true)));
+        assert_eq!(unit(s,name::IS_RANGED),Ok(V::Bool(false)),"no attack");
+        assert_eq!(unit(h,name::IS_CREEP),Ok(V::Bool(false)));
+        assert_eq!(unit(s,name::OWNER),Ok(V::Unit(h)));
+        assert_eq!(unit(h,name::OWNER),Ok(V::None));
+        assert_eq!(unit(h,name::PROJECTILE_SPEED),n(900));
+        assert_eq!(unit(h,name::BASE_ATTACK_RANGE),n(500));
+        assert_eq!(unit(h,name::BASE_MAGIC_RESIST),n(25));
+        assert_eq!(unit(h,name::ATTACK_SPEED_MULT),n(1));
+        assert!(unit(h,"no_such_attribute").is_err());
+        let mut ability=|a:&str,attr:&str|adapter.ext(op::UNIT_ABILITY_ATTR,
+            RSlice::from_slice(&[A::Unit(h),A::Str(a.into()),A::Str(attr.into())])).into_result();
+        assert_eq!(ability("a02_q",ability_attr::IS_READY),Ok(V::Bool(true)));
+        assert_eq!(ability("a02_w",ability_attr::IS_READY),Ok(V::Bool(false)),"cooling down");
+        assert_eq!(ability("a02_e",ability_attr::IS_READY),Ok(V::Bool(false)),"not learned");
+        assert_eq!(ability("a02_w",ability_attr::COOLDOWN_REMAINING),n(4));
+        let mut game=|attr:&str|adapter.ext(op::GAME_ATTR,RSlice::from_slice(&[A::Str(attr.into())])).into_result();
+        assert_eq!(game(game_attr::IS_NIGHT),Ok(V::Bool(true)));
+        assert_eq!(game(game_attr::TIME),n(0));
+        // UNITS_IN_RANGE: allies of `me` (itself included), nearest first.
+        let mut near=|team:&str|adapter.ext(op::UNITS_IN_RANGE,RSlice::from_slice(&[A::Point(omb_script_abi::types::Vec2::ZERO),
+            A::Num(Fixed64::from_i32(100)),A::Unit(h),A::Str(team.into())])).into_result();
+        let (e,a)=(ParallelWorldAdapter::entity_to_handle(enemy),ParallelWorldAdapter::entity_to_handle(ally));
+        assert_eq!(near("ally"),Ok(V::Units(vec![h,a].into())),"the far ally and the factionless summon are out");
+        assert_eq!(near("enemy"),Ok(V::Units(vec![e].into())));
+        assert_eq!(near("both"),Ok(V::Units(vec![h,e,a].into())));
+        assert!(near("nobody").is_err());
     }
 
     #[test]

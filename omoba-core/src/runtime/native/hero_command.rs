@@ -24,7 +24,26 @@ pub enum Command {
     CooldownEnd { ability: String },
     Level { ability: String, level: i32 },
     Health { value: Fixed64 },
+    /// v3 `order_attack`: the hero's current command becomes attacking `target` (`(id, generation)`),
+    /// like an owner's order; nothing is locked, a later order replaces it.
+    OrderAttack { target: (u32, i32) },
+    /// v3 `issue_order` stop / hold / move / attack_move: the hero's current command is replaced
+    /// as an owner's order would (`at` in raw map units); nothing is locked.
+    Order { kind: OrderKind, at: (i32, i32) },
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OrderKind { Stop, Hold, Move, AttackMove }
+
+impl OrderKind {
+    fn name(self) -> &'static str {
+        match self { OrderKind::Stop => "order_stop", OrderKind::Hold => "order_hold", OrderKind::Move => "order_move", OrderKind::AttackMove => "order_attack_move" }
+    }
+}
+
+/// Two raw i32 coordinates in one i64 (`raw`): x high, y low.
+fn pack(x: i32, y: i32) -> i64 { (i64::from(x) << 32) | i64::from(y as u32) }
+fn unpack(raw: i64) -> (i32, i32) { ((raw >> 32) as i32, (raw & 0xffff_ffff) as u32 as i32) }
 
 fn ability_ok(a: &str) -> bool {
     !a.is_empty() && a.len() <= 96 && a.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b':')
@@ -38,6 +57,10 @@ impl Command {
             Command::CooldownEnd { ability } => json!({ "op": "cooldown_end", "ability": ability, "raw": 0 }),
             Command::Level { ability, level } => json!({ "op": "level", "ability": ability, "raw": level }),
             Command::Health { value } => json!({ "op": "health", "ability": "", "raw": value.raw() }),
+            // the target packed into `raw`: id in the high 32 bits, generation in the low 32
+            Command::OrderAttack { target: (id, gen) } =>
+                json!({ "op": "order_attack", "ability": "", "raw": ((i64::from(*id)) << 32) | i64::from(*gen as u32) }),
+            Command::Order { kind, at: (x, y) } => json!({ "op": kind.name(), "ability": "", "raw": pack(*x, *y) }),
         };
         json!({ (KEY): row })
     }
@@ -54,12 +77,24 @@ impl Command {
             "cooldown_end" if raw == 0 => Command::CooldownEnd { ability },
             "level" if (0..=100).contains(&raw) => Command::Level { ability, level: raw as i32 },
             "health" if (0..=limit).contains(&raw) && ability.is_empty() => return Some(Command::Health { value: Fixed64::from_raw(raw) }),
+            op @ ("order_stop" | "order_hold" | "order_move" | "order_attack_move") if ability.is_empty() => {
+                let kind = match op { "order_stop" => OrderKind::Stop, "order_hold" => OrderKind::Hold,
+                    "order_move" => OrderKind::Move, _ => OrderKind::AttackMove };
+                let at = unpack(raw);
+                if matches!(kind, OrderKind::Stop | OrderKind::Hold) && raw != 0 { return None; }
+                return Some(Command::Order { kind, at });
+            }
+            "order_attack" if raw >= 0 && ability.is_empty() => {
+                let gen = (raw & 0xffff_ffff) as u32 as i32;
+                if gen <= 0 { return None; }
+                return Some(Command::OrderAttack { target: ((raw >> 32) as u32, gen) });
+            }
             _ => return None,
         };
         match &cmd {
             Command::CooldownStart { ability, .. } | Command::CooldownReduce { ability, .. } | Command::CooldownEnd { ability }
             | Command::Level { ability, .. } => ability_ok(ability).then_some(cmd),
-            Command::Health { .. } => Some(cmd),
+            Command::Health { .. } | Command::OrderAttack { .. } | Command::Order { .. } => Some(cmd),
         }
     }
 }
@@ -100,7 +135,45 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, payload: &Value) 
         Command::CooldownStart { ability, seconds } => with_hero_ability(world, target, &ability, |h| h.start_cooldown(&ability, seconds)),
         Command::CooldownEnd { ability } => with_hero_ability(world, target, &ability, |h| h.start_cooldown(&ability, Fixed64::ZERO)),
         Command::CooldownReduce { ability, seconds } => with_hero_ability(world, target, &ability, |h| { h.reduce_cooldown(&ability, seconds); }),
+        Command::OrderAttack { target: (id, gen) } => order_attack(world, target, id, gen),
+        Command::Order { kind, at } => order(world, target, kind, at),
     }
+}
+
+/// The hero `unit` drops what it was doing and takes the order (stop: nothing queued).
+fn order(world: &mut World, unit: Entity, kind: OrderKind, (x, y): (i32, i32)) -> bool {
+    use super::comp::{HeroCommand, HeroCommandQueue};
+    if world.read_storage::<super::comp::Hero>().get(unit).is_none() { return false; }
+    super::game_processor::clear_hero_command_queue(world, unit);
+    super::cast_windup::cancel(world, unit);
+    super::game_processor::interrupt_attack_for_accepted_command(world, unit);
+    let pos = omoba_sim::Vec2::new(Fixed64::from_raw(i64::from(x)), Fixed64::from_raw(i64::from(y)));
+    let command = match kind {
+        OrderKind::Stop => return true,
+        OrderKind::Hold => HeroCommand::HoldPosition,
+        OrderKind::Move => HeroCommand::MoveTo { pos },
+        OrderKind::AttackMove => HeroCommand::AttackMove { pos },
+    };
+    let mut queues = world.write_storage::<HeroCommandQueue>();
+    let Some(queue) = queues.get_mut(unit) else { return false };
+    queue.replace(command);
+    true
+}
+
+/// The hero `unit` drops what it was doing and attacks the living `(id, gen)` (taunt.rs gives the
+/// same order but also refuses the owner's next ones; this does not).
+fn order_attack(world: &mut World, unit: Entity, id: u32, gen: i32) -> bool {
+    use super::comp::{HeroCommand, HeroCommandQueue};
+    let attackee = world.entities().entity(id);
+    if attackee.gen().id() != gen || !world.entities().is_alive(attackee) || attackee == unit { return false; }
+    if world.read_storage::<super::comp::Hero>().get(unit).is_none() { return false; }
+    super::game_processor::clear_hero_command_queue(world, unit);
+    super::cast_windup::cancel(world, unit);
+    super::game_processor::interrupt_attack_for_accepted_command(world, unit);
+    let mut queues = world.write_storage::<HeroCommandQueue>();
+    let Some(queue) = queues.get_mut(unit) else { return false };
+    queue.replace(HeroCommand::AttackTarget { target: attackee, chase_origin: None });
+    true
 }
 
 fn with_hero_ability(world: &mut World, target: Entity, ability: &str, f: impl FnOnce(&mut super::comp::Hero)) -> bool {
@@ -123,6 +196,10 @@ mod tests {
             Command::CooldownEnd { ability: "a34_frost_bolt".into() },
             Command::Level { ability: "a07_rouse".into(), level: 3 },
             Command::Health { value: Fixed64::from_i32(250) },
+            Command::OrderAttack { target: (12, 3) },
+            Command::Order { kind: OrderKind::Stop, at: (0, 0) },
+            Command::Order { kind: OrderKind::Move, at: (-5120, 7_168_000) },
+            Command::Order { kind: OrderKind::AttackMove, at: (1, -1) },
         ] {
             assert_eq!(Command::from_payload(BUFF, &c.payload()), Some(c.clone()));
         }

@@ -1314,6 +1314,42 @@ message TeamPresentationSnapshot {
   // An illegal row drops the whole list. It does not alter shop_receipts.
   repeated ShopTransactionCorrelation shop_transaction_correlations = 26;
   CombatPreferencesProjection combat_preferences = 27;
+  // Indices into the compiled map's trees (MobaMapConst::trees) that are down now (E242); the
+  // renderer draws the map's trees minus these. Public: every team sees the same trees.
+  repeated uint32 fallen_trees = 28;
+  // Runtime facts of the latest frame (runtime_fact_state): ground zones of disclosed casters,
+  // tethers whose two ends are both disclosed, and this team's own illusions. Replayed while listed.
+  repeated PresentationGroundZone ground_zones = 29;
+  repeated PresentationLink links = 30;
+  repeated PresentationEntityKey illusions = 31;
+  // 0 unknown, 1 day, 2 night (public temporary_night).
+  uint32 time_of_day = 32;
+}
+
+message PresentationEntityKey {
+  uint64 render_id = 1;
+  uint64 disclosure_epoch = 2;
+}
+
+// A ground zone held by a disclosed caster: the disc at (x, y), or the capsule to (end_x, end_y).
+// Q10 world coordinates. The key is stable for the zone's life and salted per team.
+message PresentationGroundZone {
+  uint64 zone_key = 1;
+  PresentationEntityKey source = 2;
+  string cue_id = 3;
+  sint64 x_raw = 4;
+  sint64 y_raw = 5;
+  sint64 end_x_raw = 6;
+  sint64 end_y_raw = 7;
+  sint64 radius_raw = 8;
+}
+
+// A tether from source to target; both ends are disclosed to this team.
+message PresentationLink {
+  uint64 link_key = 1;
+  PresentationEntityKey source = 2;
+  PresentationEntityKey target = 3;
+  string cue_id = 4;
 }
 
 // Bounded owner+epoch+actor+renderer-request+authority-input row.
