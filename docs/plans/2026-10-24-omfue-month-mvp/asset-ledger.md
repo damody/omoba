@@ -77,6 +77,7 @@
 | 2026-10-30 | 引擎基本形狀（OmPropMeshCommandlet） | 變形外觀 `SM_hex_critter`（青蛙），以及 3 個顏色材質 `MI_Prop_frog`、`MI_Prop_eye`、`MI_Prop_pupil` | `scripts/prop_meshes.lua` 定義 10 個 Sphere 零件：身體、頭、眼睛、瞳孔、四隻腳 | 0 | — | `/Game/Omoba/Props/hex_critter/` | 一次可用。任何帶 v3 狀態 `hex` 的單位都換成這隻青蛙（OmStatusLook::ShowsHexForm），高約 70 cm 乘以單位的呈現比例 |
 | 2026-10-30 | Grok Build CLI | hattori_hanzo（測試英雄服部半藏）載入圖 | 2:3（832x1248 JPEG，轉成 PNG） | 不另計費 | — | scratchpad `grok/loading/hattori_hanzo-a1/`；`omfue/Content/Omoba/UI/hattori-hanzo-loading-v1.png` | 一次可用：單一蒙面忍者，深藍頭巾只露眼睛，與 nobu 頭像一致；無文字、無邊框 |
 | 2026-10-30 | Grok Build CLI | M6 第 1～4 批 33 位英雄的載入圖（kind=loading） | 2:3（832x1248 JPEG，轉成 PNG） | 不另計費 | — | scratchpad `grok/loading/<id>-a1/`；`omfue/Content/Omoba/UI/gen-loading-<id>.png`，`generated-art-v1.json` | 36 張中退回 3 張（風魔小太郎、明智秀滿、菊姬：畫成多人拼貼），重生成中 |
+| 2026-10-30 | Grok Build CLI | M6 第 5～9 批 48 位英雄的載入圖＋第 1～4 批重生成 3 張 | 2:3（832x1248 JPEG，轉成 PNG） | 不另計費 | — | scratchpad `grok/loading/<id>-a1|a2/`；`gen-loading-<id>.png` | 50 張中退回 2 張（瑞龍院日秀畫成西式修女、望月千代女的分身畫成蒼白人物），重生成中；第 1～4 批的 3 張重生成後可用 |
 
 7 位是先連續送出生成、再逐一綁骨，所以點數是交錯扣的，中間的剩餘點數不逐列記。7 位合計 315 點（7410 → 7095），與「7 × 45」相符。
 
