@@ -1385,7 +1385,17 @@ function M.validate_doc(doc, opts)
       if doc.hero and doc.hero.text ~= nil then
         for _, l in ipairs(V.LANGS) do
           local lt = doc.hero.text[l]
-          if type(lt) ~= "table" then err("hero.text." .. l, "必填") else need_string(lt.name, "hero.text." .. l .. ".name") end
+          if type(lt) ~= "table" then err("hero.text." .. l, "必填")
+          else
+            need_string(lt.name, "hero.text." .. l .. ".name")
+            -- title / background: the hero select and detail texts (no numbers, like ability text)
+            for k, v in pairs(lt) do
+              local p = "hero.text." .. l .. "." .. tostring(k)
+              if k ~= "name" and k ~= "title" and k ~= "background" then err(p, "不認得的欄位（name、title、background）")
+              elseif type(v) ~= "string" then err(p, "必須是字串")
+              elseif k ~= "name" and v:find("%d") then err(p, "說明文字不能有數字") end
+            end
+          end
         end
       else err("hero.text", "必填（英雄名稱 zh_TW 與 en）") end
       if doc.hero and doc.hero.auto_learn ~= nil then

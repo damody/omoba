@@ -193,6 +193,9 @@ local function build(entry)
     end
   end
   local name = doc.hero.text.zh_TW.name
+  -- a playable hero's select title and background come from its document (hero.text.zh_TW)
+  local title, background = "v3 測試英雄", name .. "（schema v3 產生的 Rust；測試用）"
+  if entry.playable then title, background = doc.hero.text.zh_TW.title, doc.hero.text.zh_TW.background end
   local hero = {
     id = entry.package,
     -- Not selectable or in a match: tests and conformance only, until it is playable.
@@ -204,8 +207,8 @@ local function build(entry)
     v3_crate = entry.package,
     ue = { native_only = true },
     display_name = name,
-    title = not entry.playable and "v3 測試英雄" or nil,
-    background = not entry.playable and (name .. "（schema v3 產生的 Rust；測試用）") or nil,
+    title = title,
+    background = background,
     abilities = list,
     turn_speed = 720.0,
     moba_loadout = { ranks = loadout, skill_points = 0 },
