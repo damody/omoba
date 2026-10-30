@@ -977,6 +977,13 @@
 - 2026-10-30 線 A：產生器支援一般光環：`passive.aura` 學會時 `cx.emit_aura`（每級重發，帶等級）、`status.aura` 在狀態開始時發（`requires` 綁該狀態）；`on_aura` 依 types／flags／where 篩 host 給的接收者，套狀態 `linger + AURA_PERIOD`（每次脈衝刷新，keep／replace 也刷新）。發射器名稱帶設立者（`aura_key`／`aura_source`），所以狀態以施加者身分套上。kit 新增 `Cx::admits`。knockback 距離 0 加高度不再擋。覆蓋 256→268／447。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
+## 2026-10-30（conformance：harness 兩個通用誤判修正、B08／A07／B06／震地換上比對；E288）
+
+- harness：條件式的 on_cast 傷害不再算成施放後才結算；CastTrace 記到拒絕的施放不再判為接受（E288，已放回 live 並 commit）。
+- B08 整位：修正後 0 退步，A 已換上並刪除 handler（c8505bbf）。A07 紅雷 0 差異，A 已換上（ad8e0d7e）。
+- b29_earth_tremor：產生碼改經 on_channel_start 後 0 退步，可以換上（已通知 A）。b29_quake_axe 產生版施放不被接受，維持手寫，交 A。
+- 目前的 live（含 c365547a 狀態事件真正觸發）和 E282 相比 0 退步：B08 +29、B06 +8、A34 +6 通過。10 位 2288 情境，1772 通過、15 (b)、0 (c)、501 unsupported。
+
 ## 2026-10-30（conformance：B08 整位與 5 招換上的影子比對、A34 (c) 歸零；E283）
 
 - B08 整位換上：多 25 個通過，退步 5 個（閃切施法者死後仍傷害 ×4、連牙斷空重施後狀態 0 筆 ×1），交 A，尚未換上。
