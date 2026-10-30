@@ -7,6 +7,12 @@
 -- Every number comes from the v3 document (levels, extras) or the source roster (unit stats,
 -- through `source_stats`, templates/hero_source_stats.lua). A hero leaves this list when
 -- hero_author builds its full package into authored_heroes.lua.
+--
+-- `playable = true`: every ability of the document is generated Rust and line-conformance shows
+-- 0 fails, so the hero is in the game. Its row names the roster hero by `source_ref` (the unit
+-- stats come through the same roster) instead of being test_only, and scripts/hero_dlls.lua lists
+-- its crate so every launch builds and stages its DLL. The build refuses a playable hero that has
+-- an ability the generator does not produce, or a crate hero_dlls does not list.
 package.path = "scripts/?.lua;tools/lua/?.lua;" .. package.path
 local v3 = require("hero_author.v3")
 local cli = require("hero_author.cli")
@@ -17,36 +23,36 @@ local OUT = "scripts/lua_data/templates/v3_test_heroes.lua"
 local HEROES = {
   { package = "hattori_hanzo" },
   -- M6 batch 2 (line-conformance REPORT_ONLY)
-  { package = "maeda_keiji" },
+  { package = "maeda_keiji", playable = true },
   { package = "tachibana_ginchiyo" },
-  { package = "inaba_ittetsu" },
-  { package = "kakizaki_kageie" },
-  { package = "torii_mototada" },
+  { package = "inaba_ittetsu", playable = true },
+  { package = "kakizaki_kageie", playable = true },
+  { package = "torii_mototada", playable = true },
   { package = "sakuma_morimasa" },
   { package = "akechi_mitsuhide" },
-  { package = "ukita_hideie" },
-  { package = "shima_sakon" },
+  { package = "ukita_hideie", playable = true },
+  { package = "shima_sakon", playable = true },
   -- M6 batch 1 (line-conformance REPORT_ONLY), plus A05
-  { package = "tokugawa_ieyasu" },
+  { package = "tokugawa_ieyasu", playable = true },
   { package = "yamagata_masakage" },
   { package = "okuma_tomohide" },
   { package = "sasaki_kojiro" },
   { package = "otani_yoshitsugu" },
   { package = "maeda_toshiie" },
-  { package = "nohime" },
-  { package = "kojima_sadaoki" },
+  { package = "nohime", playable = true },
+  { package = "kojima_sadaoki", playable = true },
   { package = "shimazu_yoshihiro" },
   { package = "sakai_tadatsugu" },
   -- M6 batches 2-9, the rest (line-conformance REPORT_ONLY)
   { package = "kuroda_yoshitaka" },
   { package = "niwa_nagahide" },
   { package = "baba_nobufusa" },
-  { package = "saito_yoshitatsu" },
-  { package = "yagyu_muneyoshi" },
+  { package = "saito_yoshitatsu", playable = true },
+  { package = "yagyu_muneyoshi", playable = true },
   { package = "sengoku_hidehisa" },
   { package = "takeda_shingen" },
   { package = "izumo_no_okuni" },
-  { package = "chosokabe_motochika" },
+  { package = "chosokabe_motochika", playable = true },
   { package = "chacha" },
   { package = "ii_naomasa" },
   { package = "maeno_nagayasu" },
@@ -72,12 +78,12 @@ local HEROES = {
   { package = "kashin_koji" },
   { package = "kosokabe_chikayasu" },
   { package = "tachibana_muneshige" },
-  { package = "kamiizumi_nobutsuna" },
+  { package = "kamiizumi_nobutsuna", playable = true },
   { package = "honganji_kennyo" },
   { package = "ishikawa_kazumasa" },
   { package = "otomo_sorin" },
   { package = "naoe_kanetsugu" },
-  { package = "nene" },
+  { package = "nene", playable = true },
   { package = "mori_ranmaru" },
   { package = "uesugi_kenshin" },
   { package = "kato_kiyomasa" },
@@ -128,8 +134,40 @@ local function ability_row(package, ab, compiled)
   return v3.ability_row(package, ab, compiled, { ue = { native_only = true } })
 end
 
+-- The roster (templates/hero_sources.lua): `source_ref` of a playable hero.
+local function roster()
+  local chunk = assert(loadfile("scripts/lua_data/templates/hero_sources.lua", "t", {}))
+  return chunk()({})
+end
+
+-- A playable hero's every ability is generated (v3_rust.lua --hero, the build.rs generator) and
+-- its crate is a hero DLL (scripts/hero_dlls.lua).
+local function check_playable(entry, doc)
+  V3_RUST_AS_MODULE = true
+  local rust = dofile("docs/character_pipeline/tools/v3_rust.lua")
+  V3_RUST_AS_MODULE = nil
+  local picked
+  for _, h in ipairs(rust.heroes(".", "all")) do if h.package == entry.package then picked = h end end
+  assert(picked, entry.package .. ": no v3 document for v3_rust.lua")
+  local reports, problems = rust.run(".", "scripts", { picked }, { write = false })
+  assert(#problems == 0 and reports[1], entry.package .. ": v3_rust.lua: " .. tostring(problems[1]))
+  local blockers = {}
+  for _, e in ipairs(reports[1].entries) do blockers[e.id] = e.blockers end
+  for _, ab in ipairs(doc.abilities) do
+    local b = blockers[ab.id]
+    assert(b and #b == 0, entry.package .. ": playable, but " .. ab.id .. " is not generated Rust"
+      .. (b and (" (" .. table.concat(b, ", ") .. ")") or ""))
+  end
+  local listed = false
+  for _, row in ipairs(dofile("scripts/hero_dlls.lua")) do
+    if row.hero == entry.package and row.dir == "heroes/" .. entry.package then listed = true end
+  end
+  assert(listed, entry.package .. ": playable, but scripts/hero_dlls.lua does not list heroes/" .. entry.package)
+end
+
 local function build(entry)
   local doc = load_doc(entry.package)
+  if entry.playable then check_playable(entry, doc) end
   local compiled = v3.compile(".", doc)
   local abilities, slots, ranks = {}, {}, {}
   for _, ab in ipairs(doc.abilities) do
@@ -157,22 +195,25 @@ local function build(entry)
   local name = doc.hero.text.zh_TW.name
   local hero = {
     id = entry.package,
-    -- Not selectable or in a match: tests and conformance only, until hero_author builds its package.
-    test_only = true,
-    source_stats = doc.hero.source_id,
+    -- Not selectable or in a match: tests and conformance only, until it is playable.
+    test_only = not entry.playable or nil,
+    source_stats = not entry.playable and doc.hero.source_id or nil,
+    source_ref = entry.playable and (SOURCES.name .. "@" .. SOURCES.commit .. ":" .. doc.hero.source_id) or nil,
     authored_package = entry.package,
     -- its abilities register through scripts/heroes/<package> (gen_hero_registry.lua skips it)
     v3_crate = entry.package,
     ue = { native_only = true },
     display_name = name,
-    title = "v3 測試英雄",
-    background = name .. "（schema v3 產生的 Rust；測試用）",
+    title = not entry.playable and "v3 測試英雄" or nil,
+    background = not entry.playable and (name .. "（schema v3 產生的 Rust；測試用）") or nil,
     abilities = list,
     turn_speed = 720.0,
     moba_loadout = { ranks = loadout, skill_points = 0 },
   }
   return hero, abilities, unseated
 end
+
+SOURCES = roster()
 
 local function render()
   local data, unseated = { heroes = {}, abilities = {} }, {}
