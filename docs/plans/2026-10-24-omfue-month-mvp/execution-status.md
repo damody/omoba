@@ -16,6 +16,13 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：召喚物模板 hp_regen／night_vision_radius，有生命的 dummy 可以被打掉
+
+- 召喚物模板新增 `hp_regen`（每秒回血）與 `night_vision_radius`（夜間視野；0 表示日夜都用 `vision_radius`）。`SummonStats` 改帶 `hp_regen` 與 `night_vision_bonus`（夜視減日視），出生時寫成一列永久狀態 `__summon_base`（`dummy_unit::hold_base_stats`），透過既有 BuffStore 聚合生效。
+- dummy 模板可以給 `hp`、`armor`、`magic_resistance`。有生命的 dummy 只掛 `BREAKABLE_STATES`（不聽指令、不擋路），可以被攻擊、選取與擊殺，也不登記成無敵召喚物。攻擊、碰撞與移動仍然禁止。驗證範圍是 0..=10000。
+- package_v2 規則同步放寬 dummy 的 hp、armor、magic_resistance。
+- 測試：`a_dummy_with_life_can_be_hit_and_template_regen_and_night_sight_ride_one_row`、template-ids 的驗證測試；omoba-core lib 全部 1435 通過。
+
 ## 2026-10-30 工作線 B：通用召喚物 AI 與 acquisition_range／ai／projectile_speed（t51）
 
 - 召喚物模板新增三個欄位：

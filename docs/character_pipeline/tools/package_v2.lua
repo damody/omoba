@@ -437,8 +437,8 @@ function M.validate(dir, loaded, opts)
         end
         if s.dummy ~= nil and type(s.dummy) ~= "boolean" then err(label .. " dummy must be boolean") end
         if s.dummy then
-          -- 原作 dummy／majia：只掛狀態與光環的身體（omoba-core dummy_unit.rs）。
-          for _, key in ipairs({ "hp", "damage", "move_speed", "attack_range", "attack_interval", "armor", "magic_resistance",
+          -- 原作 dummy／majia：只掛狀態與光環的身體（omoba-core dummy_unit.rs）；可以有生命與防禦（可被打掉）。
+          for _, key in ipairs({ "damage", "move_speed", "attack_range", "attack_interval",
             "collision_radius", "follow_start_distance", "follow_stop_distance", "damage_per_owner_level" }) do
             if s[key] ~= 0 then err(label .. " is a dummy, so " .. key .. " must be 0") end
           end

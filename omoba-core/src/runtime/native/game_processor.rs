@@ -4416,8 +4416,9 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     world.write_storage::<Unit>().insert(entity,unit)?;
     world.write_storage::<Pos>().insert(entity,Pos(pos))?;
     world.write_storage::<Faction>().insert(entity,faction)?;
-    // A dummy (dummy_unit.rs) has no life to lose: one raw point keeps it a living holder.
-    let life=if stats.dummy {Fixed64::from_raw(1)} else {stats.hp};
+    // A dummy (dummy_unit.rs) without life: one raw point keeps it a living holder.
+    let breakable=stats.dummy && stats.hp>Fixed64::ZERO;
+    let life=if stats.dummy && !breakable {Fixed64::from_raw(1)} else {stats.hp};
     world.write_storage::<CProperty>().insert(entity,CProperty {hp:life,mhp:life,
         msd:stats.move_speed,def_physic:stats.armor,def_magic:stats.magic_resistance})?;
     if !stats.dummy {
@@ -4440,10 +4441,11 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     summoned.spawn_tick=world.read_resource::<Tick>().0;
     summoned.bounty=(stats.bounty_gold,stats.bounty_xp);
     world.write_storage::<SummonedUnit>().insert(entity,summoned)?;
-    if stats.invulnerable || stats.dummy {
+    if stats.invulnerable || (stats.dummy && !breakable) {
         if let Some(mut state)=world.try_fetch_mut::<crate::runtime::MobaMatch>() {state.add_invulnerable_summon(&world.entities(),entity);}
     }
-    if stats.dummy {super::dummy_unit::hold_states(&mut world.write_resource::<crate::runtime::BuffStore>(),entity,duration);}
+    if stats.dummy {super::dummy_unit::hold_states(&mut world.write_resource::<crate::runtime::BuffStore>(),entity,duration,breakable);}
+    super::dummy_unit::hold_base_stats(&mut world.write_resource::<crate::runtime::BuffStore>(),entity,stats);
     if let Some(player_id)=player_owner {world.write_storage::<PlayerOwner>().insert(entity,PlayerOwner::new(player_id))?;}
     world.write_resource::<ScriptEventQueue>().push(ScriptEvent::Spawn {e:entity});
     Ok(())

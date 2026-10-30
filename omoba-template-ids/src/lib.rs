@@ -1423,6 +1423,10 @@ pub struct SummonStats {
     pub ai: SummonAi,
     /// Attack projectile speed (900 when the template gives none).
     pub projectile_speed: Fixed64,
+    /// Health regenerated per second.
+    pub hp_regen: Fixed64,
+    /// Night sight minus day sight (0 when the template gives one sight).
+    pub night_vision_bonus: Fixed64,
 }
 
 /// Ability 類型 — `omoba_core::ability_meta::AbilityType` 的 const-friendly

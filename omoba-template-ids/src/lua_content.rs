@@ -1766,6 +1766,12 @@ pub(crate) struct SummonEntry {
     /// Its attack projectile's speed; 0 = the default 900.
     #[serde(default)]
     pub(crate) projectile_speed: f32,
+    /// Health regenerated per second.
+    #[serde(default)]
+    pub(crate) hp_regen: f32,
+    /// Sight at night; 0 = its `vision_radius` day and night.
+    #[serde(default)]
+    pub(crate) night_vision_radius: f32,
 }
 
 pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),String> {
@@ -1776,11 +1782,15 @@ pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),Stri
         if !entry.damage_per_owner_level.is_finite() || !(0.0..=10_000.0).contains(&entry.damage_per_owner_level) {
             return Err(format!("summon {} has invalid damage_per_owner_level",entry.id));
         }
-        let bodiless=[entry.hp,entry.damage,entry.move_speed,entry.attack_range,entry.attack_interval,entry.armor,
-            entry.magic_resistance,entry.collision_radius,entry.follow_start_distance,entry.follow_stop_distance,
+        // A dummy may have life and defenses (then it can be destroyed), never an attack, collision or movement.
+        let bodiless=[entry.damage,entry.move_speed,entry.attack_range,entry.attack_interval,
+            entry.collision_radius,entry.follow_start_distance,entry.follow_stop_distance,
             entry.damage_per_owner_level].iter().all(|value|*value==0.0);
         if entry.dummy && (!bodiless || !entry.immobile || entry.invulnerable) {
-            return Err(format!("summon {} is a dummy but has a body (life, attack, defense, collision, movement) or is not immobile",entry.id));
+            return Err(format!("summon {} is a dummy but has an attack, collision or movement, or is not immobile",entry.id));
+        }
+        if [entry.hp_regen,entry.night_vision_radius].iter().any(|value|!value.is_finite()||!(0.0..=10_000.0).contains(value)) {
+            return Err(format!("summon {} has an invalid hp_regen or night_vision_radius",entry.id));
         }
         if [entry.acquisition_range,entry.projectile_speed].iter().any(|value|!value.is_finite()||!(0.0..=20_000.0).contains(value)) {
             return Err(format!("summon {} has an invalid acquisition range or projectile speed",entry.id));
@@ -1826,11 +1836,12 @@ fn a_dummy_summon_is_bodiless_and_immobile() {
         "duration":3.0,"vision_radius":300.0})).unwrap();
     assert!(validate_summon_navigation(&[dummy.clone()]).is_ok());
     let mut moving=dummy.clone();moving.immobile=false;
-    let mut alive=dummy.clone();alive.hp=1.0;
+    let mut breakable=dummy.clone();breakable.hp=120.0;breakable.armor=2.0;
+    assert!(validate_summon_navigation(&[breakable]).is_ok(),"a dummy may have life and armor");
     let mut blocking=dummy.clone();blocking.collision_radius=24.0;
     let mut attacking=dummy.clone();attacking.attack_interval=1.0;
     let mut doubled=dummy.clone();doubled.invulnerable=true;
-    for entry in [moving,alive,blocking,attacking,doubled] {assert!(validate_summon_navigation(&[entry]).is_err());}
+    for entry in [moving,blocking,attacking,doubled] {assert!(validate_summon_navigation(&[entry]).is_err());}
 }
 
 pub(crate) use omoba_content_model::AbilityDefinition as AbilityEntry;
