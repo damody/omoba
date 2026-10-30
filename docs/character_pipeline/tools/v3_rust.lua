@@ -465,8 +465,10 @@ function Gen:expr(node, ctx)
       if parts[1] == "dt" then return "cx.game_dt()", "num" end
       self:block("attr:game." .. parts[1]); return "Fixed64::ZERO", "err"
     end
-    -- the running ability: its rank is cx.rank in every generated context; readiness by its id
-    if base.k == "id" and base.name == "ability" and #parts == 1 and not scope_find(ctx.scope, "ability") and not ctx.event then
+    -- the running ability (v3.md §5.4: always this entry, in a trigger too): its rank is cx.rank in
+    -- every generated context (a trigger's event level); readiness by its id on cx.caster (the
+    -- learner of a passive, the applier of a status)
+    if base.k == "id" and base.name == "ability" and #parts == 1 and not scope_find(ctx.scope, "ability") then
       if parts[1] == "level" then return "Fixed64::from_i32(i32::from(cx.rank))", "num" end
       local id = self.entry and self.entry.kind == "ability" and self.entry.def.id
       if parts[1] == "is_ready" and id then return string.format("cx.ability_ready(cx.caster, %s)", rust_str(id)), "bool" end

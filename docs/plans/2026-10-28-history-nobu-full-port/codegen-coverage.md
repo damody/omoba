@@ -2,7 +2,7 @@
 
 由 `tools\lua\lua.exe docs\character_pipeline\tools\v3_codegen_coverage.lua` 產生，不要手改。取代 [ir-blockers.md](ir-blockers.md)（M3' ③，[m3-rust-codegen-design.md](m3-rust-codegen-design.md) §2.3）。產生器（`v3_rust.lua`）或 `ability_kit` 每補一批寫法就重跑。
 
-- 英雄技能：447 招中 302 招產生成 Rust。還不能產生的招式不輸出程式碼，列在這份報告；該英雄不進 `hero_dlls`。全部技能都產生的英雄：22 / 97 位。
+- 英雄技能：447 招中 303 招產生成 Rust。還不能產生的招式不輸出程式碼，列在這份報告；該英雄不進 `hero_dlls`。全部技能都產生的英雄：23 / 97 位。
 - 道具（items.dll，M7）：168 件中 36 件產生成 Rust。
 - 一位英雄要全部技能都產生才算解鎖。順序是 M5（已上架的 10 位），然後 M6 第 1～9 批（[m6-waves.md](m6-waves.md)）；每批內先做「每多支援一項、能解鎖最多英雄」的那位英雄缺的項目。
 - 「主要負責」是起點：`產生器` 是運算式、選取、目標這類產生器自己能降低的寫法；`ability_kit` 是要先有 kit 呼叫或 host 元件的寫法（工作線 B）。
@@ -52,22 +52,20 @@
 
 ### M6 第 3 批（9 位）
 
-開始時已全部產生：4 位；做完本批的項目後：9 位。
+開始時已全部產生：5 位；做完本批的項目後：9 位。
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 20 | `status.reapply_if_removed` | ability_kit | 共用 | A22 | 1 招、14 件道具 | 5 / 9 |
-| 21 | `status.per_source without {caster}` | ability_kit | hook 候選 | B31 | 1 招、0 件道具 | 6 / 9 |
-| 22 | `attr:is_ready` | 產生器 | 共用 | A05 | 1 招、3 件道具 | 7 / 9 |
-| 23 | `action:modify_cooldown.ability:se` | ability_kit | hook 候選 | C25 | 1 招、0 件道具 | 7 / 9 |
-| 24 | `action:modify_cooldown.ability:sq` | ability_kit | hook 候選 | C25 | 1 招、0 件道具 | 7 / 9 |
-| 25 | `action:modify_cooldown.ability:sw` | ability_kit | hook 候選 | C25 | 1 招、0 件道具 | 7 / 9 |
-| 26 | `fn:ability_in_slot` | 產生器 | 共用 | C25 | 2 招、0 件道具 | 8 / 9 |
-| 27 | `action:remove_status of its own independent status (this instance waits)` | ability_kit | hook 候選 | A06 | 1 招、0 件道具 | 8 / 9 |
-| 28 | `attr:level` | 產生器 | 共用 | A06 | 2 招、0 件道具 | 8 / 9 |
-| 29 | `aura.flag:include_illusions` | ability_kit | 共用 | A06 | 2 招、0 件道具 | 8 / 9 |
-| 30 | `status.vars of an independent status` | ability_kit | 共用 | A06 | 2 招、0 件道具 | 8 / 9 |
-| 31 | `status_trigger:on_attack_miss` | ability_kit | hook 候選 | A06 | 1 招、0 件道具 | 9 / 9 |
+| 20 | `status.reapply_if_removed` | ability_kit | 共用 | A22 | 1 招、14 件道具 | 6 / 9 |
+| 21 | `status.per_source without {caster}` | ability_kit | hook 候選 | B31 | 1 招、0 件道具 | 7 / 9 |
+| 22 | `action:modify_cooldown.ability:se` | ability_kit | hook 候選 | C25 | 1 招、0 件道具 | 7 / 9 |
+| 23 | `action:modify_cooldown.ability:sq` | ability_kit | hook 候選 | C25 | 1 招、0 件道具 | 7 / 9 |
+| 24 | `action:modify_cooldown.ability:sw` | ability_kit | hook 候選 | C25 | 1 招、0 件道具 | 7 / 9 |
+| 25 | `fn:ability_in_slot` | 產生器 | 共用 | C25 | 2 招、0 件道具 | 8 / 9 |
+| 26 | `action:remove_status of its own independent status (this instance waits)` | ability_kit | hook 候選 | A06 | 1 招、0 件道具 | 8 / 9 |
+| 27 | `aura.flag:include_illusions` | ability_kit | 共用 | A06 | 2 招、0 件道具 | 8 / 9 |
+| 28 | `status.vars of an independent status` | ability_kit | 共用 | A06 | 2 招、0 件道具 | 8 / 9 |
+| 29 | `status_trigger:on_attack_miss` | ability_kit | hook 候選 | A06 | 1 招、0 件道具 | 9 / 9 |
 
 ### M6 第 4 批（9 位）
 
@@ -75,25 +73,25 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 32 | `action:create_illusion` | ability_kit | 共用 | B02 | 10 招、0 件道具 | 1 / 9 |
-| 33 | `expr: a position from a sym:ill` | 產生器 | 共用 | B02 | 3 招、0 件道具 | 1 / 9 |
-| 34 | `expr: wanted a unit, got a sym:ill` | 產生器 | 共用 | B02 | 8 招、0 件道具 | 3 / 9 |
-| 35 | `status.absorb.on_absorb` | ability_kit | 共用 | A24 | 6 招、1 件道具 | 3 / 9 |
-| 36 | `status.absorb.on_broken` | ability_kit | 共用 | A24 | 7 招、0 件道具 | 4 / 9 |
-| 37 | `action:create_unit.limit_per_owner (no host cap for it)` | ability_kit | 共用 | A36 | 3 招、0 件道具 | 4 / 9 |
-| 38 | `template:a36e_mine is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A36 | 1 招、0 件道具 | 5 / 9 |
-| 39 | `status.stacking:independent with slow_pct` | ability_kit | 共用 | B34 | 2 招、0 件道具 | 5 / 9 |
-| 40 | `template:b34e_spike_unit is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B34 | 1 招、0 件道具 | 6 / 9 |
-| 41 | `action:cancel_delay` | ability_kit | 共用 | B14 | 4 招、0 件道具 | 6 / 9 |
-| 42 | `action:delay.id` | ability_kit | 共用 | B14 | 4 招、0 件道具 | 6 / 9 |
-| 43 | `action:set_time_of_day` | ability_kit | 共用 | B14 | 2 招、0 件道具 | 7 / 9 |
-| 44 | `attr:owner` | 產生器 | hook 候選 | A20 | 1 招、0 件道具 | 7 / 9 |
-| 45 | `state:not_on_minimap` | ability_kit | 共用 | A20 | 4 招、0 件道具 | 7 / 9 |
-| 46 | `template:a20w_banner is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A20 | 1 招、0 件道具 | 8 / 9 |
-| 47 | `aura.flag:exclude_invisible` | ability_kit | hook 候選 | B17 | 1 招、0 件道具 | 8 / 9 |
-| 48 | `aura.status:independent` | ability_kit | hook 候選 | B17 | 1 招、0 件道具 | 8 / 9 |
-| 49 | `event.damage.is_attack` | ability_kit | 共用 | B17 | 2 招、0 件道具 | 8 / 9 |
-| 50 | `template:b17w_ward is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B17 | 1 招、0 件道具 | 9 / 9 |
+| 30 | `action:create_illusion` | ability_kit | 共用 | B02 | 10 招、0 件道具 | 1 / 9 |
+| 31 | `expr: a position from a sym:ill` | 產生器 | 共用 | B02 | 3 招、0 件道具 | 1 / 9 |
+| 32 | `expr: wanted a unit, got a sym:ill` | 產生器 | 共用 | B02 | 8 招、0 件道具 | 3 / 9 |
+| 33 | `status.absorb.on_absorb` | ability_kit | 共用 | A24 | 6 招、1 件道具 | 3 / 9 |
+| 34 | `status.absorb.on_broken` | ability_kit | 共用 | A24 | 7 招、0 件道具 | 4 / 9 |
+| 35 | `action:create_unit.limit_per_owner (no host cap for it)` | ability_kit | 共用 | A36 | 3 招、0 件道具 | 4 / 9 |
+| 36 | `template:a36e_mine is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A36 | 1 招、0 件道具 | 5 / 9 |
+| 37 | `status.stacking:independent with slow_pct` | ability_kit | 共用 | B34 | 2 招、0 件道具 | 5 / 9 |
+| 38 | `template:b34e_spike_unit is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B34 | 1 招、0 件道具 | 6 / 9 |
+| 39 | `action:cancel_delay` | ability_kit | 共用 | B14 | 4 招、0 件道具 | 6 / 9 |
+| 40 | `action:delay.id` | ability_kit | 共用 | B14 | 4 招、0 件道具 | 6 / 9 |
+| 41 | `action:set_time_of_day` | ability_kit | 共用 | B14 | 2 招、0 件道具 | 7 / 9 |
+| 42 | `attr:owner` | 產生器 | hook 候選 | A20 | 1 招、0 件道具 | 7 / 9 |
+| 43 | `state:not_on_minimap` | ability_kit | 共用 | A20 | 4 招、0 件道具 | 7 / 9 |
+| 44 | `template:a20w_banner is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A20 | 1 招、0 件道具 | 8 / 9 |
+| 45 | `aura.flag:exclude_invisible` | ability_kit | hook 候選 | B17 | 1 招、0 件道具 | 8 / 9 |
+| 46 | `aura.status:independent` | ability_kit | hook 候選 | B17 | 1 招、0 件道具 | 8 / 9 |
+| 47 | `event.damage.is_attack` | ability_kit | 共用 | B17 | 2 招、0 件道具 | 8 / 9 |
+| 48 | `template:b17w_ward is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B17 | 1 招、0 件道具 | 9 / 9 |
 
 ### M6 第 5 批（9 位）
 
@@ -101,18 +99,18 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 51 | `action:chance.mode` | ability_kit | hook 候選 | A17 | 1 招、0 件道具 | 1 / 9 |
-| 52 | `template:a27_weapon is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A27 | 1 招、0 件道具 | 2 / 9 |
-| 53 | `selector.flag:exclude_invisible` | 產生器 | hook 候選 | B03 | 1 招、0 件道具 | 3 / 9 |
-| 54 | `fn:avg_attack_against` | 產生器 | 共用 | A25 | 6 招、0 件道具 | 4 / 9 |
-| 55 | `template:b19t_cavalry is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B19 | 1 招、0 件道具 | 5 / 9 |
-| 56 | `action:modify_cooldown.item_tag` | ability_kit | hook 候選 | C13 | 1 招、0 件道具 | 6 / 9 |
-| 57 | `action:cue.at of a err` | ability_kit | hook 候選 | B05 | 1 招、0 件道具 | 6 / 9 |
-| 58 | `state:revealed` | ability_kit | 共用 | B05 | 5 招、8 件道具 | 7 / 9 |
-| 59 | `action:refund` | ability_kit | 共用 | A33 | 2 招、2 件道具 | 7 / 9 |
-| 60 | `template:a33w_skeleton is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A33 | 1 招、0 件道具 | 8 / 9 |
-| 61 | `selector.types:building+creep+neutral+summon` | 產生器 | 共用 | B18 | 1 招、1 件道具 | 8 / 9 |
-| 62 | `template:b18t_claw is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B18 | 1 招、0 件道具 | 9 / 9 |
+| 49 | `action:chance.mode` | ability_kit | hook 候選 | A17 | 1 招、0 件道具 | 1 / 9 |
+| 50 | `template:a27_weapon is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A27 | 1 招、0 件道具 | 2 / 9 |
+| 51 | `selector.flag:exclude_invisible` | 產生器 | hook 候選 | B03 | 1 招、0 件道具 | 3 / 9 |
+| 52 | `fn:avg_attack_against` | 產生器 | 共用 | A25 | 6 招、0 件道具 | 4 / 9 |
+| 53 | `template:b19t_cavalry is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B19 | 1 招、0 件道具 | 5 / 9 |
+| 54 | `action:modify_cooldown.item_tag` | ability_kit | hook 候選 | C13 | 1 招、0 件道具 | 6 / 9 |
+| 55 | `action:cue.at of a err` | ability_kit | hook 候選 | B05 | 1 招、0 件道具 | 6 / 9 |
+| 56 | `state:revealed` | ability_kit | 共用 | B05 | 5 招、8 件道具 | 7 / 9 |
+| 57 | `action:refund` | ability_kit | 共用 | A33 | 2 招、2 件道具 | 7 / 9 |
+| 58 | `template:a33w_skeleton is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A33 | 1 招、0 件道具 | 8 / 9 |
+| 59 | `selector.types:building+creep+neutral+summon` | 產生器 | 共用 | B18 | 1 招、1 件道具 | 8 / 9 |
+| 60 | `template:b18t_claw is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B18 | 1 招、0 件道具 | 9 / 9 |
 
 ### M6 第 6 批（9 位）
 
@@ -120,20 +118,20 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 63 | `action:attack` | ability_kit | 共用 | C11 | 8 招、2 件道具 | 3 / 9 |
-| 64 | `template:a10t_quake_center is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A10 | 1 招、0 件道具 | 4 / 9 |
-| 65 | `template:b10w_spirit is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B10 | 1 招、0 件道具 | 5 / 9 |
-| 66 | `stat.when` | ability_kit | 共用 | C10 | 1 招、3 件道具 | 6 / 9 |
-| 67 | `action:heal.source:owner_of(self)` | ability_kit | 共用 | A29 | 2 招、0 件道具 | 6 / 9 |
-| 68 | `status_trigger:on_mana_spent` | ability_kit | hook 候選 | A29 | 1 招、0 件道具 | 6 / 9 |
-| 69 | `template:a29t_spirit is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A29 | 1 招、0 件道具 | 7 / 9 |
-| 70 | `action:impulse` | ability_kit | hook 候選 | B25 | 1 招、0 件道具 | 7 / 9 |
-| 71 | `attr:cooldown_remaining` | 產生器 | hook 候選 | B25 | 1 招、0 件道具 | 7 / 9 |
-| 72 | `fn:max of non-numbers` | 產生器 | hook 候選 | B25 | 1 招、0 件道具 | 8 / 9 |
-| 73 | `state:flying` | ability_kit | 共用 | C16 | 4 招、0 件道具 | 8 / 9 |
-| 74 | `template:c16e_ghost is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | C16 | 1 招、0 件道具 | 8 / 9 |
-| 75 | `template:c16r_spirit is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | C16 | 1 招、0 件道具 | 8 / 9 |
-| 76 | `template:c16t_stone is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | C16 | 1 招、0 件道具 | 9 / 9 |
+| 61 | `action:attack` | ability_kit | 共用 | C11 | 8 招、2 件道具 | 3 / 9 |
+| 62 | `template:a10t_quake_center is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A10 | 1 招、0 件道具 | 4 / 9 |
+| 63 | `template:b10w_spirit is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B10 | 1 招、0 件道具 | 5 / 9 |
+| 64 | `stat.when` | ability_kit | 共用 | C10 | 1 招、3 件道具 | 6 / 9 |
+| 65 | `action:heal.source:owner_of(self)` | ability_kit | 共用 | A29 | 2 招、0 件道具 | 6 / 9 |
+| 66 | `status_trigger:on_mana_spent` | ability_kit | hook 候選 | A29 | 1 招、0 件道具 | 6 / 9 |
+| 67 | `template:a29t_spirit is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A29 | 1 招、0 件道具 | 7 / 9 |
+| 68 | `action:impulse` | ability_kit | hook 候選 | B25 | 1 招、0 件道具 | 7 / 9 |
+| 69 | `attr:cooldown_remaining` | 產生器 | hook 候選 | B25 | 1 招、0 件道具 | 7 / 9 |
+| 70 | `fn:max of non-numbers` | 產生器 | hook 候選 | B25 | 1 招、0 件道具 | 8 / 9 |
+| 71 | `state:flying` | ability_kit | 共用 | C16 | 4 招、0 件道具 | 8 / 9 |
+| 72 | `template:c16e_ghost is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | C16 | 1 招、0 件道具 | 8 / 9 |
+| 73 | `template:c16r_spirit is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | C16 | 1 招、0 件道具 | 8 / 9 |
+| 74 | `template:c16t_stone is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | C16 | 1 招、0 件道具 | 9 / 9 |
 
 ### M6 第 7 批（9 位）
 
@@ -141,15 +139,15 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 77 | `status_trigger:on_moved` | ability_kit | 共用 | C12 | 3 招、0 件道具 | 3 / 9 |
-| 78 | `attr:bonus_armor` | 產生器 | 共用 | A03 | 3 招、0 件道具 | 4 / 9 |
-| 79 | `selector.order:farthest` | 產生器 | 共用 | A15 | 2 招、0 件道具 | 5 / 9 |
-| 80 | `template:c23e_wall is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | C23 | 1 招、0 件道具 | 6 / 9 |
-| 81 | `fn:count_in_radius` | 產生器 | 共用 | C21 | 3 招、1 件道具 | 7 / 9 |
-| 82 | `selector.flag:exclude_illusions` | 產生器 | hook 候選 | B36 | 1 招、0 件道具 | 7 / 9 |
-| 83 | `selector.team:ally_not_self` | 產生器 | 共用 | B36 | 2 招、0 件道具 | 8 / 9 |
-| 84 | `action:modify_damage outside a damage-pre trigger` | ability_kit | hook 候選 | A08 | 1 招、0 件道具 | 8 / 9 |
-| 85 | `fn:angle_between` | 產生器 | 共用 | A08 | 1 招、1 件道具 | 9 / 9 |
+| 75 | `status_trigger:on_moved` | ability_kit | 共用 | C12 | 3 招、0 件道具 | 3 / 9 |
+| 76 | `attr:bonus_armor` | 產生器 | 共用 | A03 | 3 招、0 件道具 | 4 / 9 |
+| 77 | `selector.order:farthest` | 產生器 | 共用 | A15 | 2 招、0 件道具 | 5 / 9 |
+| 78 | `template:c23e_wall is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | C23 | 1 招、0 件道具 | 6 / 9 |
+| 79 | `fn:count_in_radius` | 產生器 | 共用 | C21 | 3 招、1 件道具 | 7 / 9 |
+| 80 | `selector.flag:exclude_illusions` | 產生器 | hook 候選 | B36 | 1 招、0 件道具 | 7 / 9 |
+| 81 | `selector.team:ally_not_self` | 產生器 | 共用 | B36 | 2 招、0 件道具 | 8 / 9 |
+| 82 | `action:modify_damage outside a damage-pre trigger` | ability_kit | hook 候選 | A08 | 1 招、0 件道具 | 8 / 9 |
+| 83 | `fn:angle_between` | 產生器 | 共用 | A08 | 1 招、1 件道具 | 9 / 9 |
 
 ### M6 第 8 批（9 位）
 
@@ -157,26 +155,26 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 86 | `template:b13t_storm_eye is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B13 | 1 招、0 件道具 | 2 / 9 |
-| 87 | `fn:enemy_team` | 產生器 | hook 候選 | B12 | 1 招、0 件道具 | 2 / 9 |
-| 88 | `fn:team_of` | 產生器 | hook 候選 | B12 | 1 招、0 件道具 | 3 / 9 |
-| 89 | `action:end_channel` | ability_kit | 共用 | B09 | 3 招、0 件道具 | 3 / 9 |
-| 90 | `name:event outside an event` | 產生器 | 共用 | B09 | 4 招、2 件道具 | 4 / 9 |
-| 91 | `action:modify_base_stat` | ability_kit | hook 候選 | B11 | 1 招、0 件道具 | 4 / 9 |
-| 92 | `attr:is_silenced` | 產生器 | hook 候選 | B11 | 1 招、0 件道具 | 5 / 9 |
-| 93 | `action:issue_order.order:follow` | ability_kit | hook 候選 | A04 | 1 招、0 件道具 | 5 / 9 |
-| 94 | `status_trigger:on_refreshed` | ability_kit | hook 候選 | A04 | 1 招、0 件道具 | 5 / 9 |
-| 95 | `template:a04w_water_spirit is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A04 | 1 招、0 件道具 | 6 / 9 |
-| 96 | `template:a09_tentacle is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A09 | 1 招、0 件道具 | 6 / 9 |
-| 97 | `template:a09_treant_elder is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A09 | 1 招、0 件道具 | 6 / 9 |
-| 98 | `template:a09_treant_sapling is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A09 | 1 招、0 件道具 | 7 / 9 |
-| 99 | `action:create_unit.overrides.ability_level` | ability_kit | hook 候選 | A28 | 1 招、0 件道具 | 7 / 9 |
-| 100 | `stat:physical_block_chance` | ability_kit | 共用 | A28 | 1 招、2 件道具 | 7 / 9 |
-| 101 | `template:a28_phoenix is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A28 | 1 招、0 件道具 | 8 / 9 |
-| 102 | `action:reveal.teams:enemy` | ability_kit | 共用 | B23 | 2 招、0 件道具 | 8 / 9 |
-| 103 | `passive_trigger:on_moved` | ability_kit | hook 候選 | B23 | 1 招、0 件道具 | 8 / 9 |
-| 104 | `selector.flag:include_dead` | 產生器 | 共用 | B23 | 2 招、0 件道具 | 8 / 9 |
-| 105 | `template:b23d_ghost is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B23 | 1 招、0 件道具 | 9 / 9 |
+| 84 | `template:b13t_storm_eye is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B13 | 1 招、0 件道具 | 2 / 9 |
+| 85 | `fn:enemy_team` | 產生器 | hook 候選 | B12 | 1 招、0 件道具 | 2 / 9 |
+| 86 | `fn:team_of` | 產生器 | hook 候選 | B12 | 1 招、0 件道具 | 3 / 9 |
+| 87 | `action:end_channel` | ability_kit | 共用 | B09 | 3 招、0 件道具 | 3 / 9 |
+| 88 | `name:event outside an event` | 產生器 | 共用 | B09 | 4 招、2 件道具 | 4 / 9 |
+| 89 | `action:modify_base_stat` | ability_kit | hook 候選 | B11 | 1 招、0 件道具 | 4 / 9 |
+| 90 | `attr:is_silenced` | 產生器 | hook 候選 | B11 | 1 招、0 件道具 | 5 / 9 |
+| 91 | `action:issue_order.order:follow` | ability_kit | hook 候選 | A04 | 1 招、0 件道具 | 5 / 9 |
+| 92 | `status_trigger:on_refreshed` | ability_kit | hook 候選 | A04 | 1 招、0 件道具 | 5 / 9 |
+| 93 | `template:a04w_water_spirit is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A04 | 1 招、0 件道具 | 6 / 9 |
+| 94 | `template:a09_tentacle is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A09 | 1 招、0 件道具 | 6 / 9 |
+| 95 | `template:a09_treant_elder is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A09 | 1 招、0 件道具 | 6 / 9 |
+| 96 | `template:a09_treant_sapling is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A09 | 1 招、0 件道具 | 7 / 9 |
+| 97 | `action:create_unit.overrides.ability_level` | ability_kit | hook 候選 | A28 | 1 招、0 件道具 | 7 / 9 |
+| 98 | `stat:physical_block_chance` | ability_kit | 共用 | A28 | 1 招、2 件道具 | 7 / 9 |
+| 99 | `template:a28_phoenix is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A28 | 1 招、0 件道具 | 8 / 9 |
+| 100 | `action:reveal.teams:enemy` | ability_kit | 共用 | B23 | 2 招、0 件道具 | 8 / 9 |
+| 101 | `passive_trigger:on_moved` | ability_kit | hook 候選 | B23 | 1 招、0 件道具 | 8 / 9 |
+| 102 | `selector.flag:include_dead` | 產生器 | 共用 | B23 | 2 招、0 件道具 | 8 / 9 |
+| 103 | `template:b23d_ghost is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B23 | 1 招、0 件道具 | 9 / 9 |
 
 ### M6 第 9 批（13 位）
 
@@ -184,66 +182,66 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 106 | `action:chain` | ability_kit | hook 候選 | B28 | 1 招、0 件道具 | 0 / 13 |
-| 107 | `fn:has_state:revealed` | 產生器 | hook 候選 | B28 | 1 招、0 件道具 | 1 / 13 |
-| 108 | `fn:orb_slot_free` | 產生器 | 共用 | B15 | 2 招、0 件道具 | 1 / 13 |
-| 109 | `passive:orb_slot` | ability_kit | 共用 | B15 | 1 招、1 件道具 | 2 / 13 |
-| 110 | `stat:heal_reduction_pct` | ability_kit | 共用 | B33 | 2 招、0 件道具 | 2 / 13 |
-| 111 | `template:b33t_spider_unit is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B33 | 1 招、0 件道具 | 2 / 13 |
-| 112 | `token:vars` | 產生器 | 共用 | B33 | 1 招、2 件道具 | 3 / 13 |
-| 113 | `selector.relative_to` | 產生器 | 共用 | C07 | 2 招、0 件道具 | 3 / 13 |
-| 114 | `template:c07t_storm_cloud is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | C07 | 1 招、0 件道具 | 4 / 13 |
-| 115 | `action:damage.flags:no_source_bonuses` | ability_kit | 共用 | A11 | 2 招、2 件道具 | 4 / 13 |
-| 116 | `attr:cast_point of an ability` | 產生器 | hook 候選 | A11 | 1 招、0 件道具 | 4 / 13 |
-| 117 | `status.forced_move` | ability_kit | 共用 | A11 | 2 招、0 件道具 | 5 / 13 |
-| 118 | `fn:landmark` | 產生器 | hook 候選 | A21 | 1 招、0 件道具 | 5 / 13 |
-| 119 | `template:a21_weapon is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A21 | 1 招、0 件道具 | 6 / 13 |
-| 120 | `action:create_unit.overrides.armor` | ability_kit | 共用 | B07 | 1 招、4 件道具 | 6 / 13 |
-| 121 | `action:give_item` | ability_kit | 共用 | B07 | 3 招、0 件道具 | 6 / 13 |
-| 122 | `action:pick_item` | ability_kit | 共用 | B07 | 3 招、0 件道具 | 6 / 13 |
-| 123 | `fn:exists of a sym:item_a` | 產生器 | hook 候選 | B07 | 1 招、0 件道具 | 6 / 13 |
-| 124 | `fn:exists of a sym:item_b` | 產生器 | hook 候選 | B07 | 1 招、0 件道具 | 6 / 13 |
-| 125 | `template:b07e_cannon is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B07 | 1 招、0 件道具 | 7 / 13 |
-| 126 | `action:modify_cooldown.item` | ability_kit | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
-| 127 | `fn:ability_ready` | 產生器 | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
-| 128 | `fn:exists of a sym:blink_item` | 產生器 | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
-| 129 | `fn:status_source` | 產生器 | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
-| 130 | `selector.flag:include_illusions` | 產生器 | 共用 | C18 | 5 招、1 件道具 | 8 / 13 |
-| 131 | `action:remove_item` | ability_kit | 共用 | C06 | 2 招、0 件道具 | 8 / 13 |
-| 132 | `attr:hero` | 產生器 | hook 候選 | C06 | 1 招、0 件道具 | 8 / 13 |
-| 133 | `attr:name` | 產生器 | hook 候選 | C06 | 1 招、0 件道具 | 8 / 13 |
-| 134 | `fn:exists of a sym:stolen` | 產生器 | hook 候選 | C06 | 1 招、0 件道具 | 8 / 13 |
-| 135 | `state type:item_name` | ability_kit | hook 候選 | C06 | 1 招、0 件道具 | 9 / 13 |
-| 136 | `action:add_ability` | ability_kit | 共用 | B16 | 2 招、0 件道具 | 9 / 13 |
-| 137 | `action:dodge_projectiles.of:caster_hero` | ability_kit | hook 候選 | B16 | 1 招、0 件道具 | 9 / 13 |
-| 138 | `action:dodge_projectiles.of:state.b16_moon` | ability_kit | 共用 | B16 | 2 招、0 件道具 | 9 / 13 |
-| 139 | `action:set_base_max_hp` | ability_kit | 共用 | B16 | 2 招、0 件道具 | 9 / 13 |
-| 140 | `template:b16d_moon is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B16 | 1 招、0 件道具 | 9 / 13 |
-| 141 | `token:state` | 產生器 | hook 候選 | B16 | 1 招、0 件道具 | 10 / 13 |
-| 142 | `action:remove_ability` | ability_kit | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
-| 143 | `action:set_ability_active (an ability id and a fixed active)` | ability_kit | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
-| 144 | `expr of type nil` | 產生器 | 共用 | C08 | 2 招、0 件道具 | 10 / 13 |
-| 145 | `fn:is_ability of a non-event ability` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
-| 146 | `selector.shape:segment` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
-| 147 | `selector.to` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
-| 148 | `selector.width` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
-| 149 | `state:blind` | ability_kit | hook 候選 | C08 | 1 招、0 件道具 | 11 / 13 |
-| 150 | `action:projectile.team:any` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
-| 151 | `action:projectile.where` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
-| 152 | `action:redirect_motion` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
-| 153 | `selector.types:boss+creep+neutral+summon` | 產生器 | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
-| 154 | `selector.types:building` | 產生器 | 共用 | B24 | 2 招、0 件道具 | 11 / 13 |
-| 155 | `template:b24t_rock is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
-| 156 | `template:b24w_stele is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 12 / 13 |
-| 157 | `action:destroy_tree` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
-| 158 | `action:regrow_trees` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
-| 159 | `fn:tree_alive` | 產生器 | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
-| 160 | `status.immune_to` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
-| 161 | `target.type:tree` | 產生器 | 共用 | B22 | 2 招、0 件道具 | 12 / 13 |
-| 162 | `template:b22d_dummy is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
-| 163 | `template:b22e_treant is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
-| 164 | `template:b22t_spirit is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
-| 165 | `template:b22w_rock is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 13 / 13 |
+| 104 | `action:chain` | ability_kit | hook 候選 | B28 | 1 招、0 件道具 | 0 / 13 |
+| 105 | `fn:has_state:revealed` | 產生器 | hook 候選 | B28 | 1 招、0 件道具 | 1 / 13 |
+| 106 | `fn:orb_slot_free` | 產生器 | 共用 | B15 | 2 招、0 件道具 | 1 / 13 |
+| 107 | `passive:orb_slot` | ability_kit | 共用 | B15 | 1 招、1 件道具 | 2 / 13 |
+| 108 | `stat:heal_reduction_pct` | ability_kit | 共用 | B33 | 2 招、0 件道具 | 2 / 13 |
+| 109 | `template:b33t_spider_unit is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B33 | 1 招、0 件道具 | 2 / 13 |
+| 110 | `token:vars` | 產生器 | 共用 | B33 | 1 招、2 件道具 | 3 / 13 |
+| 111 | `selector.relative_to` | 產生器 | 共用 | C07 | 2 招、0 件道具 | 3 / 13 |
+| 112 | `template:c07t_storm_cloud is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | C07 | 1 招、0 件道具 | 4 / 13 |
+| 113 | `action:damage.flags:no_source_bonuses` | ability_kit | 共用 | A11 | 2 招、2 件道具 | 4 / 13 |
+| 114 | `attr:cast_point of an ability` | 產生器 | hook 候選 | A11 | 1 招、0 件道具 | 4 / 13 |
+| 115 | `status.forced_move` | ability_kit | 共用 | A11 | 2 招、0 件道具 | 5 / 13 |
+| 116 | `fn:landmark` | 產生器 | hook 候選 | A21 | 1 招、0 件道具 | 5 / 13 |
+| 117 | `template:a21_weapon is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | A21 | 1 招、0 件道具 | 6 / 13 |
+| 118 | `action:create_unit.overrides.armor` | ability_kit | 共用 | B07 | 1 招、4 件道具 | 6 / 13 |
+| 119 | `action:give_item` | ability_kit | 共用 | B07 | 3 招、0 件道具 | 6 / 13 |
+| 120 | `action:pick_item` | ability_kit | 共用 | B07 | 3 招、0 件道具 | 6 / 13 |
+| 121 | `fn:exists of a sym:item_a` | 產生器 | hook 候選 | B07 | 1 招、0 件道具 | 6 / 13 |
+| 122 | `fn:exists of a sym:item_b` | 產生器 | hook 候選 | B07 | 1 招、0 件道具 | 6 / 13 |
+| 123 | `template:b07e_cannon is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B07 | 1 招、0 件道具 | 7 / 13 |
+| 124 | `action:modify_cooldown.item` | ability_kit | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
+| 125 | `fn:ability_ready` | 產生器 | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
+| 126 | `fn:exists of a sym:blink_item` | 產生器 | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
+| 127 | `fn:status_source` | 產生器 | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
+| 128 | `selector.flag:include_illusions` | 產生器 | 共用 | C18 | 5 招、1 件道具 | 8 / 13 |
+| 129 | `action:remove_item` | ability_kit | 共用 | C06 | 2 招、0 件道具 | 8 / 13 |
+| 130 | `attr:hero` | 產生器 | hook 候選 | C06 | 1 招、0 件道具 | 8 / 13 |
+| 131 | `attr:name` | 產生器 | hook 候選 | C06 | 1 招、0 件道具 | 8 / 13 |
+| 132 | `fn:exists of a sym:stolen` | 產生器 | hook 候選 | C06 | 1 招、0 件道具 | 8 / 13 |
+| 133 | `state type:item_name` | ability_kit | hook 候選 | C06 | 1 招、0 件道具 | 9 / 13 |
+| 134 | `action:add_ability` | ability_kit | 共用 | B16 | 2 招、0 件道具 | 9 / 13 |
+| 135 | `action:dodge_projectiles.of:caster_hero` | ability_kit | hook 候選 | B16 | 1 招、0 件道具 | 9 / 13 |
+| 136 | `action:dodge_projectiles.of:state.b16_moon` | ability_kit | 共用 | B16 | 2 招、0 件道具 | 9 / 13 |
+| 137 | `action:set_base_max_hp` | ability_kit | 共用 | B16 | 2 招、0 件道具 | 9 / 13 |
+| 138 | `template:b16d_moon is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B16 | 1 招、0 件道具 | 9 / 13 |
+| 139 | `token:state` | 產生器 | hook 候選 | B16 | 1 招、0 件道具 | 10 / 13 |
+| 140 | `action:remove_ability` | ability_kit | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
+| 141 | `action:set_ability_active (an ability id and a fixed active)` | ability_kit | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
+| 142 | `expr of type nil` | 產生器 | 共用 | C08 | 2 招、0 件道具 | 10 / 13 |
+| 143 | `fn:is_ability of a non-event ability` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
+| 144 | `selector.shape:segment` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
+| 145 | `selector.to` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
+| 146 | `selector.width` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
+| 147 | `state:blind` | ability_kit | hook 候選 | C08 | 1 招、0 件道具 | 11 / 13 |
+| 148 | `action:projectile.team:any` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
+| 149 | `action:projectile.where` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
+| 150 | `action:redirect_motion` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
+| 151 | `selector.types:boss+creep+neutral+summon` | 產生器 | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
+| 152 | `selector.types:building` | 產生器 | 共用 | B24 | 2 招、0 件道具 | 11 / 13 |
+| 153 | `template:b24t_rock is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
+| 154 | `template:b24w_stele is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 12 / 13 |
+| 155 | `action:destroy_tree` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
+| 156 | `action:regrow_trees` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
+| 157 | `fn:tree_alive` | 產生器 | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
+| 158 | `status.immune_to` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
+| 159 | `target.type:tree` | 產生器 | 共用 | B22 | 2 招、0 件道具 | 12 / 13 |
+| 160 | `template:b22d_dummy is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
+| 161 | `template:b22e_treant is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
+| 162 | `template:b22t_spirit is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
+| 163 | `template:b22w_rock is not a content summon (templates/summons.lua)` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 13 / 13 |
 
 ## 2. 每位英雄、每招還缺什麼
 
@@ -370,14 +368,14 @@
 | `a04_frost_sparrow` | ✓ 已產生 |
 | `a04_blizzard` | ✓ 已產生 |
 
-### A05 `sakai_tadatsugu`（4 / 5 招）
+### A05 `sakai_tadatsugu`（5 / 5 招）
 
 | 招式 | 還缺 |
 |---|---|
 | `a05_valiant_power` | ✓ 已產生 |
 | `a05_mikawa_courage` | ✓ 已產生 |
 | `a05_counter_stance` | ✓ 已產生 |
-| `a05_loyal_secret` | `attr:is_ready` |
+| `a05_loyal_secret` | ✓ 已產生 |
 | `a05_crusade_affidavit` | ✓ 已產生 |
 
 ### A06 `ii_naomasa`（3 / 5 招）
@@ -386,7 +384,7 @@
 |---|---|
 | `a06_red_power` | ✓ 已產生 |
 | `a06_red_meteor` | ✓ 已產生 |
-| `a06_red_flame_flow` | `attr:level`、`aura.flag:include_illusions` |
+| `a06_red_flame_flow` | `aura.flag:include_illusions` |
 | `a06_flame_of_anger` | ✓ 已產生 |
 | `a06_red_fury` | `action:remove_status of its own independent status (this instance waits)`、`status.vars of an independent status`、`status_trigger:on_attack_miss` |
 
@@ -1035,7 +1033,7 @@
 | `c08_blood_hunt` | `action:damage.flags:no_source_bonuses` |
 | `c08_scatter_escape` | ✓ 已產生 |
 | `c08_kite_chain` | `expr of type nil`、`selector.relative_to`、`selector.shape:segment`、`selector.team:ally_not_self`、`selector.to`、`selector.width` |
-| `c08_devour` | `action:add_ability`、`action:remove_ability`、`action:set_ability_active (an ability id and a fixed active)`、`attr:level`、`fn:ability_in_slot`、`fn:is_ability of a non-event ability`、`state:blind` |
+| `c08_devour` | `action:add_ability`、`action:remove_ability`、`action:set_ability_active (an ability id and a fixed active)`、`fn:ability_in_slot`、`fn:is_ability of a non-event ability`、`state:blind` |
 
 ### C09 `tachibana_ginchiyo`（3 / 4 招）
 
@@ -1249,7 +1247,6 @@
 | `action:refund` | ability_kit | 共用 | 2 | 2 | 2 |
 | `action:reveal.teams:enemy` | ability_kit | 共用 | 2 | 0 | 2 |
 | `action:set_time_of_day` | ability_kit | 共用 | 2 | 0 | 2 |
-| `attr:level` | 產生器 | 共用 | 2 | 0 | 2 |
 | `aura.flag:include_illusions` | ability_kit | 共用 | 2 | 0 | 2 |
 | `event.damage.is_attack` | ability_kit | 共用 | 2 | 0 | 2 |
 | `event:point` | ability_kit | 共用 | 2 | 0 | 2 |
@@ -1304,7 +1301,6 @@
 | `attr:cast_point of an ability` | 產生器 | hook 候選 | 1 | 0 | 1 |
 | `attr:cooldown_remaining` | 產生器 | hook 候選 | 1 | 0 | 1 |
 | `attr:hero` | 產生器 | hook 候選 | 1 | 0 | 1 |
-| `attr:is_ready` | 產生器 | 共用 | 1 | 3 | 1 |
 | `attr:is_silenced` | 產生器 | hook 候選 | 1 | 0 | 1 |
 | `attr:name` | 產生器 | hook 候選 | 1 | 0 | 1 |
 | `attr:owner` | 產生器 | hook 候選 | 1 | 0 | 1 |
@@ -1396,6 +1392,7 @@
 | `action:remove_status.source_is` | ability_kit | hook 候選 | 0 | 1 | 0 |
 | `attr:game.creep_wave` | 產生器 | 共用 | 0 | 4 | 0 |
 | `attr:illusion_damage` | 產生器 | hook 候選 | 0 | 1 | 0 |
+| `attr:is_ready` | 產生器 | 共用 | 0 | 3 | 0 |
 | `attr:is_summon` | 產生器 | hook 候選 | 0 | 1 | 0 |
 | `aura.types:building+creep+hero+neutral+summon+tower` | ability_kit | 共用 | 0 | 3 | 0 |
 | `aura.types:building+creep+neutral+summon` | ability_kit | hook 候選 | 0 | 1 | 0 |
