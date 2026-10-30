@@ -1,7 +1,10 @@
 -- What a hero's abilities showed in a UE live run (work line C, M6: after a hero is switched to
 -- generated Rust, every ability's presentation is checked in UE). Reads the UE logs of a run and
 -- counts, per ability of the hero:
---   OM_CUE ability=<id> cue=<cue> art=effect|sound|placeholder|unresolved   (OmUnitActor CatalogCue)
+--   OM_CUE ability=<id> cue=<cue> art=effect|sound|placeholder|style|unresolved
+--       (catalog cue art, or `style`: an event kind such as `cast` drawn by the ability's cue style;
+--       `unresolved`: a target cue id the UE catalog does not know)
+--   OM_BUFF buff=<status id> unit=<id> route=aura|status_cue|ring|channel|off  (each status instance)
 --   OM_CAST_TARGET_CUES cast=<id> ... played=N                              (target cues)
 --   OM_STATUS_CUE buff=<status id> cue=<cue> ... art=0|1                    (status cues; the ability's v3 statuses)
 --   OM_FORCED_ARC unit=<id> peak_cm=<cm>                                    (knockback arcs, whole run)
@@ -27,7 +30,7 @@ M.STATUS_CUES = "omfue/Content/Omoba/UI/status-cues-v1.json"
 -- log text -> { cue = {[ability] = {[art] = n, cues = {[cue] = n}}}, target = {[cast] = n},
 --   status = {[status] = {played = n, art = n}}, arcs = n, peaks = {cm...} }
 function M.parse(text)
-  local out = { cue = {}, target = {}, status = {}, arcs = 0, peaks = {} }
+  local out = { cue = {}, target = {}, status = {}, buff = {}, arcs = 0, peaks = {} }
   for line in text:gmatch("[^\n]+") do
     local ability, cue, art = line:match("OM_CUE ability=(%S+) cue=(%S+) unit=%-?%d+ art=(%a+)")
     if ability then
@@ -44,6 +47,12 @@ function M.parse(text)
       out.status[buff] = row
       row.played = row.played + 1
       if has_art == "1" then row.art = row.art + 1 end
+    end
+    local status_id, route = line:match("OM_BUFF buff=(%S+) unit=%-?%d+ route=(%a[%a_]*)")
+    if status_id then
+      local row = out.buff[status_id] or {}
+      out.buff[status_id] = row
+      row[route] = (row[route] or 0) + 1
     end
     local peak = line:match("OM_FORCED_ARC unit=%-?%d+ peak_cm=(%-?[%d.]+)")
     if peak then out.arcs = out.arcs + 1; out.peaks[#out.peaks + 1] = tonumber(peak) end
@@ -77,7 +86,7 @@ end
 local function count_text(row)
   if not row then return "0" end
   local parts = {}
-  for _, art in ipairs({ "effect", "placeholder", "sound", "unresolved" }) do
+  for _, art in ipairs({ "effect", "placeholder", "style", "sound", "unresolved" }) do
     if row[art] then parts[#parts + 1] = art .. " " .. row[art] end
   end
   return table.concat(parts, "、")
@@ -94,9 +103,13 @@ function M.render(hero_id, source_id, rows, seen)
     local statuses = {}
     local status_total = 0
     for _, s in ipairs(r.statuses) do
-      local got = seen.status[s.id]
-      status_total = status_total + (got and got.played or 0)
-      statuses[#statuses + 1] = s.id .. " " .. (got and got.played or 0) .. (s.cue and "" or "（無 cue）")
+      local routes, shown = {}, 0
+      for _, route in ipairs({ "aura", "status_cue", "ring", "channel", "off" }) do
+        local n = (seen.buff[s.id] or {})[route]
+        if n then routes[#routes + 1] = route .. " " .. n; if route ~= "off" then shown = shown + n end end
+      end
+      status_total = status_total + shown
+      statuses[#statuses + 1] = s.id .. "：" .. (#routes > 0 and table.concat(routes, "、") or "0")
     end
     local verdict = "有呈現"
     if cue_row and cue_row.unresolved then
