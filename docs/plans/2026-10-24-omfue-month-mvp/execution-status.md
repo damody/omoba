@@ -1073,6 +1073,13 @@
 - 2026-10-30 線 A：B29 整位換上產生的 Rust：`hero_dlls.lua` 加 murakami_yoshikiyo（hero_b29），base_content 以 dev-dependency 連入並刪除 `heroes/B29_murakami_yoshikiyo`；b06_first_warrior、b04_flame_trail_dash 加進 mapping。conformance：這三項 0 退步；影子跑 registry、B04／B06／B29 conformance 全過。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
+## 2026-10-30（conformance：A 換上 B29 整位、第一勇士、炎之軌跡後的 live 基準；子技能換入 E313）
+
+- live 重跑和影子比對結果一致：B29 +28、B04 +20、B06 第一勇士 +21（修好 c185371b 後手寫版的退步），0 退步。
+- E313：靠父技能狀態換進來的子技能，情境先施放父技能再測；a07_rouse_free 的 15 列 (b) 改等 a07_strongest 產生版（負責 A）。
+- live 10 位 2288 情境：1820 通過、15 (b)、0 (c)、453 unsupported。
+- 待辦：c15_burst_arrow（A 查 fire_dummy）、a07_strongest 產生版、M6 第 2 批 9 位（A 加 test_only 英雄與 crate 後接進 conformance，情境 2268 個已能產生）。
+
 ## 2026-10-30（conformance：B29 震地斧、震地換上比對）
 
 - 在含 B 57d0e388（replica 射程只判一次，E292）與 A 80c1b09b（runtime_id 的 {rank}）的 live 上，b29_quake_axe、b29_earth_tremor 換成產生碼：0 退步，b29e_phased 的 20 個情境由 unsupported 變通過。可以換上，已通知 A。
