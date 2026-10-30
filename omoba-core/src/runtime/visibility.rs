@@ -651,6 +651,21 @@ mod tests {
         }
     }
 
+    #[test]
+    fn day_and_night_sight_bonuses_change_a_source_radius() {
+        use omb_script_abi::stat_keys::StatKey;
+        let mut world = World::new();
+        let unit = specs::Builder::build(world.create_entity());
+        let mut buffs = crate::runtime::BuffStore::new();
+        buffs.add(unit, "lantern", Fixed64::ONE, serde_json::json!({ StatKey::BonusNightVision.as_str(): 300 * 1024,
+            StatKey::BonusDayVision.as_str(): -2000 * 1024 }));
+        let base = Fixed64::from_i32(1200);
+        assert_eq!(sight_radius(base, Some(&buffs), unit, true), Fixed64::from_i32(1500));
+        assert_eq!(sight_radius(base, Some(&buffs), unit, false), Fixed64::ZERO, "never below zero");
+        assert_eq!(sight_radius(Fixed64::ZERO, Some(&buffs), unit, true), Fixed64::ZERO, "no sight stays none");
+        assert_eq!(sight_radius(base, None, unit, true), base);
+    }
+
     fn source(team: u32, radius: i32) -> CommittedVisionSource {
         CommittedVisionSource {
             canonical_id: 1,
@@ -1049,6 +1064,20 @@ impl TeamVisibilityRuntime {
     }
 }
 
+/// A vision source's radius with its holder's day or night sight bonus (StatKey BonusDayVision /
+/// BonusNightVision + BonusNightVisionUnique, v3 `vision_day` / `vision_night`); never below zero.
+/// A unit without sight keeps none.
+pub fn sight_radius(base: Fixed64, buffs: Option<&crate::runtime::BuffStore>, entity: specs::Entity, night: bool) -> Fixed64 {
+    use omb_script_abi::stat_keys::StatKey;
+    let Some(buffs) = buffs.filter(|_| base > Fixed64::ZERO) else { return base };
+    let bonus = if night {
+        buffs.sum_add(entity, StatKey::BonusNightVision) + buffs.sum_add(entity, StatKey::BonusNightVisionUnique)
+    } else {
+        buffs.sum_add(entity, StatKey::BonusDayVision)
+    };
+    (base + bonus).max(Fixed64::ZERO)
+}
+
 pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     use crate::runtime::native::comp::*;
     let entities = world.entities();
@@ -1284,13 +1313,15 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
         .collect();
     committed_entities.sort_by_key(|entity| entity.canonical_id);
 
+    // v3 vision_day / vision_night: a unit's statuses add to its sight in the day or at night.
+    let night = crate::runtime::native::rules::world::is_night(world);
     let mut vision_sources: Vec<_> = (&entities, &positions, &vision)
         .join()
         .map(|(entity, position, source)| CommittedVisionSource {
             canonical_id: ((entity.gen().id() as u32 as u64) << 32) | u64::from(entity.id()),
             team: source.team,
             position: position.0,
-            radius: source.radius,
+            radius: sight_radius(source.radius, buffs.as_deref(), entity, night),
             detection_level: source.detection_level,
             ignores_terrain: false,
         })

@@ -38,6 +38,9 @@ pub const ABILITY_EXECUTED: u8 = 9;
 pub const ATTACK_START: u8 = 10;
 /// The holder's hit killed `other` (the packet's credit is the holder; v3 `on_kill`).
 pub const KILL: u8 = 11;
+/// The holder's attack left (rules::attack AttackEvents Launch: after the windup, as the projectile
+/// leaves or an instant attack strikes; v3 `on_attack_launch`); `other` is the target.
+pub const ATTACK_LAUNCH: u8 = 12;
 
 /// `Spec.mask` bits: which events the status listens to.
 pub const ON_END: u32 = 1 << 0;
@@ -50,8 +53,9 @@ pub const ON_DEAL_DAMAGE_PRE: u32 = 1 << 6;
 pub const ON_ABILITY_EXECUTED: u32 = 1 << 7;
 pub const ON_ATTACK_START: u32 = 1 << 8;
 pub const ON_KILL: u32 = 1 << 9;
+pub const ON_ATTACK_LAUNCH: u32 = 1 << 10;
 pub const ALL: u32 = ON_END | ON_ATTACK_HIT | ON_ATTACKED | ON_TAKE_DAMAGE | ON_DEAL_DAMAGE | ON_TAKE_DAMAGE_PRE | ON_DEAL_DAMAGE_PRE
-    | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL;
+    | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL | ON_ATTACK_LAUNCH;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
@@ -99,6 +103,7 @@ impl Spec {
             ABILITY_EXECUTED => ON_ABILITY_EXECUTED,
             ATTACK_START => ON_ATTACK_START,
             KILL => ON_KILL,
+            ATTACK_LAUNCH => ON_ATTACK_LAUNCH,
             _ => 0,
         };
         self.mask & bit != 0
@@ -152,6 +157,8 @@ pub struct WindupCursor { pub tick: u64, pub seen: usize }
 pub enum AttackSeen {
     /// The holder started an attack (ATTACK_START).
     Windup { attacker: specs::Entity, target: Option<specs::Entity> },
+    /// The attack left (ATTACK_LAUNCH).
+    Launch { attacker: specs::Entity, target: specs::Entity },
     /// The attack hit (ATTACK_HIT for the attacker, ATTACKED for the target).
     Hit { attacker: specs::Entity, target: specs::Entity },
 }
@@ -167,6 +174,7 @@ pub fn take_attack_events(world: &mut specs::World) -> Vec<AttackSeen> {
     let start = if cursor.tick == tick { cursor.seen } else { 0 };
     let out = list.iter().skip(start).filter_map(|e| match e {
         AttackEvent::Windup { attacker, target, .. } => Some(AttackSeen::Windup { attacker: *attacker, target: *target }),
+        AttackEvent::Launch { attacker, target, .. } => Some(AttackSeen::Launch { attacker: *attacker, target: *target }),
         AttackEvent::Hit { attacker, target, .. } => Some(AttackSeen::Hit { attacker: *attacker, target: *target }),
         _ => None }).collect();
     *cursor = WindupCursor { tick, seen: list.len() };
@@ -192,7 +200,7 @@ mod tests {
         assert!(!s.listens(ABILITY_EXECUTED) && spec(ON_ABILITY_EXECUTED).listens(ABILITY_EXECUTED));
         assert!(!s.listens(ATTACK_START) && spec(ON_ATTACK_START).listens(ATTACK_START));
         assert!(!s.listens(KILL) && spec(ON_KILL).listens(KILL));
-        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 10);
+        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 11);
         assert_eq!(Spec::from_payload(&bad), None, "unknown event bits");
         let mut bad = payload.clone(); bad[KEY]["status"] = json!("B16T");
         assert_eq!(Spec::from_payload(&bad), None, "status ids are v3 ids");
@@ -238,7 +246,8 @@ mod tests {
             AttackEvent::Hit { attacker: a, target: b, projectile: None },
         ] });
         assert_eq!(take_attack_events(&mut world), vec![AttackSeen::Windup { attacker: a, target: Some(b) },
-            AttackSeen::Hit { attacker: a, target: b }]);
+            AttackSeen::Launch { attacker: a, target: b }, AttackSeen::Hit { attacker: a, target: b }]);
+        assert!(spec(ON_ATTACK_LAUNCH).listens(ATTACK_LAUNCH) && !spec(ON_ATTACK_HIT).listens(ATTACK_LAUNCH));
         assert!(take_attack_events(&mut world).is_empty(), "taken once");
         world.write_resource::<AttackEvents>().events.push(AttackEvent::Hit { attacker: b, target: a, projectile: None });
         assert_eq!(take_attack_events(&mut world), vec![AttackSeen::Hit { attacker: b, target: a }], "only the new one");

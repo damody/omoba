@@ -36,6 +36,8 @@ pub const STATS: &[(&str, StatKey, Unit)] = &[
     ("miss_chance_pct", StatKey::MissPercentage, Unit::Fraction),
     ("spell_amp_pct", StatKey::SpellAmplifyPercentage, Unit::Fraction),
     ("incoming_damage_pct", StatKey::IncomingDamagePercentage, Unit::Fraction),
+    // 持有者造成的所有傷害（技能與普攻）乘上 1＋x（rules::damage::outgoing_damage）。
+    ("outgoing_damage_pct", StatKey::DamageOutgoingPercentage, Unit::Fraction),
     ("hp_regen", StatKey::HealthRegenConstant, Unit::Fraction),
     ("mana_regen", StatKey::ManaRegenConstant, Unit::Fraction),
     // v3.1：每秒回復最大值的比例，與回復量增幅（rules::regen）。
@@ -48,6 +50,9 @@ pub const STATS: &[(&str, StatKey, Unit)] = &[
     // 白字攻擊（原作 BASEATTACK_BONUSDAMAGE）、攻擊距離、基礎傷害百分比（BASEDAMAGEOUTGOING_PERCENTAGE）。
     ("base_attack_damage", StatKey::BaseAttackBonusDamage, Unit::Fraction),
     ("attack_range", StatKey::AttackRangeBonus, Unit::Fraction),
+    // 白天／夜晚視野加減（visibility::sight_radius）。
+    ("vision_day", StatKey::BonusDayVision, Unit::Fraction),
+    ("vision_night", StatKey::BonusNightVision, Unit::Fraction),
     ("base_attack_damage_pct", StatKey::BaseDamageOutgoingPercentage, Unit::Fraction),
     // 現行 handler（C17E 勝利祈願）把攻擊力百分比寫在同一個引擎 stat；乘白字或總攻擊由 M1 決定（kit quirk）。
     ("attack_damage_pct", StatKey::BaseDamageOutgoingPercentage, Unit::Fraction),

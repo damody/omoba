@@ -89,13 +89,25 @@ pub fn admit(world: &World, packet: &Packet) -> bool {
 
 /// ② 減免前事件，依序執行。新的全域規則（例如原作的結界、幻象倍率）加在這裡。
 /// `status_damage_pre`：狀態的 on_deal_damage_pre／on_take_damage_pre（v3，產生的技能 Rust）可以改量或取消。
-pub const BEFORE_MITIGATION: &[fn(&World, &mut Packet)] = &[spell_amplification, crate::runtime::native::scripting::damage_pre::status_damage_pre];
+pub const BEFORE_MITIGATION: &[fn(&World, &mut Packet)] = &[spell_amplification, outgoing_damage,
+    crate::runtime::native::scripting::damage_pre::status_damage_pre];
 
 /// 法術增幅（E188）：帶 SPELL 的封包乘上來源的增幅。
 fn spell_amplification(world: &World, packet: &mut Packet) {
     let (physical, magical, pure) = crate::runtime::native::spell_amplify::apply(
         &world.read_resource::<BuffStore>(), packet.source, packet.profile, packet.physical, packet.magical, packet.pure);
     (packet.physical, packet.magical, packet.pure) = (physical, magical, pure);
+}
+
+/// v3 `outgoing_damage_pct` (StatKey::DamageOutgoingPercentage), the source-side counterpart of
+/// `incoming_damage_pct`: every packet its source deals, abilities and attacks alike, scales by
+/// 1 + x (never below zero). Life paid as a cost (`hp_removal`) is not damage dealt and stays.
+fn outgoing_damage(world: &World, packet: &mut Packet) {
+    if packet.profile & DamageProfile::HP_REMOVAL.bits() != 0 { return; }
+    let bonus = world.read_resource::<BuffStore>().sum_add(packet.source, omb_script_abi::stat_keys::StatKey::DamageOutgoingPercentage);
+    if bonus == Fixed64::ZERO { return; }
+    let scale = (Fixed64::ONE + bonus).max(Fixed64::ZERO);
+    (packet.physical, packet.magical, packet.pure) = (packet.physical * scale, packet.magical * scale, packet.pure * scale);
 }
 
 pub fn before_mitigation(world: &World, packet: &mut Packet) {
@@ -266,6 +278,16 @@ mod tests {
         before_mitigation(&w, &mut packet);
         assert_eq!(packet.profile, normal);
         assert_eq!(packet.physical, Fixed64::from_i32(10), "no amplification without a source amplifier");
+        // v3 outgoing_damage_pct: +50% on everything the source deals, never on life it pays.
+        w.write_resource::<BuffStore>().add(source, "fury", Fixed64::ONE,
+            serde_json::json!({ (omb_script_abi::stat_keys::StatKey::DamageOutgoingPercentage.as_str()): 512 }));
+        let mut packet = Packet::new(source, target, Fixed64::from_i32(10), Fixed64::from_i32(4), Fixed64::ZERO, normal);
+        before_mitigation(&w, &mut packet);
+        assert_eq!((packet.physical, packet.magical), (Fixed64::from_i32(15), Fixed64::from_i32(6)));
+        let mut cost = Packet::new(source, target, Fixed64::ZERO, Fixed64::ZERO, Fixed64::from_i32(10),
+            DamageProfile::TRUE.bits() | DamageProfile::HP_REMOVAL.bits());
+        before_mitigation(&w, &mut cost);
+        assert_eq!(cost.pure, Fixed64::from_i32(10), "life removal is not scaled");
     }
 
     #[test]

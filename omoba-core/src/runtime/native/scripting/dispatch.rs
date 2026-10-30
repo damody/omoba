@@ -91,7 +91,24 @@ pub(crate) fn publish_successful_cast_facts(world: &World, visuals: &mut [Script
         if order.tick != fact.key.tick {order.tick = fact.key.tick; order.ordinal = 0;}
         fact.key.local_ordinal = order.ordinal;
         order.ordinal = order.ordinal.checked_add(1).expect("bounded successful casts per tick");
+        // Where the cast landed, for the cues played at the target (projected on the target's
+        // visibility, not the caster's: team_projector).
+        let target_fact = match &fact.fact {
+            crate::runtime::ObservableFact::Ability {source, ability_id, rank, target, ..}
+                if target.is_some() || event.target_point.is_some() => Some(crate::runtime::ObservableFact::AbilityTarget {
+                    source: *source, ability_id: *ability_id, rank: *rank, target: *target,
+                    point: if target.is_some() {None} else {event.target_point}}),
+            _ => None,
+        };
+        let key = fact.key;
+        let audience = fact.audience.clone();
         buffer.emit(fact).expect("valid successful cast fact");
+        if let Some(target_fact) = target_fact {
+            let mut key = key;
+            key.local_ordinal = order.ordinal;
+            order.ordinal = order.ordinal.checked_add(1).expect("bounded successful casts per tick");
+            buffer.emit(crate::runtime::OrderedFact {key, audience, fact: target_fact}).expect("valid cast target fact");
+        }
     }
 }
 
@@ -232,7 +249,8 @@ fn dispatch_scripts(
             let is_cast = matches!(&ev, ScriptEvent::SkillCast { .. });
             // items.dll: the use commits only with a successful effect (ScriptItemTransaction)
             let item_use = match &ev {
-                ScriptEvent::ItemCast { owner, owner_pid, slot, item_id, .. } => Some((*owner, *owner_pid, *slot, item_id.clone())),
+                ScriptEvent::ItemCast { owner, owner_pid, slot, item_id, target } =>
+                    Some((*owner, *owner_pid, *slot, item_id.clone(), skill_target_entity(target), skill_target_point(target))),
                 _ => None,
             };
             if is_cast && formal_casts {
@@ -420,9 +438,10 @@ fn dispatch_scripts(
                 }
             }
             let produced = adapter.finish();
-            if let Some((owner, owner_pid, slot, item_id)) = item_use {
+            if let Some((owner, owner_pid, slot, item_id, target, target_point)) = item_use {
                 if cast_ok {
-                    event_outcomes.push(crate::comp::Outcome::ScriptItemTransaction { owner, owner_pid, slot, item_id, outcomes: produced });
+                    event_outcomes.push(crate::comp::Outcome::ScriptItemTransaction { owner, owner_pid, slot, item_id,
+                        target, target_point, outcomes: produced });
                 }
                 continue;
             }
@@ -431,7 +450,7 @@ fn dispatch_scripts(
             if is_cast && cast_ok && (managed_cast || has_summons || has_channel) {
                 let cues = visual_events.drain(visual_checkpoint..).map(|event|crate::runtime::native::comp::outcome::CastSettlementCue {
                     target:event.secondary,skill_id:event.skill_id,rank:event.ability_rank,tick:event.first_tick,
-                    relocation:event.caster_relocation,area:event.ability_area,
+                    relocation:event.caster_relocation,area:event.ability_area,target_point:event.target_point,
                 }).collect();
                 event_outcomes.push(crate::comp::Outcome::ScriptCastTransaction {
                     caster:invocation_entity,skill_id:settlement_skill.expect("cast skill"),rank:cast_rank,
@@ -979,6 +998,7 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
         for seen in &attacks {
             match *seen {
                 se::AttackSeen::Windup { attacker, target } => on_holder(attacker, se::ATTACK_START, target, Fixed64::ZERO, 0),
+                se::AttackSeen::Launch { attacker, target } => on_holder(attacker, se::ATTACK_LAUNCH, Some(target), Fixed64::ZERO, 0),
                 se::AttackSeen::Hit { attacker, target } => {
                     on_holder(attacker, se::ATTACK_HIT, Some(target), Fixed64::ZERO, 0);
                     on_holder(target, se::ATTACKED, Some(attacker), Fixed64::ZERO, 0);
@@ -1230,6 +1250,7 @@ fn visual_event_from_script_event(ev: &ScriptEvent, tick: u64) -> Option<ScriptV
             let mut event = ScriptVisualEvent::new(ScriptVisualEventKind::SkillCast, *caster, tick);
             event.skill_id = Some(skill_id.clone());
             event.secondary = skill_target_entity(target);
+            event.target_point = skill_target_point(target);
             event
         }
         ScriptEvent::Order {
@@ -1251,6 +1272,13 @@ fn skill_target_entity(target: &SkillTarget) -> Option<Entity> {
     match target {
         SkillTarget::Entity(entity) => Some(*entity),
         SkillTarget::Point { .. } | SkillTarget::None => None,
+    }
+}
+
+pub(crate) fn skill_target_point(target: &SkillTarget) -> Option<(i64, i64)> {
+    match target {
+        SkillTarget::Point { x, y } => Some((x.raw(), y.raw())),
+        SkillTarget::Entity(_) | SkillTarget::None => None,
     }
 }
 
@@ -2206,6 +2234,40 @@ fn active_ability_access_dyn_of<'a>(
 #[cfg(test)]
 mod tests {
     use super::{tower_ability_record_status, TowerAbilityRecordStatus};
+
+    #[test]
+    fn a_cast_with_a_target_also_publishes_where_it_landed() {
+        use super::{publish_successful_cast_facts, ScriptCastFactOrder, ScriptVisualEvent, ScriptVisualEventKind};
+        use crate::runtime::ObservableFact;
+        use specs::{Builder, World, WorldExt};
+        let mut world = World::new();
+        world.insert(crate::runtime::ObservableFactBuffer::default());
+        world.insert(crate::runtime::ProjectionPolicyRegistry::secure_defaults());
+        world.insert(ScriptCastFactOrder::default());
+        let caster = world.create_entity().build();
+        let victim = world.create_entity().build();
+        let cast = |target: Option<specs::Entity>, point: Option<(i64, i64)>| {
+            let mut event = ScriptVisualEvent::new(ScriptVisualEventKind::SkillCast, caster, 9);
+            event.skill_id = Some("c17_aurora_guard".into());
+            event.ability_rank = 2;
+            event.secondary = target;
+            event.target_point = point;
+            event
+        };
+        publish_successful_cast_facts(&world, &mut [cast(Some(victim), None), cast(None, Some((2048, -1024))), cast(None, None)]);
+        let facts = world.read_resource::<crate::runtime::ObservableFactBuffer>().drain_ordered().unwrap();
+        let targets: Vec<_> = facts.iter().filter_map(|fact| match fact.fact {
+            ObservableFact::AbilityTarget { source, rank, target, point, .. } => Some((source, rank, target, point)),
+            _ => None,
+        }).collect();
+        let (caster_id, victim_id) = (crate::runtime::canonical_entity_id(caster), crate::runtime::canonical_entity_id(victim));
+        assert_eq!(targets, vec![(caster_id, 2, Some(victim_id), None), (caster_id, 2, None, Some((2048, -1024)))],
+            "a unit and a ground point each land; a self cast has nowhere else");
+        assert_eq!(facts.iter().filter(|fact| matches!(fact.fact, ObservableFact::Ability { .. })).count(), 3, "every cast is still published");
+        let mut keys: Vec<_> = facts.iter().map(|fact| fact.key.local_ordinal).collect();
+        keys.dedup();
+        assert_eq!(keys.len(), facts.len(), "each fact has its own ordinal");
+    }
 
     #[test]
     fn parallel_tower_tick_panic_diagnostic_names_the_dispatched_hook() {
