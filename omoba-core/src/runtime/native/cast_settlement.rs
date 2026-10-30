@@ -113,6 +113,11 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
     // after that plan, so they cannot move or kill anything the plan relied on.
     let spawned:BTreeSet<Entity>=effects.iter().filter_map(|effect|match effect {
         Outcome::SpawnSummoned {entity,..}=>Some(*entity),_=>None}).collect();
+    // The plan reads terrain and the caster's team's occupancy only (summon_navigation::placement)
+    // and every spawn carries its own position: a unit of another team is outside it (E416).
+    let caster_team=factions.get(caster).map(|faction|faction.team_id);
+    let outside_plan=|target:&Entity|*target!=caster && !spawned.contains(target)
+        && factions.get(*target).zip(caster_team).is_some_and(|(faction,team)|faction.team_id!=team);
     let last_spawn=effects.iter().rposition(|effect|matches!(effect,Outcome::SpawnSummoned {..}));
     let refused=effects.iter().enumerate().find(|(index,effect)|!match effect {
         Outcome::ScriptCastTransaction {..}|Outcome::ScriptCastCommitted {..}|Outcome::DamageZonePulse {..}|Outcome::IndependentDamageZonePulse {..}|Outcome::DamageWithLeech {..}|Outcome::DamageWithCritical {..}=>false,
@@ -135,6 +140,10 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
         // Never the caster: its life and resources back the whole transaction.
         Outcome::AddBuff {target,..}|Outcome::RawDamage {target,..}|Outcome::Damage {target,..}|Outcome::ScriptDirectDamage {target,..}
             if summons && channels==0 && *target!=caster && last_spawn.is_some_and(|last|*index>last)=>true,
+        // A unit of another team, anywhere among the spawns (原作 B11 鴉襲 phases its target before
+        // its illusion may appear, E416).
+        Outcome::AddBuff {target,..}|Outcome::RawDamage {target,..}|Outcome::Damage {target,..}|Outcome::ScriptDirectDamage {target,..}
+            if summons && channels==0 && outside_plan(target)=>true,
         // G-2: exactly the cast's own ability, at most once (count checked above).
         Outcome::ScriptConsumeCharge {entity,ability_id}=>*entity==caster&&ability_id==skill,
         _ if !summons&&channels==0=>true,
@@ -165,6 +174,9 @@ fn summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_betwe
     let faction=world.read_storage::<Faction>().get(hero).cloned();
     let expected=world.read_storage::<Hero>().get(hero).and_then(|hero|hero.mana_pool.clone());
     let victim=world.create_entity().build();
+    let team=faction.as_ref().map_or(1,|faction|faction.team_id);
+    let enemy=world.create_entity().with(Faction::new(FactionType::Enemy,team+1)).build();
+    let ally=world.create_entity().with(Faction::new(FactionType::Player,team)).build();
     let (first,second)=(world.create_entity().build(),world.create_entity().build());
     let spawn=|entity|Outcome::SpawnSummoned {entity,pos:SimVec2::ZERO,unit_id:"fixture".into(),owner:hero,
         faction:faction.clone().unwrap_or_else(||Faction::new(FactionType::Player,1)),player_owner:None,duration:Fixed64::ONE};
@@ -174,6 +186,15 @@ fn summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_betwe
     let accepts=|effects:&[Outcome]|admit(&world,hero,"fixture",0,faction.as_ref(),player,expected.as_ref(),effects,0);
     assert!(accepts(&[spawn(first),assign(first),spawn(second),assign(second),stun.clone()]),"own setup and a trailing stun");
     assert!(!accepts(&[spawn(first),stun.clone(),spawn(second)]),"a control between planned siblings");
+    {
+        // E416: a unit of another team is outside the placement plan, so it may be hit anywhere.
+        let on=|target|Outcome::AddBuff {target,buff_id:"stun".into(),duration:Fixed64::ONE,payload:serde_json::Value::Null};
+        if faction.is_some() {
+            assert!(accepts(&[on(enemy),spawn(first),on(enemy),spawn(second)]),"an enemy before and between the spawns");
+            assert!(accepts(&[Outcome::ScriptDirectDamage {target:enemy,amount:Fixed64::ONE},spawn(first)]));
+        }
+        assert!(!accepts(&[on(ally),spawn(first),spawn(second)]),"an ally's occupancy is in the plan");
+    }
     assert!(!accepts(&[spawn(first),assign(victim),spawn(second)]),"a buff on another unit between siblings");
     let face=|entity|Outcome::ScriptSetFacing {entity,facing:omoba_sim::Angle::ZERO};
     assert!(accepts(&[spawn(first),face(first),spawn(second)]),"a summon of this cast faces its way");

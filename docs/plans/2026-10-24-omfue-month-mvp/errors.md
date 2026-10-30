@@ -2,9 +2,22 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E416 （保留）召喚施法的 settlement 擋下 spawn 之前對敵方單位的 AddBuff：b11_crow_raid 每次 SettlementRefused（2026-10-31）
+## E416 召喚施法的 settlement 擋下 spawn 之前對敵方單位的 AddBuff：b11_crow_raid 每次 SettlementRefused（2026-10-31，工作線 B）
+- **現象**：conformance 的 b11_crow_raid 每次施法都是 `WindupStarted, Accepted, SettlementRefused("AddBuff")`（tick 70、137、324、430、1157…）。on_cast 先對目標套用 `b11r_phased`，`b11r_proc` 之後才以機率產生分身。
+- **根因**：cast_settlement 規定，召喚施法中對施法者以外單位的 AddBuff 或傷害，只能排在最後一個 spawn 之後，以免改變分身位置規劃所依賴的世界。但 b11 的順序是原作語意（先讓目標 phased，再傳送、攻擊），產生器不能調換。
+- **通用修正**：位置規劃只讀地形與施法者同隊的佔位（`summon_navigation::placement`），每個 spawn 也帶著自己的座標。所以「其他隊」的單位不在規劃之內，對它的 AddBuff 或傷害可以出現在 spawn 之前或之間。施法者同隊（友軍）與沒有隊伍的單位，仍只能排在最後一個 spawn 之後。
+- **測試**：`summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_between_siblings` 新增：敵方在 spawn 之前與之間可以，友軍在 spawn 之前不行。
+- **避免**：settlement 的順序限制要寫出它保護的是哪份規劃輸入，只限制真正會影響那份輸入的效果。
 
-## E415 （保留）periodic 情境的命中次數照該等級狀態的 duration 算（到期那個 tick 的命中不算）（2026-10-31）
+## E415 conformance：periodic 情境固定要求 3 個 interval 內打 2 下，沒有看狀態本身的 duration（2026-10-31，conformance session）
+- **現象**：a29e_grip r1～r3、b33e_web r1～r2、c07e_bind r1 都判 fail，原因是「1 hits / 0 hits within 3 s」。a09w_poison r1～r4 也判 fail，原因是「no hit 60 ticks after the first」。工作線 B 用 dump 核對過：a29e_grip 的 duration 是 1／1.4／1.8／2 秒，interval 0.99 秒，r1～r3 各打 1 下、r4 打 2 下，和原作一致（E385：interval 四捨五入到 tick，在到期那個 tick 到的那一下不會打）。
+- **根因**：check_periodic 不知道狀態能持續多久，一律要求至少 2 下，每一下都要剛好隔一個 interval。a09w_poison 是 independent，每份持續 2 秒、interval 1 秒，每份只打 1 下，所以不同份數之間的命中不會剛好隔一個 interval。
+- **通用修正**：情境的 status_event 帶上該狀態套用時的 duration（`a.duration or s.duration`）。harness 依 host 的 tick 規則算出一份狀態能打幾下：`(round(duration×60) − 1) / round(interval×60)`。
+  - 能打 0 下時，必須完全沒有命中。
+  - 其他情況要求 min(該數, 2) 下。
+  - 間隔只檢查第一份狀態自己的那幾下。
+  - duration 算不出來（例如 infinite）時，維持原本的規則。
+- **結果**：a09w_poison 4 個、a29e_grip 3 個、b33e_web 2 個、c07e_bind 1 個 fail 轉為 pass，沒有退步。b28e_stun 仍然 0 下，原因另外查（狀態在第一下之前就被移除）。
 
 ## E414 pulse channel 不跑 execute：hero-only 的 channel 技能可以對小兵施放（c04_witch_dance）（2026-10-31，工作線 B）
 - **現象**：conformance `c04_witch_dance r1/target_invalid/creep`（3 個 fail）：對小兵施放被接受，扣了魔、開始引導，文件只允許英雄（`target.types = { "hero" }`）。
