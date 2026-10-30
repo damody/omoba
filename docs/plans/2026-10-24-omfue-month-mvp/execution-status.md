@@ -1248,6 +1248,7 @@
 - 2026-10-30 線 A：C15 爆裂箭燒傷退步查明（E326：v3 unit_templates 不在內容召喚物表，create_unit 執行期失敗），產生器擋下這類模板（314→302）；新增 scripts/v3_summons.lua 讓 unit_templates 成為召喚物單一來源（目前 37 個模板都被召喚物模型缺口擋住：bounty、dummy、索敵距離、hp_regen、ai 種類、日夜視野…，清單已交 B）。接上 perform_attack、issue_order.force、道具 on_attack_hit、angle_between、farthest／ally_not_self、觸發裡的 ability.*（302→308）。E327：v3_test_heroes 的引導技能被寫成 instant（C05 閃雷 12 fail 的原因），重產待 B 支援射程 0 引導。
 - 2026-10-30 線 A：C15 爆裂箭燒傷修正（E335）：燒傷以 `source = "caster_hero"` 掛上，`existed` 以來源判斷，非獨立狀態的週期以 `start_chain`／`chain_current` 保證一個時鐘；`v3_summons` 把 `ai = owner_controlled` 對應 guard（不跟隨，原作只靠下令移動）。
 - 2026-10-30 線 A：M6 全部 96 位裡，除了 B22 都已是 v3 測試英雄（test_only，各自的 `scripts/heroes/<package>` crate），conformance 自動比對；E338（unit_or_point）、E341（summons.lua 只能有一個多值欄位；v3_summons --check 真的執行）、E344（KV 數值取開頭的數字）、E345（出生 rank 依等級需求）；v3_summons 接上 acquisition_range、ai idle、projectile_speed。
+- 2026-10-30 線 A：C15 灼燒改回每段火焰一份（E356，原作 KV）；c15_burst_arrow 換上產生版（C15 有 3 招產生，百箭仍是手寫 handler）；v3 列帶 charges／toggle／ultimate、F 欄進第 6 欄（E360）。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
 ## 2026-10-30（conformance：M6 第 2～9 批 66 位第一次實跑；E351）

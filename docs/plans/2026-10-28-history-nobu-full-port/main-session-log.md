@@ -188,3 +188,11 @@
 - 2026-10-30 19:00 建置鎖排隊成為常態瓶頸；決定 headless 批次改從鏡像快照建在私有 target（內容 hash 保證一致），只有 stage 進 UE 的建置排鎖，交 gamemode
 - 2026-10-30 19:10 conformance E340 land（01867c7d，103 項 0 退步；A12 fail 153→36、A26 0、C05 6、C15 0）；C 道具 spotlight 支援合成道具（a8230b8c），demo3 在 tick 960 因 attribute_hp mismatch 終止交 B；gamemode 快照建置開始
 - 2026-10-30 19:09 A da93e18c 第 1 批＋A05、cde5ab49 第 2～9 批其餘 66 位 test_only（B22 樹木目標除外）；33066aef 修 E341（summons.lua 截掉 authored 召喚物，百箭前搖不釋放）；32599c22 接上 B 的 acquisition_range／idle／projectile_speed；b732b37c E344；燒傷每 14 tick 一下交 B（scheduled 少一 tick）
+- 2026-10-30 19:15 A cde5ab49 第 2～9 批 66 位英雄以 test_only 放回 live（B22 待樹木目標）；conformance 開始對 66 位做第一次實際比對，通過後轉正式英雄才能進比賽；gamemode 私有快照建置成功（9 個 binary hash 一致），m6item2 開跑
+- 2026-10-30 19:56 gamemode 7529d261 headless 批次私有快照建置（E347）、平衡表與 DamageTally（E342、E352）；B E348、E349（scheduled_effect 少一 tick，C15 百箭根因）
+- 2026-10-30 20:12 m6item3 12 局全在時限內；玉子 C15 對英雄傷害約其他 3 倍，交 A 查證灼燒是否與原作一致（一致則照 D13 保留）；決定 verify_m6_batch 依資料推導英雄定位分路、加道具覆蓋模式；C E355 UE 加 -unattended 避免 ZenServer 對話框卡住
+- 2026-10-30 20:30 B f04f942d 英雄技能欄 5→6；主 session 決定第 6 格預設鍵 C（第 5 格 X），屬性面板改 K
+- 2026-10-30 20:40 A 玉子灼燒查證（f2d8096a，E356）：live 比原作少（原作每段 dummy 各一份、同時 3～4 份），已改回原作；偏強主因是百箭在 E341 修好後恢復施放，照 D13 保留原作數值；C 4 件 bot 未取得道具實機驗證通過（edf3a983）
+- 2026-10-30 21:00 C 第 6 技能格放回（omfue c96b5da、13729f6b，ABI 42，預設鍵集中在 OmControlDefaultKeys）；決定按鍵設定檔加 schema 版本號，舊版自動遷移成屬性面板 K、第 6 格 C
+- 2026-10-30 21:22 C05 0 fail、C15 爆裂箭換上產生版（1ddfffc3）；A 開始把全招產生且 conformance 0 fail 的 test_only 英雄轉正式（hero_dlls），首批 22 位等 conformance 結果
+- 2026-10-30 21:27 A f2d8096a E356：玉子灼燒改回每段火焰一份，和原作一致；平衡偏強的原因是百箭恢復（E341），不是灼燒。13e92a17 E360：v3 列帶 charges、toggle 型別、F 欄。1ddfffc3：c15_burst_arrow 換上產生版（訂正 commit 訊息：C15 是 3 招產生，百箭仍是手寫）。下一步：0 fail 的 v3 英雄標 playable、加進 hero_dlls，可進比賽
