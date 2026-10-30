@@ -303,6 +303,36 @@ impl<'a, 'w> Cx<'a, 'w> {
     pub fn hp(&self, u: EntityHandle) -> Fixed64 { self.world.get_hp(u).into_option().unwrap_or(Fixed64::ZERO) }
     pub fn max_hp(&self, u: EntityHandle) -> Fixed64 { self.world.get_max_hp(u).into_option().unwrap_or(Fixed64::ZERO) }
     pub fn mana(&self, u: EntityHandle) -> Fixed64 { self.world.current_mana(u) }
+    /// v3 `is_template(u, t)`: `u` was made from template `t` (its host unit id; create_unit's).
+    pub fn is_template(&self, u: EntityHandle, template: &str) -> bool {
+        u.is_valid() && self.world.unit_id_of(u).into_option().is_some_and(|id| id.as_str() == template)
+    }
+    /// v3 `clear_slow_pool { of }`: `of` loses its movement slows (omoba-core ally_cleanse
+    /// self_slow_cleanse); stuns, roots and silences stay.
+    pub fn clear_slow_pool(&mut self, of: EntityHandle) -> Res {
+        use omoba_core::runtime::native::ally_cleanse;
+        if !of.is_valid() { return Ok(()); }
+        let packet = ally_cleanse::self_slow_payload(of.id, of.gen).to_string();
+        self.world.add_stat_buff(of, RStr::from_str(ally_cleanse::SELF_SLOW_BUFF), Fixed64::ONE, RStr::from_str(&packet));
+        Ok(())
+    }
+    /// v3 `face`: `who` turns toward `at` (no turn when it stands there).
+    pub fn face(&mut self, who: EntityHandle, at: Vec2) -> Res {
+        if !who.is_valid() { return Ok(()); }
+        let d = at - self.pos(who)?;
+        if d.x == Fixed64::ZERO && d.y == Fixed64::ZERO { return Ok(()); }
+        self.world.set_facing(who, omoba_sim::trig::atan2(d.y, d.x));
+        Ok(())
+    }
+    /// v3 `spend_mana`: `from` pays `amount` for `ability`, at most the mana it has (its
+    /// `on_mana_spent` sees the payment).
+    pub fn spend_mana(&mut self, from: EntityHandle, amount: Fixed64, ability: &str) -> Res {
+        if !from.is_valid() { return Ok(()); }
+        let amount = amount.min(self.mana(from));
+        if amount <= Fixed64::ZERO { return Ok(()); }
+        let _ = self.world.spend_mana(from, amount, RStr::from_str(ability));
+        Ok(())
+    }
     pub fn is_building(&self, u: EntityHandle) -> bool { self.world.is_building(u) }
     /// `hp_pct`: hp / max_hp (0 without a maximum).
     pub fn hp_pct(&self, u: EntityHandle) -> Fixed64 {

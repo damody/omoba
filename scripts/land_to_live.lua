@@ -99,6 +99,9 @@ function M.needs(relatives)
     local omfue=lower:match('^omfue/')~=nil and not codegen and not lower:match('^omfue/bridge/')
     if lua_data or codegen or omfue then need.ubt=true end
     if lua_data or codegen or lower:match('%.rs$') or lower:match('cargo%.toml$') or lower:match('cargo%.lock$') then need.cargo=true end
+    -- The hero / items DLL crates generate their Rust in build.rs from the v3 documents and the
+    -- generator (v3_rust.lua): a change there is a Rust change of those crates.
+    if lower:match('^docs/character_pipeline/') or lower=='scripts/hero_dlls.lua' then need.cargo=true end
     if lower:match('^omfue/bridge/') or lower:match('^omoba%-client%-runtime/') then need.cargo=true;need.bridge=true end
     -- The authority: its own crate and the shared crates it is built from.
     if lower:match('^omb/') or lower:match('^log4rs/') or lower:match('^erps/') or lower:match('^omoba%-core/')
@@ -291,6 +294,13 @@ function M.check(plan,need,d)
     -- Every script DLL (base_content and the hero DLLs) is a member of the scripts workspace.
     run(d,'cargo check script DLLs','cargo',{'check','--manifest-path',d.path.join(tree,'scripts','Cargo.toml'),
       '--workspace','--features','base_content/compiled-content-only'},{env=env})
+    -- E261: a DLL whose manifest panics at load aborts the host, and cargo check cannot see it.
+    -- The rlibs of what a launch loads (items.dll and every hero DLL) build their manifests in tests.
+    local packages={'test','--manifest-path',d.path.join(tree,'scripts','Cargo.toml'),'-p','items_impl'}
+    local ok,heroes=pcall(dofile,d.path.join(tree,'scripts','hero_dlls.lua'))
+    for _,row in ipairs(ok and heroes or {}) do packages[#packages+1]='-p';packages[#packages+1]=row.package..'_impl' end
+    packages[#packages+1]='--lib'
+    run(d,'script DLL manifests load','cargo',packages,{env=env})
   end
   if need.server then
     run(d,'cargo check omobab','cargo',{'check','--manifest-path',d.path.join(tree,'omb','Cargo.toml'),

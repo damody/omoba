@@ -82,7 +82,8 @@ local function load_package(dir, root)
   -- kit.lua was the M1 name; a leftover one would be ignored and the build would lose every v3 block
   assert(not exists(dir .. "/kit.lua"), dir .. "/kit.lua: the package's v3 document is v3.lua (merge it, then remove kit.lua)")
   if exists(dir .. "/v3.lua") then
-    pkg.kit_compiled = v3.compile(root, sandbox(dir .. "/v3.lua"))
+    pkg.kit_doc = sandbox(dir .. "/v3.lua")
+    pkg.kit_compiled = v3.compile(root, pkg.kit_doc)
     pkg.rust_texts = {}
     if lfs.attributes(dir .. "/rust", "mode") == "directory" then
       for name in lfs.dir(dir .. "/rust") do
@@ -209,9 +210,15 @@ function M.validate(dir, opts, deps)
     for _, mode in ipairs({ "registry", "ids" }) do
       local r = deps.run(deps.lua, { root .. "/scripts/gen_hero_registry.lua", scratch, mode }, { cwd = root, check = false })
       assert(r.exit_code == 0, "gen_hero_registry " .. mode .. " rejected generated content: " .. (r.stderr or "") .. (r.stdout or ""))
-      if mode == "ids" then
+      -- a hero with its own DLL (hero_dlls.lua) registers every ability there, not here
+      local own_dll = false
+      local okd, rows = pcall(dofile, root .. "/scripts/hero_dlls.lua")
+      for _, row in ipairs(okd and rows or {}) do if row.hero == pkg.character.hero.id then own_dll = true end end
+      if mode == "ids" and not own_dll then
         for _, ab in ipairs(entries.abilities) do
-          assert(r.stdout:find('"' .. ab.id .. '"', 1, true), "generated ability " .. ab.id .. " missing from template ids")
+          -- a sub ability is registered by the hero's generated crate (swap_abilities), not here
+          assert((entries.sub_ids or {})[ab.id] or r.stdout:find('"' .. ab.id .. '"', 1, true),
+            "generated ability " .. ab.id .. " missing from template ids")
         end
       end
     end

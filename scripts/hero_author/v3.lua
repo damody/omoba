@@ -25,6 +25,47 @@ local function modules(repo_root)
   return loaded[root]
 end
 
+local V3_TARGET_TYPE = { none = "none", unit = "unit", point = "point", vector = "point" }
+local function has(list, v)
+  for _, x in ipairs(list or {}) do if x == v then return true end end
+  return false
+end
+
+-- The content row of an ability that only the v3 document has (a test hero's every ability, a
+-- hero's `slot = "sub"` ability that swap_abilities brings in): levels, extras and text from the
+-- compiled document. opts.ue: the row's `ue` table (test heroes are UE native-only).
+function M.ability_row(package, ab, compiled, opts)
+  local id = ab.id
+  local block = assert(compiled.abilities[id], package .. ": v3 has no compiled ability " .. id)
+  local target = ab.target or { type = "none" }
+  local levels = {}
+  for i, lv in ipairs(assert(compiled.levels[id], id .. ": no levels")) do
+    levels[i] = { cooldown = lv.cooldown or 0, mana_cost = lv.mana_cost or 0, cast_time = lv.cast_time or 0,
+      range = lv.range or 0, required_hero_level = lv.required_hero_level }
+  end
+  local extras = {}
+  for name, nums in pairs(compiled.extras[id] or {}) do
+    if not M.RESERVED[name] then extras[name] = nums end
+  end
+  return {
+    id = id,
+    authored_package = package,
+    display_name = block.text.zh_TW.name,
+    description = compiled.description[id],
+    ability_type = ab.kind == "passive" and "passive" or "active",
+    target_type = assert(V3_TARGET_TYPE[target.type], id .. ": unmapped v3 target type " .. tostring(target.type)),
+    unit_target = target.type == "unit" and (target.team == "ally" or target.team == "enemy") and target.team or nil,
+    pierces_magic_immunity = has(block.ability_flags, "pierce_magic_immune") or nil,
+    cast_type = "instant",
+    max_level = block.max_level,
+    levels = levels,
+    extras = extras,
+    ue = opts and opts.ue or nil,
+    -- the compiled v3 block (status dispel classes, values, text: V3_CATALOG_JSON)
+    v3 = block,
+  }
+end
+
 -- Validates and compiles a package's v3.lua table; errors name the first problems.
 function M.compile(repo_root, kit)
   local m = modules(repo_root)

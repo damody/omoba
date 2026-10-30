@@ -9,7 +9,8 @@
 -- executor yet (docs/plans/2026-10-28-history-nobu-full-port/m6-bot-intents.md); a bot skips them.
 local M = {}
 
--- kind -> { params = { name = "per_mille" | "radius" | "count" | "value" }, proposed? }
+-- kind -> { params = { name = "per_mille" | "radius" | "count" | "value" | "status" }, proposed? }
+-- ("status": a status runtime id, the one the generated code reads to tell a toggle on)
 M.KINDS = {
   enemy_unit = { params = {} },
   enemy_hero = { params = {} },
@@ -26,10 +27,13 @@ M.KINDS = {
   self_recovery = { params = { below_hp_per_mille = "per_mille", below_mana_per_mille = "per_mille", restore_key = "value" } },
   self_mana_regeneration = { params = { below_hp_per_mille = "per_mille", below_mana_per_mille = "per_mille",
     rate_key = "value", duration_key = "value" } },
+  -- in the executor since E260 (summon_near_enemy {threat_radius}) and E263 (toggle_engage)
+  summon_near_enemy = { params = { threat_radius = "radius" } },
+  toggle_engage = { params = { threat_radius = "radius", on_status = "status" } },
+  -- E281: a leap aimed at a point with no cast range (it lands at most `reach_key` away)
+  leap_enemy_point = { params = { radius_key = "value", reach_key = "value", min_targets = "count" } },
   -- proposed (m6-bot-intents.md): not cast until the executor has them
-  toggle_engage = { params = { threat_radius = "radius" }, proposed = true },
   ally_engage = { params = { threat_radius = "radius" }, proposed = true },
-  summon_near_enemy = { params = { threat_radius = "radius" }, proposed = true },
   escape = { params = { below_hp_per_mille = "per_mille", threat_radius = "radius" }, proposed = true },
   channel_enemy_area = { params = { radius_key = "value", min_targets = "count" }, proposed = true },
 }
@@ -88,8 +92,22 @@ function M.derive(def, kind_of_entry)
   local cast = castable.cast or {}
   local f = M.facts(def, castable)
   local toggle = kind_of_entry == "ability" and def.kind == "toggle"
-  if toggle then return { kind = "toggle_engage", threat_radius = D.threat } end
+  if toggle then
+    -- on: the first status on_toggle_on puts on the caster under a fixed runtime id
+    local on_status
+    local by_id = {}
+    for _, st in ipairs(def.statuses or {}) do by_id[st.id] = st end
+    for _, a in ipairs((castable.events or {}).on_toggle_on or {}) do
+      local st = a.op == "apply_status" and (a.to == "caster" or a.to == "self") and by_id[a.status]
+      local rid = st and (st.runtime_id or st.id)
+      if rid and not rid:find("{caster}", 1, true) then on_status = rid; break end
+    end
+    return { kind = "toggle_engage", threat_radius = D.threat, on_status = on_status }
+  end
   if cast.channel_time then
+    -- E281: a channel aimed at a point hits the area there (the bot waits for the channel)
+    local channel_area = (target.type == "point") and value_name(target.aoe_radius)
+    if channel_area and not f.heal_self then return { kind = "enemy_point", radius_key = channel_area, min_targets = D.min_targets } end
     if f.heal_self then return { kind = "self_channel_recovery", below_hp_per_mille = D.heal_below, threat_radius = D.threat } end
     for _, s in ipairs(f.selectors) do
       local r = value_name(s.radius)

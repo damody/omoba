@@ -20,7 +20,8 @@ M.TREES = { "scripts/script-abi", "scripts/base_content", "scripts/lua_data", "s
 -- Tooling the shadow build runs (not code under test): always refreshed.
 M.REFRESH = { "docs/character_pipeline/tools" }
 M.FILES = { "scripts/Cargo.toml", "scripts/Cargo.lock", "scripts/gen_hero_registry.lua", "scripts/content_builder.lua",
-  "rust-toolchain.toml", "run_2player.bat", "scripts/compare_fog_evidence.lua", "scripts/stop_netem_proxy.lua", "scripts/_bootstrap.lua" }
+  "rust-toolchain.toml", "run_2player.bat", "scripts/compare_fog_evidence.lua", "scripts/stop_netem_proxy.lua", "scripts/_bootstrap.lua",
+  "scripts/hero_dlls.lua" }
 local SKIP = { target = true, [".git"] = true, assets = true }
 
 local function mkdir_p(p)

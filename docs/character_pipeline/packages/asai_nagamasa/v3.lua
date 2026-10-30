@@ -224,8 +224,8 @@ return function(ctx)
         quirks = {
           { policy = "as_source", ref = "npc/B_Unified/B08.txt:655-656",
             text = "modifier_B08R_buff 的 Properties 是固定值，不乘 StackCount；層數只顯示。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B08_Asai_Nagamasa.lua:264,268",
-            text = "264、268 行 hCaster 未定義；現行依字面意圖每次觸發都刷新持續時間。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B08_Asai_Nagamasa.lua:264,268",
+            text = "FC-135（D13 修正：每次觸發都刷新增益的持續時間）。原作：264、268 行引用未定義的 hCaster，該處的刷新不會發生。" },
 
           -- 以下由 census-v3 B08 移入（census 的 264,268 與上面同 ref 同一件事，不重複）
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B08_Asai_Nagamasa.lua:252-255",

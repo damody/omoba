@@ -110,7 +110,6 @@ return function(ctx)
             duration = { 22, 22, 22 }, cooldown_cap_pct = { 40, 50, 60 }, mana_on_cast = { 100, 150, 200 } },
           { kind = "custom", note = "A34T_OnHit：每層魔抗減免點數、層數上限 3（腳本寫死）、debuff 3 秒、滿層不刷新",
             magic_resistance_reduce = { 5, 10, 15 }, max_stacks = 3, stack_duration = 3 },
-          { kind = "cooldown_refund_on_cast", seconds = { 2, 2, 2 } },
         },
         lifecycle = lifecycle({ caster_death = "主動效果移除；被動保留" }),
         implementation = { kind = "rust_handler", module = "No4_rapid_cooling", note = "on_learn 最大法力；execute 22 秒 cooldown_cap＋hit_stack 規則 buff；hero UnitScript on_skill_cast 回魔；被動減冷卻由 host content cast_cooldown_refund 結算" },

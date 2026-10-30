@@ -127,6 +127,8 @@ pub fn stat(name: &str) -> Option<(StatKey, Unit)> {
 /// （`UnitStats::base_attack_interval`）。
 const ABSOLUTE_STATS: &[(&str, StatKey, Unit)] = &[
     ("base_attack_time", StatKey::BaseAttackTimeConstant, Unit::Fraction),
+    // 移速固定為這個值，加成不算（UnitStats::final_move_speed 的 absolute）。
+    ("move_speed", StatKey::MoveSpeedAbsolute, Unit::Fraction),
 ];
 
 /// 狀態旗標（v3 `states`）在 host 的落點。

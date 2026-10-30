@@ -219,7 +219,7 @@ end
 function M.package_entries(package, slice)
   local character, abilities = package.character, package.abilities.abilities
   local hero_id = character.hero.id
-  local built, skipped = {}, {}
+  local built, skipped, sub_ids = {}, {}, {}
   -- Extra actions (extra1..3) have no MOBA loadout slot until
   -- extra_action_slot exists; they are not emitted as orphan content.
   for _, ab in ipairs(abilities) do
@@ -233,6 +233,16 @@ function M.package_entries(package, slice)
   if package.kit_compiled then
     for _, entry in ipairs(built) do v3.apply(entry, package.kit_compiled) end
     v3.check_rust_keys(package.rust_texts or {}, built)
+    -- an ability only the v3 document has, in no loadout slot (`slot = "sub"`): swap_abilities
+    -- puts it in a slot, and the client needs its catalog row (template id, metadata) then
+    local have = {}
+    for _, entry in ipairs(built) do have[entry.id] = true end
+    for _, ab in ipairs(package.kit_doc and package.kit_doc.abilities or {}) do
+      if ab.slot == "sub" and not have[ab.id] and (slice == nil or slice[ab.id]) then
+        built[#built + 1] = v3.ability_row(hero_id, ab, package.kit_compiled)
+        sub_ids[ab.id] = true
+      end
+    end
   end
   local slots, ranks = {}, {}
   for _, ab in ipairs(abilities) do
@@ -240,7 +250,8 @@ function M.package_entries(package, slice)
     if (slice == nil or slice[ab.id]) and idx then slots[idx] = ab.id; ranks[idx] = M.birth_rank(character, ab) end
   end
   local skill_points = character.moba_loadout and character.moba_loadout.skill_points
-  local result = { package = hero_id, abilities = built, skipped = skipped, summons = {} }
+  -- sub_ids: the v3 sub abilities (registered by the hero's generated crate, not gen_hero_registry)
+  local result = { package = hero_id, abilities = built, skipped = skipped, summons = {}, sub_ids = sub_ids }
   for _, s in ipairs(package.summons and package.summons.summons or {}) do
     local row = {}
     for key, value in pairs(s) do row[key] = value end

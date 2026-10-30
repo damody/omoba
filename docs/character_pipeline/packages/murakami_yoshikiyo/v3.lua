@@ -74,6 +74,8 @@ return function(ctx)
       },
       -------------------------------------------------------------------------
       { id = "b29_quake_axe", source_id = "B29E", slot = "W", kind = "active", max_level = 4, tags = { "basic", "movement" },
+        -- E281: no cast range; the leap lands at most $leap_distance toward the point
+        bot = { kind = "leap_enemy_point", radius_key = "$radius", reach_key = "$leap_distance", min_targets = 1 },
         values = {
           cooldown = { 20, 18, 16, 14, unit = "s", source = "kv:AbilityCooldown@npc/B_Unified/B29.txt:101" },
           mana_cost = { 105, 125, 145, 165, unit = "mana", source = "kv:AbilityManaCost@npc/B_Unified/B29.txt:102" },

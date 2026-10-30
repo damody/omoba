@@ -269,7 +269,7 @@ return function(ctx)
           },
         },
         statuses = {
-          { id = "a34t_active", runtime_id = "a34_rapid_cooling", text = { zh_TW = { name = "急速冷卻", body = "寒霜彈、冰山之襲、冰霜之息的剩餘冷卻不超過全冷卻的 {remaining_cap}；每施放一個技能回復 {mana_on_cast} 法力；這三招命中英雄時疊一層魔抗減免。" }, en = { name = "Rapid Cooling", body = "The remaining cooldowns of Frost Bolt, Iceberg Strike and Frost Breath never exceed {remaining_cap} of their full cooldown; each ability cast restores {mana_on_cast} mana; hitting a hero with those three adds a stack of magic resistance reduction." } }, duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "buff",
+          { id = "a34t_active", text = { zh_TW = { name = "急速冷卻", body = "寒霜彈、冰山之襲、冰霜之息的剩餘冷卻不超過全冷卻的 {remaining_cap}；每施放一個技能回復 {mana_on_cast} 法力；這三招命中英雄時疊一層魔抗減免。" }, en = { name = "Rapid Cooling", body = "The remaining cooldowns of Frost Bolt, Iceberg Strike and Frost Breath never exceed {remaining_cap} of their full cooldown; each ability cast restores {mana_on_cast} mana; hitting a hero with those three adds a stack of magic resistance reduction." } }, duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "buff",
             reveal = "public", cue = "a34t_godray",
             triggers = {
               periodic = { interval = "$cap_tick", actions = {

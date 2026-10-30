@@ -12810,8 +12810,16 @@ pub(crate) mod live_soak_replica_parity {
         soak_match(SingleLaneConfig {mana_enabled:true,heroes:[heroes[0].into(),heroes[1].into()],..three_lane_config()},ticks,1,
             &|authority|for hero in hero_pair(authority) {
                 authority.write_storage::<Gold>().get_mut(hero).unwrap().0=5000;
-                let mut heroes=authority.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=level as _;
-                for id in h.abilities.clone() {h.ability_levels.insert(id,1);}
+                let learned:Vec<String>={
+                    let mut heroes=authority.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=level as _;
+                    let fresh:Vec<String>=h.abilities.iter().filter(|id|h.get_ability_level(id)==0).cloned().collect();
+                    for id in h.abilities.clone() {h.ability_levels.insert(id,1);}
+                    fresh
+                };
+                // A rank given here is learned like any other (on_learn: passive markers and stats,
+                // E268), as hero_command's level change queues it.
+                let mut queue=authority.write_resource::<ScriptEventQueue>();
+                for skill_id in learned {queue.push(ScriptEvent::SkillLearn {caster:hero,skill_id,new_level:1});}
             },
             &mut |authority,tick|{
                 // A respawn is a new life: actor and targets must name the current one.
@@ -13186,21 +13194,25 @@ pub(crate) mod live_soak_replica_parity {
             "approaches reached their range and cast: {:?}",report.casts);
     }
     /// H03 R passive: a committed basic cast takes two seconds off the other
-    /// basic cooldowns of the hero (content `cast_cooldown_refund`).
+    /// basic cooldowns of the hero (the generated passive's on_ability_executed, E268).
     #[test]
     fn omatsu_basic_cast_shortens_other_basic_cooldowns() {
         let (mut authority,mut driver)=world(SingleLaneConfig {mana_enabled:true,heroes:["omatsu".into(),"training_luminary".into()],
             ..three_lane_config()},SimulationTickProfile::Production60Hz);
         driver.step(&mut authority,[]).unwrap();
         let hero=hero_pair(&authority)[0];
-        let (q,e)={
+        let (q,e,learned)={
             let mut heroes=authority.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=12;
+            let learned:Vec<String>=h.abilities.iter().filter(|id|h.get_ability_level(id)==0).cloned().collect();
             for id in h.abilities.clone() {h.ability_levels.insert(id,1);}
             // Formal rules start a hero at its source starting mana; fill the pool so the cast is affordable.
             if let Some(pool)=h.mana_pool.as_mut() {let max=pool.maximum();*pool=omoba_core::runtime::ability_runtime::ManaPool::new(max,max).unwrap();}
             let (q,e)=(h.abilities[0].clone(),h.abilities[2].clone());
-            h.start_cooldown(&q,Fixed64::from_i32(10));(q,e)
+            h.start_cooldown(&q,Fixed64::from_i32(10));(q,e,learned)
         };
+        // the given ranks are learned (on_learn: the passive's marker)
+        {let mut queue=authority.write_resource::<ScriptEventQueue>();
+         for skill_id in learned {queue.push(ScriptEvent::SkillLearn {caster:hero,skill_id,new_level:1});}}
         let at=authority.read_storage::<Pos>().get(hero).unwrap().0+omoba_sim::Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO);
         let mut ticks=0u32;let mut sent=false;
         while ticks<120 {

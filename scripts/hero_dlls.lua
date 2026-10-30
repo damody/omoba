@@ -9,4 +9,6 @@ return {
   {hero='inahime',package='hero_a02',dir='heroes/inahime'},
   {hero='saika_magoichi',package='hero_b01',dir='heroes/saika_magoichi'},
   {hero='oichi',package='hero_c17',dir='heroes/oichi'},
+  -- M5 (2026-10-30): A34 every ability generated, conformance 0 regressions (A34T compare)
+  {hero='omatsu',package='hero_a34',dir='heroes/omatsu'},
 }

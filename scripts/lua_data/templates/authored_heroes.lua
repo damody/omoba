@@ -906,7 +906,7 @@ local data = {
       max_level = 4,
       target_type = "point",
       v3 = {
-        bot = { kind = "summon_near_enemy", proposed = true, source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         charges_on_rank_up = "keep_restart",
         coverage = "expressible",
         info = {
@@ -1260,6 +1260,7 @@ local data = {
       target_type = "unit",
       unit_target = "enemy",
       v3 = {
+        ability_flags = { "can_target_buildings" },
         bot = { kind = "enemy_unit", source = "derived" },
         coverage = "rust_handler",
         handler = "No1_frost_bolt",
@@ -1823,7 +1824,6 @@ local data = {
     {
       ability_type = "ultimate",
       authored_package = "omatsu",
-      cast_cooldown_refund = { seconds_key = "cooldown_refund_on_cast_seconds" },
       cast_type = "instant",
       description = "被動：施放基礎技能時，其他基礎技能剩餘冷卻減少 2 秒；最大法力 +300/400/500。主動 22 秒：寒霜彈、冰山之襲、冰霜之息的剩餘冷卻不超過全冷卻的 60/50/40%（含施放前已在冷卻的）；每施放一個技能回復 100/150/200 法力；這三招命中英雄時疊一層魔抗減免（每層 5/10/15%、最多 3 層、持續 3 秒，滿層不刷新）。",
       display_name = "急速冷卻",
@@ -1831,7 +1831,6 @@ local data = {
         cap_tick = { 0.1, 0.1, 0.1 },
         cooldown_cap = { 40.0, 50.0, 60.0 },
         cooldown_refund = { 2.0, 2.0, 2.0 },
-        cooldown_refund_on_cast_seconds = { 2.0, 2.0, 2.0 },
         duration = { 22.0, 22.0, 22.0 },
         mana_bonus = { 300.0, 400.0, 500.0 },
         mana_on_cast = { 100.0, 150.0, 200.0 },
@@ -1867,7 +1866,6 @@ local data = {
             dispel = "basic",
             id = "a34t_active",
             reveal = "public",
-            runtime_id = "a34_rapid_cooling",
             text = {
               en = {
                 body = "The remaining cooldowns of Frost Bolt, Iceberg Strike and Frost Breath never exceed {remaining_cap} of their full cooldown; each ability cast restores {mana_on_cast} mana; hitting a hero with those three adds a stack of magic resistance reduction.",
@@ -2842,7 +2840,7 @@ local data = {
       max_level = 4,
       target_type = "none",
       v3 = {
-        bot = { kind = "toggle_engage", proposed = true, source = "derived", threat_radius = 900 },
+        bot = { kind = "toggle_engage", on_status = "attack_orb:a02_venom_arrow", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         kind = "ability",
         max_level = 4,
@@ -4569,7 +4567,7 @@ local data = {
       targeting_reach_key = "dash_max_distance",
       targeting_shape = { kind = "circle", radius_key = "shape_radius" },
       v3 = {
-        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
+        bot = { kind = "leap_enemy_point", min_targets = 1, radius_key = "radius", reach_key = "leap_distance", source = "authored" },
         coverage = "rust_handler",
         handler = "No2_quake_axe",
         info = {
@@ -5055,7 +5053,8 @@ local data = {
       target_type = "point",
       targeting_shape = { kind = "circle", radius_key = "shape_radius" },
       v3 = {
-        bot = { kind = "self_engage", note = "channel without a recovery or area rule", source = "derived", threat_radius = 900 },
+        ability_flags = { "pierce_magic_immune" },
+        bot = { kind = "enemy_point", min_targets = 1, radius_key = "area_radius", source = "derived" },
         coverage = "rust_handler",
         handler = "No4_earth_tremor",
         info = {
@@ -5553,7 +5552,7 @@ local data = {
       target_type = "point",
       targeting_shape = { kind = "line", width_key = "shape_width" },
       v3 = {
-        bot = { kind = "summon_near_enemy", proposed = true, source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         coverage = "rust_handler",
         handler = "No2_burst_arrow",
         info = {
@@ -7820,6 +7819,61 @@ local data = {
             ranks = { "6", "12", "18" },
             raw = { 6144, 12288, 18432 },
             unit = "level",
+          },
+        },
+      },
+    },
+    {
+      ability_type = "active",
+      authored_package = "honda_tadakatsu",
+      cast_type = "instant",
+      description = "戰國最強期間取代奮起：效果相同，不耗法力。",
+      display_name = "奮起",
+      extras = {},
+      id = "a07_rouse_free",
+      levels = {
+        { cast_time = 0, cooldown = 5.0, mana_cost = 0, range = 0 },
+        { cast_time = 0, cooldown = 5.0, mana_cost = 0, range = 0 },
+        { cast_time = 0, cooldown = 5.0, mana_cost = 0, range = 0 },
+        { cast_time = 0, cooldown = 5.0, mana_cost = 0, range = 0 },
+        { cast_time = 0, cooldown = 5.0, mana_cost = 0, range = 0 },
+      },
+      max_level = 5,
+      target_type = "none",
+      v3 = {
+        bot = { kind = "none", reason = "sub-ability (cast through its parent)", source = "derived" },
+        coverage = "expressible",
+        info = {
+          { field = "cooldown", value = "cooldown" },
+        },
+        kind = "ability",
+        max_level = 5,
+        schema = "3.3",
+        source_id = "A07D2",
+        text = {
+          en = {
+            body = "Replaces Rouse during Strongest of the Warring States: same effect, no mana cost.",
+            name = "Rouse",
+            pieces = {
+              { text = "Replaces Rouse during Strongest of the Warring States: same effect, no mana cost." },
+            },
+            rendered = "Replaces Rouse during Strongest of the Warring States: same effect, no mana cost.",
+          },
+          zh_TW = {
+            body = "戰國最強期間取代奮起：效果相同，不耗法力。",
+            name = "奮起",
+            pieces = {
+              { text = "戰國最強期間取代奮起：效果相同，不耗法力。" },
+            },
+            rendered = "戰國最強期間取代奮起：效果相同，不耗法力。",
+          },
+        },
+        values = {
+          {
+            name = "cooldown",
+            ranks = { "5", "5", "5", "5", "5" },
+            raw = { 5120, 5120, 5120, 5120, 5120 },
+            unit = "s",
           },
         },
       },

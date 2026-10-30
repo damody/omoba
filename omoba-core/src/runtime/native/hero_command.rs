@@ -99,6 +99,15 @@ impl Command {
     }
 }
 
+/// The ability whose cooldown a command row changes (start / reduce / end): its settled remaining
+/// is a committed cooldown, which opponents' replicas receive (they do not run the script).
+pub fn cooldown_ability(buff_id: &str, payload: &Value) -> Option<String> {
+    match Command::from_payload(buff_id, payload)? {
+        Command::CooldownStart { ability, .. } | Command::CooldownReduce { ability, .. } | Command::CooldownEnd { ability } => Some(ability),
+        _ => None,
+    }
+}
+
 /// Settle one command on `target` (handle_add_buff); a level change queues `SkillLearn`.
 pub fn apply(world: &mut World, target: Entity, buff_id: &str, payload: &Value) -> bool {
     let Some(cmd) = Command::from_payload(buff_id, payload) else { return false };

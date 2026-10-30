@@ -219,7 +219,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "summon_near_enemy", proposed = true, source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },

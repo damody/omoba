@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E284 狀態 cue 第一版實機 0 次：表用 BuffStore 的 runtime_id 當鍵，但 UE 收到的是 content buff 目錄的 id（2026-10-30，工作線 C）
+
+- **現象**：狀態 cue（`status-cues-v1.json` + `AOmUnitActor::SyncStatusCue`）通過 UE 單元測試並放回 live，但實機 540 秒局中 `OM_STATUS_CUE` 0 次；同一局道具 cue 播了 74 次，燒酒有被使用。
+- **根因**：表的鍵取自狀態的 `runtime_id`（例如 `Passive_liquor`、`c17_light_chain_guard:{caster}`）。frame 傳給 UE 的 buff 是 `buff_catalog_id`，`BuffIdName` 透過 content buff 目錄換成目錄 id，也就是 v3 狀態的 `id`（`liquor_haste`、`c17w_guard`）。單元測試是照同一個錯誤假設寫的，所以也通過了。
+- **通用修正**：`scripts/status_cues.lua` 改用狀態 `id` 當鍵（335 個，0 個衝突），JSON 欄位改名為 `statuses`；UE 拿掉前綴比對，只做精確查找；測試改成驗證「以 id 命中、以 runtime_id 不命中」。
+- **避免**：新增 UE 呈現的對照表時，先從 `OmWorldBridgeActor` 確認 UE 實際收到的識別字（buff 走 `BuffIdName`，技能走 `stable_ability_ids`），再決定鍵；單元測試的輸入要取自實機 frame 或 codegen manifest，不要照自己的假設寫。
+
 ## E283 conformance：B08 整位換上與 A 新解鎖 5 招的影子比對；A34 淨化回歸修好（2026-10-30，conformance session）
 
 - **做法**：A 的影子（target/lineA/host）比 live 舊（沒有 E282），直接在那裡跑會把舊 harness 的差異算成換上的差異。改成在 live 鏡像上只疊加換上本身：base_content 的 Cargo.toml／lib.rs、hero_dlls.lua、heroes/asai_nagamasa；5 招則加進 lib.rs 的產生版換上清單（a07_rouse_free 沒有 handler，改用 push）。以後別線的影子都先比對 harness／known／v3_scenarios 是否等於 live，不同時就這樣疊加。
