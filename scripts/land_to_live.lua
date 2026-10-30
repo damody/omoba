@@ -264,6 +264,42 @@ local function run(d,label,exe,args,options)
   return result
 end
 
+-- E329: checked-in generated files must equal what their generators produce from the candidate.
+-- A file generated on a stale shadow (v3_test_heroes.lua) passed codegen, cargo and UBT and
+-- landed. Each generator's --check runs with the candidate tree's own Lua, so it reads the
+-- candidate's documents (docs/character_pipeline, scripts/hero_author, scripts/hero_source).
+M.GENERATED={
+  {label='v3 test heroes',script='scripts/v3_test_heroes.lua',args={'--check'}},
+  {label='v3 summons',script='scripts/v3_summons.lua',args={'--check'}},
+  {label='hero source roster',script='scripts/hero_source_index.lua',args={'roster','--check'}},
+}
+local function generated_check(d,base,row)
+  -- The tree's own lua.exe: tools/lua/lib/platform.lua takes the repo root from the interpreter.
+  local lua=d.path.join(base,'tools','lua',d.platform.lua_executable:match('[^/\\]+$'))
+  local args={d.path.join(base,row.script)}
+  for _,arg in ipairs(row.args) do args[#args+1]=arg end
+  return d.process.run(lua,args,{cwd=base,check=false,label=row.label})
+end
+-- A batch may not make a generated file stale. One that is already stale in live does not block
+-- unrelated batches (its owner regenerates it); it is reported, and check_live_consistent (no
+-- changes) fails on it.
+local function check_generated(plan,tree,d)
+  for _,row in ipairs(M.GENERATED) do
+    d.log('[land] generated files match their generator: '..row.label)
+    local result=generated_check(d,tree,row)
+    if result.exit_code~=0 then
+      local detail=(tostring(result.stdout or '')..tostring(result.stderr or '')):sub(-2000)
+      if #plan>0 and generated_check(d,d.root,row).exit_code~=0 then
+        d.log('[land] WARNING: '..row.label..' is already out of date in live; not blocking this batch: '..detail)
+        d.stale_generated=d.stale_generated or {}
+        d.stale_generated[#d.stale_generated+1]=row.label
+      else
+        error(row.label..' --check failed on the candidate (regenerate it from the current generator):\n'..detail,0)
+      end
+    end
+  end
+end
+
 -- Builds the candidate (tree and, for ubt, shadow) and runs the checks. Raises on failure.
 function M.check(plan,need,d)
   local work=d.path.join(d.root,'target','land')
@@ -289,6 +325,7 @@ function M.check(plan,need,d)
     -- The Lua build steps read the same templates through content_builder (E159).
     run(d,'Lua content loaders over the candidate lua_data',d.platform.lua_executable,
       {d.path.join(tree,'scripts','lua_content_check.lua'),d.path.join(tree,'scripts','lua_data')},{cwd=tree})
+    check_generated(plan,tree,d)
   end
   if need.cargo then
     -- Every script DLL (base_content and the hero DLLs) is a member of the scripts workspace.
@@ -340,7 +377,7 @@ function M.run(options,deps)
   d.log(('[land] %d file(s); checks: %s'):format(#plan,table.concat(names,', ')))
   local ok,err=pcall(M.check,plan,need,d)
   local report={schema='omoba.land-to-live.v1',files=relatives,checks=names,passed=ok,error=not ok and tostring(err) or nil,
-    landed=false,dry_run=options.dry_run==true}
+    landed=false,dry_run=options.dry_run==true,stale_generated=d.stale_generated}
   if ok and not options.dry_run and #plan>0 then
     -- Nothing is written when any live file changed while the checks ran.
     for _,row in ipairs(plan) do

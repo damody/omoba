@@ -2,6 +2,16 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E329 land_to_live 沒檢查產生檔與產生器一致，過期影子產生的 v3_test_heroes.lua 照樣放回（2026-10-30，e187 遊戲模式 session，A 線要求；已放回 live）
+- **現象**：E327：templates/v3_test_heroes.lua 在過期的影子上產生（引導技能被寫成 instant），放回時 codegen、cargo、UBT 都通過，沒有檢查能發現它和目前的產生器不一致。
+- **根因**：land_to_live 只證明候選樹能 codegen 與編譯，不證明受版控的產生檔等於產生器從候選文件產生的結果。
+- **通用修正**：`land_to_live` 的 codegen 檢查（每次放回都跑）加入 `M.GENERATED`：`scripts/v3_test_heroes.lua --check`、`scripts/v3_summons.lua --check`、`scripts/hero_source_index.lua roster --check`。用候選樹自己的 `tools/lua/lua.exe` 執行（platform.lua 由直譯器位置取 repo 根目錄），所以讀的是候選樹的 docs/character_pipeline、scripts/hero_author、scripts/hero_source（都在 M.TREE 內）。
+  - 候選失敗而 live 通過：拒絕放回（這批讓產生檔過期）。
+  - 候選與 live 都失敗：不擋不相關的批次（由產生檔的負責線重產），印 WARNING，報告 `stale_generated` 列出。
+  - 沒有變更時（check_live_consistent）：失敗就判為不一致。
+  - 以後要加產生器，只要在 `M.GENERATED` 加一列。land_to_live_test 新增 4 項（共 48 項通過）。實際候選樹 dry-run：v3 summons、hero source roster 通過；v3 test heroes 目前 live 已過期（E327 待 A 重產），印出 WARNING、不擋。
+- **避免**：受版控的產生檔都要有 `--check`，並登記在 land_to_live 的 `M.GENERATED`。
+
 ## E328 效能量測整段持 live_match 鎖，超過 10 分鐘上限（2026-10-30，e187 遊戲模式 session；已放回 live）
 - **現象**：e187 的 headless 效能比較（perfcmp：M3' ④ 版與目前 HEAD 交錯 5 輪，共 10 局，每局約 75 秒）從 15:29 起持有 live_match 鎖約 20 分鐘，C 的實機局一直排隊。`verify_moba_local_baseline` 也一樣：前端建置、三個 cargo release 建置、實機擷取、重播舊擷取全程持有 live_match（寬限 3 小時）。
 - **根因**：效能量測為了不和實機局重疊而取 live_match，但整段一次取，沒有套用 E322／E325 的「從取鎖起最多 600 秒」。

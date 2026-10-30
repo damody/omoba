@@ -143,6 +143,27 @@ rejects(function() land.run({changes = {{source = '-', live = 'scripts/lua_data/
 options = land.parse({'--change', '-=scripts/x.lua@base.lua'})
 check(options.changes[1].source == '-' and options.changes[1].live == 'scripts/x.lua', 'removal argument parsing')
 
+-- E329: generated files. A batch that makes one stale is refused; one already stale in live does
+-- not block an unrelated batch but is reported; with no changes (consistency) it fails.
+local tree_gen = path.join(root, 'target', 'land', 'tree', 'scripts', 'v3_test_heroes.lua')
+local live_gen = path.join(root, 'scripts', 'v3_test_heroes.lua')
+reset()
+local gen_change = put('work/heroes-gen.lua', 'heroes-gen\n')
+report = land.run({changes = {{source = gen_change, live = 'scripts/lua_data/templates/heroes.lua'}}, dry_run = true}, deps)
+check(ran(tree_gen .. ' --check') and ran('hero_source_index.lua roster --check') and ran('v3_summons.lua --check'),
+  'the generators check the candidate tree')
+reset(); fail[tree_gen] = true
+report = land.run({changes = {{source = gen_change, live = 'scripts/lua_data/templates/heroes.lua'}}}, deps)
+check(not report.landed and tostring(report.error):find('v3 test heroes --check failed', 1, true), 'a batch that makes it stale is refused')
+reset(); fail[tree_gen] = true; fail[live_gen] = true
+report = land.run({changes = {{source = gen_change, live = 'scripts/lua_data/templates/heroes.lua'}}, dry_run = true}, deps)
+check(report.passed and report.stale_generated and report.stale_generated[1] == 'v3 test heroes',
+  'already stale in live: reported, not blocking')
+-- check_live_consistent runs land with no changes: there a stale generated file fails.
+report = land.run({changes = {}, checks = 'codegen', dry_run = true}, deps)
+check(not report.passed and tostring(report.error):find('v3 test heroes --check failed', 1, true),
+  'with no changes a stale generated file is an inconsistency')
+
 -- check_live_consistent: the same checks with no changes, never writing live.
 reset()
 local consistent = require('check_live_consistent').main({}, deps)
