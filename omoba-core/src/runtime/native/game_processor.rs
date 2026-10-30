@@ -4477,6 +4477,8 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
             radius:stats.vision_radius,detection_level:0})?;
     }
     world.write_storage::<ScriptUnitTag>().insert(entity,ScriptUnitTag {unit_id:unit_id.into()})?;
+    // A building template (E428); replicas derive it from the same tag (filtered_specs).
+    if stats.building {world.write_storage::<crate::runtime::IsBuilding>().insert(entity,crate::runtime::IsBuilding)?;}
     let mut summoned=SummonedUnit::new_fixed(owner,(duration>Fixed64::ZERO).then_some(duration));
     summoned.navigation.follow_start_distance=stats.follow_start_distance;
     summoned.navigation.follow_stop_distance=stats.follow_stop_distance;

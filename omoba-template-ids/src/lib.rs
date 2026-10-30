@@ -1438,6 +1438,9 @@ pub struct SummonStats {
     /// Blocks pathing as public geometry (v3 unit_template `blocks_pathing`, omoba-core
     /// unit_blockers, E426): an immobile square of half side `collision_radius`.
     pub blocks_pathing: bool,
+    /// A building (v3 unit_template `building`, 原作 npc_dota_building, E428): omoba-core
+    /// `IsBuilding` on the authority and every replica; immobile.
+    pub building: bool,
     /// v3 `ai = "chase_target"` (E406): the host moves it (omoba-core summon_chase); None for
     /// every other summon.
     pub chase: Option<&'static SummonChaseConst>,

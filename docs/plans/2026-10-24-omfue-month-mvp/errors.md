@@ -2,6 +2,19 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E429 （保留）spotlight 的替身被最大生命百分比傷害打死後，示範直接跳過（仙石秀久 沸血靈光）（2026-10-31）
+
+## E428 召喚物無法宣告自己是建築：b22_natural_barrier、b24_earth_prison 的岩石只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 回報原作 B22、B24T 的岩石是 npc_dota_building，選取與攻擊依「建築」判斷。v3 unit_template 無法表達，兩招只能擋下。
+- **根因**：host 的建築判斷只有 `IsBuilding`，只在兵線建築上設定；召喚物模板沒有對應欄位。
+- **通用修正**：
+  - unit_template 新增 `building`。驗證規則：必須 immobile、不可 chase、move_speed 為 0（UnitStats 本來就把建築速度固定為 0）。
+  - authority 在 `commit_summoned_spawn` 加上 `IsBuilding`。
+  - replica 在 `synchronize_gameplay_components` 依揭露的 `ScriptUnitTag` 模板推得同樣的 `IsBuilding`。所以 is_building、targets_heroes_only、exclude_buildings、建築傷害等判斷在各端一致。
+- **驗證**：template-ids 測試涵蓋建築岩石通過、會移動的建築被拒；core filtered_specs／summon 測試通過。
+- **順帶修正**：`runtime-lua-content` feature 下 `runtime_content` 的 SummonAi 對應漏了 E406 的 `ChaseTarget`，該 feature 的 lib 測試無法編譯。現在與 build.rs 一樣對應到 Idle（112 個測試通過）。
+
 ## E427 bot_auto_policies 的 summon_near_enemy 只接受 point：不需目標的召喚推導不出政策（E419 只改了 executor）（2026-10-31，e187 遊戲模式 session；已放回 live）
 - **現象**：B 的 E419 讓 executor 的 SummonNearEnemy 接受不需目標的召喚，A 也把 c02_phantom_move、b18_earth_claw 的 hint 改回 summon_near_enemy；但第 3 批的計畫裡這兩招仍沒有政策。
 - **根因**：Lua 端 bot_auto_policies 的 admissible 仍要求 summon_near_enemy 的技能是 point 目標，而且每一級都有施法距離；不需目標的召喚兩項都不符合。executor 與推導檢查是兩份規則，只改了一份。

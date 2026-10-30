@@ -822,7 +822,12 @@ impl SpecsDisclosedWorldStepper {
         // A disclosed lane structure is a building on the replica too (E170): scripts that skip
         // buildings (`is_building`, ally_area_restore exclude_buildings, point_blast) decide the
         // same on the authority and every team replica.
-        if state.components.contains_key(&crate::runtime::DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID) {
+        // So is a disclosed summon whose template is a building (E428).
+        let building_summon = self.filtered.world.read_storage::<crate::runtime::ScriptUnitTag>().get(entity)
+            .and_then(|tag| omoba_template_ids::summon_by_name(&tag.unit_id))
+            .and_then(omoba_template_ids::active_summon_stats)
+            .is_some_and(|stats| stats.building);
+        if building_summon || state.components.contains_key(&crate::runtime::DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID) {
             self.filtered
                 .world
                 .write_storage::<crate::runtime::IsBuilding>()

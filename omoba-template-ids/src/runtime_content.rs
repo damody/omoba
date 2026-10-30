@@ -596,7 +596,8 @@ impl RuntimeContent {
                 acquisition_range: fixed64(entry.acquisition_range.max(entry.attack_range)),
                 ai: match entry.ai {
                     crate::lua_content::SummonAiEntry::Guard=>crate::SummonAi::Guard,
-                    crate::lua_content::SummonAiEntry::Idle=>crate::SummonAi::Idle,
+                    // A chase summon is flown by the host (E406), as build.rs `rust_variant`.
+                    crate::lua_content::SummonAiEntry::Idle|crate::lua_content::SummonAiEntry::ChaseTarget=>crate::SummonAi::Idle,
                 },
                 projectile_speed: fixed64(if entry.projectile_speed > 0.0 { entry.projectile_speed } else { 900.0 }),
                 hp_regen: fixed64(entry.hp_regen),
@@ -606,6 +607,7 @@ impl RuntimeContent {
                 mana_regen: fixed64(entry.mana_regen),
                 flying: entry.flying,
                 blocks_pathing: entry.blocks_pathing,
+                building: entry.building,
                 chase: entry.chase.as_ref().map(|c| &*leak(crate::SummonChaseConst {
                     speed: fixed64(c.speed), max_distance: fixed64(c.max_distance),
                     teleport_back_distance: fixed64(c.teleport_back_distance), reach_radius: fixed64(c.reach_radius),

@@ -1784,6 +1784,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \tflying: {},\n\
              \tchase: {},\n\
              \tblocks_pathing: {},\n\
+             \tbuilding: {},\n\
              }};\n",
             cname,
             fixed64_lit(e.hp),
@@ -1817,6 +1818,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             e.flying,
             chase,
             e.blocks_pathing,
+            e.building,
         ));
     }
     out.push('\n');

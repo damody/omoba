@@ -1750,6 +1750,9 @@ pub(crate) struct SummonEntry {
     /// Blocks pathing as public geometry, a square of half side `collision_radius` (E426).
     #[serde(default)]
     pub(crate) blocks_pathing: bool,
+    /// A building unit (原作 npc_dota_building, E428); immobile.
+    #[serde(default)]
+    pub(crate) building: bool,
     /// Attack damage added per owner hero level above 1, sampled at spawn.
     #[serde(default)]
     pub(crate) damage_per_owner_level: f32,
@@ -1854,6 +1857,10 @@ pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),Stri
             || !(1.0..=512.0).contains(&entry.collision_radius) || entry.chase.is_some()) {
             return Err(format!("summon {} blocks pathing but is not immobile with a collision radius in 1..=512",entry.id));
         }
+        // A building (E428) never moves (omoba-core UnitStats holds a building's speed at zero).
+        if entry.building && (!entry.immobile || entry.chase.is_some() || entry.move_speed>0.0) {
+            return Err(format!("summon {} is a building but can move",entry.id));
+        }
         let bodiless=[entry.damage,entry.attack_range,entry.attack_interval,
             if entry.blocks_pathing {0.0} else {entry.collision_radius},entry.follow_start_distance,entry.follow_stop_distance,
             entry.damage_per_owner_level].iter().all(|value|*value==0.0);
@@ -1934,6 +1941,11 @@ fn a_dummy_summon_is_bodiless_and_immobile() {
     turning.turn_rate=11.0;assert!(validate_summon_navigation(&[turning]).is_err());
     let mut regen_only=dummy.clone();regen_only.mana_regen=2.0;assert!(validate_summon_navigation(&[regen_only.clone()]).is_err());
     regen_only.mana=400.0;assert!(validate_summon_navigation(&[regen_only]).is_ok());
+    // E426/E428: a pathing blocker keeps its collision radius; a building never moves.
+    let mut rock=dummy.clone();rock.hp=500.0;rock.blocks_pathing=true;rock.building=true;rock.collision_radius=48.0;
+    assert!(validate_summon_navigation(&[rock.clone()]).is_ok(),"an immobile building rock");
+    let mut walking_building=moving.clone();walking_building.building=true;
+    assert!(validate_summon_navigation(&[walking_building]).is_err(),"a building never moves");
 }
 
 pub(crate) use omoba_content_model::AbilityDefinition as AbilityEntry;

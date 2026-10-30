@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：建築召喚物（E428）
+
+- unit_template `building`（immobile）：authority 生成時加 `IsBuilding`，replica 依模板推得同樣結果。給 b22、b24。
 ## 2026-10-31 線 B：status 的 on_moved（E424）
 
 - status_event `MOVED = 16`（`ON_MOVED = 1 << 13`），amount 是自上次以來移動的距離。給 a03、b23、c12。
