@@ -68,6 +68,20 @@ by['portrait:bare_hero'].file = 'gen-hero-bare_hero.png'
 ok(#coverage.prune_placeholders({ heroes[1] }, manifest) == 1, 'generated rows are derived: pruned with their hero')
 ok(#coverage.prune_ability_placeholders({ heroes[1] }, abilities, manifest) == 2, 'generated ability rows pruned when no hero equips them')
 
+-- a loading card made before its hero is authored
+do
+  local lfiles = coverage.nobu_files(nobu, { schema = ga.SCHEMA, entries = { { kind = 'loading', id = 'bare_hero', file = 'gen-loading-bare_hero.png' } } })
+  ok(lfiles.loading.bare_hero == 'gen-loading-bare_hero.png' and lfiles.sources.loading.bare_hero == 'generated', 'generated loading art indexed')
+  local m = { schemaVersion = 1, entries = {} }
+  ok(#coverage.loading_entries({ heroes[1] }, m, lfiles) == 0, 'no row before the hero is authored')
+  local added = coverage.loading_entries(heroes, m, lfiles)
+  ok(#added == 1 and m.entries[1].kind == 'loading' and m.entries[1].file == 'gen-loading-bare_hero.png' and m.entries[1].source == 'generated', 'row added once the hero is authored')
+  ok(#coverage.loading_entries(heroes, m, lfiles) == 0, 'added once')
+  local covered = coverage.validate_loading(heroes, m, function() return { width = 832, height = 1248 } end)
+  ok(covered == 1, 'the generated card validates as loading art')
+  ok(#coverage.prune_loading({ heroes[1] }, m) == 1 and #m.entries == 0, 'pruned with its hero')
+end
+
 -- import --------------------------------------------------------------------------------------
 do
   local tmp = b.root .. '/target/generated-art-test'
@@ -81,17 +95,20 @@ do
   local stage = { generated = '2026-10-29', assets = {
     { kind = 'ability', id = 'new_w', source = src, prompt = 'p', review = 'viewed', attempts = 2, rejected = { { attempt = 'a1', reason = 'frame' } } },
     { kind = 'cue', id = 'a01w_glow', source = src, prompt = 'p', review = 'viewed' },
+    { kind = 'loading', id = 'bare_hero', source = src, prompt = 'p', review = 'viewed' },
   } }
   ok(not pcall(ga.import, tmp, { generated = '2026-10-29', assets = { { kind = 'ability', id = 'x', source = src, prompt = 'p' } } }), 'an unreviewed image is refused')
   local n, total = ga.import(tmp, stage)
-  ok(n == 2 and total == 2, 'imported two rows')
+  ok(n == 3 and total == 3, 'imported three rows')
+  local card = coverage.inspect_png(ui .. '/gen-loading-bare_hero.png')
+  ok(card and card.width == ga.LOADING_SIZE[1] and card.height == ga.LOADING_SIZE[2], 'a loading card is written at 2:3')
   ok(paths.is_file(ui .. '/gen-ability-new_w.png') and paths.is_file(tmp .. '/' .. ga.CUE_DIR .. '/gen-cue-a01w_glow.png'), 'files written where they belong')
-  ok(ga.check(tmp) == 2, 'check verifies the recorded hashes')
+  ok(ga.check(tmp) == 3, 'check verifies the recorded hashes')
   local index = ga.read_index(tmp)
   local row = ga.rows(index).ability.new_w
   ok(row.edge == ga.EDGE and row.tool == ga.TOOL and row.attempts == 2 and row.rejected[1].reason == 'frame' and row.original_size[1] == 64, 'provenance recorded')
   stage.assets = { stage.assets[1] }
-  ok(select(2, ga.import(tmp, stage)) == 2, 'importing an id again replaces its row')
+  ok(select(2, ga.import(tmp, stage)) == 3, 'importing an id again replaces its row')
 end
 
 print('generated_art_test: ' .. checks .. ' checks passed')

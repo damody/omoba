@@ -11,7 +11,7 @@ M.PLACEHOLDER_FILE='hero-placeholder-v1.png'
 -- ids nobu has no original for, the same way, with source='generated'.
 M.NOBU_INDEX='nobu-icons-v1.json'
 M.GENERATED_INDEX='generated-art-v1.json'
-local NOBU_KIND={hero='portrait',ability='ability',item='item'}
+local NOBU_KIND={hero='portrait',ability='ability',item='item',loading='loading'}
 local SOURCE_PREFIX={nobu='nobu-',generated='gen-'}
 function M.art_file(source,kind,id)return assert(SOURCE_PREFIX[source],'unknown art source')..(kind=='portrait'and'hero'or kind)..'-'..id..'.png' end
 function M.nobu_file(kind,id)return M.art_file('nobu',kind,id) end
@@ -19,7 +19,7 @@ local function derived_source(row)return row.source~=nil and SOURCE_PREFIX[row.s
 -- index table(s) -> {portrait={[id]=file}, ability=..., item=..., sources={[kind]={[id]='nobu'|'generated'}}};
 -- nil index -> empty. Original nobu art wins over generated art.
 function M.nobu_files(index,generated)
- local out={portrait={},ability={},item={},sources={portrait={},ability={},item={}}}
+ local out={portrait={},ability={},item={},loading={},sources={portrait={},ability={},item={},loading={}}}
  if index then
   assert(index.schema=='omoba.nobu-icons.v1'and type(index.entries)=='table','invalid nobu icon index')
   for _,row in ipairs(index.entries)do
@@ -254,6 +254,30 @@ end
 -- loading row is shown with its square portrait cropped to 2:3, and the build
 -- warns. Rows never borrow another hero's file and never use the placeholder.
 M.LOADING_KIND='loading'
+-- A hero with generated loading art (generated-art-v1.json kind=loading, made before the hero is
+-- authored) gets its row when it is authored; a derived row whose hero left the catalog is removed.
+function M.loading_entries(heroes,manifest,nobu)
+ local present,added={},{}
+ local files=nobu and nobu.loading or{}
+ for _,row in ipairs(manifest.entries)do if row.kind==M.LOADING_KIND then present[row.id]=true end end
+ for _,hero in ipairs(heroes)do
+  if not present[hero.id]and files[hero.id]then
+   manifest.entries[#manifest.entries+1]=derived_row(M.LOADING_KIND,hero.id,hero.display_name,nil,files[hero.id],art_source(nobu,'loading',hero.id))
+   added[#added+1]=hero.id;present[hero.id]=true
+  end
+ end
+ return added
+end
+function M.prune_loading(heroes,manifest)
+ local known,kept,removed={}, {},{}
+ for _,hero in ipairs(heroes)do known[hero.id]=true end
+ for _,row in ipairs(manifest.entries)do
+  if row.kind==M.LOADING_KIND and derived_source(row)and not known[row.id]then removed[#removed+1]=row.id
+  else kept[#kept+1]=row end
+ end
+ manifest.entries=kept
+ return removed
+end
 function M.validate_loading(heroes,manifest,inspect)
  assert(type(heroes)=='table'and #heroes>0,'invalid authoring hero catalog')
  assert(type(manifest)=='table'and manifest.schemaVersion==1 and type(manifest.entries)=='table','invalid HUD manifest')

@@ -3,6 +3,8 @@
 -- imported; the import resamples it and records its provenance.
 --
 --   hero / ability / item  omfue/Content/Omoba/UI/gen-<kind>-<id>.png (EDGE pixels)
+--   loading                omfue/Content/Omoba/UI/gen-loading-<hero id>.png (LOADING_SIZE, 2:3; the
+--                          match loading card, added to the HUD manifest when the hero is authored)
 --   cue                    omfue/SourceArt/CueReferences/gen-cue-<id>.png (CUE_EDGE pixels; a
 --                          reference for building the effect, never loaded by the game)
 --
@@ -29,8 +31,9 @@ M.CUE_DIR = "omfue/SourceArt/CueReferences"
 M.INDEX = "generated-art-v1.json"
 M.EDGE = 256
 M.CUE_EDGE = 512
+M.LOADING_SIZE = { 832, 1248 }
 M.TOOL = "grok-build-image_gen"
-M.KINDS = { hero = true, ability = true, item = true, cue = true }
+M.KINDS = { hero = true, ability = true, item = true, cue = true, loading = true }
 
 function M.file(kind, id)
   assert(M.KINDS[kind], "generated art kind " .. tostring(kind))
@@ -40,7 +43,7 @@ end
 
 -- index table -> { [kind] = { [id] = row } }; nil -> empty
 function M.rows(index)
-  local out = { hero = {}, ability = {}, item = {}, cue = {} }
+  local out = { hero = {}, ability = {}, item = {}, cue = {}, loading = {} }
   if not index then return out end
   assert(index.schema == M.SCHEMA and type(index.entries) == "table", "invalid generated art index")
   for _, row in ipairs(index.entries) do
@@ -102,9 +105,10 @@ function M.import(root, stage)
     assert(type(a.review) == "string" and #a.review > 0, a.id .. ": every image is reviewed by eye before import")
     local dir = root .. "/" .. (a.kind == "cue" and M.CUE_DIR or M.UI_DIR)
     b.lib("path").mkdir_p(dir)
-    local edge = a.kind == "cue" and M.CUE_EDGE or M.EDGE
-    local report = host.call("png_square_icon", { source = a.source, output = dir .. "/" .. file, edge = edge })
-    local row = { kind = a.kind, id = a.id, file = file, edge = edge, sha256 = report.output_sha256,
+    local edge = a.kind == "cue" and M.CUE_EDGE or a.kind == "loading" and M.LOADING_SIZE[1] or M.EDGE
+    local height = a.kind == "loading" and M.LOADING_SIZE[2] or nil
+    local report = host.call("png_square_icon", { source = a.source, output = dir .. "/" .. file, edge = edge, height = height })
+    local row = { kind = a.kind, id = a.id, file = file, edge = edge, height = height, sha256 = report.output_sha256,
       original_sha256 = report.source_sha256, original_size = { report.source_width, report.source_height },
       tool = M.TOOL, model = a.model or "not exposed", session = a.session, generated = stage.generated,
       attempts = a.attempts or 1, rejected = a.rejected, review = a.review, prompt = a.prompt }

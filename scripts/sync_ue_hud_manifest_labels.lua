@@ -25,6 +25,9 @@ local function art_label(kind,id)return nobu.sources[kind][id]=='generated'and'g
 local stale=coverage.prune_placeholders(context.include('templates/heroes.lua'),manifest)
 local changed=#stale
 for _,hero in ipairs(stale) do print('[moba-ue] HUD portrait placeholder removed for hero no longer in the catalog: '..hero) end
+local stale_loading=coverage.prune_loading(context.include('templates/heroes.lua'),manifest)
+changed=changed+#stale_loading
+for _,hero in ipairs(stale_loading) do print('[moba-ue] HUD generated loading card removed for hero no longer in the catalog: '..hero) end
 local heroes,abilities=context.include('templates/heroes.lua'),context.include('templates/abilities.lua')
 local stale_abilities=coverage.prune_ability_placeholders(heroes,abilities,manifest)
 changed=changed+#stale_abilities
@@ -54,6 +57,9 @@ for _,item in ipairs(item_icons) do print('[moba-ue] HUD item icon added from '.
 local ability_placeholders=coverage.ability_placeholder_entries(heroes,abilities,manifest,nobu)
 changed=changed+#ability_placeholders
 for _,ability in ipairs(ability_placeholders) do print('[moba-ue] HUD ability icon added for hero ability without authored icon ('..(nobu.ability[ability]and art_label('ability',ability)or'shared placeholder')..'): '..ability) end
+local loading_cards=coverage.loading_entries(heroes,manifest,nobu)
+changed=changed+#loading_cards
+for _,hero in ipairs(loading_cards) do print('[moba-ue] HUD loading card added from '..art_label('loading',hero)..': '..hero) end
 local inspect_ui=function(name)return coverage.inspect_png(p.join(b.root,'omfue/Content/Omoba/UI',name))end
 local ability_count,ability_pending,ability_packaged=coverage.validate_abilities(heroes,abilities,manifest,inspect_ui)
 for _,ability in ipairs(ability_pending) do print('[moba-ue] WARNING HUD ability icon is the shared placeholder (no authored art): '..ability) end

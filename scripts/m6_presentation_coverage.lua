@@ -51,7 +51,9 @@ function M.batch_heroes(waves_text, batch)
 end
 
 -- one hero's coverage from the three indexes
-function M.hero(source_id, catalog, icons, cues)
+-- LOADING: content hero id -> true where a 2:3 loading card exists (HUD manifest or generated art);
+-- nil skips the check.
+function M.hero(source_id, catalog, icons, cues, loading)
   local r = { source_id = source_id, abilities = {}, cues = {}, statuses = {}, missing = {} }
   for _, h in ipairs(catalog.heroes) do
     if h.source_id == source_id then
@@ -63,6 +65,10 @@ function M.hero(source_id, catalog, icons, cues)
   for _, e in ipairs(icons.entries) do by[e.kind .. ":" .. (e.source_id or "")] = e end
   local portrait = by["hero:" .. source_id]
   r.portrait = portrait and portrait.status or "missing"
+  r.hero_id = portrait and portrait.id
+  if loading and not (r.hero_id and loading[r.hero_id]) then
+    r.missing[#r.missing + 1] = "載入圖（" .. (r.hero_id and "沒有 2:3 載入圖，載入畫面裁切頭像" or "不在圖示索引") .. "）"
+  end
   if not covered(r.portrait) then
     r.missing[#r.missing + 1] = "頭像（" .. (portrait and portrait.reason or "不在圖示索引") .. "）"
   end
@@ -154,17 +160,20 @@ function M.render_missing(batches, overridden)
     "還沒生成的替代方案都已經在 UE 生效：",
     "",
     "- **頭像**：共用佔位圖 `hero-placeholder-v1.png`，由 HUD sync 在英雄上架時自動補上。",
+    "- **載入圖**：載入畫面把頭像裁成 2:3，建置時會印出警告。生成的載入圖（`generated_art.lua` kind=loading）在英雄上架時由 HUD sync 自動補上。",
     "- **技能圖示**：共用佔位圖 `ability-placeholder-v1.png`，由 HUD sync 補上，建置時會印出警告。",
     "- **cue**：依 cue 目錄的 kind 播通用佔位特效（環、圓盤、連線；sound 不畫）。之後可以在 Editor 的 Om Presentation Cues 指定美術。",
     "", }
-  local portraits, icons, cues, referenced, nonvisual, styled = {}, {}, {}, {}, {}, {}
+  local portraits, loadings, icons, cues, referenced, nonvisual, styled = {}, {}, {}, {}, {}, {}, {}
   local built = overridden or {}
   for _, b in ipairs(batches) do
     for _, r in ipairs(b.rows) do
       local who = r.source_id .. " " .. (r.name or "")
       for _, m in ipairs(r.missing) do
         local row = string.format("| %d | %s | %s |", b.batch, who, m)
-        if m:find("^頭像") then portraits[#portraits + 1] = row else icons[#icons + 1] = row end
+        if m:find("^頭像") then portraits[#portraits + 1] = row
+        elseif m:find("^載入圖") then loadings[#loadings + 1] = row
+        else icons[#icons + 1] = row end
       end
       for _, c in ipairs(r.cues) do
         if not c.art then
@@ -187,6 +196,7 @@ function M.render_missing(batches, overridden)
     out[#out + 1] = ""
   end
   section("頭像（替代：共用佔位圖）", "| 批 | 英雄 | 原因 |", portraits)
+  section("載入圖（替代：頭像裁成 2:3）", "| 批 | 英雄 | 原因 |", loadings)
   section("技能圖示（替代：共用佔位圖）", "| 批 | 英雄 | 技能與原因 |", icons)
   section("沒有原作資產的特效 cue（替代：依 kind 的通用佔位特效）", "| 批 | 英雄 | cue | kind |", cues)
   section("沒有原作資產的聲音與動作 cue（不需要參考圖；sound 不畫，gesture 用預設動作）", "| 批 | 英雄 | cue | kind |", nonvisual)
@@ -208,6 +218,19 @@ function M.read_overrides()
   return out
 end
 
+-- Content hero ids with a loading card: HUD manifest loading rows and generated loading art.
+function M.read_loading(generated)
+  local out = {}
+  local f = io.open(b.root .. "/" .. M.HUD, "rb")
+  if f then
+    local manifest = json.decode(f:read("a")); f:close()
+    for _, row in ipairs(manifest.entries or {}) do if row.kind == "loading" then out[row.id] = true end end
+  end
+  for _, row in ipairs(generated and generated.entries or {}) do if row.kind == "loading" then out[row.id] = true end end
+  return out
+end
+M.HUD = "omfue/Content/Omoba/UI/hud-assets-v1.json"
+
 function M.read_generated()
   local f = io.open(b.root .. "/" .. M.GENERATED, "rb")
   if not f then return nil end
@@ -221,13 +244,15 @@ function M.main(args)
     local waves = read(M.WAVES)
     local catalog, icons = json.decode(read(M.CATALOG)), json.decode(read(M.ICONS))
     local cues = dofile(b.root .. "/" .. M.CUES)
-    icons, cues = M.with_generated(icons, cues, M.read_generated())
+    local generated = M.read_generated()
+    icons, cues = M.with_generated(icons, cues, generated)
+    local loading = M.read_loading(generated)
     local batches = {}
     for n = 1, 99 do
       local heroes = M.batch_heroes(waves, n)
       if #heroes == 0 then break end
       local rows = {}
-      for _, h in ipairs(heroes) do rows[#rows + 1] = M.hero(h, catalog, icons, cues) end
+      for _, h in ipairs(heroes) do rows[#rows + 1] = M.hero(h, catalog, icons, cues, loading) end
       batches[#batches + 1] = { batch = n, rows = rows }
     end
     local out = "docs/plans/2026-10-28-history-nobu-full-port/m6-missing-art.md"
@@ -249,9 +274,11 @@ function M.main(args)
   assert(#heroes > 0, "batch " .. batch .. " has no heroes in " .. M.WAVES)
   local catalog, icons = json.decode(read(M.CATALOG)), json.decode(read(M.ICONS))
   local cues = dofile(b.root .. "/" .. M.CUES)
-  icons, cues = M.with_generated(icons, cues, M.read_generated())
+  local generated = M.read_generated()
+  icons, cues = M.with_generated(icons, cues, generated)
+  local loading = M.read_loading(generated)
   local rows = {}
-  for _, h in ipairs(heroes) do rows[#rows + 1] = M.hero(h, catalog, icons, cues) end
+  for _, h in ipairs(heroes) do rows[#rows + 1] = M.hero(h, catalog, icons, cues, loading) end
   out = out or ("docs/plans/2026-10-28-history-nobu-full-port/m6-batch" .. batch .. "-presentation.md")
   local f = assert(io.open(b.root .. "/" .. out, "wb")); f:write(M.render(batch, rows)); f:close()
   print("wrote " .. out .. " (" .. #rows .. " heroes)")
