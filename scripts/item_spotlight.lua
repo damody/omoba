@@ -41,17 +41,41 @@ local function first_line(text)
 end
 
 -- catalog, item ids -> spotlight slots (item_slot i-1 for the i-th item)
-function M.slots(catalog, items)
+-- A combined item is bought from its components (the shop refuses it without them): catalog,
+-- items -> the start list with every recipe's components first (depth first), and the inventory
+-- slot each shown item ends in, as the shop places it (components consumed, then the first free slot).
+function M.placement(catalog, items)
   local by_id = {}
   for _, item in ipairs(catalog.items) do by_id[item.id] = item end
+  local start, inventory = {}, {}
+  local function free() for slot = 1, 6 do if not inventory[slot] then return slot end end error("an item spotlight inventory holds 6 items") end
+  local function add(id)
+    local item = assert(by_id[id], "unknown item " .. id .. " (not in " .. M.CATALOG .. ")")
+    local components = item.recipe and item.recipe.components or {}
+    for _, component in ipairs(components) do add(component) end
+    for _, component in ipairs(components) do
+      for slot = 1, 6 do if inventory[slot] == component then inventory[slot] = nil; break end end
+    end
+    inventory[free()] = id
+    start[#start + 1] = id
+  end
+  for _, id in ipairs(items) do add(id) end
+  local slot_of = {}
+  for slot = 1, 6 do if inventory[slot] then slot_of[inventory[slot]] = slot - 1 end end
+  return start, slot_of, by_id
+end
+
+function M.slots(catalog, items)
+  local _, slot_of, by_id = M.placement(catalog, items)
   local slots = {}
-  for index, id in ipairs(items) do
+  for _, id in ipairs(items) do
     local item = assert(by_id[id], "unknown item " .. id .. " (not in " .. M.CATALOG .. ")")
     local bot = item.v3 and item.v3.bot
     local aim = bot and M.AIM[bot.kind]
     assert(aim, id .. " has no active the spotlight can press (bot kind " .. tostring(bot and bot.kind) .. ")")
     local text = item.v3.text and (item.v3.text.zh_TW or item.v3.text.en) or {}
-    slots[#slots + 1] = { item_slot = index - 1, id = id, name = text.name or item.name or id,
+    local slot = assert(slot_of[id], id .. " is consumed by another shown item's recipe; show them in separate runs")
+    slots[#slots + 1] = { item_slot = slot, id = id, name = text.name or item.name or id,
       line = first_line(text.rendered or text.body), kind = "item", team = aim.team, target = aim.target }
   end
   assert(#slots >= 1 and #slots <= 6, "an item spotlight shows 1..6 items")
@@ -106,11 +130,12 @@ function M.main(args)
   end
   assert(items and out, "usage: item_spotlight.lua --items ID[,ID...] --out DIR [--hero HERO]")
   local function read(p) local f = assert(io.open(p, "rb"), p); local s = f:read("a"); f:close(); return s end
-  local slots = M.slots(json.decode(read(path.join(b.root, M.CATALOG))), items)
+  local catalog = json.decode(read(path.join(b.root, M.CATALOG)))
+  local slots = M.slots(catalog, items)
   path.mkdir_p(out)
   path.write(path.join(out, "item-spotlight-script.json"), json.encode(M.script(hero, slots)), true)
   local stage = assert(loadfile(path.join(b.root, M.STAGE)))()
-  path.write(path.join(out, "item-spotlight-recipe.lua"), M.recipe(stage, hero, items), true)
+  path.write(path.join(out, "item-spotlight-recipe.lua"), M.recipe(stage, hero, (M.placement(catalog, items))), true)
   print("item spotlight: " .. #slots .. " item(s) for " .. hero .. " in " .. out)
   return 0
 end
