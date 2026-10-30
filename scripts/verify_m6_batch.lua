@@ -132,6 +132,11 @@ if options.item_coverage then
     print(('item coverage: %s builds %s'):format(build.role, table.concat(build.items, ', ')))
   end
 end
+-- Teamfight (E396): every hero on the mid lane recalls later and leaves the fountain earlier, so a
+-- mid fight is not reset by one side walking home at 35% and back at 85%. m6a3g1 (ten M6 heroes)
+-- ran 7.0 to 14.4 minutes, median 11.9, with the shipped sustain; with these thresholds 6.8 to 9.3,
+-- median 8.0, on the same binaries and seeds. Hero values are unchanged (D13).
+local TEAMFIGHT_SUSTAIN = { recall_below_hp_per_mille = 100, leave_base_at_hp_per_mille = 500 }
 local function recipe(name, swap, teamfight)
   local file = path.join(output, name .. '.lua')
   path.write(file, ([[
@@ -145,7 +150,11 @@ for order, team in ipairs(swap and {2, 1} or {1, 2}) do
     if player.team_id == team and seating[order][player.role] then player.hero = seating[order][player.role] end
   end
 end
-if teamfight then for _, player in ipairs(plan.players) do player.lane = 'mid' end end
+if teamfight then
+  for _, player in ipairs(plan.players) do player.lane = 'mid' end
+  plan.sustain.recall_below_hp_per_mille = %d
+  plan.sustain.leave_base_at_hp_per_mille = %d
+end
 if %s then
   local builds = assert(loadfile(root .. '/scripts/lua_data/bot_item_builds.lua'))()
   plan.item_builds = builds.cover(plan.item_builds, builds.uncovered(plan.item_builds))
@@ -153,6 +162,7 @@ end
 plan.ability_policies = assert(loadfile(root .. '/scripts/lua_data/bot_auto_policies.lua'))()(plan.ability_policies, plan.players)
 return plan
 ]]):format(options.batch, options.group, name, b.root:gsub('\\', '/'), lua_role_map(seating[1]), lua_role_map(seating[2]), tostring(swap), tostring(teamfight),
+  TEAMFIGHT_SUSTAIN.recall_below_hp_per_mille, TEAMFIGHT_SUSTAIN.leave_base_at_hp_per_mille,
   tostring(options.item_coverage == true)), true)
   return file
 end

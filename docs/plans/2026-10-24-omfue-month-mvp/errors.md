@@ -2,7 +2,11 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E396 （保留）teamfight recipe 雙方全在中路，回城 35%／出泉 85% 讓會戰一再重置，中位數 11.9 分鐘（2026-10-31）
+## E396 teamfight recipe 雙方全在中路，回城 35%／出泉 85% 讓會戰一再重置，中位數 11.9 分鐘（2026-10-31，e187 遊戲模式 session，主 session 要求；已放回 live）
+- **現象**：m6a3g1（10 位 M6 英雄）的 teamfight 6 局 7.0～14.4 分鐘，中位數 11.9，4 局超過 10 分鐘；quick 與換邊都在 10 分鐘內。結束時兩側邊路塔幾乎都還在（每邊 6～9 座），勝負只取決於中路。
+- **根因**：teamfight 把十位英雄都放在中路，用出貨的 sustain（低於 35% 回城、回到 85% 才出泉）。一方血量下降就整隊走回泉水，會戰不斷重置，中路塔要很久才推得倒。
+- **通用修正**：只改 recipe，不改英雄數值（D13）；結構與兵線不在 plan schema 裡，可調的是 sustain。verify_m6_batch 的 teamfight recipe 改用 `TEAMFIGHT_SUSTAIN`（低於 10% 回城、50% 出泉），只定義在一處。同一份 binary、同樣的種子比較（target/e187/tfprobe、tfprobe2；base 與 m6a3g1 完全重現）：g1 原設定 11.9 → 150/600 9.5、250/700 10.9、100/500 8.0（6.8～9.3，6 局全在 10 分鐘內）；g2 原設定 6.9（最長 9.9）→ 100/500 6.5（6.1～8.6）。
+- **避免**：recipe 改變陣型（全員同一路）時，回城門檻要一起檢查；比較 recipe 參數用同一份 binary 與種子，headless 是決定性的，可以逐局對照。
 
 ## E395 召喚交易拒絕施法者自己的狀態、指令與位移：幻影步等幻象技一律施放失敗（2026-10-31，工作線 B）
 - **現象**：工作線 A 接好 create_illusion 後，c02_phantom_move、a27_unstoppable_advance、b11_crow_raid 的施放一律沒被 accept。c02 的 on_cast 依序是：躲投射物、對施法者 apply_status、teleport 施法者、create_illusion、對幻象 apply_status、施法者 stop、再對施法者 apply_status。
