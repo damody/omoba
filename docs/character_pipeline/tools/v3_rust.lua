@@ -525,6 +525,11 @@ function Gen:expr(node, ctx)
       if node.name == "is_item" then return "cx.event_is_any_item()", "bool" end
       self:block("attr:" .. node.name .. " of an ability"); return "Fixed64::ZERO", "err"
     end
+    if ot == "event" and (ctx.event == "channel_tick" or ctx.event == "channel_end") then
+      if ctx.event == "channel_tick" and node.name == "tick" then return "cx.event_amount", "num" end
+      if ctx.event == "channel_end" and node.name == "interrupted" then return "(cx.event_amount != Fixed64::ZERO)", "bool" end
+      self:block("event:" .. node.name .. " of a channel"); return "Fixed64::ZERO", "err"
+    end
     if ot == "event" then
       if node.name == "target" then return "cx.event_target", "unit"
       elseif node.name == "attacker" then return "cx.event_attacker", "unit"
@@ -2279,7 +2284,8 @@ local function target_spec(g, target, ability_flags)
     tostring(flags.self_cast_allowed == true), tostring(types[2]))
 end
 
-local ENTRY_EVENTS = set({ "on_cast", "on_toggle_on", "on_toggle_off", "on_learn", "on_upgrade", "on_phase_start" })
+local ENTRY_EVENTS = set({ "on_cast", "on_toggle_on", "on_toggle_off", "on_learn", "on_upgrade", "on_phase_start",
+  "on_channel_tick", "on_channel_end" })
 local PASSIVE_TRIGGERS = { on_attack_hit = true, on_ability_executed = true, on_respawn = true, on_attack_windup = true, on_created = true,
   on_take_damage = true, on_deal_damage = true, on_attacked_hit = true, on_attacked = true, periodic = true,
   on_take_damage_pre = true, on_deal_damage_pre = true }
@@ -2493,6 +2499,22 @@ local function emit_entry(m, o, opts, status_problems)
     if not events.on_cast then g:block("event:on_phase_start without on_cast") end
     program("on_phase_start", events.on_phase_start, false)
   end
+  -- a channel (cast.channel_time): the host owns it (omoba-core ability_channel); its start runs
+  -- on_cast (on_channel_start), each pulse on_channel_tick, its end on_channel_end
+  local channel = def.cast and def.cast.channel_time ~= nil
+  if (events.on_channel_tick or events.on_channel_end) and not channel then g:block("event:on_channel_* without cast.channel_time") end
+  if channel and not events.on_cast then g:block("channel without on_cast") end
+  if events.on_channel_tick then
+    local tick = events.on_channel_tick
+    if tick[1] ~= nil then tick = { actions = tick } end
+    for _, k in ipairs(sorted_keys(tick)) do
+      if k ~= "actions" and k ~= "filter" and k ~= "interval" and k ~= "notes" then g:block("event:on_channel_tick." .. k) end
+    end
+    local list = tick.actions or {}
+    if tick.filter ~= nil then list = { { op = "if", cond = tick.filter, actions = list } } end
+    program("on_channel_tick", list, "channel_tick")
+  end
+  if events.on_channel_end then program("on_channel_end", events.on_channel_end, "channel_end") end
   local toggle_status
   if events.on_toggle_on then
     program("on_toggle_on", events.on_toggle_on, false)
@@ -2659,6 +2681,35 @@ local function emit_entry(m, o, opts, status_problems)
         RErr("passive ability cannot be cast actively".into())
     }
 ]]
+  end
+  if channel then
+    impl[#impl + 1] = [=[
+    fn on_channel_start(&self, caster: EntityHandle, target: Target, start: ChannelPulse, world: &mut GameWorldDyn<'_>) {
+        if start.level == 0 || start.level > MAX_LEVEL { return; }
+        let mut cx = Cx::new(world, caster, target, start.level);
+        let _ = on_cast(&mut cx);
+    }
+]=]
+    if events.on_channel_tick then
+      impl[#impl + 1] = [=[
+    fn on_channel_pulse(&self, caster: EntityHandle, target: Target, pulse: ChannelPulse, world: &mut GameWorldDyn<'_>) {
+        if pulse.level == 0 || pulse.level > MAX_LEVEL { return; }
+        let mut cx = Cx::new(world, caster, target, pulse.level);
+        cx.event_amount = Fixed64::from_i32(i32::from(pulse.index));
+        let _ = on_channel_tick(&mut cx);
+    }
+]=]
+    end
+    if events.on_channel_end then
+      impl[#impl + 1] = [=[
+    fn on_channel_end(&self, caster: EntityHandle, target: Target, end: ChannelPulse, interrupted: bool, world: &mut GameWorldDyn<'_>) {
+        if end.level == 0 || end.level > MAX_LEVEL { return; }
+        let mut cx = Cx::new(world, caster, target, end.level);
+        cx.event_amount = if interrupted { Fixed64::ONE } else { Fixed64::ZERO };
+        let _ = on_channel_end(&mut cx);
+    }
+]=]
+    end
   end
   if events.on_phase_start then
     impl[#impl + 1] = [=[

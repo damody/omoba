@@ -26,6 +26,42 @@ local function modules(repo_root)
 end
 
 local V3_TARGET_TYPE = { none = "none", unit = "unit", point = "point", vector = "point" }
+local CHANNEL_ANCHOR = { none = "self", point = "point", vector = "point", unit = "unit" }
+
+-- A v3 channel (`cast.channel_time`) as the host's pulse channel (omoba-content-model
+-- ChannelDelivery): `on_channel_tick` every its `interval` for the channel's time, or, without
+-- ticks, the fewest equal pulses of at most 10 s (the host's longest interval) that span it.
+-- Writes the per-rank extras channel_interval / channel_pulses / channel_radius into `extras`.
+local function channel_delivery(id, ab, extras, max_level)
+  local function per_rank(expr, what)
+    local name = type(expr) == "string" and expr:match("^%$([%w_]+)$")
+    local nums = assert(name and extras[name], id .. ": channel " .. what .. " must be one plain value ($name), got " .. tostring(expr))
+    local out = {}
+    for i = 1, max_level do out[i] = assert(nums[i] or nums[#nums], id .. ": " .. name .. " has no rank " .. i) end
+    return out
+  end
+  local time = per_rank(ab.cast.channel_time, "channel_time")
+  local tick = ab.events and ab.events.on_channel_tick
+  local interval, pulses = {}, {}
+  for i = 1, max_level do
+    if tick then
+      interval[i] = per_rank(tick.interval, "on_channel_tick.interval")[i]
+      pulses[i] = math.floor(time[i] / interval[i] + 1e-6)
+    else
+      pulses[i] = math.ceil(time[i] / 10 - 1e-6)
+      interval[i] = time[i] / pulses[i]
+    end
+    assert(pulses[i] >= 1, id .. ": channel shorter than one pulse")
+  end
+  local target = ab.target or { type = "none" }
+  -- the host's channel area: the cast's aoe radius, else none (0)
+  local radius = target.aoe_radius ~= nil and per_rank(target.aoe_radius, "target.aoe_radius") or nil
+  if not radius then radius = {} for i = 1, max_level do radius[i] = 0 end end
+  extras.channel_interval, extras.channel_pulses, extras.channel_radius = interval, pulses, radius
+  local anchor = assert(CHANNEL_ANCHOR[target.type or "none"], id .. ": no channel anchor for target " .. tostring(target.type))
+  return { anchor = anchor, interval_key = "channel_interval", pulses_key = "channel_pulses",
+    radius_key = anchor ~= "unit" and "channel_radius" or nil }
+end
 local function has(list, v)
   for _, x in ipairs(list or {}) do if x == v then return true end end
   return false
@@ -47,6 +83,7 @@ function M.ability_row(package, ab, compiled, opts)
   for name, nums in pairs(compiled.extras[id] or {}) do
     if not M.RESERVED[name] then extras[name] = nums end
   end
+  local channel = ab.cast and ab.cast.channel_time ~= nil and channel_delivery(id, ab, extras, block.max_level) or nil
   return {
     id = id,
     authored_package = package,
@@ -56,7 +93,8 @@ function M.ability_row(package, ab, compiled, opts)
     target_type = assert(V3_TARGET_TYPE[target.type], id .. ": unmapped v3 target type " .. tostring(target.type)),
     unit_target = target.type == "unit" and (target.team == "ally" or target.team == "enemy") and target.team or nil,
     pierces_magic_immunity = has(block.ability_flags, "pierce_magic_immune") or nil,
-    cast_type = "instant",
+    cast_type = channel and "channeled" or "instant",
+    channel = channel,
     max_level = block.max_level,
     levels = levels,
     extras = extras,
