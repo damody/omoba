@@ -267,6 +267,45 @@ local function new_gen(m, entry, opts)
     local_n = 0, lets = {} }, Gen)
 end
 function Gen:block(feature) self.blockers[feature] = true end
+-- The rank a value of owner `o` is read at: the running entry's (cx.rank), or, for a value of another
+-- ability of the document (its routine called from a different ability's hit, A34T's shred from A34W's
+-- bolt, E388), the caster's rank of that ability; cx.rank when the caster has not learned it. That
+-- rank is a `rk_<ability>` let at the top of each function using it (finish): a value sits inside
+-- calls that already borrow cx.
+function Gen:rank_of(o)
+  local function ability(x) while x and x.kind == "status" do x = x.parent end return x end
+  local a = ability(o)
+  if not a or a.kind ~= "ability" or ability(self.entry) == a then return "cx.rank" end
+  self.foreign_ranks = self.foreign_ranks or {}
+  self.foreign_ranks[a.def.id] = true
+  return "rk_" .. a.def.id
+end
+
+-- the `rk_<ability>` lets of rank_of, at the top of every function (or of a body fragment that
+-- follows its `let mut cx`) naming them
+local FN_HEAD = "fn [%w_]+%(cx: &mut Cx<'_, '_>[^\n]-%) %-> Res {\n"
+function Gen:hoist_ranks(text)
+  local heads, at = {}, 1
+  while true do
+    local _, b = text:find(FN_HEAD, at)
+    if not b then break end
+    heads[#heads + 1] = b; at = b + 1
+  end
+  if #heads == 0 then heads[1] = 0 end
+  local out, prev = {}, 1
+  for i, h in ipairs(heads) do
+    local seg = text:sub(h + 1, (heads[i + 1] or #text + 1) - 1)
+    local lets = {}
+    for _, id in ipairs(sorted_keys(self.foreign_ranks)) do
+      if seg:find("rk_" .. id .. "%f[^%w_]") then
+        lets[#lets + 1] = "    let rk_" .. id .. " = cx.rank_of(cx.caster, " .. rust_str(id) .. ");\n"
+      end
+    end
+    out[#out + 1] = text:sub(prev, h) .. table.concat(lets)
+    prev = h + 1
+  end
+  return table.concat(out) .. text:sub(prev)
+end
 -- A status's start function lives in its parent entry's module: that module must be generated.
 function Gen:need_module(so)
   local parent = so and so.parent
@@ -357,6 +396,7 @@ function Gen:bind(scope, name, ty)
   return b.marker
 end
 function Gen:finish(text)
+  if self.foreign_ranks then text = self:hoist_ranks(text) end
   for _, b in ipairs(self.lets) do
     local rust = (b.used and "" or "_") .. "l_" .. b.name:gsub("[^%w_]", "_")
     text = text:gsub(b.marker, rust)
@@ -440,7 +480,7 @@ function Gen:expr(node, ctx)
     if not d then self:block("value:$" .. node.name .. " not found"); return "Fixed64::ZERO", "err" end
     local row = self.m.rows[o.id] and self.m.rows[o.id][node.name]
     if row and row.raw and row.per ~= "hero_level" then
-      return value_path(o, node.name, d.unit == "pct") .. ".at(cx.rank)", "num"
+      return value_path(o, node.name, d.unit == "pct") .. ".at(" .. self:rank_of(o) .. ")", "num"
     end
     if d.per == "hero_level" then self:block("value.per:hero_level"); return "Fixed64::ZERO", "err" end
     if d.expr then
@@ -1033,7 +1073,7 @@ function Gen:stat_rows(stats, ctx)
       if entry.unit == "PercentPoints" and ref then
         local d, o = find(self.m, ctx.owner, nil, ref)
         local row = o and self.m.rows[o.id] and self.m.rows[o.id][ref]
-        if d and d.unit == "pct" and row and row.raw then raw = value_path(o, ref, false) .. ".at(cx.rank).raw()" end
+        if d and d.unit == "pct" and row and row.raw then raw = value_path(o, ref, false) .. ".at(" .. self:rank_of(o) .. ").raw()" end
       end
       if not raw then
         local code = self:value(expr, ctx, "num")

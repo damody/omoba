@@ -277,6 +277,13 @@ impl Cx<'_, '_> {
             .map_or(Fixed64::ZERO, |c| Fixed64::from_raw((f64::from(c) * 1024.0).round() as i64))
     }
 
+    /// The rank a value of another ability is read at: `unit`'s rank of it, or this program's
+    /// rank when `unit` has not learned it (a summon running its owner's routine).
+    pub fn rank_of(&mut self, unit: EntityHandle, ability: &str) -> u8 {
+        let level = self.ability_level(unit, ability).raw() >> 10;
+        if level > 0 { u8::try_from(level.min(255)).unwrap_or(u8::MAX) } else { self.rank }
+    }
+
     pub fn ability_level(&mut self, unit: EntityHandle, ability: &str) -> Fixed64 {
         let args = [ExtArg::Unit(unit), ExtArg::Str(ability.into())];
         match self.world.ext(op::ABILITY_LEVEL, RSlice::from_slice(&args)).into_result() {
