@@ -150,3 +150,8 @@
 - 2026-10-30 18:20 線 A：B08 淺井長政整位換上產生的 Rust（hero_b08 自己的 DLL），刪除手寫 handler 與只有它用的 owner_cast.rs（conformance 0 退步）
 - 2026-10-30 11:56 A：B08 淺井長政整位換上產生 Rust（c8505bbf）、A07 紅雷換上、256／447；C e3e259f1（E284、E286）
 - 2026-10-30 19:10 線 A：產生器接上一般光環（passive.aura、status.aura → B 的 emit_aura／on_aura）與 knockback 原地拋起，256→268／447
+- 2026-10-30 12:00 C 狀態 cue 實機通過、擊退拋物線完成；主 session 決定目標 cue 投影政策（看得到目標的隊伍才收到，看不到施法者時不帶施法者身分），交 C 端到端實作；gamemode 下一步是拍營地重生，並對已換上產生 Rust 的英雄跑 verify_m6_batch
+- 2026-10-30 12:16 A 286／447（toggle_ability、is_ally、edge_distance）；B 57d0e388 replica 射程只判一次（E292，A34 寒冰箭觀察者不一致）；conformance a89fa734 換上比對更新
+- 2026-10-30 12:26 A 290／447；A 的 864230c0 曾蓋掉 B 的修改，已由 91940423 補回並記 E293
+- 2026-10-30 12:36 gamemode 5d564474：nobu UE 拍到營地清空與重生（E290），nobu 實機驗收的畫面項目補齊
+- 2026-10-30 20:30 線 A：產生器 268→291／447（create_unit.control、remove_unit、set_display_stacks、is_ally／edge_distance、toggle_ability、unique_group、caster_hero、independent＋source、game.dt、circle_point、cx_call 綁參數）；B29 震地斧查明（E292＋{rank}），影子 conformance 全過，等重比；E293 誤倒退 B 的 codegen.rs 已補回
