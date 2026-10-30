@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E314 產生碼的 on_attack_windup 讀不到 event.target（2026-10-30，工作線 A）
+
+- **現象**：接 on_attack_launch 時發現，產生的 `on_status_event` 對 kind 10（ATTACK_START）沒有設定事件欄位。在 windup 觸發裡寫 `event.target` 的 5 處（C01R、A25R、A27R 等的暴擊 cue）會拿到無效單位。目前已換上 live 的招式都沒有用到，所以還沒有實際出錯。
+- **根因**：`v3_rust.lua` 的 SETUP 表是依「事件 kind → 要從 StatusEvent 讀哪些欄位」逐一列出的；新增 kind 10 時只登記了觸發名稱和遮罩，沒有登記 SETUP。
+- **通用修正**：SETUP 補上 kind 10，同一次也加入 kind 12（on_attack_launch）：`event_target = other`、`target = other`。
+- **以後如何避免**：新增 status_event kind 時，STATUS_TRIGGERS、PASSIVE_EVENTS、SETUP 三處一起加。kind 的 `other`／`amount` 代表什麼，以 omoba-core `status_event.rs` 的註解為準。
+
 ## E313 conformance：靠父技能狀態換進來的子技能（A07D2），情境先施放父技能再測（2026-10-30，conformance session）
 
 - **現象**：known_differences 的 15 列 (b) 都是 a07_rouse_free，原因寫「honda_tadakatsu has no a07_rouse_free」。這招是 `slot = "sub"` 的子技能，只有 a07t_strongest 狀態的 on_created 用 swap_abilities 把它換進技能欄；harness 在英雄的固定技能欄裡找不到，所以每個情境都失敗。
