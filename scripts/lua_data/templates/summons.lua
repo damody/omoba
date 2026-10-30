@@ -81,5 +81,12 @@ return function(ctx)
       end
       return table.unpack(out)
     end)(),
+    -- v3 unit_templates (scripts/v3_summons.lua, E326): the summons the documents declare; an id
+    -- above keeps its row
+    (function()
+      local out = {}
+      for _, row in ipairs(ctx.include('templates/v3_summons.lua')) do out[#out + 1] = row end
+      return table.unpack(out)
+    end)(),
   }
 end

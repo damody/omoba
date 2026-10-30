@@ -2000,19 +2000,24 @@ function Gen:action(a, ctx, ind)
   elseif op == "create_unit" then
     local CREATE_OVERRIDES = { hp = true, attack_damage = true, attack_damage_max = true, move_speed = true }
     local t = self.m.templates[a.template]
+    -- the host spawns content summons only (summon_by_name): a v3 template is one through
+    -- scripts/v3_summons.lua, a ranked one (`max_level` > 1) `<id>_r<rank>` at this cast's rank (E326)
+    local ranked = t and (t.def.max_level or 1) > 1
+    local row_id = ranked and (a.template .. "_r1") or a.template
     if not t then self:block("template:" .. tostring(a.template) .. " not declared")
-    elseif not self.opts.summons[a.template] then
-      -- the host spawns content summons only (summon_by_name): a template only the document has
-      -- would fail at run time (E326)
-      self:block("template:" .. tostring(a.template) .. " is not a content summon (templates/summons.lua)")
+    elseif not self.opts.summons[row_id] then
+      local why = self.opts.summon_problems[a.template]
+      if why then for _, p in ipairs(why) do self:block("unit_template " .. p) end
+      else self:block("template:" .. tostring(a.template) .. " is not a content summon (templates/summons.lua)") end
     end
+    local template = ranked and ("&format!(\"" .. a.template .. "_r{}\", cx.rank.clamp(1, " .. t.def.max_level .. "))") or rust_str(a.template)
     -- control: "ai" (default) and "owner" the host summon; "none" also refuses its owner's orders
     -- (line B's create_unit_controlled)
     if a.control ~= nil and a.control ~= "ai" and a.control ~= "owner" and a.control ~= "none" then
       self:block("action:create_unit.control:" .. tostring(a.control))
     end
-    local make = (a.control == nil or a.control == "ai") and ("cx.create_unit(" .. rust_str(a.template) .. ", at, lifetime)?")
-      or ("cx.create_unit_controlled(" .. rust_str(a.template) .. ", at, lifetime, " .. rust_str(a.control) .. ")?")
+    local make = (a.control == nil or a.control == "ai") and ("cx.create_unit(" .. template .. ", at, lifetime)?")
+      or ("cx.create_unit_controlled(" .. template .. ", at, lifetime, " .. rust_str(a.control) .. ")?")
     if a.facing ~= nil then
       -- the new unit turns to `facing` (host: the cast's own summon may be turned, line B)
       local f, ft = self:value(a.facing, ctx)
@@ -3284,7 +3289,7 @@ function M.generate(doc, opts)
   end
   abs_root = abs_root:gsub("\\", "/"):gsub("/%./", "/"):gsub("/%.$", "")
   local gopts = { rules = opts.rules, vocab = M.vocab(root), cues_used = {}, root = abs_root, package = opts.package,
-    summons = M.content_summons(root) }
+    summons = M.content_summons(root), summon_problems = M.summon_problems(root) }
   local files = {}
   local crate = M.crate_name(doc)
   local gen = "src/generated/"
@@ -3691,6 +3696,16 @@ function M.content_summons(root)
   for _, row in ipairs(context.include("templates/summons.lua")) do if not row.tombstone then ids[row.id] = true end end
   summons_cache[root] = ids
   return ids
+end
+
+-- template id -> why scripts/v3_summons.lua gives it no summon row yet, per root.
+function M.summon_problems(root)
+  local saved = package.path
+  package.path = root .. "/scripts/?.lua;" .. root .. "/tools/lua/?.lua;" .. package.path
+  -- its document loader needs scripts/ on the path while it runs
+  local ok, problems = pcall(function() return require("v3_summons").problems(root) end)
+  package.path = saved
+  return assert(ok and problems, "scripts/v3_summons.lua: " .. tostring(problems))
 end
 
 function M.content_catalog(root)
