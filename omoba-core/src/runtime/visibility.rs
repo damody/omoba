@@ -1365,8 +1365,9 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             disclose_json!(script_tags, DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID);
             // Unit identity is already public for this disclosed entity. Do not
             // synthesize ScriptUnitTag: that component also enables callbacks.
-            let presentation_id = script_tags.get(entity).map(|tag| tag.unit_id.as_str())
-                .filter(|id| !id.is_empty())
+            // An illusion shows the unit it copies to every team (illusion.rs `look`).
+            let presentation_id = buffs.as_deref().and_then(|buffs| crate::runtime::native::illusion::look(buffs, entity))
+                .or_else(|| script_tags.get(entity).map(|tag| tag.unit_id.as_str()).filter(|id| !id.is_empty()))
                 .or_else(|| units.get(entity).map(|unit| unit.id.as_str()));
             if let Some(bytes) = presentation_id.and_then(encode_disclosed_presentation_identity) {
                 disclosed.push((DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID, bytes));

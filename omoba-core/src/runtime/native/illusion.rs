@@ -13,6 +13,9 @@
 //!   multiplies a packet by 1 + x of its source's outgoing and of its target's incoming row.
 //! Mana and abilities are not copied: a summon has neither (its passives' stat rows come with
 //! `statuses`).
+//! Presentation: the [`STATE`] payload's `look` is `of`'s presentation identity, which every team
+//! that sees the illusion receives as its identity ([`look`], visibility); only the owner team
+//! learns it is an illusion (the `illusion` state, runtime_fact_state).
 use omoba_sim::Fixed64;
 use serde_json::{json, Value};
 use specs::{Entity, World, WorldExt};
@@ -71,6 +74,8 @@ pub fn apply(world: &mut World, illusion: Entity, payload: &Value) -> Option<Ent
         && world.read_storage::<ScriptUnitTag>().get(illusion).is_some_and(|tag| tag.unit_id == TEMPLATE);
     let source = world.read_storage::<CProperty>().get(of).filter(|p| p.hp > Fixed64::ZERO).cloned()?;
     if !fresh { return None; }
+    let look = world.read_storage::<ScriptUnitTag>().get(of).map(|tag| tag.unit_id.clone()).filter(|id| !id.is_empty())
+        .or_else(|| world.read_storage::<Unit>().get(of).map(|unit| unit.id.clone()));
     let life = hp.unwrap_or(source.hp).min(source.mhp);
     world.write_storage::<CProperty>().insert(illusion, CProperty { hp: life, ..source.clone() }).ok();
     let attack = world.read_storage::<TAttack>().get(of).cloned();
@@ -100,13 +105,18 @@ pub fn apply(world: &mut World, illusion: Entity, payload: &Value) -> Option<Ent
     for id in BAKED {
         if let Some(entry) = buffs.get(of, id).cloned() { buffs.add(illusion, id, entry.remaining, entry.payload); }
     }
-    buffs.add(illusion, STATE, remaining, json!({ "outgoing": outgoing.row(), "incoming": incoming.row() }));
+    buffs.add(illusion, STATE, remaining, json!({ "outgoing": outgoing.row(), "incoming": incoming.row(), "look": look }));
     Some(of)
 }
 
 fn for_copy<C: specs::Component + Clone>(world: &mut World, from: Entity, to: Entity) {
     let value = world.read_storage::<C>().get(from).cloned();
     if let Some(value) = value { let _ = world.write_storage::<C>().insert(to, value); }
+}
+
+/// The presentation identity an illusion shows: the unit it copies.
+pub fn look(buffs: &BuffStore, entity: Entity) -> Option<&str> {
+    buffs.get(entity, STATE)?.payload.get("look")?.as_str()
 }
 
 /// rules::damage, before mitigation: an illusion's outgoing and incoming fractions per type.
@@ -154,6 +164,7 @@ mod tests {
             .with(CProperty { hp: s(500), mhp: s(800), msd: s(320), def_physic: s(5), def_magic: s(25) })
             .with(TAttack::new(s(60), Fixed64::from_raw(1700), s(150), s(900)))
             .with(CollisionRadius(s(30))).with(VisionSource { team: 0, radius: s(1800), detection_level: 0 })
+            .with(ScriptUnitTag { unit_id: "inahime".into() })
             .build();
         {
             let mut buffs = world.write_resource::<BuffStore>();
@@ -176,6 +187,7 @@ mod tests {
             assert!(buffs.has(illusion, super::super::attributes::KEY), "level and items come as stat rows");
             assert!(!buffs.has(illusion, "__status_scope_v1"), "other host rows stay with the unit");
             assert_eq!(buffs.get(illusion, STATE).unwrap().remaining, s(20), "is_illusion for its lifetime");
+            assert_eq!(look(&buffs, illusion), Some("inahime"), "it looks like the unit it copies");
         }
         // Without statuses only the baked rows come; `hp` sets its life within the max.
         let bare = summon(&mut world, TEMPLATE, 7);

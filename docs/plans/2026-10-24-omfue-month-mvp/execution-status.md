@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 工作線 B：幻象以本體外觀揭露（t49）
+
+- illusion 狀態的 payload 新增 `look`，值是本體的 presentation identity（ScriptUnitTag，沒有時用 Unit.id）。visibility 對所有看得到幻象的隊伍，都以它作為 DISCLOSED_PRESENTATION_IDENTITY；是幻象這件事只透過 illusion 狀態揭露給擁有者隊伍（C 的方案 3）。
+- 限制：DemoRenderState 的 kind 仍是召喚物，敵方前端要以英雄外觀顯示，不能依 kind 區別。
+- 測試：`an_illusion_copies_the_unit_its_level_and_items_and_optionally_its_statuses` 檢查 look。
+
 ## 2026-10-30 工作線 B：引導技能射程 0 = 不限射程（t48）
 
 - 對地點或單位引導的 range == 0 視為不限射程，和沒有射程的 instant 點技能一致（C05 c05_flash_thunder「對任意地點引導」）。
