@@ -155,3 +155,9 @@
 - 2026-10-30 12:26 A 290／447；A 的 864230c0 曾蓋掉 B 的修改，已由 91940423 補回並記 E293
 - 2026-10-30 12:36 gamemode 5d564474：nobu UE 拍到營地清空與重生（E290），nobu 實機驗收的畫面項目補齊
 - 2026-10-30 20:30 線 A：產生器 268→291／447（create_unit.control、remove_unit、set_display_stacks、is_ally／edge_distance、toggle_ability、unique_group、caster_hero、independent＋source、game.dt、circle_point、cx_call 綁參數）；B29 震地斧查明（E292＋{rank}），影子 conformance 全過，等重比；E293 誤倒退 B 的 codegen.rs 已補回
+- 2026-10-30 13:00 C 目標 cue 完成（9429001a，依可見性投影，實機 p1 28 次、p6 17 次）；B E294 replica 冷卻修正；主 session 決定 include_hidden 明確接收、is_visible_to 做通用揭露事實（只揭露自己隊單位被敵方看見）；shop 測試寫死數量交 gamemode 通用修正
+- 2026-10-30 13:16 M6 驗收 A07、B06、B08、B29 與 nobu 營地重生記錄（182a2f01）；B29 換上 0 退步；商店測試改成從目錄推導（E296）；錯誤編號撞號兩次，交 gamemode 做 error_id.lua 配號工具
+- 2026-10-30 13:26 C M6 美術補齊（d3aa6b9／321db004，只缺服部半藏載入圖已補）；C 下一步做 M6 第 2 批起的美術並在換上後檢查 UE；conformance 下一步做換上比對、擴展到第 2 批、判定 15 個 (b)
+- 2026-10-30 13:30 B E294 實機確認（replica 不一致 5→0）；conformance 修好子技能情境（靠父技能換進來的子技能先施放父技能），B06 第一勇士急件 A 已換上產生版；errors.md 又出現兩個 E297，交 gamemode 隨配號工具一起修
+- 2026-10-30 13:36 gamemode 612d3f49 取號工具 error_id.lua（重複編號已改號，E300）、d5888106 UE 驗證局建置持 repo 建置鎖（E301）；B 9a9bd537 is_visible_to 敵方視野揭露與 include_hidden（E312）；nobu10 570 秒
+- 2026-10-30 21:40 線 A：B29 村上義清整位換上產生的 Rust（hero_b29，刪 handler）；b06_first_warrior、b04_flame_trail_dash 換上（conformance 0 退步；修掉 c185371b 讓手寫第一武士壞掉的急件）；c15_burst_arrow 仍有退步待查

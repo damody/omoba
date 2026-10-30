@@ -95,6 +95,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
         v.extend(hero_a34_impl::units());
         v.extend(hero_a13_impl::units());
         v.extend(hero_b08_impl::units());
+        v.extend(hero_b29_impl::units());
         v.extend(items_impl::units());
         v
     }
@@ -107,6 +108,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
         v.extend(hero_a34_impl::abilities());
         v.extend(hero_a13_impl::abilities());
         v.extend(hero_b08_impl::abilities());
+        v.extend(hero_b29_impl::abilities());
         // B01's retained legacy abilities (templates/heroes.lua retained_abilities): tests pin that
         // loadout, and hero_b01 (its own DLL) registers only the generated b01_* ones
         v.push(heroes::B01_saika_magoichi::sniper_mode_ffi());
@@ -226,7 +228,9 @@ fn abilities() -> RVec<AbilityDefFFI> {
             "a07_red_thunder" => hero_a07_impl::generated::a07_red_thunder::ffi(),
             "b06_brave_warriors" => hero_b06_impl::generated::b06_brave_warriors::ffi(),
             "b06_flame_fangs" => hero_b06_impl::generated::b06_flame_fangs::ffi(),
-            "b29_ground_slam" => hero_b29_impl::generated::b29_ground_slam::ffi(),
+            // conformance 2026-10-30: 0 regressions (B04, B06 compare vs handler)
+            "b04_flame_trail_dash" => hero_b04_impl::generated::b04_flame_trail_dash::ffi(),
+            "b06_first_warrior" => hero_b06_impl::generated::b06_first_warrior::ffi(),
             "c15_precise_light" => hero_c15_impl::generated::c15_precise_light::ffi(),
             "c15_scatter_shot" => hero_c15_impl::generated::c15_scatter_shot::ffi(),
             _ => continue,
