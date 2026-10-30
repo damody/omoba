@@ -733,6 +733,12 @@ function Gen:call(node, ctx)
   elseif fn == "distance" then
     local a, at = arg(1); local b, bt = arg(2)
     return string.format("ability_kit::distance(%s, %s)", self:point(a, at), self:point(b, bt)), "num"
+  elseif fn == "angle_between" then
+    -- the unsigned angle between two directions, in degrees
+    local a, at = arg(1); local b, bt = arg(2)
+    if at == "err" or bt == "err" then return "Fixed64::ZERO", "err" end
+    if at ~= "vec" or bt ~= "vec" then self:block("fn:angle_between of a " .. at .. " and a " .. bt); return "Fixed64::ZERO", "err" end
+    return cx_call("ability_kit::angle_between(%s, %s)", a, b), "num"
   elseif fn == "direction" then
     local a, at = arg(1); local b, bt = arg(2)
     return string.format("ability_kit::direction(%s, %s)", self:point(a, at), self:point(b, bt)), "vec"
@@ -1935,7 +1941,7 @@ function Gen:action(a, ctx, ind)
       if not fresh then return code end
       for k in pairs(self.blockers) do if not before[k] then self.blockers[k] = nil end end
     end
-    local team_kind = s.team == "ally" and "ally" or s.team == "both" and "both" or nil
+    local team_kind = (s.team == "ally" or s.team == "ally_not_self") and "ally" or s.team == "both" and "both" or nil
     for _, k in ipairs(sorted_keys(s)) do if not SELECTOR_FIELDS[k] then self:block("selector." .. k) end end
     -- global: a circle past the map's diagonal (omoba_sim terrain coordinates stay within 2^19)
     local global = s.shape == "global"
@@ -1952,14 +1958,17 @@ function Gen:action(a, ctx, ind)
       -- visible_only: enemies_in_circle already takes the caster team's disclosed units
       elseif f ~= "include_untargetable" and f ~= "visible_only" then self:block("selector.flag:" .. f) end
     end
-    if s.order ~= nil and s.order ~= "id" and s.order ~= "nearest" and s.order ~= "random" then self:block("selector.order:" .. tostring(s.order)) end
-    local exclude = s.exclude ~= nil and self:value(s.exclude, ctx, "unit") or nil
+    if s.order ~= nil and s.order ~= "id" and s.order ~= "nearest" and s.order ~= "farthest" and s.order ~= "random" then self:block("selector.order:" .. tostring(s.order)) end
+    if s.exclude ~= nil and s.team == "ally_not_self" then self:block("selector.exclude with team ally_not_self") end
+    local exclude = s.exclude ~= nil and self:value(s.exclude, ctx, "unit")
+      or s.team == "ally_not_self" and self:value("self", ctx, "unit") or nil
     local from = s.from ~= nil and self:value(s.from, ctx, "point") or "cx.pos(cx.caster)?"
     local radius = global and "Fixed64::from_i32(1 << 21)" or self:value(s.radius, ctx, "num")
     local limit = s.limit ~= nil and self:value(s.limit, ctx, "num") or nil
     local body_scope = scope_child(ctx.scope)
     local it = self:bind(body_scope, a.as or "it", "unit")
-    local nearest = s.order == "nearest"
+    local nearest = s.order == "nearest" or s.order == "farthest"
+    local farthest = s.order == "farthest"
     local random = s.order == "random"
     local str = line("{") .. line("    let center = " .. from .. ";") .. line("    let radius = " .. radius .. ";")
       .. (exclude and line("    let excluded = " .. exclude .. ";") or "")
@@ -1969,6 +1978,7 @@ function Gen:action(a, ctx, ind)
         or line(string.format("    let %sunits = cx.enemies_in_circle(center, radius, Select { types: UnitTypes::%s, include_magic_immune: %s, include_invulnerable: %s, include_hidden: %s });",
           (nearest or random) and "mut " or "", types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false")))
       .. (nearest and line("    cx.nearest_first(&mut units, center);") or "")
+      .. (farthest and line("    units.reverse();") or "")
       .. (random and line("    cx.shuffle(&mut units);") or "")
       .. (limit and (line("    let limit = usize::try_from(ability_kit::floor(" .. limit .. ").raw() >> 10).unwrap_or(0);")
         .. line("    let mut taken = 0usize;")) or "")

@@ -1110,6 +1110,17 @@ pub fn polar(center: Vec2, angle: Fixed64, dist: Fixed64) -> Vec2 {
     center + Vec2::new(cos_deg(angle), sin_deg(angle)) * dist
 }
 
+/// `angle_between(a, b)`: the unsigned angle between two directions, in degrees (0..=180), on the
+/// host's angle ticks (omoba_sim::trig, the facing every replica turns by).
+pub fn angle_between(a: Vec2, b: Vec2) -> Fixed64 {
+    let ta = omoba_sim::trig::atan2(a.y, a.x).ticks();
+    let tb = omoba_sim::trig::atan2(b.y, b.x).ticks();
+    let turn = omoba_sim::trig::TAU_TICKS;
+    let d = (ta - tb).rem_euclid(turn);
+    let d = d.min(turn - d);
+    Fixed64::from_raw(i64::from(d) * 360 * 1024 / i64::from(turn))
+}
+
 /// The point a fraction `t` of the way from `a` to `b`.
 pub fn lerp_point(a: Vec2, b: Vec2, t: Fixed64) -> Vec2 { a + (b - a) * t }
 
@@ -1272,6 +1283,18 @@ pub fn item_ffi<S: AbilityScript + 'static>(id: &str, passive: bool, script: S) 
 #[cfg(test)]
 mod aura_tests {
     use super::*;
+
+    /// Directions a quarter and a half turn apart; the order and a full turn do not matter.
+    #[test]
+    fn angle_between_is_unsigned_degrees() {
+        let east = Vec2::new(Fixed64::ONE, Fixed64::ZERO);
+        let north = Vec2::new(Fixed64::ZERO, Fixed64::ONE);
+        let west = Vec2::new(-Fixed64::ONE, Fixed64::ZERO);
+        assert_eq!(angle_between(east, north), Fixed64::from_i32(90));
+        assert_eq!(angle_between(north, east), Fixed64::from_i32(90));
+        assert_eq!(angle_between(east, west), Fixed64::from_i32(180));
+        assert_eq!(angle_between(east, east), Fixed64::ZERO);
+    }
 
     /// The emitter name carries its source back to on_aura; a name without one is not an emitter.
     #[test]
