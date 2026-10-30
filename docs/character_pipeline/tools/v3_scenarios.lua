@@ -360,10 +360,6 @@ local function entry_scenarios(doc, def, entry_kind, out)
           when = { cast_step, { kind = "caster_dies", during = "cast_point", cast_point = cast.cast_point } },
           expect = { { kind = "cast_cancelled" }, { kind = "no_effects" }, table.unpack(cost_outcomes(false)) } })
       end
-      local late = {}
-      for _, e in ipairs(base_effects) do
-        if e.conds or e.phase ~= "on_cast" then late[#late + 1] = e end
-      end
       local after = { { kind = "caster_dies", after = "cast" } }
       local exp_d = {}
       -- Only statuses on the scenario's target side that land before the death (E246): not the
@@ -381,6 +377,19 @@ local function entry_scenarios(doc, def, entry_kind, out)
           if path and path:sub(1, #outer + 1) == outer .. "." then return true end
         end
         return false
+      end
+      -- Late = settles after the cast (E288): another event, under a delay or repeat, or under a
+      -- program key that runs later (a projectile's on_hit, a tether's on_break...). An `if` or
+      -- `chance` directly in on_cast settles with the cast; its conditions do not make it late.
+      local function structural(path)
+        for k in (path or ""):gmatch("%]%.([%w_]+)") do
+          if k ~= "actions" and k ~= "otherwise" then return true end
+        end
+        return false
+      end
+      local late = {}
+      for _, e in ipairs(base_effects) do
+        if e.phase ~= "on_cast" or deferred(e.path) or structural(e.path) then late[#late + 1] = e end
       end
       local function this_branch(conds)
         for _, c in ipairs(conds or {}) do

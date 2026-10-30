@@ -2,6 +2,19 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E288 conformance 的兩個通用誤判：條件式的 on_cast 傷害被當成「之後才結算」、主機已拒絕的施放被當成接受（2026-10-30，conformance session）
+
+- **現象**：B08 整位換上產生碼後有 5 個退步。閃切 r1～r4 的 caster_dies_after_cast 判定施法者死後仍造成傷害；連牙斷空重施之後，三個狀態都是 0 筆。A 判讀這兩項是 harness 的問題，核對後確認。
+- **根因 1（情境推導）**：v3_scenarios 把有 `conds` 的效果一律當成 late（施放之後才結算），連直接寫在 on_cast 裡、外面只包一層 `if not target.is_magic_immune` 的傷害，也被要求「施法者死後不傷害」。產生碼的傷害和 harness 的擊殺落在同一個 tick，所以被算成死後才打到。手寫版的傷害沒有路徑，原本只是 unsupported，等於假通過。
+- **根因 2（施放判定）**：harness 判斷「施放被接受」除了看冷卻和耗魔，也看「這招的狀態出現在施法者身上」。第一次施放在返回時才套上的 b08d_phased，剛好落在重施的觀察窗口內，被當成重施成功。實際上重施因為施法者處在自身暈眩中，被 cast_settlement 正確拒絕了。
+- **通用修正**：
+  - late 只算三種情況：phase 不是 on_cast；位在 delay／repeat 之下；路徑上出現 actions／otherwise 以外的程式鍵（projectile 的 on_hit、tether 的 on_break 等）。直接在 on_cast 裡的 if／chance 和施放同時結算。
+  - CastTrace 對這次施放記到 Rejected 或 ScriptError、又沒有 Accepted 時，一律判為沒接受，間接跡象不能推翻主機的拒絕。
+- **結果**：B08 和 E282 的 live 相比 29 個情境由 unsupported 變通過，0 退步，可以換上。用手寫 handler 跑，這兩項修正對其他 9 位沒有造成退步。
+- **另外發現（交 A）**：產生的 b29_quake_axe（leap → knockback_arc）施放沒有被接受：法力花 0、冷卻 0，CastTrace 也沒有拒絕代碼。同一個影子改回手寫 handler 後 B29 全部通過，所以問題在產生碼，維持手寫。
+- **以後**：判斷「施放之後才結算」要看效果的結構，不要看有沒有條件；施放成功與否以主機的 CastTrace 為準，觀察到的狀態只是輔助。
+- 已放回。
+
 ## E287 UE 驗證局一再因 base_content 過舊被拒：run_moba_role_ue 不建 script DLL，UE 建置期間別人的改檔追上（2026-10-30，e187 遊戲模式 session；已放回 live）
 
 - **現象**：nobu UE 驗證局（ue-nobu5、7、8）連續四次在入場前結束，錯誤是「base_content was built before N of its sources changed」，列出 codegen.rs、base_content/src/lib.rs 等其他 session 剛放回的檔案；也有一次 build_ue_moba 的 stage 檢查碰到別人同時重建的 DLL。

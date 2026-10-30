@@ -266,14 +266,19 @@ impl Run {
             if accepted && death.is_none() { break; }
         }
         // Why the host refused it (B's cast trace): the first refusal or script error of this entry.
-        let refused = if accepted { None } else {
+        // A refusal the trace records overrides the indirect signs (E288): a status an earlier
+        // cast applies later (B08D's phase at its return) shows up on the caster within this window
+        // and would read as this cast landing.
+        let (refused, ran) = {
             use omoba_core::runtime::native::cast_trace::{CastTrace, CastTraceResult};
             let (caster, entry) = (self.caster, self.entry.clone());
             let trace = self.world.read_resource::<CastTrace>();
-            let code = trace.0.iter().skip(traced_from).filter(|row| row.caster == caster && row.ability == entry)
-                .find_map(|row| match &row.result { CastTraceResult::Rejected(code) => Some(*code), CastTraceResult::ScriptError { code, .. } => Some(*code), _ => None });
-            code
+            let rows: Vec<_> = trace.0.iter().skip(traced_from).filter(|row| row.caster == caster && row.ability == entry).collect();
+            let code = rows.iter().find_map(|row| match &row.result { CastTraceResult::Rejected(code) => Some(*code), CastTraceResult::ScriptError { code, .. } => Some(*code), _ => None });
+            (code, rows.iter().any(|row| matches!(row.result, CastTraceResult::Accepted)))
         };
+        if refused.is_some() && !ran { accepted = false; }
+        let refused = if accepted { None } else { refused };
         let result = CastResult { accepted, mana_spent: spent, charges: charges_before.zip(self.charges()), refused };
         self.casts.push(result);
         Ok(result)
