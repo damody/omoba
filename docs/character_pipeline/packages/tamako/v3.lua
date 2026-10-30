@@ -133,7 +133,7 @@ return function(ctx)
         cast = { cast_point = "$cast_point", ignore_backswing = true },
         cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
         statuses = {
-          { id = "c15e_fire_field", runtime_id = "__ground_damage_zone:c15_burst_arrow:{caster}", duration = "$fire_duration", stacking = "refresh", dispel = "none", visibility = "hidden",
+          { id = "c15e_fire_field", runtime_id = "c15_burst_arrow_fire:{caster}", duration = "$fire_duration", stacking = "refresh", dispel = "none", visibility = "hidden",
             reveal = "public", states = { "invulnerable" }, cue = "c15e_fire",
             triggers = {
               periodic = { interval = "$fire_tick", actions = {

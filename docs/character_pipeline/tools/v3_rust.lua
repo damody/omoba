@@ -907,6 +907,9 @@ local function emit_statuses(m, root)
     -- status resistance: "normal" (the default) or "ignore"; a number (its own resistance) waits
     local sr = s.status_resistance
     if sr ~= nil and sr ~= "normal" and sr ~= "ignore" then p[#p + 1] = "status.status_resistance:" .. (type(sr) == "table" and "value" or tostring(sr)) end
+    -- `__name:...` is the form of a host packet id (`__aura:`, `__aura_emitter:`, `__ground_damage_zone:`…):
+    -- cast settlement and the BuffStore would take the status for that packet (E299)
+    if runtime_id:match("^__[%w_]+:") then p[#p + 1] = "status.runtime_id in a host packet namespace (" .. runtime_id:match("^(__[%w_]+:)") .. ")" end
     -- unique_group: per stat the strongest of the group (host aggregation family); `latest` waits
     local family = ""
     if s.unique_group ~= nil then

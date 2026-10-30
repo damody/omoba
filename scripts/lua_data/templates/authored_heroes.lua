@@ -5566,7 +5566,7 @@ local data = {
         schema = "3.3",
         source_id = "C15E",
         statuses = {
-          { dispel = "none", id = "c15e_fire_field", reveal = "public", runtime_id = "__ground_damage_zone:c15_burst_arrow:{caster}", visibility = "hidden" },
+          { dispel = "none", id = "c15e_fire_field", reveal = "public", runtime_id = "c15_burst_arrow_fire:{caster}", visibility = "hidden" },
           { dispel = "basic", id = "c15e_burn", reveal = "public", runtime_id = "generic_dot:ground_damage_zone:{caster}", visibility = "hidden" },
         },
         text = {

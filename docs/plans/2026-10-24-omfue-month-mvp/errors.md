@@ -73,6 +73,8 @@
 - **通用修正**：內容改成一般的 id `b06_first_warrior_aura:{caster}`（v3.lua 和 authored_heroes.lua 同一個欄位）。光環本身改由 v3 `status.aura` 走 emit_aura／on_aura，不再需要假扮成舊發射器。
 - **以後如何避免**：v3 狀態的 runtime_id 不得使用 host 封包的前綴（`__aura:`、`__aura_emitter:`，以及 cast_settlement admit 會檢查的其他 BUFF／PREFIX）。只有刻意要讓 host 讀取的 host 狀態名稱可以用 `__`，例如 `__spell_guard_active`。換上產生的技能前，在影子把該招對到 generated，跑那位英雄的 conformance。
 
+- **再犯與通用檢查（同日）**：C15 爆裂箭的 `c15e_fire_field` 也用了 `__ground_damage_zone:`。產生版本鋪不出火焰，conformance 有 44 個情境掉成 unsupported。內容改成 `c15_burst_arrow_fire:{caster}`。`v3_rust.lua` 的 emit_statuses 新增檢查：runtime_id 符合 host 封包 id 的形式 `__名稱:` 就列為 problem（`status.runtime_id in a host packet namespace`），以後這類寫法會在產生階段擋下，不會等到結算才退回。
+
 ## E296 client runtime 商店測試寫死「只有一個重複材料配方、catalog 4」，M7 道具內容一加就失敗（2026-10-30，e187 遊戲模式 session；已放回 live）
 
 - **現象**：`owner_shop_ready_keeps_epoch_slots_and_catalog_only_buy_wire` 失敗：測試寫死重複材料配方只有 1 個（catalog 4、兩把 moba_sword），M7 道具內容現在有 3 個。
