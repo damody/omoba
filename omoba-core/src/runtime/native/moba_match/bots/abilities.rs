@@ -299,7 +299,7 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
             |BotAbilityIntent::EnemyPoint {..}|BotAbilityIntent::LeapEnemyPoint {..}|BotAbilityIntent::EnemyCone {..}|BotAbilityIntent::EnemyLine {..}|BotAbilityIntent::ApproachEnemyPoint {..}
             |BotAbilityIntent::SummonNearEnemy {..}|BotAbilityIntent::ToggleEngage {..}) {continue;}
         let Some(slot)=hero.abilities.iter().position(|id|id==&policy.ability) else {continue;};
-        // Every slot the authority admits (E294: the fifth, e.g. A07 奮起 / B08 無盡牙, was never cast).
+        // Every slot the authority admits (E297: the fifth, e.g. A07 奮起 / B08 無盡牙, was never cast).
         if slot>=crate::runtime::HERO_ABILITY_SLOTS {continue;}
         if !hero.can_use_ability(&policy.ability) || !hero.cast_ready(&policy.ability) {continue;}
         let owner_rank=hero.get_ability_level(&policy.ability);
@@ -905,7 +905,7 @@ mod tests {
     }
 
     #[test]
-    fn fifth_slot_is_cast_like_any_other_e294() {
+    fn fifth_slot_is_cast_like_any_other_e297() {
         let mut hero=Hero::new("asai_nagamasa".into(),"asai_nagamasa".into(),"asai_nagamasa".into());
         hero.abilities=vec!["b08_fang_slash".into(),"b08_flash_cut".into(),"b08_living_soul".into(),"b08_sky_fang".into(),"b08_endless_fang".into()];
         hero.ability_levels.insert("b08_endless_fang".into(),1);

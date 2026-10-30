@@ -16,6 +16,16 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 夜（工作線 C：M6 美術補齊，依 M6 批次順序檢查已換上產生 Rust 的英雄）
+
+- **盤點**（`scripts/m6_presentation_coverage.lua`、`scripts/ue_hud_portrait_coverage.lua`）：
+  - 頭像、技能圖示、cue 特效都沒有缺。
+  - 有生成參考圖的 73 個 cue 已經有 `CueOverrides` 特效（`scripts/cue_vfx.lua` 的共用形狀特效，依參考圖上色）。`m6-missing-art.md` 改成分開列出「已做出特效」和「只有參考圖」兩類，後者目前 0 個。
+  - 圖示盤點改為也算英雄同一個 package 的子技能（不在 loadout 裡，例如 a07_rouse_free、a13_substitution），不再漏算。
+- **補圖**：唯一缺的是測試英雄 hattori_hanzo 的載入圖。用 Grok 生成一次就可用，轉成 832x1248 PNG，並寫入 hud-assets 和 provenance。
+- **工具**：`tools/lua-host` 的 `png_square_icon` 新增選填的 `height`：取同比例的中央裁切後縮放，用來轉 2:3 載入圖。沒有 `height` 時仍是正方形，舊的呼叫方式不受影響。新增 1 項 Rust 測試，5 項全部通過。
+- **測試**：`ue_hud_portrait_coverage_test` 70 項通過（21 位英雄，載入圖 0 張退回頭像裁切）。
+
 ## 2026-10-30 下午（工作線 C：施放「落在目標上」的 cue，英雄技能與道具共用；E295，已放回 live）
 
 - **投影政策**（主 session 決定）：
@@ -79,13 +89,13 @@
   - E286：split 在取得鎖後由父程序一次建好 authority、script DLL 與 client runtime，所有角色都帶 `--no-build`；不再需要鎖外預建或重試。
 - **限制**：只有 content buff 目錄裡有的狀態會送到 UE（目前 78 個）；英雄進 content 後就會自動帶進。
 
-## 2026-10-30 夜（遊戲模式線：nobu 營地清空與重生入鏡、產生 Rust 英雄的 M6 驗收；E290、E294，已放回並 commit）
+## 2026-10-30 夜（遊戲模式線：nobu 營地清空與重生入鏡、產生 Rust 英雄的 M6 驗收；E290、E297，已放回並 commit）
 
 - **營地清空與重生**（E290）：用既有 recipe 欄位 `showcase.start_level` 新增 `moba_nobu_jungle_check.lua`（nobu、開局 12 級），計畫打己方最弱營地。`target/e187/ue-nobu9`：01:30 打營地、01:39 清空、03:21 重生入鏡。途中修掉 Lua JSON 空物件來回變陣列（moba-config 拒絕 plan）。
   - 這局在樹重生前被 server 以 `observer-mismatch-after-rebase` 終止：B08 閃斬冷卻副本沒有、A34 冷卻總長權威減半，已交線 B（B 的 E292 已處理前搖 release 的射程重判）。樹重生畫面以 ue-nobu8 07:22 為準。
 - **nobu UE 驗收合計**：兵線、塔、建築、樹（ue-nobu4）；砍樹、樹仍空、樹重生（ue-nobu8）；營地交戰、清空、重生（ue-nobu9）。結算畫面在 quick 地圖驗過（nobu 一局 40 分鐘以上）。
-- **M6 驗收：已換上產生 Rust 的 A07、B06、B08、B29**（`target/e187/m6gen2`，quick、對調、團戰各 3 局）：9 局全部打完，沒有 script error。第一次跑時 A07 奮起、B08 無盡牙從沒施放，原因是 bot 寫死只施放四欄（E294），修正後奮起 71 次、無盡牙 1 次，沒有從沒施放的主動技。
-- commit：5d564474（E290）、本次 E294 與紀錄。
+- **M6 驗收：已換上產生 Rust 的 A07、B06、B08、B29**（`target/e187/m6gen2`，quick、對調、團戰各 3 局）：9 局全部打完，沒有 script error。第一次跑時 A07 奮起、B08 無盡牙從沒施放，原因是 bot 寫死只施放四欄（E297），修正後奮起 71 次、無盡牙 1 次，沒有從沒施放的主動技。
+- commit：5d564474（E290）、182a2f01（E297，原編號 E294）。
 
 ## 2026-10-30 晚（遊戲模式線：autopilot 指令化、nobu 砍樹與重生入鏡、村上義清兩招、UE 啟動過舊修正；E280、E281、E287，已放回並 commit）
 

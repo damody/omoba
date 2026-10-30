@@ -4323,21 +4323,35 @@ mod tests {
             })
             .collect();
         let projected = omoba_core::runtime::native::shop::project_catalog_recipes(&sources).unwrap();
+        // Every recipe that lists a material more than once (derived from the item catalog, however
+        // many the content has, E296) projects it as one component counting each listing.
+        let catalog_of = |id: &str| {
+            u32::from(omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == id).unwrap().catalog_id)
+        };
+        let repeats = |recipe: &[&str]| recipe.iter().enumerate().any(|(index, id)| recipe[..index].contains(id));
+        let expected: Vec<u32> = sources.iter().filter(|source| repeats(source.recipe)).map(|source| source.catalog_id).collect();
         let repeated: Vec<_> = projected
             .iter()
             .filter(|recipe| recipe.components.iter().any(|component| component.count >= 2))
             .collect();
-        assert_eq!(repeated.len(), 1);
-        assert_eq!(repeated[0].catalog_id, 4);
-        assert_eq!(repeated[0].components.len(), 1);
-        assert_eq!(repeated[0].components[0].count, 2);
-        let sword_id = u16::try_from(repeated[0].components[0].catalog_id).unwrap();
-        let sword = omoba_template_ids::MOBA_ITEM_CATALOG
+        assert!(!expected.is_empty(), "the catalog has a recipe with a repeated material");
+        assert_eq!(repeated.iter().map(|recipe| recipe.catalog_id).collect::<Vec<_>>(), expected);
+        for recipe in &repeated {
+            let source = sources.iter().find(|source| source.catalog_id == recipe.catalog_id).unwrap();
+            for component in &recipe.components {
+                let listed = source.recipe.iter().filter(|id| catalog_of(id) == component.catalog_id).count();
+                assert_eq!(component.count as usize, listed, "recipe {} component {}", source.id, component.catalog_id);
+            }
+            assert_eq!(recipe.components.iter().map(|component| component.count as usize).sum::<usize>(), source.recipe.len());
+        }
+        // The buy below: a repeated recipe whose doubled material the ready owner holds exactly once.
+        let held_once = |catalog_id: u32| {
+            u16::try_from(catalog_id).is_ok_and(|id| READY_ITEM_CATALOG.iter().filter(|ready| **ready == id).count() == 1)
+        };
+        let target = *repeated
             .iter()
-            .find(|item| item.catalog_id == sword_id)
-            .unwrap();
-        assert_eq!(sword.id, "moba_sword");
-        assert_eq!(READY_ITEM_CATALOG.iter().filter(|id| **id == sword_id).count(), 1);
+            .find(|recipe| recipe.components.iter().any(|component| component.count >= 2 && held_once(component.catalog_id)))
+            .expect("a repeated recipe whose material the ready owner holds once");
 
         let options = options();
         let mut fixture = RendererFixture::start(options.clone()).await.unwrap();
@@ -4395,12 +4409,12 @@ mod tests {
                 request_id: 41,
                 player_id: OWNER_PLAYER_ID,
                 disclosure_epoch: floor,
-                intent: Some(Intent::ItemBuy(ItemBuyIntent { catalog_id: repeated[0].catalog_id })),
+                intent: Some(Intent::ItemBuy(ItemBuyIntent { catalog_id: target.catalog_id })),
             })
             .unwrap();
         assert_eq!(buy["authority_ack"], false);
         assert_eq!(buy["intent"]["kind"], "ItemBuy");
-        assert_eq!(buy["intent"]["catalog_id"], 4);
+        assert_eq!(buy["intent"]["catalog_id"], target.catalog_id);
         assert!(buy["intent"].get("item_id").is_none());
         assert!(buy["intent"].get("item_slot").is_none());
         assert!(buy["intent"].get("queued").is_none());
