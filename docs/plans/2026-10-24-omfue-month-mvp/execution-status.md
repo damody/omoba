@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 工作線 B：observer mismatch 列出不同的欄位（t55）
+
+- C 的 1+9 quick demo 在 tick 960 出現 Hero 元件 mismatch。原本日誌只印 authority 與 replica 的前 320 bytes，C17 那一列在出現差異的欄位之前就被截斷，看不出是哪個欄位不同。
+- omb state/core：兩邊都是 JSON 物件時，改為印出 `differs={"欄位":[authority, replica], ...}`，只列頂層不同的欄位，每個值最多 1 KiB；不是 JSON 時維持原本的輸出。
+- A02 那一列可以看出是 `attribute_hp` 不同（925 vs 800），原因還在查。需要用新日誌重跑一次。
+
 ## 2026-10-30 工作線 B：道具使用可以產生召喚物（t54）
 
 - A 回報道具文件有 12 處 create_unit，例如 healing_totem、earth_wall、ninja_unit、art_of_war 的步兵與弓兵。原本 ScriptItemTransaction 只要帶 SpawnSummoned，整次使用就被拒絕（沒有 summon 規劃）。
