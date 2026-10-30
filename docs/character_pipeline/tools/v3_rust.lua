@@ -267,6 +267,31 @@ local function new_gen(m, entry, opts)
     local_n = 0, lets = {} }, Gen)
 end
 function Gen:block(feature) self.blockers[feature] = true end
+-- A named delay's unit state key on its caster (instance and `:step`), per document.
+function Gen:delay_key(id) return tostring(self.m.doc_id):lower() .. ":__delay_" .. id end
+-- The entry whose program has the delay named `id` (its schedules run under that entry's ID; a
+-- delay in a routine runs as part of the entry calling it); nil (blocked) when none or several.
+function Gen:delay_entry(id)
+  local holders = {}
+  for name, r in pairs(self.m.routines) do holders[name] = r end
+  local function has(x, seen)
+    if type(x) ~= "table" or seen[x] then return false end
+    seen[x] = true
+    if x.op == "delay" and x.id == id then return true end
+    if x.op == "call" and holders[x.routine] and has(holders[x.routine], seen) then return true end
+    for _, v in pairs(x) do if has(v, seen) then return true end end
+    return false
+  end
+  local found
+  for _, e in ipairs(self.m.entries) do
+    if has(e.def, {}) then
+      if found then self:block("cancel_delay " .. id .. ": two entries delay it"); return nil end
+      found = e.def.id
+    end
+  end
+  if not found then self:block("cancel_delay " .. id .. ": no delay has that id") end
+  return found
+end
 -- The rank a value of owner `o` is read at: the running entry's (cx.rank), or, for a value of another
 -- ability of the document (its routine called from a different ability's hit, A34T's shred from A34W's
 -- bolt, E388), the caster's rank of that ability; cx.rank when the caster has not learned it. That
@@ -1154,7 +1179,8 @@ local ACTION_FIELDS = {
   create_illusion = set({ "op", "of", "at", "duration", "control", "copy", "outgoing", "incoming", "as" }),
   reveal = set({ "op", "at", "radius", "duration", "teams", "follow", "ignore_terrain" }),
   call = set({ "op", "routine", "args" }),
-  delay = set({ "op", "time", "actions", "capture" }),
+  delay = set({ "op", "time", "actions", "capture", "id" }),
+  cancel_delay = set({ "op", "id" }),
   ["repeat"] = set({ "op", "count", "interval", "first", "while", "stop_when", "as", "actions" }),
   modify_damage = set({ "op", "multiplier", "set", "cancel" }),
   chance = set({ "op", "p", "actions", "otherwise", "pity_after", "counter", "counter_var" }),
@@ -2324,10 +2350,27 @@ function Gen:action(a, ctx, ind)
     local args = self:capture_args(sc)
     self:set_step(step, "`delay`", body, #args > 0)
     local time = self:value(a.time, ctx, "num")
-    return line("{") .. line("    let time = " .. time .. ";")
+    local head = line("{") .. line("    let time = " .. time .. ";")
       .. line("    let args = [" .. table.concat(args, ", ") .. "];")
       .. line("    let owner = cx.caster;")
-      .. line(string.format("    cx.schedule(owner, ID, %d, time, &args)?;", step)) .. line("}")
+    if a.id == nil then return head .. line(string.format("    cx.schedule(owner, ID, %d, time, &args)?;", step)) .. line("}") end
+    -- a named delay: its schedule instance and step on the caster, for cancel_delay
+    local key = self:delay_key(a.id)
+    return head .. line(string.format("    let instance = cx.schedule(owner, ID, %d, time, &args)?;", step))
+      .. line(string.format("    cx.set_state_num(owner, %s, Fixed64::from_i32(i32::try_from(instance).unwrap_or(-1)), false)?;", rust_str(key)))
+      .. line(string.format("    cx.set_state_num(owner, %s, Fixed64::from_i32(%d), false)?;", rust_str(key .. ":step"), step)) .. line("}")
+  elseif op == "cancel_delay" then
+    -- the named delay this caster scheduled last, if it has not run yet (v3.md §5: delay.id)
+    local entry = self:delay_entry(a.id)
+    if not entry then return "" end
+    local key = self:delay_key(a.id)
+    return line("{") .. line("    let owner = cx.caster;")
+      .. line(string.format("    let instance = cx.state_num(owner, %s, -Fixed64::ONE).raw() >> 10;", rust_str(key)))
+      .. line(string.format("    let step = cx.state_num(owner, %s, -Fixed64::ONE).raw() >> 10;", rust_str(key .. ":step")))
+      .. line("    if let (Ok(instance), Ok(step)) = (u32::try_from(instance), u16::try_from(step)) {")
+      .. line(string.format("        cx.cancel_schedule(owner, %s, step, instance);", rust_str(entry)))
+      .. line(string.format("        cx.set_state_num(owner, %s, -Fixed64::ONE, false)?;", rust_str(key)))
+      .. line("    }") .. line("}")
   elseif op == "repeat" then
     if not self.entry then self:block("action:repeat in a routine"); return "" end
     if a.count == nil and a["while"] == nil and a.stop_when == nil then self:block("action:repeat without an end"); return "" end
