@@ -11,4 +11,6 @@ return {
   {hero='oichi',package='hero_c17',dir='heroes/oichi'},
   -- M5 (2026-10-30): A34 every ability generated, conformance 0 regressions (A34T compare)
   {hero='omatsu',package='hero_a34',dir='heroes/omatsu'},
+  -- M5 (2026-10-30): B08 every ability generated (reveal.ignore_terrain through line B's reveal_ex)
+  {hero='asai_nagamasa',package='hero_b08',dir='heroes/asai_nagamasa'},
 }

@@ -33,7 +33,6 @@ mod self_transform;
 #[cfg(test)]
 mod legacy_handlers;
 mod summon_formation;
-mod owner_cast;
 #[cfg(test)]
 mod summon_formation_tests;
 #[cfg(test)]
@@ -95,6 +94,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
         v.extend(hero_c17_impl::units());
         v.extend(hero_a34_impl::units());
         v.extend(hero_a13_impl::units());
+        v.extend(hero_b08_impl::units());
         v.extend(items_impl::units());
         v
     }
@@ -106,6 +106,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
         v.extend(hero_c17_impl::abilities());
         v.extend(hero_a34_impl::abilities());
         v.extend(hero_a13_impl::abilities());
+        v.extend(hero_b08_impl::abilities());
         // B01's retained legacy abilities (templates/heroes.lua retained_abilities): tests pin that
         // loadout, and hero_b01 (its own DLL) registers only the generated b01_* ones
         v.push(heroes::B01_saika_magoichi::sniper_mode_ffi());

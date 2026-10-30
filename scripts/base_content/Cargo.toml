@@ -42,6 +42,7 @@ compiled-content-only = ["omoba-template-ids/compiled-content-only", "omoba-core
 hero_a02_impl = { path = "../heroes/inahime" }
 hero_b01_impl = { path = "../heroes/saika_magoichi" }
 hero_c17_impl = { path = "../heroes/oichi" }
+hero_b08_impl = { path = "../heroes/asai_nagamasa" }
 # test_only (scripts/v3_test_heroes.lua): no DLL of its own yet; conformance runs its scenarios
 hero_a13_impl = { path = "../heroes/hattori_hanzo" }
 # items.dll's scripts (M7), linked like a launch loads them

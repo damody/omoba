@@ -145,3 +145,6 @@
 - 2026-10-30 11:14 使用者規則 D19：遇到問題一律用通用解修正，已通知五條線
 - 2026-10-30 11:26 各線開始照 D18 commit：A d4621c71（引導事件，250／447）、1c655563（A07、B06 換上產生 Rust）；gamemode eb9c9638（verify_m6_batch）
 - 2026-10-30 17:40 線 A：A07 碎擊槍／奮起／a07_rouse_free、B06 兩招換上產生的 Rust（1c655563）；產生器 host 引導（d4621c71）；host kill、on_kill、has_status_tag、三個狀態（1fcf988a）；英雄產生 255／447；B08 兩個退步判定為 harness 問題，conformance 已從通用處修 harness，重跑後換上
+- 2026-10-30 11:40 C 找到 split 局 25 秒就結束的根因：client 預先建置後被別人改檔弄舊；改成父程序在鎖內一次建好所有角色。另修狀態 cue 的鍵應用狀態 id（E284）
+- 2026-10-30 11:46 gamemode 693f13a5 autopilot 指令化，nobu UE 拍到營地、砍樹與重生（E280）；765bfabe 驗證局自建 script DLL（E287）；conformance ce928109（E288）
+- 2026-10-30 18:20 線 A：B08 淺井長政整位換上產生的 Rust（hero_b08 自己的 DLL），刪除手寫 handler 與只有它用的 owner_cast.rs（conformance 0 退步）
