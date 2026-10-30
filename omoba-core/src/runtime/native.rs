@@ -8,6 +8,7 @@ pub mod ability_runtime;
 pub mod ability_channel;
 pub mod unit_overrides;
 pub mod illusion;
+pub mod dummy_unit;
 pub mod status_scope;
 pub mod perform_attack;
 pub mod ally_shield;

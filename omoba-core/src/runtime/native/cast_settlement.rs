@@ -238,8 +238,7 @@ pub(super) fn plan_summons(world:&World,effects:&[Outcome])->Option<Vec<PlannedS
             || owners.get(*owner).map(|p|p.player_id)!=*player_owner
             || *duration<Fixed64::ZERO || *duration>Fixed64::from_i32(3600) {return None;}
         let stats=omoba_template_ids::summon_by_name(unit_id).and_then(omoba_template_ids::active_summon_stats)?;
-        if stats.hp<=Fixed64::ZERO||stats.attack_interval<=Fixed64::ZERO||stats.attack_range<=Fixed64::ZERO
-            ||stats.move_speed<Fixed64::ZERO||stats.collision_radius<Fixed64::ZERO
+        if !super::super::dummy_unit::body_valid(stats)||stats.move_speed<Fixed64::ZERO||stats.collision_radius<Fixed64::ZERO
             ||stats.vision_radius<Fixed64::ZERO||stats.vision_radius>Fixed64::from_i32(10_000){return None;}
         let friendly:Vec<_>=occupied.iter().filter(|(team,_,_)|*team==faction.team_id).map(|(_,p,r)|(*p,*r)).collect();
         let pos=super::super::summon_navigation::placement(*pos,positions.get(*owner).map(|p|p.0),stats.collision_radius,&regions,&friendly)?;

@@ -1751,6 +1751,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \tdamage_per_owner_level: {},\n\
              \towner_death: SummonOwnerDeath::{},\n\
              \tinvulnerable: {},\n\
+             \tdummy: {},\n\
              }};\n",
             cname,
             fixed64_lit(e.hp),
@@ -1770,6 +1771,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             fixed64_lit(e.damage_per_owner_level),
             e.owner_death.rust_variant(),
             e.invulnerable,
+            e.dummy,
         ));
     }
     out.push('\n');

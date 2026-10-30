@@ -1735,6 +1735,9 @@ pub(crate) struct SummonEntry {
     /// Never attackable or damageable while alive (lethal arrows, wisps).
     #[serde(default)]
     pub(crate) invulnerable: bool,
+    /// Status and aura holder only (原作 dummy); see `SummonStats::dummy`.
+    #[serde(default)]
+    pub(crate) dummy: bool,
 }
 
 pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),String> {
@@ -1744,6 +1747,12 @@ pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),Stri
         }
         if !entry.damage_per_owner_level.is_finite() || !(0.0..=10_000.0).contains(&entry.damage_per_owner_level) {
             return Err(format!("summon {} has invalid damage_per_owner_level",entry.id));
+        }
+        let bodiless=[entry.hp,entry.damage,entry.move_speed,entry.attack_range,entry.attack_interval,entry.armor,
+            entry.magic_resistance,entry.collision_radius,entry.follow_start_distance,entry.follow_stop_distance,
+            entry.damage_per_owner_level].iter().all(|value|*value==0.0);
+        if entry.dummy && (!bodiless || !entry.immobile || entry.invulnerable) {
+            return Err(format!("summon {} is a dummy but has a body (life, attack, defense, collision, movement) or is not immobile",entry.id));
         }
         let (start,stop)=(entry.follow_start_distance,entry.follow_stop_distance);
         if !start.is_finite() || !stop.is_finite() || start<0.0 || start>10_000.0 || stop<0.0
@@ -1778,6 +1787,19 @@ fn summon_follow_metadata_rejects_invalid_hysteresis_and_preserves_disabled_defa
         entry.follow_start_distance=start;entry.follow_stop_distance=stop;
         assert!(validate_summon_navigation(&[entry.clone()]).is_err());
     }
+}
+
+#[test]
+fn a_dummy_summon_is_bodiless_and_immobile() {
+    let dummy:SummonEntry=serde_json::from_value(serde_json::json!({"id":"fixture","dummy":true,"immobile":true,
+        "duration":3.0,"vision_radius":300.0})).unwrap();
+    assert!(validate_summon_navigation(&[dummy.clone()]).is_ok());
+    let mut moving=dummy.clone();moving.immobile=false;
+    let mut alive=dummy.clone();alive.hp=1.0;
+    let mut blocking=dummy.clone();blocking.collision_radius=24.0;
+    let mut attacking=dummy.clone();attacking.attack_interval=1.0;
+    let mut doubled=dummy.clone();doubled.invulnerable=true;
+    for entry in [moving,alive,blocking,attacking,doubled] {assert!(validate_summon_navigation(&[entry]).is_err());}
 }
 
 pub(crate) use omoba_content_model::AbilityDefinition as AbilityEntry;

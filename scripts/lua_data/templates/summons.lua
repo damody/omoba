@@ -62,6 +62,15 @@ return function(ctx)
       follow_start_distance = 750.0,
       follow_stop_distance = 350.0,
     },
+    -- Append-only shared dummy (原作 dummy／majia, omoba-core dummy_unit.rs): a status and aura
+    -- holder for every hero and item; the cast gives its lifetime. Heroes may author their own.
+    {
+      id = "dummy",
+      ue = {native_only=true,native_visual=visual},
+      display_name = "標記",
+      dummy = true,
+      immobile = true,
+    },
     -- @hero_author:authored-include (scripts/hero_author.lua build): authored summons appended last.
     (function()
       local out = {}

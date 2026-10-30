@@ -57,6 +57,21 @@ fn summon_settlement_commits_once_and_duplicate_preserves_the_existing_body() {
 }
 
 #[test]
+fn a_dummy_summon_is_a_bodiless_holder_for_its_lifetime() {
+    let (mut world, _owner, entity, mut outcome) = fixture();
+    if let Outcome::SpawnSummoned {unit_id,duration,..}=&mut outcome {*unit_id="dummy".into();*duration=Fixed64::from_i32(4);}
+    assert_eq!(settle(&mut world, outcome).len(), 1);
+    assert!(world.read_storage::<SummonedUnit>().get(entity).is_some_and(|summon| summon.immobile));
+    assert!(world.read_storage::<TAttack>().get(entity).is_none(), "no attack");
+    assert_eq!(world.read_storage::<CollisionRadius>().get(entity).map(|r| r.0), Some(Fixed64::ZERO), "blocks nothing");
+    assert!(world.read_storage::<CProperty>().get(entity).is_some_and(|p| p.hp > Fixed64::ZERO), "a living holder");
+    let buffs = world.read_resource::<crate::runtime::BuffStore>();
+    for id in super::super::dummy_unit::STATES {
+        assert_eq!(buffs.get(entity, id).map(|row| row.remaining), Some(Fixed64::from_i32(4)), "{id} for its lifetime");
+    }
+}
+
+#[test]
 fn summon_settlement_rechecks_life_faction_and_optional_player_ownership() {
     for case in 0..7 {
         let (mut world, owner, entity, outcome)=fixture();

@@ -1284,8 +1284,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(faction) = self.cache.faction.get(owner).cloned() else {return EntityHandle::INVALID;};
         let Some(stats) = omoba_template_ids::summon_by_name(unit_type.as_str())
             .and_then(omoba_template_ids::active_summon_stats) else {return EntityHandle::INVALID;};
-        if duration < Fixed64::ZERO || duration > Fixed64::from_i32(3600) || stats.hp <= Fixed64::ZERO
-            || stats.attack_interval <= Fixed64::ZERO || stats.attack_range <= Fixed64::ZERO
+        if duration < Fixed64::ZERO || duration > Fixed64::from_i32(3600) || !crate::runtime::native::dummy_unit::body_valid(stats)
             || stats.move_speed < Fixed64::ZERO || stats.collision_radius < Fixed64::ZERO
             || stats.vision_radius<Fixed64::ZERO || stats.vision_radius>Fixed64::from_i32(10_000)
             || self.reserved_entities.len() >= 128 {return EntityHandle::INVALID;}

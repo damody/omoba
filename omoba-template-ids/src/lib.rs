@@ -1406,6 +1406,10 @@ pub struct SummonStats {
     pub owner_death: SummonOwnerDeath,
     /// Never attackable or damageable while alive (MOBA attackability gate).
     pub invulnerable: bool,
+    /// A body that only holds statuses and auras (原作 dummy／majia): no life, attack, collision
+    /// or orders, never selected, damaged or blocking (omoba-core summon spawn); every number
+    /// above except `vision_radius` and `duration` is zero.
+    pub dummy: bool,
 }
 
 /// Ability 類型 — `omoba_core::ability_meta::AbilityType` 的 const-friendly

@@ -4375,7 +4375,7 @@ fn handle_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
         && world.read_storage::<Faction>().get(owner).is_some_and(|f|
             f.team_id==faction.team_id && f.faction_id==faction.faction_id)
         && world.read_storage::<PlayerOwner>().get(owner).map(|p|p.player_id)==player_owner;
-    let Some(stats)=stats.filter(|_|valid_owner && world.entities().is_alive(entity)
+    let Some(stats)=stats.filter(|stats|valid_owner && world.entities().is_alive(entity) && super::dummy_unit::body_valid(stats)
         && duration>=Fixed64::ZERO && duration<=Fixed64::from_i32(3600)) else {
         let _=world.entities().delete(entity);return Ok(false);
     };
@@ -4403,7 +4403,7 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     unit.max_hp=(stats.hp.raw()/1024) as i32;unit.current_hp=unit.max_hp;
     unit.base_damage=(stats.damage.raw()/1024) as i32;unit.base_armor=stats.armor;
     unit.magic_resistance=stats.magic_resistance;unit.attack_range=stats.attack_range;
-    unit.move_speed=stats.move_speed;unit.attack_speed=Fixed64::ONE/stats.attack_interval;
+    unit.move_speed=stats.move_speed;unit.attack_speed=if stats.dummy {Fixed64::ZERO} else {Fixed64::ONE/stats.attack_interval};
     unit.spawn_position=(pos.x.to_f32_for_render(),pos.y.to_f32_for_render());
     unit.exp_reward=0;unit.gold_reward=0;unit.bounty_type=BountyType::None;
     let facing=world.read_storage::<Facing>().get(owner).copied().unwrap_or(Facing(omoba_sim::Angle::ZERO));
@@ -4414,9 +4414,13 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     world.write_storage::<Unit>().insert(entity,unit)?;
     world.write_storage::<Pos>().insert(entity,Pos(pos))?;
     world.write_storage::<Faction>().insert(entity,faction)?;
-    world.write_storage::<CProperty>().insert(entity,CProperty {hp:stats.hp,mhp:stats.hp,
+    // A dummy (dummy_unit.rs) has no life to lose: one raw point keeps it a living holder.
+    let life=if stats.dummy {Fixed64::from_raw(1)} else {stats.hp};
+    world.write_storage::<CProperty>().insert(entity,CProperty {hp:life,mhp:life,
         msd:stats.move_speed,def_physic:stats.armor,def_magic:stats.magic_resistance})?;
-    world.write_storage::<TAttack>().insert(entity,TAttack::new(damage,stats.attack_interval,stats.attack_range,Fixed64::from_i32(900)))?;
+    if !stats.dummy {
+        world.write_storage::<TAttack>().insert(entity,TAttack::new(damage,stats.attack_interval,stats.attack_range,Fixed64::from_i32(900)))?;
+    }
     world.write_storage::<Facing>().insert(entity,facing)?;
     world.write_storage::<FacingBroadcast>().insert(entity,FacingBroadcast(None))?;
     world.write_storage::<CollisionRadius>().insert(entity,CollisionRadius(stats.collision_radius))?;
@@ -4433,9 +4437,10 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     summoned.expire_with_owner=stats.owner_death==omoba_template_ids::SummonOwnerDeath::Expire;
     summoned.spawn_tick=world.read_resource::<Tick>().0;
     world.write_storage::<SummonedUnit>().insert(entity,summoned)?;
-    if stats.invulnerable {
+    if stats.invulnerable || stats.dummy {
         if let Some(mut state)=world.try_fetch_mut::<crate::runtime::MobaMatch>() {state.add_invulnerable_summon(&world.entities(),entity);}
     }
+    if stats.dummy {super::dummy_unit::hold_states(&mut world.write_resource::<crate::runtime::BuffStore>(),entity,duration);}
     if let Some(player_id)=player_owner {world.write_storage::<PlayerOwner>().insert(entity,PlayerOwner::new(player_id))?;}
     world.write_resource::<ScriptEventQueue>().push(ScriptEvent::Spawn {e:entity});
     Ok(())

@@ -582,6 +582,7 @@ impl RuntimeContent {
                     crate::lua_content::SummonOwnerDeathEntry::Expire=>crate::SummonOwnerDeath::Expire,
                 },
                 invulnerable: entry.invulnerable,
+                dummy: entry.dummy,
             })))
         })?;
         let summon_display = build_indexed(&manifest.summons, "summon", |raw, entry| {

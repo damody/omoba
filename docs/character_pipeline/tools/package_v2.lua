@@ -435,7 +435,16 @@ function M.validate(dir, loaded, opts)
           "magic_resistance", "collision_radius", "vision_radius", "follow_start_distance", "follow_stop_distance", "damage_per_owner_level" }) do
           if not M.authored_number(s[key]) or s[key] < 0 then err(label .. " " .. key .. " must be a non-negative authored number") end
         end
-        if (s.hp or 0) <= 0 or (s.duration or 0) <= 0 or (s.attack_interval or 0) <= 0 then err(label .. " hp, duration and attack_interval must be positive") end
+        if s.dummy ~= nil and type(s.dummy) ~= "boolean" then err(label .. " dummy must be boolean") end
+        if s.dummy then
+          -- 原作 dummy／majia：只掛狀態與光環的身體（omoba-core dummy_unit.rs）。
+          for _, key in ipairs({ "hp", "damage", "move_speed", "attack_range", "attack_interval", "armor", "magic_resistance",
+            "collision_radius", "follow_start_distance", "follow_stop_distance", "damage_per_owner_level" }) do
+            if s[key] ~= 0 then err(label .. " is a dummy, so " .. key .. " must be 0") end
+          end
+          if s.immobile ~= true or s.invulnerable then err(label .. " is a dummy, so it is immobile and not separately invulnerable") end
+          if (s.duration or 0) <= 0 then err(label .. " duration must be positive") end
+        elseif (s.hp or 0) <= 0 or (s.duration or 0) <= 0 or (s.attack_interval or 0) <= 0 then err(label .. " hp, duration and attack_interval must be positive") end
         if s.immobile ~= nil and type(s.immobile) ~= "boolean" then err(label .. " immobile must be boolean") end
         if s.invulnerable ~= nil and type(s.invulnerable) ~= "boolean" then err(label .. " invulnerable must be boolean") end
         if s.immobile and (s.move_speed ~= 0 or s.follow_start_distance ~= 0 or s.follow_stop_distance ~= 0) then
