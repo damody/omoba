@@ -30,6 +30,14 @@ for _,bad in ipairs({{'--autopilot','bad profile'},{'--server-only','--autopilot
   assert(not pcall(parse,bad),'accepted invalid autopilot option')
 end
 
+-- E355: an autopilot renderer runs unattended (no engine prompt waits for a person).
+do
+  local f=assert(io.open('scripts/moba_role_launch.lua','rb'));local text=f:read('a');f:close()
+  local autopilot=assert(text:find("ue.args[#ue.args+1]='-om-autopilot='..options.autopilot",1,true))
+  local unattended=assert(text:find("ue.args[#ue.args+1]='-unattended'",autopilot,true),'an autopilot launch adds -unattended')
+  assert(unattended-autopilot<800,'-unattended belongs to the autopilot block')
+end
+
 -- Project switches must not contain engine FParse substring tokens (E029).
 assert(launch.assert_engine_safe_args({'-om-autopilot=lane_v0','-om-autopilot-shot-interval=120','-game','-ExecCmds=t.MaxFPS 60'}))
 for _,bad in ipairs({'-om-autopilot-screenshot-seconds=120','-om-x-benchmark','-om-target-fps=30','-OM-Y-Seconds=5'}) do

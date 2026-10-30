@@ -632,6 +632,11 @@ function M.prepare(options,process)
       ue.args[#ue.args+1]='-om-autopilot='..options.autopilot
       ue.args[#ue.args+1]='-om-autopilot-trace='..path.join(output,'autopilot-p'..id..'.jsonl')
       ue.args[#ue.args+1]='-om-autopilot-shot-interval='..tostring(options.autopilot_shot_interval or 120)
+      -- Nobody answers a dialog on an autopilot seat (E355): a ZenServer that took over 20 s to start
+      -- (sessions load under disk contention) opened the engine's Yes/No wait prompt and the match
+      -- sat at "Waiting for ZenServer" until its time box. Unattended, the engine waits up to 25 s and
+      -- logs instead of prompting.
+      ue.args[#ue.args+1]='-unattended'
       -- No human plays an autopilot seat: render off-screen so it never takes the user's
       -- desktop, foreground or cursor (E114; OM_OWN_DESKTOP=1 keeps a visible window).
       require('ue_desktop').append(ue.args)
