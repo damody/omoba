@@ -2,6 +2,28 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E294 （保留）bot 從不施放第五個技能欄（2026-10-30，e187 遊戲模式 session；進行中）
+
+## E294 前搖目標離開視野後，replica 取消前搖；腳本的 cooldown_start 重設了冷卻總長，replica 只能保留（2026-10-30，工作線 B）
+
+- **現象**：e187（`target/e187/ue-nobu9`）的 build 已含 E292，tick 23639 仍以 `observer-mismatch-after-rebase` 終止，共有兩類不一致。
+  - B08 b08_flash_cut 與 A34 a34_frost_bolt：authority 有冷卻，team replica 沒有。兩邊都記了 `AbilityCast ok`（前搖開始），但只有 authority 有 `cast ok`（release）。
+  - A34 的冰山之襲／冰霜之息：剩餘冷卻兩邊相同，但 authority 的 `ability_cooldown_totals` 是 3584，replica 是 7168。
+- **根因**：
+  - 前搖：team replica 只保留目前揭露給本隊的實體。前搖期間目標（野怪）走進霧裡，replica 刪除了目標，`cast_windup::advance` 視為目標死亡而取消前搖；authority 的目標還活著，照常 release。
+  - 冷卻總長：A34T 的 `a34t_cap` 每 0.1 秒對超過上限的冷卻呼叫 `cooldown_start(cap)`。hero_command 用 `start_cooldown` 處理，等於重新開始，總長被設成 cap。replica 從剩餘值套用時（`commit_cooldown`），只能把較短的值當成減少，總長保持 7168。
+- **通用修正**：
+  - visibility：每個尚未 release 的前搖，若以單位為目標且該目標仍存在，就把目標加進施法者隊伍的 input grace（`windup_target_grace`）。已揭露的目標在前搖期間不會因為失去視野而被隱藏；grace 從不揭露原本看不到的單位。目標若已死亡，它不在 view 裡、不會被保留，死亡照常傳到 replica，兩邊一起取消前搖。測試：`a_pending_windup_keeps_its_existing_unit_target_for_the_casters_team`。
+  - 冷卻：新增 `Hero::set_cooldown`，作為 authority 端設定冷卻絕對值的唯一規則，與 replica 用 `commit_cooldown` 能從剩餘值重現的結果一致。
+    - 冷卻正在跑、新值較短：視為減少，保留總長。
+    - 冷卻是本 tick 才開始的：以新值重新開始（E170）。
+    - 其他情況：重新開始。
+    - hero_command 的 `cooldown_start` 與 `cooldown_cap::clamp` 都改用這條規則。測試：`an_absolute_cooldown_set_is_what_a_replica_commits_from_the_remaining`。
+- **避免**：
+  - replica 對「看不到」與「不存在」無法分辨。凡是 authority 以「目標還活著」為條件、而 replica 要跟著判斷的狀態（前搖、之後的單位目標持續施法），目標都要在該狀態期間保持揭露。
+  - 任何寫入 replica 狀態的 authority 操作，都要用 replica 從已提交的事實能重現的同一條規則。
+- **未處理**：以單位為錨點的持續施法（ability_channel 的 `Anchor::Unit`）理論上有同樣的風險，但尚未觀察到；持續施法可能長達數秒，全程保持揭露會讓對手的位置外洩更久。要等到看到實例再決定作法。
+
 ## E293 land_to_live 的 BASE 給錯，倒退了別人剛放回 live 的修改（2026-10-30，工作線 A）
 
 - **現象**：864230c0（unique_group）放回 `scripts/ability_kit/src/codegen.rs` 時，把 B 在 57d0e388 剛放進 live 的兩段改動拿掉了：`Cx::cast` 在 release 時跳過射程（E292 的 `CAST_RELEASED`）和 `Guarded` 的 `on_equip`／`on_unequip`。cargo check 照樣通過（這兩段都是新增的），所以 land 沒有擋下來。

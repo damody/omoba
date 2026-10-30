@@ -476,6 +476,22 @@ impl Hero {
         true
     }
 
+    /// An authority-side absolute remaining (a script's `cooldown_start`, a cooldown cap), settled by
+    /// the rule a replica reproduces from the committed remaining alone (E294): a shorter value for a
+    /// cooldown already running is a reduction and keeps its admitted total; a cooldown that started
+    /// this tick (remaining still equals its total) restarts at the new value, because an opponent
+    /// replica only ever receives that final remaining and commits it as a fresh instance (E170);
+    /// anything else is a fresh start.
+    pub fn set_cooldown(&mut self, ability_id: &str, remaining: Fixed64) {
+        let current = self.get_cooldown(ability_id);
+        let fresh = self.ability_cooldown_totals.get(ability_id) == Some(&current);
+        if remaining > Fixed64::ZERO && current > Fixed64::ZERO && remaining <= current && !fresh {
+            self.ability_cooldowns.insert(ability_id.to_string(), remaining);
+        } else {
+            self.start_cooldown(ability_id, remaining);
+        }
+    }
+
     /// Apply an authority-settled absolute remaining. A shorter value for a
     /// running cooldown is a reduction and keeps the admitted total; anything
     /// else (no cooldown running, or a longer value) is a fresh start.
@@ -629,6 +645,25 @@ mod moba_progression_tests {
         h.start_cooldown("a",Fixed64::ZERO);assert!(h.ability_cooldown_totals.is_empty());
         h.start_cooldown("a",Fixed64::ONE);h.tick_cooldowns(Fixed64::from_raw(i64::MAX));
         assert!(h.ability_cooldowns.is_empty()&&h.ability_cooldown_totals.is_empty());
+    }
+
+    #[test]
+    fn an_absolute_cooldown_set_is_what_a_replica_commits_from_the_remaining() {
+        // E294 (e187 ue-nobu9): a34t_cap's cooldown_start(cap) on a running cooldown restarted the
+        // authority's total (3584) while the team replica, committing the remaining, kept 7168.
+        let s=Fixed64::from_i32;
+        let mut authority=Hero::default();authority.start_cooldown("a",s(7));authority.tick_cooldowns(Fixed64::from_raw(102));
+        let mut replica=authority.clone();
+        authority.set_cooldown("a",Fixed64::from_raw(3584));replica.commit_cooldown("a",Fixed64::from_raw(3584));
+        assert_eq!((authority.get_cooldown("a"),authority.ability_cooldown_totals.get("a")),(Fixed64::from_raw(3584),Some(&s(7))));
+        assert_eq!((&authority.ability_cooldowns,&authority.ability_cooldown_totals),(&replica.ability_cooldowns,&replica.ability_cooldown_totals));
+        // Started this tick: restarts at the value, as an opponent commits only that final remaining.
+        let mut fresh=Hero::default();fresh.start_cooldown("a",s(7));fresh.set_cooldown("a",Fixed64::from_raw(3584));
+        let mut opponent=Hero::default();opponent.commit_cooldown("a",Fixed64::from_raw(3584));
+        assert_eq!((&fresh.ability_cooldowns,&fresh.ability_cooldown_totals),(&opponent.ability_cooldowns,&opponent.ability_cooldown_totals));
+        // Longer than running, or nothing running: a fresh start; zero ends it.
+        authority.set_cooldown("a",s(9));assert_eq!(authority.ability_cooldown_totals.get("a"),Some(&s(9)));
+        authority.set_cooldown("a",Fixed64::ZERO);assert!(authority.ability_cooldowns.is_empty()&&authority.ability_cooldown_totals.is_empty());
     }
 
     #[test]

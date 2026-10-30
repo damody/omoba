@@ -445,7 +445,10 @@ pub struct TeamVisibilityState {
     /// Targets of this tick's admitted inputs. A currently disclosed target
     /// stays disclosed for this frame so the team's replica can resolve the
     /// same input the authority executed; it never chains (admission needs
-    /// `sighted`, which grace does not extend).
+    /// `sighted`, which grace does not extend). The unit targets of this
+    /// team's pending windups join it every frame (E294): the windup was judged
+    /// against a disclosed target when it began, and the team's replica must see
+    /// that target alive or dead exactly as the authority does until it releases.
     pub input_grace: BTreeSet<u64>,
     #[cfg(test)]
     pub(crate) witness_worker_count: usize,
@@ -747,6 +750,32 @@ mod tests {
         state.input_grace.insert(7);
         assert!(state.resolve(&view(4, vec![]), 0).is_empty() && !state.index.current.contains(&7), "grace never reveals");
     }
+
+    #[test]
+    fn a_pending_windup_keeps_its_existing_unit_target_for_the_casters_team() {
+        // E294 (e187 ue-nobu9): a jungle creep left the caster team's sight during b08_flash_cut's
+        // windup; the replica deleted it and cancelled the windup while the authority released it.
+        use crate::runtime::native::{cast_windup::{AbilityWindups, Windup}, scripting::SkillTarget};
+        let mut world = World::new();
+        let [caster, creep, gone] = [(); 3].map(|_| specs::Builder::build(world.create_entity()));
+        let windup = |target| Windup { skill_id: "s".into(), target, origin: Vec2::ZERO, remaining: Fixed64::ONE,
+            rank: 1, interrupt_on_damage: false, last_tick: 0, anchored: false };
+        let mut windups = AbilityWindups::default();
+        windups.0.insert(caster, windup(SkillTarget::Entity(creep)));
+        world.insert(windups);
+        let row = |entity, team| CommittedEntityView { canonical_id: crate::runtime::canonical_entity_id(entity), team,
+            ..entity_row_template() };
+        let view = WaveBReadView { tick: 1, entities: vec![row(caster, 1), row(creep, 0)].into(),
+            vision_sources: vec![].into(), brush_regions: Vec::new().into(), vision_occluders: vec![].into() };
+        assert_eq!(windup_target_grace(&world, &view), vec![(1, crate::runtime::canonical_entity_id(creep))]);
+        // A target that died (absent from the view) is not kept: its death reaches the replica.
+        world.write_resource::<AbilityWindups>().0.insert(caster, windup(SkillTarget::Entity(gone)));
+        assert!(windup_target_grace(&world, &view).is_empty());
+        world.write_resource::<AbilityWindups>().0.insert(caster, windup(SkillTarget::None));
+        assert!(windup_target_grace(&world, &view).is_empty());
+    }
+
+    fn entity_row_template() -> CommittedEntityView { entity(ReplicationScopeKind::Vision, None, 0) }
 
     #[test]
     fn input_grace_keeps_a_target_deleted_during_the_step_one_frame() {
@@ -1347,6 +1376,21 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     }
 }
 
+/// (caster team, target) for every pending windup aimed at a unit that still exists (E294).
+/// Losing sight of that unit must not end the windup on the caster team's replica while the
+/// authority releases it; a target that died is absent from the view and is not kept, so its
+/// death reaches the replica as usual and ends the windup on both sides.
+fn windup_target_grace(world: &World, view: &WaveBReadView) -> Vec<(u32, u64)> {
+    let Some(windups) = world.try_fetch::<crate::runtime::native::cast_windup::AbilityWindups>() else { return Vec::new(); };
+    let team_of: BTreeMap<u64, u32> = view.entities.iter().map(|entity| (entity.canonical_id, entity.team)).collect();
+    windups.0.iter().filter_map(|(caster, cast)| {
+        let crate::runtime::native::scripting::SkillTarget::Entity(target) = &cast.target else { return None; };
+        let target = crate::runtime::canonical_entity_id(*target);
+        team_of.contains_key(&target).then_some(())?;
+        Some((*team_of.get(&crate::runtime::canonical_entity_id(*caster))?, target))
+    }).collect()
+}
+
 /// Called only after Wave A outcome/fact reduction and `World::maintain`.
 pub fn run_committed_visibility_wave_b(world: &mut World, tick: u64, delay: u64) {
     let view = build_wave_b_read_view(world, tick);
@@ -1355,6 +1399,9 @@ pub fn run_committed_visibility_wave_b(world: &mut World, tick: u64, delay: u64)
         for input in &projection.pending_accepted_inputs {
             if let Some(target) = input.target_canonical_id { grace.entry(input.team_id).or_default().insert(target); }
         }
+    }
+    for (team, target) in windup_target_grace(world, &view) {
+        grace.entry(team).or_default().insert(target);
     }
     let mut runtime = world.write_resource::<TeamVisibilityRuntime>();
     runtime.latest_owner_by_canonical = view

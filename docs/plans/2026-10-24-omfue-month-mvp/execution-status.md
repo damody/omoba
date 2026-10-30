@@ -16,6 +16,13 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30（history-nobu 工作線 B：e187 replica 冷卻不一致的兩個根因（E294）；已放回 live）
+
+- **前搖目標保持揭露**：`visibility::windup_target_grace` 把尚未 release、以單位為目標、且目標仍存在的前搖目標，加進施法者隊伍的 input grace。目標在前搖期間進入霧中時，replica 不會再把它刪掉而取消前搖。目標死亡時照常取消。修正 B08 b08_flash_cut 與 A34 a34_frost_bolt 在 replica 缺少冷卻的問題。
+- **`Hero::set_cooldown`**：authority 設定冷卻絕對值時，採用與 replica `commit_cooldown` 一致的規則。對正在跑的冷卻設較短的值時保留總長；冷卻若是本 tick 才開始，就以新值重新開始。hero_command 的 `cooldown_start` 與 `cooldown_cap::clamp` 都改用這條規則。修正 A34 `a34t_cap` 讓 authority 總長變成 3584 的問題。
+- 測試：omoba-core 1412 項通過。e187 實機重跑交給遊戲模式線。
+- 未處理：以單位為錨點的持續施法，見 E294。
+
 ## 2026-10-30（history-nobu 工作線 B：on_attack_launch 狀態事件、outgoing_damage_pct、vision_day／vision_night；已放回 live）
 
 - **on_attack_launch**：`status_event::ATTACK_LAUNCH=12`、遮罩 `ON_ATTACK_LAUNCH=1<<10`。來源是 rules::attack 的 `AttackEvent::Launch`（前搖結束、投射物離手或近戰命中前），由攻擊者的狀態收到，`other` 是目標。

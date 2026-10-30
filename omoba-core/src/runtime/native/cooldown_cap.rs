@@ -51,13 +51,10 @@ pub fn clamp(hero: &mut Hero, fraction: Fixed64) -> Vec<(usize, String)> {
         let id = hero.abilities[slot].clone();
         let Some(full) = basic_full_cooldown(hero, &id) else { continue; };
         let cap = Fixed64::from_raw((i128::from(full.raw()) * i128::from((Fixed64::ONE - fraction).raw()) / 1024) as i64);
-        let remaining = hero.get_cooldown(&id);
-        // A cooldown that started this tick (remaining still equals its admitted total) starts
-        // capped: opponents only ever see the committed capped remaining, which a replica
-        // commits as a fresh instance whose total is that remaining (E170 live mismatch).
-        let fresh = hero.ability_cooldown_totals.get(&id) == Some(&remaining);
-        if remaining > cap && hero.reduce_cooldown(&id, remaining - cap) {
-            if fresh { hero.ability_cooldown_totals.insert(id.clone(), cap); }
+        // Hero::set_cooldown: a running cooldown keeps its admitted total, one that started this
+        // tick starts capped (E170 live mismatch), as a replica commits the capped remaining.
+        if hero.get_cooldown(&id) > cap {
+            hero.set_cooldown(&id, cap);
             changed.push((slot, id));
         }
     }

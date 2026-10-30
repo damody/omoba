@@ -141,7 +141,7 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, payload: &Value) 
             }
             changed
         }
-        Command::CooldownStart { ability, seconds } => with_hero_ability(world, target, &ability, |h| h.start_cooldown(&ability, seconds)),
+        Command::CooldownStart { ability, seconds } => with_hero_ability(world, target, &ability, |h| h.set_cooldown(&ability, seconds)),
         Command::CooldownEnd { ability } => with_hero_ability(world, target, &ability, |h| h.start_cooldown(&ability, Fixed64::ZERO)),
         Command::CooldownReduce { ability, seconds } => with_hero_ability(world, target, &ability, |h| { h.reduce_cooldown(&ability, seconds); }),
         Command::OrderAttack { target: (id, gen) } => order_attack(world, target, id, gen),
