@@ -1034,6 +1034,11 @@
 - 2026-10-30 線 A：產生器覆蓋 268→291／447：create_unit.control（create_unit_controlled）、remove_unit（script_kill silent）、set_display_stacks、passive.visibility（只是圖示）、is_ally、edge_distance（新 unit_attr collision_radius）、toggle_ability（關閉＝以該單位跑 on_toggle_off）、status.unique_group（BuffStore 聚合 family）、caster_hero、independent 狀態帶 source、game.dt（新 game_attr dt）、circle_point；cx 函式參數一律先綁定（cx_call，E285 補記）；runtime_id 支援 {rank}。B29 震地斧的退步是 E292＋{rank}，影子 conformance 全過，等 conformance 在 live 重比後換上。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
+## 2026-10-30（conformance：B29 震地斧、震地換上比對）
+
+- 在含 B 57d0e388（replica 射程只判一次，E292）與 A 80c1b09b（runtime_id 的 {rank}）的 live 上，b29_quake_axe、b29_earth_tremor 換成產生碼：0 退步，b29e_phased 的 20 個情境由 unsupported 變通過。可以換上，已通知 A。
+- a07_strongest 在 live 還沒有產生碼，未比對。
+
 ## 2026-10-30（conformance：士氣、炎之軌跡、第一勇士、爆裂箭換上比對）
 
 - 基準是目前的 live，和上一輪 live 相比 0 差異。
