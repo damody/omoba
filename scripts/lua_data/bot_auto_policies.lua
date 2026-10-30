@@ -32,6 +32,11 @@ local kits = {}
 for _, hero in ipairs(authored.heroes) do kits[hero.id] = hero.abilities end
 -- Hand-ported heroes whose kit the packages replace (hero_updates) seat with that kit.
 for id, update in pairs(authored.hero_updates or {}) do kits[id] = update.abilities_by_slot end
+-- The v3 heroes of templates/v3_test_heroes.lua (merged into the content heroes by heroes.lua) seat
+-- with their own rows: a v3 hero marked playable is one of them, not an authored hero (E371).
+local v3_heroes = assert(loadfile(dir .. '/templates/v3_test_heroes.lua'))()({})
+for _, row in ipairs(v3_heroes.abilities or {}) do rows[row.id] = rows[row.id] or row end
+for _, hero in ipairs(v3_heroes.heroes or {}) do kits[hero.id] = kits[hero.id] or hero.abilities end
 
 -- The executor's compile checks, so a derived policy never fails the plan.
 local function admissible(row, hint)

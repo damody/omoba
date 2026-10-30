@@ -2,7 +2,19 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E371 （保留）bot_auto_policies 只讀 authored_heroes：標成 playable 的 v3 英雄沒有施放政策，bot 一招都不放（2026-10-30）
+## E375 （保留）conformance：died_at 少一個 tick，死亡前一步已結算的傷害被算成死後命中（2026-10-30）
+
+## E374 （保留）敵方 replica 沒有 inventory，道具力量算進 attribute_hp 造成 observer mismatch（2026-10-30）
+
+## E373 （保留）召喚交易拒絕施法者自己的排程列，且拒絕沒有留下原因（2026-10-30）
+
+## E372 （保留）conformance：情境第一次施放前就 inactive 的技能回報 unsupported（2026-10-30）
+
+## E371 bot_auto_policies 只讀 authored_heroes：標成 playable 的 v3 英雄沒有施放政策，bot 一招都不放（2026-10-30，e187 遊戲模式 session；已放回 live）
+- **現象**：線 A 把 14 位 M6 英雄轉成正式英雄（5facff2e）後，verify_m6_batch 第 1 組（10 位）每局都打完入座，但 34 個可施放技能全部 0 次 bot 輸入（NEVER CAST），teamfight 6 局有 3 局用完 1200 秒預算沒打完。
+- **根因**：與 E363 同一類：bot_auto_policies.lua 推導施放政策時，技能列與英雄技能組只讀 authored_heroes（heroes、hero_updates）；這些英雄的列在 templates/v3_test_heroes.lua，所以一條推導政策都沒有。
+- **通用修正**：bot_auto_policies 另外讀 v3_test_heroes 的 abilities 與 heroes（authored 已有的不覆蓋）。第 1 組的 recipe 由 0 條推導政策變成 32 條。
+- **避免**：讀英雄或技能的工具一律以合併後的內容為準（E363）；新來源加進內容時，搜尋所有只讀其中一個來源的地方。
 
 ## E370 （保留）conformance：狀態造成的無敵（states = invulnerable）等它結束再打致命一擊（2026-10-30）
 
