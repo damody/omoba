@@ -16,6 +16,9 @@ local SUPPORTED = {
   enemy_point = { target = 'point', params = { 'radius_key', 'min_targets' }, extras = { 'radius_key' } },
   -- A range-free leap area (E281): reaches its targeting reach extra.
   leap_enemy_point = { target = 'point', params = { 'radius_key', 'reach_key', 'min_targets' }, extras = { 'radius_key', 'reach_key' } },
+  -- Any-distance skills (E387): every rank's cast range is 0.
+  global_enemy_point = { target = 'point', params = { 'radius_key', 'min_targets' }, extras = { 'radius_key' }, anywhere = true },
+  ally_engage = { target = 'unit', params = { 'threat_radius' } },
   enemy_line = { target = 'point', params = { 'min_targets' }, shape = 'line' },
   enemy_cone = { target = 'point', params = { 'min_targets' }, shape = 'cone' },
   approach_enemy_point = { target = 'point', params = { 'min_distance' } },
@@ -45,8 +48,13 @@ local function admissible(row, hint)
   if kind.toggle then
     if row.ability_type ~= 'toggle' or type(hint.on_status) ~= 'string' or hint.on_status == '' then return false end
   elseif row.ability_type ~= 'active' and row.ability_type ~= 'ultimate' then return false end
-  -- A pulse channel (no recovery rule) casts like an instant; the bot holds it (E281).
-  local channel = row.cast_type == 'channeled' and not kind.toggle and type(row.channel) == 'table' and row.channel.pulses_key ~= nil
+  -- A channel with no recovery rule casts like an instant; the bot holds it (E281, E387: with
+  -- pulses or not, e.g. C05T 瞬雷閃 blinks when it ends).
+  local recovery = false
+  for _, effect in ipairs(row.effects or {}) do
+    if effect.kind == 'recovery_channel_self' then recovery = true end
+  end
+  local channel = row.cast_type == 'channeled' and not kind.toggle and not recovery
   if (row.cast_type ~= 'instant' and not channel) or row.target_type ~= kind.target then return false end
   for _, key in ipairs(kind.extras or {}) do
     local name = hint[key]
@@ -60,6 +68,11 @@ local function admissible(row, hint)
   if hint.kind == 'enemy_point' then
     for _, level in ipairs(row.levels or {}) do
       if (level.range or 0) <= 0 then return false end
+    end
+  end
+  if kind.anywhere then
+    for _, level in ipairs(row.levels or {}) do
+      if (level.range or 0) ~= 0 then return false end
     end
   end
   if hint.kind == 'approach_enemy_point' or hint.kind == 'summon_near_enemy' then

@@ -2,9 +2,41 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E385 （保留）排程效果在兩個 tick 之間到期時延到下一個 tick，0.99 s 的週期在 1 s 狀態內一次都沒打到（2026-10-31）
+## E391 （保留）conformance：apply_status 自帶的 duration、引導結束移除的狀態在死亡情境的期望（2026-10-31）
 
-## E384 （保留）召喚物與小兵身上的狀態圖示沒有揭露給任何一隊（2026-10-31）
+## E390 （保留）conformance：on_learn 就進入冷卻的技能，先等冷卻結束再開始情境（2026-10-31）
+
+## E389 （保留）第一次播放 cue 或第一次生成某種單位時在遊戲執行緒同步載入資產（含 Niagara 編譯），1+9 局出現 0.4–1.8 秒卡頓（2026-10-31）
+
+## E388 （保留）conformance：狀態自己的 stats 沒有被檢查（2026-10-31）
+
+## E387 bot 沒有任意距離的施放意圖：瞬雷閃與最期一生從沒施放（2026-10-31，工作線 B）
+- **現象**：遊戲模式 session 的 M6 14 英雄批次（target/e187/m6a3g{1,2}）中，c05_flash_thunder（前田慶次）與 c24_last_life（柳生宗嚴）兩招大招一次都沒施放。
+- **根因**：
+  1. 瞬雷閃是任意地點的引導 point 技，每一等 cast range 都是 0。推導成 enemy_point，但執行端只在 cast range 內找目標，而且 bot_auto_policies 本來就不收 range 0 的 enemy_point。另外 bot_auto_policies 只收有 pulses_key 的引導技，這招沒有。
+  2. 最期一生是任意距離的友方英雄 unit 技，推導成 ally_engage（proposed），執行端沒有這個意圖。
+- **通用修正**：
+  - 執行端新增 `GlobalEnemyPoint {radius_key, min_targets}`：每一等 range 都必須是 0，對範圍內敵方英雄最多的已揭露敵方英雄施放，不限距離，同數量取近的。
+  - 執行端新增 `AllyEngage {threat_radius}`：對另一個友方英雄施放，條件是那個英雄附近 threat_radius 內有已揭露的敵方英雄，優先選血量比例最低的。range 0 不限距離，range 大於 0 時只找射程內的。施法者自己不算。
+  - bot_auto_policies 支援這兩個 kind，並改成只排除帶 recovery_channel_self 效果的引導技，執行端本來就會等引導結束。
+  - 線 A 在 v3_bot.lua 推導 global_enemy_point（point 技、文件沒寫 target.range、有 aoe_radius），並拿掉 ally_engage 的 proposed。
+- **測試**：`any_distance_ultimates_aim_at_disclosed_heroes_e387`。
+- **避免**：range 0 在 v3 代表「任意距離」或「射程寫在運算式裡（跳躍）」，推導時要明確選對意圖。執行端驗證要能擋下永遠不會施放的組合。
+
+## E386 （保留）conformance：狀態攻擊觸發造成的傷害（觸發機率、順劈）沒有被檢查（2026-10-31）
+
+## E385 排程效果在兩個 tick 之間到期時延到下一個 tick，0.99 s 的週期在 1 s 狀態內一次都沒打到（2026-10-31，工作線 B）
+- **現象**：工作線 A 回報 a19w_burn（持續 1 s、間隔 0.99 s）、a29e_grip、b33e_web 的週期效果一次都沒打到。
+- **根因**：scheduled_effect::due 原本只收 `remaining <= GRACE` 的列，也就是延遲完全用完的那個 tick 才觸發。0.99 s 在 60 Hz 是 59.4 個 tick，所以到第 60 tick 才觸發。但 1 s 狀態也在第 60 tick 到期，先被移除，週期就沒打到。
+- **通用修正**：due 改成取最近的 tick，`remaining - GRACE` 小於這個 tick dt 的一半就算到期，判斷用 `2 × 剩餘 < dt`，避免定點除法截斷。dispatch 傳入 DeltaTime。剛好落在 tick 上的延遲不受影響：0.25 s 仍是第 15 tick，週期重排也一樣。0.99 s 在 60 Hz 變成第 59 tick，30 Hz 是第 30 tick，120 Hz 是第 119 tick。
+- **測試**：`a_delay_between_ticks_comes_due_in_the_nearest_tick`。原本的 `rows_come_due_once_in_canonical_order` 中 0.45 s（461 raw，每 tick 17 raw）是 27.1 個 tick，期望值從 28 改成 27，也就是最近的 tick。
+- **避免**：秒數換成 tick 時一律取最近的 tick，不要用「延遲完全用完」來判斷。原作的計時器會在到期前那一刻觸發。
+
+## E384 召喚物與小兵身上的狀態圖示沒有揭露給任何一隊（2026-10-31，工作線 B）
+- **現象**：一致性線的 a33_dark_summoning 中，a33w_skeleton_decay（`visibility = "debuff"`、`reveal = "public"`）掛在 a33w_skeleton 召喚物身上時，兩隊的 replica 都沒有這個圖示（icon per team [(1, false), (2, false)]）。這個召喚物這輪才因為召喚物 mana（35a0eaee）成為 content summon，所以之前沒跑到。
+- **根因**：visibility.rs 只對「英雄、有 PlayerOwner、team ≠ 0」的實體揭露 buff_visual_state 元件。召喚物、小兵、中立單位身上的狀態，不論 reveal 怎麼寫，任何一隊都看不到。team_projector 按 reveal 過濾公開／隱藏圖示的邏輯本來就是通用的，只是元件根本沒有產生。
+- **通用修正**：buff 圖示元件改為對所有會戰鬥的單位揭露，條件與 attack／channel visual 相同（英雄、有 Attack 或攻擊狀態的單位）。敵隊照舊只收到 reveal = public 的圖示，擁有隊收到全部。這條路徑上的單位本來就每 tick 送 attack／channel 事件，所以只多了一次編碼，壓力場景的熱路徑沒有新增其他類型的實體。
+- **避免**：「誰看得到狀態」只由 reveal 決定，不要再用實體種類擋住一整類元件。新增可帶狀態的單位種類時，也要讓 conformance 的 observe 檢查跑到它。
 
 ## E383 conformance session 用 taskkill /IM cargo.exe 殺掉全機 cargo，中斷其他 session 的建置（2026-10-31，conformance session）
 

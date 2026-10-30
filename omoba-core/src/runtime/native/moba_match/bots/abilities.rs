@@ -20,6 +20,14 @@ pub enum BotAbilityIntent {
     /// compiled `reach_key` extra (the package's targeting reach) is how far it reaches; aimed at
     /// the disclosed enemy within that reach whose `radius_key` area covers the most enemies.
     LeapEnemyPoint {radius_key:String,reach_key:String,min_targets:u16},
+    /// A point skill cast at any distance (every rank's cast range 0, E387, e.g. C05T 瞬雷閃): aimed
+    /// at the disclosed enemy hero whose `radius_key` area covers the most enemy heroes, at least
+    /// `min_targets`, the nearest first.
+    GlobalEnemyPoint {radius_key:String,min_targets:u16},
+    /// A unit skill on an allied hero joining its fight (E387, e.g. C24R 最期一生): cast on another
+    /// allied hero with a disclosed enemy hero within `threat_radius` of it, the most hurt first;
+    /// within the cast range, or at any distance when every rank's range is 0.
+    AllyEngage {threat_radius:u32},
     /// Actual compiled source-sector geometry; no authored radius/angle-key guess.
     EnemyCone {min_targets:u16},
     /// Actual compiled nonmoving capsule geometry, over disclosed observations.
@@ -225,6 +233,16 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
                     }
                 }
             },
+            BotAbilityIntent::GlobalEnemyPoint {radius_key,min_targets} if def.target_type==TargetTypeC::Point
+                && (1..=128).contains(min_targets) && def.levels.iter().all(|rank|rank.range==Fixed64::ZERO)=>{
+                let Some((_,radii))=def.extras.iter().find(|(key,_)|*key==radius_key) else {return Err("bot global point intent requires compiled radius extras");};
+                if radii.len()!=def.levels.len() || radii.iter().any(|r|*r<=Fixed64::ZERO || *r>Fixed64::from_i32(10_000)) {
+                    return Err("bot global point radius must be positive bounded per-rank data");
+                }
+            },
+            BotAbilityIntent::AllyEngage {threat_radius} if def.target_type==TargetTypeC::Unit
+                && (1..=10_000).contains(threat_radius)
+                && def.levels.iter().all(|rank|rank.range>=Fixed64::ZERO&&rank.range<=Fixed64::from_i32(10_000))=>{},
             BotAbilityIntent::EnemyLine {min_targets} if def.target_type==TargetTypeC::Point
                 && (1..=128).contains(min_targets)
                 && (0..def.levels.len()).all(|rank|line_width(def,rank).is_some_and(|width|width<=Fixed64::from_i32(5_000)))=>{},
@@ -296,7 +314,8 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
         if immobilized && matches!(policy.intent,BotAbilityIntent::ApproachEnemyPoint {..}) {continue;}
         if defer_offense && matches!(policy.intent,BotAbilityIntent::EnemyUnit|BotAbilityIntent::EnemyHero
             |BotAbilityIntent::SelfArea {..}|BotAbilityIntent::SelfEngage {..}
-            |BotAbilityIntent::EnemyPoint {..}|BotAbilityIntent::LeapEnemyPoint {..}|BotAbilityIntent::EnemyCone {..}|BotAbilityIntent::EnemyLine {..}|BotAbilityIntent::ApproachEnemyPoint {..}
+            |BotAbilityIntent::EnemyPoint {..}|BotAbilityIntent::LeapEnemyPoint {..}|BotAbilityIntent::GlobalEnemyPoint {..}
+            |BotAbilityIntent::AllyEngage {..}|BotAbilityIntent::EnemyCone {..}|BotAbilityIntent::EnemyLine {..}|BotAbilityIntent::ApproachEnemyPoint {..}
             |BotAbilityIntent::SummonNearEnemy {..}|BotAbilityIntent::ToggleEngage {..}) {continue;}
         let Some(slot)=hero.abilities.iter().position(|id|id==&policy.ability) else {continue;};
         // Every slot the authority admits (E297: the fifth, e.g. A07 奮起 / B08 無盡牙, was never cast).
@@ -353,6 +372,35 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
                         .then_with(||(a.position-own).length_squared().raw().cmp(&(b.position-own).length_squared().raw()))
                         .then_with(||a.canonical_id.cmp(&b.canonical_id))) else {continue;};
                 Some(unit.canonical_id as u32)
+            }
+            BotAbilityIntent::AllyEngage {threat_radius}=>{
+                if health.hp<=Fixed64::ZERO || seen.len()>512 {continue;}
+                let radius=Fixed64::from_i32(*threat_radius as i32);
+                let fighting=|ally:&SeenUnit|seen.iter().any(|u|u.hp_raw>0 && u.team!=team && u.team!=0 && u.kind==1
+                    && (u.position-ally.position).length_squared()<=radius*radius);
+                // Another allied hero (not the caster itself), in reach, in a disclosed fight.
+                let Some(unit)=seen.iter().filter(|u|u.team==team && team!=0 && u.kind==1 && u.hp_raw>0 && u.max_hp_raw>0
+                    && u.position!=own && (level.range==Fixed64::ZERO || (u.position-own).length_squared()<=level.range*level.range)
+                    && fighting(u))
+                    .min_by(|a,b|(i128::from(a.hp_raw)*i128::from(b.max_hp_raw))
+                        .cmp(&(i128::from(b.hp_raw)*i128::from(a.max_hp_raw)))
+                        .then_with(||(a.position-own).length_squared().raw().cmp(&(b.position-own).length_squared().raw()))
+                        .then_with(||a.canonical_id.cmp(&b.canonical_id))) else {continue;};
+                Some(unit.canonical_id as u32)
+            }
+            BotAbilityIntent::GlobalEnemyPoint {radius_key,min_targets}=>{
+                if health.hp<=Fixed64::ZERO || level.range!=Fixed64::ZERO {continue;}
+                let Some(radius)=def.extras.iter().find(|(key,_)|*key==radius_key).and_then(|(_,radii)|radii.get(rank)).copied() else {continue;};
+                let mut heroes:Vec<_>=seen.iter().filter(enemy).filter(|u|u.kind==1).collect();
+                heroes.sort_by_key(|u|priority(u));
+                heroes.truncate(32);
+                let center=heroes.iter().filter_map(|u|{
+                    let count=heroes.iter().filter(|v|(v.position-u.position).length_squared()<=radius*radius).count();
+                    (count>=usize::from(*min_targets)).then_some((std::cmp::Reverse(count),(u.position-own).length_squared().raw(),u.canonical_id,u.position))
+                }).min_by_key(|(count,distance,id,_)|(*count,*distance,*id));
+                let Some((_,_,_,center))=center else {continue;};
+                let (Ok(x),Ok(y))=(i32::try_from(center.x.raw()),i32::try_from(center.y.raw())) else {continue;};
+                target_pos=Some(crate::runtime::Vec2I {x,y});None
             }
             BotAbilityIntent::SelfHeal {below_hp_per_mille} => {
                 if health.hp<=Fixed64::ZERO || health.mhp<=Fixed64::ZERO
@@ -947,6 +995,37 @@ mod tests {
         let tremor=BotAbilityPolicy {ability:"b29_earth_tremor".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"area_radius".into(),min_targets:1}};
         assert!(validate_policies(&[tremor.clone()]).is_ok());
         assert_eq!(choose(&[at(900)],&tremor).expect("within the cast range").ability_index,3);
+    }
+
+    /// E387: the any-distance ultimates C05T 瞬雷閃 (channeled point) and C24R 最期一生 (ally hero).
+    #[test]
+    fn any_distance_ultimates_aim_at_disclosed_heroes_e387() {
+        let unit=|id:u64,x:i32,team:u32,kind:u8,hp:i64|SeenUnit {canonical_id:(1<<32)|id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
+            team,kind,owner_player_id:id as u32,hp_raw:hp,max_hp_raw:100,threat:Fixed64::ZERO};
+        let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
+        let mut keiji=Hero::new("maeda_keiji".into(),"maeda_keiji".into(),"maeda_keiji".into());
+        keiji.abilities=vec!["c05_flash_thunder".into()];
+        keiji.ability_levels.insert("c05_flash_thunder".into(),1);
+        let thunder=BotAbilityPolicy {ability:"c05_flash_thunder".into(),intent:BotAbilityIntent::GlobalEnemyPoint {radius_key:"radius".into(),min_targets:1}};
+        assert!(validate_policies(&[thunder.clone()]).is_ok());
+        assert!(validate_policies(&[BotAbilityPolicy {intent:BotAbilityIntent::GlobalEnemyPoint {radius_key:"missing".into(),min_targets:1},..thunder.clone()}]).is_err());
+        // A cast-range skill is not an any-distance one.
+        assert!(validate_policies(&[BotAbilityPolicy {ability:"b29_earth_tremor".into(),
+            intent:BotAbilityIntent::GlobalEnemyPoint {radius_key:"area_radius".into(),min_targets:1}}]).is_err());
+        let cast=choose_cast(&keiji,BotRole::Top,1,Vec2::ZERO,&health,
+            &[unit(5,3000,2,2,100),unit(6,5000,2,1,100),unit(7,5400,2,1,100),unit(8,4000,2,1,100)],&[thunder.clone()]).expect("a far enemy hero");
+        assert_eq!(cast.target_pos.unwrap().x,Fixed64::from_i32(5000).raw() as i32,"the hero whose area covers two");
+        assert!(choose_cast(&keiji,BotRole::Top,1,Vec2::ZERO,&health,&[unit(5,300,2,2,100)],&[thunder]).is_none(),"creeps alone: no");
+        let mut muneyoshi=Hero::new("yagyu_muneyoshi".into(),"yagyu_muneyoshi".into(),"yagyu_muneyoshi".into());
+        muneyoshi.abilities=vec!["c24_last_life".into()];
+        muneyoshi.ability_levels.insert("c24_last_life".into(),1);
+        let life=BotAbilityPolicy {ability:"c24_last_life".into(),intent:BotAbilityIntent::AllyEngage {threat_radius:900}};
+        assert!(validate_policies(&[life.clone()]).is_ok());
+        let choose=|seen:&[SeenUnit]|choose_cast(&muneyoshi,BotRole::Top,1,Vec2::ZERO,&health,seen,&[life.clone()]);
+        assert!(choose(&[unit(1,6000,1,1,30)]).is_none(),"an ally out of any fight");
+        assert!(choose(&[unit(0,0,1,1,30),unit(9,500,2,1,100)]).is_none(),"the caster itself");
+        let cast=choose(&[unit(1,6000,1,1,80),unit(2,-7000,1,1,40),unit(9,6500,2,1,100),unit(10,-7200,2,1,100)]).expect("an ally in a fight");
+        assert_eq!(cast.target_entity,Some(((1u64<<32)|2) as u32),"the most hurt ally, at any distance");
     }
 
     #[test]

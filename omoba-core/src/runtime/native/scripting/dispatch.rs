@@ -936,7 +936,8 @@ fn dispatch_delayed_effects(world: &mut World, registry: &ScriptRegistry, rng_se
 /// reschedules the same step. Paused worlds resolve nothing; a dead owner has no rows left.
 fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, ordinal_base: u64) {
     if world.read_resource::<crate::comp::GamePause>().is_paused { return; }
-    let due = super::super::scheduled_effect::due(&world.read_resource::<crate::runtime::BuffStore>());
+    let dt = world.read_resource::<crate::comp::DeltaTime>().0;
+    let due = super::super::scheduled_effect::due(&world.read_resource::<crate::runtime::BuffStore>(), dt);
     if due.is_empty() {
         return;
     }

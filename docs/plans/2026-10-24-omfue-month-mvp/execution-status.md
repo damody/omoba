@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：非英雄單位的狀態圖示、排程效果取最近 tick、任意距離大招的 bot 意圖（E384、E385、E387）
+
+- E384：buff_visual_state 圖示元件改為對所有會戰鬥的單位揭露（召喚物、小兵、中立），敵隊只看到 reveal = public 的圖示。修正 a33w_skeleton_decay 兩隊都看不到圖示的問題。
+- E385：scheduled_effect::due 改為取最近的 tick（剩餘不到半個 dt 就算到期）。0.99 s 間隔在 1 s 狀態內，於 60 Hz 第 59 tick 觸發，修正 a19w_burn／a29e_grip／b33e_web 一次都沒打到的問題。
+- E387：bot 執行端新增 `GlobalEnemyPoint`（瞬雷閃）與 `AllyEngage`（最期一生）。bot_auto_policies 支援這兩個 kind，引導技只排除 recovery 引導。推導端由線 A 在 v3_bot.lua 負責。
+- 測試：omoba-core lib 1450 個全部通過；base_content `v3_conformance::a33` 通過；新增測試 `a_delay_between_ticks_comes_due_in_the_nearest_tick`、`any_distance_ultimates_aim_at_disclosed_heroes_e387`。
 ## 2026-10-31 線 B：英雄死亡後，hero 範圍的狀態變數仍留在屍體上可讀（E380）
 
 - `unit_var::retire`：英雄死亡時清掉屍體上的其他列，hero 變數保留到屍體被移除；同時照舊存進 slot，供復活時使用。

@@ -111,18 +111,22 @@ pub fn admitted(buffs: &BuffStore, target: Entity, buff_id: &str, duration: Fixe
             || buffs.iter_for(target).filter(|(id, _)| id.starts_with(PREFIX)).count() < MAX_PER_OWNER)
 }
 
-/// The rows whose delay has passed, in canonical (owner, buff id) order. The script dispatch runs
-/// after this tick's `buff_tick`, so `remaining` already counts this tick: a row added in tick N
-/// with a delay of k ticks comes due in tick N + k (a 0.25 s period is 15 ticks at 60 Hz, also
-/// when `on_scheduled` reschedules itself). The caller removes them and resolves each once.
-pub fn due(buffs: &BuffStore) -> Vec<(Entity, String, Spec)> {
+/// The rows whose delay has passed, to the nearest tick (less than half of this tick's `dt` left),
+/// in canonical (owner, buff id) order. The script dispatch runs after this tick's `buff_tick`, so
+/// `remaining` already counts this tick: a row added in tick N with a delay of k ticks comes due in
+/// tick N + k (a 0.25 s period is 15 ticks at 60 Hz, also when `on_scheduled` reschedules itself).
+/// A delay between ticks rounds to the nearest: 原作's `duration 1` with `interval 0.99` pulses
+/// once, in the tick before the 1 s status expires (59 at 60 Hz), not in the tick it expires.
+/// The caller removes them and resolves each once.
+pub fn due(buffs: &BuffStore, dt: Fixed64) -> Vec<(Entity, String, Spec)> {
+
     let mut owners: Vec<Entity> = buffs.entities_with_key(KEY).collect();
     owners.sort_by_key(|e| (e.id(), e.gen().id()));
     owners.dedup();
     let mut out = Vec::new();
     for owner in owners {
         let mut rows: Vec<(String, Spec)> = buffs.iter_for(owner)
-            .filter(|(_, b)| b.remaining <= GRACE)
+            .filter(|(_, b)| b.remaining <= GRACE || (b.remaining - GRACE) + (b.remaining - GRACE) < dt)
             .filter_map(|(id, b)| Spec::from_buff(id, &b.payload).map(|s| (id.to_owned(), s)))
             .collect();
         rows.sort_by(|a, b| a.0.cmp(&b.0));
@@ -197,15 +201,15 @@ mod tests {
         // One tick: buff_tick, then the script dispatch.
         let fired = loop {
             assert!(buffs.tick(tick).is_empty(), "the grace keeps every row until the dispatch takes it");
-            let due = due(&buffs);
+            let due = due(&buffs, tick);
             ticks += 1;
             if !due.is_empty() { break due; }
         };
-        assert_eq!(ticks, 28, "fires on the tick whose end reaches the delay (0.45 s at 60 Hz)");
+        assert_eq!(ticks, 27, "fires on the tick nearest the delay (0.45 s at 60 Hz: 27.1 ticks)");
         let order: Vec<_> = fired.iter().map(|(e, _, s)| (*e, s.instance)).collect();
         assert_eq!(order, vec![(a, 3), (a, 9), (b, 2)]);
         for (owner, id, _) in &fired { buffs.remove(*owner, id); }
-        assert!(due(&buffs).is_empty(), "never twice");
+        assert!(due(&buffs, tick).is_empty(), "never twice");
         assert!(buffs.has(a, &spec(4, 1).buff_id()), "the later row waits");
     }
 
@@ -225,13 +229,33 @@ mod tests {
             for tick in 1..=4 * period {
                 let dt = Fixed64::from_raw((tick * 1024 / hz - (tick - 1) * 1024 / hz) as i64);
                 buffs.tick(dt);
-                for (holder, id, _) in due(&buffs) {
+                for (holder, id, _) in due(&buffs, dt) {
                     buffs.remove(holder, &id);
                     fired.push(tick);
                     buffs.add(owner, &s.buff_id(), Spec::lifetime(interval), s.payload());
                 }
             }
             assert_eq!(fired, (1..=4).map(|n| n * period).collect::<Vec<_>>(), "{hz} Hz");
+        }
+    }
+
+    /// 原作 `duration 1, interval 0.99`: the pulse rounds to the nearest tick, the one before the
+    /// status's last (E385).
+    #[test]
+    fn a_delay_between_ticks_comes_due_in_the_nearest_tick() {
+        for (hz, expected) in [(60, 59), (30, 30), (120, 119)] {
+            let mut world = World::new();
+            let owner = world.create_entity().build();
+            let mut buffs = BuffStore::new();
+            let s = spec(1, 4);
+            buffs.add(owner, &s.buff_id(), Spec::lifetime(Fixed64::from_raw(1014)), s.payload());
+            let mut fired = None;
+            for tick in 1..=2 * hz {
+                let dt = Fixed64::from_raw((tick * 1024 / hz - (tick - 1) * 1024 / hz) as i64);
+                buffs.tick(dt);
+                if fired.is_none() && !due(&buffs, dt).is_empty() { fired = Some(tick); }
+            }
+            assert_eq!(fired, Some(expected), "0.99 s at {hz} Hz");
         }
     }
 }

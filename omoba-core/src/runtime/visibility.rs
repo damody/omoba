@@ -1381,8 +1381,9 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 disclosed.push((crate::runtime::attack_visual_state::SCHEMA_ID, state.encode().expect("bounded resolved attack timing")));
                 let channel = channels.get(&canonical_id).copied().unwrap_or_default();
                 disclosed.push((crate::runtime::channel_visual_state::SCHEMA_ID, channel.encode()));
-            }
-            if moba && heroes.get(entity).is_some() && owners.get(entity).is_some() && team != 0 {
+                // Status icons: every fighting unit shows its own (原作 a summon's or a creep's
+                // debuff is on its portrait too, E384); the team projector keeps the hidden ones
+                // to the owner team.
                 let state=buffs.as_ref().map(|store|crate::runtime::buff_visual_state::BuffVisualSnapshot::from_store(store,entity))
                     .unwrap_or(crate::runtime::buff_visual_state::BuffVisualSnapshot {buffs:crate::runtime::buff_visual_state::BuffVisualState(vec![]),channel_totals:vec![]});
                 disclosed.push((crate::runtime::buff_visual_state::SCHEMA_ID,state.encode().expect("bounded generated buff IDs")));
