@@ -1493,10 +1493,12 @@ end
 function Gen:aura_arm(key, a, owner)
   local types = SELECT_TYPES[types_key(a.types)]
   if not types then self:block("aura.types:" .. types_key(a.types)); types = "All" end
-  local mi, inv, hid = false, false, false
+  local mi, inv, hid, ill = false, false, false, false
   for _, f in ipairs(a.flags or {}) do
     if f == "include_magic_immune" then mi = true elseif f == "include_invulnerable" then inv = true
     elseif f == "include_hidden" then hid = true
+    -- include_illusions: Select.include_illusions (a hero aura also reaches illusions)
+    elseif f == "include_illusions" then ill = true
     else self:block("aura.flag:" .. f) end
   end
   if type(a.include_self) ~= "boolean" and a.include_self ~= nil then self:block("aura.include_self of an expression") end
@@ -1510,9 +1512,9 @@ function Gen:aura_arm(key, a, owner)
   local apply = so and self:action({ op = "apply_status", to = "it", status = a.status, __aura = true,
     __dur = "(" .. linger .. ") + ability_kit::AURA_PERIOD" }, ctx, "        ") or ""
   local fn = string.format("/// aura `%s`: the host's receivers this pulse.\nfn aura_%s(cx: &mut Cx<'_, '_>, receivers: &[EntityHandle]) -> Res {\n"
-    .. "    let aura_select = Select { types: UnitTypes::%s, include_magic_immune: %s, include_invulnerable: %s, include_hidden: %s };\n"
+    .. "    let aura_select = Select { types: UnitTypes::%s, include_magic_immune: %s, include_invulnerable: %s, include_hidden: %s, include_illusions: %s };\n"
     .. "    for &%s in receivers {\n        if !cx.admits(%s, aura_select) { continue; }\n%s%s    }\n    Ok(())\n}\n",
-    key, key, types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false", it, it,
+    key, key, types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false", ill and "true" or "false", it, it,
     where and ("        if !(" .. where .. ") { continue; }\n") or "", apply)
   return { key = key, fn = fn }
 end
@@ -2108,11 +2110,13 @@ function Gen:action(a, ctx, ind)
     if s.team ~= "enemy" and not team_kind then self:block("selector.team:" .. tostring(s.team)) end
     local types = SELECT_TYPES[types_key(s.types)]
     if not types then self:block("selector.types:" .. types_key(s.types)); types = "All" end
-    local mi, inv, hid = false, false, false
+    local mi, inv, hid, ill = false, false, false, false
     for _, f in ipairs(s.flags or {}) do
       if f == "include_magic_immune" then mi = true elseif f == "include_invulnerable" then inv = true
       -- include_hidden: Select.include_hidden (ability_kit hidden_excluded: no hidden state in the host yet)
       elseif f == "include_hidden" then hid = true
+      -- include_illusions: Select.include_illusions (a hero selection also takes illusions)
+      elseif f == "include_illusions" then ill = true
       -- visible_only: enemies_in_circle already takes the caster team's disclosed units
       elseif f ~= "include_untargetable" and f ~= "visible_only" then self:block("selector.flag:" .. f) end
     end
@@ -2135,10 +2139,10 @@ function Gen:action(a, ctx, ind)
       .. (exclude and line("    let excluded = " .. exclude .. ";") or "")
       .. (origin and line("    let origin = " .. origin .. ";") or "")
       .. (team_kind
-        and line(string.format("    let %sunits = cx.units_in_circle(center, radius, %s, Select { types: UnitTypes::%s, include_magic_immune: %s, include_invulnerable: %s, include_hidden: %s });",
-          (nearest or random) and "mut " or "", rust_str(team_kind), types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false"))
-        or line(string.format("    let %sunits = cx.enemies_in_circle(center, radius, Select { types: UnitTypes::%s, include_magic_immune: %s, include_invulnerable: %s, include_hidden: %s });",
-          (nearest or random) and "mut " or "", types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false")))
+        and line(string.format("    let %sunits = cx.units_in_circle(center, radius, %s, Select { types: UnitTypes::%s, include_magic_immune: %s, include_invulnerable: %s, include_hidden: %s, include_illusions: %s });",
+          (nearest or random) and "mut " or "", rust_str(team_kind), types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false", ill and "true" or "false"))
+        or line(string.format("    let %sunits = cx.enemies_in_circle(center, radius, Select { types: UnitTypes::%s, include_magic_immune: %s, include_invulnerable: %s, include_hidden: %s, include_illusions: %s });",
+          (nearest or random) and "mut " or "", types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false", ill and "true" or "false")))
       .. (nearest and line("    cx.nearest_first(&mut units, " .. (origin and "origin" or "center") .. ");") or "")
       .. (farthest and line("    units.reverse();") or "")
       .. (random and line("    cx.shuffle(&mut units);") or "")

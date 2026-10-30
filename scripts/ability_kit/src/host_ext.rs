@@ -486,7 +486,7 @@ impl Cx<'_, '_> {
         let caster = self.caster;
         let mut units: Vec<EntityHandle> = self.units_in_range(center, radius, caster, team).into_iter()
             .filter(|e| self.alive(*e))
-            .filter(|e| self.of_types(*e, select.types))
+            .filter(|e| self.of_select(*e, select))
             .filter(|e| select.include_invulnerable || !self.world.has_buff(*e, RStr::from_str("invulnerable")))
             .filter(|e| select.include_hidden || !crate::codegen::hidden_excluded(*e))
             .collect();

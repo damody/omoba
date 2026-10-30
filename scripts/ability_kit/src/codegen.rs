@@ -79,6 +79,9 @@ pub struct Select {
     /// v3 flag `include_hidden`: also units in the `hidden` state. The host has no `hidden` state
     /// yet, so nothing is excluded either way (`hidden_excluded`); a hidden state joins here.
     pub include_hidden: bool,
+    /// v3 flag `include_illusions`: a `hero` selection also takes illusions (omoba-core state
+    /// `illusion`); without it an illusion is no hero (it is a summon).
+    pub include_illusions: bool,
 }
 
 /// Whether a selector without `include_hidden` leaves `unit` out for the `hidden` state. The host
@@ -386,6 +389,11 @@ impl<'a, 'w> Cx<'a, 'w> {
         Vec2::new(omoba_sim::trig::cos(a), omoba_sim::trig::sin(a))
     }
     /// Whether `u` is of the unit classes `types` names.
+    /// `select`'s classes: its types, and an illusion for heroes with `include_illusions`.
+    pub fn of_select(&self, u: EntityHandle, select: Select) -> bool {
+        self.of_types(u, select.types) || (select.include_illusions && select.types == UnitTypes::Heroes
+            && self.world.has_buff(u, RStr::from_str(omoba_core::runtime::native::rules::vocab::state::ILLUSION)))
+    }
     pub fn of_types(&self, u: EntityHandle, types: UnitTypes) -> bool {
         let building = self.world.is_building(u);
         match types {
@@ -404,7 +412,7 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// types, not invulnerable unless included; magic immunity keeps out only the caster's
     /// enemies. v3 `aura` filters the host's receivers with it.
     pub fn admits(&self, u: EntityHandle, select: Select) -> bool {
-        self.alive(u) && self.of_types(u, select.types) && (select.include_invulnerable || !self.world.has_buff(u, RStr::from_str("invulnerable")))
+        self.alive(u) && self.of_select(u, select) && (select.include_invulnerable || !self.world.has_buff(u, RStr::from_str("invulnerable")))
             && (select.include_hidden || !hidden_excluded(u))
             && (select.include_magic_immune || !self.is_magic_immune(u) || !self.is_enemy(self.caster, u))
     }
@@ -478,7 +486,7 @@ impl<'a, 'w> Cx<'a, 'w> {
     pub fn enemies_in_circle(&self, center: Vec2, radius: Fixed64, select: Select) -> Vec<EntityHandle> {
         let mut units: Vec<EntityHandle> = self.world.query_enemies_in_range(center, radius, self.caster).into_iter()
             .filter(|e| *e != self.caster && self.alive(*e))
-            .filter(|e| self.of_types(*e, select.types))
+            .filter(|e| self.of_select(*e, select))
             .filter(|e| select.include_magic_immune || !self.is_magic_immune(*e))
             .filter(|e| select.include_invulnerable || !self.world.has_buff(*e, RStr::from_str("invulnerable")))
             .filter(|e| select.include_hidden || !hidden_excluded(*e))
