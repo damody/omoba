@@ -138,7 +138,7 @@ local function dummy_rows(doc, t, value)
   local function no(what) problems[#problems + 1] = what end
   local known = { id = true, source_id = true, values = true, text = true, notes = true, provenance = true, quirks = true,
     max_level = true, attack = true, vision = true, owner_death = true, ai = true, tags = true, passive = true, stats = true,
-    statuses = true }
+    statuses = true, flying = true }
   for _, k in ipairs(sorted(t)) do if not known[k] then no(k .. " on a dummy") end end
   local sp = statuses_problem(t); if sp then no(sp) end
   local stats = t.stats or {}
@@ -169,6 +169,7 @@ local function dummy_rows(doc, t, value)
     row.armor = num(stats.armor, "stats.armor")
     row.magic_resistance = num(stats.magic_resist, "stats.magic_resist")
     mana_into(row, stats, num, no)
+    if t.flying ~= nil and type(t.flying) ~= "boolean" then no("flying of a " .. type(t.flying)) elseif t.flying then row.flying = true end
     rows[#rows + 1] = row
   end
   local seen, list = {}, {}
@@ -185,7 +186,7 @@ function M.template_rows(doc, t)
   if (not t.attack or t.attack.kind == "none") and (t.ai == "none" or has(t.tags, "dummy")) then return dummy_rows(doc, t, value) end
   local known = { id = true, source_id = true, values = true, text = true, notes = true, provenance = true, quirks = true,
     max_level = true, stats = true, attack = true, bounty = true, vision = true, collision_radius = true,
-    acquisition_range = true, owner_death = true, ai = true, tags = true, passive = true, statuses = true, turn_rate = true }
+    acquisition_range = true, owner_death = true, ai = true, tags = true, passive = true, statuses = true, turn_rate = true, flying = true }
   for _, k in ipairs(sorted(t)) do if not known[k] then no(k) end end
   local sp = statuses_problem(t); if sp then no(sp) end
   local stats = t.stats or {}
@@ -227,6 +228,7 @@ function M.template_rows(doc, t)
     row.move_speed = num(stats.move_speed, "stats.move_speed")
     if row.move_speed == nil then no("stats.move_speed missing") end
     mana_into(row, stats, num, no)
+    if t.flying ~= nil and type(t.flying) ~= "boolean" then no("flying of a " .. type(t.flying)) elseif t.flying then row.flying = true end
     -- one damage per attack: the host's summons hit for `damage` (the mean of a min/max range,
     -- as unit_overrides does); `$base + $per_level * (caster_hero.level - 1)` is the per owner
     -- level growth the host samples at the spawn
