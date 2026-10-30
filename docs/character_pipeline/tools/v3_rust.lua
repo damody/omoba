@@ -1025,8 +1025,12 @@ local ACTION_FIELDS = {
   -- line B's ability_slots (host): an ability named by its id
   set_ability_active = set({ "op", "of", "ability", "active" }),
   swap_abilities = set({ "op", "on", "from", "to", "duration", "cooldown_policy" }),
-  -- force (a forced order) and queue (queued after the current one) are not lowered
-  issue_order = set({ "op", "who", "order", "target", "at" }),
+  -- force: a script's order already is one for a hero (hero_command: no owner restriction or
+  -- taunt refuses it, it clears the queue; line B); queue (after the current one) is not lowered
+  issue_order = set({ "op", "who", "order", "target", "at", "force" }),
+  -- an instant hit of the attacker's own attack (line B perform_attack); `ignore_range` is a no-op
+  -- there, a projectile attack (no `instant`) and an effect multiplier other than 1 wait
+  attack = set({ "op", "attacker", "target", "use_orb", "trigger_effects", "fake", "effect_multiplier", "ignore_range", "instant", "cannot_miss" }),
   create_pickup = set({ "op", "at", "who", "cue", "killable", "on_pickup", "lifetime" }),
   heal = set({ "op", "to", "amount", "source" }),
   restore_mana = set({ "op", "to", "amount", "source" }),
@@ -2265,6 +2269,7 @@ function Gen:action(a, ctx, ind)
       .. line(string.format("    cx.create_pickup(at, gold, %s, %s, %s)?;", rust_str(who), tostring(a.killable == true), lifetime)) .. line("}")
   elseif op == "issue_order" then
     -- as the owner's order (hero_command; only heroes take it); nothing is locked
+    if a.force ~= nil and type(a.force) ~= "boolean" then self:block("action:issue_order.force of an expression"); return "" end
     local who = self:value(a.who, ctx, "unit")
     if a.order == "attack" and a.target ~= nil and a.at == nil then
       self:gap("issue_order: only a hero takes the order")
@@ -2282,6 +2287,18 @@ function Gen:action(a, ctx, ind)
     self:gap("issue_order: only a hero takes the order")
     return line("{") .. line("    let who = " .. who .. ";") .. line("    let at = " .. at .. ";")
       .. line("    cx.order(who, ability_kit::OrderKind::" .. kind .. ", at)?;") .. line("}")
+  elseif op == "attack" then
+    if a.instant ~= true then self:block("action:attack without instant (a projectile attack)"); return "" end
+    if a.effect_multiplier ~= nil and a.effect_multiplier ~= 1 and a.effect_multiplier ~= "1" then self:block("action:attack.effect_multiplier"); return "" end
+    for _, k in ipairs({ "use_orb", "trigger_effects", "fake", "cannot_miss", "ignore_range" }) do
+      if a[k] ~= nil and type(a[k]) ~= "boolean" then self:block("action:attack." .. k .. " of an expression"); return "" end
+    end
+    local function flag(k) return a[k] == true and "true" or "false" end
+    local attacker = self:value(a.attacker, ctx, "unit")
+    local target = self:value(a.target, ctx, "unit")
+    return line("{") .. line("    let attacker = " .. attacker .. ";") .. line("    let target = " .. target .. ";")
+      .. line(string.format("    cx.perform_attack(attacker, target, true, %s, %s, %s, %s, Fixed64::ONE)?;", flag("cannot_miss"), flag("fake"),
+        flag("trigger_effects"), flag("use_orb"))) .. line("}")
   elseif op == "set_ability_active" or op == "swap_abilities" then
     local function id_of(v) return type(v) == "string" and v:match("^[%a_][%w_]*$") and v end
     if op == "set_ability_active" then
@@ -2828,7 +2845,7 @@ local function emit_entry(m, o, opts, status_problems)
     -- marker made with the first copy and removed with the last. The host's own passive hooks
     -- (on_attack_hit, on_ability_executed, on_respawn…) walk learned abilities only, so those wait
     local item = o.kind == "item"
-    if item and ev ~= "on_created" and ev ~= "on_removed" and ev ~= "periodic" and not PASSIVE_EVENTS[ev] then
+    if item and ev ~= "on_created" and ev ~= "on_removed" and ev ~= "periodic" and ev ~= "on_attack_hit" and not PASSIVE_EVENTS[ev] then
       g:block("passive_trigger:" .. ev .. " of an item (no learn marker)")
     elseif not PASSIVE_TRIGGERS[ev] and not (item and ev == "on_removed") then g:block("passive_trigger:" .. ev)
     else
@@ -2874,7 +2891,7 @@ local function emit_entry(m, o, opts, status_problems)
         fns[#fns + 1] = string.format("fn %s(cx: &mut Cx<'_, '_>) -> Res {\n    if !(%s) { return Ok(()); }\n%s    Ok(())\n}\n", ev, filter, body)
         if item and (ev == "on_created" or ev == "on_removed") then
           item_equip[ev] = true
-        elseif item then
+        elseif item and evt then
           item_mask = item_mask + (item_mask & evt[1] == 0 and evt[1] or 0)
           passive_arms[#passive_arms + 1] = { kind = evt[2], fn = ev, pre = pre }
         elseif ev == "on_created" then
