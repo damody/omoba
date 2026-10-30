@@ -163,6 +163,11 @@ local ok, failure = xpcall(function()
     { cwd = b.root, check = false })
   assert(snapshots.exit_code == 0,
     "source snapshot tests failed:\n" .. tostring(snapshots.stdout) .. tostring(snapshots.stderr))
+  -- E357: batch heroes take lanes derived from their data.
+  local lane_roles = process.run(lua, { path.join(b.root, "scripts", "tests", "hero_lane_roles_test.lua") },
+    { cwd = b.root, check = false })
+  assert(lane_roles.exit_code == 0,
+    "hero lane role tests failed:\n" .. tostring(lane_roles.stdout) .. tostring(lane_roles.stderr))
 end, debug.traceback)
 remove_tree(temp)
 if not ok then error(failure) end

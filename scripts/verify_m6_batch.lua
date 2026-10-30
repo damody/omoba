@@ -82,6 +82,8 @@ assert(#group > 0, ('batch %d group %d has no playable hero; not yet playable: %
 
 -- 2. Recipes: the shipped role plan with the group seated (team 1 first, then team 2; seats the group
 -- does not fill keep the shipped heroes), on the quick map; policies re-derived for the new seats.
+-- Each team's share of the group takes the lanes its heroes fit best, derived from their data
+-- (E357, hero_lane_roles.lua: attack range, primary attribute, heal / mobility hints, control).
 local output
 if options.output then output = path.absolute(options.output, b.root)
 else output = path.join(b.root, 'target', 'm6-batch', ('batch%d-group%d-%d'):format(options.batch, options.group, os.time())) end
@@ -89,10 +91,30 @@ else output = path.join(b.root, 'target', 'm6-batch', ('batch%d-group%d-%d'):for
 if options.report_only then assert(options.output and path.is_directory(output), '--report-only needs --output of an earlier run')
 else assert(not path.exists(output), 'output must be a new directory: ' .. output) end
 path.mkdir_p(output)
-local function lua_list(list)
-  local quoted = {}
-  for _, v in ipairs(list) do quoted[#quoted + 1] = ('%q'):format(v) end
-  return '{' .. table.concat(quoted, ',') .. '}'
+local lanes = require('hero_lane_roles')
+local seating = {}
+do
+  local shipped = assert(loadfile(path.join(b.root, 'scripts', 'lua_data', 'moba_role_match.lua')))()
+  local next_hero = 1
+  for _, team in ipairs({ 1, 2 }) do
+    local roles = {}
+    for _, player in ipairs(shipped.players) do if player.team_id == team then roles[#roles + 1] = player.role end end
+    local share = {}
+    while #share < #roles and next_hero <= #group do share[#share + 1] = group[next_hero]; next_hero = next_hero + 1 end
+    seating[#seating + 1] = lanes.assign(share, roles) or {}
+    for _, role in ipairs(roles) do
+      if seating[#seating][role] then print(('seat: %s lane role %s'):format(seating[#seating][role], role)) end
+    end
+  end
+  assert(next_hero > #group, ('group of %d heroes does not fit the plan seats'):format(#group))
+end
+local function lua_role_map(map)
+  local roles = {}
+  for role in pairs(map) do roles[#roles + 1] = role end
+  table.sort(roles)
+  local parts = {}
+  for _, role in ipairs(roles) do parts[#parts + 1] = ('[%q]=%q'):format(role, map[role]) end
+  return '{' .. table.concat(parts, ',') .. '}'
 end
 local function recipe(name, swap, teamfight)
   local file = path.join(output, name .. '.lua')
@@ -101,16 +123,16 @@ local function recipe(name, swap, teamfight)
 local root = %q
 local plan = assert(loadfile(root .. '/scripts/lua_data/moba_role_match.lua'))()
 plan.map_id = 'three_lane_quick_training'
-local group, swap, teamfight = %s, %s, %s
-local seats = {}
-for _, team in ipairs(swap and {2, 1} or {1, 2}) do
-  for _, player in ipairs(plan.players) do if player.team_id == team then seats[#seats + 1] = player end end
+local seating, swap, teamfight = {%s, %s}, %s, %s
+for order, team in ipairs(swap and {2, 1} or {1, 2}) do
+  for _, player in ipairs(plan.players) do
+    if player.team_id == team and seating[order][player.role] then player.hero = seating[order][player.role] end
+  end
 end
-for i, hero in ipairs(group) do seats[i].hero = hero end
 if teamfight then for _, player in ipairs(plan.players) do player.lane = 'mid' end end
 plan.ability_policies = assert(loadfile(root .. '/scripts/lua_data/bot_auto_policies.lua'))()(plan.ability_policies, plan.players)
 return plan
-]]):format(options.batch, options.group, name, b.root:gsub('\\', '/'), lua_list(group), tostring(swap), tostring(teamfight)), true)
+]]):format(options.batch, options.group, name, b.root:gsub('\\', '/'), lua_role_map(seating[1]), lua_role_map(seating[2]), tostring(swap), tostring(teamfight)), true)
   return file
 end
 local recipes = {

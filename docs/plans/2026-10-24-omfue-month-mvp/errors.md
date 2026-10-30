@@ -4,7 +4,11 @@
 
 ## E358 （保留）沒有 bot 出裝會取得的上架道具從沒被驗證：批次加道具覆蓋模式（2026-10-30）
 
-## E357 （保留）批次英雄依名單順序入座，不看定位：改從資料推導上路、中路、carry、輔助、打野（2026-10-30）
+## E357 批次英雄依名單順序入座，不看定位：改從資料推導上路、中路、carry、輔助、打野（2026-10-30，e187 遊戲模式 session，主 session 要求；已放回 live）
+- **現象**：verify_m6_batch 把批次英雄依名單順序塞進座位（第 1 位上路、第 2 位中路……），近戰力量型可能去 carry，遠程智力型可能去打野；bot 的路線與出裝（依座位定位推導，E336）跟英雄本身不合，平衡數字混進座位造成的偏差。
+- **通用修正**：新增 `scripts/hero_lane_roles.lua`，不寫英雄對照表（D19）。`traits(hero)` 從資料讀：普攻距離（≥400 算遠程）與主屬性（與 templates.lua 一樣由 hero_source_stats 從來源名單套用，v3 測試英雄經 source_stats）；技能標籤取自 authored_heroes 與 v3_test_heroes 的 v3：治療（bot 提示 ally_heal／self_heal）、位移（leap_enemy_point／approach_enemy_point／enemy_line）、控制（施加 debuff 狀態的技能數）。`fit(role, traits)` 給五個定位各一條加權式；`assign(heroes, roles)` 窮舉配對取總分最高（同分依定位順序再依名單順序），少於五位時只占最適合的幾路。verify_m6_batch 把每隊分到的英雄依推導結果坐進對應定位的座位，並印出 `seat: <英雄> lane role <定位>`；teamfight 與換邊 recipe 的行為不變。`scripts/tests/hero_lane_roles_test.lua`（7 項，接進 test_lua_tooling.lua）。
+- **實測**：第 1 組推導為 真田幸村 上路、阿松 中路、伊達政宗 carry、村上義清 輔助、淺井長政 打野。
+- **避免**：座位、路線這類依定位決定的設定，從英雄資料推導，不依名單順序。
 
 ## E356 C15 爆裂箭灼燒照說明文字改成一份，和原作每段火焰各一份不符（2026-10-30，工作線 A）
 
