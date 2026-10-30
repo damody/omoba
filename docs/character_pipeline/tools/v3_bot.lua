@@ -54,6 +54,16 @@ local function value_name(expr)
   return expr:match("^%s*%$([%a_][%w_]*)%s*$")
 end
 
+-- no cast range: none written, or a value 0 at every rank (E366: range 0 is anywhere on the map)
+local function unranged(target, def)
+  if target.range == nil then return true end
+  local name = value_name(target.range)
+  local v = name and def.values and def.values[name]
+  if type(v) ~= "table" or #v == 0 then return false end
+  for _, n in ipairs(v) do if n ~= 0 then return false end end
+  return true
+end
+
 -- every action and selector of a program tree, into the document's routines it calls (once each)
 local function walk(t, on_action, on_selector, doc, seen, owner)
   if type(t) ~= "table" then return end
@@ -139,7 +149,7 @@ function M.derive(def, kind_of_entry, doc)
     -- E281: a channel aimed at a point hits the area there (the bot waits for the channel)
     local channel_area = (target.type == "point") and value_name(target.aoe_radius)
     if channel_area and not f.heal_self then
-      return { kind = target.range == nil and "global_enemy_point" or "enemy_point", radius_key = channel_area, min_targets = D.min_targets }
+      return { kind = unranged(target, def) and "global_enemy_point" or "enemy_point", radius_key = channel_area, min_targets = D.min_targets }
     end
     if f.heal_self then return { kind = "self_channel_recovery", below_hp_per_mille = D.heal_below, threat_radius = D.threat } end
     for _, s in ipairs(f.selectors) do
@@ -170,7 +180,7 @@ function M.derive(def, kind_of_entry, doc)
     if f.move and not f.damage then return { kind = "approach_enemy_point", min_distance = D.approach } end
     local area = value_name(target.aoe_radius)
     -- no cast range (range 0, E366): anywhere on the map
-    if area then return { kind = target.range == nil and "global_enemy_point" or "enemy_point", radius_key = area, min_targets = D.min_targets } end
+    if area then return { kind = unranged(target, def) and "global_enemy_point" or "enemy_point", radius_key = area, min_targets = D.min_targets } end
     for _, s in ipairs(f.selectors) do
       if s.shape == "cone" then return { kind = "enemy_cone", min_targets = D.min_targets } end
       -- line_width / line_width_scale: the value the line's width is (scaled), for the row's
@@ -181,7 +191,7 @@ function M.derive(def, kind_of_entry, doc)
     end
     for _, s in ipairs(f.selectors) do
       local r = value_name(s.radius)
-      if s.shape == "circle" and r then return { kind = "enemy_point", radius_key = r, min_targets = D.min_targets } end
+      if s.shape == "circle" and r then return { kind = unranged(target, def) and "global_enemy_point" or "enemy_point", radius_key = r, min_targets = D.min_targets } end
     end
     if f.summon then return { kind = "summon_near_enemy", threat_radius = D.threat } end
     if f.move then return { kind = "approach_enemy_point", min_distance = D.approach } end
@@ -200,7 +210,8 @@ function M.derive(def, kind_of_entry, doc)
     return { kind = "self_recovery", below_hp_per_mille = 0, below_mana_per_mille = D.mana_below, restore_key = f.mana }
   end
   if f.heal_self and not f.damage then return { kind = "self_heal", below_hp_per_mille = D.heal_below } end
-  if f.summon then return { kind = "summon_near_enemy", threat_radius = D.threat } end
+  -- a summon without a target point (C02 phantom_move, B18 earth_claw): cast near a fight
+  if f.summon then return { kind = "self_engage", threat_radius = D.engage, note = "no-target summon" } end
   for _, s in ipairs(f.selectors) do
     local r = value_name(s.radius)
     local around_caster = s.from == nil or s.from == "caster" or s.from == "self"

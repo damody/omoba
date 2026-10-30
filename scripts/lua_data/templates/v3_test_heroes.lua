@@ -219,7 +219,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -4692,7 +4692,7 @@ local data = {
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
+        bot = { kind = "global_enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -27042,7 +27042,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "mana_cost", value = "mana_cost" },
@@ -29910,7 +29910,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -33471,7 +33471,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -38651,7 +38651,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -39762,7 +39762,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -54284,7 +54284,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -56135,7 +56135,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -59081,7 +59081,7 @@ local data = {
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune", "can_target_buildings" },
-        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -61536,7 +61536,7 @@ local data = {
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -62894,7 +62894,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -66188,7 +66188,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "effect_range" },
