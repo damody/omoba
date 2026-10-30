@@ -12,7 +12,7 @@
 //!   (原作 SetHealth).
 use omoba_sim::Fixed64;
 use serde_json::{json, Value};
-use specs::{Entity, World, WorldExt};
+use specs::{Component, DenseVecStorage, Entity, World, WorldExt};
 
 pub const KEY: &str = "__hero_command_v1";
 pub const BUFF: &str = "__hero_command";
@@ -149,10 +149,56 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, payload: &Value) 
     }
 }
 
-/// The hero `unit` drops what it was doing and takes the order (stop: nothing queued).
+/// A summon's ordered attack (E412; summons, illusions and dummies take `issue_order` too):
+/// summon_tick moves it toward the target until the target is in its attack range, and the
+/// `summon_target` row makes the target its preferred one. Authority state, never replicated (the
+/// summon's pose is a committed fact).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[storage(DenseVecStorage)]
+pub struct OrderedAttack(pub Entity);
+
+enum SummonOrder { Clear, MoveTo(omoba_sim::Vec2), Attack(Entity) }
+
+/// A living summon drops its orders (move, ordered attack, assigned target) and takes this one;
+/// an immobile one takes no move. Its own AI goes on: it still attacks what is in range, so an
+/// attack-move is a move (原作 a unit's attack-move acquires on the way; a summon's AI already does).
+fn summon_order(world: &mut World, unit: Entity, order: SummonOrder) -> bool {
+    use super::comp::{CProperty, MoveTarget, SummonedUnit};
+    let Some(immobile) = world.read_storage::<SummonedUnit>().get(unit).filter(|s| !s.is_expired()).map(|s| s.immobile) else { return false };
+    if world.read_storage::<CProperty>().get(unit).is_none_or(|p| p.hp <= Fixed64::ZERO) { return false; }
+    if immobile && matches!(order, SummonOrder::MoveTo(_)) { return false; }
+    if !world.has_value::<specs::storage::MaskedStorage<OrderedAttack>>() { world.register::<OrderedAttack>(); }
+    world.write_storage::<OrderedAttack>().remove(unit);
+    world.write_storage::<MoveTarget>().remove(unit);
+    world.write_resource::<crate::runtime::BuffStore>().remove(unit, omb_script_abi::buff_ids::SUMMON_TARGET_BUFF);
+    if let Some(summon) = world.write_storage::<SummonedUnit>().get_mut(unit) {
+        let navigation = &mut summon.navigation;
+        navigation.auto_target = None; navigation.destination = None; navigation.waypoint = None; navigation.replan_in = Fixed64::ZERO;
+    }
+    super::game_processor::interrupt_attack_for_accepted_command(world, unit);
+    match order {
+        SummonOrder::Clear => {}
+        SummonOrder::MoveTo(at) => { let _ = world.write_storage::<MoveTarget>().insert(unit, MoveTarget(at)); }
+        SummonOrder::Attack(target) => {
+            world.write_resource::<crate::runtime::BuffStore>().add(unit, omb_script_abi::buff_ids::SUMMON_TARGET_BUFF,
+                Fixed64::from_raw(i64::MAX), json!({ (omb_script_abi::buff_ids::SUMMON_TARGET_BUFF): [target.id(), target.gen().id()] }));
+            if !immobile { let _ = world.write_storage::<OrderedAttack>().insert(unit, OrderedAttack(target)); }
+        }
+    }
+    true
+}
+
+/// The hero `unit` drops what it was doing and takes the order (stop: nothing queued); a summon
+/// takes it as [`summon_order`].
 fn order(world: &mut World, unit: Entity, kind: OrderKind, (x, y): (i32, i32)) -> bool {
     use super::comp::{HeroCommand, HeroCommandQueue};
-    if world.read_storage::<super::comp::Hero>().get(unit).is_none() { return false; }
+    if world.read_storage::<super::comp::Hero>().get(unit).is_none() {
+        let at = omoba_sim::Vec2::new(Fixed64::from_raw(i64::from(x)), Fixed64::from_raw(i64::from(y)));
+        return summon_order(world, unit, match kind {
+            OrderKind::Stop | OrderKind::Hold => SummonOrder::Clear,
+            OrderKind::Move | OrderKind::AttackMove => SummonOrder::MoveTo(at),
+        });
+    }
     super::game_processor::clear_hero_command_queue(world, unit);
     super::cast_windup::cancel(world, unit);
     super::game_processor::interrupt_attack_for_accepted_command(world, unit);
@@ -175,7 +221,7 @@ fn order_attack(world: &mut World, unit: Entity, id: u32, gen: i32) -> bool {
     use super::comp::{HeroCommand, HeroCommandQueue};
     let attackee = world.entities().entity(id);
     if attackee.gen().id() != gen || !world.entities().is_alive(attackee) || attackee == unit { return false; }
-    if world.read_storage::<super::comp::Hero>().get(unit).is_none() { return false; }
+    if world.read_storage::<super::comp::Hero>().get(unit).is_none() { return summon_order(world, unit, SummonOrder::Attack(attackee)); }
     super::game_processor::clear_hero_command_queue(world, unit);
     super::cast_windup::cancel(world, unit);
     super::game_processor::interrupt_attack_for_accepted_command(world, unit);

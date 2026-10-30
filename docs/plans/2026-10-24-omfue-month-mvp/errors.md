@@ -2,6 +2,27 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E416 （保留）召喚施法的 settlement 擋下 spawn 之前對敵方單位的 AddBuff：b11_crow_raid 每次 SettlementRefused（2026-10-31）
+
+## E415 （保留）periodic 情境的命中次數照該等級狀態的 duration 算（到期那個 tick 的命中不算）（2026-10-31）
+
+## E414 （保留）pulse channel 不跑 execute：hero-only 的 channel 技能可以對小兵施放（c04_witch_dance）（2026-10-31）
+
+## E413 （保留）script dispatch 在沒有事件與腳本單位的 tick 提早 return：光環 clock 不前進，B12 光環只 pulse 一次（2026-10-31）
+
+## E412 issue_order 只有英雄會接受：召喚物、分身、dummy 的命令靜默失效（2026-10-31，工作線 B）
+- **現象**：工作線 A 已產生 24 招對召喚物、分身或 dummy 下 `issue_order` 的技能，例如 c02_mirage_strike／phantom_move／kyoka_suigetsu、b30_flash_strike、b35_hiten、b14_iai_slash／shadow_tactics、c23_gift_of_death、b11_crow_raid、c18_chain_stratagem、b18_earth_claw、b27_mighty_strike、c19_surprise_raid、a30_wolf_mark、c14_fire_curse、c22_ganryu、a27_unstoppable_advance、a35_scorching_fire、c07_storm_move、c11_raikiri／c11_unrivaled、b32_divine_slash、b19_kuruma_gakari。對這些單位下的命令在 host 都不生效，也沒有任何錯誤。
+- **根因**：`hero_command::order`／`order_attack` 遇到沒有 `Hero` 元件的單位就直接回傳 false。召喚物（分身與 dummy 也是召喚物）本來有主人移動命令（`MoveTarget`，summon_orders）與指定目標（`summon_target` 列），但腳本的命令沒有接到這兩條路。
+- **通用修正**：非英雄的召喚物由 `summon_order` 處理。先清掉它目前的命令（移動目標、命令攻擊、指定目標、follow 導航），打斷進行中的攻擊，再接受新命令。
+  - stop／hold：只清除。
+  - move：設定 `MoveTarget`。immobile 的單位不接受。
+  - attack_move：同 move。召喚物的 AI 本來就會攻擊射程內的敵人。
+  - attack：寫入 `summon_target` 列，讓目標成為優先目標；另外加上 host 元件 `OrderedAttack`。summon_tick 讓它追到攻擊射程內再停下給 AI 攻擊，目標死亡或消失就結束；命令期間 follow 規則暫停。
+  - 腳本下的命令不受 command_restriction 限制（那是限制主人的命令）。
+- **測試**：`a_summon_takes_issued_attack_move_and_stop_orders`。
+- **後續**：工作線 A 可以拿掉產生器的 `issue_order: only a hero takes the order` gap。
+- **避免**：host 的命令類 API 不要只認 `Hero`；召喚物、分身、dummy 都是可下命令的單位。
+
 ## E411 產生器以呼叫端技能的等級讀其他技能的值：routine 與跨技能狀態停在呼叫端的 rank（2026-10-31，工作線 A）
 - **現象**：conformance 回報 E388 的 A34：a34_rapid_cooling 學到 r2、r3（ability_levels 2、3 都正確）後，命中英雄時套上的 a34_rapid_cooling_resist_shred，payload 仍然是 magic_resistance_pool −5100，也就是 r1 的 5 點，文件寫的是 5／10／15。急速冷卻主動的冷卻上限（a34t_cap）同樣停在 r1。
 - **根因**：v3_rust 把每個 `$value` 都產生成 `.at(cx.rank)`，而 cx.rank 是正在執行的技能的等級。owner 是 A34T 的 routine `a34t_on_hit` 從寒霜彈、冰山之襲、冰霜之息的命中呼叫，所以 `$shred` 讀到的是寒霜彈的等級。被內嵌到別的技能 step 裡的 routine（A15 的 shadow_windmill 值出現在 moon_assault 的 step）、以及一個技能直接讀另一個技能的值，也都是這樣。影響 29 位英雄的產生碼，包括已經 playable 的。

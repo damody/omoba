@@ -775,6 +775,8 @@ impl StateInitializer {
         ecs.register::<Faction>();
         ecs.register::<PlayerOwner>();
         ecs.register::<SummonedUnit>();
+        // A summon's ordered attack (hero_command, E412), read by summon_tick.
+        ecs.register::<crate::runtime::native::hero_command::OrderedAttack>();
         ecs.register::<CircularVision>();
         // 舊 Ability/AbilityEffect/Skill/SkillEffect 已隨 skill_system 移除。
         ecs.register::<Enemy>();

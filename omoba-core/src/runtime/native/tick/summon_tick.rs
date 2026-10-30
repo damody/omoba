@@ -27,6 +27,8 @@ pub struct SummonTickData<'a> {
     property: ReadStorage<'a, CProperty>,
     pos: WriteStorage<'a, Pos>,
     move_targets: WriteStorage<'a, MoveTarget>,
+    ordered: WriteStorage<'a, crate::runtime::native::hero_command::OrderedAttack>,
+    attacks: ReadStorage<'a, TAttack>,
     facings: WriteStorage<'a, Facing>,
     collision: ReadStorage<'a, CollisionRadius>,
     blocked: Read<'a, BlockedRegions>,
@@ -59,8 +61,25 @@ impl<'a> System<'a> for Sys {
                 data.outcomes.push(Outcome::EntityRemoved {entity});
             }
         }
+        // An ordered attack (hero_command, E412) chases its living target until it is in attack
+        // range, then stands for the AI to attack it; a dead or gone target ends the order.
+        let mut ended=Vec::new();
+        for (entity,summon,ordered) in (&data.entities,&data.summoned,&data.ordered).join() {
+            let target=ordered.0;
+            let goal=(data.entities.is_alive(target) && data.property.get(target).is_some_and(|p|p.hp>Fixed64::ZERO))
+                .then(||data.pos.get(target).map(|p|p.0)).flatten();
+            let (Some(goal),Some(at))=(goal,data.pos.get(entity).map(|p|p.0)) else {ended.push(entity);continue;};
+            if summon.is_expired() || summon.immobile {ended.push(entity);continue;}
+            let base=data.attacks.get(entity).map_or(Fixed64::ZERO,|attack|attack.range.v);
+            let range=crate::runtime::UnitStats::from_refs(&data.buffs,false).final_attack_range(base,entity);
+            if (goal-at).length()>range {let _=data.move_targets.insert(entity,MoveTarget(goal));}
+            else {data.move_targets.remove(entity);}
+        }
+        for entity in ended {data.ordered.remove(entity);data.move_targets.remove(entity);}
         for (entity,summon) in (&data.entities,&mut data.summoned).join() {
             if summon.is_expired() || data.property.get(entity).is_none_or(|p|p.hp<=Fixed64::ZERO) {continue;}
+            // An ordered attack owns its movement; the follow rules wait.
+            if data.ordered.get(entity).is_some() {summon.navigation.auto_target=None;continue;}
             // Fixed emplacements never acquire follow or autonomous destinations.
             if summon.immobile {summon.navigation.auto_target=None;continue;}
             let nav=&mut summon.navigation;
@@ -175,6 +194,37 @@ mod tests {
         assert_eq!(world.read_storage::<Pos>().get(unit).unwrap().0,before);
         assert!(world.read_storage::<MoveTarget>().get(unit).is_none());
     }
+    /// E412: `issue_order` reaches a summon: an attack order chases the target into attack range
+    /// past the follow rules, a move order moves it, a stop clears both.
+    #[test]
+    fn a_summon_takes_issued_attack_move_and_stop_orders() {
+        use crate::runtime::native::hero_command::{self,Command,OrderKind,OrderedAttack};
+        let (mut world,_,unit,mut dispatcher)=fixture();
+        world.write_storage::<TAttack>().insert(unit,TAttack::new(Fixed64::ONE,Fixed64::ONE,Fixed64::from_i32(100),Fixed64::ZERO)).unwrap();
+        let enemy=world.create_entity().with(Pos(omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(600))))
+            .with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        let issue=|world:&mut World,command:Command|assert!(hero_command::apply(world,unit,hero_command::BUFF,&command.payload()));
+        issue(&mut world,Command::OrderAttack {target:(enemy.id(),enemy.gen().id())});
+        assert!(world.read_resource::<crate::runtime::BuffStore>().has(unit,omb_script_abi::buff_ids::SUMMON_TARGET_BUFF));
+        for _ in 0..200 {dispatcher.dispatch(&world);}
+        let at=world.read_storage::<Pos>().get(unit).unwrap().0;
+        let gap=(omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(600))-at).length();
+        assert!(gap<=Fixed64::from_i32(100) && gap>=Fixed64::from_i32(90),"stands in attack range: {gap:?}");
+        assert!(world.read_storage::<SummonedUnit>().get(unit).unwrap().navigation.auto_target.is_none(),"the follow rules wait");
+        world.write_storage::<CProperty>().get_mut(enemy).unwrap().hp=Fixed64::ZERO;
+        dispatcher.dispatch(&world);
+        assert!(world.read_storage::<OrderedAttack>().get(unit).is_none(),"a dead target ends the order");
+        let point=omoba_sim::Vec2::new(Fixed64::from_i32(-300),Fixed64::from_i32(600));
+        issue(&mut world,Command::Order {kind:OrderKind::Move,at:(point.x.raw() as i32,point.y.raw() as i32)});
+        assert_eq!(world.read_storage::<MoveTarget>().get(unit).map(|m|m.0),Some(point));
+        assert!(!world.read_resource::<crate::runtime::BuffStore>().has(unit,omb_script_abi::buff_ids::SUMMON_TARGET_BUFF));
+        issue(&mut world,Command::Order {kind:OrderKind::Stop,at:(0,0)});
+        assert!(world.read_storage::<MoveTarget>().get(unit).is_none());
+        // An immobile summon takes no move.
+        world.write_storage::<SummonedUnit>().get_mut(unit).unwrap().immobile=true;
+        assert!(!hero_command::apply(&mut world,unit,hero_command::BUFF,&Command::Order {kind:OrderKind::Move,at:(0,0)}.payload()));
+    }
+
     #[test]
     fn summon_command_navigation_detours_and_expiry_retires_even_while_returning() {
         let (mut world,_,unit,mut dispatcher)=fixture();
