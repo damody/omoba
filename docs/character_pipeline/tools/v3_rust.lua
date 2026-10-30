@@ -1916,8 +1916,9 @@ function Gen:action(a, ctx, ind)
       if f == "include_magic_immune" then mi = true elseif f == "include_invulnerable" then inv = true
       -- include_hidden: Select.include_hidden (ability_kit hidden_excluded: no hidden state in the host yet)
       elseif f == "include_hidden" then hid = true
-      -- visible_only: enemies_in_circle already takes the caster team's disclosed units
-      elseif f ~= "include_untargetable" and f ~= "visible_only" then self:block("selector.flag:" .. f) end
+      -- visible_only: enemies_in_circle already takes the caster team's disclosed units;
+      -- include_hidden: the host has no hidden state, so a selection never leaves one out (line B)
+      elseif f ~= "include_untargetable" and f ~= "visible_only" and f ~= "include_hidden" then self:block("selector.flag:" .. f) end
     end
     if s.order ~= nil and s.order ~= "id" and s.order ~= "nearest" and s.order ~= "random" then self:block("selector.order:" .. tostring(s.order)) end
     local exclude = s.exclude ~= nil and self:value(s.exclude, ctx, "unit") or nil
