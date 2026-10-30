@@ -169,12 +169,24 @@ end
 M.ABILITY_PLACEHOLDER_FILE='ability-placeholder-v1.png'
 M.ABILITY_RESOURCE_ROOT='/Game/Omoba/UI/Abilities'
 M.ABILITY_SOURCE_DIR='Abilities/Source'
+-- A hero's kit: its loadout, then the abilities of its own package outside the loadout (a v3
+-- `slot = "sub"` ability swapped in by its parent, e.g. a07_rouse_free) — they show in the bar too.
 local function hero_abilities(heroes,abilities)
- local names,order,seen={},{},{}
- for _,row in ipairs(abilities)do names[row.id]=row.display_name end
+ local names,order,seen,by_package={},{},{},{}
+ for _,row in ipairs(abilities)do
+  names[row.id]=row.display_name
+  if row.authored_package then
+   local list=by_package[row.authored_package] or{};by_package[row.authored_package]=list;list[#list+1]=row.id
+  end
+ end
  for _,hero in ipairs(heroes)do
   for _,ability in ipairs(hero.abilities or{})do
    assert(id(ability)and names[ability],'hero '..tostring(hero.id)..' equips unknown ability: '..tostring(ability))
+   if not seen[ability]then seen[ability]=true;order[#order+1]=ability end
+  end
+ end
+ for _,hero in ipairs(heroes)do
+  for _,ability in ipairs(hero.authored_package and by_package[hero.authored_package] or{})do
    if not seen[ability]then seen[ability]=true;order[#order+1]=ability end
   end
  end

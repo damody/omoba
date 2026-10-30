@@ -144,7 +144,7 @@ function M.render(batch, rows)
 end
 
 -- One list of the art every batch still lacks, with what stands in for it now (for the user to decide).
-function M.render_missing(batches)
+function M.render_missing(batches, overridden)
   local out = { "# M6 仍缺的美術（第 1～" .. #batches .. " 批）",
     "",
     "由 `tools\\lua\\lua.exe scripts\\m6_presentation_coverage.lua --missing-art` 產生，不要手改。逐批細節在 `m6-batch<N>-presentation.md`。",
@@ -157,7 +157,8 @@ function M.render_missing(batches)
     "- **技能圖示**：共用佔位圖 `ability-placeholder-v1.png`，由 HUD sync 補上，建置時會印出警告。",
     "- **cue**：依 cue 目錄的 kind 播通用佔位特效（環、圓盤、連線；sound 不畫）。之後可以在 Editor 的 Om Presentation Cues 指定美術。",
     "", }
-  local portraits, icons, cues, referenced, nonvisual = {}, {}, {}, {}, {}
+  local portraits, icons, cues, referenced, nonvisual, styled = {}, {}, {}, {}, {}, {}
+  local built = overridden or {}
   for _, b in ipairs(batches) do
     for _, r in ipairs(b.rows) do
       local who = r.source_id .. " " .. (r.name or "")
@@ -168,7 +169,8 @@ function M.render_missing(batches)
       for _, c in ipairs(r.cues) do
         if not c.art then
           local row = string.format("| %d | %s | `%s` | %s |", b.batch, who, c.id, c.kind)
-          if c.reference then referenced[#referenced + 1] = row
+          if c.reference and built[c.id] then styled[#styled + 1] = row
+          elseif c.reference then referenced[#referenced + 1] = row
           elseif c.kind == "sound" or c.kind == "gesture" then nonvisual[#nonvisual + 1] = row
           else cues[#cues + 1] = row end
         end
@@ -188,8 +190,22 @@ function M.render_missing(batches)
   section("技能圖示（替代：共用佔位圖）", "| 批 | 英雄 | 技能與原因 |", icons)
   section("沒有原作資產的特效 cue（替代：依 kind 的通用佔位特效）", "| 批 | 英雄 | cue | kind |", cues)
   section("沒有原作資產的聲音與動作 cue（不需要參考圖；sound 不畫，gesture 用預設動作）", "| 批 | 英雄 | cue | kind |", nonvisual)
-  section("已有生成參考圖的 cue（遊戲內仍播通用佔位特效，Editor 做特效時參考）", "| 批 | 英雄 | cue | kind |", referenced)
+  section("已有生成參考圖、但還沒有特效的 cue（遊戲內仍播通用佔位特效）", "| 批 | 英雄 | cue | kind |", referenced)
+  section("已依參考圖做出特效的 cue（scripts/cue_vfx.lua 的共用形狀特效，依參考圖上色）", "| 批 | 英雄 | cue | kind |", styled)
   return table.concat(out, "\n") .. "\n"
+end
+
+-- Cues with an effect assigned in Config/DefaultGame.ini (CueOverrides, written by scripts/cue_vfx.lua).
+M.GAME_INI = "omfue/Config/DefaultGame.ini"
+function M.read_overrides()
+  local f = io.open(b.root .. "/" .. M.GAME_INI, "rb")
+  if not f then return {} end
+  local s = f:read("a"); f:close()
+  local out = {}
+  for id, body in s:gmatch('%("([%w_]+)",(%b())%)') do
+    if body:find("Effect=", 1, true) then out[id] = true end
+  end
+  return out
 end
 
 function M.read_generated()
@@ -215,7 +231,7 @@ function M.main(args)
       batches[#batches + 1] = { batch = n, rows = rows }
     end
     local out = "docs/plans/2026-10-28-history-nobu-full-port/m6-missing-art.md"
-    local f = assert(io.open(b.root .. "/" .. out, "wb")); f:write(M.render_missing(batches)); f:close()
+    local f = assert(io.open(b.root .. "/" .. out, "wb")); f:write(M.render_missing(batches, M.read_overrides())); f:close()
     print("wrote " .. out .. " (" .. #batches .. " batches)")
     return 0
   end

@@ -1,6 +1,8 @@
 //! Square icon from an 8-bit or 16-bit PNG of any colour type (build-time import of original
 //! icons and portraits, whose sizes and aspect ratios vary): the centred square crop, resampled
 //! to `edge` pixels (area average when shrinking, bilinear when enlarging), written as RGBA.
+//! With `height` the output is `edge` x `height` instead (the centred crop of that aspect ratio,
+//! e.g. a 2:3 loading card).
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::fs::File;
@@ -79,18 +81,23 @@ pub fn decode(source: &str) -> Result<Rgba, String> {
 
 /// Centred square crop of `image`, resampled to `edge` x `edge`.
 pub fn square(image: &Rgba, edge: u32) -> Vec<u8> {
-    let side = image.width.min(image.height) as f64;
-    let x0 = (image.width as f64 - side) / 2.0;
-    let y0 = (image.height as f64 - side) / 2.0;
-    let scale = side / edge as f64;
+    fit(image, edge, edge)
+}
+
+/// Centred crop of `image` with the aspect ratio `width`:`height`, resampled to that size.
+pub fn fit(image: &Rgba, width: u32, height: u32) -> Vec<u8> {
+    // the largest centred source rectangle with the output's aspect ratio
+    let scale = (image.width as f64 / width as f64).min(image.height as f64 / height as f64);
+    let x0 = (image.width as f64 - width as f64 * scale) / 2.0;
+    let y0 = (image.height as f64 - height as f64 * scale) / 2.0;
     let at = |x: i64, y: i64, c: usize| -> f64 {
         let x = x.clamp(0, image.width as i64 - 1) as usize;
         let y = y.clamp(0, image.height as i64 - 1) as usize;
         image.pixels[(y * image.width as usize + x) * 4 + c] as f64
     };
-    let mut out = Vec::with_capacity(edge as usize * edge as usize * 4);
-    for oy in 0..edge {
-        for ox in 0..edge {
+    let mut out = Vec::with_capacity(width as usize * height as usize * 4);
+    for oy in 0..height {
+        for ox in 0..width {
             let mut rgba = [0.0f64; 4];
             if scale > 1.0 {
                 // area average over the source footprint of this pixel
@@ -143,11 +150,15 @@ pub fn run(params: &Value) -> Result<Value, String> {
     if !(16..=2048).contains(&edge) {
         return Err("edge must be 16..2048".into());
     }
+    let height = match params.get("height") {
+        None => edge,
+        Some(value) => value.as_u64().filter(|h| (16..=4096).contains(h)).ok_or("height must be 16..4096")?,
+    };
     let image = decode(source)?;
-    let pixels = square(&image, edge as u32);
+    let pixels = fit(&image, edge as u32, height as u32);
     {
         let file = File::create(output).map_err(|e| format!("{output}: {e}"))?;
-        let mut encoder = png::Encoder::new(BufWriter::new(file), edge as u32, edge as u32);
+        let mut encoder = png::Encoder::new(BufWriter::new(file), edge as u32, height as u32);
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
         let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
@@ -156,7 +167,7 @@ pub fn run(params: &Value) -> Result<Value, String> {
     let bytes = std::fs::read(output).map_err(|e| e.to_string())?;
     let source_bytes = std::fs::read(source).map_err(|e| e.to_string())?;
     Ok(json!({
-        "source_width": image.width, "source_height": image.height, "edge": edge,
+        "source_width": image.width, "source_height": image.height, "edge": edge, "height": height,
         "source_sha256": format!("{:x}", Sha256::digest(&source_bytes)),
         "output_sha256": format!("{:x}", Sha256::digest(&bytes)), "output_bytes": bytes.len(),
     }))
@@ -177,6 +188,15 @@ mod tests {
         // 4x2: red, green, green, blue columns; the centred square is the two green columns
         let wide = image(4, 2, |x, _| match x { 0 => [255, 0, 0, 255], 3 => [0, 0, 255, 255], _ => [0, 255, 0, 255] });
         let out = square(&wide, 2);
+        assert!(out.chunks_exact(4).all(|p| p == [0, 255, 0, 255]));
+    }
+
+    #[test]
+    fn fits_a_tall_crop_of_the_centre() {
+        // 6x6: red, green x4, blue columns; the centred 2:3 crop (4x6) is all green
+        let square_image = image(6, 6, |x, _| match x { 0 => [255, 0, 0, 255], 5 => [0, 0, 255, 255], _ => [0, 255, 0, 255] });
+        let out = fit(&square_image, 2, 3);
+        assert_eq!(out.len(), 2 * 3 * 4);
         assert!(out.chunks_exact(4).all(|p| p == [0, 255, 0, 255]));
     }
 
