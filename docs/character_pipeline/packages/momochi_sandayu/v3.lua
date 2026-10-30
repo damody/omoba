@@ -87,8 +87,8 @@ return function(ctx)
         cast = { cast_point = "$cast_point" },
         cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
         unit_state = {
-          b13e_wake_armed = { type = "bool", init = "true", reveal = "public", scope = "hero",
-            note = "原作 caster.can_dmg == nil：施放後 0.1 秒內為 false，任何傷害都不會叫醒" },
+          b13e_wake_armed = { type = "bool", init = "true", reveal = "public", scope = "unit",
+            note = "原作 caster.can_dmg == nil：施放後 0.1 秒內為 false，任何傷害都不會叫醒。存在被催眠的目標身上，睡眠的 on_take_damage 以 state 讀自己的（self）" },
         },
         statuses = {
           { id = "b13e_sleep", text = { zh_TW = { name = "催眠", body = "沉睡中，無法行動，敵方會優先攻擊其他單位；受到傷害就會醒來並暈眩 {wake_stun} 秒。" }, en = { name = "Hypnosis", body = "Asleep: cannot act and enemies prefer other targets. Taking damage wakes it up and stuns it for {wake_stun} seconds." } }, duration = "$sleep", stacking = "refresh", dispel = "basic", visibility = "debuff",
@@ -107,17 +107,20 @@ return function(ctx)
         },
         events = {
           on_cast = {
-            { op = "set_state", var = "b13e_wake_armed", value = "false" },
+            { op = "let", name = "victim", value = "target" },
+            { op = "set_state", var = "b13e_wake_armed", value = "false", on = "victim" },
             { op = "cue", id = "b13e_bell_toll", at = "target" },
             { op = "apply_status", status = "b13e_sleep", to = "target" },
             { op = "damage", to = "target", type = "magical", amount = "$cast_damage" },
-            { op = "delay", time = "$wake_grace", actions = {
-              { op = "set_state", var = "b13e_wake_armed", value = "true" },
+            { op = "delay", time = "$wake_grace", capture = { "victim" }, actions = {
+              { op = "set_state", var = "b13e_wake_armed", value = "true", on = "victim" },
             } },
           },
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
+          { policy = "port_adaptation", ref = "vscripts/heroes/B_Unified/B13.lua",
+            text = "原作的 0.1 秒寬限是施法者身上的 can_dmg，對所有睡眠中的目標都有效；移植把寬限旗標記在這次被催眠的目標身上，所以寬限只保護這個目標。前一次催眠的目標在這 0.1 秒內受傷照樣會醒。" },
           { policy = "fixed", ref = "vscripts/heroes/B_Unified/B13.lua:359-367",
             text = "FC-015（D13 修正：受傷的目標自己醒來，不再作用在最後一次催眠的目標）。原作：醒來判定作用在 caster.B13E_old_target（最後一次催眠的目標），不是受到傷害的單位：冷卻縮減或重置讓兩個目標同時沉睡時，打前一個目標會叫醒後一個，前一個繼續睡。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B13.lua:349-356",
