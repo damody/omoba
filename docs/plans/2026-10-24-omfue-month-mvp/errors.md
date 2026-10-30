@@ -2,6 +2,14 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E321 狀態圓環拒收負的 VisualInstanceKey，約一半狀態畫不出來（2026-10-30，history-nobu M6 呈現檢查，工作線 C；已放回 live）
+- **現象**：A07 本多忠勝的 UE spotlight 局裡，戰國最強（a07t_strongest）與奮起（a07d_rouse）都有狀態 cue，卻沒有任何 OM_STATUS_CUE；毫髮無傷（a07w_convert）、赤雷擊減速（a07e_slow）走一般狀態圓環，畫面上也沒有圓環。
+- **根因**：`UOmCombatVisualSubsystem::SyncBuff` 用 `Key<=0` 擋掉無效 key。VisualInstanceKey 是 64 位元雜湊，大約一半是負數，這些狀態的圓環（與沒有美術的狀態 cue）在分配前就被退回，呼叫端照「分配失敗」處理，什麼都不畫。本局 8 個狀態實例中 5 個是負 key。
+- **通用修正**：只有 0 是「沒有 key」，改為 `Key==0`。`Om.Runtime.NativeCombatVfxLifecycle` 新增負 key 的狀態會顯示、移除只收掉它自己的圓環。OnBuffState 對每個狀態實例記一次 `OM_BUFF route=aura|status_cue|ring|channel|off`，`scripts/ue_presentation_report.lua` 依招式列出每個狀態的呈現路徑。
+- **避免**：雜湊值或 id 的「無效值」只用明確的哨兵值（0），不要用正負號判斷；有號整數裝的雜湊本來就會是負的。
+
+## E320 （保留）conformance：M6 第 2 批 9 位接進 harness（尚未進 content 時只報告）（2026-10-30）
+
 ## E319 run_ue 前端建置在最後驗證共用 scripts/base_content.dll，被別的 session 覆蓋就整局失敗（2026-10-30，e187 遊戲模式 session；已放回 live）
 - **現象**：`run_ue.bat` 預設 demo（demo1）建完 UE 前端後失敗：「staged base_content differs from current build; rebuild/stage before launch: scripts\base_content.dll」。這時 scripts/base_content.dll 是 1.9 MB 的 release 版（mtime 13:49），debug 建置與 plugin 副本都是 4.8 MB（14:08／14:10）。
 - **根因**：build_ue_moba 先把 debug 版 stage 到共用的 scripts/base_content.dll 和 plugin，UBT 編完再驗證兩份都等於目前建置。共用那份是其他 session 照 AGENTS.md 的 gen-docs 步驟（`copy /y` release 版）也會寫入的檔案，數分鐘的 UBT 期間被覆蓋，就整個啟動失敗；而 launch 從不讀這份（E124：每局用自己的副本）。
@@ -27,6 +35,7 @@
 - **根因**：報告的施放次數只看 cast trace 的 accepted；Ability fact 有、trace 沒有的施放被當成從未施放，真正的異常（trace 漏記）反而被蓋掉。
 - **通用修正**：施放次數取 trace accepted 與 Ability fact 兩者較大值；兩者不同時 trace 欄附上 `facts N`；fact 有而 trace 沒有標成 `NO TRACE`（異常，交給負責的線），只有兩者都為 0 才是 NEVER CAST，且只有 NEVER CAST 計入「never cast」總數。另外加 `--report-only --output DIR`，從既有的對局報告重出 report.md，不必重跑對局。m6gen3 重出報告：0 個 NEVER CAST，`b08_endless_fang` 為 NO TRACE（facts 4），已交給 B 線查 cast trace 為何沒有記錄這條施放路徑。
 - **避免**：統計「有沒有發生」時，對照兩個獨立來源；來源不一致要顯示成異常，不要選一個來源當真相。
+- **後續（E318）**：B 線查出 trace 沒有漏記，是 moba_headless 的報告用比賽結束時的 `slot.entity` 歸屬 trace 列，英雄每次復活都是新 entity，之前每條命的列全被丟掉。B 修正後以新 omobab 重跑 m6gen3（target/e187/m6gen3b）：9 局全部結束，每招 trace 都有數字、與 facts 相同，0 個 NEVER CAST、0 個 NO TRACE（無盡牙 accepted 4）。
 
 ## E315 hero_author/v3.lua 的 ability_row 缺 v3 目標型別 direction（2026-10-30，工作線 A）
 
