@@ -1999,13 +1999,13 @@ mod tests {
         let mut content = load_content(root).unwrap();
         let before = ContentShape::from_manifest(&content.manifest, &content.stories);
         content.manifest.heroes.iter_mut().find(|hero| hero.id == "training_luminary").unwrap()
-            .common.moba_loadout = omoba_content_model::MobaLoadout { ranks: [0;5], skill_points: 1 };
+            .common.moba_loadout = omoba_content_model::MobaLoadout { ranks: [0;crate::HERO_ABILITY_SLOTS], skill_points: 1 };
         let after = ContentShape::from_manifest(&content.manifest, &content.stories);
         assert!(after.ensure_compatible_with(&before).unwrap_err().contains("MOBA hero loadout changed"));
         let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
         let id = crate::hero_by_name("training_luminary").unwrap();
         let loadout = runtime.hero_stats[usize::from(id.0)].unwrap().moba_loadout;
-        assert_eq!((loadout.ranks,loadout.skill_points),([0;5],1));
+        assert_eq!((loadout.ranks,loadout.skill_points),([0;crate::HERO_ABILITY_SLOTS],1));
         assert!(runtime.validate_moba_catalog().unwrap_err().contains("hero loadout differs"));
     }
 

@@ -1159,26 +1159,27 @@ pub struct HeroDefinition {
 
 /// Q, W, E, R. Every hero has these slots.
 pub const LEGACY_HERO_ABILITY_SLOTS: usize = 4;
-/// Plus the optional extra action slot (D, G-3), e.g. a passive or a level-gated ultimate.
-pub const HERO_ABILITY_SLOTS: usize = 5;
+/// Plus the optional extra action slots D (index 4, G-3: a passive or a level-gated ultimate)
+/// and F (index 5; v3 slot_index 6).
+pub const HERO_ABILITY_SLOTS: usize = 6;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct MobaLoadout {
-    /// Birth rank per slot. Content may list four (the extra slot is then unlearned) or five.
-    #[serde(deserialize_with = "four_or_five_ranks")]
+    /// Birth rank per slot. Content may list four to six; slots it leaves out start unlearned.
+    #[serde(deserialize_with = "four_to_six_ranks")]
     pub ranks: [u8; HERO_ABILITY_SLOTS],
     pub skill_points: u8,
 }
 
 impl Default for MobaLoadout {
-    fn default() -> Self { Self { ranks: [1, 1, 1, 1, 0], skill_points: 0 } }
+    fn default() -> Self { Self { ranks: [1, 1, 1, 1, 0, 0], skill_points: 0 } }
 }
 
-fn four_or_five_ranks<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<[u8; HERO_ABILITY_SLOTS], D::Error> {
+fn four_to_six_ranks<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<[u8; HERO_ABILITY_SLOTS], D::Error> {
     let ranks = Vec::<u8>::deserialize(deserializer)?;
     if !(LEGACY_HERO_ABILITY_SLOTS..=HERO_ABILITY_SLOTS).contains(&ranks.len()) {
-        return Err(serde::de::Error::custom(format!("moba_loadout.ranks needs {LEGACY_HERO_ABILITY_SLOTS} or {HERO_ABILITY_SLOTS} entries, got {}", ranks.len())));
+        return Err(serde::de::Error::custom(format!("moba_loadout.ranks needs {LEGACY_HERO_ABILITY_SLOTS} to {HERO_ABILITY_SLOTS} entries, got {}", ranks.len())));
     }
     let mut padded = [0; HERO_ABILITY_SLOTS];
     padded[..ranks.len()].copy_from_slice(&ranks);
@@ -1537,10 +1538,13 @@ mod tests {
         assert_eq!(legacy.moba_loadout, MobaLoadout::default());
         let unlearned: HeroDefinition = serde_json::from_value(serde_json::json!({"id":"mage",
             "moba_loadout":{"ranks":[0,0,0,0],"skill_points":1}})).unwrap();
-        assert_eq!(unlearned.moba_loadout.ranks, [0;5], "four ranks leave the extra slot unlearned");
+        assert_eq!(unlearned.moba_loadout.ranks, [0;6], "four ranks leave the extra slots unlearned");
         let five: MobaLoadout = serde_json::from_value(serde_json::json!({"ranks":[1,1,1,1,1]})).unwrap();
-        assert_eq!(five.ranks, [1;5]);
-        assert!(serde_json::from_value::<MobaLoadout>(serde_json::json!({"ranks":[0,0,0,0,0,0]})).is_err());
+        assert_eq!(five.ranks, [1,1,1,1,1,0]);
+        let six: MobaLoadout = serde_json::from_value(serde_json::json!({"ranks":[1,1,1,1,1,1]})).unwrap();
+        assert_eq!(six.ranks, [1;6]);
+        assert!(serde_json::from_value::<MobaLoadout>(serde_json::json!({"ranks":[1,1,1,1,1,1,1]})).is_err());
+
         assert_eq!(unlearned.moba_loadout.skill_points, 1);
         for ranks in [serde_json::json!([0,0,0]),serde_json::json!([0,0,0,256]),serde_json::json!([0,0,0,-1])] {
             assert!(serde_json::from_value::<MobaLoadout>(serde_json::json!({"ranks":ranks})).is_err());

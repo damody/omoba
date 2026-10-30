@@ -129,7 +129,7 @@ function M.validate(dir, loaded, opts)
   end
   local loadout = character.moba_loadout
   if loadout ~= nil then
-    if type(loadout) ~= "table" or type(loadout.ranks) ~= "table" or (#loadout.ranks ~= 4 and #loadout.ranks ~= 5) then err("character.moba_loadout.ranks must list 4 or 5 slot ranks")
+    if type(loadout) ~= "table" or type(loadout.ranks) ~= "table" or (#loadout.ranks < 4 or #loadout.ranks > 6) then err("character.moba_loadout.ranks must list 4 to 6 slot ranks")
     else
       for _, r in ipairs(loadout.ranks) do
         if math.type(r) ~= "integer" or r < 0 or r > 255 then err("character.moba_loadout ranks must be integers in 0..255") end
@@ -388,7 +388,7 @@ function M.validate(dir, loaded, opts)
     if ab.auto_learn ~= nil and ab.auto_learn ~= true then err(label .. " auto_learn must be true when present") end
     -- Source SPELL_IMMUNITY_ENEMIES_YES (E184): targets, controls and debuffs magic-immune enemies.
     if ab.pierces_magic_immunity ~= nil and ab.pierces_magic_immunity ~= true then err(label .. " pierces_magic_immunity must be true when present") end
-    local slot = ({ Q = 1, W = 2, E = 3, R = 4, extra1 = 5 })[ab.action]
+    local slot = ({ Q = 1, W = 2, E = 3, R = 4, extra1 = 5, extra2 = 6 })[ab.action]
     if slot then
       local rank = loadout and loadout.ranks and loadout.ranks[slot]
       if rank == nil then rank = ((ab.required_hero_level or {})[1] or 1) <= 1 and 1 or 0 end

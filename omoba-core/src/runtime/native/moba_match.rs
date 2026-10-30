@@ -86,16 +86,16 @@ pub const SINGLE_LANE_KILLS_METRIC_ID: u64 = 0x4d4b494c00000000;
 pub const SINGLE_LANE_DEATHS_METRIC_ID: u64 = 0x4d44454100000000;
 pub const SINGLE_LANE_ASSISTS_METRIC_ID: u64 = 0x4d41535300000000;
 pub const MANA_COST_TICK: u64 = 0x4d4d435400000000;
-/// Per ability slot; index 4 (the extra action slot) is published only for a hero that has it.
-pub const MANA_COST_RAW: [u64;HERO_ABILITY_SLOTS] = [0x4d4d433000000000,0x4d4d433100000000,0x4d4d433200000000,0x4d4d433300000000,0x4d4d433400000000];
-pub const MANA_COST_BINDING: [u64;HERO_ABILITY_SLOTS] = [0x4d4d523000000000,0x4d4d523100000000,0x4d4d523200000000,0x4d4d523300000000,0x4d4d523400000000];
+/// Per ability slot; indices 4 and 5 (the extra action slots) are published only for a hero that has them.
+pub const MANA_COST_RAW: [u64;HERO_ABILITY_SLOTS] = [0x4d4d433000000000,0x4d4d433100000000,0x4d4d433200000000,0x4d4d433300000000,0x4d4d433400000000,0x4d4d433500000000];
+pub const MANA_COST_BINDING: [u64;HERO_ABILITY_SLOTS] = [0x4d4d523000000000,0x4d4d523100000000,0x4d4d523200000000,0x4d4d523300000000,0x4d4d523400000000,0x4d4d523500000000];
 
 /// Ordinal of a slot's cost metric. Q-R keep their original 9-per-hero block, so a
-/// four-ability match is unchanged; the extra slot uses its own block.
+/// four-ability match is unchanged; each extra slot uses its own block (D 20000, F 30000).
 fn mana_cost_ordinal(hero_index: usize, ability_slot: usize, raw: bool) -> u32 {
     let offset = u32::from(raw);
     if ability_slot < LEGACY_HERO_ABILITY_SLOTS { 10000 + hero_index as u32 * 9 + 1 + ability_slot as u32 * 2 + offset }
-    else { 20000 + hero_index as u32 * 2 + offset }
+    else { 10000 * (ability_slot as u32 - 2) + hero_index as u32 * 2 + offset }
 }
 
 fn emit_owner_mana_costs(world:&World,state:&MobaMatch,phase:crate::runtime::FactPhase) {

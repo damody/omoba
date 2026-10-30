@@ -1695,8 +1695,10 @@ fn apply_disclosed_events(
         }
         if event.event_kind == crate::runtime::FactKind::CommittedAbilityRanks as u32 {
             let payload=&event.sanitized_payload;
-            // Four ranks, or five for a hero that owns the extra action slot.
-            if payload.len()!=16 && payload.len()!=20 {return Err(ReplicaRuntimeError::MalformedBaseline);}
+            // Four ranks, or five/six for a hero that owns the extra action slots.
+            if payload.len()%4!=0 || !(crate::runtime::LEGACY_HERO_ABILITY_SLOTS..=crate::runtime::HERO_ABILITY_SLOTS).contains(&(payload.len()/4)) {
+                return Err(ReplicaRuntimeError::MalformedBaseline);
+            }
             let id=event.subject.as_ref().map_or(0,|id|id.value);
             let entity=world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
             let bytes=entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)

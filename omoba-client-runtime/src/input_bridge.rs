@@ -759,7 +759,7 @@ mod tests {
             omoba_core::game_proto::SummonerCastIntent { slot: 4, x_raw: None, y_raw: None }));
         assert_rejected(bridge.validate_view(one_sided, 7, &view), "INVALID_SUMMONER_SLOT");
         let qwer = request(&view, renderer_input::Intent::AbilityCast(
-            omoba_core::game_proto::AbilityCastIntent { ability_index: 5, ..Default::default() }));
+            omoba_core::game_proto::AbilityCastIntent { ability_index: omoba_core::runtime::HERO_ABILITY_SLOTS as u32, ..Default::default() }));
         assert_rejected(bridge.validate_view(qwer, 7, &view), "INVALID_ABILITY_SLOT");
         assert_eq!(bridge.next_input_id, 43);
     }
@@ -775,12 +775,12 @@ mod tests {
         assert_rejected(bridge.validate_view(input.clone(), 8, &view), "INVALID_OWNER");
         let mut stale = input.clone(); stale.disclosure_epoch += 1;
         assert_rejected(bridge.validate_view(stale, 7, &view), "STALE_DISCLOSURE_EPOCH");
-        let mut invalid = input.clone(); invalid.intent = Some(renderer_input::Intent::AbilityUpgrade(AbilityUpgradeIntent { ability_index: 5 }));
+        let mut invalid = input.clone(); invalid.intent = Some(renderer_input::Intent::AbilityUpgrade(AbilityUpgradeIntent { ability_index: omoba_core::runtime::HERO_ABILITY_SLOTS as u32 }));
         assert_rejected(bridge.validate_view(invalid, 7, &view), "INVALID_ABILITY_SLOT");
         let mut zero = input.clone(); zero.request_id = 0;
         assert!(matches!(bridge.validate_view(zero, 7, &view), InputDecision::Rejected { request_id: 0, code: "INVALID_UPGRADE_REQUEST_ID" }));
-        // Slot 4 is the extra action slot (D); the authority rejects it for a hero without one.
-        for slot in 0..5 {
+        // Slots 4 and 5 are the extra action slots (D, F); the authority rejects one a hero lacks.
+        for slot in 0..6 {
             let mut valid = input.clone();
             valid.request_id += u64::from(slot);
             valid.intent = Some(renderer_input::Intent::AbilityUpgrade(AbilityUpgradeIntent { ability_index: slot }));
@@ -796,7 +796,7 @@ mod tests {
         let mut conflict = input;
         conflict.intent = Some(renderer_input::Intent::AbilityUpgrade(AbilityUpgradeIntent { ability_index: 1 }));
         assert_rejected(bridge.validate_view(conflict, 7, &view), "CONFLICTING_UPGRADE_REQUEST_ID");
-        assert_eq!(bridge.allocate_input_id(), Ok(6));
+        assert_eq!(bridge.allocate_input_id(), Ok(7), "six upgrades took input ids 1..=6");
     }
 
     #[test]
@@ -1515,7 +1515,7 @@ mod tests {
         for (intent, code) in [
             (
                 renderer_input::Intent::AbilityCast(AbilityCastIntent {
-                    ability_index: 5,
+                    ability_index: omoba_core::runtime::HERO_ABILITY_SLOTS as u32,
                     ..Default::default()
                 }),
                 "INVALID_ABILITY_SLOT",

@@ -1286,9 +1286,9 @@ pub enum HeroRenderModeC {
     Model3d = 1,
 }
 
-/// Q, W, E, R and the optional extra action slot (D). Equal to
+/// Q, W, E, R and the optional extra action slots D and F. Equal to
 /// `omoba_content_model::HERO_ABILITY_SLOTS` (checked by the build script).
-pub const HERO_ABILITY_SLOTS: usize = 5;
+pub const HERO_ABILITY_SLOTS: usize = 6;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

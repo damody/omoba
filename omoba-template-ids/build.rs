@@ -27,7 +27,7 @@ fn fixed64_lit(v: f32) -> String {
 
 fn main() {
     // src/lib.rs mirrors this for MobaLoadoutConst; the two must never drift.
-    const _: () = assert!(omoba_content_model::HERO_ABILITY_SLOTS == 5);
+    const _: () = assert!(omoba_content_model::HERO_ABILITY_SLOTS == 6);
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let content_root = manifest_dir.parent().unwrap().join("scripts/lua_data");
     println!("cargo:rerun-if-changed=build.rs");

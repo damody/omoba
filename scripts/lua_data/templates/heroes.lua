@@ -316,8 +316,8 @@ return function(ctx)
         assert(update.rust_module == hero.rust_module, hero.id .. ': authored update rust_module mismatch')
         local list = {}
         for i, id in ipairs(hero.abilities or {}) do list[i] = id end
-        -- Slot 5 is the optional extra action slot (D).
-        for i = 1, 5 do if update.abilities_by_slot[i] then list[i] = update.abilities_by_slot[i] end end
+        -- Slots 5 and 6 are the optional extra action slots (D, F).
+        for i = 1, 6 do if update.abilities_by_slot[i] then list[i] = update.abilities_by_slot[i] end end
         -- Replaced abilities stay registered (gen_hero_registry reads
         -- retained_abilities) so legacy content keeps its handlers and tests.
         local kept, in_list = {}, {}
@@ -330,7 +330,8 @@ return function(ctx)
         local loadout = hero.moba_loadout or {}
         local base = loadout.ranks or { 1, 1, 1, 1 }
         local ranks = {}
-        for i = 1, 5 do ranks[i] = (update.ranks_by_slot or {})[i] or base[i] end
+        -- One rank per slot the hero has (an F without a D keeps D unlearned, never a gap).
+        for i = 1, math.max(#list, 4) do ranks[i] = (update.ranks_by_slot or {})[i] or base[i] or 0 end
         hero.moba_loadout = { ranks = ranks, skill_points = update.skill_points or loadout.skill_points or 0 }
         -- The package that updates a hand-written hero carries its source hero.
         if update.source_ref then hero.source_ref = update.source_ref end

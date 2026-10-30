@@ -6296,7 +6296,7 @@ fn single_lane_rank_zero_first_learning_cast_and_respawn_at_60hz() {
         {
             let mut heroes = world.write_storage::<Hero>();
             apply_moba_birth_loadout(heroes.get_mut(source).unwrap(),
-                omoba_template_ids::MobaLoadoutConst { ranks: [0;5], skill_points: 1 }).unwrap();
+                omoba_template_ids::MobaLoadoutConst { ranks: [0;omoba_template_ids::HERO_ABILITY_SLOTS], skill_points: 1 }).unwrap();
         }
         assert!(handle_ability_cast_from_input(&mut world,0,None,Some(target.id()),1)
             .unwrap_err().to_string().contains("not learned"));
@@ -6346,7 +6346,7 @@ fn single_lane_rank_zero_first_learning_cast_and_respawn_at_60hz() {
 fn single_lane_birth_loadout_rejections_do_not_partially_mutate_hero() {
     let (world,_) = world(fast_config(),SimulationTickProfile::Production60Hz);
     let mut hero = world.read_storage::<Hero>().get(hero_pair(&world)[0]).unwrap().clone();
-    for ranks in [[0,0,2,0,0],[0,0,0,255,0]] {
+    for ranks in [[0,0,2,0,0,0],[0,0,0,255,0,0]] {
         let before = serde_json::to_value(&hero).unwrap();
         assert!(apply_moba_birth_loadout(&mut hero,omoba_template_ids::MobaLoadoutConst {
             ranks,skill_points:1,
@@ -6479,7 +6479,7 @@ fn assert_upgrade_filtered_parity(initial_rank: u8) {
     let [a,b]=hero_pair(&authority);
     for (index,hero) in [a,b].into_iter().enumerate() {
         apply_moba_birth_loadout(authority.write_storage::<Hero>().get_mut(hero).unwrap(),
-            omoba_template_ids::MobaLoadoutConst {ranks:[initial_rank,initial_rank,initial_rank,initial_rank,0],skill_points:2}).unwrap();
+            omoba_template_ids::MobaLoadoutConst {ranks:[initial_rank,initial_rank,initial_rank,initial_rank,0,0],skill_points:2}).unwrap();
         authority.write_storage::<Pos>().get_mut(hero).unwrap().0=omoba_sim::Vec2::new(
             Fixed64::from_i32(1100+index as i32*100),Fixed64::from_i32(700));
         // Precondition fixture supplies earned-point state before bootstrap;

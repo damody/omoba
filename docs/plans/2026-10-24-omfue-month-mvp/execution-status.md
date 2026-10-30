@@ -16,6 +16,14 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：英雄技能欄 5 → 6（F 欄，v3 slot_index 6）
+
+- `HERO_ABILITY_SLOTS` 改為 6（content model、template-ids，build.rs 斷言同步）。`MobaLoadout.ranks` 接受 4 到 6 項，沒寫到的欄位出生時未學。
+- 權威端與 replica 的施放、升級、冷卻、charge 上限沿用共用常數。`CommittedAbilityRanks` 接受 16、20、24 bytes。法力 HUD metric 新增 slot 5 的 `MMC5`／`MMR5`，ordinal 區塊 30000+（D 仍是 20000+），沒有第 6 技能的英雄不會送。
+- heroes.lua 的 authored 合併支援第 6 欄，ranks 依欄位數補 0，不留空洞。package_v2 接受 4 到 6 個 ranks 與 action `extra2`（第 6 欄）。
+- bridge（ABI 41 不變）：`OM_ABILITY_SLOT_COUNT` 維持 5，斷言暫時改為 `<=`，HUD 只填前 5 欄。ABI 升版、UE 技能列的第 6 格（預設 F）、header、autopilot 由工作線 C 接手，屆時把斷言改回 `==`。
+- 測試：content model 全部、omoba-core lib 全部（1442）、client-runtime lib（168）、template-ids（112）、base_content 的 loadout／extra_action／birth／upgrade（15）、bridge lib（155）。bridge 的 runtime_driver_smoke 因 staged base_content.dll 與內容不一致而失敗，需重建 DLL，與這項改動無關。
+
 ## 2026-10-30 線 B：point 引導 range 0 不限射程（staging 與 start 共用）；釋放時被拒的施放寫入 CastTrace（E350）
 
 - `ability_channel::within_range` 讓 `stage_ability_channel` 和 `can_start` 共用同一條射程規則：range 0 不限射程。修正 C05 c05_flash_thunder 釋放時被判 OUT_OF_RANGE 的問題。
