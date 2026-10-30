@@ -8,7 +8,20 @@
 - **通用修正**：`run_moba_split_local` 把時限分成兩段：`M.box_deadlines` 算出 hard deadline（取得鎖＋max-seconds），以及提早 `SHUTDOWN_RESERVE_MS`（30 秒，短時限最多保留一半）的 retire deadline。建置、啟動與對局都以 retire deadline 為界；關閉時每個子程序的等待由 `M.shutdown_wait_ms` 限制在 hard deadline 之前，過了就直接終止、不再等待。測試 `run_moba_split_local_test` 鎖住兩個 deadline 的關係與等待上限。
 - **避免**：時間預算要涵蓋到資源真正釋放為止；「時限到了才開始收尾」等於收尾不受限制。
 
-## E324 （保留）conformance：魔免排除漏算穿透目標與 include_magic_immune 選取；無間隔的 repeat 被當成延後結算（2026-10-30）
+## E324 conformance：魔免排除漏算穿透目標與 include_magic_immune 選取；無間隔的 repeat 被當成延後結算（2026-10-30，conformance session）
+
+- **現象**：M6 第 2 批第一次跑出 22 個 fail，其中 10 個是情境推導的錯：
+  - A18 a18_by_force、A23 a23_yomi_flame 的 magic_immune 情境（各 3 個）。兩招都有 pierce_magic_immune，A18 的 selector 還寫了 include_magic_immune；產生碼照文件把狀態套上魔免單位，卻被判成「選取應排除魔免」。
+  - A35 a35_flame_raid 的 caster_dies_after_cast（4 個）。沒有 first／interval 的 repeat 在施放當下就跑完（產生碼是一般 for 迴圈），卻被判成施法者死後才打到。
+- **根因**：
+  1. 魔免情境的豁免清單只收「直接套在目標上、而且明寫 runtime_id」的狀態：沒寫 runtime_id 的會漏掉（A23），帶 include_magic_immune 的 selector 套的狀態也沒算進去（A18）。
+  2. `deferred` 把所有 repeat 都當成延後，不管有沒有 first／interval。
+- **通用修正**（v3_scenarios）：
+  - 豁免清單改用 runtime_key（沒寫 runtime_id 時用狀態 id），並加入 include_magic_immune 選取下套的狀態。
+  - 只有帶 first 或 interval 的 repeat 才算延後。
+  - 死亡情境只收套在施法者或目標（caster／self／target／it）身上的狀態。C15T 套在新建箭矢上的狀態原本藏在 repeat 下面，repeat 不再算延後後會冒出來；harness 看不到箭矢，所以這類狀態不列入。
+- **結果**：上面 10 個由 fail 變 pass，其他 19 位 0 差異。M6 第 2 批剩下 12 個 fail 都是 C05T（施放沒有成立：法力、冷卻都沒動），已交線 A。
+- 已放回。
 
 ## E323 使用者入口的 run_ue 預設 demo（完整地圖）10 分鐘內打不完；自動驗收改用 quick recipe 的固定驗收（2026-10-30，e187 遊戲模式 session；已放回 live）
 - **現象**：主 session 要求確認 `run_ue.bat` 預設的 1 人加 9 bot demo 能從進場打到結算，並在 10 分鐘內結束。demo2 進場、選角、開局、bot 對打都正常，但完整地圖 `three_lane_training` 600 秒內只倒 3 座塔，沒有結算。round time box 到時只會中止這局，不會出結算畫面。

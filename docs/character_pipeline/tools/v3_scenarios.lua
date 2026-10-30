@@ -346,11 +346,26 @@ local function entry_scenarios(doc, def, entry_kind, out)
           if has_damage(base_effects, "magical") then
             o[#o + 1] = { kind = "damage_to_magic_immune", type = "magical", amount = "0", rule = "v3.md §4 規則層：魔法傷害對魔免歸零" }
           end
-          -- direct: statuses the cast puts on its own target (a piercing cast reaches it); the
-          -- skip is about the units selectors pick (E223)
+          -- direct: statuses the cast puts on its own target (a piercing cast reaches it) and ones
+          -- applied under a selector that keeps magic-immune units (`include_magic_immune`); the
+          -- skip is about the units the other selectors pick (E223, E324)
+          local keeps = {}
+          for _, e in ipairs(base_effects) do
+            local flags = e.op == "for_each" and e.args and e.args.select and e.args.select.flags
+            for _, flag in ipairs(type(flags) == "table" and flags or {}) do
+              if flag == "include_magic_immune" then keeps[#keeps + 1] = e.path end
+            end
+          end
+          local function kept(path)
+            for _, outer in ipairs(keeps) do
+              if path and path:sub(1, #outer + 1) == outer .. "." then return true end
+            end
+            return false
+          end
           local direct = {}
           for _, a in ipairs(applied) do
-            if a.to == "target" and a.status and a.status.runtime_id then direct[#direct + 1] = a.status.runtime_id end
+            local key = a.status and runtime_key(a.status)
+            if key and (a.to == "target" or kept(a.path)) then direct[#direct + 1] = key end
           end
           o[#o + 1] = { kind = "selectors_skip_magic_immune", unless_flag = "include_magic_immune", direct = direct,
             rule = "v3.md §4.1 選取預設排除魔免" }
@@ -388,7 +403,9 @@ local function entry_scenarios(doc, def, entry_kind, out)
       -- A delay's or repeat's actions carry no condition; their paths sit under its path (E251).
       local later = {}
       for _, e in ipairs(base_effects) do
-        if e.op == "delay" or e.op == "repeat" then later[#later + 1] = e.path end
+        -- A repeat with neither `first` nor `interval` runs all its rounds at once (E324).
+        local spaced = e.args and (e.args.first or e.args.interval)
+        if e.op == "delay" or (e.op == "repeat" and spaced) then later[#later + 1] = e.path end
       end
       local function deferred(path)
         for _, outer in ipairs(later) do
@@ -422,6 +439,9 @@ local function entry_scenarios(doc, def, entry_kind, out)
       end
       for _, a in ipairs(applied) do
         if not this_branch(a.conds) or deferred(a.path) then goto continue end
+        -- Only the scenario's own units: a status on a unit the cast creates (C15T's arrows; E324)
+        -- is not one the death case can look at.
+        if not (a.to == "caster" or a.to == "self" or a.to == "target" or a.to == "it") then goto continue end
         local s = a.status or {}
         local on_caster = a.to == "caster" or a.to == "self"
         local kept = s.scope == "hero" or s.scope == "unit" or s.scope == "permanent"
