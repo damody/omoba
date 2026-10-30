@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E331 擊退拋物線高度沒進網路快照，實機拋物線永遠 0 公分（2026-10-30，history-nobu M6 呈現檢查，工作線 C）
+- **現象**：B29 村上義清的 spotlight 局中，地裂的跳躍有 forced_motion，UE 也記了 `OM_FORCED_ARC`，但最高點是 0 cm；v3 寫的跳躍高度是 200。
+- **根因**：forced_motion 的高度放在 buff payload（`__forced_motion_v1.height_raw`），但送給客戶端的狀態快照（BuffVisualSnapshot，BVS1／BVS2）只帶狀態 id 和剩餘時間，加上頻道狀態的總時長，任何 payload 都會被丟掉。UE 收到的 PayloadSummary 是空的，拋物線高度永遠 0。當初的擊退拋物線（工作線 C）只用直接餵 payload 的單元測試驗證，沒有經過實機的快照路徑。
+- **通用修正**：`buff_visual_state` 每列原本帶頻道總時長的欄位，也可以帶 forced_motion 狀態的 `height_raw`（檢查範圍為 1 到 MAX_HEIGHT×1024，且狀態本身必須在場）。客戶端 render 時還原成 `{"__forced_motion_v1":{"height_raw"}}`，只送高度，不送 origin 或來源。測試 `forced_motion_arc_height_crosses_the_snapshot_e331`；omoba-core 1430 項全部通過。
+- **避免**：呈現依賴的資料一定要走實機的快照或投影路徑驗證；直接餵 payload 的單元測試，證明不了資料真的會到前端。
+
 ## E330 split 子角色一律 --no-build，UE 前端從不重建，內容更新後整局被拒（2026-10-30，history-nobu M6 呈現檢查，工作線 C）
 - **現象**：M6 呈現檢查的 spotlight 佇列中，雜賀孫市、阿市、阿松三局都在 client 啟動時被拒：「launch binaries carry different content: authority content=8434…, renderer bridge=2a07…」。其他 session 在這之前 land 了 lua_data，authority 由 split 父程序重建了，UE 前端的 bridge 卻沒有。
 - **根因**：E286 讓 split 父程序在鎖內建好所有 Rust 二進位、子角色一律 `--no-build`，但父程序的建置清單沒有 UE 前端（codegen、bridge、UBT）。原本由 client 角色裡的 run_moba_role_ue 負責建置前端，改成 `--no-build` 後就沒有任何流程會重建它；內容一更新，每一局都會因內容雜湊不一致被拒。

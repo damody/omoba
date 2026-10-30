@@ -99,6 +99,15 @@ impl BuffVisualState {
 /// Public channel bars: remaining time plus an exact `total_raw`.
 const CHANNEL_STATUSES:[&str;2]=[crate::runtime::native::recovery_channel::STATUS,crate::runtime::native::ability_channel::STATUS];
 fn is_channel_status(name:&str)->bool {CHANNEL_STATUSES.contains(&name)}
+/// The forced motion status carries its arc's peak height in the same detail column (E331): the
+/// presentation draws the arc (`{"__forced_motion_v1":{"height_raw"}}`), nothing else of the payload.
+const ARC_STATUS:&str=crate::runtime::native::forced_motion::BUFF;
+fn arc_height_raw(entry:&crate::runtime::native::ability_runtime::BuffEntry)->Option<i64> {
+    let raw=entry.payload.get(crate::runtime::native::forced_motion::KEY)?.get("height_raw")?.as_i64()?;
+    arc_height_valid(raw).then_some(raw)
+}
+fn arc_height_valid(raw:i64)->bool {raw>0&&raw<=i64::from(crate::runtime::native::forced_motion::MAX_HEIGHT)*1024}
+fn is_arc_id(id:u16)->bool {buff_by_name(ARC_STATUS).is_some_and(|known|known.raw()==id)}
 /// One `{name:{"total_raw"}}` object, total within 60 s and not below the remaining time.
 fn channel_status_valid(name:&str,entry:&crate::runtime::native::ability_runtime::BuffEntry)->bool {
     entry.payload.as_object().is_some_and(|o|o.len()==1)
@@ -120,12 +129,17 @@ pub fn public_snapshot(bytes: &[u8]) -> Option<Vec<u8>> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BuffVisualSnapshot {
     pub buffs: BuffVisualState,
+    /// One public detail per status: a channel's exact total, or the forced motion arc height (E331).
     pub channel_totals: Vec<(u16,i64)>,
 }
 impl BuffVisualSnapshot {
     pub fn from_store(store:&crate::runtime::BuffStore,entity:specs::Entity)->Self {
         let buffs=BuffVisualState::from_store(store,entity);
         let mut channel_totals:Vec<(u16,i64)>=store.iter_for(entity).filter_map(|(name,entry)|{
+            if name==ARC_STATUS {
+                let id=buff_by_name(name)?.raw();if !buffs.0.iter().any(|row|row.0==id){return None;}
+                return Some((id,arc_height_raw(entry)?));
+            }
             if !is_channel_status(name) || !channel_status_valid(name,entry){return None;}
             let id=buff_by_name(name)?.raw();if !buffs.0.iter().any(|row|row.0==id){return None;}
             Some((id,entry.payload[name]["total_raw"].as_i64()?))
@@ -137,9 +151,14 @@ impl BuffVisualSnapshot {
         if self.buffs.encode().is_none()||self.channel_totals.len()>MAX_VISUAL_BUFFS{return false;}
         let mut previous=0;
         for &(id,total) in &self.channel_totals {
-            if id<=previous||!CHANNEL_STATUSES.iter().any(|name|buff_by_name(name).is_some_and(|known|known.raw()==id))
-                ||!(1..=60*1024).contains(&total)||!self.buffs.0.iter().any(|&(key,remaining)|key==id&&remaining>0&&remaining<=total){return false;}
+            if id<=previous {return false;}
             previous=id;
+            if is_arc_id(id) {
+                if !arc_height_valid(total)||!self.buffs.0.iter().any(|&(key,remaining)|key==id&&remaining>0){return false;}
+                continue;
+            }
+            if !CHANNEL_STATUSES.iter().any(|name|buff_by_name(name).is_some_and(|known|known.raw()==id))
+                ||!(1..=60*1024).contains(&total)||!self.buffs.0.iter().any(|&(key,remaining)|key==id&&remaining>0&&remaining<=total){return false;}
         }
         true
     }
@@ -173,7 +192,9 @@ impl BuffVisualSnapshot {
         for row in &mut buffs {
             let Some(id)=buff_by_name(&row.buff_id)else{continue;};
             if let Some((_,total))=self.channel_totals.iter().find(|value|value.0==id.raw()) {
-                row.payload_json=serde_json::json!({(row.buff_id.as_str()):{"total_raw":total}}).to_string();
+                row.payload_json=if row.buff_id==ARC_STATUS {
+                    serde_json::json!({(crate::runtime::native::forced_motion::KEY):{"height_raw":total}}).to_string()
+                } else {serde_json::json!({(row.buff_id.as_str()):{"total_raw":total}}).to_string()};
             }
         }
         buffs
@@ -220,6 +241,26 @@ mod tests {
         store.remove(entity,status);let cleared=BuffVisualSnapshot::from_store(&store,entity);assert!(cleared.channel_totals.is_empty());assert_eq!(&cleared.encode().unwrap()[..4],b"BVS1");
         store.add(entity,status,Fixed64::ONE,serde_json::json!({(status):{"total_raw":3072,"origin":"private"}}));
         assert!(BuffVisualSnapshot::from_store(&store,entity).channel_totals.is_empty());
+    }
+    #[test]
+    fn forced_motion_arc_height_crosses_the_snapshot_e331() {
+        use omoba_sim::Fixed64;use crate::runtime::native::forced_motion::{BUFF,KEY};
+        let mut world=specs::World::new();let entity=world.create_entity().build();let mut store=crate::runtime::BuffStore::default();
+        store.add(entity,BUFF,Fixed64::from_raw(154),serde_json::json!({(KEY):{"height_raw":200*1024,"origin":[1,2],"source":7}}));
+        let snapshot=BuffVisualSnapshot::from_store(&store,entity);
+        assert_eq!(snapshot.channel_totals,vec![(buff_by_name(BUFF).unwrap().raw(),200*1024)]);
+        let rows=BuffVisualSnapshot::decode(&snapshot.encode().unwrap()).unwrap().render_buffs();
+        let arc=rows.iter().find(|row|row.buff_id==BUFF).unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&arc.payload_json).unwrap(),serde_json::json!({(KEY):{"height_raw":204800}}),
+            "only the height crosses, not the origin or source");
+        // No height, or one out of bounds: the status crosses without a detail.
+        for payload in [serde_json::json!({(KEY):{"origin":[1,2]}}),serde_json::json!({(KEY):{"height_raw":0}}),serde_json::json!({(KEY):{"height_raw":2001*1024}})] {
+            store.remove(entity,BUFF);store.add(entity,BUFF,Fixed64::ONE,payload);
+            let flat=BuffVisualSnapshot::from_store(&store,entity);assert!(flat.channel_totals.is_empty());assert_eq!(flat.buffs.0.len(),1);
+        }
+        let id=buff_by_name(BUFF).unwrap().raw();
+        assert!(BuffVisualSnapshot {buffs:BuffVisualState(vec![(id,1024)]),channel_totals:vec![(id,2001*1024)]}.encode().is_none(),"a forged height is refused");
+        assert!(BuffVisualSnapshot {buffs:BuffVisualState(vec![]),channel_totals:vec![(id,1024)]}.encode().is_none(),"no height without its status");
     }
     #[test]
     fn pulse_channel_bar_uses_the_same_exact_public_total_contract() {
