@@ -169,10 +169,15 @@ function M.template_rows(doc, t)
       local acq = num(t.acquisition_range, "acquisition_range")
       if acq and row.attack_range and acq ~= row.attack_range then no("acquisition_range " .. acq .. " differs from attack.range") end
     end
+    -- gold and experience to the enemy player who kills it (line B 3b1c87db), whole numbers
     if t.bounty then
       for _, k in ipairs(sorted(t.bounty)) do
-        local b = num(t.bounty[k], "bounty." .. k)
-        if b and b ~= 0 then no("bounty." .. k .. " (summons give none)") end
+        if k ~= "gold" and k ~= "xp" then no("bounty." .. k)
+        else
+          local b = num(t.bounty[k], "bounty." .. k)
+          if b and (b < 0 or b ~= math.floor(b)) then no("bounty." .. k .. " is not a whole number")
+          elseif b and b > 0 then row["bounty_" .. k] = math.tointeger(b) end
+        end
       end
     end
     local vision = t.vision or {}
