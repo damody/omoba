@@ -22,7 +22,8 @@ local SUPPORTED = {
   enemy_line = { target = 'point', params = { 'min_targets' }, shape = 'line' },
   enemy_cone = { target = 'point', params = { 'min_targets' }, shape = 'cone' },
   approach_enemy_point = { target = 'point', params = { 'min_distance' } },
-  summon_near_enemy = { target = 'point', params = { 'threat_radius' } },
+  -- A summon placed near the enemy, or one with no target at all (E419 executor, E427 here).
+  summon_near_enemy = { target = 'point', also_target = 'none', params = { 'threat_radius' } },
   toggle_engage = { target = 'none', params = { 'threat_radius', 'on_status' }, toggle = true },
   self_heal = { target = 'none', params = { 'below_hp_per_mille' } },
   self_area = { target = 'none', params = { 'radius_key', 'min_targets' }, extras = { 'radius_key' } },
@@ -78,7 +79,8 @@ local function admissible(row, hint)
     if effect.kind == 'recovery_channel_self' then recovery = true end
   end
   local channel = row.cast_type == 'channeled' and not kind.toggle and not recovery
-  if (row.cast_type ~= 'instant' and not channel) or row.target_type ~= kind.target then return false end
+  if (row.cast_type ~= 'instant' and not channel)
+    or (row.target_type ~= kind.target and row.target_type ~= kind.also_target) then return false end
   for _, key in ipairs(kind.extras or {}) do
     local name = hint[key]
     if type(name) ~= 'string' or type(row.extras) ~= 'table' or type(row.extras[name]) ~= 'table' then return false end
@@ -98,7 +100,8 @@ local function admissible(row, hint)
       if (level.range or 0) ~= 0 then return false end
     end
   end
-  if hint.kind == 'approach_enemy_point' or hint.kind == 'summon_near_enemy' then
+  -- a placed summon or approach reaches only its cast range; a no-target summon has none
+  if hint.kind == 'approach_enemy_point' or (hint.kind == 'summon_near_enemy' and row.target_type == 'point') then
     for _, level in ipairs(row.levels or {}) do
       if (level.range or 0) <= (hint.min_distance or 0) then return false end
     end
