@@ -6,9 +6,20 @@
 
 ## E415 （保留）periodic 情境的命中次數照該等級狀態的 duration 算（到期那個 tick 的命中不算）（2026-10-31）
 
-## E414 （保留）pulse channel 不跑 execute：hero-only 的 channel 技能可以對小兵施放（c04_witch_dance）（2026-10-31）
+## E414 pulse channel 不跑 execute：hero-only 的 channel 技能可以對小兵施放（c04_witch_dance）（2026-10-31，工作線 B）
+- **現象**：conformance `c04_witch_dance r1/target_invalid/creep`（3 個 fail）：對小兵施放被接受，扣了魔、開始引導，文件只允許英雄（`target.types = { "hero" }`）。
+- **根因**：產生的 `execute` 會先跑 `Cx::cast`，檢查 TargetSpec 的 heroes_only 與隊伍。但 pulse channel 由 host 直接 `stage_ability_channel`，完全不呼叫 `execute`；stage 只檢查目標是否敵對，不檢查單位類別。
+- **通用修正**：內容新增 `targets_heroes_only`，AbilityDefinition → AbilityConst，走 build.rs 與 runtime_content，執行期與編譯內容不一致時拒絕。host 在所有施放共用的准入（magic immunity 檢查旁）拒絕不是英雄、或是建築的目標，回 INVALID_TARGET，與產生碼的 `is_hero` 判定一致（分身不算英雄）。
+- **測試**：template-ids 的內容一致性與 omoba-core lib 全部通過。c04 情境要等工作線 A 輸出這個旗標後，由 conformance 驗證。
+- **後續**：工作線 A 把 `target.types = { "hero" }` 輸出為 lua_data 的 `targets_heroes_only = true`。
+- **避免**：目標規則不能只放在產生碼的 `execute` 裡；host 有任何不經 execute 的施放路徑時，規則就要放進內容，由 host 檢查。
 
-## E413 （保留）script dispatch 在沒有事件與腳本單位的 tick 提早 return：光環 clock 不前進，B12 光環只 pulse 一次（2026-10-31）
+## E413 script dispatch 在沒有事件與腳本單位的 tick 提早 return：光環 clock 不前進，B12 光環只 pulse 一次（2026-10-31，工作線 B）
+- **現象**：conformance 的 B12（`b12_scheming_offense`）有 13 個情境 unsupported。學會後，光環列一直在施法者身上，敵人距離 150、在半徑 900 內也沒移動，但 `b12r_slow`（0.75 秒）只在第一次 pulse 套上，0.75 秒後就到期，之後沒有再續上。B05 的 `b05r_armor` 在 r2 停在 1，原因相同：升級後沒有新的 pulse。工作線 A 在影子加 debug 查出：has_emitter 為 true 時，`aura::due` 只在有事件的那幾個 tick 被呼叫，clock 從 17 爬到 68，永遠到不了 256（0.25 秒）。
+- **根因**：`dispatch_scripts` 在「沒有 tagged 單位、沒有事件、沒有 windup、沒有 channel、沒有 delayed／scheduled／status_event 列」時提早 return，而 `dispatch_auras` 排在這之後。條件沒有計入光環發射器，所以在沒有塔或小兵的世界，光環 clock 不會前進。道具帳本（`item_equip::changes`）也一樣只在 dispatch 裡比對，會延到下一個有事件的 tick 才比對。正式對局有塔，所以大多數時候看不出來。
+- **通用修正**：提早 return 的條件加入只在 dispatch 裡前進的狀態：有光環發射器（`aura::KEY`），或 `item_equip::pending`（有單位持有道具，或帳本還記著東西）。channel pulse、delayed、scheduled、status_event 原本就已計入。
+- **測試**：`the_aura_clock_runs_in_a_world_with_nothing_else_to_dispatch`。
+- **避免**：dispatch 的「沒事可做」捷徑，必須列出所有在 dispatch 裡推進的 clock 與帳本；新增這類子系統時要一併加入條件。
 
 ## E412 issue_order 只有英雄會接受：召喚物、分身、dummy 的命令靜默失效（2026-10-31，工作線 B）
 - **現象**：工作線 A 已產生 24 招對召喚物、分身或 dummy 下 `issue_order` 的技能，例如 c02_mirage_strike／phantom_move／kyoka_suigetsu、b30_flash_strike、b35_hiten、b14_iai_slash／shadow_tactics、c23_gift_of_death、b11_crow_raid、c18_chain_stratagem、b18_earth_claw、b27_mighty_strike、c19_surprise_raid、a30_wolf_mark、c14_fire_curse、c22_ganryu、a27_unstoppable_advance、a35_scorching_fire、c07_storm_move、c11_raikiri／c11_unrivaled、b32_divine_slash、b19_kuruma_gakari。對這些單位下的命令在 host 都不生效，也沒有任何錯誤。

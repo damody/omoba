@@ -16,6 +16,10 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：光環 clock 在安靜的 tick 照常前進（E413）、hero-only 目標由 host 檢查（E414）
+
+- `dispatch_scripts` 的提早 return 改為計入光環發射器與道具帳本；B12、B05 的光環會持續 pulse。
+- 新增內容旗標 `targets_heroes_only`，host 的共用施放准入會拒絕非英雄目標，pulse channel 也包括在內（c04_witch_dance）。
 ## 2026-10-31 線 B：issue_order 對召喚物、分身、dummy 生效（E412）
 
 - 非英雄單位的 stop／hold／move／attack_move／attack 由 `summon_order` 處理。attack 寫入 `summon_target`，並以 `OrderedAttack` 追到射程內。

@@ -147,7 +147,11 @@ fn dispatch_scripts(
     }
     let any_delayed = !world.read_resource::<super::super::delayed_effect::DueDelayedEffects>().0.is_empty()
         || world.read_resource::<crate::runtime::BuffStore>().entities_with_key(super::super::scheduled_effect::KEY).next().is_some()
-        || world.read_resource::<crate::runtime::BuffStore>().entities_with_key(super::super::status_event::KEY).next().is_some();
+        || world.read_resource::<crate::runtime::BuffStore>().entities_with_key(super::super::status_event::KEY).next().is_some()
+        // E413: clocks and ledgers that advance only inside the dispatch (the aura clock, the
+        // equip ledger) keep it running on a tick with no event and no tagged unit.
+        || world.read_resource::<crate::runtime::BuffStore>().entities_with_key(super::super::aura::KEY).next().is_some()
+        || super::super::item_equip::pending(world);
     // 先收集所有帶 tag 的 entity（避免 adapter 建立後又要 read_storage 借用衝突）
     let tagged: Vec<(Entity, String)> = {
         let entities = world.entities();
@@ -302,6 +306,12 @@ fn dispatch_scripts(
                 }
                 // unselectable (rules::vocab): no one but the unit itself can aim a unit cast at it
                 if victim!=caster && super::super::rules::vocab::unselectable(&cache.buffs,*victim) {
+                    reject_cast!(cast_outcomes,ev,releasing,code::INVALID_TARGET);
+                }
+                // A hero-only ability (E414) is never aimed at another unit, on any cast path.
+                if omoba_template_ids::ability_by_name(skill_id).and_then(omoba_template_ids::ability_const)
+                    .is_some_and(|definition| definition.targets_heroes_only)
+                    && (cache.hero.get(*victim).is_none() || cache.is_building.get(*victim).is_some()) {
                     reject_cast!(cast_outcomes,ev,releasing,code::INVALID_TARGET);
                 }
             }

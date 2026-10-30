@@ -92,6 +92,11 @@ pub struct AbilityDefinition {
     /// host snaps it to that tree's centre (omoba-core tree_cut::standing_tree_near).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub targets_tree: bool,
+    /// v3 `target.types = { "hero" }` (E414): a unit ability that only a hero may be aimed at. The
+    /// host's cast admission refuses any other unit, for every cast path (a pulse channel runs no
+    /// `execute`, so the generated target check never sees it).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub targets_heroes_only: bool,
     /// Owner cast hook (G-4): while learned, every committed cast of another
     /// non-ultimate ability of the same hero shortens the remaining cooldowns
     /// of the hero's other non-ultimate abilities. Host-owned, so team replicas

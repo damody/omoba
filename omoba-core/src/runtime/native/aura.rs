@@ -175,6 +175,25 @@ mod tests {
         assert_eq!(s.buff_id(), "__aura:a33_armor_cut:a33r_armor_cut");
     }
 
+    /// E413: the script dispatch keeps the aura clock running in a world with no scripted unit and
+    /// no event (a conformance world without towers or creeps).
+    #[test]
+    fn the_aura_clock_runs_in_a_world_with_nothing_else_to_dispatch() {
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+        let dt = Fixed64::from_raw(128);
+        world.insert(DeltaTime(dt));
+        let holder = world.create_entity().with(Pos(omoba_sim::Vec2::ZERO))
+            .with(CProperty { hp: Fixed64::ONE, mhp: Fixed64::ONE, msd: Fixed64::ZERO, def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO })
+            .with(Faction::new(FactionType::Player, 1)).build();
+        let s = spec().checked().unwrap();
+        world.write_resource::<BuffStore>().add(holder, &s.buff_id(), Fixed64::from_raw(i64::MAX), s.payload());
+        let registry = crate::runtime::ScriptRegistry::new();
+        crate::runtime::run_script_dispatch(&mut world, &registry, 1, dt);
+        assert_eq!(world.read_resource::<AuraClock>().0, Fixed64::ZERO, "the first pulse at once");
+        crate::runtime::run_script_dispatch(&mut world, &registry, 1, dt);
+        assert_eq!(world.read_resource::<AuraClock>().0, dt, "and the clock goes on");
+    }
+
     #[test]
     fn pulses_every_period_list_the_team_nearest_first_and_go_quiet_with_their_holder() {
         let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());

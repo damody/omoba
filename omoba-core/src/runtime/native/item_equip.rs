@@ -25,6 +25,14 @@ pub struct Change {
     pub equipped: bool,
 }
 
+/// Whether [`changes`] has anything to compare: a unit holds an item, or the ledger remembers one
+/// (a loss since the last read). The script dispatch never skips a tick that may hold a change (E413).
+pub fn pending(world: &World) -> bool {
+    world.try_fetch::<EquipLedger>().is_some_and(|ledger| !ledger.0.is_empty())
+        || (world.has_value::<specs::storage::MaskedStorage<Inventory>>()
+            && world.read_storage::<Inventory>().join().any(|inventory| inventory.items().next().is_some()))
+}
+
 /// The copies gained and lost since the last call, and the ledger brought up to date.
 pub fn changes(world: &mut World) -> Vec<Change> {
     let now: BTreeMap<Entity, BTreeMap<String, u32>> = {

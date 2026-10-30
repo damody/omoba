@@ -1592,6 +1592,8 @@ pub struct AbilityConst {
     pub pierces_magic_immunity: bool,
     /// A point ability aimed at a standing tree (v3 `target.type = "tree"`, E403).
     pub targets_tree: bool,
+    /// A unit ability only a hero may be aimed at (v3 `target.types = { "hero" }`, E414).
+    pub targets_heroes_only: bool,
     /// Learned automatically at each rank's `required_hero_level`, never with a skill point.
     pub auto_learn: bool,
     pub ability_type: AbilityTypeC,
