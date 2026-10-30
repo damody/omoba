@@ -169,8 +169,9 @@ fn dispatch_scripts(
     let status_combat: Vec<ScriptEvent> = events.iter().filter(|event| matches!(event,
         ScriptEvent::AttackHit {..} | ScriptEvent::Damage {..})).cloned().collect();
     // status_event ABILITY_EXECUTED: the units whose cast succeeded or who used an item, in order.
-    let mut status_executed: Vec<(Entity, String)> = events.iter().filter_map(|event| match event {
-        ScriptEvent::ItemUsed { owner, item_id } => Some((*owner, format!("{}{}", super::event::ITEM_SKILL_PREFIX, item_id))), _ => None }).collect();
+    // With where it was cast (None: the caster's position when the event runs).
+    let mut status_executed: Vec<(Entity, String, Option<Vec2>)> = events.iter().filter_map(|event| match event {
+        ScriptEvent::ItemUsed { owner, item_id } => Some((*owner, format!("{}{}", super::event::ITEM_SKILL_PREFIX, item_id), None)), _ => None }).collect();
     let events:Vec<_>=events.into_iter().map(|event|(event,false))
         .chain(releases.into_iter().map(|event|(event,true))).collect();
     if tagged.is_empty() && events.is_empty() && windups.0.is_empty() && windups.1.is_empty()
@@ -302,6 +303,12 @@ fn dispatch_scripts(
                 }
             }
             let settlement_skill = match &ev { ScriptEvent::SkillCast {skill_id,..} => Some(skill_id.clone()), _ => None };
+            // Where it was cast, for on_ability_executed (event_ability_attr::POINT).
+            let executed_point = match &ev {
+                ScriptEvent::SkillCast { target: SkillTarget::Point { x, y }, .. } => Some(Vec2::new(*x, *y)),
+                ScriptEvent::SkillCast { target: SkillTarget::Entity(target), .. } => cache.pos.get(*target).map(|p| p.0),
+                _ => None,
+            };
             let expected_mana = cast_heroes.get(&invocation_entity).or_else(||cache.hero.get(invocation_entity))
                 .and_then(|hero|hero.mana_pool.clone());
             let managed_cast = reservation.is_some();
@@ -420,7 +427,9 @@ fn dispatch_scripts(
             }
             commit_script_mana(&mut adapter,&cache,&mut cast_heroes);
             let cast_ok = adapter.cast_succeeded();
-            if let Some(skill) = settlement_skill.as_ref().filter(|_| is_cast && cast_ok) { status_executed.push((invocation_entity, skill.clone())); }
+            if let Some(skill) = settlement_skill.as_ref().filter(|_| is_cast && cast_ok) {
+                status_executed.push((invocation_entity, skill.clone(), executed_point));
+            }
             let script_error = adapter.take_script_error();
             if trace_casts && is_cast {
                 if let Some(skill_id) = &settlement_skill {
@@ -967,8 +976,9 @@ fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_
 }
 
 /// The ability an ABILITY_EXECUTED status event is for: its cast point at the rank `caster`
-/// holds (0 for an item or an unknown ability) and whether it toggles.
-fn executed_ability(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, caster: &Entity, id: &str)
+/// holds (0 for an item or an unknown ability), whether it toggles and where it was cast (`point`,
+/// else the caster's position).
+fn executed_ability(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, caster: &Entity, id: &str, point: Option<Vec2>)
     -> super::parallel_world_adapter::EventAbility {
     let def = (!id.starts_with(super::event::ITEM_SKILL_PREFIX)).then(|| registry.get_ability(id)).flatten().map(|(def, _)| def);
     let rank = cache.hero.get(*caster).map_or(0, |hero| hero.get_ability_level(id).clamp(0, i32::from(u8::MAX)) as u8);
@@ -976,7 +986,8 @@ fn executed_ability(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry,
         .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
         .map_or(Fixed64::ZERO, |seconds| Fixed64::from_raw((f64::from(seconds) * 1024.0).round() as i64));
     let toggle = def.is_some_and(|def| def.ability_type == AbilityType::Toggle);
-    super::parallel_world_adapter::EventAbility { id: id.to_owned(), cast_point, toggle }
+    let point = point.or_else(|| cache.pos.get(*caster).map(|p| p.0)).unwrap_or(Vec2::ZERO);
+    super::parallel_world_adapter::EventAbility { id: id.to_owned(), cast_point, toggle, point }
 }
 
 /// An effect-only hook's outcomes (equip, aura, channel start/pulse/end, delayed effect, schedule,
@@ -998,7 +1009,7 @@ fn effect_batch(cache: &ParallelAdapterCache<'_>, outcomes: Vec<crate::comp::Out
 /// event: first this tick's attack hits and damage of their holders (event order, then the
 /// holder's rows in id order), then the rows that left their holders (in the order they left).
 fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, combat: &[ScriptEvent],
-    executed: &[(Entity, String)], ordinal_base: u64) {
+    executed: &[(Entity, String, Option<Vec2>)], ordinal_base: u64) {
     use super::super::status_event as se;
     let ended = world.write_resource::<crate::runtime::BuffStore>().drain_status_ended();
     let attacks = se::take_attack_events(world);
@@ -1033,7 +1044,7 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
                 _ => {}
             }
         }
-        for (index, (caster, _)) in executed.iter().enumerate() {
+        for (index, (caster, _, _)) in executed.iter().enumerate() {
             executing.set(Some(index));
             on_holder(*caster, se::ABILITY_EXECUTED, None, Fixed64::ZERO, 0);
             executing.set(None);
@@ -1071,7 +1082,7 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
         let other = other.map_or(EntityHandle::INVALID, ParallelWorldAdapter::entity_to_handle);
         let event = spec.event(&row, kind, other, amount, dk);
         let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, holder, ordinal_base + ordinal as u64);
-        adapter.event_ability = executed_index.map(|index| executed_ability(&cache, registry, &executed[index].0, &executed[index].1));
+        adapter.event_ability = executed_index.map(|index| executed_ability(&cache, registry, &executed[index].0, &executed[index].1, executed[index].2));
         let mut world_dyn = world_dyn_of(&mut adapter);
         let result = catch_unwind(AssertUnwindSafe(|| script.on_status_event(handle, RStr::from_str(&spec.status), event, &mut world_dyn)));
         drop(world_dyn);
@@ -2525,13 +2536,16 @@ mod effect_batch_tests {
         }
         let mut hero = crate::comp::Hero::new("h".into(), "h".into(), String::new());
         hero.ability_levels.insert("strike".into(), 2);
-        let caster = world.create_entity().with(hero).build();
+        let caster = world.create_entity().with(hero).with(crate::comp::Pos(Vec2::new(Fixed64::from_i32(3), Fixed64::from_i32(4)))).build();
         let cache = ParallelAdapterCache::new(&world, 1);
-        let strike = executed_ability(&cache, &scripts, &caster, "strike");
+        let cursor = Vec2::new(Fixed64::from_i32(40), Fixed64::from_i32(-7));
+        assert_eq!(executed_ability(&cache, &scripts, &caster, "strike", Some(cursor)).point, cursor, "a point cast: its point");
+        let strike = executed_ability(&cache, &scripts, &caster, "strike", None);
+        assert_eq!(strike.point, Vec2::new(Fixed64::from_i32(3), Fixed64::from_i32(4)), "no target: the caster's position");
         assert_eq!((strike.cast_point, strike.toggle), (Fixed64::from_raw(512), false), "rank 2: 0.5 s");
-        let stance = executed_ability(&cache, &scripts, &caster, "stance");
+        let stance = executed_ability(&cache, &scripts, &caster, "stance", None);
         assert_eq!((stance.cast_point, stance.toggle), (Fixed64::from_raw(256), true), "unlearned reads rank 1");
-        let item = executed_ability(&cache, &scripts, &caster, "item:blink");
+        let item = executed_ability(&cache, &scripts, &caster, "item:blink", None);
         assert_eq!((item.id.as_str(), item.cast_point, item.toggle), ("item:blink", Fixed64::ZERO, false));
         let mut adapter = ParallelWorldAdapter::new(&cache, caster);
         let read = |adapter: &mut ParallelWorldAdapter<'_>, attr: &str|
@@ -2541,6 +2555,7 @@ mod effect_batch_tests {
         assert_eq!(read(&mut adapter, name::ID), Ok(V::Str("strike".into())));
         assert_eq!(read(&mut adapter, name::CAST_POINT), Ok(V::Num(Fixed64::from_raw(512))));
         assert_eq!(read(&mut adapter, name::IS_TOGGLE), Ok(V::Bool(false)));
+        assert_eq!(read(&mut adapter, name::POINT), Ok(V::Point(Vec2::new(Fixed64::from_i32(3), Fixed64::from_i32(4)))));
         assert!(read(&mut adapter, "mana").is_err());
     }
 

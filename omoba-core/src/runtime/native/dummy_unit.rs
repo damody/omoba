@@ -2,7 +2,7 @@
 //! 光環的身體。沒有生命、攻擊、碰撞與指令；存活時間到就移除（summon_tick）。spawn 時
 //! （game_processor `commit_summoned_spawn`）不建立 TAttack、碰撞半徑為 0，並在整個存活時間掛上
 //! [`STATES`]：不受傷害、不會被普攻或單位技能選到、範圍選取也選不到（無敵）、不擋其他單位、
-//! 擁有者不能下指令、不顯示血條。模板給了生命（例如可以被打掉的尖刺）時只掛 [`BREAKABLE_STATES`]：
+//! 擁有者不能下指令、不顯示血條、不上小地圖。模板給了生命（例如可以被打掉的尖刺）時只掛 [`BREAKABLE_STATES`]：
 //! 照常可以被攻擊、選取與擊殺，仍不擋路、不聽指令。呈現只播 cue，不顯示模型（前端讀 `SummonStats::dummy`）。
 use omoba_sim::Fixed64;
 use specs::Entity;
@@ -10,8 +10,8 @@ use super::rules::vocab::state;
 use crate::runtime::BuffStore;
 
 /// The states a dummy holds for its whole life.
-pub const STATES: [&str; 6] = [state::INVULNERABLE, state::UNSELECTABLE, state::ATTACK_IMMUNE, state::COMMAND_RESTRICTED,
-    state::NO_HEALTHBAR, super::ability_runtime::NO_UNIT_COLLISION];
+pub const STATES: [&str; 7] = [state::INVULNERABLE, state::UNSELECTABLE, state::ATTACK_IMMUNE, state::COMMAND_RESTRICTED,
+    state::NO_HEALTHBAR, state::NOT_ON_MINIMAP, super::ability_runtime::NO_UNIT_COLLISION];
 
 /// The states of a dummy with life: it can be attacked, selected and killed.
 pub const BREAKABLE_STATES: [&str; 2] = [state::COMMAND_RESTRICTED, super::ability_runtime::NO_UNIT_COLLISION];

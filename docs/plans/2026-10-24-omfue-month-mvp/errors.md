@@ -2,6 +2,8 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E384 （保留）召喚物與小兵身上的狀態圖示沒有揭露給任何一隊（2026-10-31）
+
 ## E383 conformance session 用 taskkill /IM cargo.exe 殺掉全機 cargo，中斷其他 session 的建置（2026-10-31，conformance session）
 
 - **現象**：約 00:2x，一致性線為了重新啟動自己的 conformance 跑，執行了 `taskkill //F //IM cargo.exe`。整台機器上所有的 cargo 程序都被終止，包括工作線 A、B、C 和遊戲模式線當時可能正在跑的 cargo build、test 或 land_to_live。
@@ -63,7 +65,19 @@
   - 測試：`a_replica_settles_the_attribute_hp_of_a_bought_strength_item_like_the_authority` 改成敵方英雄站在旁邊看著購買，每個 tick 兩隊的 hash 都要一致，並檢查敵方 replica 沒有 inventory、屬性等於權威端。拿掉這個 fact 時，team 2 在 tick 5 就 mismatch。
 - **避免**：每個隊伍都會 hash 的推導值，只能讀每個隊伍都收得到的輸入；收不到的就由權威端以 derived 揭露最終值。收窄揭露範圍（team_projector）時，要一併找出依賴它的推導。重現測試要涵蓋「被看著時改變」的情況，reveal 會掩蓋這種錯誤。
 
-## E373 （保留）召喚交易拒絕施法者自己的排程列，且拒絕沒有留下原因（2026-10-30）
+## E373 召喚交易拒絕施法者自己的排程列，而且拒絕時沒有留下原因（2026-10-30，工作線 B）
+- **現象**：一致性線的 CastTrace 中，b13_storm 有 23 次 WindupStarted→Accepted，但法力沒扣、冷卻沒開始，也沒有 Rejected 或 ScriptError 的列。
+- **根因**：
+  - b13_storm 的 on_cast 依序做三件事：create_unit 一個 dummy、對它 apply_status、repeat。因為有 create_unit，這筆交易適用 `cast_settlement::admit` 的召喚交易規則。
+  - kit 的 `repeat` 把 scheduled 列放在施法者身上，這個 AddBuff 落在最後一個 spawn 之後。
+  - 規則「Never the caster」一律拒絕它。這條規則原本是保護施法者的生命與資源，但排程列兩者都不會動到。
+  - serial settlement 拒絕時只回傳 false，trace 沒有對應的列，只看得到先前 dispatch 寫的 Accepted。
+- **通用修正**：
+  - `admit` 改由 `admission` 回傳拒絕原因：失敗的檢查名稱、`effect:<module>`，或交易不准帶的 outcome 種類。
+  - pre_admit 拒絕時寫一列 trace `CastTraceResult::SettlementRefused(reason)`，也涵蓋 `summon_placement` 與 `caster_removed`。
+  - 召喚交易允許施法者自己的排程列接在 spawn 之後，包括 scheduled、delayed_effect、unit_var 與 ability_projectile 的發射列。規則照舊不准它們出現在 spawn 之間或之前。
+  - 測試：`summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_between_siblings` 補上 repeat 可以接在 spawn 之後、不能出現在 spawn 前，以及 stat 列的拒絕原因是 `AddBuff`。
+- **避免**：任何會整筆丟棄交易的判定，都要留下可讀的原因。新增限制規則時，以「它保護什麼」來界定範圍，不要一律禁止同一個目標上的所有效果。
 
 ## E372 conformance：情境第一次施放前就 inactive 的技能回報 unsupported（2026-10-31，conformance session）
 

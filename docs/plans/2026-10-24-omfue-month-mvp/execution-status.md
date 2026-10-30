@@ -16,6 +16,51 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：v3 主機能力：event.point、has_tag summon／neutral、end_channel、not_on_minimap
+
+線 A 涵蓋率缺口的 1、2、3、5。
+- **event.point（缺口 2）**：新增 `ext::event_ability_attr::POINT`，回傳 on_ability_executed 的施放點。
+  - 點目標技能：施放點（游標位置）。
+  - 單位目標技能：生效時目標的位置。
+  - 無目標技能與道具：施法者的位置。
+  - 不在 on_ability_executed 裡時回傳 None。
+  - dispatch 在事件被消耗之前記下位置，`status_executed` 改為帶位置。kit 新增 `event_ability_point()`。
+  - 用到的技能：a10_slaughter_array、a19_fire_echo。
+- **has_tag summon／neutral（缺口 3）**：`unit_attr` 新增兩個 tag。
+  - `tag:summon`：有召喚者的單位（含幻象），或召喚物模板。
+  - `tag:neutral`：野怪，也就是 faction HostileNeutral。
+  - count_in_radius 由線 A 用 units_in_range 加類別過濾來做。
+- **end_channel（缺口 1）**：新增 ext `END_CHANNEL (Unit u)`，產生 `Outcome::ScriptEndChannel`。結算時 `ability_channel::cancel` 會把 u 正在引導的技能當成被打斷結束，所以 on_channel_end 收到 interrupted。kit 新增 `end_channel(unit)`。用到的有 b09e_pulse 等 3 招。
+- **not_on_minimap（缺口 5）**：v3 狀態 `not_on_minimap` 落到同名的狀態 buff，只影響呈現，跟 no_healthbar 一樣照一般揭露送到前端。dummy 單位的 STATES 也加上它。前端畫小地圖時要略過帶這個狀態的單位（交給線 C）。
+- 測試：
+  - `an_executed_ability_carries_...`：補點目標施放、無目標施放、ext 讀取 point。
+  - `ext_reads_unit_ability_and_game_attributes`：補 summon 與 neutral。
+  - `control_silence_movement_death_phase_and_owner_end_without_a_ghost_pulse`：新增第 8 種，script end_channel 會產生一個 interrupted end。
+  - vocab：not_on_minimap。
+## 2026-10-30 線 B：幻象 v2：copy.abilities／mana／statuses 選項，以及「看起來是哪個英雄」的讀取
+
+- `illusion::Copy` 取代原本的 `hp, statuses: bool, outgoing, incoming` 參數。kit 的 `create_illusion(of, at, lifetime, control, &Copy)` 同步改。原作 CreateIllusions／CreateMirror 的複製選項：
+  - `abilities: Some(except_abilities)`：
+    - 複製本體已學的等級（存在 STATE payload 的 `abilities`）。幻象的腳本以 `ABILITY_LEVEL` 讀到的就是這個等級（`illusion::ability_level`）。
+    - 一併複製已學被動的列，並把列裡事件的來源改成幻象。
+    - except_abilities 列出的技能不複製。
+  - `mana: Some(x)`：幻象帶一個 UnitMana。容量取本體的，目前值為 x。回魔率是本體的自然回魔率：英雄用 MOBA 常數，召喚物用它自己的；加成會跟著複製的列過來。
+  - `statuses: Some(StatusCopy { tags, except, original_duration, illusion_caster })`：
+    - 只複製帶任一 tag 的狀態；tags 為空時全部複製。`status_except` 列出的不複製。
+    - `status_duration = original`：用狀態的完整時長。kit 在每個狀態的 payload 記錄 `status_duration_raw`。
+    - `status_caster = illusion`：施加者改成幻象，包括 per-source key 的 `{caster}`、`source_entity_id/gen` 與事件的來源。
+    - 持有共用控制的狀態會連同它的 `__ctl` 列與控制一起複製。控制本身不會單獨被複製。
+- 新增 `unit_attr::LOOK`（`Str`）：英雄回傳自己的 id，幻象回傳它複製的單位，其他單位回傳 None。kit 的 Heroes 選取可以據此把英雄幻象算進去（Dota HERO 類型、v3 include_illusions）。
+- dispel.rs 提供這次用到的公開讀取（上一項一起 land）。attribute_replica_tests 順便移除一個未使用的 import。
+- 測試：
+  - `an_illusion_copies_abilities_mana_and_the_chosen_statuses_as_the_original_does`：涵蓋等級、except_abilities、被動來源、per-source key 換施加者、原始時長、控制列、status_except 與 tag 篩選、法力、不複製時的情況。
+  - 原有幻象測試改用新的 payload。
+  - adapter：`look` 與幻象讀技能等級。
+## 2026-10-30 線 B：serial settlement 拒絕施法交易時留下原因；召喚交易允許施法者自己的排程列（E373）
+
+- `cast_settlement::admission` 會回傳拒絕原因。pre_admit 拒絕時，寫一列 trace `CastTraceResult::SettlementRefused(reason)`。
+- 召喚交易允許施法者自己的排程列接在最後一個 spawn 之後：scheduled、delayed_effect、unit_var、ability_projectile 的發射列。b13_storm（create_unit 之後接 repeat）因此可以結算。
+- 測試：`summon_casts_admit_...` 補上排程列可以接在後面、不能放在 spawn 之前，以及 stat 列的拒絕原因是 `AddBuff`。
 ## 2026-10-30 線 B：共用控制在一份來源列離開後，縮成剩下來源列中最長的剩餘時間
 
 - 線 A 回報：共用的 state key（例如 stun）在 BuffStore 取各次施加的最大剩餘時間。假設實例 1 剩 5 秒、實例 2 剩 2 秒，移除實例 1 之後，stun 仍然剩 5 秒。原作每個 modifier 各自帶自己的狀態，剩下的那個 modifier 結束時狀態就該結束。

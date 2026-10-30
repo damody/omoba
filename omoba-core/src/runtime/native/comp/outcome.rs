@@ -314,6 +314,8 @@ pub enum Outcome {
     /// A script's spend (negative) or restore (positive) on a non-hero unit's mana (unit_mana),
     /// settled serially so hooks of one tick add up.
     ScriptUnitManaDelta { entity: Entity, amount: Fixed64 },
+    /// v3 `end_channel`: a script ends its unit's own channel as interrupted (ext END_CHANNEL).
+    ScriptEndChannel { entity: Entity },
     EntityRemoved {
         entity: Entity,
     },

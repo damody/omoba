@@ -486,7 +486,7 @@ mod tests {
 
     #[test]
     fn control_silence_movement_death_phase_and_owner_end_without_a_ghost_pulse() {
-        for case in 0..8 {
+        for case in 0..9 {
             let (mut world, hero) = fixture();
             start(&mut world, hero, 7, "quake".into(), 1, spec(ChannelAnchor::SelfOrigin), Anchor::Origin);
             assert_eq!(step(&mut world, Fixed64::from_raw(102)).len(), 1);
@@ -499,6 +499,11 @@ mod tests {
                 5 => world.write_storage::<PlayerOwner>().get_mut(hero).unwrap().player_id = 8,
                 6 => super::super::cast_windup::cancel(&world, hero),
                 7 => { world.delete_entity(hero).unwrap(); world.maintain(); }
+                // v3 end_channel: the hook's own script ends it (ext END_CHANNEL).
+                8 => {
+                    world.insert(vec![crate::comp::Outcome::ScriptEndChannel { entity: hero }]);
+                    super::super::game_processor::process_outcomes(&mut world, &mut Vec::new()).unwrap();
+                }
                 _ => unreachable!(),
             }
             assert!(step(&mut world, Fixed64::from_i32(1)).is_empty(), "case {case}");

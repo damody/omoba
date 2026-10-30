@@ -679,6 +679,8 @@ impl<'a, 'w> Cx<'a, 'w> {
             payload.insert(omoba_core::runtime::native::rules::status::IGNORE_STATUS_RESISTANCE.into(), true.into());
         }
         if !host_state {
+            // Its full duration: an illusion copying it with status_duration = original (omoba-core illusion).
+            payload.insert(omoba_core::runtime::native::illusion::DURATION_KEY.into(), duration.raw().into());
             // The applier (omoba-core dispel: a `hidden` status goes by who applied it).
             payload.insert("source_entity_id".into(), self.caster.id.into());
             payload.insert("source_entity_gen".into(), self.caster.gen.into());

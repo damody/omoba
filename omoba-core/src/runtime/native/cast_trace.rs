@@ -32,6 +32,13 @@ pub enum CastTraceResult {
     /// taunt or stop replaced it), `damage`, `dead`, `silenced`, `moved`, `recall`, `rank`,
     /// `target_lost`, `phase` (the match left Playing) or `invalid` (a replica's view disagreed).
     Interrupted(&'static str),
+    /// The serial settlement refused an accepted cast's transaction (game_processor
+    /// `cast_settlement::admission`): nothing of it settles, no mana or cooldown is spent. The
+    /// check that failed (`caster_state`, `owner`, `mana_cooldown_or_rank`, `charge`,
+    /// `channel_with_summons`, `summon_placement`, `caster_removed`…), `effect:<module>` for an
+    /// effect its module refused, or the outcome kind (`AddBuff`…) of an effect the transaction
+    /// may not carry.
+    SettlementRefused(&'static str),
 }
 
 pub fn enabled(world: &World) -> bool {

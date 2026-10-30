@@ -67,6 +67,10 @@ pub mod op {
     /// `(Str attr)` -> value: the ability an `on_ability_executed` status event is for (see
     /// [`event_ability_attr`]); `None` in any other call.
     pub const EVENT_ABILITY_ATTR: u32 = 13;
+    /// `(Unit u)` -> `None`: v3 `end_channel { interrupted = true }`: `u` (the hook's own unit;
+    /// v3 names no other) ends the ability it is channelling now, as an interrupted channel (its
+    /// on_channel_end runs with interrupted). Nothing happens when it channels nothing.
+    pub const END_CHANNEL: u32 = 14;
 }
 
 /// Attribute names of [`op::EVENT_ABILITY_ATTR`].
@@ -77,6 +81,9 @@ pub mod event_ability_attr {
     pub const CAST_POINT: &str = "cast_point";
     /// `Bool`: a toggle ability.
     pub const IS_TOGGLE: &str = "is_toggle";
+    /// `Point`: where it was cast: a point-target cast's point (the cursor), a unit-target
+    /// cast's target position when it executed, otherwise (no target, an item) the caster's.
+    pub const POINT: &str = "point";
 }
 
 /// Attribute names of [`op::UNIT_ATTR`] and what they return.
@@ -103,6 +110,10 @@ pub mod unit_attr {
     pub const IS_RANGED: &str = "is_ranged";
     /// `Unit`: the summoner of a summon; `None` otherwise.
     pub const OWNER: &str = "owner";
+    /// `Str`: the hero a unit shows: a hero's own id, an illusion's copied unit (omoba-core
+    /// illusion `look`); `None` for other units. Hero selections that include illusions (Dota's
+    /// HERO type, v3 `include_illusions`) read it.
+    pub const LOOK: &str = "look";
     /// `Unit`: the unit it is attacking; `None` when idle.
     pub const ATTACK_TARGET: &str = "attack_target";
     /// `Num`: final attack speed multiplier (1 = base).
@@ -127,9 +138,11 @@ pub mod unit_attr {
     /// `Num`: whole gold in the pool of the unit's player (one pool per player, FC-129～131: no
     /// reliable / unreliable split); 0 when the world keeps none for it (an enemy on a team replica).
     pub const GOLD: &str = "gold";
-    /// `Bool`: v3 `has_tag(unit, "boss" | "dummy" | "fountain" | "general")`, the name after
-    /// `tag:` (e.g. `"tag:boss"`). A map boss carries the boss tag; a training dummy is a dummy;
-    /// this game has no fountain or general units, so those are always false.
+    /// `Bool`: v3 `has_tag(unit, "boss" | "dummy" | "summon" | "neutral" | "fountain" | "general")`,
+    /// the name after `tag:` (e.g. `"tag:boss"`). A map boss carries the boss tag; a training dummy
+    /// is a dummy; a summon is a unit some unit summoned (an illusion included) or a summon
+    /// template; neutral is a jungle unit (faction HostileNeutral). This game has no fountain or
+    /// general units, so those are always false.
     pub const TAG_PREFIX: &str = "tag:";
     /// `Num`: v3 `event.attack.damage` in an attack trigger: the physical damage of the unit's
     /// current (or last) attack as it left, with its critical multiplier; 0 before it leaves or

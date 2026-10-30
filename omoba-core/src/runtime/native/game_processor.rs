@@ -3058,6 +3058,7 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::ScriptManaGained { .. } => "ScriptManaGained",
         Outcome::ScriptManaSpent { .. } => "ScriptManaSpent",
         Outcome::ScriptUnitManaDelta { .. } => "ScriptUnitManaDelta",
+        Outcome::ScriptEndChannel { .. } => "ScriptEndChannel",
         Outcome::EntityRemoved { .. } => "EntityRemoved",
     }
 }
@@ -3113,10 +3114,16 @@ pub fn process_outcomes(
         let mut transaction = transaction;
         let admitted = match &mut transaction {
             Outcome::ScriptCastTransaction {caster,skill_id,rank,faction,player_owner,expected_mana,outcomes,cues,..} => {
-                let admitted = !remove_uids.contains(caster)
-                    && cast_settlement::admit(world,*caster,skill_id,*rank,faction.as_ref(),*player_owner,expected_mana.as_ref(),outcomes,cues.len())
-                    // Summon placement is judged on the same batch-start world as mana.
-                    && cast_settlement::plan_summons(world,outcomes).is_some();
+                let refusal = if remove_uids.contains(caster) {Some("caster_removed")} else {
+                    cast_settlement::admission(world,*caster,skill_id,*rank,faction.as_ref(),*player_owner,expected_mana.as_ref(),outcomes,cues.len()).err()
+                        // Summon placement is judged on the same batch-start world as mana.
+                        .or_else(||cast_settlement::plan_summons(world,outcomes).is_none().then_some("summon_placement"))
+                };
+                if let Some(reason) = refusal.filter(|_| super::cast_trace::enabled(world)) {
+                    super::cast_trace::record(world, [super::cast_trace::CastTraceRow { tick: world.try_fetch::<Tick>().map_or(0, |tick| tick.0),
+                        caster: *caster, ability: skill_id.clone(), result: super::cast_trace::CastTraceResult::SettlementRefused(reason) }]);
+                }
+                let admitted = refusal.is_none();
                 if admitted {cast_settlement::apply_caster_mana(world,*caster,outcomes);}
                 admitted
             }
@@ -3648,6 +3655,7 @@ pub fn process_outcomes(
             Outcome::ScriptUnitManaDelta { entity, amount } => {
                 super::unit_mana::apply_delta(world, entity, amount);
             }
+            Outcome::ScriptEndChannel { entity } => super::ability_channel::cancel(world, entity),
             Outcome::ScriptManaCommit {changes,notifications} => {
                 if changes.iter().all(|row|!remove_uids.contains(&row.entity)) {
                     cast_settlement::commit_mana(world,changes,notifications);

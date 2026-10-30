@@ -183,6 +183,8 @@ pub(crate) struct EventAbility {
     pub id: String,
     pub cast_point: Fixed64,
     pub toggle: bool,
+    /// Where it was cast (event_ability_attr::POINT).
+    pub point: Vec2,
 }
 
 impl Drop for ParallelWorldAdapter<'_> {
@@ -782,6 +784,10 @@ impl<'a> ParallelWorldAdapter<'a> {
             name::IS_RANGED=>V::Bool(entity.is_some_and(|e|self.source_attack(e).is_some()
                 && super::super::rules::attack::is_ranged(buffs(e),e,true))),
             name::OWNER=>handle(entity.and_then(|e|self.cache.summoned.as_ref()?.get(e).map(|summon|summon.summoner))),
+            name::LOOK=>match entity.and_then(|e|self.cache.hero.get(e).map(|hero|hero.id.clone())
+                .or_else(||crate::runtime::native::illusion::look(self.source_buffs(e),e).map(str::to_owned))) {
+                Some(id)=>V::Str(id.as_str().into()),None=>V::None,
+            },
             name::ATTACK_TARGET=>handle(entity.and_then(|e|self.source_attack(e)?.committed_target)),
             name::ATTACK_SPEED_MULT=>num(&|e|Some(UnitStats::from_refs(buffs(e),self.source_is_building(e)).final_attack_speed_mult(e))),
             name::PROJECTILE_SPEED=>num(&|e|self.source_attack(e).map(|attack|attack.bullet_speed)),
@@ -813,6 +819,8 @@ impl<'a> ParallelWorldAdapter<'a> {
                 "boss"=>self.cache.unit_tags.as_ref().and_then(|tags|tags.get(e)).is_some_and(|tags|tags.has(omoba_template_ids::MobaUnitTag::Boss))
                     || self.source_unit(e).is_some_and(|unit|matches!(unit.unit_type,UnitType::Boss)),
                 "dummy"=>self.source_unit(e).is_some_and(|unit|matches!(unit.unit_type,UnitType::TrainingDummy)),
+                "summon"=>self.is_summon(e) || self.cache.summoned.as_ref().is_some_and(|summoned|summoned.get(e).is_some()),
+                "neutral"=>self.cache.faction.get(e).is_some_and(|f|f.faction_id==FactionType::HostileNeutral),
                 _=>false,
             })),
             _=>return None,
@@ -1770,6 +1778,12 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         use omb_script_abi::ext::{op, ExtArg as A, ExtValue as V};
         match (op, args.as_slice()) {
             (op::DAMAGE_TRACE_ENABLED, []) => ROk(V::Bool(self.cache.damage_trace)),
+            (op::END_CHANNEL, [A::Unit(unit)]) => {
+                if let Some(entity) = Self::handle_to_entity(*unit) {
+                    self.outcomes.push(Outcome::ScriptEndChannel { entity });
+                }
+                ROk(V::None)
+            }
             (op::DAMAGE_TAG, [A::Str(ability), A::Str(path)]) => {
                 if self.cache.damage_trace {
                     self.outcomes.push(Outcome::ScriptDamageTag { ability: ability.to_string(), path: path.to_string() });
@@ -1777,9 +1791,11 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 ROk(V::None)
             }
             (op::ABILITY_LEVEL, [A::Unit(unit), A::Str(ability)]) => {
-                let level = Self::handle_to_entity(*unit)
-                    .and_then(|entity| self.cache.hero.get(entity))
-                    .map_or(0, |hero| hero.get_ability_level(ability.as_str()).max(0));
+                // A hero's rank, else the rank an illusion copied (v3 copy.abilities).
+                let level = Self::handle_to_entity(*unit).map_or(0, |entity| match self.cache.hero.get(entity) {
+                    Some(hero) => hero.get_ability_level(ability.as_str()).max(0),
+                    None => crate::runtime::native::illusion::ability_level(self.source_buffs(entity), entity, ability.as_str()),
+                });
                 ROk(V::Num(Fixed64::from_i32(level)))
             }
             (op::DAMAGE_CREDIT, [A::Unit(credit)]) => {
@@ -1812,7 +1828,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             (op::EVENT_ABILITY_ATTR, [A::Str(attr)]) => {
                 use omb_script_abi::ext::event_ability_attr as name;
                 match (&self.event_ability, attr.as_str()) {
-                    (None, name::ID | name::CAST_POINT | name::IS_TOGGLE) => ROk(V::None),
+                    (None, name::ID | name::CAST_POINT | name::IS_TOGGLE | name::POINT) => ROk(V::None),
+                    (Some(ability), name::POINT) => ROk(V::Point(ability.point)),
                     (Some(ability), name::ID) => ROk(V::Str(ability.id.as_str().into())),
                     (Some(ability), name::CAST_POINT) => ROk(V::Num(ability.cast_point)),
                     (Some(ability), name::IS_TOGGLE) => ROk(V::Bool(ability.toggle)),
@@ -2095,10 +2112,11 @@ mod tests {
         let enemy=world.create_entity().with(at(50)).with(Faction::new(FactionType::Enemy,2)).build();
         let ally=world.create_entity().with(at(80)).with(Faction::new(FactionType::Player,1)).build();
         world.create_entity().with(at(500)).with(Faction::new(FactionType::Player,1)).build();
+        let camp=world.create_entity().with(at(9000)).with(Faction::new(FactionType::HostileNeutral,0)).build();
         {
             let mut buffs=world.write_resource::<BuffStore>();
             buffs.add(me,"str_aura",Fixed64::from_i32(5),json!({ StatKey::StatsStrengthBonus.as_str(): 6 * 1024 }));
-            buffs.add(summon,crate::runtime::native::rules::vocab::state::ILLUSION,Fixed64::from_i32(5),json!({}));
+            buffs.add(summon,crate::runtime::native::rules::vocab::state::ILLUSION,Fixed64::from_i32(5),json!({"look":"inahime","abilities":{"a02_q":2}}));
             buffs.add(me,crate::runtime::native::ability_channel::STATUS,Fixed64::from_i32(5),json!({}));
             buffs.add(me,"plate",Fixed64::from_i32(5),json!({ StatKey::PhysicalArmorBonus.as_str(): 3 * 1024, StatKey::PreattackBonusDamage.as_str(): 12 * 1024 }));
         }
@@ -2109,6 +2127,7 @@ mod tests {
             launch_physical:Fixed64::from_i32(40),procs_attack_effects:true,effect_multiplier:Fixed64::ONE})].into_iter().collect()));
         let cache=ParallelAdapterCache::new(&world,1);let mut adapter=ParallelWorldAdapter::new(&cache,me);
         let (h,s)=(ParallelWorldAdapter::entity_to_handle(me),ParallelWorldAdapter::entity_to_handle(summon));
+        let c=ParallelWorldAdapter::entity_to_handle(camp);
         let mut unit=|u:EntityHandle,attr:&str|adapter.ext(op::UNIT_ATTR,RSlice::from_slice(&[A::Unit(u),A::Str(attr.into())])).into_result();
         let n=|v:i32|Ok(V::Num(Fixed64::from_i32(v)));
         assert_eq!(unit(h,name::LEVEL),n(3));
@@ -2138,12 +2157,21 @@ mod tests {
         assert!(unit(h,"no_such_attribute").is_err());
         assert_eq!(unit(h,"tag:boss"),Ok(V::Bool(false)));
         assert_eq!(unit(h,"tag:fountain"),Ok(V::Bool(false)));
+        assert_eq!((unit(s,"tag:summon"),unit(h,"tag:summon")),(Ok(V::Bool(true)),Ok(V::Bool(false))));
+        // The hero a unit shows: its own id, an illusion's copied unit; nothing for others.
+        assert_eq!((unit(h,name::LOOK),unit(s,name::LOOK),unit(c,name::LOOK)),
+            (Ok(V::Str("inahime".into())),Ok(V::Str("inahime".into())),Ok(V::None)));
+        assert_eq!((unit(c,"tag:neutral"),unit(h,"tag:neutral"),unit(c,"tag:summon")),(Ok(V::Bool(true)),Ok(V::Bool(false)),Ok(V::Bool(false))));
         let mut ability=|a:&str,attr:&str|adapter.ext(op::UNIT_ABILITY_ATTR,
             RSlice::from_slice(&[A::Unit(h),A::Str(a.into()),A::Str(attr.into())])).into_result();
         assert_eq!(ability("a02_q",ability_attr::IS_READY),Ok(V::Bool(true)));
         assert_eq!(ability("a02_w",ability_attr::IS_READY),Ok(V::Bool(false)),"cooling down");
         assert_eq!(ability("a02_e",ability_attr::IS_READY),Ok(V::Bool(false)),"not learned");
         assert_eq!(ability("a02_w",ability_attr::COOLDOWN_REMAINING),n(4));
+        // An illusion reads the ranks it copied (v3 copy.abilities).
+        let rank=|adapter:&mut ParallelWorldAdapter<'_>,u:EntityHandle,a:&str|adapter.ext(op::ABILITY_LEVEL,
+            RSlice::from_slice(&[A::Unit(u),A::Str(a.into())])).into_result();
+        assert_eq!((rank(&mut adapter,s,"a02_q"),rank(&mut adapter,s,"a02_w"),rank(&mut adapter,h,"a02_q")),(n(2),n(0),n(2)));
         let mut game=|attr:&str|adapter.ext(op::GAME_ATTR,RSlice::from_slice(&[A::Str(attr.into())])).into_result();
         assert_eq!(game(game_attr::IS_NIGHT),Ok(V::Bool(true)));
         assert_eq!(game(game_attr::TIME),n(0));

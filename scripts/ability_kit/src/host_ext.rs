@@ -236,7 +236,7 @@ impl Cx<'_, '_> {
         r
     }
 
-    /// v3 `has_tag(unit, "boss" | "dummy" | "fountain" | "general")`.
+    /// v3 `has_tag(unit, "boss" | "dummy" | "summon" | "neutral" | "fountain" | "general")`.
     pub fn has_unit_tag(&mut self, unit: EntityHandle, tag: &str) -> bool {
         self.unit_flag(unit, &format!("{}{tag}", omb_script_abi::ext::unit_attr::TAG_PREFIX))
     }
@@ -382,6 +382,21 @@ impl Cx<'_, '_> {
         match self.read(op::EVENT_ABILITY_ATTR, &[ExtArg::Str(omb_script_abi::ext::event_ability_attr::CAST_POINT.into())]) {
             ExtValue::Num(seconds) => seconds, _ => Fixed64::ZERO,
         }
+    }
+
+    /// v3 `event.point` in an `on_ability_executed` status trigger (host ext EVENT_ABILITY_ATTR
+    /// `point`): a point cast's point (the cursor), a unit cast's target position, otherwise the
+    /// caster's position; None outside one.
+    pub fn event_ability_point(&mut self) -> Option<omb_script_abi::types::Vec2> {
+        match self.read(op::EVENT_ABILITY_ATTR, &[ExtArg::Str(omb_script_abi::ext::event_ability_attr::POINT.into())]) {
+            ExtValue::Point(point) => Some(point), _ => None,
+        }
+    }
+
+    /// v3 `end_channel { interrupted = true }`: `unit` (the hook's own) ends its channel now; its
+    /// on_channel_end runs with interrupted (host ext END_CHANNEL).
+    pub fn end_channel(&mut self, unit: EntityHandle) {
+        if unit.is_valid() { let _ = self.read(op::END_CHANNEL, &[ExtArg::Unit(unit)]); }
     }
 
     /// The skill of an `on_ability_executed` status trigger (`item:<id>` for an item); None
@@ -536,18 +551,20 @@ impl Cx<'_, '_> {
 
     /// v3 `create_illusion` (omoba-core illusion.rs): an `illusion` summon at `at` for `lifetime`
     /// (`control` as [`Cx::create_unit_controlled`]) that becomes a copy of `of` right after its
-    /// spawn: its life (`hp`, None = `of`'s current), speed, defenses, attack and the stat rows of
-    /// its level and items; `statuses` also copies every status `of` holds with its remaining
-    /// time. `outgoing` / `incoming` are the damage it deals and takes per type (physical,
-    /// magical, pure) as fractions: -0.65 deals 35%, 2.0 takes 300%.
-    pub fn create_illusion(&mut self, of: EntityHandle, at: Vec2, lifetime: Fixed64, control: &str, hp: Option<Fixed64>,
-        statuses: bool, outgoing: [Fixed64; 3], incoming: [Fixed64; 3]) -> Result<EntityHandle, &'static str> {
-        use omoba_core::runtime::native::illusion::{payload, Scale, BUFF, TEMPLATE};
-        if hp.is_some_and(|hp| hp <= Fixed64::ZERO) { return Err("v3: create_illusion hp must be positive"); }
+    /// spawn: its speed, defenses, attack and the stat rows of its level and items, and what `copy`
+    /// names: its life (`hp`, None = `of`'s current), `mana`, `abilities` (ranks and learned
+    /// passives, less the excepted) and `statuses` (by tag, except, original duration, the
+    /// illusion as their applier). `copy.outgoing` / `copy.incoming` are the damage it deals and
+    /// takes per type (physical, magical, pure) as fractions: -0.65 deals 35%, 2.0 takes 300%.
+    pub fn create_illusion(&mut self, of: EntityHandle, at: Vec2, lifetime: Fixed64, control: &str,
+        copy: &omoba_core::runtime::native::illusion::Copy) -> Result<EntityHandle, &'static str> {
+        use omoba_core::runtime::native::illusion::{payload, BUFF, TEMPLATE};
+        if copy.hp.is_some_and(|hp| hp <= Fixed64::ZERO) { return Err("v3: create_illusion hp must be positive"); }
+        if copy.mana.is_some_and(|mana| mana < Fixed64::ZERO) { return Err("v3: create_illusion mana must not be negative"); }
         if !of.is_valid() { return Ok(EntityHandle::INVALID); }
         let unit = self.create_unit_controlled(TEMPLATE, at, lifetime, control)?;
         if !unit.is_valid() { return Ok(unit); }
-        let packet = payload(of.id, of.gen, hp, statuses, Scale(outgoing), Scale(incoming)).to_string();
+        let packet = payload(of.id, of.gen, copy).to_string();
         self.world.add_stat_buff(unit, RStr::from_str(BUFF), Fixed64::ONE, RStr::from_str(&packet));
         Ok(unit)
     }
