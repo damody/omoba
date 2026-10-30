@@ -703,6 +703,11 @@ impl SpecsDisclosedWorldStepper {
                 return Err(ReplicaRuntimeError::MalformedBaseline);
             }
         }
+        if let Some(bytes) = state.components.get(&crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID) {
+            if crate::runtime::visibility::decode_disclosed_enemy_sight(bytes).is_none() {
+                return Err(ReplicaRuntimeError::MalformedBaseline);
+            }
+        }
         if let Some(bytes) = state
             .components
             .get(&crate::runtime::DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID)
@@ -1762,6 +1767,16 @@ fn apply_disclosed_events(
             let value=entity.components.get_mut(&crate::runtime::DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID)
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             *value=event.sanitized_payload.clone();
+        }
+        if event.event_kind == crate::runtime::FactKind::EnemySight as u32 {
+            if crate::runtime::visibility::decode_disclosed_enemy_sight(&event.sanitized_payload).is_none() {
+                return Err(ReplicaRuntimeError::MalformedBaseline);
+            }
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let value = entity.components.get_mut(&crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            *value = event.sanitized_payload.clone();
         }
         if event.event_kind == crate::runtime::FactKind::CommittedIncomingDamage as u32 {
             let raw = i64::from_le_bytes(event.sanitized_payload.as_slice().try_into()

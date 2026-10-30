@@ -53,6 +53,8 @@ pub struct ParallelAdapterCache<'a> {
     damage_trace: bool,
     /// Gold pools (unit attribute `gold`, E243); absent in worlds that keep none.
     gold: Option<ReadStorage<'a, Gold>>,
+    /// A team replica's disclosed component bytes per entity (ext IS_VISIBLE_TO reads the enemy sight).
+    filtered_components: Option<ReadStorage<'a, crate::runtime::filtered_specs::FilteredComponents>>,
     /// `game.is_night` this tick (ext GAME_ATTR).
     night: bool,
     /// `game.dt`: this tick's match time step (ext GAME_ATTR).
@@ -108,6 +110,8 @@ impl<'a> ParallelAdapterCache<'a> {
             filtered: world.try_fetch::<crate::runtime::filtered_specs::DisclosedMovementPriority>().is_some(),
             damage_trace: super::super::damage_trace::enabled(world),
             gold: world.has_value::<specs::storage::MaskedStorage<Gold>>().then(||world.read_storage::<Gold>()),
+            filtered_components: world.has_value::<specs::storage::MaskedStorage<crate::runtime::filtered_specs::FilteredComponents>>()
+                .then(||world.read_storage::<crate::runtime::filtered_specs::FilteredComponents>()),
             night: super::super::rules::world::is_night(world),
             dt: world.try_fetch::<super::super::comp::DeltaTime>().map_or(Fixed64::ZERO, |dt| dt.0),
             attacks: world.try_fetch::<super::super::rules::attack::AttackRecords>().map(Into::into),
@@ -676,6 +680,26 @@ impl<'a> ParallelWorldAdapter<'a> {
     }
     fn source_is_building(&self, entity:Entity)->bool {
         match self.retired_source(entity) {Some(source)=>source.building,None=>self.cache.is_building.get(entity).is_some()}
+    }
+    /// v3 `is_visible_to(x, u)` (E298): whether `u`'s team can see `x`, from what the authority and
+    /// the team replica both hold. A team always sees its own units. The authority reads the team's
+    /// disclosed set of the latest Wave B; a replica holds exactly its team's disclosed units, and for
+    /// its own units the disclosed enemy sight (`DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID`), written
+    /// from that same Wave B. A viewer outside the two teams sees nothing.
+    fn is_visible_to(&self, x: EntityHandle, u: EntityHandle) -> bool {
+        use crate::runtime::native::combat_acquisition::DisclosureContext;
+        let alive = |handle| Self::handle_to_entity(handle).filter(|entity| self.cache.entities.is_alive(*entity));
+        let (Some(x), Some(u)) = (alive(x), alive(u)) else { return false; };
+        let Some(viewer) = self.cache.faction.get(u) else { return false; };
+        let team = viewer.team_id.max(0) as u32;
+        if crate::runtime::opposing_team(team).is_none() { return false; }
+        if self.cache.faction.get(x).is_some_and(|faction| faction.team_id.max(0) as u32 == team) { return true; }
+        if let Some(bytes) = self.cache.filtered_components.as_ref().and_then(|rows| rows.get(x))
+            .and_then(|row| row.0.get(&crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID)) {
+            return crate::runtime::decode_disclosed_enemy_sight(bytes) == Some(true);
+        }
+        DisclosureContext::resolve(self.cache.filtered, self.cache.moba.is_some(), self.cache.visibility.as_deref())
+            .allows(Some(viewer), crate::runtime::selective::CanonicalEntityKey { id: x.id(), generation: x.gen().id() as u32 })
     }
     fn source_buffs(&self, entity:Entity)->&BuffStore {
         if self.retired_source(entity).is_some() {self.projectile_source_buffs.as_ref().unwrap_or(&self.cache.buffs)}
@@ -1695,6 +1719,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 ROk(V::Units(found.into_iter().map(|(_, _, entity)| Self::entity_to_handle(entity)).collect()))
             }
             (op::CAST_RELEASED, []) => ROk(V::Bool(self.cast_released)),
+            (op::IS_VISIBLE_TO, [A::Unit(x), A::Unit(u)]) => ROk(V::Bool(self.is_visible_to(*x, *u))),
             (op::STATUS_INSTANCES, [A::Unit(unit), A::Str(runtime_id)]) => {
                 let count = Self::handle_to_entity(*unit).map_or(0, |entity| self.source_buffs(entity).iter_for(entity)
                     .filter(|(key, _)| omoba_template_ids::instance_number(key).is_some()
@@ -3180,6 +3205,32 @@ mod disclosure_query_tests {
             .with(CProperty { hp: Fixed64::from_i32(hp), mhp: Fixed64::from_i32(100), msd: Fixed64::ZERO,
                 def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build()
     }
+    #[test]
+    fn is_visible_to_reads_own_units_and_the_disclosed_enemy_sight_on_a_replica() {
+        // E298: a team replica answers v3 is_visible_to(x, u) from what it holds: its own units
+        // always, an own unit from the enemy's side through the disclosed enemy sight, anything
+        // else it holds as disclosed. A viewer outside the two teams sees nothing.
+        use crate::runtime::filtered_specs::{DisclosedMovementPriority, FilteredComponents};
+        use omb_script_abi::ext::{op, ExtArg as A, ExtValue as V};
+        let mut world = super::tests::world_for_adapter_tests();
+        world.register::<FilteredComponents>();
+        world.insert(DisclosedMovementPriority::default());
+        let (mine, seen, enemy) = (unit(&mut world, 0, 1, 100), unit(&mut world, 10, 1, 100), unit(&mut world, 20, 2, 100));
+        let neutral = world.create_entity().with(Faction::new(FactionType::Neutral, 0)).build();
+        let sight = |seen| FilteredComponents(std::collections::BTreeMap::from([(
+            crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID, crate::runtime::encode_disclosed_enemy_sight(seen))]));
+        world.write_storage::<FilteredComponents>().insert(mine, sight(false)).unwrap();
+        world.write_storage::<FilteredComponents>().insert(seen, sight(true)).unwrap();
+        let cache = ParallelAdapterCache::new(&world, 1);
+        let mut adapter = ParallelWorldAdapter::new(&cache, mine);
+        let h = ParallelWorldAdapter::entity_to_handle;
+        let mut ask = |x, u| match adapter.ext(op::IS_VISIBLE_TO, abi_stable::std_types::RSlice::from_slice(&[A::Unit(h(x)), A::Unit(h(u))])) {
+            abi_stable::std_types::RResult::ROk(V::Bool(b)) => b, other => panic!("{other:?}") };
+        assert!(ask(mine, seen) && ask(enemy, mine), "own units; a disclosed enemy");
+        assert!(!ask(mine, enemy) && ask(seen, enemy), "the enemy's sight of own units");
+        assert!(!ask(mine, neutral), "no team, no sight");
+    }
+
     #[test]
     fn disclosed_query_is_live_hostile_bounded_sorted_and_capped() {
         let mut world = super::tests::world_for_adapter_tests();

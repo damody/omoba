@@ -32,7 +32,7 @@ M.ACTIONS = {          -- op -> allowed fields (`only` in Program::load)
 M.DAMAGE_TYPES = set({ "physical", "magical", "pure" })
 M.DAMAGE_FLAGS = set({ "no_amplify" })
 -- selector flags (ir.rs for_each): magic immune and invulnerable units are out unless included
-M.SELECTOR_FLAGS = set({ "include_magic_immune", "include_invulnerable", "include_untargetable" })
+M.SELECTOR_FLAGS = set({ "include_magic_immune", "include_invulnerable", "include_untargetable", "include_hidden" })
 -- selector `types` the host query admits (ir.rs unit_types), as the sorted names joined by "+"
 M.SELECTOR_TYPES = set({ "", "all", "hero", "creep+hero+neutral+summon" })
 local function types_key(t)

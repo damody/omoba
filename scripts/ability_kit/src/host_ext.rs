@@ -375,6 +375,11 @@ impl Cx<'_, '_> {
         match self.read(op::UNIT_ABILITY_ATTR, &args) { ExtValue::Num(n) => n, _ => Fixed64::ZERO }
     }
 
+    /// v3 `is_visible_to(x, u)`: whether `u`'s team can see `x` now (host ext IS_VISIBLE_TO).
+    pub fn is_visible_to(&mut self, x: EntityHandle, u: EntityHandle) -> bool {
+        matches!(self.read(op::IS_VISIBLE_TO, &[ExtArg::Unit(x), ExtArg::Unit(u)]), ExtValue::Bool(true))
+    }
+
     /// v3 `ability.is_ready`: learned, off cooldown, holding a charge.
     pub fn ability_ready(&mut self, unit: EntityHandle, ability: &str) -> bool {
         let args = [ExtArg::Unit(unit), ExtArg::Str(ability.into()), ExtArg::Str(ability_attr::IS_READY.into())];
@@ -402,6 +407,7 @@ impl Cx<'_, '_> {
                 UnitTypes::Heroes => !self.world.is_building(*e) && self.is_hero(*e),
             })
             .filter(|e| select.include_invulnerable || !self.world.has_buff(*e, RStr::from_str("invulnerable")))
+            .filter(|e| select.include_hidden || !crate::codegen::hidden_excluded(*e))
             .collect();
         let caster_faction: Option<String> = self.world.faction_of(caster).into_option().map(|f| f.as_str().to_owned());
         units.retain(|e| {

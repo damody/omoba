@@ -61,6 +61,9 @@ pub mod op {
     /// were judged once, when the windup began, and must not be judged again (a team replica's
     /// view of a moving target may differ from the authority's by then).
     pub const CAST_RELEASED: u32 = 11;
+    /// `(Unit x, Unit u)` -> `Bool`: v3 `is_visible_to(x, u)`, whether `u`'s team can see `x` now
+    /// (its own units always; an own unit from the enemy's side through the disclosed enemy sight).
+    pub const IS_VISIBLE_TO: u32 = 12;
 }
 
 /// Attribute names of [`op::UNIT_ATTR`] and what they return.

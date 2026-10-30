@@ -1267,8 +1267,9 @@ impl TeamViewProjector {
                     effective_tick,
                     baseline,
                 } => {
-                    let baseline = if decode_safe_components_for_hash(&baseline)
-                        .contains_key(&crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID)
+                    let components = decode_safe_components_for_hash(&baseline);
+                    let baseline = if components.contains_key(&crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID)
+                        || components.contains_key(&crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID)
                     {
                         crate::runtime::visibility::encode_disclosed_baseline(
                             &team_safe_components(&baseline, self.team_id).into_iter().collect::<Vec<_>>())
@@ -1459,7 +1460,7 @@ impl TeamViewProjector {
         });
         for fact in ordered {
             // Control rows exist only for this team's own heroes.
-            if matches!(fact.fact, ObservableFact::OwnerControl { .. })
+            if matches!(fact.fact, ObservableFact::OwnerControl { .. } | ObservableFact::EnemySight { .. })
                 && !matches!(fact.audience, FactAudience::Team(value) if value == self.team_id) {
                 continue;
             }
@@ -1718,6 +1719,7 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
         ObservableFact::CriticalHit {target}=>(None,Some(*target),b"CRT1".to_vec()),
         ObservableFact::CommittedMana { source, state } => (Some(*source), None, state.encode()),
         ObservableFact::OwnerControl { source, batch, row } => (Some(*source), None, row.encode(*batch)),
+        ObservableFact::EnemySight { source, seen } => (Some(*source), None, crate::runtime::visibility::encode_disclosed_enemy_sight(*seen)),
         ObservableFact::CommittedAbilityRanks { source, ranks } => {
             for rank in ranks { payload.extend(rank.to_le_bytes()); }
             (Some(*source), None, payload)
@@ -2006,6 +2008,12 @@ fn team_safe_components_with_facts(bytes: &[u8], team: u32) -> (BTreeMap<u32, Ve
             None => {}
         }
     }
+    if components.contains_key(&crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID) {
+        let own_team = components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
+            .and_then(|bytes| crate::runtime::decode_demo_render_state(bytes))
+            .is_some_and(|state| state.team_id == team);
+        if !own_team { components.remove(&crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID); }
+    }
     if components.contains_key(&crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID) {
         let owned = components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
             .and_then(|bytes| crate::runtime::decode_demo_render_state(bytes))
@@ -2161,6 +2169,20 @@ pub fn sanitize_hidden_aoe_effect(
 #[cfg(test)]
 mod ability_cue_projection_tests {
     use super::*;
+
+    #[test]
+    fn enemy_sight_reaches_only_the_units_own_team() {
+        // E298: the opposing team never holds the enemy sight of a unit (it is its own sight).
+        let schema=crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID;
+        for owner in [0,7] {
+            let bytes=crate::runtime::encode_disclosed_baseline(&[
+                (crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID,crate::runtime::encode_demo_render_state(
+                    crate::runtime::DemoRenderState {x_raw:0,y_raw:0,team_id:1,kind:1,owner_player_id:owner})),
+                (schema,crate::runtime::encode_disclosed_enemy_sight(true))]);
+            assert_eq!(team_safe_components(&bytes,1).get(&schema),Some(&vec![1,1]),"owner {owner}");
+            assert!(!team_safe_components(&bytes,2).contains_key(&schema),"owner {owner}");
+        }
+    }
 
     #[test]
     fn buff_visual_state_shows_every_icon_to_the_owner_team_and_public_ones_to_others() {

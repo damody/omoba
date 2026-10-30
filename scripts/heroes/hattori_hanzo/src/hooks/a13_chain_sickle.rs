@@ -45,7 +45,7 @@ impl Hook for Impl {
                 let flown = ability_kit::arg_as_num(args, 2) + val(&v::HOOK_STEP, cx);
                 let head = ability_kit::offset(origin, way, flown);
                 if flown > val(&v::ARM_DISTANCE, cx) {
-                    let select = Select { types: UnitTypes::NonBuilding, include_magic_immune: true, include_invulnerable: false };
+                    let select = Select { types: UnitTypes::NonBuilding, include_magic_immune: true, include_invulnerable: false, include_hidden: false };
                     // v3 `radius = $hook_width`
                     if let Some(hit) = cx.enemies_in_circle(head, val(&v::HOOK_WIDTH, cx), select).into_iter().find(|u| *u != caster) {
                         cx.damage(hit, val(&v::HOOK_DAMAGE, cx), DamageKind::Physical,

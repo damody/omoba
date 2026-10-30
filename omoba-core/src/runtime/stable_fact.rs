@@ -77,6 +77,8 @@ pub enum FactKind {
     CommittedCharge = 39,
     /// Own-team controls and channel statuses after one outcome batch (split16).
     OwnerControl = 40,
+    /// Own-team unit: whether the opposing team has it disclosed now (E298, v3 `is_visible_to`).
+    EnemySight = 41,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -120,6 +122,8 @@ pub enum ObservableFact {
     CommittedCharge { source: u64, slot: u32, charges: u16, max: u16, recharge_raw: i64, remaining_raw: i64 },
     /// Own-team hero controls and channel statuses after outcome batch `batch`.
     OwnerControl { source: u64, batch: u8, row: crate::runtime::native::owner_control::OwnerControlRow },
+    /// The opposing team has `source` disclosed (`true`) or not, for `source`'s own team only.
+    EnemySight { source: u64, seen: bool },
     CommittedAttack { source: u64, elapsed_raw: i64, sequence: u32, phase: u8 },
     CommittedProgression { source: u64, level: i32, experience: i32, experience_to_next: i32, skill_points: i32 },
     /// One rank per slot: four for a Q-R hero, five when it has the extra action slot.

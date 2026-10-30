@@ -2,7 +2,29 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E312 （保留）v3 is_visible_to 需要敵方視野揭露；selector include_hidden 不再略過（2026-10-30）
+## E312 v3 `is_visible_to(x, u)` 需要敵方視野，但 team replica 沒有；selector 的 `include_hidden` 不能直接略過（2026-10-30，工作線 B）
+
+- **現象**：
+  - 道具與英雄文件的 `is_visible_to(self, it)`（敵人看不看得到穿戴者）與 `is_visible_to(it, self)`，產生器都擋下了。
+  - 只靠「目前揭露給本隊的單位」，無法回答「敵方看不看得到我方單位」。己方 replica 模擬時拿不到這個答案，authority 與 replica 一定會分歧。
+- **根因**：
+  - 協定只揭露「本隊看得到什麼」，不揭露「敵方看得到我方哪些單位」。
+  - selector 的 `include_hidden` 對應的 hidden 狀態在 host 裡不存在。
+- **通用修正**：
+  - 新揭露元件 `DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID`（0x464f4719，`[1, seen]`）與事實 `FactKind::EnemySight = 41`。
+    - Wave B resolve 之後，`settle_enemy_sight` 為每個有隊伍的單位，判斷對方隊伍的 `index.current` 是否含有它，存進 authority 資源 `EnemySight`。
+    - 有變化時，寫進本 tick 的 baseline（projector 的期望值與 reveal）；並在本 tick 的 committed batch 加上 `EnemySight` 事實，只給單位所屬的隊伍。
+    - `team_safe_components` 會把這個元件從對方隊伍的 view 移除。對方看得到的就是它自己的視野，沒有新增洩漏。
+    - authority 下一步與 replica 讀到的，是同一次 Wave B 的結果。
+  - ext op 12 `IS_VISIBLE_TO`，kit 的 `Cx::is_visible_to(x, u)`：
+    - 本隊單位一律看得到。
+    - replica 對自己的單位讀上述元件，其他單位以「是否在本隊揭露中」回答。
+    - authority 讀 viewer 隊伍的 `index.current`。
+    - 不屬於兩隊的 viewer 一律看不到。
+  - `Select.include_hidden`、`ability_kit::hidden_excluded`（目前 host 沒有 hidden 狀態，回傳 false，有測試鎖住），產生器明確接收這個 flag，不再略過。
+  - 測試：`enemy_sight_settles_into_the_baseline_and_this_ticks_owner_fact`、`enemy_sight_reaches_only_the_units_own_team`、`is_visible_to_reads_own_units_and_the_disclosed_enemy_sight_on_a_replica`、`include_hidden_changes_nothing_until_the_host_has_a_hidden_state`。
+- **已知限制**：viewer 是敵隊、x 是中立單位時，replica 不知道敵方是否看得到這個中立單位，會以本隊的揭露回答。要支援，就得把敵方對中立單位的視野揭露出去，等於洩漏敵方視野，所以不做。目前沒有文件用到這種組合。
+- **避免**：腳本能問的每一個問題，答案都要是 authority 和 replica 都持有的事實。凡是答案取決於另一隊資訊的，就加一個只對有權知道的隊伍揭露的事實；不要只做「同隊」那一半，另一半擋下。
 
 ## E301 UE 驗證局只持鎖 6 秒就結束：建置期間有內容放回，bridge 與 authority 的內容雜湊不同（2026-10-30，e187 遊戲模式 session；已放回 live）
 

@@ -47,6 +47,44 @@ pub const DISCLOSED_WARD_BODY_COMPONENT_SCHEMA_ID: u32 = 0x464f4714;
 /// Version, ASCII byte length, then a bounded author-defined template name.
 pub const DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID: u32 = 0x464f4715;
 
+/// Version 1, then 1 when the opposing team currently has the unit disclosed (v3 `is_visible_to`
+/// of an own unit and an enemy, E298). Kept only for the unit's own team (`team_safe_components`):
+/// the opposing team learns nothing it does not already see.
+pub const DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID: u32 = 0x464f4719;
+
+pub fn encode_disclosed_enemy_sight(seen: bool) -> Vec<u8> { vec![1, u8::from(seen)] }
+
+pub fn decode_disclosed_enemy_sight(bytes: &[u8]) -> Option<bool> {
+    match bytes { [1, 0] => Some(false), [1, 1] => Some(true), _ => None }
+}
+
+/// Authority: the team-owned units the opposing team has disclosed after the latest Wave B
+/// (`settle_enemy_sight`). Read by scripts through the disclosed component on both sides.
+#[derive(Default)]
+pub struct EnemySight(pub BTreeSet<u64>);
+
+/// The other replica team of a team-owned unit; None for neutrals and unknown teams.
+pub fn opposing_team(team: u32) -> Option<u32> {
+    crate::runtime::SUPPORTED_REPLICA_TEAMS.contains(&team).then(|| {
+        crate::runtime::SUPPORTED_REPLICA_TEAMS.into_iter().find(|other| *other != team)
+    }).flatten()
+}
+
+/// Replaces one component of a committed baseline in place, keeping the framing order.
+fn replace_disclosed_component(baseline: &[u8], schema: u32, value: &[u8]) -> Option<Vec<u8>> {
+    let count = u32::from_be_bytes(baseline.get(..4)?.try_into().ok()?) as usize;
+    let mut rows = Vec::with_capacity(count);
+    let mut cursor = 4usize;
+    for _ in 0..count {
+        let id = u32::from_be_bytes(baseline.get(cursor..cursor + 4)?.try_into().ok()?);
+        let len = u32::from_be_bytes(baseline.get(cursor + 4..cursor + 8)?.try_into().ok()?) as usize;
+        let bytes = baseline.get(cursor + 8..cursor + 8 + len)?;
+        cursor += 8 + len;
+        rows.push((id, if id == schema { value.to_vec() } else { bytes.to_vec() }));
+    }
+    (cursor == baseline.len() && rows.iter().any(|(id, _)| *id == schema)).then(|| encode_disclosed_baseline(&rows))
+}
+
 pub fn encode_disclosed_presentation_identity(id: &str) -> Option<Vec<u8>> {
     if id.is_empty() || id.len() > 96 || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
         return None;
@@ -752,6 +790,52 @@ mod tests {
     }
 
     #[test]
+    fn enemy_sight_settles_into_the_baseline_and_this_ticks_owner_fact() {
+        // E298: whether the opposing team has an own unit disclosed, after this Wave B, in the
+        // expected baseline and in the committed batch the projector reads after Wave B.
+        use specs::Builder;
+        let mut world = World::new();
+        world.register::<crate::Faction>();
+        world.register::<crate::Unit>();
+        let mut unit = |w: &mut World, team| specs::Builder::build(w.create_entity()
+            .with(crate::Faction::new(if team == 1 { crate::FactionType::Player } else { crate::FactionType::Enemy }, team))
+            .with(crate::Unit::new("u".into(), "u".into(), crate::UnitType::Creep)));
+        let (mine, theirs) = (unit(&mut world, 1), unit(&mut world, 2));
+        let neutral = specs::Builder::build(world.create_entity().with(crate::Faction::new(crate::FactionType::Neutral, 0))
+            .with(crate::Unit::new("n".into(), "n".into(), crate::UnitType::Creep)));
+        let id = crate::runtime::canonical_entity_id;
+        world.insert(crate::runtime::native::moba_match::stop_command_match(mine, crate::runtime::MobaMatchPhase::Playing));
+        let mut runtime = TeamVisibilityRuntime::default();
+        runtime.ensure_team(1);runtime.ensure_team(2);
+        runtime.teams.get_mut(&2).unwrap().index.current.extend([id(mine), id(neutral)]);
+        let baseline = encode_disclosed_baseline(&[(DEMO_RENDER_COMPONENT_SCHEMA_ID, vec![7]),
+            (DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID, encode_disclosed_enemy_sight(false))]);
+        runtime.latest_disclosed_baseline_by_canonical.insert(id(mine), baseline);
+        world.insert(runtime);
+        world.insert(CommittedProjectionBatch { tick: 5, ordered_outcome_count: 0, facts: Vec::new(), barrier_reached: true });
+        settle_enemy_sight(&mut world, 5);
+        assert_eq!(world.read_resource::<EnemySight>().0, BTreeSet::from([id(mine)]), "team-owned units only");
+        let runtime = world.read_resource::<TeamVisibilityRuntime>();
+        let components = decode_disclosed_components(&runtime.latest_disclosed_baseline_by_canonical[&id(mine)]).unwrap();
+        assert_eq!(components[&DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID], [1, 1].as_slice());
+        assert_eq!(components[&DEMO_RENDER_COMPONENT_SCHEMA_ID], [7].as_slice(), "other components untouched");
+        drop(runtime);
+        let facts = world.read_resource::<CommittedProjectionBatch>().facts.clone();
+        assert!(matches!(facts.as_slice(), [OrderedFact { audience: crate::runtime::FactAudience::Team(1),
+            fact: crate::runtime::ObservableFact::EnemySight { seen: true, .. }, .. }]), "{facts:?}");
+        // Unchanged next tick: no fact; leaving sight: one `false` fact.
+        world.write_resource::<CommittedProjectionBatch>().facts.clear();
+        settle_enemy_sight(&mut world, 5);
+        assert!(world.read_resource::<CommittedProjectionBatch>().facts.is_empty());
+        world.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&2).unwrap().index.current.clear();
+        settle_enemy_sight(&mut world, 5);
+        assert!(matches!(world.read_resource::<CommittedProjectionBatch>().facts.as_slice(),
+            [OrderedFact { fact: crate::runtime::ObservableFact::EnemySight { seen: false, .. }, .. }]));
+        assert!(!world.read_resource::<EnemySight>().0.contains(&id(theirs)));
+        assert_eq!(opposing_team(0), None);
+    }
+
+    #[test]
     fn a_pending_windup_keeps_its_existing_unit_target_for_the_casters_team() {
         // E294 (e187 ue-nobu9): a jungle creep left the caster team's sight during b08_flash_cut's
         // windup; the replica deleted it and cancelled the windup while the authority released it.
@@ -1141,6 +1225,7 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     let script_tags = world.read_storage::<crate::runtime::ScriptUnitTag>();
     let placed_wards = world.read_storage::<crate::runtime::PlacedWard>();
     let ability_projectiles = world.try_fetch::<crate::runtime::native::ability_projectile::AbilityProjectiles>();
+    let enemy_sight = world.try_fetch::<EnemySight>();
 
     let mut committed_entities: Vec<_> = (&entities, &positions)
         .join()
@@ -1187,6 +1272,11 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 if let Some(bytes) = encode_disclosed_presentation_identity(&state.spec.ability) {
                     disclosed.push((DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID, bytes));
                 }
+            }
+            if moba && flight.is_none() && units.get(entity).is_some()
+                && factions.get(entity).is_some_and(|faction| opposing_team(faction.team_id.max(0) as u32).is_some()) {
+                let seen = enemy_sight.as_ref().is_some_and(|sight| sight.0.contains(&canonical_id));
+                disclosed.push((DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID, encode_disclosed_enemy_sight(seen)));
             }
             if let Some(faction) = factions.get(entity) {
                 if let Some(faction_kind) = faction_kind_discriminant(&faction.faction_id) {
@@ -1444,6 +1534,64 @@ pub fn run_committed_visibility_wave_b(world: &mut World, tick: u64, delay: u64)
         .collect();
     runtime.last_transitions = results.into_iter().collect();
     runtime.latest_read_view = Some(Arc::new(view));
+    drop(runtime);
+    settle_enemy_sight(world, tick);
+}
+
+/// E298: after this Wave B, which team-owned units the opposing team has disclosed. A change is
+/// written into this tick's baselines (the projector's expected view and any reveal) and sent to
+/// the unit's own team as an `EnemySight` fact in this tick's committed batch, so the authority's
+/// next step and the team's replica read the same answer.
+fn settle_enemy_sight(world: &mut World, tick: u64) {
+    use crate::runtime::{FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact};
+    if world.try_fetch::<crate::runtime::MobaMatch>().is_none() { return; }
+    if world.try_fetch::<EnemySight>().is_none() { world.insert(EnemySight::default()); }
+    let rows: Vec<(u64, u32, bool)> = {
+        let runtime = world.read_resource::<TeamVisibilityRuntime>();
+        let flights = world.try_fetch::<crate::runtime::native::ability_projectile::AbilityProjectiles>();
+        let (entities, factions, units) = (world.entities(), world.read_storage::<crate::Faction>(), world.read_storage::<crate::Unit>());
+        (&entities, &factions, &units).join().filter_map(|(entity, faction, _)| {
+            if flights.as_ref().is_some_and(|rows| rows.0.contains_key(&entity)) { return None; }
+            let team = faction.team_id.max(0) as u32;
+            let other = opposing_team(team)?;
+            let canonical = crate::runtime::canonical_entity_id(entity);
+            Some((canonical, team, runtime.teams.get(&other).is_some_and(|state| state.index.current.contains(&canonical))))
+        }).collect()
+    };
+    let changed: Vec<(u64, u32, bool)> = {
+        let sight = world.read_resource::<EnemySight>();
+        rows.iter().copied().filter(|(canonical, _, seen)| sight.0.contains(canonical) != *seen).collect()
+    };
+    world.write_resource::<EnemySight>().0 = rows.iter().filter(|row| row.2).map(|row| row.0).collect();
+    if changed.is_empty() { return; }
+    {
+        let mut runtime = world.write_resource::<TeamVisibilityRuntime>();
+        for (canonical, _, seen) in &changed {
+            let value = encode_disclosed_enemy_sight(*seen);
+            let patch = |baseline: &mut Vec<u8>| {
+                if let Some(next) = replace_disclosed_component(baseline, DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID, &value) { *baseline = next; }
+            };
+            if let Some(baseline) = runtime.latest_disclosed_baseline_by_canonical.get_mut(canonical) { patch(baseline); }
+            for transitions in runtime.last_transitions.values_mut() {
+                for transition in transitions.iter_mut() {
+                    if let VisibilityTransition::Reveal { canonical_id, baseline, .. } = transition {
+                        if canonical_id == canonical { patch(baseline); }
+                    }
+                }
+            }
+        }
+    }
+    let Some(mut batch) = world.try_fetch_mut::<CommittedProjectionBatch>() else { return; };
+    if batch.tick != tick { return; }
+    for (canonical, team, seen) in changed {
+        batch.facts.push(OrderedFact {
+            key: FactOrderingKey { tick, phase: FactPhase::PostStep, canonical_source_order: canonical,
+                local_ordinal: u32::MAX, fact_kind: FactKind::EnemySight },
+            audience: FactAudience::Team(team),
+            fact: ObservableFact::EnemySight { source: canonical, seen },
+        });
+    }
+    batch.facts.sort_by(|a, b| a.key.cmp(&b.key));
 }
 
 #[derive(Clone, Debug)]

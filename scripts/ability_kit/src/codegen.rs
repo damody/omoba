@@ -73,7 +73,15 @@ pub struct Select {
     pub types: UnitTypes,
     pub include_magic_immune: bool,
     pub include_invulnerable: bool,
+    /// v3 flag `include_hidden`: also units in the `hidden` state. The host has no `hidden` state
+    /// yet, so nothing is excluded either way (`hidden_excluded`); a hidden state joins here.
+    pub include_hidden: bool,
 }
+
+/// Whether a selector without `include_hidden` leaves `unit` out for the `hidden` state. The host
+/// has no `hidden` state yet (no v3 document applies one), so no unit is excluded; when the state
+/// is added, its test belongs here and every selector picks it up.
+pub fn hidden_excluded(_unit: EntityHandle) -> bool { false }
 
 /// The unit classes a selector admits.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -378,6 +386,7 @@ impl<'a, 'w> Cx<'a, 'w> {
             UnitTypes::Heroes => !self.world.is_building(u) && self.is_hero(u),
         };
         self.alive(u) && typed && (select.include_invulnerable || !self.world.has_buff(u, RStr::from_str("invulnerable")))
+            && (select.include_hidden || !hidden_excluded(u))
             && (select.include_magic_immune || !self.is_magic_immune(u) || !self.is_enemy(self.caster, u))
     }
 
@@ -451,6 +460,7 @@ impl<'a, 'w> Cx<'a, 'w> {
             })
             .filter(|e| select.include_magic_immune || !self.is_magic_immune(*e))
             .filter(|e| select.include_invulnerable || !self.world.has_buff(*e, RStr::from_str("invulnerable")))
+            .filter(|e| select.include_hidden || !hidden_excluded(*e))
             .collect();
         units.sort_by_key(|e| (e.id, e.gen));
         units.dedup();
@@ -1239,6 +1249,19 @@ mod aura_tests {
         assert_eq!(aura_source("passive"), None);
         assert_eq!(aura_source("passive:x:1"), None);
         assert_eq!(AURA_PERIOD, omoba_core::runtime::native::aura::PERIOD);
+    }
+}
+
+#[cfg(test)]
+mod select_tests {
+    use super::*;
+
+    /// v3 `include_hidden` is carried by every selector, and with no `hidden` state in the host
+    /// nothing is excluded without it: the flag must not change a selection until that state exists.
+    #[test]
+    fn include_hidden_changes_nothing_until_the_host_has_a_hidden_state() {
+        assert!(!Select::default().include_hidden);
+        for id in 0..64 { assert!(!hidden_excluded(EntityHandle { id, gen: 1 })); }
     }
 }
 

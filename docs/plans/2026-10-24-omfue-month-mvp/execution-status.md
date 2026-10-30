@@ -16,6 +16,16 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30（history-nobu 工作線 B：is_visible_to 的敵方視野揭露、selector include_hidden（E312）；已放回 live）
+
+- **敵方視野揭露**：新增元件 `DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID`（0x464f4719）與事實 `FactKind::EnemySight = 41`。
+  - Wave B 之後，`settle_enemy_sight` 判斷每個有隊伍的單位，目前是否在對方隊伍的揭露中。有變化時寫進本 tick 的 baseline 與 committed batch，只給所屬的隊伍。
+  - 對方隊伍的 view 會移除這個元件。
+- **`is_visible_to(x, u)`**：ext op 12 `IS_VISIBLE_TO`，kit 的 `Cx::is_visible_to`。本隊單位一律看得到；authority 讀 viewer 隊伍的揭露；replica 對自己的單位讀上述元件。
+- **include_hidden**：`Select.include_hidden` 與 `ability_kit::hidden_excluded`（host 目前沒有 hidden 狀態，有測試鎖住）。產生器會帶上這個 flag，不再擋下。
+- 測試：omoba-core 1420 項通過；kit 的 `select_tests` 通過；放回時 codegen、script DLL 與 omobab 的 cargo check 都通過。
+- 已知限制：viewer 是敵隊、x 是中立單位時，replica 以本隊的揭露回答（見 E312）。
+
 ## 2026-10-30 夜（工作線 C：M6 美術補齊，依 M6 批次順序檢查已換上產生 Rust 的英雄）
 
 - **盤點**（`scripts/m6_presentation_coverage.lua`、`scripts/ue_hud_portrait_coverage.lua`）：
