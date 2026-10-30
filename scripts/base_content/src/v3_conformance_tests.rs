@@ -2103,7 +2103,9 @@ const REPORT_ONLY: &[&str] = &["A13", "C05", "C09", "A18", "B30", "A16", "A24", 
     // M6 batch 5
     "A03", "B35", "C20", "B25", "B36", "C12", "A04", "B21", "A17", "B10", "B19", "C11", "C16",
     // M6 batch 6
-    "A27", "A10", "A25", "A29", "B32", "A31", "C04", "A32", "B17"];
+    "A27", "A10", "A25", "A29", "B32", "A31", "C04", "A32", "B17",
+    // M6 batch 7
+    "C13", "A05", "A08", "C21", "A06", "A15", "B12", "C19", "C23"];
 
 fn conformance(id: &str) {
     let doc = document(id);
@@ -2187,6 +2189,10 @@ conformance_tests! {
     a27_shibata_katsuie => "A27", a10_hirate_masahide => "A10", a25_oda_nobunaga => "A25", a29_ishida_mitsunari => "A29",
     b32_uesugi_kenshin => "B32", a31_mori_ranmaru => "A31", c04_izumo_no_okuni => "C04", a32_takigawa_kazumasu => "A32",
     b17_kirigakure_saizo => "B17",
+    // M6 batch 7 (report only until in the content and generated; E320)
+    c13_ryuzoji_takanobu => "C13", a05_sakai_tadatsugu => "A05", a08_sakakibara_yasumasa => "A08", c21_miyamoto_musashi => "C21",
+    a06_ii_naomasa => "A06", a15_nene => "A15", b12_yamamoto_kansuke => "B12", c19_matsuhime => "C19",
+    c23_kato_kiyomasa => "C23",
 }
 
 
