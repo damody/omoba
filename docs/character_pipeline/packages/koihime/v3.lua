@@ -10,7 +10,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "B18",
-      text = { zh_TW = { name = "湖衣姬" }, en = { name = "Koihime" } },
+      text = { zh_TW = { name = "湖衣姬", title = "大地之巫女",
+        background = "控場輸出：地襲以震波暈眩並留下尖刺，迴響提高攻速並不斷在周圍敵人腳下震擊；被動大地庇護增加護甲與普攻傷害；大招大地魔爪召喚追獵敵方英雄的魔爪。" }, en = { name = "Koihime" } },
     },
     abilities = {
       -------------------------------------------------------------------------

@@ -13,7 +13,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "B32",
-      text = { zh_TW = { name = "上杉謙信" }, en = { name = "Uesugi Kenshin" } },
+      text = { zh_TW = { name = "上杉謙信", title = "越後之龍",
+        background = "突進戰士：神斬閃避投射物瞬移到敵人身邊，神閃沿冰道暈眩敵人，被動神陣受傷時回魔並反擊周圍；軍神刻印沉默並削弱目標，大招毘沙門天大幅提高攻擊力與攻擊頻率。" }, en = { name = "Uesugi Kenshin" } },
     },
     abilities = {
       -------------------------------------------------------------------------

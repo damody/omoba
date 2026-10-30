@@ -12,7 +12,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "C21",
-      text = { zh_TW = { name = "宮本武藏" }, en = { name = "Miyamoto Musashi" } },
+      text = { zh_TW = { name = "宮本武藏", title = "二天一流",
+        background = "單挑劍豪：弧月斬迴旋時魔法免疫，連環鋼破暈眩後瞬移連續追砍，被動二天一流帶來閃避與暴擊；大招飛翔烈震斬瞬移斬擊並在期間無敵、提高攻速。" }, en = { name = "Miyamoto Musashi" } },
     },
     abilities = {
       -------------------------------------------------------------------------

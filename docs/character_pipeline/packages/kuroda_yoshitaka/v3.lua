@@ -11,7 +11,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "A19",
-      text = { zh_TW = { name = "黑田孝高" }, en = { name = "Kuroda Yoshitaka" } },
+      text = { zh_TW = { name = "黑田孝高", title = "天下的軍師",
+        background = "法術輸出：鬼謀．火攻讓地點陷入連續爆炸的火海，連環火削減護甲與移速並持續灼燒；被動火焰返響每次施法都以智力引爆周圍敵人；大招籠城之火朝前方放出三道延燒的火牆。" }, en = { name = "Kuroda Yoshitaka" } },
     },
     abilities = {
       -------------------------------------------------------------------------

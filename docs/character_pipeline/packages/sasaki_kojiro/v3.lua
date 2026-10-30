@@ -10,7 +10,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "C22",
-      text = { zh_TW = { name = "佐佐木小次郎" }, en = { name = "Sasaki Kojiro" } },
+      text = { zh_TW = { name = "佐佐木小次郎", title = "嚴流的劍聖",
+        background = "爆發劍客：飛燕追蹤暈眩，嚴流提高攻速並把被暈眩的敵人拉回身邊，燕巢引導時隱身無敵並縮短嚴流冷卻；被動燕閃增加射程與閃避，大招滅剎夢霞震暈周圍並造成生命比例傷害。" }, en = { name = "Sasaki Kojiro" } },
       auto_learn = { "c22_ganryu" },
     },
     unit_state = {

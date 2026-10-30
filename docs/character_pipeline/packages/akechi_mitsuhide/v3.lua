@@ -7,7 +7,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "C01",
-      text = { zh_TW = { name = "明智光秀" }, en = { name = "Akechi Mitsuhide" } },
+      text = { zh_TW = { name = "明智光秀", title = "敵在本能寺",
+        background = "近戰輸出：血刃亂舞讓普攻波及周圍，地焰召來延遲爆發並暈眩，被動血火共刃帶來必定到來的暴擊；大招本能寺炎上引導降下連串火球。" }, en = { name = "Akechi Mitsuhide" } },
     },
     abilities = {
       -------------------------------------------------------------------------

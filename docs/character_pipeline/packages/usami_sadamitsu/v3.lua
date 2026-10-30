@@ -9,7 +9,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "B19",
-      text = { zh_TW = { name = "宇佐美定滿" }, en = { name = "Usami Sadamitsu" } },
+      text = { zh_TW = { name = "宇佐美定滿", title = "越後的軍師",
+        background = "輔助控場：水龍攻在敵人間彈跳造成魔法傷害，冰茅圍籬範圍暈眩，越後流兵法為全地圖友軍回復生命與法力；大招車懸引導後暈眩範圍敵人並召喚可操控的騎兵。" }, en = { name = "Usami Sadamitsu" } },
     },
     abilities = {
       -------------------------------------------------------------------------

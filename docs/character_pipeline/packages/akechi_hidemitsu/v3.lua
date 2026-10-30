@@ -13,7 +13,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "C02",
-      text = { zh_TW = { name = "明智秀滿" }, en = { name = "Akechi Hidemitsu" } },
+      text = { zh_TW = { name = "明智秀滿", title = "湖水渡",
+        background = "幻影刺客：蜃氣襲掃過敵人並複製其幻影，幻移瞬移閃避投射物並留下幻影，被動鏡花水月普攻時複製目標；大招汰選斬擊斬殺低血敵人，否則暈眩並獲得範圍普攻。" }, en = { name = "Akechi Hidemitsu" } },
     },
     abilities = {
       -------------------------------------------------------------------------

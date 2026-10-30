@@ -67285,6 +67285,7 @@ local data = {
     {
       abilities = { "a24_slaughter_shot", "a24_blood_charge", "a24_blood_resonance", "a24_bloodbath", "a24_blood_shield" },
       authored_package = "sakuma_morimasa",
+      background = "以血換盾的前排：每個技能付出生命化為血盾，屠戮彈射出血彈、血之突進衝入敵陣、血之共鳴強化自身；大招浴血侵攻暈眩周圍敵人並在期間施法不再扣血。",
       display_name = "佐久間盛政",
       id = "sakuma_morimasa",
       moba_loadout = {
@@ -67292,6 +67293,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A24",
+      title = "鬼玄蕃",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "sakuma_morimasa",
@@ -67299,6 +67301,7 @@ local data = {
     {
       abilities = { "c01_blood_blade", "c01_ground_flame", "c01_blood_flame", "c01_honnoji" },
       authored_package = "akechi_mitsuhide",
+      background = "近戰輸出：血刃亂舞讓普攻波及周圍，地焰召來延遲爆發並暈眩，被動血火共刃帶來必定到來的暴擊；大招本能寺炎上引導降下連串火球。",
       display_name = "明智光秀",
       id = "akechi_mitsuhide",
       moba_loadout = {
@@ -67306,6 +67309,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:C01",
+      title = "敵在本能寺",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "akechi_mitsuhide",
@@ -67395,6 +67399,7 @@ local data = {
     {
       abilities = { "c22_swallow_nest", "c22_flying_swallow", "c22_swallow_flash", "c22_dream_mist", "c22_ganryu" },
       authored_package = "sasaki_kojiro",
+      background = "爆發劍客：飛燕追蹤暈眩，嚴流提高攻速並把被暈眩的敵人拉回身邊，燕巢引導時隱身無敵並縮短嚴流冷卻；被動燕閃增加射程與閃避，大招滅剎夢霞震暈周圍並造成生命比例傷害。",
       display_name = "佐佐木小次郎",
       id = "sasaki_kojiro",
       moba_loadout = {
@@ -67402,6 +67407,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:C22",
+      title = "嚴流的劍聖",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "sasaki_kojiro",
@@ -67507,6 +67513,7 @@ local data = {
     {
       abilities = { "a19_fire_stratagem", "a19_chain_fire", "a19_fire_echo", "a19_siege_fire" },
       authored_package = "kuroda_yoshitaka",
+      background = "法術輸出：鬼謀．火攻讓地點陷入連續爆炸的火海，連環火削減護甲與移速並持續灼燒；被動火焰返響每次施法都以智力引爆周圍敵人；大招籠城之火朝前方放出三道延燒的火牆。",
       display_name = "黑田孝高",
       id = "kuroda_yoshitaka",
       moba_loadout = {
@@ -67514,6 +67521,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A19",
+      title = "天下的軍師",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "kuroda_yoshitaka",
@@ -67755,6 +67763,7 @@ local data = {
     {
       abilities = { "c02_mirage_strike", "c02_phantom_move", "c02_kyoka_suigetsu", "c02_culling_slash" },
       authored_package = "akechi_hidemitsu",
+      background = "幻影刺客：蜃氣襲掃過敵人並複製其幻影，幻移瞬移閃避投射物並留下幻影，被動鏡花水月普攻時複製目標；大招汰選斬擊斬殺低血敵人，否則暈眩並獲得範圍普攻。",
       display_name = "明智秀滿",
       id = "akechi_hidemitsu",
       moba_loadout = {
@@ -67762,6 +67771,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:C02",
+      title = "湖水渡",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "akechi_hidemitsu",
@@ -67887,6 +67897,7 @@ local data = {
     {
       abilities = { "b18_earth_raid", "b18_echo", "b18_earth_shelter", "b18_earth_claw" },
       authored_package = "koihime",
+      background = "控場輸出：地襲以震波暈眩並留下尖刺，迴響提高攻速並不斷在周圍敵人腳下震擊；被動大地庇護增加護甲與普攻傷害；大招大地魔爪召喚追獵敵方英雄的魔爪。",
       display_name = "湖衣姬",
       id = "koihime",
       moba_loadout = {
@@ -67894,6 +67905,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B18",
+      title = "大地之巫女",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "koihime",
@@ -67918,6 +67930,7 @@ local data = {
     {
       abilities = { "b19_water_dragon", "b19_ice_fence", "b19_echigo_tactics", "b19_kuruma_gakari" },
       authored_package = "usami_sadamitsu",
+      background = "輔助控場：水龍攻在敵人間彈跳造成魔法傷害，冰茅圍籬範圍暈眩，越後流兵法為全地圖友軍回復生命與法力；大招車懸引導後暈眩範圍敵人並召喚可操控的騎兵。",
       display_name = "宇佐美定滿",
       id = "usami_sadamitsu",
       moba_loadout = {
@@ -67925,6 +67938,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B19",
+      title = "越後的軍師",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "usami_sadamitsu",
@@ -68183,6 +68197,7 @@ local data = {
     {
       abilities = { "b32_divine_slash", "b32_divine_flash", "b32_divine_formation", "b32_bishamonten", "b32_war_god" },
       authored_package = "uesugi_kenshin",
+      background = "突進戰士：神斬閃避投射物瞬移到敵人身邊，神閃沿冰道暈眩敵人，被動神陣受傷時回魔並反擊周圍；軍神刻印沉默並削弱目標，大招毘沙門天大幅提高攻擊力與攻擊頻率。",
       display_name = "上杉謙信",
       id = "uesugi_kenshin",
       moba_loadout = {
@@ -68190,6 +68205,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B32",
+      title = "越後之龍",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "uesugi_kenshin",
@@ -68231,6 +68247,7 @@ local data = {
     {
       abilities = { "c21_crescent_slash", "c21_chain_breaker", "c21_two_heavens", "c21_soaring_quake" },
       authored_package = "miyamoto_musashi",
+      background = "單挑劍豪：弧月斬迴旋時魔法免疫，連環鋼破暈眩後瞬移連續追砍，被動二天一流帶來閃避與暴擊；大招飛翔烈震斬瞬移斬擊並在期間無敵、提高攻速。",
       display_name = "宮本武藏",
       id = "miyamoto_musashi",
       moba_loadout = {
@@ -68238,6 +68255,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:C21",
+      title = "二天一流",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "miyamoto_musashi",

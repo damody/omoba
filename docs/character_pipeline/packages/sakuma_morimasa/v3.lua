@@ -11,7 +11,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "A24",
-      text = { zh_TW = { name = "佐久間盛政" }, en = { name = "Sakuma Morimasa" } },
+      text = { zh_TW = { name = "佐久間盛政", title = "鬼玄蕃",
+        background = "以血換盾的前排：每個技能付出生命化為血盾，屠戮彈射出血彈、血之突進衝入敵陣、血之共鳴強化自身；大招浴血侵攻暈眩周圍敵人並在期間施法不再扣血。" }, en = { name = "Sakuma Morimasa" } },
       auto_learn = { "a24_blood_shield" },
     },
     values = {
