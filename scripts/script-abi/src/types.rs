@@ -189,9 +189,14 @@ impl DamageProfile {
     /// Not a type: v3 damage flag `reflection` — damage returned to an attacker; status events
     /// report it (`StatusEvent::REFLECTION`) so reflections do not reflect again. Stripped with SPELL.
     pub const REFLECTION: Self = Self(1 << 12);
+    /// Not a type: v3 damage flag `no_source_bonuses` — the source deals it as the original's
+    /// dummy unit would: none of the source's bonuses (spell amplification, outgoing damage,
+    /// its on_deal_damage_pre statuses, an illusion's outgoing scale) apply, while the kill still
+    /// credits the source (omoba-core `rules::damage`). Stripped with SPELL.
+    pub const NO_SOURCE_BONUSES: Self = Self(1 << 13);
     /// The non-type marks above.
     pub const FLAG_BITS: u32 = Self::SPELL.0 | Self::REQUIRE_SOURCE_ALIVE.0 | Self::IGNORE_ARMOR.0 | Self::HP_REMOVAL.0
-        | Self::REFLECTION.0;
+        | Self::REFLECTION.0 | Self::NO_SOURCE_BONUSES.0;
     pub const KNOWN_BITS: u32 = Self::TYPE_BITS | Self::FLAG_BITS;
 
     pub const fn from_bits(bits: u32) -> Option<Self> {

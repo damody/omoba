@@ -77,7 +77,9 @@ pub fn status_damage_pre(world: &World, packet: &mut Packet) {
     let Some(registry) = world.try_fetch::<ScriptRegistry>() else { return };
     let calls: Vec<(specs::Entity, (String, Spec), u8)> = {
         let buffs = world.read_resource::<BuffStore>();
-        let mut calls: Vec<_> = rows(&buffs, packet.source, ON_DEAL_DAMAGE_PRE).into_iter().map(|s| (packet.source, s, se::DEAL_DAMAGE_PRE)).collect();
+        // v3 no_source_bonuses: the source's statuses do not see the packet; the target's still do.
+        let dealt = if packet.without_source_bonuses() { Vec::new() } else { rows(&buffs, packet.source, ON_DEAL_DAMAGE_PRE) };
+        let mut calls: Vec<_> = dealt.into_iter().map(|s| (packet.source, s, se::DEAL_DAMAGE_PRE)).collect();
         calls.extend(rows(&buffs, packet.target, ON_TAKE_DAMAGE_PRE).into_iter().map(|s| (packet.target, s, se::TAKE_DAMAGE_PRE)));
         calls
     };

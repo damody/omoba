@@ -16,6 +16,17 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：傷害旗標 no_source_bonuses（原作用 dummy 造成的傷害）
+
+- 新增 `DamageProfile::NO_SOURCE_BONUSES`（1<<13，加入 FLAG_BITS，和 SPELL 一起剝掉）。原作有些技能改由 dummy 造成傷害，所以來源身上的加成都不會套用。
+- 帶這個旗標的封包在減免前跳過四項：
+  - 來源的法術增幅
+  - 來源的 outgoing_damage（DamageOutgoingPercentage）
+  - 來源的 on_deal_damage_pre status
+  - 幻象來源的 outgoing 倍率
+- 目標端的效果照常：on_take_damage_pre、incoming、護甲與魔抗。擊殺仍歸來源（credit 不變）。
+- 用到的技能：a11_vortex、c08_blood_hunt（線 A 的涵蓋率缺口 4）。
+- 測試：`flags_are_stripped_after_the_events_and_types_survive` 加上旗標的情境：來源有 +50% outgoing 與 SPELL 時，傷害仍維持原值，credit 仍是來源。
 ## 2026-10-30 線 B：observer 不一致時在 log 印出 replica 端英雄的推導輸入；attribute_hp 重現測試改用三路地圖與 secure allowlist
 
 - E353 修正後，工作線 C 的 1+9 demo 仍然出現 attribute_hp mismatch，replica 少了道具被動的力量。可是同樣情境的重現測試，在單路與三路快速地圖、預設與 secure allowlist 下都通過。

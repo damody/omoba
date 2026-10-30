@@ -55,6 +55,11 @@ impl Packet {
     pub fn requires_source_alive(&self) -> bool {
         self.profile & DamageProfile::REQUIRE_SOURCE_ALIVE.bits() != 0
     }
+
+    /// v3 `no_source_bonuses`: the source's own damage bonuses and pre-damage statuses skip it.
+    pub fn without_source_bonuses(&self) -> bool {
+        self.profile & DamageProfile::NO_SOURCE_BONUSES.bits() != 0
+    }
 }
 
 /// 封包旗標以外的類型位元；沒有類型的位元組合原樣保留，由後面的驗證拒絕。
@@ -94,6 +99,7 @@ pub const BEFORE_MITIGATION: &[fn(&World, &mut Packet)] = &[spell_amplification,
 
 /// 法術增幅（E188）：帶 SPELL 的封包乘上來源的增幅。
 fn spell_amplification(world: &World, packet: &mut Packet) {
+    if packet.without_source_bonuses() { return; }
     let (physical, magical, pure) = crate::runtime::native::spell_amplify::apply(
         &world.read_resource::<BuffStore>(), packet.source, packet.profile, packet.physical, packet.magical, packet.pure);
     (packet.physical, packet.magical, packet.pure) = (physical, magical, pure);
@@ -103,7 +109,7 @@ fn spell_amplification(world: &World, packet: &mut Packet) {
 /// `incoming_damage_pct`: every packet its source deals, abilities and attacks alike, scales by
 /// 1 + x (never below zero). Life paid as a cost (`hp_removal`) is not damage dealt and stays.
 fn outgoing_damage(world: &World, packet: &mut Packet) {
-    if packet.profile & DamageProfile::HP_REMOVAL.bits() != 0 { return; }
+    if packet.profile & DamageProfile::HP_REMOVAL.bits() != 0 || packet.without_source_bonuses() { return; }
     let bonus = world.read_resource::<BuffStore>().sum_add(packet.source, omb_script_abi::stat_keys::StatKey::DamageOutgoingPercentage);
     if bonus == Fixed64::ZERO { return; }
     let scale = (Fixed64::ONE + bonus).max(Fixed64::ZERO);
@@ -289,6 +295,13 @@ mod tests {
             DamageProfile::TRUE.bits() | DamageProfile::HP_REMOVAL.bits());
         before_mitigation(&w, &mut cost);
         assert_eq!(cost.pure, Fixed64::from_i32(10), "life removal is not scaled");
+        // v3 no_source_bonuses (the original's dummy damage): the source's bonus skips it, the
+        // flag is stripped like the others and the kill still credits the source.
+        let dummy = DamageProfile::NORMAL.union(DamageProfile::SPELL).union(DamageProfile::NO_SOURCE_BONUSES).bits();
+        let mut plain = Packet::new(source, target, Fixed64::from_i32(10), Fixed64::from_i32(4), Fixed64::ZERO, dummy);
+        before_mitigation(&w, &mut plain);
+        assert_eq!((plain.physical, plain.magical, plain.profile, plain.credit),
+            (Fixed64::from_i32(10), Fixed64::from_i32(4), normal, source));
     }
 
     #[test]

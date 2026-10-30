@@ -123,7 +123,8 @@ pub fn look(buffs: &BuffStore, entity: Entity) -> Option<&str> {
 pub fn scale_damage(world: &World, packet: &mut super::rules::damage::Packet) {
     let buffs = world.read_resource::<BuffStore>();
     let scale = |entity: Entity, key: &str| buffs.get(entity, STATE).and_then(|row| Scale::of(row.payload.get(key)));
-    for scale in [scale(packet.source, "outgoing"), scale(packet.target, "incoming")].into_iter().flatten() {
+    let outgoing = if packet.without_source_bonuses() { None } else { scale(packet.source, "outgoing") };
+    for scale in [outgoing, scale(packet.target, "incoming")].into_iter().flatten() {
         let [p, m, t] = scale.0.map(|x| (Fixed64::ONE + x).max(Fixed64::ZERO));
         (packet.physical, packet.magical, packet.pure) = (packet.physical * p, packet.magical * m, packet.pure * t);
     }
