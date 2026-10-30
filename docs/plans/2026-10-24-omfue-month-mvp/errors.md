@@ -2,13 +2,20 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E322 （保留）run_moba_role_ue 的結算與 round 時限從 Unreal 啟動後才計，持鎖超過時限（2026-10-30）
+
 ## E321 狀態圓環拒收負的 VisualInstanceKey，約一半狀態畫不出來（2026-10-30，history-nobu M6 呈現檢查，工作線 C；已放回 live）
 - **現象**：A07 本多忠勝的 UE spotlight 局裡，戰國最強（a07t_strongest）與奮起（a07d_rouse）都有狀態 cue，卻沒有任何 OM_STATUS_CUE；毫髮無傷（a07w_convert）、赤雷擊減速（a07e_slow）走一般狀態圓環，畫面上也沒有圓環。
 - **根因**：`UOmCombatVisualSubsystem::SyncBuff` 用 `Key<=0` 擋掉無效 key。VisualInstanceKey 是 64 位元雜湊，大約一半是負數，這些狀態的圓環（與沒有美術的狀態 cue）在分配前就被退回，呼叫端照「分配失敗」處理，什麼都不畫。本局 8 個狀態實例中 5 個是負 key。
 - **通用修正**：只有 0 是「沒有 key」，改為 `Key==0`。`Om.Runtime.NativeCombatVfxLifecycle` 新增負 key 的狀態會顯示、移除只收掉它自己的圓環。OnBuffState 對每個狀態實例記一次 `OM_BUFF route=aura|status_cue|ring|channel|off`，`scripts/ue_presentation_report.lua` 依招式列出每個狀態的呈現路徑。
 - **避免**：雜湊值或 id 的「無效值」只用明確的哨兵值（0），不要用正負號判斷；有號整數裝的雜湊本來就會是負的。
 
-## E320 （保留）conformance：M6 第 2 批 9 位接進 harness（尚未進 content 時只報告）（2026-10-30）
+## E320 conformance：M6 第 2 批 9 位接進 harness，尚未進 content 時只報告（2026-10-30，conformance session）
+
+- **做法**：C05、C09、A18、B30、A16、A24、C01、A23、A35 加進 conformance_tests 和 REPORT_ONLY。英雄的 entry 都不是 content 技能時（`ability_by_name` 都找不到），代表它的 package 還只有 v3 文件，生不出英雄；這時每個情境都記 unsupported「<hero> is not in the content yet」，只寫出結果、不讓測試失敗。
+- **結果**：9 位共 2268 個情境已寫進 target/v3-conformance，可以當作換上前的基準。線 A 把它們加進 v3_test_heroes 並產生 crate 之後，同一套測試就會直接跑，不用再改 harness。全部 entry 都能產生後，再從 REPORT_ONLY 拿掉。
+- **順帶確認（給線 A）**：`generic_dot:` 和 `__ground_damage_zone:` 不同，host 沒有攔截這個前綴的 AddBuff，所以不會被吞掉。但它帶有 host 規則：狀態抗性會縮短（damage_immunity::resist）、魔免會擋下（magic_immunity::is_debuff）、淨化時視為有施加者的減益（dispel）。`generic_slow:`、`generic_mana:` 也一樣。C15 燒傷沒有出現，是因為火焰地帶沒建出來，不是撞名。產生器的檢查除了 `__` 之外，也應列出這些有語意的前綴，讓作者知道會套上這些規則。
+- 已放回。
 
 ## E319 run_ue 前端建置在最後驗證共用 scripts/base_content.dll，被別的 session 覆蓋就整局失敗（2026-10-30，e187 遊戲模式 session；已放回 live）
 - **現象**：`run_ue.bat` 預設 demo（demo1）建完 UE 前端後失敗：「staged base_content differs from current build; rebuild/stage before launch: scripts\base_content.dll」。這時 scripts/base_content.dll 是 1.9 MB 的 release 版（mtime 13:49），debug 建置與 plugin 副本都是 4.8 MB（14:08／14:10）。

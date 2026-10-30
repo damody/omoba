@@ -2068,7 +2068,9 @@ fn use_handlers(driver: &mut SimulationDriver) {
 }
 
 /// Documents whose hero is only partly ported: results are written, differences do not fail.
-const REPORT_ONLY: &[&str] = &["A13"];
+/// M6 batch 2 (m6-waves.md; E320): test_only heroes as line A brings them into the content and
+/// generates their entries; until then every scenario is unsupported and nothing fails.
+const REPORT_ONLY: &[&str] = &["A13", "C05", "C09", "A18", "B30", "A16", "A24", "C01", "A23", "A35"];
 
 fn conformance(id: &str) {
     let doc = document(id);
@@ -2078,9 +2080,14 @@ fn conformance(id: &str) {
     DEATHLESS.with(|ids| *ids.borrow_mut() = deathless);
     let (mut rows, mut counts) = (Vec::new(), std::collections::BTreeMap::<String, usize>::new());
     let (mut unexpected, mut fixed_known) = (Vec::new(), Vec::new());
+    // A hero whose package is only its v3 document so far (not in the content: none of its
+    // entries is a content ability; E320) cannot be spawned yet.
+    let in_content = doc["scenarios"].as_array().unwrap().iter().filter_map(|s| s["entry"].as_str())
+        .any(|entry| omoba_template_ids::ability_by_name(entry).is_some());
     for s in doc["scenarios"].as_array().unwrap() {
         let sid = s["id"].as_str().unwrap();
-        let (verdict, detail) = match run(&hero, s) {
+        let verdict = if in_content { run(&hero, s) } else { Verdict::Unsupported(format!("{hero} is not in the content yet")) };
+        let (verdict, detail) = match verdict {
             Verdict::Pass => ("pass", String::new()),
             Verdict::PassNoted(note) => ("pass", note),
             Verdict::Fail(why) => ("fail", why),
@@ -2122,6 +2129,10 @@ conformance_tests! {
     b01_saika_magoichi => "B01", c17_oichi => "C17", a02_inahime => "A02", a07_honda_tadakatsu => "A07",
     a34_omatsu => "A34", b04_date_masamune => "B04", b06_sanada_yukimura => "B06", b08_asai_nagamasa => "B08",
     b29_murakami_yoshikiyo => "B29", c15_tamako => "C15", a13_hattori_hanzo => "A13",
+    // M6 batch 2 (report only until generated; E320)
+    c05_maeda_keiji => "C05", c09_tachibana_ginchiyo => "C09", a18_inaba_ittetsu => "A18", b30_kakizaki_kageie => "B30",
+    a16_torii_mototada => "A16", a24_sakuma_morimasa => "A24", c01_akechi_mitsuhide => "C01", a23_ukita_hideie => "A23",
+    a35_shima_sakon => "A35",
 }
 
 
