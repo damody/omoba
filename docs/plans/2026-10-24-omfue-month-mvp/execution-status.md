@@ -32,6 +32,24 @@
   - E286：split 在取得鎖後由父程序一次建好 authority、script DLL 與 client runtime，所有角色都帶 `--no-build`；不再需要鎖外預建或重試。
 - **限制**：只有 content buff 目錄裡有的狀態會送到 UE（目前 78 個）；英雄進 content 後就會自動帶進。
 
+## 2026-10-30 晚（遊戲模式線：autopilot 指令化、nobu 砍樹與重生入鏡、村上義清兩招、UE 啟動過舊修正；E280、E281、E287，已放回並 commit）
+
+- **autopilot 指令化**（E280）：`--autopilot-plan FILE` 用地圖名詞寫步驟（walk／clear／watch／cast；camp、tree、same、at），Lua 解析成座標，UE autopilot 依序執行，步驟之間照常打兵線。範例 `scripts/autopilot_plans/jungle_trees.lua`。
+- **nobu UE 驗收補拍**（`target/e187/ue-nobu8`，伊達政宗，560 秒時限）：
+
+| 時間 | 畫面 |
+|---|---|
+| 01:22 | 己方最近營地旁的樹群 |
+| 01:33 | 火焰強襲砍掉樹群 |
+| 05:32 | 回到同一位置，樹群仍空 |
+| 07:22 | 樹群重生，和 01:22 一致 |
+
+  三張都看得到營地單位；營地與英雄交戰在 ue-nobu7。營地清空後重生沒拍到：nobu 營地 2,700 HP 以上、100 DPS 以上，前期英雄單打必死，10 分鐘內做不到，由 headless 涵蓋。replica mismatch 1 次（A34 冰霜箭前搖結束時副本自行判定範圍而拒絕），線 A 已追到並交線 B。
+- **村上義清兩招**（E281）：都是施放政策問題。震地斧射程 0（跳躍）→ 新增 leap_enemy_point；大地震撼是引導 point 大招 → 引導技可施放、線 A 推導成 enemy_point；拿掉手寫的錯誤政策。verify_m6_batch 9 局：震地斧 27 次、大地震撼 9 次，沒有從沒施放的主動技。
+- **UE 啟動一再被判 base_content 過舊**（E287）：run_moba_role_ue 改成自己建 script DLL 組，並以建置開始時間判斷來源新舊。
+- **M6 批次**：批次 1～4 目前都還沒有產生碼的英雄（verify_m6_batch 列出待上架名單），線 A 解鎖後直接跑。
+- commit：eb9c9638（E265）、765bfabe（E287）、693f13a5＋omfue 66c8eac（E280，含線 C 的瞄準停留）、4a723643（bot 政策）。
+
 ## 2026-10-30 下午（遊戲模式線：切換技意圖、nobu UE 實機、M6 批次驗收腳本；E263、E265，已放回 live）
 
 - **切換技意圖 toggle_engage**（E263）：
