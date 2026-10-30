@@ -482,6 +482,37 @@ mod tests {
         unheld.showcase.as_mut().unwrap().hold_players.clear();
         assert!(!decisions(unheld).is_empty(), "control: the same bot seats decide when not held");
         assert!(decisions(showcase_plan()).is_empty(), "held seats issue no input");
+        // E390: a stand-in pushed off its place walks back to it, then holds there again.
+        {
+            let (config,bots) = showcase_plan().compile(3,SimulationTickProfile::Production60Hz).unwrap();
+            let pool = crate::runtime::StateInitializer::create_thread_pool();
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+            setup_single_lane_match(&mut world, config).unwrap();
+            world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Playing;
+            let entity = world.read_resource::<MobaMatch>().heroes.iter().find(|s| s.player_id == 2).unwrap().entity.unwrap();
+            let place = Vec2::new(Fixed64::from_i32(2050), Fixed64::from_i32(2400));
+            let inputs_of = |world:&mut World| {
+                let mut out = Vec::new();
+                for tick in 1..=bots.think_interval_ticks {
+                    world.write_resource::<crate::comp::Tick>().0 = tick;
+                    crate::runtime::run_committed_visibility_wave_b(world, tick, 0);
+                    out.extend(super::role_bot_inputs(world, &bots).unwrap().into_iter()
+                        .filter(|(player,_)| *player == 2).filter_map(|(_,input)| input.action));
+                }
+                out
+            };
+            world.write_storage::<Pos>().get_mut(entity).unwrap().0 = place + Vec2::new(Fixed64::from_i32(450), Fixed64::ZERO);
+            let pushed = inputs_of(&mut world);
+            assert!(pushed.iter().any(|action| matches!(action, PlayerInputEnum::MoveTo(m)
+                if m.target.as_ref().is_some_and(|t| t.x == place.x.raw() as i32 && t.y == place.y.raw() as i32))),
+                "pushed off its place it walks back: {pushed:?}");
+            world.write_storage::<Pos>().get_mut(entity).unwrap().0 = place;
+            world.write_storage::<HeroCommandQueue>().insert(entity, HeroCommandQueue::default()).unwrap();
+            let back = inputs_of(&mut world);
+            assert!(back.iter().any(|action| matches!(action, PlayerInputEnum::HoldPosition(h) if !h.queued)),
+                "back at its place it holds again: {back:?}");
+            assert!(!back.iter().any(|action| matches!(action, PlayerInputEnum::MoveTo(_))), "no move once back");
+        }
         let state = world.read_resource::<MobaMatch>();
         let positions = world.read_storage::<Pos>();
         let props = world.read_storage::<CProperty>();

@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E394 hero spotlight 的敵方替身被擊退後停在畫面外，接下來的被動與大招示範因目標不在可見範圍而被跳過（2026-10-31，history-nobu M6 UE 呈現，工作線 C）
+- **現象**：濃姬（A26）的 spotlight 中，火藥踢擊把敵方替身炸飛約 453 距離。之後被動（對替身普攻）與灼熱爆裂投擲都持續回報 `not_submitted: target is outside the visible world area`，最後記為 `spotlight_skipped`。
+- **根因**：showcase 的 held 替身只在出生時拿到 Hold Position，bot 對 held 座位完全不下指令。被擊退、拉扯或位移之後，它就停在落點，不會回到原本的位置；示範的鏡頭固定在原位，替身因此離開畫面。
+- **通用修正**：`role_bot_inputs` 對 held 座位只做一件事：離開自己的 placement 超過 60 就以 MoveTo 走回去，回到原位後再下 Hold Position（`stand_in_input`）。它仍然不攻擊、不施放、不購買，也不追任何單位。`showcase_stage_levels_places_and_holds_seats_without_role_decisions` 加入測試：被推開 450 時走回原位，回到原位後 Hold。
+- **避免**：示範舞台上的固定單位要能回到固定狀態；任何會移動單位的技能（擊退、拉扯、交換位置）都可能讓後續示範失去目標。
+
 ## E391 （保留）conformance：apply_status 自帶的 duration、引導結束移除的狀態在死亡情境的期望（2026-10-31）
 
 ## E390 （保留）conformance：on_learn 就進入冷卻的技能，先等冷卻結束再開始情境（2026-10-31）

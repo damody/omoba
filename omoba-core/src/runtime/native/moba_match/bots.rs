@@ -489,6 +489,12 @@ fn hold_input(commands:Option<&HeroCommandQueue>) -> Option<PlayerInputEnum> {
     Some(PlayerInputEnum::HoldPosition(crate::game_proto::HoldPosition {queued:false}))
 }
 
+/// A held showcase stand-in: back to its place when pushed more than 60 off it, else Hold Position.
+fn stand_in_input(commands:Option<&HeroCommandQueue>,own:Vec2,place:Vec2) -> Option<PlayerInputEnum> {
+    let off=Fixed64::from_i32(60);
+    if (own-place).length_squared()>off*off {recovery_move(commands,place)} else {hold_input(commands)}
+}
+
 fn recovery_move(commands:Option<&HeroCommandQueue>,destination:Vec2) -> Option<PlayerInputEnum> {
     if commands.is_some_and(|q|q.queued.is_empty()
         && matches!(q.active,Some(HeroCommand::MoveTo {pos}) if pos==destination)) {return None;}
@@ -532,9 +538,25 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
         .filter(|camp|camp.definition.has_tag(omoba_template_ids::MobaUnitTag::Boss)).map(|camp|camp.definition.unit).collect()} else {Vec::new()};
     let disclosed_bosses=state.config.teams.map(|team|disclosed_boss_ids(&visibility,team,&boss_units));
     let mut inputs = Vec::new();
+    let positions = world.read_storage::<Pos>();
     for assignment in &config.assignments {
-        // A held showcase seat stands still: no movement, attack, cast, shop or learning input.
-        if super::ShowcaseConfig::holds(&state.config, assignment.player_id) { continue; }
+        // A held showcase seat stands still: no attack, cast, shop or learning input. Pushed off its
+        // place (a knockback) it walks back and holds there again (E390), so a demonstration's next
+        // cast still finds it on screen; it never moves anywhere else.
+        if super::ShowcaseConfig::holds(&state.config, assignment.player_id) {
+            let place = state.config.showcase.as_ref().and_then(|showcase| showcase.placements.get(&assignment.player_id));
+            let slot = state.heroes.iter().find(|s| s.player_id == assignment.player_id);
+            if let (Some([x, y]), Some(entity)) = (place, slot.and_then(|slot| slot.entity)) {
+                let alive = properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO);
+                if let (true, Some(own)) = (alive, positions.get(entity)) {
+                    let place = Vec2::new(Fixed64::from_i32(*x), Fixed64::from_i32(*y));
+                    if let Some(action) = stand_in_input(commands.get(entity), own.0, place) {
+                        inputs.push((assignment.player_id, PlayerInput { action: Some(action) }));
+                    }
+                }
+            }
+            continue;
+        }
         let slot = state.heroes.iter().find(|s| s.player_id == assignment.player_id).expect("validated roster");
         let Some(entity) = slot.entity else { continue; };
         // Own health is owner-visible; never inspect opponents' ECS health.
