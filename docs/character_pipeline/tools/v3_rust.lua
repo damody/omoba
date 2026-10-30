@@ -1986,7 +1986,12 @@ function Gen:action(a, ctx, ind)
   elseif op == "create_unit" then
     local CREATE_OVERRIDES = { hp = true, attack_damage = true, attack_damage_max = true, move_speed = true }
     local t = self.m.templates[a.template]
-    if not t then self:block("template:" .. tostring(a.template) .. " not declared") end
+    if not t then self:block("template:" .. tostring(a.template) .. " not declared")
+    elseif not self.opts.summons[a.template] then
+      -- the host spawns content summons only (summon_by_name): a template only the document has
+      -- would fail at run time (E326)
+      self:block("template:" .. tostring(a.template) .. " is not a content summon (templates/summons.lua)")
+    end
     -- control: "ai" (default) and "owner" the host summon; "none" also refuses its owner's orders
     -- (line B's create_unit_controlled)
     if a.control ~= nil and a.control ~= "ai" and a.control ~= "owner" and a.control ~= "none" then
@@ -3264,7 +3269,8 @@ function M.generate(doc, opts)
     abs_root = (ok and lfs.currentdir() or ".") .. "/" .. abs_root
   end
   abs_root = abs_root:gsub("\\", "/"):gsub("/%./", "/"):gsub("/%.$", "")
-  local gopts = { rules = opts.rules, vocab = M.vocab(root), cues_used = {}, root = abs_root, package = opts.package }
+  local gopts = { rules = opts.rules, vocab = M.vocab(root), cues_used = {}, root = abs_root, package = opts.package,
+    summons = M.content_summons(root) }
   local files = {}
   local crate = M.crate_name(doc)
   local gen = "src/generated/"
@@ -3658,6 +3664,21 @@ end
 -- The content catalog items.dll registers against (scripts/lua_data): ability ids and the v3
 -- item ids the shop cites (`source_ref` `…:<v3 id>`). Cached per root.
 local catalog_cache = {}
+-- The summon ids the host can spawn (templates/summons.lua with the authored packages' summons),
+-- per root.
+local summons_cache = {}
+function M.content_summons(root)
+  if summons_cache[root] then return summons_cache[root] end
+  local saved = package.path
+  package.path = root .. "/scripts/?.lua;" .. package.path
+  local context = require("content_builder").new(root .. "/scripts/lua_data")
+  package.path = saved
+  local ids = {}
+  for _, row in ipairs(context.include("templates/summons.lua")) do if not row.tombstone then ids[row.id] = true end end
+  summons_cache[root] = ids
+  return ids
+end
+
 function M.content_catalog(root)
   if catalog_cache[root] then return catalog_cache[root] end
   local saved = package.path

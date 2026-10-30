@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E326 v3 unit_templates 不在內容的召喚物表，產生碼的 create_unit 在執行期失敗（2026-10-30，工作線 A）
+
+- **現象**：C15 爆裂箭換成產生版後，conformance 有 24 個燒傷情境退步（adbd940b）：火焰地帶和燒傷都觀察不到，所有單位身上都沒有這兩個狀態。
+- **根因**：產生碼 `cx.create_unit_controlled("c15e_fire_dummy", …)` 失敗。host 的 `spawn_summoned_unit` 只從內容的召喚物表（`omoba_template_ids::summon_by_name`，即 templates/summons.lua 加上各 package 的 summons.lua）找 template。`c15e_fire_dummy` 只出現在 v3 文件的 `unit_templates`，內容裡沒有，所以找不到、建不出火焰，後面的狀態也就都沒有。產生器只檢查 template 是否在文件裡宣告，沒有檢查內容有沒有，所以這種招式被算成「已產生」，實際卻在執行期回傳 Err。共有 12 招如此（a09_deep_tentacles、a10_shockwave、a27_war_banner、a33_dark_summoning、b10_wrath_of_the_dead、b13_storm、b19_kuruma_gakari、b22_natural_barrier、b34_spike_wall、c15_burst_arrow、c16_curse_shadow、c16_eight_gates），都還沒有換上 live。
+- **通用修正**：產生器讀取內容的召喚物 id（`M.content_summons`，透過 content_builder include templates/summons.lua）。create_unit 的 template 不在其中時，列為問題 `template:<id> is not a content summon`。涵蓋率 314→302，數字反映的是實際能跑的招數。
+- **以後如何避免**：產生器判定「能產生」時，不只看文件，也要確認 host 執行期會查的每一份內容資料都有對應（召喚物、道具目錄、能力目錄）。v3 `unit_templates` 要成為召喚物的單一來源，由內容建置從文件產生 summons 列；這是後續工作，數值必須來自文件，不可補預設值。
+
 ## E325 split 時限沒算關閉程序，持鎖 602 秒超過 10 分鐘（2026-10-30，history-nobu M6 呈現檢查，工作線 C）
 - **現象**：`target/lineC-pres/honda-run`（`--max-seconds 600`）從 14:54:10 持有 live_match 鎖到 15:04:12，共 602 秒。
 - **根因**：E269 讓時限從取得鎖開始算，但時限一到才開始關閉子程序：每個子程序先 TerminateProcess，再各等最多 15 秒，最後寫 lifecycle.json 並釋放鎖。這段收尾完全在時限之外，最壞情況會多出數十秒。
