@@ -1117,6 +1117,10 @@
 - 2026-10-30 線 A：產生器 307→314／447。接上 B 的 is_visible_to（E312）、create_unit.overrides、StatusEvent.instance、status.scope（hero／permanent）；獨立實例狀態可以有觸發（apply_status_instance 傳回 n，on_created／periodic 以該實例執行）；道具被動的狀態事件與 periodic 在第一份裝備時建立 passive_marker、最後一份卸下時移除。道具 on_attack_hit 等 host 已學技能迴圈的觸發等 B（a1863028、7f3d919a、c720ea1c）。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
+## 2026-10-30（conformance：A c720ea1c 比對）
+
+- a23_falling_fire 產生：+20 通過、0 fail。a07_rouse 改用 apply_status_instance 後 A07 0 差異。其餘 0 差異。
+
 ## 2026-10-30（conformance：M6 第 2 批第一次實跑；E320、E324）
 
 - A 把 9 位加成 test_only 英雄（2db1dabe）後實跑：A16 257 通過、A18 199、A23 219、A24 0（沒有 script）、A35 189、B30 258、C01 60、C05 113、C09 145。
