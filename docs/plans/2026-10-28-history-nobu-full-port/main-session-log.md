@@ -182,3 +182,9 @@
 - 2026-10-30 17:26 A 182e9e69 C15 爆裂箭燒傷改為一份、一個時鐘（E335：source=caster_hero、existed 以來源判斷、週期鏈 start_chain/chain_current），影子內燒傷 5 次 25 通過；287d7c68 v3_summons 把 ai owner_controlled 對應 guard、不跟隨；C05 剩 9 fail 疑為前搖未放行，等 CastTrace
 - 2026-10-30 17:35 C E337 split 先建置再取實機鎖（64f6f9a3）；B01、C17、A34 UE 呈現報告（be28bc37）；B29 拋物線高度重跑中
 - 2026-10-30 17:36 C db80a038 實機確認擊退拋物線高度（E331），已換上英雄的 UE 呈現檢查全部完成
+- 2026-10-30 17:45 gamemode E336 bot 依角色出裝與用主動道具（60cb4488），m6item1 9 局 6.3～8.1 分鐘、45 件道具取得 41 件；C15 百箭與 C05 問題經 B 二分鎖定在 A 的 a416a541／25359716／c1c6a23e 之一；C 下一步量 UE frame time 與驗證 4 件未取得道具
+- 2026-10-30 18:28 C 持 performance 鎖 40 分鐘未量測（demo2 等建置鎖與實機鎖），已釋放；E343 run_moba_split_local --performance-lock 在取得實機鎖後才取、和實機鎖一起釋放（0b649cd9）
+- 2026-10-30 18:52 build_ue_moba 鎖被停掉的 demo2 遺留 33 分鐘，C 已釋放；E346 build_lock 記錄持有程序、持有者結束即接手、verify 不取 build 鎖（302b320e）；C15 百箭根因為 host scheduled_effect 差一 tick，交 B
+- 2026-10-30 19:00 建置鎖排隊成為常態瓶頸；決定 headless 批次改從鏡像快照建在私有 target（內容 hash 保證一致），只有 stage 進 UE 的建置排鎖，交 gamemode
+- 2026-10-30 19:10 conformance E340 land（01867c7d，103 項 0 退步；A12 fail 153→36、A26 0、C05 6、C15 0）；C 道具 spotlight 支援合成道具（a8230b8c），demo3 在 tick 960 因 attribute_hp mismatch 終止交 B；gamemode 快照建置開始
+- 2026-10-30 19:09 A da93e18c 第 1 批＋A05、cde5ab49 第 2～9 批其餘 66 位 test_only（B22 樹木目標除外）；33066aef 修 E341（summons.lua 截掉 authored 召喚物，百箭前搖不釋放）；32599c22 接上 B 的 acquisition_range／idle／projectile_speed；b732b37c E344；燒傷每 14 tick 一下交 B（scheduled 少一 tick）
