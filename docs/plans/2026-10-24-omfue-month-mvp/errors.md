@@ -20,7 +20,13 @@
 - **通用修正**：bot_auto_policies 只保留「某位入座英雄的技能組有這個技能」的明確政策。出貨計畫仍是 34 條（明確政策都屬於入座英雄）；第 1 組的 recipe 由 66 條降為 32 條。
 - **避免**：重新入座的計畫要從座位重新推導政策，不沿用針對別的陣容寫的清單。
 
-## E375 （保留）conformance：died_at 少一個 tick，死亡前一步已結算的傷害被算成死後命中（2026-10-30）
+## E375 conformance：died_at 少一個 tick，死亡前一步已結算的傷害被算成死後命中（2026-10-31，conformance session；工作線 B 指出）
+
+- **現象**：A12 a12_mystic_arrow、A25 a25_crimson_barrier 的 caster_dies_after_cast 寫著「landed after the caster died」。但 host 的封包帶有 REQUIRE_SOURCE_ALIVE，判定也正確。
+- **根因**：SimulationDriver::step 一開始就把 Tick 加一。harness 在送出致命一擊之前讀到的 Tick 是上一個已經完成的 tick，死亡要到下一步才結算。`r.tick >= died` 因此把死亡前那一步已經結算的傷害也算了進去。
+- **通用修正**：died_at 記 Tick+1，也就是死亡實際結算的那個 tick。E367 用 died_at 算死亡期間，誤差 1 tick，在容差內。
+- **結果**：A12、A25 各 3 個由 fail 轉為 unsupported（傷害在死亡之前結算，死後沒有該檢查的傷害）。0 退步。
+- 已放回。
 
 ## E374 敵方 replica 看不到 inventory，用缺了道具的輸入自行推導英雄屬性，造成 observer mismatch（2026-10-30，工作線 B）
 - **現象**：E353 之後，C 的 1+9 demo6 在 tick 960 仍然 mismatch，出事的都是「觀察方隊伍的敵方英雄」。
@@ -40,7 +46,13 @@
 
 ## E373 （保留）召喚交易拒絕施法者自己的排程列，且拒絕沒有留下原因（2026-10-30）
 
-## E372 （保留）conformance：情境第一次施放前就 inactive 的技能回報 unsupported（2026-10-30）
+## E372 conformance：情境第一次施放前就 inactive 的技能回報 unsupported（2026-10-31，conformance session）
+
+- **現象**：B13 b13_shukuchi 被 CAST_REJECTED，記成 fail。它在 on_learn 時被 set_ability_active(false)，只有 B13D 遁地期間才會啟用（原作 B13.lua:53-56），所以直接施放被拒是正確的。
+- **根因**：harness 不管技能是否 inactive，都直接施放。
+- **通用修正**：情境第一次施放之前，技能如果已經是 ability_slots::inactive，就回報 unsupported（「inactive until another ability enables it」）。如果 inactive 是情境自己先前的施放造成的（A05R；E367），照舊判定為預期被拒。
+- **結果**：b13_shukuchi 的 fail、以及原本因被拒而碰巧通過的 2 個情境，都轉為 unsupported。0 退步。
+- 已放回。
 
 ## E371 bot_auto_policies 只讀 authored_heroes：標成 playable 的 v3 英雄沒有施放政策，bot 一招都不放（2026-10-30，e187 遊戲模式 session；已放回 live）
 - **現象**：線 A 把 14 位 M6 英雄轉成正式英雄（5facff2e）後，verify_m6_batch 第 1 組（10 位）每局都打完入座，但 34 個可施放技能全部 0 次 bot 輸入（NEVER CAST），teamfight 6 局有 3 局用完 1200 秒預算沒打完。

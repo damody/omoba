@@ -262,6 +262,13 @@ impl Run {
             self.target_hp = self.world.read_storage::<CProperty>().get(self.target).map(|p| p.hp).unwrap_or(self.target_hp);
         }
         self.sustain = !self.casts.is_empty();
+        // Inactive before this scenario cast it at all (deactivated on learn, enabled by another
+        // ability's state; B13D's shukuchi; E372): nothing here makes it castable. One this
+        // scenario's own cast deactivated (A05R; E367) is a refusal to judge.
+        if self.casts.is_empty() && omoba_core::runtime::native::ability_slots::inactive(
+            &self.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>(), self.caster, &self.entry) {
+            return Err(format!("{} is inactive until another ability enables it", self.entry));
+        }
         // A form that swapped the entry in can end before a later cast (A12T lasts as long as
         // A12E's cooldown): the slot then holds another ability, and its cast says nothing (E340).
         let in_slot = self.hero(|h| h.abilities.get(self.slot as usize).cloned());
@@ -1408,7 +1415,9 @@ fn run(hero: &str, s: &Value) -> Verdict {
                     .flat_map(|unit| buffs.iter_for(unit).map(move |(key, entry)| (unit, key.to_owned(), real(entry.remaining))).collect::<Vec<_>>()).collect();
                 drop(buffs);
                 run.held_at_death = held;
-                run.died_at = Some(run.world.read_resource::<Tick>().0);
+                // The tick the death resolves in: the next step advances Tick before it runs
+                // (simulation_driver.rs; B; E375).
+                run.died_at = Some(run.world.read_resource::<Tick>().0 + 1);
                 let (caster, enemy) = (run.caster, run.enemy);
                 run.kill(enemy, caster);
                 run.step(3);
