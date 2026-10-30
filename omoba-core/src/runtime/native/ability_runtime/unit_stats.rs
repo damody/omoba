@@ -87,23 +87,11 @@ impl<'a> UnitStats<'a> {
             let bonus_c = sums.bonus_equipment;
             // Percentage（含 ice tower 用的 MoveSpeedBonus，當 -50% 寫進去）
             let pct = sums.percentage;
-            // Slow resistance (v3 slow_resistance_pct) shrinks the negative part only.
-            let resist = self.buffs.sum_add(e, StatKey::SlowResistance).clamp(Fixed64::ZERO, Fixed64::ONE);
-            let pct = if resist > Fixed64::ZERO { pct - self.negative_move_percentage(e) * resist } else { pct };
             // Buff flat post-percentage：不被 slow 削弱、不疊到 base/equipment 上
             let buff_bonus = sums.bonus_buff;
             (base_eff + bonus_c) * (Fixed64::ONE + pct) + buff_bonus
         };
         self.apply_move_clamp_sums(effective, sums)
-    }
-
-    /// The negative entries of the percentage move-speed keys (the slows), as one sum.
-    fn negative_move_percentage(&self, e: Entity) -> Fixed64 {
-        const KEYS: [&str; 4] = ["movespeed_bonus_percentage", "movespeed_bonus_percentage_unique",
-            "movespeed_bonus_percentage_unique_2", "move_speed_bonus"];
-        self.buffs.iter_for(e).flat_map(|(_, entry)| KEYS.iter().filter_map(|key| entry.payload.get(*key)))
-            .map(super::buff_store::read_fixed_from_payload).filter(|v| *v < Fixed64::ZERO)
-            .fold(Fixed64::ZERO, |sum, v| sum + v)
     }
 
     /// Spell lifesteal (v3 spell_lifesteal_pct), 0..1.
@@ -673,18 +661,11 @@ mod tests {
     use serde_json::json;
     use specs::{Builder, World, WorldExt};
 
-    /// v3 slow_resistance_pct (only slows shrink) and cast_point_reduction_pct.
+    /// v3 cast_point_reduction_pct. (slow_resistance_pct is the existing `slow_resistance` key:
+    /// damage_immunity::resist shrinks a slow when it is applied.)
     #[test]
-    fn slow_resistance_and_cast_point_reduction() {
+    fn cast_point_reduction() {
         let mut w=World::new();let e=w.create_entity().build();let mut b=BuffStore::default();
-        let speed=|b:&BuffStore|UnitStats::from_refs(b,false).final_move_speed(Fixed64::from_i32(300),e);
-        b.add(e,"haste",Fixed64::ONE,json!({"movespeed_bonus_percentage":Fixed64::from_raw(205).raw()}));
-        b.add(e,"frost",Fixed64::ONE,json!({"move_speed_bonus":-0.5,"slow_factor":0.5}));
-        let slowed=speed(&b);
-        b.add(e,"steady",Fixed64::ONE,json!({ StatKey::SlowResistance.as_str(): 512 }));
-        // 300 × (1 + 0.2 − 0.5 × (1 − 0.5)).
-        assert_eq!(speed(&b),Fixed64::from_i32(300)*(Fixed64::ONE+Fixed64::from_raw(205)-Fixed64::from_raw(256)));
-        assert!(speed(&b)>slowed);
         let cast=|b:&BuffStore|UnitStats::from_refs(b,false).cast_time_mult(e);
         assert_eq!(cast(&b),Fixed64::ONE);
         b.add(e,"quick",Fixed64::ONE,json!({ StatKey::CastPointReduction.as_str(): 256 }));

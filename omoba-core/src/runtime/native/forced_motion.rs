@@ -13,6 +13,15 @@
 //! cannot move by command even if that stun is cleansed (`BuffStore::is_rooted`).
 //! The motion ends early on death, on a wall, or when the buff is removed.
 //!
+//! v3 `knockback` options (`Options`, extra fields of the same packet row):
+//! - `origin`: push away from this point instead of from the source (v3 `from` = a point such
+//!   as `offset(caster, caster.forward, -1)`); the source then may be the victim itself (a
+//!   self push: 茶茶、伊達政宗), otherwise the victim is a hostile unit in range as before;
+//! - `no_stun`: no stun with the motion (v3 `stun = false`); the motion buff still owns the
+//!   position (no move commands) but the victim can attack and cast;
+//! - `height_raw`: the arc's peak height (v3 `height`, 直江兼續、柳生宗嚴). The simulation is flat:
+//!   it only travels with the status buff for the presentation to draw the arc.
+//!
 //! Only the authority integrates motion (`step`, from the MobaMatch pre-step);
 //! every world sees the result as ordinary `PreStepMovement` facts, so team
 //! replicas never predict a hidden unit's path.
@@ -79,15 +88,70 @@ impl Spec {
             }
             None => None,
         };
-        if row.len() != 5 + usize::from(to.is_some()) { return None; }
+        let options = Options::from_row(row)?;
+        if (options.origin.is_some() || !options.stun || options.height.is_some()) && Mode::parse(row.get("mode")?.as_str()?)? != Mode::Knockback { return None; }
+        if row.len() != 5 + usize::from(to.is_some()) + options.fields() { return None; }
         Self { source_id: u32::try_from(row.get("source_id")?.as_u64()?).ok()?,
             source_generation: u32::try_from(row.get("source_generation")?.as_u64()?).ok()?,
             mode: Mode::parse(row.get("mode")?.as_str()?)?,
             distance: Fixed64::from_raw(row.get("distance_raw")?.as_i64()?),
             cast_range: Fixed64::from_raw(row.get("range_raw")?.as_i64()?), to }.checked()
     }
+    /// The packet with knockback options (see the module docs); default options give `payload()`.
+    pub fn payload_with(&self, options: Options) -> Value {
+        let mut payload = self.payload();
+        if let Some(origin) = options.origin { payload[KEY]["origin"] = json!([origin.x.raw(), origin.y.raw()]); }
+        if !options.stun { payload[KEY]["no_stun"] = json!(true); }
+        if let Some(height) = options.height { payload[KEY]["height_raw"] = json!(height.raw()); }
+        payload
+    }
     pub fn source(&self) -> Entity { self.source_entity() }
     fn source_entity(&self) -> Entity { Entity::new(self.source_id, specs::world::Generation::new(self.source_generation as i32)) }
+}
+
+/// Knockback options carried in the packet row (module docs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Options {
+    pub origin: Option<Vec2>,
+    pub stun: bool,
+    /// Peak height of the arc (presentation only), above zero.
+    pub height: Option<Fixed64>,
+}
+
+pub const MAX_HEIGHT: i32 = 2_000;
+
+impl Default for Options {
+    fn default() -> Self { Self { origin: None, stun: true, height: None } }
+}
+
+impl Options {
+    fn from_row(row: &serde_json::Map<String, Value>) -> Option<Self> {
+        let origin = match row.get("origin") {
+            Some(point) => {
+                let xy = point.as_array()?;
+                if xy.len() != 2 { return None; }
+                let (x, y) = (xy[0].as_i64()?, xy[1].as_i64()?);
+                let bound = omoba_sim::terrain::MAX_GEOMETRY_RAW;
+                if x.abs() > bound || y.abs() > bound { return None; }
+                Some(Vec2::new(Fixed64::from_raw(x), Fixed64::from_raw(y)))
+            }
+            None => None,
+        };
+        let stun = match row.get("no_stun") { Some(Value::Bool(true)) => false, None => true, _ => return None };
+        let height = match row.get("height_raw") {
+            Some(raw) => {
+                let height = Fixed64::from_raw(raw.as_i64()?);
+                if height <= Fixed64::ZERO || height > Fixed64::from_i32(MAX_HEIGHT) { return None; }
+                Some(height)
+            }
+            None => None,
+        };
+        Some(Self { origin, stun, height })
+    }
+    fn fields(self) -> usize { usize::from(self.origin.is_some()) + usize::from(!self.stun) + usize::from(self.height.is_some()) }
+    pub fn of(payload: &Value) -> Self {
+        payload.get(KEY).and_then(Value::as_object).and_then(Self::from_row).unwrap_or_default()
+    }
 }
 
 pub fn valid_duration(duration: Fixed64) -> bool {
@@ -142,6 +206,11 @@ pub fn admitted(world: &World, target: Entity, buff_id: &str, duration: Fixed64,
             && expected_source.is_none_or(|expected| expected == source) && movable(world, target)
             && (to - at).length_squared() <= spec.cast_range * spec.cast_range).then_some(spec);
     }
+    let source = spec.source_entity();
+    if Options::of(payload).origin.is_some() && target == source {
+        return (world.entities().entity(spec.source_id) == source && expected_source.is_none_or(|expected| expected == source)
+            && movable(world, target)).then_some(spec);
+    }
     (super::targeted_effect::admitted(world, target, spec.source_id, spec.source_generation, spec.cast_range, false, expected_source)
         && movable(world, target)).then_some(spec)
 }
@@ -153,8 +222,17 @@ fn radius(world: &World, entity: Entity) -> Fixed64 {
 /// (unit direction, travel) for `spec` from the current positions, or None
 /// when there is nowhere to go (coincident bodies, a pull already in contact).
 pub fn plan(world: &World, target: Entity, spec: &Spec) -> Option<(Vec2, Fixed64)> {
+    plan_from(world, target, spec, None)
+}
+
+/// [`plan`] with a knockback origin point in place of the source's position.
+pub fn plan_from(world: &World, target: Entity, spec: &Spec, origin: Option<Vec2>) -> Option<(Vec2, Fixed64)> {
     let positions = world.read_storage::<Pos>();
-    let (at, from) = (positions.get(target)?.0, positions.get(spec.source_entity())?.0);
+    let at = positions.get(target)?.0;
+    let from = match origin.filter(|_| spec.mode == Mode::Knockback) {
+        Some(origin) => origin,
+        None => positions.get(spec.source_entity())?.0,
+    };
     let delta = match (spec.mode, spec.to) {
         (Mode::Dash, Some(to)) => to - at,
         (Mode::Knockback, _) => at - from,
@@ -175,7 +253,8 @@ pub fn plan(world: &World, target: Entity, spec: &Spec) -> Option<(Vec2, Fixed64
 /// stores the status buff plus a stun of the same duration. False drops it.
 pub fn apply(world: &mut World, target: Entity, buff_id: &str, duration: Fixed64, payload: &Value) -> bool {
     let Some(spec) = admitted(world, target, buff_id, duration, payload, None) else { return false; };
-    let Some((direction, remaining)) = plan(world, target, &spec) else { return false; };
+    let options = Options::of(payload);
+    let Some((direction, remaining)) = plan_from(world, target, &spec, options.origin) else { return false; };
     if world.try_fetch::<ForcedMotions>().is_none() { world.insert(ForcedMotions::default()); }
     {
         let buffs = world.read_resource::<BuffStore>();
@@ -193,7 +272,8 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, duration: Fixed64
     let mut buffs = world.write_resource::<BuffStore>();
     buffs.add(target, BUFF, duration, payload.clone());
     // A dash is the caster's own motion: rooted by the motion buff, not stunned.
-    if spec.mode != Mode::Dash { buffs.add(target, omb_script_abi::buff_ids::BuffId::Stun.as_str(), duration, Value::Null); }
+    // A knockback with `no_stun` is rooted the same way and can still attack and cast.
+    if spec.mode != Mode::Dash && options.stun { buffs.add(target, omb_script_abi::buff_ids::BuffId::Stun.as_str(), duration, Value::Null); }
     true
 }
 
@@ -295,6 +375,28 @@ mod tests {
     }
 
     #[test]
+    fn a_knockback_from_a_point_can_push_its_own_source_without_a_stun() {
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+        world.insert(crate::runtime::ObservableFactBuffer::default());
+        world.insert(DeltaTime(Fixed64::from_raw(256)));
+        let caster = world.create_entity().with(Pos(p(0, 0)))
+            .with(CProperty { hp: Fixed64::from_i32(100), mhp: Fixed64::from_i32(100), msd: Fixed64::ZERO,
+                def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build();
+        let spec = Spec { source_id: caster.id(), source_generation: caster.gen().id() as u32, mode: Mode::Knockback,
+            distance: Fixed64::from_i32(400), cast_range: Fixed64::from_i32(10), to: None }.checked().unwrap();
+        // 茶茶：pushed forward (+x) from a point one unit behind.
+        let options = Options { origin: Some(p(-1, 0)), stun: false, height: None };
+        assert!(admitted(&world, caster, BUFF, Fixed64::ONE, &spec.payload(), Some(caster)).is_none(), "no origin: never on its source");
+        assert!(apply(&mut world, caster, BUFF, Fixed64::ONE, &spec.payload_with(options)));
+        {
+            let buffs = world.read_resource::<BuffStore>();
+            assert!(buffs.is_rooted(caster) && !buffs.has(caster, omb_script_abi::buff_ids::BuffId::Stun.as_str()), "rooted, not stunned");
+        }
+        for _ in 0..4 { step(&mut world); }
+        assert_eq!(world.read_storage::<Pos>().get(caster).unwrap().0, p(400, 0));
+    }
+
+    #[test]
     fn a_dash_packet_is_only_admitted_on_its_own_caster() {
         let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
         let body = |world: &mut World, at: Vec2| world.create_entity().with(Pos(at))
@@ -326,6 +428,16 @@ mod tests {
         assert_eq!(Spec::from_payload(BUFF, Fixed64::from_i32(MAX_DURATION + 1), &s.payload()), None);
         let mut extra = s.payload(); extra[KEY]["bonus"] = 1.into();
         assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &extra), None);
+        let options = Options { origin: Some(Vec2::new(Fixed64::from_i32(-1), Fixed64::ZERO)), stun: false, height: Some(Fixed64::from_i32(200)) };
+        assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &s.payload_with(options)), Some(s));
+        let mut low = s.payload_with(options); low[KEY]["height_raw"] = 0.into();
+        assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &low), None, "a height is above zero");
+        assert_eq!(Options::of(&s.payload_with(options)), options);
+        assert_eq!(Options::of(&s.payload()), Options::default());
+        assert_eq!(s.payload_with(Options::default()), s.payload());
+        assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &spec(Mode::Pull).payload_with(options)), None, "options are knockback only");
+        let mut stun = s.payload(); stun[KEY]["no_stun"] = false.into();
+        assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &stun), None, "no_stun is only ever true");
         let mut mode = s.payload(); mode[KEY]["mode"] = "throw".into();
         assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &mode), None);
         for (field, value) in [("distance_raw", 0), ("distance_raw", Fixed64::from_i32(MAX_DISTANCE + 1).raw()), ("range_raw", 0)] {

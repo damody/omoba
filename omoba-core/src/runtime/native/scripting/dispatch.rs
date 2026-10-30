@@ -298,6 +298,10 @@ fn dispatch_scripts(
                             let Some(duration)=crate::runtime::ability_runtime::UnitStats::from_refs(
                                 &cache.buffs,cache.is_building.get(*caster).is_some()).checked_cast_time(base,*caster)
                                 else {reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);};
+                            if !run_phase_start(&cache,registry,*caster,skill_id,target,cast_level.unwrap(),
+                                PHASE_START_ORDINAL+event_ordinal as u64,&mut event_outcomes) {
+                                reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);
+                            }
                             windups.start(*caster,super::super::cast_windup::Windup {
                                 skill_id:skill_id.clone(),target:target.clone(),origin,
                                 remaining:duration,
@@ -306,6 +310,17 @@ fn dispatch_scripts(
                             // A started windup is scheduled; a later interruption is not an admission result.
                             cast_outcomes.push((*caster,skill_id.clone(),None));
                             continue;
+                        }
+                    }
+                }
+            }
+            // v3 on_phase_start of a cast without a windup (a windup ran it when it started).
+            if !releasing {
+                if let ScriptEvent::SkillCast {caster,skill_id,target}=&ev {
+                    if let Some(level)=cast_level {
+                        if !run_phase_start(&cache,registry,*caster,skill_id,target,level,
+                            PHASE_START_ORDINAL+event_ordinal as u64,&mut event_outcomes) {
+                            reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);
                         }
                     }
                 }
@@ -638,12 +653,17 @@ pub(crate) fn bind_hero_unit_scripts(world: &mut World, registry: &ScriptRegistr
     world.insert(seen);
 }
 
+/// Random ordinals of `on_phase_start` adapters: apart from the cast's own (`event_ordinal`).
+const PHASE_START_ORDINAL: u64 = 1 << 40;
+
 /// One `on_channel_pulse` per due pulse, in channel order. A pulse may only
 /// apply effects: a hook that tries to charge, start a channel or spawn has
 /// its whole pulse dropped, so a pulse never costs anything twice.
 fn dispatch_channel_pulses(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, ordinal_base: u64) {
     let due = super::super::ability_channel::advance(world);
-    if due.is_empty() {
+    // Channels that ended this tick (after their last pulse) or since the last dispatch.
+    let ends = super::super::ability_channel::take_ends(world);
+    if due.is_empty() && ends.is_empty() {
         return;
     }
     let cache = ParallelAdapterCache::new(&*world, rng_seed);
@@ -669,10 +689,61 @@ fn dispatch_channel_pulses(world: &mut World, registry: &ScriptRegistry, rng_see
             log::warn!("[scripting] channel pulse {} of '{}' tried to charge or spawn; dropped", pulse.pulse.index, pulse.skill_id);
         }
     }
+    // v3 on_channel_end: after every pulse, same pulse rule.
+    for (ordinal, end) in ends.into_iter().enumerate() {
+        let Some((_, script)) = registry.get_ability(&end.skill_id) else { continue };
+        let handle = ParallelWorldAdapter::entity_to_handle(end.caster);
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, end.caster, ordinal_base + 1024 + ordinal as u64);
+        let mut world_dyn = world_dyn_of(&mut adapter);
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            script.on_channel_end(handle, end.target.clone(), end.end, end.interrupted, &mut world_dyn)
+        }));
+        drop(world_dyn);
+        if result.is_err() {
+            log::error!("[scripting] panic in AbilityScript::on_channel_end of {}", end.skill_id);
+            adapter.discard_cast();
+            continue;
+        }
+        let outcomes = adapter.finish();
+        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+            accepted.extend(outcomes);
+        } else {
+            log::warn!("[scripting] channel end of '{}' tried to charge or spawn; dropped", end.skill_id);
+        }
+    }
     drop(cache);
     if !accepted.is_empty() {
         world.write_resource::<Vec<crate::comp::Outcome>>().extend(accepted);
     }
+}
+
+/// v3 `on_phase_start` of an admitted cast (see `AbilityScript::on_phase_start`): false cancels
+/// it. The hook's effects go to `outcomes` under the pulse rule (no charge, cast or spawn).
+fn run_phase_start(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, caster: Entity, skill_id: &str,
+    target: &SkillTarget, level: u8, ordinal: u64, outcomes: &mut Vec<crate::comp::Outcome>) -> bool {
+    let Some((_, script)) = registry.get_ability(skill_id) else { return true };
+    let handle = ParallelWorldAdapter::entity_to_handle(caster);
+    let target = match target {
+        SkillTarget::Entity(e) => Target::Entity(ParallelWorldAdapter::entity_to_handle(*e)),
+        SkillTarget::Point { x, y } => Target::Point(Vec2 { x: *x, y: *y }),
+        SkillTarget::None => Target::None,
+    };
+    let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(cache, caster, ordinal);
+    let mut world_dyn = world_dyn_of(&mut adapter);
+    let result = catch_unwind(AssertUnwindSafe(|| script.on_phase_start(handle, target, level, &mut world_dyn)));
+    drop(world_dyn);
+    let Ok(proceed) = result else {
+        log::error!("[scripting] panic in AbilityScript::on_phase_start of {}", skill_id);
+        adapter.discard_cast();
+        return false;
+    };
+    let produced = adapter.finish();
+    if produced.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+        outcomes.extend(produced);
+    } else {
+        log::warn!("[scripting] phase start of '{}' tried to charge or spawn; dropped", skill_id);
+    }
+    proceed
 }
 
 /// One `on_delayed_effect` per due delayed effect (omoba-core `delayed_effect`),
@@ -765,7 +836,9 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     executed: &[Entity], ordinal_base: u64) {
     use super::super::status_event as se;
     let ended = world.write_resource::<crate::runtime::BuffStore>().drain_status_ended();
-    if combat.is_empty() && executed.is_empty() && ended.is_empty() {
+    let attacks = se::take_attack_events(world);
+    let damage = se::take_damage_notes(world);
+    if combat.is_empty() && executed.is_empty() && ended.is_empty() && attacks.is_empty() && damage.is_empty() {
         return;
     }
     let damage_kind = |k: &DamageKind| match k { DamageKind::Physical => 0u8, DamageKind::Magical => 1, DamageKind::Pure => 2 };
@@ -773,7 +846,8 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     {
         let buffs = world.read_resource::<crate::runtime::BuffStore>();
         let mut on_holder = |holder: Entity, kind: u8, other: Option<Entity>, amount: Fixed64, dk: u8| {
-            let mut rows: Vec<(String, se::Spec)> = buffs.iter_for(holder)
+            // v3 break: a broken holder's learned passives do not hear events.
+            let mut rows: Vec<(String, se::Spec)> = buffs.stat_rows(holder)
                 .filter_map(|(id, b)| se::Spec::from_payload(&b.payload).map(|s| (id.to_owned(), s)))
                 .filter(|(_, s)| s.listens(kind)).collect();
             rows.sort_by(|a, b| a.0.cmp(&b.0));
@@ -793,10 +867,24 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
             }
         }
         for caster in executed { on_holder(*caster, se::ABILITY_EXECUTED, None, Fixed64::ZERO, 0); }
+        for seen in &attacks {
+            match *seen {
+                se::AttackSeen::Windup { attacker, target } => on_holder(attacker, se::ATTACK_START, target, Fixed64::ZERO, 0),
+                se::AttackSeen::Hit { attacker, target } => {
+                    on_holder(attacker, se::ATTACK_HIT, Some(target), Fixed64::ZERO, 0);
+                    on_holder(target, se::ATTACKED, Some(attacker), Fixed64::ZERO, 0);
+                }
+            }
+        }
+        for note in &damage {
+            on_holder(note.target, se::TAKE_DAMAGE, Some(note.source), note.amount, note.damage_kind);
+            on_holder(note.source, se::DEAL_DAMAGE, Some(note.target), note.amount, note.damage_kind);
+        }
     }
-    for (holder, id, payload, kind) in ended {
+    // an end carries the duration the status had left (`status.remaining` of an end trigger)
+    for (holder, id, payload, kind, remaining) in ended {
         if let Some(s) = se::Spec::from_payload(&payload).filter(|s| s.listens(kind)) {
-            calls.push((holder, id, s, kind, None, Fixed64::ZERO, 0));
+            calls.push((holder, id, s, kind, None, remaining, 0));
         }
     }
     if calls.is_empty() {

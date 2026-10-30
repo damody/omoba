@@ -51,30 +51,45 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, duration: Fixed64
 /// v3 `set_mana`: sets a unit's mana to a value, clamped to its pool (A34 急速冷卻). Works in any
 /// script context (status events and schedules hold no cast mana transaction). One-shot AddBuff
 /// packet, never stored; a unit without a mana pool is unchanged.
+///
+/// The script computes `value` from its snapshot of the mana (`expected`), while the same tick may
+/// still spend mana (the cast's own cost settles after the script). With `expected` the host
+/// applies the change `value - expected` to the mana it has now, so a cost paid in between is kept
+/// (A34T: +100 on a cast, not +100 plus the bolt's cost back).
 pub const SET_KEY: &str = "__mana_set_v1";
 pub const SET_BUFF: &str = "__mana_set";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SetSpec {
     pub value: Fixed64,
+    /// The mana the script saw; None sets `value` as it is.
+    pub expected: Option<Fixed64>,
 }
 
 impl SetSpec {
     pub fn checked(value: Fixed64) -> Option<Self> {
-        (value >= Fixed64::ZERO && value <= Fixed64::from_i32(1_000_000)).then_some(Self { value })
+        (value >= Fixed64::ZERO && value <= Fixed64::from_i32(1_000_000)).then_some(Self { value, expected: None })
+    }
+    pub fn relative_to(self, expected: Fixed64) -> Option<Self> {
+        Self::checked(expected).map(|_| Self { expected: Some(expected), ..self })
     }
     pub fn payload(self) -> Value {
-        json!({ (SET_KEY): { "value_raw": self.value.raw() } })
+        match self.expected {
+            None => json!({ (SET_KEY): { "value_raw": self.value.raw() } }),
+            Some(expected) => json!({ (SET_KEY): { "value_raw": self.value.raw(), "expected_raw": expected.raw() } }),
+        }
     }
     pub fn from_payload(buff_id: &str, duration: Fixed64, payload: &Value) -> Option<Self> {
         if buff_id != SET_BUFF || duration != Fixed64::ONE || payload.as_object()?.len() != 1 {
             return None;
         }
         let row = payload.get(SET_KEY)?.as_object()?;
-        if row.len() != 1 {
-            return None;
+        let spec = Self::checked(Fixed64::from_raw(row.get("value_raw")?.as_i64()?))?;
+        match (row.len(), row.get("expected_raw")) {
+            (1, None) => Some(spec),
+            (2, Some(expected)) => spec.relative_to(Fixed64::from_raw(expected.as_i64()?)),
+            _ => None,
         }
-        Self::checked(Fixed64::from_raw(row.get("value_raw")?.as_i64()?))
     }
 }
 
@@ -88,8 +103,11 @@ pub fn apply_set(world: &mut World, target: Entity, buff_id: &str, duration: Fix
     let spec = set_admitted(world, target, buff_id, duration, payload)?;
     let mut heroes = world.write_storage::<Hero>();
     let pool = heroes.get_mut(target)?.mana_pool.as_mut()?;
-    let value = spec.value.min(pool.maximum());
     let current = pool.current();
+    let value = match spec.expected {
+        None => spec.value,
+        Some(expected) => (current + spec.value - expected).max(Fixed64::ZERO),
+    }.min(pool.maximum());
     if value < current { pool.drain(current - value).ok()?; } else if value > current { pool.restore(value - current).ok()?; }
     Some(pool.current())
 }
@@ -135,5 +153,13 @@ mod tests {
         assert_eq!(apply_set(&mut world, hero, SET_BUFF, Fixed64::ONE, &set(0)), Some(Fixed64::ZERO));
         assert!(SetSpec::checked(Fixed64::from_i32(-1)).is_none());
         assert_eq!(SetSpec::from_payload(BUFF, Fixed64::ONE, &set(5)), None);
+        // Relative to the script's snapshot: it saw 50 and set 80 (+30); a cost of 20 paid since stays paid.
+        let n = Fixed64::from_i32;
+        apply_set(&mut world, hero, SET_BUFF, Fixed64::ONE, &set(30));
+        let rel = |v: i32, seen: i32| SetSpec::checked(n(v)).unwrap().relative_to(n(seen)).unwrap().payload();
+        assert_eq!(SetSpec::from_payload(SET_BUFF, Fixed64::ONE, &rel(80, 50)), SetSpec::checked(n(80)).unwrap().relative_to(n(50)));
+        assert_eq!(apply_set(&mut world, hero, SET_BUFF, Fixed64::ONE, &rel(80, 50)), Some(n(60)));
+        assert_eq!(apply_set(&mut world, hero, SET_BUFF, Fixed64::ONE, &rel(0, 90)), Some(n(0)), "never below empty");
+        assert_eq!(apply_set(&mut world, hero, SET_BUFF, Fixed64::ONE, &rel(200, 10)), Some(n(100)), "nor above the pool");
     }
 }

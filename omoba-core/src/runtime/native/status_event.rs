@@ -7,7 +7,10 @@
 //! - when the row leaves the holder: natural expiry ([`EXPIRED`]), removal or dispel
 //!   ([`REMOVED`]), or all of the holder's buffs cleared, e.g. its death ([`CLEARED`]). `BuffStore`
 //!   records these ([`BuffStore::drain_status_ended`]);
-//! - for this tick's attack hits and damage events of the holder, in event order.
+//! - for this tick's attack hits (rules::attack `AttackEvent::Hit`: ATTACK_HIT for the attacker,
+//!   ATTACKED for the target) and the damage it took or dealt (`handle_damage` notes it in
+//!   [`DamageNotes`] after the hit lands, only when a holder listens), in event order. (The
+//!   legacy `ScriptEvent::Damage` is a damage request that deals its amount, not a notice.)
 //!
 //! `on_created` needs no host: the generated code runs it right after it applies the status.
 //! Periodic triggers are schedules (scheduled_effect). Like a delayed effect, a hook may only
@@ -31,6 +34,8 @@ pub const TAKE_DAMAGE_PRE: u8 = 7;
 pub const DEAL_DAMAGE_PRE: u8 = 8;
 /// The holder executed an ability or used an item (原作 OnAbilityExecuted); `other` is none.
 pub const ABILITY_EXECUTED: u8 = 9;
+/// The holder started an attack (its windup; rules::attack AttackEvents Windup); `other` is the target.
+pub const ATTACK_START: u8 = 10;
 
 /// `Spec.mask` bits: which events the status listens to.
 pub const ON_END: u32 = 1 << 0;
@@ -41,8 +46,9 @@ pub const ON_DEAL_DAMAGE: u32 = 1 << 4;
 pub const ON_TAKE_DAMAGE_PRE: u32 = 1 << 5;
 pub const ON_DEAL_DAMAGE_PRE: u32 = 1 << 6;
 pub const ON_ABILITY_EXECUTED: u32 = 1 << 7;
+pub const ON_ATTACK_START: u32 = 1 << 8;
 pub const ALL: u32 = ON_END | ON_ATTACK_HIT | ON_ATTACKED | ON_TAKE_DAMAGE | ON_DEAL_DAMAGE | ON_TAKE_DAMAGE_PRE | ON_DEAL_DAMAGE_PRE
-    | ON_ABILITY_EXECUTED;
+    | ON_ABILITY_EXECUTED | ON_ATTACK_START;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
@@ -88,6 +94,7 @@ impl Spec {
             TAKE_DAMAGE_PRE => ON_TAKE_DAMAGE_PRE,
             DEAL_DAMAGE_PRE => ON_DEAL_DAMAGE_PRE,
             ABILITY_EXECUTED => ON_ABILITY_EXECUTED,
+            ATTACK_START => ON_ATTACK_START,
             _ => 0,
         };
         self.mask & bit != 0
@@ -95,6 +102,70 @@ impl Spec {
     pub fn event(&self, kind: u8, other: EntityHandle, amount: Fixed64, damage_kind: u8) -> StatusEvent {
         StatusEvent { kind, level: self.level, source: self.source, other, amount, damage_kind }
     }
+}
+
+/// Whether some status on `holder` listens to `kind` (a damage event is queued only then).
+pub fn listening(buffs: &crate::runtime::BuffStore, holder: specs::Entity, kind: u8) -> bool {
+    buffs.stat_rows(holder).any(|(_, entry)| entry.payload.get(KEY).is_some()
+        && Spec::from_payload(&entry.payload).is_some_and(|spec| spec.listens(kind)))
+}
+
+/// A hit that landed, for on_take_damage / on_deal_damage (`amount`: the hp it took).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DamageNote { pub source: specs::Entity, pub target: specs::Entity, pub amount: Fixed64, pub damage_kind: u8 }
+
+/// The landed hits since status events last ran.
+#[derive(Clone, Debug, Default)]
+pub struct DamageNotes(pub Vec<DamageNote>);
+
+pub fn note_damage(world: &mut specs::World, note: DamageNote) {
+    use specs::WorldExt;
+    if world.try_fetch::<DamageNotes>().is_none() { world.insert(DamageNotes::default()); }
+    world.write_resource::<DamageNotes>().0.push(note);
+}
+
+pub fn take_damage_notes(world: &mut specs::World) -> Vec<DamageNote> {
+    use specs::WorldExt;
+    world.try_fetch_mut::<DamageNotes>().map(|mut notes| std::mem::take(&mut notes.0)).unwrap_or_default()
+}
+
+/// The `damage_kind` of a damage event: the largest-first type share (physical, magical, pure)
+/// and the reflection bit of the packet's profile (read before its flags are stripped).
+pub fn damage_kind(by_type: [Fixed64; 3], profile: u32) -> u8 {
+    let kind = if by_type[0] > Fixed64::ZERO { 0 } else if by_type[1] > Fixed64::ZERO { 1 } else { 2 };
+    let reflected = profile & omb_script_abi::types::DamageProfile::REFLECTION.bits() != 0;
+    kind | if reflected { StatusEvent::REFLECTION } else { 0 }
+}
+
+/// How far status events have read rules::attack's AttackEvents: the (tick, count) of events
+/// already delivered, so every windup and hit reaches its holder once whatever the system order.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WindupCursor { pub tick: u64, pub seen: usize }
+
+/// An attack event a status hears.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AttackSeen {
+    /// The holder started an attack (ATTACK_START).
+    Windup { attacker: specs::Entity, target: Option<specs::Entity> },
+    /// The attack hit (ATTACK_HIT for the attacker, ATTACKED for the target).
+    Hit { attacker: specs::Entity, target: specs::Entity },
+}
+
+/// The windups and hits not delivered yet, in order; advances the cursor.
+pub fn take_attack_events(world: &mut specs::World) -> Vec<AttackSeen> {
+    use specs::WorldExt;
+    use super::rules::attack::{AttackEvent, AttackEvents};
+    let Some(events) = world.try_fetch::<AttackEvents>().map(|e| (e.tick, e.events.clone())) else { return Vec::new() };
+    if world.try_fetch::<WindupCursor>().is_none() { world.insert(WindupCursor::default()); }
+    let mut cursor = world.write_resource::<WindupCursor>();
+    let (tick, list) = events;
+    let start = if cursor.tick == tick { cursor.seen } else { 0 };
+    let out = list.iter().skip(start).filter_map(|e| match e {
+        AttackEvent::Windup { attacker, target, .. } => Some(AttackSeen::Windup { attacker: *attacker, target: *target }),
+        AttackEvent::Hit { attacker, target, .. } => Some(AttackSeen::Hit { attacker: *attacker, target: *target }),
+        _ => None }).collect();
+    *cursor = WindupCursor { tick, seen: list.len() };
+    out
 }
 
 #[cfg(test)]
@@ -114,6 +185,7 @@ mod tests {
         assert_eq!(Spec::from_payload(&payload), Some(s.clone()));
         assert!(s.listens(EXPIRED) && s.listens(CLEARED) && s.listens(TAKE_DAMAGE) && !s.listens(ATTACK_HIT));
         assert!(!s.listens(ABILITY_EXECUTED) && spec(ON_ABILITY_EXECUTED).listens(ABILITY_EXECUTED));
+        assert!(!s.listens(ATTACK_START) && spec(ON_ATTACK_START).listens(ATTACK_START));
         let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 9);
         assert_eq!(Spec::from_payload(&bad), None, "unknown event bits");
         let mut bad = payload.clone(); bad[KEY]["status"] = json!("B16T");
@@ -139,8 +211,37 @@ mod tests {
         buffs.tick(Fixed64::from_raw(17));
         buffs.remove(b, "gone");
         buffs.remove_all_for(b);
-        let ended: Vec<_> = buffs.drain_status_ended().into_iter().map(|(e, id, _, kind)| (e, id, kind)).collect();
+        let drained = buffs.drain_status_ended();
+        let left: Vec<_> = drained.iter().map(|(_, id, _, _, remaining)| (id.clone(), *remaining)).collect();
+        let ended: Vec<_> = drained.into_iter().map(|(e, id, _, kind, _)| (e, id, kind)).collect();
         assert_eq!(ended, vec![(a, "short".to_owned(), EXPIRED), (b, "gone".to_owned(), REMOVED), (b, "dead".to_owned(), CLEARED)]);
+        let five_less_tick = Fixed64::from_raw(Fixed64::from_i32(5).raw() - 17);
+        assert_eq!(left, vec![("short".to_owned(), Fixed64::ZERO), ("gone".to_owned(), five_less_tick), ("dead".to_owned(), five_less_tick)],
+            "an end carries the duration left; an expiry none");
         assert!(buffs.drain_status_ended().is_empty(), "drained once");
+    }
+
+    #[test]
+    fn attack_windups_and_hits_are_taken_once_in_order_and_damage_kinds_carry_reflection() {
+        use super::super::rules::attack::{AttackEvent, AttackEvents};
+        let mut world = World::new();
+        let (a, b) = (world.create_entity().build(), world.create_entity().build());
+        world.insert(AttackEvents { tick: 3, events: vec![
+            AttackEvent::Windup { attacker: a, seq: 1, target: Some(b), critical: false },
+            AttackEvent::Launch { attacker: a, seq: 1, target: b, critical: false, missed: false },
+            AttackEvent::Hit { attacker: a, target: b, projectile: None },
+        ] });
+        assert_eq!(take_attack_events(&mut world), vec![AttackSeen::Windup { attacker: a, target: Some(b) },
+            AttackSeen::Hit { attacker: a, target: b }]);
+        assert!(take_attack_events(&mut world).is_empty(), "taken once");
+        world.write_resource::<AttackEvents>().events.push(AttackEvent::Hit { attacker: b, target: a, projectile: None });
+        assert_eq!(take_attack_events(&mut world), vec![AttackSeen::Hit { attacker: b, target: a }], "only the new one");
+        let n = Fixed64::from_i32;
+        let reflection = omb_script_abi::types::DamageProfile::REFLECTION.bits();
+        assert_eq!(damage_kind([n(0), n(5), n(1)], 0), 1);
+        assert_eq!(damage_kind([n(0), n(0), n(1)], reflection), 2 | StatusEvent::REFLECTION);
+        let mut buffs = BuffStore::new();
+        buffs.add(a, "mark", Fixed64::ONE, json!({ (KEY): spec(ON_TAKE_DAMAGE).row() }));
+        assert!(listening(&buffs, a, TAKE_DAMAGE) && !listening(&buffs, a, DEAL_DAMAGE) && !listening(&buffs, b, TAKE_DAMAGE));
     }
 }

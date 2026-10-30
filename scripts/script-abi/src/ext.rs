@@ -54,6 +54,9 @@ pub mod op {
     /// `"enemy"` or `"both"`; nearest first, ties by entity id. No other filter: the selector
     /// (types, dead, invulnerable, magic immune…) filters what it reads.
     pub const UNITS_IN_RANGE: u32 = 9;
+    /// `(Unit, Str runtime_id) -> Num`: how many independent instances (`<runtime_id>#<n>`) of a
+    /// status the unit holds (0 when none).
+    pub const STATUS_INSTANCES: u32 = 10;
 }
 
 /// Attribute names of [`op::UNIT_ATTR`] and what they return.
@@ -95,6 +98,10 @@ pub mod unit_attr {
     /// `Num`: whole gold in the pool of the unit's player (one pool per player, FC-129～131: no
     /// reliable / unreliable split); 0 when the world keeps none for it (an enemy on a team replica).
     pub const GOLD: &str = "gold";
+    /// `Bool`: v3 `has_tag(unit, "boss" | "dummy" | "fountain" | "general")`, the name after
+    /// `tag:` (e.g. `"tag:boss"`). A map boss carries the boss tag; a training dummy is a dummy;
+    /// this game has no fountain or general units, so those are always false.
+    pub const TAG_PREFIX: &str = "tag:";
 }
 
 /// Attribute names of [`op::UNIT_ABILITY_ATTR`].

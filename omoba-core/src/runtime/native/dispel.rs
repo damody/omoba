@@ -132,6 +132,7 @@ impl Registry {
 
     /// The rule for a BuffStore key.
     pub fn rule(&self, key: &str) -> Option<Rule> {
+        let key = omoba_template_ids::instance_base(key);
         self.exact.get(key).copied().or_else(|| self.patterns.iter().find(|(id, _)| runtime_id_matches(id, key)).map(|(_, rule)| *rule))
     }
 
@@ -153,7 +154,8 @@ impl Registry {
 
     /// The v3 status ids whose runtime key is `key` (exactly or by pattern).
     fn status_ids(&self, key: &str) -> Vec<&str> {
-        self.status_of.iter().filter(|(runtime, _)| runtime == key || (is_pattern(runtime) && runtime_id_matches(runtime, key)))
+        let base = omoba_template_ids::instance_base(key);
+        self.status_of.iter().filter(|(runtime, _)| runtime == base || (is_pattern(runtime) && runtime_id_matches(runtime, key)))
             .map(|(_, id)| id.as_str()).collect()
     }
 
@@ -385,7 +387,37 @@ pub const PURGE_BUFF: &str = "__status_purge";
 
 /// Whether a BuffStore key is an instance of a status id (`id`, `id:…`).
 fn key_of_status(key: &str, status: &str) -> bool {
+    let key = omoba_template_ids::instance_base(key);
     key == status || key.strip_prefix(status).is_some_and(|rest| rest.starts_with(':'))
+}
+
+/// v3 `remove_status` of an independent status with `limit = 1` (one instance): the packet names
+/// the runtime id; the instance with the smallest number (the earliest applied) goes.
+pub const REMOVE_INSTANCE_KEY: &str = "__status_remove_instance_v1";
+pub const REMOVE_INSTANCE_BUFF: &str = "__status_remove_instance";
+
+pub fn remove_instance_payload(runtime_id: &str) -> Value {
+    serde_json::json!({ (REMOVE_INSTANCE_KEY): { "runtime_id": runtime_id } })
+}
+
+/// The runtime id a well-formed packet names.
+pub fn remove_instance_spec(buff_id: &str, duration: omoba_sim::Fixed64, payload: &Value) -> Option<String> {
+    if buff_id != REMOVE_INSTANCE_BUFF || duration != omoba_sim::Fixed64::ONE || payload.as_object()?.len() != 1 { return None; }
+    let row = payload.get(REMOVE_INSTANCE_KEY)?.as_object()?;
+    let id = row.get("runtime_id")?.as_str()?;
+    (row.len() == 1 && !id.is_empty() && id.len() <= 128 && !id.contains('#')).then(|| id.to_owned())
+}
+
+/// Removes the earliest instance of `runtime_id` on `entity`; false when it holds none.
+pub fn remove_earliest_instance(world: &World, entity: Entity, runtime_id: &str) -> bool {
+    let earliest = world.read_resource::<BuffStore>().iter_for(entity)
+        .filter(|(key, _)| omoba_template_ids::instance_base(key) == runtime_id)
+        .filter_map(|(key, _)| omoba_template_ids::instance_number(key).map(|n| (n, key.to_owned())))
+        .min();
+    match earliest {
+        Some((_, key)) => { remove_status(world, entity, &key); true }
+        None => false,
+    }
 }
 
 /// Removes the statuses `spec` names from `entity`; returns how many went.
@@ -623,6 +655,28 @@ mod tests {
     /// v3 `remove_status` by filters: `dispel = "all"` with `team_of_source = "enemy"` removes every
     /// status an enemy applied whatever its class, plus controls; `except` keeps named ones; `limit`
     /// counts statuses; `states` takes only those controls.
+    /// Independent instances (`<rid>#<n>`): the class comes from the runtime id, and one removal
+    /// takes the earliest instance.
+    #[test]
+    fn independent_instances_keep_the_class_and_go_earliest_first() {
+        let doc = json!({"abilities": [{"v3": {"statuses": [
+            {"id": "i_guard", "runtime_id": "i_guard:{caster}", "dispel": "basic", "visibility": "debuff"}]}}]});
+        let registry = Registry::from_catalog(&doc);
+        assert_eq!(registry.rule("i_guard:4:0#2").map(|r| r.class), Some(Class::Basic));
+        assert_eq!(registry.status_ids("i_guard:4:0#2"), vec!["i_guard"]);
+        let mut world = World::new();
+        world.register::<Faction>();
+        world.insert(BuffStore::new());
+        let hero = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        for n in [3, 1, 2] { world.write_resource::<BuffStore>().add(hero, &format!("i_guard:4:0#{n}"), Fixed64::from_i32(5), json!({})); }
+        assert!(remove_earliest_instance(&world, hero, "i_guard:4:0"));
+        let left: Vec<String> = { let b = world.read_resource::<BuffStore>(); let mut v: Vec<String> = b.iter_for(hero).map(|(k, _)| k.to_owned()).collect(); v.sort(); v };
+        assert_eq!(left, vec!["i_guard:4:0#2".to_string(), "i_guard:4:0#3".to_string()]);
+        let p = remove_instance_payload("i_guard:4:0");
+        assert_eq!(remove_instance_spec(REMOVE_INSTANCE_BUFF, Fixed64::ONE, &p).as_deref(), Some("i_guard:4:0"));
+        assert!(remove_instance_spec(REMOVE_INSTANCE_BUFF, Fixed64::ONE, &remove_instance_payload("x#1")).is_none());
+    }
+
     /// v3 `remove_on = { "owner_death" }`: the dead applier's statuses with that rule go, others stay.
     #[test]
     fn statuses_removed_on_their_owners_death() {

@@ -1051,6 +1051,7 @@ mod tests {
                 position: Vec2::ZERO,
                 radius: Fixed64::from_i32(30),
                 detection_level: 0,
+                ignores_terrain: false,
             }]
             .into(),
             brush_regions: Vec::new().into(),

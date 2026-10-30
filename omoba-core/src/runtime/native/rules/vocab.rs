@@ -156,6 +156,9 @@ const STATE_EFFECTS: &[(&str, StateEffect)] = &[
     ("cannot_miss", StateEffect::Buff("cannot_miss")),
     ("attack_immune", StateEffect::Buff("attack_immune")),
     ("attack_slow_immune", StateEffect::Buff("attack_slow_immune")),
+    // 被動失效（BuffStore::stat_rows：學會的被動不給 stat、不收事件）。
+    ("break", StateEffect::Buff("break")),
+    ("passives_disabled", StateEffect::Buff("break")),
     ("physical_immune", StateEffect::Buff("physical_immune")),
     ("melee_attack", StateEffect::Buff("melee_attack")),
     ("ranged_attack", StateEffect::Buff("ranged_attack")),

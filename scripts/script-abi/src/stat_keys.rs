@@ -214,8 +214,8 @@ pub enum StatKey {
     ManaRegenMaxPercentage = 139,
     /// 法力回復量的增幅（v3 `mana_regen_amp_pct`）；生命的對應是 `HpRegenAmplifyPercentage`。
     ManaRegenAmplifyPercentage = 140,
-    /// 減速抗性（v3 `slow_resistance_pct`，比例 0～1）：移速的負百分比加成乘上 (1 − 本值)；
-    /// omoba-core `UnitStats::final_move_speed`。
+    /// 減速抗性（v3 `slow_resistance_pct`，比例 0～1）：與既有的 `slow_resistance` 鍵相同，
+    /// 套用減速時依最強的一個縮小（omoba-core `damage_immunity::resist`）。
     SlowResistance = 141,
     /// 技能吸血（v3 `spell_lifesteal_pct`，比例）：帶 SPELL 的傷害對敵方非建築造成的實際扣血，
     /// 依本值回復來源；omoba-core `handle_damage`。

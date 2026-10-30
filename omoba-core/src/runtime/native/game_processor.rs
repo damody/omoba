@@ -1985,7 +1985,19 @@ fn commit_scripted_item_use(world: &mut World, owner: Entity, owner_pid: u32, sl
     if let Some(mut events) = world.try_fetch_mut::<ScriptEventQueue>() {
         events.push(ScriptEvent::ItemUsed { owner, item_id: item_id.to_owned() });
     }
+    publish_item_use(world, owner, item_id);
     true
+}
+
+/// The committed use as a successful cast fact `item:<id>` (presentation only: the user's
+/// item cues for every team that sees the user, like a hero ability's cast).
+fn publish_item_use(world: &World, owner: Entity, item_id: &str) {
+    use super::scripting::{ScriptVisualEvent, ScriptVisualEventKind};
+    let tick = world.read_resource::<crate::runtime::Tick>().0;
+    let mut event = ScriptVisualEvent::new(ScriptVisualEventKind::SkillCast, owner, tick);
+    event.skill_id = Some(format!("{}{}", crate::runtime::presentation_cue::ITEM_CAST_PREFIX, item_id));
+    event.ability_rank = 1;
+    super::scripting::dispatch::publish_successful_cast_facts(world, &mut [event]);
 }
 
 /// A committed use of a single-use item (catalog `consumable`) removes it; passives rebuild.
@@ -2911,8 +2923,11 @@ pub fn drain_pending_item_uses(world: &mut World) {
             Ok(()) => {
                 // An item is an ability in the original: OnAbilityExecuted ends home_aura's speed_up (E187).
                 crate::runtime::native::moba_match::break_home_speed_up(world, owner);
-                if let (Some(item_id), Some(mut events)) = (used_item, world.try_fetch_mut::<ScriptEventQueue>()) {
-                    events.push(ScriptEvent::ItemUsed { owner, item_id });
+                if let Some(item_id) = used_item {
+                    publish_item_use(world, owner, &item_id);
+                    if let Some(mut events) = world.try_fetch_mut::<ScriptEventQueue>() {
+                        events.push(ScriptEvent::ItemUsed { owner, item_id });
+                    }
                 }
             },
             Err(e) => log::warn!(
@@ -3211,6 +3226,15 @@ pub fn process_outcomes(
                     if let Some(spec)=super::ally_area_restore::admitted(world,*target,buff_id,*duration,payload,None) {
                         for (ally,_) in super::ally_area_restore::heals(world,&spec) {
                             committed_vitals.insert(crate::runtime::canonical_entity_id(ally), ally);
+                        }
+                    }
+                }
+                // A generated script's cooldown change (hero_command): opponents get the settled remaining
+                Outcome::AddBuff { target, buff_id, payload, .. } if buff_id.as_str()==super::hero_command::BUFF => {
+                    if let Some(ability_id) = super::hero_command::cooldown_ability(buff_id, payload) {
+                        if let Some(slot) = world.read_storage::<Hero>().get(*target)
+                            .and_then(|hero| hero.abilities.iter().position(|id| *id == ability_id)) {
+                            committed_cooldowns.insert((crate::runtime::canonical_entity_id(*target), slot as u32), (*target, ability_id));
                         }
                     }
                 }
@@ -6405,6 +6429,21 @@ fn handle_add_buff(
         if world.read_resource::<BuffStore>().has(target,&buff_id) {super::taunt::order(world,target,&payload);}
         return Ok(());
     }
+    // v3 modify_attack (on_attack_windup): the attack in windup crits (rules::attack); never stored.
+    if payload.get(super::rules::attack::MODIFY_KEY).is_some() || buff_id==super::rules::attack::MODIFY_BUFF {
+        super::rules::attack::modify_attack(world,target,&buff_id,duration,&payload);
+        return Ok(());
+    }
+    // v3 status.absorb: the absorb row of a status (absorb.rs); never stored as the packet itself.
+    if payload.get(super::absorb::KEY).is_some() || buff_id==super::absorb::BUFF {
+        super::absorb::apply(world,target,&buff_id,duration,&payload);
+        return Ok(());
+    }
+    // v3 remove_status of one independent instance (the earliest): never stored.
+    if payload.get(super::dispel::REMOVE_INSTANCE_KEY).is_some() || buff_id==super::dispel::REMOVE_INSTANCE_BUFF {
+        if let Some(id)=super::dispel::remove_instance_spec(&buff_id,duration,&payload) {super::dispel::remove_earliest_instance(world,target,&id);}
+        return Ok(());
+    }
     // v3 remove_status by filters (dispel / team_of_source / states / except / limit): never stored.
     if payload.get(super::dispel::PURGE_KEY).is_some() || buff_id==super::dispel::PURGE_BUFF {
         if let Some(spec)=super::dispel::PurgeSpec::from_payload(&buff_id,duration,&payload) {super::dispel::purge(world,target,&spec);}
@@ -6804,6 +6843,7 @@ fn handle_damage(
     }
     // v3 `hp_removal` (life paid as a cost): no shield absorbs it. Read before the flags are stripped.
     let hp_removal = damage_profile & omb_script_abi::types::DamageProfile::HP_REMOVAL.bits() != 0;
+    let original_profile = damage_profile;
     let spell = damage_profile & omb_script_abi::types::DamageProfile::SPELL.bits() != 0;
     if !pipeline::admit(world, &packet) {
         return Ok(());
@@ -6933,7 +6973,14 @@ fn handle_damage(
     // after mitigation (retaliation, recall and cast interruption, damage and kill records).
     let (was_hit, dealt) = if hp_removal {
         (total_damage > Fixed64::ZERO && world.read_storage::<CProperty>().get(target).is_some_and(|p| p.hp > Fixed64::ZERO), total_damage)
-    } else { pipeline::absorb(world, target, total_damage) };
+    } else {
+        // v3 status.absorb rows first (absorb.rs), then the plain damage shield; a packet a status
+        // shield took whole still hit.
+        let alive = world.read_storage::<CProperty>().get(target).is_some_and(|p| p.hp > Fixed64::ZERO);
+        let shielded = super::absorb::absorb(world, target, total_damage, mitigated.by_type);
+        let (hit, dealt) = pipeline::absorb(world, target, shielded);
+        (hit || (total_damage > Fixed64::ZERO && alive), dealt)
+    };
     let applied = pipeline::apply(world, target, dealt);
     if let Some(applied) = applied {
         let (source_name, target_name) = get_entity_names(world, source, target);
@@ -6972,6 +7019,20 @@ fn handle_damage(
         }
     }
     pipeline::after_mitigation(world, &packet, &mitigated, was_hit, applied.as_ref());
+    // status_event on_take_damage / on_deal_damage: the hp the hit took, noted only when a status
+    // of the target or the source listens (the hot path pays one buff scan per side).
+    if let Some(applied) = applied.as_ref().filter(|applied| applied.took_damage) {
+        let listens = {
+            let buffs = world.read_resource::<BuffStore>();
+            super::status_event::listening(&buffs, target, super::status_event::TAKE_DAMAGE)
+                || super::status_event::listening(&buffs, source, super::status_event::DEAL_DAMAGE)
+        };
+        if listens {
+            super::status_event::note_damage(world, super::status_event::DamageNote { source, target,
+                amount: (applied.hp_before - applied.hp_after).max(Fixed64::ZERO),
+                damage_kind: super::status_event::damage_kind(mitigated.by_type, original_profile) });
+        }
+    }
     // ⑤ Lethal: tower kills, TD bounty and the Death that commits after the batch.
     if died {
         let mut towers = world.write_storage::<Tower>();

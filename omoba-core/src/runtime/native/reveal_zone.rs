@@ -71,7 +71,8 @@ impl Spec {
         let detect = match row.get("detect") { None => true, Some(Value::Bool(false)) => false, Some(_) => return None };
         let teams = match row.get("teams") { None => 0, Some(value) if value == "all" => 1, Some(_) => return None };
         let follow = match row.get("follow") { None => 0, Some(_) => { follow_of(payload)?; 1 } };
-        if row.len() != if detect { 6 } else { 7 } + teams + follow { return None; }
+        let terrain = match row.get("ignore_terrain") { None => 0, Some(Value::Bool(true)) => 1, Some(_) => return None };
+        if row.len() != if detect { 6 } else { 7 } + teams + follow + terrain { return None; }
         let raw = |name: &str| row.get(name)?.as_i64().map(Fixed64::from_raw);
         Self { source_id: u32::try_from(row.get("source_id")?.as_u64()?).ok()?,
             source_generation: u32::try_from(row.get("source_generation")?.as_u64()?).ok()?,
@@ -103,6 +104,16 @@ pub fn sight_payload(source_id: u32, source_generation: u32, center: Vec2, radiu
     if all_teams { payload = with_all_teams(payload); }
     if let Some((id, generation)) = follow { payload = with_follow(payload, id, generation); }
     Some(payload)
+}
+
+/// v3 `reveal.ignore_terrain`: the sight is not blocked by trees or cliffs.
+pub fn with_ignore_terrain(mut payload: Value) -> Value {
+    if let Some(row) = payload.get_mut(KEY).and_then(Value::as_object_mut) { row.insert("ignore_terrain".into(), json!(true)); }
+    payload
+}
+
+pub fn ignores_terrain_of(payload: &Value) -> bool {
+    payload.get(KEY).and_then(|row| row.get("ignore_terrain")) == Some(&Value::Bool(true))
 }
 
 fn all_teams(payload: &Value) -> bool {
@@ -137,6 +148,8 @@ pub struct Zone {
     pub detection_level: u16,
     /// The unit the centre follows (E185); the zone closes when it is gone.
     pub follow: Option<Entity>,
+    /// v3 `reveal.ignore_terrain`: trees and cliffs do not block this sight.
+    pub ignores_terrain: bool,
 }
 
 /// Live zones by admission sequence (canonical order).
@@ -153,6 +166,7 @@ impl RevealZones {
             });
             // Present only for a following zone, so fixed zones hash as before.
             if let Some(unit) = zone.follow { row["follow"] = json!([unit.id(), unit.gen().id() as u32]); }
+            if zone.ignores_terrain { row["ignores_terrain"] = json!(true); }
             row
         }).collect())
     }
@@ -212,7 +226,7 @@ fn insert(world: &mut World, team: u32, zone: Zone) {
 pub fn open_following(world: &mut World, team: u32, unit: Entity, radius: Fixed64, duration: Fixed64) -> bool {
     if team == 0 || radius <= Fixed64::ZERO || radius > Fixed64::from_i32(MAX_RADIUS) || !valid_duration(duration) { return false; }
     let Some(center) = live_position(world, unit) else { return false; };
-    insert(world, team, Zone { team, center, radius, remaining: duration, detection_level: 0, follow: Some(unit) });
+    insert(world, team, Zone { team, center, radius, remaining: duration, detection_level: 0, follow: Some(unit), ignores_terrain: false });
     true
 }
 
@@ -221,7 +235,7 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, duration: Fixed64
     let Some((spec, team)) = admitted(world, target, buff_id, duration, payload, None) else { return false; };
     let follow = follow_of(payload).map(|(id, _)| world.entities().entity(id));
     let zone = Zone { team, center: spec.center, radius: spec.radius, remaining: duration,
-        detection_level: if spec.detect { u16::MAX } else { 0 }, follow };
+        detection_level: if spec.detect { u16::MAX } else { 0 }, follow, ignores_terrain: ignores_terrain_of(payload) };
     for team in audience(world, team, all_teams(payload)) { insert(world, team, zone); }
     true
 }
@@ -339,7 +353,7 @@ mod tests {
     fn source_ids_are_disjoint_from_entities_and_canonical() {
         let mut rows = RevealZones::default();
         for (sequence, team) in [(5, 2), (2, 1)] {
-            rows.zones.insert(sequence, Zone { team, center: Vec2::ZERO, radius: Fixed64::ONE, remaining: Fixed64::ONE, detection_level: u16::MAX, follow: None });
+            rows.zones.insert(sequence, Zone { team, center: Vec2::ZERO, radius: Fixed64::ONE, remaining: Fixed64::ONE, detection_level: u16::MAX, follow: None, ignores_terrain: false });
         }
         let ids: Vec<u64> = rows.sources().map(|(id, _)| id).collect();
         assert_eq!(ids, vec![(1 << 63) | 2, (1 << 63) | 5]);

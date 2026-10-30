@@ -341,6 +341,9 @@ pub struct CommittedVisionSource {
     pub position: Vec2,
     pub radius: Fixed64,
     pub detection_level: u16,
+    /// Sight over terrain (v3 `reveal.ignore_terrain`, 原作 flying vision): trees and cliffs do not
+    /// block it; brush still does.
+    pub ignores_terrain: bool,
 }
 
 /// Immutable, stable-sorted Wave B copy of the validated map occluder.
@@ -609,7 +612,7 @@ pub(crate) fn entity_visible_with_brush(
         delta.length_squared() <= source.radius * source.radius
             && (has_brush_reveal(entity,team)
                 || crate::runtime::brush_vision::brush_allows_vision(brushes, source.position, entity.position))
-            && occluders.line_of_sight(source.position, entity.position) == LosResult::Clear
+            && (source.ignores_terrain || occluders.line_of_sight(source.position, entity.position) == LosResult::Clear)
     })
 }
 
@@ -655,6 +658,7 @@ mod tests {
             position: Vec2::new(Fixed64::ZERO, Fixed64::ZERO),
             radius: Fixed64::from_i32(radius),
             detection_level: 0,
+            ignores_terrain: false,
         }
     }
 
@@ -694,6 +698,8 @@ mod tests {
         let occluders=crate::runtime::moba_map_layout::compiled_vision_occluders(&map);
         let target=entity(ReplicationScopeKind::Vision,Some(2),10);
         assert!(!entity_visible_to_team(&target,1,&[source(1,20)],&occluders.0));
+        // v3 reveal.ignore_terrain: the same sight over the wall.
+        assert!(entity_visible_to_team(&target,1,&[CommittedVisionSource {ignores_terrain:true,..source(1,20)}],&occluders.0));
         let mut friendly=source(1,20);friendly.position=target.position;
         assert!(entity_visible_to_team(&target,1,&[source(1,20),friendly],&occluders.0));
         friendly.team=2;
@@ -1286,6 +1292,7 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             position: position.0,
             radius: source.radius,
             detection_level: source.detection_level,
+            ignores_terrain: false,
         })
         .collect();
     // G-4 reveal zones: team sight; true sight detects every stealth level,
@@ -1293,6 +1300,7 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     if let Some(zones) = world.try_fetch::<crate::runtime::native::reveal_zone::RevealZones>() {
         vision_sources.extend(zones.sources().map(|(canonical_id, zone)| CommittedVisionSource {
             canonical_id, team: zone.team, position: zone.center, radius: zone.radius, detection_level: zone.detection_level,
+            ignores_terrain: zone.ignores_terrain,
         }));
     }
     vision_sources.sort_by_key(|source| (source.team, source.canonical_id));

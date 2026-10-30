@@ -92,7 +92,7 @@ pub fn status_damage_pre(world: &World, packet: &mut Packet) {
             if total(packet) <= Fixed64::ZERO { break; }
             let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
             let other = if kind == se::DEAL_DAMAGE_PRE { packet.target } else { packet.source };
-            let damage_kind = if packet.physical > Fixed64::ZERO { 0 } else if packet.magical > Fixed64::ZERO { 1 } else { 2 };
+            let damage_kind = se::damage_kind([packet.physical, packet.magical, packet.pure], packet.profile);
             let event = spec.event(kind, handle(other), total(packet), damage_kind);
             let random_ordinal = (tick << 20) ^ (u64::from(packet.target.id()) << 8) ^ ordinal as u64;
             let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, holder, random_ordinal);

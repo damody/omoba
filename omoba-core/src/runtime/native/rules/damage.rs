@@ -159,6 +159,8 @@ pub struct Mitigated {
     pub total: Fixed64,
     /// 轉成治療的部分（目標沒死才回復）。
     pub converted_heal: Fixed64,
+    /// `total` 依物理／魔法／純粹的比例拆開（v3 `status.absorb` 依類型吸收，absorb.rs）。
+    pub by_type: [Fixed64; 3],
 }
 
 pub fn mitigate(world: &World, packet: &Packet) -> Mitigated {
@@ -173,7 +175,9 @@ pub fn mitigate(world: &World, packet: &Packet) -> Mitigated {
             (i128::from(total.raw()) * i128::from(numerator) / i128::from(denominator)) as i64),
         None => total,
     };
-    Mitigated { total, converted_heal }
+    let sum = i128::from(physical.raw()) + i128::from(magical.raw()) + i128::from(pure.raw());
+    let share = |part: Fixed64| if sum <= 0 { Fixed64::ZERO } else { Fixed64::from_raw((i128::from(total.raw()) * i128::from(part.raw()) / sum) as i64) };
+    Mitigated { total, converted_heal, by_type: [share(physical), share(magical), share(pure)] }
 }
 
 /// ③ 護盾吸收。回傳 (命中：正的傷害打在活著的目標上, 吸收後的傷害)。
@@ -322,7 +326,8 @@ mod tests {
             serde_json::json!({"absolute_no_damage_magical": 1024}));
         let packet = Packet::new(source, target, Fixed64::from_i32(10), Fixed64::from_i32(40), Fixed64::from_i32(5),
             DamageProfile::NORMAL.bits());
-        assert_eq!(mitigate(&w, &packet), Mitigated { total: Fixed64::from_i32(15), converted_heal: Fixed64::ZERO });
+        assert_eq!(mitigate(&w, &packet), Mitigated { total: Fixed64::from_i32(15), converted_heal: Fixed64::ZERO,
+            by_type: [Fixed64::from_i32(10), Fixed64::ZERO, Fixed64::from_i32(5)] });
     }
 
     #[test]

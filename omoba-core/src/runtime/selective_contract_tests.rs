@@ -111,6 +111,7 @@ fn visibility_resolution_schedules_then_commits_a_fresh_reveal() {
         position: entity.position,
         radius: Fixed64::from_i32(10),
         detection_level: 0,
+        ignores_terrain: false,
     };
     let mut state = TeamVisibilityState::new(TEAM, 8);
     let at_10 = WaveBReadView {

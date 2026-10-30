@@ -43,6 +43,7 @@ pub mod damage_trace;
 pub mod cast_trace;
 pub mod ability_slots;
 pub mod order_targets;
+pub mod absorb;
 pub mod taunt;
 pub mod command_restriction;
 pub(crate) mod targeted_effect;

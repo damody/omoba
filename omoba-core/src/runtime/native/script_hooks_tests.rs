@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone, Debug, PartialEq)]
 enum Call {
     Scheduled { owner: u32, step: u16, level: u8, args: Vec<ScheduleArg> },
-    Status { holder: u32, status: String, kind: u8, other: u32, amount: Fixed64 },
+    Status { holder: u32, status: String, kind: u8, other: u32, amount: Fixed64, damage_kind: u8 },
     ReadVar(Option<String>),
     DamagePre { holder: u32, kind: u8, amount: Fixed64 },
 }
@@ -56,7 +56,7 @@ impl omb_script_abi::ability::AbilityScript for Probe {
     }
     fn on_status_event(&self, holder: EntityHandle, status: RStr<'_>, event: StatusEvent, _: &mut GameWorldDyn<'_>) {
         self.calls.lock().unwrap().push(Call::Status { holder: holder.id, status: status.to_string(), kind: event.kind,
-            other: event.other.id, amount: event.amount });
+            other: event.other.id, amount: event.amount, damage_kind: event.damage_kind });
     }
 }
 
@@ -140,12 +140,20 @@ fn a_marked_status_hears_its_holders_damage() {
     driver.step(&mut world, []).unwrap();
     cast(&mut world, &mut driver);
     driver.step(&mut world, []).unwrap();
-    world.write_resource::<crate::runtime::native::scripting::ScriptEventQueue>().push(crate::runtime::native::scripting::ScriptEvent::Damage {
-        attacker: None, victim: hero, amount: Fixed64::from_i32(40), kind: omb_script_abi::types::DamageKind::Magical });
+    // Real packets through handle_damage (the pre hook halves each): a plain pure hit, then a reflected one.
+    let pure = omb_script_abi::types::DamageProfile::TRUE;
+    for profile in [pure, pure.union(omb_script_abi::types::DamageProfile::REFLECTION)] {
+        world.write_resource::<Vec<crate::comp::Outcome>>().push(crate::comp::Outcome::RawDamage {
+            pos: omoba_sim::Vec2::ZERO, phys: Fixed64::ZERO, magi: Fixed64::ZERO, real: Fixed64::from_i32(80),
+            source: hero, target: hero, damage_profile: profile.bits(), origin: None });
+        driver.step(&mut world, []).unwrap();
+    }
     driver.step(&mut world, []).unwrap();
     let damage: Vec<_> = calls.lock().unwrap().iter().filter_map(|c| match c {
-        Call::Status { kind, amount, .. } if *kind == crate::runtime::native::status_event::TAKE_DAMAGE => Some(*amount), _ => None }).collect();
-    assert_eq!(damage, vec![Fixed64::from_i32(40)]);
+        Call::Status { kind, amount, damage_kind, .. } if *kind == crate::runtime::native::status_event::TAKE_DAMAGE => Some((*amount, *damage_kind)),
+        _ => None }).collect();
+    assert_eq!(damage, vec![(Fixed64::from_i32(40), 2), (Fixed64::from_i32(40), 2 | StatusEvent::REFLECTION)],
+        "the hp each hit took, the second marked as a reflection");
 }
 
 #[test]

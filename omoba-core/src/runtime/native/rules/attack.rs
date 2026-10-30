@@ -198,6 +198,32 @@ const CRIT_OP: u16 = 1;
 /// 第二個以後的爆擊來源：op 0x100 + 序號，不和既有的 op（0、1、2、20、21）重疊。
 const CRIT_OP_EXTRA: u16 = 0x100;
 
+/// v3 `modify_attack { crit_multiplier }`（`on_attack_windup` 裡）：這一次還沒發出的攻擊必定爆擊，倍率取
+/// 已擲出的與這個值較大者。一次性的 AddBuff 封包，不儲存。
+pub const MODIFY_KEY: &str = "__attack_modify_v1";
+pub const MODIFY_BUFF: &str = "__attack_modify";
+
+pub fn modify_payload(crit_multiplier: Fixed64) -> Value {
+    serde_json::json!({ (MODIFY_KEY): { "crit_multiplier_raw": crit_multiplier.raw() } })
+}
+
+/// The crit multiplier a well-formed packet carries (> 1, at most 100).
+pub fn modify_spec(buff_id: &str, duration: Fixed64, payload: &Value) -> Option<Fixed64> {
+    if buff_id != MODIFY_BUFF || duration != Fixed64::ONE || payload.as_object()?.len() != 1 { return None; }
+    let row = payload.get(MODIFY_KEY)?.as_object()?;
+    let multiplier = Fixed64::from_raw(row.get("crit_multiplier_raw")?.as_i64()?);
+    (row.len() == 1 && multiplier > Fixed64::ONE && multiplier <= Fixed64::from_i32(100)).then_some(multiplier)
+}
+
+/// Applies the packet to the attacker's attack in windup; false when there is none.
+pub fn modify_attack(world: &mut World, attacker: Entity, buff_id: &str, duration: Fixed64, payload: &Value) -> bool {
+    let Some(multiplier) = modify_spec(buff_id, duration, payload) else { return false };
+    let Some(mut records) = world.try_fetch_mut::<AttackRecords>() else { return false };
+    let Some(record) = records.0.get_mut(&attacker).filter(|record| !record.launched) else { return false };
+    record.critical = Some(record.critical.map_or(multiplier, |current| current.max(multiplier)));
+    true
+}
+
 /// 發出時要用的爆擊：這一次攻擊（`seq`）有前搖紀錄就用紀錄的結果；沒有紀錄（例如前搖在別的路徑
 /// 開始）回傳 None，由呼叫端照舊在發出時擲。
 pub fn launch_critical(world: &World, attacker: Entity, seq: u32) -> Option<Option<Fixed64>> {
@@ -300,8 +326,15 @@ mod tests {
         set_tick(&mut w, 30);
         assert_eq!(launch_critical(&w, attacker, 1), Some(Some(Fixed64::from_i32(3))));
         assert_eq!(launch_critical(&w, attacker, 2), None, "another attack has no record");
+        // modify_attack in windup raises the crit to at least its multiplier.
+        assert!(modify_attack(&mut w, attacker, MODIFY_BUFF, Fixed64::ONE, &modify_payload(Fixed64::from_i32(5))));
+        assert_eq!(launch_critical(&w, attacker, 1), Some(Some(Fixed64::from_i32(5))));
+        assert!(modify_attack(&mut w, attacker, MODIFY_BUFF, Fixed64::ONE, &modify_payload(Fixed64::from_i32(2))));
+        assert_eq!(launch_critical(&w, attacker, 1), Some(Some(Fixed64::from_i32(5))), "the larger stays");
         launch(&mut w, attacker, 1, target, Fixed64::from_i32(50), true, false);
         assert_eq!(launch_critical(&w, attacker, 1), None, "launched once");
+        // modify_attack after the launch changes nothing.
+        assert!(!modify_attack(&mut w, attacker, MODIFY_BUFF, Fixed64::ONE, &modify_payload(Fixed64::from_i32(4))));
         let events = w.read_resource::<AttackEvents>();
         assert_eq!(events.tick, 30);
         assert_eq!(events.events, vec![AttackEvent::Launch { attacker, seq: 1, target, critical: true, missed: false }],

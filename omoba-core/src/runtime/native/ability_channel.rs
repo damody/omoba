@@ -106,8 +106,41 @@ struct Channel {
     last_tick: u64,
 }
 
+/// Live channels, plus the ends not yet dispatched to `on_channel_end`.
 #[derive(Default, Debug)]
-pub(crate) struct AbilityChannels(BTreeMap<Entity, Channel>);
+pub(crate) struct AbilityChannels(BTreeMap<Entity, Channel>, Vec<DueEnd>);
+
+/// One ended channel for `AbilityScript::on_channel_end`.
+#[derive(Debug)]
+pub(crate) struct DueEnd {
+    pub caster: Entity,
+    pub skill_id: String,
+    pub target: Target,
+    pub end: ChannelPulse,
+    pub interrupted: bool,
+}
+
+fn due_end(world: &World, caster: Entity, channel: &Channel, interrupted: bool) -> DueEnd {
+    let unit = |target: Entity| world.read_storage::<Pos>().get(target).map(|p| p.0);
+    let anchor = match channel.anchor {
+        Anchor::Origin => channel.origin,
+        Anchor::Point(point) => point,
+        Anchor::Unit(target) => unit(target).unwrap_or(channel.origin),
+    };
+    let target = match channel.anchor {
+        Anchor::Origin => Target::None,
+        Anchor::Point(point) => Target::Point(point),
+        Anchor::Unit(target) => Target::Entity(super::scripting::ParallelWorldAdapter::entity_to_handle(target)),
+    };
+    DueEnd { caster, skill_id: channel.skill_id.clone(), target, interrupted, end: ChannelPulse {
+        level: channel.level, index: channel.fired, total: channel.spec.pulses,
+        elapsed: Fixed64::from_raw(channel.spec.interval.raw() * i64::from(channel.fired)), anchor } }
+}
+
+/// The ends recorded since the last call, in the order they happened.
+pub(crate) fn take_ends(world: &World) -> Vec<DueEnd> {
+    world.try_fetch_mut::<AbilityChannels>().map(|mut channels| std::mem::take(&mut channels.1)).unwrap_or_default()
+}
 
 pub(crate) fn any_active(world: &World) -> bool {
     world.try_fetch::<AbilityChannels>().is_some_and(|channels| !channels.0.is_empty())
@@ -172,6 +205,13 @@ pub(crate) fn start(world: &mut World, entity: Entity, owner: u32, skill_id: Str
     let origin = world.read_storage::<Pos>().get(entity).unwrap().0;
     let tick = world.read_resource::<Tick>().0;
     if world.try_fetch::<AbilityChannels>().is_none() { world.insert(AbilityChannels::default()); }
+    // A new channel replaces the caster's current one: that one was interrupted.
+    let replaced = world.write_resource::<AbilityChannels>().0.remove(&entity);
+    if let Some(channel) = replaced {
+        log_end(entity, &channel, "replaced");
+        let end = due_end(world, entity, &channel, true);
+        world.write_resource::<AbilityChannels>().1.push(end);
+    }
     log::info!("AbilityChannel start pid={} caster={:?} ability='{}' level={} pulses={} interval_raw={} anchor={:?} tick={}",
         owner, entity, skill_id, level, spec.pulses, spec.interval.raw(), anchor, tick);
     world.write_resource::<AbilityChannels>().0.insert(entity, Channel {
@@ -194,7 +234,11 @@ fn publish(world: &World, entity: Entity, remaining: Fixed64, total: Fixed64) {
 
 pub(crate) fn cancel(world: &World, entity: Entity) {
     if let Some(mut channels) = world.try_fetch_mut::<AbilityChannels>() {
-        if let Some(channel) = channels.0.remove(&entity) { log_end(entity, &channel, "cancelled"); }
+        if let Some(channel) = channels.0.remove(&entity) {
+            log_end(entity, &channel, "cancelled");
+            let end = due_end(world, entity, &channel, true);
+            channels.1.push(end);
+        }
     }
     if let Some(mut buffs) = world.try_fetch_mut::<BuffStore>() { buffs.remove(entity, STATUS); }
 }
@@ -254,10 +298,12 @@ pub(crate) fn advance(world: &mut World) -> Vec<DuePulse> {
     let dt = world.read_resource::<DeltaTime>().0;
     let paused = world.read_resource::<GamePause>().is_paused;
     let mut due = Vec::new();
+    let mut ends = Vec::new();
     channels.0.retain(|entity, channel| {
         let caster = *entity;
         if let Some(reason) = end_reason(world, caster, channel) {
             log_end(caster, channel, reason);
+            ends.push(due_end(world, caster, channel, true));
             world.write_resource::<BuffStore>().remove(caster, STATUS);
             return false;
         }
@@ -298,6 +344,7 @@ pub(crate) fn advance(world: &mut World) -> Vec<DuePulse> {
         }
         if channel.fired >= channel.spec.pulses {
             log_end(caster, channel, "completed");
+            ends.push(due_end(world, caster, channel, false));
             world.write_resource::<BuffStore>().remove(caster, STATUS);
             return false;
         }
@@ -305,6 +352,7 @@ pub(crate) fn advance(world: &mut World) -> Vec<DuePulse> {
         publish(world, caster, remaining.max(Fixed64::from_raw(1)), channel.spec.total());
         true
     });
+    channels.1.extend(ends);
     world.insert(channels);
     due
 }
@@ -388,6 +436,10 @@ mod tests {
                 assert!(advance(&mut world).is_empty());
             }
             assert_eq!(fired, (1..=10).collect::<Vec<_>>(), "{hz} Hz");
+            let ends = take_ends(&world);
+            assert_eq!(ends.len(), 1, "one end after the last pulse");
+            assert!(!ends[0].interrupted && ends[0].end.index == 10 && ends[0].end.level == 2);
+            assert!(take_ends(&world).is_empty(), "taken once");
             assert!(!world.read_resource::<BuffStore>().has(hero, STATUS));
             assert!(diagnostic(&world).is_none());
         }
@@ -416,6 +468,8 @@ mod tests {
                 _ => unreachable!(),
             }
             assert!(step(&mut world, Fixed64::from_i32(1)).is_empty(), "case {case}");
+            let ends = take_ends(&world);
+            assert!(ends.len() == 1 && ends[0].interrupted && ends[0].end.index == 1, "case {case}: one interrupted end");
             assert!(!world.read_resource::<BuffStore>().has(hero, STATUS), "case {case}");
             assert!(diagnostic(&world).is_none(), "case {case}");
         }
@@ -462,7 +516,9 @@ mod tests {
         assert_eq!(status[STATUS]["total_raw"], 408);
     }
 
-    /// Counts pulses; `execute` must never run for a host channel.
+    /// Counts pulses, then the end as (255, pulses) or interrupted (254, pulses); `execute` must
+    /// never run for a host channel (each run adds 1, each phase start 100). The phase start
+    /// cancels while the caster has the buff `no_phase`.
     #[derive(Clone)]
     struct Pulser(std::sync::Arc<std::sync::Mutex<Vec<(u8, u16)>>>, std::sync::Arc<std::sync::atomic::AtomicU32>);
     impl omb_script_abi::ability::AbilityScript for Pulser {
@@ -475,6 +531,15 @@ mod tests {
         fn on_channel_pulse(&self, _: omb_script_abi::types::EntityHandle, _: Target, pulse: ChannelPulse,
             _: &mut omb_script_abi::world::GameWorldDyn<'_>) {
             self.0.lock().unwrap().push((pulse.level, pulse.index));
+        }
+        fn on_channel_end(&self, _: omb_script_abi::types::EntityHandle, _: Target, end: ChannelPulse, interrupted: bool,
+            _: &mut omb_script_abi::world::GameWorldDyn<'_>) {
+            self.0.lock().unwrap().push((if interrupted { 254 } else { 255 }, end.index));
+        }
+        fn on_phase_start(&self, caster: omb_script_abi::types::EntityHandle, _: Target, _: u8,
+            world: &mut omb_script_abi::world::GameWorldDyn<'_>) -> bool {
+            self.1.fetch_add(100, std::sync::atomic::Ordering::SeqCst);
+            !world.has_buff(caster, "no_phase".into())
         }
     }
 
@@ -520,8 +585,9 @@ mod tests {
         assert!(world.read_storage::<Hero>().get(hero).unwrap().is_on_cooldown(&id), "cooldown charged at start");
         assert!(world.read_resource::<BuffStore>().has(hero, STATUS), "public channel bar");
         for _ in 0..40 { driver.step(&mut world, []).unwrap(); }
-        assert_eq!(*pulses.lock().unwrap(), (1..=5).map(|index| (rank, index)).collect::<Vec<_>>());
-        assert_eq!(executes.load(std::sync::atomic::Ordering::SeqCst), 0, "a host channel never runs execute");
+        assert_eq!(*pulses.lock().unwrap(), (1..=5).map(|index| (rank, index)).chain([(255, 5)]).collect::<Vec<_>>(),
+            "every pulse, then on_channel_end once");
+        assert_eq!(executes.load(std::sync::atomic::Ordering::SeqCst), 100, "one phase start; a host channel never runs execute");
         assert!(!any_active(&world));
         assert!(!world.read_resource::<BuffStore>().has(hero, STATUS));
     }
@@ -536,10 +602,25 @@ mod tests {
         while pulses.lock().unwrap().len() < 2 { driver.step(&mut world, []).unwrap(); }
         world.write_resource::<BuffStore>().add(hero, "stun", Fixed64::from_i32(1), serde_json::json!({}));
         for _ in 0..40 { driver.step(&mut world, []).unwrap(); }
-        assert_eq!(pulses.lock().unwrap().len(), 2, "no pulse after the stun");
+        assert_eq!(pulses.lock().unwrap()[2..], [(254, 2)], "no pulse after the stun, one interrupted end");
         assert!(!any_active(&world));
         let after = world.read_storage::<Hero>().get(hero).unwrap().get_cooldown(&id);
         assert!(after > Fixed64::ZERO && after < cooldown, "cooldown keeps running, never restarted or refunded");
+    }
+
+    #[test]
+    fn a_phase_start_that_says_no_cancels_the_cast_with_nothing_charged() {
+        let pulses = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let executes = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let (mut world, mut driver, hero, id) = driven_world(Pulser(pulses.clone(), executes.clone()));
+        driver.step(&mut world, []).unwrap();
+        world.write_resource::<BuffStore>().add(hero, "no_phase", Fixed64::from_i32(100), serde_json::json!({}));
+        cast(&mut world, &mut driver);
+        assert_eq!(executes.load(std::sync::atomic::Ordering::SeqCst), 100, "the phase start ran");
+        assert!(!any_active(&world), "no channel");
+        assert!(!world.read_storage::<Hero>().get(hero).unwrap().is_on_cooldown(&id), "nothing charged");
+        for _ in 0..20 { driver.step(&mut world, []).unwrap(); }
+        assert!(pulses.lock().unwrap().is_empty());
     }
 
     #[test]

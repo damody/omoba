@@ -171,6 +171,35 @@ pub trait AbilityScript: Send + Sync {
     ) -> DamageEdit {
         DamageEdit::KEEP
     }
+
+    /// v3 `on_channel_end`: a host pulse channel of this ability (omoba-core `ability_channel`)
+    /// ended, after its last pulse (`interrupted` false) or cut short by stun, silence, death,
+    /// movement, recall, a new order or a lost anchor (`interrupted` true). `end.index` is the
+    /// pulses fired, `end.anchor` the anchor's last point. Like a pulse, only effects may be
+    /// applied. Default: nothing.
+    fn on_channel_end(
+        &self,
+        _caster: EntityHandle,
+        _target: Target,
+        _end: ChannelPulse,
+        _interrupted: bool,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
+    /// v3 `on_phase_start`: a cast of this ability begins, once it is admitted (before its windup,
+    /// or right before `execute` when it has none). False cancels the cast (v3 `cancel_cast`)
+    /// with nothing charged; the hook's own effects stand either way. Only effects may be
+    /// applied. Default: go on.
+    fn on_phase_start(
+        &self,
+        _caster: EntityHandle,
+        _target: Target,
+        _level: u8,
+        _world: &mut GameWorldDyn<'_>,
+    ) -> bool {
+        true
+    }
 }
 
 /// `AbilityDef` + 實作它的腳本 — 每種能力一個條目

@@ -18,7 +18,7 @@ use omoba_core::ability_meta::{DamageType,EffectSpec,TargetSelector};
 use omoba_core::runtime::native::{delayed_effect,reveal_zone};
 use omoba_template_ids::{ABILITY_B29_EARTH_TREMOR,active_ability_const};
 use crate::ability_builder::{build_ability_ffi,extra_at_id_f32};
-use super::No1_ground_slam::enemy_units_in_circle;
+use super::No1_ground_slam::enemy_units_in_circle_with;
 
 const ID:omoba_template_ids::AbilityId=ABILITY_B29_EARTH_TREMOR;
 pub(crate) const INTERVAL_KEY:&str="channel_interval";
@@ -114,7 +114,8 @@ pub(crate) fn pulse(world:&mut GameWorldDyn<'_>,caster:EntityHandle,pulse:Channe
 pub(crate) fn land(world:&mut GameWorldDyn<'_>,caster:EntityHandle,effect:ChannelPulse)->Result<(Vec<EntityHandle>,Vec<EntityHandle>),&'static str> {
     let spec=rank_spec(effect.level)?;
     let center=effect.anchor;
-    let units=enemy_units_in_circle(world,caster,center,spec.wave_radius);
+    // The strike pierces magic immunity (E184): magic-immune enemies are hit (stunned, 0 magical damage).
+    let units=enemy_units_in_circle_with(world,caster,center,spec.wave_radius,true);
     let mut buildings:Vec<EntityHandle>=world.query_enemies_in_range(center,spec.wave_radius,caster).into_iter()
         .filter(|e|world.is_building(*e) && world.is_alive(*e) && world.get_hp(*e).into_option().is_some_and(|hp|hp>Fixed64::ZERO)
             && world.get_pos(*e).into_option().is_some_and(|pos|omoba_sim::terrain::point_in_swept_circle(pos,center,center,spec.wave_radius)))

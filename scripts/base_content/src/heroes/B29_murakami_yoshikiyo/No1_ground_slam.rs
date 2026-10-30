@@ -30,10 +30,17 @@ pub(crate) fn resolve(rank:u8,json:&str)->Result<Slam,&'static str> {
 /// Live enemy heroes and basic units (no buildings, not magic immune, not invulnerable) within
 /// `radius` of `at`, endpoint included, in canonical identity order.
 pub(crate) fn enemy_units_in_circle(world:&GameWorldDyn<'_>,caster:EntityHandle,at:Vec2,radius:Fixed64)->Vec<EntityHandle> {
+    enemy_units_in_circle_with(world,caster,at,radius,false)
+}
+
+/// [`enemy_units_in_circle`], with magic-immune enemies included when the ability pierces magic
+/// immunity (大地震撼 B29T, SPELL_IMMUNITY_ENEMIES_YES).
+pub(crate) fn enemy_units_in_circle_with(world:&GameWorldDyn<'_>,caster:EntityHandle,at:Vec2,radius:Fixed64,
+    include_magic_immune:bool)->Vec<EntityHandle> {
     let mut hits:Vec<EntityHandle>=world.query_enemies_in_range(at,radius,caster).into_iter()
         .filter(|e|*e!=caster && world.is_alive(*e) && world.get_hp(*e).into_option().is_some_and(|hp|hp>Fixed64::ZERO)
             && !world.is_building(*e)
-            && !world.has_buff(*e,RStr::from_str(omoba_core::runtime::native::magic_immunity::BUFF))
+            && (include_magic_immune || !world.has_buff(*e,RStr::from_str(omoba_core::runtime::native::magic_immunity::BUFF)))
             && !world.has_buff(*e,RStr::from_str("invulnerable"))
             && world.get_pos(*e).into_option().is_some_and(|pos|omoba_sim::terrain::point_in_swept_circle(pos,at,at,radius)))
         .collect();

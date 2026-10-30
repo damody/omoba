@@ -1643,7 +1643,26 @@ include!(concat!(env!("OUT_DIR"), "/template_ids_gen.rs"));
 
 /// Whether a BuffStore key is an instance of a v3 runtime id: `{caster}` stands for the
 /// applier's `id:gen`, `{rank}` for a rank number (E214, E218).
+/// A `stacking = "independent"` status instance is held as `<runtime id>#<n>` (n from 1, never
+/// reused; ability_kit `apply_status_instance`). The runtime id an instance key belongs to; a key
+/// without the suffix is itself.
+pub fn instance_base(key: &str) -> &str {
+    match key.rsplit_once('#') {
+        Some((base, n)) if !base.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => base,
+        _ => key,
+    }
+}
+
+/// The instance number of an independent instance key (`<runtime id>#<n>`).
+pub fn instance_number(key: &str) -> Option<u64> {
+    let (base, n) = key.rsplit_once('#')?;
+    (!base.is_empty()).then(|| n.parse().ok()).flatten()
+}
+
+/// Whether a BuffStore key is held under `runtime_id` (placeholders `{caster}` / `{rank}`
+/// matched; an independent instance `#<n>` counts as its runtime id).
 pub fn runtime_id_matches(runtime_id: &str, key: &str) -> bool {
+    let key = instance_base(key);
     #[derive(Clone, Copy)]
     enum Part<'a> { Lit(&'a str), Caster, Rank }
     fn applier(text: &str) -> bool {

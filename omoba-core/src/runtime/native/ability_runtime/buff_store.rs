@@ -119,8 +119,9 @@ pub struct BuffStore {
     next_zone_lease:u64,
     /// Rows marked for status events (status_event::KEY) that left their holder, with how
     /// (status_event EXPIRED / REMOVED / CLEARED), in the order they left. Drained by the script
-    /// dispatch; transient, not part of the replicated state.
-    status_ended: Vec<(Entity, String, Value, u8)>,
+    /// dispatch; transient, not part of the replicated state. The last field is the duration the
+    /// row had left (zero when it expired).
+    status_ended: Vec<(Entity, String, Value, u8, Fixed64)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -363,18 +364,19 @@ impl BuffStore {
     pub fn remove(&mut self, entity: Entity, buff_id: &str) {
         self.independent_zones.remove(&(entity,buff_id.to_owned()));
         if let Some(entry) = self.remove_entry(entity, buff_id) {
-            self.record_status_end(entity, buff_id, &entry.payload, crate::runtime::native::status_event::REMOVED);
+            self.record_status_end(entity, buff_id, &entry.payload, crate::runtime::native::status_event::REMOVED, entry.remaining);
         }
     }
 
-    fn record_status_end(&mut self, entity: Entity, buff_id: &str, payload: &Value, kind: u8) {
+    fn record_status_end(&mut self, entity: Entity, buff_id: &str, payload: &Value, kind: u8, remaining: Fixed64) {
         if payload.get(crate::runtime::native::status_event::KEY).is_some() {
-            self.status_ended.push((entity, buff_id.to_owned(), payload.clone(), kind));
+            self.status_ended.push((entity, buff_id.to_owned(), payload.clone(), kind, remaining.max(Fixed64::ZERO)));
         }
     }
 
-    /// The status-event rows that left their holders since the last drain (status_event).
-    pub fn drain_status_ended(&mut self) -> Vec<(Entity, String, Value, u8)> {
+    /// The status-event rows that left their holders since the last drain (status_event), with
+    /// the duration each had left.
+    pub fn drain_status_ended(&mut self) -> Vec<(Entity, String, Value, u8, Fixed64)> {
         std::mem::take(&mut self.status_ended)
     }
 
@@ -426,8 +428,9 @@ impl BuffStore {
             let mut ended: Vec<(&String, &BuffEntry)> = entity_buffs.iter()
                 .filter(|(_, entry)| entry.payload.get(crate::runtime::native::status_event::KEY).is_some()).collect();
             ended.sort_by(|a, b| a.0.cmp(b.0));
-            let ended: Vec<(Entity, String, Value, u8)> = ended.into_iter()
-                .map(|(id, entry)| (entity, id.clone(), entry.payload.clone(), crate::runtime::native::status_event::CLEARED)).collect();
+            let ended: Vec<(Entity, String, Value, u8, Fixed64)> = ended.into_iter()
+                .map(|(id, entry)| (entity, id.clone(), entry.payload.clone(), crate::runtime::native::status_event::CLEARED,
+                    entry.remaining.max(Fixed64::ZERO))).collect();
             self.status_ended.extend(ended);
             for entry in entity_buffs.into_values() {
                 let keys: Vec<String> = Self::payload_keys(&entry.payload)
@@ -438,6 +441,18 @@ impl BuffStore {
                 }
             }
         }
+    }
+
+    /// v3 state `break` (原作 PassivesDisabled): a learned passive (a row ability_kit marks
+    /// `"__passive": true`) gives no stats and no events while its holder is broken.
+    pub fn passives_broken(&self, entity: Entity) -> bool {
+        self.has(entity, "break")
+    }
+
+    /// The rows that count for stats: every row, except learned passives while broken.
+    pub fn stat_rows(&self, entity: Entity) -> impl Iterator<Item = (&str, &BuffEntry)> {
+        let broken = self.passives_broken(entity);
+        self.iter_for(entity).filter(move |(_, entry)| !(broken && is_passive(&entry.payload)))
     }
 
     /// 迭代某單位身上所有 buff（供 creep_tick 算移速乘數等）。
@@ -502,7 +517,7 @@ impl BuffStore {
     /// 基礎攻擊間隔覆寫（`base_attack_time_constant`，原作 modifier 的 base_attack_time）：
     /// 多個來源取最小的正值（與走訪順序無關）。
     pub fn base_attack_time_override(&self, entity: Entity) -> Option<Fixed64> {
-        self.iter_for(entity).filter_map(|(_, entry)| entry.payload.get(StatKey::BaseAttackTimeConstant.as_str()).and_then(Value::as_i64))
+        self.stat_rows(entity).filter_map(|(_, entry)| entry.payload.get(StatKey::BaseAttackTimeConstant.as_str()).and_then(Value::as_i64))
             .filter(|raw| *raw > 0).min().map(Fixed64::from_raw)
     }
 
@@ -513,7 +528,7 @@ impl BuffStore {
         let mut total=0i128;
         let mut families:BTreeMap<&str,i64>=BTreeMap::new();
         let mut ability_slows:BTreeMap<&str,i64>=BTreeMap::new();
-        for (name,entry) in self.iter_for(entity) {
+        for (name,entry) in self.stat_rows(entity) {
             let Some(value)=entry.payload.get(stat.as_str()) else {continue;};
             let raw=if let Some(raw)=value.as_i64() {raw} else {
                 let scaled=value.as_f64()?*1024.0;
@@ -541,7 +556,7 @@ impl BuffStore {
         let mut total = Fixed64::ZERO;
         let mut family_values: BTreeMap<&str, Fixed64> = BTreeMap::new();
         let mut ability_slows: BTreeMap<&str, i64> = BTreeMap::new();
-        for (name, entry) in self.iter_for(entity) {
+        for (name, entry) in self.stat_rows(entity) {
             let Some(value) = entry.payload.get(key) else {
                 continue;
             };
@@ -595,7 +610,7 @@ impl BuffStore {
         let key = stat.as_str();
         let mut product = Fixed64::ONE;
         let mut family_values: BTreeMap<&str, Fixed64> = BTreeMap::new();
-        for (_, entry) in self.iter_for(entity) {
+        for (_, entry) in self.stat_rows(entity) {
             let Some(value) = entry.payload.get(key) else {
                 continue;
             };
@@ -866,7 +881,7 @@ impl BuffStore {
         to_drop.sort_by(|(a,ak),(b,bk)|(a.id(),a.gen().id(),ak).cmp(&(b.id(),b.gen().id(),bk)));
         for (e, id) in to_drop {
             if let Some(entry) = self.remove_entry(e, &id) {
-                self.record_status_end(e, &id, &entry.payload, crate::runtime::native::status_event::EXPIRED);
+                self.record_status_end(e, &id, &entry.payload, crate::runtime::native::status_event::EXPIRED, Fixed64::ZERO);
                 expired.push((e, id, entry.payload));
             }
         }
@@ -880,6 +895,11 @@ impl BuffStore {
     pub fn is_empty(&self) -> bool {
         self.buffs.is_empty()
     }
+}
+
+/// A learned passive's marker row (ability_kit `passive_marker`).
+pub fn is_passive(payload: &Value) -> bool {
+    payload.get("__passive") == Some(&Value::Bool(true))
 }
 
 fn move_speed_sum_slot<'a>(sums: &'a mut MoveSpeedSums, key: &str) -> Option<&'a mut Fixed64> {
@@ -954,6 +974,17 @@ mod tests {
         let before=buffs.damage_zone_diagnostic();assert!(!buffs.can_schedule_independent_zones(source,&["zone"]));
         assert!(buffs.can_schedule_independent_zones(source,&[]));assert_eq!(buffs.damage_zone_diagnostic(),before);
     }
+    #[test]
+    fn break_turns_learned_passive_stats_off() {
+        let e = ent(7, 1);
+        let mut b = BuffStore::default();
+        b.add(e, "a07_strongest", Fixed64::from_raw(i64::MAX), serde_json::json!({"physical_armor_bonus": 5 * 1024, "level": 1, "__passive": true}));
+        b.add(e, "item_plate", Fixed64::ONE, serde_json::json!({"physical_armor_bonus": 3 * 1024}));
+        assert_eq!(b.sum_add(e, StatKey::PhysicalArmorBonus), Fixed64::from_i32(8));
+        b.add(e, "break", Fixed64::ONE, serde_json::json!({}));
+        assert_eq!(b.sum_add(e, StatKey::PhysicalArmorBonus), Fixed64::from_i32(3), "only the passive goes");
+    }
+
     #[test]
     fn public_damage_shield_metadata_tracks_absorption_regrant_and_expiry() {
         let entity=ent(1,1);let mut buffs=BuffStore::default();

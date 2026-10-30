@@ -73,7 +73,8 @@ pub struct Scheduled {
 /// One `on_status_event` call (omoba-core `status_event`). `kind`: 0 expired, 1 removed or
 /// dispelled, 2 the holder's buffs cleared (death), 3 the holder's attack hit `other`, 4 the
 /// holder was hit by `other`'s attack, 5 the holder took `amount` damage from `other`, 6 the holder
-/// dealt `amount` to `other`. `damage_kind` (5, 6): 0 physical, 1 magical, 2 pure.
+/// dealt `amount` to `other`. `damage_kind` (5, 6, 7, 8): 0 physical, 1 magical, 2 pure in the low
+/// bits ([`StatusEvent::DAMAGE_TYPE_MASK`]), plus [`StatusEvent::REFLECTION`] for reflected damage.
 #[repr(C)]
 #[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq)]
 pub struct StatusEvent {
@@ -139,6 +140,16 @@ pub enum DamageKind {
     Pure,
 }
 
+impl StatusEvent {
+    /// `damage_kind` bit: the damage was a reflection (v3 damage flag `reflection`, read as
+    /// `event.damage.is_reflection`).
+    pub const REFLECTION: u8 = 0x10;
+    /// The damage type part of `damage_kind`.
+    pub const DAMAGE_TYPE_MASK: u8 = 0x0f;
+    pub const fn damage_type(&self) -> u8 { self.damage_kind & Self::DAMAGE_TYPE_MASK }
+    pub const fn is_reflection(&self) -> bool { self.damage_kind & Self::REFLECTION != 0 }
+}
+
 pub const DAMAGE_PROFILE_ABI_VERSION: u16 = 1;
 
 /// Stable TD damage compatibility mask. Bit assignments are append-only ABI.
@@ -172,8 +183,12 @@ impl DamageProfile {
     /// Not a type: v3 damage flag `hp_removal` — life removal (a cost paid in health): shields do
     /// not absorb it (omoba-core `handle_damage`). Stripped with SPELL.
     pub const HP_REMOVAL: Self = Self(1 << 11);
+    /// Not a type: v3 damage flag `reflection` — damage returned to an attacker; status events
+    /// report it (`StatusEvent::REFLECTION`) so reflections do not reflect again. Stripped with SPELL.
+    pub const REFLECTION: Self = Self(1 << 12);
     /// The non-type marks above.
-    pub const FLAG_BITS: u32 = Self::SPELL.0 | Self::REQUIRE_SOURCE_ALIVE.0 | Self::IGNORE_ARMOR.0 | Self::HP_REMOVAL.0;
+    pub const FLAG_BITS: u32 = Self::SPELL.0 | Self::REQUIRE_SOURCE_ALIVE.0 | Self::IGNORE_ARMOR.0 | Self::HP_REMOVAL.0
+        | Self::REFLECTION.0;
     pub const KNOWN_BITS: u32 = Self::TYPE_BITS | Self::FLAG_BITS;
 
     pub const fn from_bits(bits: u32) -> Option<Self> {
@@ -455,7 +470,7 @@ mod tests {
         assert_eq!(DamageProfile::from_bits(alive.bits()), Some(alive));
         let flagged = DamageProfile::NORMAL.union(DamageProfile::IGNORE_ARMOR).union(DamageProfile::HP_REMOVAL);
         assert_eq!(DamageProfile::from_bits(flagged.bits()), Some(flagged));
-        assert_eq!(DamageProfile::from_bits(DamageProfile::NORMAL.bits() | (1 << 12)), None);
+        assert_eq!(DamageProfile::from_bits(DamageProfile::NORMAL.bits() | (1 << 13)), None);
         assert_eq!(
             DamageProfile::from_bits(DamageProfile::KNOWN_BITS | (1 << 31)),
             None

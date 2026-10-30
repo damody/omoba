@@ -63,6 +63,12 @@ pub(super) fn admit(world:&World,caster:Entity,skill:&str,rank:u32,faction:Optio
             && !super::super::scheduled_effect::admitted(&world.read_resource::<BuffStore>(),*target,buff_id,*duration,payload){return false;}
         if (payload.get(super::super::unit_var::KEY).is_some() || buff_id.starts_with(super::super::unit_var::PREFIX))
             && !super::super::unit_var::admitted(&world.read_resource::<BuffStore>(),*target,buff_id,*duration,payload){return false;}
+        if (payload.get(super::super::rules::attack::MODIFY_KEY).is_some() || buff_id==super::super::rules::attack::MODIFY_BUFF)
+            && super::super::rules::attack::modify_spec(buff_id,*duration,payload).is_none(){return false;}
+        if (payload.get(super::super::absorb::KEY).is_some() || buff_id==super::super::absorb::BUFF)
+            && !super::super::absorb::admitted(world,*target,buff_id,*duration,payload){return false;}
+        if (payload.get(super::super::dispel::REMOVE_INSTANCE_KEY).is_some() || buff_id==super::super::dispel::REMOVE_INSTANCE_BUFF)
+            && super::super::dispel::remove_instance_spec(buff_id,*duration,payload).is_none(){return false;}
         if (payload.get(super::super::dispel::PURGE_KEY).is_some() || buff_id==super::super::dispel::PURGE_BUFF)
             && super::super::dispel::PurgeSpec::from_payload(buff_id,*duration,payload).is_none(){return false;}
         if (payload.get(super::super::mana_burn::KEY).is_some() || buff_id==super::super::mana_burn::BUFF)

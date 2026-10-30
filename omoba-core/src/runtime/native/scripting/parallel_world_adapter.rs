@@ -24,6 +24,7 @@ pub struct ParallelAdapterCache<'a> {
     pub pos: ReadStorage<'a, Pos>,
     move_targets: Option<ReadStorage<'a, MoveTarget>>,
     summoned: Option<ReadStorage<'a, SummonedUnit>>,
+    unit_tags: Option<ReadStorage<'a, UnitTags>>,
     commands: Option<ReadStorage<'a, HeroCommandQueue>>,
     summon_host_movement: Option<Read<'a, super::super::tick::summon_tick::HostMovement>>,
     pub facing: ReadStorage<'a, Facing>,
@@ -75,6 +76,8 @@ impl<'a> ParallelAdapterCache<'a> {
                 .then(||world.read_storage::<MoveTarget>()),
             summoned: world.has_value::<specs::storage::MaskedStorage<SummonedUnit>>()
                 .then(||world.read_storage::<SummonedUnit>()),
+            unit_tags: world.has_value::<specs::storage::MaskedStorage<UnitTags>>()
+                .then(||world.read_storage::<UnitTags>()),
             commands: world.has_value::<specs::storage::MaskedStorage<HeroCommandQueue>>()
                 .then(||world.read_storage::<HeroCommandQueue>()),
             summon_host_movement: world.try_fetch::<super::super::tick::summon_tick::HostMovement>().map(Into::into),
@@ -710,6 +713,12 @@ impl<'a> ParallelWorldAdapter<'a> {
                         .find(|(_,owner,_)|owner.player_id==player).map(|(_,_,pool)|pool.0)
                 }).map(Fixed64::from_i32)
             }),
+            tag if tag.starts_with(name::TAG_PREFIX)=>V::Bool(entity.is_some_and(|e|match &tag[name::TAG_PREFIX.len()..] {
+                "boss"=>self.cache.unit_tags.as_ref().and_then(|tags|tags.get(e)).is_some_and(|tags|tags.has(omoba_template_ids::MobaUnitTag::Boss))
+                    || self.source_unit(e).is_some_and(|unit|matches!(unit.unit_type,UnitType::Boss)),
+                "dummy"=>self.source_unit(e).is_some_and(|unit|matches!(unit.unit_type,UnitType::TrainingDummy)),
+                _=>false,
+            })),
             _=>return None,
         })
     }
@@ -1668,6 +1677,12 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 found.sort_by_key(|(distance, id, _)| (*distance, *id));
                 ROk(V::Units(found.into_iter().map(|(_, _, entity)| Self::entity_to_handle(entity)).collect()))
             }
+            (op::STATUS_INSTANCES, [A::Unit(unit), A::Str(runtime_id)]) => {
+                let count = Self::handle_to_entity(*unit).map_or(0, |entity| self.source_buffs(entity).iter_for(entity)
+                    .filter(|(key, _)| omoba_template_ids::instance_number(key).is_some()
+                        && omoba_template_ids::instance_base(key) == runtime_id.as_str()).count());
+                ROk(V::Num(Fixed64::from_i32(i32::try_from(count).unwrap_or(i32::MAX))))
+            }
             (op::UNIT_ATTR, [A::Unit(unit), A::Str(attr)]) => match self.unit_attr(*unit, attr.as_str()) {
                 Some(value) => ROk(value),
                 None => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown unit attribute {attr}"))),
@@ -1973,6 +1988,8 @@ mod tests {
         assert_eq!(unit(h,name::BASE_MAGIC_RESIST),n(25));
         assert_eq!(unit(h,name::ATTACK_SPEED_MULT),n(1));
         assert!(unit(h,"no_such_attribute").is_err());
+        assert_eq!(unit(h,"tag:boss"),Ok(V::Bool(false)));
+        assert_eq!(unit(h,"tag:fountain"),Ok(V::Bool(false)));
         let mut ability=|a:&str,attr:&str|adapter.ext(op::UNIT_ABILITY_ATTR,
             RSlice::from_slice(&[A::Unit(h),A::Str(a.into()),A::Str(attr.into())])).into_result();
         assert_eq!(ability("a02_q",ability_attr::IS_READY),Ok(V::Bool(true)));

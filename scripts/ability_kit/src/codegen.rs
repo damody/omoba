@@ -59,6 +59,9 @@ pub struct StatusDef {
     pub owner: &'static str,
     /// The status_event mask of those triggers (0 = no host callbacks).
     pub events: u32,
+    /// v3 `status_resistance = "ignore"`: the target's status resistance does not shorten it
+    /// (the row and its host controls carry omoba-core rules::status IGNORE_STATUS_RESISTANCE).
+    pub ignore_status_resistance: bool,
 }
 
 /// Selection filters of a v3 selector (v3.md §6).
@@ -128,6 +131,8 @@ pub struct Cx<'a, 'w> {
     pub damage_edit: DamageEdit,
     /// The stack count `put_stacks` is writing into the status payload.
     stack_count: Option<i64>,
+    /// `cancel_cast` in `on_phase_start`: the cast does not go on.
+    pub cancelled: bool,
 }
 
 /// A host tether (omoba-core `tether`): when it expires, distance-scaled damage and a root
@@ -201,7 +206,7 @@ impl<'a, 'w> Cx<'a, 'w> {
         Self { world, caster, self_unit: caster, target, rank, event_target: EntityHandle::INVALID,
             event_attacker: EntityHandle::INVALID, event_skill: None, cast_range: None, written: Default::default(),
             event_amount: Fixed64::ZERO, event_damage_kind: 0, damage_edit: DamageEdit::KEEP,
-            stack_count: None }
+            stack_count: None, cancelled: false }
     }
 
     /// The context of a cast: the target checks of the IR interpreter (rank, caster alive, target
@@ -288,6 +293,12 @@ impl<'a, 'w> Cx<'a, 'w> {
         self.world.get_buff_remaining(u, RStr::from_str(&self.runtime_id(status)))
     }
     /// `random(lo, hi)`: uniform in [lo, hi) from the host RNG.
+    /// `random_int(lo, hi)`: a whole number in [lo, hi] (both ends floored), each as likely.
+    pub fn random_int(&mut self, lo: Fixed64, hi: Fixed64) -> Fixed64 {
+        let (lo, hi) = (floor(lo), floor(hi));
+        if hi <= lo { return lo; }
+        (lo + floor(self.random(Fixed64::ZERO, hi - lo + Fixed64::ONE))).min(hi)
+    }
     pub fn random(&mut self, lo: Fixed64, hi: Fixed64) -> Fixed64 { lo + (hi - lo) * self.world.rand_unit() }
     pub fn hp(&self, u: EntityHandle) -> Fixed64 { self.world.get_hp(u).into_option().unwrap_or(Fixed64::ZERO) }
     pub fn max_hp(&self, u: EntityHandle) -> Fixed64 { self.world.get_max_hp(u).into_option().unwrap_or(Fixed64::ZERO) }
@@ -371,6 +382,15 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// `order = "nearest"`: nearest to `center` first, ties in id order (the sort is stable).
     pub fn nearest_first(&self, units: &mut [EntityHandle], center: Vec2) {
         units.sort_by_key(|e| self.pos(*e).map(|p| distance(center, p).raw()).unwrap_or(i64::MAX));
+    }
+    /// Selector `order = "random"`: the units in a random order (the host's deterministic
+    /// random stream, so every replica draws the same order).
+    pub fn shuffle(&mut self, units: &mut [EntityHandle]) {
+        for i in (1..units.len()).rev() {
+            let span = Fixed64::from_i32(i32::try_from(i + 1).unwrap_or(i32::MAX));
+            let j = usize::try_from((self.world.rand_unit() * span).raw() >> 10).unwrap_or(0).min(i);
+            units.swap(i, j);
+        }
     }
 
     // ---- effects -------------------------------------------------------------------------------
@@ -457,6 +477,22 @@ impl<'a, 'w> Cx<'a, 'w> {
     pub fn apply_status(&mut self, to: EntityHandle, status: &StatusDef, duration: Fixed64, stats: &[(StatKey, i64)]) -> Res {
         if !to.is_valid() { return Ok(()); }
         let id = self.runtime_id(status);
+        self.apply_status_keyed(to, status, id, duration, stats)
+    }
+
+    /// `stacking = "independent"`: each apply is its own row `<runtime id>#<n>` with its own expiry;
+    /// `n` counts this holder's instances of the status (a unit_var), from 1, never reused, so the
+    /// smallest live `n` is the earliest instance.
+    pub fn apply_status_instance(&mut self, to: EntityHandle, status: &StatusDef, duration: Fixed64, stats: &[(StatKey, i64)]) -> Res {
+        if !to.is_valid() { return Ok(()); }
+        let base = self.runtime_id(status);
+        let counter = format!("__inst:{base}");
+        let n = self.state_num(to, &counter, Fixed64::ZERO) + Fixed64::ONE;
+        self.set_state_num(to, &counter, n, false)?;
+        self.apply_status_keyed(to, status, format!("{base}#{}", n.raw() >> 10), duration, stats)
+    }
+
+    fn apply_status_keyed(&mut self, to: EntityHandle, status: &StatusDef, id: String, duration: Fixed64, stats: &[(StatKey, i64)]) -> Res {
         // An attack orb (`attack_orb:<ability>`): the host attack orb settles its hits (content `attack_orb`).
         if let Some(ability) = id.strip_prefix("attack_orb:") {
             let duration = if duration == Self::FOREVER { Fixed64::from_raw(i64::from(i32::MAX)) } else { duration };
@@ -474,13 +510,23 @@ impl<'a, 'w> Cx<'a, 'w> {
         }
         // A status that is only a host control held under its own id (`stun` as stun) is that control.
         let host_state = payload.is_empty() && status.state_buffs.contains(&id.as_str());
+        if status.ignore_status_resistance {
+            payload.insert(omoba_core::runtime::native::rules::status::IGNORE_STATUS_RESISTANCE.into(), true.into());
+        }
         if !host_state {
             // The applier (omoba-core dispel: a `hidden` status goes by who applied it).
             payload.insert("source_entity_id".into(), self.caster.id.into());
             payload.insert("source_entity_gen".into(), self.caster.gen.into());
             self.world.add_stat_buff(to, RStr::from_str(&id), duration, RStr::from_str(&serde_json::Value::Object(payload).to_string()));
         }
-        for buff in status.state_buffs { self.world.add_buff(to, RStr::from_str(buff), duration); }
+        for buff in status.state_buffs {
+            if status.ignore_status_resistance {
+                let ignore = serde_json::json!({ (omoba_core::runtime::native::rules::status::IGNORE_STATUS_RESISTANCE): true });
+                self.world.add_stat_buff(to, RStr::from_str(buff), duration, RStr::from_str(&ignore.to_string()));
+            } else {
+                self.world.add_buff(to, RStr::from_str(buff), duration);
+            }
+        }
         // A shared host state (`stun`, `disarm`, `physical_immune`… one key for every status) also leaves
         // this status's source row, so a dispel judges it by its own class and removing the status
         // takes the states only it held (omoba-core dispel::CONTROL_SOURCE_PREFIX, dispel::remove_status).
@@ -737,6 +783,13 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// Launch `p` from the caster; each hit schedules `on_hit` (step, captures) of `ability` with the
     /// unit hit and the impact point appended.
     pub fn projectile(&mut self, ability: &str, p: Proj, on_hit: Option<(u16, &[ScheduleArg])>) -> Res {
+        self.projectile_ended(ability, p, on_hit, None)
+    }
+
+    /// [`Cx::projectile`] that also schedules `on_end` (step, captures) once, with the end point
+    /// appended, when the flight retires.
+    pub fn projectile_ended(&mut self, ability: &str, p: Proj, on_hit: Option<(u16, &[ScheduleArg])>,
+        on_end: Option<(u16, &[ScheduleArg])>) -> Res {
         if p.homing.is_some_and(|u| !u.is_valid()) { return Ok(()); }
         let caster = self.caster;
         let spec = projectile_spec(caster, ability, &p)?;
@@ -751,6 +804,12 @@ impl<'a, 'w> Cx<'a, 'w> {
             let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec() }
                 .checked().ok_or("v3: invalid on_hit")?;
             payload = ability_projectile::with_on_hit(payload, &template);
+        }
+        if let Some((step, args)) = on_end {
+            let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
+            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec() }
+                .checked().ok_or("v3: invalid on_end")?;
+            payload = ability_projectile::with_on_end(payload, &template);
         }
         self.world.add_stat_buff(caster, RStr::from_str(ability_projectile::BUFF), lifetime, RStr::from_str(&payload.to_string()));
         Ok(())
@@ -806,6 +865,8 @@ impl<'a, 'w> Cx<'a, 'w> {
         let mut payload = serde_json::Map::new();
         for (key, raw) in stats { payload.insert(key.as_str().into(), (*raw).into()); }
         payload.insert("level".into(), self.rank.into());
+        // A learned passive: v3 `break` turns its stats and events off (omoba-core BuffStore::stat_rows).
+        payload.insert("__passive".into(), true.into());
         if mask != 0 {
             let spec = status_event::Spec { ability: id.to_owned(), level: self.rank.max(1), status: id.to_owned(), source: self.caster, mask }
                 .checked().ok_or("v3: invalid passive events")?;
@@ -898,17 +959,135 @@ pub fn lerp_point(a: Vec2, b: Vec2, t: Fixed64) -> Vec2 { a + (b - a) * t }
 pub fn distance(a: Vec2, b: Vec2) -> Fixed64 { (b - a).length() }
 
 // `floor(x)`, `ceil(x)` (toward -inf / +inf), `abs(x)`, `clamp(x, lo, hi)`.
+/// `rotate(v, degrees)`: `v` turned counter-clockwise.
+pub fn rotate(v: Vec2, degrees: Fixed64) -> Vec2 {
+    let (s, c) = (sin_deg(degrees), cos_deg(degrees));
+    Vec2::new(v.x * c - v.y * s, v.x * s + v.y * c)
+}
+/// `a % b`: the remainder with the sign of `b` (a − floor(a / b) × b); `b = 0` aborts the program.
+pub fn rem(a: Fixed64, b: Fixed64) -> Result<Fixed64, &'static str> {
+    Ok(a - floor(div(a, b)?) * b)
+}
 pub fn floor(x: Fixed64) -> Fixed64 { Fixed64::from_raw(x.raw() - x.raw().rem_euclid(omoba_sim::fixed::SCALE)) }
 pub fn ceil(x: Fixed64) -> Fixed64 { let f = floor(x); if f == x { f } else { f + Fixed64::ONE } }
 pub fn abs(x: Fixed64) -> Fixed64 { if x < Fixed64::ZERO { -x } else { x } }
 pub fn clamp(x: Fixed64, lo: Fixed64, hi: Fixed64) -> Fixed64 { x.max(lo).min(hi) }
+
+/// A generated script behind the DLL boundary: a panic in any hook never unwinds into the host
+/// (that aborts the process). `execute` returns it as an error; the other hooks log it through the
+/// world (level 4 = error) and do nothing.
+pub struct Guarded<S>(pub S);
+
+fn panic_text(e: Box<dyn std::any::Any + Send>) -> String {
+    e.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| e.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panic".into())
+}
+
+macro_rules! guarded_hook {
+    ($self:ident, $world:ident, $name:literal, $call:expr) => {{
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $call));
+        match r {
+            Ok(v) => v,
+            Err(e) => {
+                let msg = format!("[{}] {} panicked: {}", $self.0.ability_id().as_str(), $name, panic_text(e));
+                $world.log_at(4, RStr::from_str(&msg));
+                Default::default()
+            }
+        }
+    }};
+}
+
+impl<S: AbilityScript> AbilityScript for Guarded<S> {
+    fn ability_id(&self) -> RStr<'_> { self.0.ability_id() }
+    fn execute(&self, caster: EntityHandle, target: Target, level: u8, level_data_json: RStr<'_>, world: &mut GameWorldDyn<'_>)
+        -> RResult<(), RString> {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.0.execute(caster, target, level, level_data_json, world))) {
+            Ok(r) => r,
+            Err(e) => RErr(format!("v3: {} execute panicked: {}", self.0.ability_id().as_str(), panic_text(e)).into()),
+        }
+    }
+    fn on_tick(&self, caster: EntityHandle, target: Target, elapsed: Fixed64, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_tick", self.0.on_tick(caster, target, elapsed, world))
+    }
+    fn on_learn(&self, caster: EntityHandle, new_level: u8, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_learn", self.0.on_learn(caster, new_level, world))
+    }
+    fn on_attack_hit(&self, owner: EntityHandle, attacker: EntityHandle, victim: EntityHandle, level: u8, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_attack_hit", self.0.on_attack_hit(owner, attacker, victim, level, world))
+    }
+    fn on_channel_pulse(&self, caster: EntityHandle, target: Target, pulse: omb_script_abi::types::ChannelPulse, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_channel_pulse", self.0.on_channel_pulse(caster, target, pulse, world))
+    }
+    fn execute_disclosed(&self, caster: EntityHandle, target: Target, level: u8, level_data_json: RStr<'_>, world: &mut GameWorldDyn<'_>,
+        disclosure: &omb_script_abi::world::DisclosureQueryDyn<'_>) -> RResult<(), RString> {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.0.execute_disclosed(caster, target, level, level_data_json, world, disclosure))) {
+            Ok(r) => r,
+            Err(e) => RErr(format!("v3: {} execute panicked: {}", self.0.ability_id().as_str(), panic_text(e)).into()),
+        }
+    }
+    fn on_attack_launch(&self, attacker: EntityHandle, target: EntityHandle, level: u8, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_attack_launch", self.0.on_attack_launch(attacker, target, level, world))
+    }
+    fn on_delayed_effect(&self, caster: EntityHandle, effect: omb_script_abi::types::ChannelPulse, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_delayed_effect", self.0.on_delayed_effect(caster, effect, world))
+    }
+    fn on_scheduled(&self, owner: EntityHandle, at: Scheduled, args: RVec<ScheduleArg>, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_scheduled", self.0.on_scheduled(owner, at, args, world))
+    }
+    fn on_status_event(&self, holder: EntityHandle, status: RStr<'_>, event: StatusEvent, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_status_event", self.0.on_status_event(holder, status, event, world))
+    }
+    fn on_damage_pre(&self, holder: EntityHandle, status: RStr<'_>, event: StatusEvent, world: &mut GameWorldDyn<'_>)
+        -> omb_script_abi::types::DamageEdit {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.0.on_damage_pre(holder, status, event, world))) {
+            Ok(v) => v,
+            Err(e) => {
+                let msg = format!("[{}] on_damage_pre panicked: {}", self.0.ability_id().as_str(), panic_text(e));
+                world.log_at(4, RStr::from_str(&msg));
+                omb_script_abi::types::DamageEdit::KEEP
+            }
+        }
+    }
+    fn on_channel_end(&self, caster: EntityHandle, target: Target, end: omb_script_abi::types::ChannelPulse, interrupted: bool,
+        world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_channel_end", self.0.on_channel_end(caster, target, end, interrupted, world))
+    }
+    /// A panicking phase start cancels the cast.
+    fn on_phase_start(&self, caster: EntityHandle, target: Target, level: u8, world: &mut GameWorldDyn<'_>) -> bool {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.0.on_phase_start(caster, target, level, world))) {
+            Ok(v) => v,
+            Err(e) => {
+                let msg = format!("[{}] on_phase_start panicked: {}", self.0.ability_id().as_str(), panic_text(e));
+                world.log_at(4, RStr::from_str(&msg));
+                false
+            }
+        }
+    }
+}
+
+/// One manifest entry built under catch_unwind: a panic is reported on stderr and the entry is
+/// left out (the build-time catalog check keeps this from happening for content reasons).
+pub fn guard_ffi(f: impl FnOnce() -> Option<AbilityDefFFI>) -> Option<AbilityDefFFI> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(v) => v,
+        Err(e) => { eprintln!("[ability_kit] a generated ability failed to register: {}", panic_text(e)); None }
+    }
+}
 
 /// The `def_json` of a generated ability: the catalog's metadata of that id (like base_content's
 /// `build_ability_ffi`), so costs, cooldowns and targeting stay the catalog's.
 pub fn ability_ffi<S: AbilityScript + 'static>(id: &str, script: S) -> AbilityDefFFI {
     let def = crate::metadata::ability_def(id).unwrap_or_else(|| panic!("{id}: not in the compiled catalog"));
     let def_json = serde_json::to_string(&def).expect("AbilityDef serializes");
-    AbilityDefFFI { def_json: def_json.into(), script: AbilityScript_TO::from_value(script, TD_Opaque) }
+    AbilityDefFFI { def_json: def_json.into(), script: AbilityScript_TO::from_value(Guarded(script), TD_Opaque) }
+}
+
+/// [`ability_ffi`] for an ability a document declares beside its items (a sub ability of an item):
+/// `None` when the compiled catalog does not have it (it registers nothing, instead of panicking
+/// across the DLL boundary).
+pub fn ability_ffi_opt<S: AbilityScript + 'static>(id: &str, script: S) -> Option<AbilityDefFFI> {
+    let def = crate::metadata::ability_def(id)?;
+    let def_json = serde_json::to_string(&def).expect("AbilityDef serializes");
+    Some(AbilityDefFFI { def_json: def_json.into(), script: AbilityScript_TO::from_value(Guarded(script), TD_Opaque) })
 }
 
 /// The `def_json` of a generated item script: the shop catalog's item (`kind = item`); `None`
@@ -916,7 +1095,7 @@ pub fn ability_ffi<S: AbilityScript + 'static>(id: &str, script: S) -> AbilityDe
 pub fn item_ffi<S: AbilityScript + 'static>(id: &str, passive: bool, script: S) -> Option<AbilityDefFFI> {
     let def = crate::metadata::item_def(id, passive)?;
     let def_json = serde_json::to_string(&def).expect("AbilityDef serializes");
-    Some(AbilityDefFFI { def_json: def_json.into(), script: AbilityScript_TO::from_value(script, TD_Opaque) })
+    Some(AbilityDefFFI { def_json: def_json.into(), script: AbilityScript_TO::from_value(Guarded(script), TD_Opaque) })
 }
 
 #[cfg(test)]

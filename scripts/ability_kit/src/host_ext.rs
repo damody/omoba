@@ -65,9 +65,13 @@ impl Cx<'_, '_> {
     /// v3 `set_mana`: sets `to`'s mana to `value`, clamped to its pool (a unit without mana is
     /// unchanged). Works in every script context (status events, schedules), unlike the cast-only
     /// `restore_mana`; `min(self.mana + x, self.max_mana)` is the way to restore outside a cast.
+    /// `value` is read against this script's snapshot of the mana: the host applies the change
+    /// from that snapshot, so mana spent in the same tick (the cast's cost) is not undone.
     pub fn set_mana(&mut self, to: EntityHandle, value: Fixed64) -> Res {
         if !to.is_valid() { return Ok(()); }
-        let spec = mana_burn::SetSpec::checked(value.max(Fixed64::ZERO)).ok_or("v3: set_mana out of range")?;
+        let seen = self.world.current_mana(to).max(Fixed64::ZERO);
+        let spec = mana_burn::SetSpec::checked(value.max(Fixed64::ZERO)).and_then(|s| s.relative_to(seen))
+            .ok_or("v3: set_mana out of range")?;
         self.world.add_stat_buff(to, RStr::from_str(mana_burn::SET_BUFF), Fixed64::ONE, RStr::from_str(&spec.payload().to_string()));
         Ok(())
     }
@@ -93,6 +97,37 @@ impl Cx<'_, '_> {
         let spec = motion::Spec { source_id: self.caster.id, source_generation: self.caster.gen, mode: motion::Mode::Dash,
             distance: length, cast_range: length + Fixed64::ONE, to: Some(to) }.checked().ok_or("v3: invalid dash")?;
         self.world.add_stat_buff(self.caster, RStr::from_str(motion::BUFF), duration, RStr::from_str(&spec.payload().to_string()));
+        Ok(())
+    }
+
+    /// v3 `knockback { who, from, distance, duration, stun }`: pushes `who` `distance` straight
+    /// away from the point `from` over `duration` (host `forced_motion` Knockback: stops at walls,
+    /// no move commands while it lasts; stunned for the duration unless `stun` is false). `who`
+    /// is the caster itself or a hostile unit within `range` of it. For `from` = a unit, pass its
+    /// position. A negative `distance` pulls `who` toward `from` instead (瀧川一益). Not supported:
+    /// `stop_on_contact`, `on_end`.
+    pub fn knockback(&mut self, who: EntityHandle, from: Vec2, distance: Fixed64, duration: Fixed64, stun: bool, range: Fixed64) -> Res {
+        self.knockback_arc(who, from, distance, duration, stun, range, Fixed64::ZERO)
+    }
+
+    /// [`Cx::knockback`] with v3 `height`: the arc's peak height, for the presentation only (the
+    /// simulation is flat). Zero is no arc.
+    pub fn knockback_arc(&mut self, who: EntityHandle, from: Vec2, distance: Fixed64, duration: Fixed64, stun: bool, range: Fixed64,
+        height: Fixed64) -> Res {
+        use omoba_core::runtime::native::forced_motion as motion;
+        if !who.is_valid() || distance == Fixed64::ZERO { return Ok(()); }
+        // A pull toward `from` is a push away from its mirror image across `who`.
+        let (from, distance) = if distance < Fixed64::ZERO {
+            let at = self.pos(who)?;
+            (at + (at - from), -distance)
+        } else { (from, distance) };
+        if !motion::valid_duration(duration) { return Err("v3: invalid knockback duration"); }
+        let spec = motion::Spec { source_id: self.caster.id, source_generation: self.caster.gen, mode: motion::Mode::Knockback,
+            distance: distance.min(Fixed64::from_i32(motion::MAX_DISTANCE)), cast_range: range.max(Fixed64::ONE).min(Fixed64::from_i32(10_000)), to: None }
+            .checked().ok_or("v3: invalid knockback")?;
+        let height = (height > Fixed64::ZERO).then(|| height.min(Fixed64::from_i32(motion::MAX_HEIGHT)));
+        let payload = spec.payload_with(motion::Options { origin: Some(from), stun, height });
+        self.world.add_stat_buff(who, RStr::from_str(motion::BUFF), duration, RStr::from_str(&payload.to_string()));
         Ok(())
     }
 
@@ -140,9 +175,34 @@ impl Cx<'_, '_> {
     /// optional kill credit (`damage.credit`). `hp_removal` is never spell-amplified.
     pub fn damage_ex_at(&mut self, ability: &str, path: &str, to: EntityHandle, amount: Fixed64, kind: DamageKind, flags: Dmg,
         extra: DmgExtra) -> Res {
+        self.damage_flagged_at(ability, path, to, amount, kind, flags, extra, false)
+    }
+
+    /// [`Cx::damage_ex_at`] with the v3 flag `reflection`: the target's statuses see it as reflected
+    /// (`event.damage.is_reflection`, `StatusEvent::is_reflection`).
+    pub fn damage_reflect_at(&mut self, ability: &str, path: &str, to: EntityHandle, amount: Fixed64, kind: DamageKind, flags: Dmg,
+        extra: DmgExtra) -> Res {
+        self.damage_flagged_at(ability, path, to, amount, kind, flags, extra, true)
+    }
+
+    /// [`Cx::damage_reflect_at`] dealt by `source` (`damage.source`).
+    pub fn damage_reflect_from_at(&mut self, ability: &str, path: &str, source: EntityHandle, to: EntityHandle, amount: Fixed64,
+        kind: DamageKind, flags: Dmg, extra: DmgExtra) -> Res {
+        if !source.is_valid() { return Ok(()); }
+        let me = self.self_unit;
+        self.self_unit = source;
+        let r = self.damage_flagged_at(ability, path, to, amount, kind, flags, extra, true);
+        self.self_unit = me;
+        r
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn damage_flagged_at(&mut self, ability: &str, path: &str, to: EntityHandle, amount: Fixed64, kind: DamageKind, flags: Dmg,
+        extra: DmgExtra, reflection: bool) -> Res {
         use omb_script_abi::types::DamageProfile;
         if !to.is_valid() || amount <= Fixed64::ZERO || amount > Fixed64::from_i32(1_000_000) { return Ok(()); }
         let mut profile = DamageProfile::NORMAL;
+        if reflection { profile = profile.union(DamageProfile::REFLECTION); }
         if flags.require_source_alive { profile = profile.union(DamageProfile::REQUIRE_SOURCE_ALIVE); }
         if !flags.require_source_alive && !flags.no_amplify && !extra.hp_removal { profile = profile.union(DamageProfile::SPELL); }
         if extra.hp_removal { profile = profile.union(DamageProfile::HP_REMOVAL); }
@@ -160,6 +220,22 @@ impl Cx<'_, '_> {
     }
 
     /// `damage_from` (`damage.source`) with the same trace tag as [`Cx::damage_at`].
+    /// [`Cx::damage_ex_at`] dealt by `source` (`damage.source` with flags or credit).
+    pub fn damage_ex_from_at(&mut self, ability: &str, path: &str, source: EntityHandle, to: EntityHandle, amount: Fixed64,
+        kind: DamageKind, flags: Dmg, extra: DmgExtra) -> Res {
+        if !source.is_valid() { return Ok(()); }
+        let me = self.self_unit;
+        self.self_unit = source;
+        let r = self.damage_ex_at(ability, path, to, amount, kind, flags, extra);
+        self.self_unit = me;
+        r
+    }
+
+    /// v3 `has_tag(unit, "boss" | "dummy" | "fountain" | "general")`.
+    pub fn has_unit_tag(&mut self, unit: EntityHandle, tag: &str) -> bool {
+        self.unit_flag(unit, &format!("{}{tag}", omb_script_abi::ext::unit_attr::TAG_PREFIX))
+    }
+
     pub fn damage_from_at(&mut self, ability: &str, path: &str, source: EntityHandle, to: EntityHandle, amount: Fixed64,
         kind: DamageKind, flags: Dmg) -> Res {
         if !source.is_valid() { return Ok(()); }
@@ -171,6 +247,15 @@ impl Cx<'_, '_> {
     }
 
     /// v3 `ability_level(unit, ability)`: the unit's rank of that ability, 0 when not learned.
+    /// v3 `ability_of(unit, id).cooldown`: the ability's full cooldown at `unit`'s rank of it
+    /// (the catalog's level data; rank 1 when not learned).
+    pub fn ability_cooldown_total(&mut self, unit: EntityHandle, ability: &str) -> Fixed64 {
+        let rank = u8::try_from((self.ability_level(unit, ability).raw() >> 10).clamp(1, 255)).unwrap_or(1);
+        crate::metadata::ability_def(ability).and_then(|def| def.get_level_data(rank).map(|level| level.cooldown))
+            .filter(|c| c.is_finite() && *c >= 0.0)
+            .map_or(Fixed64::ZERO, |c| Fixed64::from_raw((f64::from(c) * 1024.0).round() as i64))
+    }
+
     pub fn ability_level(&mut self, unit: EntityHandle, ability: &str) -> Fixed64 {
         let args = [ExtArg::Unit(unit), ExtArg::Str(ability.into())];
         match self.world.ext(op::ABILITY_LEVEL, RSlice::from_slice(&args)).into_result() {
@@ -281,6 +366,85 @@ impl Cx<'_, '_> {
     pub fn units_in_range(&mut self, center: Vec2, radius: Fixed64, of: EntityHandle, team: &str) -> Vec<EntityHandle> {
         let args = [ExtArg::Point(center), ExtArg::Num(radius), ExtArg::Unit(of), ExtArg::Str(team.into())];
         match self.read(op::UNITS_IN_RANGE, &args) { ExtValue::Units(units) => units.into_vec(), _ => Vec::new() }
+    }
+
+    /// The units a v3 selector with `team = "ally"` (the caster's team, the caster included) or
+    /// `"both"` walks within `radius` of `center`, filtered like [`Cx::enemies_in_circle`]: types,
+    /// alive, invulnerable; magic immunity only excludes enemies. In entity id order.
+    pub fn units_in_circle(&mut self, center: Vec2, radius: Fixed64, team: &str, select: crate::codegen::Select) -> Vec<EntityHandle> {
+        use crate::codegen::UnitTypes;
+        let caster = self.caster;
+        let mut units: Vec<EntityHandle> = self.units_in_range(center, radius, caster, team).into_iter()
+            .filter(|e| self.alive(*e))
+            .filter(|e| match select.types {
+                UnitTypes::All => true,
+                UnitTypes::NonBuilding => !self.world.is_building(*e),
+                UnitTypes::Heroes => !self.world.is_building(*e) && self.is_hero(*e),
+            })
+            .filter(|e| select.include_invulnerable || !self.world.has_buff(*e, RStr::from_str("invulnerable")))
+            .collect();
+        let caster_faction: Option<String> = self.world.faction_of(caster).into_option().map(|f| f.as_str().to_owned());
+        units.retain(|e| {
+            let enemy = match (caster_faction.as_deref(), self.world.faction_of(*e).into_option()) { (Some(a), Some(b)) => a != b.as_str(), _ => false };
+            !enemy || select.include_magic_immune || !self.is_magic_immune(*e)
+        });
+        units.sort_by_key(|e| (e.id, e.gen));
+        units.dedup();
+        units
+    }
+
+    /// How many independent instances of `status` (`stacking = "independent"`) `unit` holds;
+    /// `has_status` of such a status is `status_instances(..) > 0`.
+    pub fn status_instances(&mut self, unit: EntityHandle, status: &crate::codegen::StatusDef) -> u32 {
+        let id = self.runtime_id(status);
+        match self.read(op::STATUS_INSTANCES, &[ExtArg::Unit(unit), ExtArg::Str(id.as_str().into())]) {
+            ExtValue::Num(n) => u32::try_from(n.raw() >> 10).unwrap_or(0),
+            _ => 0,
+        }
+    }
+
+    /// v3 `remove_status` of an independent status with `limit = 1`: the earliest instance goes
+    /// (with the shared states only it held).
+    pub fn remove_status_instance(&mut self, from: EntityHandle, status: &crate::codegen::StatusDef) -> Res {
+        use omoba_core::runtime::native::dispel::{remove_instance_payload, REMOVE_INSTANCE_BUFF};
+        if !from.is_valid() { return Ok(()); }
+        let id = self.runtime_id(status);
+        self.world.add_stat_buff(from, RStr::from_str(REMOVE_INSTANCE_BUFF), Fixed64::ONE, RStr::from_str(&remove_instance_payload(&id).to_string()));
+        Ok(())
+    }
+
+    /// v3 `reveal` with `ignore_terrain = true` (flying sight: trees and cliffs do not block it);
+    /// otherwise the same as `Cx::reveal`.
+    pub fn reveal_ex(&mut self, at: Vec2, radius: Fixed64, duration: Fixed64, all_teams: bool, follow: Option<EntityHandle>,
+        ignore_terrain: bool) -> Res {
+        use omoba_core::runtime::native::reveal_zone;
+        let sight = reveal_zone::sight_payload(self.caster.id, self.caster.gen, at, radius, all_teams,
+            follow.map(|u| (u.id, u.gen))).ok_or("v3: invalid reveal")?;
+        let sight = if ignore_terrain { reveal_zone::with_ignore_terrain(sight) } else { sight };
+        self.world.add_stat_buff(self.caster, RStr::from_str(reveal_zone::BUFF), duration, RStr::from_str(&sight.to_string()));
+        Ok(())
+    }
+
+    /// v3 `status.absorb` of a status just applied on `to` (call after `apply_status`): absorbs
+    /// up to `amount` of the damage `types` (`"physical"`, `"magical"`, `"pure"`; empty: all) after
+    /// mitigation; used up, the status is removed. `duration` is the status's.
+    pub fn absorb(&mut self, to: EntityHandle, status: &crate::codegen::StatusDef, amount: Fixed64, types: &[&str], duration: Fixed64) -> Res {
+        use omoba_core::runtime::native::absorb::{Spec, Types, BUFF};
+        if !to.is_valid() || amount <= Fixed64::ZERO { return Ok(()); }
+        let types = Types::from_names(types).ok_or("v3: unknown absorb type")?;
+        let spec = Spec { status: self.runtime_id(status), amount: amount.min(Fixed64::from_i32(1_000_000)), types };
+        self.world.add_stat_buff(to, RStr::from_str(BUFF), duration, RStr::from_str(&spec.payload().to_string()));
+        Ok(())
+    }
+
+    /// v3 `modify_attack { crit_multiplier }` in `on_attack_windup`: `attacker`'s attack in windup
+    /// crits with at least this multiplier. Other modify_attack fields are not supported.
+    pub fn modify_attack_crit(&mut self, attacker: EntityHandle, crit_multiplier: Fixed64) -> Res {
+        use omoba_core::runtime::native::rules::attack::{modify_payload, MODIFY_BUFF};
+        if !attacker.is_valid() || crit_multiplier <= Fixed64::ONE { return Ok(()); }
+        let multiplier = crit_multiplier.min(Fixed64::from_i32(100));
+        self.world.add_stat_buff(attacker, RStr::from_str(MODIFY_BUFF), Fixed64::ONE, RStr::from_str(&modify_payload(multiplier).to_string()));
+        Ok(())
     }
 
     /// v3 `game.is_night`.

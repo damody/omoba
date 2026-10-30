@@ -651,7 +651,7 @@ fn emit_status_buffs(out: &mut String, buffs: &[Entry]) {
     let rows: Vec<(usize, &str)> = buffs.iter().enumerate()
         .filter(|(_, b)| !b.tombstone)
         .filter_map(|(i, b)| b.runtime_id.as_deref().map(|id| (i + 1, id))).collect();
-    out.push_str("pub fn status_buff_by_key(key: &str) -> Option<BuffId> {\n    match key {\n");
+    out.push_str("pub fn status_buff_by_key(key: &str) -> Option<BuffId> {\n    let key = crate::instance_base(key);\n    match key {\n");
     for (index, id) in rows.iter().filter(|(_, id)| !id.contains('{')) {
         out.push_str(&format!("        {id:?} => return Some(BuffId({index})),\n"));
     }

@@ -449,6 +449,7 @@ mod tests {
                 position: Vec2::new(Fixed64::from_i32(-15), Fixed64::from_i32(-5)),
                 radius: Fixed64::from_i32(1),
                 detection_level: 0,
+                ignores_terrain: false,
             }]
             .into(),
         }
