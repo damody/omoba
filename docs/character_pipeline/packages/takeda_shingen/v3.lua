@@ -224,7 +224,7 @@ return function(ctx)
             reveal = "public", cue = "b31r_foxfire_aura",
             aura = { radius = "$aura_radius", team = "enemy", types = BASIC, include_self = false, status = "b31r_burn" },
             notes = "原作 modifier_B31R_aura：Passive 1、IsHidden 0、Aura_ApplyToCaster 0；Aura_Flags 沒寫，不含魔免。" },
-          { id = "b31r_burn", duration = "infinite", stacking = "refresh", per_source = true, dispel = "basic",
+          { id = "b31r_burn", runtime_id = "b31r_burn:{caster}", duration = "infinite", stacking = "refresh", per_source = true, dispel = "basic",
             text = {
               zh_TW = { name = "灼燒", body = "在信玄周圍 {aura_radius} 內且看得見他時，進入範圍時與之後每 {aura_interval} 秒受到 {aura_damage} 魔法傷害。" },
               en = { name = "Burning", body = "While within {aura_radius} of Shingen and able to see him, takes {aura_damage} magic damage on entering and every {aura_interval} seconds after." },

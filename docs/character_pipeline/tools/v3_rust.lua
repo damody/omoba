@@ -1072,6 +1072,11 @@ function Gen:stat_rows(stats, ctx)
     end
     if name == "slow_pct" and type(v) ~= "table" then
       if not self.slow_ok then self:block("stat:slow_pct outside a status") else self.last_slow = self:value(expr, ctx, "num") end
+    elseif name == "slow_pct" and type(v) == "table" and (v.op == nil or v.op == "add") and v.per_stack and self.per_rows
+      and v.when == nil then
+      -- a slow per stack of a counted status (B10W): the slow row is that times the stacks
+      if self.last_slow_per then self:block("stat:slow_pct twice") end
+      self.last_slow_per = self:value(expr, ctx, "num")
     elseif not entry then self:block("stat:" .. name)
     elseif expr ~= nil then
       local raw
@@ -1417,7 +1422,11 @@ function Gen:counted_status(a, ctx, line)
   local flat = s.stats and self:stat_rows(s.stats, sctx) or "&[]"
   local per = self.per_rows and ("&[" .. table.concat(self.per_rows, ", ") .. "]") or "&[]"
   local slow = self.last_slow
-  self.slow_ok, self.last_slow, self.per_rows = nil, nil, nil
+  if self.last_slow_per then
+    if slow then self:block("status.stats: slow_pct both flat and per stack") end
+    slow = "(" .. self.last_slow_per .. ") * ability_kit::floor(stacks)"
+  end
+  self.slow_ok, self.last_slow, self.per_rows, self.last_slow_per = nil, nil, nil, nil
   local S = "&super::ids::status::" .. upper(a.status)
   local max = (a.max ~= nil and self:value(a.max, ctx, "num")) or (st.max ~= nil and self:value(st.max, sctx, "num")) or nil
   local count, keep

@@ -84,7 +84,7 @@ return function(ctx)
             states = { "invulnerable", "no_healthbar", "no_unit_collision", "not_on_minimap", "unselectable", "flying", "disarm" },
             cue = "b10w_spirit_glow",
             notes = "原作 modifier_exorcism_spirit 的 States。" },
-          { id = "b10w_slow", text = { zh_TW = { name = "亡靈緩速", body = "每層使移動速度降低 {slow_step}，最多 {slow_max}；再命中不會延長時間。" }, en = { name = "Spirit Slow", body = "Each stack reduces movement speed by {slow_step}, up to {slow_max}; further hits do not extend it." } }, duration = "$slow_duration", stacking = { max = "$slow_max_stacks", value_stacks = true },
+          { id = "b10w_slow", runtime_id = "b10w_slow:{caster}", text = { zh_TW = { name = "亡靈緩速", body = "每層使移動速度降低 {slow_step}，最多 {slow_max}；再命中不會延長時間。" }, en = { name = "Spirit Slow", body = "Each stack reduces movement speed by {slow_step}, up to {slow_max}; further hits do not extend it." } }, duration = "$slow_duration", stacking = { max = "$slow_max_stacks", value_stacks = true },
             per_source = true, dispel = "basic", visibility = "debuff", reveal = "public", tags = { "slow" },
             cue = "b10w_slow_fx",
             stats = { slow_pct = { op = "add", value = "$slow_step", per_stack = true } },
