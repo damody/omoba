@@ -77,7 +77,7 @@ pub enum FactKind {
     CommittedCharge = 39,
     /// Own-team controls and channel statuses after one outcome batch (split16).
     OwnerControl = 40,
-    /// Own-team unit: whether the opposing team has it disclosed now (E298, v3 `is_visible_to`).
+    /// Own-team unit: whether the opposing team has it disclosed now (E312, v3 `is_visible_to`).
     EnemySight = 41,
 }
 

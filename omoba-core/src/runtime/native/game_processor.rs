@@ -6404,6 +6404,11 @@ fn handle_add_buff(
         super::ally_cleanse::apply_self_slow(world,target,&payload);
         return Ok(());
     }
+    // v3 create_unit.overrides (unit_overrides): a one-shot envelope on a summon spawned this tick.
+    if buff_id==super::unit_overrides::BUFF {
+        super::unit_overrides::apply(world,target,&payload);
+        return Ok(());
+    }
     // v3 `kill` (script_kill): a one-shot envelope, never stored.
     if buff_id==super::script_kill::BUFF {
         super::script_kill::apply(world,target,&payload);

@@ -2172,7 +2172,7 @@ mod ability_cue_projection_tests {
 
     #[test]
     fn enemy_sight_reaches_only_the_units_own_team() {
-        // E298: the opposing team never holds the enemy sight of a unit (it is its own sight).
+        // E312: the opposing team never holds the enemy sight of a unit (it is its own sight).
         let schema=crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID;
         for owner in [0,7] {
             let bytes=crate::runtime::encode_disclosed_baseline(&[

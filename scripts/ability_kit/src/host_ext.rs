@@ -473,6 +473,17 @@ impl Cx<'_, '_> {
         Ok(())
     }
 
+    /// v3 `create_unit.overrides` on a unit this cast just created (omoba-core unit_overrides):
+    /// `rows` are `hp`, `attack_damage`, `attack_damage_max`, `move_speed`; they replace the
+    /// template's values right after the spawn. Call it right after `create_unit`.
+    pub fn unit_overrides(&mut self, unit: EntityHandle, rows: &[(&str, Fixed64)]) -> Res {
+        use omoba_core::runtime::native::unit_overrides;
+        if !unit.is_valid() { return Ok(()); }
+        let packet = unit_overrides::payload(rows).ok_or("v3: invalid create_unit overrides")?.to_string();
+        self.world.add_stat_buff(unit, RStr::from_str(unit_overrides::BUFF), Fixed64::ONE, RStr::from_str(&packet));
+        Ok(())
+    }
+
     /// v3 `create_unit` with `control`: `"owner"` and `"ai"` are [`Cx::create_unit`]'s summon
     /// (its owner may order it, its AI acts); `"none"` also refuses every order of its owner for
     /// its whole life (host `command_restricted`, summon_orders), its AI still acting.

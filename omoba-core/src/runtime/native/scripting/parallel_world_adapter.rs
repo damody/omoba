@@ -681,7 +681,7 @@ impl<'a> ParallelWorldAdapter<'a> {
     fn source_is_building(&self, entity:Entity)->bool {
         match self.retired_source(entity) {Some(source)=>source.building,None=>self.cache.is_building.get(entity).is_some()}
     }
-    /// v3 `is_visible_to(x, u)` (E298): whether `u`'s team can see `x`, from what the authority and
+    /// v3 `is_visible_to(x, u)` (E312): whether `u`'s team can see `x`, from what the authority and
     /// the team replica both hold. A team always sees its own units. The authority reads the team's
     /// disclosed set of the latest Wave B; a replica holds exactly its team's disclosed units, and for
     /// its own units the disclosed enemy sight (`DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID`), written
@@ -3207,7 +3207,7 @@ mod disclosure_query_tests {
     }
     #[test]
     fn is_visible_to_reads_own_units_and_the_disclosed_enemy_sight_on_a_replica() {
-        // E298: a team replica answers v3 is_visible_to(x, u) from what it holds: its own units
+        // E312: a team replica answers v3 is_visible_to(x, u) from what it holds: its own units
         // always, an own unit from the enemy's side through the disclosed enemy sight, anything
         // else it holds as disclosed. A viewer outside the two teams sees nothing.
         use crate::runtime::filtered_specs::{DisclosedMovementPriority, FilteredComponents};

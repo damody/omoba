@@ -6,6 +6,7 @@
 
 pub mod ability_runtime;
 pub mod ability_channel;
+pub mod unit_overrides;
 pub mod ally_shield;
 pub mod attack_orb;
 pub mod attack_stun;

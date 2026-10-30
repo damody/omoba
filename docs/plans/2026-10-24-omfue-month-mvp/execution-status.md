@@ -16,6 +16,15 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30（history-nobu 工作線 B：create_unit.overrides；已放回 live）
+
+- **`unit_overrides.rs`**：一次性 envelope `__unit_overrides_v1`，只作用在本 tick 才產生的召喚物上。
+  - 支援四個鍵：`hp`（同時設為上限與目前值）、`attack_damage`／`attack_damage_max`、`move_speed`，覆寫模板值。之後的加成照常疊在上面。
+  - 引擎的普攻只有一個傷害值；原作每次在範圍內隨機，這裡取範圍的平均。
+  - kit 的 `Cx::unit_overrides(unit, &[("hp", v), ...])`，在 `create_unit` 之後立刻呼叫。
+- 順帶把 E312 程式註解裡誤寫的 E298 改正。
+- 測試：`overrides_replace_the_template_values_of_a_summon_spawned_this_tick`；omoba-core 1421 項通過。
+
 ## 2026-10-30（history-nobu 工作線 B：is_visible_to 的敵方視野揭露、selector include_hidden（E312）；已放回 live）
 
 - **敵方視野揭露**：新增元件 `DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID`（0x464f4719）與事實 `FactKind::EnemySight = 41`。

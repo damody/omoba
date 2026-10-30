@@ -48,7 +48,7 @@ pub const DISCLOSED_WARD_BODY_COMPONENT_SCHEMA_ID: u32 = 0x464f4714;
 pub const DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID: u32 = 0x464f4715;
 
 /// Version 1, then 1 when the opposing team currently has the unit disclosed (v3 `is_visible_to`
-/// of an own unit and an enemy, E298). Kept only for the unit's own team (`team_safe_components`):
+/// of an own unit and an enemy, E312). Kept only for the unit's own team (`team_safe_components`):
 /// the opposing team learns nothing it does not already see.
 pub const DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID: u32 = 0x464f4719;
 
@@ -791,7 +791,7 @@ mod tests {
 
     #[test]
     fn enemy_sight_settles_into_the_baseline_and_this_ticks_owner_fact() {
-        // E298: whether the opposing team has an own unit disclosed, after this Wave B, in the
+        // E312: whether the opposing team has an own unit disclosed, after this Wave B, in the
         // expected baseline and in the committed batch the projector reads after Wave B.
         use specs::Builder;
         let mut world = World::new();
@@ -1538,7 +1538,7 @@ pub fn run_committed_visibility_wave_b(world: &mut World, tick: u64, delay: u64)
     settle_enemy_sight(world, tick);
 }
 
-/// E298: after this Wave B, which team-owned units the opposing team has disclosed. A change is
+/// E312: after this Wave B, which team-owned units the opposing team has disclosed. A change is
 /// written into this tick's baselines (the projector's expected view and any reveal) and sent to
 /// the unit's own team as an `EnemySight` fact in this tick's committed batch, so the authority's
 /// next step and the team's replica read the same answer.
