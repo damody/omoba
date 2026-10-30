@@ -6,7 +6,12 @@
 
 ## E401 （保留）replica 與權威不一致：被敵方效果打斷的引導冷卻、敵方英雄的 swap_abilities 槽位沒有揭露（2026-10-31）
 
-## E400 （保留）headless 統計把 cast 輸入記到局末的槽位名稱：被替換的技能看起來從沒施放（2026-10-31）
+## E400 headless 統計把 cast 輸入記到局末的槽位名稱：被替換的技能看起來從沒施放（2026-10-31，工作線 B）
+- **現象**：遊戲模式 session 的 e187 m6a4g1 中，c14_fire_breath_dragon（C14 龍化期間取代 c14_fire_breath 的子技能）18 局共有 154 次 bot 輸入，0 次 accepted，也沒有任何 CastTrace 結果。
+- **根因**：moba_headless 的 HeroStats 以 (player, 槽位 index) 計算輸入，報表的技能名稱卻取自局末最後一次觀察到的 `hero.abilities`。局末還在龍化的局，整局 slot 1 的輸入（大多是 c14_fire_breath 的施放）都被記到 c14_fire_breath_dragon。CastTrace 結果以技能名稱計數，所以 c14_fire_breath 的結果不會出現在這一列，而且 c14_fire_breath 這一列根本沒列出來。
+- **通用修正**：輸入改以 (player, 輸入當下槽位的技能名稱) 計數，名稱取上一次觀察到的槽位，也就是 bot 選擇時看到的。另外記下每個技能最後所在的槽位，報表列出英雄在任何時候放在槽位上的所有技能，包括被換掉的。
+- **另外查到的缺口（交給工作線 A）**：swap_abilities 換進來的子技能，hint 是 kind=none，所以沒有 bot 政策。父技能的政策又找不到槽位，龍化期間就不會施放。建議推導端讓子技能繼承它取代的父技能的 hint。
+- **避免**：以 index 收集、以名稱報告的統計，兩邊要在同一個時間點對應，尤其是槽位會在局中改變的時候。
 
 ## E399 split run 建置後等機器鎖期間 hero_dlls 名單變動（新英雄轉 playable），開局檢查找不到新英雄的 DLL 而失敗（2026-10-31，history-nobu M6 UE 呈現，工作線 C）
 - **現象**：pres14 佇列中齋藤義龍那一局建置完成後，等了 544 秒才拿到機器鎖。拿到鎖 2 秒後 authority 就失敗了：`missing script DLL beside base_content: target/lineC-bins/release/hero_a05.dll`。在這段等待期間，A 的 c78f8fda 把 A05 等 6 位英雄轉為 playable，hero_dlls.lua 多了它們的 DLL。

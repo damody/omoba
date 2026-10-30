@@ -16,6 +16,10 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：headless 統計按輸入當下的槽位技能計數（E400）
+
+- moba_headless 的 HeroStats 以「輸入當下槽位上的技能」計數，報表列出所有曾經放在槽位上的技能（包括被 swap 換掉的）。
+- 修正 c14_fire_breath_dragon 被誤報成 154 次輸入、0 次接受的問題（局末在龍化中的局）。
 ## 2026-10-31 線 B：bot 範圍技把冷卻留給英雄（E398）
 
 - SelfArea、EnemyPoint、LeapEnemyPoint：範圍內有敵方英雄時照 min_targets；只有小兵時要至少 3 隻，而且 1200 內沒有敵方英雄。打野角色照舊。
