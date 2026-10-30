@@ -258,11 +258,14 @@ for _, r in ipairs(recipes) do
           end
           if in_group[hero.hero] then
             for ability, cast in pairs(hero.casts) do
-              local key = hero.hero .. '|' .. ability
-              local a = ability_rows[key] or { hero = hero.hero, ability = ability, slot = cast.slot, inputs = 0, accepted = 0, results = {} }
-              ability_rows[key] = a
-              a.inputs, a.accepted = a.inputs + cast.inputs, a.accepted + cast.accepted
-              for result, n in pairs(cast.results or {}) do a.results[result] = (a.results[result] or 0) + n end
+              -- an empty slot (A32's D, E405) is no ability
+              if ability ~= '' then
+                local key = hero.hero .. '|' .. ability
+                local a = ability_rows[key] or { hero = hero.hero, ability = ability, slot = cast.slot, inputs = 0, accepted = 0, results = {} }
+                ability_rows[key] = a
+                a.inputs, a.accepted = a.inputs + cast.inputs, a.accepted + cast.accepted
+                for result, n in pairs(cast.results or {}) do a.results[result] = (a.results[result] or 0) + n end
+              end
             end
           end
         end
