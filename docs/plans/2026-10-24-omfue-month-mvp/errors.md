@@ -2,6 +2,16 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E408 換技能換入的子技能沒有 bot 施放政策：施放政策只看英雄的固定技能組（2026-10-31，e187 遊戲模式 session；已放回 live）
+- **現象**：M6 第 2 批（m6b2g1b）大谷吉繼的 a12_insight_flash_t、a12_awe_t、a12_mystic_field 從沒施放：它們是 a12_mystic_possession 期間換進槽位的技能，有自己的 v3 bot 提示（enemy_point／self_engage）。
+- **根因**：bot_auto_policies 只為英雄技能組（heroes.abilities）裡的技能推導政策；換入的技能不在技能組裡，所以沒有政策，換進槽位後 bot 也不會放。
+- **通用修正**：英雄的技能組補上「同一個 package、但不在技能組裡」的技能列（依列的順序，接在技能組之後），一樣經過 admissible 檢查；只能經由父技能施放的子技能提示是 `none`，仍然沒有政策。出貨計畫仍是 34 條；第 2 批多出 3 條，第 1 批多出 c14_fire_breath_dragon（A 的更新後它是 enemy_line）。E376 的入座過濾也用這份技能組，所以這些政策會保留。
+- **避免**：bot 政策與覆蓋檢查都要涵蓋英雄在對局中可能出現在槽位裡的所有技能，不只出生時的技能組。
+
+## E407 （保留）replica 在同一 tick 先套能力等級再套槽位：換出的技能被寫成換入技能的等級（2026-10-31）
+
+## E406 （保留）沒有 chase_target 召喚物 AI 與會移動的 dummy：兀鷹、亡靈、行空魂無法實作（2026-10-31）
+
 ## E405 開局前的 script registry 檢查把空技能欄 "" 當成缺少技能（2026-10-31，工作線 A）
 - **現象**：遊戲模式 session 的 e187 M6 第二批（m6b2g1）18 局都在 tick 0 之前失敗：`MOBA headless FAILED: script registry missing ability `，訊息裡的技能名稱是空的。只要有一局安排了 A32（瀧川一益，技能列 `{…, a32_asura_blade, "", a32_soul_blade}`），整批都沒辦法跑，同批其他 5 位英雄也就驗不到。
 - **根因**：B 的 cddcb1af 把空欄定成 `""`，也就是 AbilityId(0)；內容驗證、出生配點、replica baseline、upgrade_skill 都把它當成沒有技能。開局前的 `validate_single_lane_scripts` 卻沒有改到，對每一欄都去查 script registry，查 `""` 自然找不到。A 在 6abaf6ce 讓 A32 的 F 坐上第 6 欄，第一次讓 playable 英雄真的帶有空欄，這個漏洞才浮現。conformance 不經過這個檢查，所以影子驗證沒抓到。

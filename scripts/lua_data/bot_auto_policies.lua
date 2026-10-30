@@ -40,6 +40,29 @@ for id, update in pairs(authored.hero_updates or {}) do kits[id] = update.abilit
 local v3_heroes = assert(loadfile(dir .. '/templates/v3_test_heroes.lua'))()({})
 for _, row in ipairs(v3_heroes.abilities or {}) do rows[row.id] = rows[row.id] or row end
 for _, hero in ipairs(v3_heroes.heroes or {}) do kits[hero.id] = kits[hero.id] or hero.abilities end
+-- Abilities a kit ability swaps into a slot (a form's replacements, a recast) are rows of the same
+-- package that are not in the kit; they get policies too, after the kit, in row order (E408).
+-- A child cast only through its parent carries the hint kind `none` and stays without one.
+local package_of = {}
+for _, hero in ipairs(authored.heroes) do package_of[hero.id] = hero.authored_package end
+for _, hero in ipairs(v3_heroes.heroes or {}) do package_of[hero.id] = package_of[hero.id] or hero.authored_package end
+local package_rows = {}
+for _, list in ipairs({ authored.abilities, v3_heroes.abilities or {} }) do
+  for _, row in ipairs(list) do
+    if row.authored_package then
+      package_rows[row.authored_package] = package_rows[row.authored_package] or {}
+      table.insert(package_rows[row.authored_package], row.id)
+    end
+  end
+end
+for id, kit in pairs(kits) do
+  local in_kit, full = {}, {}
+  for _, ability in ipairs(kit) do in_kit[ability] = true; full[#full + 1] = ability end
+  for _, ability in ipairs(package_rows[package_of[id]] or {}) do
+    if not in_kit[ability] then in_kit[ability] = true; full[#full + 1] = ability end
+  end
+  kits[id] = full
+end
 
 -- The executor's compile checks, so a derived policy never fails the plan.
 local function admissible(row, hint)
