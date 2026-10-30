@@ -233,6 +233,10 @@ fn active_hero_context_allows(world: &World, hero: Entity, owner_pid: u32) -> bo
 /// authority and every replica). `None` only when the hero cannot get closer.
 pub(crate) fn resolve_move_destination(world: &World, hero: Entity, target: omoba_sim::Vec2) -> Option<omoba_sim::Vec2> {
     let Some(from) = world.read_storage::<Pos>().get(hero).map(|pos| pos.0) else { return Some(target) };
+    // A flyer reaches any point (E397).
+    if world.try_fetch::<crate::runtime::BuffStore>().is_some_and(|buffs| super::rules::world::flying_for_pathing(&buffs, hero)) {
+        return Some(target);
+    }
     let radius = world.read_storage::<CollisionRadius>().get(hero).map(|r| r.0)
         .unwrap_or_else(|| Fixed64::from_i32(20));
     let regions = world.read_resource::<crate::comp::BlockedRegions>();
@@ -4472,6 +4476,11 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
         if let Some(mut state)=world.try_fetch_mut::<crate::runtime::MobaMatch>() {state.add_invulnerable_summon(&world.entities(),entity);}
     }
     if stats.dummy {super::dummy_unit::hold_states(&mut world.write_resource::<crate::runtime::BuffStore>(),entity,duration,breakable);}
+    // A flying template flies for its whole life (E397).
+    if stats.flying {
+        let life=if duration>Fixed64::ZERO {duration} else {super::ability_runtime::buff_store::PERMANENT_BUFF_DURATION};
+        world.write_resource::<crate::runtime::BuffStore>().add(entity,super::rules::vocab::state::FLYING,life,serde_json::Value::Null);
+    }
     if let Some(mana)=super::unit_mana::UnitMana::of_template(stats.mana,stats.mana_regen) {
         world.write_storage::<super::unit_mana::UnitMana>().insert(entity,mana)?;
     }

@@ -1765,6 +1765,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \tturn_speed: {},\n\
              \tmana: {},\n\
              \tmana_regen: {},\n\
+             \tflying: {},\n\
              }};\n",
             cname,
             fixed64_lit(e.hp),
@@ -1795,6 +1796,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             fixed64_lit(e.turn_speed()),
             fixed64_lit(e.mana),
             fixed64_lit(e.mana_regen),
+            e.flying,
         ));
     }
     out.push('\n');

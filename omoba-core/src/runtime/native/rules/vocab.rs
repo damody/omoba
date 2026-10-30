@@ -84,6 +84,9 @@ pub mod state {
     pub const BLOCK_DISABLED: &str = "block_disabled";
     /// v3.1：只改尋路，不給飛行視野（rules::world::flying_for_pathing）。
     pub const FLYING_FOR_PATHING: &str = "flying_for_pathing";
+    /// 原作 flying（v3 `flying`，E397）：地形與樹都擋不住移動與視野（rules::world::flying_for_pathing、
+    /// visibility 的 `ignores_terrain`）。
+    pub const FLYING: &str = "flying";
     /// 原作 MODIFIER_STATE_INVULNERABLE：不受任何傷害（rules::damage::admit），技能與道具的範圍選取、
     /// 英雄的自動普攻都選不到（selector 要明確 `include_invulnerable` 才包含）。
     pub const INVULNERABLE: &str = "invulnerable";
@@ -202,6 +205,7 @@ const STATE_EFFECTS: &[(&str, StateEffect)] = &[
     ("ranged_attack", StateEffect::Buff("ranged_attack")),
     ("block_disabled", StateEffect::Buff("block_disabled")),
     ("flying_for_pathing", StateEffect::Buff("flying_for_pathing")),
+    ("flying", StateEffect::Buff(state::FLYING)),
     ("invulnerable", StateEffect::Buff("invulnerable")),
     ("command_restricted", StateEffect::Buff("command_restricted")),
     // 技能選取預設排除（rules::targeting::UNTARGETABLE_BY_SPELLS）。

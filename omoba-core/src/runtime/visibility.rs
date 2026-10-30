@@ -1496,7 +1496,8 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             position: position.0,
             radius: sight_radius(source.radius, buffs.as_deref(), entity, night),
             detection_level: source.detection_level,
-            ignores_terrain: false,
+            // A flyer sees over terrain and trees (E397).
+            ignores_terrain: buffs.as_deref().is_some_and(|buffs| crate::runtime::native::rules::world::flying_sight(buffs, entity)),
         })
         .collect();
     // A unit that provides vision (E392) is a sight of itself for every other team: a point

@@ -43,15 +43,42 @@ pub fn is_night(world: &World) -> bool {
     world.try_fetch::<TemporaryNight>().and_then(|night| night.until).is_some_and(|until| time < until)
 }
 
-/// 單位尋路時是否當成飛行（越過地形）。
+/// 單位尋路與移動時是否當成飛行（越過地形與樹）：`flying_for_pathing` 或 `flying`（E397）。
 pub fn flying_for_pathing(buffs: &BuffStore, entity: Entity) -> bool {
-    buffs.has(entity, super::vocab::state::FLYING_FOR_PATHING)
+    buffs.has(entity, super::vocab::state::FLYING_FOR_PATHING) || buffs.has(entity, super::vocab::state::FLYING)
+}
+
+/// 飛行單位的視野越過地形與樹（只有 `flying`，`flying_for_pathing` 不給）。
+pub fn flying_sight(buffs: &BuffStore, entity: Entity) -> bool {
+    buffs.has(entity, super::vocab::state::FLYING)
+}
+
+/// What blocks `entity`'s movement: the map's terrain, or nothing while it flies (E397).
+pub fn movement_regions<'a>(buffs: &BuffStore, entity: Entity, regions: &'a crate::comp::BlockedRegions)
+    -> &'a crate::comp::BlockedRegions {
+    static OPEN: crate::comp::BlockedRegions = crate::comp::BlockedRegions(Vec::new());
+    if flying_for_pathing(buffs, entity) { &OPEN } else { regions }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use specs::Builder;
+
+    /// E397: `flying` lifts terrain from movement and sight; `flying_for_pathing` only from movement.
+    #[test]
+    fn a_flyer_moves_and_sees_over_terrain() {
+        let mut world = World::new();
+        let unit = world.create_entity().build();
+        let mut buffs = BuffStore::new();
+        let walls = crate::comp::BlockedRegions(vec![crate::comp::BlockedRegion { name: "wall".into(), points: Vec::new() }]);
+        assert_eq!(movement_regions(&buffs, unit, &walls).0.len(), 1);
+        buffs.add(unit, super::super::vocab::state::FLYING_FOR_PATHING, Fixed64::from_i32(3), serde_json::Value::Null);
+        assert!(movement_regions(&buffs, unit, &walls).0.is_empty() && !flying_sight(&buffs, unit));
+        buffs.remove(unit, super::super::vocab::state::FLYING_FOR_PATHING);
+        buffs.add(unit, super::super::vocab::state::FLYING, Fixed64::from_i32(3), serde_json::Value::Null);
+        assert!(movement_regions(&buffs, unit, &walls).0.is_empty() && flying_sight(&buffs, unit));
+    }
 
     #[test]
     fn temporary_night_lasts_its_duration_and_overlaps_take_the_later_end() {

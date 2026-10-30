@@ -97,7 +97,8 @@ impl<'a> System<'a> for Sys {
             if step<=Fixed64::ZERO {continue;}
             let radius=data.collision.get(entity).map(|r|r.0).unwrap_or(Fixed64::ZERO);
             let next=super::super::summon_navigation::advance(&mut summon.navigation,pos.0,target.0,
-                step.min(distance),dt,radius,&data.blocked);
+                step.min(distance),dt,radius,
+                crate::runtime::native::rules::world::movement_regions(&data.buffs,entity,&data.blocked));
             let moved=next-pos.0;
             // Compare coordinates directly: squared fixed-point length can erase tiny steps.
             if next!=pos.0 {data.host_movement.moved.insert(entity);}
@@ -188,6 +189,18 @@ mod tests {
             detoured|=next.y!=Fixed64::ZERO;
         }
         assert!(detoured);assert!(world.read_storage::<MoveTarget>().get(unit).is_none());
+        // E397: a flyer goes straight through the wall it walked around.
+        world.write_storage::<Pos>().get_mut(unit).unwrap().0=omoba_sim::Vec2::ZERO;
+        world.write_resource::<crate::runtime::BuffStore>().add(unit,crate::runtime::native::rules::vocab::state::FLYING,
+            Fixed64::from_i32(30),serde_json::Value::Null);
+        let mut crossed=false;
+        for _ in 0..30 {
+            let before=world.read_storage::<Pos>().get(unit).unwrap().0;dispatcher.dispatch(&world);
+            let next=world.read_storage::<Pos>().get(unit).unwrap().0;
+            assert_eq!(next.y,Fixed64::ZERO,"no detour");
+            crossed|=super::super::hero_move_tick::path_hits_regions(before,next,Fixed64::from_i32(10),&world.read_resource::<BlockedRegions>());
+        }
+        assert!(crossed,"through the wall");
         world.write_storage::<SummonedUnit>().get_mut(unit).unwrap().time_remaining=Some(Fixed64::from_raw(1));
         dispatcher.dispatch(&world);
         assert!(world.read_resource::<Vec<Outcome>>().iter().any(|o|matches!(o,Outcome::EntityRemoved {entity} if *entity==unit)));

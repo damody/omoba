@@ -268,10 +268,11 @@ impl<'a> System<'a> for Sys {
                                 .get(entity)
                                 .map(|r| r.0)
                                 .unwrap_or(Fixed64::from_i32(30));
+                            let regions=omoba_core::runtime::native::rules::world::movement_regions(&tr.buff_store,entity,&tr.regions);
                             let planned_direction=tr.directional_steps.as_ref()
                                 .filter(|plan|plan.tick==tr.tick.0).and_then(|plan|plan.directions.get(&entity)).copied();
                             let (new_pos, reached) = if let Some(direction)=planned_direction {
-                                (advance_direction_with_collision(pos.0,direction,step,radius,&tr.regions),false)
+                                (advance_direction_with_collision(pos.0,direction,step,radius,regions),false)
                             } else { advance_with_collision(
                                 pos.0,
                                 target,
@@ -280,7 +281,7 @@ impl<'a> System<'a> for Sys {
                                 &tr.searcher,
                                 &tr.radii,
                                 entity,
-                                &tr.regions,
+                                regions,
                             ) };
                             pos.0 = new_pos;
                             if reached {

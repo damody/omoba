@@ -2,11 +2,32 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E402 （保留）並行的 UBT 共用 MSBuild 常駐節點，其中一個建置結束時節點被關閉，另一個建置以 MSB4166／999 失敗（2026-10-31）
+
+## E401 （保留）replica 與權威不一致：被敵方效果打斷的引導冷卻、敵方英雄的 swap_abilities 槽位沒有揭露（2026-10-31）
+
+## E400 （保留）headless 統計把 cast 輸入記到局末的槽位名稱：被替換的技能看起來從沒施放（2026-10-31）
+
 ## E399 split run 建置後等機器鎖期間 hero_dlls 名單變動（新英雄轉 playable），開局檢查找不到新英雄的 DLL 而失敗（2026-10-31，history-nobu M6 UE 呈現，工作線 C）
 - **現象**：pres14 佇列中齋藤義龍那一局建置完成後，等了 544 秒才拿到機器鎖。拿到鎖 2 秒後 authority 就失敗了：`missing script DLL beside base_content: target/lineC-bins/release/hero_a05.dll`。在這段等待期間，A 的 c78f8fda 把 A05 等 6 位英雄轉為 playable，hero_dlls.lua 多了它們的 DLL。
 - **根因**：run_moba_split_local 在等機器鎖之前建置（E337），建出來的是當時 hero_dlls 名單的 DLL 組合。開局時 `moba_server_build.verify` 卻用最新的名單檢查。等待期間名單一變，建好的二進位就少了新英雄的 DLL。
 - **通用修正**：`M.script_set()` 每次都重新讀 hero_dlls，回傳 script DLL 組合。run 在建置後記下這個組合，拿到機器鎖後再比一次；如果不同，就在時限開始之前再建置一次。測試 `run_moba_split_local_test` 檢查比對發生在機器鎖之後、第二次建置在時限之前，也檢查組合的內容。
 - **避免**：「先建置、後排隊」的流程，凡是會在排隊期間改變的輸入（名單、設定、產生檔），都要在拿到鎖之後再確認一次，不能只看建置當下的狀態。
+
+## E398 （保留）bot 範圍技把小兵算進 min_targets：一隻小兵就放掉範圍技，英雄來時在冷卻（2026-10-31）
+
+## E397 state flying 與召喚物模板 flying 沒有 host 落點：飛行單位照樣被地形與樹擋住（2026-10-31，工作線 B）
+- **現象**：工作線 A 的涵蓋率中，`state:flying` 與 unit_template `flying` 擋住 6 招與 4 件道具，例如飛行召喚物，以及讓英雄飛越地形的技能。
+- **根因**：vocab 只有 `flying_for_pathing`，而且 `rules::world::flying_for_pathing` 沒有任何移動程式讀它。移動（hero_command 路徑規劃、hero_move 步進、summon 移動、MOBA 點地修正）一律以 BlockedRegions 為準，樹也是 BlockedRegions。召喚物模板也沒有 flying 欄位。
+- **通用修正**：
+  - vocab 新增狀態 `flying`。
+  - `rules::world::flying_for_pathing` 改為 `flying_for_pathing` 或 `flying` 任一成立。
+  - 新增 `movement_regions(buffs, entity, regions)`：飛行時回傳空的 BlockedRegions。
+  - hero_move_tick 與 summon_tick 的步進都改用 `movement_regions`。hero_command 的 `plan_next_waypoint` 與 `resolve_move_destination` 遇到飛行單位直接取目標點。
+  - 視野：`flying_sight`（只有 `flying`；`flying_for_pathing` 照 v3.1 的規定不給飛行視野）讓單位的 VisionSource `ignores_terrain`。
+  - 召喚物模板：SummonStats 新增 `flying`（summons.lua 的 `flying = true`；build.rs 與 runtime_content 都會帶出）。生成時掛一個整段壽命的 `flying` 狀態。
+- **測試**：`a_flyer_moves_and_sees_over_terrain`；`summon_command_navigation_detours_and_expiry_retires_even_while_returning` 補上飛行召喚物直線穿過原本繞過的牆。
+- **避免**：v3 狀態加進 vocab 時，要確認 host 真的有讀它的地方，不能只有名稱沒有作用（`flying_for_pathing` 就是這樣）。
 
 ## E396 teamfight recipe 雙方全在中路，回城 35%／出泉 85% 讓會戰一再重置，中位數 11.9 分鐘（2026-10-31，e187 遊戲模式 session，主 session 要求；已放回 live）
 - **現象**：m6a3g1（10 位 M6 英雄）的 teamfight 6 局 7.0～14.4 分鐘，中位數 11.9，4 局超過 10 分鐘；quick 與換邊都在 10 分鐘內。結束時兩側邊路塔幾乎都還在（每邊 6～9 座），勝負只取決於中路。

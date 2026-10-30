@@ -466,6 +466,8 @@ fn plan_next_waypoint(
     from: SimVec2,
     target: SimVec2,
 ) -> Option<SimVec2> {
+    // A flyer goes straight over terrain and trees (E397).
+    if omoba_core::runtime::native::rules::world::flying_for_pathing(data.buff_store, entity) { return Some(target); }
     let radius = data.radii.get(entity).map(|r| r.0).unwrap_or_else(|| Fixed64::from_i32(20));
     static_next_waypoint_with(from, target, radius, data.terrain, &mut data.nav.borrow_mut())
 }

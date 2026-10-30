@@ -16,6 +16,11 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：飛行（state flying 與召喚物模板 flying，E397）
+
+- vocab 新增 `flying`。飛行單位的移動與路徑規劃不受地形與樹阻擋（`rules::world::movement_regions`），視野越過地形；`flying_for_pathing` 只影響移動。
+- SummonStats 新增 `flying`（summons.lua 的 `flying = true`），生成時掛上整段壽命的 `flying` 狀態。
+- 測試：`a_flyer_moves_and_sees_over_terrain`，以及飛行召喚物穿牆的測試。
 ## 2026-10-31 線 B：吸收盾的 on_absorb／on_broken 事件（E393）
 
 - status_event 新增 `ABSORB`（13）與 `BROKEN`（14），遮罩是 `ON_ABSORB`（2048）與 `ON_BROKEN`（4096）。

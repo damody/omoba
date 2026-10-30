@@ -598,6 +598,7 @@ impl RuntimeContent {
                 turn_speed: fixed64(entry.turn_speed()),
                 mana: fixed64(entry.mana),
                 mana_regen: fixed64(entry.mana_regen),
+                flying: entry.flying,
             })))
         })?;
         let summon_display = build_indexed(&manifest.summons, "summon", |raw, entry| {

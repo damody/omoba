@@ -1742,6 +1742,9 @@ pub(crate) struct SummonEntry {
     /// Fixed emplacement (G-3): never moves, follows or accepts move orders.
     #[serde(default)]
     pub(crate) immobile: bool,
+    /// Flies over terrain and trees (E397).
+    #[serde(default)]
+    pub(crate) flying: bool,
     /// Attack damage added per owner hero level above 1, sampled at spawn.
     #[serde(default)]
     pub(crate) damage_per_owner_level: f32,

@@ -1432,6 +1432,9 @@ pub struct SummonStats {
     /// Mana, full at birth (0 = none), and its regeneration per second.
     pub mana: Fixed64,
     pub mana_regen: Fixed64,
+    /// Flies for its whole life (原作 DOTA_UNIT_CAP_MOVE_FLY, v3 unit_template `flying`): terrain
+    /// and trees block neither its movement nor its sight (omoba-core state `flying`, E397).
+    pub flying: bool,
 }
 
 /// Ability 類型 — `omoba_core::ability_meta::AbilityType` 的 const-friendly
