@@ -16,6 +16,13 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30（history-nobu 工作線 B：on_attack_launch 狀態事件、outgoing_damage_pct、vision_day／vision_night；已放回 live）
+
+- **on_attack_launch**：`status_event::ATTACK_LAUNCH=12`、遮罩 `ON_ATTACK_LAUNCH=1<<10`。來源是 rules::attack 的 `AttackEvent::Launch`（前搖結束、投射物離手或近戰命中前），由攻擊者的狀態收到，`other` 是目標。
+- **outgoing_damage_pct**（`StatKey::DamageOutgoingPercentage`）：`rules::damage::outgoing_damage` 放在 BEFORE_MITIGATION，接在 spell_amplification 之後。來源造成的每份傷害（技能與普攻）乘上 1＋x，最低為 0；`hp_removal`（付血）不受影響。
+- **vision_day／vision_night**（`BonusDayVision`／`BonusNightVision`）：`visibility::sight_radius` 依日夜加上 buff 的視野加成，結果不低於 0；原本視野為 0 的單位維持 0。`build_wave_b_read_view` 用 `rules::world::is_night` 判斷日夜。
+- 測試：omoba-core status_event、rules（34 項）、`day_and_night_sight_bonuses_change_a_source_radius` 都通過，另跑完整 lib 測試。
+
 ## 2026-10-30 午後（工作線 C：擊退的拋物線呈現；影子 sync 不再蓋掉未放回的修改；E289，已放回 live）
 
 - **擊退拋物線**（線 B 的 `__forced_motion_v1.height_raw`，直江兼續、柳生宗嚴）：
