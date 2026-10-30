@@ -1,5 +1,16 @@
 -- Pure admission and command planning for source-engine initialization and refresh.
 local M = {}
+
+-- Environment of every Build.bat run (E402): MSBuild's reusable worker nodes are shared by every
+-- build on the machine, and one build ending shut down the nodes another was using (MSB4166, exit
+-- 999). Each build keeps its own nodes.
+M.BUILD_ENV = {MSBUILDDISABLENODEREUSE = '1'}
+function M.build_env(extra)
+  local env = {}
+  for key, value in pairs(M.BUILD_ENV) do env[key] = value end
+  for key, value in pairs(extra or {}) do env[key] = value end
+  return env
+end
 function M.compiler_version(value)
   assert(type(value)=='string' and (value=='Latest' or value=='Preview'
     or value:match('^%d+%.%d+%.%d+$') or value:match('^%d+%.%d+%.%d+%.%d+$')),

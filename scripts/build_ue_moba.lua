@@ -217,8 +217,8 @@ if engine_plan.initialize then
   run_stage('generate and stage bridge before source-engine initialization', platform.lua_executable, {path.join(root,'scripts/build_ue_bridge.lua')}, omfue)
   local build_temp = path.join(omfue,'Saved/BuildTemp/ubt')
   path.mkdir_p(build_temp)
-  run_stage('build source-engine ShaderCompileWorker prerequisite', engine_build, engine_plan.shader_args, omfue, {TEMP=build_temp,TMP=build_temp})
-  run_stage('initialize required engine modules with OmGameEditor', engine_build, engine_plan.args, omfue, {TEMP=build_temp,TMP=build_temp})
+  run_stage('build source-engine ShaderCompileWorker prerequisite', engine_build, engine_plan.shader_args, omfue, engine_bootstrap.build_env{TEMP=build_temp,TMP=build_temp})
+  run_stage('initialize required engine modules with OmGameEditor', engine_build, engine_plan.args, omfue, engine_bootstrap.build_env{TEMP=build_temp,TMP=build_temp})
   assert(path.is_file(editor_exe), 'engine initialization completed without UnrealEditor.exe')
   assert(path.is_file(path.join(engine_root,'Engine/Binaries/Win64/ShaderCompileWorker.exe')),
     'engine initialization completed without ShaderCompileWorker.exe')
@@ -227,7 +227,7 @@ end
 if build_executor == 'local' then
   local build_temp = path.join(omfue, 'Saved/BuildTemp/ubt')
   path.mkdir_p(build_temp)
-  local build_env = {TEMP = build_temp, TMP = build_temp}
+  local build_env = engine_bootstrap.build_env{TEMP = build_temp, TMP = build_temp}
   run_stage('generate and stage bridge', platform.lua_executable, {path.join(root,'scripts/build_ue_bridge.lua')}, omfue, build_env)
   if prefetch_shared_pch then
     local result=require('ue_shared_pch_preflight').run(omfue,engine_root,bootstrap.lib('time').monotonic_ms,function(row)

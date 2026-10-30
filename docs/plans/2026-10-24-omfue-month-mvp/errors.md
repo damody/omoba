@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E409 hero spotlight 對射程短於替身距離的指定單位技能直接跳過（柳生宗嚴 神取 射程 200、替身在 240）（2026-10-31，history-nobu M6 UE 呈現，工作線 C）
+- 現象：yagyu_muneyoshi 的 spotlight 報告缺 c24_kamitori（神取）：autopilot 一次都沒施放。
+- 原因：`FOmAutoPilot::DispatchSpotlightCast` 對所有非方向技能，目標距離超過施放距離就跳過；神取射程 200，替身站在 240，永遠不在射程內。
+- 修正：指定單位的技能照樣下令，由 authority 的 cast approach 把英雄走進射程再施放，和玩家操作一樣；範圍、點目標超出距離會落在替身前面，仍然等待（omfue 0306ae0）。
+- 驗證：land_to_live（codegen、UBT）通過；yagyu 重跑排在佇列後。
+
 ## E408 換技能換入的子技能沒有 bot 施放政策：施放政策只看英雄的固定技能組（2026-10-31，e187 遊戲模式 session；已放回 live）
 - **現象**：M6 第 2 批（m6b2g1b）大谷吉繼的 a12_insight_flash_t、a12_awe_t、a12_mystic_field 從沒施放：它們是 a12_mystic_possession 期間換進槽位的技能，有自己的 v3 bot 提示（enemy_point／self_engage）。
 - **根因**：bot_auto_policies 只為英雄技能組（heroes.abilities）裡的技能推導政策；換入的技能不在技能組裡，所以沒有政策，換進槽位後 bot 也不會放。
@@ -34,7 +40,11 @@
 - **後續**：工作線 A 需要把 `target.type = "tree"` 產生為 `target_type = "point"` 加 `targets_tree = true`；UE 端選樹的游標由工作線 C 處理。
 - **避免**：新增 v3 目標種類時，先確認能否以既有 ABI 型別加內容旗標表達，避免動到所有 DLL 的 ABI。
 
-## E402 （保留）並行的 UBT 共用 MSBuild 常駐節點，其中一個建置結束時節點被關閉，另一個建置以 MSB4166／999 失敗（2026-10-31）
+## E402 並行的 UBT 共用 MSBuild 常駐節點，其中一個建置結束時節點被關閉，另一個建置以 MSB4166／999 失敗（2026-10-31，history-nobu M6 UE 呈現，工作線 C）
+- 現象：chosokabe_motochika 的 spotlight run（pres14 佇列）在 UE 建置階段失敗，UBT log 出現 MSB4166（子節點提前結束）與 exit 999。同一時間機器上有其他 session 的 UBT 在跑。
+- 原因：MSBuild 預設重用常駐 worker 節點，節點是整台機器共用的；另一個建置結束時把節點關掉，正在用它的建置就失敗。
+- 修正：所有 Build.bat 呼叫都設 `MSBUILDDISABLENODEREUSE=1`，每個建置用自己的節點。`ue_engine_bootstrap.BUILD_ENV`／`build_env(extra)` 是唯一來源，`build_ue_moba`（三個階段）、`stage_ue_shadow.build` 都經它；omfue restart 工具（omfue 73e5064）的 UE 建置同樣設定。
+- 驗證：`scripts/tests/ue_build_env_test.lua`；`land_to_live` 的 shadow UBT 通過。
 
 ## E401 replica 與權威不一致：被敵方效果打斷的引導冷卻、敵方英雄的 swap_abilities 槽位沒有揭露（2026-10-31，工作線 B）
 - **現象**：遊戲模式 session 的 live split（target/e187/split396，10 位 M6 英雄）在 3:06（tick 12720）以 observer-mismatch-after-rebase 結束。兩個不一致都來自 E387／c78f8fda 之後 bot 才開始施放的技能：

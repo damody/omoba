@@ -224,9 +224,9 @@ function M.sync(project,deps,options)
   return copied
 end
 
-local function run(d,label,exe,args,cwd)
+local function run(d,label,exe,args,cwd,env)
   d.log('[ue-shadow] '..label);io.stdout:flush()
-  local result=d.process.run(exe,args,{cwd=cwd or d.root,check=false})
+  local result=d.process.run(exe,args,{cwd=cwd or d.root,check=false,env=env})
   if result.exit_code~=0 then io.stderr:write(result.stdout or '',result.stderr or '') end
   assert(result.exit_code==0,label..' failed with exit '..tostring(result.exit_code))
   return result
@@ -258,7 +258,8 @@ function M.build(project,ue_root,deps)
   local build=d.path.join(ue_root,'Engine','Build','BatchFiles','Build.bat')
   assert(d.path.is_file(build),'missing Unreal build script: '..build)
   return run(d,'UBT OmGameEditor (shadow)',build,{'OmGameEditor','Win64','Development',
-    '-Project='..d.path.join(project,'om.uproject'),'-WaitMutex','-NoHotReloadFromIDE','-NoEngineChanges'},project)
+    '-Project='..d.path.join(project,'om.uproject'),'-WaitMutex','-NoHotReloadFromIDE','-NoEngineChanges'},project,
+    require('ue_engine_bootstrap').build_env())
 end
 
 function M.main(argv,deps)
