@@ -1830,7 +1830,13 @@ function Gen:action(a, ctx, ind)
   elseif op == "create_unit" then
     local t = self.m.templates[a.template]
     if not t then self:block("template:" .. tostring(a.template) .. " not declared") end
-    if a.control ~= nil and a.control ~= "ai" then self:block("action:create_unit.control:" .. tostring(a.control)) end
+    -- control: "ai" (default) and "owner" the host summon; "none" also refuses its owner's orders
+    -- (line B's create_unit_controlled)
+    if a.control ~= nil and a.control ~= "ai" and a.control ~= "owner" and a.control ~= "none" then
+      self:block("action:create_unit.control:" .. tostring(a.control))
+    end
+    local make = (a.control == nil or a.control == "ai") and ("cx.create_unit(" .. rust_str(a.template) .. ", at, lifetime)?")
+      or ("cx.create_unit_controlled(" .. rust_str(a.template) .. ", at, lifetime, " .. rust_str(a.control) .. ")?")
     -- limit_per_owner: only the host's summon_owner_cap (omoba-core summon_owner_cap: after the
     -- cast commits, the earliest live summons of the cast's templates beyond the cap leave). That
     -- needs the cap to be the content extra `summon_owner_cap` of this very ability, `remove_oldest`,
@@ -1860,9 +1866,9 @@ function Gen:action(a, ctx, ind)
       local marker = self:bind(ctx.scope, a.as, "unit")
       -- the binding lives after the block: hoist it
       return line("let " .. marker .. " = {") .. s:gsub("^" .. I:gsub("%p", "%%%0") .. "{\n", "")
-        .. line("    cx.create_unit(" .. rust_str(a.template) .. ", at, lifetime)?") .. line("};")
+        .. line("    " .. make) .. line("};")
     end
-    return s .. line("    cx.create_unit(" .. rust_str(a.template) .. ", at, lifetime)?;") .. line("}")
+    return s .. line("    " .. make .. ";") .. line("}")
   elseif op == "reveal" then
     if a.teams ~= "own" and a.teams ~= "all" then self:block("action:reveal.teams:" .. tostring(a.teams)) end
     local at = self:value(a.at, ctx, "point")
