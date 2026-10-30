@@ -375,6 +375,19 @@ impl Cx<'_, '_> {
         match self.read(op::UNIT_ABILITY_ATTR, &args) { ExtValue::Num(n) => n, _ => Fixed64::ZERO }
     }
 
+    /// v3 `event.ability.cast_point` in an `on_ability_executed` status trigger (host ext
+    /// EVENT_ABILITY_ATTR): its cast point at the caster's rank; 0 for an item or outside one.
+    pub fn event_ability_cast_point(&mut self) -> Fixed64 {
+        match self.read(op::EVENT_ABILITY_ATTR, &[ExtArg::Str(omb_script_abi::ext::event_ability_attr::CAST_POINT.into())]) {
+            ExtValue::Num(seconds) => seconds, _ => Fixed64::ZERO,
+        }
+    }
+
+    /// v3 `event.ability.is_toggle` in an `on_ability_executed` status trigger.
+    pub fn event_ability_is_toggle(&mut self) -> bool {
+        matches!(self.read(op::EVENT_ABILITY_ATTR, &[ExtArg::Str(omb_script_abi::ext::event_ability_attr::IS_TOGGLE.into())]), ExtValue::Bool(true))
+    }
+
     /// v3 `is_visible_to(x, u)`: whether `u`'s team can see `x` now (host ext IS_VISIBLE_TO).
     pub fn is_visible_to(&mut self, x: EntityHandle, u: EntityHandle) -> bool {
         matches!(self.read(op::IS_VISIBLE_TO, &[ExtArg::Unit(x), ExtArg::Unit(u)]), ExtValue::Bool(true))

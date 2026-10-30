@@ -64,6 +64,19 @@ pub mod op {
     /// `(Unit x, Unit u)` -> `Bool`: v3 `is_visible_to(x, u)`, whether `u`'s team can see `x` now
     /// (its own units always; an own unit from the enemy's side through the disclosed enemy sight).
     pub const IS_VISIBLE_TO: u32 = 12;
+    /// `(Str attr)` -> value: the ability an `on_ability_executed` status event is for (see
+    /// [`event_ability_attr`]); `None` in any other call.
+    pub const EVENT_ABILITY_ATTR: u32 = 13;
+}
+
+/// Attribute names of [`op::EVENT_ABILITY_ATTR`].
+pub mod event_ability_attr {
+    /// `Str`: the ability id; an item used is `item:<item id>`.
+    pub const ID: &str = "id";
+    /// `Num`: its cast point in seconds at the rank the caster holds (0 for an item).
+    pub const CAST_POINT: &str = "cast_point";
+    /// `Bool`: a toggle ability.
+    pub const IS_TOGGLE: &str = "is_toggle";
 }
 
 /// Attribute names of [`op::UNIT_ATTR`] and what they return.

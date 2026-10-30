@@ -16,6 +16,13 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：狀態的 on_ability_executed 帶出施放的技能（id、cast_point、is_toggle）
+
+- dispatch 的 ABILITY_EXECUTED 清單改成記下 (施放者, 技能)：施法成功時是結算技能 id，使用道具時是 `item:<道具 id>`。呼叫狀態 hook 時把對應技能放進 adapter 的 `event_ability`。
+- 新增 ext op `EVENT_ABILITY_ATTR = 13`，屬性有 `id`、`cast_point` 和 `is_toggle`。`cast_point` 取施放者目前等級的 `cast_time`（沒學過的技能讀 1 級；道具為 0）。不在這類事件裡時回傳 `None`。
+- ability_kit 新增 `event_ability_cast_point()`、`event_ability_is_toggle()`。
+- 測試：`an_executed_ability_carries_its_id_the_cast_point_at_the_casters_rank_and_whether_it_toggles`；omoba-core lib 全部 1436 通過。
+
 ## 2026-10-30 線 B：召喚物模板 hp_regen／night_vision_radius，有生命的 dummy 可以被打掉
 
 - 召喚物模板新增 `hp_regen`（每秒回血）與 `night_vision_radius`（夜間視野；0 表示日夜都用 `vision_radius`）。`SummonStats` 改帶 `hp_regen` 與 `night_vision_bonus`（夜視減日視），出生時寫成一列永久狀態 `__summon_base`（`dummy_unit::hold_base_stats`），透過既有 BuffStore 聚合生效。

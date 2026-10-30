@@ -169,8 +169,8 @@ fn dispatch_scripts(
     let status_combat: Vec<ScriptEvent> = events.iter().filter(|event| matches!(event,
         ScriptEvent::AttackHit {..} | ScriptEvent::Damage {..})).cloned().collect();
     // status_event ABILITY_EXECUTED: the units whose cast succeeded or who used an item, in order.
-    let mut status_executed: Vec<Entity> = events.iter().filter_map(|event| match event {
-        ScriptEvent::ItemUsed { owner, .. } => Some(*owner), _ => None }).collect();
+    let mut status_executed: Vec<(Entity, String)> = events.iter().filter_map(|event| match event {
+        ScriptEvent::ItemUsed { owner, item_id } => Some((*owner, format!("{}{}", super::event::ITEM_SKILL_PREFIX, item_id))), _ => None }).collect();
     let events:Vec<_>=events.into_iter().map(|event|(event,false))
         .chain(releases.into_iter().map(|event|(event,true))).collect();
     if tagged.is_empty() && events.is_empty() && windups.0.is_empty() && windups.1.is_empty()
@@ -419,7 +419,7 @@ fn dispatch_scripts(
             }
             commit_script_mana(&mut adapter,&cache,&mut cast_heroes);
             let cast_ok = adapter.cast_succeeded();
-            if is_cast && cast_ok { status_executed.push(invocation_entity); }
+            if let Some(skill) = settlement_skill.as_ref().filter(|_| is_cast && cast_ok) { status_executed.push((invocation_entity, skill.clone())); }
             let script_error = adapter.take_script_error();
             if trace_casts && is_cast {
                 if let Some(skill_id) = &settlement_skill {
@@ -957,6 +957,19 @@ fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_
     }
 }
 
+/// The ability an ABILITY_EXECUTED status event is for: its cast point at the rank `caster`
+/// holds (0 for an item or an unknown ability) and whether it toggles.
+fn executed_ability(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, caster: &Entity, id: &str)
+    -> super::parallel_world_adapter::EventAbility {
+    let def = (!id.starts_with(super::event::ITEM_SKILL_PREFIX)).then(|| registry.get_ability(id)).flatten().map(|(def, _)| def);
+    let rank = cache.hero.get(*caster).map_or(0, |hero| hero.get_ability_level(id).clamp(0, i32::from(u8::MAX)) as u8);
+    let cast_point = def.and_then(|def| def.get_level_data(rank.max(1))).map(|level| level.cast_time)
+        .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
+        .map_or(Fixed64::ZERO, |seconds| Fixed64::from_raw((f64::from(seconds) * 1024.0).round() as i64));
+    let toggle = def.is_some_and(|def| def.ability_type == AbilityType::Toggle);
+    super::parallel_world_adapter::EventAbility { id: id.to_owned(), cast_point, toggle }
+}
+
 /// An effect-only hook's outcomes (equip, aura, channel start/pulse/end, delayed effect, schedule,
 /// status event): its effects may create units (原作 timers, pulses and events do; the serial
 /// settlement commits each spawn before the effects after it), but never charge mana, cooldown or a
@@ -976,7 +989,7 @@ fn effect_batch(cache: &ParallelAdapterCache<'_>, outcomes: Vec<crate::comp::Out
 /// event: first this tick's attack hits and damage of their holders (event order, then the
 /// holder's rows in id order), then the rows that left their holders (in the order they left).
 fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, combat: &[ScriptEvent],
-    executed: &[Entity], ordinal_base: u64) {
+    executed: &[(Entity, String)], ordinal_base: u64) {
     use super::super::status_event as se;
     let ended = world.write_resource::<crate::runtime::BuffStore>().drain_status_ended();
     let attacks = se::take_attack_events(world);
@@ -985,7 +998,9 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
         return;
     }
     let damage_kind = |k: &DamageKind| match k { DamageKind::Physical => 0u8, DamageKind::Magical => 1, DamageKind::Pure => 2 };
-    let mut calls: Vec<(Entity, String, se::Spec, u8, Option<Entity>, Fixed64, u8)> = Vec::new();
+    // The last field: the executed ability (an index into `executed`) of an ABILITY_EXECUTED call.
+    let mut calls: Vec<(Entity, String, se::Spec, u8, Option<Entity>, Fixed64, u8, Option<usize>)> = Vec::new();
+    let executing = std::cell::Cell::new(None::<usize>);
     {
         let buffs = world.read_resource::<crate::runtime::BuffStore>();
         let mut on_holder = |holder: Entity, kind: u8, other: Option<Entity>, amount: Fixed64, dk: u8| {
@@ -994,7 +1009,7 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
                 .filter_map(|(id, b)| se::Spec::from_payload(&b.payload).map(|s| (id.to_owned(), s)))
                 .filter(|(_, s)| s.listens(kind)).collect();
             rows.sort_by(|a, b| a.0.cmp(&b.0));
-            for (id, s) in rows { calls.push((holder, id, s, kind, other, amount, dk)); }
+            for (id, s) in rows { calls.push((holder, id, s, kind, other, amount, dk, executing.get())); }
         };
         for event in combat {
             match event {
@@ -1009,7 +1024,11 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
                 _ => {}
             }
         }
-        for caster in executed { on_holder(*caster, se::ABILITY_EXECUTED, None, Fixed64::ZERO, 0); }
+        for (index, (caster, _)) in executed.iter().enumerate() {
+            executing.set(Some(index));
+            on_holder(*caster, se::ABILITY_EXECUTED, None, Fixed64::ZERO, 0);
+            executing.set(None);
+        }
         for seen in &attacks {
             match *seen {
                 se::AttackSeen::Windup { attacker, target } => on_holder(attacker, se::ATTACK_START, target, Fixed64::ZERO, 0),
@@ -1029,7 +1048,7 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     // an end carries the duration the status had left (`status.remaining` of an end trigger)
     for (holder, id, payload, kind, remaining) in ended {
         if let Some(s) = se::Spec::from_payload(&payload).filter(|s| s.listens(kind)) {
-            calls.push((holder, id, s, kind, None, remaining, 0));
+            calls.push((holder, id, s, kind, None, remaining, 0, None));
         }
     }
     if calls.is_empty() {
@@ -1037,12 +1056,13 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     }
     let cache = ParallelAdapterCache::new(&*world, rng_seed);
     let mut accepted = Vec::new();
-    for (ordinal, (holder, row, spec, kind, other, amount, dk)) in calls.into_iter().enumerate() {
+    for (ordinal, (holder, row, spec, kind, other, amount, dk, executed_index)) in calls.into_iter().enumerate() {
         let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
         let handle = ParallelWorldAdapter::entity_to_handle(holder);
         let other = other.map_or(EntityHandle::INVALID, ParallelWorldAdapter::entity_to_handle);
         let event = spec.event(&row, kind, other, amount, dk);
         let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, holder, ordinal_base + ordinal as u64);
+        adapter.event_ability = executed_index.map(|index| executed_ability(&cache, registry, &executed[index].0, &executed[index].1));
         let mut world_dyn = world_dyn_of(&mut adapter);
         let result = catch_unwind(AssertUnwindSafe(|| script.on_status_event(handle, RStr::from_str(&spec.status), event, &mut world_dyn)));
         drop(world_dyn);
@@ -2467,6 +2487,53 @@ mod effect_batch_tests {
     use super::*;
     use crate::comp::{Faction, FactionType, Outcome};
     use specs::WorldExt;
+
+    #[test]
+    fn an_executed_ability_carries_its_id_the_cast_point_at_the_casters_rank_and_whether_it_toggles() {
+        use abi_stable::std_types::RSlice;
+        use omb_script_abi::ext::{event_ability_attr as name, op, ExtArg as A, ExtValue as V};
+        use omb_script_abi::world::GameWorld;
+        use abi_stable::std_types::{RResult, RResult::ROk, RString};
+        use specs::Builder;
+        struct Silent(String);
+        impl omb_script_abi::ability::AbilityScript for Silent {
+            fn ability_id(&self) -> RStr<'_> { RStr::from_str(&self.0) }
+            fn execute(&self, _: EntityHandle, _: omb_script_abi::types::Target, _: u8, _: RStr<'_>,
+                _: &mut omb_script_abi::world::GameWorldDyn<'_>) -> RResult<(), RString> { ROk(()) }
+        }
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        let level = |cast: f32| serde_json::json!({"cooldown": 1, "mana_cost": 0, "cast_time": cast});
+        let def = |id: &str, kind: &str| -> crate::ability_meta::AbilityDef { serde_json::from_value(serde_json::json!({
+            "id": id, "name": id, "ability_type": kind, "target_type": "none", "max_level": 3,
+            "levels": {"1": level(0.25), "2": level(0.5), "3": level(0.75)},
+        })).unwrap() };
+        let mut scripts = crate::runtime::ScriptRegistry::new();
+        for d in [def("strike", "active"), def("stance", "toggle")] {
+            let script = Silent(d.id.clone());
+            scripts.insert_ability_for_test(d, omb_script_abi::ability::AbilityScript_TO::from_value(
+                script, abi_stable::sabi_trait::prelude::TD_Opaque));
+        }
+        let mut hero = crate::comp::Hero::new("h".into(), "h".into(), String::new());
+        hero.ability_levels.insert("strike".into(), 2);
+        let caster = world.create_entity().with(hero).build();
+        let cache = ParallelAdapterCache::new(&world, 1);
+        let strike = executed_ability(&cache, &scripts, &caster, "strike");
+        assert_eq!((strike.cast_point, strike.toggle), (Fixed64::from_raw(512), false), "rank 2: 0.5 s");
+        let stance = executed_ability(&cache, &scripts, &caster, "stance");
+        assert_eq!((stance.cast_point, stance.toggle), (Fixed64::from_raw(256), true), "unlearned reads rank 1");
+        let item = executed_ability(&cache, &scripts, &caster, "item:blink");
+        assert_eq!((item.id.as_str(), item.cast_point, item.toggle), ("item:blink", Fixed64::ZERO, false));
+        let mut adapter = ParallelWorldAdapter::new(&cache, caster);
+        let read = |adapter: &mut ParallelWorldAdapter<'_>, attr: &str|
+            adapter.ext(op::EVENT_ABILITY_ATTR, RSlice::from_slice(&[A::Str(attr.into())])).into_result();
+        assert_eq!(read(&mut adapter, name::ID), Ok(V::None), "outside an on_ability_executed call");
+        adapter.event_ability = Some(strike);
+        assert_eq!(read(&mut adapter, name::ID), Ok(V::Str("strike".into())));
+        assert_eq!(read(&mut adapter, name::CAST_POINT), Ok(V::Num(Fixed64::from_raw(512))));
+        assert_eq!(read(&mut adapter, name::IS_TOGGLE), Ok(V::Bool(false)));
+        assert!(read(&mut adapter, "mana").is_err());
+    }
 
     #[test]
     fn an_effect_hook_may_spawn_and_buff_its_summon_but_a_refused_batch_releases_the_reservation() {

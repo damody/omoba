@@ -150,6 +150,8 @@ pub struct ParallelWorldAdapter<'a> {
     overlay_facing: HashMap<Entity, Angle>,
     overlay_asd_count: HashMap<Entity, Fixed64>,
     projectile_hit_generation: Option<u8>,
+    /// The ability an `on_ability_executed` status event is for (ext EVENT_ABILITY_ATTR).
+    pub(crate) event_ability: Option<EventAbility>,
     projectile_origin: Option<ProjectileOrigin>,
     projectile_source_buffs: Option<BuffStore>,
     projectile_team_key: Option<String>,
@@ -163,6 +165,15 @@ pub struct ParallelWorldAdapter<'a> {
 pub struct ParallelProjectileQuery<'a> {
     cache: &'a ParallelAdapterCache<'a>,
     origin: Option<&'a ProjectileOrigin>,
+}
+
+/// The ability an `on_ability_executed` status event is for: its id (`item:<id>` for an item),
+/// its cast point at the caster's rank, whether it toggles.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct EventAbility {
+    pub id: String,
+    pub cast_point: Fixed64,
+    pub toggle: bool,
 }
 
 impl Drop for ParallelWorldAdapter<'_> {
@@ -572,6 +583,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             allocation_allowed: true,
             allocation_requested: false,
             reserved_entities: Vec::new(),
+            event_ability: None,
         }
     }
 
@@ -1757,6 +1769,16 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                     .filter(|(key, _)| omoba_template_ids::instance_number(key).is_some()
                         && omoba_template_ids::instance_base(key) == runtime_id.as_str()).count());
                 ROk(V::Num(Fixed64::from_i32(i32::try_from(count).unwrap_or(i32::MAX))))
+            }
+            (op::EVENT_ABILITY_ATTR, [A::Str(attr)]) => {
+                use omb_script_abi::ext::event_ability_attr as name;
+                match (&self.event_ability, attr.as_str()) {
+                    (None, name::ID | name::CAST_POINT | name::IS_TOGGLE) => ROk(V::None),
+                    (Some(ability), name::ID) => ROk(V::Str(ability.id.as_str().into())),
+                    (Some(ability), name::CAST_POINT) => ROk(V::Num(ability.cast_point)),
+                    (Some(ability), name::IS_TOGGLE) => ROk(V::Bool(ability.toggle)),
+                    _ => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown event ability attribute {attr}"))),
+                }
             }
             (op::UNIT_ATTR, [A::Unit(unit), A::Str(attr)]) => match self.unit_attr(*unit, attr.as_str()) {
                 Some(value) => ROk(value),
