@@ -208,8 +208,9 @@ impl Cx<'_, '_> {
         let mut profile = DamageProfile::NORMAL;
         if reflection { profile = profile.union(DamageProfile::REFLECTION); }
         if flags.require_source_alive { profile = profile.union(DamageProfile::REQUIRE_SOURCE_ALIVE); }
-        if !flags.require_source_alive && !flags.no_amplify && !extra.hp_removal { profile = profile.union(DamageProfile::SPELL); }
+        if !flags.require_source_alive && !flags.no_amplify && !extra.hp_removal && !extra.no_source_bonuses { profile = profile.union(DamageProfile::SPELL); }
         if extra.hp_removal { profile = profile.union(DamageProfile::HP_REMOVAL); }
+        if extra.no_source_bonuses { profile = profile.union(DamageProfile::NO_SOURCE_BONUSES); }
         if extra.ignore_armor { profile = profile.union(DamageProfile::IGNORE_ARMOR); }
         // The credit, then the trace tag, then the packet (each belongs to what follows it).
         if let Some(credit) = extra.credit.filter(EntityHandle::is_valid) {
@@ -418,15 +419,10 @@ impl Cx<'_, '_> {
     /// `"both"` walks within `radius` of `center`, filtered like [`Cx::enemies_in_circle`]: types,
     /// alive, invulnerable; magic immunity only excludes enemies. In entity id order.
     pub fn units_in_circle(&mut self, center: Vec2, radius: Fixed64, team: &str, select: crate::codegen::Select) -> Vec<EntityHandle> {
-        use crate::codegen::UnitTypes;
         let caster = self.caster;
         let mut units: Vec<EntityHandle> = self.units_in_range(center, radius, caster, team).into_iter()
             .filter(|e| self.alive(*e))
-            .filter(|e| match select.types {
-                UnitTypes::All => true,
-                UnitTypes::NonBuilding => !self.world.is_building(*e),
-                UnitTypes::Heroes => !self.world.is_building(*e) && self.is_hero(*e),
-            })
+            .filter(|e| self.of_types(*e, select.types))
             .filter(|e| select.include_invulnerable || !self.world.has_buff(*e, RStr::from_str("invulnerable")))
             .filter(|e| select.include_hidden || !crate::codegen::hidden_excluded(*e))
             .collect();
@@ -599,6 +595,9 @@ pub struct DmgExtra {
     pub hp_removal: bool,
     /// `flags = { "ignore_armor" }`: physical damage ignores armor.
     pub ignore_armor: bool,
+    /// `flags = { "no_source_bonuses" }`: dealt as a dummy would, without the source's bonuses
+    /// (DamageProfile::NO_SOURCE_BONUSES, line B fa3e6b9f); the kill still credits the source.
+    pub no_source_bonuses: bool,
     /// `credit`: who gets the kill and assist (default: the source).
     pub credit: Option<EntityHandle>,
 }

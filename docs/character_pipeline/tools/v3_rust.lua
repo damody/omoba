@@ -175,6 +175,8 @@ local function status_mask(def)
     local t = STATUS_TRIGGERS[name]
     if t and t[1] ~= 0 and mask & t[1] == 0 then mask = mask + t[1] end
   end
+  -- reapply_if_removed hears its own removal (status_event REMOVED, an end)
+  if def.reapply_if_removed == true and mask & STATUS_TRIGGERS.on_removed[1] == 0 then mask = mask + STATUS_TRIGGERS.on_removed[1] end
   return mask
 end
 -- a trigger written as its action list, or { filter, actions }
@@ -900,7 +902,7 @@ end
 ---------------------------------------------------------------------------
 local STATUS_FIELDS = set({ "id", "runtime_id", "duration", "stacking", "dispel", "visibility", "reveal", "cue", "remove_on",
   "stats", "per_source", "states", "tags", "triggers", "text", "notes", "values", "vars", "absorb", "status_resistance", "aura",
-  "unique_group", "unique_rule", "scope" })
+  "unique_group", "unique_rule", "scope", "reapply_if_removed" })
 
 -- The StatusDef constant of every status; problems per status (states the host does not hold).
 local function emit_statuses(m, root)
@@ -928,8 +930,15 @@ local function emit_statuses(m, root)
     end
     -- triggers: the host calls back the owning ability (status_event); others stay blockers
     local owner, mask = "", status_mask(s)
-    if s.triggers and not runtime_id:match("^attack_orb:") then
-      for _, name in ipairs(sorted_keys(s.triggers)) do
+    -- reapply_if_removed: one row put back with what it had left (a stack count or a second
+    -- independent instance would not be the same status again)
+    if s.reapply_if_removed ~= nil and s.reapply_if_removed ~= true and s.reapply_if_removed ~= false then
+      p[#p + 1] = "status.reapply_if_removed of an expression"
+    elseif s.reapply_if_removed == true and s.stacking ~= "refresh" and s.stacking ~= "keep" and s.stacking ~= "replace" then
+      p[#p + 1] = "status.reapply_if_removed with stacking:" .. (type(s.stacking) == "table" and "stacks" or tostring(s.stacking))
+    end
+    if (s.triggers or s.reapply_if_removed == true) and not runtime_id:match("^attack_orb:") then
+      for _, name in ipairs(sorted_keys(s.triggers or {})) do
         if not trigger_kind(name) then p[#p + 1] = "status_trigger:" .. name end
       end
       local o = m.statuses[id].parent
@@ -1074,12 +1083,14 @@ local ACTION_FIELDS = {
   destroy_trees = set({ "op", "at", "radius" }),
   tether = false, -- shape-checked in Gen:tether
 }
-local SELECTOR_FIELDS = set({ "from", "radius", "shape", "team", "types", "flags", "where", "notes", "limit", "order", "exclude" })
+local SELECTOR_FIELDS = set({ "from", "radius", "shape", "team", "types", "flags", "where", "notes", "limit", "order", "exclude", "relative_to" })
 local SELECT_TYPES = { [""] = "All", all = "All", hero = "Heroes", ["creep+hero+neutral+summon"] = "NonBuilding",
   -- every unit class, buildings included / every non-building class (couriers and wards are units too)
   ["building+creep+hero+neutral+summon"] = "All", ["courier+creep+hero+neutral+summon+ward"] = "NonBuilding",
   -- towers are buildings: every class again
-  ["building+creep+hero+neutral+summon+tower"] = "All" }
+  ["building+creep+hero+neutral+summon+tower"] = "All",
+  -- buildings only / every class but heroes
+  building = "Buildings", ["building+creep+neutral+summon"] = "NonHero" }
 local function types_key(t)
   local names = {}
   for _, n in ipairs(type(t) == "table" and t or {}) do names[#names + 1] = n end
@@ -1716,7 +1727,7 @@ function Gen:action(a, ctx, ind)
     local kinds = { physical = "Physical", magical = "Magical", pure = "Pure" }
     local kind = kinds[a.type]
     if not kind then self:block("action:damage.type:" .. tostring(a.type)); kind = "Pure" end
-    local no_amp, hp_removal, ignore_armor, reflection = false, false, false, false
+    local no_amp, hp_removal, ignore_armor, reflection, no_src = false, false, false, false, false
     for _, f in ipairs(a.flags or {}) do
       if f == "no_amplify" then no_amp = true
       -- line B's damage_reflect_at: the target's statuses see a reflected hit
@@ -1724,20 +1735,22 @@ function Gen:action(a, ctx, ind)
       -- line B's damage_ex_at: life paid as a cost (no shield, no amplification) / armor ignored
       elseif f == "hp_removal" then hp_removal = true
       elseif f == "ignore_armor" then ignore_armor = true
+      -- as a dummy would deal it: none of the source's bonuses (DamageProfile::NO_SOURCE_BONUSES)
+      elseif f == "no_source_bonuses" then no_src = true
       else self:block("action:damage.flags:" .. f) end
     end
     local to = self:value(a.to, ctx, "unit")
     local amount = self:value(a.amount, ctx, "num")
     local who = self.entry and self.entry.def.id or self.trace_owner or "?"
-    if hp_removal or ignore_armor or reflection or a.credit ~= nil then
+    if hp_removal or ignore_armor or reflection or no_src or a.credit ~= nil then
       local credit = a.credit ~= nil and ("Some(" .. self:value(a.credit, ctx, "unit") .. ")") or "None"
       -- another source: line B's damage_ex_from_at
       local from = a.source ~= nil and a.source ~= "self"
       local src = from and line("    let source = " .. self:value(a.source, ctx, "unit") .. ";") or ""
       return line("{") .. line("    let to = " .. to .. ";") .. line("    let amount = " .. amount .. ";") .. src .. line("    let credit = " .. credit .. ";")
-        .. line(string.format("    cx.%s(%s, %s, %sto, amount, DamageKind::%s, Dmg { require_source_alive: %s, no_amplify: %s }, ability_kit::DmgExtra { hp_removal: %s, ignore_armor: %s, credit })?;",
+        .. line(string.format("    cx.%s(%s, %s, %sto, amount, DamageKind::%s, Dmg { require_source_alive: %s, no_amplify: %s }, ability_kit::DmgExtra { hp_removal: %s, ignore_armor: %s, no_source_bonuses: %s, credit })?;",
           reflection and (from and "damage_reflect_from_at" or "damage_reflect_at") or (from and "damage_ex_from_at" or "damage_ex_at"), rust_str(who), rust_str(self.cur_path or "?"), from and "source, " or "", kind, a.require_source_alive ~= false and "true" or "false", no_amp and "true" or "false",
-          tostring(hp_removal), tostring(ignore_armor))) .. line("}")
+          tostring(hp_removal), tostring(ignore_armor), tostring(no_src))) .. line("}")
     end
     if a.source ~= nil and a.source ~= "self" then
       local src = self:value(a.source, ctx, "unit")
@@ -1992,14 +2005,18 @@ function Gen:action(a, ctx, ind)
     local nearest = s.order == "nearest" or s.order == "farthest"
     local farthest = s.order == "farthest"
     local random = s.order == "random"
+    -- relative_to: the point nearest / farthest is measured from (default: `from`)
+    if s.relative_to ~= nil and not nearest then self:block("selector.relative_to without order nearest/farthest") end
+    local origin = s.relative_to ~= nil and nearest and self:value(s.relative_to, ctx, "point") or nil
     local str = line("{") .. line("    let center = " .. from .. ";") .. line("    let radius = " .. radius .. ";")
       .. (exclude and line("    let excluded = " .. exclude .. ";") or "")
+      .. (origin and line("    let origin = " .. origin .. ";") or "")
       .. (team_kind
         and line(string.format("    let %sunits = cx.units_in_circle(center, radius, %s, Select { types: UnitTypes::%s, include_magic_immune: %s, include_invulnerable: %s, include_hidden: %s });",
           (nearest or random) and "mut " or "", rust_str(team_kind), types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false"))
         or line(string.format("    let %sunits = cx.enemies_in_circle(center, radius, Select { types: UnitTypes::%s, include_magic_immune: %s, include_invulnerable: %s, include_hidden: %s });",
           (nearest or random) and "mut " or "", types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false")))
-      .. (nearest and line("    cx.nearest_first(&mut units, center);") or "")
+      .. (nearest and line("    cx.nearest_first(&mut units, " .. (origin and "origin" or "center") .. ");") or "")
       .. (farthest and line("    units.reverse();") or "")
       .. (random and line("    cx.shuffle(&mut units);") or "")
       .. (limit and (line("    let limit = usize::try_from(ability_kit::floor(" .. limit .. ").raw() >> 10).unwrap_or(0);")
@@ -2942,7 +2959,7 @@ local function emit_entry(m, o, opts, status_problems)
   local status_arms = {}
   for _, sd in ipairs(def.statuses or {}) do
     local so = m.statuses[sd.id]
-    if (sd.triggers or sd.aura) and not (sd.runtime_id or ""):match("^attack_orb:") then
+    if (sd.triggers or sd.aura or sd.reapply_if_removed == true) and not (sd.runtime_id or ""):match("^attack_orb:") then
       local begin = {}
       if sd.aura then
         -- cx.self_unit holds the status; cx.caster applied it
@@ -2950,7 +2967,19 @@ local function emit_entry(m, o, opts, status_problems)
         begin[#begin + 1] = "    " .. g:aura_emit(sd.aura, ctx, sd.id, "cx.self_unit", "Some(&super::ids::status::" .. upper(sd.id) .. ")", "false") .. "?;\n"
         auras[#auras + 1] = g:aura_arm(sd.id, sd.aura, so)
       end
-      for _, name in ipairs(sorted_keys(sd.triggers)) do
+      if sd.reapply_if_removed == true then
+        -- removed or dispelled before it ran out (status_event REMOVED; expiry and death are
+        -- other kinds): the same status again from the same applier (cx.caster = event.source,
+        -- at the rank it was applied) for the duration it had left, through apply_status, so
+        -- immunities and immune_to still refuse it; the applier need not be alive
+        local ctx = { owner = so, scope = scope_child(nil), event = false, ended = true }
+        local fname = "st_" .. sd.id .. "_reapply"
+        local again = g:actions({ { op = "apply_status", status = sd.id, to = "self", duration = "status.remaining" } }, ctx, "        ")
+        fns[#fns + 1] = string.format("#[allow(dead_code)]\npub(crate) fn %s(cx: &mut Cx<'_, '_>) -> Res {\n"
+          .. "    if cx.event_amount > Fixed64::ZERO && cx.alive(cx.self_unit) {\n%s    }\n    Ok(())\n}\n", fname, again)
+        status_arms[#status_arms + 1] = { status = sd.id, kind = STATUS_TRIGGERS.on_removed[2][2], fn = fname }
+      end
+      for _, name in ipairs(sorted_keys(sd.triggers or {})) do
         local t = trigger_kind(name)
         if not t then g:block("status_trigger:" .. name)
         else

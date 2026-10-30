@@ -119,6 +119,17 @@ local function statuses_problem(t)
   return nil
 end
 
+-- The unit's mana (full at birth) and mana per second (host unit mana, line B 35a0eaee: 0..100000
+-- and 0..1000; regeneration needs mana).
+local function mana_into(row, stats, num, no)
+  local mana, regen = num(stats.mana, "stats.mana"), num(stats.mana_regen, "stats.mana_regen")
+  if mana and (mana < 0 or mana > 100000) then no("stats.mana " .. mana .. " outside 0..100000") elseif mana and mana > 0 then row.mana = mana end
+  if regen and (regen < 0 or regen > 1000) then no("stats.mana_regen " .. regen .. " outside 0..1000")
+  elseif regen and regen > 0 then
+    if not row.mana then no("stats.mana_regen without mana") else row.mana_regen = regen end
+  end
+end
+
 -- A template with no attack that is a dummy (`ai = "none"` or tag `dummy`): the host's dummy body
 -- (line B ee50b7e7). Its life and defenses (b8a572ea: a dummy with life can be destroyed), vision
 -- and owner rule come from the document.
@@ -132,7 +143,7 @@ local function dummy_rows(doc, t, value)
   local sp = statuses_problem(t); if sp then no(sp) end
   local stats = t.stats or {}
   for _, k in ipairs(sorted(stats)) do
-    if k ~= "hp" and k ~= "hp_regen" and k ~= "armor" and k ~= "magic_resist" then no("stats." .. k .. " on a dummy") end
+    if k ~= "hp" and k ~= "hp_regen" and k ~= "armor" and k ~= "magic_resist" and k ~= "mana" and k ~= "mana_regen" then no("stats." .. k .. " on a dummy") end
   end
   if t.ai ~= nil and t.ai ~= "none" then no("ai:" .. tostring(t.ai) .. " on a dummy") end
   for _, tag in ipairs(t.tags or {}) do if tag ~= "dummy" and tag ~= "summon" then no("tag:" .. tag) end end
@@ -157,6 +168,7 @@ local function dummy_rows(doc, t, value)
     row.hp_regen = num(stats.hp_regen, "stats.hp_regen")
     row.armor = num(stats.armor, "stats.armor")
     row.magic_resistance = num(stats.magic_resist, "stats.magic_resist")
+    mana_into(row, stats, num, no)
     rows[#rows + 1] = row
   end
   local seen, list = {}, {}
@@ -178,7 +190,7 @@ function M.template_rows(doc, t)
   local sp = statuses_problem(t); if sp then no(sp) end
   local stats = t.stats or {}
   for _, k in ipairs(sorted(stats)) do
-    if k ~= "hp" and k ~= "hp_regen" and k ~= "armor" and k ~= "magic_resist" and k ~= "move_speed" then no("stats." .. k) end
+    if k ~= "hp" and k ~= "hp_regen" and k ~= "armor" and k ~= "magic_resist" and k ~= "move_speed" and k ~= "mana" and k ~= "mana_regen" then no("stats." .. k) end
   end
   local attack = t.attack
   if not attack or attack.kind == "none" then no("no attack (the dummy unit type, line B)") attack = {} end
@@ -214,6 +226,7 @@ function M.template_rows(doc, t)
     row.hp_regen = num(stats.hp_regen, "stats.hp_regen")
     row.move_speed = num(stats.move_speed, "stats.move_speed")
     if row.move_speed == nil then no("stats.move_speed missing") end
+    mana_into(row, stats, num, no)
     -- one damage per attack: the host's summons hit for `damage` (the mean of a min/max range,
     -- as unit_overrides does); `$base + $per_level * (caster_hero.level - 1)` is the per owner
     -- level growth the host samples at the spawn
