@@ -187,6 +187,7 @@ local in_group = {}
 for _, hero in ipairs(group) do in_group[hero] = true end
 local summary = { batch = options.batch, group = options.group, heroes = group, not_playable = missing, recipes = {}, abilities = {} }
 local ability_rows = {}
+local item_rows = {}
 for _, r in ipairs(recipes) do
   local row = { name = r.name, matches = 0, finished = 0, group_wins = 0, minutes = {}, failures = {} }
   for _, job in ipairs(jobs) do
@@ -198,6 +199,12 @@ for _, r in ipairs(recipes) do
         row.minutes[#row.minutes + 1] = report.game_seconds / 60
         if report.winner_team == r.group_team then row.group_wins = row.group_wins + 1 end
         for _, hero in ipairs(report.hero_stats or {}) do
+          -- Shop items over every seat (E336): how often each was obtained and used.
+          for id, item in pairs(hero.items or {}) do
+            local row = item_rows[id] or { obtained = 0, used = 0 }
+            item_rows[id] = row
+            row.obtained, row.used = row.obtained + (item.obtained or 0), row.used + (item.used or 0)
+          end
           if in_group[hero.hero] then
             for ability, cast in pairs(hero.casts) do
               local key = hero.hero .. '|' .. ability
@@ -266,6 +273,26 @@ for _, a in ipairs(summary.abilities) do
   if note == 'NEVER CAST' then never = never + 1 end
   md[#md + 1] = ('| %s | %s | %s | %d | %d | %s | %s |'):format(a.hero, a.ability, a.kind, a.inputs, casts, table.concat(results, ', '), note)
 end
+-- Shop items (E336): every item the shop sells, obtained (bought or assembled) and used over all
+-- seats; an item never obtained, or an active item obtained but never used, is flagged.
+local shop_items = {}
+for _, item in ipairs(require('content_builder').new(path.join(b.root, 'scripts', 'lua_data')).include('templates/moba_items.lua')) do
+  if not item.test_only then shop_items[#shop_items + 1] = item end
+end
+table.sort(shop_items, function(x, y) return x.id < y.id end)
+summary.items = {}
+local unused_items = 0
+md[#md + 1] = ''
+md[#md + 1] = '| item | active | obtained | used | note |'
+md[#md + 1] = '|---|---|---|---|---|'
+for _, item in ipairs(shop_items) do
+  local row = item_rows[item.id] or { obtained = 0, used = 0 }
+  local note = row.obtained == 0 and 'NEVER OBTAINED' or (item.active and row.used == 0) and 'NEVER USED' or ''
+  if note ~= '' then unused_items = unused_items + 1 end
+  summary.items[item.id] = { active = item.active ~= nil, obtained = row.obtained, used = row.used }
+  md[#md + 1] = ('| %s | %s | %d | %d | %s |'):format(item.id, item.active and item.active.kind or '', row.obtained, row.used, note)
+end
+json.write(path.join(output, 'report.json'), summary, true)
 if summary.ue then
   md[#md + 1] = ''
   md[#md + 1] = ('UE: exit %d, result UI %s, result screenshot %s, time-boxed %s (%s)'):format(summary.ue.exit_code,
@@ -273,7 +300,8 @@ if summary.ue then
 end
 path.write(path.join(output, 'report.md'), table.concat(md, '\n') .. '\n', true)
 print(table.concat(md, '\n'))
-print(('report: %s (%d castable abilities never cast)'):format(path.join(output, 'report.md'), never))
+print(('report: %s (%d castable abilities never cast, %d shop items never obtained or never used)'):format(
+  path.join(output, 'report.md'), never, unused_items))
 -- A batch where no match finished checked nothing (E332): fail, naming the first match's error.
 local finished = 0
 for _, row in ipairs(summary.recipes) do finished = finished + row.finished end

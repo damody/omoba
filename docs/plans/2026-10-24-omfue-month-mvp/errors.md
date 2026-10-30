@@ -8,7 +8,15 @@
 - **通用修正**：`run_moba_split_local` 新增 `M.build_all`，在取得實機鎖之前、在 repo 建置鎖下建完所有 binary（E301 的一致性不變）。`OMOBA_SOURCES_AS_OF` 改成建置開始的時間（E202），所以等實機鎖期間放回的變更不會讓這局被拒。時限現在只涵蓋鎖內的啟動、對戰和收尾，鎖的持有時間仍在 `--max-seconds` 內（E325）。測試 `run_moba_split_local_test` 檢查建置發生在取鎖之前。
 - **避免**：「一台機器同時只跑一局」的鎖只用來保護實機局本身；不需要這台機器的準備工作（建置）放在鎖外，不要占用鎖的時限。
 
-## E336 （保留）bot 出裝是寫死的五份清單，單體／地點／隊友治療與魔免類主動道具從不使用，報告也沒有道具統計（2026-10-30）
+## E336 bot 出裝是寫死的五份清單，單體／地點／隊友治療與魔免類主動道具從不使用，報告也沒有道具統計（2026-10-30，e187 遊戲模式 session；已放回 live）
+- **現象**：主 session 要求 bot 會買道具、會用主動道具，讓實機局與批次驗收用到 M7 的道具，並在報告列出每件道具的購買與使用次數。原本 `moba_role_match.lua` 的 `item_builds` 是手寫的五個角色清單（只用到十幾件）；bot 執行器（items.rs `choose_active`）只處理自身類主動，吹箭、手裡劍、法書（對敵單體）、炸彈、落石書、點火書（地點範圍）、和泉守兼定（隊友治療）都不會用；只有魔免、沒有其他屬性的道具（看破酒、暗部長靴、仕手能靴）也從不使用；報告沒有任何道具數字。
+- **根因**：出裝與主動使用都按當時已知的少數道具手寫，沒有從道具目錄推導；ItemUse 只送了不帶目標的自身用法。
+- **通用修正**：
+  - 出裝推導（`scripts/lua_data/bot_item_builds.lua`）：讀編譯後的道具條目（moba_items.lua），依 v3 stat_lines、主動的 v3.bot 提示、光環與移速被動把每件道具分成 physical／magic／tank／support／mobility；角色有各自的權重。每個角色取 4 件成品（不是其他道具零件的上架道具）加 1 件消耗品；別的角色已取的道具降分（消耗品降得更多），所以五個角色合起來涵蓋更多商店。每套至少一件有主動的道具。依「組裝需要的格數」由大到小排序，放不進 6 格就捨棄，與 items.rs `validate_feasible` 一致。`moba_role_match.lua` 改用它，沒有道具清單。
+  - 主動使用（omoba-core `moba_match/bots/items.rs`、`bots.rs`）：新增 `choose_targeted_active`／`targeted_input`，在自身類主動之後判斷：隊友治療給射程內血量比例最低、低於防守門檻的友方英雄（含自己）；對敵單體給射程內血量最低的已揭露敵方英雄；地點範圍以射程內、範圍涵蓋最多敵人的敵方英雄為中心。射程與陣營取自道具目錄的 target 規則；ItemUse 帶 entity index 與 life generation，或帶明確的點。自身類的 ApplyModifiers 依 stats 分類：全是 regen → 低血時回復；全是 movespeed → 被威脅且低血時逃跑；其他 → 開戰；有魔法免疫 → 防守時使用。單元測試 `shop_unit_point_and_modifier_actives_choose_disclosed_targets_e333（測試名沿用取號前的暫名）`（bots:: 84 項通過）。
+  - 統計：`moba_headless` 的 hero_stats 每位英雄加 `items`：取得次數（背包裡該道具數量增加：購買或合成）與使用次數（成功使用時產生的 `item:<id>` cast fact）。`verify_m6_batch` 的報告列出所有上架道具的取得／使用次數，從未取得、或有主動卻從未使用的標出來，總數印在最後一行。
+- **實測**（m6item1，伊達政宗、真田幸村、村上義清、淺井長政、阿松，9 局全部結束，6.3～8.1 分鐘）：45 件上架道具有 41 件被取得，取得的主動道具全部有使用（例：點火書 93 次、和泉守兼定 95 次、紅槍 189 次、手裡劍 216 次、吹箭 33 次）。未取得：mana_boots、mana_boots_1、napalm_bomb、sake（沒有角色選到）。第二版加強消耗品的分散，打野改選 sake（原本與 carry 都選 liquor）。
+- **避免**：bot 的選擇（出裝、施法、道具）都從內容資料推導，加新道具不必改 bot；報告要能看出哪些內容從沒被用到。
 
 ## E335 帶 source 的 apply_status 用錯 caster 判斷狀態是否已存在，periodic 每次都重起；同一 tick 兩個施加者各起一條 periodic（2026-10-30，工作線 A）
 

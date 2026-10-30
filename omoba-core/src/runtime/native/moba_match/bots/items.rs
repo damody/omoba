@@ -108,8 +108,21 @@ pub(super) fn choose_active(role: BotRole, builds: &[BotItemBuild], registry: &I
                     < i128::from(observation.health.mhp.raw())*i128::from(policy.channel_below_hp_per_mille)
                 && (crate::runtime::native::recovery_channel::Spec {amount:*amount,duration:*duration,interval:*interval}).valid()
                 =>ActiveItemPriority::ChannelRecovery,
-            // Source modifier actives: stat buffs open a fight; a pure heal/mana item recovers.
-            ActiveEffect::ApplyModifiers {modifiers,..} if !modifiers.is_empty() && attack_opportunity
+            // Source modifier actives (E336): magic immunity defends; a buff that only regenerates
+            // recovers low health, one that only speeds the owner escapes; other buffs open a fight.
+            // A pure heal/mana item recovers.
+            ActiveEffect::ApplyModifiers {magic_immunity,..} if *magic_immunity>Fixed64::ZERO && defend
+                =>ActiveItemPriority::Reduction,
+            ActiveEffect::ApplyModifiers {modifiers,..} if !modifiers.is_empty()
+                && modifier_purpose(modifiers)==ModifierPurpose::Regeneration && !observation.attack_windup
+                && i128::from(observation.health.hp.raw())*1000
+                    < i128::from(observation.health.mhp.raw())*i128::from(policy.defend_below_hp_per_mille)
+                =>ActiveItemPriority::Recovery,
+            ActiveEffect::ApplyModifiers {modifiers,..} if !modifiers.is_empty()
+                && modifier_purpose(modifiers)==ModifierPurpose::Movement && defend && !observation.immobilized
+                =>ActiveItemPriority::Escape,
+            ActiveEffect::ApplyModifiers {modifiers,..} if !modifiers.is_empty()
+                && modifier_purpose(modifiers)==ModifierPurpose::Fight && attack_opportunity
                 && !observation.attack_windup=>ActiveItemPriority::Engage,
             ActiveEffect::ApplyModifiers {modifiers,heal,..} if modifiers.is_empty() && *heal>Fixed64::ZERO && defend
                 =>ActiveItemPriority::Recovery,
@@ -117,6 +130,87 @@ pub(super) fn choose_active(role: BotRole, builds: &[BotItemBuild], registry: &I
         };
         Some((priority,slot))
     }).min().map(|(_,slot)|slot)
+}
+
+/// What a modifier active is for, read from its stats (E336): every stat a regeneration, every
+/// stat a movement speed, or anything else (damage, attack speed, armor...) for a fight.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ModifierPurpose { Regeneration, Movement, Fight }
+
+fn modifier_purpose(modifiers:&[crate::runtime::native::item_modifiers::ItemModifier])->ModifierPurpose {
+    let stats=||modifiers.iter().flat_map(|m|m.stats.iter().map(|(name,_)|name.as_str()));
+    if stats().next().is_some() && stats().all(|name|name.contains("regen")) {ModifierPurpose::Regeneration}
+    else if stats().next().is_some() && stats().all(|name|name.contains("movespeed")) {ModifierPurpose::Movement}
+    else {ModifierPurpose::Fight}
+}
+
+/// The disclosed target of a unit or point active (E336).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ActiveItemTarget { Unit(u64), Point(omoba_sim::Vec2) }
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum TargetedItemPriority { AllyHeal, Offense }
+
+/// Unit and point actives (E336), after the owner's own actives: a heal on the most injured allied
+/// hero in range below the defend threshold; an enemy unit item (damage, control) on the weakest
+/// disclosed enemy hero in range; a point area centred on the disclosed enemy hero in range that
+/// covers the most enemies. Range and team come from the catalog target rule; only disclosed units.
+pub(super) fn choose_targeted_active(role: BotRole, builds: &[BotItemBuild], registry: &ItemRegistry,
+    inventory: &Inventory, own: omoba_sim::Vec2, team: u32, seen: &[super::SeenUnit],
+    observation: &ActiveItemObservation<'_>) -> Option<(usize, ActiveItemTarget)>
+{
+    use crate::runtime::native::item::ActiveEffect;
+    use omoba_sim::Fixed64;
+    let policy=active_policy(role,builds)?;
+    if team==0 || observation.attack_windup
+        || observation.health.hp<=Fixed64::ZERO || observation.health.mhp<=Fixed64::ZERO {return None;}
+    let injured=|u:&super::SeenUnit| u.max_hp_raw>0
+        && i128::from(u.hp_raw)*1000<i128::from(u.max_hp_raw)*i128::from(policy.defend_below_hp_per_mille);
+    let enemy=|u:&&super::SeenUnit| u.team!=team && u.team!=0 && u.hp_raw>0;
+    inventory.items().filter_map(|(slot,item)| {
+        if !item.cooldown_remaining.is_finite() || item.cooldown_remaining!=0.0 {return None;}
+        let config=registry.get(&item.item_id)?;
+        let effect=config.active.as_ref()?;
+        let entry=omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|entry|entry.id==config.id)?;
+        if entry.mana_cost>Fixed64::ZERO && observation.mana.is_some_and(|pool|pool.current()<entry.mana_cost) {return None;}
+        let range=entry.target.range;
+        let reach=|position:omoba_sim::Vec2| range<=Fixed64::ZERO || (position-own).length_squared()<=range*range;
+        match effect {
+            ActiveEffect::UnitHeal {..}=>{
+                let target=seen.iter().filter(|u|u.kind==1 && u.team==team && u.hp_raw>0 && injured(u) && reach(u.position))
+                    .min_by_key(|u|(i128::from(u.hp_raw)*1000/i128::from(u.max_hp_raw),u.canonical_id))?;
+                Some((TargetedItemPriority::AllyHeal,slot,ActiveItemTarget::Unit(target.canonical_id)))
+            }
+            ActiveEffect::UnitHex {..}=>{
+                let target=seen.iter().filter(enemy).filter(|u|u.kind==1 && reach(u.position))
+                    .min_by_key(|u|(u.hp_raw,u.canonical_id))?;
+                Some((TargetedItemPriority::Offense,slot,ActiveItemTarget::Unit(target.canonical_id)))
+            }
+            ActiveEffect::PointNova {radius,..}=>{
+                let hits:Vec<_>=seen.iter().filter(enemy).filter(|u|matches!(u.kind,1|2|3)).collect();
+                let center=hits.iter().filter(|u|u.kind==1 && reach(u.position)).map(|u|{
+                    let covered=hits.iter().filter(|v|(v.position-u.position).length_squared()<=*radius**radius).count();
+                    (std::cmp::Reverse(covered),(u.position-own).length_squared().raw(),u.canonical_id,u.position)
+                }).min_by_key(|(covered,distance,id,_)|(*covered,*distance,*id))?;
+                Some((TargetedItemPriority::Offense,slot,ActiveItemTarget::Point(center.3)))
+            }
+            _=>None,
+        }
+    }).min_by_key(|(priority,slot,_)|(*priority,*slot)).map(|(_,slot,target)|(slot,target))
+}
+
+/// ItemUse for a unit (index and life generation of the disclosed unit) or an explicit point.
+pub(super) fn targeted_input(slot:usize,target:ActiveItemTarget)->Option<crate::runtime::PlayerInput> {
+    let (target_entity,target_generation,target_pos,point_explicit)=match target {
+        ActiveItemTarget::Unit(id)=>(Some(id as u32),Some((id>>32) as u32).filter(|generation|*generation!=0),None,None),
+        ActiveItemTarget::Point(point)=>{
+            let (x,y)=(i32::try_from(point.x.raw()).ok()?,i32::try_from(point.y.raw()).ok()?);
+            (None,None,Some(crate::runtime::Vec2I {x,y}),Some(true))
+        }
+    };
+    Some(crate::runtime::PlayerInput {action:Some(crate::runtime::PlayerInputEnum::ItemUse(crate::game_proto::ItemUse {
+        item_slot:u32::try_from(slot).ok()?,target_pos,target_entity,point_explicit,target_generation,owner_entity:None,owner_generation:None,
+    }))})
 }
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
@@ -233,6 +327,59 @@ mod tests {
     use crate::runtime::native::{comp::ItemInstance, shop::buy_item};
     fn build(items: &[&str]) -> Vec<BotItemBuild> {
         vec![BotItemBuild {role:BotRole::Carry,items:items.iter().map(|s|(*s).into()).collect(),return_to_shop:None,active_use:None}]
+    }
+    /// E336: unit and point shop actives target disclosed units by their catalog rule, and the
+    /// modifier actives are used by what their stats do.
+    #[test]
+    fn shop_unit_point_and_modifier_actives_choose_disclosed_targets_e333() {
+        use omoba_sim::{Fixed64,Vec2};
+        use crate::runtime::CProperty;
+        use super::super::SeenUnit;
+        let registry=ItemRegistry::generated_moba();
+        let health=|hp:i32|CProperty {hp:Fixed64::from_i32(hp),mhp:Fixed64::from_i32(100),
+            msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
+        let full=health(100);
+        let low=health(20);
+        fn observation(health:&CProperty)->ActiveItemObservation<'_> {
+            ActiveItemObservation {health,mana:None,shield_raw:0,next_attack_bonus_raw:0,reduction_active:false,
+                sprint_active:false,immobilized:false,silenced:false,attack_windup:false,attack_range:Fixed64::from_i32(500)}
+        }
+        let unit=|id:u64,x:i32,team:u32,kind:u8,hp:i64|SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
+            team,kind,owner_player_id:0,hp_raw:hp,max_hp_raw:1000,threat:Fixed64::ZERO};
+        let policy=BotActiveItemPolicy {combat_radius:700,defend_below_hp_per_mille:500,restore_below_mana_per_mille:0,channel_below_hp_per_mille:0};
+        let holding=|id:&str|{
+            // Recipe items are assembled through the planner, component by component.
+            let goal=build(&[id]);let mut inventory=Inventory::new();let mut gold=Gold(100_000);
+            while let Some(next)=choose_purchase(BotRole::Carry,&goal,&registry,&inventory,&gold) {buy_item(&registry,&mut inventory,&mut gold,&next).unwrap();}
+            inventory};
+        let mut builds=build(&["blowgun"]);builds[0].active_use=Some(policy);
+        let targeted=|item:&str,seen:&[SeenUnit],health:&CProperty|
+            choose_targeted_active(BotRole::Carry,&builds,&registry,&holding(item),Vec2::ZERO,1,seen,&observation(health));
+        let own=|item:&str,seen:&[SeenUnit],health:&CProperty|
+            choose_active(BotRole::Carry,&builds,&registry,&holding(item),Vec2::ZERO,1,seen,&observation(health));
+        // Enemy unit: the weakest enemy hero in the catalog range (700); creeps and far heroes are not targets.
+        let seen=[unit(5,600,2,1,900),unit(6,650,2,1,400),unit(7,300,2,2,10),unit(8,900,2,1,1)];
+        assert_eq!(targeted("blowgun",&seen,&full),Some((0,ActiveItemTarget::Unit(6))));
+        assert!(targeted("blowgun",&seen[2..3],&full).is_none());
+        // Point area: centred on the enemy hero whose radius covers the most enemies.
+        let seen=[unit(5,100,2,1,900),unit(6,500,2,1,900),unit(7,550,2,2,900),unit(9,520,2,2,900)];
+        assert_eq!(targeted("napalm_bomb",&seen,&full),Some((0,ActiveItemTarget::Point(Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO)))));
+        // Ally heal: the most injured allied hero in range below the defend threshold, the owner included.
+        let seen=[unit(1,0,1,1,450),unit(2,300,1,1,200),unit(3,900,1,1,10),unit(4,100,2,1,10)];
+        assert_eq!(targeted("izuminokami_kanesada",&seen,&full),Some((0,ActiveItemTarget::Unit(2))));
+        assert!(targeted("izuminokami_kanesada",&[unit(2,300,1,1,900)],&full).is_none());
+        // Modifier actives by purpose: magic immunity defends; regeneration recovers low health;
+        // movement escapes a threat at low health.
+        let threat=[unit(5,100,2,1,900)];
+        assert_eq!(own("perceive_wine",&threat,&low),Some(0));
+        assert!(own("perceive_wine",&threat,&full).is_none());
+        assert_eq!(own("the_poketto_of_meiso",&[],&low),Some(0));
+        assert!(own("the_poketto_of_meiso",&[],&full).is_none());
+        assert_eq!(own("sake",&threat,&low),Some(0));
+        // The input names the unit by index and life generation, a point explicitly.
+        let input=targeted_input(2,ActiveItemTarget::Unit((3u64<<32)|17)).unwrap();
+        let Some(crate::runtime::PlayerInputEnum::ItemUse(item))=input.action else {panic!("item use")};
+        assert_eq!((item.item_slot,item.target_entity,item.target_generation,item.point_explicit),(2,Some(17),Some(3),None));
     }
     #[test]
     fn bot_self_cleanse_selector_requires_opt_in_ready_typed_item_and_living_controlled_owner() {

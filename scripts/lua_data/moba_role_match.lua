@@ -21,15 +21,11 @@ for team=1,2 do
       hero=roster[team][entry.role],role=entry.role,lane=entry.lane,bot=true}
   end
 end
--- Shop items only (history_nobu, E155/E169): the engine fixtures moba_* are never bot goals.
--- Stat items plus the source modifier actives (E160) are sold (source-index/item-compare.md).
-local item_builds={
-  {role='top',items={'rations','body_wrap','health_ingot','stable_shield','spear'}},
-  {role='mid',items={'health_ingot','fire_scroll','body_wrap','cursed_katana'}},
-  {role='carry',items={'liquor','cursed_katana','spear','power_ingot','health_ingot'}},
-  {role='support',items={'fire_scroll','the_art_of_war_flame_chapter','body_wrap','stable_shield','lesser_shield','health_ingot'}},
-  {role='jungle',items={'cursed_katana','body_wrap','health_ingot','spear'}},
-}
+-- Item builds derived from the shop catalog by role (E336, bot_item_builds.lua): what each item
+-- gives (stat lines, active hint, aura, movement) weighed per role, final items plus one single-use
+-- item, ordered to assemble inside six slots. No hand-written item list; engine fixtures never sell.
+local item_builds=assert(loadfile(assert(debug.getinfo(1,'S').source:sub(2):match('^(.*)[/\\]'))..'/bot_item_builds.lua'))()
+  .derive((function() local out={} for _,entry in ipairs(roles) do out[#out+1]=entry.role end return out end)())
 for _,build in ipairs(item_builds) do
   build.return_to_shop={min_gold=950,threat_radius=1000}
   -- Owner resources and current disclosed threats only. Mana rule stays off

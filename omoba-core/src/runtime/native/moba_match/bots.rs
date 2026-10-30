@@ -623,6 +623,12 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 inputs.push((slot.player_id,items::active_input(item_slot)));
                 continue;
             }
+            // Unit and point actives on disclosed targets (E336).
+            if let Some(input)=items::choose_targeted_active(assignment.role,&config.item_builds,registry,inventory,
+                own.position,team,seen,&observation).and_then(|(item_slot,target)|items::targeted_input(item_slot,target)) {
+                inputs.push((slot.player_id,input));
+                continue;
+            }
         }
         if let Some(policy)=&config.sustain {
             if let Some(recovery)=sustain::decide_with_mana(policy,properties.get(entity).expect("owner health"),
