@@ -875,7 +875,7 @@ end
 ---------------------------------------------------------------------------
 local STATUS_FIELDS = set({ "id", "runtime_id", "duration", "stacking", "dispel", "visibility", "reveal", "cue", "remove_on",
   "stats", "per_source", "states", "tags", "triggers", "text", "notes", "values", "vars", "absorb", "status_resistance", "aura",
-  "unique_group", "unique_rule" })
+  "unique_group", "unique_rule", "scope" })
 
 -- The StatusDef constant of every status; problems per status (states the host does not hold).
 local function emit_statuses(m, root)
@@ -924,6 +924,11 @@ local function emit_statuses(m, root)
       else family = "unique_group:" .. s.unique_group end
     end
     if s.unique_rule ~= nil and s.unique_rule ~= "max" then p[#p + 1] = "status.unique_rule:" .. tostring(s.unique_rule) end
+    -- scope: "unit" (the default) ends with the unit; hero / permanent outlive the hero's death
+    -- (StatusDef.scope, host status_scope); others (match, item_instance…) wait
+    if s.scope ~= nil and s.scope ~= "unit" and s.scope ~= "hero" and s.scope ~= "permanent" then
+      p[#p + 1] = "status.scope:" .. tostring(s.scope)
+    end
     problems[id] = p
     out[#out + 1] = string.format("\n    pub const %s: StatusDef = StatusDef {\n        id: %s,\n        runtime_id: %s,\n        state_buffs: &[%s],\n        state_payload: &[%s],\n        owner: %s,\n        events: %d,\n        ignore_status_resistance: %s,\n        family: %s,\n        scope: %s,\n    };\n",
       upper(id), rust_str(id), rust_str(runtime_id), table.concat(buffs, ", "), table.concat(payload, ", "), rust_str(owner), mask, tostring(sr == "ignore"), rust_str(family),
