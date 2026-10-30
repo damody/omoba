@@ -27,7 +27,8 @@ end
 
 -- a direction is cast at a point like a vector (the same as generate.lua's TARGET_TYPE); unit_or_point
 -- too: v3_rust.lua lowers it as a point cast (`cx.target_point()`, a unit aims at its position, E338)
-local V3_TARGET_TYPE = { none = "none", unit = "unit", point = "point", direction = "point", vector = "point", unit_or_point = "point" }
+-- a tree target is a point the host snaps to a standing tree's centre (targets_tree, line B E403)
+local V3_TARGET_TYPE = { none = "none", unit = "unit", point = "point", direction = "point", vector = "point", unit_or_point = "point", tree = "point" }
 local CHANNEL_ANCHOR = { none = "self", point = "point", vector = "point", unit = "unit" }
 
 -- A v3 channel (`cast.channel_time`) as the host's pulse channel (omoba-content-model
@@ -139,6 +140,7 @@ function M.ability_row(package, ab, compiled, opts)
     target_type = assert(V3_TARGET_TYPE[target.type], id .. ": unmapped v3 target type " .. tostring(target.type)),
     unit_target = target.type == "unit" and (target.team == "ally" or target.team == "enemy") and target.team or nil,
     pierces_magic_immunity = has(block.ability_flags, "pierce_magic_immune") or nil,
+    targets_tree = target.type == "tree" or nil,
     cast_type = channel and "channeled" or "instant",
     channel = channel,
     charges = charges,

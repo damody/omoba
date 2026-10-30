@@ -505,6 +505,9 @@ function Gen:expr(node, ctx)
     elseif n == "caster_hero" then
       return "{ let c = cx.caster; let o = cx.unit_ref(c, ability_kit::unit_attr::OWNER); if o.is_valid() { o } else { c } }", "unit"
     elseif n == "target" then
+      -- a tree target is the standing tree's centre (the host snaps the cast point to it, E403)
+      local t = self.entry and self.entry.def.target
+      if t and t.type == "tree" then return "cx.target_point()?", "point" end
       return "cx.target_unit()", "unit"
     elseif n == "point" then
       return "cx.target_point()?", "point"
@@ -899,6 +902,10 @@ function Gen:call(node, ctx)
   elseif fn == "position" then
     local p, pt = arg(1)
     return self:point(p, pt), "point"
+  elseif fn == "tree_alive" then
+    -- whether the tree at that point (a tree target's centre) still stands (line B E403)
+    local p, pt = arg(1)
+    return "{ let at = " .. self:point(p, pt) .. "; cx.tree_alive(at) }", "bool"
   elseif fn == "count_in_radius" then
     local c, ct = arg(1)
     local r, rt = arg(2)
@@ -1157,6 +1164,8 @@ local ACTION_FIELDS = {
   clear_state = set({ "op", "var", "on" }),
   stop = set({ "op" }),
   destroy_trees = set({ "op", "at", "radius" }),
+  destroy_tree = set({ "op", "tree" }),
+  regrow_trees = set({ "op" }),
   tether = false, -- shape-checked in Gen:tether
 }
 local SELECTOR_FIELDS = set({ "from", "radius", "shape", "team", "types", "flags", "where", "notes", "limit", "order", "exclude", "relative_to" })
@@ -2732,6 +2741,12 @@ function Gen:action(a, ctx, ind)
     local radius = self:value(a.radius, ctx, "num")
     return line("{") .. line("    let at = " .. at .. ";") .. line("    let radius = " .. radius .. ";")
       .. line("    cx.destroy_trees(at, radius)?;") .. line("}")
+  elseif op == "destroy_tree" then
+    -- that one tree (a tree target's centre) falls at the next tick (line B E403)
+    return line("{") .. line("    let at = " .. self:value(a.tree, ctx, "point") .. ";") .. line("    cx.destroy_tree(at)?;") .. line("}")
+  elseif op == "regrow_trees" then
+    -- every fallen tree of the map stands again at the next tick (line B E403)
+    return line("cx.regrow_trees()?;")
   end
   return ""
 end
@@ -2749,7 +2764,8 @@ local function target_spec(g, target, ability_flags)
   for _, k in ipairs(sorted_keys(target)) do if not allowed[k] then g:block("target." .. k) end end
   local ty = target.type or "point"
   -- unit_or_point: a point, or a unit (its team and class checked, `point` is its position)
-  if ty ~= "unit" and ty ~= "none" and ty ~= "point" and ty ~= "direction" and ty ~= "unit_or_point" then g:block("target.type:" .. ty) end
+  -- tree: a point the host snaps to a standing tree (targets_tree, E403)
+  if ty ~= "unit" and ty ~= "none" and ty ~= "point" and ty ~= "direction" and ty ~= "unit_or_point" and ty ~= "tree" then g:block("target.type:" .. ty) end
   local team = ({ enemy = "Some(TeamRule::Enemy)", ally = "Some(TeamRule::Ally)", both = "Some(TeamRule::Both)" })[target.team or ""]
   if target.team and not team then g:block("target.team:" .. target.team) end
   local types = ({ [""] = { false, false }, all = { false, false }, hero = { true, false }, ["creep+hero"] = { false, true },
