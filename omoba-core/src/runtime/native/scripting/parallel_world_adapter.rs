@@ -55,6 +55,8 @@ pub struct ParallelAdapterCache<'a> {
     gold: Option<ReadStorage<'a, Gold>>,
     /// A team replica's disclosed component bytes per entity (ext IS_VISIBLE_TO reads the enemy sight).
     filtered_components: Option<ReadStorage<'a, crate::runtime::filtered_specs::FilteredComponents>>,
+    /// Worn items (`source_passive_scripts`: their generated passives hear the owner's attacks).
+    inventories: Option<ReadStorage<'a, crate::runtime::Inventory>>,
     /// `game.is_night` this tick (ext GAME_ATTR).
     night: bool,
     /// `game.dt`: this tick's match time step (ext GAME_ATTR).
@@ -112,6 +114,8 @@ impl<'a> ParallelAdapterCache<'a> {
             gold: world.has_value::<specs::storage::MaskedStorage<Gold>>().then(||world.read_storage::<Gold>()),
             filtered_components: world.has_value::<specs::storage::MaskedStorage<crate::runtime::filtered_specs::FilteredComponents>>()
                 .then(||world.read_storage::<crate::runtime::filtered_specs::FilteredComponents>()),
+            inventories: world.has_value::<specs::storage::MaskedStorage<crate::runtime::Inventory>>()
+                .then(||world.read_storage::<crate::runtime::Inventory>()),
             night: super::super::rules::world::is_night(world),
             dt: world.try_fetch::<super::super::comp::DeltaTime>().map_or(Fixed64::ZERO, |dt| dt.0),
             attacks: world.try_fetch::<super::super::rules::attack::AttackRecords>().map(Into::into),
@@ -671,6 +675,24 @@ impl<'a> ParallelWorldAdapter<'a> {
         let mut levels:Vec<_>=hero.ability_levels.iter().filter_map(|(id,rank)|
             u8::try_from(*rank).ok().filter(|rank|*rank>0).map(|rank|(id.clone(),rank))).collect();
         levels.sort();levels
+    }
+    /// The scripts whose passives hear `entity`'s attacks: its learned abilities (`false`) and, once
+    /// per item kind it wears, each worn item's generated script at rank 1 (`true`; the item's own
+    /// ability id, game_processor::item_script_id). An item's passive is the item's, so a retired
+    /// source (a projectile whose owner is gone) carries only its abilities.
+    pub(crate) fn source_passive_scripts(&self,entity:Entity)->Vec<(String,u8,bool)> {
+        let mut rows:Vec<(String,u8,bool)>=self.source_ability_levels(entity).into_iter().map(|(id,rank)|(id,rank,false)).collect();
+        if self.retired_source(entity).is_none() {
+            if let Some(inventory)=self.cache.inventories.as_ref().and_then(|rows|rows.get(entity)) {
+                let mut items:Vec<&'static str>=inventory.items()
+                    .filter_map(|(_,item)|super::super::game_processor::item_script_id(&item.item_id)).collect();
+                items.sort();items.dedup();
+                for script in items {
+                    if !rows.iter().any(|(id,_,_)|id==script) {rows.push((script.to_owned(),1,true));}
+                }
+            }
+        }
+        rows
     }
     fn source_faction(&self, entity:Entity)->Option<&Faction> {
         match self.retired_source(entity) {Some(source)=>source.faction.as_ref(),None=>self.cache.faction.get(entity)}
@@ -3205,6 +3227,28 @@ mod disclosure_query_tests {
             .with(CProperty { hp: Fixed64::from_i32(hp), mhp: Fixed64::from_i32(100), msd: Fixed64::ZERO,
                 def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build()
     }
+    #[test]
+    fn worn_items_join_the_passive_attack_scripts_once_per_kind() {
+        // An item's generated passive (on_attack_hit / on_attack_launch) hears its wearer's attacks
+        // like a learned passive: once per item kind it wears, at rank 1.
+        use crate::runtime::{Hero, Inventory, ItemInstance};
+        let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+            .find_map(|row| super::super::super::game_processor::item_script_id(row.id).map(|script| (row.id, script)))
+            .expect("an item with a generated script");
+        let mut world = super::tests::world_for_adapter_tests();
+        world.register::<Inventory>();
+        let wearer = unit(&mut world, 0, 1, 100);
+        let mut hero = Hero::default();hero.ability_levels.insert("b08_fang_slash".into(), 2);
+        world.write_storage::<Hero>().insert(wearer, hero).unwrap();
+        let mut inventory = Inventory::new();
+        for slot in [0, 3] { inventory.slots[slot] = Some(ItemInstance { item_id: item.0.into(), cooldown_remaining: 0.0 }); }
+        world.write_storage::<Inventory>().insert(wearer, inventory).unwrap();
+        let cache = ParallelAdapterCache::new(&world, 1);
+        let adapter = ParallelWorldAdapter::new(&cache, wearer);
+        assert_eq!(adapter.source_passive_scripts(wearer),
+            vec![("b08_fang_slash".to_owned(), 2, false), (item.1.to_owned(), 1, true)]);
+    }
+
     #[test]
     fn is_visible_to_reads_own_units_and_the_disclosed_enemy_sight_on_a_replica() {
         // E312: a team replica answers v3 is_visible_to(x, u) from what it holds: its own units

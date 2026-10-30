@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30（history-nobu 工作線 B：穿戴中的道具加入被動攻擊迴圈；已放回 live）
+
+- `ParallelWorldAdapter::source_passive_scripts`：學會的技能加上穿戴中的道具（每種道具一次，rank 1，script id 為 `item_script_id`）。on_attack_hit 與 on_attack_launch 的被動迴圈改用它。道具不檢查是否為 Passive；同一個 id 已是學會的技能時不重複呼叫。
+- on_death、on_respawn、on_ability_executed 由線 A 用 passive_marker 與狀態事件處理，host 不需要改。
+- 測試：`worn_items_join_the_passive_attack_scripts_once_per_kind`；omoba-core 1425 項通過。
+
 ## 2026-10-30（history-nobu 工作線 B：action:attack（腳本的立即攻擊）；已放回 live）
 
 - **`perform_attack.rs`**：一次性 envelope `__perform_attack_v1`，放在攻擊者身上，在本批 outcome 中結算成當下的一次命中（原作 PerformAttack）。

@@ -1370,9 +1370,10 @@ fn windup_target_allowed(cache:&ParallelAdapterCache<'_>,def:&crate::ability_met
 fn dispatch_passive_attack_hit(adapter:&mut ParallelWorldAdapter<'_>,registry:&ScriptRegistry,attacker:Entity,victim:Entity) {
     let attacker_handle=ParallelWorldAdapter::entity_to_handle(attacker);
     let victim_handle=ParallelWorldAdapter::entity_to_handle(victim);
-    for (id,rank) in adapter.source_ability_levels(attacker) {
+    // Learned passives and worn items' passives (an item script is the item's, whatever its kind).
+    for (id,rank,item) in adapter.source_passive_scripts(attacker) {
         let Some((definition,script))=registry.get_ability(&id) else{continue;};
-        if definition.ability_type!=AbilityType::Passive || u32::from(rank)>u32::from(definition.max_level) {continue;}
+        if (!item && definition.ability_type!=AbilityType::Passive) || u32::from(rank)>u32::from(if item {definition.max_level.max(1)} else {definition.max_level}) {continue;}
         let mut world_dyn=world_dyn_of(adapter);
         if catch_unwind(AssertUnwindSafe(||script.on_attack_hit(attacker_handle,attacker_handle,victim_handle,rank,&mut world_dyn))).is_err() {
             log::error!("[scripting] panic in passive on-hit {}",id);
@@ -1383,9 +1384,9 @@ fn dispatch_passive_attack_hit(adapter:&mut ParallelWorldAdapter<'_>,registry:&S
 fn dispatch_attack_launch(adapter:&mut ParallelWorldAdapter<'_>,registry:&ScriptRegistry,attacker:Entity,target:Entity) {
     let attacker_handle=ParallelWorldAdapter::entity_to_handle(attacker);
     let target_handle=ParallelWorldAdapter::entity_to_handle(target);
-    for (id,rank) in adapter.source_ability_levels(attacker) {
+    for (id,rank,item) in adapter.source_passive_scripts(attacker) {
         let Some((definition,script))=registry.get_ability(&id) else{continue;};
-        if rank==0 || u32::from(rank)>u32::from(definition.max_level) {continue;}
+        if rank==0 || u32::from(rank)>u32::from(if item {definition.max_level.max(1)} else {definition.max_level}) {continue;}
         let mut world_dyn=world_dyn_of(adapter);
         if catch_unwind(AssertUnwindSafe(||script.on_attack_launch(attacker_handle,target_handle,rank,&mut world_dyn))).is_err() {
             log::error!("[scripting] panic in attack launch hook {}",id);
