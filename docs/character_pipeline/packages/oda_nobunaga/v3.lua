@@ -9,7 +9,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "A25",
-      text = { zh_TW = { name = "織田信長" }, en = { name = "Oda Nobunaga" } },
+      text = { zh_TW = { name = "織田信長", title = "第六天魔王",
+        background = "物理輸出：導雷射出貫穿的雷電，厄災之棘範圍暈眩並強化攻擊，壓切帶來攻速、攻擊力與暴擊；大招深紅障壁淨化並魔法免疫，持續傷害周圍並放出龍捲，天下布武讓擊殺英雄時全隊加速。" }, en = { name = "Oda Nobunaga" } },
       auto_learn = { "a25_tenka_fubu" },
     },
     abilities = {

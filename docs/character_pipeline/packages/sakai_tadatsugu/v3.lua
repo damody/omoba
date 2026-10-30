@@ -10,7 +10,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "A05",
-      text = { zh_TW = { name = "酒井忠次" }, en = { name = "Sakai Tadatsugu" } },
+      text = { zh_TW = { name = "酒井忠次", title = "德川四天王之首",
+        background = "坦克：強悍之力範圍傷害並讓普攻帶短暫暈眩，三河之勇大幅減傷並提高攻速，反擊態勢在累積承傷後反擊周圍；大招誓伐狀只承受指定敵方英雄的傷害，忠之極意讓致命一擊改為假死倒地。" }, en = { name = "Sakai Tadatsugu" } },
       auto_learn = { "a05_loyal_secret" },
     },
     abilities = {

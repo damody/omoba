@@ -136,7 +136,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "C11",
-      text = { zh_TW = { name = "立花宗茂" }, en = { name = "Tachibana Muneshige" } },
+      text = { zh_TW = { name = "立花宗茂", title = "西國無雙",
+        background = "雷擊戰士：雷切化為雷電在敵人之間傳導並燃燒法力，雷之疾提高攻速與移速，雷之眼降下落雷範圍暈眩；大招西國無雙強化屬性、讓普攻燃燒法力，並可化為雷電射向敵人。" }, en = { name = "Tachibana Muneshige" } },
     },
     unit_state = {
       c11_bolting = { type = "bool", init = "false", reveal = "public", scope = "hero",

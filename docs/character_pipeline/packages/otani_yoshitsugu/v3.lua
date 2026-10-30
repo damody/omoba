@@ -10,7 +10,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "A12",
-      text = { zh_TW = { name = "大谷吉繼" }, en = { name = "Otani Yoshitsugu" } },
+      text = { zh_TW = { name = "大谷吉繼", title = "玄能的智將",
+        background = "施法者：智芒乍現推開周圍敵人，玄能通貫提高攻速並回復，為智畏服範圍傷害並緩速，奇計每累積一定次數就強化下一招；大招玄能附體讓技能換成遠距版本，並可射出貫穿的玄滅箭。" }, en = { name = "Otani Yoshitsugu" } },
       auto_learn = { "a12_scheme" },
     },
     unit_state = {

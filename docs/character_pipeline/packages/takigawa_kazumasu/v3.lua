@@ -11,7 +11,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "A32",
-      text = { zh_TW = { name = "瀧川一益" }, en = { name = "Takigawa Kazumasu" } },
+      text = { zh_TW = { name = "瀧川一益", title = "進退皆瀧川",
+        background = "忍者：怨靈飛翔斬躍向目標落地暈眩並可二段施放，忍法．魂連結敵人吸取生命，幽魄刀帶來暴擊並讓單位進入虛空；大招修羅吞世刀斬出擴散刀氣並拉近敵人，斬魂刀把普攻轉為魔法傷害。" }, en = { name = "Takigawa Kazumasu" } },
       auto_learn = { "a32_soul_blade" },
     },
     abilities = {

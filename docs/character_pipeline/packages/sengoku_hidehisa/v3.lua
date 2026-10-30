@@ -8,7 +8,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "A22",
-      text = { zh_TW = { name = "仙石秀久" }, en = { name = "Sengoku Hidehisa" } },
+      text = { zh_TW = { name = "仙石秀久", title = "不屈的焰心",
+        background = "前排戰士：旋焰斬淨化並在魔法免疫中旋轉傷害周圍，焰心鼓動以火焰彈範圍傷害並減速，沸血靈光削弱周圍敵人攻擊並持續灼燒；大招折磨使目標受到的傷害提高並減速。" }, en = { name = "Sengoku Hidehisa" } },
     },
     abilities = {
       -------------------------------------------------------------------------
