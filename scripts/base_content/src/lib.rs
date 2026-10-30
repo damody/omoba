@@ -222,6 +222,8 @@ fn abilities() -> RVec<AbilityDefFFI> {
             // conformance 2026-10-30: 0 differences (208 scenarios A07, B06 0 regressions)
             "a07_shattering_spear" => hero_a07_impl::generated::a07_shattering_spear::ffi(),
             "a07_rouse" => hero_a07_impl::generated::a07_rouse::ffi(),
+            // conformance 2026-10-30: 0 differences
+            "a07_red_thunder" => hero_a07_impl::generated::a07_red_thunder::ffi(),
             "b06_brave_warriors" => hero_b06_impl::generated::b06_brave_warriors::ffi(),
             "b06_flame_fangs" => hero_b06_impl::generated::b06_flame_fangs::ffi(),
             "b29_ground_slam" => hero_b29_impl::generated::b29_ground_slam::ffi(),
