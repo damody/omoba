@@ -1430,6 +1430,12 @@
 - 2026-10-31 工作線 A：9d29384d（E365、E366）與 6abaf6ce：產生器 selector.relative_to、status.reapply_if_removed、damage flag no_source_bonuses、選取類別 building 與英雄以外（kit UnitTypes::Buildings／NonHero、Cx::of_types）；v3_summons 帶召喚物 mana／mana_regen；v3_test_heroes 空欄 ""（A32 的 F 在第 6 欄）；omfue 6f9e723 修 om_codegen 空欄 panic（E377）。影子 conformance A22、A11、C08、B18、A32 0 fail。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
+## 2026-10-31（conformance：E381～E404 放回；live 全跑 39 位 0 fail）
+
+- efdc4728：E381（回魔）、E382（吸收補打）、E386（攻擊觸發傷害）、E388（狀態 stats）、E390（on_learn 冷卻）、E391（動作 duration、引導結束）、E404（被動逐級學習）。新檢查抓到 A34 用錯等級（A E411 已修），以及 B12 光環只套一次（交 A／B）。
+- live 全跑：16380 通過、163 fail，0 退步。全招產生且 0 fail 的 39 位已交給 A。host 缺口的排序已交給 B（periodic due、光環刷新、unit_target_types、settlement 拒絕不留 trace、召喚物圖示、樹目標）。
+- E383：誤用 taskkill /IM cargo.exe 中斷其他線的建置。規則：只能用自己的 task ID 或 PID 停止工作。
+
 ## 2026-10-31（conformance：E367～E375、含 94aadadf／6abaf6ce 的 live 全跑）
 
 - 放回並 commit：E367（a20ca8b4）、E369／E370（e0177c83）、E372／E375（9362a5bc），每次都 0 退步。

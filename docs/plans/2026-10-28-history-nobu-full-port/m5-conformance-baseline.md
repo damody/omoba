@@ -97,6 +97,7 @@ cargo test --release --manifest-path scripts/Cargo.toml -p base_content --lib --
 | C15 | tamako | 249 | 167 | 0 | 82 |
 | **合計** | | **2289** | **1563** | **15 (b)、0 (c)** | **711** |
 
+- **2026-10-31（harness efdc4728；live 含 c78f8fda、065af2ac、c6c670f5）**：103 個測試：16380 通過、163 fail、15 (b)、10658 unsupported。和前一輪相比 0 退步、1386 個 unsupported→pass。全招產生且 0 fail 的有 39 位（名單在共用筆記 conformance-live3-2026-10-31.md）。
 - **2026-10-31（live 含 94aadadf、6abaf6ce；E367～E375 之後）**：103 個測試：14350 通過、147 fail、15 (b)、11848 unsupported。94aadadf 沒有造成退步。全招產生且 0 fail 的 30 位：A01 A02 A05 A07 A12 A15 A16 A18 A22 A23 A25 A26 A32 A34 A35 B01 B04 B06 B08 B27 B29 B30 B35 C05 C11 C14 C15 C17 C20 C24。
 - **2026-10-30（E359、E361、E362）**：103 個測試：13815 通過、220 fail、15 (b)、12310 unsupported，0 退步。A 列出的 22 位全產生英雄中，0 fail 的 14 位：C05、A18、B30、A16、A23、A35、A01、A26、B27、C14、C24、C20、B35、A15。
 - **2026-10-30（M6 第 2～9 批實跑、E351）**：A 把 66 位加成 test_only（cde5ab49）後，103 個測試、26356 個情境：13675 通過、418 fail、15 (b)、12248 unsupported。E351 修正 136 個 missing entry 的推導錯誤，0 退步。剩下的 418 個：F 欄 144（host 5 欄上限，等 B）、item_c06e 10，其餘 257 個依 entry 分列在共用筆記 conformance-m6-batch2-9-first-run.md，交 A／B。
