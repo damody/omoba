@@ -164,7 +164,11 @@ fn channel_delivery_is_closed_bounded_and_matches_its_anchor() {
         ("/extras/wave_count",serde_json::json!([201,60,70])),("/extras/wave_interval",serde_json::json!([1,1,1])),
         ("/extras/wave_radius",serde_json::json!([3000,340,340])),("/levels/0",serde_json::json!({"range":700,"cooldown":90,"mana_cost":200,"cast_time":61})),
         ("/effects/1",serde_json::json!({"kind":"heal_self","amount_key":"wave_damage"})),
+        ("/levels/0/range",serde_json::json!(0.0005)),("/levels/0/range",serde_json::json!(10_001)),
     ];
+    // Range 0: a point or unit anchor at any distance.
+    let mut anywhere=base.clone();for rank in 0..3 {anywhere["levels"][rank]["range"]=0.into();}
+    validate_ability_effects(&parse(&anywhere).unwrap()).unwrap();
     for (pointer,value) in edits {
         let mut bad=base.clone();*bad.pointer_mut(pointer).unwrap()=value;
         assert!(validate_ability_effects(&parse(&bad).unwrap()).is_err(),"{pointer}");
@@ -212,8 +216,9 @@ fn validate_channel_delivery(ability:&AbilityDefinition,delivery:&ChannelDeliver
     if intervals.iter().zip(pulses).any(|(interval,count)|interval*count>MAX_CHANNEL_SECONDS) {return fail("lasts at most 60 seconds");}
     if let Some(key)=&delivery.radius_key {rows(key,0.0,2_000.0)?;}
     if delivery.anchor!=ChannelAnchor::SelfOrigin {
+        // 0 = any distance (like an instant point cast without range); otherwise bounded.
         for level in &ability.levels {
-            if !level.range.is_finite() || level.range<MIN_ABILITY_SCALAR || level.range>10_000.0 {return fail("needs bounded per-rank range");}
+            if !level.range.is_finite() || (level.range!=0.0 && level.range<MIN_ABILITY_SCALAR) || level.range>10_000.0 {return fail("needs bounded per-rank range");}
         }
     }
     let (mut damage,mut slow,mut control)=(0,0,0);

@@ -33,7 +33,7 @@ pub struct Spec {
     pub pulses: u16,
     /// `None` only for a unit anchor: the pulse hits that unit alone.
     pub radius: Option<Fixed64>,
-    /// Cast range for point and unit anchors.
+    /// Cast range for point and unit anchors; 0 = any distance.
     pub range: Fixed64,
 }
 
@@ -190,14 +190,14 @@ fn unit_anchor_live(world: &World, caster: Entity, target: Entity) -> bool {
         }
 }
 
-/// Start admission. Point and unit anchors must be inside cast range now.
+/// Start admission. Point and unit anchors must be inside cast range now (a range of 0 has no limit).
 pub(crate) fn can_start(world: &World, entity: Entity, owner: u32, spec: Spec, anchor: Anchor) -> bool {
     if !spec.valid() || world.read_resource::<GamePause>().is_paused || !live(world, entity, owner) {
         return false;
     }
     let Some(origin) = world.read_storage::<Pos>().get(entity).map(|p| p.0) else { return false };
     if !in_geometry(origin) { return false; }
-    let within = |point: Vec2| (point - origin).length() <= spec.range;
+    let within = |point: Vec2| spec.range == Fixed64::ZERO || (point - origin).length() <= spec.range;
     match (spec.anchor, anchor) {
         (ChannelAnchor::SelfOrigin, Anchor::Origin) => true,
         (ChannelAnchor::Point, Anchor::Point(point)) => in_geometry(point) && within(point),
@@ -425,6 +425,18 @@ mod tests {
         assert!(ability_spec(&def, &rank).is_err(), "anchor must match target type");
         def.host_execution = None;
         assert_eq!(ability_spec(&def, &rank), Ok(None));
+    }
+
+    #[test]
+    fn a_point_anchor_starts_within_its_range_and_anywhere_with_range_zero() {
+        let (world, hero) = fixture();
+        let origin = world.read_storage::<Pos>().get(hero).unwrap().0;
+        let far = Anchor::Point(origin + Vec2::new(Fixed64::from_i32(900), Fixed64::ZERO));
+        let near = Anchor::Point(origin + Vec2::new(Fixed64::from_i32(600), Fixed64::ZERO));
+        assert!(can_start(&world, hero, 7, spec(ChannelAnchor::Point), near));
+        assert!(!can_start(&world, hero, 7, spec(ChannelAnchor::Point), far), "outside 700");
+        let unlimited = Spec { range: Fixed64::ZERO, ..spec(ChannelAnchor::Point) };
+        assert!(unlimited.valid() && can_start(&world, hero, 7, unlimited, far), "range 0 has no limit");
     }
 
     #[test]

@@ -16,6 +16,13 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 工作線 B：引導技能射程 0 = 不限射程（t48）
+
+- 對地點或單位引導的 range == 0 視為不限射程，和沒有射程的 instant 點技能一致（C05 c05_flash_thunder「對任意地點引導」）。
+  - content model `validate_channel_delivery`：放行 0；不是 0 時仍要求介於 1/1024 與 10000 之間。
+  - `ability_channel::can_start`：range 為 0 時不檢查距離。
+- 測試：`a_point_anchor_starts_within_its_range_and_anywhere_with_range_zero`、`channel_delivery_is_closed_bounded_and_matches_its_anchor`。
+
 ## 2026-10-30 工作線 B：召喚物賞金（t47）
 
 - 召喚物模板新增 `bounty_gold`／`bounty_xp`（v3 unit_templates `bounty.gold`／`bounty.xp`），整數，預設 0；SummonStats 與 `SummonedUnit.bounty` 會帶上這兩個值。
