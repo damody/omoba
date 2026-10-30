@@ -2,6 +2,15 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E328 （保留）效能量測整段持 live_match 鎖，超過 10 分鐘上限（e187 perfcmp 17 分鐘；verify_moba_local_baseline 連建置一起持鎖）（2026-10-30）
+
+## E327 v3_test_heroes.lua 在過期的影子 hero_author 上產生，引導技能全被寫成 instant（2026-10-30，工作線 A）
+
+- **現象**：conformance 回報 M6 第 2 批 C05 c05_flash_thunder 有 12 個 fail：施放被判成接受，但沒有扣法力、沒有進冷卻；前搖中死亡也沒有取消。live 上 `tools\lua\lua.exe scripts\v3_test_heroes.lua --check` 回報 out of date。
+- **根因**：2db1dabe 的 templates/v3_test_heroes.lua 是在影子 target/lineA/host 裡產生的。那時影子的 scripts/hero_author 還是舊版，還不會把 `cast.channel_time` 轉成 host 引導列，之後才重新同步。所以 C05 等 3 招引導技能的 cast_type 寫成 instant，產生碼的 on_channel_start／on_channel_end 永遠不會被呼叫。放回時只檢查了 codegen、cargo、UBT，沒有檢查產生檔與產生器是否一致。
+- **通用修正**：從 live 的程式重新產生（3 招變成 channeled）。重產的檔案還沒放回：om_codegen 拒絕 c05_flash_thunder 的「射程 0 引導」（content model：channel needs bounded per-rank range）。這招的文件寫的是對任意地點引導，已請 B 讓引導支援射程 0（不限射程）。
+- **以後如何避免**：產生檔（v3_test_heroes.lua、v3_summons.lua、hero_sources.lua）一律在剛從 live 完整同步的樹上產生，產生器所在的目錄（hero_author、hero_source）也要包含在同步範圍內。已請 gamemode 在 land_to_live／check_live_consistent 加上這些產生器的 `--check`，讓不一致在放回時就失敗。
+
 ## E326 v3 unit_templates 不在內容的召喚物表，產生碼的 create_unit 在執行期失敗（2026-10-30，工作線 A）
 
 - **現象**：C15 爆裂箭換成產生版後，conformance 有 24 個燒傷情境退步（adbd940b）：火焰地帶和燒傷都觀察不到，所有單位身上都沒有這兩個狀態。
