@@ -1057,7 +1057,9 @@ local ACTION_FIELDS = {
 local SELECTOR_FIELDS = set({ "from", "radius", "shape", "team", "types", "flags", "where", "notes", "limit", "order", "exclude" })
 local SELECT_TYPES = { [""] = "All", all = "All", hero = "Heroes", ["creep+hero+neutral+summon"] = "NonBuilding",
   -- every unit class, buildings included / every non-building class (couriers and wards are units too)
-  ["building+creep+hero+neutral+summon"] = "All", ["courier+creep+hero+neutral+summon+ward"] = "NonBuilding" }
+  ["building+creep+hero+neutral+summon"] = "All", ["courier+creep+hero+neutral+summon+ward"] = "NonBuilding",
+  -- towers are buildings: every class again
+  ["building+creep+hero+neutral+summon+tower"] = "All" }
 local function types_key(t)
   local names = {}
   for _, n in ipairs(type(t) == "table" and t or {}) do names[#names + 1] = n end

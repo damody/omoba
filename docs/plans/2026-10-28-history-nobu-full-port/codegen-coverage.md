@@ -1388,7 +1388,6 @@
 | `attr:illusion_damage` | 產生器 | hook 候選 | 0 | 1 | 0 |
 | `attr:is_ready` | 產生器 | 共用 | 0 | 3 | 0 |
 | `attr:is_summon` | 產生器 | hook 候選 | 0 | 1 | 0 |
-| `aura.types:building+creep+hero+neutral+summon+tower` | ability_kit | 共用 | 0 | 3 | 0 |
 | `aura.types:building+creep+neutral+summon` | ability_kit | hook 候選 | 0 | 1 | 0 |
 | `aura.types:building+hero` | ability_kit | hook 候選 | 0 | 1 | 0 |
 | `aura.unique_group` | ability_kit | 共用 | 0 | 4 | 0 |
@@ -1445,7 +1444,6 @@
 | `passive_trigger:on_respawn of an item (no learn marker)` | ability_kit | 共用 | 0 | 2 | 0 |
 | `rust_handler without behavior` | ability_kit | hook 候選 | 0 | 1 | 0 |
 | `selector.exclude_types` | 產生器 | hook 候選 | 0 | 1 | 0 |
-| `selector.types:building+creep+hero+neutral+summon+tower` | 產生器 | 共用 | 0 | 5 | 0 |
 | `selector.types:building+hero+tower` | 產生器 | hook 候選 | 0 | 1 | 0 |
 | `selector.types:creep+neutral+summon` | 產生器 | hook 候選 | 0 | 1 | 0 |
 | `stat:all_stats` | ability_kit | 共用 | 0 | 9 | 0 |
