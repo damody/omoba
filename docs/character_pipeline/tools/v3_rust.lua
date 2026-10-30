@@ -154,6 +154,9 @@ local STATUS_TRIGGERS = {
   on_attack_windup = { 256, { 10 } },
   -- the holder's hit killed event.victim (the packet's credit; omoba-core status_event KILL)
   on_kill = { 512, { 11 } },
+  -- the holder's attack leaves (projectile out / melee strike; line B AttackEvent::Launch);
+  -- event.target is its target
+  on_attack_launch = { 1024, { 12 } },
 }
 M.STATUS_TRIGGERS = STATUS_TRIGGERS
 -- `periodic`, `periodic_2`, ...: every periodic trigger of a status
@@ -2487,10 +2490,10 @@ local ENTRY_EVENTS = set({ "on_cast", "on_toggle_on", "on_toggle_off", "on_learn
   "on_channel_tick", "on_channel_end" })
 local PASSIVE_TRIGGERS = { on_attack_hit = true, on_ability_executed = true, on_respawn = true, on_attack_windup = true, on_created = true,
   on_take_damage = true, on_deal_damage = true, on_attacked_hit = true, on_attacked = true, periodic = true,
-  on_take_damage_pre = true, on_deal_damage_pre = true, on_kill = true }
+  on_take_damage_pre = true, on_deal_damage_pre = true, on_kill = true, on_attack_launch = true }
 -- passive trigger -> status_event mask bit and host kind (the learner's marker listens)
 local PASSIVE_EVENTS = { on_take_damage = { 8, 5 }, on_deal_damage = { 16, 6 }, on_attacked_hit = { 4, 4 }, on_attacked = { 4, 4 },
-  on_attack_windup = { 256, 10 }, on_kill = { 512, 11 },
+  on_attack_windup = { 256, 10 }, on_kill = { 512, 11 }, on_attack_launch = { 1024, 12 },
   on_take_damage_pre = { 32, 7 }, on_deal_damage_pre = { 64, 8 } }
 
 -- the module of an entry the generator does not lower yet: casting it fails with the forms
@@ -2983,6 +2986,8 @@ local function emit_entry(m, o, opts, status_problems)
       [6] = "cx.event_target = event.other; cx.event_amount = event.amount; cx.event_damage_kind = event.damage_kind;",
       [7] = "cx.event_attacker = event.other; cx.event_amount = event.amount; cx.event_damage_kind = event.damage_kind;",
       [8] = "cx.event_target = event.other; cx.event_amount = event.amount; cx.event_damage_kind = event.damage_kind;",
+      [10] = "cx.event_target = event.other; cx.target = Target::Entity(event.other);",
+      [12] = "cx.event_target = event.other; cx.target = Target::Entity(event.other);",
       [11] = "cx.event_target = event.other; cx.event_amount = event.amount; cx.event_damage_kind = event.damage_kind;",
     }
     local arms, pre_arms = {}, {}
