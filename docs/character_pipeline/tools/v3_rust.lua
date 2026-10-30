@@ -160,6 +160,9 @@ local STATUS_TRIGGERS = {
   -- a status's absorb shield took part of a hit / ran out (status.absorb.on_absorb / on_broken,
   -- line B E393): event.other the damage's source, event.amount this hit's absorbed share
   on_absorb = { 2048, { 13 } }, on_broken = { 4096, { 14 } },
+  -- the holder moved (walked, pushed or teleported) since the last status events: event.distance
+  -- is the straight distance (line B E424)
+  on_moved = { 8192, { 16 } },
 }
 -- a status's triggers with its absorb shield's on_absorb / on_broken among them
 local merged_triggers = setmetatable({}, { __mode = "k" })
@@ -636,6 +639,11 @@ function Gen:expr(node, ctx)
       if ctx.event == "channel_tick" and node.name == "tick" then return "cx.event_amount", "num" end
       if ctx.event == "channel_end" and node.name == "interrupted" then return "(cx.event_amount != Fixed64::ZERO)", "bool" end
       self:block("event:" .. node.name .. " of a channel"); return "Fixed64::ZERO", "err"
+    end
+    -- a status's on_moved tells only how far (line B E424)
+    if ot == "event" and ctx.event == "moved" then
+      if node.name == "distance" then return "cx.event_amount", "num" end
+      self:block("event:" .. node.name .. " of a status on_moved"); return "Fixed64::ZERO", "err"
     end
     -- a status's on_ability_executed tells only the skill (line B 94d609ce)
     if ot == "event" and ctx.event == "ability_executed" then
@@ -2221,17 +2229,16 @@ function Gen:action(a, ctx, ind)
       end
       make = "{ let " .. var .. " = " .. make .. ";\n" .. self:actions(list, sub, I .. "    ") .. I .. "    " .. var .. " }"
     end
-    -- limit_per_owner: only the host's summon_owner_cap (omoba-core summon_owner_cap: after the
-    -- cast commits, the earliest live summons of the cast's templates beyond the cap leave). That
-    -- needs the cap to be the content extra `summon_owner_cap` of this very ability, `remove_oldest`,
-    -- and the summon inside the cast itself.
-    local host_cap = false
+    -- limit_per_owner with over_limit remove_oldest: after the spawn, the caster's live summons
+    -- of this template beyond the limit leave, earliest first, when the batch settles (kit
+    -- limit_summons, line B E418; any path: a cast, a delay, a periodic)
     if a.limit_per_owner ~= nil or a.over_limit ~= nil then
-      local ref = type(a.limit_per_owner) == "string" and a.limit_per_owner:match("^%s*%$([%w_]+)%s*$")
-      local d, owner
-      if ref then d, owner = find(self.m, ctx.owner, nil, ref) end
-      host_cap = a.over_limit == "remove_oldest" and d and d.v2_key == "summon_owner_cap" and owner == self.entry and ctx.cast
-      if not host_cap then self:block("action:create_unit.limit_per_owner (no host cap for it)") end
+      if a.limit_per_owner == nil then self:block("action:create_unit.over_limit without limit_per_owner")
+      elseif a.over_limit ~= "remove_oldest" then self:block("action:create_unit.over_limit:" .. tostring(a.over_limit))
+      else
+        make = "{ let u = " .. make .. "; let limit = " .. self:value(a.limit_per_owner, ctx, "num") .. "; cx.limit_summons("
+          .. template .. ", limit)?; u }"
+      end
     end
     -- the host summons for the caster, on its team
     local mine = function(v) return v == nil or v == "caster" or (v == "self" and self.entry) end
@@ -2244,7 +2251,6 @@ function Gen:action(a, ctx, ind)
       s = s .. line("    let count = " .. self:value(a.count, ctx, "num") .. ";")
         .. line('    if count != Fixed64::ONE { return Err("v3: create_unit makes one unit at a time"); }')
     end
-    if host_cap then s = s .. line("    // limit_per_owner: the host's summon_owner_cap of this ability retires the earliest beyond it after the cast commits") end
     s = s .. line("    let at = " .. at .. ";") .. line("    let lifetime = " .. life .. ";")
     if a.as then
       local marker = self:bind(ctx.scope, a.as, "unit")
@@ -3247,7 +3253,7 @@ local function emit_entry(m, o, opts, status_problems)
             local evented = t[2] ~= nil and name ~= "on_removed" and name ~= "on_expired" and name ~= "on_death" and not executed
             local pre = name == "on_take_damage_pre" or name == "on_deal_damage_pre"
             local ended = name == "on_removed" or name == "on_expired" or name == "on_death"
-            local ctx = { owner = so, scope = scope_child(nil), event = executed and "ability_executed" or evented, pre = pre, ended = ended,
+            local ctx = { owner = so, scope = scope_child(nil), event = executed and "ability_executed" or (name == "on_moved" and "moved") or evented, pre = pre, ended = ended,
               windup = name == "on_attack_windup" }
             -- an absorb event names this hit's absorbed share `absorbed` (v3.md §4)
             if name == "on_absorb" or name == "on_broken" then
@@ -3432,6 +3438,7 @@ local function emit_entry(m, o, opts, status_problems)
       [11] = "cx.event_target = event.other; cx.event_amount = event.amount; cx.event_damage_kind = event.damage_kind;",
       [13] = "cx.event_attacker = event.other; cx.event_amount = event.amount;",
       [14] = "cx.event_attacker = event.other; cx.event_amount = event.amount;",
+      [16] = "cx.event_amount = event.amount;",
       [15] = "cx.event_target = event.other; cx.target = Target::Entity(event.other);",
     }
     local arms, pre_arms = {}, {}
