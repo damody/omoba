@@ -69,6 +69,33 @@ local function has(list, v)
   return false
 end
 
+-- `cost.charges` as the host's stored charges (omoba-content-model AbilityCharges): `max` and
+-- `restore` name per-rank values (the row's extras), the uses start full, one per caster;
+-- `on_rank_up = "keep_restart"` is the extras flag the host reads (comp/hero.rs KEEP_COUNT_KEY).
+-- Any other form stops the build rather than lose the rule.
+local function charges_delivery(id, ab, extras, max_level)
+  local ch = ab.cost and ab.cost.charges
+  if ch == nil then return nil end
+  local function key(v, what)
+    local name = type(v) == "string" and v:match("^%s*%$([%w_]+)%s*$")
+    assert(name and extras[name], id .. ": charges." .. what .. " must name a per-rank value, got " .. tostring(v))
+    return name
+  end
+  for k in pairs(ch) do
+    assert(k == "max" or k == "restore" or k == "initial" or k == "scope" or k == "on_rank_up", id .. ": charges." .. tostring(k) .. " has no host form")
+  end
+  local max_key, recharge_key = key(ch.max, "max"), key(ch.restore, "restore")
+  assert(ch.initial == nil or ch.initial == ch.max, id .. ": charges.initial other than max has no host form")
+  assert(ch.scope == nil or ch.scope == "instance", id .. ": charges.scope " .. tostring(ch.scope) .. " has no host form")
+  assert(ch.on_rank_up == nil or ch.on_rank_up == "keep_restart", id .. ": charges.on_rank_up " .. tostring(ch.on_rank_up) .. " has no host form")
+  if ch.on_rank_up == "keep_restart" then
+    local flag = {}
+    for i = 1, max_level do flag[i] = 1 end
+    extras.custom_charges_rank_up_keep_count = flag
+  end
+  return { max_key = max_key, recharge_key = recharge_key }
+end
+
 -- The content row of an ability that only the v3 document has (a test hero's every ability, a
 -- hero's `slot = "sub"` ability that swap_abilities brings in): levels, extras and text from the
 -- compiled document. opts.ue: the row's `ue` table (test heroes are UE native-only).
@@ -86,17 +113,22 @@ function M.ability_row(package, ab, compiled, opts)
     if not M.RESERVED[name] then extras[name] = nums end
   end
   local channel = ab.cast and ab.cast.channel_time ~= nil and channel_delivery(id, ab, extras, block.max_level) or nil
+  local charges = charges_delivery(id, ab, extras, block.max_level)
   return {
     id = id,
     authored_package = package,
     display_name = block.text.zh_TW.name,
     description = compiled.description[id],
-    ability_type = ab.kind == "passive" and "passive" or "active",
+    -- the host's ability type, as the authored rows have it: a toggle is one (its cast toggles,
+    -- event.ability.is_toggle), an ultimate by its tag
+    ability_type = ab.kind == "passive" and "passive" or ab.kind == "toggle" and "toggle"
+      or has(ab.tags, "ultimate") and "ultimate" or "active",
     target_type = assert(V3_TARGET_TYPE[target.type], id .. ": unmapped v3 target type " .. tostring(target.type)),
     unit_target = target.type == "unit" and (target.team == "ally" or target.team == "enemy") and target.team or nil,
     pierces_magic_immunity = has(block.ability_flags, "pierce_magic_immune") or nil,
     cast_type = channel and "channeled" or "instant",
     channel = channel,
+    charges = charges,
     max_level = block.max_level,
     levels = levels,
     extras = extras,

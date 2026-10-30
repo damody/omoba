@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E360 v3 測試英雄的技能列沒有 charges、toggle 記成 active、F 欄沒有座位（2026-10-30，工作線 A）
+
+- **現象**：conformance 第 2～9 批第一次實跑：a17_shrapnel、c25_raid 缺 charges；toggle 技能的 event.ability.is_toggle 一律是 false；F 欄技能（A12、B03、B11、B13、B16、C07 共 144 個情境）都是 missing entry。
+- **根因**：`hero_author/v3.lua` 的 ability_row（v3 測試英雄與 sub 技能用的內容列）只帶 levels、channel、extras，`cost.charges` 沒有轉成 host 的 AbilityCharges。`kind = "toggle"` 和大招一律記成 `active`，和 authored 列（toggle／ultimate）不同。`v3_test_heroes.lua` 只有 Q W E R D 五欄。
+- **通用修正**：ability_row 新增 charges_delivery。`max`／`restore` 必須是逐級數值（extras），轉成 `{ max_key, recharge_key }`；`initial` 必須等於 max，`scope` 必須是 instance，`on_rank_up` 只支援 keep_restart（extras 旗標）。其他寫法會中止產生，不會默默丟掉規則。ability_type 依 kind 和 tag 給 passive／toggle／ultimate／active。v3_test_heroes 支援第 6 欄 F（B f04f942d）；接在空欄後面的欄位（A32 只有 F、沒有 D）host 還沒有對應寫法，列在產生檔開頭的「Not seated」，不會悄悄消失。
+- **以後如何避免**：v3 內容列和 authored 列要帶相同的 host 欄位；新增一個 host 欄位時，兩條路徑都要接上。
+
 ## E359 （保留）conformance：per_source 狀態每個來源一份（C15 爆裂箭灼燒份數）（2026-10-30）
 
 ## E358 （保留）沒有 bot 出裝會取得的上架道具從沒被驗證：批次加道具覆蓋模式（2026-10-30）
