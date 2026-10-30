@@ -208,13 +208,14 @@ fn dispatch_scripts(
     // (caster, skill, Some(code)) rejects one admitted owner input; None settles it.
     let mut cast_outcomes: Vec<(Entity, String, Option<&'static str>)> = Vec::new();
     use super::super::command_outcome as code;
-    // A windup release is not the admitted input; only first-pass casts report.
+    // A windup release is not the admitted input; only first-pass casts report. A refused
+    // release still leaves its test trace row (cast_trace Rejected), never a silent end.
+    let mut refused_releases: Vec<(Entity, String, &'static str)> = Vec::new();
     macro_rules! reject_cast {
         ($outcomes:ident, $event:ident, $releasing:ident, $code:expr) => {{
-            if !$releasing {
-                if let ScriptEvent::SkillCast { caster, skill_id, .. } = &$event {
-                    $outcomes.push((*caster, skill_id.clone(), Some($code)));
-                }
+            if let ScriptEvent::SkillCast { caster, skill_id, .. } = &$event {
+                if !$releasing { $outcomes.push((*caster, skill_id.clone(), Some($code))); }
+                else { refused_releases.push((*caster, skill_id.clone(), $code)); }
             }
             continue;
         }};
@@ -431,10 +432,11 @@ fn dispatch_scripts(
                     }
                 }
             }
-            if is_cast && !cast_ok && !releasing {
+            if is_cast && !cast_ok {
                 if let Some(skill_id) = &settlement_skill {
-                    cast_outcomes.push((invocation_entity, skill_id.clone(),
-                        Some(adapter.cast_rejection().unwrap_or(code::CAST_REJECTED))));
+                    let rejection = adapter.cast_rejection().unwrap_or(code::CAST_REJECTED);
+                    if releasing { refused_releases.push((invocation_entity, skill_id.clone(), rejection)); }
+                    else { cast_outcomes.push((invocation_entity, skill_id.clone(), Some(rejection))); }
                 }
             }
             let produced = adapter.finish();
@@ -476,7 +478,14 @@ fn dispatch_scripts(
                 };
                 CastTraceRow { tick: trace_tick, caster: *caster, ability: ability.clone(), result }
             }).collect::<Vec<_>>();
-            super::super::cast_trace::record(world, trace_rows.into_iter().chain(judged));
+            let released = refused_releases.iter().map(|&(caster, ref ability, code)| {
+                let result = match script_errors.iter().find(|(c, a, _)| *c == caster && a == ability) {
+                    Some((_, _, error)) => R::ScriptError { code, error: error.clone() },
+                    None => R::Rejected(code),
+                };
+                CastTraceRow { tick: trace_tick, caster, ability: ability.clone(), result }
+            }).collect::<Vec<_>>();
+            super::super::cast_trace::record(world, trace_rows.into_iter().chain(judged).chain(released));
         }
         if !cast_outcomes.is_empty() {
             let authoritative = world.try_fetch::<crate::runtime::MobaMatch>().is_some();

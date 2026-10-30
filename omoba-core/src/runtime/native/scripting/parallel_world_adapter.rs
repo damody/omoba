@@ -654,7 +654,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             }
             _=>{self.note_cast_rejection(code::INVALID_TARGET);return false;}
         };
-        if (point-origin).length()>spec.range && anchor!=Anchor::Origin {self.note_cast_rejection(code::OUT_OF_RANGE);return false;}
+        if anchor!=Anchor::Origin && !crate::runtime::native::ability_channel::within_range(&spec,origin,point) {self.note_cast_rejection(code::OUT_OF_RANGE);return false;}
         self.outcomes.push(Outcome::ScriptAbilityChannel {caster,owner,skill_id:skill_id.to_owned(),level,spec,anchor});true
     }
 
@@ -2116,6 +2116,26 @@ mod tests {
         assert_eq!(near("enemy"),Ok(V::Units(vec![e].into())));
         assert_eq!(near("both"),Ok(V::Units(vec![h,e,a].into())));
         assert!(near("nobody").is_err());
+    }
+
+    /// A point channel with range 0 has no range of its own (the cast's targeting bounds it):
+    /// staging admits any distance, as the start (`ability_channel::can_start`) does.
+    #[test]
+    fn a_point_channel_of_range_zero_stages_at_any_distance() {
+        use crate::runtime::native::ability_channel::Spec;
+        let mut world=world_for_adapter_tests();
+        let caster=world.create_entity().with(Pos(Vec2::ZERO)).with(Hero::new("h".into(),"h".into(),"h".into()))
+            .with(PlayerOwner::new(1)).with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,
+                def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        let far=Target::Point(omb_script_abi::types::Vec2::new(Fixed64::from_i32(5000),Fixed64::ZERO));
+        let spec=|range:i32|Spec {anchor:omoba_content_model::ChannelAnchor::Point,interval:Fixed64::ONE,pulses:3,
+            radius:Some(Fixed64::from_i32(200)),range:Fixed64::from_i32(range)};
+        let cache=ParallelAdapterCache::new(&world,1);
+        let mut adapter=ParallelWorldAdapter::new(&cache,caster);
+        assert!(adapter.stage_ability_channel(caster,"c05_flash_thunder",1,&far,spec(0)),"range 0 is unlimited");
+        let mut adapter=ParallelWorldAdapter::new(&cache,caster);
+        assert!(!adapter.stage_ability_channel(caster,"c05_flash_thunder",1,&far,spec(600)));
+        assert_eq!(adapter.cast_rejection(),Some(crate::runtime::native::command_outcome::OUT_OF_RANGE));
     }
 
     #[test]

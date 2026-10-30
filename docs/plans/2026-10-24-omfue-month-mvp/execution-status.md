@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：point 引導 range 0 不限射程（staging 與 start 共用）；釋放時被拒的施放寫入 CastTrace（E350）
+
+- `ability_channel::within_range` 讓 `stage_ability_channel` 和 `can_start` 共用同一條射程規則：range 0 不限射程。修正 C05 c05_flash_thunder 釋放時被判 OUT_OF_RANGE 的問題。
+- 釋放時被拒絕的施放（reject_cast! 與腳本回報失敗）現在會寫一列 CastTrace：`Rejected(code)`，腳本錯誤時是 `ScriptError`。owner 的指令結果不變。
+- 測試：`a_point_channel_of_range_zero_stages_at_any_distance`、`a_refused_windup_release_leaves_a_rejected_trace_row`。
+
 ## 2026-10-30 線 B：scheduled_effect 週期修正為完整 tick 數（E349）
 
 - `scheduled_effect::due` 的到期判定改為 `remaining <= GRACE`，不再預扣 dt。原因是 script dispatch 在 buff_tick 之後執行。修正後 0.25 s 的 periodic／repeat 在 60 Hz 下每 15 tick 觸發一次，在 on_scheduled 裡重排也一樣（之前是 14 tick）。

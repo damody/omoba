@@ -23,7 +23,8 @@ pub enum CastTraceResult {
     Accepted,
     /// A cast point started; the release is a later row.
     WindupStarted,
-    /// Refused with an owner command code (`command_outcome`, e.g. NOT_ENOUGH_MANA).
+    /// Refused with an owner command code (`command_outcome`, e.g. NOT_ENOUGH_MANA), at admission
+    /// or when a windup releases (the owner hears only the former; the trace keeps both).
     Rejected(&'static str),
     /// The script returned `Err`: its classified code and text.
     ScriptError { code: &'static str, error: String },

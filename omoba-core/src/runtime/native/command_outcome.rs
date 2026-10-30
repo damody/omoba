@@ -268,6 +268,10 @@ mod tests {
     }
 
     fn admitted_world_targeted(mana_enabled: bool, mana_cost: f32, refusal: Option<&'static str>, target_type: &str) -> (World, crate::runtime::SimulationDriver) {
+        admitted_world_cast(mana_enabled, mana_cost, refusal, target_type, 0.0)
+    }
+
+    fn admitted_world_cast(mana_enabled: bool, mana_cost: f32, refusal: Option<&'static str>, target_type: &str, cast_time: f32) -> (World, crate::runtime::SimulationDriver) {
         use crate::runtime::{SingleLaneConfig, StateInitializer};
         let pool = StateInitializer::create_thread_pool();
         let mut world = StateInitializer::setup_campaign_ecs_world(&pool);
@@ -282,7 +286,7 @@ mod tests {
             .flat_map(|hero| hero.abilities.iter().filter(|id| !id.is_empty()).cloned()).collect();
         let mut abilities = crate::runtime::ability_runtime::AbilityRegistry::new();
         for id in ids {
-            let level = serde_json::json!({"cooldown": 5, "mana_cost": mana_cost});
+            let level = serde_json::json!({"cooldown": 5, "mana_cost": mana_cost, "cast_time": cast_time});
             let def: crate::ability_meta::AbilityDef = serde_json::from_value(serde_json::json!({
                 "id": id, "name": id, "ability_type": "active", "target_type": target_type, "max_level": 4,
                 "levels": {"1": level, "2": level, "3": level, "4": level},
@@ -316,6 +320,23 @@ mod tests {
     fn hero(world: &World, player_id: u32) -> Entity {
         world.read_resource::<crate::runtime::MobaMatch>().heroes.iter()
             .find(|slot| slot.player_id == player_id).and_then(|slot| slot.entity).unwrap()
+    }
+
+    /// A windup whose release the handler refuses (C05: its channel staged out of range) leaves a
+    /// Rejected trace row with the code; the owner already heard the admission, so no second outcome.
+    #[test]
+    fn a_refused_windup_release_leaves_a_rejected_trace_row() {
+        use crate::game_proto::{player_input::Action, CastAbility};
+        use crate::runtime::native::cast_trace::{CastTrace, CastTraceResult};
+        let (mut world, mut driver) = admitted_world_cast(false, 0.0, Some("ability 'x': point outside cast range"), "none", 0.2);
+        world.insert(CastTrace::default());
+        driver.step(&mut world, []).unwrap();
+        submit(&mut world, &mut driver, 1, 61, Action::CastAbility(CastAbility { ability_index: 0, ..Default::default() }));
+        for _ in 0..20 { driver.step(&mut world, []).unwrap(); }
+        let caster = hero(&world, 1);
+        let rows: Vec<_> = world.read_resource::<CastTrace>().0.iter().filter(|row| row.caster == caster).map(|row| row.result.clone()).collect();
+        assert!(matches!(rows.as_slice(), [CastTraceResult::WindupStarted, CastTraceResult::ScriptError { code: OUT_OF_RANGE, .. }]), "{rows:?}");
+        assert!(world.write_resource::<OwnerCommandOutcomes>().take_for(1).is_empty());
     }
 
     #[test]

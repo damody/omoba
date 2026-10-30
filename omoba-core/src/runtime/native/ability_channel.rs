@@ -191,13 +191,19 @@ fn unit_anchor_live(world: &World, caster: Entity, target: Entity) -> bool {
 }
 
 /// Start admission. Point and unit anchors must be inside cast range now (a range of 0 has no limit).
+/// Whether `point` is within a channel's range from `origin`; a range of 0 is unlimited (the
+/// cast's own targeting bounds it). The cast's staging and the start share it.
+pub(crate) fn within_range(spec: &Spec, origin: Vec2, point: Vec2) -> bool {
+    spec.range == Fixed64::ZERO || (point - origin).length() <= spec.range
+}
+
 pub(crate) fn can_start(world: &World, entity: Entity, owner: u32, spec: Spec, anchor: Anchor) -> bool {
     if !spec.valid() || world.read_resource::<GamePause>().is_paused || !live(world, entity, owner) {
         return false;
     }
     let Some(origin) = world.read_storage::<Pos>().get(entity).map(|p| p.0) else { return false };
     if !in_geometry(origin) { return false; }
-    let within = |point: Vec2| spec.range == Fixed64::ZERO || (point - origin).length() <= spec.range;
+    let within = |point: Vec2| within_range(&spec, origin, point);
     match (spec.anchor, anchor) {
         (ChannelAnchor::SelfOrigin, Anchor::Origin) => true,
         (ChannelAnchor::Point, Anchor::Point(point)) => in_geometry(point) && within(point),

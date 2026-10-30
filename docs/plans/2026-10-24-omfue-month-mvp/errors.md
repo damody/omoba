@@ -10,7 +10,16 @@
 
 ## E351 （保留）conformance：父技能任何動作換入的子技能，與召喚單位自己的技能（2026-10-30）
 
-## E350 （保留）point 引導 range 0 在 stage_ability_channel 被當成射程 0；釋放時被拒的施放沒有 CastTrace（2026-10-30）
+## E350 point 引導 range 0 在 stage_ability_channel 被當成射程 0；釋放時被拒的施放沒有 CastTrace（2026-10-30，工作線 B）
+- **現象**：C05 c05_flash_thunder 的前搖看起來「不釋放」，conformance 只看到 WindupStarted。工作線 A 加 log 確認：tick 10 前搖有釋放並送出 SkillCast，但 pulse channel 的 staging 回報 OUT_OF_RANGE。這個拒絕沒有寫任何 outcome，也沒有 CastTrace。
+- **根因**：
+  1. 62e8eeaf 把 channel 的 range 0 改成不限射程，但只改了 `ability_channel::can_start`。`ParallelWorldAdapter::stage_ability_channel` 仍然用 `length() > spec.range` 判定，range 0 的點引導一律 OUT_OF_RANGE。同一條規則寫在兩個地方。
+  2. 釋放時（releasing）被拒絕的施放，`reject_cast!` 和 `is_cast && !cast_ok && !releasing` 都不記錄。owner 不需要第二個結果，可是 trace 也沒有留下紀錄，於是變成無聲失敗。
+- **通用修正**：
+  - 新增 `ability_channel::within_range(spec, origin, point)`，`can_start` 和 `stage_ability_channel` 都改用它。
+  - 釋放時被拒絕的施放記入 `refused_releases`，CastTrace 寫一列 `Rejected(code)`；腳本錯誤時寫 `ScriptError { code, error }`。owner 的指令結果維持不變。
+  - 測試：`a_point_channel_of_range_zero_stages_at_any_distance`、`a_refused_windup_release_leaves_a_rejected_trace_row`。
+- **避免**：同一條規則只定義一次，所有判定點都呼叫它。任何不讓施放落地的路徑都要留下 trace 紀錄。
 
 ## E349 scheduled_effect 週期少一個 tick：due 在 buff_tick 之後又扣一次 dt（2026-10-30，工作線 B）
 - **現象**：C15 c15e_burn 的 periodic interval 是 0.25 s，60 Hz 下應該每 15 tick 觸發一次，實測 DamageTrace 卻是 38、52、66、80、94，每 14 tick 一次。conformance 因此有 4 個 fail。所有產生碼的 periodic／repeat 都受影響。
