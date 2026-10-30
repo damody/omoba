@@ -3201,6 +3201,9 @@ local function emit_entry(m, o, opts, status_problems)
         status_arms[#status_arms + 1] = { status = sd.id, kind = STATUS_TRIGGERS.on_removed[2][2], fn = fname }
       end
       local sd_triggers = triggers_of(sd) or {}
+      -- every periodic of the row runs on one clock token: a second start_chain would make the
+      -- first periodic's chain look stale (B28E's damage and guard, E335)
+      local chained = false
       for _, name in ipairs(sorted_keys(sd_triggers)) do
         local t = trigger_kind(name)
         if not t then g:block("status_trigger:" .. name)
@@ -3227,9 +3230,12 @@ local function emit_entry(m, o, opts, status_problems)
             g:set_step(step, "`" .. sd.id .. "` periodic", body, true)
             local first = tr.first ~= nil and g:value(tr.first, ctx, "num") or interval
             local args = inst and "[ability_kit::arg_unit(cx.caster), ability_kit::arg_num(Fixed64::from_i32(i32::try_from(cx.event_instance).unwrap_or(0)))]"
-              or "[ability_kit::arg_unit(cx.caster), ability_kit::arg_num(token)]"
+              or "[ability_kit::arg_unit(cx.caster), ability_kit::arg_num(chain_token)]"
+            if not inst and not chained then
+              chained = true
+              begin[#begin + 1] = "    let chain_token = { let holder = cx.self_unit; cx.start_chain(holder, &super::ids::status::" .. upper(sd.id) .. ")? };\n"
+            end
             begin[#begin + 1] = "    {\n        let first = " .. first .. ";\n"
-              .. (inst and "" or ("        let holder = cx.self_unit;\n        let token = cx.start_chain(holder, &super::ids::status::" .. upper(sd.id) .. ")?;\n"))
               .. "        let args = " .. args .. ";\n"
               .. "        let owner = cx.self_unit;\n" .. string.format("        cx.schedule(owner, ID, %d, first, &args)?;\n    }\n", step)
           else
