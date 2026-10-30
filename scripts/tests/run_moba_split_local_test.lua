@@ -46,7 +46,12 @@ do local all={}
   for _,c in ipairs(split.build_commands()) do all[#all+1]=c.exe..' '..table.concat(c.args,' ') end
   all=table.concat(all,'\n')
   assert(all:find('omobab',1,true) and all:find('omoba-client-runtime',1,true) and all:find('--release',1,true),
-    'the split build covers the authority and the client runtime') end
+    'the split build covers the authority and the client runtime')
+  -- E330: the UE frontend is built too, before the Rust binaries, unless a shadow or packaged game runs.
+  local first=split.build_commands({ue_root='D:/UE5.8'})[1]
+  assert(table.concat(first.args,' '):find('build_ue_moba.lua --build-only --ue-root D:/UE5.8',1,true),'the frontend is built first')
+  assert(not table.concat(split.build_commands({},'D:/shadow')[1].args,' '):find('build_ue_moba',1,true),'a shadow project is staged elsewhere')
+  assert(not table.concat(split.build_commands({packaged_game='G'})[1].args,' '):find('build_ue_moba',1,true),'a packaged game has no frontend build') end
 assert(#split.humans(require('moba_role_launch').load_recipe({recipe='scripts/lua_data/moba_two_player.lua',hero_selections={}}))==2)
 -- Netem: each team client enters through its own proxy bind; the authority is untouched.
 local n=split.options({'--netem','wan-80-20-loss1','--netem-seed','7'})

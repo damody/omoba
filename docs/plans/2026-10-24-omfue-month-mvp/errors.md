@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E330 split 子角色一律 --no-build，UE 前端從不重建，內容更新後整局被拒（2026-10-30，history-nobu M6 呈現檢查，工作線 C）
+- **現象**：M6 呈現檢查的 spotlight 佇列中，雜賀孫市、阿市、阿松三局都在 client 啟動時被拒：「launch binaries carry different content: authority content=8434…, renderer bridge=2a07…」。其他 session 在這之前 land 了 lua_data，authority 由 split 父程序重建了，UE 前端的 bridge 卻沒有。
+- **根因**：E286 讓 split 父程序在鎖內建好所有 Rust 二進位、子角色一律 `--no-build`，但父程序的建置清單沒有 UE 前端（codegen、bridge、UBT）。原本由 client 角色裡的 run_moba_role_ue 負責建置前端，改成 `--no-build` 後就沒有任何流程會重建它；內容一更新，每一局都會因內容雜湊不一致被拒。
+- **通用修正**：`run_moba_split_local` 的 `M.build_commands(options, ue_shadow)` 先放 `build_ue_moba.lua --build-only`，再放 authority、script DLL 與 client runtime。整個建置階段持有 repo build lock（同 E301），build_ue_moba 以 token 加入，bridge 與 authority 用同一份內容建置。影子專案（`OM_UE_RUN_BINARIES`，由 stage_ue_shadow stage）與 packaged game 不在這裡建置。`run_moba_split_local_test` 鎖住前端排第一，以及影子／packaged 的例外。
+- **避免**：把建置責任從子流程移到上層時，要逐項對照子流程原本建了哪些產物，前端、bridge、DLL 都算，不能只搬自己正在處理的那幾項。
+
 ## E329 land_to_live 沒檢查產生檔與產生器一致，過期影子產生的 v3_test_heroes.lua 照樣放回（2026-10-30，e187 遊戲模式 session，A 線要求；已放回 live）
 - **現象**：E327：templates/v3_test_heroes.lua 在過期的影子上產生（引導技能被寫成 instant），放回時 codegen、cargo、UBT 都通過，沒有檢查能發現它和目前的產生器不一致。
 - **根因**：land_to_live 只證明候選樹能 codegen 與編譯，不證明受版控的產生檔等於產生器從候選文件產生的結果。

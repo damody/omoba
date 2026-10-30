@@ -148,8 +148,17 @@ end
 -- role alone left the client runtime as it was, and other sessions change shared sources between a
 -- build made beforehand and the launch, so a client refused its stale binary. Under the lock the
 -- sources are checked as of the run start (E202) and the build counts toward --max-seconds (E269).
-function M.build_commands()
-  local commands=require('moba_server_build').commands({profile='release'})
+-- The UE frontend (codegen, bridge, UBT) is built first, like run_moba_role_ue does (E330): with every
+-- role on --no-build nothing rebuilt it, so content landed since the last frontend build gave the
+-- renderer bridge another content hash than the authority and every launch was refused. A shadow
+-- project (OM_UE_RUN_BINARIES, staged by stage_ue_shadow) or a packaged game is not built here.
+function M.build_commands(options,ue_shadow)
+  options=options or {}
+  local commands={}
+  if not options.packaged_game and not ue_shadow then
+    commands[1]={exe=platform.lua_executable,args={path.join(b.root,'scripts','build_ue_moba.lua'),'--build-only','--ue-root',options.ue_root or 'D:/UE5.8'}}
+  end
+  for _,command in ipairs(require('moba_server_build').commands({profile='release'})) do commands[#commands+1]=command end
   commands[#commands+1]={exe='cargo',args={'build','--manifest-path',path.join(b.root,'omoba-client-runtime','Cargo.toml'),
     '--features','compiled-content-only','--release'}}
   return commands
@@ -209,8 +218,12 @@ function M.run(options)
   local child_env=lock:env()
   child_env.OMOBA_SOURCES_AS_OF=tostring(os.time())
   if not options.no_build then
-    for _,command in ipairs(M.build_commands()) do
-      local result=process.run(command.exe,command.args,{cwd=b.root,check=false})
+    -- One repo build lock over the whole build phase (E301): the bridge and the authority are built
+    -- from the same content. build_ue_moba joins it through the token in the environment.
+    local build_lock <close> = require('build_lock').acquire(b.root,'run_moba_split_local build phase')
+    local build_env=build_lock:env()
+    for _,command in ipairs(M.build_commands(options,os.getenv('OM_UE_RUN_BINARIES'))) do
+      local result=process.run(command.exe,command.args,{cwd=b.root,check=false,env=build_env})
       if result.exit_code~=0 then
         io.stderr:write(result.stderr or '')
         lfs.rmdir(root)
