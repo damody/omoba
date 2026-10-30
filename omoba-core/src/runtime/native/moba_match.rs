@@ -1353,7 +1353,11 @@ pub fn validate_single_lane_scripts(
     for id in config.heroes.iter().chain(config.additional_players.iter().map(|p| &p.hero)) {
         let hero_id = omoba_template_ids::hero_by_name(id)
             .ok_or_else(|| err_msg(format!("unknown single-lane hero: {id}")))?;
-        for ability in omoba_template_ids::active_hero_abilities(hero_id) {
+        // An empty slot ("", F without D) holds no ability and has no script.
+        for ability in omoba_template_ids::active_hero_abilities(hero_id)
+            .iter()
+            .filter(|ability| !omoba_content_model::is_empty_ability_slot(ability.as_str()))
+        {
             if scripts.get_ability(ability.as_str()).is_none() {
                 return Err(err_msg(format!(
                     "script registry missing ability {}",
