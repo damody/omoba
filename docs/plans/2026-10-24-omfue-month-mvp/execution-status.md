@@ -79,6 +79,14 @@
   - E286：split 在取得鎖後由父程序一次建好 authority、script DLL 與 client runtime，所有角色都帶 `--no-build`；不再需要鎖外預建或重試。
 - **限制**：只有 content buff 目錄裡有的狀態會送到 UE（目前 78 個）；英雄進 content 後就會自動帶進。
 
+## 2026-10-30 夜（遊戲模式線：nobu 營地清空與重生入鏡、產生 Rust 英雄的 M6 驗收；E290、E294，已放回並 commit）
+
+- **營地清空與重生**（E290）：用既有 recipe 欄位 `showcase.start_level` 新增 `moba_nobu_jungle_check.lua`（nobu、開局 12 級），計畫打己方最弱營地。`target/e187/ue-nobu9`：01:30 打營地、01:39 清空、03:21 重生入鏡。途中修掉 Lua JSON 空物件來回變陣列（moba-config 拒絕 plan）。
+  - 這局在樹重生前被 server 以 `observer-mismatch-after-rebase` 終止：B08 閃斬冷卻副本沒有、A34 冷卻總長權威減半，已交線 B（B 的 E292 已處理前搖 release 的射程重判）。樹重生畫面以 ue-nobu8 07:22 為準。
+- **nobu UE 驗收合計**：兵線、塔、建築、樹（ue-nobu4）；砍樹、樹仍空、樹重生（ue-nobu8）；營地交戰、清空、重生（ue-nobu9）。結算畫面在 quick 地圖驗過（nobu 一局 40 分鐘以上）。
+- **M6 驗收：已換上產生 Rust 的 A07、B06、B08、B29**（`target/e187/m6gen2`，quick、對調、團戰各 3 局）：9 局全部打完，沒有 script error。第一次跑時 A07 奮起、B08 無盡牙從沒施放，原因是 bot 寫死只施放四欄（E294），修正後奮起 71 次、無盡牙 1 次，沒有從沒施放的主動技。
+- commit：5d564474（E290）、本次 E294 與紀錄。
+
 ## 2026-10-30 晚（遊戲模式線：autopilot 指令化、nobu 砍樹與重生入鏡、村上義清兩招、UE 啟動過舊修正；E280、E281、E287，已放回並 commit）
 
 - **autopilot 指令化**（E280）：`--autopilot-plan FILE` 用地圖名詞寫步驟（walk／clear／watch／cast；camp、tree、same、at），Lua 解析成座標，UE autopilot 依序執行，步驟之間照常打兵線。範例 `scripts/autopilot_plans/jungle_trees.lua`。

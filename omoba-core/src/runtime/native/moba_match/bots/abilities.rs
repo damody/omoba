@@ -299,7 +299,8 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
             |BotAbilityIntent::EnemyPoint {..}|BotAbilityIntent::LeapEnemyPoint {..}|BotAbilityIntent::EnemyCone {..}|BotAbilityIntent::EnemyLine {..}|BotAbilityIntent::ApproachEnemyPoint {..}
             |BotAbilityIntent::SummonNearEnemy {..}|BotAbilityIntent::ToggleEngage {..}) {continue;}
         let Some(slot)=hero.abilities.iter().position(|id|id==&policy.ability) else {continue;};
-        if slot>=4 {continue;} // formal PlayerInput exposes exactly four slots
+        // Every slot the authority admits (E294: the fifth, e.g. A07 奮起 / B08 無盡牙, was never cast).
+        if slot>=crate::runtime::HERO_ABILITY_SLOTS {continue;}
         if !hero.can_use_ability(&policy.ability) || !hero.cast_ready(&policy.ability) {continue;}
         let owner_rank=hero.get_ability_level(&policy.ability);
         if !(1..=255).contains(&owner_rank) {continue;}
@@ -901,6 +902,20 @@ mod tests {
             intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}};
         assert_eq!(choose(&[near],&[area], |_|panic!("area is not relocation")).unwrap().ability_index,2);
         assert!(hero.ability_cooldowns.is_empty(),"planning must not reserve cooldown");
+    }
+
+    #[test]
+    fn fifth_slot_is_cast_like_any_other_e294() {
+        let mut hero=Hero::new("asai_nagamasa".into(),"asai_nagamasa".into(),"asai_nagamasa".into());
+        hero.abilities=vec!["b08_fang_slash".into(),"b08_flash_cut".into(),"b08_living_soul".into(),"b08_sky_fang".into(),"b08_endless_fang".into()];
+        hero.ability_levels.insert("b08_endless_fang".into(),1);
+        let policy=BotAbilityPolicy {ability:"b08_endless_fang".into(),intent:BotAbilityIntent::EnemyUnit};
+        assert!(validate_policies(&[policy.clone()]).is_ok());
+        let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
+        let enemy=SeenUnit {canonical_id:(1<<32)|77,position:Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO),
+            team:2,kind:1,owner_player_id:6,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO};
+        let cast=choose_cast(&hero,BotRole::Top,1,Vec2::ZERO,&health,&[enemy],&[policy]).expect("the fifth slot casts");
+        assert_eq!(cast.ability_index,4);
     }
 
     #[test]
