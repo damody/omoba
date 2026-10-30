@@ -37,6 +37,7 @@ local function resolver(doc, t)
   return function(ref, rank)
     if type(ref) == "number" then return ref end
     if type(ref) ~= "string" then return nil, "a " .. type(ref) end
+    if tonumber(ref) then return tonumber(ref) end
     local owner, name = ref:match("^%s*%$([%w_]+)%.([%w_]+)%s*$")
     if not owner then name = ref:match("^%s*%$([%w_]+)%s*$") end
     if not name then return nil, "the expression `" .. ref .. "`" end
@@ -51,12 +52,55 @@ end
 
 local function sorted(t) local k = {} for x in pairs(t) do k[#k + 1] = x end table.sort(k) return k end
 
+-- The shared dummy body (omoba-core dummy_unit.rs STATES: invulnerable, unselectable,
+-- attack_immune, command_restricted, no_healthbar, no_unit_collision) covers the original majia
+-- states; magic_immune adds nothing on a unit no selector takes and no damage reaches, and a
+-- dummy shows no model, so not_on_minimap holds too.
+local DUMMY_STATES = { invulnerable = true, unselectable = true, attack_immune = true, command_restricted = true,
+  no_healthbar = true, no_unit_collision = true, magic_immune = true, not_on_minimap = true,
+  -- unselectable already keeps every spell off it
+  untargetable_by_spells = true }
+
+local function has(list, v) for _, x in ipairs(list or {}) do if x == v then return true end end return false end
+
+-- A template with no attack that is a dummy (`ai = "none"` or tag `dummy`): the host's dummy body
+-- (line B ee50b7e7), with only its vision and owner rule from the document.
+local function dummy_rows(doc, t, value)
+  local problems = {}
+  local function no(what) problems[#problems + 1] = what end
+  local known = { id = true, source_id = true, values = true, text = true, notes = true, provenance = true, quirks = true,
+    max_level = true, attack = true, vision = true, owner_death = true, ai = true, tags = true, passive = true }
+  for _, k in ipairs(sorted(t)) do if not known[k] then no(k .. " on a dummy") end end
+  if t.ai ~= nil and t.ai ~= "none" then no("ai:" .. tostring(t.ai) .. " on a dummy") end
+  for _, tag in ipairs(t.tags or {}) do if tag ~= "dummy" and tag ~= "summon" then no("tag:" .. tag) end end
+  if t.owner_death ~= nil and t.owner_death ~= "persist" and t.owner_death ~= "expire" then no("owner_death:" .. tostring(t.owner_death)) end
+  local p = t.passive or {}
+  for _, k in ipairs(sorted(p)) do if k ~= "reveal" and k ~= "states" then no("passive." .. k .. " on a dummy") end end
+  if p.reveal ~= nil and p.reveal ~= "public" then no("passive.reveal:" .. tostring(p.reveal)) end
+  for _, st in ipairs(p.states or {}) do if not DUMMY_STATES[st] then no("passive.states:" .. st .. " on a dummy") end end
+  local rows = {}
+  for rank = 1, t.max_level or 1 do
+    local vision = t.vision or {}
+    local day = vision.day ~= nil and value(vision.day, rank) or nil
+    local night = vision.night ~= nil and value(vision.night, rank) or nil
+    if (vision.day ~= nil and day == nil) or (vision.night ~= nil and night == nil) then no("vision is not a plain value") end
+    if day and night and day ~= night then no("vision.day differs from vision.night") end
+    rows[#rows + 1] = { id = (t.max_level or 1) > 1 and (t.id .. "_r" .. rank) or t.id, authored_package = doc.__package,
+      display_name = t.text and t.text.zh_TW and t.text.zh_TW.name or t.id,
+      dummy = true, immobile = true, vision_radius = day or night or 0, owner_death = t.owner_death or "persist" }
+  end
+  local seen, list = {}, {}
+  for _, x in ipairs(problems) do if not seen[x] then seen[x] = true; list[#list + 1] = x end end
+  return #list == 0 and rows or {}, list
+end
+
 -- The summon rows of template `t` of document `doc` and the problems that keep it from having any.
 function M.template_rows(doc, t)
   local problems = {}
   local function no(what) problems[#problems + 1] = what end
   local value = resolver(doc, t)
   local ranks = t.max_level or 1
+  if (not t.attack or t.attack.kind == "none") and (t.ai == "none" or has(t.tags, "dummy")) then return dummy_rows(doc, t, value) end
   local known = { id = true, source_id = true, values = true, text = true, notes = true, provenance = true, quirks = true,
     max_level = true, stats = true, attack = true, bounty = true, vision = true, collision_radius = true,
     acquisition_range = true, owner_death = true, ai = true, tags = true, passive = true }
