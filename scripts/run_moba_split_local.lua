@@ -22,6 +22,9 @@ function M.options(args)
     elseif key=='--no-accepted-input-log' then options.no_accepted_inputs=true
     -- M3' ② dev hot reload (scripts/hero_hot_reload.lua --run <authority run dir>).
     elseif key=='--script-hot-reload' then options.script_hot_reload=true
+    -- A measured match (E343): the performance lock is held only while this match holds the
+    -- machine (after the build, inside --max-seconds), never while building or queueing.
+    elseif key=='--performance-lock' then options.performance_lock=true
     elseif key=='--hero' then
       i=i+1
       local value=assert(args[i],'--hero requires PLAYER_ID=HERO')
@@ -49,6 +52,7 @@ function M.options(args)
     assert(options.max_seconds>0,'--max-seconds must be positive')
   end
   assert(#options.netem_outages==0 or options.netem,'--netem-outage requires --netem PROFILE')
+  assert(not options.performance_lock or options.max_seconds,'--performance-lock requires --max-seconds (a measurement is time boxed)')
   -- One live match per machine (E197): how long to wait for another one to end.
   options.wait_live_lock=require('machine_lock').wait_seconds(options.wait_live_lock)
   if options.netem_seed then
@@ -213,6 +217,15 @@ function M.build_all(options)
   return as_of
 end
 
+-- The performance lock of a measured match (E343): holds as long as the match's processes run,
+-- at most the box (grace before the first process is attached).
+M.PERFORMANCE_WAIT_S=120
+function M.acquire_performance(root,options)
+  return require('machine_lock').acquire(b.root,'performance',{run=root,label='run_moba_split_local measured match',
+    wait_seconds=math.min(M.PERFORMANCE_WAIT_S,options.max_seconds//2),grace_seconds=options.max_seconds,
+    wait_flag='(another measurement holds it; rerun later)'})
+end
+
 function M.run(options)
   -- Built before waiting for the machine (E337); without a build, the sources as of the match start.
   local sources_as_of=not options.no_build and M.build_all(options) or nil
@@ -233,6 +246,9 @@ function M.run(options)
     wait_seconds=options.wait_live_lock or 0})
   if not acquired then lfs.rmdir(root);error(lock,0) end -- the refused run leaves no directory behind
   local held <close> = lock
+  -- E343: taken after the live lock and released with it, so the measurement holds it only for
+  -- this match; a short wait for another measurement to end counts toward the box.
+  local measured <close> = options.performance_lock and M.acquire_performance(root,options) or nil
   -- The time box covers the whole lock hold, startup and shutdown included (E269, E325): play ends
   -- at the retire deadline so --max-seconds 600 frees the machine within ten minutes. The build
   -- happened before the lock (E337).
@@ -246,6 +262,7 @@ function M.run(options)
     local _,record=process.spawn_owned(platform.lua_executable,args,{cwd=b.root,stdout=log,stderr=log,env=child_env})
     record=process.validate_owned(record);record.label=label;record.log=log
     lock:attach(record,label)
+    if measured then measured:attach(record,label) end
     children[#children+1]=record
     path.write(path.join(root,'children.json'),json.encode(children),true)
     return record,log
@@ -331,7 +348,7 @@ end
 
 if arg and arg[0] and arg[0]:match('run_moba_split_local%.lua$') then
   if arg[1]=='--help' then
-    print('Usage: tools/lua/lua.exe scripts/run_moba_split_local.lua [--recipe FILE] [--hero PLAYER_ID=HERO (repeatable)] [--autopilot PROFILE] [--netem PROFILE [--netem-seed N] [--netem-outage TEAM:AT_S:DURATION_S (repeatable)]] [--no-build] [--ue-root PATH] [--port 57061] [--output NEW_DIRECTORY] [--wait-live-lock SECONDS]')
+    print('Usage: tools/lua/lua.exe scripts/run_moba_split_local.lua [--recipe FILE] [--hero PLAYER_ID=HERO (repeatable)] [--autopilot PROFILE] [--netem PROFILE [--netem-seed N] [--netem-outage TEAM:AT_S:DURATION_S (repeatable)]] [--no-build] [--ue-root PATH] [--port 57061] [--output NEW_DIRECTORY] [--wait-live-lock SECONDS] [--performance-lock]')
     print('--netem routes each team client through omoba-netem-proxy (e.g. wan-80-20-loss1 = 80 ms +/-20 ms RTT, 1% loss); one human per team.')
     print('--netem-outage drops all traffic of one team both ways for DURATION_S seconds, AT_S seconds after every client is admitted (e.g. 1:120:10).')
     print('Runs the same-machine B+C+C topology: one --server-only authority and one --connect client per human seat, with shared host totals and staggered renderer start.')

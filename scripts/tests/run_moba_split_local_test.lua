@@ -103,6 +103,20 @@ do
   assert(split.shutdown_wait_ms(605000,601000,15000)==0,'past the deadline a child is terminated without waiting')
   assert(split.shutdown_wait_ms(0,nil,15000)==15000,'without a box the usual bounded wait applies')
 end
+-- E343: a measured match takes the performance lock only after the build and the live lock,
+-- releases it with the live lock, and is always time boxed.
+do
+  local o=split.options({'--performance-lock','--max-seconds','600','--no-build'})
+  assert(o.performance_lock and o.max_seconds==600)
+  assert(not pcall(split.options,{'--performance-lock'}),'a measurement needs --max-seconds')
+  local f=assert(io.open('scripts/run_moba_split_local.lua','rb'));local text=f:read('a');f:close()
+  local run=assert(text:find('function M.run(options)',1,true))
+  local build=assert(text:find('M.build_all(options)',run,true))
+  local live=assert(text:find("machine_lock').acquire",run,true))
+  local perf=assert(text:find('M.acquire_performance(root,options)',run,true))
+  assert(build<live and live<perf,'performance lock after the build and the live lock')
+  assert(split.PERFORMANCE_WAIT_S<=300,'the wait for another measurement stays well inside the box')
+end
 -- E337: the build runs before the live lock, so the frontend build never uses the time box.
 do
   local f=assert(io.open('scripts/run_moba_split_local.lua','rb'));local text=f:read('a');f:close()

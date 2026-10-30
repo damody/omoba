@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E343 效能量測的 performance 鎖包住建置、等實機鎖與非量測局，擋住 conformance 與其他建置（2026-10-30，history-nobu M6 UE 效能，工作線 C）
+- **現象**：工作線 C 量測 1＋9 quick demo 的 UE frame time 時，用一個 wrapper 在 `run_moba_split_local` 外面先取得 performance 鎖再開局。這把鎖從 17:41 一路持有：先是 demo1，18:06 換到 demo2，demo2 又持有 16 分鐘。demo1 只跑了 20 秒（被 observer mismatch 中止）；demo2 一直在等建置鎖和實機鎖（實機鎖當時由道具 spotlight 持有），根本沒開始量測。這段期間 conformance 的全量比對和線 A 的 release 建置都被擋住。demo1 的鎖結束後還沒釋放，因為 wrapper 用 `os.exit` 結束，沒有執行 `<close>`。
+- **根因**：performance 鎖由呼叫端包住整個 split，涵蓋了建置、等實機鎖、局前準備，甚至別人的局。E328 已規定鎖只包實際量測那一段，但 split 沒有讓鎖只持有在量測局內的選項，呼叫端只好自己從外面包。另外，Lua 的 `os.exit(code)` 不會關閉 to-be-closed 變數，所以鎖沒有被釋放。
+- **通用修正**：`run_moba_split_local --performance-lock`（必須搭配 `--max-seconds`）會在建置完成、取得實機鎖之後才取 performance 鎖，等其他量測最多 120 秒，而且算在時限內。這把鎖和實機鎖一起釋放，局裡的子程序也掛在它下面，所以從取鎖到釋放不會超過 `--max-seconds`。量測不再由外面的 wrapper 包。被佔住的兩把鎖已用原持有者的 token，透過 machine_lock API 正常釋放（history 有 released 紀錄）。測試 `run_moba_split_local_test` 檢查取鎖順序依序是建置、實機鎖、performance 鎖，也檢查沒有 `--max-seconds` 時會拒絕。
+- **避免**：需要持有機器鎖的流程，鎖要由啟動局的程式在局內取得，不要由呼叫端從外面包住整個流程。持有 `<close>` 鎖的 Lua 程式要結束時，用 `os.exit(code, true)` 或直接從 main 回傳。
+
 ## E341 summons.lua 第二個呼叫欄位把 authored 召喚物截成一列；v3_summons --check 沒有執行（2026-10-30，工作線 A）
 
 - **現象**：c15_hundred_arrows 從 6a19d48d 之後 12 個 conformance fail，前搖開始了卻一直沒有釋放。B 在 worktree 二分到 3bbdbdf6（過）與 c1c6a23e（不過）之間，指向 25359716。
