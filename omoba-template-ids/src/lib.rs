@@ -1435,6 +1435,9 @@ pub struct SummonStats {
     /// Flies for its whole life (原作 DOTA_UNIT_CAP_MOVE_FLY, v3 unit_template `flying`): terrain
     /// and trees block neither its movement nor its sight (omoba-core state `flying`, E397).
     pub flying: bool,
+    /// Blocks pathing as public geometry (v3 unit_template `blocks_pathing`, omoba-core
+    /// unit_blockers, E426): an immobile square of half side `collision_radius`.
+    pub blocks_pathing: bool,
     /// v3 `ai = "chase_target"` (E406): the host moves it (omoba-core summon_chase); None for
     /// every other summon.
     pub chase: Option<&'static SummonChaseConst>,

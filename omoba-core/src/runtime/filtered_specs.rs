@@ -1211,6 +1211,9 @@ impl SpecsDisclosedWorldStepper {
             .map(|event| event.sanitized_payload.as_slice()).collect();
         crate::runtime::native::tree_cut::apply_disclosed(&self.filtered.world, &hud)
             .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+        // Pathing blockers disclosed for this step (E426), after the trees.
+        crate::runtime::native::unit_blockers::apply_disclosed(&self.filtered.world, &hud)
+            .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
         let gameplay_active = fixed_raw != 0;
         self.filtered
             .world

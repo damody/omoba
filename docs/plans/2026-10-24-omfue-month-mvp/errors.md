@@ -2,6 +2,20 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E427 （保留）bot_auto_policies 的 summon_near_enemy 只接受 point：不需目標的召喚推導不出政策（E419 只改了 executor）（2026-10-31）
+
+## E426 召喚物無法擋路：b22_natural_barrier、b24_earth_prison 的岩石只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 回報原作 B22 屏障岩石、B24T 禁錮岩石是會擋住 GridNav 的建築召喚物。v3 沒有 host 能力，兩招只能擋下。
+- **根因**：英雄、小兵、召喚物的導航只和公開的靜態 `BlockedRegions` 碰撞（`path_hits_regions`），召喚物不在其中。
+- **通用修正**：
+  - 新增 unit_template 欄位 `blocks_pathing`。驗證規則：必須 immobile，`collision_radius` 在 1..=512（正方形的半邊長），不可有 chase。
+  - 新增 `unit_blockers`：authority 每步前比對「存活、不動、blocks_pathing 的召喚物」與 regions 中的 `blocker_<x>_<y>_<r>` 正方形。
+  - 有差異時，依正規順序重組 regions（地形與樹之後），每個變化發一個公開 pre-step HUD fact 給所有隊伍。
+  - replica 在同一步開始時套用（`apply_disclosed`），所有端從同一 tick 走同樣的地形。
+  - 樹的重建保留 blocker（`keep`）；`cut_set_of` 忽略它們；中途加入的地形檢查以正規方式重組後比對。
+- **驗證**：`unit_blockers` 測試涵蓋 pack/unpack、compose/current 往返、擋路、authority 揭露與 replica 一致、樹的讀取不受影響；tree_cut、moba_map_layout、filtered_specs 與 template-ids 測試通過。
+
 ## E425 （保留）conformance：帶 passive 區塊的主動技直接寫入等級，光環停在 r1（b05_three_arrows 的 b05r_armor）（2026-10-31）
 
 ## E424 （保留）沒有 status 的 on_moved 觸發：a03_pacing_gu、b23_undead_pact、c12_homing_lock 無法產生（2026-10-31）

@@ -605,6 +605,7 @@ impl RuntimeContent {
                 mana: fixed64(entry.mana),
                 mana_regen: fixed64(entry.mana_regen),
                 flying: entry.flying,
+                blocks_pathing: entry.blocks_pathing,
                 chase: entry.chase.as_ref().map(|c| &*leak(crate::SummonChaseConst {
                     speed: fixed64(c.speed), max_distance: fixed64(c.max_distance),
                     teleport_back_distance: fixed64(c.teleport_back_distance), reach_radius: fixed64(c.reach_radius),

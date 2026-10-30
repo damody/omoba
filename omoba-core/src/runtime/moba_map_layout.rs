@@ -104,12 +104,16 @@ pub fn validate_metadata(
     if region.value != crate::runtime::encode_public_blocked_regions(&compiled_blocked_regions(map))
     {
         // A mid-match start carries the current terrain: the compiled map minus fallen
-        // trees (E242). Same canonical bytes as the authority's own rebuild, nothing else.
-        let fallen = (!map.trees().trees.is_empty())
-            .then(|| crate::runtime::decode_public_blocked_regions(&region.value)).flatten()
-            .and_then(|regions| crate::runtime::native::tree_cut::cut_set_of(map, &regions));
-        if !fallen.is_some_and(|fallen| region.value == crate::runtime::encode_public_blocked_regions(
-            &crate::runtime::native::tree_cut::regions(map, &fallen))) {
+        // trees (E242), then the pathing blockers standing (unit_blockers, E426). Same
+        // canonical bytes as the authority's own rebuild, nothing else.
+        use crate::runtime::native::{tree_cut, unit_blockers};
+        let canonical = crate::runtime::decode_public_blocked_regions(&region.value).and_then(|regions| {
+            let blockers = unit_blockers::current(&regions)?;
+            let fallen = tree_cut::cut_set_of(map, &regions)?;
+            if !fallen.is_empty() && map.trees().trees.is_empty() { return None; }
+            Some(crate::runtime::encode_public_blocked_regions(&unit_blockers::compose(tree_cut::regions(map, &fallen), &blockers)))
+        });
+        if canonical.as_deref() != Some(region.value.as_slice()) {
             return Err("compiled MOBA terrain mismatch");
         }
     }

@@ -141,6 +141,8 @@ pub fn occluders(map: &omoba_template_ids::MobaMapConst, fallen: &BTreeSet<u32>)
 /// The fallen set `regions` stands for: the compiled regions of `map` minus some of its
 /// trees, in authored order. `None` for anything else.
 pub fn cut_set_of(map: &omoba_template_ids::MobaMapConst, regions: &BlockedRegions) -> Option<BTreeSet<u32>> {
+    // Blocker squares (unit_blockers, E426) follow the trees and are not trees.
+    let regions = &super::unit_blockers::without(regions);
     let compiled = crate::runtime::moba_map_layout::compiled_blocked_regions(map);
     let trees = map.trees().trees.len();
     let mut fallen = BTreeSet::new();
@@ -192,7 +194,9 @@ pub(crate) fn tick(world: &World, cuts: &mut TreeCuts, map: &omoba_template_ids:
     }
     if fallen.is_empty() && regrown.is_empty() { return; }
     let set = cuts.fallen();
-    *world.write_resource::<BlockedRegions>() = regions(map, &set);
+    // Blocker squares (unit_blockers, E426) stay.
+    let rebuilt = super::unit_blockers::keep(world, regions(map, &set));
+    *world.write_resource::<BlockedRegions>() = rebuilt;
     *world.write_resource::<VisionOccluderSet>() = occluders(map, &set);
     let tick = world.read_resource::<crate::runtime::Tick>().0;
     let facts = world.read_resource::<crate::runtime::ObservableFactBuffer>();
@@ -241,7 +245,9 @@ pub fn apply_disclosed(world: &World, payloads: &[&[u8]]) -> Result<(), &'static
             return Err("inconsistent tree change");
         }
     }
-    *world.write_resource::<BlockedRegions>() = regions(trees.map, &trees.fallen);
+    let rebuilt = super::unit_blockers::keep(world, regions(trees.map, &trees.fallen));
+    drop(trees);
+    *world.write_resource::<BlockedRegions>() = rebuilt;
     Ok(())
 }
 

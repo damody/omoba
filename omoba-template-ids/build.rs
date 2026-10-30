@@ -1783,6 +1783,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \tmana_regen: {},\n\
              \tflying: {},\n\
              \tchase: {},\n\
+             \tblocks_pathing: {},\n\
              }};\n",
             cname,
             fixed64_lit(e.hp),
@@ -1815,6 +1816,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             fixed64_lit(e.mana_regen),
             e.flying,
             chase,
+            e.blocks_pathing,
         ));
     }
     out.push('\n');

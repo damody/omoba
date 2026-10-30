@@ -2306,6 +2306,8 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
         let elapsed = state.elapsed;
         super::tree_cut::tick(world, &mut state.trees, map, elapsed);
     }
+    // Summons that block pathing appear and leave as public terrain, before any movement (E426).
+    super::unit_blockers::tick(world);
     // Ground pickups spawn, expire and are taken before any movement (E243).
     super::pickup::tick(world, &mut state);
     for team in 0..state.heroes.len() {

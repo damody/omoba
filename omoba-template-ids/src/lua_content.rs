@@ -1747,6 +1747,9 @@ pub(crate) struct SummonEntry {
     /// Flies over terrain and trees (E397).
     #[serde(default)]
     pub(crate) flying: bool,
+    /// Blocks pathing as public geometry, a square of half side `collision_radius` (E426).
+    #[serde(default)]
+    pub(crate) blocks_pathing: bool,
     /// Attack damage added per owner hero level above 1, sampled at spawn.
     #[serde(default)]
     pub(crate) damage_per_owner_level: f32,
@@ -1845,8 +1848,14 @@ pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),Stri
         // A dummy may have life and defenses (then it can be destroyed), never an attack, collision or
         // follow rules. It moves only when it is mobile: by its own move speed under the orders a
         // script gives it (hero_command, E412; 原作 a moving majia, E417), or by its chase table (E406).
+        // A pathing blocker (E426) is immobile, its square's half side its collision radius;
+        // a dummy blocker is the only dummy with a collision radius.
+        if entry.blocks_pathing && (!entry.immobile || !entry.collision_radius.is_finite()
+            || !(1.0..=512.0).contains(&entry.collision_radius) || entry.chase.is_some()) {
+            return Err(format!("summon {} blocks pathing but is not immobile with a collision radius in 1..=512",entry.id));
+        }
         let bodiless=[entry.damage,entry.attack_range,entry.attack_interval,
-            entry.collision_radius,entry.follow_start_distance,entry.follow_stop_distance,
+            if entry.blocks_pathing {0.0} else {entry.collision_radius},entry.follow_start_distance,entry.follow_stop_distance,
             entry.damage_per_owner_level].iter().all(|value|*value==0.0);
         let moves=entry.chase.is_some() || entry.move_speed>0.0;
         if entry.dummy && (!bodiless || entry.immobile==moves || entry.invulnerable) {
