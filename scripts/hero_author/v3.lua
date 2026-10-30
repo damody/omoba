@@ -141,6 +141,10 @@ function M.ability_row(package, ab, compiled, opts)
     unit_target = target.type == "unit" and (target.team == "ally" or target.team == "enemy") and target.team or nil,
     pierces_magic_immunity = has(block.ability_flags, "pierce_magic_immune") or nil,
     targets_tree = target.type == "tree" or nil,
+    -- a unit target of heroes only: the host refuses any other unit on every cast path (a pulse
+    -- channel runs no execute; line B E414)
+    targets_heroes_only = target.type == "unit" and type(target.types) == "table" and #target.types == 1
+      and target.types[1] == "hero" or nil,
     cast_type = channel and "channeled" or "instant",
     channel = channel,
     charges = charges,

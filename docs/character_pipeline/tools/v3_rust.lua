@@ -2531,11 +2531,10 @@ function Gen:action(a, ctx, ind)
     if a.interrupted ~= true then self:block("action:end_channel without interrupted = true"); return "" end
     return line("cx.end_channel(cx.self_unit);")
   elseif op == "issue_order" then
-    -- as the owner's order (hero_command; only heroes take it); nothing is locked
+    -- as the owner's order (hero_command; a summon, illusion or dummy takes it too, line B E412); nothing is locked
     if a.force ~= nil and type(a.force) ~= "boolean" then self:block("action:issue_order.force of an expression"); return "" end
     local who = self:value(a.who, ctx, "unit")
     if a.order == "attack" and a.target ~= nil and a.at == nil then
-      self:gap("issue_order: only a hero takes the order")
       local target = self:value(a.target, ctx, "unit")
       return line("{") .. line("    let who = " .. who .. ";") .. line("    let target = " .. target .. ";") .. line("    cx.order_attack(who, target)?;") .. line("}")
     end
@@ -2547,7 +2546,6 @@ function Gen:action(a, ctx, ind)
       if a.at == nil then self:block("action:issue_order " .. a.order .. " without at"); return "" end
       at = self:value(a.at, ctx, "point")
     elseif a.at ~= nil then self:block("action:issue_order " .. a.order .. " with at"); return "" end
-    self:gap("issue_order: only a hero takes the order")
     return line("{") .. line("    let who = " .. who .. ";") .. line("    let at = " .. at .. ";")
       .. line("    cx.order(who, ability_kit::OrderKind::" .. kind .. ", at)?;") .. line("}")
   elseif op == "attack" then

@@ -432,6 +432,7 @@ local data = {
       },
       max_level = 1,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "ally",
       v3 = {
@@ -2545,6 +2546,7 @@ local data = {
       },
       max_level = 4,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
@@ -6607,6 +6609,7 @@ local data = {
       },
       max_level = 4,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
@@ -7100,6 +7103,7 @@ local data = {
       max_level = 3,
       pierces_magic_immunity = true,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
@@ -15312,6 +15316,7 @@ local data = {
       },
       max_level = 3,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
@@ -19192,6 +19197,7 @@ local data = {
       },
       max_level = 3,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "ally",
       v3 = {
@@ -21483,6 +21489,7 @@ local data = {
       max_level = 3,
       pierces_magic_immunity = true,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
@@ -22612,6 +22619,7 @@ local data = {
       },
       max_level = 4,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
@@ -36005,6 +36013,7 @@ local data = {
       },
       max_level = 4,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       v3 = {
         bot = { kind = "enemy_hero", source = "derived" },
@@ -43693,6 +43702,7 @@ local data = {
       max_level = 1,
       pierces_magic_immunity = true,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
@@ -51449,6 +51459,7 @@ local data = {
       },
       max_level = 4,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "ally",
       v3 = {
@@ -54683,6 +54694,7 @@ local data = {
       },
       max_level = 4,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
@@ -58425,6 +58437,7 @@ local data = {
       max_level = 3,
       pierces_magic_immunity = true,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
@@ -60898,6 +60911,7 @@ local data = {
       max_level = 3,
       pierces_magic_immunity = true,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
@@ -63834,6 +63848,7 @@ local data = {
       },
       max_level = 4,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
@@ -64456,6 +64471,7 @@ local data = {
       max_level = 3,
       pierces_magic_immunity = true,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
@@ -66606,6 +66622,7 @@ local data = {
       },
       max_level = 4,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
@@ -66965,6 +66982,7 @@ local data = {
       max_level = 3,
       pierces_magic_immunity = true,
       target_type = "unit",
+      targets_heroes_only = true,
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
