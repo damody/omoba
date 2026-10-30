@@ -33,7 +33,15 @@
   - 測試：改用真的 RawDamage 跑過 `handle_damage`。
 - **避免**：host 事件的測試要從正式來源觸發（規則層事件、真的傷害封包），不要手動推事件。
 
-## E290 （保留）nobu UE 營地清空與重生入鏡：開局等級與最弱營地（2026-10-30，e187 遊戲模式 session；進行中）
+## E290 nobu UE 營地清空與重生入鏡：開局等級、最弱營地；Lua JSON 空物件來回變成陣列（2026-10-30，e187 遊戲模式 session；已放回 live）
+
+- **需求**：E280 拍不到營地被清空再重生，nobu 營地前期英雄必死。
+- **做法（通用，不寫死）**：用既有的 recipe 欄位 `showcase.start_level`（每個英雄照正常經驗路徑升到該等級並拿到技能點，權威照常跑規則）新增 `scripts/lua_data/moba_nobu_jungle_check.lua`（nobu、單人、開局 12 級、有兵線）；計畫解析器的營地選擇加 `order='weakest'`（所有個體 HP 乘以 DPS 排序），jungle_trees.lua 改打己方最弱營地並加回清空與重生兩步。
+- **途中發現的錯誤**：新 recipe 第一次啟動被 moba-config 拒絕：「invalid role plan JSON: invalid type: sequence, expected a map」。
+  - **根因**：moba-config 回傳的鎖定 plan 帶 `showcase.placements = {}`（空 map），`tools/lua/lib/json.lua` 解碼空物件得到普通 table，再編碼就成了 `[]`。任何空 map 經 Lua 來回都會這樣。
+  - **通用修正**：解碼器把空物件標成 `json.object()`，再編碼仍是 `{}`；tools/lua/tests/run.lua 加來回測試。
+- **結果**：`target/e187/ue-nobu9`（伊達政宗 12 級）：01:30 和隊友打營地（營地單位 194/1194）、01:39 營地清空、03:21 營地重生入鏡；砍樹成功，之後回到原處樹群仍空。樹重生前（tick 23639）server 以 `observer-mismatch-after-rebase` 終止這局：5 次 replica 冷卻不一致（B08 閃斬冷卻副本沒有；A34 冷卻總長權威減半、副本沒有），已交線 B。樹重生畫面以 ue-nobu8 的 07:22 為準。
+- **避免**：Lua 處理外部 JSON 時，空物件與空陣列要可區分；驗證要拍的行為需要較強的英雄時，用 recipe 的開局等級，不要改遊戲數值。
 
 ## E289 影子專案的修改被 `stage_ue_shadow --sync` 悄悄蓋掉（2026-10-30，工作線 C）
 

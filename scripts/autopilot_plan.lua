@@ -8,9 +8,10 @@
 --   ['do']      walk | clear | watch | cast (FOmAutoPilotPlan::FStep::EKind)
 --   target      exactly one of
 --                 at = {x, y}
---                 camp = 'camp_id' | {side = 'own'|'enemy'|'any', rank = n}
---                      (rank by distance from the seat's home; side from the map's camp sides,
---                      else whichever home the camp is nearer to)
+--                 camp = 'camp_id' | {side = 'own'|'enemy'|'any', rank = n, order = 'nearest'|'weakest'}
+--                      (rank by distance from the seat's home, or by camp strength: all bodies'
+--                      hp times their damage per second; side from the map's camp sides, else
+--                      whichever home the camp is nearer to)
 --                 tree = {near = <target>, rank = n}   the n-th nearest tree to that target
 --                 same = 'label' | index               the point another step resolved
 --   radius, delay, timeout, shot_start, shot, shot_delay, label   passed through
@@ -52,6 +53,16 @@ function M.home(map, team_id)
   return team_id == 1 and lane[1] or lane[#lane], nil
 end
 
+-- A camp's strength: the hp of all its bodies times their damage per second.
+function M.camp_strength(camp)
+  local hp, dps = camp.hp or 0, (camp.damage or 0) / math.max(1, camp.attack_interval_seconds or 1)
+  for _, member in ipairs(camp.members or {}) do
+    hp = hp + (member.hp or 0)
+    dps = dps + (member.damage or 0) / math.max(1, (member.attack_interval_ms or 1000) / 1000)
+  end
+  return hp * dps
+end
+
 local function camp_point(map, team_id, spec)
   local camps = map.jungle_camps or {}
   if type(spec) == 'string' then
@@ -73,7 +84,13 @@ local function camp_point(map, team_id, spec)
     for _, tag in ipairs(camp.tags or {}) do if tag == 'boss' then boss = true end end
     if not boss and (side == 'any' or (side == 'own') == mine) then list[#list + 1] = camp end
   end
+  local order = spec.order or 'nearest'
+  assert(order == 'nearest' or order == 'weakest', 'autopilot plan: camp order must be nearest or weakest')
   table.sort(list, function(a, b)
+    if order == 'weakest' then
+      local sa, sb = M.camp_strength(a), M.camp_strength(b)
+      if sa ~= sb then return sa < sb end
+    end
     local da, db = d2(a.position, home), d2(b.position, home)
     if da ~= db then return da < db end
     return a.id < b.id
