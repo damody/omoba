@@ -95,7 +95,9 @@ function M.expected_items(item_ids, catalog, cast_cues, status_cues)
   local rows = {}
   for _, id in ipairs(item_ids) do
     local item = assert(by_id[id], "item " .. id .. " is not in " .. M.CATALOG)
-    local row = { id = id, aliases = { id:gsub("^item_", "") }, cast_cues = {}, target_cues = {}, statuses = {}, passive = false }
+    -- UE logs an item cast as `item:<authority id>` (OM_CUE ability=item:napalm_bomb) or the bare id.
+    local registry = id:gsub("^item_", "")
+    local row = { id = id, aliases = { registry, "item:" .. registry }, cast_cues = {}, target_cues = {}, statuses = {}, passive = false }
     for _, cue in ipairs((cast_cues.abilities or {})[id] or {}) do
       local list = cue.at == "target" and row.target_cues or row.cast_cues
       list[#list + 1] = cue.cue

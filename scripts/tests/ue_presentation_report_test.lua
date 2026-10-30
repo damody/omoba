@@ -52,7 +52,7 @@ ok(md:find("`h01_passive` | 0 | 0（預期 0 個） | — | 被動，無 cue／�
 local items = M.expected_items({ "item_bomb" },
   { items = { { id = "item_bomb", v3 = { statuses = { { id = "bomb_burn" }, { id = "bomb_secret", visibility = "hidden" } } } } } },
   { abilities = {} }, { statuses = { bomb_burn = "burn_ring" } })
-ok(#items == 1 and items[1].aliases[1] == "bomb" and #items[1].statuses == 1, "an item row with its authority id and public statuses")
+ok(#items == 1 and items[1].aliases[1] == "bomb" and items[1].aliases[2] == "item:bomb" and #items[1].statuses == 1, "an item row with its authority id and public statuses")
 local item_md = M.render("道具", "item_bomb", items, M.parse("OM_CUE ability=bomb cue=cast unit=3 art=style\nOM_BUFF buff=bomb_burn unit=9 route=status_cue"))
 ok(item_md:find("`item_bomb` | style 1", 1, true) and item_md:find("bomb_burn：status_cue 1", 1, true), "item cues found under the authority id")
 ok(not pcall(M.expected_items, { "item_none" }, { items = {} }, {}, { statuses = {} }), "unknown item refused")
