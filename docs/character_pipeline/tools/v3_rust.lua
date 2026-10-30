@@ -932,6 +932,7 @@ local ACTION_FIELDS = {
   kill = set({ "op", "to", "silent" }),
   remove_unit = set({ "op", "to" }),
   set_display_stacks = set({ "op", "status", "to", "count" }),
+  toggle_ability = set({ "op", "of", "ability", "on" }),
   zone = set({ "op", "shape", "at", "radius", "duration", "interval", "first", "cue", "on_tick" }),
   spend_mana = set({ "op", "from", "amount", "ability" }),
   set_var = set({ "op", "var", "value", "on", "status" }),
@@ -1679,6 +1680,29 @@ function Gen:action(a, ctx, ind)
     local silent = a.silent == true and "true" or "false"
     if a.silent ~= nil and type(a.silent) ~= "boolean" then self:block("action:kill.silent of an expression"); return "" end
     return line("{") .. line("    let to = " .. self:value(a.to, ctx, "unit") .. ";") .. line("    cx.kill(to, " .. silent .. ")?;") .. line("}")
+  elseif op == "toggle_ability" then
+    -- turning a toggle of this document off: `of` runs its on_toggle_off while it holds the
+    -- toggle's status (the status is the toggle state; the host keeps no other)
+    if a.on ~= false then self:block("action:toggle_ability.on:" .. tostring(a.on)); return "" end
+    local ab = self.m.abilities[a.ability]
+    local ev = ab and ab.def.events or {}
+    if not (ab and ev.on_toggle_on) then self:block("action:toggle_ability of " .. tostring(a.ability) .. " (not a toggle of this document)"); return "" end
+    local ts
+    for _, x in ipairs(ev.on_toggle_on) do if x.op == "apply_status" and x.to == "caster" then ts = x.status break end end
+    if not ts then self:block("toggle: on_toggle_on must put a status on the caster"); return "" end
+    self:need_module({ parent = ab, def = { id = ts } })
+    local here = self.entry and self.entry.def.id == a.ability
+    local call = here and "on_toggle_off(cx)" or ("super::" .. a.ability .. "::on_toggle_off(cx)")
+    local id = here and "ID" or ("super::" .. a.ability .. "::ID")
+    return line("{") .. line("    let of = " .. self:value(a.of, ctx, "unit") .. ";")
+      .. line("    if cx.has_status(of, &super::ids::status::" .. upper(ts) .. ") {")
+      .. line("        let level = cx.ability_level(of, " .. id .. ");")
+      .. line("        let (caster, rank) = (cx.caster, cx.rank);")
+      .. line("        cx.caster = of;")
+      .. line("        cx.rank = u8::try_from((ability_kit::floor(level).raw() >> 10).max(1)).unwrap_or(1);")
+      .. line("        let r = " .. call .. ";")
+      .. line("        cx.caster = caster;") .. line("        cx.rank = rank;") .. line("        r?;")
+      .. line("    }") .. line("}")
   elseif op == "set_display_stacks" then
     -- the stack number a plain status shows (and `status.stacks` reads); its stats and time stay
     local so = self.m.statuses[a.status]
@@ -2566,7 +2590,8 @@ local function emit_entry(m, o, opts, status_problems)
     g.phase = name == "on_phase_start"
     local body = g:actions(list, ctx, "    ")
     g.phase = false
-    fns[#fns + 1] = string.format("fn %s(cx: &mut Cx<'_, '_>) -> Res {\n%s    Ok(())\n}\n", name, body)
+    -- on_toggle_off: other entries of the document turn the toggle off too (toggle_ability)
+    fns[#fns + 1] = string.format("%sfn %s(cx: &mut Cx<'_, '_>) -> Res {\n%s    Ok(())\n}\n", name == "on_toggle_off" and "pub(crate) " or "", name, body)
   end
   if def.coverage == "rust_handler" and not def.events and not def.passive then g:block("rust_handler without behavior") end
   if def.hooks then g:block("hooks") end
