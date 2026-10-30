@@ -43,6 +43,9 @@ pub(crate) fn apply(world:&mut World,player:u32,owner:Entity,message:&crate::gam
         || world.read_storage::<CProperty>().get(entity).is_none_or(|p|p.hp<=Fixed64::ZERO)
         || world.read_storage::<SummonedUnit>().get(entity).is_none_or(|s|s.summoner!=owner || s.is_expired())
         || world.read_storage::<PlayerOwner>().get(entity).is_some_and(|p|p.player_id!=player) {return Err("unowned_or_inactive_summon");}
+    // A command-restricted summon (v3 create_unit control = "none", or a restriction status) refuses
+    // its owner's orders like a restricted hero; its own AI goes on.
+    if super::command_restriction::restricted(world,entity) {return Err("command_restricted");}
     {let factions=world.read_storage::<Faction>();let source=factions.get(owner).ok_or("missing_owner_faction")?;
         let target=factions.get(entity).ok_or("missing_summon_faction")?;
         if source.team_id!=team || target.team_id!=team || source.faction_id!=target.faction_id {return Err("faction_mismatch");}}

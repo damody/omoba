@@ -6403,6 +6403,11 @@ fn handle_add_buff(
         super::script_kill::apply(world,target,&payload);
         return Ok(());
     }
+    // v3 aura emitters (aura.rs) are stored only in their exact shape.
+    if (payload.get(super::aura::KEY).is_some() || buff_id.starts_with(super::aura::PREFIX))
+        && !super::aura::admitted(world,target,&buff_id,duration,&payload) {
+        return Ok(());
+    }
     // v3 state `magic_immune` (a status's state buff): strong dispel, then the immunity status.
     if buff_id==super::magic_immunity::BUFF {
         super::magic_immunity::grant_state(world,target,duration);

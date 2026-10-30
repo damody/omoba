@@ -40,6 +40,18 @@
   - live 試跑 5 位已上架英雄：全部打完；標出村上義清的震地斧、大地震撼從沒施放。批次 1 目前還沒有英雄可上場，腳本會列出 9 位待上架。
 - **還沒做**：在 UE 拍到砍樹與營地，需要 autopilot 能指定行為；震地斧、大地震撼的 bot 政策。
 
+## 2026-10-30（history-nobu 工作線 B：一般光環 aura、create_unit control；已放回 live）
+
+- **一般光環**（v3 `aura`，26 處，其中 12 招只差這一項）：新模組 `omoba-core/src/runtime/native/aura.rs`。
+  - 持有者身上掛 emitter 列 `__aura:<ability>:<aura>`，記錄半徑、team（ally／enemy／both）、include_self、依附的 status（requires）、是否為被動。
+  - 每 0.25 秒的比賽時間（authority 和 replica 一致），對每個仍在場的 emitter，列出半徑內、隊伍符合的活單位（依距離、再依 id 排序），回呼 `AbilityScript::on_aura(holder, aura, level, receivers)`。
+  - 產生的程式碼依 types／flags／where 過濾後套用 status，持續時間給 linger + PERIOD，所以單位離開後還會保留 linger 秒。status 的 stats、states、triggers 都走一般的 apply_status，和其他狀態同一條路徑。
+  - emitter 停止的條件：持有者死亡、依附的 status 不在了、被動且持有者處於 break。
+  - kit：`cx.emit_aura(...)`。cast_settlement 與 handle_add_buff 只接受形狀完全正確的 emitter 列。
+- **create_unit control**（22 處）：`control = "none"` 的召喚物身上掛一個 `command_restricted`，持續整個存活期間。summon_orders 對 command_restricted 的召喚物拒絕擁有者的指令（語意和英雄一致），召喚物自己的 AI 照常運作。owner／ai 和原本相同。kit：`cx.create_unit_controlled(...)`。
+- **放回過程**：game_processor.rs 和線 A 剛放回的 kill 在相鄰位置發生 3-way 衝突。處理方式是以 live 為基準，重新套用這批改動，沒有覆蓋任何人的修改。
+- **測試**：aura 加了封包嚴格往返測試，以及「每週期一次、依距離排序、持有者死亡／break／依附的 status 消失就停止」的測試。影子上 omoba-core 1405 個測試全過，land 的檢查也通過；合併後的 live 另外重跑。
+
 ## 2026-10-30（history-nobu 工作線 B：狀態的傷害／命中事件真的送出、reflection、on_channel_start、magic_immune；已放回 live）
 
 - **發現**：live 的 host 從來沒送出狀態事件 on_take_damage（v3 37 處）、on_deal_damage（5 處）、on_attack_hit、on_attacked。只有測試手動推事件，正式流程沒有人推。原本拿來接的 `ScriptEvent::Damage` 其實是「請求造成傷害」的舊事件，推進去會再扣一次血，所以不能沿用。

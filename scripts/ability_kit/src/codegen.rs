@@ -1085,6 +1085,9 @@ impl<S: AbilityScript> AbilityScript for Guarded<S> {
         world: &mut GameWorldDyn<'_>) {
         guarded_hook!(self, world, "on_channel_start", self.0.on_channel_start(caster, target, start, world))
     }
+    fn on_aura(&self, holder: EntityHandle, aura: RStr<'_>, level: u8, receivers: RVec<EntityHandle>, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_aura", self.0.on_aura(holder, aura, level, receivers, world))
+    }
     /// A panicking phase start cancels the cast.
     fn on_phase_start(&self, caster: EntityHandle, target: Target, level: u8, world: &mut GameWorldDyn<'_>) -> bool {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.0.on_phase_start(caster, target, level, world))) {

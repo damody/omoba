@@ -560,6 +560,8 @@ fn dispatch_scripts(
     dispatch_scheduled_effects(world, registry, rng_seed, dt, event_count as u64 + tagged.len() as u64 + 8192);
     // status_event: holder combat events, then statuses that ended, serial, same pulse rule.
     dispatch_status_events(world, registry, rng_seed, &status_combat, &status_executed, event_count as u64 + tagged.len() as u64 + 12288);
+    // aura: every aura::PERIOD, each emitter hears its receivers, same pulse rule.
+    dispatch_auras(world, registry, rng_seed, event_count as u64 + tagged.len() as u64 + 16384);
     let on_tick_compute_ns = on_tick_compute_started.elapsed().as_nanos();
     drop(on_tick_span);
 
@@ -655,6 +657,43 @@ pub(crate) fn bind_hero_unit_scripts(world: &mut World, registry: &ScriptRegistr
         }
     }
     world.insert(seen);
+}
+
+/// One `on_aura` per live emitter when the aura clock comes due (omoba-core `aura`), in canonical
+/// order. Like a channel pulse, a hook that tries to charge, cast or spawn has its pulse dropped.
+fn dispatch_auras(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, ordinal_base: u64) {
+    let due = super::super::aura::due(world);
+    if due.is_empty() {
+        return;
+    }
+    let cache = ParallelAdapterCache::new(&*world, rng_seed);
+    let mut accepted = Vec::new();
+    for (ordinal, pulse) in due.into_iter().enumerate() {
+        let Some((_, script)) = registry.get_ability(&pulse.spec.ability) else { continue };
+        let handle = ParallelWorldAdapter::entity_to_handle(pulse.holder);
+        let receivers: abi_stable::std_types::RVec<EntityHandle> =
+            pulse.receivers.iter().map(|e| ParallelWorldAdapter::entity_to_handle(*e)).collect();
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, pulse.holder, ordinal_base + ordinal as u64);
+        let mut world_dyn = world_dyn_of(&mut adapter);
+        let result = catch_unwind(AssertUnwindSafe(|| script.on_aura(handle, RStr::from_str(&pulse.spec.aura), pulse.spec.level,
+            receivers, &mut world_dyn)));
+        drop(world_dyn);
+        if result.is_err() {
+            log::error!("[scripting] panic in AbilityScript::on_aura of {}", pulse.spec.ability);
+            adapter.discard_cast();
+            continue;
+        }
+        let outcomes = adapter.finish();
+        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+            accepted.extend(outcomes);
+        } else {
+            log::warn!("[scripting] aura '{}' of '{}' tried to charge or spawn; dropped", pulse.spec.aura, pulse.spec.ability);
+        }
+    }
+    drop(cache);
+    if !accepted.is_empty() {
+        world.write_resource::<Vec<crate::comp::Outcome>>().extend(accepted);
+    }
 }
 
 /// Random ordinals of `on_phase_start` adapters: apart from the cast's own (`event_ordinal`).

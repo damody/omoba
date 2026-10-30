@@ -467,6 +467,43 @@ impl Cx<'_, '_> {
         Ok(())
     }
 
+    /// v3 `create_unit` with `control`: `"owner"` and `"ai"` are [`Cx::create_unit`]'s summon
+    /// (its owner may order it, its AI acts); `"none"` also refuses every order of its owner for
+    /// its whole life (host `command_restricted`, summon_orders), its AI still acting.
+    pub fn create_unit_controlled(&mut self, template: &str, at: Vec2, lifetime: Fixed64, control: &str) -> Result<EntityHandle, &'static str> {
+        use omoba_core::runtime::native::command_restriction::BUFF;
+        let unit = self.create_unit(template, at, lifetime)?;
+        match control {
+            "owner" | "ai" => {}
+            "none" => if unit.is_valid() {
+                let life = if lifetime > Fixed64::ZERO { lifetime } else { Self::FOREVER };
+                self.world.add_buff(unit, RStr::from_str(BUFF), life);
+            },
+            _ => return Err("v3: unknown create_unit control"),
+        }
+        Ok(unit)
+    }
+
+    /// v3 `aura` of a passive or a status of `ability` on `holder` (host omoba-core `aura`): every
+    /// `aura::PERIOD` the host calls `on_aura(holder, aura, level, receivers)` with the living units
+    /// within `radius` on `team` (`"ally"`, `"enemy"`, `"both"`; the holder only with
+    /// `include_self`), nearest first; the generated code filters them and applies the status with
+    /// `linger + aura::PERIOD`. A passive aura (`passive`, duration FOREVER) is quiet while its
+    /// holder is broken; a status aura names its status (`requires`) and goes with it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn emit_aura(&mut self, holder: EntityHandle, ability: &str, aura: &str, radius: Fixed64, team: &str, include_self: bool,
+        duration: Fixed64, requires: Option<&crate::codegen::StatusDef>, passive: bool) -> Res {
+        use omoba_core::runtime::native::aura::{Spec, Team};
+        if !holder.is_valid() || duration <= Fixed64::ZERO || radius <= Fixed64::ZERO { return Ok(()); }
+        let requires = requires.map(|status| self.runtime_id(status));
+        let spec = Spec { ability: ability.to_owned(), aura: aura.to_owned(), level: self.rank.max(1),
+            radius: radius.min(Fixed64::from_i32(omoba_core::runtime::native::aura::MAX_RADIUS)),
+            team: Team::parse(team).ok_or("v3: unknown aura team")?, include_self, requires, passive }
+            .checked().ok_or("v3: invalid aura")?;
+        self.world.add_stat_buff(holder, RStr::from_str(&spec.buff_id()), duration, RStr::from_str(&spec.payload().to_string()));
+        Ok(())
+    }
+
     /// v3 `game.is_night`.
     pub fn is_night(&mut self) -> bool {
         matches!(self.read(op::GAME_ATTR, &[ExtArg::Str(game_attr::IS_NIGHT.into())]), ExtValue::Bool(true))

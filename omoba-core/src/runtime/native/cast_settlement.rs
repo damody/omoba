@@ -45,6 +45,8 @@ pub(super) fn admit(world:&World,caster:Entity,skill:&str,rank:u32,faction:Optio
         }
         if (payload.get(super::super::ally_cleanse::KEY).is_some() || buff_id==super::super::ally_cleanse::BUFF)
             && super::super::ally_cleanse::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
+        if (payload.get(super::super::aura::KEY).is_some() || buff_id.starts_with(super::super::aura::PREFIX))
+            && !super::super::aura::admitted(world,*target,buff_id,*duration,payload){return false;}
         if (payload.get(super::super::aura_emitter::KEY).is_some() || buff_id.starts_with(super::super::aura_emitter::PREFIX))
             && super::super::aura_emitter::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
         if (payload.get(super::super::ally_area_buff::KEY).is_some() || buff_id==super::super::ally_area_buff::BUFF)

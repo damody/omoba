@@ -131,7 +131,6 @@ pub fn note_damage(world: &mut specs::World, note: DamageNote) {
 }
 
 pub fn take_damage_notes(world: &mut specs::World) -> Vec<DamageNote> {
-    use specs::WorldExt;
     world.try_fetch_mut::<DamageNotes>().map(|mut notes| std::mem::take(&mut notes.0)).unwrap_or_default()
 }
 

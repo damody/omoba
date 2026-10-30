@@ -199,6 +199,20 @@ pub trait AbilityScript: Send + Sync {
     ) {
     }
 
+    /// v3 `aura` pulse (omoba-core `aura`): `holder`'s emitter `aura` of this ability, at `level`,
+    /// with the living units in its radius on its team, nearest first. The generated code filters
+    /// them (types, flags, where) and applies the aura's status. Like a pulse, only effects may be
+    /// applied. Default: nothing.
+    fn on_aura(
+        &self,
+        _holder: EntityHandle,
+        _aura: RStr<'_>,
+        _level: u8,
+        _receivers: RVec<EntityHandle>,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
     /// v3 `on_phase_start`: a cast of this ability begins, once it is admitted (before its windup,
     /// or right before `execute` when it has none). False cancels the cast (v3 `cancel_cast`)
     /// with nothing charged; the hook's own effects stand either way. Only effects may be
