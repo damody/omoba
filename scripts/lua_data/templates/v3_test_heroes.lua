@@ -40943,6 +40943,24 @@ local data = {
         max_level = 4,
         schema = "3.3",
         source_id = "C11W",
+        statuses = {
+          {
+            dispel = "basic",
+            id = "c11_lightning_form",
+            reveal = "public",
+            values = {
+              {
+                hidden = true,
+                name = "hide_duration",
+                ranks = { "3", "3", "3", "3" },
+                raw = { 3072, 3072, 3072, 3072 },
+                unit = "s",
+              },
+            },
+            visibility = "hidden",
+          },
+          { dispel = "none", id = "c11_struck", reveal = "public", visibility = "hidden" },
+        },
         text = {
           en = {
             body = "Muneshige turns into lightning and strikes the target enemy, arcing between enemies for {max_jump} hits in total: each hit deals {damage} magic damage, removes {mana_pct} of the victim's current mana, and performs one attack on each enemy (never misses, applies attack effects); the next victim is chosen at random among other visible enemies within {jump_range} of the last one. Muneshige vanishes and is invulnerable meanwhile; at the end the lightning returns to the first target and he reappears beside it and attacks it.",
@@ -41467,6 +41485,22 @@ local data = {
             },
             visibility = "debuff",
           },
+          {
+            dispel = "basic",
+            id = "c11_lightning_form",
+            reveal = "public",
+            values = {
+              {
+                hidden = true,
+                name = "hide_duration",
+                ranks = { "3", "3", "3" },
+                raw = { 3072, 3072, 3072 },
+                unit = "s",
+              },
+            },
+            visibility = "hidden",
+          },
+          { dispel = "none", id = "c11_struck", reveal = "public", visibility = "hidden" },
         },
         text = {
           en = {

@@ -263,7 +263,10 @@ impl<'a, 'w> Cx<'a, 'w> {
         // dispatch); judging again here would split a team replica from the authority.
         let released = matches!(cx.world.ext(omb_script_abi::ext::op::CAST_RELEASED, abi_stable::std_types::RSlice::from_slice(&[])).into_result(),
             Ok(omb_script_abi::ext::ExtValue::Bool(true)));
-        if let (Some(at), false) = (at, released) {
+        // a cast range of 0 has no limit (a point or unit cast at any distance, like the host's
+        // range-0 channel and Dota's 0 cast range)
+        let unlimited = data.range == 0.0;
+        if let (Some(at), false, false) = (at, released, unlimited) {
             let range = cast_range.ok_or("v3: invalid cast range")?;
             let origin = cx.pos(caster)?;
             if !omoba_sim::terrain::point_in_swept_circle(at, origin, origin, range) { return Err("v3: target outside cast range"); }

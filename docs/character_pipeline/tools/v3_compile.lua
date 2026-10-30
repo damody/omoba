@@ -162,6 +162,28 @@ function M.compile(doc, opts)
   for _, u in ipairs(doc.unit_templates or {}) do add(u, "template") end
   for _, s in ipairs(doc.statuses or {}) do statuses[s.id] = add(s, "status", shared) end
 
+  -- The document-level statuses (doc.statuses) `def` names (`status = "<id>"`), directly, in the
+  -- routines it calls (`routine = "<name>"`) or in those statuses' own triggers, in id order.
+  local doc_status = {}
+  for _, s in ipairs(doc.statuses or {}) do doc_status[s.id] = s end
+  local function doc_statuses_used(def)
+    local found, seen = {}, {}
+    local function walk(t)
+      if type(t) ~= "table" or seen[t] then return end
+      seen[t] = true
+      for k, v in pairs(t) do
+        if k == "status" and type(v) == "string" and doc_status[v] and not found[v] then found[v] = true; walk(doc_status[v]) end
+        if k == "routine" and type(v) == "string" and doc.routines and doc.routines[v] then walk(doc.routines[v]) end
+        walk(v)
+      end
+    end
+    walk(def)
+    local list = {}
+    for id in pairs(found) do list[#list + 1] = doc_status[id] end
+    table.sort(list, function(a, b) return a.id < b.id end)
+    return list
+  end
+
   local function find(owner, qual, name)
     if qual then
       local o = owners[qual]
@@ -424,12 +446,30 @@ function M.compile(doc, opts)
         if r then r.stat = stat; block.stat_lines[#block.stat_lines + 1] = r end
       end
     end
-    -- statuses this entry owns: their names and own values, for tooltips and buff icons
+    -- statuses this entry owns: their names and own values, for tooltips and buff icons; then the
+    -- document-level statuses it applies (itself or through the routines it calls): the host's
+    -- dispel registry and the buff icons find a status only in an ability block (E365)
     local st = {}
-    for _, s in ipairs(def.statuses or {}) do
+    local listed = {}
+    for _, s in ipairs(def.statuses or {}) do listed[#listed + 1] = s end
+    local shared_ids = {}
+    for _, s in ipairs(doc_statuses_used(def)) do listed[#listed + 1] = s; shared_ids[s.id] = true end
+    for _, s in ipairs(listed) do
       local so = owners[s.id]
+      local vrows = next(so.values) and value_rows(so) or nil
+      -- a document-level status has one rank: the same value at every rank of this entry
+      if vrows and shared_ids[s.id] then
+        for _, r in ipairs(vrows) do
+          if r.ranks and r.per ~= "hero_level" then
+            -- copies: the rows share the evaluated ranks with every other reader
+            local ranks, raw = { table.unpack(r.ranks) }, { table.unpack(r.raw) }
+            for i = #ranks + 1, o.max_level do ranks[i] = ranks[#ranks]; raw[i] = raw[#raw] end
+            r.ranks, r.raw = ranks, raw
+          end
+        end
+      end
       -- dispel: the class the host's dispel reads (E214)
-      local row = { id = s.id, visibility = s.visibility, dispel = s.dispel, reveal = s.reveal, runtime_id = s.runtime_id, values = next(so.values) and value_rows(so) or nil }
+      local row = { id = s.id, visibility = s.visibility, dispel = s.dispel, reveal = s.reveal, runtime_id = s.runtime_id, values = vrows }
       local stext = text_of(so)
       if stext then row.text = stext end
       st[#st + 1] = row
