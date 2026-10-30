@@ -2,13 +2,30 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E424 （保留）沒有 status 的 on_moved 觸發：a03_pacing_gu、b23_undead_pact、c12_homing_lock 無法產生（2026-10-31）
+
+## E423 （保留）沒有 status_resistance_pct stat：a07_strongest、a20_pirate_daimyo 與 5 件道具無法產生（2026-10-31）
+
+## E422 （保留）check_heal 把施法者同一個 tick 的自然回復算進 heal（C16W 多 3.26）（2026-10-31）
+
 ## E421 （保留）damage hook 的效果被丟掉時 edit 仍套用：a05_loyal_secret 取消致命傷卻沒有回血、假死與冷卻，A05 永遠不死（2026-10-31）
 
 ## E420 （保留）FC-024 沒有 conformance 測試：A05D 假死後冷卻是否啟動沒人驗（e187 批次中酒井不會死）（2026-10-31）
 
-## E419 （保留）bot 的 summon_near_enemy 只接受 point 技能：不需目標的召喚（c02_phantom_move、b18_earth_claw）從不施放（2026-10-31）
+## E419 bot 的 summon_near_enemy 只接受 point 技能：不需目標的召喚（c02_phantom_move、b18_earth_claw）從不施放（2026-10-31，工作線 B）
+- **現象**：M6 第三批（target/e187/m6b3g1）中，c02_phantom_move、b18_earth_claw 這兩招 target none 的召喚技能，hint 是 summon_near_enemy，但從不施放。
+- **根因**：`SummonNearEnemy` 的驗證要求 point 技能，而且每一級的 cast range > 0；執行時也一定給目標點。
+- **通用修正**：驗證改為也接受 target none（point 技能仍須 range > 0）。執行時，威脅條件不變（threat_radius 內有可見的敵方英雄或兵線單位）；target none 的技能直接施放，不帶目標點。
+- **測試**：`summon_near_enemy_casts_at_or_toward_the_nearest_threat` 新增：c02_phantom_move 在 500 距離有敵人時施放（沒有目標點），2000 距離時不施放。bots 共 92 個測試全部通過。
+- **避免**：bot 意圖以「什麼時候施放」區分，目標形狀由技能自己決定。
 
-## E418 （保留）create_unit 的 limit_per_owner 只能用 summon_owner_cap extras：a20、a36、b07 無法產生（2026-10-31）
+## E418 create_unit 的 limit_per_owner 只能用 summon_owner_cap extras：a20、a36、b07 無法產生（2026-10-31，工作線 B）
+- **現象**：a20_pirate_domain（a20w_banner，`$max`）、a36_spike_trap（a36e_mine，`$max_mines`）、b07_battle_line（b07e_cannon，`$max_units`）都在 on_cast 裡 `create_unit { limit_per_owner, over_limit = "remove_oldest" }`，產生器卻擋下：`create_unit.limit_per_owner (no host cap for it)`。
+- **根因**：host 只有 `summon_owner_cap::after_cast`：在施法 commit 之後，讀這個技能 extras 裡名為 `summon_owner_cap`（v2_key）的值。上限值叫別的名字，或 create_unit 不在施法本身時，就沒有 host 能力。
+- **通用修正**：一次性的封包 `__summon_limit {template, limit}`（limit 範圍 1..64），送給 owner，不會被存成 buff。settle 時以既有的 `enforce` 讓 owner 該模板的活召喚物只留下 limit 個，最早的那些立即退場（不算死亡，所以沒有 bounty，也沒有擊殺）。kit 新增 `limit_summons(template, limit)`，產生器在 create_unit 之後送出。施法裡的 spawn 會在其他效果之前 commit，所以封包在施法中的任何位置都看得到這次產生的召喚物；delay、periodic 等其他路徑也一樣適用。
+- **測試**：`a_limit_packet_keeps_the_newest_summons_of_its_template`（只退最舊的、其他模板不受影響、格式錯誤的封包不做任何事）。
+- **後續**：工作線 A 把 limit_per_owner＋remove_oldest 產生為 `cx.limit_summons(template, limit)`。`over_limit = "reject"`（ryuzoji_takanobu）尚未支援。
+- **避免**：host 能力不要綁在特定 extras 名稱上；改由產生碼以參數傳進來。
 
 ## E417 dummy 一律 immobile：有 move_speed 的 dummy（a20、a36、b33、c07）無法產生（2026-10-31，工作線 B）
 - **現象**：工作線 A 回報 a20_pirate_domain、a36_spike_trap、b33_spider_attack、c07_raijin_wrath 的召喚物是「會移動的 dummy」（原作的 majia 帶移動速度，由腳本下命令移動）。內容驗證規定 dummy 必須 immobile、move_speed 為 0，所以這幾招都卡住。

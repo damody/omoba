@@ -11,7 +11,7 @@
 //!   `REQUIRE_SOURCE_ALIVE` drops the packet when its source died);
 //! - a status is one `add_stat_buff` carrying its stat rows, plus a plain buff per host control state.
 use abi_stable::std_types::RSome;
-use omoba_core::runtime::native::{dispel, ability_projectile, ally_area_restore, attack_orb, hero_command, delayed_effect, magic_immunity, reveal_zone, scheduled_effect, status_event, tether, tree_cut, unit_var};
+use omoba_core::runtime::native::{summon_owner_cap, dispel, ability_projectile, ally_area_restore, attack_orb, hero_command, delayed_effect, magic_immunity, reveal_zone, scheduled_effect, status_event, tether, tree_cut, unit_var};
 
 pub use abi_stable::{
     export_root_module,
@@ -797,6 +797,18 @@ impl<'a, 'w> Cx<'a, 'w> {
         let unit = self.world.spawn_summoned_unit(at, RStr::from_str(template), self.caster, lifetime);
         if !unit.is_valid() { return Err("v3: unit placement rejected"); }
         Ok(unit)
+    }
+
+    /// `create_unit { limit_per_owner, over_limit = "remove_oldest" }` (after the create_unit): the
+    /// caster keeps at most `limit` live summons of `template`, the earliest beyond it leaving
+    /// (omoba-core summon_owner_cap, E418).
+    pub fn limit_summons(&mut self, template: &str, limit: Fixed64) -> Res {
+        let limit = limit.raw() >> 10;
+        let limit = usize::try_from(limit).ok().filter(|limit| (1..=summon_owner_cap::MAX_CAP).contains(limit))
+            .ok_or("v3: invalid limit_per_owner")?;
+        self.world.add_stat_buff(self.caster, RStr::from_str(summon_owner_cap::LIMIT_BUFF), Fixed64::ONE,
+            RStr::from_str(&summon_owner_cap::limit_payload(template, limit).to_string()));
+        Ok(())
     }
 
     /// `reveal`: a sight circle owned by the caster (`all_teams`: every team sees it).

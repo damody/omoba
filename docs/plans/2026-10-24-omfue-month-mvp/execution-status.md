@@ -16,6 +16,10 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：per-owner 召喚上限封包（E418）、不需目標的召喚的 bot 施放（E419）
+
+- `__summon_limit {template, limit}`：kit `limit_summons`，保留最新的 limit 個召喚物（a20、a36、b07）。
+- SummonNearEnemy 接受 target none 的召喚（c02_phantom_move、b18_earth_claw）。
 ## 2026-10-31 線 B：可以移動的 dummy（E417）
 
 - dummy 可以帶 move_speed，由腳本命令移動（E412）。仍不能有攻擊、碰撞或 follow。

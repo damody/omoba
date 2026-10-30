@@ -6551,6 +6551,12 @@ fn handle_add_buff(
         super::magic_immunity::grant_state(world,target,duration);
         return Ok(());
     }
+    // A per-owner summon limit (E418): settled at once, never stored; the summons it retires leave.
+    if payload.get(super::summon_owner_cap::LIMIT_KEY).is_some() || buff_id==super::summon_owner_cap::LIMIT_BUFF {
+        let retired=super::summon_owner_cap::apply_limit(world,target,&buff_id,&payload);
+        world.write_resource::<Vec<Outcome>>().extend(retired.into_iter().map(|entity|Outcome::EntityRemoved {entity}));
+        return Ok(());
+    }
     // Hero component commands of generated scripts (hero_command): settled at once, never stored.
     if payload.get(super::hero_command::KEY).is_some() || buff_id==super::hero_command::BUFF {
         super::hero_command::apply(world,target,&buff_id,&payload);

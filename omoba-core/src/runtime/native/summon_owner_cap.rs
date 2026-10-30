@@ -13,6 +13,36 @@ use specs::{Entity, Join, World, WorldExt};
 
 use super::comp::*;
 
+/// v3 `create_unit { limit_per_owner, over_limit = "remove_oldest" }` (E418): a one-shot packet on
+/// the owner, never stored, that keeps at most `limit` of its live summons of `template`, the
+/// earliest beyond it retired at once ([`enforce`]). Any path that spawns may send it after its
+/// `create_unit`; a cast's spawns commit before its other effects settle.
+pub const LIMIT_BUFF: &str = "__summon_limit";
+pub const LIMIT_KEY: &str = "__summon_limit_v1";
+
+/// The packet's payload.
+pub fn limit_payload(template: &str, limit: usize) -> serde_json::Value {
+    serde_json::json!({ (LIMIT_KEY): { "template": template, "limit": limit } })
+}
+
+/// A well-formed packet: a template id and a limit in 1..=[`MAX_CAP`].
+pub fn limit_spec(buff_id: &str, payload: &serde_json::Value) -> Option<(String, usize)> {
+    if buff_id != LIMIT_BUFF || payload.as_object()?.len() != 1 { return None; }
+    let row = payload.get(LIMIT_KEY)?.as_object()?;
+    if row.len() != 2 { return None; }
+    let template = row.get("template")?.as_str()?;
+    let limit = usize::try_from(row.get("limit")?.as_u64()?).ok()?;
+    (omoba_template_ids::summon_by_name(template).is_some() && (1..=MAX_CAP).contains(&limit))
+        .then(|| (template.to_owned(), limit))
+}
+
+/// Settles a [`LIMIT_BUFF`] packet on `owner`; returns the summons it retired (the caller removes them).
+pub(crate) fn apply_limit(world: &mut World, owner: Entity, buff_id: &str, payload: &serde_json::Value) -> Vec<Entity> {
+    let Some((template, limit)) = limit_spec(buff_id, payload) else { return Vec::new() };
+    if !world.entities().is_alive(owner) { return Vec::new(); }
+    enforce(world, owner, &[template], limit)
+}
+
 /// Generated extras key of the summon effect's per-rank `owner_cap`.
 pub const EXTRA_KEY: &str = "summon_owner_cap";
 /// Upper bound accepted from content; anything larger is ignored as invalid.
@@ -131,6 +161,25 @@ mod tests {
         let retired = enforce(&mut w, owner, &units, 2);
         assert_eq!(retired, vec![a]);
         let _ = c;
+    }
+
+    /// E418: the `__summon_limit` packet of a create_unit with `limit_per_owner`.
+    #[test]
+    fn a_limit_packet_keeps_the_newest_summons_of_its_template() {
+        let mut w = world();
+        let owner = w.create_entity().build();
+        let oldest = summon(&mut w, owner, "saika_gunner", 1);
+        let middle = summon(&mut w, owner, "saika_gunner", 2);
+        let newest = summon(&mut w, owner, "saika_gunner", 3);
+        let other = summon(&mut w, owner, "lumen_sentry_turret", 0);
+        assert_eq!(apply_limit(&mut w, owner, LIMIT_BUFF, &limit_payload("saika_gunner", 2)), vec![oldest]);
+        assert!(!expired(&w, middle) && !expired(&w, newest) && !expired(&w, other));
+        for bad in [limit_payload("saika_gunner", 0), limit_payload("no_such_template", 1),
+            serde_json::json!({ (LIMIT_KEY): { "template": "saika_gunner", "limit": 1, "extra": 1 } })] {
+            assert!(apply_limit(&mut w, owner, LIMIT_BUFF, &bad).is_empty());
+        }
+        assert!(apply_limit(&mut w, owner, "other", &limit_payload("saika_gunner", 1)).is_empty());
+        assert_eq!(apply_limit(&mut w, owner, LIMIT_BUFF, &limit_payload("saika_gunner", 1)), vec![middle]);
     }
 
     #[test]
