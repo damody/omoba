@@ -28,7 +28,7 @@ fn a_replica_settles_the_attribute_hp_of_a_bought_strength_item_like_the_authori
     let mut authority = StateInitializer::setup_campaign_ecs_world(&pool);
     authority.insert(crate::runtime::ScriptRegistry::new());
     let config = SingleLaneConfig {
-        heroes: ["saika_magoichi".into(), "saika_magoichi".into()],
+        heroes: ["saika_magoichi".into(), "saika_magoichi".into()], map_id: Some("three_lane_quick_training".into()), lane_length: Fixed64::from_i32(omoba_template_ids::moba_map_by_name("three_lane_quick_training").unwrap().lane_length),
         warmup: Fixed64::ZERO, wave_interval: Fixed64::from_i32(10_000), passive_gold_per_second: 0,
         ..SingleLaneConfig::default()
     };
@@ -39,11 +39,11 @@ fn a_replica_settles_the_attribute_hp_of_a_bought_strength_item_like_the_authori
     for hero in &heroes { authority.write_storage::<Gold>().get_mut(*hero).unwrap().0 = 5000; }
     let first = driver.step(&mut authority, []).unwrap();
     project_tick(&mut authority, first);
-    let allow = TeamProjectorConfig::default().component_allowlist;
+    let allow = crate::runtime::secure_replica_component_allowlist();
     let starts = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
     let mut replicas: Vec<_> = starts.into_iter().map(|(team, start)| {
-        let replica = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start, allow.clone(), BTreeSet::new()).unwrap();
-        let mut stepper = SpecsDisclosedWorldStepper::from_start(&start, allow.clone(), BTreeSet::new());
+        let replica = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start, allow.clone(), crate::runtime::secure_replica_resource_allowlist()).unwrap();
+        let mut stepper = SpecsDisclosedWorldStepper::from_start(&start, allow.clone(), crate::runtime::secure_replica_resource_allowlist());
         stepper.bootstrap_membership(replica.world()).unwrap();
         (team, replica, stepper)
     }).collect();

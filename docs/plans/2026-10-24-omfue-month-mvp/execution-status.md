@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：observer 不一致時在 log 印出 replica 端英雄的推導輸入；attribute_hp 重現測試改用三路地圖與 secure allowlist
+
+- E353 修正後，工作線 C 的 1+9 demo 仍然出現 attribute_hp mismatch，replica 少了道具被動的力量。可是同樣情境的重現測試，在單路與三路快速地圖、預設與 secure allowlist 下都通過。
+- 為了找出原因，observer 在 mismatch 時會印出 replica 端每位英雄的 level、strength、attribute_hp、裝備、registry 認得的裝備數、`__item_passives` 與所有 BuffStore key，可以跟 server 端的 `authority_inputs` 對照。
+- `a_replica_settles_the_attribute_hp_of_a_bought_strength_item_like_the_authority` 改用 three_lane_quick_training 與 secure replica allowlist，條件和 observer 相同。
+
 ## 2026-10-30 線 B：召喚物的魔力（unit mana）：模板 mana／mana_regen、回魔、燒魔、吸魔、回復、設定、讀取、施放耗魔、replica 揭露
 
 - 召喚物模板新增 `mana`（出生滿魔）與 `mana_regen`（每秒）。驗證：mana 0..=100000、mana_regen 0..=1000，有 regen 時必須有 mana。新增元件 `unit_mana::UnitMana { pool, regen }`。

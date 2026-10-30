@@ -472,6 +472,7 @@ fn run_team_worker(
                                 continue;
                             }
                             record_mismatch_components(team_id, replica_tick, replica);
+                            log_replica_hero_inputs(team_id, replica_tick, specs);
                             if let Some(team) = metrics.teams.get(&team_id) {
                                 team.pre_repair_mismatch_count
                                     .fetch_add(1, Ordering::Relaxed);
@@ -515,6 +516,25 @@ fn run_team_worker(
 // Opt-in evidence contains only already-disclosed component values/digests,
 // never canonical identities or hidden world state. Preserve the original checkpoint
 // failure; diagnostics must not change recovery or authorization policy.
+/// What the observer replica derives its heroes' stats from (attribute_hp, max HP): the mirror of
+/// the server's `authority_inputs`, so a mismatch shows which side lacks an input.
+fn log_replica_hero_inputs(team_id: u32, tick: u64, specs: &SpecsDisclosedWorldStepper) {
+    use specs::{Join, WorldExt};
+    let world = &specs.filtered.world;
+    let buffs = world.read_resource::<crate::runtime::BuffStore>();
+    let inventories = world.read_storage::<crate::runtime::Inventory>();
+    let registry = world.try_fetch::<crate::runtime::ItemRegistry>();
+    for (entity, hero) in (&world.entities(), &world.read_storage::<crate::runtime::Hero>()).join() {
+        let items: Vec<String> = inventories.get(entity)
+            .map(|inventory| inventory.slots.iter().flatten().map(|item| item.item_id.clone()).collect()).unwrap_or_default();
+        let known = items.iter().filter(|id| registry.as_ref().is_some_and(|registry| registry.get(id).is_some())).count();
+        log::error!("observer replica inputs team={team_id} tick={tick} entity={entity:?} level={} strength={} attribute_hp={} items={items:?} known_items={known} item_passives={:?} buff_keys={:?}",
+            hero.level, hero.strength, hero.attribute_hp.raw(),
+            buffs.get(entity, crate::runtime::native::item::ITEM_PASSIVES_KEY).map(|entry| entry.payload.to_string()),
+            buffs.iter_for(entity).map(|(id, _)| id.to_owned()).collect::<Vec<_>>());
+    }
+}
+
 fn record_mismatch_components(team_id: u32, tick: u64, replica: &SelectiveReplicaRuntime) {
     let Ok(root) = std::env::var("OMOBA_FOG_EVIDENCE_DIR") else { return; };
     let dir = std::path::Path::new(&root).join("server").join(format!("team-{team_id}"));
