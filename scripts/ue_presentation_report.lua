@@ -69,7 +69,8 @@ function M.expected(hero_id, catalog, icons, cast_cues, status_cues)
   local rows = {}
   for _, a in ipairs(catalog.abilities) do
     if a.hero == source_id then
-      local row = { id = a.id, cast_cues = {}, target_cues = {}, statuses = {} }
+      local row = { id = a.id, cast_cues = {}, target_cues = {}, statuses = {},
+        passive = a.v3 and a.v3.bot and a.v3.bot.reason == "passive" or false }
       for _, cue in ipairs((cast_cues.abilities or {})[a.id] or {}) do
         local list = cue.at == "target" and row.target_cues or row.cast_cues
         list[#list + 1] = cue.cue
@@ -117,6 +118,11 @@ function M.render(hero_id, source_id, rows, seen)
     if cue_row and cue_row.unresolved then
       verdict = "缺 cue 定義"
       defects[#defects + 1] = r.id .. ": " .. cue_row.unresolved .. " cue plays unresolved"
+    elseif not cue_row and target == 0 and status_total == 0 and r.passive
+      and #r.cast_cues == 0 and #r.target_cues == 0 and #r.statuses == 0 then
+      -- A passive with no cue and no public status (extra damage, a heal on cast) has nothing
+      -- these markers can show; damage and heal numbers are not checked here.
+      verdict = "被動，無 cue／狀態可檢查"
     elseif not cue_row and target == 0 and status_total == 0 then
       verdict = "本局沒有呈現"
       defects[#defects + 1] = r.id .. ": nothing shown"

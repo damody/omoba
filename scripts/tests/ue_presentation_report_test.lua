@@ -32,12 +32,13 @@ local source_id, rows = M.expected("hero_one",
     { id = "h01_guard", hero = "H01", v3 = { statuses = { { id = "h01w_guard" }, { id = "h01w_secret", visibility = "hidden" } } } },
     { id = "h01_ghost", hero = "H01", v3 = { statuses = { { id = "h01e_stun", runtime_id = "stun" }, { id = "h01e_mark", runtime_id = "h01_ghost:{caster}" } } } },
     { id = "h01_idle", hero = "H01" },
+    { id = "h01_passive", hero = "H01", v3 = { bot = { kind = "none", reason = "passive" } } },
     { id = "h02_other", hero = "H02" },
   } },
   { entries = { { kind = "hero", id = "hero_one", source_id = "H01" } } },
   { abilities = { h01_strike = { { cue = "h01q_slash", at = "caster" }, { cue = "h01q_hit", at = "target" } } } },
   { statuses = { h01w_guard = "h01w_ring" } })
-ok(source_id == "H01" and #rows == 4, "only the hero's abilities, in catalog order")
+ok(source_id == "H01" and #rows == 5, "only the hero's abilities, in catalog order")
 ok(#rows[1].cast_cues == 1 and #rows[1].target_cues == 1, "expected cues split by place")
 ok(#rows[2].statuses == 1 and rows[2].statuses[1].cue == "h01w_ring", "hidden statuses are left out")
 local md, defects = M.render("hero_one", source_id, rows, seen)
@@ -47,5 +48,6 @@ ok(md:find("h01e_stun（stun）：ring 1", 1, true), "a shared runtime status is
 ok(md:find("h01e_mark：0", 1, true), "a per-caster runtime id is not a shared id")
 ok(#defects == 2 and defects[1]:find("h01_ghost", 1, true) and defects[2]:find("h01_idle", 1, true), "unresolved cue and silent ability are defects")
 ok(md:find("擊退拋物線（全局）：1 次，最高 180 cm", 1, true), "arc summary")
+ok(md:find("`h01_passive` | 0 | 0（預期 0 個） | — | 被動，無 cue／狀態可檢查", 1, true), "a passive with nothing to show is not a defect")
 ok(not pcall(M.expected, "nobody", { abilities = {} }, { entries = {} }, {}, { statuses = {} }), "unknown hero refused")
 print("ue_presentation_report_test: " .. checks .. " checks passed")
