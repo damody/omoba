@@ -2,7 +2,16 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E313 （保留）conformance：靠父技能狀態換進來的子技能（A07D2），情境先施放父技能再測（2026-10-30）
+## E313 conformance：靠父技能狀態換進來的子技能（A07D2），情境先施放父技能再測（2026-10-30，conformance session）
+
+- **現象**：known_differences 的 15 列 (b) 都是 a07_rouse_free，原因寫「honda_tadakatsu has no a07_rouse_free」。這招是 `slot = "sub"` 的子技能，只有 a07t_strongest 狀態的 on_created 用 swap_abilities 把它換進技能欄；harness 在英雄的固定技能欄裡找不到，所以每個情境都失敗。
+- **根因**：情境推導和 harness 都假設要測的招一開始就在技能欄裡，沒有處理「要先由別的狀態換進來」的子技能。
+- **通用修正**：
+  - v3_scenarios：子技能有 `requires.has_status` 時，找出哪個 entry 的狀態在 on_created 用 swap_abilities 把它換進來，每個情境都加上 `given swapped_in { status, by, replaces }`。
+  - harness：`swap_in` 先學會父技能（by）和被取代的那一招（replaces，用本情境的 rank），施放父技能，等子技能出現在技能欄後才開始測。父技能保留等級，它的狀態也不會被 harness 當成其他招的標記清掉。父技能需要目標、沒有換進來，或沒有父技能時，都回報 missing entry。
+  - 所有靠狀態換進來的子技能都適用，例如 B24、A32、A13 這類換技能的英雄。
+- **結果**：15 列仍是 (b)，原因改為「a07_strongest did not swap a07_rouse_free in」：現行手寫的 a07_strongest 不換技能。known_differences 的 note 已寫明負責線 A、修好條件是 a07_strongest 改跑產生碼後通過即刪。其他 10 位 0 差異。
+- 已放回。
 
 ## E312 v3 `is_visible_to(x, u)` 需要敵方視野，但 team replica 沒有；selector 的 `include_hidden` 不能直接略過（2026-10-30，工作線 B）
 

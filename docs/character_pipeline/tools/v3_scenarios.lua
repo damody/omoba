@@ -216,11 +216,29 @@ local function entry_scenarios(doc, def, entry_kind, out)
   end
   local applied = applied_statuses(base_effects, by_status)
 
+  -- A sub-ability that is not in the hero's list until its parent's status swaps it in (A07D2
+  -- replaces A07D while A07T's status is up; E313): every case starts with that swap.
+  local swapped
+  if def.slot == "sub" and def.requires and def.requires.has_status and current_doc then
+    for _, list in ipairs({ current_doc.abilities or {}, current_doc.items or {} }) do
+      for _, owner in ipairs(list) do
+        for _, st in ipairs(owner.statuses or {}) do
+          if st.id == def.requires.has_status then
+            for _, a in ipairs((st.triggers or {}).on_created or {}) do
+              if a.op == "swap_abilities" and a.to == def.id then
+                swapped = { kind = "swapped_in", status = st.id, by = owner.id, replaces = a.from }
+              end
+            end
+          end
+        end
+      end
+    end
+  end
   for rank = 1, max_level do
     local learned = { kind = "learned", entry = def.id, rank = rank }
     -- facts after `learned`; nil entries (a fact that does not apply) are skipped
     local function given(extra)
-      local g = { learned }
+      local g = { learned, swapped }
       local n = 0
       for k in pairs(extra or {}) do if k > n then n = k end end
       for k = 1, n do if extra[k] then g[#g + 1] = extra[k] end end

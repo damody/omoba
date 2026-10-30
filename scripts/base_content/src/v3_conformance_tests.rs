@@ -28,7 +28,7 @@ use super::*;
 use serde_json::{json, Value};
 
 const ENEMY: &str = "training_luminary";
-const GIVEN: &[&str] = &["learned", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line"];
+const GIVEN: &[&str] = &["learned", "swapped_in", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line"];
 const WHEN: &[&str] = &["cast", "wait", "caster_dies", "target_dies", "owner_dies", "owner_respawns", "toggle", "cast_until_over_cap"];
 /// A document entry the ported hero does not have at all: a difference, not a harness gap.
 const MISSING: &str = "missing entry: ";
@@ -285,6 +285,35 @@ impl Run {
     }
 }
 
+/// `given swapped_in` (E313): learn the parent (`by`) and the ability the entry replaces at this
+/// rank, cast the parent, and wait until its status has swapped the entry into the hero's list.
+fn swap_in(world: &mut World, driver: &mut SimulationDriver, caster: specs::Entity, entry: &str, rank: usize, swap: &Value) -> Result<(), String> {
+    let (by, replaces) = (swap["by"].as_str().ok_or("swapped_in without by")?, swap["replaces"].as_str().ok_or("swapped_in without replaces")?);
+    let slot = {
+        let mut heroes = world.write_storage::<Hero>();
+        let h = heroes.get_mut(caster).unwrap();
+        h.level = 18;
+        h.ability_levels.insert(by.to_owned(), 1);
+        h.ability_levels.insert(replaces.to_owned(), rank as i32);
+        if let Some(pool) = h.mana_pool.as_mut() {
+            let maximum = pool.maximum().max(Fixed64::from_i32(5000));
+            *pool = omoba_core::runtime::ability_runtime::ManaPool::new(maximum, maximum).map_err(|e| format!("{e:?}"))?;
+        }
+        h.abilities.iter().position(|id| id == by).ok_or_else(|| format!("{MISSING}no {by} to swap {entry} in"))? as u32
+    };
+    let kind = omoba_template_ids::ability_by_name(by).and_then(omoba_template_ids::active_ability_const).map(|c| c.target_type);
+    if !matches!(kind, Some(omoba_template_ids::TargetTypeC::None)) { return Err(format!("{by} (swaps {entry} in) needs a target")); }
+    { let result = driver.step(world, []).unwrap(); project_tick(world, result); }
+    let order = PlayerInput { action: Some(PlayerInputEnum::CastAbility(CastAbility { ability_index: slot, target_entity: None, target_pos: None })) };
+    { let result = driver.step(world, [(1, order)]).unwrap(); project_tick(world, result); }
+    let window = ticks(value(by, 1, "cast_point").unwrap_or(0.0) + 2.0);
+    for _ in 0..window {
+        if world.read_storage::<Hero>().get(caster).is_some_and(|h| h.abilities.iter().any(|id| id == entry)) { return Ok(()); }
+        let result = driver.step(world, []).unwrap(); project_tick(world, result);
+    }
+    Err(format!("{MISSING}{by} did not swap {entry} in"))
+}
+
 fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let entry = s["entry"].as_str().ok_or("no entry")?.to_owned();
     let rank = s["rank"].as_u64().ok_or("no rank")? as usize;
@@ -293,6 +322,8 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     if handler_mode() { use_handlers(&mut driver); }
     driver.step(&mut world, []).unwrap();
     let [caster, enemy] = hero_pair(&world);
+    let swapped = s["given"].as_array().and_then(|g| g.iter().find(|g| g["kind"] == "swapped_in")).cloned();
+    if let Some(swap) = &swapped { swap_in(&mut world, &mut driver, caster, &entry, rank, swap)?; }
     let slot = world.read_storage::<Hero>().get(caster).unwrap().abilities.iter().position(|id| *id == entry)
         .ok_or_else(|| format!("{MISSING}{hero} has no {entry}"))? as u32;
     // An entry the hero lists but no script implements yet (A13's entries the generator cannot
@@ -334,7 +365,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
                 if state != "magic_immune" { return Err(format!("unit state {state}")); }
                 immune = true;
             },
-            "toggled_on" | "charges" => {} // after the setup (run)
+            "toggled_on" | "charges" | "swapped_in" => {} // after the setup (run), or before it (swap_in)
             // Nobody on the cast's line (a hook case, E245): the enemy hero stands well aside.
             "no_unit_in_line" => clear_line = true,
             other => return Err(format!("given {other}")),
@@ -386,7 +417,12 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
         if let Some(enemy_hero) = heroes.get_mut(enemy) { enemy_hero.level = 18; }
         let h = heroes.get_mut(caster).unwrap();
         let ids = h.abilities.clone();
-        for id in &ids { h.ability_levels.insert(id.clone(), if *id == entry && !passive { rank as i32 } else { 0 }); }
+        // The parent that swapped the entry in keeps its rank: its status (and the swap) stays.
+        let parent = swapped.as_ref().and_then(|g| g["by"].as_str());
+        for id in &ids {
+            if Some(id.as_str()) == parent { continue; }
+            h.ability_levels.insert(id.clone(), if *id == entry && !passive { rank as i32 } else { 0 });
+        }
         // No points for auto-learn to spend before the passive is learned below.
         if passive { h.skill_points = 0; }
         if let Some(pool) = h.mana_pool.as_mut() {
@@ -418,7 +454,8 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     }
     let last = world.read_storage::<Hero>().get(caster).unwrap().clone();
     let target_at = world.read_storage::<Pos>().get(target).map(|pos| pos.0).unwrap_or(at);
-    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim: clear_line.then_some(at), keep: None };
+    let keep = swapped.as_ref().and_then(|g| g["by"].as_str()).map(str::to_owned);
+    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim: clear_line.then_some(at), keep };
     // Let auto-learn settle the ranks set above (it learns passives at their hero level).
     run.step(2);
     if passive {
