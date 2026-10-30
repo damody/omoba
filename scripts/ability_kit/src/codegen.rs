@@ -612,6 +612,23 @@ impl<'a, 'w> Cx<'a, 'w> {
         Ok(instance)
     }
 
+    /// A status's periodic clock starts on `holder`: a fresh token in the holder's state under the
+    /// status row (`__chain:<runtime id>`). Two starts of one row in the same tick (two appliers
+    /// before the first apply is committed) each write theirs; [`Cx::chain_current`] lets only the
+    /// last one's chain go on, so the row ticks once per interval (E335).
+    pub fn start_chain(&mut self, holder: EntityHandle, status: &StatusDef) -> Result<Fixed64, &'static str> {
+        let token = self.random(Fixed64::ONE, Fixed64::from_i32(1 << 20));
+        let key = format!("__chain:{}", self.runtime_id(status));
+        self.set_state_num(holder, &key, token, false)?;
+        Ok(token)
+    }
+
+    /// Whether `token` is the holder's current periodic clock of the status row.
+    pub fn chain_current(&self, holder: EntityHandle, status: &StatusDef, token: Fixed64) -> bool {
+        let key = format!("__chain:{}", self.runtime_id(status));
+        self.state_num(holder, &key, Fixed64::ZERO) == token
+    }
+
     /// Whether `u` still holds instance `n` of an independent status (`n` 0: the plain row).
     pub fn has_status_instance(&self, u: EntityHandle, status: &StatusDef, n: u32) -> bool {
         if n == 0 { return self.has_status(u, status); }

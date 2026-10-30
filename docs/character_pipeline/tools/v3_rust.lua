@@ -1628,7 +1628,7 @@ function Gen:action(a, ctx, ind)
       local s2 = line("{") .. line("    let to = " .. to .. ";") .. line("    let duration = " .. dur .. ";") .. line("    let source = " .. src .. ";")
       if starts then
         self:need_module(so)
-        s2 = s2 .. line("    let existed = cx.has_status(to, &super::ids::status::" .. upper(a.status) .. ");") .. line(call)
+        s2 = s2 .. line("    let existed = { let c = cx.caster; cx.caster = source; let e = cx.has_status(to, &super::ids::status::" .. upper(a.status) .. "); cx.caster = c; e };") .. line(call)
           .. line("    if !existed {") .. line("        let caster = cx.caster;") .. line("        cx.caster = source;")
           .. line(string.format("        let r = super::%s::st_%s_start(cx, to);", so.parent.id, a.status))
           .. line("        cx.caster = caster;") .. line("        r?;") .. line("    }")
@@ -2945,7 +2945,9 @@ local function emit_entry(m, o, opts, status_problems)
             local body = "    cx.caster = ability_kit::arg_as_unit(args, 0);\n"
               .. (inst and ("    cx.event_instance = u32::try_from(ability_kit::arg_as_num(args, 1).raw() >> 10).unwrap_or(0);\n"
                 .. "    if !cx.has_status_instance(cx.self_unit, &super::ids::status::" .. upper(sd.id) .. ", cx.event_instance) { return Ok(()); }\n")
-                or ("    if !cx.has_status(cx.self_unit, &super::ids::status::" .. upper(sd.id) .. ") { return Ok(()); }\n"))
+                or ("    if !cx.has_status(cx.self_unit, &super::ids::status::" .. upper(sd.id) .. ") { return Ok(()); }\n"
+                  -- one clock per holder and row (E335)
+                  .. "    if !cx.chain_current(cx.self_unit, &super::ids::status::" .. upper(sd.id) .. ", ability_kit::arg_as_num(args, 1)) { return Ok(()); }\n"))
               .. "    {\n        let interval = " .. interval .. ";\n        let owner = cx.self_unit;\n"
               .. string.format("        cx.schedule(owner, ID, %d, interval, args)?;\n    }\n", step)
               .. (cond and ("    if !(" .. cond .. ") { return Ok(()); }\n") or "")
@@ -2953,8 +2955,10 @@ local function emit_entry(m, o, opts, status_problems)
             g:set_step(step, "`" .. sd.id .. "` periodic", body, true)
             local first = tr.first ~= nil and g:value(tr.first, ctx, "num") or interval
             local args = inst and "[ability_kit::arg_unit(cx.caster), ability_kit::arg_num(Fixed64::from_i32(i32::try_from(cx.event_instance).unwrap_or(0)))]"
-              or "[ability_kit::arg_unit(cx.caster)]"
-            begin[#begin + 1] = "    {\n        let first = " .. first .. ";\n        let args = " .. args .. ";\n"
+              or "[ability_kit::arg_unit(cx.caster), ability_kit::arg_num(token)]"
+            begin[#begin + 1] = "    {\n        let first = " .. first .. ";\n"
+              .. (inst and "" or ("        let holder = cx.self_unit;\n        let token = cx.start_chain(holder, &super::ids::status::" .. upper(sd.id) .. ")?;\n"))
+              .. "        let args = " .. args .. ";\n"
               .. "        let owner = cx.self_unit;\n" .. string.format("        cx.schedule(owner, ID, %d, first, &args)?;\n    }\n", step)
           else
             local filter, actions = trigger_parts(tr)

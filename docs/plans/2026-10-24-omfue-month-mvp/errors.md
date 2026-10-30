@@ -2,7 +2,21 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E335 （保留）同一 tick 兩個施加者各自起了狀態的 periodic，同一列每次間隔跳兩次（C15 灼燒）（2026-10-30）
+## E336 （保留）bot 出裝是寫死的五份清單，單體／地點／隊友治療與魔免類主動道具從不使用，報告也沒有道具統計（2026-10-30）
+
+## E335 帶 source 的 apply_status 用錯 caster 判斷狀態是否已存在，periodic 每次都重起；同一 tick 兩個施加者各起一條 periodic（2026-10-30，工作線 A）
+
+- **現象**：B 的 t52（b9d33d93）放回後，C15 爆裂箭的火焰和灼燒都觀察得到了，但灼燒的 periodic 情境失敗：先是「hits 1 ticks apart」，把灼燒的 source 改成主人英雄後變成「a hit of 50, expected 25」，加上 periodic 去重之後又變成「0 hits」。
+- **根因**：
+  1. 內容：c15e_fire_field 由火焰 dummy 施加 c15e_burn 時寫的是 `source = "self"`，灼燒的 `{caster}` 因此是各個 dummy，每段火焰各自產生一份灼燒。說明文字寫的是「重疊的火焰只算一份灼燒」，所以 source 應該是 `caster_hero`。
+  2. 產生器：帶 `source` 的 apply_status，在換成 source 當 caster 之前就用目前的 caster 檢查 `existed`。per-source 的 runtime id 因此永遠對不上，每次都判成「不存在」，每次都重起 on_created／periodic。
+  3. 產生器：兩個施加者在同一 tick 施加同一列狀態時，彼此看不到對方尚未提交的套用，兩邊都會起一條 periodic，結果每個間隔跳兩次。
+- **通用修正**：
+  1. tamako v3.lua 改為 `source = "caster_hero"`。
+  2. `existed` 改在以 source 為 caster 的情況下檢查。
+  3. kit 新增 `start_chain`／`chain_current`：每條 periodic 在持有者的 state（`__chain:<runtime id>`）寫入自己的 token，step 發現 token 不是目前的就停止，所以同一列只會有一條 periodic。獨立實例的狀態本來就以實例編號區分，不受影響。
+  - 修正後，影子的 C15 爆裂箭灼燒情境「periodic 5 hits of 25」通過，和手寫版相同。
+- **以後如何避免**：產生碼中凡是依 runtime id（含 `{caster}`）判斷的地方，都要用施加者作為 caster，和實際套用時相同。會重排的時鐘（periodic、repeat）必須能分辨「是否仍是目前這一條」，不能只看狀態還在不在。
 
 ## E334 conformance：periodic 檢查改看 DamageTrace 路徑，持續施法中的其他傷害不再算進來（2026-10-30，conformance session）
 

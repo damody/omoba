@@ -140,7 +140,7 @@ return function(ctx)
                 { op = "for_each",
                   select = { from = "self", shape = "circle", radius = "$fire_radius", team = "enemy", types = BASIC },
                   actions = {
-                    { op = "apply_status", status = "c15e_burn", to = "it", source = "self" },
+                    { op = "apply_status", status = "c15e_burn", to = "it", source = "caster_hero" },
                   } },
               } },
             },
