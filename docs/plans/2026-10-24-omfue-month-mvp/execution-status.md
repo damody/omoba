@@ -16,6 +16,11 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：共用控制在一份來源列離開後，縮成剩下來源列中最長的剩餘時間
+
+- 線 A 回報：共用的 state key（例如 stun）在 BuffStore 取各次施加的最大剩餘時間。假設實例 1 剩 5 秒、實例 2 剩 2 秒，移除實例 1 之後，stun 仍然剩 5 秒。原作每個 modifier 各自帶自己的狀態，剩下的那個 modifier 結束時狀態就該結束。
+- 修正：`follow_controls` 在有來源列離開、控制仍被其他列持有時，把控制的剩餘時間縮成這些列中最長的剩餘時間。新增 `BuffStore::shorten`，只在剩餘時間比上限長時才縮短。
+- 測試：在獨立實例的移除測試中，實例 1 持有 disarm 5 秒、實例 2 持有 3 秒。移除實例 1 後，disarm 剩 3 秒。
 ## 2026-10-30 線 B：敵方英雄的衍生屬性改由權威端揭露（E374）
 
 - 新增 `FactKind::CommittedAttributes`／`ObservableFact::CommittedAttributes`：力量、敏捷、智力總值與 attribute_hp。權威端在 post-step 對看得到該英雄的隊伍送出（HERO_ABILITY policy）。
@@ -1315,6 +1320,7 @@
 - 2026-10-30 線 A：C15 爆裂箭燒傷修正（E335）：燒傷以 `source = "caster_hero"` 掛上，`existed` 以來源判斷，非獨立狀態的週期以 `start_chain`／`chain_current` 保證一個時鐘；`v3_summons` 把 `ai = owner_controlled` 對應 guard（不跟隨，原作只靠下令移動）。
 - 2026-10-30 線 A：M6 全部 96 位裡，除了 B22 都已是 v3 測試英雄（test_only，各自的 `scripts/heroes/<package>` crate），conformance 自動比對；E338（unit_or_point）、E341（summons.lua 只能有一個多值欄位；v3_summons --check 真的執行）、E344（KV 數值取開頭的數字）、E345（出生 rank 依等級需求）；v3_summons 接上 acquisition_range、ai idle、projectile_speed。
 - 2026-10-30 線 A：C15 灼燒改回每段火焰一份（E356，原作 KV）；c15_burst_arrow 換上產生版（C15 有 3 招產生，百箭仍是手寫 handler）；v3 列帶 charges／toggle／ultimate、F 欄進第 6 欄（E360）。
+- 2026-10-31 工作線 A：9d29384d（E365、E366）與 6abaf6ce：產生器 selector.relative_to、status.reapply_if_removed、damage flag no_source_bonuses、選取類別 building 與英雄以外（kit UnitTypes::Buildings／NonHero、Cx::of_types）；v3_summons 帶召喚物 mana／mana_regen；v3_test_heroes 空欄 ""（A32 的 F 在第 6 欄）；omfue 6f9e723 修 om_codegen 空欄 panic（E377）。影子 conformance A22、A11、C08、B18、A32 0 fail。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
 ## 2026-10-30（conformance：E359、E361、E362；C15 爆裂箭產生版、C05 通過）

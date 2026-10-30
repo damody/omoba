@@ -410,6 +410,13 @@ impl BuffStore {
             .is_some_and(|entity_buffs| entity_buffs.contains_key(buff_id))
     }
 
+    /// Cut a buff's remaining time to `at_most` when it has more; nothing else changes.
+    pub fn shorten(&mut self, entity: Entity, buff_id: &str, at_most: Fixed64) {
+        if let Some(entry) = self.buffs.get_mut(&entity).and_then(|entity_buffs| entity_buffs.get_mut(buff_id)) {
+            if entry.remaining > at_most { entry.remaining = at_most; }
+        }
+    }
+
     pub fn get(&self, entity: Entity, buff_id: &str) -> Option<&BuffEntry> {
         self.buffs
             .get(&entity)

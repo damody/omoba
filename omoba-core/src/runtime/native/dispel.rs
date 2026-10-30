@@ -16,6 +16,7 @@
 //!   and healing reduction, hostile source-tagged buffs), for a strong dispel of debuffs only.
 use super::ability_runtime::BuffStore;
 use super::comp::Faction;
+use omoba_sim::Fixed64;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
@@ -339,28 +340,36 @@ pub fn dispel_with(registry: &Registry, world: &World, entity: Entity, strength:
 }
 
 /// Shared controls follow the statuses holding them (CONTROL_SOURCE_PREFIX): a control goes when
-/// every source row holding it goes, and stays while one survives.
+/// every source row holding it goes, and stays while one survives, for no longer than the
+/// longest survivor holds it (原作 each modifier carries its own state: the one left ends it).
 fn follow_controls(world: &World, entity: Entity, doomed: &mut Vec<String>) {
+    let mut shortened: Vec<(String, Fixed64)> = Vec::new();
     {
         let buffs = world.read_resource::<BuffStore>();
-        let mut held: BTreeMap<&str, (usize, usize)> = BTreeMap::new(); // control -> (rows, rows surviving)
+        // control -> (rows, rows surviving, a row went, the longest survivor's remaining time)
+        let mut held: BTreeMap<&str, (usize, usize, bool, Fixed64)> = BTreeMap::new();
         for (id, entry) in buffs.iter_for(entity) {
             if !id.starts_with(CONTROL_SOURCE_PREFIX) { continue; }
             let survives = !doomed.iter().any(|doomed| doomed == id);
             for control in controls_of(&entry.payload) {
-                let counts = held.entry(control).or_default();
+                let counts = held.entry(control).or_insert((0, 0, false, Fixed64::ZERO));
                 counts.0 += 1;
-                if survives { counts.1 += 1; }
+                if survives { counts.1 += 1; counts.3 = counts.3.max(entry.remaining); } else { counts.2 = true; }
             }
         }
-        for (control, (_, surviving)) in held {
+        for (control, (_, surviving, went, longest)) in held {
             let pos = doomed.iter().position(|id| id == control);
             match (surviving, pos) {
                 (0, None) if buffs.has(entity, control) => doomed.push(control.to_owned()),
-                (n, Some(at)) if n > 0 => { doomed.remove(at); }
+                (n, Some(at)) if n > 0 => { doomed.remove(at); shortened.push((control.to_owned(), longest)); }
+                (n, None) if n > 0 && went => shortened.push((control.to_owned(), longest)),
                 _ => {}
             }
         }
+    }
+    if !shortened.is_empty() {
+        let mut buffs = world.write_resource::<BuffStore>();
+        for (control, longest) in shortened { buffs.shorten(entity, &control, longest); }
     }
 }
 
@@ -672,11 +681,15 @@ mod tests {
             }
             buffs.add(hero, "disarm", Fixed64::from_i32(3), json!({}));
         }
+        // The first instance holds the disarm longer: removing it cuts the disarm to the second's time.
+        world.write_resource::<BuffStore>().add(hero, "disarm", Fixed64::from_i32(5), json!({}));
+        world.write_resource::<BuffStore>().add(hero, &format!("{CONTROL_SOURCE_PREFIX}c_guard#1"), Fixed64::from_i32(5), control_source_payload(&["disarm"]));
         remove_status_with(&guards, &world, hero, "c_guard:7:0#1");
         {
             let buffs = world.read_resource::<BuffStore>();
             assert!(!buffs.has(hero, &format!("{CONTROL_SOURCE_PREFIX}c_guard#1")) && buffs.has(hero, &format!("{CONTROL_SOURCE_PREFIX}c_guard#2")));
-            assert!(buffs.has(hero, "disarm"), "the second instance still disarms");
+            assert_eq!(buffs.get(hero, "disarm").map(|entry| entry.remaining), Some(Fixed64::from_i32(3)),
+                "the second instance still disarms, for its own time");
         }
         remove_status_with(&guards, &world, hero, "c_guard:7:0#2");
         assert!(!world.read_resource::<BuffStore>().has(hero, "disarm"), "the last instance's disarm went with it");
