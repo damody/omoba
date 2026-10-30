@@ -330,6 +330,12 @@ impl<'a, 'w> Cx<'a, 'w> {
         if self.is_hero(to) { return Err("v3: remove_unit of a hero"); }
         self.kill(to, true)
     }
+    /// `who` turns to direction `dir` (no turn for a zero vector); a unit this cast created may
+    /// be turned too (v3 `create_unit.facing`).
+    pub fn face_dir(&mut self, who: EntityHandle, dir: Vec2) {
+        if !who.is_valid() || (dir.x == Fixed64::ZERO && dir.y == Fixed64::ZERO) { return; }
+        self.world.set_facing(who, omoba_sim::trig::atan2(dir.y, dir.x));
+    }
     /// v3 `face`: `who` turns toward `at` (no turn when it stands there).
     pub fn face(&mut self, who: EntityHandle, at: Vec2) -> Res {
         if !who.is_valid() { return Ok(()); }

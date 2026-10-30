@@ -545,8 +545,19 @@ function Gen:expr(node, ctx)
       elseif node.name == "attacker" then return "cx.event_attacker", "unit"
       elseif node.name == "ability" then return "", "event_ability"
       elseif node.name == "damage" then return "", "event_damage"
+      elseif node.name == "attack" then return "", "event_attack"
       elseif node.name == "victim" then return "cx.event_target", "unit" end
       self:block("event:" .. node.name); return "EntityHandle::INVALID", "unit"
+    end
+    if ot == "event_attack" then
+      -- the attack of this trigger: the attacker's (on_attacked), else the holder's own (line B
+      -- rules::attack AttackRecords through unit_attr)
+      local u = "(if cx.event_attacker.is_valid() { cx.event_attacker } else { cx.self_unit })"
+      local reads = { damage = { "unit_num", "ATTACK_DAMAGE", "num" }, effect_multiplier = { "unit_num", "ATTACK_EFFECT_MULTIPLIER", "num" },
+        is_ranged = { "unit_flag", "IS_RANGED", "bool" } }
+      local r = reads[node.name]
+      if not r then self:block("event.attack." .. node.name); return "Fixed64::ZERO", "err" end
+      return string.format("{ let u = %s; cx.%s(u, ability_kit::unit_attr::%s) }", u, r[1], r[2]), r[3]
     end
     if ot == "event_damage" then
       if node.name == "final" then return "cx.event_amount", "num"
@@ -562,7 +573,10 @@ function Gen:expr(node, ctx)
     end
     if ot == "unit" then
       local a = UNIT_ATTRS[node.name]
-      if a then return (a[2]:gsub("%%s", function() return obj end)), a[1] end
+      if a then
+        if obj:match("^[%w_%.]+$") then return (a[2]:gsub("%%s", function() return obj end)), a[1] end
+        return "{ let ua_ = " .. obj .. "; " .. (a[2]:gsub("%%s", function() return "ua_" end)) .. " }", a[1]
+      end
     end
     self:block("attr:" .. node.name); return "Fixed64::ZERO", "err"
   elseif k == "un" then
@@ -626,6 +640,13 @@ function Gen:call(node, ctx)
     local a = args[i]
     if a and a.k == "id" and not scope_find(ctx.scope, a.name) then return a.name end
     self:block("fn:" .. fn .. " with a computed name"); return nil
+  end
+  if fn == "armor_multiplier" then
+    -- the share of physical damage that lands through this armor (the rule layer's one formula)
+    local x, t = arg(1)
+    if t == "err" then return "Fixed64::ZERO", "err" end
+    if t ~= "num" then self:block("fn:armor_multiplier of a " .. t); return "Fixed64::ZERO", "err" end
+    return "ability_kit::armor_multiplier(" .. x .. ")", "num"
   end
   if fn == "min" or fn == "max" then
     if #args ~= 2 then self:block("fn:" .. fn .. "/" .. #args) end
@@ -984,7 +1005,7 @@ local ACTION_FIELDS = {
   ["if"] = set({ "op", "cond", "actions", "otherwise" }),
   let = set({ "op", "name", "value" }),
   for_each = set({ "op", "select", "as", "actions" }),
-  create_unit = set({ "op", "template", "at", "count", "lifetime", "control", "limit_per_owner", "over_limit", "as", "owner", "team" }),
+  create_unit = set({ "op", "template", "at", "count", "lifetime", "control", "limit_per_owner", "over_limit", "as", "owner", "team", "facing" }),
   reveal = set({ "op", "at", "radius", "duration", "teams", "follow", "ignore_terrain" }),
   call = set({ "op", "routine", "args" }),
   delay = set({ "op", "time", "actions", "capture" }),
@@ -1935,6 +1956,12 @@ function Gen:action(a, ctx, ind)
     end
     local make = (a.control == nil or a.control == "ai") and ("cx.create_unit(" .. rust_str(a.template) .. ", at, lifetime)?")
       or ("cx.create_unit_controlled(" .. rust_str(a.template) .. ", at, lifetime, " .. rust_str(a.control) .. ")?")
+    if a.facing ~= nil then
+      -- the new unit turns to `facing` (host: the cast's own summon may be turned, line B)
+      local f, ft = self:value(a.facing, ctx)
+      if ft ~= "vec" and ft ~= "point" and ft ~= "err" then self:block("action:create_unit.facing of a " .. tostring(ft)) end
+      make = "{ let facing = " .. f .. "; let u = " .. make .. "; cx.face_dir(u, facing); u }"
+    end
     -- limit_per_owner: only the host's summon_owner_cap (omoba-core summon_owner_cap: after the
     -- cast commits, the earliest live summons of the cast's templates beyond the cap leave). That
     -- needs the cap to be the content extra `summon_owner_cap` of this very ability, `remove_oldest`,
