@@ -38,4 +38,14 @@ return {
   {hero='oda_nobunaga',package='hero_a25',dir='heroes/oda_nobunaga'},
   {hero='takigawa_kazumasu',package='hero_a32',dir='heroes/takigawa_kazumasu'},
   {hero='tachibana_muneshige',package='hero_c11',dir='heroes/tachibana_muneshige'},
+  -- M6 third batch (2026-10-31): every ability generated, conformance 0 fail on live (harness efdc4728)
+  {hero='kuroda_yoshitaka',package='hero_a19',dir='heroes/kuroda_yoshitaka'},
+  {hero='sakuma_morimasa',package='hero_a24',dir='heroes/sakuma_morimasa'},
+  {hero='koihime',package='hero_b18',dir='heroes/koihime'},
+  {hero='usami_sadamitsu',package='hero_b19',dir='heroes/usami_sadamitsu'},
+  {hero='uesugi_kenshin',package='hero_b32',dir='heroes/uesugi_kenshin'},
+  {hero='akechi_mitsuhide',package='hero_c01',dir='heroes/akechi_mitsuhide'},
+  {hero='akechi_hidemitsu',package='hero_c02',dir='heroes/akechi_hidemitsu'},
+  {hero='miyamoto_musashi',package='hero_c21',dir='heroes/miyamoto_musashi'},
+  {hero='sasaki_kojiro',package='hero_c22',dir='heroes/sasaki_kojiro'},
 }
