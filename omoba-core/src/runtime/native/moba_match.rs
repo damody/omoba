@@ -2874,15 +2874,13 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
                 slot.respawn_at = Some(state.elapsed + respawn);
                 objective_buffs::retire_hero(&mut state,retired_player);
                 personal_buffs::retire_hero(&mut state,retired_player);
-                let kept = super::unit_var::persisting(&world.read_resource::<crate::runtime::BuffStore>(), entity);
                 let statuses = super::status_scope::persisting(&world.read_resource::<crate::runtime::BuffStore>(), entity, state.elapsed);
+                // The body keeps only its hero variables, readable until it goes (unit_var::retire).
+                let kept = super::unit_var::retire(&mut world.write_resource::<crate::runtime::BuffStore>(), entity);
                 if let Some(slot) = state.heroes.iter_mut().find(|s| s.player_id == retired_player) {
                     slot.hero_vars = kept;
                     slot.hero_statuses = statuses;
                 }
-                world
-                    .write_resource::<crate::runtime::BuffStore>()
-                    .remove_all_for(entity);
                 minion_aura::synchronize(world,&mut state);
             }
             LaneRole::Inhibitor | LaneRole::NexusTower => state.retire_base_structure(world, entity),

@@ -16,6 +16,11 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：英雄死亡後，hero 範圍的狀態變數仍留在屍體上可讀（E380）
+
+- `unit_var::retire`：英雄死亡時清掉屍體上的其他列，hero 變數保留到屍體被移除；同時照舊存進 slot，供復活時使用。
+- 修正 b13_hypnosis 施法者死亡時把目標叫醒的問題：死亡後才送到的受傷事件讀到 `b13e_wake_armed` 的初始值 true。
+- 測試：`a_dying_hero_keeps_its_hero_variables_readable_until_the_body_goes`。
 ## 2026-10-30 線 B：v3 主機能力：event.point、has_tag summon／neutral、end_channel、not_on_minimap
 
 線 A 涵蓋率缺口的 1、2、3、5。

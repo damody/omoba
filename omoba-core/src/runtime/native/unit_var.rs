@@ -90,6 +90,17 @@ pub fn persisting(buffs: &BuffStore, entity: Entity) -> Vec<(String, Value)> {
     rows
 }
 
+/// A dying hero's rows: every row goes except its `hero` variables, which stay readable on the
+/// body until it is removed (a hook that comes due after the death, say a status of its own whose
+/// damage event arrives a tick later, reads the caster's state as it was; 原作 the hero object keeps
+/// its fields while dead). Returns them, to be put on the next life.
+pub fn retire(buffs: &mut BuffStore, entity: Entity) -> Vec<(String, Value)> {
+    let kept = persisting(buffs, entity);
+    buffs.remove_all_for(entity);
+    restore(buffs, entity, &kept);
+    kept
+}
+
 /// Put saved `hero` rows on the hero's new life.
 pub fn restore(buffs: &mut BuffStore, entity: Entity, rows: &[(String, Value)]) {
     for (id, payload) in rows {
@@ -118,6 +129,20 @@ mod tests {
         let mut extra = s.payload();
         extra[KEY]["x"] = json!(1);
         assert!(Spec::from_buff(&s.buff_id(), &extra).is_none(), "no extra fields");
+    }
+
+    #[test]
+    fn a_dying_hero_keeps_its_hero_variables_readable_until_the_body_goes() {
+        let mut world = World::new();
+        let hero = world.create_entity().build();
+        let mut buffs = BuffStore::default();
+        let (kept, life) = (num("b13:b13e_wake_armed", 0, true), num("a:x", 1024, false));
+        for s in [&kept, &life] { buffs.add(hero, &s.buff_id(), P, s.payload()); }
+        buffs.add(hero, "stun", Fixed64::from_i32(2), json!({}));
+        assert_eq!(retire(&mut buffs, hero), vec![(kept.buff_id(), kept.payload())]);
+        assert_eq!(buffs.get(hero, &kept.buff_id()).and_then(|e| Spec::from_buff(&kept.buff_id(), &e.payload)), Some(kept.clone()),
+            "the hero variable reads as it was");
+        assert!(!buffs.has(hero, &life.buff_id()) && !buffs.has(hero, "stun"), "everything else goes");
     }
 
     #[test]

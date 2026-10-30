@@ -2,6 +2,8 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E385 （保留）排程效果在兩個 tick 之間到期時延到下一個 tick，0.99 s 的週期在 1 s 狀態內一次都沒打到（2026-10-31）
+
 ## E384 （保留）召喚物與小兵身上的狀態圖示沒有揭露給任何一隊（2026-10-31）
 
 ## E383 conformance session 用 taskkill /IM cargo.exe 殺掉全機 cargo，中斷其他 session 的建置（2026-10-31，conformance session）
@@ -15,7 +17,17 @@
 
 ## E381 （保留）conformance：施放同時回魔給施法者，mana_spent 允許扣掉這份回魔（2026-10-31）
 
-## E380 （保留）英雄死亡時 hero 範圍狀態變數從屍體移除，死後到期的 hook 讀到初始值（2026-10-31）
+## E380 英雄死亡時把 hero 範圍的狀態變數從屍體移除，死後才到期的 hook 讀到初始值（2026-10-31，工作線 B）
+- **現象**：一致性線回報 b13_hypnosis 的 death/caster_dies_after_cast（r1～r4）會在施法者死亡時移除 b13e_sleep。在 shadow 加診斷後看到，死亡那一個 tick，目標的 b13e_sleep 就換成了 b13e_wake_stun。
+- **根因**：
+  - 施放當下的 1 點魔法傷害，在下一個 tick 才以 status event 送到 b13e_sleep 的 on_take_damage。這時施法者已經死了。
+  - 這個 hook 的 filter 讀施法者的 hero 範圍狀態 `b13e_wake_armed`。施放時設成 false，0.1 秒後才改成 true。
+  - MOBA 英雄死亡時，`remove_all_for` 會清掉屍體上的所有列，hero 變數只另存在 slot 裡等復活。於是 filter 讀到的是初始值 true，把目標叫醒了。
+  - 原作的英雄物件死亡時仍然保留它的欄位。
+- **通用修正**：新增 `unit_var::retire`，英雄死亡時清掉其他列，但 hero 變數留在屍體上，可以讀到屍體被移除為止；同時照舊交給 slot，帶到下一條命。replica 原本就沒有在死亡時清列，現在兩邊一致。
+  - 測試：`a_dying_hero_keeps_its_hero_variables_readable_until_the_body_goes`。
+- **避免**：「之後到期」的 hook（延遲的 status event、排程）讀的狀態，在擁有者死亡後仍要保持原值。清理死亡單位時，要分清楚哪些是 hook 會讀的狀態、哪些是會生效的效果。
+- **尚未處理**：由已死施法者擁有的 delay 仍然會被跳過（dispatch 不執行擁有者已死的 hook），所以 0.1 秒後設成 true 那一步不會發生。原作的計時器在死亡後照樣會跑。另外記錄，不在這一項修。
 
 ## E379 HUD sync 把英雄技能列的空欄 "" 當成未知技能而中斷，所有 UE 建置被擋下（2026-10-31，history-nobu M6，工作線 C）
 - **現象**：B 讓英雄技能列可以有空欄 `""`（cddcb1af：有 F 沒有 D 的原作英雄，例如 A32 瀧川一益）之後，build_ue_moba 的「synchronize original HUD content names」失敗，訊息是 `hero takigawa_kazumasu equips unknown ability: `。工作線 C 的 1+9 demo（demo7）和宇喜多秀家的 spotlight 都卡在建置。A 的 E377 只修了 om_codegen。
