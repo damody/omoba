@@ -399,6 +399,8 @@ fn abilities() -> RVec<AbilityDefFFI> {
             // conformance 2026-10-30: 0 regressions (B04, B06 compare vs handler)
             "b04_flame_trail_dash" => hero_b04_impl::generated::b04_flame_trail_dash::ffi(),
             "b06_first_warrior" => hero_b06_impl::generated::b06_first_warrior::ffi(),
+            // conformance 2026-10-30: +16 pass, 0 regressions (one burn per fire segment, E356)
+            "c15_burst_arrow" => hero_c15_impl::generated::c15_burst_arrow::ffi(),
             "c15_precise_light" => hero_c15_impl::generated::c15_precise_light::ffi(),
             "c15_scatter_shot" => hero_c15_impl::generated::c15_scatter_shot::ffi(),
             _ => continue,
