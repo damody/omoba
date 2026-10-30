@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E368 M3' 的 stage-dll 從寫死的 scripts/target 取英雄 DLL，用自己 CARGO_TARGET_DIR／OM_RUST_RUN_BINARIES 建置的局在 stage 失敗（2026-10-30，history-nobu M6 UE 呈現，工作線 C）
+- **現象**：工作線 C 為 A 轉正式的 14 位英雄跑 UE spotlight（`OM_RUST_RUN_BINARIES=target/lineC-bins`）。build_ue_moba 已把 base_content 和每位英雄的 DLL 建到 lineC-bins，接著「stage current base_content.dll」失敗，訊息是 `source missing: scripts/target/debug/hero_c05.dll`，整局沒有開始。
+- **根因**：E333 讓 build、stage、契約檢查都向 `ue_bridge_stage.rust_target` 取 Rust target 目錄。M3'（每位英雄一個 DLL）新增的 `dev_run_freshness --action stage-dll` 卻仍寫死 `scripts/target/<profile>`。舊的 base_content.dll 剛好留在共用目錄裡，所以之前的局不會失敗，但 stage 進去的可能是別人建的舊檔；新英雄的 DLL 只在自己的 target 裡有，這次就直接失敗了。
+- **通用修正**：`dev_run_freshness` 的 script-dll 輸出（stage-dll 的來源目錄和 `--action check`）改用 `ue_bridge_stage.rust_target(root,'scripts','target')`，與 build_ue_moba 傳給 cargo 的 `--target-dir` 是同一個答案。測試 `scripts/tests/dev_run_freshness_target_test.lua` 檢查不再出現寫死的路徑。
+- **避免**：新增任何讀 Rust 建置產物的步驟時，一律向 `rust_target` 取目錄，不要自己組 `<crate>/target`；只在共用 target 底下測試，看不出這種錯。
+
 ## E367 （保留）conformance：死亡時收起的 hero 狀態在復活後檢查；施放後停用自己的技能在冷卻後預期被拒（2026-10-30）
 
 ## E366 （保留）kit 把 cast range 0 當成無效，點施放不能不限距離（2026-10-30）
