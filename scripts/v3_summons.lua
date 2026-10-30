@@ -173,6 +173,18 @@ local function chase_row(doc, t, num, no)
   return row
 end
 
+-- Gold and experience to the enemy player who kills it (line B 3b1c87db; a dummy too), whole numbers.
+local function bounty_into(row, bounty, num, no)
+  for _, k in ipairs(sorted(bounty or {})) do
+    if k ~= "gold" and k ~= "xp" then no("bounty." .. k)
+    else
+      local b = num(bounty[k], "bounty." .. k)
+      if b and (b < 0 or b ~= math.floor(b)) then no("bounty." .. k .. " is not a whole number")
+      elseif b and b > 0 then row["bounty_" .. k] = math.tointeger(b) end
+    end
+  end
+end
+
 -- A template with no attack that is a dummy (`ai = "none"` or tag `dummy`): the host's dummy body
 -- (line B ee50b7e7). Its life and defenses (b8a572ea: a dummy with life can be destroyed), vision
 -- and owner rule come from the document.
@@ -181,7 +193,7 @@ local function dummy_rows(doc, t, value)
   local function no(what) problems[#problems + 1] = what end
   local known = { id = true, source_id = true, values = true, text = true, notes = true, provenance = true, quirks = true,
     max_level = true, attack = true, vision = true, owner_death = true, ai = true, tags = true, passive = true, stats = true,
-    statuses = true, flying = true }
+    statuses = true, flying = true, bounty = true }
   -- a chase_target dummy moves by its chase table and acquires within acquisition_range (E406)
   if t.ai == "chase_target" then known.chase = true; known.acquisition_range = true end
   for _, k in ipairs(sorted(t)) do if not known[k] then no(k .. " on a dummy") end end
@@ -189,7 +201,9 @@ local function dummy_rows(doc, t, value)
   local sp = statuses_problem(t); if sp then no(sp) end
   local stats = t.stats or {}
   for _, k in ipairs(sorted(stats)) do
-    if k ~= "hp" and k ~= "hp_regen" and k ~= "armor" and k ~= "magic_resist" and k ~= "mana" and k ~= "mana_regen" then no("stats." .. k .. " on a dummy") end
+    -- move_speed: a mobile dummy the scripts order around (line B E417)
+    if k ~= "hp" and k ~= "hp_regen" and k ~= "armor" and k ~= "magic_resist" and k ~= "mana" and k ~= "mana_regen"
+      and k ~= "move_speed" then no("stats." .. k .. " on a dummy") end
   end
   if t.ai ~= nil and t.ai ~= "none" and t.ai ~= "chase_target" then no("ai:" .. tostring(t.ai) .. " on a dummy") end
   for _, tag in ipairs(t.tags or {}) do if tag ~= "dummy" and tag ~= "summon" then no("tag:" .. tag) end end
@@ -215,6 +229,10 @@ local function dummy_rows(doc, t, value)
     row.armor = num(stats.armor, "stats.armor")
     row.magic_resistance = num(stats.magic_resist, "stats.magic_resist")
     mana_into(row, stats, num, no)
+    bounty_into(row, t.bounty, num, no)
+    local ms = num(stats.move_speed, "stats.move_speed")
+    if ms and (ms < 0 or ms > HOST_RANGE_MAX) then no("stats.move_speed " .. ms .. " outside 0.." .. HOST_RANGE_MAX)
+    elseif ms and ms > 0 then row.move_speed, row.immobile = ms, nil end
     if t.flying ~= nil and type(t.flying) ~= "boolean" then no("flying of a " .. type(t.flying)) elseif t.flying then row.flying = true end
     if t.ai == "chase_target" and type(t.chase) == "table" then
       row.immobile, row.ai = nil, "chase_target"
@@ -316,17 +334,7 @@ function M.template_rows(doc, t)
       elseif acq and row.attack_range and acq < row.attack_range then no("acquisition_range " .. acq .. " below attack.range")
       elseif acq then row.acquisition_range = acq end
     end
-    -- gold and experience to the enemy player who kills it (line B 3b1c87db), whole numbers
-    if t.bounty then
-      for _, k in ipairs(sorted(t.bounty)) do
-        if k ~= "gold" and k ~= "xp" then no("bounty." .. k)
-        else
-          local b = num(t.bounty[k], "bounty." .. k)
-          if b and (b < 0 or b ~= math.floor(b)) then no("bounty." .. k .. " is not a whole number")
-          elseif b and b > 0 then row["bounty_" .. k] = math.tointeger(b) end
-        end
-      end
-    end
+    bounty_into(row, t.bounty, num, no)
     vision_into(row, t.vision or {}, num, no)
     row.collision_radius = num(t.collision_radius, "collision_radius") or 0
     -- the source's MovementTurnRate (0..10; the host turns at turn_rate / 0.03 rad/s, line B 530f1f9f)
