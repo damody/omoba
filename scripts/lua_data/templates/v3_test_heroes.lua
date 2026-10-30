@@ -1519,12 +1519,16 @@ local data = {
     {
       ability_type = "active",
       authored_package = "maeda_keiji",
-      cast_type = "instant",
+      cast_type = "channeled",
+      channel = { anchor = "point", interval_key = "channel_interval", pulses_key = "channel_pulses", radius_key = "channel_radius" },
       description = "對任意地點引導 1.5 秒（前搖起 1.5 秒內無法下達指令），完成後瞬移到該處，摧毀樹木，並對周圍 600 內的敵方英雄與部隊（包含魔免）造成 400/700/1000 魔法傷害、暈眩 1 秒。引導被打斷時冷卻改為 20 秒。施放後敵方會看到落點提示。",
       display_name = "瞬雷閃",
       extras = {
         blink_lead = { 0.3, 0.3, 0.3 },
         cast_point = { 0.1, 0.1, 0.1 },
+        channel_interval = { 1.5, 1.5, 1.5 },
+        channel_pulses = { 1, 1, 1 },
+        channel_radius = { 600.0, 600.0, 600.0 },
         channel_time = { 1.5, 1.5, 1.5 },
         damage = { 400.0, 700.0, 1000.0 },
         hint_delay = { 0.75, 0.75, 0.75 },
@@ -6117,7 +6121,8 @@ local data = {
     {
       ability_type = "active",
       authored_package = "akechi_mitsuhide",
-      cast_type = "instant",
+      cast_type = "channeled",
+      channel = { anchor = "point", interval_key = "channel_interval", pulses_key = "channel_pulses", radius_key = "channel_radius" },
       description = "對目標地點持續施法，每 0.1 秒在半徑 600/650/700 的圓內隨機落下一顆火球，最多 45/52/59 顆。火球對落點 340 內（限大圓內）的敵人造成 84/94/104 魔法傷害並暈眩 0.53/0.57/0.61 秒，並摧毀樹木；建築只受 30% 傷害且不會暈眩。施法期間雙方都看得到光秀。",
       display_name = "本能寺炎上",
       extras = {
@@ -6127,6 +6132,9 @@ local data = {
         cast_range = { 1100.0, 1100.0, 1100.0 },
         caster_reveal_first = { 6.0, 6.0, 6.0 },
         caster_reveal_radius = { 100.0, 100.0, 100.0 },
+        channel_interval = { 4.5, 5.2, 5.9 },
+        channel_pulses = { 1, 1, 1 },
+        channel_radius = { 600.0, 650.0, 700.0 },
         channel_time = { 4.5, 5.2, 5.9 },
         damage = { 84.0, 94.0, 104.0 },
         half = { 0.5, 0.5, 0.5 },
@@ -6801,7 +6809,8 @@ local data = {
     {
       ability_type = "active",
       authored_package = "ukita_hideie",
-      cast_type = "instant",
+      cast_type = "channeled",
+      channel = { anchor = "point", interval_key = "channel_interval", pulses_key = "channel_pulses", radius_key = "channel_radius" },
       description = "持續施法期間，每 0.3 秒在目標地點 350 範圍內降下一波火雨（最多 10 波），稍後對範圍內的敵方英雄、一般單位與建築造成 40/80/120/160 魔法傷害（建築只受 20%），並使非建築的敵人燃燒 4 秒、每 1 秒受到 20/25/30/35 魔法傷害，燃燒可疊加。施放後摧毀範圍內的樹木。施法期間若秀家周圍 1000 內有敵方單位，雙方都看得到秀家。",
       display_name = "鬼術．墜火",
       extras = {
@@ -6810,6 +6819,9 @@ local data = {
         cast_point = { 0.0, 0.0, 0.0, 0.0 },
         cast_range = { 1000.0, 1000.0, 1000.0, 1000.0 },
         caster_vision = { 100.0, 100.0, 100.0, 100.0 },
+        channel_interval = { 4.0, 4.0, 4.0, 4.0 },
+        channel_pulses = { 1, 1, 1, 1 },
+        channel_radius = { 350.0, 350.0, 350.0, 350.0 },
         channel_time = { 4.0, 4.0, 4.0, 4.0 },
         damage = { 40.0, 80.0, 120.0, 160.0 },
         detect_radius = { 1000.0, 1000.0, 1000.0, 1000.0 },
