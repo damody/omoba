@@ -15,10 +15,13 @@ assert(not path.exists(path.join(b.root,'target','interactive-runs','active-ue-s
   'another UE session record exists; preserve it and do not clean it implicitly')
 -- One performance measurement and one live match per machine (E197). The children run
 -- synchronously (no attached process), so the holder counts as held for the whole budget.
+-- The performance lock covers the whole verification; live_match only the live capture (E328):
+-- builds and the saved-capture replay ran under it and held it far past the 10-minute limit.
 local machine_lock=require('machine_lock')
+-- The live capture (120 s smoke plus Unreal startup and the reconnect) stays within 600 s.
+local machine_lock_live_grace=600
 local performance <close> = machine_lock.acquire(b.root,'performance',{run=output,label='verify_moba_local_baseline',
   grace_seconds=3*3600,wait_flag='(no wait option; rerun later)'})
-local live <close> = machine_lock.acquire(b.root,'live_match',{run=output,label='verify_moba_local_baseline',grace_seconds=3*3600})
 path.mkdir_p(output)
 local function command(label,exe,argv,environment)
   print('Final baseline: '..label);io.stdout:flush()
@@ -51,7 +54,12 @@ local ok,err=xpcall(function()
     OMOBA_UE_MINIMAP_MOVE_SMOKE='0',OMOBA_UE_RECALL_SMOKE='0',OMOBA_UE_UPGRADE_SMOKE='0',
     OMOBA_UE_FIRST_LEARN_SMOKE='0',OMOBA_UE_FIRST_LEARN_CAST_SMOKE='0',
     OMOBA_UE_SCOREBOARD_SMOKE='0',OMOBA_UE_SCOREBOARD_DEATH_SMOKE='0'}
-  command('live-reconnect',platform.lua_executable,{path.join(b.root,'scripts/run_2player_ue.lua'),'--single-lane'},env)
+  do
+    -- The capture is bounded by OMOBA_UE_SMOKE_SECONDS; the lock is held only while it runs.
+    local live <close> = machine_lock.acquire(b.root,'live_match',{run=output,label='verify_moba_local_baseline',
+      grace_seconds=machine_lock_live_grace})
+    command('live-reconnect',platform.lua_executable,{path.join(b.root,'scripts/run_2player_ue.lua'),'--single-lane'},env)
+  end
   command('saved-reconnect',platform.lua_executable,{path.join(b.root,'scripts/tests/ue_renderer_reconnect_acceptance.lua'),run})
   local live=json.read(path.join(run,'unreal-ipc-smoke-report.json'))
   assert(live.profile=='release' and live.tick_rate_hz==60 and live.content_mode=='compiled-content-only',

@@ -2,7 +2,14 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E328 （保留）效能量測整段持 live_match 鎖，超過 10 分鐘上限（e187 perfcmp 17 分鐘；verify_moba_local_baseline 連建置一起持鎖）（2026-10-30）
+## E328 效能量測整段持 live_match 鎖，超過 10 分鐘上限（2026-10-30，e187 遊戲模式 session；已放回 live）
+- **現象**：e187 的 headless 效能比較（perfcmp：M3' ④ 版與目前 HEAD 交錯 5 輪，共 10 局，每局約 75 秒）從 15:29 起持有 live_match 鎖約 20 分鐘，C 的實機局一直排隊。`verify_moba_local_baseline` 也一樣：前端建置、三個 cargo release 建置、實機擷取、重播舊擷取全程持有 live_match（寬限 3 小時）。
+- **根因**：效能量測為了不和實機局重疊而取 live_match，但整段一次取，沒有套用 E322／E325 的「從取鎖起最多 600 秒」。
+- **通用修正**：
+  - 新增 `scripts/measure_headless_perf.lua`（`--output DIR --role-plan PLAN --build NAME=RUN_DIR[=EXE] ... [--rounds 5] [--game-seconds 600]`）。performance 鎖持有整場比較；live_match 每局各取一次，從取鎖起超過 600 秒就停止該局；局與局之間放鎖，實機局可以插進來。輸出每局的 step_wall_ms_mean 與各版本中位數（summary.json）。B 的 perf5 與 e187 的 perfcmp 這類臨時腳本都改用它。
+  - `verify_moba_local_baseline` 的 live_match 只在 live-reconnect 擷取那段持有（寬限 600 秒）；建置與重播舊擷取只持 performance 鎖。
+- **量測結果**（同一份 10 英雄 role plan，600 秒／36000 tick，release moba-headless）：M3' ④ 版 1.97／2.29／1.86／1.96／2.34，中位數 1.97 ms；目前 HEAD 2.92／1.99／2.37／2.01／2.33，中位數 2.33 ms。逐輪差異 +0.95／−0.30／+0.51／+0.04／−0.01，正負都有；兩版本的視野計算佔每 tick 比例都約 0.19～0.20，差異跟著機器負載（量測時有其他 session 的 cargo 建置）。最佳輪 1.86 對 1.99 ms（+7%）。兩版本都低於上次的 3.13 ms（上次負載較高）。結論：沒有超出雜訊的退步；要確認那 7% 需要在沒有建置的時段用 measure_headless_perf 再量。
+- **避免**：任何要佔 live_match 的工作都分段取鎖，每段從取鎖起不超過 600 秒；建置、重播、報表都放在鎖外。
 
 ## E327 v3_test_heroes.lua 在過期的影子 hero_author 上產生，引導技能全被寫成 instant（2026-10-30，工作線 A）
 
