@@ -14,8 +14,12 @@ function M.bindings(root,project)
   return {
     {role='bridge',built=path.join(root,'omfue/bridge/target/debug/om_bridge.dll'),
       copies={path.join(plugin,'om_bridge.dll')}},
+    -- Only the copy the Unreal project loads (E319). The shared scripts/base_content.dll is
+    -- still staged for dev runs and gen-docs, but other sessions copy their own builds over it
+    -- (AGENTS.md gen-docs steps), and no launch reads it (E124); checking it failed whole UE
+    -- launches whenever another session staged a release build during this build.
     {role='base_content',built=path.join(root,'scripts/target/debug/base_content.dll'),
-      copies={path.join(root,'scripts/base_content.dll'),path.join(plugin,'base_content.dll')}},
+      copies={path.join(plugin,'base_content.dll')}},
   }
 end
 -- A build checks these right after staging. A launch does not (E124): it runs its own

@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E319 run_ue 前端建置在最後驗證共用 scripts/base_content.dll，被別的 session 覆蓋就整局失敗（2026-10-30，e187 遊戲模式 session；已放回 live）
+- **現象**：`run_ue.bat` 預設 demo（demo1）建完 UE 前端後失敗：「staged base_content differs from current build; rebuild/stage before launch: scripts\base_content.dll」。這時 scripts/base_content.dll 是 1.9 MB 的 release 版（mtime 13:49），debug 建置與 plugin 副本都是 4.8 MB（14:08／14:10）。
+- **根因**：build_ue_moba 先把 debug 版 stage 到共用的 scripts/base_content.dll 和 plugin，UBT 編完再驗證兩份都等於目前建置。共用那份是其他 session 照 AGENTS.md 的 gen-docs 步驟（`copy /y` release 版）也會寫入的檔案，數分鐘的 UBT 期間被覆蓋，就整個啟動失敗；而 launch 從不讀這份（E124：每局用自己的副本）。
+- **通用修正**：`moba_stage_contract.bindings` 的 base_content 只驗證 UE 專案實際載入的 plugin 副本；共用的 scripts/base_content.dll 仍由 dev_run_freshness 照常 stage，但不再是建置的通過條件。test_moba_launch_contract 新增「別的建置覆蓋共用 DLL 不會讓檢查失敗」，原本 stale 檢查改針對 plugin 副本。
+- **避免**：只驗證這次流程會讀的檔案；多個 session 共用、可被合法覆蓋的路徑不能當驗收條件。
+
 ## E318 headless 逐招統計只用目前這條命比對 cast trace，死過的英雄 trace 整列消失（2026-10-30，工作線 B）
 
 - **現象**：e187 m6gen3 的 hero_stats 中，B08 無盡牙有 Ability fact，卻沒有任何 cast trace。但這不只發生在 B08：同一局多數英雄每一招的 `results` 都是空的，只有少數英雄有。

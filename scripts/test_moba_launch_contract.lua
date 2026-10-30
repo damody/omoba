@@ -17,21 +17,26 @@ for _,binding in ipairs(bindings) do
   path.write(binding.built,'fixture-'..binding.role)
   for _,copy in ipairs(binding.copies) do path.write(copy,'fixture-'..binding.role) end
 end
-test('both libraries and all three deployed copies are checked',function()
+test('both libraries and the two copies the project loads are checked',function()
   local report=stages.verify(bindings)
   assert(report.scope=='artifact-copy-consistency' and #report.artifacts==2)
-  assert(#report.artifacts[1].copies==1 and #report.artifacts[2].copies==2)
+  assert(#report.artifacts[1].copies==1 and #report.artifacts[2].copies==1)
 end)
-test('a stale server-side base DLL is rejected without repairing files',function()
+test('a stale plugin base DLL is rejected without repairing files',function()
   local copy=bindings[2].copies[1]
   path.write(copy,'stale',true)
   rejects(function() stages.verify(bindings) end)
   assert(path.read(copy)=='stale')
   path.write(copy,'fixture-base_content',true)
 end)
+test('another build over the shared scripts/base_content.dll does not fail the check (E319)',function()
+  local shared=path.join(root,'scripts/base_content.dll')
+  path.write(shared,'another-session-release-build',true)
+  stages.verify(bindings)
+end)
 test('missing build and missing deployed copies fail closed',function()
   local sha=string.rep('a',64)
-  for _,missing in ipairs({bindings[1].built,bindings[2].copies[2]}) do
+  for _,missing in ipairs({bindings[1].built,bindings[2].copies[1]}) do
     rejects(function() stages.verify(bindings,{is_file=function(p)return p~=missing end,sha256=function()return sha end}) end)
   end
 end)
@@ -39,8 +44,7 @@ test('a launch checks the binaries project it will run (E116 session shadow buil
   local shadow=path.join(root,'shadow-project')
   local own=stages.bindings(root,shadow)
   assert(own[1].copies[1]==path.join(shadow,'Plugins/OmRuntime/Binaries/Win64/om_bridge.dll'))
-  assert(own[2].copies[1]==bindings[2].copies[1],'the server-side staged base DLL stays shared')
-  assert(own[2].copies[2]==path.join(shadow,'Plugins/OmRuntime/Binaries/Win64/base_content.dll'))
+  assert(own[2].copies[1]==path.join(shadow,'Plugins/OmRuntime/Binaries/Win64/base_content.dll'))
   assert(own[1].built==bindings[1].built and own[2].built==bindings[2].built,'same current builds')
 end)
 local function execute(options,fail)
