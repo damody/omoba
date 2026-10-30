@@ -72,6 +72,40 @@ fn a_dummy_summon_is_a_bodiless_holder_for_its_lifetime() {
 }
 
 #[test]
+fn an_item_use_commits_its_summon_before_the_effects_on_it_and_a_refused_use_releases_it() {
+    let pool = crate::runtime::StateInitializer::create_thread_pool();
+    let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+    world.insert(crate::runtime::TowerTemplateRegistry::default());
+    crate::runtime::setup_single_lane_match(&mut world, crate::runtime::SingleLaneConfig { warmup: Fixed64::ZERO, ..Default::default() }).unwrap();
+    let (hero, pid) = { let mut state = world.write_resource::<crate::runtime::MobaMatch>();
+        state.phase = crate::runtime::MobaMatchPhase::Playing; (state.heroes[0].entity.unwrap(), state.heroes[0].player_id) };
+    if world.try_fetch::<ItemRegistry>().is_none() { world.insert(ItemRegistry::generated_moba()); }
+    let item = { let registry = world.read_resource::<ItemRegistry>(); let mut ids: Vec<_> = registry.items.keys().cloned().collect(); ids.sort(); ids[0].clone() };
+    world.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0] = Some(crate::runtime::native::comp::inventory::ItemInstance { item_id: item.clone(), cooldown_remaining: 0.0 });
+    let at = world.read_storage::<Pos>().get(hero).unwrap().0;
+    let faction = world.read_storage::<Faction>().get(hero).unwrap().clone();
+    let transaction = |world: &World| {
+        let entity = world.entities().create();
+        (entity, Outcome::ScriptItemTransaction { owner: hero, owner_pid: pid, slot: 0, item_id: item.clone(), target: None, target_point: None,
+            outcomes: vec![Outcome::SpawnSummoned { entity, pos: at, unit_id: "dummy".into(), owner: hero, faction: faction.clone(),
+                player_owner: Some(pid), duration: Fixed64::from_i32(5) },
+                Outcome::AddBuff { target: entity, buff_id: "fire_field".into(), duration: Fixed64::from_i32(5), payload: serde_json::Value::Null }] })
+    };
+    let (summon, used) = transaction(&world);
+    world.write_resource::<Vec<Outcome>>().push(used);
+    process_outcomes(&mut world, &mut crate::runtime::RuntimeEventVecSink::default()).unwrap();
+    assert!(world.read_storage::<SummonedUnit>().get(summon).is_some(), "the item's summon is committed");
+    assert!(world.read_resource::<BuffStore>().has(summon, "fire_field"), "the status after it lands on it");
+    // A use whose slot is not ready is refused and releases its summon.
+    world.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().cooldown_remaining = 9.0;
+    let (refused, used) = transaction(&world);
+    world.write_resource::<Vec<Outcome>>().push(used);
+    process_outcomes(&mut world, &mut crate::runtime::RuntimeEventVecSink::default()).unwrap();
+    world.maintain();
+    assert!(!world.entities().is_alive(refused), "a refused use releases its reservation");
+}
+
+#[test]
 fn summon_settlement_rechecks_life_faction_and_optional_player_ownership() {
     for case in 0..7 {
         let (mut world, owner, entity, outcome)=fixture();

@@ -3365,13 +3365,15 @@ pub fn process_outcomes(
             }
             Outcome::ScriptCastCommitted {caster,cues} => {cast_settlement::publish(world,caster,cues);}
             Outcome::ScriptItemTransaction {owner,owner_pid,slot,item_id,target,target_point,outcomes} => {
-                // items.dll: the use and its effects commit together, or neither (item changed)
-                // No summon placement plan runs for items yet (ScriptCastTransaction plan_summons): refuse one.
-                if outcomes.iter().any(|o|matches!(o,Outcome::SpawnSummoned {..})) {
-                    log::warn!("ItemUse {} refused: an item that summons needs summon planning (not wired)",item_id);continue;
-                }
-                if remove_uids.contains(&owner) || !commit_scripted_item_use(world,owner,owner_pid,slot as usize,&item_id,target,target_point) {continue;}
-                for effect in outcomes.into_iter().rev() {pending.push_front(effect);}
+                // items.dll: the use and its effects commit together, or neither (item changed).
+                // Its summons are planned like a cast's (cast_settlement plan_summons) before the use
+                // commits, and committed right after it, ahead of the effects that follow them.
+                let planned=(!remove_uids.contains(&owner)).then(||cast_settlement::plan_summons(world,&outcomes)).flatten();
+                let Some(planned)=planned.filter(|_|commit_scripted_item_use(world,owner,owner_pid,slot as usize,&item_id,target,target_point)) else {
+                    cast_settlement::release_spawns(world,&outcomes);continue;
+                };
+                for spawn in planned {spawn.commit(world,projection_tick,&mut next_ordinal)?;}
+                for effect in outcomes.into_iter().filter(|o|!matches!(o,Outcome::SpawnSummoned {..})).rev() {pending.push_front(effect);}
             }
             Outcome::ProjectileContext {..} => unreachable!("nested projectile contexts are rejected"),
             Outcome::Death { ent, .. } => {

@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 工作線 B：道具使用可以產生召喚物（t54）
+
+- A 回報道具文件有 12 處 create_unit，例如 healing_totem、earth_wall、ninja_unit、art_of_war 的步兵與弓兵。原本 ScriptItemTransaction 只要帶 SpawnSummoned，整次使用就被拒絕（沒有 summon 規劃）。
+- 現在道具交易和技能施放一樣先執行 `cast_settlement::plan_summons`，接著提交道具使用（冷卻、魔力），再提交召喚物，最後才套用其後的效果。規劃失敗或使用被拒時，以 `cast_settlement::release_spawns` 釋放保留的召喚物；`reject` 也改用這個函式。
+- 測試：`an_item_use_commits_its_summon_before_the_effects_on_it_and_a_refused_use_releases_it`；omoba-core 1434 項全部通過。
+
 ## 2026-10-30 工作線 B：effect-only hook 可以產生召喚物（t52）
 
 - 問題（A 回報 C15 爆裂箭）：schedule、delayed effect、status event、channel start／pulse／end、aura、equip 這些 effect-only hook，只要產生 SpawnSummoned，整批 outcome 都被丟掉，因為 pulse_outcome_allowed 把 spawn 當成 charge。所以 create_unit 回傳 ok，但召喚物和之後掛在它身上的狀態全部消失。

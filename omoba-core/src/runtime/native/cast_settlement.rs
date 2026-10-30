@@ -263,12 +263,17 @@ impl PlannedSummon {
 }
 
 pub(super) fn reject(world:&World,caster:Entity,effects:&[Outcome]) {
+    release_spawns(world,effects);
+    if let Some(mut casts)=world.try_fetch_mut::<super::super::cast_windup::AbilityWindups>() {casts.result(caster,false);}
+}
+
+/// The summons a refused transaction reserved go back (placement ledger, uncommitted entity).
+pub(super) fn release_spawns(world:&World,effects:&[Outcome]) {
     for effect in effects {if let Outcome::SpawnSummoned {entity,..}=effect {
         if let Some(ledger)=world.try_fetch::<super::super::summon_navigation::PlacementReservations>() {ledger.release(*entity);}
         if world.read_storage::<Unit>().get(*entity).is_none()&&world.read_storage::<Pos>().get(*entity).is_none()
             &&world.read_storage::<CProperty>().get(*entity).is_none(){let _=world.entities().delete(*entity);}
     }}
-    if let Some(mut casts)=world.try_fetch_mut::<super::super::cast_windup::AbilityWindups>() {casts.result(caster,false);}
 }
 
 pub(super) fn publish(world:&World,caster:Entity,cues:Vec<CastSettlementCue>) {
