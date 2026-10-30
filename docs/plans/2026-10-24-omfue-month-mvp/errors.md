@@ -8,6 +8,12 @@
 - **通用修正**：`moba_match` 在有 showcase 的局裡，讓每位英雄（示範者也一樣）出生時都先 Hold Position；示範者的第一個指令（施放、攻擊）會取代它，held bot 不下指令。`showcase_stage_levels_places_and_holds_seats_without_role_decisions` 改成檢查每個座位都在 Hold Position。
 - **避免**：示範或量測用的舞台，要在前端開始前就固定住所有單位的狀態，不要讓預設 AI 在等待期間改變場面。
 
+## E377 om_codegen 對空技能欄 "" 找不到技能而 panic，A32 的列擋下 land（2026-10-30，工作線 A）
+- **現象**：v3_test_heroes 依 cddcb1af 的規則把 A32 寫成 `{ ..., "", "a32_soul_blade" }` 後，land 在 om_codegen 這一步 panic：`validated hero ability reference`（omfue/codegen/src/lib.rs generated_ability_metadata_source）。
+- **原因**：cddcb1af 讓 content model、host、bot、HUD 都接受空欄，但 UE 的 om_codegen 產生技能 metadata 時，仍把 hero.abilities 每一欄都當成技能 id 去 manifest 找。
+- **修正**：metadata 迴圈跳過空欄。AbilityIds 仍保留空欄（`FName("")` 就是 NAME_None），所以 F 留在第 6 個位置。
+- **預防**：改變英雄列格式（新增空值或特殊值）時，要把 om_codegen 列進消費端清單，用 `check_live_consistent.lua` 跑一次 codegen，或至少用一列含新格式的英雄跑一次 land 的 om_codegen 步驟。
+
 ## E376 recipe 的明確施放政策包含沒入座英雄的技能，加上推導政策超過 64 條上限，整局拒絕（2026-10-30，e187 遊戲模式 session；已放回 live）
 - **現象**：E371 之後重跑 14 位 M6 英雄第 1 組，18 局全部在開局就失敗：`bot ability policies exceed 64`。
 - **根因**：verify_m6_batch 的 recipe 把出貨計畫已有的 34 條政策（22 條明確＋出貨英雄的 12 條推導）當成明確政策再傳給 bot_auto_policies，新入座的 10 位英雄又推導出 32 條，合計 66 條，超過執行器（moba_match/bots/abilities.rs）的 64。前 34 條都是沒入座英雄的技能，什麼都不會放。
@@ -16,7 +22,21 @@
 
 ## E375 （保留）conformance：died_at 少一個 tick，死亡前一步已結算的傷害被算成死後命中（2026-10-30）
 
-## E374 （保留）敵方 replica 沒有 inventory，道具力量算進 attribute_hp 造成 observer mismatch（2026-10-30）
+## E374 敵方 replica 看不到 inventory，用缺了道具的輸入自行推導英雄屬性，造成 observer mismatch（2026-10-30，工作線 B）
+- **現象**：E353 之後，C 的 1+9 demo6 在 tick 960 仍然 mismatch，出事的都是「觀察方隊伍的敵方英雄」。
+  - team 1 觀察 entity 56：attribute_hp 為 [947200, 819200]
+  - team 2 觀察 entity 57：attribute_hp 為 [1049600, 921600]
+  - t66 的診斷顯示，這些英雄在 replica 端是 items=[]、item_passives=None；同隊英雄則一致。
+- **根因**：
+  - team_projector 只把 gold、inventory、item_effects 揭露給擁有者的隊伍。
+  - 他隊的 replica 仍執行 `settle_hero_attributes`，以缺了道具的輸入重算敵方英雄的屬性，寫進每個隊伍都會 hash 的 `Hero::attribute_hp`。
+  - 只有「被看著的時候買道具」才會出錯。之後才進入視野的英雄，會以 reveal 收到權威端完整的 Hero，所以不出錯。
+- **通用修正**（主 session 決定的原則：replica 不得用自己看不到的輸入重算敵方的衍生數值，敵方的道具清單仍然不揭露）：
+  - 新增 fact `CommittedAttributes`（FactKind 42）。權威端在 post-step 對看得到英雄的隊伍（HERO_ABILITY policy，與 CommittedEquipmentStats 相同）送出力量、敏捷、智力總值與 attribute_hp。
+  - replica 收到後寫進 Hero（新欄位 `attribute_totals`）。最大生命、護甲、攻擊、移速原本就由 CommittedEquipmentStats 與 vitals 揭露。
+  - replica 的 `settle_hero_attributes` 跳過沒有收到 inventory 的英雄，不自己推導。
+  - 測試：`a_replica_settles_the_attribute_hp_of_a_bought_strength_item_like_the_authority` 改成敵方英雄站在旁邊看著購買，每個 tick 兩隊的 hash 都要一致，並檢查敵方 replica 沒有 inventory、屬性等於權威端。拿掉這個 fact 時，team 2 在 tick 5 就 mismatch。
+- **避免**：每個隊伍都會 hash 的推導值，只能讀每個隊伍都收得到的輸入；收不到的就由權威端以 derived 揭露最終值。收窄揭露範圍（team_projector）時，要一併找出依賴它的推導。重現測試要涵蓋「被看著時改變」的情況，reveal 會掩蓋這種錯誤。
 
 ## E373 （保留）召喚交易拒絕施法者自己的排程列，且拒絕沒有留下原因（2026-10-30）
 

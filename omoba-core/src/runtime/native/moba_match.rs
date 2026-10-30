@@ -3232,6 +3232,32 @@ pub fn finish_moba_match_tick(world: &mut World) {
                     })
                     .expect("valid visible equipment stats");
             }
+            // The derived attributes every team that sees the hero can show, without its items (E374).
+            if let Some(hero) = world.read_storage::<Hero>().get(entity) {
+                let [strength, agility, intelligence] = hero.attribute_totals;
+                world
+                    .read_resource::<crate::runtime::ObservableFactBuffer>()
+                    .emit(crate::runtime::OrderedFact {
+                        key: crate::runtime::FactOrderingKey {
+                            tick,
+                            phase: crate::runtime::FactPhase::PostStep,
+                            canonical_source_order: source,
+                            local_ordinal: 0,
+                            fact_kind: crate::runtime::FactKind::CommittedAttributes,
+                        },
+                        audience: crate::runtime::FactAudience::VisibilityPolicy(
+                            omb_script_abi::types::projection_policy_ids::HERO_ABILITY.to_owned(),
+                        ),
+                        fact: crate::runtime::ObservableFact::CommittedAttributes {
+                            source,
+                            strength_raw: strength.raw(),
+                            agility_raw: agility.raw(),
+                            intelligence_raw: intelligence.raw(),
+                            attribute_hp_raw: hero.attribute_hp.raw(),
+                        },
+                    })
+                    .expect("valid visible attributes");
+            }
             if let Some(progression) = world.read_storage::<Hero>().get(entity) {
                 let source = crate::runtime::canonical_entity_id(entity);
                 world

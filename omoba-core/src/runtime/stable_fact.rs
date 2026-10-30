@@ -79,6 +79,9 @@ pub enum FactKind {
     OwnerControl = 40,
     /// Own-team unit: whether the opposing team has it disclosed now (E312, v3 `is_visible_to`).
     EnemySight = 41,
+    /// A visible hero's derived attributes (totals and attribute max HP) after the authority's settle,
+    /// for replicas that do not receive its inventory (E374).
+    CommittedAttributes = 42,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -115,6 +118,8 @@ pub enum ObservableFact {
     OwnerShopUndo { team: u32, state: crate::runtime::shop_undo_wire::OwnerShopUndoProjection },
     CommittedEconomy { source: u64, state: crate::runtime::native::economy_projection::CommittedEconomyState },
     CommittedEquipmentStats { source: u64, hp_raw: i64, max_hp_raw: i64, speed_raw: i64, armor_raw: i64, attack_raw: i64 },
+    /// Public derived values only (what the attribute panel shows); never the items behind them.
+    CommittedAttributes { source: u64, strength_raw: i64, agility_raw: i64, intelligence_raw: i64, attribute_hp_raw: i64 },
     /// Final, already-disclosable state after an authority-owned settlement.
     CommittedVitals { source: u64, hp_raw: i64, max_hp_raw: i64 },
     CommittedCooldown { source: u64, slot: u32, remaining_raw: i64 },

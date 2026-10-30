@@ -56,6 +56,11 @@ pub struct Hero {
     /// A new life starts at zero.
     #[serde(default)]
     pub attribute_hp: Fixed64,
+    /// Strength, agility and intelligence totals of the disclosed sources (its own attributes and
+    /// its items), settled with `attribute_hp`. A replica that does not receive the inventory takes
+    /// both from the authority (CommittedAttributes, E374) instead of deriving them.
+    #[serde(default)]
+    pub attribute_totals: [Fixed64; 3],
 }
 
 /// One charge ability. `remaining` counts down to the next restored use and is
@@ -138,6 +143,7 @@ impl Hero {
             mana_pool: None,
             level_growth: LevelGrowth::default(),
             attribute_hp: Fixed64::ZERO,
+            attribute_totals: [Fixed64::ZERO; 3],
         }
     }
 
@@ -202,6 +208,7 @@ impl Hero {
                 mana_per_level: s.level_growth.mana_per_level,
             },
             attribute_hp: Fixed64::ZERO,
+            attribute_totals: [Fixed64::ZERO; 3],
         }
     }
 

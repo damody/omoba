@@ -14,6 +14,11 @@
 //! aura) lives only in the caster team's BuffStore: a replica of the other team never holds it, so its
 //! max HP rides on the same entry as a HealthBonus, which `settle_health_bonus` applies where the buff
 //! exists and an importing replica leaves alone (E163).
+//!
+//! A team replica that does not receive a hero's inventory (the other team's hero: team_projector
+//! keeps the inventory to the owner's team) cannot derive its attributes: it skips the hero here
+//! and takes the authority's totals and attribute max HP (CommittedAttributes), its max HP, armor
+//! and attack (CommittedEquipmentStats) as disclosed (E374).
 use super::ability_runtime::BuffStore;
 use super::comp::{AttributeType, CProperty, Hero};
 use omb_script_abi::stat_keys::StatKey;
@@ -151,12 +156,16 @@ fn settle_matching(world: &mut World, rules: &AttributeRulesConst, converts: imp
     if world.try_fetch::<BuffStore>().is_none() { return; }
     // The move speed cap is a game rule of the match (none outside a match with them).
     let rules_of_match = world.try_fetch::<super::moba_match::MobaMatch>().and_then(|state| state.config.game_rules);
+    // A team replica (it imports the authority's combat targets) derives only the heroes whose
+    // inventory it holds; the others' derived values are disclosed (see the module doc).
+    let replica = world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>().is_some();
     let entities = world.entities();
+    let inventories = replica.then(|| world.read_storage::<super::comp::Inventory>());
     let mut heroes = world.write_storage::<Hero>();
     let mut properties = world.write_storage::<CProperty>();
     let mut buffs = world.write_resource::<BuffStore>();
     for (entity, hero) in (&entities, &mut heroes).join() {
-        if !converts(hero) { continue; }
+        if !converts(hero) || inventories.as_ref().is_some_and(|held| held.get(entity).is_none()) { continue; }
         let totals = AttributeTotals::of(hero, &buffs, entity);
         let disclosed = AttributeTotals::disclosed(hero, &buffs, entity);
         let mut next = modifiers(rules, &totals, &hero.primary_attribute, BaseRegen::of(hero));
@@ -173,6 +182,7 @@ fn settle_matching(world: &mut World, rules: &AttributeRulesConst, converts: imp
                 None => buffs.remove(entity, KEY),
             }
         }
+        hero.attribute_totals = [disclosed.strength, disclosed.agility, disclosed.intelligence];
         let target = max_hp(rules, &disclosed);
         if target == hero.attribute_hp { continue; }
         let Some(property) = properties.get_mut(entity) else { continue };

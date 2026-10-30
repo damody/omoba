@@ -1731,6 +1731,10 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
             for value in [hp_raw, max_hp_raw, speed_raw, armor_raw, attack_raw] { payload.extend(value.to_le_bytes()); }
             (Some(*source), None, payload)
         }
+        ObservableFact::CommittedAttributes { source, strength_raw, agility_raw, intelligence_raw, attribute_hp_raw } => {
+            for value in [strength_raw, agility_raw, intelligence_raw, attribute_hp_raw] { payload.extend(value.to_le_bytes()); }
+            (Some(*source), None, payload)
+        }
         ObservableFact::CommittedProgression { source, level, experience, experience_to_next, skill_points } => {
             for value in [level, experience, experience_to_next, skill_points] { payload.extend(value.to_le_bytes()); }
             (Some(*source), None, payload)

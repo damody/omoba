@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：敵方英雄的衍生屬性改由權威端揭露（E374）
+
+- 新增 `FactKind::CommittedAttributes`／`ObservableFact::CommittedAttributes`：力量、敏捷、智力總值與 attribute_hp。權威端在 post-step 對看得到該英雄的隊伍送出（HERO_ABILITY policy）。
+- `Hero::attribute_totals` 記錄揭露來源的總值（本身屬性加道具）。權威端與己方 replica 在 settle 時寫入；他隊的 replica 由 fact 寫入。
+- replica 的 settle_hero_attributes 跳過沒有收到 inventory 的英雄，直接採用揭露值，不自己推導。道具清單仍然只給擁有者的隊伍。
+- 測試：attribute_replica_tests 讓敵方英雄在旁邊看著購買，兩隊每個 tick 的 hash 一致，敵方屬性等於權威端；拿掉 fact 時會失敗。
 ## 2026-10-30 線 B：獨立堆疊狀態的控制來源列各自一份（`__ctl:<status id>#n`）
 
 - v3 `stacking = "independent"` 搭配 states 的狀態（C22 等 4 招與 1 件道具），原本所有實例共用一個 `__ctl:<id>`。後套用的實例會覆寫前一份的剩餘時間。
