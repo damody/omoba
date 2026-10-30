@@ -25,6 +25,13 @@ M.OPTIONAL = { starting_mana = true }
 local PRIMARY = { DOTA_ATTRIBUTE_STRENGTH = "strength", DOTA_ATTRIBUTE_AGILITY = "agility",
   DOTA_ATTRIBUTE_INTELLECT = "intelligence", DOTA_ATTRIBUTE_ALL = "universal" }
 
+-- A KV number as the engine reads it: the leading number, trailing characters ignored (the source
+-- writes B19's AttackRange as "600Z", which Dota reads as 600; E344). No leading number -> nil.
+local function kv_number(text)
+  return tonumber(text) or tonumber(text:match("^[-+]?%d+%.?%d*") or text:match("^[-+]?%.%d+") or "")
+end
+M.kv_number = kv_number
+
 -- Stats of one unit, from its KV fields (text only). A field the unit omits inherits the hero
 -- base unit's (`defaults`, npc_heroes_override.txt npc_dota_hero_base), as Dota does. Unknown
 -- primaries and non-numbers are left out, so the content build sees them as missing rather
@@ -39,7 +46,7 @@ function M.stats(unit, defaults)
     if value ~= nil then
       value = tostring(value):match("^%s*(.-)%s*$")
       if pair[2] == "primary" then stats.primary = PRIMARY[value]
-      else stats[pair[2]] = tonumber(value) end
+      else stats[pair[2]] = kv_number(value) end
     end
   end
   -- StatusStartingMana -1 is Dota's "spawn at full mana", the same as a unit that sets none
