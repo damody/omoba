@@ -2,11 +2,24 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E396 （保留）teamfight recipe 雙方全在中路，回城 35%／出泉 85% 讓會戰一再重置，中位數 11.9 分鐘（2026-10-31）
+
+## E395 召喚交易拒絕施法者自己的狀態、指令與位移：幻影步等幻象技一律施放失敗（2026-10-31，工作線 B）
+- **現象**：工作線 A 接好 create_illusion 後，c02_phantom_move、a27_unstoppable_advance、b11_crow_raid 的施放一律沒被 accept。c02 的 on_cast 依序是：躲投射物、對施法者 apply_status、teleport 施法者、create_illusion、對幻象 apply_status、施法者 stop、再對施法者 apply_status。
+- **根因**：帶 spawn 的施放（召喚交易）只准施法者自己的排程列（E373）跟在最後一個 spawn 之後。施法者的一般狀態、指令列（hero_command 也是 AddBuff），以及 ScriptSetPos 位移，不論在 spawn 前或後都會被拒。原作依這個順序執行都沒問題。
+- **通用修正**：所有 spawn 在交易內都先一次提交（plan_summons → commit），其他結果之後才依序執行。所以施法者自己的 AddBuff（各類 host 列仍逐一檢查）與施法者的 ScriptSetPos，不會動到 placement 依賴的狀態（施法者存活、陣營、擁有者、地形）。現在在 spawn 前、中、後都允許。施法者的傷害與治療仍然不准；對其他單位的 AddBuff 仍只准在最後一個 spawn 之後；其他單位的位置一律不准。
+- **測試**：`summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_between_siblings` 補上施法者狀態與位移在 spawn 前後的情況、其他單位位移被拒，以及施法者受傷的拒絕原因 `ScriptDirectDamage`。
+- **避免**：放寬交易規則時，判斷依據是「這個結果會不會改變 placement 或交易所依賴的生命與資源」，不是結果在清單中的位置。
+
 ## E394 hero spotlight 的敵方替身被擊退後停在畫面外，接下來的被動與大招示範因目標不在可見範圍而被跳過（2026-10-31，history-nobu M6 UE 呈現，工作線 C）
 - **現象**：濃姬（A26）的 spotlight 中，火藥踢擊把敵方替身炸飛約 453 距離。之後被動（對替身普攻）與灼熱爆裂投擲都持續回報 `not_submitted: target is outside the visible world area`，最後記為 `spotlight_skipped`。
 - **根因**：showcase 的 held 替身只在出生時拿到 Hold Position，bot 對 held 座位完全不下指令。被擊退、拉扯或位移之後，它就停在落點，不會回到原本的位置；示範的鏡頭固定在原位，替身因此離開畫面。
 - **通用修正**：`role_bot_inputs` 對 held 座位只做一件事：離開自己的 placement 超過 60 就以 MoveTo 走回去，回到原位後再下 Hold Position（`stand_in_input`）。它仍然不攻擊、不施放、不購買，也不追任何單位。`showcase_stage_levels_places_and_holds_seats_without_role_decisions` 加入測試：被推開 450 時走回原位，回到原位後 Hold。
 - **避免**：示範舞台上的固定單位要能回到固定狀態；任何會移動單位的技能（擊退、拉扯、交換位置）都可能讓後續示範失去目標。
+
+## E393 （保留）吸收盾的 on_absorb／on_broken 觸發沒有 host 事件（2026-10-31）
+
+## E392 （保留）v3 狀態 revealed／provides_vision 沒有 host 落點：被看穿與提供視野的單位照樣隱形或藏在迷霧裡（2026-10-31）
 
 ## E391 （保留）conformance：apply_status 自帶的 duration、引導結束移除的狀態在死亡情境的期望（2026-10-31）
 

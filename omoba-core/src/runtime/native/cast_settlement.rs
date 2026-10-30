@@ -12,14 +12,6 @@ pub(super) fn admit(world:&World,caster:Entity,skill:&str,rank:u32,faction:Optio
     admission(world,caster,skill,rank,faction,player,expected,effects,cue_count).is_ok()
 }
 
-/// A host scheduling row: a schedule, a delay, a unit variable or a projectile launch.
-fn schedule_row(buff_id:&str,payload:&serde_json::Value)->bool {
-    use super::super::{ability_projectile,delayed_effect,scheduled_effect,unit_var};
-    (buff_id.starts_with(scheduled_effect::PREFIX) && payload.get(scheduled_effect::KEY).is_some())
-        || (buff_id.starts_with(delayed_effect::PREFIX) && payload.get(delayed_effect::KEY).is_some())
-        || (buff_id.starts_with(unit_var::PREFIX) && payload.get(unit_var::KEY).is_some())
-        || (buff_id==ability_projectile::BUFF && payload.get(ability_projectile::KEY).is_some())
-}
 
 /// [`admit`] with the reason of a refusal (the cast trace's `SettlementRefused`): the check that
 /// failed, `effect:<module>` for an effect its module refused, or the outcome kind (`AddBuff`…) of
@@ -134,10 +126,12 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
         Outcome::AddBuff {target,..} if spawned.contains(target)=>true,
         // v3 create_unit.facing: a summon this cast spawns faces where the script says.
         Outcome::ScriptSetFacing {entity,..} if spawned.contains(entity)=>true,
-        // The caster's own scheduling rows (a repeat, a delay, a unit variable, a projectile launch,
-        // each checked above) change neither its life nor its resources: they may trail the summons.
-        Outcome::AddBuff {target,buff_id,payload,..}
-            if summons && channels==0 && *target==caster && last_spawn.is_some_and(|last|*index>last) && schedule_row(buff_id,payload)=>true,
+        // The caster's own statuses, orders and schedules (each host row checked above) and its
+        // relocation change neither its life nor its resources, and every planned spawn commits
+        // before any of them: they may come before, between or after the summons (原作 C02E 幻影步
+        // applies statuses, stops and teleports its caster around create_illusion; E373, E395).
+        Outcome::AddBuff {target,..} if summons && channels==0 && *target==caster=>true,
+        Outcome::ScriptSetPos {entity,..} if summons && channels==0 && *entity==caster=>true,
         // Never the caster: its life and resources back the whole transaction.
         Outcome::AddBuff {target,..}|Outcome::RawDamage {target,..}|Outcome::Damage {target,..}|Outcome::ScriptDirectDamage {target,..}
             if summons && channels==0 && *target!=caster && last_spawn.is_some_and(|last|*index>last)=>true,
@@ -185,14 +179,19 @@ fn summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_betwe
     assert!(accepts(&[spawn(first),face(first),spawn(second)]),"a summon of this cast faces its way");
     assert!(!accepts(&[spawn(first),face(victim)]),"never another unit's facing");
     assert!(!accepts(&[spawn(first),Outcome::ScriptDirectDamage {target:hero,amount:Fixed64::ONE}]),"never the caster, even trailing");
-    // The caster's own schedule (b13_storm: create_unit, then repeat) trails the summons; a stat
-    // row on the caster does not, and the refusal names what it refused.
+    // The caster's own schedule (b13_storm: create_unit, then repeat) goes with the summons, and
+    // the refusal names what it refused.
     let spec=super::super::scheduled_effect::Spec {ability:"fixture".into(),level:1,step:1,instance:7,args:Vec::new()}.checked().unwrap();
     let repeat=Outcome::AddBuff {target:hero,buff_id:spec.buff_id(),duration:Fixed64::ONE,payload:spec.payload()};
     assert!(accepts(&[spawn(first),assign(first),repeat.clone()]),"a trailing repeat on the caster");
-    assert!(!accepts(&[repeat.clone(),spawn(first)]),"not between or before the planned siblings");
+    assert!(accepts(&[repeat.clone(),spawn(first)]),"also before the summons: every spawn commits first");
+    // E395: the caster's own statuses and relocation, before or after the summons (C02E 幻影步).
     let haste=Outcome::AddBuff {target:hero,buff_id:"haste".into(),duration:Fixed64::ONE,payload:serde_json::json!({"move_speed_bonus":1024})};
-    assert_eq!(admission(&world,hero,"fixture",0,faction.as_ref(),player,expected.as_ref(),&[spawn(first),haste],0),Err("AddBuff"));
+    let blink=Outcome::ScriptSetPos {entity:hero,pos:SimVec2::ZERO};
+    assert!(accepts(&[haste.clone(),blink.clone(),spawn(first),assign(first),haste.clone(),spawn(second)]),"the caster's own statuses and move");
+    assert!(!accepts(&[spawn(first),Outcome::ScriptSetPos {entity:victim,pos:SimVec2::ZERO}]),"never another unit's position");
+    assert_eq!(admission(&world,hero,"fixture",0,faction.as_ref(),player,expected.as_ref(),
+        &[spawn(first),Outcome::ScriptDirectDamage {target:hero,amount:Fixed64::ONE}],0),Err("ScriptDirectDamage"));
 }
 
 #[cfg(test)]

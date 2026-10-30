@@ -16,6 +16,11 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：召喚交易允許施法者自己的狀態、指令與位移（E395）
+
+- cast_settlement：帶 spawn 的施放允許施法者自己的 AddBuff 與 ScriptSetPos 出現在 spawn 前、中、後；所有 spawn 都會先提交。施法者的傷害與治療、其他單位的位移仍然拒絕。
+- 讓 c02_phantom_move、a27_unstoppable_advance 等幻象技（工作線 A 的 create_illusion）可以施放。
+- 測試：omoba-core lib 1453 個全部通過。
 ## 2026-10-31 線 B：非英雄單位的狀態圖示、排程效果取最近 tick、任意距離大招的 bot 意圖（E384、E385、E387）
 
 - E384：buff_visual_state 圖示元件改為對所有會戰鬥的單位揭露（召喚物、小兵、中立），敵隊只看到 reveal = public 的圖示。修正 a33w_skeleton_decay 兩隊都看不到圖示的問題。
