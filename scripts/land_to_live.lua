@@ -275,7 +275,7 @@ function M.check(plan,need,d)
     elseif d.path.is_file(from) then write(d,d.path.join(tree,entry),d.path.read(from,true)) end
   end
   local shadow=d.path.join(work,'shadow')
-  if need.ubt then d.shadow.sync(shadow,{root=d.root,log=d.log}) end
+  if need.ubt then d.shadow.sync(shadow,{root=d.root,log=d.log},{discard_edits=true}) end
   for _,row in ipairs(plan) do
     apply(d,d.path.join(tree,row.relative),row)
     local inside=row.relative:match('^omfue/(.+)$')

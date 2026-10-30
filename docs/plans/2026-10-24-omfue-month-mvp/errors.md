@@ -2,6 +2,20 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E289 影子專案的修改被 `stage_ue_shadow --sync` 悄悄蓋掉（2026-10-30，工作線 C）
+
+- **現象**：
+  - 在 `target/ue-shadow-c` 改好擊退拋物線（5 個檔），UBT 也通過，但測試找不到 `Om.Runtime.ForcedMotionArc`。原因是影子的檔案又變回和 live 一樣。
+  - 稍早改道具 cue 時也被同樣蓋掉一次。
+  - 這次是我自己的背景驗證迴圈：`pkill` 沒停下它，它在重試時跑了 `--sync`。換成別的 session 對同一個影子跑 sync，結果也會一樣。
+- **根因**：`M.mirror` 遇到大小不同或來源較新的檔案就覆寫，不知道影子裡有尚未放回 live 的修改。
+- **通用修正**：
+  - `stage_ue_shadow` 在 sync 結束時，把每個鏡像來源的大小與時間記在 `Saved/ShadowSync/sources.json`；codegen 寫完 OmGenerated 後也更新這份紀錄。
+  - 下一次 `--sync` 若發現有檔案被改過、新增或刪除，就拒絕執行並列出那些檔案；確定要捨棄時加 `--discard-edits`。
+  - `land_to_live` 自己的暫存影子一律捨棄。
+  - `ue_shadow_stage_test` 加了這部分的檢查。
+- **避免**：背景重試腳本要能確實停止（記下 PID 或用任務 ID 停止），不要只靠 `pkill -f`。影子裡的修改，先放回 live 再 sync。
+
 ## E288 conformance 的兩個通用誤判：條件式的 on_cast 傷害被當成「之後才結算」、主機已拒絕的施放被當成接受（2026-10-30，conformance session）
 
 - **現象**：B08 整位換上產生碼後有 5 個退步。閃切 r1～r4 的 caster_dies_after_cast 判定施法者死後仍造成傷害；連牙斷空重施之後，三個狀態都是 0 筆。A 判讀這兩項是 harness 的問題，核對後確認。

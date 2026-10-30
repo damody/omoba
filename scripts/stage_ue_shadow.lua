@@ -7,6 +7,7 @@
 --
 --   tools\lua\lua.exe scripts\stage_ue_shadow.lua --project DIR [--sync] [--build] [--ue-root PATH]
 --
+--   --discard-edits  let --sync overwrite sources edited in DIR since its last sync (E289)
 --   --sync   mirror live omfue's uproject, Source, Config and plugin sources into DIR (only
 --            changed files are copied, so UBT stays incremental; a new shadow is seeded once
 --            with live Binaries and Intermediate/Build). Binaries are never mirrored after.
@@ -27,6 +28,9 @@ M.PROJECT_DIRS={'Source','Config'}
 M.PLUGIN_SKIP={Binaries=true,Intermediate=true}
 -- Seeded once into a new shadow so its first UBT build is incremental.
 M.SEED_DIRS={'Binaries','Intermediate/Build'}
+-- Size and time of every mirrored source as the last sync (and the codegen after it) left it (E289).
+M.SYNC_RECORD='Saved/ShadowSync/sources.json'
+M.GENERATED='Plugins/OmRuntime/Source/OmGenerated'
 
 local function deps_of(deps)
   deps=deps or {}
@@ -103,10 +107,83 @@ function M.mirror(from,to,deps,skip)
   return copied
 end
 
-function M.sync(project,deps)
+-- relative path -> "size:modification" of every source a sync mirrors into PROJECT (under PREFIX only
+-- when given).
+function M.scan(project,deps,prefix)
+  local d=deps_of(deps)
+  local out={}
+  local function walk(dir,relative,skip)
+    if d.lfs.symlinkattributes(dir,'mode')~='directory' then return end
+    for _,name in ipairs(entries(d.lfs,dir)) do
+      if not (skip and skip[name]) then
+        local entry,rel=d.path.join(dir,name),relative..'/'..name
+        local a=d.lfs.symlinkattributes(entry)
+        if a and a.mode=='directory' then walk(entry,rel)
+        elseif a and a.mode=='file' then out[rel]=a.size..':'..a.modification end
+      end
+    end
+  end
+  for _,name in ipairs(M.PROJECT_DIRS) do walk(d.path.join(project,name),name) end
+  if d.path.is_directory(d.path.join(project,'Plugins')) then
+    for _,plugin in ipairs(entries(d.lfs,d.path.join(project,'Plugins'))) do
+      walk(d.path.join(project,'Plugins',plugin),'Plugins/'..plugin,M.PLUGIN_SKIP)
+    end
+  end
+  if prefix then for rel in pairs(out) do if rel:sub(1,#prefix+1)~=prefix..'/' then out[rel]=nil end end end
+  return out
+end
+
+local function read_record(d,project)
+  local file=d.path.join(project,M.SYNC_RECORD)
+  if not d.path.is_file(file) then return nil end
+  return require('_bootstrap').lib('json').decode(d.path.read(file)).sources
+end
+local function write_record(d,project,sources)
+  local file=d.path.join(project,M.SYNC_RECORD)
+  d.path.mkdir_p(d.path.parent(file))
+  require('_bootstrap').lib('json').write(file,{schema_version=1,sources=sources},true)
+end
+
+-- Sources edited, added or removed in PROJECT since its last sync (codegen output excepted): work a
+-- --sync would silently overwrite. Empty for a shadow without a record.
+function M.local_edits(project,deps)
+  local d=deps_of(deps)
+  local recorded=read_record(d,project)
+  if not recorded then return {} end
+  local now=M.scan(project,d)
+  local edits={}
+  for rel,stamp in pairs(now) do if recorded[rel]~=stamp then edits[#edits+1]=rel end end
+  for rel in pairs(recorded) do if not now[rel] then edits[#edits+1]=rel end end
+  table.sort(edits)
+  return edits
+end
+
+-- After codegen writes OmGenerated, its files are the sync's baseline too.
+function M.record_generated(project,deps)
+  local d=deps_of(deps)
+  local recorded=read_record(d,project)
+  if not recorded then return end
+  for rel in pairs(recorded) do if rel:sub(1,#M.GENERATED+1)==M.GENERATED..'/' then recorded[rel]=nil end end
+  for rel,stamp in pairs(M.scan(project,d,M.GENERATED)) do recorded[rel]=stamp end
+  write_record(d,project,recorded)
+end
+
+-- OPTIONS.discard_edits: overwrite sources edited in the shadow since its last sync. Without it a sync
+-- refuses to destroy them (another session syncing the same shadow, or an edit not landed yet, E289).
+function M.sync(project,deps,options)
   local d=deps_of(deps)
   local live=d.path.join(d.root,'omfue')
   assert(d.path.absolute(project,d.root):lower()~=live:lower(),'the shadow project cannot be live omfue')
+  if not (options and options.discard_edits) then
+    local edits=M.local_edits(project,d)
+    if #edits>0 then
+      local shown={}
+      for i=1,math.min(#edits,10) do shown[i]='  '..edits[i] end
+      error(('shadow %s has %d source(s) edited since its last sync; --sync would overwrite them:\n%s%s\n'..
+        'Land them with land_to_live (or copy them elsewhere), then sync with --discard-edits.'):format(
+        project,#edits,table.concat(shown,'\n'),#edits>10 and '\n  ...' or ''),0)
+    end
+  end
   local fresh=not d.path.is_directory(d.path.join(project,'Binaries'))
   d.path.mkdir_p(project)
   copy_file(d,d.path.join(live,'om.uproject'),d.path.join(project,'om.uproject'))
@@ -129,6 +206,7 @@ function M.sync(project,deps)
       if d.path.is_directory(from) then M.mirror(from,d.path.join(project,relative),d) end
     end
   end
+  write_record(d,project,M.scan(project,d))
   d.log(('[ue-shadow] synced %s (%d files copied%s)'):format(project,copied,fresh and ', seeded build state' or ''))
   return copied
 end
@@ -149,6 +227,7 @@ function M.stage(project,deps)
   if not deps or not deps.process then require('ue_build_prerequisites').require_ready(d.process) end
   run(d,'content codegen','cargo',{'run','--manifest-path',d.path.join(ue,'codegen','Cargo.toml'),'--',
     '--content-root',d.path.join(d.root,'scripts','lua_data'),'--out',d.path.join(plugin,'Source','OmGenerated')})
+  M.record_generated(project,d)
   run(d,'Rust bridge','cargo',{'build','--manifest-path',d.path.join(ue,'bridge','Cargo.toml')})
   run(d,'script DLLs (debug)','cargo',require('script_dlls').cargo_args({'build','--manifest-path',
     d.path.join(d.root,'scripts','Cargo.toml')},'compiled-content-only'))
@@ -177,15 +256,16 @@ function M.main(argv,deps)
     elseif value=='--ue-root' then i=i+1;options.ue_root=assert(argv[i],'--ue-root requires a path')
     elseif value=='--sync' then options.sync=true
     elseif value=='--build' then options.build=true
+    elseif value=='--discard-edits' then options.discard_edits=true
     elseif value=='--help' or value=='-h' then
-      print('Usage: tools/lua/lua.exe scripts/stage_ue_shadow.lua --project DIR [--sync] [--build] [--ue-root PATH]')
+      print('Usage: tools/lua/lua.exe scripts/stage_ue_shadow.lua --project DIR [--sync [--discard-edits]] [--build] [--ue-root PATH]')
       return
     else error('unknown argument: '..value) end
     i=i+1
   end
   local project=d.path.absolute(assert(options.project,'--project DIR is required'),d.root)
   assert(project:lower()~=d.path.join(d.root,'omfue'):lower(),'the shadow project cannot be live omfue')
-  if options.sync then M.sync(project,d) end
+  if options.sync then M.sync(project,d,{discard_edits=options.discard_edits}) end
   M.stage(project,d)
   if options.build then
     M.build(project,d.path.absolute(options.ue_root or os.getenv('UE_5_8_ROOT') or os.getenv('UE_ROOT') or 'D:/UE5.8'),d)

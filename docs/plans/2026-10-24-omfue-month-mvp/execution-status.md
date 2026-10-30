@@ -16,6 +16,16 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 午後（工作線 C：擊退的拋物線呈現；影子 sync 不再蓋掉未放回的修改；E289，已放回 live）
+
+- **擊退拋物線**（線 B 的 `__forced_motion_v1.height_raw`，直江兼續、柳生宗嚴）：
+  - `OmStatusLook::ForcedMotionArcHeight` 從 buff payload 讀出峰高；`ForcedMotionArcLift` 依剩餘時間算出拋物線高度 4h·t(1−t)。
+  - `AOmUnitActor::UpdateForcedMotionArc` 在 `forced_motion` buff 存在期間把視覺代理抬高，buff 結束或被收掉就落地。模擬仍是平面，root 位置不動。
+  - 世界單位到 cm 的比例取自 `ConfigureWorldPresentationScale`。所有帶 height 的擊退共用這一套，不針對個別英雄。
+  - 測試：UE `Om.Runtime.ForcedMotionArc` 通過；StatusCue、StatusLook、NativeCombat 也通過。
+  - 實機：兩位英雄還沒進 content（不在 roster），進了之後就會套用；目前只有單元測試驗證。
+- **E289**：`stage_ue_shadow --sync` 會記錄同步後的狀態；之後若影子裡有修改，sync 會拒絕執行並列出檔案，要捨棄才加 `--discard-edits`。land_to_live 的暫存影子一律捨棄。`ue_shadow_stage_test` 45 項、`land_to_live_test` 44 項通過。
+
 ## 2026-10-30 午後（工作線 C：狀態持續期間的 cue，英雄與道具共用；split 在鎖內一次建置；E269、E284、E286，已放回 live）
 
 - **狀態 cue（D7 共用）**：

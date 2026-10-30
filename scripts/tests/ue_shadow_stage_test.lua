@@ -75,6 +75,23 @@ check(path.read(copy) == 'a-v2', 'older-time source updated')
 check(lfs.attributes(copy, 'modification') >= before, 'copy stamped now, never in the past')
 check(shadow.sync(project, deps) == 0, 'a fresh copy is not copied again')
 rejects(function() shadow.sync(path.join(root, 'omfue'), deps) end, 'cannot be live omfue')
+-- E289: a source edited in the shadow since its last sync is not silently overwritten.
+check(#shadow.local_edits(project, deps) == 0, 'a synced shadow has no local edits')
+put('shadow/Plugins/OmRuntime/Source/OmRuntime/A.cpp', 'a-v2-shadow-edit', os.time() + 10)
+put('shadow/Source/OmGame/New.cpp', 'new in the shadow')
+local edits = shadow.local_edits(project, deps)
+check(#edits == 2 and edits[1] == 'Plugins/OmRuntime/Source/OmRuntime/A.cpp' and edits[2] == 'Source/OmGame/New.cpp',
+  'edited and added sources are listed')
+rejects(function() shadow.sync(project, deps) end, 'edited since its last sync')
+check(path.read(path.join(project, 'Plugins/OmRuntime/Source/OmRuntime/A.cpp')) == 'a-v2-shadow-edit', 'the refused sync kept the edit')
+shadow.sync(project, deps, {discard_edits = true})
+check(path.read(path.join(project, 'Plugins/OmRuntime/Source/OmRuntime/A.cpp')) == 'a-v2' and not path.exists(path.join(project, 'Source/OmGame/New.cpp')),
+  'with discard_edits the shadow is live again')
+-- Codegen output written after the sync is part of the baseline, not an edit.
+put('shadow/Plugins/OmRuntime/Source/OmGenerated/Gen.cpp', 'generated')
+shadow.record_generated(project, deps)
+check(#shadow.local_edits(project, deps) == 0, 'codegen output is recorded')
+os.remove(path.join(project, 'Plugins/OmRuntime/Source/OmGenerated/Gen.cpp'))
 
 -- Stage: header, lib, bridge and base_content land in the shadow with a record; live untouched.
 local record = stage.stage(project, stage.sources(root, header), quiet)
