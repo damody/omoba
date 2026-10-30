@@ -29,10 +29,11 @@ do
     elseif v == '--output' then options.output = arg[i + 1]; i = i + 1
     elseif v == '--heroes' then options.heroes = arg[i + 1]; i = i + 1
     elseif v == '--ue' then options.ue = true
+    elseif v == '--item-coverage' then options.item_coverage = true
     elseif v == '--no-build' then options.no_build = true
     elseif v == '--report-only' then options.report_only = true; options.no_build = true
     elseif v == '--help' then
-      print('Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua --batch N [--group G] [--matches 6] [--parallel 6] [--ue] [--output DIR] [--no-build] [--report-only]')
+      print('Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua --batch N [--group G] [--matches 6] [--parallel 6] [--ue] [--item-coverage] [--output DIR] [--no-build] [--report-only]')
       return
     else error('unknown argument ' .. v) end
     i = i + 1
@@ -116,6 +117,17 @@ local function lua_role_map(map)
   for _, role in ipairs(roles) do parts[#parts + 1] = ('[%q]=%q'):format(role, map[role]) end
   return '{' .. table.concat(parts, ',') .. '}'
 end
+-- --item-coverage (E358): the shop items no derived build reaches go into the builds
+-- (bot_item_builds.lua cover / uncovered), so every shop item is obtained in every match.
+if options.item_coverage then
+  local builds = assert(loadfile(path.join(b.root, 'scripts', 'lua_data', 'bot_item_builds.lua')))()
+  local shipped = assert(loadfile(path.join(b.root, 'scripts', 'lua_data', 'moba_role_match.lua')))()
+  local uncovered = builds.uncovered(shipped.item_builds)
+  print('item coverage: ' .. (#uncovered > 0 and table.concat(uncovered, ', ') or 'every shop item is in a build already'))
+  for _, build in ipairs(builds.cover(shipped.item_builds, uncovered)) do
+    print(('item coverage: %s builds %s'):format(build.role, table.concat(build.items, ', ')))
+  end
+end
 local function recipe(name, swap, teamfight)
   local file = path.join(output, name .. '.lua')
   path.write(file, ([[
@@ -130,9 +142,14 @@ for order, team in ipairs(swap and {2, 1} or {1, 2}) do
   end
 end
 if teamfight then for _, player in ipairs(plan.players) do player.lane = 'mid' end end
+if %s then
+  local builds = assert(loadfile(root .. '/scripts/lua_data/bot_item_builds.lua'))()
+  plan.item_builds = builds.cover(plan.item_builds, builds.uncovered(plan.item_builds))
+end
 plan.ability_policies = assert(loadfile(root .. '/scripts/lua_data/bot_auto_policies.lua'))()(plan.ability_policies, plan.players)
 return plan
-]]):format(options.batch, options.group, name, b.root:gsub('\\', '/'), lua_role_map(seating[1]), lua_role_map(seating[2]), tostring(swap), tostring(teamfight)), true)
+]]):format(options.batch, options.group, name, b.root:gsub('\\', '/'), lua_role_map(seating[1]), lua_role_map(seating[2]), tostring(swap), tostring(teamfight),
+  tostring(options.item_coverage == true)), true)
   return file
 end
 local recipes = {

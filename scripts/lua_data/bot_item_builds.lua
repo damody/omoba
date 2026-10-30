@@ -177,4 +177,125 @@ function M.derive(roles)
   return builds
 end
 
+-- Item coverage (E358): the shop items no build reaches, neither as a goal nor as a component a
+-- goal is assembled from, so no bot ever obtains them. Shop order.
+function M.uncovered(builds)
+  local shop, by_id = M.catalog()
+  local reached = {}
+  local function reach(id)
+    if reached[id] then return end
+    reached[id] = true
+    for _, part in ipairs((by_id[id] or {}).recipe or {}) do reach(part) end
+  end
+  for _, build in ipairs(builds) do
+    for _, id in ipairs(build.items) do reach(id) end
+  end
+  local out = {}
+  for _, item in ipairs(shop) do if not reached[item.id] then out[#out + 1] = item.id end end
+  return out
+end
+
+-- BUILDS with each of IDS put into one build, bought first after its single-use item. A goal
+-- takes the place of one of the build's goals (the latest one another build still reaches, else
+-- the last), so the build is no longer and is finished as early as before (m6cover2: added in
+-- front of six, it pushed the support's tea_bowl past the match end);
+-- a single-use item is added beside the build's own. An id that another of IDS is assembled from
+-- (mana_boots, a component of mana_boots_1) is skipped: that one covers it. The build is one
+-- without a coverage item yet (once every build has one, all are open again), preferring one with
+-- no item in the item's purchase group (such a goal would leave the build) and none sharing its
+-- cooldown (m6cover1: mana_boots_1 beside perceive_wine, drunk again and again, was never off
+-- cooldown), then one whose replaced goal another build still reaches (none goes uncovered),
+-- then the role that scores the item highest, then seat order. Goals that no longer fit the six
+-- slots are dropped, as derive does. Other builds are returned as they were; the normal derivation
+-- is unchanged.
+function M.cover(builds, ids)
+  local _, by_id = M.catalog()
+  local out, given = {}, {}
+  for i, build in ipairs(builds) do
+    local copy = {}
+    for key, value in pairs(build) do copy[key] = value end
+    copy.items = {}
+    for k, id in ipairs(build.items) do copy.items[k] = id end
+    out[i] = copy
+  end
+  local part_of_another = {}
+  local function mark(id)
+    for _, part in ipairs((by_id[id] or {}).recipe or {}) do part_of_another[part] = true; mark(part) end
+  end
+  for _, id in ipairs(ids) do mark(id) end
+  for _, id in ipairs(ids) do if not part_of_another[id] then
+    local item = assert(by_id[id], 'coverage names unknown item ' .. tostring(id))
+    local group = group_of(item)
+    local shared = {}
+    for _, other in ipairs(item.shares_cooldown_with or {}) do shared[other] = true end
+    local function clashes(build)
+      for _, other in ipairs(build.items) do
+        local entry = assert(by_id[other], 'build names unknown item ' .. other)
+        if other ~= id and ((group and group_of(entry) == group) or shared[other]) then return true end
+      end
+      return false
+    end
+    -- the goal a coverage goal replaces in build I: the latest goal another build still reaches,
+    -- else the last goal, which then no build reaches (second result)
+    local function replaced(i)
+      if item.consumable then return nil, false end
+      local reached = {}
+      local function reach(x)
+        if reached[x] then return end
+        reached[x] = true
+        for _, part in ipairs((by_id[x] or {}).recipe or {}) do reach(part) end
+      end
+      for j, build in ipairs(out) do
+        if j ~= i then for _, other in ipairs(build.items) do reach(other) end end
+      end
+      local last
+      for k = #out[i].items, 1, -1 do
+        local other = out[i].items[k]
+        if not by_id[other].consumable then
+          if reached[other] then return other, false end
+          last = last or other
+        end
+      end
+      return last, last ~= nil
+    end
+    local open = {}
+    for i in ipairs(out) do if not given[i] then open[#open + 1] = i end end
+    if #open == 0 then given = {}; for i in ipairs(out) do open[#open + 1] = i end end
+    local best, best_key
+    for _, i in ipairs(open) do
+      local _, lost = replaced(i)
+      -- lower is better: clash, then a lost goal, then the negated score
+      local key = { clashes(out[i]) and 1 or 0, lost and 1 or 0, -M.score(out[i].role, item) }
+      local better = not best_key
+      if not better then
+        for k = 1, #key do
+          if key[k] ~= best_key[k] then better = key[k] < best_key[k]; break end
+        end
+      end
+      if better then best, best_key = i, key end
+    end
+    local drop = replaced(best)
+    given[best] = true
+    local build = out[best]
+    local singles, goals = {}, {}
+    for _, other in ipairs(build.items) do
+      local entry = assert(by_id[other], 'build names unknown item ' .. other)
+      if other ~= id and other ~= drop and not (group and group_of(entry) == group) then
+        if entry.consumable then singles[#singles + 1] = other else goals[#goals + 1] = other end
+      end
+    end
+    local items, held = {}, #singles
+    for k, single in ipairs(singles) do items[k] = single end
+    if item.consumable then items[#items + 1] = id; held = held + 1 else table.insert(goals, 1, id) end
+    for _, goal in ipairs(goals) do
+      if held + M.need(by_id[goal], by_id) <= M.SLOTS then
+        items[#items + 1] = goal
+        held = held + 1
+      end
+    end
+    build.items = items
+  end end
+  return out
+end
+
 return M

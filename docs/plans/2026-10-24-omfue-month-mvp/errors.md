@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E367 （保留）conformance：死亡時收起的 hero 狀態在復活後檢查；施放後停用自己的技能在冷卻後預期被拒（2026-10-30）
+
+## E366 （保留）kit 把 cast range 0 當成無效，點施放不能不限距離（2026-10-30）
+
+## E365 （保留）文件層級的狀態不在任何技能區塊，host 的 dispel 登錄表找不到（2026-10-30）
+
 ## E364 UE 啟動時 TurnkeySupport 跑 UBT 查 AutoSDK，碰上別人的 UBT 建置就排隊數分鐘，吃掉實機局時限（2026-10-30，history-nobu M6 UE 效能，工作線 C）
 - **現象**：工作線 C 的 1＋9 quick demo（`target/lineC-perf/demo5`）在 21:11 啟動 UE，log 停在「InternalLoadLibrary: TurnkeySupport」345 秒，21:17 才出現「UBT AutoSDK ReturnCode: 0」，接著才載入地圖。600 秒的時限只剩大約 1.5 分鐘能玩，frame time 只量到 11 個窗口。
 - **根因**：引擎啟動時，`TargetPlatformManagerModule` 在沒有設定 AutoSDK 的情況下，會啟動 UBT 查詢各平台的 SDK 狀態，並等它跑完（`NeedsToRunSetupPlatformsUBT`）。UBT 有一把整台機器共用的鎖；當時其他 session 正在跑 land_to_live 的 UBT 建置，這次查詢就排在後面等了好幾分鐘。實機局的 renderer 不 cook 也不打包，根本用不到這份 SDK 資訊。
@@ -49,7 +55,11 @@
 - **結果**：C15 c15_burst_arrow r1～r4 各一個。在 1ddfffc3（產生版換上）之前的 live 上，手寫版看不到火焰持有者，回報 unsupported；換上後重比。
 - 已放回。
 
-## E358 （保留）沒有 bot 出裝會取得的上架道具從沒被驗證：批次加道具覆蓋模式（2026-10-30）
+## E358 沒有 bot 出裝會取得的上架道具從沒被驗證：批次加道具覆蓋模式（2026-10-30，e187 遊戲模式 session，主 session 要求；已放回 live）
+- **現象**：m6item3 起每次批次都報 mana_boots、mana_boots_1、napalm_bomb NEVER OBTAINED：五個定位推導出的出裝（E336）都沒選到它們，這三件上架道具的購買、合成與主動從沒在對局裡跑過。
+- **通用修正**：bot_item_builds.lua 加兩個函式，一般出裝推導不變。`uncovered(builds)`：沒有任何出裝會取得的上架道具（目標本身與合成它的零件都算取得）。`cover(builds, ids)`：把每件放進一份出裝，在單次使用道具之後最先買；若另一件 id 由它合成（mana_boots 是 mana_boots_1 的零件）就跳過，由那件涵蓋。選哪份出裝：還沒放過覆蓋道具的優先（全放過才再開放）；其次避開同購買群組的物品（那件目標會被擠掉，變成沒人取得）與共用冷卻的物品；最後取該定位評分最高者，同分依座位順序。放不下六格的目標照 derive 的規則丟掉。verify_m6_batch 加 `--item-coverage`：每個 recipe 的出裝都套用覆蓋，所以每一局都驗證每件上架道具，並印出覆蓋清單與調整後的出裝。`scripts/tests/bot_item_builds_test.lua`（75 項：覆蓋後沒有沒人取得的道具、原出裝不變、六格、同群組只一件、覆蓋道具旁沒有共用冷卻的物品、目標數不比原出裝多、未知道具拒絕），接進 test_lua_tooling.lua。
+- **實測**：m6cover1（18 局全部結束，quick 6/6、換邊 6/6、teamfight 0/6，中位 5.4～6.7 分鐘）：三件都取得了（napalm_bomb 308 次、使用 286 次；mana_boots_1 31 次）。但 mana_boots_1 使用 0 次：它被放進上路的出裝，旁邊是不斷重喝的般若湯（perceive_wine），兩者共用鞋類冷卻，鞋子永遠在冷卻中。因此加上「避開共用冷卻」，改放進輔助的出裝（測試那一項在修正前會失敗）。m6cover2：mana_boots_1 取得 36、使用 36；但覆蓋目標加在支援出裝最前面，出裝變長，最後一件 tea_bowl 在對局結束前買不到（NEVER OBTAINED）。因此改成覆蓋目標「取代」一件目標，出裝不變長：取代該出裝裡最晚、別的出裝也會取得的目標，沒有才取代最後一件；選出裝時也優先不會讓目標變成沒人取得的那份（mana_boots_1 改放 carry，取代 jungle 也有的 attack_speed_ingot）。測試加「目標數不比原出裝多」，修正前失敗。
+- **避免**：插入測試物品不要拉長出裝或擠掉別的物品；「沒被驗證」不只看有沒有取得，也要確認主動能放；放置測試物品時避開會讓它無法使用的組合（同群組、共用冷卻）。
 
 ## E357 批次英雄依名單順序入座，不看定位：改從資料推導上路、中路、carry、輔助、打野（2026-10-30，e187 遊戲模式 session，主 session 要求；已放回 live）
 - **現象**：verify_m6_batch 把批次英雄依名單順序塞進座位（第 1 位上路、第 2 位中路……），近戰力量型可能去 carry，遠程智力型可能去打野；bot 的路線與出裝（依座位定位推導，E336）跟英雄本身不合，平衡數字混進座位造成的偏差。

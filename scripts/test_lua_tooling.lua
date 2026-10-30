@@ -168,6 +168,11 @@ local ok, failure = xpcall(function()
     { cwd = b.root, check = false })
   assert(lane_roles.exit_code == 0,
     "hero lane role tests failed:\n" .. tostring(lane_roles.stdout) .. tostring(lane_roles.stderr))
+  -- E358: item coverage reaches every shop item without changing the derived builds.
+  local item_builds = process.run(lua, { path.join(b.root, "scripts", "tests", "bot_item_builds_test.lua") },
+    { cwd = b.root, check = false })
+  assert(item_builds.exit_code == 0,
+    "bot item build tests failed:\n" .. tostring(item_builds.stdout) .. tostring(item_builds.stderr))
 end, debug.traceback)
 remove_tree(temp)
 if not ok then error(failure) end
