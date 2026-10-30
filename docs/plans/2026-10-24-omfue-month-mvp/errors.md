@@ -8,7 +8,12 @@
 - **通用修正**：`Gen:rank_of(owner)` 找出值所屬的技能。如果和正在產生的技能不同（共用 routine 沒有所屬的 entry，所以一律算不同），就讀 `rk_<技能>`。`Gen:finish` 會在每個用到它的函式開頭放 `let rk_<技能> = cx.rank_of(cx.caster, "<技能>")`，因為值常常出現在已經借用 cx 的呼叫參數裡。kit 新增 `Cx::rank_of`：回傳施法者在該技能的等級，沒學過時退回 cx.rank（例如召喚物執行主人的 routine）。影子 97 個 crate 在 deny(warnings) 下都編譯通過；A34、A15、A07 conformance 0 fail。
 - **避免**：一個值的「等級來源」跟著值的 owner 走，不是跟著呼叫端走。產生器新增可以跨技能執行的形式（routine、內嵌 step、讀別的技能的值）時，要確認 rank 從哪裡來。conformance 的狀態 payload 要逐級比對，不能只比 r1。
 
-## E410 （保留）bot 的 enemy_line 略過 range 0 的直線技能：大谷吉繼的玄滅箭從不施放（2026-10-31）
+## E410 bot 的 enemy_line 略過 range 0 的直線技能：大谷吉繼的玄滅箭從不施放（2026-10-31，工作線 B）
+- **現象**：M6 第二批（target/e187/m6b2g1b）18 局中，`a12_mystic_arrow`（大谷吉繼）有推導出的 enemy_line 政策，但 bot 輸入是 0。這招是 point 目標、targeting_shape 為 line，每一級 range 都是 0（不限距離，箭飛 `distance` 1850/2350/2850）。
+- **根因**：EnemyLine 以 `level.range` 當直線長度；`choose_line_target` 遇到 range <= 0 一律不選目標。
+- **通用修正**：`line_reach(def, rank, range)`：range > 0 時用 cast range；range 為 0 的直線改用編譯好的 `distance` extra（投射物飛行長度）。都沒有就照舊不施放。
+- **測試**：`a_range_zero_line_reaches_its_distance_extra_e410`（1500 處的英雄會瞄準，4000 處的不會）。
+- **避免**：range 0 代表「不限施放距離」，不是「長度 0」；選目標時改用技能自己的作用長度。
 
 ## E409 hero spotlight 對射程短於替身距離的指定單位技能直接跳過（柳生宗嚴 神取 射程 200、替身在 240）（2026-10-31，history-nobu M6 UE 呈現，工作線 C）
 - 現象：yagyu_muneyoshi 的 spotlight 報告缺 c24_kamitori（神取）：autopilot 一次都沒施放。

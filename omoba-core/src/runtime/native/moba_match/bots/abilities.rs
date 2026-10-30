@@ -157,6 +157,14 @@ fn line_width(def:&omoba_template_ids::AbilityConst,rank:usize)->Option<Fixed64>
         .filter(|width|*width>Fixed64::ZERO)
 }
 
+/// How far a line reaches: its cast range, or for a range-0 (unlimited) line its compiled
+/// `distance` extra, the length the projectile travels (E410).
+fn line_reach(def:&omoba_template_ids::AbilityConst,rank:usize,range:Fixed64)->Option<Fixed64> {
+    if range>Fixed64::ZERO {return Some(range);}
+    def.extras.iter().find(|(key,_)|*key=="distance").and_then(|(_,values)|values.get(rank).copied())
+        .filter(|distance|*distance>Fixed64::ZERO)
+}
+
 pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'static str> {
     if policies.len()>64 {return Err("bot ability policies exceed 64");}
     let mut ids=std::collections::BTreeSet::new();
@@ -520,7 +528,8 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
             BotAbilityIntent::EnemyLine {min_targets}=>{
                 if health.hp<=Fixed64::ZERO{continue;}
                 let Some(width)=line_width(def,rank)else{continue;};
-                let Some(point)=choose_line_target(own,level.range,width,*min_targets,seen.iter().filter(enemy).collect(),if prioritizes_focus{focus}else{None})else{continue;};
+                let Some(reach)=line_reach(def,rank,level.range)else{continue;};
+                let Some(point)=choose_line_target(own,reach,width,*min_targets,seen.iter().filter(enemy).collect(),if prioritizes_focus{focus}else{None})else{continue;};
                 let (Ok(x),Ok(y))=(i32::try_from(point.x.raw()),i32::try_from(point.y.raw()))else{continue;};
                 target_pos=Some(crate::runtime::Vec2I{x,y});None
             }
@@ -1066,6 +1075,22 @@ mod tests {
         assert!(choose(&[unit(0,0,1,1,30),unit(9,500,2,1,100)]).is_none(),"the caster itself");
         let cast=choose(&[unit(1,6000,1,1,80),unit(2,-7000,1,1,40),unit(9,6500,2,1,100),unit(10,-7200,2,1,100)]).expect("an ally in a fight");
         assert_eq!(cast.target_entity,Some(((1u64<<32)|2) as u32),"the most hurt ally, at any distance");
+    }
+
+    /// E410: A12 大谷吉繼's 神秘箭 is a range-0 line: it reaches its `distance` extra (1850 at rank 1).
+    #[test]
+    fn a_range_zero_line_reaches_its_distance_extra_e409() {
+        let unit=|id:u64,x:i32|SeenUnit {canonical_id:(1<<32)|id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
+            team:2,kind:1,owner_player_id:id as u32,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+        let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
+        let mut yoshitsugu=Hero::new("otani_yoshitsugu".into(),"otani_yoshitsugu".into(),"otani_yoshitsugu".into());
+        yoshitsugu.abilities=vec!["a12_mystic_arrow".into()];
+        yoshitsugu.ability_levels.insert("a12_mystic_arrow".into(),1);
+        let arrow=BotAbilityPolicy {ability:"a12_mystic_arrow".into(),intent:BotAbilityIntent::EnemyLine {min_targets:1}};
+        assert_eq!(validate_policies(&[arrow.clone()]),Ok(()));
+        let cast=choose_cast(&yoshitsugu,BotRole::Top,1,Vec2::ZERO,&health,&[unit(5,1500)],&[arrow.clone()]).expect("a hero in reach");
+        assert_eq!(cast.target_pos.unwrap().x,Fixed64::from_i32(1500).raw() as i32,"aimed at the hero");
+        assert!(choose_cast(&yoshitsugu,BotRole::Top,1,Vec2::ZERO,&health,&[unit(5,4000)],&[arrow]).is_none(),"beyond the distance");
     }
 
     #[test]
