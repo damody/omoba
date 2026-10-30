@@ -277,6 +277,10 @@ fn dispatch_scripts(
                     super::super::magic_immunity::ability_pierces(skill_id)) {
                     reject_cast!(cast_outcomes,ev,releasing,code::INVALID_TARGET);
                 }
+                // unselectable (rules::vocab): no one but the unit itself can aim a unit cast at it
+                if victim!=caster && super::super::rules::vocab::unselectable(&cache.buffs,*victim) {
+                    reject_cast!(cast_outcomes,ev,releasing,code::INVALID_TARGET);
+                }
             }
             let settlement_skill = match &ev { ScriptEvent::SkillCast {skill_id,..} => Some(skill_id.clone()), _ => None };
             let expected_mana = cast_heroes.get(&invocation_entity).or_else(||cache.hero.get(invocation_entity))
@@ -901,6 +905,7 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
         for note in &damage {
             on_holder(note.target, se::TAKE_DAMAGE, Some(note.source), note.amount, note.damage_kind);
             on_holder(note.source, se::DEAL_DAMAGE, Some(note.target), note.amount, note.damage_kind);
+            if let Some(killer) = note.killer { on_holder(killer, se::KILL, Some(note.target), note.amount, note.damage_kind); }
         }
     }
     // an end carries the duration the status had left (`status.remaining` of an end trigger)

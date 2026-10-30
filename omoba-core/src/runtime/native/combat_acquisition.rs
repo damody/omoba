@@ -210,7 +210,7 @@ fn read_candidate(
         Some(state) => state.current_match_target_attackable(target),
         None => view.attack_gate.map(|gate| gate.allows(target)).unwrap_or(true),
     } && view.buffs.is_none_or(|buffs| !super::rules::vocab::invulnerable(buffs, target)
-        && !super::rules::vocab::attack_immune(buffs, target));
+        && !super::rules::vocab::attack_immune(buffs, target) && !super::rules::vocab::unselectable(buffs, target));
     let key = entity_key(target);
     Some(AttackCandidate {
         key,
@@ -345,6 +345,11 @@ pub fn acquire(view: &CombatAcquisitionView<'_, '_>, request: AcquisitionRequest
                     rows.push(row);
                 }
             }
+        }
+        // low_attack_priority (rules::vocab): picked only when nothing else is in reach
+        if let Some(buffs) = view.buffs {
+            let low = |key: &CanonicalEntityKey| entities_by_key.get(key).is_some_and(|e| super::rules::vocab::low_attack_priority(buffs, *e));
+            if rows.iter().any(|row| !low(&row.key)) { rows.retain(|row| !low(&row.key)); }
         }
         None
     };

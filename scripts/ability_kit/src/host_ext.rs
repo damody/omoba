@@ -240,6 +240,22 @@ impl Cx<'_, '_> {
         self.unit_flag(unit, &format!("{}{tag}", omb_script_abi::ext::unit_attr::TAG_PREFIX))
     }
 
+    /// v3 `kill { to, silent }`: `to` dies at once, credited to the caster (omoba-core
+    /// script_kill; no damage packet, so invulnerability and shields do not stop it). `silent`
+    /// removes a non-hero without bounty or death.
+    pub fn kill(&mut self, to: EntityHandle, silent: bool) -> Res {
+        use omoba_core::runtime::native::script_kill;
+        if !to.is_valid() { return Ok(()); }
+        let packet = script_kill::payload(self.caster.id, self.caster.gen, silent).to_string();
+        self.world.add_stat_buff(to, RStr::from_str(script_kill::BUFF), Fixed64::ONE, RStr::from_str(&packet));
+        Ok(())
+    }
+
+    /// v3 `has_status_tag(unit, tag)`: some status on `unit` carries catalog tag `tag`.
+    pub fn has_status_tagged(&mut self, unit: EntityHandle, tag: &str) -> bool {
+        self.unit_flag(unit, &format!("{}{tag}", omb_script_abi::ext::unit_attr::STATUS_TAG_PREFIX))
+    }
+
     pub fn damage_from_at(&mut self, ability: &str, path: &str, source: EntityHandle, to: EntityHandle, amount: Fixed64,
         kind: DamageKind, flags: Dmg) -> Res {
         if !source.is_valid() { return Ok(()); }

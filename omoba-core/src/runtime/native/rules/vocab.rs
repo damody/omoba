@@ -105,11 +105,29 @@ pub mod state {
     pub const ATTACK_IMMUNE: &str = "attack_immune";
     /// 攻速減益無效（C14T 龍化）：負的攻速加成與小於 1 的攻速倍率不算（UnitStats::final_attack_speed_mult）。
     pub const ATTACK_SLOW_IMMUNE: &str = "attack_slow_immune";
+    /// 原作 MODIFIER_STATE_LOW_ATTACK_PRIORITY：自動普攻在攻擊範圍內還有別的目標時不選它
+    /// （combat_acquisition::acquire；明確指定的攻擊照常）。
+    pub const LOW_ATTACK_PRIORITY: &str = "low_attack_priority";
+    /// 原作 MODIFIER_STATE_UNSELECTABLE：不能被普攻選為目標，也不能被當成單位技能的目標
+    /// （combat_acquisition::read_candidate、dispatch 的施法檢查；範圍效果照常選到）。
+    pub const UNSELECTABLE: &str = "unselectable";
+    /// 原作 MODIFIER_STATE_NO_HEALTH_BAR：不顯示血條，只影響呈現（狀態照一般揭露送到前端）。
+    pub const NO_HEALTHBAR: &str = "no_healthbar";
 }
 
 /// 單位是否無敵（[`state::INVULNERABLE`]）。
 pub fn invulnerable(buffs: &crate::runtime::BuffStore, entity: specs::Entity) -> bool {
     buffs.has(entity, state::INVULNERABLE)
+}
+
+/// 自動普攻是否排在最後（[`state::LOW_ATTACK_PRIORITY`]）。
+pub fn low_attack_priority(buffs: &crate::runtime::BuffStore, entity: specs::Entity) -> bool {
+    buffs.has(entity, state::LOW_ATTACK_PRIORITY)
+}
+
+/// 是否不能被點選為目標（[`state::UNSELECTABLE`]）。
+pub fn unselectable(buffs: &crate::runtime::BuffStore, entity: specs::Entity) -> bool {
+    buffs.has(entity, state::UNSELECTABLE)
 }
 
 /// 普攻是否打不到目標（原作 ATTACK_IMMUNE；無敵另由傷害入口擋）。
@@ -158,6 +176,9 @@ const STATE_EFFECTS: &[(&str, StateEffect)] = &[
     ("cannot_miss", StateEffect::Buff("cannot_miss")),
     ("attack_immune", StateEffect::Buff("attack_immune")),
     ("attack_slow_immune", StateEffect::Buff("attack_slow_immune")),
+    ("low_attack_priority", StateEffect::Buff("low_attack_priority")),
+    ("unselectable", StateEffect::Buff("unselectable")),
+    ("no_healthbar", StateEffect::Buff("no_healthbar")),
     // 魔法免疫：host 收到這個 buff 時先強驅散再授予（magic_immunity::grant_state）；status 結束或被
     // 移除時由 `__ctl` 來源列收回。
     ("magic_immune", StateEffect::Buff(crate::runtime::native::magic_immunity::BUFF)),

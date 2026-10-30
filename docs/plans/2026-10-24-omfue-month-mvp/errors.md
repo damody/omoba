@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E285 產生的 routine 呼叫在引數裡讀 `cx`，借用衝突編譯不過；全量檢查的 crate 用 allow(warnings) 會漏掉英雄 crate 的 deny(warnings)（2026-10-30，工作線 A）
+
+- **現象**：全量產生 97 套件後，nene 的 `super::routines::a15e_moon(cx, { ... cx.random_point(...) })` 出現 E0499（同時兩個 &mut cx）。檢查用的暫時 crate 是 `#![allow(warnings)]`，而英雄 crate 是 `#![deny(warnings)]`，產生碼多出的未使用變數只在後者會擋下。
+- **根因**：產生器把 routine 引數的運算式直接寫進呼叫；引數本身要 `&mut cx`（隨機、讀狀態）時和呼叫的 `cx` 衝突。內聯的 routine 已先綁引數，非內聯的這條路沒有。
+- **通用修正**：`v3_rust.lua` 所有 routine 呼叫都先把每個引數綁成 `let aN = …;` 再呼叫；全量檢查 crate 改成 `#![deny(warnings)]`，並先故意放一個型別錯誤確認它真的編譯到產生的檔案。
+- **避免**：產生器新增「把運算式放進函式呼叫」的寫法時，一律先綁區域變數；改產生器後跑 97 套件全量產生＋`deny(warnings)` 編譯，再 land。
+
 ## E284 狀態 cue 第一版實機 0 次：表用 BuffStore 的 runtime_id 當鍵，但 UE 收到的是 content buff 目錄的 id（2026-10-30，工作線 C）
 
 - **現象**：狀態 cue（`status-cues-v1.json` + `AOmUnitActor::SyncStatusCue`）通過 UE 單元測試並放回 live，但實機 540 秒局中 `OM_STATUS_CUE` 0 次；同一局道具 cue 播了 74 次，燒酒有被使用。

@@ -165,6 +165,17 @@ impl Registry {
     }
 }
 
+/// v3 `has_status_tag(unit, tag)`: some live status on `entity` carries catalog tag `tag` (a
+/// control-source row stands for its status).
+pub fn holds_tag(buffs: &super::BuffStore, entity: specs::Entity, tag: &str) -> bool {
+    let registry = registry();
+    buffs.iter_for(entity).any(|(id, entry)| {
+        if entry.remaining <= omoba_sim::Fixed64::ZERO { return false; }
+        let status = id.strip_prefix(CONTROL_SOURCE_PREFIX).unwrap_or(id);
+        registry.tags(status).iter().any(|t| *t == tag)
+    })
+}
+
 /// The compiled content's registry, parsed once.
 pub fn registry() -> &'static Registry {
     static REGISTRY: OnceLock<Registry> = OnceLock::new();

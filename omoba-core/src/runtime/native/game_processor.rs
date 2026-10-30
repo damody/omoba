@@ -6398,6 +6398,11 @@ fn handle_add_buff(
         super::ally_cleanse::apply_self_slow(world,target,&payload);
         return Ok(());
     }
+    // v3 `kill` (script_kill): a one-shot envelope, never stored.
+    if buff_id==super::script_kill::BUFF {
+        super::script_kill::apply(world,target,&payload);
+        return Ok(());
+    }
     // v3 state `magic_immune` (a status's state buff): strong dispel, then the immunity status.
     if buff_id==super::magic_immunity::BUFF {
         super::magic_immunity::grant_state(world,target,duration);
@@ -7026,16 +7031,19 @@ fn handle_damage(
     pipeline::after_mitigation(world, &packet, &mitigated, was_hit, applied.as_ref());
     // status_event on_take_damage / on_deal_damage: the hp the hit took, noted only when a status
     // of the target or the source listens (the hot path pays one buff scan per side).
+    // on_kill: the lethal hit's credit hears it.
     if let Some(applied) = applied.as_ref().filter(|applied| applied.took_damage) {
+        let killer = applied.died.then_some(packet.credit);
         let listens = {
             let buffs = world.read_resource::<BuffStore>();
             super::status_event::listening(&buffs, target, super::status_event::TAKE_DAMAGE)
                 || super::status_event::listening(&buffs, source, super::status_event::DEAL_DAMAGE)
+                || killer.is_some_and(|killer| super::status_event::listening(&buffs, killer, super::status_event::KILL))
         };
         if listens {
             super::status_event::note_damage(world, super::status_event::DamageNote { source, target,
                 amount: (applied.hp_before - applied.hp_after).max(Fixed64::ZERO),
-                damage_kind: super::status_event::damage_kind(mitigated.by_type, original_profile) });
+                damage_kind: super::status_event::damage_kind(mitigated.by_type, original_profile), killer });
         }
     }
     // ⑤ Lethal: tower kills, TD bounty and the Death that commits after the batch.

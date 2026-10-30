@@ -713,6 +713,8 @@ impl<'a> ParallelWorldAdapter<'a> {
                         .find(|(_,owner,_)|owner.player_id==player).map(|(_,_,pool)|pool.0)
                 }).map(Fixed64::from_i32)
             }),
+            tag if tag.starts_with(name::STATUS_TAG_PREFIX)=>V::Bool(entity.is_some_and(|e|
+                crate::runtime::native::dispel::holds_tag(self.source_buffs(e),e,&tag[name::STATUS_TAG_PREFIX.len()..]))),
             tag if tag.starts_with(name::TAG_PREFIX)=>V::Bool(entity.is_some_and(|e|match &tag[name::TAG_PREFIX.len()..] {
                 "boss"=>self.cache.unit_tags.as_ref().and_then(|tags|tags.get(e)).is_some_and(|tags|tags.has(omoba_template_ids::MobaUnitTag::Boss))
                     || self.source_unit(e).is_some_and(|unit|matches!(unit.unit_type,UnitType::Boss)),

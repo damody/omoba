@@ -36,6 +36,7 @@ pub mod magic_immunity;
 pub mod dispel;
 pub mod blink_landing;
 pub mod ally_cleanse;
+pub mod script_kill;
 pub mod mana_drain;
 pub mod script_gold;
 pub mod mana_burn;

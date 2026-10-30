@@ -102,6 +102,9 @@ pub mod unit_attr {
     /// `tag:` (e.g. `"tag:boss"`). A map boss carries the boss tag; a training dummy is a dummy;
     /// this game has no fountain or general units, so those are always false.
     pub const TAG_PREFIX: &str = "tag:";
+    /// `Bool`: v3 `has_status_tag(unit, tag)`, the tag after `status_tag:`: some status on the
+    /// unit carries that catalog tag.
+    pub const STATUS_TAG_PREFIX: &str = "status_tag:";
 }
 
 /// Attribute names of [`op::UNIT_ABILITY_ATTR`].

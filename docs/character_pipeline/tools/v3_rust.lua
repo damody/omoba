@@ -152,6 +152,8 @@ local STATUS_TRIGGERS = {
   on_ability_executed = { 128, { 9 } },
   -- the holder starts an attack (its windup); event.target is the attack's target
   on_attack_windup = { 256, { 10 } },
+  -- the holder's hit killed event.victim (the packet's credit; omoba-core status_event KILL)
+  on_kill = { 512, { 11 } },
 }
 M.STATUS_TRIGGERS = STATUS_TRIGGERS
 -- `periodic`, `periodic_2`, ...: every periodic trigger of a status
@@ -393,6 +395,8 @@ do
     -- the operand first: a read takes &mut cx
     UNIT_ATTRS[name] = { e[1], "{ let u = %s; cx." .. e[2] .. "(u, ability_kit::unit_attr::" .. e[3] .. ") }" }
   end
+  -- mana / max mana (0 without a pool), like hp_pct
+  UNIT_ATTRS.mana_pct = { "num", "{ let u = %s; let max = cx.unit_num(u, ability_kit::unit_attr::MAX_MANA); if max > Fixed64::ZERO { cx.mana(u) / max } else { Fixed64::ZERO } }" }
   UNIT_ATTRS.missing_mana = { "num", "{ let u = %s; cx.unit_num(u, ability_kit::unit_attr::MAX_MANA) - cx.mana(u) }" }
   -- seconds between attacks after attack speed (GameWorld::get_asd_interval)
   UNIT_ATTRS.attack_interval = { "num", "{ let u = %s; cx.world.get_asd_interval(u) }" }
@@ -621,6 +625,13 @@ function Gen:call(node, ctx)
   elseif fn == "clamp" then
     local x = self:value_node(args[1], ctx, "num"); local lo = self:value_node(args[2], ctx, "num"); local hi = self:value_node(args[3], ctx, "num")
     return string.format("ability_kit::clamp(%s, %s, %s)", x, lo, hi), "num"
+  elseif fn == "has_status_tag" then
+    -- some status on the unit carries the catalog tag (host dispel registry)
+    local u, t = arg(1)
+    local tag = name_arg(2)
+    if t == "err" or not tag then return "false", "bool" end
+    if t ~= "unit" then self:block("fn:has_status_tag of a " .. t); return "false", "bool" end
+    return string.format("{ let u = %s; cx.has_status_tagged(u, %s) }", u, rust_str(tag)), "bool"
   elseif fn == "owner_of" then
     -- a unit's owner (`u.owner`: a summon's summoner, the controlling hero)
     local u, t = arg(1)
@@ -906,6 +917,7 @@ local ACTION_FIELDS = {
   leap = set({ "op", "who", "to", "duration", "height" }),
   swap_positions = set({ "op", "a", "b" }),
   clear_slow_pool = set({ "op", "of" }),
+  kill = set({ "op", "to", "silent" }),
   zone = set({ "op", "shape", "at", "radius", "duration", "interval", "first", "cue", "on_tick" }),
   spend_mana = set({ "op", "from", "amount", "ability" }),
   set_var = set({ "op", "var", "value", "on", "status" }),
@@ -1602,6 +1614,11 @@ function Gen:action(a, ctx, ind)
     local s2 = ""
     if a.cue ~= nil then s2 = self:action({ op = "cue", id = a.cue, at = a.at, radius = a.radius, duration = a.duration }, ctx, ind) end
     return s2 .. self:action({ op = "repeat", count = count, interval = a.interval, first = first, actions = a.on_tick }, ctx, ind)
+  elseif op == "kill" then
+    -- host script_kill: no damage packet, credited to the caster; `silent` removes a non-hero
+    local silent = a.silent == true and "true" or "false"
+    if a.silent ~= nil and type(a.silent) ~= "boolean" then self:block("action:kill.silent of an expression"); return "" end
+    return line("{") .. line("    let to = " .. self:value(a.to, ctx, "unit") .. ";") .. line("    cx.kill(to, " .. silent .. ")?;") .. line("}")
   elseif op == "clear_slow_pool" then
     return line("{") .. line("    let of = " .. self:value(a.of, ctx, "unit") .. ";") .. line("    cx.clear_slow_pool(of)?;") .. line("}")
   elseif op == "swap_positions" then
@@ -2288,10 +2305,10 @@ local ENTRY_EVENTS = set({ "on_cast", "on_toggle_on", "on_toggle_off", "on_learn
   "on_channel_tick", "on_channel_end" })
 local PASSIVE_TRIGGERS = { on_attack_hit = true, on_ability_executed = true, on_respawn = true, on_attack_windup = true, on_created = true,
   on_take_damage = true, on_deal_damage = true, on_attacked_hit = true, on_attacked = true, periodic = true,
-  on_take_damage_pre = true, on_deal_damage_pre = true }
+  on_take_damage_pre = true, on_deal_damage_pre = true, on_kill = true }
 -- passive trigger -> status_event mask bit and host kind (the learner's marker listens)
 local PASSIVE_EVENTS = { on_take_damage = { 8, 5 }, on_deal_damage = { 16, 6 }, on_attacked_hit = { 4, 4 }, on_attacked = { 4, 4 },
-  on_attack_windup = { 256, 10 },
+  on_attack_windup = { 256, 10 }, on_kill = { 512, 11 },
   on_take_damage_pre = { 32, 7 }, on_deal_damage_pre = { 64, 8 } }
 
 -- the module of an entry the generator does not lower yet: casting it fails with the forms
@@ -2756,6 +2773,7 @@ local function emit_entry(m, o, opts, status_problems)
       [6] = "cx.event_target = event.other; cx.event_amount = event.amount; cx.event_damage_kind = event.damage_kind;",
       [7] = "cx.event_attacker = event.other; cx.event_amount = event.amount; cx.event_damage_kind = event.damage_kind;",
       [8] = "cx.event_target = event.other; cx.event_amount = event.amount; cx.event_damage_kind = event.damage_kind;",
+      [11] = "cx.event_target = event.other; cx.event_amount = event.amount; cx.event_damage_kind = event.damage_kind;",
     }
     local arms, pre_arms = {}, {}
     for _, key in ipairs(order) do

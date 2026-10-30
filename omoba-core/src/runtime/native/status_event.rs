@@ -36,6 +36,8 @@ pub const DEAL_DAMAGE_PRE: u8 = 8;
 pub const ABILITY_EXECUTED: u8 = 9;
 /// The holder started an attack (its windup; rules::attack AttackEvents Windup); `other` is the target.
 pub const ATTACK_START: u8 = 10;
+/// The holder's hit killed `other` (the packet's credit is the holder; v3 `on_kill`).
+pub const KILL: u8 = 11;
 
 /// `Spec.mask` bits: which events the status listens to.
 pub const ON_END: u32 = 1 << 0;
@@ -47,8 +49,9 @@ pub const ON_TAKE_DAMAGE_PRE: u32 = 1 << 5;
 pub const ON_DEAL_DAMAGE_PRE: u32 = 1 << 6;
 pub const ON_ABILITY_EXECUTED: u32 = 1 << 7;
 pub const ON_ATTACK_START: u32 = 1 << 8;
+pub const ON_KILL: u32 = 1 << 9;
 pub const ALL: u32 = ON_END | ON_ATTACK_HIT | ON_ATTACKED | ON_TAKE_DAMAGE | ON_DEAL_DAMAGE | ON_TAKE_DAMAGE_PRE | ON_DEAL_DAMAGE_PRE
-    | ON_ABILITY_EXECUTED | ON_ATTACK_START;
+    | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
@@ -95,6 +98,7 @@ impl Spec {
             DEAL_DAMAGE_PRE => ON_DEAL_DAMAGE_PRE,
             ABILITY_EXECUTED => ON_ABILITY_EXECUTED,
             ATTACK_START => ON_ATTACK_START,
+            KILL => ON_KILL,
             _ => 0,
         };
         self.mask & bit != 0
@@ -110,9 +114,11 @@ pub fn listening(buffs: &crate::runtime::BuffStore, holder: specs::Entity, kind:
         && Spec::from_payload(&entry.payload).is_some_and(|spec| spec.listens(kind)))
 }
 
-/// A hit that landed, for on_take_damage / on_deal_damage (`amount`: the hp it took).
+/// A hit that landed, for on_take_damage / on_deal_damage (`amount`: the hp it took); `killer`:
+/// the packet's credit when the hit was lethal (on_kill).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DamageNote { pub source: specs::Entity, pub target: specs::Entity, pub amount: Fixed64, pub damage_kind: u8 }
+pub struct DamageNote { pub source: specs::Entity, pub target: specs::Entity, pub amount: Fixed64, pub damage_kind: u8,
+    pub killer: Option<specs::Entity> }
 
 /// The landed hits since status events last ran.
 #[derive(Clone, Debug, Default)]
@@ -186,7 +192,8 @@ mod tests {
         assert!(s.listens(EXPIRED) && s.listens(CLEARED) && s.listens(TAKE_DAMAGE) && !s.listens(ATTACK_HIT));
         assert!(!s.listens(ABILITY_EXECUTED) && spec(ON_ABILITY_EXECUTED).listens(ABILITY_EXECUTED));
         assert!(!s.listens(ATTACK_START) && spec(ON_ATTACK_START).listens(ATTACK_START));
-        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 9);
+        assert!(!s.listens(KILL) && spec(ON_KILL).listens(KILL));
+        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 10);
         assert_eq!(Spec::from_payload(&bad), None, "unknown event bits");
         let mut bad = payload.clone(); bad[KEY]["status"] = json!("B16T");
         assert_eq!(Spec::from_payload(&bad), None, "status ids are v3 ids");
