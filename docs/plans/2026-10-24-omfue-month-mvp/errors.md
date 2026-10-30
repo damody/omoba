@@ -83,6 +83,7 @@
 - **根因**：產生器把 routine 引數的運算式直接寫進呼叫；引數本身要 `&mut cx`（隨機、讀狀態）時和呼叫的 `cx` 衝突。內聯的 routine 已先綁引數，非內聯的這條路沒有。
 - **通用修正**：`v3_rust.lua` 所有 routine 呼叫都先把每個引數綁成 `let aN = …;` 再呼叫；全量檢查 crate 改成 `#![deny(warnings)]`，並先故意放一個型別錯誤確認它真的編譯到產生的檔案。
 - **避免**：產生器新增「把運算式放進函式呼叫」的寫法時，一律先綁區域變數；改產生器後跑 97 套件全量產生＋`deny(warnings)` 編譯，再 land。
+- **再犯（同日）**：`caster_hero` 根名稱讓 `cx.alive(<讀 cx 的運算式>)` 出現 E0502；routine 以外的 `cx.alive`、`exists`、`has_buff`、`is_enemy`、`status_remaining`、`stacks`、`has_status`、`is_template`、`pos` 也是同一類。改成共用的 `cx_call`：不是單純名稱的參數都先綁成區域變數，再呼叫。
 
 ## E284 狀態 cue 第一版實機 0 次：表用 BuffStore 的 runtime_id 當鍵，但 UE 收到的是 content buff 目錄的 id（2026-10-30，工作線 C）
 
