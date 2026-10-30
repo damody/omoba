@@ -117,7 +117,9 @@ function M.template_rows(doc, t)
     if k ~= "kind" and k ~= "range" and k ~= "interval" and k ~= "damage" and k ~= "damage_max" and k ~= "damage_type"
       and k ~= "attack_point" and k ~= "projectile_speed" then no("attack." .. k) end
   end
-  if t.ai ~= "guard" then no("ai:" .. tostring(t.ai)) end
+  -- owner_controlled is guard without following: the player's summons move on its orders only
+  -- (host summon_orders; line B: follow 0, the original does not follow on its own)
+  if t.ai ~= "guard" and t.ai ~= "owner_controlled" then no("ai:" .. tostring(t.ai)) end
   if t.owner_death ~= nil and t.owner_death ~= "persist" and t.owner_death ~= "expire" then no("owner_death:" .. tostring(t.owner_death)) end
   local p = t.passive or {}
   for _, k in ipairs(sorted(p)) do if k ~= "reveal" then no("passive." .. k) end end
