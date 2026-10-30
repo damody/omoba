@@ -435,7 +435,7 @@ local data = {
       ue = { native_only = true },
       unit_target = "ally",
       v3 = {
-        bot = { kind = "none", reason = "sub-ability (cast through its parent)", source = "derived" },
+        bot = { kind = "ally_engage", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -11605,7 +11605,7 @@ local data = {
       target_type = "point",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "none", reason = "sub-ability (cast through its parent)", source = "derived" },
+        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -11788,7 +11788,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "none", reason = "sub-ability (cast through its parent)", source = "derived" },
+        bot = { kind = "self_engage", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -11978,7 +11978,7 @@ local data = {
       target_type = "point",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "none", reason = "sub-ability (cast through its parent)", source = "derived" },
+        bot = { kind = "enemy_point", min_targets = 1, radius_key = "damage_radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -18091,6 +18091,7 @@ local data = {
       extras = {
         cast_point = { 0.2, 0.2, 0.2, 0.2 },
         cast_range = { 700.0, 700.0, 700.0, 700.0 },
+        shape_width = { 600.0, 600.0, 600.0, 600.0 },
       },
       id = "c14_fire_breath_dragon",
       levels = {
@@ -18101,9 +18102,10 @@ local data = {
       },
       max_level = 4,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "none", reason = "sub-ability (cast through its parent)", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "end_radius", line_width_owner = "c14_fire_breath", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -36931,7 +36933,7 @@ local data = {
       target_type = "point",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "none", reason = "sub-ability (cast through its parent)", source = "derived" },
+        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -66249,7 +66251,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "none", reason = "sub-ability (cast through its parent)", source = "derived" },
+        bot = { kind = "self_engage", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },

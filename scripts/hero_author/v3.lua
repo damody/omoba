@@ -119,7 +119,8 @@ function M.ability_row(package, ab, compiled, opts)
   local targeting_shape
   local bot = block.bot
   if type(bot) == "table" and bot.kind == "enemy_line" and bot.line_width then
-    local nums = assert(extras[bot.line_width], id .. ": bot line width `" .. bot.line_width .. "` has no per-rank numbers")
+    local nums = bot.line_width_owner and (compiled.extras[bot.line_width_owner] or {})[bot.line_width] or extras[bot.line_width]
+    assert(nums, id .. ": bot line width `" .. bot.line_width .. "` has no per-rank numbers")
     assert(extras.shape_width == nil, id .. ": a value named shape_width collides with the line width")
     local widths = {}
     for i, n in ipairs(nums) do widths[i] = n * (bot.line_width_scale or 1) end

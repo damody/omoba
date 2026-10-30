@@ -55,25 +55,26 @@ local function value_name(expr)
 end
 
 -- every action and selector of a program tree, into the document's routines it calls (once each)
-local function walk(t, on_action, on_selector, doc, seen)
+local function walk(t, on_action, on_selector, doc, seen, owner)
   if type(t) ~= "table" then return end
-  if type(t.op) == "string" then on_action(t) end
+  if type(t.op) == "string" then on_action(t, owner) end
   if type(t.shape) == "string" then on_selector(t) end
   if t.op == "call" and type(t.routine) == "string" and doc and doc.routines and doc.routines[t.routine] then
     seen = seen or {}
     if not seen[t.routine] then
       seen[t.routine] = true
-      walk(doc.routines[t.routine].actions, on_action, on_selector, doc, seen)
+      local r = doc.routines[t.routine]
+      walk(r.actions, on_action, on_selector, doc, seen, r.owner or owner)
     end
   end
-  for _, k in ipairs(sorted_keys(t)) do walk(t[k], on_action, on_selector, doc, seen) end
+  for _, k in ipairs(sorted_keys(t)) do walk(t[k], on_action, on_selector, doc, seen, owner) end
 end
 
 -- facts about one castable's behavior
 function M.facts(def, castable, doc)
   local f = { heal_self = false, heal_target = false, cleanse = false, mana = nil, damage = false,
     summon = false, move = false, selectors = {}, lines = {}, enemy_status = false }
-  local function action(a)
+  local function action(a, owner)
     if a.op == "heal" then
       if a.to == "caster" or a.to == "self" then f.heal_self = true else f.heal_target = true end
     elseif a.op == "restore_mana" and (a.to == "caster" or a.to == "self") then f.mana = value_name(a.amount)
@@ -84,7 +85,7 @@ function M.facts(def, castable, doc)
     elseif a.op == "apply_status" and a.to ~= "caster" and a.to ~= "self" then f.enemy_status = true
     -- a linear projectile sweeps a line as wide as its largest radius on both sides
     elseif a.op == "projectile" and a.kind == "linear" then
-      f.lines[#f.lines + 1] = a.end_radius or a.radius
+      f.lines[#f.lines + 1] = { value = a.end_radius or a.radius, owner = owner }
     end
   end
   -- the cast's own selectors decide the aim; status triggers (on-hit cleaves, auras) only add facts
@@ -94,11 +95,27 @@ function M.facts(def, castable, doc)
   return f
 end
 
+-- Whether a `swap_abilities` of the document puts ability `id` into a slot (`to`): it is cast from
+-- that slot while it sits there, so the bot needs its own policy (derived from its own document).
+function M.swapped_in(doc, id)
+  if type(doc) ~= "table" then return false end
+  local found = false
+  local function scan(t)
+    if found or type(t) ~= "table" then return end
+    if t.op == "swap_abilities" and t.to == id then found = true; return end
+    for _, k in ipairs(sorted_keys(t)) do scan(t[k]) end
+  end
+  scan(doc.abilities)
+  scan(doc.routines)
+  scan(doc.statuses)
+  return found
+end
+
 -- the derived policy (a table with `kind`, or { kind = "none", reason })
 function M.derive(def, kind_of_entry, doc)
   local castable = kind_of_entry == "item" and def.active or def
   if not castable or (kind_of_entry == "ability" and def.kind == "passive") then return { kind = "none", reason = "passive" } end
-  if kind_of_entry == "ability" and (def.slot == "hidden" or def.slot == "sub") then
+  if kind_of_entry == "ability" and (def.slot == "hidden" or def.slot == "sub") and not M.swapped_in(doc, def.id) then
     return { kind = "none", reason = "sub-ability (cast through its parent)" }
   end
   local D = M.DEFAULTS
@@ -166,8 +183,12 @@ function M.derive(def, kind_of_entry, doc)
     if f.summon then return { kind = "summon_near_enemy", threat_radius = D.threat } end
     if f.move then return { kind = "approach_enemy_point", min_distance = D.approach } end
     -- a point skill whose only reach is a linear projectile: the line it sweeps
-    for _, r in ipairs(f.lines) do
-      if value_name(r) then return { kind = "enemy_line", min_targets = D.min_targets, line_width = value_name(r), line_width_scale = 2 } end
+    -- line_width_owner: the entry whose values the width is (a routine another entry owns)
+    for _, l in ipairs(f.lines) do
+      if value_name(l.value) then
+        return { kind = "enemy_line", min_targets = D.min_targets, line_width = value_name(l.value), line_width_scale = 2,
+          line_width_owner = l.owner ~= def.id and l.owner or nil }
+      end
     end
     return { kind = "enemy_line", min_targets = D.min_targets, note = "point skill without an area: aimed at the nearest enemy" }
   end
