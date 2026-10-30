@@ -107,7 +107,12 @@ pub(crate) fn synchronize_preparation(world:&World) {
             else {invalid.push(entity);}
         }
     }
-    for entity in invalid {windups.0.remove(&entity);windups.result(entity,false);}
+    let mut ended=Vec::new();
+    for entity in invalid {
+        if let Some(cast)=windups.0.remove(&entity) {ended.push((entity,cast.skill_id,"invalid"));}
+        windups.result(entity,false);
+    }
+    super::cast_trace::interrupted(world,ended);
     let mut buffs=world.write_resource::<super::BuffStore>();
     let stale:Vec<_>=buffs.entities_with_key(PREPARATION).filter(|entity|!desired.iter().any(|row|row.0==*entity)).collect();
     for entity in stale {buffs.remove(entity,PREPARATION);}
@@ -126,8 +131,9 @@ pub(crate) fn clear_preparation(world:&World) {
     super::recovery_channel::clear(world);
     super::ability_channel::clear(world);
     if let Some(mut casts)=world.try_fetch_mut::<AbilityWindups>() {
-        let pending:Vec<_>=casts.0.keys().copied().collect();casts.0.clear();
-        for entity in pending {casts.result(entity,false);}
+        let pending:Vec<_>=std::mem::take(&mut casts.0).into_iter().map(|(entity,cast)|(entity,cast.skill_id,"phase")).collect();
+        for (entity,_,_) in &pending {casts.result(*entity,false);}
+        super::cast_trace::interrupted(world,pending);
     }
     if let Some(mut buffs)=world.try_fetch_mut::<super::BuffStore>() {
         let entities:Vec<_>=buffs.entities_with_key(PREPARATION).collect();
@@ -140,17 +146,23 @@ pub(crate) fn interrupt_for_damage(world:&World,entity:Entity) {
     super::recovery_channel::cancel(world,entity);
     let interrupt=world.try_fetch::<AbilityWindups>().is_some_and(|casts|
         casts.0.get(&entity).is_some_and(|cast|cast.interrupt_on_damage));
-    if interrupt {cancel(world,entity);}
+    if interrupt {cancel_because(world,entity,"damage");}
 }
 
-pub(crate) fn cancel(world:&World,entity:Entity) {
+/// A new command (order, stop, channel, taunt) replaces the caster's windup.
+pub(crate) fn cancel(world:&World,entity:Entity) {cancel_because(world,entity,"command");}
+
+fn cancel_because(world:&World,entity:Entity,reason:&'static str) {
     super::recovery_channel::cancel(world,entity);
     super::ability_channel::cancel(world,entity);
     if let (Some(registry),Some(mut queue))=(world.try_fetch::<super::ability_runtime::AbilityRegistry>(),world.try_fetch_mut::<super::scripting::ScriptEventQueue>()) {
         queue.discard_channels_of(entity,&registry);
     }
     if let Some(mut pending)=world.try_fetch_mut::<AbilityWindups>() {
-        if pending.0.remove(&entity).is_some() {pending.result(entity,false);}
+        if let Some(cast)=pending.0.remove(&entity) {
+            pending.result(entity,false);
+            super::cast_trace::interrupted(world,[(entity,cast.skill_id,reason)]);
+        }
     }
 }
 
@@ -167,8 +179,9 @@ impl AbilityWindups {
     pub fn advance(&mut self,world:&World,dt:Fixed64)->Vec<ScriptEvent> {
         let state=world.try_fetch::<super::MobaMatch>();
         if state.as_ref().is_some_and(|state|state.phase!=super::MobaMatchPhase::Playing) {
-            let canceled:Vec<_>=self.0.keys().copied().collect();
-            self.0.clear();for caster in canceled {self.result(caster,false);}return Vec::new();
+            let canceled:Vec<_>=std::mem::take(&mut self.0).into_iter().map(|(caster,cast)|(caster,cast.skill_id,"phase")).collect();
+            for (caster,_,_) in &canceled {self.result(*caster,false);}
+            super::cast_trace::interrupted(world,canceled);return Vec::new();
         }
         if world.read_resource::<GamePause>().is_paused || dt<=Fixed64::ZERO {return Vec::new();}
         let tick=world.read_resource::<Tick>().0;
@@ -178,15 +191,19 @@ impl AbilityWindups {
         let disclosed_recalls=world.try_fetch::<DisclosedRecallingOwners>();let owners=world.read_storage::<PlayerOwner>();
         let recalling=|caster:Entity|hero_recalling(state.as_deref(),disclosed_recalls.as_deref(),&owners,caster);
         self.1.retain(|entity,_|entities.is_alive(*entity));
-        let views=&mut self.1;
+        let views=&mut self.1;let mut ended=Vec::new();
         self.0.retain(|caster,cast| {
-            if !entities.is_alive(*caster) || props.get(*caster).is_none_or(|p|p.hp<=Fixed64::ZERO)
-                || buffs.is_silenced(*caster) || positions.get(*caster).is_none_or(|p|p.0!=cast.origin)
-                || recalling(*caster)
-                || heroes.get(*caster).is_none_or(|h|h.get_ability_level(&cast.skill_id)!=i32::from(cast.rank))
-                || matches!(cast.target,SkillTarget::Entity(target) if !entities.is_alive(target)
-                    || props.get(target).is_none_or(|p|p.hp<=Fixed64::ZERO)) {
+            let reason=if !entities.is_alive(*caster) || props.get(*caster).is_none_or(|p|p.hp<=Fixed64::ZERO) {Some("dead")}
+                else if buffs.is_silenced(*caster) {Some("silenced")}
+                else if positions.get(*caster).is_none_or(|p|p.0!=cast.origin) {Some("moved")}
+                else if recalling(*caster) {Some("recall")}
+                else if heroes.get(*caster).is_none_or(|h|h.get_ability_level(&cast.skill_id)!=i32::from(cast.rank)) {Some("rank")}
+                else if matches!(cast.target,SkillTarget::Entity(target) if !entities.is_alive(target)
+                    || props.get(target).is_none_or(|p|p.hp<=Fixed64::ZERO)) {Some("target_lost")}
+                else {None};
+            if let Some(reason)=reason {
                 if let Some(view)=views.get_mut(caster) {view.state=2;view.remaining=Fixed64::ZERO;}
+                ended.push((*caster,cast.skill_id.clone(),reason));
                 return false;
             }
             if cast.last_tick==tick {return true;}
@@ -196,6 +213,7 @@ impl AbilityWindups {
             ready.push(ScriptEvent::SkillCast {caster:*caster,skill_id:cast.skill_id.clone(),target:cast.target.clone()});
             false
         });
+        super::cast_trace::interrupted(world,ended);
         ready
     }
 }
@@ -252,6 +270,20 @@ mod tests {
         let mut casts=AbilityWindups::default();casts.0.insert(caster,Windup {skill_id:"fixture".into(),
             target:SkillTarget::None,origin:Vec2::ZERO,remaining:Fixed64::from_raw(512),rank:1,interrupt_on_damage:false,last_tick:0,anchored:false});
         (world,caster,casts)
+    }
+    #[test]
+    fn an_unreleased_windup_leaves_an_interrupted_trace_row_with_its_reason() {
+        use super::super::cast_trace::{CastTrace,CastTraceResult};
+        let reasons=|world:&World|world.read_resource::<CastTrace>().0.iter().map(|row|match &row.result {
+            CastTraceResult::Interrupted(reason)=>(row.ability.clone(),*reason),other=>panic!("{other:?}")}).collect::<Vec<_>>();
+        let (mut world,caster,casts)=fixture();world.insert(CastTrace::default());world.insert(casts);
+        cancel(&world,caster);cancel(&world,caster);
+        assert_eq!(reasons(&world),[("fixture".to_string(),"command")],"a new order, once");
+        let (mut world,caster,mut casts)=fixture();world.insert(CastTrace::default());
+        casts.0.get_mut(&caster).unwrap().origin=Vec2::new(Fixed64::ONE,Fixed64::ZERO);
+        world.write_resource::<Tick>().0=1;
+        assert!(casts.advance(&world,Fixed64::from_raw(17)).is_empty());
+        assert_eq!(reasons(&world),[("fixture".to_string(),"moved")]);
     }
     #[test]
     fn replica_without_moba_match_cancels_windup_on_its_disclosed_recall() {

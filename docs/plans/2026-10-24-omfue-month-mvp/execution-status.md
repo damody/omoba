@@ -16,6 +16,14 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 工作線 B：前搖中斷寫入 cast trace（t50）
+
+- gamemode m6gen3b：b04_fire_blast 有 282 次 windup，只有 159 次 accepted，而且沒有任何 rejected 列，差額無從查起。
+  - 現在只要前搖沒有釋放就結束，就寫一列 `CastTraceResult::Interrupted(原因)`；headless 報告列成 `interrupted:<原因>`。
+  - 原因包括 command（新指令、引導、嘲諷、停止）、damage、dead、silenced、moved、recall、rank、target_lost、phase、invalid。
+- bot 端已經在自己前搖期間不下新指令（bots.rs，E187），所以差額來自其他原因，需要重跑才看得出來。
+- 測試：`an_unreleased_windup_leaves_an_interrupted_trace_row_with_its_reason`。
+
 ## 2026-10-30 工作線 B：幻象以本體外觀揭露（t49）
 
 - illusion 狀態的 payload 新增 `look`，值是本體的 presentation identity（ScriptUnitTag，沒有時用 Unit.id）。visibility 對所有看得到幻象的隊伍，都以它作為 DISCLOSED_PRESENTATION_IDENTITY；是幻象這件事只透過 illusion 狀態揭露給擁有者隊伍（C 的方案 3）。
