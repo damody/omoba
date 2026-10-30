@@ -16,6 +16,11 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：bot 範圍技把冷卻留給英雄（E398）
+
+- SelfArea、EnemyPoint、LeapEnemyPoint：範圍內有敵方英雄時照 min_targets；只有小兵時要至少 3 隻，而且 1200 內沒有敵方英雄。打野角色照舊。
+- 修正德川家康 a01_thunder_blade 這類技能一看到小兵就放掉的問題（e187 M6 批次）。
+- 測試：omoba-core lib 1455 個全部通過。
 ## 2026-10-31 線 B：飛行（state flying 與召喚物模板 flying，E397）
 
 - vocab 新增 `flying`。飛行單位的移動與路徑規劃不受地形與樹阻擋（`rules::world::movement_regions`），視野越過地形；`flying_for_pathing` 只影響移動。
