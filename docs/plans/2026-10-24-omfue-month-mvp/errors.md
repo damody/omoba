@@ -14,7 +14,13 @@
 - **通用修正**：`M.script_set()` 每次都重新讀 hero_dlls，回傳 script DLL 組合。run 在建置後記下這個組合，拿到機器鎖後再比一次；如果不同，就在時限開始之前再建置一次。測試 `run_moba_split_local_test` 檢查比對發生在機器鎖之後、第二次建置在時限之前，也檢查組合的內容。
 - **避免**：「先建置、後排隊」的流程，凡是會在排隊期間改變的輸入（名單、設定、產生檔），都要在拿到鎖之後再確認一次，不能只看建置當下的狀態。
 
-## E398 （保留）bot 範圍技把小兵算進 min_targets：一隻小兵就放掉範圍技，英雄來時在冷卻（2026-10-31）
+## E398 bot 範圍技把小兵算進 min_targets：一隻小兵就放掉範圍技，英雄來時在冷卻（2026-10-31，工作線 B）
+- **現象**：遊戲模式 session 的 e187 M6 批次中，德川家康的 a01_thunder_blade（600 範圍魔法傷害，加上 5 秒普攻觸發）一有小兵進入 600 內就施放，英雄到場時通常在冷卻。家康 18 局只對英雄造成約 1.8k 傷害。c20_flame_dance 等其他 self_area 也有同樣問題。
+- **根因**：執行端的 SelfArea、EnemyPoint、LeapEnemyPoint 把所有已揭露敵方單位（小兵也算）都計入 min_targets，而推導出的 hint 都是 min_targets = 1。
+- **通用修正**：`area_worth(heroes, count, min_targets, lane, hero_near)`。範圍內有已揭露敵方英雄時，照 min_targets 判斷。只有小兵時，必須至少一波（`WAVE_TARGETS` = 3，或 min_targets，取較大者），而且施法者 `HERO_RESERVE_RADIUS`（1200）內沒有已揭露的敵方英雄，冷卻才會留給英雄。打野角色清野照 min_targets。EnemyPoint 系列挑中心時，先比涵蓋的英雄數，再比總數。
+- **測試**：新增 `areas_are_kept_for_heroes_unless_a_wave_stands_alone_e398`；`self_area_and_self_engage_cast_only_with_disclosed_enemies_in_reach` 改為兩隻小兵不夠、三隻才放、英雄加一隻小兵就放。
+- **尚未處理**：EnemyLine 與 EnemyCone（choose_line_target、choose_cone_target）還是照總數，下一步要套用同一規則。
+- **避免**：bot 的「目標數」門檻要分清楚英雄和小兵，不要讓推導出的 1 對小兵也成立。
 
 ## E397 state flying 與召喚物模板 flying 沒有 host 落點：飛行單位照樣被地形與樹擋住（2026-10-31，工作線 B）
 - **現象**：工作線 A 的涵蓋率中，`state:flying` 與 unit_template `flying` 擋住 6 招與 4 件道具，例如飛行召喚物，以及讓英雄飛越地形的技能。

@@ -136,6 +136,18 @@ pub(super) fn choose_upgrade(hero:&Hero,steps:&[BotAbilityLearningStep]) -> Opti
     None
 }
 
+/// Area casts are kept for heroes (E398): an area that covers a disclosed enemy hero needs
+/// `min_targets` units; one that covers only lane units needs at least a wave of them and no
+/// disclosed enemy hero within [`HERO_RESERVE_RADIUS`] of the caster, so the cooldown is there
+/// when the heroes come. A jungler clears its camps with `min_targets` alone.
+const WAVE_TARGETS:usize=3;
+const HERO_RESERVE_RADIUS:i32=1200;
+/// `lane`: a lane role (not a jungler); `hero_near`: a disclosed enemy hero within the reserve.
+fn area_worth(heroes:usize,count:usize,min_targets:u16,lane:bool,hero_near:bool)->bool {
+    let min=usize::from(min_targets);
+    if heroes>0 || !lane {count>=min} else {!hero_near && count>=min.max(WAVE_TARGETS)}
+}
+
 /// A line skill's width at `rank`: the compiled line damage width, else the authored targeting
 /// width `shape_width` (E260: generated-Rust skills carry no LineDamage effect, so their compiled
 /// widths are zero).
@@ -305,6 +317,10 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
             || (unit.kind==1 && unit.team!=0 && Some(unit.canonical_id)==focus)}
         else {unit.team!=0 && matches!(unit.kind,1|2)};
     let prioritizes_focus=matches!(role,BotRole::Jungle|BotRole::Support);
+    // Lane units alone are worth an area only without enemy heroes about (E398).
+    let lane=role!=BotRole::Jungle;
+    let hero_near=seen.iter().filter(enemy).any(|unit|unit.kind==1
+        && (unit.position-own).length_squared()<=Fixed64::from_i32(HERO_RESERVE_RADIUS)*Fixed64::from_i32(HERO_RESERVE_RADIUS));
     let priority=|unit:&SeenUnit|(prioritizes_focus && Some(unit.canonical_id)!=focus,
         (unit.position-own).length_squared().raw(),unit.canonical_id);
     // Author declaration order is the explicit priority. Slot is looked up in
@@ -447,8 +463,9 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
             BotAbilityIntent::SelfArea {radius_key,min_targets}=>{
                 if health.hp<=Fixed64::ZERO {continue;}
                 let Some(radius)=def.extras.iter().find(|(key,_)|*key==radius_key).and_then(|(_,radii)|radii.get(rank)).copied() else {continue;};
-                let inside=seen.iter().filter(enemy).filter(|unit|omoba_sim::terrain::point_in_swept_circle(unit.position,own,own,radius)).count();
-                if inside<usize::from(*min_targets) {continue;}
+                let inside:Vec<_>=seen.iter().filter(enemy).filter(|unit|omoba_sim::terrain::point_in_swept_circle(unit.position,own,own,radius)).collect();
+                let heroes=inside.iter().filter(|unit|unit.kind==1).count();
+                if !area_worth(heroes,inside.len(),*min_targets,lane,hero_near) {continue;}
                 None
             }
             BotAbilityIntent::SelfEngage {threat_radius}=>{
@@ -531,11 +548,12 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
                 // inferred motion or private aggro. Most covered targets wins.
                 let center=eligible.iter().filter(|u|(u.position-own).length_squared()<=reach*reach).take(32)
                     .filter_map(|u|{
-                        let count=eligible.iter().filter(|v|(v.position-u.position).length_squared()<=radius*radius).count();
-                        (count>=usize::from(*min_targets)).then_some((prioritizes_focus && Some(u.canonical_id)!=focus,
-                            std::cmp::Reverse(count),(u.position-own).length_squared().raw(),u.canonical_id,u.position))
-                    }).min_by_key(|(assist,count,distance,id,_)|(*assist,*count,*distance,*id));
-                let Some((_,_,_,_,center))=center else {continue;};
+                        let covered:Vec<_>=eligible.iter().filter(|v|(v.position-u.position).length_squared()<=radius*radius).collect();
+                        let heroes=covered.iter().filter(|v|v.kind==1).count();
+                        area_worth(heroes,covered.len(),*min_targets,lane,hero_near).then_some((prioritizes_focus && Some(u.canonical_id)!=focus,
+                            std::cmp::Reverse(heroes),std::cmp::Reverse(covered.len()),(u.position-own).length_squared().raw(),u.canonical_id,u.position))
+                    }).min_by_key(|(assist,heroes,count,distance,id,_)|(*assist,*heroes,*count,*distance,*id));
+                let Some((_,_,_,_,_,center))=center else {continue;};
                 let (Ok(x),Ok(y))=(i32::try_from(center.x.raw()),i32::try_from(center.y.raw())) else {continue;};
                 target_pos=Some(crate::runtime::Vec2I {x,y});None
             }
@@ -997,6 +1015,28 @@ mod tests {
         assert_eq!(choose(&[at(900)],&tremor).expect("within the cast range").ability_index,3);
     }
 
+    /// E398: a lane-unit area waits for a wave and for no enemy hero nearby; a hero in it is enough.
+    #[test]
+    fn areas_are_kept_for_heroes_unless_a_wave_stands_alone_e398() {
+        let unit=|id:u64,x:i32,kind:u8|SeenUnit {canonical_id:(1<<32)|id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
+            team:2,kind,owner_player_id:id as u32,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+        let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
+        let mut hero=Hero::new("murakami_yoshikiyo".into(),"murakami_yoshikiyo".into(),"murakami_yoshikiyo".into());
+        hero.abilities=vec!["b29_ground_slam".into(),"b29_quake_axe".into(),"b29_morale_boost".into(),"b29_earth_tremor".into()];
+        hero.ability_levels.insert("b29_earth_tremor".into(),1);
+        let tremor=BotAbilityPolicy {ability:"b29_earth_tremor".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"area_radius".into(),min_targets:1}};
+        let choose=|role:BotRole,seen:&[SeenUnit]|choose_cast(&hero,role,1,Vec2::ZERO,&health,seen,&[tremor.clone()]);
+        assert!(choose(BotRole::Top,&[unit(1,500,2)]).is_none(),"one creep: keep it");
+        assert!(choose(BotRole::Top,&[unit(1,500,2),unit(2,520,2),unit(3,540,2)]).is_some(),"a wave alone");
+        // An enemy hero within the reserve radius: never spent on the wave (only on the hero, if in reach).
+        let coming=choose(BotRole::Top,&[unit(1,500,2),unit(2,520,2),unit(3,540,2),unit(9,-1100,1)]);
+        assert!(coming.is_none_or(|cast|cast.target_pos.unwrap().x==Fixed64::from_i32(-1100).raw() as i32),
+            "a wave, but an enemy hero is coming");
+        let cast=choose(BotRole::Top,&[unit(9,-600,1)]).expect("the hero itself");
+        assert_eq!(cast.target_pos.unwrap().x,Fixed64::from_i32(-600).raw() as i32);
+        assert!(choose(BotRole::Jungle,&[SeenUnit {team:0,kind:3,..unit(4,500,3)}]).is_some(),"a jungler clears its camp");
+    }
+
     /// E387: the any-distance ultimates C05T 瞬雷閃 (channeled point) and C24R 最期一生 (ally hero).
     #[test]
     fn any_distance_ultimates_aim_at_disclosed_heroes_e387() {
@@ -1124,8 +1164,11 @@ mod tests {
             team:2,kind,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
         let choose=|seen:&[SeenUnit],policies:&[BotAbilityPolicy]|choose_cast(&hero,BotRole::Top,1,Vec2::ZERO,&health,seen,policies);
         assert!(choose(&[unit(7,300,2)],&[area.clone()]).is_none(),"one target is below min_targets");
-        assert_eq!(choose(&[unit(7,300,2),unit(8,525,2)],&[area.clone()]).unwrap().ability_index,0,"two inside 525");
-        assert!(choose(&[unit(7,300,2),unit(8,526,2)],&[area.clone()]).is_none());
+        // Creeps alone need a wave (E398): three inside 525, not two.
+        assert!(choose(&[unit(7,300,2),unit(8,525,2)],&[area.clone()]).is_none(),"two creeps are not a wave");
+        assert_eq!(choose(&[unit(6,200,2),unit(7,300,2),unit(8,525,2)],&[area.clone()]).unwrap().ability_index,0,"three inside 525");
+        assert!(choose(&[unit(6,200,2),unit(7,300,2),unit(8,526,2)],&[area.clone()]).is_none());
+        assert_eq!(choose(&[unit(7,300,1),unit(8,525,2)],&[area.clone()]).unwrap().ability_index,0,"a hero and a creep");
         assert!(choose(&[unit(7,300,2)],&[engage.clone()]).is_none(),"creeps do not start a fight");
         assert_eq!(choose(&[unit(7,700,1)],&[engage.clone()]).unwrap().ability_index,1);
         assert!(choose(&[unit(7,701,1)],&[engage]).is_none());
