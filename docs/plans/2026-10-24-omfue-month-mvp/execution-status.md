@@ -16,6 +16,11 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：scheduled_effect 週期修正為完整 tick 數（E349）
+
+- `scheduled_effect::due` 的到期判定改為 `remaining <= GRACE`，不再預扣 dt。原因是 script dispatch 在 buff_tick 之後執行。修正後 0.25 s 的 periodic／repeat 在 60 Hz 下每 15 tick 觸發一次，在 on_scheduled 裡重排也一樣（之前是 14 tick）。
+- 新增測試 `a_row_rescheduled_in_the_dispatch_keeps_its_period`（60／120 Hz）；`rows_come_due_once_in_canonical_order` 改成實際的 tick 順序。omoba-core lib 全部 1440 通過。
+
 ## 2026-10-30 線 B：前搖中死亡的 CastTrace 原因改記 dead，不再記成 invalid（E348）
 
 - 一致性線回報：施法者在前搖中死亡時，CastTrace 記的是 `Interrupted("invalid")`。原因是投影前的 `synchronize_preparation` 比 `advance` 先發現死亡，而它把所有規則中斷都歸成 invalid。

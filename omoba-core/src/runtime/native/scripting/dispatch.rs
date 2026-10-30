@@ -582,7 +582,7 @@ fn dispatch_scripts(
     // delayed_effect: due effects after the channel pulses, serial, same pulse rule.
     dispatch_delayed_effects(world, registry, rng_seed, event_count as u64 + tagged.len() as u64 + 4096);
     // scheduled_effect: due schedules after the delayed effects, serial, same pulse rule.
-    dispatch_scheduled_effects(world, registry, rng_seed, dt, event_count as u64 + tagged.len() as u64 + 8192);
+    dispatch_scheduled_effects(world, registry, rng_seed, event_count as u64 + tagged.len() as u64 + 8192);
     // status_event: holder combat events, then statuses that ended, serial, same pulse rule.
     dispatch_status_events(world, registry, rng_seed, &status_combat, &status_executed, event_count as u64 + tagged.len() as u64 + 12288);
     // item_equip: each item copy gained or lost reaches its item script, same pulse rule.
@@ -916,9 +916,9 @@ fn dispatch_delayed_effects(world: &mut World, registry: &ScriptRegistry, rng_se
 /// One `on_scheduled` per due schedule (omoba-core `scheduled_effect`), in (owner, buff id)
 /// order. The row is removed before its hook runs, so it resolves once even if the hook
 /// reschedules the same step. Paused worlds resolve nothing; a dead owner has no rows left.
-fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, dt: Fixed64, ordinal_base: u64) {
+fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, ordinal_base: u64) {
     if world.read_resource::<crate::comp::GamePause>().is_paused { return; }
-    let due = super::super::scheduled_effect::due(&world.read_resource::<crate::runtime::BuffStore>(), dt);
+    let due = super::super::scheduled_effect::due(&world.read_resource::<crate::runtime::BuffStore>());
     if due.is_empty() {
         return;
     }

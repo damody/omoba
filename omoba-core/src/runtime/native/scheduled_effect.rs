@@ -111,16 +111,18 @@ pub fn admitted(buffs: &BuffStore, target: Entity, buff_id: &str, duration: Fixe
             || buffs.iter_for(target).filter(|(id, _)| id.starts_with(PREFIX)).count() < MAX_PER_OWNER)
 }
 
-/// The rows whose delay has passed after this tick's `dt`, in canonical (owner, buff id) order.
-/// The caller removes them and resolves each once.
-pub fn due(buffs: &BuffStore, dt: Fixed64) -> Vec<(Entity, String, Spec)> {
+/// The rows whose delay has passed, in canonical (owner, buff id) order. The script dispatch runs
+/// after this tick's `buff_tick`, so `remaining` already counts this tick: a row added in tick N
+/// with a delay of k ticks comes due in tick N + k (a 0.25 s period is 15 ticks at 60 Hz, also
+/// when `on_scheduled` reschedules itself). The caller removes them and resolves each once.
+pub fn due(buffs: &BuffStore) -> Vec<(Entity, String, Spec)> {
     let mut owners: Vec<Entity> = buffs.entities_with_key(KEY).collect();
     owners.sort_by_key(|e| (e.id(), e.gen().id()));
     owners.dedup();
     let mut out = Vec::new();
     for owner in owners {
         let mut rows: Vec<(String, Spec)> = buffs.iter_for(owner)
-            .filter(|(_, b)| b.remaining - dt <= GRACE)
+            .filter(|(_, b)| b.remaining <= GRACE)
             .filter_map(|(id, b)| Spec::from_buff(id, &b.payload).map(|s| (id.to_owned(), s)))
             .collect();
         rows.sort_by(|a, b| a.0.cmp(&b.0));
@@ -192,9 +194,10 @@ mod tests {
         buffs.add(a, &spec(4, 1).buff_id(), Spec::lifetime(Fixed64::from_i32(2)), spec(4, 1).payload());
         let tick = Fixed64::from_raw(17);
         let mut ticks = 0;
+        // One tick: buff_tick, then the script dispatch.
         let fired = loop {
-            let due = due(&buffs, tick);
             assert!(buffs.tick(tick).is_empty(), "the grace keeps every row until the dispatch takes it");
+            let due = due(&buffs);
             ticks += 1;
             if !due.is_empty() { break due; }
         };
@@ -202,8 +205,34 @@ mod tests {
         let order: Vec<_> = fired.iter().map(|(e, _, s)| (*e, s.instance)).collect();
         assert_eq!(order, vec![(a, 3), (a, 9), (b, 2)]);
         for (owner, id, _) in &fired { buffs.remove(*owner, id); }
-        assert!(due(&buffs, tick).is_empty(), "never twice");
+        assert!(due(&buffs).is_empty(), "never twice");
         assert!(buffs.has(a, &spec(4, 1).buff_id()), "the later row waits");
+    }
+
+    /// A periodic step that reschedules itself from `on_scheduled` (its AddBuff settles after this
+    /// tick's buff_tick) keeps the authored period: 0.25 s is every 15 ticks at 60 Hz, every 30 at 120 Hz.
+    #[test]
+    fn a_row_rescheduled_in_the_dispatch_keeps_its_period() {
+        for (hz, period) in [(60, 15), (120, 30)] {
+            let mut world = World::new();
+            let owner = world.create_entity().build();
+            let mut buffs = BuffStore::new();
+            let interval = Fixed64::from_raw(256);
+            let s = spec(1, 3);
+            // Scheduled by a cast in tick 0, after that tick's buff_tick.
+            buffs.add(owner, &s.buff_id(), Spec::lifetime(interval), s.payload());
+            let mut fired = Vec::new();
+            for tick in 1..=4 * period {
+                let dt = Fixed64::from_raw((tick * 1024 / hz - (tick - 1) * 1024 / hz) as i64);
+                buffs.tick(dt);
+                for (holder, id, _) in due(&buffs) {
+                    buffs.remove(holder, &id);
+                    fired.push(tick);
+                    buffs.add(owner, &s.buff_id(), Spec::lifetime(interval), s.payload());
+                }
+            }
+            assert_eq!(fired, (1..=4).map(|n| n * period).collect::<Vec<_>>(), "{hz} Hz");
+        }
     }
 }
 
