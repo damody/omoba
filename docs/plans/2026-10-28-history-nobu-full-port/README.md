@@ -65,6 +65,7 @@
 | D16 | **每位英雄一個 DLL，可熱加載。** 改一位英雄只重編那一個 DLL；開發用的 server 不必重開就能載入新版，接著馬上跑該英雄的情境測試，像腳本一樣在 runtime 驗證。正式對局在開局時固定每個 DLL 的 hash，對局中不熱加載 | 使用者 2026-10-29 |
 | D17 | 缺的美術（頭像、技能圖示、cue 參考圖）用 Grok 生成。沿用既有流程：Grok Build CLI 的 `image_gen`，經 `scripts/item_icon_import.lua`／`ui_texture_import.lua` 匯入，每次生成都記到 `asset-ledger.md` | 使用者 2026-10-29 |
 | D18 | **每完成一件事就 commit。** 各工作線做完一項（land_to_live 通過、驗收完成）就立刻 commit，只 commit 自己這項動到的檔案：`git add <檔案>` 後用 `git commit -F <訊息檔> -- <檔案…>`，不要 `git add -A`、不要 commit 別人改到一半的檔案。submodule（omb、omfue）先在 submodule 內 commit，再回主 repo 一起 commit gitlink。不 push。不提交 target/、DLL/EXE/PDB、docs/acceptance、ref/、安裝檔、__pycache__ 與產生的 Rust。遇到 `.git/index.lock` 就等幾秒重試，不要刪鎖。訊息用繁體中文，最後一行 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` | 使用者 2026-10-30 |
+| D19 | **遇到問題一律用通用解修正。** 找出根本原因，修在共用層（產生器、kit、規則層、host、工具腳本），讓同類問題一起解決；不准用只對單一英雄、招式、局或測試有效的特例、寫死值、跳過、放寬檢查或重試繞過；conformance 差異不准用 known_differences 或放寬比對消掉。只能特例處理時（如 D7 獨特 hook）要在 errors.md 寫明為什麼沒有通用解 | 使用者 2026-10-30 |
 
 ## 3. 目標架構
 

@@ -142,3 +142,4 @@
 - 2026-10-30 10:54 C 的 git commit 被其 session 權限擋下，主 session 代為 commit：omfue eb3830d、主 repo 3e09865b；conformance 自行 commit 3e550cdf
 - 2026-10-30 13:10 線 A：產生器再三批 land——target unit_or_point、face、spend_mana、requires.condition、status_var、leap（knockback_arc 拉到點）、swap_positions、stacking=replace（先移除再當新狀態）、shape=global、is_template、owner_of；vocab ABSOLUTE_STATS 加 move_speed（MoveSpeedAbsolute）；英雄產生 226／447，97 套件全量編譯通過。已向 B 要：引導開始效果（on_channel_start 或 PulseChannel 也跑 execute）、magic_immune 腳本入口、on_kill 事件、一般光環、kill、has_status_tag
 - 2026-10-30 14:30 線 A：產生器再 land——clear_slow_pool（self_slow_cleanse 封包，A07 red_thunder 解鎖）、zone（cue＋repeat）、unit_state 的 point/vec、ability.mana_cost、status.stacks、status/passive periodic 的 filter、tracking 投射物飛向點；英雄產生 237／447，97 套件以 deny(warnings) 全量編譯通過；已通知 conformance 比對 a07_red_thunder、b29_quake_axe
+- 2026-10-30 11:14 使用者規則 D19：遇到問題一律用通用解修正，已通知五條線
