@@ -16,6 +16,16 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：獨立堆疊狀態的控制來源列各自一份（`__ctl:<status id>#n`）
+
+- v3 `stacking = "independent"` 搭配 states 的狀態（C22 等 4 招與 1 件道具），原本所有實例共用一個 `__ctl:<id>`。後套用的實例會覆寫前一份的剩餘時間。
+- 改成每個實例各一份 `__ctl:<status id>#n`，由線 A 的 kit 改名。dispel.rs 這邊把這種列讀成它的狀態：
+  - `source_row` 與 `tags` 先剝掉 `#n`，所以驅散類別、正負面判斷與 status tag 都照狀態本身判斷。
+  - `remove_status_with` 移除某個實例（`<runtime key>#n`）時，只帶走同號的那份列。共用的控制（stun／disarm…）要等最後一份來源列離開才移除。
+- 測試：
+  - 驅散：basic 驅散只移除 basic 實例的列；strong 實例還在時，共用的 stun 保留。
+  - 移除：移除第 1 個實例後，第 2 個實例的列和 disarm 還在；第 2 個也移除後，disarm 才消失。
+- 同一個檔案順便提供幻象複製（下一項）要用的公開讀取：`control_states`、`Registry::statuses_of`／`status_tags`／`recast_key`（per-source key 換施加者）。
 ## 2026-10-30 線 B：英雄技能列允許空欄（原作英雄有 F 沒有 D）
 
 - 英雄的 `abilities` 可以用空字串 `""` 表示空欄，後面的欄位因此留在原位（Q W E R D F = 0..5）。例如 A32 瀧川一益只有 F，寫成 `{q, w, e, r, "", f}`。

@@ -66,7 +66,9 @@ pub struct Registry { exact: HashMap<String, Rule>, patterns: Vec<(String, Rule)
 /// same time (ability_kit `apply_status`). A dispel then judges each such status by its own class:
 /// the shared key goes when every status holding it was dispelled, and stays while one survives,
 /// whatever the strictest class of the shared key is. A shared key with no such row (a hand-written
-/// handler's stun) keeps the older rule.
+/// handler's stun) keeps the older rule. An independent instance (v3 `stacking = "independent"`)
+/// holds its own row, `__ctl:<status id>#<n>`, so one instance's time never overwrites another's;
+/// the registry reads such a row as its status.
 pub const CONTROL_SOURCE_PREFIX: &str = "__ctl:";
 
 /// The payload of a control-source row.
@@ -77,6 +79,11 @@ pub fn control_source_payload(states: &[&str]) -> Value {
 /// The shared state keys a control-source row holds (controls and other host states alike).
 fn controls_of(payload: &Value) -> Vec<&str> {
     payload.get("states").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect()
+}
+
+/// [`controls_of`], owned (illusion: a copied status brings the controls it holds).
+pub fn control_states(payload: &Value) -> Vec<String> {
+    controls_of(payload).into_iter().map(str::to_owned).collect()
 }
 
 impl Registry {
@@ -143,10 +150,14 @@ impl Registry {
     /// per-source status) or, as older rows were, by its v3 id.
     /// The v3 id comes first: a row named by a shared key (`__ctl:stun`) must not take the shared
     /// key's strictest class.
-    fn source_row(&self, status: &str) -> Option<Rule> { self.status(status).or_else(|| self.rule(status)) }
+    fn source_row(&self, status: &str) -> Option<Rule> {
+        let status = omoba_template_ids::instance_base(status);
+        self.status(status).or_else(|| self.rule(status))
+    }
 
     /// The tags of the status a BuffStore key (or a control-source row's status) belongs to.
     fn tags(&self, key: &str) -> Vec<&str> {
+        let key = omoba_template_ids::instance_base(key);
         let mut ids = self.status_ids(key);
         ids.push(key);
         ids.into_iter().filter_map(|id| self.tags_of.get(id)).flatten().map(String::as_str).collect()
@@ -157,6 +168,20 @@ impl Registry {
         let base = omoba_template_ids::instance_base(key);
         self.status_of.iter().filter(|(runtime, _)| runtime == base || (is_pattern(runtime) && runtime_id_matches(runtime, key)))
             .map(|(_, id)| id.as_str()).collect()
+    }
+
+    /// The v3 status ids a BuffStore key (or a control-source row's status) belongs to.
+    pub fn statuses_of(&self, key: &str) -> Vec<&str> { self.status_ids(key) }
+
+    /// The catalog tags of the status a BuffStore key (or a control-source row's status) belongs to.
+    pub fn status_tags(&self, key: &str) -> Vec<&str> { self.tags(key) }
+
+    /// `key` with the applier `to` in place of `from` when it is a per-source key (`…{caster}…`
+    /// runtime id); other keys stay.
+    pub fn recast_key(&self, key: &str, from: (u32, u32), to: (u32, u32)) -> String {
+        let per_source = self.patterns.iter().any(|(id, _)| id.contains("{caster}") && runtime_id_matches(id, key));
+        let (from, to) = (format!("{}:{}", from.0, from.1), format!("{}:{}", to.0, to.1));
+        if per_source { key.replacen(&from, &to, 1) } else { key.to_owned() }
     }
 
     /// The rule for a runtime id as the content writes it (`…:{caster}`).
@@ -224,7 +249,9 @@ pub fn remove_status(world: &World, entity: Entity, id: &str) {
 /// runtime id back to its status).
 pub fn remove_status_with(registry: &Registry, world: &World, entity: Entity, id: &str) {
     let mut doomed = vec![id.to_owned()];
-    let rows: Vec<String> = std::iter::once(id).chain(registry.status_ids(id))
+    // An independent instance (`…#<n>`) takes its own row only.
+    let instance = omoba_template_ids::instance_number(id).map_or_else(String::new, |n| format!("#{n}"));
+    let rows: Vec<String> = std::iter::once(id.to_owned()).chain(registry.status_ids(id).into_iter().map(|status| format!("{status}{instance}")))
         .map(|status| format!("{CONTROL_SOURCE_PREFIX}{status}")).collect();
     let present: Vec<String> = { let buffs = world.read_resource::<BuffStore>(); rows.into_iter().filter(|row| buffs.has(entity, row)).collect() };
     if !present.is_empty() {
@@ -607,6 +634,12 @@ mod tests {
             buffs.add(hero, &format!("{CONTROL_SOURCE_PREFIX}{status}"), Fixed64::from_i32(3), control_source_payload(&["stun"]));
         };
         let stunned = |world: &World| world.read_resource::<BuffStore>().has(hero, "stun");
+        // Independent instances: each holds its own row, read as its status.
+        hold(&world, "a_freeze#1");
+        hold(&world, "b_quake#2");
+        assert_eq!(dispel_with(&registry, &world, hero, Strength::Basic, Purge::Debuffs), 1, "only the freeze instance's row");
+        assert!(stunned(&world) && world.read_resource::<BuffStore>().has(hero, &format!("{CONTROL_SOURCE_PREFIX}b_quake#2")));
+        world.write_resource::<BuffStore>().remove_all_for(hero);
         hold(&world, "a_freeze");
         assert_eq!(dispel_with(&registry, &world, hero, Strength::Basic, Purge::Debuffs), 2, "the basic freeze and the shared stun");
         assert!(!stunned(&world));
@@ -630,6 +663,23 @@ mod tests {
         }
         remove_status_with(&guards, &world, hero, "c_guard:7:0");
         assert!(!world.read_resource::<BuffStore>().has(hero, "disarm"), "the guard's disarm went with it");
+        // Independent instances: removing one takes its own row, the other keeps the disarm.
+        {
+            let mut buffs = world.write_resource::<BuffStore>();
+            for n in [1, 2] {
+                buffs.add(hero, &format!("c_guard:7:0#{n}"), Fixed64::from_i32(3), json!({}));
+                buffs.add(hero, &format!("{CONTROL_SOURCE_PREFIX}c_guard#{n}"), Fixed64::from_i32(3), control_source_payload(&["disarm"]));
+            }
+            buffs.add(hero, "disarm", Fixed64::from_i32(3), json!({}));
+        }
+        remove_status_with(&guards, &world, hero, "c_guard:7:0#1");
+        {
+            let buffs = world.read_resource::<BuffStore>();
+            assert!(!buffs.has(hero, &format!("{CONTROL_SOURCE_PREFIX}c_guard#1")) && buffs.has(hero, &format!("{CONTROL_SOURCE_PREFIX}c_guard#2")));
+            assert!(buffs.has(hero, "disarm"), "the second instance still disarms");
+        }
+        remove_status_with(&guards, &world, hero, "c_guard:7:0#2");
+        assert!(!world.read_resource::<BuffStore>().has(hero, "disarm"), "the last instance's disarm went with it");
         // A handler's stun with no source row: a basic dispel leaves it (the strictest class).
         world.write_resource::<BuffStore>().add(hero, "stun", Fixed64::from_i32(3), json!({}));
         assert_eq!(dispel_with(&registry, &world, hero, Strength::Basic, Purge::Debuffs), 0);
