@@ -51,6 +51,10 @@ pub const BROKEN: u8 = 14;
 /// hook with holder = the summon, status = its template id, `other` = the target and `source` =
 /// its owner. Host-sent, never a mask bit (E406).
 pub const CHASE_REACH: u8 = 15;
+/// The holder moved since the status events last ran (v3 `on_moved`, 原作 OnUnitMoved: walking,
+/// being pushed or teleported alike); `amount` is the straight distance between the two positions
+/// (E424).
+pub const MOVED: u8 = 16;
 
 /// `Spec.mask` bits: which events the status listens to.
 pub const ON_END: u32 = 1 << 0;
@@ -66,8 +70,9 @@ pub const ON_KILL: u32 = 1 << 9;
 pub const ON_ATTACK_LAUNCH: u32 = 1 << 10;
 pub const ON_ABSORB: u32 = 1 << 11;
 pub const ON_BROKEN: u32 = 1 << 12;
+pub const ON_MOVED: u32 = 1 << 13;
 pub const ALL: u32 = ON_END | ON_ATTACK_HIT | ON_ATTACKED | ON_TAKE_DAMAGE | ON_DEAL_DAMAGE | ON_TAKE_DAMAGE_PRE | ON_DEAL_DAMAGE_PRE
-    | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL | ON_ATTACK_LAUNCH | ON_ABSORB | ON_BROKEN;
+    | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL | ON_ATTACK_LAUNCH | ON_ABSORB | ON_BROKEN | ON_MOVED;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
@@ -118,6 +123,7 @@ impl Spec {
             ATTACK_LAUNCH => ON_ATTACK_LAUNCH,
             ABSORB => ON_ABSORB,
             BROKEN => ON_BROKEN,
+            MOVED => ON_MOVED,
             _ => 0,
         };
         self.mask & bit != 0
@@ -180,6 +186,42 @@ pub fn take_absorb_notes(world: &mut specs::World) -> Vec<AbsorbNote> {
     world.try_fetch_mut::<AbsorbNotes>().map(|mut notes| std::mem::take(&mut notes.0)).unwrap_or_default()
 }
 
+/// Where each unit holding an `on_moved` status stood when status events last ran (E424).
+#[derive(Clone, Debug, Default)]
+pub struct MovedLedger(pub std::collections::BTreeMap<specs::Entity, omoba_sim::Vec2>);
+
+/// The holders of an `on_moved` status that moved since the last call and how far, in entity
+/// order; the ledger then holds their current positions. A holder seen for the first time, or
+/// one that holds no such status any more, moves nothing.
+pub fn take_moves(world: &mut specs::World) -> Vec<(specs::Entity, Fixed64)> {
+    use specs::WorldExt;
+    let holders: Vec<(specs::Entity, omoba_sim::Vec2)> = {
+        let buffs = world.read_resource::<crate::runtime::BuffStore>();
+        let positions = world.read_storage::<super::comp::Pos>();
+        let mut holders: Vec<specs::Entity> = buffs.entities_with_key(KEY)
+            .filter(|holder| world.entities().is_alive(*holder)
+                && buffs.iter_for(*holder).any(|(_, b)| Spec::from_payload(&b.payload).is_some_and(|s| s.listens(MOVED))))
+            .collect();
+        holders.sort_by_key(|e| (e.id(), e.gen().id()));
+        holders.dedup();
+        holders.into_iter().filter_map(|holder| positions.get(holder).map(|p| (holder, p.0))).collect()
+    };
+    if holders.is_empty() {
+        if let Some(mut ledger) = world.try_fetch_mut::<MovedLedger>() { ledger.0.clear(); }
+        return Vec::new();
+    }
+    if world.try_fetch::<MovedLedger>().is_none() { world.insert(MovedLedger::default()); }
+    let mut ledger = world.write_resource::<MovedLedger>();
+    let mut moves = Vec::new();
+    let mut next = std::collections::BTreeMap::new();
+    for (holder, at) in holders {
+        if let Some(before) = ledger.0.get(&holder).filter(|before| **before != at) { moves.push((holder, (at - *before).length())); }
+        next.insert(holder, at);
+    }
+    ledger.0 = next;
+    moves
+}
+
 /// The `damage_kind` of a damage event: the largest-first type share (physical, magical, pure)
 /// and the reflection bit of the packet's profile (read before its flags are stripped).
 pub fn damage_kind(by_type: [Fixed64; 3], profile: u32) -> u8 {
@@ -232,6 +274,29 @@ mod tests {
         Spec { ability: "b16_beast_union".into(), level: 2, status: "b16t_union".into(), source: EntityHandle { id: 4, gen: 1 }, mask }
     }
 
+    /// E424: on_moved holders report how far they moved since the last read, once per change.
+    #[test]
+    fn moved_holders_report_the_distance_since_the_last_read() {
+        let mut world = World::new();
+        world.register::<super::super::comp::Pos>();
+        world.insert(BuffStore::new());
+        let at = |x: i32, y: i32| super::super::comp::Pos(omoba_sim::Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y)));
+        let holder = world.create_entity().with(at(0, 0)).build();
+        let deaf = world.create_entity().with(at(0, 0)).build();
+        let marked = |mask: u32| json!({ KEY: spec(mask).row() });
+        world.write_resource::<BuffStore>().add(holder, "b16t_union", Fixed64::from_i32(9), marked(ON_MOVED));
+        world.write_resource::<BuffStore>().add(deaf, "b16t_union", Fixed64::from_i32(9), marked(ON_END));
+        assert!(take_moves(&mut world).is_empty(), "the first read only records");
+        *world.write_storage::<super::super::comp::Pos>().get_mut(holder).unwrap() = at(3, 4);
+        *world.write_storage::<super::super::comp::Pos>().get_mut(deaf).unwrap() = at(3, 4);
+        assert_eq!(take_moves(&mut world), vec![(holder, Fixed64::from_i32(5))]);
+        assert!(take_moves(&mut world).is_empty(), "standing still");
+        assert!(spec(ON_MOVED).listens(MOVED) && !spec(ON_END).listens(MOVED) && ALL & ON_MOVED != 0);
+        world.write_resource::<BuffStore>().remove(holder, "b16t_union");
+        assert!(take_moves(&mut world).is_empty());
+        assert!(world.read_resource::<MovedLedger>().0.is_empty(), "a holder without the status leaves the ledger");
+    }
+
     #[test]
     fn an_independent_instance_row_names_its_instance_in_the_event() {
         // v3 stacking = "independent": every row `<runtime id>#<n>` hears its own events, and the
@@ -253,7 +318,8 @@ mod tests {
         assert!(!s.listens(ATTACK_START) && spec(ON_ATTACK_START).listens(ATTACK_START));
         assert!(!s.listens(KILL) && spec(ON_KILL).listens(KILL));
         assert!(!s.listens(ABSORB) && spec(ON_ABSORB).listens(ABSORB) && spec(ON_BROKEN).listens(BROKEN));
-        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 13);
+        assert!(!s.listens(MOVED) && spec(ON_MOVED).listens(MOVED));
+        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 14);
         assert_eq!(Spec::from_payload(&bad), None, "unknown event bits");
         let mut bad = payload.clone(); bad[KEY]["status"] = json!("B16T");
         assert_eq!(Spec::from_payload(&bad), None, "status ids are v3 ids");

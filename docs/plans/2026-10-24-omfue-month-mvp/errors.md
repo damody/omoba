@@ -18,7 +18,16 @@
 
 ## E425 （保留）conformance：帶 passive 區塊的主動技直接寫入等級，光環停在 r1（b05_three_arrows 的 b05r_armor）（2026-10-31）
 
-## E424 （保留）沒有 status 的 on_moved 觸發：a03_pacing_gu、b23_undead_pact、c12_homing_lock 無法產生（2026-10-31）
+## E424 沒有 status 的 on_moved 觸發：a03_pacing_gu、b23_undead_pact、c12_homing_lock 無法產生（2026-10-31，工作線 B）
+- **現象**：工作線 A 回報 status trigger `on_moved`（event.distance）沒有 host 事件，a03_pacing_gu（累計移動距離後受到傷害）、b23_undead_pact、c12_homing_lock（離宗麟太遠時解除標記）只能擋下。
+- **根因**：status_event 只有戰鬥、施法與結束相關的事件，沒有「持有者移動了」。
+- **通用修正**：
+  - 新增事件 `MOVED = 16`（mask `ON_MOVED = 1 << 13`）。
+  - status events 每次執行時，`take_moves` 比對每個「持有聽 MOVED 的狀態」的單位目前的 Pos，與上次記在 `MovedLedger` 的位置；有變化就發 MOVED，amount 是兩點的直線距離。走路、被推、傳送都算（原作 OnUnitMoved）。第一次看到的單位只記錄位置；不再持有這類狀態的單位會從帳本移除。
+  - dispatch 依單位順序呼叫各列的 on_status_event。
+- **測試**：`moved_holders_report_the_distance_since_the_last_read`、`payload_round_trips_strictly`（未知 bit 的例子改為 1 << 14）。同時修正 script-abi `damage_profile_rejects_zero_and_unknown_bits`：1 << 13 已是 NO_SOURCE_BONUSES（fa3e6b9f），測試改用 1 << 14。
+- **後續**：工作線 A 把 `on_moved` 對應到 mask `1 << 13`、kind 16，並把 `event.distance` 對應到 event.amount。
+- **避免**：新增 mask bit 時，同時檢查用「下一個 bit」當未知值的測試。
 
 ## E423 沒有 status_resistance_pct stat：a07_strongest、a20_pirate_daimyo 與 5 件道具無法產生（2026-10-31，工作線 B）
 - **現象**：工作線 A 回報 v3 stat `status_resistance_pct`（a07_strongest、a20_pirate_daimyo，另有 5 件道具）沒有對應的 StatKey，產生器只能擋下。
