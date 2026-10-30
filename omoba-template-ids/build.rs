@@ -1919,6 +1919,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
             "pub const {}_CONST: AbilityConst = AbilityConst {{\n\
              \tcleanses_allies: {},\n\
              \tpierces_magic_immunity: {},\n\
+             \ttargets_tree: {},\n\
              \tauto_learn: {},\n\
              \tability_type: AbilityTypeC::{},\n\
              \tcast_type: CastTypeC::{},\n\
@@ -1942,6 +1943,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
             cname,
             e.effects.iter().any(|effect|matches!(effect,omoba_content_model::AbilityEffect::CleanseAlly {})),
             e.pierces_magic_immunity,
+            e.targets_tree,
             e.auto_learn,
             ability_type_to_variant(&e.ability_type),
             cast_type_to_variant(&e.cast_type),

@@ -342,6 +342,9 @@ impl RuntimeContent {
                 if runtime.pierces_magic_immunity!=compiled.pierces_magic_immunity {
                     return Err("MOBA magic immunity piercing differs from compiled content; rebuild all peers".into());
                 }
+                if runtime.targets_tree!=compiled.targets_tree {
+                    return Err("MOBA tree targeting differs from compiled content; rebuild all peers".into());
+                }
                 if runtime.recovery_channel!=compiled.recovery_channel
                     || (runtime.recovery_channel.is_some() && (runtime.cast_type!=compiled.cast_type || runtime.target_type!=compiled.target_type)) {
                     return Err("MOBA recovery channel execution differs from compiled content; rebuild all peers".into());
@@ -1476,6 +1479,7 @@ fn ability_const_from_entry(entry: &AbilityEntry) -> Result<AbilityConst, String
     Ok(AbilityConst {
         cleanses_allies: entry.effects.iter().any(|effect|matches!(effect,omoba_content_model::AbilityEffect::CleanseAlly {})),
         pierces_magic_immunity: entry.pierces_magic_immunity,
+        targets_tree: entry.targets_tree,
         auto_learn: entry.auto_learn,
         ability_type: ability_type(&entry.ability_type)?,
         cast_type: cast_type(&entry.cast_type)?,

@@ -978,6 +978,19 @@ fn admit_ability_cast(
             _ => None,
         });
 
+    // A tree-targeted ability (E403) aims at a standing tree's centre, the same on every peer.
+    let target_pos = match target_pos {
+        Some(pos) if omoba_template_ids::ability_by_name(&ability_id).and_then(omoba_template_ids::ability_const)
+            .is_some_and(|def| def.targets_tree) => {
+            let regions = world.read_resource::<BlockedRegions>();
+            let Some(tree) = super::tree_cut::standing_tree_near(&regions, pos, Fixed64::from_i32(super::tree_cut::TARGET_REACH)) else {
+                return Err(CommandRejection::new(code::INVALID_TARGET, format!(
+                    "AbilityCast: slot={} ability='{}' needs a standing tree pid={}", slot, ability_id, owner_pid)));
+            };
+            Some(tree)
+        }
+        other => other,
+    };
     let target = if let Some(entity_id) = target_entity {
         let entities = world.entities();
         (&entities)

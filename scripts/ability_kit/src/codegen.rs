@@ -1024,6 +1024,19 @@ impl<'a, 'w> Cx<'a, 'w> {
         Ok(())
     }
 
+    /// v3 `destroy_tree`: the tree target (its centre, E403) falls like `destroy_trees`.
+    pub fn destroy_tree(&mut self, at: Vec2) -> Res {
+        self.destroy_trees(at, Fixed64::from_i32(tree_cut::SINGLE_TREE_RADIUS))
+    }
+
+    /// v3 `regrow_trees` (原作 GridNav:RegrowAllTrees): every fallen tree stands again at the next
+    /// match tick, unless a unit body stands on it (omoba-core tree_cut, E403).
+    pub fn regrow_trees(&mut self) -> Res {
+        self.world.add_stat_buff(self.caster, RStr::from_str(tree_cut::BUFF), Fixed64::ONE,
+            RStr::from_str(&tree_cut::regrow_payload().to_string()));
+        Ok(())
+    }
+
     /// The learn marker of a passive with owner triggers (`{"level": rank}` under the ability id).
     pub fn learn_marker(&mut self, id: &str) -> Res {
         let payload = format!("{{\"level\":{}}}", self.rank);

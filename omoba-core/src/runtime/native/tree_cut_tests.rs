@@ -173,3 +173,33 @@ fn the_request_payload_is_bounded() {
     assert!(decode(&json!({KEY: {"x": omoba_sim::terrain::MAX_GEOMETRY_RAW + 1, "y": 0, "radius": 1024}})).is_none());
     assert!(decode(&json!({"other": 1})).is_none());
 }
+
+/// E403: a point near a standing tree picks its centre; `destroy_tree` at that centre fells only
+/// that tree, which then no longer counts; `regrow_trees` stands it again at the next tick.
+#[test]
+fn a_tree_target_snaps_to_one_standing_tree_that_falls_alone_and_regrows_on_request() {
+    let mut world = fixture("nobu");
+    let nobu = map("nobu");
+    let (index, c) = lone_tree(&world);
+    let reach = Fixed64::from_i32(TARGET_REACH);
+    let near = |world: &World, at: Vec2, reach: Fixed64| standing_tree_near(&world.read_resource::<BlockedRegions>(), at, reach);
+    assert_eq!(near(&world, c + v(10, -5), reach), Some(c), "a point on the tree picks its centre");
+    assert_eq!(near(&world, c, Fixed64::ZERO), Some(c), "tree_alive at the centre");
+    assert_eq!(near(&world, c + v(200, 0), reach), None, "open ground is no tree");
+    request_cut(&mut world, c, SINGLE_TREE_RADIUS);
+    begin_moba_match_tick(&mut world);
+    assert_eq!(world.read_resource::<MobaMatch>().trees.fallen(), BTreeSet::from([index]), "that tree alone");
+    assert_eq!(tree_changes(&world), vec![(CUT_METRIC_ID, i64::from(index))]);
+    assert_eq!(near(&world, c, reach), None, "a fallen tree is no target and not alive");
+    // regrow_trees: every fallen tree is due at once.
+    let caster = world.create_entity().build();
+    world.write_resource::<Vec<Outcome>>().push(Outcome::AddBuff { target: caster, buff_id: BUFF.into(), duration: Fixed64::ONE,
+        payload: regrow_payload() });
+    process_outcomes(&mut world, &mut RuntimeEventVecSink::default()).unwrap();
+    begin_moba_match_tick(&mut world);
+    assert!(world.read_resource::<MobaMatch>().trees.is_empty());
+    assert_eq!(tree_changes(&world), vec![(REGROW_METRIC_ID, i64::from(index))]);
+    assert_eq!(enc(&world.read_resource::<BlockedRegions>()), enc(&regions(nobu, &BTreeSet::new())));
+    assert_eq!(near(&world, c, Fixed64::ZERO), Some(c));
+    assert!(!decode_regrow(&json!({KEY: {"regrow": false}})) && !decode_regrow(&json!({KEY: {"regrow": true, "x": 0}})));
+}

@@ -1819,6 +1819,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             }
             (op::CAST_RELEASED, []) => ROk(V::Bool(self.cast_released)),
             (op::IS_VISIBLE_TO, [A::Unit(x), A::Unit(u)]) => ROk(V::Bool(self.is_visible_to(*x, *u))),
+            (op::TREE_ALIVE, [A::Point(p)]) => ROk(V::Bool(super::super::tree_cut::standing_tree_near(&self.cache.blocked,
+                omoba_sim::Vec2::new(p.x, p.y), Fixed64::ZERO).is_some())),
             (op::STATUS_INSTANCES, [A::Unit(unit), A::Str(runtime_id)]) => {
                 let count = Self::handle_to_entity(*unit).map_or(0, |entity| self.source_buffs(entity).iter_for(entity)
                     .filter(|(key, _)| omoba_template_ids::instance_number(key).is_some()

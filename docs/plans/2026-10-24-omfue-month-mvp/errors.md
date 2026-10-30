@@ -2,9 +2,27 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E405 開局前的 script registry 檢查把空技能欄 "" 當成缺少技能（2026-10-31，工作線 A）
+- **現象**：遊戲模式 session 的 e187 M6 第二批（m6b2g1）18 局都在 tick 0 之前失敗：`MOBA headless FAILED: script registry missing ability `，訊息裡的技能名稱是空的。只要有一局安排了 A32（瀧川一益，技能列 `{…, a32_asura_blade, "", a32_soul_blade}`），整批都沒辦法跑，同批其他 5 位英雄也就驗不到。
+- **根因**：B 的 cddcb1af 把空欄定成 `""`，也就是 AbilityId(0)；內容驗證、出生配點、replica baseline、upgrade_skill 都把它當成沒有技能。開局前的 `validate_single_lane_scripts` 卻沒有改到，對每一欄都去查 script registry，查 `""` 自然找不到。A 在 6abaf6ce 讓 A32 的 F 坐上第 6 欄，第一次讓 playable 英雄真的帶有空欄，這個漏洞才浮現。conformance 不經過這個檢查，所以影子驗證沒抓到。
+- **通用修正**：`validate_single_lane_scripts` 用 `omoba_content_model::is_empty_ability_slot` 略過空欄，判斷方式和內容驗證相同。
+- **避免**：資料形狀新增一種值（空欄）時，要把 `active_hero_abilities` 的所有使用端都列出來逐一檢查。英雄從 test_only 轉成 playable 之前，至少讓 headless 開一局有安排他的比賽，不能只看 conformance。
+
 ## E404 （保留）conformance：被動技只有 passive_stats 情境逐級學習，光環發射器停在 r1（2026-10-31）
 
-## E403 （保留）沒有以樹木為目標的施放與單棵樹操作：B22 的樹木技能被排除（2026-10-31）
+## E403 沒有以樹木為目標的施放與單棵樹操作：B22 的樹木技能被排除（2026-10-31，工作線 B）
+- **現象**：太原雪齋（B22）的 b22e（砍掉目標樹木，原地召喚樹人）、b22d（喚醒目標樹木，樹倒前提供視野與真實視域）用 `target = { type = "tree" }`、`destroy_tree`、`tree_alive(tree)`；大招用 `regrow_trees`。host 都沒有這些能力，工作線 A 只好把這幾招排除。
+- **根因**：host 只有以半徑砍樹的 `destroy_trees`（E242）。施放目標只有 none／point／unit，沒有「某一棵樹」；腳本也沒辦法問一棵樹是否還立著，或要求全圖的樹重新長回。
+- **通用修正**（不改 ABI 的 TargetType；樹木目標在 ABI 上就是 point）：
+  - 內容：AbilityEntry／AbilityConst 新增 `targets_tree`（build.rs 與 runtime_content 都會帶出，執行期內容與編譯內容不一致時拒絕）。
+  - `tree_cut::standing_tree_near(regions, point, reach)`：以目前地形中 `tree_NNNN` 的碰撞方塊判定立著的樹（倒下的樹沒有方塊），回傳最近那棵的中心。權威端與每個 replica 持有相同的 regions，結果一致。
+  - 施放：`targets_tree` 的技能，目標點必須在某棵立著的樹 `TARGET_REACH`（32）以內，並對齊到那棵樹的中心；否則以 INVALID_TARGET 拒絕。腳本收到的 point 就是樹的中心。
+  - `destroy_tree`：kit `destroy_tree(at)` = 以 `SINGLE_TREE_RADIUS`（1）砍樹，只會倒那一棵。
+  - `tree_alive`：ext op `TREE_ALIVE = 15`（Point → Bool），kit `tree_alive(at)`。
+  - `regrow_trees`：kit `regrow_trees()` 送出 `{KEY:{regrow:true}}`。權威端在下一個比賽 tick 讓所有倒下的樹到期，照既有規則，有單位站在上面的樹會等。
+- **測試**：`a_tree_target_snaps_to_one_standing_tree_that_falls_alone_and_regrows_on_request`。omoba-core lib 1457 個與 template-ids 測試全部通過。
+- **後續**：工作線 A 需要把 `target.type = "tree"` 產生為 `target_type = "point"` 加 `targets_tree = true`；UE 端選樹的游標由工作線 C 處理。
+- **避免**：新增 v3 目標種類時，先確認能否以既有 ABI 型別加內容旗標表達，避免動到所有 DLL 的 ABI。
 
 ## E402 （保留）並行的 UBT 共用 MSBuild 常駐節點，其中一個建置結束時節點被關閉，另一個建置以 MSB4166／999 失敗（2026-10-31）
 

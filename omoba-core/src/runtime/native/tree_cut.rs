@@ -19,6 +19,13 @@
 //! Regrowth: 300 s after the cut (原作 libraries/buildinghelper.lua:129 TreeRegrowTime,
 //! never changed by the addon). Dota pushes units out of a regrown tree; here the tree
 //! waits while a unit body stands on its square (inferred, keeps every unit free).
+//!
+//! Single trees (E403, v3 `target.type = "tree"`): a standing tree is a `tree_NNNN` collision
+//! square of the current terrain ([`standing_tree_near`]; fallen ones have none), which the
+//! authority and every replica hold alike. A tree-targeted cast is snapped to that tree's centre,
+//! `destroy_tree` cuts the trees within [`SINGLE_TREE_RADIUS`] of it, `tree_alive` asks whether
+//! it still stands, and `regrow_trees` ([`regrow_payload`], 原作 GridNav:RegrowAllTrees) makes
+//! every fallen tree due now (the body rule above still applies).
 use omoba_sim::{Fixed64, Vec2};
 use serde_json::{json, Value};
 use specs::{Join, World, WorldExt};
@@ -41,10 +48,42 @@ const ORDINAL_BASE: u32 = 0x4000_0000;
 const BODY_CLEARANCE: i32 = 32;
 /// Pending requests kept per tick; more in one tick are dropped (none in the source).
 const MAX_PENDING: usize = 64;
+/// `destroy_tree`: the cut around a snapped tree centre; no two tree centres are this close.
+pub const SINGLE_TREE_RADIUS: i32 = 1;
+/// How far outside its collision square a tree-targeted point still picks the tree.
+pub const TARGET_REACH: i32 = 32;
 
 /// The request payload of `destroy_trees(at, radius)`.
 pub fn payload(at: Vec2, radius: Fixed64) -> Value {
     json!({KEY: {"x": at.x.raw(), "y": at.y.raw(), "radius": radius.raw()}})
+}
+
+/// The request payload of `regrow_trees()`.
+pub fn regrow_payload() -> Value {
+    json!({KEY: {"regrow": true}})
+}
+
+fn decode_regrow(payload: &Value) -> bool {
+    payload.get(KEY).and_then(|row| row.as_object()).is_some_and(|row| row.len() == 1 && row.get("regrow") == Some(&Value::Bool(true)))
+}
+
+/// The standing tree nearest `point` whose collision square lies within `reach` of it: its centre.
+pub fn standing_tree_near(regions: &BlockedRegions, point: Vec2, reach: Fixed64) -> Option<Vec2> {
+    regions.0.iter().filter(|region| is_tree_region(&region.name) && !region.points.is_empty()).filter_map(|region| {
+        // Authored integer squares: the sums are exact.
+        let n = region.points.len() as f64;
+        let (sx, sy) = region.points.iter().fold((0f64, 0f64), |(x, y), p| (x + f64::from(p.x), y + f64::from(p.y)));
+        let (cx, cy) = ((sx / n).round(), (sy / n).round());
+        let half = region.points.iter().map(|p| (f64::from(p.x) - cx).abs().max((f64::from(p.y) - cy).abs()).ceil() as i32).max()?;
+        let center = Vec2::new(Fixed64::from_i32(cx as i32), Fixed64::from_i32(cy as i32));
+        let limit = (Fixed64::from_i32(half) + reach).raw();
+        let (dx, dy) = ((point.x - center.x).raw().abs(), (point.y - center.y).raw().abs());
+        (dx <= limit && dy <= limit).then(|| ((point - center).length_squared().raw(), center))
+    }).min_by_key(|(distance, center)| (*distance, center.x.raw(), center.y.raw())).map(|(_, center)| center)
+}
+
+fn is_tree_region(name: &str) -> bool {
+    name.strip_prefix("tree_").is_some_and(|index| !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()))
 }
 
 fn decode(payload: &Value) -> Option<(Vec2, Fixed64)> {
@@ -56,16 +95,17 @@ fn decode(payload: &Value) -> Option<(Vec2, Fixed64)> {
         .then(|| (Vec2::new(Fixed64::from_raw(x), Fixed64::from_raw(y)), Fixed64::from_raw(radius)))
 }
 
-/// Authority queue of requests settled since the last applied tick.
+/// Authority queue of requests settled since the last applied tick: the cuts, and whether every
+/// fallen tree regrows.
 #[derive(Clone, Debug, Default)]
-pub struct PendingTreeCuts(pub Vec<(Vec2, Fixed64)>);
+pub struct PendingTreeCuts(pub Vec<(Vec2, Fixed64)>, pub bool);
 
 /// Settlement of the request envelope: queued on the authority, dropped elsewhere.
 pub fn request(world: &World, payload: &Value) {
+    let Some(mut pending) = world.try_fetch_mut::<PendingTreeCuts>() else { return };
+    if decode_regrow(payload) { pending.1 = true; return; }
     let Some(cut) = decode(payload) else { return };
-    if let Some(mut pending) = world.try_fetch_mut::<PendingTreeCuts>() {
-        if pending.0.len() < MAX_PENDING { pending.0.push(cut); }
-    }
+    if pending.0.len() < MAX_PENDING { pending.0.push(cut); }
 }
 
 /// The fallen trees of one match, with the time each stands again.
@@ -123,7 +163,9 @@ fn tree_point(map: &omoba_template_ids::MobaMapConst, index: u32) -> Vec2 {
 /// Authority pre-step: apply the queued cuts and the due regrowths, rebuild the terrain
 /// and the vision trees when anything changed and disclose each change to every team.
 pub(crate) fn tick(world: &World, cuts: &mut TreeCuts, map: &omoba_template_ids::MobaMapConst, elapsed: Fixed64) {
-    let requests = world.try_fetch_mut::<PendingTreeCuts>().map(|mut pending| std::mem::take(&mut pending.0)).unwrap_or_default();
+    let (requests, regrow_all) = world.try_fetch_mut::<PendingTreeCuts>()
+        .map(|mut pending| (std::mem::take(&mut pending.0), std::mem::take(&mut pending.1))).unwrap_or_default();
+    if regrow_all { for at in cuts.regrow_at.values_mut() { *at = (*at).min(elapsed); } }
     if requests.is_empty() && !cuts.regrow_at.values().any(|at| elapsed >= *at) { return; }
     let trees = map.trees();
     let mut fallen = Vec::new();

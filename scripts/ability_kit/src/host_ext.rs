@@ -436,6 +436,11 @@ impl Cx<'_, '_> {
         if unit.is_valid() { let _ = self.read(op::END_CHANNEL, &[ExtArg::Unit(unit)]); }
     }
 
+    /// v3 `tree_alive(tree)`: the tree at `at` (a tree target, its centre) still stands (E403).
+    pub fn tree_alive(&mut self, at: omb_script_abi::types::Vec2) -> bool {
+        matches!(self.read(op::TREE_ALIVE, &[ExtArg::Point(at)]), ExtValue::Bool(true))
+    }
+
     /// The skill of an `on_ability_executed` status trigger (`item:<id>` for an item); None
     /// outside one.
     pub fn event_ability_id(&mut self) -> Option<String> {

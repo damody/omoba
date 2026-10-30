@@ -16,6 +16,11 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：以樹木為目標的施放與單棵樹操作（E403）
+
+- 內容新增 `targets_tree`。施放時目標點對齊到立著的樹的中心（`tree_cut::standing_tree_near`），找不到樹就以 INVALID_TARGET 拒絕。
+- kit：`destroy_tree(at)`、`tree_alive(at)`（ext op 15）、`regrow_trees()`。
+- 讓 B22 太原雪齋的樹木技能可以接上（工作線 A）。
 ## 2026-10-31 線 B：自己隊伍的冷卻也由權威揭露，敵方英雄的技能槽位揭露（E401）
 
 - CommittedCooldown／CommittedCharge 送給所有看得到這個英雄的隊伍，包括自己的隊伍。修正瞬雷閃被只在權威端可見的原因打斷時，replica 冷卻不一致的問題。

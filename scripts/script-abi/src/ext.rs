@@ -71,6 +71,9 @@ pub mod op {
     /// v3 names no other) ends the ability it is channelling now, as an interrupted channel (its
     /// on_channel_end runs with interrupted). Nothing happens when it channels nothing.
     pub const END_CHANNEL: u32 = 14;
+    /// `(Point p)` -> `Bool`: v3 `tree_alive(tree)`: a standing tree's collision square holds `p`
+    /// (a tree target is that tree's centre; E403).
+    pub const TREE_ALIVE: u32 = 15;
 }
 
 /// Attribute names of [`op::EVENT_ABILITY_ATTR`].

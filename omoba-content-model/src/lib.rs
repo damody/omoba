@@ -88,6 +88,10 @@ pub struct AbilityDefinition {
     /// Dota SPELL_IMMUNITY_ENEMIES_YES). Its piercing debuffs carry magic_immunity::PIERCE_KEY.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub pierces_magic_immunity: bool,
+    /// v3 `target.type = "tree"` (E403): a point ability whose point must be a standing tree; the
+    /// host snaps it to that tree's centre (omoba-core tree_cut::standing_tree_near).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub targets_tree: bool,
     /// Owner cast hook (G-4): while learned, every committed cast of another
     /// non-ultimate ability of the same hero shortens the remaining cooldowns
     /// of the hero's other non-ultimate abilities. Host-owned, so team replicas

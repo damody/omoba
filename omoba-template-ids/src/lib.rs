@@ -1561,6 +1561,8 @@ pub struct AbilityConst {
     pub cleanses_allies: bool,
     /// Targets, controls and debuffs magic-immune enemies (E179).
     pub pierces_magic_immunity: bool,
+    /// A point ability aimed at a standing tree (v3 `target.type = "tree"`, E403).
+    pub targets_tree: bool,
     /// Learned automatically at each rank's `required_hero_level`, never with a skill point.
     pub auto_learn: bool,
     pub ability_type: AbilityTypeC,
