@@ -16,6 +16,15 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30（history-nobu 工作線 B：status.scope hero／permanent 跨死亡保留；headless 逐招統計涵蓋每條命（E318）；已放回 live）
+
+- **`status_scope.rs`**：產生的程式碼在 `scope = "hero"`／`"permanent"` 的狀態列標上 `__status_scope_v1`。
+  - 英雄死亡時，moba_match 把這些列連同它在比賽時鐘上的到期時間，存進英雄欄位（`hero_statuses`，比照 `hero_vars`）。
+  - 復活時放回還沒到期的列。死亡期間照樣倒數（原作 RemoveOnDeath false）；永久的列原樣放回。
+  - kit 的 `StatusDef.scope` 由產生器輸出（hero／permanent 輸出該值，其他輸出 ""）。
+  - 測試：`hero_and_permanent_statuses_outlive_a_death_and_keep_counting_down`；omoba-core 1423 項通過。
+- **E318**：`moba_headless` 的逐招統計原本只用結束時的 `slot.entity` 比對 cast trace，死過的英雄的 trace 會整列消失（gamemode 回報 B08 無盡牙沒有 trace）。改成記下每位玩家所有命的英雄 entity（omb fb4c011）。
+
 ## 2026-10-30（history-nobu 工作線 B：獨立實例狀態的事件帶實例編號；已放回 live）
 
 - `StatusEvent` 新增 `instance: u32`。`stacking = "independent"` 的每個實例列 `<runtime id>#<n>` 各自觸發事件，事件會帶上 `n`；其他列為 0。狀態事件（dispatch）和傷害前事件（damage_pre）都會帶。

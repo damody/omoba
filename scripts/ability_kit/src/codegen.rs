@@ -65,6 +65,9 @@ pub struct StatusDef {
     /// v3 `unique_group`: statuses of one group give, per stat, only the strongest value
     /// (omoba-core BuffStore aggregation family); "" = none.
     pub family: &'static str,
+    /// v3 `scope`: `"hero"` / `"permanent"` keep the status across its hero's death (omoba-core
+    /// status_scope); "" (or `"unit"`) = it goes with the unit's statuses at death.
+    pub scope: &'static str,
 }
 
 /// Selection filters of a v3 selector (v3.md §6).
@@ -618,6 +621,9 @@ impl<'a, 'w> Cx<'a, 'w> {
         if !status.family.is_empty() {
             use omoba_core::runtime::native::ability_runtime::buff_store::AGGREGATION_FAMILY_KEY;
             payload.insert(AGGREGATION_FAMILY_KEY.into(), status.family.into());
+        }
+        if let Some(scope) = omoba_core::runtime::native::status_scope::marker(status.scope) {
+            payload.insert(omoba_core::runtime::native::status_scope::KEY.into(), scope.into());
         }
 
         if status.events != 0 {

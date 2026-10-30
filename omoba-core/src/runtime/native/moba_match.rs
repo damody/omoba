@@ -693,6 +693,8 @@ pub struct MobaHeroSlot {
     pub(crate) trinket: super::ward_world::WardRosterState,
     /// v3 `unit_state` rows of scope `hero` (unit_var), kept from the last life for the next.
     hero_vars: Vec<(String, serde_json::Value)>,
+    /// v3 statuses of scope `hero` / `permanent` (status_scope), kept from the last life for the next.
+    hero_statuses: Vec<super::status_scope::KeptStatus>,
 }
 
 impl MobaHeroSlot {
@@ -1496,6 +1498,7 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         summoners: summoner_loadouts.get(player_id).cloned().unwrap_or_default(),
         trinket: super::ward_world::WardRosterState::unavailable(),
         hero_vars: Vec::new(),
+        hero_statuses: Vec::new(),
     }).collect();
     let mut state = MobaMatch {
         base_structures: Vec::new(),
@@ -1783,6 +1786,8 @@ impl MobaMatch {
         super::shop::bind_roster_shop_undo(world, player_id, entity);
         let kept = std::mem::take(&mut self.heroes[index].hero_vars);
         super::unit_var::restore(&mut world.write_resource::<crate::runtime::BuffStore>(), entity, &kept);
+        let statuses = std::mem::take(&mut self.heroes[index].hero_statuses);
+        super::status_scope::restore(&mut world.write_resource::<crate::runtime::BuffStore>(), entity, &statuses, self.elapsed);
         self.heroes[index].entity = Some(entity);
         self.heroes[index].lethal_pending = false;
         self.heroes[index].recall = None;
@@ -2827,7 +2832,11 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
                 objective_buffs::retire_hero(&mut state,retired_player);
                 personal_buffs::retire_hero(&mut state,retired_player);
                 let kept = super::unit_var::persisting(&world.read_resource::<crate::runtime::BuffStore>(), entity);
-                if let Some(slot) = state.heroes.iter_mut().find(|s| s.player_id == retired_player) { slot.hero_vars = kept; }
+                let statuses = super::status_scope::persisting(&world.read_resource::<crate::runtime::BuffStore>(), entity, state.elapsed);
+                if let Some(slot) = state.heroes.iter_mut().find(|s| s.player_id == retired_player) {
+                    slot.hero_vars = kept;
+                    slot.hero_statuses = statuses;
+                }
                 world
                     .write_resource::<crate::runtime::BuffStore>()
                     .remove_all_for(entity);
@@ -3866,6 +3875,7 @@ pub(crate) fn stop_command_match(hero: Entity, phase: MobaMatchPhase) -> MobaMat
             summoners: crate::runtime::summoner_runtime::SummonerLoadout::default(),
             trinket: super::ward_world::WardRosterState::unavailable(),
             hero_vars: Vec::new(),
+            hero_statuses: Vec::new(),
         }],
         towers: [None, None],
         lane_towers: Vec::new(),
@@ -3982,6 +3992,7 @@ pub(crate) fn shop_fixture_slot(player_id: u32, side: usize, entity: Option<Enti
         summoners: crate::runtime::summoner_runtime::SummonerLoadout::default(),
         trinket: super::ward_world::WardRosterState::unavailable(),
         hero_vars: Vec::new(),
+        hero_statuses: Vec::new(),
     }
 }
 
