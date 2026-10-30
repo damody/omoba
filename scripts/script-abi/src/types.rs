@@ -478,7 +478,10 @@ mod tests {
         assert_eq!(DamageProfile::from_bits(alive.bits()), Some(alive));
         let flagged = DamageProfile::NORMAL.union(DamageProfile::IGNORE_ARMOR).union(DamageProfile::HP_REMOVAL);
         assert_eq!(DamageProfile::from_bits(flagged.bits()), Some(flagged));
-        assert_eq!(DamageProfile::from_bits(DamageProfile::NORMAL.bits() | (1 << 13)), None);
+        // 1 << 13 is NO_SOURCE_BONUSES (E393); the first unused bit is 1 << 14.
+        let plain = DamageProfile::NORMAL.union(DamageProfile::NO_SOURCE_BONUSES);
+        assert_eq!(DamageProfile::from_bits(plain.bits()), Some(plain));
+        assert_eq!(DamageProfile::from_bits(DamageProfile::NORMAL.bits() | (1 << 14)), None);
         assert_eq!(
             DamageProfile::from_bits(DamageProfile::KNOWN_BITS | (1 << 31)),
             None

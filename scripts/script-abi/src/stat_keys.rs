@@ -223,6 +223,9 @@ pub enum StatKey {
     /// 施法前搖縮短（v3 `cast_point_reduction_pct`，比例）：施法時間倍率減去本值；
     /// omoba-core `UnitStats::cast_time_mult`。
     CastPointReduction = 143,
+    /// 狀態抗性（v3 `status_resistance_pct`，比例 0～1）：與既有的 `status_resistance` 鍵相同，
+    /// 控制、技能減速與技能 DoT 落地時依最強的一個縮短持續時間（omoba-core `damage_immunity::resist`，E423）。
+    StatusResistance = 144,
 }
 
 impl StatKey {
@@ -377,6 +380,7 @@ impl StatKey {
             StatKey::SlowResistance => "slow_resistance",
             StatKey::SpellLifesteal => "spell_lifesteal",
             StatKey::CastPointReduction => "cast_point_reduction",
+            StatKey::StatusResistance => "status_resistance",
         }
     }
 
@@ -537,6 +541,7 @@ impl StatKey {
             "slow_resistance" => Some(StatKey::SlowResistance),
             "spell_lifesteal" => Some(StatKey::SpellLifesteal),
             "cast_point_reduction" => Some(StatKey::CastPointReduction),
+            "status_resistance" => Some(StatKey::StatusResistance),
             _ => None,
         }
     }
@@ -688,6 +693,7 @@ impl StatKey {
             StatKey::SlowResistance => StatSection::NonBuilding,
             StatKey::SpellLifesteal => StatSection::All,
             StatKey::CastPointReduction => StatSection::All,
+            StatKey::StatusResistance => StatSection::NonBuilding,
         }
     }
 
@@ -838,6 +844,7 @@ impl StatKey {
             StatKey::SlowResistance => Aggregation::SumAdd,
             StatKey::SpellLifesteal => Aggregation::SumAdd,
             StatKey::CastPointReduction => Aggregation::SumAdd,
+            StatKey::StatusResistance => Aggregation::SumAdd,
         }
     }
 
@@ -851,7 +858,7 @@ impl StatKey {
 }
 
 /// 按 discriminant 排序的所有 `StatKey` variant — 供 gen-docs / 遍歷測試使用。
-pub const ALL: &[StatKey; 144] = &[
+pub const ALL: &[StatKey; 145] = &[
     StatKey::PreattackBonusDamage,
     StatKey::PreattackBonusDamageProc,
     StatKey::PreattackBonusDamagePostCrit,
@@ -996,6 +1003,7 @@ pub const ALL: &[StatKey; 144] = &[
     StatKey::SlowResistance,
     StatKey::SpellLifesteal,
     StatKey::CastPointReduction,
+    StatKey::StatusResistance,
 ];
 
 #[cfg(test)]
@@ -1003,8 +1011,8 @@ mod tests {
     use super::{Aggregation, StatKey, StatSection, ALL};
 
     #[test]
-    fn all_array_length_is_144() {
-        assert_eq!(ALL.len(), 144);
+    fn all_array_length_is_145() {
+        assert_eq!(ALL.len(), 145);
     }
 
     #[test]

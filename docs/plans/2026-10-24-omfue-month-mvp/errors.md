@@ -2,9 +2,16 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E425 （保留）conformance：帶 passive 區塊的主動技直接寫入等級，光環停在 r1（b05_three_arrows 的 b05r_armor）（2026-10-31）
+
 ## E424 （保留）沒有 status 的 on_moved 觸發：a03_pacing_gu、b23_undead_pact、c12_homing_lock 無法產生（2026-10-31）
 
-## E423 （保留）沒有 status_resistance_pct stat：a07_strongest、a20_pirate_daimyo 與 5 件道具無法產生（2026-10-31）
+## E423 沒有 status_resistance_pct stat：a07_strongest、a20_pirate_daimyo 與 5 件道具無法產生（2026-10-31，工作線 B）
+- **現象**：工作線 A 回報 v3 stat `status_resistance_pct`（a07_strongest、a20_pirate_daimyo，另有 5 件道具）沒有對應的 StatKey，產生器只能擋下。
+- **根因**：host 早就支援狀態抗性：BuffStore 的 `status_resistance` payload 鍵（比例，取最強的一個），控制、技能減速與 DoT 落地時縮短持續時間（`damage_immunity::resist`）。但 StatKey 沒有這個鍵，v3 vocab 也沒有對應。
+- **通用修正**：比照 `SlowResistance`，新增 `StatKey::StatusResistance = 144`（字串 `"status_resistance"`，NonBuilding、SumAdd，`ALL` 擴充為 145）。rules::vocab 對應 `("status_resistance_pct", StatusResistance, Fraction)`。`heal_reduction_pct` 不需要新鍵：產生為既有的 `heal_received_multiplier`（1 − pct），治療削減本來就只取最強的一個。
+- **測試**：`status_resistance_shortens_controls_slows_and_dots_and_slow_resistance_weakens_slows` 新增：StatKey 的字串就是 resist 讀的鍵。script-abi 的 StatKey 測試（長度、編號連續）也一起更新。
+- **避免**：host 已經有的規則鍵，要同時登錄為 StatKey 與 v3 vocab，否則產生器用不到。
 
 ## E422 （保留）check_heal 把施法者同一個 tick 的自然回復算進 heal（C16W 多 3.26）（2026-10-31）
 

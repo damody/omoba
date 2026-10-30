@@ -70,6 +70,8 @@ pub const STATS: &[(&str, StatKey, Unit)] = &[
     ("slow_resistance_pct", StatKey::SlowResistance, Unit::Fraction),
     ("spell_lifesteal_pct", StatKey::SpellLifesteal, Unit::Fraction),
     ("cast_point_reduction_pct", StatKey::CastPointReduction, Unit::Fraction),
+    // 狀態抗性（比例；damage_immunity::resist 取最強的一個，E423）。
+    ("status_resistance_pct", StatKey::StatusResistance, Unit::Fraction),
 ];
 
 /// 規則層直接讀的狀態旗標（BuffStore 的狀態 id 就是 v3 名稱）。

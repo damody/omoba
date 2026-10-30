@@ -151,6 +151,8 @@ mod tests {
     #[test]
     fn status_resistance_shortens_controls_slows_and_dots_and_slow_resistance_weakens_slows() {
         let (mut store, e) = (BuffStore::new(), entity());
+        // The v3 stats (`status_resistance_pct` E423, `slow_resistance_pct`) write these very keys.
+        assert_eq!((StatKey::StatusResistance.as_str(), StatKey::SlowResistance.as_str()), (STATUS_RESISTANCE, SLOW_RESISTANCE));
         store.add(e, "ult", i(20), json!({STATUS_RESISTANCE: 512, SLOW_RESISTANCE: 512}));
         store.add(e, "stun", i(2), Value::Null);
         assert_eq!(store.get(e, "stun").unwrap().remaining, i(1), "half the stun");
