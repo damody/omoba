@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E333 前端建置沒指定 cargo 目標目錄，設了 CARGO_TARGET_DIR 就 stage 到舊的 bridge（2026-10-30，history-nobu M6 呈現檢查，工作線 C）
+- **現象**：E330 之後 split 會在建置鎖內跑 `build_ue_moba --build-only`。工作線 C 的 spotlight 佇列設了 `CARGO_TARGET_DIR`（自己的 Rust 目標目錄），四局都在 stage 檢查失敗：「staged bridge differs from current build: omfue/Plugins/OmRuntime/Binaries/Win64/om_bridge.dll」。
+- **根因**：`build_ue_bridge.lua` 的 bridge build 與 `build_ue_moba.lua` 的 script DLL build 都沒有指定目標目錄，cargo 依環境的 CARGO_TARGET_DIR 輸出；但 stage 與 `moba_stage_contract` 固定從 `omfue/bridge/target/debug`、`scripts/target/debug` 讀取。新建的 bridge 跑到別的目錄，stage 拿的是舊的那份，檢查就判定不一致。
+- **通用修正**：前端建置的這兩個 cargo build 明確加上 `--target-dir`（`omfue/bridge/target`、`scripts/target`），也就是 stage 讀取的位置，與呼叫端的 CARGO_TARGET_DIR 無關。`scripts/tests/frontend_target_dir_test.lua` 鎖住這個對應。
+- **避免**：建置之後會從固定路徑讀產物的流程，cargo 一定要明確指定輸出目錄，不能依賴呼叫端的環境變數。
+
 ## E332 verify_m6_batch 兩段建置之間有內容放回，script DLL 與 moba-headless 內容雜湊不同，9 局全失敗卻 exit 0（2026-10-30，e187 遊戲模式 session；已放回 live）
 - **現象**：m6gen3c（為了看 B 新增的 `interrupted:<原因>`）9 局全部在載入時 panic：「base_content.dll was built for other content (OM_CONTENT_CATALOG_DATA_HASH=5203…); this host has …0221…」。報告寫 0/3、0/3、0/3，批次仍以 exit 0 結束。
 - **根因**：批次先建 script DLL、再建 moba-headless、再複製到私有 bin，三步都不持建置鎖；中間 land_to_live 放回了內容，兩個 binary 內嵌的內容雜湊不同。和 E301（UE 啟動）同類，headless 批次沒有跟著修。沒有任何一局完成也不算失敗。
