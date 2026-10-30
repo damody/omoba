@@ -513,6 +513,11 @@ impl Cx<'_, '_> {
     pub fn game_time(&mut self) -> Fixed64 {
         match self.read(op::GAME_ATTR, &[ExtArg::Str(game_attr::TIME.into())]) { ExtValue::Num(n) => n, _ => Fixed64::ZERO }
     }
+
+    /// v3 `game.dt`: the match time one tick advances.
+    pub fn game_dt(&mut self) -> Fixed64 {
+        match self.read(op::GAME_ATTR, &[ExtArg::Str(game_attr::DT.into())]) { ExtValue::Num(n) => n, _ => Fixed64::ZERO }
+    }
 }
 
 /// v3 damage flags beyond [`Dmg`], for [`Cx::damage_ex_at`].

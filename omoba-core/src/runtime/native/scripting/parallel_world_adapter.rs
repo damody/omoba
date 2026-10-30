@@ -55,6 +55,8 @@ pub struct ParallelAdapterCache<'a> {
     gold: Option<ReadStorage<'a, Gold>>,
     /// `game.is_night` this tick (ext GAME_ATTR).
     night: bool,
+    /// `game.dt`: this tick's match time step (ext GAME_ATTR).
+    dt: Fixed64,
     /// Each attacker's current attack (unit attributes `attack_damage` / `attack_effect_multiplier`).
     attacks: Option<Read<'a, super::super::rules::attack::AttackRecords>>,
 }
@@ -107,6 +109,7 @@ impl<'a> ParallelAdapterCache<'a> {
             damage_trace: super::super::damage_trace::enabled(world),
             gold: world.has_value::<specs::storage::MaskedStorage<Gold>>().then(||world.read_storage::<Gold>()),
             night: super::super::rules::world::is_night(world),
+            dt: world.try_fetch::<super::super::comp::DeltaTime>().map_or(Fixed64::ZERO, |dt| dt.0),
             attacks: world.try_fetch::<super::super::rules::attack::AttackRecords>().map(Into::into),
         }
     }
@@ -1717,6 +1720,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 match attr.as_str() {
                     name::IS_NIGHT => ROk(V::Bool(self.cache.night)),
                     name::TIME => ROk(V::Num(self.cache.moba.as_ref().map_or(Fixed64::ZERO, |state| state.elapsed))),
+                    name::DT => ROk(V::Num(self.cache.dt)),
                     _ => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown game attribute {attr}"))),
                 }
             }

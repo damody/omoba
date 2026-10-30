@@ -459,6 +459,7 @@ function Gen:expr(node, ctx)
     if base.k == "id" and base.name == "game" and #parts == 1 and not scope_find(ctx.scope, "game") then
       if parts[1] == "is_night" then return "cx.is_night()", "bool" end
       if parts[1] == "time" then return "cx.game_time()", "num" end
+      if parts[1] == "dt" then return "cx.game_dt()", "num" end
       self:block("attr:game." .. parts[1]); return "Fixed64::ZERO", "err"
     end
     -- the running ability: its rank is cx.rank in every generated context; readiness by its id
@@ -762,6 +763,12 @@ function Gen:call(node, ctx)
     return string.format("ability_kit::polar(%s, %s, %s)", self:point(p, pt), ang, d), "point"
   elseif fn == "sin" or fn == "cos" then
     return string.format("ability_kit::%s_deg(%s)", fn, self:value_node(args[1], ctx, "num")), "num"
+  elseif fn == "circle_point" then
+    -- point i of n equal steps around the circle, from the +x axis (v3.md §5.6)
+    local p, pt = arg(1)
+    local r = self:value_node(args[2], ctx, "num"); local n = self:value_node(args[3], ctx, "num"); local i = self:value_node(args[4], ctx, "num")
+    return string.format("{ let c = %s; let r = %s; let n = %s; let i = %s; ability_kit::polar(c, ability_kit::div(Fixed64::from_i32(360) * i, n)?, r) }",
+      self:point(p, pt), r, n, i), "point"
   elseif fn == "random_point" then
     local p, pt = arg(1); local lo = self:value_node(args[2], ctx, "num"); local hi = self:value_node(args[3], ctx, "num")
     return string.format("{ let c = %s; let lo = %s; let hi = %s; cx.random_point(c, lo, hi) }", self:point(p, pt), lo, hi), "point"

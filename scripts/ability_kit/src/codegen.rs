@@ -468,12 +468,13 @@ impl<'a, 'w> Cx<'a, 'w> {
     // ---- effects -------------------------------------------------------------------------------
 
     /// A status' BuffStore id for this caster.
+    /// `{caster}` becomes the caster's `id:gen`, `{rank}` this context's rank (a status kept per
+    /// rank, A07R and B29E).
     pub fn runtime_id(&self, status: &StatusDef) -> String {
-        if status.runtime_id.contains("{caster}") {
-            status.runtime_id.replace("{caster}", &format!("{}:{}", self.caster.id, self.caster.gen))
-        } else {
-            status.runtime_id.to_owned()
-        }
+        let mut id = status.runtime_id.to_owned();
+        if id.contains("{caster}") { id = id.replace("{caster}", &format!("{}:{}", self.caster.id, self.caster.gen)); }
+        if id.contains("{rank}") { id = id.replace("{rank}", &self.rank.to_string()); }
+        id
     }
 
     /// `apply_status`: the stat rows (StatKey, runtime raw) ride in the status payload.

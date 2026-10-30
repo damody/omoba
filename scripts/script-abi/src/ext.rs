@@ -134,4 +134,6 @@ pub mod game_attr {
     pub const IS_NIGHT: &str = "is_night";
     /// `Num`: match time in seconds.
     pub const TIME: &str = "time";
+    /// `Num`: seconds of match time one tick advances.
+    pub const DT: &str = "dt";
 }
