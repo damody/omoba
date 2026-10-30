@@ -108,9 +108,15 @@ impl Spec {
         };
         self.mask & bit != 0
     }
-    pub fn event(&self, kind: u8, other: EntityHandle, amount: Fixed64, damage_kind: u8) -> StatusEvent {
-        StatusEvent { kind, level: self.level, source: self.source, other, amount, damage_kind }
+    /// The event for the BuffStore row `row` (its independent instance, if any, rides along).
+    pub fn event(&self, row: &str, kind: u8, other: EntityHandle, amount: Fixed64, damage_kind: u8) -> StatusEvent {
+        StatusEvent { kind, level: self.level, source: self.source, other, amount, damage_kind, instance: instance_of(row) }
     }
+}
+
+/// The `n` of an independent instance row `<runtime id>#<n>`; 0 for any other row.
+pub fn instance_of(row: &str) -> u32 {
+    omoba_template_ids::instance_number(row).and_then(|n| u32::try_from(n).ok()).unwrap_or(0)
 }
 
 /// Whether some status on `holder` listens to `kind` (a damage event is queued only then).
@@ -189,6 +195,17 @@ mod tests {
 
     fn spec(mask: u32) -> Spec {
         Spec { ability: "b16_beast_union".into(), level: 2, status: "b16t_union".into(), source: EntityHandle { id: 4, gen: 1 }, mask }
+    }
+
+    #[test]
+    fn an_independent_instance_row_names_its_instance_in_the_event() {
+        // v3 stacking = "independent": every row `<runtime id>#<n>` hears its own events, and the
+        // hook learns which one (so `remove_status` of this instance removes only it).
+        let s = spec(ON_END);
+        assert_eq!(s.event("b16t_union#3", EXPIRED, EntityHandle::INVALID, Fixed64::ZERO, 0).instance, 3);
+        assert_eq!(s.event("b16t_union", EXPIRED, EntityHandle::INVALID, Fixed64::ZERO, 0).instance, 0);
+        assert_eq!(s.event("b16t_union#x", EXPIRED, EntityHandle::INVALID, Fixed64::ZERO, 0).instance, 0);
+        assert_eq!(instance_of("#4"), 0, "an instance needs a runtime id");
     }
 
     #[test]

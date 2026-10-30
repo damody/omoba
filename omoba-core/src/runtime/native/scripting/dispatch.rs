@@ -1022,11 +1022,11 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     }
     let cache = ParallelAdapterCache::new(&*world, rng_seed);
     let mut accepted = Vec::new();
-    for (ordinal, (holder, _, spec, kind, other, amount, dk)) in calls.into_iter().enumerate() {
+    for (ordinal, (holder, row, spec, kind, other, amount, dk)) in calls.into_iter().enumerate() {
         let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
         let handle = ParallelWorldAdapter::entity_to_handle(holder);
         let other = other.map_or(EntityHandle::INVALID, ParallelWorldAdapter::entity_to_handle);
-        let event = spec.event(kind, other, amount, dk);
+        let event = spec.event(&row, kind, other, amount, dk);
         let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, holder, ordinal_base + ordinal as u64);
         let mut world_dyn = world_dyn_of(&mut adapter);
         let result = catch_unwind(AssertUnwindSafe(|| script.on_status_event(handle, RStr::from_str(&spec.status), event, &mut world_dyn)));

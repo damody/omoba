@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30（history-nobu 工作線 B：獨立實例狀態的事件帶實例編號；已放回 live）
+
+- `StatusEvent` 新增 `instance: u32`。`stacking = "independent"` 的每個實例列 `<runtime id>#<n>` 各自觸發事件，事件會帶上 `n`；其他列為 0。狀態事件（dispatch）和傷害前事件（damage_pre）都會帶。
+- kit 新增 `Cx.event_instance` 和 `Cx::event_instance_id(&STATUS)`（傳回該實例的列 id，可用來移除「這個實例」或讀它的 payload）。產生器要在事件分支設定 `cx.event_instance = event.instance`。
+- 測試：`an_independent_instance_row_names_its_instance_in_the_event`；omoba-core 1422 項通過。
+
 ## 2026-10-30（history-nobu 工作線 B：create_unit.overrides；已放回 live）
 
 - **`unit_overrides.rs`**：一次性 envelope `__unit_overrides_v1`，只作用在本 tick 才產生的召喚物上。

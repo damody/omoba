@@ -36,13 +36,13 @@ pub fn with_scripts<T>(world: &mut World, scripts: &mut ScriptRegistry, f: impl 
 }
 
 /// The listening rows of `holder` for `bit`, in buff id order.
-fn rows(buffs: &BuffStore, holder: specs::Entity, bit: u32) -> Vec<Spec> {
+fn rows(buffs: &BuffStore, holder: specs::Entity, bit: u32) -> Vec<(String, Spec)> {
     if !buffs.entity_has_key(holder, se::KEY) { return Vec::new(); }
     let mut rows: Vec<(String, Spec)> = buffs.iter_for(holder)
         .filter_map(|(id, b)| Spec::from_payload(&b.payload).filter(|s| s.mask & bit != 0).map(|s| (id.to_owned(), s)))
         .collect();
     rows.sort_by(|a, b| a.0.cmp(&b.0));
-    rows.into_iter().map(|(_, s)| s).collect()
+    rows
 }
 
 fn total(packet: &Packet) -> Fixed64 { packet.physical + packet.magical + packet.pure }
@@ -75,7 +75,7 @@ pub fn apply_edit(packet: &mut Packet, edit: DamageEdit) {
 /// The rules::damage stage (before mitigation, after spell amplification).
 pub fn status_damage_pre(world: &World, packet: &mut Packet) {
     let Some(registry) = world.try_fetch::<ScriptRegistry>() else { return };
-    let calls: Vec<(specs::Entity, Spec, u8)> = {
+    let calls: Vec<(specs::Entity, (String, Spec), u8)> = {
         let buffs = world.read_resource::<BuffStore>();
         let mut calls: Vec<_> = rows(&buffs, packet.source, ON_DEAL_DAMAGE_PRE).into_iter().map(|s| (packet.source, s, se::DEAL_DAMAGE_PRE)).collect();
         calls.extend(rows(&buffs, packet.target, ON_TAKE_DAMAGE_PRE).into_iter().map(|s| (packet.target, s, se::TAKE_DAMAGE_PRE)));
@@ -88,12 +88,12 @@ pub fn status_damage_pre(world: &World, packet: &mut Packet) {
     let mut accepted = Vec::new();
     {
         let cache = ParallelAdapterCache::new(world, seed);
-        for (ordinal, (holder, spec, kind)) in calls.into_iter().enumerate() {
+        for (ordinal, (holder, (row, spec), kind)) in calls.into_iter().enumerate() {
             if total(packet) <= Fixed64::ZERO { break; }
             let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
             let other = if kind == se::DEAL_DAMAGE_PRE { packet.target } else { packet.source };
             let damage_kind = se::damage_kind([packet.physical, packet.magical, packet.pure], packet.profile);
-            let event = spec.event(kind, handle(other), total(packet), damage_kind);
+            let event = spec.event(&row, kind, handle(other), total(packet), damage_kind);
             let random_ordinal = (tick << 20) ^ (u64::from(packet.target.id()) << 8) ^ ordinal as u64;
             let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, holder, random_ordinal);
             let mut world_dyn: GameWorldDyn<'_> = GameWorld_TO::from_ptr(RMut::new(&mut adapter), TD_Opaque);

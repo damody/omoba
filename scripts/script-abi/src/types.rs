@@ -84,6 +84,9 @@ pub struct StatusEvent {
     pub other: EntityHandle,
     pub amount: Fixed64,
     pub damage_kind: u8,
+    /// The instance `n` of a `stacking = "independent"` status row `<runtime id>#<n>` the event is
+    /// for (each instance hears its own events); 0 for any other row.
+    pub instance: u32,
 }
 
 /// What an `on_damage_pre` hook does to the packet: `mode` 0 keeps it, 1 multiplies every damage

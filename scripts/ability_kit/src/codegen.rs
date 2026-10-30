@@ -138,6 +138,9 @@ pub struct Cx<'a, 'w> {
     /// `event.damage.final` and its kind (0 physical, 1 magical, 2 pure) in a damage trigger.
     pub event_amount: Fixed64,
     pub event_damage_kind: u8,
+    /// `StatusEvent.instance` in a status trigger: the independent instance `n` the event is for
+    /// (0 when the status is not independent). [`Cx::event_instance_id`] names that row.
+    pub event_instance: u32,
     /// What a damage-pre trigger did to the packet (`modify_damage`); the hook returns it.
     pub damage_edit: DamageEdit,
     /// The stack count `put_stacks` is writing into the status payload.
@@ -216,7 +219,7 @@ impl<'a, 'w> Cx<'a, 'w> {
     pub fn new(world: &'a mut GameWorldDyn<'w>, caster: EntityHandle, target: Target, rank: u8) -> Self {
         Self { world, caster, self_unit: caster, target, rank, event_target: EntityHandle::INVALID,
             event_attacker: EntityHandle::INVALID, event_skill: None, cast_range: None, written: Default::default(),
-            event_amount: Fixed64::ZERO, event_damage_kind: 0, damage_edit: DamageEdit::KEEP,
+            event_amount: Fixed64::ZERO, event_damage_kind: 0, event_instance: 0, damage_edit: DamageEdit::KEEP,
             stack_count: None, cancelled: false }
     }
 
@@ -580,6 +583,14 @@ impl<'a, 'w> Cx<'a, 'w> {
         if !to.is_valid() { return Ok(()); }
         let id = self.runtime_id(status);
         self.apply_status_keyed(to, status, id, duration, stats)
+    }
+
+    /// The BuffStore id of the row a status trigger runs for: the independent instance
+    /// `<runtime id>#<n>` when the event names one (`event_instance`), else the status' runtime id.
+    /// `remove_status` of "this instance" and reads of its own payload use it.
+    pub fn event_instance_id(&self, status: &StatusDef) -> String {
+        let id = self.runtime_id(status);
+        if self.event_instance == 0 { id } else { format!("{id}#{}", self.event_instance) }
     }
 
     /// `stacking = "independent"`: each apply is its own row `<runtime id>#<n>` with its own expiry;
