@@ -6398,6 +6398,11 @@ fn handle_add_buff(
         super::ally_cleanse::apply_self_slow(world,target,&payload);
         return Ok(());
     }
+    // v3 state `magic_immune` (a status's state buff): strong dispel, then the immunity status.
+    if buff_id==super::magic_immunity::BUFF {
+        super::magic_immunity::grant_state(world,target,duration);
+        return Ok(());
+    }
     // Hero component commands of generated scripts (hero_command): settled at once, never stored.
     if payload.get(super::hero_command::KEY).is_some() || buff_id==super::hero_command::BUFF {
         super::hero_command::apply(world,target,&buff_id,&payload);

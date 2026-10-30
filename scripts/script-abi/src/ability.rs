@@ -187,6 +187,18 @@ pub trait AbilityScript: Send + Sync {
     ) {
     }
 
+    /// v3 `on_cast` of a channeled ability: its host pulse channel (omoba-core `ability_channel`)
+    /// was accepted and started. `start.index` is 0 and `start.anchor` the anchor point. Like a
+    /// pulse, only effects may be applied. Default: nothing.
+    fn on_channel_start(
+        &self,
+        _caster: EntityHandle,
+        _target: Target,
+        _start: ChannelPulse,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
     /// v3 `on_phase_start`: a cast of this ability begins, once it is admitted (before its windup,
     /// or right before `execute` when it has none). False cancels the cast (v3 `cancel_cast`)
     /// with nothing charged; the hook's own effects stand either way. Only effects may be

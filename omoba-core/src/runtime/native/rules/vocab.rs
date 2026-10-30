@@ -158,6 +158,9 @@ const STATE_EFFECTS: &[(&str, StateEffect)] = &[
     ("cannot_miss", StateEffect::Buff("cannot_miss")),
     ("attack_immune", StateEffect::Buff("attack_immune")),
     ("attack_slow_immune", StateEffect::Buff("attack_slow_immune")),
+    // 魔法免疫：host 收到這個 buff 時先強驅散再授予（magic_immunity::grant_state）；status 結束或被
+    // 移除時由 `__ctl` 來源列收回。
+    ("magic_immune", StateEffect::Buff(crate::runtime::native::magic_immunity::BUFF)),
     // 被動失效（BuffStore::stat_rows：學會的被動不給 stat、不收事件）。
     ("break", StateEffect::Buff("break")),
     ("passives_disabled", StateEffect::Buff("break")),

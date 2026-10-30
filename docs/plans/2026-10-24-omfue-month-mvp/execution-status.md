@@ -40,6 +40,23 @@
   - live 試跑 5 位已上架英雄：全部打完；標出村上義清的震地斧、大地震撼從沒施放。批次 1 目前還沒有英雄可上場，腳本會列出 9 位待上架。
 - **還沒做**：在 UE 拍到砍樹與營地，需要 autopilot 能指定行為；震地斧、大地震撼的 bot 政策。
 
+## 2026-10-30（history-nobu 工作線 B：狀態的傷害／命中事件真的送出、reflection、on_channel_start、magic_immune；已放回 live）
+
+- **發現**：live 的 host 從來沒送出狀態事件 on_take_damage（v3 37 處）、on_deal_damage（5 處）、on_attack_hit、on_attacked。只有測試手動推事件，正式流程沒有人推。原本拿來接的 `ScriptEvent::Damage` 其實是「請求造成傷害」的舊事件，推進去會再扣一次血，所以不能沿用。
+- **修正**（通用，所有狀態都適用）：
+  - 命中：狀態事件改讀規則層的 `AttackEvent::Hit`，攻擊者收到 ATTACK_HIT，目標收到 ATTACKED；和前搖共用同一個游標，每筆只送一次。
+  - 傷害：`handle_damage` 在血真的扣下去之後，記一筆 `status_event::DamageNote`，amount 是實際扣掉的生命；只有目標或來源身上有監聽這類事件的狀態時才記，熱路徑只多一次 buff 掃描。之後由 dispatch_status_events 送出。
+- **reflection**：`DamageProfile::REFLECTION`（1<<12）。狀態事件的 `damage_kind` 低 4 位元是傷害類型，`0x10` 表示反射（`StatusEvent::REFLECTION`／`is_reflection()`）。kit 加了 `damage_reflect_at`／`damage_reflect_from_at`。
+- **on_channel_start**：`AbilityScript::on_channel_start(caster, target, start, world)`，承接 v3 引導技的 on_cast（26 招）。引導被結算接受後、第一跳之前呼叫，規則同一跳。
+- **pulses_key 留空就是 1 跳**：給沒有 on_channel_tick 的引導用。
+- **knockback distance 0 加 height**：原地拋起（七本槍）。kit 換成位移 1 個 raw 單位，沿用 host 的移動規則；所有 distance 0 的擊退都走這條，之後可改成 host 直接支援零位移。
+- **magic_immune 狀態**（20 招＋15 件道具）：vocab 新增 `magic_immune`，對應 host 的 `magic_immune` buff。game_processor 收到時呼叫 `magic_immunity::grant_state`：先強驅散，再掛上魔法傷害歸零的 payload；status 結束時由 `__ctl` 列收回。
+- **測試**：
+  - script_hooks 改用真的 RawDamage 跑過 handle_damage，確認狀態收到實際扣血量與反射標記；status_event 加了命中游標與 damage_kind 的測試。
+  - ability_channel 確認開始、每一跳、結束各觸發一次，且 pulses_key 留空時為 1 跳；magic_immunity 確認授予前會先強驅散。
+  - omoba-core 1403 個測試全過；base_content 在 live 上 580 個全過（之前 A34 那個失敗也已經消失）；兩次 land 的檢查都通過。
+- **分工**：kill、on_kill、has_status_tag、template／is_template，以及 no_healthbar／low_attack_priority／unselectable 三個狀態，轉給線 A 實作。
+
 ## 2026-10-30（history-nobu 工作線 B：on_channel_end、on_phase_start 事件點，knockback height 與負距離；已放回 live）
 
 - **on_channel_end**（v3 14 處）：`AbilityScript::on_channel_end(caster, target, end: ChannelPulse, interrupted, world)`，掛在 host 引導（ability_channel）上。

@@ -75,7 +75,8 @@ pub(crate) fn ability_spec(def: &crate::ability_meta::AbilityDef, rank: &crate::
         Ok(value)
     };
     let fixed = |value: f64| Fixed64::from_raw((value * 1024.0).round() as i64);
-    let pulses = value(pulses_key)?;
+    // No pulses key: one pulse at the end (a channel without `on_channel_tick`).
+    let pulses = if pulses_key.is_empty() { 1.0 } else { value(pulses_key)? };
     if pulses.fract() != 0.0 || !(1.0..=f64::from(MAX_PULSES)).contains(&pulses) { return Err(()); }
     let radius = radius_key.as_deref().map(|key| value(key).map(fixed)).transpose()?;
     let range = if *anchor == ChannelAnchor::SelfOrigin { Fixed64::ZERO } else {
@@ -106,9 +107,10 @@ struct Channel {
     last_tick: u64,
 }
 
-/// Live channels, plus the ends not yet dispatched to `on_channel_end`.
+/// Live channels, plus the ends not yet dispatched to `on_channel_end` and the starts not yet
+/// dispatched to `on_channel_start` (a start is a `DueEnd` row with index 0, not interrupted).
 #[derive(Default, Debug)]
-pub(crate) struct AbilityChannels(BTreeMap<Entity, Channel>, Vec<DueEnd>);
+pub(crate) struct AbilityChannels(BTreeMap<Entity, Channel>, Vec<DueEnd>, Vec<DueEnd>);
 
 /// One ended channel for `AbilityScript::on_channel_end`.
 #[derive(Debug)]
@@ -135,6 +137,11 @@ fn due_end(world: &World, caster: Entity, channel: &Channel, interrupted: bool) 
     DueEnd { caster, skill_id: channel.skill_id.clone(), target, interrupted, end: ChannelPulse {
         level: channel.level, index: channel.fired, total: channel.spec.pulses,
         elapsed: Fixed64::from_raw(channel.spec.interval.raw() * i64::from(channel.fired)), anchor } }
+}
+
+/// The starts recorded since the last call, in the order they happened.
+pub(crate) fn take_starts(world: &World) -> Vec<DueEnd> {
+    world.try_fetch_mut::<AbilityChannels>().map(|mut channels| std::mem::take(&mut channels.2)).unwrap_or_default()
 }
 
 /// The ends recorded since the last call, in the order they happened.
@@ -214,9 +221,12 @@ pub(crate) fn start(world: &mut World, entity: Entity, owner: u32, skill_id: Str
     }
     log::info!("AbilityChannel start pid={} caster={:?} ability='{}' level={} pulses={} interval_raw={} anchor={:?} tick={}",
         owner, entity, skill_id, level, spec.pulses, spec.interval.raw(), anchor, tick);
-    world.write_resource::<AbilityChannels>().0.insert(entity, Channel {
-        owner, skill_id, level, anchor, origin, spec, fired: 0, clock: 0, last_tick: tick,
-    });
+    let channel = Channel { owner, skill_id, level, anchor, origin, spec, fired: 0, clock: 0, last_tick: tick };
+    let started = due_end(world, entity, &channel, false);
+    let mut channels = world.write_resource::<AbilityChannels>();
+    channels.0.insert(entity, channel);
+    channels.2.push(started);
+    drop(channels);
     publish(world, entity, spec.total(), spec.total());
 }
 
@@ -407,6 +417,10 @@ mod tests {
             bad.extra.insert(key.into(), serde_json::json!(value));
             assert!(ability_spec(&def, &bad).is_err(), "{key}={value}");
         }
+        if let Some(crate::ability_meta::HostAbilityExecution::PulseChannel { pulses_key, .. }) = def.host_execution.as_mut() {
+            pulses_key.clear();
+        }
+        assert_eq!(ability_spec(&def, &rank).unwrap().unwrap().pulses, 1, "no pulses key: one pulse");
         def.target_type = crate::ability_meta::TargetType::Unit;
         assert!(ability_spec(&def, &rank).is_err(), "anchor must match target type");
         def.host_execution = None;
@@ -436,6 +450,8 @@ mod tests {
                 assert!(advance(&mut world).is_empty());
             }
             assert_eq!(fired, (1..=10).collect::<Vec<_>>(), "{hz} Hz");
+            let starts = take_starts(&world);
+            assert!(starts.len() == 1 && starts[0].end.index == 0 && starts[0].end.level == 2, "one start");
             let ends = take_ends(&world);
             assert_eq!(ends.len(), 1, "one end after the last pulse");
             assert!(!ends[0].interrupted && ends[0].end.index == 10 && ends[0].end.level == 2);
@@ -532,6 +548,10 @@ mod tests {
             _: &mut omb_script_abi::world::GameWorldDyn<'_>) {
             self.0.lock().unwrap().push((pulse.level, pulse.index));
         }
+        fn on_channel_start(&self, _: omb_script_abi::types::EntityHandle, _: Target, start: ChannelPulse,
+            _: &mut omb_script_abi::world::GameWorldDyn<'_>) {
+            self.0.lock().unwrap().push((253, start.index));
+        }
         fn on_channel_end(&self, _: omb_script_abi::types::EntityHandle, _: Target, end: ChannelPulse, interrupted: bool,
             _: &mut omb_script_abi::world::GameWorldDyn<'_>) {
             self.0.lock().unwrap().push((if interrupted { 254 } else { 255 }, end.index));
@@ -585,8 +605,8 @@ mod tests {
         assert!(world.read_storage::<Hero>().get(hero).unwrap().is_on_cooldown(&id), "cooldown charged at start");
         assert!(world.read_resource::<BuffStore>().has(hero, STATUS), "public channel bar");
         for _ in 0..40 { driver.step(&mut world, []).unwrap(); }
-        assert_eq!(*pulses.lock().unwrap(), (1..=5).map(|index| (rank, index)).chain([(255, 5)]).collect::<Vec<_>>(),
-            "every pulse, then on_channel_end once");
+        assert_eq!(*pulses.lock().unwrap(), [(253, 0)].into_iter().chain((1..=5).map(|index| (rank, index))).chain([(255, 5)]).collect::<Vec<_>>(),
+            "on_channel_start, every pulse, then on_channel_end once");
         assert_eq!(executes.load(std::sync::atomic::Ordering::SeqCst), 100, "one phase start; a host channel never runs execute");
         assert!(!any_active(&world));
         assert!(!world.read_resource::<BuffStore>().has(hero, STATUS));
@@ -599,10 +619,10 @@ mod tests {
         driver.step(&mut world, []).unwrap();
         cast(&mut world, &mut driver);
         let cooldown = world.read_storage::<Hero>().get(hero).unwrap().get_cooldown(&id);
-        while pulses.lock().unwrap().len() < 2 { driver.step(&mut world, []).unwrap(); }
+        while pulses.lock().unwrap().len() < 3 { driver.step(&mut world, []).unwrap(); }
         world.write_resource::<BuffStore>().add(hero, "stun", Fixed64::from_i32(1), serde_json::json!({}));
         for _ in 0..40 { driver.step(&mut world, []).unwrap(); }
-        assert_eq!(pulses.lock().unwrap()[2..], [(254, 2)], "no pulse after the stun, one interrupted end");
+        assert_eq!(pulses.lock().unwrap()[3..], [(254, 2)], "no pulse after the stun, one interrupted end");
         assert!(!any_active(&world));
         let after = world.read_storage::<Hero>().get(hero).unwrap().get_cooldown(&id);
         assert!(after > Fixed64::ZERO && after < cooldown, "cooldown keeps running, never restarted or refunded");

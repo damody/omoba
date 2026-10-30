@@ -115,11 +115,15 @@ impl Cx<'_, '_> {
     pub fn knockback_arc(&mut self, who: EntityHandle, from: Vec2, distance: Fixed64, duration: Fixed64, stun: bool, range: Fixed64,
         height: Fixed64) -> Res {
         use omoba_core::runtime::native::forced_motion as motion;
-        if !who.is_valid() || distance == Fixed64::ZERO { return Ok(()); }
-        // A pull toward `from` is a push away from its mirror image across `who`.
+        if !who.is_valid() || (distance == Fixed64::ZERO && height <= Fixed64::ZERO) { return Ok(()); }
+        // A pull toward `from` is a push away from its mirror image across `who`; a toss in place
+        // (distance 0 with a height, 七本槍) travels one raw unit, so the host keeps its motion rules.
         let (from, distance) = if distance < Fixed64::ZERO {
             let at = self.pos(who)?;
             (at + (at - from), -distance)
+        } else if distance == Fixed64::ZERO {
+            let at = self.pos(who)?;
+            (at - Vec2::new(Fixed64::ONE, Fixed64::ZERO), Fixed64::from_raw(1))
         } else { (from, distance) };
         if !motion::valid_duration(duration) { return Err("v3: invalid knockback duration"); }
         let spec = motion::Spec { source_id: self.caster.id, source_generation: self.caster.gen, mode: motion::Mode::Knockback,

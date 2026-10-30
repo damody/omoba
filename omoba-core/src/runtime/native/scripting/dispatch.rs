@@ -660,14 +660,36 @@ const PHASE_START_ORDINAL: u64 = 1 << 40;
 /// apply effects: a hook that tries to charge, start a channel or spawn has
 /// its whole pulse dropped, so a pulse never costs anything twice.
 fn dispatch_channel_pulses(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, ordinal_base: u64) {
+    // Channels started since the last dispatch hear on_channel_start before any pulse.
+    let starts = super::super::ability_channel::take_starts(world);
     let due = super::super::ability_channel::advance(world);
     // Channels that ended this tick (after their last pulse) or since the last dispatch.
     let ends = super::super::ability_channel::take_ends(world);
-    if due.is_empty() && ends.is_empty() {
+    if starts.is_empty() && due.is_empty() && ends.is_empty() {
         return;
     }
     let cache = ParallelAdapterCache::new(&*world, rng_seed);
     let mut accepted = Vec::new();
+    // v3 on_cast of a channel: before its pulses, same pulse rule.
+    for (ordinal, start) in starts.into_iter().enumerate() {
+        let Some((_, script)) = registry.get_ability(&start.skill_id) else { continue };
+        let handle = ParallelWorldAdapter::entity_to_handle(start.caster);
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, start.caster, ordinal_base + 2048 + ordinal as u64);
+        let mut world_dyn = world_dyn_of(&mut adapter);
+        let result = catch_unwind(AssertUnwindSafe(|| script.on_channel_start(handle, start.target.clone(), start.end, &mut world_dyn)));
+        drop(world_dyn);
+        if result.is_err() {
+            log::error!("[scripting] panic in AbilityScript::on_channel_start of {}", start.skill_id);
+            adapter.discard_cast();
+            continue;
+        }
+        let outcomes = adapter.finish();
+        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+            accepted.extend(outcomes);
+        } else {
+            log::warn!("[scripting] channel start of '{}' tried to charge or spawn; dropped", start.skill_id);
+        }
+    }
     for (ordinal, pulse) in due.into_iter().enumerate() {
         let Some((_, script)) = registry.get_ability(&pulse.skill_id) else { continue };
         let handle = ParallelWorldAdapter::entity_to_handle(pulse.caster);

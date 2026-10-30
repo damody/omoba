@@ -81,11 +81,37 @@ pub fn grant(world: &World, entity: Entity, duration: Fixed64) -> bool {
     true
 }
 
+/// v3 state `magic_immune` of a status (any positive duration, a passive's too): the same strong
+/// dispel and status as [`grant`]. The status's `__ctl` row takes it back when the status goes
+/// (dispel::remove_status), since nothing else removes it.
+pub fn grant_state(world: &World, entity: Entity, duration: Fixed64) -> bool {
+    if duration <= Fixed64::ZERO || !world.entities().is_alive(entity) { return false; }
+    strong_dispel(world, entity);
+    world.write_resource::<BuffStore>().add(entity, BUFF, duration, status_payload());
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::runtime::comp::FactionType;
     use specs::Builder;
+
+    #[test]
+    fn a_status_state_grants_immunity_with_its_payload_after_a_strong_dispel() {
+        let mut world = World::new();
+        world.register::<Faction>();
+        world.insert(BuffStore::new());
+        let hero = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        let enemy = world.create_entity().with(Faction::new(FactionType::Enemy, 2)).build();
+        world.write_resource::<BuffStore>().add(hero, "stun", Fixed64::ONE, json!({}));
+        let _ = enemy;
+        assert!(grant_state(&world, hero, Fixed64::from_raw(i64::MAX)), "a passive's state lasts");
+        let buffs = world.read_resource::<BuffStore>();
+        assert!(is_magic_immune(&buffs, hero) && !buffs.has(hero, "stun"), "dispelled, then immune");
+        assert_eq!(buffs.get(hero, BUFF).unwrap().payload, status_payload());
+        assert_eq!(super::super::rules::vocab::state("magic_immune"), Some(super::super::rules::vocab::StateEffect::Buff(BUFF)));
+    }
 
     #[test]
     fn immunity_keeps_hostile_debuffs_out_unless_they_pierce_and_dispels_enemy_ones() {
