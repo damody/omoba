@@ -17,9 +17,8 @@ local M = {}
 
 M.OUT = "scripts/lua_data/templates/v3_summons.lua"
 
--- The host fires a summon's ranged attack at this speed (omoba-core summons; the v3 B01 document
--- records it as `projectile_speed = 900`).
-local HOST_PROJECTILE_SPEED = 900
+-- A summon row's acquisition_range and projectile_speed (line B 53efe6a5): 0..=20000.
+local HOST_RANGE_MAX = 20000
 
 local function safe_env() return require("hero_author.cli").safe_env() end
 
@@ -119,7 +118,8 @@ function M.template_rows(doc, t)
   end
   -- owner_controlled is guard without following: the player's summons move on its orders only
   -- (host summon_orders; line B: follow 0, the original does not follow on its own)
-  if t.ai ~= "guard" and t.ai ~= "owner_controlled" then no("ai:" .. tostring(t.ai)) end
+  -- idle: never acquires a target by itself (host summons::generic, line B 53efe6a5)
+  if t.ai ~= "guard" and t.ai ~= "owner_controlled" and t.ai ~= "idle" then no("ai:" .. tostring(t.ai)) end
   if t.owner_death ~= nil and t.owner_death ~= "persist" and t.owner_death ~= "expire" then no("owner_death:" .. tostring(t.owner_death)) end
   local p = t.passive or {}
   for _, k in ipairs(sorted(p)) do if k ~= "reveal" then no("passive." .. k) end end
@@ -162,14 +162,18 @@ function M.template_rows(doc, t)
         else row.attack_timing = { windup = windup, backswing = 1000 - windup } end
       end
     end
+    -- the ranged attack's projectile (the host's default when absent)
     if attack.projectile_speed ~= nil then
       local ps = num(attack.projectile_speed, "attack.projectile_speed")
-      if ps and ps ~= HOST_PROJECTILE_SPEED then no("attack.projectile_speed " .. ps .. " (the host fires at " .. HOST_PROJECTILE_SPEED .. ")") end
+      if ps and (ps <= 0 or ps > HOST_RANGE_MAX) then no("attack.projectile_speed " .. ps .. " outside 0.." .. HOST_RANGE_MAX)
+      elseif ps then row.projectile_speed = ps end
     end
-    -- the host acquires at the attack range
+    -- the host acquires within max(acquisition_range, attack range): a smaller one has no row value
     if t.acquisition_range ~= nil then
       local acq = num(t.acquisition_range, "acquisition_range")
-      if acq and row.attack_range and acq ~= row.attack_range then no("acquisition_range " .. acq .. " differs from attack.range") end
+      if acq and (acq < 0 or acq > HOST_RANGE_MAX) then no("acquisition_range " .. acq .. " outside 0.." .. HOST_RANGE_MAX)
+      elseif acq and row.attack_range and acq < row.attack_range then no("acquisition_range " .. acq .. " below attack.range")
+      elseif acq then row.acquisition_range = acq end
     end
     -- gold and experience to the enemy player who kills it (line B 3b1c87db), whole numbers
     if t.bounty then
@@ -190,6 +194,7 @@ function M.template_rows(doc, t)
     row.immobile = row.move_speed == 0 or nil
     row.follow_start_distance, row.follow_stop_distance = 0, 0
     row.target_priority = "nearest"
+    if t.ai == "idle" then row.ai = "idle" end
     row.owner_death = t.owner_death or "persist"
     rows[#rows + 1] = row
   end
