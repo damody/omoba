@@ -2,6 +2,14 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E411 產生器以呼叫端技能的等級讀其他技能的值：routine 與跨技能狀態停在呼叫端的 rank（2026-10-31，工作線 A）
+- **現象**：conformance 回報 E388 的 A34：a34_rapid_cooling 學到 r2、r3（ability_levels 2、3 都正確）後，命中英雄時套上的 a34_rapid_cooling_resist_shred，payload 仍然是 magic_resistance_pool −5100，也就是 r1 的 5 點，文件寫的是 5／10／15。急速冷卻主動的冷卻上限（a34t_cap）同樣停在 r1。
+- **根因**：v3_rust 把每個 `$value` 都產生成 `.at(cx.rank)`，而 cx.rank 是正在執行的技能的等級。owner 是 A34T 的 routine `a34t_on_hit` 從寒霜彈、冰山之襲、冰霜之息的命中呼叫，所以 `$shred` 讀到的是寒霜彈的等級。被內嵌到別的技能 step 裡的 routine（A15 的 shadow_windmill 值出現在 moon_assault 的 step）、以及一個技能直接讀另一個技能的值，也都是這樣。影響 29 位英雄的產生碼，包括已經 playable 的。
+- **通用修正**：`Gen:rank_of(owner)` 找出值所屬的技能。如果和正在產生的技能不同（共用 routine 沒有所屬的 entry，所以一律算不同），就讀 `rk_<技能>`。`Gen:finish` 會在每個用到它的函式開頭放 `let rk_<技能> = cx.rank_of(cx.caster, "<技能>")`，因為值常常出現在已經借用 cx 的呼叫參數裡。kit 新增 `Cx::rank_of`：回傳施法者在該技能的等級，沒學過時退回 cx.rank（例如召喚物執行主人的 routine）。影子 97 個 crate 在 deny(warnings) 下都編譯通過；A34、A15、A07 conformance 0 fail。
+- **避免**：一個值的「等級來源」跟著值的 owner 走，不是跟著呼叫端走。產生器新增可以跨技能執行的形式（routine、內嵌 step、讀別的技能的值）時，要確認 rank 從哪裡來。conformance 的狀態 payload 要逐級比對，不能只比 r1。
+
+## E410 （保留）bot 的 enemy_line 略過 range 0 的直線技能：大谷吉繼的玄滅箭從不施放（2026-10-31）
+
 ## E409 hero spotlight 對射程短於替身距離的指定單位技能直接跳過（柳生宗嚴 神取 射程 200、替身在 240）（2026-10-31，history-nobu M6 UE 呈現，工作線 C）
 - 現象：yagyu_muneyoshi 的 spotlight 報告缺 c24_kamitori（神取）：autopilot 一次都沒施放。
 - 原因：`FOmAutoPilot::DispatchSpotlightCast` 對所有非方向技能，目標距離超過施放距離就跳過；神取射程 200，替身站在 240，永遠不在射程內。
@@ -16,7 +24,17 @@
 
 ## E407 （保留）replica 在同一 tick 先套能力等級再套槽位：換出的技能被寫成換入技能的等級（2026-10-31）
 
-## E406 （保留）沒有 chase_target 召喚物 AI 與會移動的 dummy：兀鷹、亡靈、行空魂無法實作（2026-10-31）
+## E406 沒有 chase_target 召喚物 AI 與會移動的 dummy：兀鷹、亡靈、行空魂無法實作（2026-10-31，工作線 B）
+- **現象**：A29T 石田三成的兀鷹、B10W 的亡靈、C16R 的行空魂，原作都用同一套 Exorcism 程式（A29_Ishida_Mitsunari.lua:126-404）：召喚物不攻擊，繞著主人或出生點找敵人、轉向飛過去，碰到就觸發技能效果再飛回。v3 寫成 `ai = "chase_target"`，host 沒有這種 AI；dummy 又一律要求 immobile，工作線 A 只好擋下這三招。
+- **根因**：召喚物 AI 只有 guard／idle（腳本 generic AI），沒有「由 host 依資料追逐目標」的移動。內容驗證把 dummy 與「不能移動」綁在一起。
+- **通用修正**：
+  - 內容：unit_template 新增 `ai = "chase_target"` 與 `chase` 表（speed、max_distance、teleport_back_distance、reach_radius、anchor = owner／spawn、retarget = owner_target／none、turn_degrees、turn_every_frames、snap_degrees、random_retarget_chance、wander_return_chance、reach_ability）。build.rs 輸出 `SummonChaseConst`，runtime_content 帶出相同資料。`ai` 與 `chase` 必須成對、數值在範圍內、不能是 immobile；有 chase 表的 dummy 可以移動。
+  - 執行：新模組 `summon_chase`。權威端每 tick 在 `dispatch_scripts` 移動追逐召喚物：Seek（錨點周圍 acquisition_range 內可見的敵人；可優先主人上次攻擊的目標，依機率隨機換目標；沒有目標就在半徑一半到全半徑的環上遊蕩）→ Chase（依原作 0.03 秒一格的轉向速度轉向、snap 角內直接對準、以 speed 前進）→ 在 reach_radius 內觸發 → Return；離錨點超過 max_distance 就放棄，離目的地超過 teleport_back_distance 就瞬移回錨點。隨機都用 SimRng（每個召喚物、每 tick）。
+  - 觸發：reach_ability 的 `on_status_event`，holder = 召喚物，status = 模板 id，kind = `CHASE_REACH`（15，host 送出，不佔 mask），other = 目標，source = 主人，level = 主人的技能等級。
+  - 召喚時設 `ChaseState` 並把 `immobile` 設為 true，follow 規則與移動指令都不會再動它；base_content 的 generic AI 略過有 chase 的模板。replica 不跑這段，召喚物位置照舊由每 tick 的 Movement fact 同步。
+- **測試**：`a_chase_summon_flies_to_a_visible_enemy_reaches_it_once_and_returns_to_its_anchor`、`with_no_enemy_it_wanders_in_the_ring_and_far_away_it_is_put_back_on_its_anchor`、`replicas_never_move_a_chase_summon`。
+- **後續**：工作線 A 在 v3_summons 產生 `ai`／`chase`，三招的效果寫在 reach_ability 的 status hook。
+- **避免**：新的召喚物移動方式先做成 host 依資料執行的 AI，不要在每個英雄腳本裡各自模擬。
 
 ## E405 開局前的 script registry 檢查把空技能欄 "" 當成缺少技能（2026-10-31，工作線 A）
 - **現象**：遊戲模式 session 的 e187 M6 第二批（m6b2g1）18 局都在 tick 0 之前失敗：`MOBA headless FAILED: script registry missing ability `，訊息裡的技能名稱是空的。只要有一局安排了 A32（瀧川一益，技能列 `{…, a32_asura_blade, "", a32_soul_blade}`），整批都沒辦法跑，同批其他 5 位英雄也就驗不到。

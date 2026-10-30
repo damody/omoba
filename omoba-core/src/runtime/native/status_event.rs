@@ -47,6 +47,10 @@ pub const ABSORB: u8 = 13;
 /// The status's absorb was used up by a hit (v3 `on_broken`), before the status is removed;
 /// `other` is the damage's source, `amount` what that hit absorbed (E393).
 pub const BROKEN: u8 = 14;
+/// A chase summon (summon_chase, v3 `ai = chase_target`) reached its target: its reach ability's
+/// hook with holder = the summon, status = its template id, `other` = the target and `source` =
+/// its owner. Host-sent, never a mask bit (E406).
+pub const CHASE_REACH: u8 = 15;
 
 /// `Spec.mask` bits: which events the status listens to.
 pub const ON_END: u32 = 1 << 0;

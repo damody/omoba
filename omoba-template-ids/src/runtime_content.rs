@@ -602,6 +602,16 @@ impl RuntimeContent {
                 mana: fixed64(entry.mana),
                 mana_regen: fixed64(entry.mana_regen),
                 flying: entry.flying,
+                chase: entry.chase.as_ref().map(|c| &*leak(crate::SummonChaseConst {
+                    speed: fixed64(c.speed), max_distance: fixed64(c.max_distance),
+                    teleport_back_distance: fixed64(c.teleport_back_distance), reach_radius: fixed64(c.reach_radius),
+                    anchor_owner: c.anchor == "owner", retarget_owner_target: c.retarget == "owner_target",
+                    turn_degrees: c.turn_degrees.round() as u16, turn_every_frames: c.turn_every_frames,
+                    snap_degrees: c.snap_degrees.round() as u16,
+                    random_retarget_per_mille: crate::lua_content::SummonChaseEntry::per_mille(c.random_retarget_chance),
+                    wander_return_per_mille: crate::lua_content::SummonChaseEntry::per_mille(c.wander_return_chance),
+                    reach_ability: leak_str(c.reach_ability.clone()),
+                })),
             })))
         })?;
         let summon_display = build_indexed(&manifest.summons, "summon", |raw, entry| {

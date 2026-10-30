@@ -1681,10 +1681,12 @@ pub(crate) enum SummonAiEntry {
     #[default]
     Guard,
     Idle,
+    /// The host moves it by its `chase` table (E406); no script AI acts.
+    ChaseTarget,
 }
 impl SummonAiEntry {
     pub(crate) fn rust_variant(self)->&'static str {
-        match self {Self::Guard=>"Guard",Self::Idle=>"Idle"}
+        match self {Self::Guard=>"Guard",Self::Idle|Self::ChaseTarget=>"Idle"}
     }
 }
 
@@ -1783,6 +1785,45 @@ pub(crate) struct SummonEntry {
     pub(crate) mana: f32,
     #[serde(default)]
     pub(crate) mana_regen: f32,
+    /// `ai = "chase_target"`: how the host chases (E406).
+    #[serde(default)]
+    pub(crate) chase: Option<SummonChaseEntry>,
+}
+
+/// v3 unit_template `chase` (omoba-template-ids SummonChaseConst).
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SummonChaseEntry {
+    pub(crate) speed: f32,
+    pub(crate) max_distance: f32,
+    pub(crate) teleport_back_distance: f32,
+    pub(crate) reach_radius: f32,
+    /// `owner` or `spawn`.
+    pub(crate) anchor: String,
+    /// `owner_target` or `none`.
+    #[serde(default = "default_chase_retarget")]
+    pub(crate) retarget: String,
+    pub(crate) turn_degrees: f32,
+    pub(crate) turn_every_frames: u16,
+    pub(crate) snap_degrees: f32,
+    pub(crate) random_retarget_chance: f32,
+    pub(crate) wander_return_chance: f32,
+    pub(crate) reach_ability: String,
+}
+fn default_chase_retarget() -> String { "none".into() }
+
+impl SummonChaseEntry {
+    pub(crate) fn per_mille(chance: f32) -> u16 { (chance * 1000.0).round() as u16 }
+    fn valid(&self) -> bool {
+        let distance = |v: f32| v.is_finite() && (1.0..=20_000.0).contains(&v);
+        distance(self.speed) && distance(self.max_distance) && distance(self.teleport_back_distance) && distance(self.reach_radius)
+            && matches!(self.anchor.as_str(), "owner" | "spawn") && matches!(self.retarget.as_str(), "owner_target" | "none")
+            && self.turn_degrees.is_finite() && (1.0..=180.0).contains(&self.turn_degrees) && (1..=30).contains(&self.turn_every_frames)
+            && self.snap_degrees.is_finite() && (0.0..=180.0).contains(&self.snap_degrees)
+            && [self.random_retarget_chance, self.wander_return_chance].iter().all(|c| c.is_finite() && (0.0..=1.0).contains(c))
+            && !self.reach_ability.is_empty() && self.reach_ability.len() <= 96
+            && self.reach_ability.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    }
 }
 
 impl SummonEntry {
@@ -1805,8 +1846,13 @@ pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),Stri
         let bodiless=[entry.damage,entry.move_speed,entry.attack_range,entry.attack_interval,
             entry.collision_radius,entry.follow_start_distance,entry.follow_stop_distance,
             entry.damage_per_owner_level].iter().all(|value|*value==0.0);
-        if entry.dummy && (!bodiless || !entry.immobile || entry.invulnerable) {
+        // A chase dummy (E406) moves by its chase table, not by its own move speed.
+        if entry.dummy && (!bodiless || (!entry.immobile && entry.chase.is_none()) || entry.invulnerable) {
             return Err(format!("summon {} is a dummy but has an attack, collision or movement, or is not immobile",entry.id));
+        }
+        if (entry.ai==SummonAiEntry::ChaseTarget) != entry.chase.is_some() || entry.chase.as_ref().is_some_and(|chase| !chase.valid())
+            || (entry.chase.is_some() && entry.immobile) {
+            return Err(format!("summon {} has ai chase_target without a valid chase table, or a chase table without it",entry.id));
         }
         if [entry.hp_regen,entry.night_vision_radius].iter().any(|value|!value.is_finite()||!(0.0..=10_000.0).contains(value)) {
             return Err(format!("summon {} has an invalid hp_regen or night_vision_radius",entry.id));

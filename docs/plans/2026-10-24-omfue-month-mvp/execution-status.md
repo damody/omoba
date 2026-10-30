@@ -16,6 +16,11 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：chase_target 召喚物 AI 與會移動的 dummy（E406）
+
+- unit_template 新增 `ai = "chase_target"` 與 `chase` 表；有 chase 表的 dummy 可以移動。
+- 新模組 `summon_chase`：權威端每 tick 依資料追逐、觸發、返回、遊蕩、瞬移回錨點；碰到目標時 reach_ability 的 status hook 收到 `CHASE_REACH`（15）。
+- 給 A29T 兀鷹、B10W 亡靈、C16R 行空魂（工作線 A）。
 ## 2026-10-31 線 B：以樹木為目標的施放與單棵樹操作（E403）
 
 - 內容新增 `targets_tree`。施放時目標點對齊到立著的樹的中心（`tree_cut::standing_tree_near`），找不到樹就以 INVALID_TARGET 拒絕。

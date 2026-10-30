@@ -4489,6 +4489,15 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
         if let Some(mut state)=world.try_fetch_mut::<crate::runtime::MobaMatch>() {state.add_invulnerable_summon(&world.entities(),entity);}
     }
     if stats.dummy {super::dummy_unit::hold_states(&mut world.write_resource::<crate::runtime::BuffStore>(),entity,duration,breakable);}
+    // A chase template (E406): the host flies it (summon_chase), never the follow rules or orders.
+    if stats.chase.is_some() {
+        if !world.has_value::<specs::storage::MaskedStorage<super::summon_chase::ChaseState>>() {
+            world.register::<super::summon_chase::ChaseState>();
+        }
+        let spawn=world.read_storage::<Pos>().get(entity).map(|p|p.0).unwrap_or(pos);
+        world.write_storage::<super::summon_chase::ChaseState>().insert(entity,super::summon_chase::ChaseState::new(spawn))?;
+        if let Some(summon)=world.write_storage::<SummonedUnit>().get_mut(entity) {summon.immobile=true;}
+    }
     // A flying template flies for its whole life (E397).
     if stats.flying {
         let life=if duration>Fixed64::ZERO {duration} else {super::ability_runtime::buff_store::PERMANENT_BUFF_DURATION};

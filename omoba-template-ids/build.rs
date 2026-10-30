@@ -1728,6 +1728,9 @@ fn emit_creep_stats(out: &mut String, entries: &[CreepEntry]) {
     out.push_str("\t\t_ => None,\n\t}\n}\n\n");
 }
 
+/// A chance as per mille (the same rounding as runtime_content's SummonChaseEntry::per_mille).
+fn omoba_content_model_chase_per_mille(chance: f32) -> u16 { (chance * 1000.0).round() as u16 }
+
 /// 輸出 `SUMMON_<NAME>_STATS: SummonStats` const + `summon_stats(id)` lookup。
 fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
     for e in entries {
@@ -1735,6 +1738,19 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             continue;
         }
         let cname = const_name("summon", &e.id);
+        // The chase table (E406) as its own const.
+        let chase = match &e.chase {
+            Some(c) => {
+                out.push_str(&format!(
+                    "pub const {cname}_CHASE: SummonChaseConst = SummonChaseConst {{ speed: {}, max_distance: {}, teleport_back_distance: {}, reach_radius: {}, anchor_owner: {}, retarget_owner_target: {}, turn_degrees: {}, turn_every_frames: {}, snap_degrees: {}, random_retarget_per_mille: {}, wander_return_per_mille: {}, reach_ability: {:?} }};\n",
+                    fixed64_lit(c.speed), fixed64_lit(c.max_distance), fixed64_lit(c.teleport_back_distance), fixed64_lit(c.reach_radius),
+                    c.anchor == "owner", c.retarget == "owner_target", c.turn_degrees.round() as u16, c.turn_every_frames,
+                    c.snap_degrees.round() as u16, omoba_content_model_chase_per_mille(c.random_retarget_chance),
+                    omoba_content_model_chase_per_mille(c.wander_return_chance), c.reach_ability));
+                format!("Some(&{cname}_CHASE)")
+            }
+            None => "None".into(),
+        };
         out.push_str(&format!(
             "pub const {}_STATS: SummonStats = SummonStats {{\n\
              \thp: {},\n\
@@ -1766,6 +1782,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \tmana: {},\n\
              \tmana_regen: {},\n\
              \tflying: {},\n\
+             \tchase: {},\n\
              }};\n",
             cname,
             fixed64_lit(e.hp),
@@ -1797,6 +1814,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             fixed64_lit(e.mana),
             fixed64_lit(e.mana_regen),
             e.flying,
+            chase,
         ));
     }
     out.push('\n');

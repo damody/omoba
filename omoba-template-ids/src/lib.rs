@@ -1435,6 +1435,35 @@ pub struct SummonStats {
     /// Flies for its whole life (原作 DOTA_UNIT_CAP_MOVE_FLY, v3 unit_template `flying`): terrain
     /// and trees block neither its movement nor its sight (omoba-core state `flying`, E397).
     pub flying: bool,
+    /// v3 `ai = "chase_target"` (E406): the host moves it (omoba-core summon_chase); None for
+    /// every other summon.
+    pub chase: Option<&'static SummonChaseConst>,
+}
+
+/// The data of a chase summon (v3 unit_template `chase`, 原作 Exorcism; omoba-core summon_chase).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct SummonChaseConst {
+    pub speed: Fixed64,
+    /// Farther than this from its anchor it gives up its target and returns.
+    pub max_distance: Fixed64,
+    /// Farther than this from where it is heading it teleports back to its anchor.
+    pub teleport_back_distance: Fixed64,
+    /// Closer than this it reached its target (and, returning, its anchor).
+    pub reach_radius: Fixed64,
+    /// Anchored on its owner; else on its spawn point.
+    pub anchor_owner: bool,
+    /// Prefers the target of its owner's last attack.
+    pub retarget_owner_target: bool,
+    /// It turns `turn_degrees` every `turn_every_frames` source frames (0.03 s), and points
+    /// straight at its goal within `snap_degrees`.
+    pub turn_degrees: u16,
+    pub turn_every_frames: u16,
+    pub snap_degrees: u16,
+    /// Per mille: a search picks a random candidate; a wander point reached sends it home.
+    pub random_retarget_per_mille: u16,
+    pub wander_return_per_mille: u16,
+    /// The ability whose status hook hears CHASE_REACH (status = the template id).
+    pub reach_ability: &'static str,
 }
 
 /// Ability 類型 — `omoba_core::ability_meta::AbilityType` 的 const-friendly

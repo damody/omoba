@@ -23,7 +23,8 @@ impl Generic {
     /// The behaviour of template `name`, from its stats; None for a dummy (it holds statuses only).
     pub fn of(name: &str) -> Option<Self> {
         let stats = omoba_template_ids::summon_by_name(name).and_then(omoba_template_ids::active_summon_stats)?;
-        (!stats.dummy).then(|| Generic { unit_id: name.into(), acquisition: stats.acquisition_range, ai: stats.ai,
+        // A chase summon (E406) is flown by the host (omoba-core summon_chase).
+        (!stats.dummy && stats.chase.is_none()).then(|| Generic { unit_id: name.into(), acquisition: stats.acquisition_range, ai: stats.ai,
             immobile: stats.immobile, projectile_speed: stats.projectile_speed })
     }
 }

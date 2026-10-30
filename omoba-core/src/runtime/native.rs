@@ -23,6 +23,7 @@ pub mod forced_motion;
 pub mod reveal_zone;
 pub mod pickup;
 pub mod tree_cut;
+pub mod summon_chase;
 pub mod spell_amplify;
 pub mod rules;
 pub mod delayed_effect;

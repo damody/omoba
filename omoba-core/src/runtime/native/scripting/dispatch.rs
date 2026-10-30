@@ -138,6 +138,9 @@ fn dispatch_scripts(
 ) {
     crate::runtime::refresh_moba_mana_capacities(world);
     bind_hero_unit_scripts(world, registry);
+    // Chase summons (summon_chase, E406): the authority flies them; a reach runs its ability's hook.
+    let reaches = super::super::summon_chase::advance(world, dt, rng_seed);
+    dispatch_chase_reaches(world, registry, rng_seed, reaches, 16384);
     // delayed_effect: buff_tick fills this queue once it exists.
     if world.try_fetch::<super::super::delayed_effect::DueDelayedEffects>().is_none() {
         world.insert(super::super::delayed_effect::DueDelayedEffects::default());
@@ -1112,6 +1115,40 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     if !accepted.is_empty() {
         world.write_resource::<Vec<crate::comp::Outcome>>().extend(accepted);
     }
+}
+
+/// CHASE_REACH (status_event): the reach ability's `on_status_event` with the summon as holder and
+/// its template id as the status; effects only, like any status hook.
+fn dispatch_chase_reaches(world: &mut World, registry: &ScriptRegistry, rng_seed: u64,
+    reaches: Vec<super::super::summon_chase::ChaseReach>, ordinal_base: u64) {
+    if reaches.is_empty() { return; }
+    let cache = ParallelAdapterCache::new(&*world, rng_seed);
+    let mut accepted = Vec::new();
+    for (ordinal, reach) in reaches.into_iter().enumerate() {
+        let Some((_, script)) = registry.get_ability(reach.ability) else {
+            log::warn!("[scripting] chase reach of '{}': no ability '{}'", reach.template, reach.ability);
+            continue;
+        };
+        let level = cache.hero.get(reach.owner).map(|hero| hero.get_ability_level(reach.ability)).filter(|rank| *rank > 0)
+            .map_or(1, |rank| rank.min(i32::from(u8::MAX)) as u8);
+        let event = omb_script_abi::types::StatusEvent { kind: super::super::status_event::CHASE_REACH, level,
+            source: ParallelWorldAdapter::entity_to_handle(reach.owner), other: ParallelWorldAdapter::entity_to_handle(reach.target),
+            amount: Fixed64::ZERO, damage_kind: 0, instance: 0 };
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, reach.summon, ordinal_base + ordinal as u64);
+        let mut world_dyn = world_dyn_of(&mut adapter);
+        let handle = ParallelWorldAdapter::entity_to_handle(reach.summon);
+        let result = catch_unwind(AssertUnwindSafe(|| script.on_status_event(handle, RStr::from_str(&reach.template), event, &mut world_dyn)));
+        drop(world_dyn);
+        if result.is_err() {
+            log::error!("[scripting] panic in AbilityScript::on_status_event (chase reach) of {}", reach.ability);
+            adapter.discard_cast();
+            continue;
+        }
+        if let Some(outcomes) = effect_batch(&cache, adapter.finish()) { accepted.extend(outcomes); }
+        else { log::warn!("[scripting] chase reach of '{}' ({}) tried to charge; dropped", reach.template, reach.ability); }
+    }
+    drop(cache);
+    if !accepted.is_empty() { world.write_resource::<Vec<crate::comp::Outcome>>().extend(accepted); }
 }
 
 fn filter_ready_on_ticks(
