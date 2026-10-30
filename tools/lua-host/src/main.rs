@@ -1322,6 +1322,7 @@ fn dispatch(request: &Request) -> Result<Value, String> {
     match request.operation.as_str() {
         "workflow_supervise" => workflow_supervisor::supervise(&request.params),
         "workflow_member" => workflow_supervisor::member(&request.params),
+        "caller_owned" => workflow_supervisor::caller(&request.params),
         "run" => run_command(&request.params),
         "run_elevated" => elevated_run::run(&request.params),
         "spawn" => spawn(&request.params),

@@ -11,6 +11,9 @@ local M = {}
 
 M.TOKEN_ENV = 'OM_BUILD_LOCK_TOKEN'
 
+-- E346: owner.txt also names the holding Lua process (pid, creation token, executable; the
+-- lua-host caller_owned identity). A waiter takes over at once when that process is gone (a
+-- launcher killed mid-build left the lock for hours); a holder without one ages out after STALE_MS.
 M.STALE_MS = 3 * 3600 * 1000
 M.WAIT_MS = 3 * 3600 * 1000
 M.POLL_MS = 5000
@@ -24,6 +27,9 @@ function M.acquire(root, label, deps)
   local lfs = deps.lfs or require('lfs')
   local log = deps.log or print
   local getenv = deps.getenv or os.getenv
+  local process = deps.process or require('_bootstrap').lib('process')
+  local caller = deps.caller or function() return require('tools.lua.lib.host').call('caller_owned', {}) end
+  local wait_ms = deps.wait_ms or M.WAIT_MS
   local locks = path.join(root, 'target', 'locks')
   path.mkdir_p(locks)
   local dir = path.join(locks, 'build_ue_moba')
@@ -39,7 +45,9 @@ function M.acquire(root, label, deps)
   while true do
     if lfs.mkdir(dir) then
       local token = ('%d-%d-%d'):format(os.time(), time.monotonic_ms(), math.random(0, 999999999))
-      path.write(owner, ('%s\n%s\n%d\n%s\n'):format(label, time.utc_timestamp(), os.time(), token), true)
+      local holder = caller()
+      path.write(owner, ('%s\n%s\n%d\n%s\n%d\n%s\n%s\n'):format(label, time.utc_timestamp(), os.time(), token,
+        holder.pid, tostring(holder.creation_token), holder.path or holder.executable or ''), true)
       if announced then log(('[build-lock] acquired after %d s'):format((time.monotonic_ms() - started) // 1000)) end
       local released = false
       local function release()
@@ -53,8 +61,11 @@ function M.acquire(root, label, deps)
     end
     local text = path.is_file(owner) and path.read(owner) or ''
     local held_since = tonumber(text:match('\n[^\n]*\n(%d+)'))
-    if held_since and (os.time() - held_since) * 1000 > M.STALE_MS then
-      log('[build-lock] removing stale lock held since ' .. os.date('!%Y-%m-%dT%H:%M:%SZ', held_since) .. ' by ' .. (text:match('^[^\n]*') or '?'))
+    local holder_gone = M.holder_gone(text, process)
+    if holder_gone or (held_since and (os.time() - held_since) * 1000 > M.STALE_MS) then
+      log('[build-lock] removing ' .. (holder_gone and 'abandoned' or 'stale') .. ' lock held since '
+        .. os.date('!%Y-%m-%dT%H:%M:%SZ', held_since or 0) .. ' by ' .. (text:match('^[^\n]*') or '?')
+        .. (holder_gone and ' (its process ' .. holder_gone .. ' has exited)' or ''))
       os.remove(owner)
       lfs.rmdir(dir)
     else
@@ -62,10 +73,20 @@ function M.acquire(root, label, deps)
         log('[build-lock] another build_ue_moba is running (' .. (text:match('^[^\n]*') or 'unknown holder') .. '); waiting')
         announced = true
       end
-      assert(time.monotonic_ms() - started < M.WAIT_MS, 'timed out waiting for build lock ' .. dir)
+      assert(time.monotonic_ms() - started < wait_ms, 'timed out waiting for build lock ' .. dir
+        .. ' (held by ' .. (text:match('^[^\n]*') or '?') .. ')')
       time.sleep_ms(M.POLL_MS)
     end
   end
+end
+
+-- owner.txt text -> the holder's pid when it names a process that no longer runs, else nil
+-- (a live holder, or an older owner.txt without the process lines).
+function M.holder_gone(text, process)
+  local pid, token = text:match('^[^\n]*\n[^\n]*\n%d+\n[^\n]+\n(%d+)\n(%d+)\n')
+  if not pid then return nil end
+  if process.inspect_owned(math.tointeger(tonumber(pid)), token) then return nil end
+  return pid
 end
 
 return M

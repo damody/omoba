@@ -73,8 +73,11 @@ assert(not compiler_version or (build_executor == 'local' and mode ~= 'verify'),
 if mode == 'build' then process.supervise_workflow(script, arg) end
 -- Concurrent build_ue_moba runs overwrote each other's staged DLLs (E106): queue on a
 -- repo-wide lock, taken after supervise_workflow so only the supervised child holds it.
-local build_lock <close> = require('build_lock').acquire(root, mode .. ' ' .. table.concat(arg, ' '))
+-- --verify-staged-only writes nothing and takes no lock (E346): a split client runs it inside
+-- the live match's time box, and waiting there on another session's build used up the box.
+local build_lock <close> = mode ~= 'verify' and require('build_lock').acquire(root, mode .. ' ' .. table.concat(arg, ' ')) or nil
 
+local VERIFY_ATTEMPTS, VERIFY_RETRY_MS = 3, 5000
 local function verify_stage_consistency()
   -- A build verifies what it staged into live omfue; --verify-staged-only checks the binaries
   -- a launch will run (OM_UE_RUN_BINARIES when a session runs its own shadow build).
@@ -92,8 +95,15 @@ end
 
 if mode == 'verify' then
   assert(not bootstrap_engine, '--bootstrap-engine cannot be used with --verify-staged-only')
-  verify_stage_consistency()
-  return
+  -- Without the lock a stage may be copying right now; a mismatch is checked again shortly.
+  local time = require('_bootstrap').lib('time')
+  for attempt = 1, VERIFY_ATTEMPTS do
+    local ok, err = pcall(verify_stage_consistency)
+    if ok then return end
+    if attempt == VERIFY_ATTEMPTS then error(err, 0) end
+    print(('[moba-ue] staged verification failed (attempt %d of %d), checking again: %s'):format(attempt, VERIFY_ATTEMPTS, tostring(err):match('^[^\n]*')))
+    time.sleep_ms(VERIFY_RETRY_MS)
+  end
 end
 local engine_root = path.absolute(ue_root or os.getenv('UE_5_8_ROOT') or os.getenv('UE_ROOT') or os.getenv('UE_5_7_ROOT') or 'D:/UE5.8')
 local editor_exe = path.join(engine_root, 'Engine/Binaries/Win64/UnrealEditor.exe')

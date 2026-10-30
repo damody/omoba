@@ -12,6 +12,13 @@ ok(read('scripts/build_ue_bridge.lua'):find("'--target-dir',require('ue_bridge_s
 ok(read('scripts/build_ue_moba.lua'):find("'--target-dir', require('ue_bridge_stage').rust_target(root, 'scripts', 'target')", 1, true),
   'the script DLL build names the stage target directory')
 
+-- E346: staged verification takes no build lock (a split client runs it inside the live match's
+-- time box); a split waits for another build no longer than for the machine.
+ok(read('scripts/build_ue_moba.lua'):find("mode ~= 'verify' and require('build_lock').acquire", 1, true),
+  'staged verification does not queue on the build lock')
+ok(read('scripts/run_moba_split_local.lua'):find("wait_ms=(options.wait_live_lock or M.BUILD_WAIT_S)*1000", 1, true),
+  'the split bounds its wait for the build lock')
+
 -- Prints "bridge|base_content" as the stage reads them and as the contract verifies them.
 local probe = [[package.path='scripts/?.lua;'..package.path
 local s=require('ue_bridge_stage') local c=require('moba_stage_contract')

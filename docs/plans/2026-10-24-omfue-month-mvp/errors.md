@@ -2,6 +2,23 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E346 split client 的前端 verify 取 build 鎖，在實機鎖與時限內等別人的建置；被停掉的建置留下 build 鎖（2026-10-30，history-nobu M6 道具呈現，工作線 C）
+- **現象**：
+  - 工作線 C 的道具 spotlight a 局在 18:15 取得實機鎖。p1 client 的 log 一直是空的，18:24 以「time box reached before Humans admitted」失敗。
+  - 18:19:01 起，build_ue_moba 鎖被一個「run_moba_split_local build phase」持有了 27 分鐘，期間沒有任何實機局能開始。持有者是工作線 C 停掉的 demo2 split：它在建置中被停掉，鎖留了下來。
+  - 後面排隊的 b 局和 demo3 都卡在等這把鎖。
+- **根因**：
+  1. split 的每個 client 啟動前都會跑 `build_ue_moba --verify-staged-only`（moba_frontend_preflight），而這個模式也會取 repo build 鎖。這時 split 已經持有實機鎖、時限也在計算，只要有人正在建置（a 局遇到的是 land_to_live，接著是 demo2），client 就在時限內排隊，最後耗盡時限。verify 只比對專案的 bridge 和它的 stage 紀錄（E124），本來就不需要排隊。
+  2. build_lock 只記錄 label 和時間，只能等 3 小時才判定過期。持有者被停掉時，沒有人知道鎖已經沒人用了。
+  3. split 等 build 鎖最多可以等 3 小時。
+- **通用修正**：
+  - `build_ue_moba --verify-staged-only` 不再取 build 鎖。比對失敗時隔 5 秒重試，最多 3 次，處理剛好有人在 stage 的情況。
+  - build_lock 的 owner.txt 會記錄持有鎖的 Lua 程序（pid、建立 token、執行檔），來源是 lua-host 新增的 `caller_owned`：從 host 經 cmd.exe 找到呼叫端的固定 Lua。等待的一方發現持有者程序已經不在，就立刻接手並記錄 `abandoned`。舊格式的 owner.txt 仍然照 STALE_MS 判定。
+  - split 等 build 鎖的上限改用 `--wait-live-lock`（預設 1800 秒），逾時就報錯並指出持有者。
+  - 這次被留下的鎖，在確認 demo2 已經沒有任何程序後，照 build_lock 接手過期鎖的方式釋放。
+  - 測試：build_lock_test（13 項，含已結束與仍在執行的持有者）、frontend_target_dir_test（verify 不取鎖、split 的等待有上限）。
+- **避免**：在實機鎖和時限內執行的步驟，不要去等 repo 層級的鎖。鎖要記錄持有者程序，讓等待的一方能判斷鎖是否已經沒人用。停掉建置中的流程之後，要確認它的鎖已經釋放。
+
 ## E343 效能量測的 performance 鎖包住建置、等實機鎖與非量測局，擋住 conformance 與其他建置（2026-10-30，history-nobu M6 UE 效能，工作線 C）
 - **現象**：工作線 C 量測 1＋9 quick demo 的 UE frame time 時，用一個 wrapper 在 `run_moba_split_local` 外面先取得 performance 鎖再開局。這把鎖從 17:41 一路持有：先是 demo1，18:06 換到 demo2，demo2 又持有 16 分鐘。demo1 只跑了 20 秒（被 observer mismatch 中止）；demo2 一直在等建置鎖和實機鎖（實機鎖當時由道具 spotlight 持有），根本沒開始量測。這段期間 conformance 的全量比對和線 A 的 release 建置都被擋住。demo1 的鎖結束後還沒釋放，因為 wrapper 用 `os.exit` 結束，沒有執行 `<close>`。
 - **根因**：performance 鎖由呼叫端包住整個 split，涵蓋了建置、等實機鎖、局前準備，甚至別人的局。E328 已規定鎖只包實際量測那一段，但 split 沒有讓鎖只持有在量測局內的選項，呼叫端只好自己從外面包。另外，Lua 的 `os.exit(code)` 不會關閉 to-be-closed 變數，所以鎖沒有被釋放。

@@ -9,6 +9,10 @@ pub fn supervise(_: &Value) -> Result<Value, String> {
 pub fn member(_: &Value) -> Result<Value, String> {
     Err("workflow supervision requires Windows".into())
 }
+#[cfg(not(windows))]
+pub fn caller(_: &Value) -> Result<Value, String> {
+    Err("caller identity requires Windows".into())
+}
 
 // CommandLineToArgvW / CRT quoting, not shell quoting. Empty and trailing-slash
 // arguments must survive exactly. No shell interprets this command line.
@@ -178,6 +182,13 @@ mod windows {
             child_birth = birth;
         }
         Err("fixed Lua owner not found".into())
+    }
+    // The fixed Lua process that made this call (directly or through cmd.exe), as an owned
+    // identity: a lock it holds records it, and a later holder sees when it is gone (E346).
+    pub fn caller(_: &Value) -> Result<Value, String> {
+        let owner = owner()?;
+        let pid = unsafe { GetProcessId(owner.0) };
+        crate::live_owned_identity(owner.0, pid)?.ok_or_else(|| "caller exited during the identity query".into())
     }
     pub fn member(params: &Value) -> Result<Value, String> {
         let name = params
@@ -371,7 +382,7 @@ mod windows {
     }
 }
 #[cfg(windows)]
-pub use windows::{member, supervise};
+pub use windows::{caller, member, supervise};
 
 #[cfg(test)]
 mod tests {

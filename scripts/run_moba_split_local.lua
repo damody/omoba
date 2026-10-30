@@ -203,8 +203,12 @@ end
 -- environment). Runs before the live lock is taken (E337): the frontend build (codegen, UBT) can
 -- take minutes, and inside the lock it used up the whole --max-seconds before the match started.
 -- Returns the moment the sources were built as of, for OMOBA_SOURCES_AS_OF (E202).
+M.BUILD_WAIT_S=1800
 function M.build_all(options)
-  local build_lock <close> = require('build_lock').acquire(b.root,'run_moba_split_local build phase')
+  -- The wait for another build is bounded like the wait for the machine (E346): a build that
+  -- holds the lock longer fails this run with the holder named instead of queueing for hours.
+  local build_lock <close> = require('build_lock').acquire(b.root,'run_moba_split_local build phase',
+    {wait_ms=(options.wait_live_lock or M.BUILD_WAIT_S)*1000})
   local as_of=os.time()
   local build_env=build_lock:env()
   for _,command in ipairs(M.build_commands(options,os.getenv('OM_UE_RUN_BINARIES'))) do

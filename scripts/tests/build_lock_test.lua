@@ -63,4 +63,29 @@ do
   holder:release()
   assert(not path.is_directory(lock_dir), 'release frees the lock once')
 end
-print('build lock: 9 checks passed')
+-- E346: the holder's Lua process is recorded; a waiter takes over at once when it has exited,
+-- and waits on a holder that still runs.
+do
+  do
+    local held <close> = lock.acquire(root, 'recorded', deps)
+    local text = path.read(path.join(lock_dir, 'owner.txt'))
+    assert(text:match('^recorded\n[^\n]*\n%d+\n[^\n]+\n%d+\n%d+\n'), 'owner names the holding process')
+    assert(lock.holder_gone(text, b.lib('process')) == nil, 'this process is a live holder')
+  end
+  local me = require('tools.lua.lib.host').call('caller_owned', {})
+  assert(lfs.mkdir(lock_dir))
+  -- Same pid, another creation token: the recorded holder is gone (its pid was freed or reused).
+  path.write(path.join(lock_dir, 'owner.txt'), ('killed\n2026-01-01T00:00:00Z\n%d\nT\n%d\n1\nlua.exe\n'):format(os.time(), me.pid), true)
+  do
+    local held <close> = lock.acquire(root, 'after-abandoned', deps)
+    assert(path.read(path.join(lock_dir, 'owner.txt')):match('^after%-abandoned\n'), 'an abandoned fresh lock is taken over at once')
+  end
+  assert(logs[#logs]:find('abandoned', 1, true), 'the takeover names the exited holder')
+  assert(lfs.mkdir(lock_dir))
+  path.write(path.join(lock_dir, 'owner.txt'), ('alive\n2026-01-01T00:00:00Z\n%d\nT\n%d\n%s\nlua.exe\n'):format(os.time(), me.pid, me.creation_token), true)
+  local waited = pcall(lock.acquire, root, 'third', {log = deps.log, wait_ms = 50})
+  assert(not waited, 'a running holder is waited on, here with a short wait_ms')
+  os.remove(path.join(lock_dir, 'owner.txt'))
+  lfs.rmdir(lock_dir)
+end
+print('build lock: 13 checks passed')
