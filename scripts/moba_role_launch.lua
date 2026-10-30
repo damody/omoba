@@ -794,6 +794,11 @@ function M.launch(plan,editor,process,time,lock)
   end
   assert((plan.mode=='remote-client' and plan.server==nil)
     or (plan.mode~='remote-client' and plan.server~=nil),'launch mode/server ownership mismatch')
+  -- Time limits run from taking the live-match lock (E322, like E269 for split): server and
+  -- runtime startup and admission count, so a 600 s finish timeout holds the lock 600 s, not
+  -- 600 s plus startup.
+  local budget_start=time.monotonic_ms()
+  if lock and lock.acquired then budget_start=budget_start-math.max(0,os.time()-lock.acquired)*1000 end
   local owned={}
   local control_api=require('moba_managed_control')
   local session_process=require('moba_session_process')
@@ -857,11 +862,11 @@ function M.launch(plan,editor,process,time,lock)
       end
     end
     print('Humans admitted; Unreal processes started. This is not renderer/full-match acceptance.')
-    local finish_deadline = plan.finish_timeout_seconds and time.monotonic_ms() + plan.finish_timeout_seconds * 1000
+    local finish_deadline = plan.finish_timeout_seconds and budget_start + plan.finish_timeout_seconds * 1000
     local finish_seen_at, finish_observation
     local finish_reader=finish_deadline and require('moba_role_finish_observer').reader(plan.clients)
     local finish_logs={}
-    local round_deadline=plan.round_time_box_seconds and time.monotonic_ms()+plan.round_time_box_seconds*1000
+    local round_deadline=plan.round_time_box_seconds and budget_start+plan.round_time_box_seconds*1000
     for _,client in ipairs(plan.clients) do
       finish_logs[client.player_id]=path.join(plan.output,'unreal-p'..client.player_id..'.stdout.log')
     end
@@ -897,7 +902,7 @@ function M.launch(plan,editor,process,time,lock)
       end
       if finish_deadline then
         local function check_finish_deadline()
-          assert(time.monotonic_ms()<finish_deadline,'bounded match result observation timed out; no forced winner')
+          assert(time.monotonic_ms()<finish_deadline,('bounded match result observation timed out %d s after taking the live-match lock; no forced winner'):format(plan.finish_timeout_seconds))
         end
         check_finish_deadline()
         local observation = finish_reader:poll(finish_logs)

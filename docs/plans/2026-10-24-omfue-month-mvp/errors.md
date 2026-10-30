@@ -2,7 +2,11 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E322 （保留）run_moba_role_ue 的結算與 round 時限從 Unreal 啟動後才計，持鎖超過時限（2026-10-30）
+## E322 run_moba_role_ue 的結算與 round 時限從 Unreal 啟動後才計，持鎖超過時限（2026-10-30，e187 遊戲模式 session；已放回 live）
+- **現象**：run_ue 預設 demo（demo2，`--finish-timeout-seconds 600`）14:21:44 取得 live_match 鎖，14:31:53 才放，共 609 秒，超過 10 分鐘上限。
+- **根因**：`moba_role_launch.launch` 的 finish 與 round time box 期限，是在 server 綁定、各 runtime 就緒、Unreal 程序啟動之後才開始計，鎖內的啟動時間不算。和 E269（split 的 `--max-seconds`）同類，role launch 這條路徑沒有跟著修。
+- **通用修正**：`machine_lock` 的 guard 帶 `acquired`（取得時間；子程序加入的 guard 用持有者 owner.json 的時間）；`launch` 的 finish 與 round 期限都從取得鎖開始計，啟動、進場都算在時限內。逾時訊息註明「從取得 live-match 鎖起 N 秒」。machine_lock_test 加入 guard 取得時間、加入的 guard 用持有者時間的檢查。
+- **避免**：任何「這局最多跑多久」的期限，都從取得 live_match 鎖開始計，不從某個中間步驟開始。
 
 ## E321 狀態圓環拒收負的 VisualInstanceKey，約一半狀態畫不出來（2026-10-30，history-nobu M6 呈現檢查，工作線 C；已放回 live）
 - **現象**：A07 本多忠勝的 UE spotlight 局裡，戰國最強（a07t_strongest）與奮起（a07d_rouse）都有狀態 cue，卻沒有任何 OM_STATUS_CUE；毫髮無傷（a07w_convert）、赤雷擊減速（a07e_slow）走一般狀態圓環，畫面上也沒有圓環。

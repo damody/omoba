@@ -151,8 +151,10 @@ function Guard:release()
   end
 end
 
-local function guard(d, name, dir, token, joined)
-  return setmetatable({deps = d, name = name, dir = dir, token = token, joined = joined}, Guard)
+-- ACQUIRED is the holder's acquire time (os.time seconds, from owner.json for a joined guard):
+-- a launch measures its time limits from it (E322), so startup inside the lock counts.
+local function guard(d, name, dir, token, joined, acquired)
+  return setmetatable({deps = d, name = name, dir = dir, token = token, joined = joined, acquired = acquired}, Guard)
 end
 
 -- OPTIONS: run (the run directory), label, wait_seconds (0 refuses at once), wait_flag (named
@@ -173,15 +175,18 @@ function M.acquire(root, name, options, deps)
   while true do
     if d.lfs.mkdir(dir) then
       local token = ('%d-%d-%d'):format(d.now(), d.time.monotonic_ms(), math.random(0, 999999999))
+      local acquired = d.now()
       d.path.write(d.path.join(dir, 'owner.json'), d.json.encode({schema = M.SCHEMA, name = name,
-        run = options.run, label = options.label, acquired = d.now(), token = token,
+        run = options.run, label = options.label, acquired = acquired, token = token,
         grace_seconds = options.grace_seconds, previous_abnormal = previous}), true)
       history(d, dir, {event = 'acquired', run = options.run, label = options.label, token = token})
       if announced then d.log(('[%s-lock] acquired after %d s'):format(name, (d.time.monotonic_ms() - started) // 1000)) end
-      return guard(d, name, dir, token, false)
+      return guard(d, name, dir, token, false, acquired)
     end
     local owner = read_json(d, d.path.join(dir, 'owner.json'))
-    if inherited and owner and owner.token == inherited then return guard(d, name, dir, inherited, true) end
+    if inherited and owner and owner.token == inherited then
+      return guard(d, name, dir, inherited, true, tonumber(owner.acquired))
+    end
     if not M.holder_alive(dir, owner, d) then
       previous = abnormal_end(d, dir, owner)
       d.log(('[%s-lock] ABNORMAL END of the previous holder (%s): %s; taking over'):format(name, previous.reason, M.describe(dir, owner, d)))

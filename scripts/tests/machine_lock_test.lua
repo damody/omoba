@@ -35,6 +35,7 @@ do
   check(path.is_directory(dir_of), 'lock directory exists while held')
   local owner = json.decode(path.read(path.join(dir_of, 'owner.json')))
   check(owner.run == 'D:/runs/first' and owner.token == held.token and owner.schema == lock.SCHEMA, 'owner names the run')
+  check(held.acquired == clock and owner.acquired == clock, 'the guard carries its acquire time (E322)')
   -- Freshly taken, nothing attached yet: held for the preparation grace.
   rejects(function() lock.acquire(root, 'live_match', {run = 'D:/runs/second'}, deps) end, 'run D:/runs/first')
   held:attach(record(41), 'server')
@@ -48,6 +49,7 @@ do
   env[lock.TOKEN_ENV.live_match] = held:env()[lock.TOKEN_ENV.live_match]
   local child = lock.acquire(root, 'live_match', {run = 'D:/runs/first/p1'}, deps)
   check(child.joined, 'the child joins its parent lock')
+  check(child.acquired == held.acquired, 'a joined guard measures from the holder acquire time')
   child:attach(record(42), 'unreal-p1')
   child:release()
   check(path.is_file(path.join(dir_of, 'proc-42-1042.json')), 'a joined release keeps the holder lock')
