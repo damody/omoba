@@ -1,6 +1,9 @@
 //! One-shot presentation payloads contain replica identity only, never a hidden source.
 pub const MAX_DAMAGE_CUES_PER_SNAPSHOT: usize = 1024;
 pub const MAX_PRESENTATION_CUES_PER_SNAPSHOT: usize = MAX_DAMAGE_CUES_PER_SNAPSHOT;
+/// A committed item use is published as a successful cast of `item:<shelf id>` (same projection
+/// as a hero ability: only teams that see the user); the renderer plays the item's own cues.
+pub const ITEM_CAST_PREFIX: &str = "item:";
 
 /// Stable fact identity shared by native event production and catalog lookup.
 /// This intentionally preserves the existing FNV-1a wire identity.

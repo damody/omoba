@@ -43,6 +43,10 @@ return function(ctx)
     -- Disclosed wards (frame entity kind Ward, no presentation catalog of their own) wear this
     -- stone lantern; its paper panels carry the owner's team colour (OmWorldBridgeActor maps them).
     unit('moba_ward', 32772, 'ward_lantern', 48),
+    -- C06T 豪奪's ground gold (pickup.rs, presentation identity item_money): a small static prop built
+    -- from engine basic shapes (scripts/prop_meshes.lua, no generated model), no team colours.
+    {id='item_money',kind='Creep',catalog_id=64000,ue={native_only=true,native_visual={
+      static_mesh_asset='/Game/Omoba/Props/gold_bag/SM_gold_bag.SM_gold_bag',height_world_units=30}}},
     {id='single_lane_creep',kind='Creep',catalog_id=32768,ue={native_only=true,native_visual=creep}},
     {id='north_guardian',kind='Creep',catalog_id=32769,ue={native_only=true,native_visual=north}},
     {id='south_guardian',kind='Creep',catalog_id=32770,ue={native_only=true,native_visual=south}},
@@ -95,7 +99,7 @@ return function(ctx)
       local id=rules.super_minion.id
       assert(not known[id], 'super minion collides with existing world identity: '..id)
       if not super_ids[id] then
-        assert(next_super_id<=65535,'super minion catalog capacity exceeded')
+        assert(next_super_id<64000,'super minion catalog capacity exceeded (64000+ are props)')
         -- The super minion is the melee ashigaru, larger.
         local visual=tripo.profile('minion_ashigaru') or copy(creep);visual.height_world_units=115
         units[#units+1]={id=id,kind='Creep',catalog_id=next_super_id,ue={native_only=true,native_visual=visual}}

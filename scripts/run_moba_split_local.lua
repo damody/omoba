@@ -143,9 +143,11 @@ function M.role_args(options,role,plan_file,player_id,humans,output,team_id)
   return args
 end
 
-local function wait_for(record,file,needle,timeout_ms,label)
+local function wait_for(record,file,needle,timeout_ms,label,box_deadline)
   local deadline=time.monotonic_ms()+timeout_ms
   while true do
+    assert(not box_deadline or time.monotonic_ms()<box_deadline,
+      label..': time box reached before "'..needle..'" (builds and startup count toward --max-seconds)')
     local text=path.is_file(file) and path.read(file) or ''
     if text:find(needle,1,true) then return end
     assert(not text:find('stack traceback',1,true),label..' failed; see '..file)
@@ -173,6 +175,9 @@ function M.run(options)
     wait_seconds=options.wait_live_lock or 0})
   if not acquired then lfs.rmdir(root);error(lock,0) end -- the refused run leaves no directory behind
   local held <close> = lock
+  -- The time box covers the whole lock hold, builds and startup included (E269), so
+  -- --max-seconds 600 really frees the machine within ten minutes.
+  local box_deadline=options.max_seconds and time.monotonic_ms()+options.max_seconds*1000
   -- Every role of this match is checked against the sources as they were now (E202).
   local child_env=lock:env()
   child_env.OMOBA_SOURCES_AS_OF=tostring(os.time())
@@ -191,7 +196,7 @@ function M.run(options)
     local probe_humans=M.humans(require('moba_role_launch').load_recipe({recipe=options.recipe,hero_selections={}}))
     local server_out=path.join(root,'server')
     local server,server_log=spawn('server',M.role_args(options,'server',nil,nil,#probe_humans,server_out))
-    wait_for(server,server_log,'Dedicated Rust authority started',options.admit_timeout_ms,'authority')
+    wait_for(server,server_log,'Dedicated Rust authority started',options.admit_timeout_ms,'authority',box_deadline)
     local plan_file=path.join(server_out,'match-plan.json')
     local plan=json.read(plan_file)
     local humans=M.humans(plan)
@@ -211,13 +216,13 @@ function M.run(options)
       lock:attach(record,'netem')
       children[#children+1]=record
       path.write(path.join(root,'children.json'),json.encode(children),true)
-      wait_for(record,record.log,'netem-proxy ready',30000,'netem proxy')
+      wait_for(record,record.log,'netem-proxy ready',30000,'netem proxy',box_deadline)
     end
     assert(#humans==#probe_humans,'locked plan changed the human seat count')
     for _,player_id in ipairs(humans) do
       local record,log=spawn('p'..player_id,M.role_args(options,'client',plan_file,player_id,#humans,path.join(root,'p'..player_id),teams[player_id]))
       -- Stagger: the next renderer starts only after this one is admitted (and any shader warmup ended).
-      wait_for(record,log,'Humans admitted',options.admit_timeout_ms,'client p'..player_id)
+      wait_for(record,log,'Humans admitted',options.admit_timeout_ms,'client p'..player_id,box_deadline)
     end
     print(('Split topology running: %d client(s) + dedicated authority; evidence under %s'):format(#humans,root))
     if options.netem then
@@ -228,7 +233,7 @@ function M.run(options)
       end
     end
     -- A live check answers within minutes; a time box retires the run deterministically.
-    local deadline=options.max_seconds and time.monotonic_ms()+options.max_seconds*1000
+    local deadline=box_deadline
     local finished_at
     while true do
       -- With autopilots, a finished match ends the run once every renderer has

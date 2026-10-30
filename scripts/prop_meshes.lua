@@ -12,6 +12,9 @@ M.MATERIALS = {
   { slot = "cloth", color = { 0.30, 0.17, 0.07 }, roughness = 0.95 },
   { slot = "rope", color = { 0.10, 0.07, 0.04 }, roughness = 0.9 },
   { slot = "gold", color = { 1.00, 0.70, 0.12 }, metallic = 1.0, roughness = 0.3 },
+  { slot = "frog", color = { 0.20, 0.55, 0.12 }, roughness = 0.7 },
+  { slot = "eye", color = { 0.95, 0.95, 0.90 }, roughness = 0.5 },
+  { slot = "pupil", color = { 0.03, 0.03, 0.03 }, roughness = 0.5 },
 }
 
 M.PROPS = {
@@ -26,6 +29,20 @@ M.PROPS = {
     { shape = "Cylinder", slot = "gold", location = { 0, 0, 97 }, scale = { 0.3, 0.3, 0.05 } },
     { shape = "Cylinder", slot = "gold", location = { 48, 26, 2.5 }, scale = { 0.26, 0.26, 0.05 } },
     { shape = "Cylinder", slot = "gold", location = { 40, -18, 7 }, scale = { 0.26, 0.26, 0.05 }, rotation = { 0, 0, 20 } },
+  },
+  -- The hex form (v3 state hex, OmStatusLook::ShowsHexForm): any hexed unit is shown as this squat frog,
+  -- facing +X like the units, with big eyes that read from the game camera.
+  hex_critter = {
+    { shape = "Sphere", slot = "frog", location = { 0, 0, 22 }, scale = { 0.75, 0.62, 0.44 } },
+    { shape = "Sphere", slot = "frog", location = { 22, 0, 36 }, scale = { 0.48, 0.5, 0.34 } },
+    { shape = "Sphere", slot = "eye", location = { 30, 13, 50 }, scale = { 0.17, 0.17, 0.17 } },
+    { shape = "Sphere", slot = "eye", location = { 30, -13, 50 }, scale = { 0.17, 0.17, 0.17 } },
+    { shape = "Sphere", slot = "pupil", location = { 37, 13, 51 }, scale = { 0.07, 0.07, 0.07 } },
+    { shape = "Sphere", slot = "pupil", location = { 37, -13, 51 }, scale = { 0.07, 0.07, 0.07 } },
+    { shape = "Sphere", slot = "frog", location = { -18, 26, 8 }, scale = { 0.34, 0.2, 0.16 } },
+    { shape = "Sphere", slot = "frog", location = { -18, -26, 8 }, scale = { 0.34, 0.2, 0.16 } },
+    { shape = "Sphere", slot = "frog", location = { 26, 20, 5 }, scale = { 0.16, 0.12, 0.1 } },
+    { shape = "Sphere", slot = "frog", location = { 26, -20, 5 }, scale = { 0.16, 0.12, 0.1 } },
   },
 }
 

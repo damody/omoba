@@ -10,6 +10,7 @@ ok(#spec.props >= 1 and spec.props[1].id == "gold_bag", "the gold bag is a prop"
 local slots = {}
 for _, part in ipairs(spec.props[1].parts) do slots[part.slot] = true end
 ok(slots.cloth and slots.gold, "the bag is cloth with gold coins")
+ok(spec.props[2] and spec.props[2].id == "hex_critter", "the hex critter is a prop")
 ok(M.asset("gold_bag") == "/Game/Omoba/Props/gold_bag/SM_gold_bag.SM_gold_bag", "asset path")
 M.PROPS.bad = { { shape = "Torus", slot = "cloth", scale = { 1, 1, 1 } } }
 ok(not pcall(M.spec), "an unknown engine shape is refused")
