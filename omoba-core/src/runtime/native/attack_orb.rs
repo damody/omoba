@@ -160,6 +160,12 @@ pub fn on_launch(world: &mut World, source: Entity, target: Entity, projectile: 
     world.write_resource::<OrbAttacks>().0.insert(projectile, hit);
 }
 
+/// A scripted attack (perform_attack `use_orb`): the orb pays now, as an attack that launched
+/// without a recorded start does; its hit when paid.
+pub fn scripted_hit(world: &mut World, source: Entity, target: Entity) -> Option<OrbHit> {
+    match charge(world, source, Some(target)) { Started::Paid(hit) => Some(hit), Started::Ordinary => None }
+}
+
 /// On-hit payload for a non-evaded empowered hit, attributed to `source`.
 pub fn hit_outcomes(hit: &OrbHit, source: Entity, target: Entity, pos: omoba_sim::Vec2) -> Vec<Outcome> {
     let amount = Fixed64::from_raw(hit.amount_raw);

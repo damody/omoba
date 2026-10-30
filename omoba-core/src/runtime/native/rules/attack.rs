@@ -275,6 +275,17 @@ pub fn instant(world: &mut World, attacker: Entity, target: Entity, critical: Op
     emit(world, event);
 }
 
+/// 腳本的立即攻擊（v3 `attack`，perform_attack）：發出與判定，觸發 on_attack_launch／on_attack_hit／
+/// on_attacked。不建立紀錄、不動攻擊者正在進行的普攻（它的紀錄與序號照舊），所以序號是 0。
+pub fn scripted(world: &mut World, attacker: Entity, target: Entity, critical: bool, missed: bool, evaded: bool) {
+    emit(world, AttackEvent::Launch { attacker, seq: 0, target, critical, missed });
+    let event = if missed || evaded {
+        AttackEvent::Miss { attacker, target, projectile: None,
+            reason: if missed { MissReason::SourceMissed } else { MissReason::Evaded } }
+    } else { AttackEvent::Hit { attacker, target, projectile: None } };
+    emit(world, event);
+}
+
 /// 取消：前搖被取消時這次攻擊作廢（紀錄移除）；後搖取消時攻擊已經發出，紀錄保留。
 pub fn canceled(world: &mut World, attacker: Entity, seq: u32, phase: AttackCancelPhase) {
     if phase == AttackCancelPhase::Windup {

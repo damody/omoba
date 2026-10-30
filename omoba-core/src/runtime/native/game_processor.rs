@@ -3143,6 +3143,13 @@ pub fn process_outcomes(
                 }
                 continue;
             },
+            // v3 `attack` (perform_attack): the hit settles now, its damage next in this batch.
+            Outcome::AddBuff {target,buff_id,payload,..} if buff_id==super::perform_attack::BUFF=>{
+                if !remove_uids.contains(&target) {
+                    for child in super::perform_attack::outcomes(world,target,&payload).into_iter().rev(){pending.push_front(child);}
+                }
+                continue;
+            },
             // Mana burn that also deals the burned amount: drain now, then the
             // damage packet runs next, before any later outcome of the batch.
             Outcome::AddBuff {target,buff_id,duration,payload}

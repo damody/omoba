@@ -473,6 +473,22 @@ impl Cx<'_, '_> {
         Ok(())
     }
 
+    /// v3 `attack { attacker, target, instant, cannot_miss, fake, trigger_effects, use_orb,
+    /// effect_multiplier }` (omoba-core perform_attack, 原作 PerformAttack): `attacker` hits `target`
+    /// now with its ordinary attack, outside its own attack cycle. Only `instant` attacks at the
+    /// ordinary effect multiplier (1) are supported; anything else is an error.
+    #[allow(clippy::too_many_arguments)]
+    pub fn perform_attack(&mut self, attacker: EntityHandle, target: EntityHandle, instant: bool, cannot_miss: bool, fake: bool,
+        trigger_effects: bool, use_orb: bool, effect_multiplier: Fixed64) -> Res {
+        use omoba_core::runtime::native::perform_attack::{payload, Flags, BUFF};
+        if !instant { return Err("v3: attack without instant (a projectile attack) is not supported"); }
+        if effect_multiplier != Fixed64::ONE { return Err("v3: attack.effect_multiplier other than 1 is not supported"); }
+        if !attacker.is_valid() || !target.is_valid() { return Ok(()); }
+        let packet = payload(target.id, target.gen, Flags { cannot_miss, fake, trigger_effects, use_orb }).to_string();
+        self.world.add_stat_buff(attacker, RStr::from_str(BUFF), Fixed64::ONE, RStr::from_str(&packet));
+        Ok(())
+    }
+
     /// v3 `create_unit.overrides` on a unit this cast just created (omoba-core unit_overrides):
     /// `rows` are `hp`, `attack_damage`, `attack_damage_max`, `move_speed`; they replace the
     /// template's values right after the spawn. Call it right after `create_unit`.

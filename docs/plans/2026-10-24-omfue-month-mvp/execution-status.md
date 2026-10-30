@@ -16,6 +16,18 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30（history-nobu 工作線 B：action:attack（腳本的立即攻擊）；已放回 live）
+
+- **`perform_attack.rs`**：一次性 envelope `__perform_attack_v1`，放在攻擊者身上，在本批 outcome 中結算成當下的一次命中（原作 PerformAttack）。
+  - 傷害：攻擊者的普攻物理傷害乘上爆擊（當下擲骰）；`fake` 不造成傷害。
+  - 失手與閃避：`cannot_miss` 時略過；目標攻擊免疫時一律落空。
+  - `trigger_effects`：觸發 on_attack_launch／on_attack_hit／on_attacked（`rules::attack::scripted`，序號 0，不動攻擊者正在進行的普攻紀錄）。
+  - `use_orb`：開著的切換法球照常扣魔並附加命中效果（`attack_orb::scripted_hit`）。
+  - 擲骰鍵混入目標，同一 tick 的多次腳本攻擊各自獨立擲骰。
+- kit 的 `Cx::perform_attack(attacker, target, instant, cannot_miss, fake, trigger_effects, use_orb, effect_multiplier)`。
+- 不支援：非 instant（會飛投射物，與普攻共用紀錄）與 effect_multiplier ≠ 1（全部文件只有 1 處用到），這兩種 kit 回 Err。
+- 測試：`a_scripted_attack_hits_now_with_the_attackers_attack_and_feeds_the_attack_triggers`；omoba-core 1424 項通過。
+
 ## 2026-10-30（history-nobu 工作線 B：status.scope hero／permanent 跨死亡保留；headless 逐招統計涵蓋每條命（E318）；已放回 live）
 
 - **`status_scope.rs`**：產生的程式碼在 `scope = "hero"`／`"permanent"` 的狀態列標上 `__status_scope_v1`。
