@@ -2092,10 +2092,12 @@ fn use_handlers(driver: &mut SimulationDriver) {
 }
 
 /// Documents whose hero is only partly ported: results are written, differences do not fail.
-/// M6 batches 1 and 2 (m6-waves.md; E320): test_only heroes as line A brings them into the content
+/// M6 batches (m6-waves.md; E320): test_only heroes as line A brings them into the content
 /// and generates their entries; until then every scenario is unsupported and nothing fails.
 const REPORT_ONLY: &[&str] = &["A13", "C05", "C09", "A18", "B30", "A16", "A24", "C01", "A23", "A35",
-    "A01", "B20", "B26", "C22", "A12", "A14", "A26", "B27", "C03"];
+    "A01", "B20", "B26", "C22", "A12", "A14", "A26", "B27", "C03",
+    // M6 batch 3
+    "C14", "C24", "A19", "A11", "A22", "A30", "A36", "B34", "B02"];
 
 fn conformance(id: &str) {
     let doc = document(id);
@@ -2162,6 +2164,10 @@ conformance_tests! {
     a01_tokugawa_ieyasu => "A01", b20_yamagata_masakage => "B20", b26_okuma_tomohide => "B26", c22_sasaki_kojiro => "C22",
     a12_otani_yoshitsugu => "A12", a14_maeda_toshiie => "A14", a26_nohime => "A26", b27_kojima_sadaoki => "B27",
     c03_shimazu_yoshihiro => "C03",
+    // M6 batch 3 (report only until in the content and generated; E320)
+    c14_saito_yoshitatsu => "C14", c24_yagyu_muneyoshi => "C24", a19_kuroda_yoshitaka => "A19", a11_saito_dosan => "A11",
+    a22_sengoku_hidehisa => "A22", a30_niwa_nagahide => "A30", a36_maeno_nagayasu => "A36", b34_takeda_katsuyori => "B34",
+    b02_fuma_kotaro => "B02",
 }
 
 
