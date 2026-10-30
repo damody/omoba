@@ -84,14 +84,25 @@ check(#edits == 2 and edits[1] == 'Plugins/OmRuntime/Source/OmRuntime/A.cpp' and
   'edited and added sources are listed')
 rejects(function() shadow.sync(project, deps) end, 'edited since its last sync')
 check(path.read(path.join(project, 'Plugins/OmRuntime/Source/OmRuntime/A.cpp')) == 'a-v2-shadow-edit', 'the refused sync kept the edit')
+-- An edit live already has (landed) is not one a sync would lose.
+put('omfue/Source/OmGame/New.cpp', 'new in the shadow')
+check(#shadow.local_edits(project, deps) == 1, 'a landed edit is not listed')
+os.remove(path.join(root, 'omfue/Source/OmGame/New.cpp'))
+-- Live's own line endings for the same text are not an edit either.
+put('omfue/Source/OmGame/Eol.cpp', 'a\r\nb\r\n')
+put('shadow/Source/OmGame/Eol.cpp', 'a\nb\n')
+check(#shadow.local_edits(project, deps) == 2, 'a landed edit with other line endings is not listed (the earlier two remain)')
+os.remove(path.join(root, 'omfue/Source/OmGame/Eol.cpp'))
 shadow.sync(project, deps, {discard_edits = true})
 check(path.read(path.join(project, 'Plugins/OmRuntime/Source/OmRuntime/A.cpp')) == 'a-v2' and not path.exists(path.join(project, 'Source/OmGame/New.cpp')),
   'with discard_edits the shadow is live again')
--- Codegen output written after the sync is part of the baseline, not an edit.
+-- What a stage writes (codegen output, the staged bridge header) is part of the baseline, not an edit.
 put('shadow/Plugins/OmRuntime/Source/OmGenerated/Gen.cpp', 'generated')
-shadow.record_generated(project, deps)
-check(#shadow.local_edits(project, deps) == 0, 'codegen output is recorded')
+put('shadow/Plugins/OmRuntime/Source/ThirdParty/OmBridge/include/om_bridge.h', 'staged header')
+shadow.record_staged(project, deps)
+check(#shadow.local_edits(project, deps) == 0, 'codegen output and the staged header are recorded')
 os.remove(path.join(project, 'Plugins/OmRuntime/Source/OmGenerated/Gen.cpp'))
+os.remove(path.join(project, 'Plugins/OmRuntime/Source/ThirdParty/OmBridge/include/om_bridge.h'))
 
 -- Stage: header, lib, bridge and base_content land in the shadow with a record; live untouched.
 local record = stage.stage(project, stage.sources(root, header), quiet)

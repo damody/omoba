@@ -16,6 +16,29 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 下午（工作線 C：施放「落在目標上」的 cue，英雄技能與道具共用；E295，已放回 live）
+
+- **投影政策**（主 session 決定）：
+  - 看得到目標的隊伍才收到目標端的 cue。
+  - 看得到施法者的隊伍才收到施法者身分，否則欄位為 0，只播目標端效果。
+  - 目標是地面點時，用 server 既有的視野判斷該點。
+- **host（omoba-core）**：
+  - 施放事實之後多送一個 `ObservableFact::AbilityTarget`，帶目標單位或地面點。英雄技能（`SkillTarget`，含受管施放的結算）和道具使用（script 與目錄兩條路徑）都會送。
+  - `team_projector` 依目標的揭露判斷投影，地面點用 `fog_grid::team_sees_point`。這個判斷是從 fog 取樣抽出來共用的同一段。
+  - `presentation_cue::AbilityTargetPresentationCue`（ATG1／ATC1）：地面點的 cue 不依附任何單位，所以 `disclosed_entity` 改為 Option。
+- **bridge**：`OM_ABILITY_EVENT_FLAG_TARGET`，填入 `target_entity`／`target_point`，看不到施法者時 caster 為 0。
+- **UE**：
+  - `scripts/cast_cues.lua` 取代 item_cues.lua，產生 `cast-cues-v1.json`（道具 71 件、英雄技能 274 招）。
+  - `AOmUnitActor::PlayCastTargetCues` 在目標位置播放。cue 掛在目標單位上；目標是地面點時掛在施法者上，看不到施法者就掛在任一顯示中的單位。
+- **測試**：
+  - omoba-core 新增 4 項：投影、地面點視野、cue 編解碼、host 發出目標事實。全部 1409 項通過。
+  - bridge 153 項通過；UE `ItemCues`、`StatusCue`、`ForcedMotionArc`、`PropMesh` 通過。
+  - client runtime 有 1 項失敗（`owner_shop_ready_keeps_epoch_slots_and_catalog_only_buy_wire`）：測試預期只有 1 個重複材料的配方，現在 M7 道具內容有 3 個，和這次修改無關。
+- **實機**（`target/lineC-target/run2`，split 自動駕駛 540 秒）：
+  - p1（隊伍 1）播放目標 cue 28 次：b01_saika_corps 8、c17_victory_blessing 7、b08_flash_cut 6、a34_iceberg_strike 4、c17_divine_strike 2、b04_fire_blast 1。
+  - p6（隊伍 2）17 次。兩隊次數不同，符合依可見性投影。
+- **E295**：E289 的影子保護把 stage 寫入的 header、只差行尾的已放回檔案誤判成修改，已修正。
+
 ## 2026-10-30（history-nobu 工作線 B：e187 replica 冷卻不一致的兩個根因（E294）；已放回 live）
 
 - **前搖目標保持揭露**：`visibility::windup_target_grace` 把尚未 release、以單位為目標、且目標仍存在的前搖目標，加進施法者隊伍的 input grace。目標在前搖期間進入霧中時，replica 不會再把它刪掉而取消前搖。目標死亡時照常取消。修正 B08 b08_flash_cut 與 A34 a34_frost_bolt 在 replica 缺少冷卻的問題。

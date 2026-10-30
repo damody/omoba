@@ -277,7 +277,7 @@ pub(super) fn publish(world:&World,caster:Entity,cues:Vec<CastSettlementCue>) {
         let kind=if cue.area.is_some(){super::super::scripting::ScriptVisualEventKind::SkillArea}else{super::super::scripting::ScriptVisualEventKind::SkillCast};
         let mut event=super::super::scripting::ScriptVisualEvent::new(kind,caster,cue.tick);
         event.secondary=cue.target;event.skill_id=cue.skill_id;event.ability_rank=cue.rank;
-        event.caster_relocation=cue.relocation;event.ability_area=cue.area;event
+        event.caster_relocation=cue.relocation;event.ability_area=cue.area;event.target_point=cue.target_point;event
     }).collect();
     super::super::scripting::dispatch::publish_successful_cast_facts(world,&mut visuals);
     world.write_resource::<super::super::scripting::ScriptVisualEventQueue>().extend(visuals);

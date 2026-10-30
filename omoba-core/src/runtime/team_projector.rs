@@ -199,6 +199,8 @@ pub struct TeamViewProjector {
     latest_external_property_by_replica: BTreeMap<u64, Vec<u8>>,
     fog_grid: Option<crate::runtime::fog_grid::AuthorityFogGrid>,
     pending_fog_event: Option<TeamPublicEvent>,
+    /// This tick's committed view: a cast's ground-point target is projected on the team's vision.
+    point_view: Option<std::sync::Arc<crate::runtime::visibility::WaveBReadView>>,
     /// This frame's runtime facts per replica id, already in the team form (runtime_fact_state).
     runtime_facts: BTreeMap<u64, Vec<u8>>,
     prepared_mode: Option<AuthoritativeModePresentation>,
@@ -609,6 +611,7 @@ pub fn run_team_projection_after_wave_b(
             if view.tick != committed.tick { return Err(ProjectionError::InvalidFog("fog barrier tick mismatch")); }
             projector.sample_authority_fog(geometry, view)?;
         }
+        projector.point_view = visibility.latest_read_view.clone().filter(|view| view.tick == committed.tick);
         if let Some((resume_sequence, view_epoch)) = pending_rebases.get(team) {
             let view_epoch = (*view_epoch).max(projector.view_epoch);
             // Recovery requests may refer to the frame where divergence was
@@ -757,6 +760,7 @@ impl TeamViewProjector {
             latest_external_property_by_replica: BTreeMap::new(),
             fog_grid: None,
             pending_fog_event: None,
+            point_view: None,
             runtime_facts: BTreeMap::new(),
             prepared_mode: None,
             pending_script_swaps: Vec::new(),
@@ -1483,6 +1487,14 @@ impl TeamViewProjector {
                     continue;
                 }
             }
+            // A cast's ground-point target reaches only the teams whose vision covers the point.
+            if let ObservableFact::AbilityTarget { target: None, point: Some((x, y)), .. } = &fact.fact {
+                let point = omoba_sim::Vec2::new(omoba_sim::Fixed64::from_raw(*x), omoba_sim::Fixed64::from_raw(*y));
+                if !self.point_view.as_deref().is_some_and(|view|
+                    crate::runtime::fog_grid::team_sees_point(view, self.team_id, point)) {
+                    continue;
+                }
+            }
             project_fact(
                 fact,
                 visible,
@@ -1634,6 +1646,28 @@ fn project_fact(
     // cannot anchor it, even if an inconsistent visibility set contains them.
     if matches!(ordered.fact, ObservableFact::ProjectileImpact { .. } | ObservableFact::AttackAvoided { .. } | ObservableFact::CriticalHit { .. })
         && (!target_visible || target.and_then(|id| replica_proto(identity, id)).is_none()) {
+        return;
+    }
+    // Where a cast landed: projected on the target, never on the caster. A unit target must be
+    // disclosed to this team (a ground point was checked against its vision by the caller); the
+    // caster's identity rides along only when this team sees the caster, else it stays 0.
+    if let ObservableFact::AbilityTarget { source: caster, ability_id, rank, target: target_unit, point } = &ordered.fact {
+        let subject = match target_unit {
+            Some(id) => match visible.contains(id).then(|| replica_proto(identity, *id)).flatten() {
+                Some(replica) => Some(replica),
+                None => return,
+            },
+            None if point.is_some() => None,
+            None => return,
+        };
+        let caster_replica = visible.contains(caster).then(|| replica_proto(identity, *caster)).flatten().map_or(0, |replica| replica.value);
+        public.push(TeamPublicEvent {
+            event_kind: ordered.key.fact_kind as u32,
+            subject,
+            sanitized_payload: crate::runtime::presentation_cue::AbilityTargetPresentationCue::public_payload(
+                *ability_id, *rank, caster_replica, if target_unit.is_some() { None } else { *point }),
+            stable_sub_index: ordered.key.local_ordinal,
+        });
         return;
     }
     // Ability payload identifies the caster's skill, not a target-only impact.
@@ -1802,6 +1836,8 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
             payload.push(u8::from(*active));
             (Some(*source), Some(*target), payload)
         }
+        // Projected on its own (project_fact) before this table is consulted.
+        ObservableFact::AbilityTarget { source, target, .. } => (Some(*source), *target, payload),
         ObservableFact::AbilityArea {source, team, ability_id,rank,x_raw,y_raw,radius_raw,duration_raw} => {
             if *team == 0 || *team != viewer_team {return (None,None,Vec::new());}
             payload = crate::runtime::presentation_cue::AbilityAreaPresentationCue::public_payload(
@@ -2339,6 +2375,85 @@ mod ability_cue_projection_tests {
         projector.hash_entities.clear();
         let hidden=projector.build_step(4,&BTreeSet::new(),&[],vec![],&[],&[]).unwrap();
         assert!(!hidden.public_events.iter().any(|event|event.event_kind==crate::runtime::FactKind::ChannelVisual as u32));
+    }
+
+    fn cast_target_fact(caster: u64, target: Option<u64>, point: Option<(i64, i64)>) -> OrderedFact {
+        use crate::runtime::{FactKind, FactOrderingKey, FactPhase};
+        OrderedFact {
+            key: FactOrderingKey {tick:17, phase:FactPhase::PostStep, canonical_source_order:caster, local_ordinal:1, fact_kind:FactKind::Ability},
+            audience: FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.to_owned()),
+            fact: ObservableFact::AbilityTarget {source: caster, ability_id: 77, rank: 2, target, point},
+        }
+    }
+
+    #[test]
+    fn cast_target_cue_reaches_only_teams_that_see_the_target_and_names_only_a_seen_caster() {
+        use crate::runtime::presentation_cue::AbilityTargetPresentationCue as Cue;
+        let caster_key = CanonicalEntityKey { id: 7, generation: 1 };
+        let target_key = CanonicalEntityKey { id: 42, generation: 1 };
+        let caster = (u64::from(caster_key.generation) << 32) | u64::from(caster_key.id);
+        let target = (u64::from(target_key.generation) << 32) | u64::from(target_key.id);
+        let mut identity = TeamIdentityState::new(2);
+        let caster_replica = identity.disclose(caster_key).unwrap().replica_id.get();
+        let target_replica = identity.disclose(target_key).unwrap().replica_id.get();
+        let fact = cast_target_fact(caster, Some(target), None);
+        let decode = |event: &TeamPublicEvent| Cue::from_public_event(17, event, |_| Some(1)).unwrap().1;
+        let project = |identity: &TeamIdentityState, visible: &[u64]| {
+            let (mut public, mut external) = (Vec::new(), Vec::new());
+            project_fact(&fact, &visible.iter().copied().collect(), identity, &mut public, &mut external);
+            assert!(external.is_empty());
+            public
+        };
+        // Both seen: the cue plays at the target and names the caster.
+        let both = project(&identity, &[caster, target]);
+        assert_eq!(both.len(), 1);
+        assert_eq!(both[0].subject.as_ref().unwrap().value, target_replica);
+        let cue = decode(&both[0]);
+        assert_eq!((cue.caster_id, cue.target_id, cue.ability_id, cue.rank, cue.point), (caster_replica, target_replica, 77, 2, None));
+        // A hidden caster: only the target-side effect, no caster identity.
+        let target_only = project(&identity, &[target]);
+        assert_eq!(target_only.len(), 1);
+        assert_eq!(decode(&target_only[0]).caster_id, 0, "a hidden caster is never named");
+        // A team that does not see the target receives nothing, even when it sees the caster.
+        assert!(project(&identity, &[caster]).is_empty());
+        assert!(project(&identity, &[]).is_empty());
+        // A remembered (no longer disclosed) target does not anchor it either.
+        identity.remember(target_key).unwrap();
+        assert!(project(&identity, &[caster, target]).is_empty());
+    }
+
+    #[test]
+    fn cast_target_cue_at_a_ground_point_reaches_only_teams_whose_vision_covers_it() {
+        use crate::runtime::presentation_cue::AbilityTargetPresentationCue as Cue;
+        use crate::runtime::visibility::{CommittedVisionSource, WaveBReadView};
+        use omoba_sim::{Fixed64, Vec2};
+        let caster_key = CanonicalEntityKey { id: 7, generation: 1 };
+        let caster = (u64::from(caster_key.generation) << 32) | u64::from(caster_key.id);
+        let point = (100 * 1024, 0);
+        let fact = cast_target_fact(caster, None, Some(point));
+        let view = |team: u32, x: i32| std::sync::Arc::new(WaveBReadView {
+            tick: 17, entities: vec![].into(), brush_regions: Vec::new().into(), vision_occluders: vec![].into(),
+            vision_sources: vec![CommittedVisionSource { canonical_id: 99, team, position: Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO),
+                radius: Fixed64::from_i32(10), detection_level: 0, ignores_terrain: false }].into(),
+        });
+        let mut projector = TeamViewProjector::new(1, TeamProjectorConfig::default());
+        let cast_events = |step: &Step| step.public_events.iter()
+            .filter(|event| event.sanitized_payload.starts_with(b"ATG1")).cloned().collect::<Vec<_>>();
+        // Team 1 has vision on the point; the caster is not disclosed to it.
+        projector.point_view = Some(view(1, 95));
+        let seen = projector.build_step(17, &BTreeSet::new(), std::slice::from_ref(&fact), vec![], &[], &[]).unwrap();
+        let events = cast_events(&seen);
+        assert_eq!(events.len(), 1);
+        assert!(events[0].subject.is_none(), "a ground point anchors on no unit");
+        let cue = Cue::from_public_event(17, &events[0], |_| Some(1)).unwrap().1;
+        assert_eq!((cue.caster_id, cue.target_id, cue.point), (0, 0, Some(point)));
+        // Vision elsewhere, another team's vision there, or no committed view: nothing.
+        projector.point_view = Some(view(1, -95));
+        assert!(cast_events(&projector.build_step(17, &BTreeSet::new(), std::slice::from_ref(&fact), vec![], &[], &[]).unwrap()).is_empty());
+        projector.point_view = Some(view(2, 95));
+        assert!(cast_events(&projector.build_step(17, &BTreeSet::new(), std::slice::from_ref(&fact), vec![], &[], &[]).unwrap()).is_empty());
+        projector.point_view = None;
+        assert!(cast_events(&projector.build_step(17, &BTreeSet::new(), std::slice::from_ref(&fact), vec![], &[], &[]).unwrap()).is_empty());
     }
 
     #[test]

@@ -24,7 +24,7 @@ fn fixture()->(World,Entity,Vec<Entity>,Outcome) {
     effects.push(Outcome::ScriptSetMana {entity:caster,pool:ManaPool::new(Fixed64::from_i32(210),Fixed64::from_i32(300)).unwrap()});
     let batch=Outcome::ScriptCastTransaction {caster,skill_id:SKILL.into(),rank:1,faction:Some(faction),player_owner:Some(7),
         expected_mana:Some(ManaPool::full(Fixed64::from_i32(300)).unwrap()),outcomes:effects,
-        cues:vec![CastSettlementCue {target:None,skill_id:Some(SKILL.into()),rank:1,tick:1,relocation:None,area:None}],aggression_target:None};
+        cues:vec![CastSettlementCue {target:None,skill_id:Some(SKILL.into()),rank:1,tick:1,relocation:None,area:None,target_point:None}],aggression_target:None};
     (world,caster,children,batch)
 }
 fn mana(world:&World,caster:Entity)->Fixed64 {world.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap().current()}

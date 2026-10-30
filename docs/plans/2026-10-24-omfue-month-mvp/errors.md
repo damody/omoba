@@ -2,6 +2,18 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E295 E289 的影子保護誤判：stage 自己寫的 bridge header、只差行尾的已放回檔案都被當成未放回的修改（2026-10-30，工作線 C）
+
+- **現象**：目標 cue 放回 live 後，`stage_ue_shadow --sync` 拒絕執行，列出 `ThirdParty/OmBridge/include/om_bridge.h` 與 `OmPropMeshTests.cpp`。影子因此沒有重建，驗證局的 client 在 frontend preflight 失敗。
+- **根因**：
+  - E289 的紀錄只在 codegen 後更新 OmGenerated，沒有涵蓋 stage 寫進影子的 bridge header 與 lib。
+  - 「和 live 相同」的判斷是逐位元組比較，而 land_to_live 會把 live 寫成 live 自己的行尾，所以已經放回的檔案仍被判成不同。
+- **通用修正**：
+  - `M.STAGED`（OmGenerated、ThirdParty/OmBridge）在 codegen 後與 stage 結束時都重新記錄。
+  - 和 live 比較時忽略行尾差異。
+  - `ue_shadow_stage_test` 加入兩種情況，共 47 項通過。
+- **避免**：新增「拒絕」類的保護時，要用同一流程實際跑一輪（放回 → sync → build → 開局），確認不會擋到正常流程。
+
 ## E294 （保留）bot 從不施放第五個技能欄（2026-10-30，e187 遊戲模式 session；進行中）
 
 ## E294 前搖目標離開視野後，replica 取消前搖；腳本的 cooldown_start 重設了冷卻總長，replica 只能保留（2026-10-30，工作線 B）

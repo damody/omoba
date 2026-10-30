@@ -187,6 +187,13 @@ pub enum ObservableFact {
         source:u64, team:u32, ability_id:u64, rank:u32,
         x_raw:i64, y_raw:i64, radius_raw:i64, duration_raw:i64,
     },
+    /// Where a successful cast (or item use) landed, for the one-shot cues played there: a unit
+    /// or a ground point. Only teams that see the target receive it, and the caster's identity
+    /// rides along only for teams that see the caster (team_projector).
+    AbilityTarget {
+        source: u64, ability_id: u64, rank: u32,
+        target: Option<u64>, point: Option<(i64, i64)>,
+    },
     Tower {
         source: u64,
         action_id: u64,

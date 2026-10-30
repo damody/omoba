@@ -90,7 +90,7 @@ impl CueRetention {
             .map(|entity| (entity.render_id, entity.disclosure_epoch))
             .collect::<BTreeSet<_>>();
         self.entries.retain(|_, entry| {
-            visible.contains(&entry.cue.disclosed_entity())
+            entry.cue.disclosed_entity().is_none_or(|entity| visible.contains(&entity))
         });
         let mut projected = snapshot
             .effects
@@ -147,7 +147,7 @@ impl CueRetention {
     }
     pub(crate) fn invalidate(&mut self, target: u64, epoch: u64) {
         self.entries.retain(|_, entry| {
-            entry.cue.disclosed_entity() != (target, epoch)
+            entry.cue.disclosed_entity() != Some((target, epoch))
         });
     }
     pub(crate) fn reset(&mut self) {

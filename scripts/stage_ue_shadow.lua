@@ -30,7 +30,9 @@ M.PLUGIN_SKIP={Binaries=true,Intermediate=true}
 M.SEED_DIRS={'Binaries','Intermediate/Build'}
 -- Size and time of every mirrored source as the last sync (and the codegen after it) left it (E289).
 M.SYNC_RECORD='Saved/ShadowSync/sources.json'
-M.GENERATED='Plugins/OmRuntime/Source/OmGenerated'
+-- What a stage writes into the shadow itself (codegen output, the staged bridge header and library):
+-- part of the baseline, never an edit.
+M.STAGED={'Plugins/OmRuntime/Source/OmGenerated','Plugins/OmRuntime/Source/ThirdParty/OmBridge'}
 
 local function deps_of(deps)
   deps=deps or {}
@@ -145,31 +147,42 @@ local function write_record(d,project,sources)
 end
 
 -- Sources edited, added or removed in PROJECT since its last sync (codegen output excepted): work a
--- --sync would silently overwrite. Empty for a shadow without a record.
+-- --sync would silently overwrite. A change live already has (landed) loses nothing and is not
+-- listed. Empty for a shadow without a record.
 function M.local_edits(project,deps)
   local d=deps_of(deps)
   local recorded=read_record(d,project)
   if not recorded then return {} end
   local now=M.scan(project,d)
+  local live=d.path.join(d.root,'omfue')
+  local function same_as_live(rel)
+    local shadow_file,live_file=d.path.join(project,rel),d.path.join(live,rel)
+    if not d.path.is_file(live_file) then return not d.path.is_file(shadow_file) end
+    -- Line endings are not content (land_to_live writes live's own).
+    local function text(file) return (d.path.read(file,true):gsub('\r\n','\n')) end
+    return d.path.is_file(shadow_file) and text(shadow_file)==text(live_file)
+  end
   local edits={}
-  for rel,stamp in pairs(now) do if recorded[rel]~=stamp then edits[#edits+1]=rel end end
-  for rel in pairs(recorded) do if not now[rel] then edits[#edits+1]=rel end end
+  for rel,stamp in pairs(now) do if recorded[rel]~=stamp and not same_as_live(rel) then edits[#edits+1]=rel end end
+  for rel in pairs(recorded) do if not now[rel] and not same_as_live(rel) then edits[#edits+1]=rel end end
   table.sort(edits)
   return edits
 end
 
--- After codegen writes OmGenerated, its files are the sync's baseline too.
-function M.record_generated(project,deps)
+-- After a stage writes its own files (M.STAGED), they are the sync's baseline too.
+function M.record_staged(project,deps)
   local d=deps_of(deps)
   local recorded=read_record(d,project)
   if not recorded then return end
-  for rel in pairs(recorded) do if rel:sub(1,#M.GENERATED+1)==M.GENERATED..'/' then recorded[rel]=nil end end
-  for rel,stamp in pairs(M.scan(project,d,M.GENERATED)) do recorded[rel]=stamp end
+  for _,prefix in ipairs(M.STAGED) do
+    for rel in pairs(recorded) do if rel:sub(1,#prefix+1)==prefix..'/' then recorded[rel]=nil end end
+    for rel,stamp in pairs(M.scan(project,d,prefix)) do recorded[rel]=stamp end
+  end
   write_record(d,project,recorded)
 end
 
 -- OPTIONS.discard_edits: overwrite sources edited in the shadow since its last sync. Without it a sync
--- refuses to destroy them (another session syncing the same shadow, or an edit not landed yet, E289).
+-- refuses to destroy them (another session syncing the same shadow, or an edit not landed yet, E289, E295).
 function M.sync(project,deps,options)
   local d=deps_of(deps)
   local live=d.path.join(d.root,'omfue')
@@ -227,7 +240,7 @@ function M.stage(project,deps)
   if not deps or not deps.process then require('ue_build_prerequisites').require_ready(d.process) end
   run(d,'content codegen','cargo',{'run','--manifest-path',d.path.join(ue,'codegen','Cargo.toml'),'--',
     '--content-root',d.path.join(d.root,'scripts','lua_data'),'--out',d.path.join(plugin,'Source','OmGenerated')})
-  M.record_generated(project,d)
+  M.record_staged(project,d)
   run(d,'Rust bridge','cargo',{'build','--manifest-path',d.path.join(ue,'bridge','Cargo.toml')})
   run(d,'script DLLs (debug)','cargo',require('script_dlls').cargo_args({'build','--manifest-path',
     d.path.join(d.root,'scripts','Cargo.toml')},'compiled-content-only'))
@@ -235,7 +248,9 @@ function M.stage(project,deps)
   d.path.mkdir_p(d.path.parent(header))
   run(d,'C ABI header','cbindgen',{'--config',d.path.join(ue,'bridge','cbindgen.toml'),'--crate','om_bridge',
     '--output',header,d.path.join(ue,'bridge')})
-  return d.stage.stage(project,d.stage.sources(d.root,header,d),{log=d.log})
+  local record=d.stage.stage(project,d.stage.sources(d.root,header,d),{log=d.log})
+  M.record_staged(project,d)
+  return record
 end
 
 function M.build(project,ue_root,deps)

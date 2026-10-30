@@ -45,6 +45,9 @@ pub enum Outcome {
         owner_pid: u32,
         slot: u32,
         item_id: String,
+        /// The use's target (unit or raw ground point), for the cues played there.
+        target: Option<Entity>,
+        target_point: Option<(i64, i64)>,
         outcomes: Vec<Outcome>,
     },
     /// Batch pre-admission result of a `ScriptCastTransaction` (host-only).
@@ -333,6 +336,8 @@ pub struct CastSettlementCue {
     pub tick: u64,
     pub relocation: Option<(u32, i64, i64)>,
     pub area: Option<(u32, i64, i64, i64, i64)>,
+    #[serde(default)]
+    pub target_point: Option<(i64, i64)>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

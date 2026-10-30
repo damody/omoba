@@ -7,6 +7,24 @@ use super::{
 use omoba_sim::{Fixed64, Vec2};
 
 pub const MAX_FOG_CELLS: usize = 4096;
+
+/// Whether TEAM's vision covers POINT in this committed view: a vision source in range, brush
+/// rules and line of sight. The fog grid samples its cells with it; a one-shot cue at a ground
+/// point is disclosed only to the teams it holds for (team_projector).
+pub fn team_sees_point(view: &WaveBReadView, team: u32, point: Vec2) -> bool {
+    view.vision_sources
+        .iter()
+        .filter(|source| source.team == team && source.radius.raw() > 0)
+        .any(|source| {
+            let dx = (i128::from(point.x.raw()) - i128::from(source.position.x.raw())).unsigned_abs();
+            let dy = (i128::from(point.y.raw()) - i128::from(source.position.y.raw())).unsigned_abs();
+            let radius = source.radius.raw() as u128;
+            dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)) <= radius * radius
+                && crate::runtime::brush_vision::brush_allows_vision(&view.brush_regions, source.position, point)
+                // E187 §5.5: the committed occluders' broad phase (same answer).
+                && view.vision_occluders.line_of_sight(source.position, point) == LosResult::Clear
+        })
+}
 /// Presentation-only extension; deliberately outside gameplay FactKind IDs.
 pub const FOG_GRID_EVENT_KIND: u32 = 0x4647_0001;
 pub const FOG_GRID_NAMESPACE: &str = "presentation";
@@ -378,22 +396,7 @@ impl AuthorityFogGrid {
         }
         for (index, state) in self.snapshot.cells.iter_mut().enumerate() {
             let point = self.snapshot.geometry.center(index);
-            let visible = view
-                .vision_sources
-                .iter()
-                .filter(|source| source.team == self.snapshot.team && source.radius.raw() > 0)
-                .any(|source| {
-                    let dx = (i128::from(point.x.raw()) - i128::from(source.position.x.raw()))
-                        .unsigned_abs();
-                    let dy = (i128::from(point.y.raw()) - i128::from(source.position.y.raw()))
-                        .unsigned_abs();
-                    let radius = source.radius.raw() as u128;
-                    dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)) <= radius * radius
-                        && crate::runtime::brush_vision::brush_allows_vision(&view.brush_regions, source.position, point)
-                        // E187 §5.5: the committed occluders' broad phase (same answer).
-                        && view.vision_occluders.line_of_sight(source.position, point)
-                            == LosResult::Clear
-                });
+            let visible = team_sees_point(view, self.snapshot.team, point);
             *state = if visible {
                 2
             } else if *state != 0 {

@@ -1967,7 +1967,8 @@ fn scripted_item_mana(world: &World, owner: Entity, item_id: &str) -> Option<Opt
 /// Settles a scripted item use: the item must still be in its slot and ready and the mana still
 /// payable; then the use commits (cooldown, shared cooldowns, consumable, mana) and the owner's
 /// unit hooks see it. `false`: nothing committed, its effects are dropped.
-fn commit_scripted_item_use(world: &mut World, owner: Entity, owner_pid: u32, slot_i: usize, item_id: &str) -> bool {
+fn commit_scripted_item_use(world: &mut World, owner: Entity, owner_pid: u32, slot_i: usize, item_id: &str,
+    target: Option<Entity>, target_point: Option<(i64, i64)>) -> bool {
     if !owner_item_life_intact(world, owner, owner_pid) || !slot_still_ready(world, owner, slot_i, item_id) {
         return false;
     }
@@ -1985,18 +1986,21 @@ fn commit_scripted_item_use(world: &mut World, owner: Entity, owner_pid: u32, sl
     if let Some(mut events) = world.try_fetch_mut::<ScriptEventQueue>() {
         events.push(ScriptEvent::ItemUsed { owner, item_id: item_id.to_owned() });
     }
-    publish_item_use(world, owner, item_id);
+    publish_item_use(world, owner, item_id, target, target_point);
     true
 }
 
 /// The committed use as a successful cast fact `item:<id>` (presentation only: the user's
-/// item cues for every team that sees the user, like a hero ability's cast).
-fn publish_item_use(world: &World, owner: Entity, item_id: &str) {
+/// item cues for every team that sees the user, like a hero ability's cast), and where it
+/// landed (a unit or a ground point) for the cues played at the target.
+fn publish_item_use(world: &World, owner: Entity, item_id: &str, target: Option<Entity>, target_point: Option<(i64, i64)>) {
     use super::scripting::{ScriptVisualEvent, ScriptVisualEventKind};
     let tick = world.read_resource::<crate::runtime::Tick>().0;
     let mut event = ScriptVisualEvent::new(ScriptVisualEventKind::SkillCast, owner, tick);
     event.skill_id = Some(format!("{}{}", crate::runtime::presentation_cue::ITEM_CAST_PREFIX, item_id));
     event.ability_rank = 1;
+    event.secondary = target;
+    event.target_point = if target.is_some() { None } else { target_point };
     super::scripting::dispatch::publish_successful_cast_facts(world, &mut [event]);
 }
 
@@ -2924,7 +2928,9 @@ pub fn drain_pending_item_uses(world: &mut World) {
                 // An item is an ability in the original: OnAbilityExecuted ends home_aura's speed_up (E187).
                 crate::runtime::native::moba_match::break_home_speed_up(world, owner);
                 if let Some(item_id) = used_item {
-                    publish_item_use(world, owner, &item_id);
+                    let point = req.target_pos.filter(|_| req.target_life.is_none() && req.point_explicit)
+                        .map(|point| (point.x.raw(), point.y.raw()));
+                    publish_item_use(world, owner, &item_id, req.target_life, point);
                     if let Some(mut events) = world.try_fetch_mut::<ScriptEventQueue>() {
                         events.push(ScriptEvent::ItemUsed { owner, item_id });
                     }
@@ -3308,13 +3314,13 @@ pub fn process_outcomes(
                 }
             }
             Outcome::ScriptCastCommitted {caster,cues} => {cast_settlement::publish(world,caster,cues);}
-            Outcome::ScriptItemTransaction {owner,owner_pid,slot,item_id,outcomes} => {
+            Outcome::ScriptItemTransaction {owner,owner_pid,slot,item_id,target,target_point,outcomes} => {
                 // items.dll: the use and its effects commit together, or neither (item changed)
                 // No summon placement plan runs for items yet (ScriptCastTransaction plan_summons): refuse one.
                 if outcomes.iter().any(|o|matches!(o,Outcome::SpawnSummoned {..})) {
                     log::warn!("ItemUse {} refused: an item that summons needs summon planning (not wired)",item_id);continue;
                 }
-                if remove_uids.contains(&owner) || !commit_scripted_item_use(world,owner,owner_pid,slot as usize,&item_id) {continue;}
+                if remove_uids.contains(&owner) || !commit_scripted_item_use(world,owner,owner_pid,slot as usize,&item_id,target,target_point) {continue;}
                 for effect in outcomes.into_iter().rev() {pending.push_front(effect);}
             }
             Outcome::ProjectileContext {..} => unreachable!("nested projectile contexts are rejected"),

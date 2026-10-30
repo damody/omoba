@@ -209,6 +209,8 @@ pub struct ScriptVisualEvent {
     /// Team-scoped caster relocation: team, x raw Fixed64, y raw Fixed64.
     pub caster_relocation: Option<(u32, i64, i64)>,
     pub ability_area: Option<(u32, i64, i64, i64, i64)>,
+    /// A point-targeted cast's ground point, raw Fixed64 (a unit target is `secondary`).
+    pub target_point: Option<(i64, i64)>,
     pub state_id: Option<String>,
     pub modifier_id: Option<String>,
     pub order_id: Option<String>,
@@ -232,6 +234,7 @@ impl ScriptVisualEvent {
             ability_rank: 0,
             caster_relocation: None,
             ability_area: None,
+            target_point: None,
             state_id: None,
             modifier_id: None,
             order_id: None,
