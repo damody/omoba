@@ -25,4 +25,4 @@ gamemode 回報這 4 件道具從沒被 bot 取得，所以用道具 spotlight �
 - 爆烈彈：投擲點播放爆炸 cue（snapjaw_rocket_explosion），以目標 cue 的形式出現。目前是 placeholder 美術，cast-cues 表裡也還沒有爆烈彈的專屬 cue（所以預期是 0 個）。
 - 清酒：加速狀態 sake_haste 有狀態 cue。施放瞬間沒有 cue，這和施放表一致。
 - 仕手能靴、破魔．仕手能靴：施放 cue 是 placeholder 美術（item_perceive_wine），魔法免疫狀態以圓環呈現。
-- 待補：爆烈彈和兩雙靴子的 cue 美術目前都是 placeholder，要在 cast-cues 表補上正式 cue。這是美術缺口，不是呈現路徑壞掉。
+- 美術：這兩個 cue 的 Grok 參考圖已補上（omfue 8fc5e24：gen-cue-snapjaw_rocket_explosion、gen-cue-item_perceive_wine），做法和其他道具一樣。它們是製作特效用的參考圖，遊戲裡的特效做出來之前，實機仍會播 placeholder。
