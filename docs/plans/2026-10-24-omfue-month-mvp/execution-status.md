@@ -964,6 +964,7 @@
 - 2026-10-30 線 A：產生器支援 `clear_slow_pool`、`zone`（只有 on_tick 的圓形區域）、point／vec 型別的 unit_state、`ability.mana_cost`、`status.stacks`、periodic 觸發的 `filter`、tracking 投射物飛向點。英雄產生 237／447。
 - 2026-10-30 線 A：A07（碎擊槍、奮起、a07_rouse_free）與 B06（兩招）改跑產生的 Rust；引導招式以 on_channel_start／on_channel_pulse／on_channel_end 產生，v3 content 列宣告 host 引導；host 新增 kill（script_kill）、on_kill 狀態事件、has_status_tag、low_attack_priority／unselectable／no_healthbar。英雄產生 255／447。
 - 2026-10-30 線 A：B08 整位換上產生的 Rust：`scripts/hero_dlls.lua` 加 asai_nagamasa（hero_b08），新 crate `scripts/heroes/asai_nagamasa`，base_content 測試以 dev-dependency 連入；刪除 `heroes/B08_asai_nagamasa` 與 `owner_cast.rs`。conformance：B08 全部 0 退步。
+- 2026-10-30 線 A：產生器支援一般光環：`passive.aura` 學會時 `cx.emit_aura`（每級重發，帶等級）、`status.aura` 在狀態開始時發（`requires` 綁該狀態）；`on_aura` 依 types／flags／where 篩 host 給的接收者，套狀態 `linger + AURA_PERIOD`（每次脈衝刷新，keep／replace 也刷新）。發射器名稱帶設立者（`aura_key`／`aura_source`），所以狀態以施加者身分套上。kit 新增 `Cx::admits`。knockback 距離 0 加高度不再擋。覆蓋 256→268／447。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
 ## 2026-10-30（conformance：B08 整位與 5 招換上的影子比對、A34 (c) 歸零；E283）

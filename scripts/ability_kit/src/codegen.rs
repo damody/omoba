@@ -348,6 +348,19 @@ impl<'a, 'w> Cx<'a, 'w> {
     pub fn exists(&self, u: EntityHandle) -> bool { u.is_valid() && self.world.get_pos(u).into_option().is_some() }
     pub fn is_magic_immune(&self, u: EntityHandle) -> bool { self.world.has_buff(u, RStr::from_str(magic_immunity::BUFF)) }
 
+    /// Whether `u` passes `select` as a selector candidate does (`units_in_circle`): alive, of its
+    /// types, not invulnerable unless included; magic immunity keeps out only the caster's
+    /// enemies. v3 `aura` filters the host's receivers with it.
+    pub fn admits(&self, u: EntityHandle, select: Select) -> bool {
+        let typed = match select.types {
+            UnitTypes::All => true,
+            UnitTypes::NonBuilding => !self.world.is_building(u),
+            UnitTypes::Heroes => !self.world.is_building(u) && self.is_hero(u),
+        };
+        self.alive(u) && typed && (select.include_invulnerable || !self.world.has_buff(u, RStr::from_str("invulnerable")))
+            && (select.include_magic_immune || !self.is_magic_immune(u) || !self.is_enemy(self.caster, u))
+    }
+
     /// A hero by its template id (MOBA spawns) or the legacy `hero_<template id>` script tag.
     pub fn is_hero(&self, u: EntityHandle) -> bool {
         self.world.unit_id_of(u).into_option().and_then(|id| {
@@ -925,6 +938,24 @@ impl<'a, 'w> Cx<'a, 'w> {
         self.world.add_stat_buff(self.caster, RStr::from_str(id), Self::FOREVER, RStr::from_str(&serde_json::Value::Object(payload).to_string()));
         Ok(())
     }
+}
+
+// ---- auras (v3 `aura`, omoba-core `aura`) -------------------------------------------------------
+
+/// The match time between two aura pulses: a receiver holds the aura's status `linger +
+/// AURA_PERIOD`, so the next pulse renews it while it stays in range.
+pub const AURA_PERIOD: Fixed64 = omoba_core::runtime::native::aura::PERIOD;
+
+/// The emitter name of aura `name` set up by `source` (`name:id:gen`): `on_aura` reads the source
+/// back with [`aura_source`] and applies the aura's status as that unit.
+pub fn aura_key(name: &str, source: EntityHandle) -> String { format!("{name}:{}:{}", source.id, source.gen) }
+
+/// `(name, source)` of an emitter name [`aura_key`] wrote.
+pub fn aura_source(key: &str) -> Option<(&str, EntityHandle)> {
+    let mut parts = key.rsplitn(3, ':');
+    let gen = parts.next()?.parse().ok()?;
+    let id = parts.next()?.parse().ok()?;
+    Some((parts.next()?, EntityHandle { id, gen }))
 }
 
 // ---- numbers (v3 expressions) -----------------------------------------------------------------

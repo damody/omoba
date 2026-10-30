@@ -148,3 +148,5 @@
 - 2026-10-30 11:40 C 找到 split 局 25 秒就結束的根因：client 預先建置後被別人改檔弄舊；改成父程序在鎖內一次建好所有角色。另修狀態 cue 的鍵應用狀態 id（E284）
 - 2026-10-30 11:46 gamemode 693f13a5 autopilot 指令化，nobu UE 拍到營地、砍樹與重生（E280）；765bfabe 驗證局自建 script DLL（E287）；conformance ce928109（E288）
 - 2026-10-30 18:20 線 A：B08 淺井長政整位換上產生的 Rust（hero_b08 自己的 DLL），刪除手寫 handler 與只有它用的 owner_cast.rs（conformance 0 退步）
+- 2026-10-30 11:56 A：B08 淺井長政整位換上產生 Rust（c8505bbf）、A07 紅雷換上、256／447；C e3e259f1（E284、E286）
+- 2026-10-30 19:10 線 A：產生器接上一般光環（passive.aura、status.aura → B 的 emit_aura／on_aura）與 knockback 原地拋起，256→268／447

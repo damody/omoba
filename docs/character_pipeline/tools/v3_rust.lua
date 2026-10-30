@@ -158,7 +158,9 @@ local STATUS_TRIGGERS = {
 M.STATUS_TRIGGERS = STATUS_TRIGGERS
 -- `periodic`, `periodic_2`, ...: every periodic trigger of a status
 local function trigger_kind(name) return name:match("^periodic_%d+$") and STATUS_TRIGGERS.periodic or STATUS_TRIGGERS[name] end
-local function starts_on_apply(triggers)
+local function starts_on_apply(triggers, aura)
+  -- a status aura's emitter is set up when its status starts
+  if aura ~= nil then return true end
   for k in pairs(triggers or {}) do if k == "on_created" or k:match("^periodic") then return true end end
   return false
 end
@@ -804,7 +806,7 @@ end
 -- statuses
 ---------------------------------------------------------------------------
 local STATUS_FIELDS = set({ "id", "runtime_id", "duration", "stacking", "dispel", "visibility", "reveal", "cue", "remove_on",
-  "stats", "per_source", "states", "tags", "triggers", "text", "notes", "values", "vars", "absorb", "status_resistance" })
+  "stats", "per_source", "states", "tags", "triggers", "text", "notes", "values", "vars", "absorb", "status_resistance", "aura" })
 
 -- The StatusDef constant of every status; problems per status (states the host does not hold).
 local function emit_statuses(m, root)
@@ -1186,9 +1188,10 @@ function Gen:counted_status(a, ctx, line)
   end
   if st.mode ~= nil and st.mode ~= "refresh_on_add" and st.mode ~= "no_refresh" then self:block("status.stacking.mode:" .. tostring(st.mode)) end
   for _, p in ipairs(self.status_problems[a.status] or {}) do self:block(p) end
-  local starts = starts_on_apply(s.triggers)
+  local starts = starts_on_apply(s.triggers, s.aura)
   local sctx = { owner = so, scope = ctx.scope, event = ctx.event, pre = ctx.pre, cast = ctx.cast, ended = ctx.ended, windup = ctx.windup }
   local to = self:value(a.to, ctx, "unit")
+  if a.__aura then self:block("aura.status with counted stacks") end
   local dur
   if a.duration ~= nil then dur = self:value(a.duration, ctx, "num")
   elseif s.duration == nil or s.duration == "infinite" then dur = "Cx::FOREVER"
@@ -1219,6 +1222,47 @@ function Gen:counted_status(a, ctx, line)
     out = out .. line(string.format("    if !existed && cx.has_status(to, %s) { super::%s::st_%s_start(cx, to)?; }", S, so.parent.id, a.status))
   end
   return out .. line("}")
+end
+
+local AURA_FIELDS = set({ "radius", "team", "types", "flags", "include_self", "status", "linger", "where", "notes" })
+
+-- `cx.emit_aura(..)` of aura `a` named `key` on `holder` (requires: the status it lives on, or None)
+function Gen:aura_emit(a, ctx, key, holder, requires, passive)
+  for _, k in ipairs(sorted_keys(a)) do if not AURA_FIELDS[k] then self:block("aura." .. k) end end
+  if a.team ~= "ally" and a.team ~= "enemy" and a.team ~= "both" then self:block("aura.team:" .. tostring(a.team)) end
+  if a.radius == nil then self:block("aura without radius"); return "Ok::<(), &'static str>(())" end
+  local radius = self:value(a.radius, ctx, "num")
+  return string.format("cx.emit_aura(%s, ID, &ability_kit::aura_key(%s, cx.caster), %s, %s, %s, Cx::FOREVER, %s, %s)",
+    holder, rust_str(key), radius, rust_str(a.team or ""), a.include_self == true and "true" or "false", requires, passive)
+end
+
+-- the on_aura arm of aura `a` (owner: whose values it reads): every receiver the host listed that
+-- passes `types`, `flags` and `where` gets the aura's status for `linger` (0 when absent) plus one
+-- pulse period, renewed every pulse while it stays
+function Gen:aura_arm(key, a, owner)
+  local types = SELECT_TYPES[types_key(a.types)]
+  if not types then self:block("aura.types:" .. types_key(a.types)); types = "All" end
+  local mi, inv = false, false
+  for _, f in ipairs(a.flags or {}) do
+    if f == "include_magic_immune" then mi = true elseif f == "include_invulnerable" then inv = true
+    else self:block("aura.flag:" .. f) end
+  end
+  if type(a.include_self) ~= "boolean" and a.include_self ~= nil then self:block("aura.include_self of an expression") end
+  local so = self.m.statuses[a.status]
+  if not so then self:block("aura.status:" .. tostring(a.status) .. " not declared") end
+  local scope = scope_child(nil)
+  local it = self:bind(scope, "it", "unit")
+  local ctx = { owner = owner, scope = scope, event = false }
+  local where = a.where ~= nil and self:value(a.where, ctx, "bool") or nil
+  local linger = a.linger ~= nil and self:value(a.linger, ctx, "num") or "Fixed64::ZERO"
+  local apply = so and self:action({ op = "apply_status", to = "it", status = a.status, __aura = true,
+    __dur = "(" .. linger .. ") + ability_kit::AURA_PERIOD" }, ctx, "        ") or ""
+  local fn = string.format("/// aura `%s`: the host's receivers this pulse.\nfn aura_%s(cx: &mut Cx<'_, '_>, receivers: &[EntityHandle]) -> Res {\n"
+    .. "    let aura_select = Select { types: UnitTypes::%s, include_magic_immune: %s, include_invulnerable: %s };\n"
+    .. "    for &%s in receivers {\n        if !cx.admits(%s, aura_select) { continue; }\n%s%s    }\n    Ok(())\n}\n",
+    key, key, types, mi and "true" or "false", inv and "true" or "false", it, it,
+    where and ("        if !(" .. where .. ") { continue; }\n") or "", apply)
+  return { key = key, fn = fn }
 end
 
 -- whether a declared status holds the state `taunt` (host taunt.rs through cx.taunt)
@@ -1282,7 +1326,7 @@ local function routine_recursive(m, name)
 end
 
 function Gen:action(a, ctx, ind)
-  local rso = a.op == "apply_status" and not a.__replace and a.status and self.m.statuses[a.status]
+  local rso = a.op == "apply_status" and not a.__replace and not a.__aura and a.status and self.m.statuses[a.status]
   if rso and rso.def.stacking == "replace" then
     -- `replace`: the old instance ends (its removal events) and a new one starts (on_created,
     -- vars at their init); the run's reads still see the old one, so it counts as absent
@@ -1398,7 +1442,7 @@ function Gen:action(a, ctx, ind)
   local allowed = ACTION_FIELDS[op]
   if allowed == nil then self:block("action:" .. tostring(op)); return "" end
   if allowed then
-    for _, k in ipairs(sorted_keys(a)) do if not allowed[k] and k ~= "notes" and k ~= "__taunt" and k ~= "__vars" and k ~= "__absorb" and k ~= "__replace" then self:block("action:" .. op .. "." .. k) end end
+    for _, k in ipairs(sorted_keys(a)) do if not allowed[k] and k ~= "notes" and k ~= "__taunt" and k ~= "__vars" and k ~= "__absorb" and k ~= "__replace" and k ~= "__dur" and k ~= "__aura" then self:block("action:" .. op .. "." .. k) end end
   end
   local I = ind
   local function line(s) return I .. s .. "\n" end
@@ -1422,13 +1466,16 @@ function Gen:action(a, ctx, ind)
       if s.triggers and next(s.triggers) then self:block("status.stacking:independent with triggers") end
       if s.states and #s.states > 0 then self:block("status.stacking:independent with states") end
       if a.source ~= nil then self:block("status.stacking:independent with a source") end
+      if s.aura ~= nil then self:block("status.stacking:independent with aura") end
+      if a.__aura then self:block("aura.status:independent") end
     end
     for _, p in ipairs(self.status_problems[a.status] or {}) do self:block(p) end
-    local starts = not (s.runtime_id or ""):match("^attack_orb:") and starts_on_apply(s.triggers)
+    local starts = not (s.runtime_id or ""):match("^attack_orb:") and starts_on_apply(s.triggers, s.aura)
     local sctx = { owner = so, scope = ctx.scope, event = ctx.event, pre = ctx.pre, cast = ctx.cast, ended = ctx.ended, windup = ctx.windup }
     local to = self:value(a.to, ctx, "unit")
     local dur
-    if a.duration ~= nil then dur = self:value(a.duration, ctx, "num")
+    if a.__dur then dur = a.__dur
+    elseif a.duration ~= nil then dur = self:value(a.duration, ctx, "num")
     elseif s.duration == nil or s.duration == "infinite" then dur = "Cx::FOREVER"
     else dur = self:value(s.duration, sctx, "num") end
     self.slow_ok, self.last_slow = true, nil
@@ -1465,7 +1512,7 @@ function Gen:action(a, ctx, ind)
         .. line("    cx.apply_status(to, &super::ids::status::" .. upper(a.status) .. ", duration, " .. stats .. ")?;")
         .. line(string.format("    if !existed { super::%s::st_%s_start(cx, to)?; }", so.parent.id, a.status)) .. line("}")
     end
-    if s.stacking == "keep" then
+    if s.stacking == "keep" and not a.__aura then
       return line("{") .. line("    let to = " .. to .. ";") .. line("    let duration = " .. dur .. ";")
         .. line("    if !cx.has_status(to, &super::ids::status::" .. upper(a.status) .. ") {")
         .. line("        cx.apply_status(to, &super::ids::status::" .. upper(a.status) .. ", duration, " .. stats .. ")?;") .. line("    }") .. line("}")
@@ -2547,7 +2594,16 @@ local function emit_entry(m, o, opts, status_problems)
   local passive = def.passive or {}
   local owner_triggers = {}
   for _, k in ipairs(sorted_keys(passive)) do
-    if k ~= "reveal" and k ~= "triggers" and k ~= "stats" and k ~= "notes" then g:block("passive:" .. k) end
+    if k ~= "reveal" and k ~= "triggers" and k ~= "stats" and k ~= "notes" and k ~= "aura" then g:block("passive:" .. k) end
+  end
+  -- v3 aura: the host lists the receivers every pulse (on_aura); `auras` are the arms of on_aura
+  local auras = {}
+  local passive_aura
+  if passive.aura then
+    if o.kind ~= "ability" then g:block("passive:aura of an item") end
+    local ctx = { owner = o, scope = scope_child(nil), event = false }
+    passive_aura = "        let _ = " .. g:aura_emit(passive.aura, ctx, "passive", "caster", "None", "true") .. ";\n"
+    auras[#auras + 1] = g:aura_arm("passive", passive.aura, o)
   end
   local filters = {}
   local passive_mask, passive_arms, passive_periodic, passive_created = 0, {}, nil, false
@@ -2613,8 +2669,14 @@ local function emit_entry(m, o, opts, status_problems)
   local status_arms = {}
   for _, sd in ipairs(def.statuses or {}) do
     local so = m.statuses[sd.id]
-    if sd.triggers and not (sd.runtime_id or ""):match("^attack_orb:") then
+    if (sd.triggers or sd.aura) and not (sd.runtime_id or ""):match("^attack_orb:") then
       local begin = {}
+      if sd.aura then
+        -- cx.self_unit holds the status; cx.caster applied it
+        local ctx = { owner = so, scope = scope_child(nil), event = false }
+        begin[#begin + 1] = "    " .. g:aura_emit(sd.aura, ctx, sd.id, "cx.self_unit", "Some(&super::ids::status::" .. upper(sd.id) .. ")", "false") .. "?;\n"
+        auras[#auras + 1] = g:aura_arm(sd.id, sd.aura, so)
+      end
       for _, name in ipairs(sorted_keys(sd.triggers)) do
         local t = trigger_kind(name)
         if not t then g:block("status_trigger:" .. name)
@@ -2669,14 +2731,15 @@ local function emit_entry(m, o, opts, status_problems)
   end
 
   -- the AbilityScript
+  for _, a in ipairs(auras) do fns[#fns + 1] = a.fn end
   local blockers = sorted_keys(g.blockers)
   if #blockers > 0 then return stub_text(def, blockers), blockers, {}, g end
   for _, st in ipairs(g.steps or {}) do fns[#fns + 1] = st end
   for _, lf in ipairs(g.local_fns or {}) do fns[#fns + 1] = lf end
   local s = { entry_head(def) }
   local run = events.on_cast or events.on_toggle_on
-  local learns = passive_stats or #owner_triggers > 0 or events.on_learn or events.on_upgrade or passive_mask ~= 0 or passive_periodic or passive_created
-  if run or learns then s[#s + 1] = string.format("const MAX_LEVEL: u8 = %d;\n", def.max_level or 1) end
+  local learns = passive_stats or #owner_triggers > 0 or events.on_learn or events.on_upgrade or passive_mask ~= 0 or passive_periodic or passive_created or passive_aura
+  if run or learns or #auras > 0 then s[#s + 1] = string.format("const MAX_LEVEL: u8 = %d;\n", def.max_level or 1) end
   if run then s[#s + 1] = string.format("const TARGET: TargetSpec = %s;\n", spec) end
   s[#s + 1] = "\n"
   for _, f in ipairs(fns) do s[#s + 1] = g:finish(f) .. "\n" end
@@ -2745,6 +2808,7 @@ local function emit_entry(m, o, opts, status_problems)
   elseif passive_stats then learn[#learn + 1] = "        let _ = cx.passive_stats(ID, " .. passive_stats .. ");\n"
   elseif #owner_triggers > 0 then learn[#learn + 1] = "        let _ = cx.learn_marker(ID);\n" end
   if passive_periodic then learn[#learn + 1] = passive_periodic end
+  if passive_aura then learn[#learn + 1] = passive_aura end
   if events.on_learn then learn[#learn + 1] = "        if new_level == 1 { let _ = on_learn_first(&mut cx); }\n" end
   -- the passive's implicit status is made: its on_created, once
   if passive_created then learn[#learn + 1] = "        if new_level == 1 { let _ = on_created(&mut cx); }\n" end
@@ -2754,6 +2818,16 @@ local function emit_entry(m, o, opts, status_problems)
     impl[#impl + 1] = "\n    fn on_learn(&self, caster: EntityHandle, new_level: u8, world: &mut GameWorldDyn<'_>) {\n"
       .. "        if new_level == 0 || new_level > MAX_LEVEL { return; }\n"
       .. "        let mut cx = Cx::passive(world, caster, new_level);\n" .. g:finish(table.concat(learn)) .. "    }\n"
+  end
+  if #auras > 0 then
+    local arms = {}
+    for _, a in ipairs(auras) do arms[#arms + 1] = string.format("            %s => aura_%s(&mut cx, &receivers),\n", rust_str(a.key), a.key) end
+    impl[#impl + 1] = "\n    fn on_aura(&self, holder: EntityHandle, aura: RStr<'_>, level: u8, receivers: RVec<EntityHandle>, world: &mut GameWorldDyn<'_>) {\n"
+      .. "        if level == 0 || level > MAX_LEVEL { return; }\n"
+      .. "        let Some((name, source)) = ability_kit::aura_source(aura.as_str()) else { return };\n"
+      .. "        let mut cx = Cx::passive(world, holder, level);\n"
+      .. "        cx.caster = source;\n"
+      .. "        let _ = match name {\n" .. table.concat(arms) .. "            _ => Ok(()),\n        };\n    }\n"
   end
   for _, pa in ipairs(passive_arms) do status_arms[#status_arms + 1] = { status = def.id, kind = pa.kind, fn = pa.fn } end
   if #status_arms > 0 then
