@@ -96,6 +96,13 @@ pub mod unit_attr {
     pub const ATTACK_SPEED_MULT: &str = "attack_speed_mult";
     /// `Num`: attack projectile speed.
     pub const PROJECTILE_SPEED: &str = "projectile_speed";
+    /// `Num`: v3 `avg_attack_against(u, target)`: the physical damage of `u`'s next ordinary attack
+    /// as it leaves, base and bonuses (the next-attack bonus included), without a critical. The
+    /// target changes nothing: armor and the building modifiers apply at the hit (omoba-core
+    /// rules::attack / rules::damage). 0 without an attack.
+    pub const AVG_ATTACK: &str = "avg_attack";
+    /// `Num`: armor above the base (statuses, attributes and items; negative when reduced).
+    pub const BONUS_ARMOR: &str = "bonus_armor";
     /// `Num`: base magic resistance (without bonuses).
     pub const BASE_MAGIC_RESIST: &str = "base_magic_resist";
     /// `Num`: base attack range (without bonuses).

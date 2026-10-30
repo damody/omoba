@@ -757,6 +757,11 @@ impl<'a> ParallelWorldAdapter<'a> {
             name::ATTACK_TARGET=>handle(entity.and_then(|e|self.source_attack(e)?.committed_target)),
             name::ATTACK_SPEED_MULT=>num(&|e|Some(UnitStats::from_refs(buffs(e),self.source_is_building(e)).final_attack_speed_mult(e))),
             name::PROJECTILE_SPEED=>num(&|e|self.source_attack(e).map(|attack|attack.bullet_speed)),
+            // The launch amount of rules::attack (game_processor's launch), before the critical.
+            name::AVG_ATTACK=>num(&|e|self.source_attack(e).map(|attack|
+                UnitStats::from_refs(buffs(e),self.source_is_building(e)).normal_attack_physical(attack.atk_physic.v,e))),
+            name::BONUS_ARMOR=>num(&|e|self.source_property(e).map(|property|
+                UnitStats::from_refs(buffs(e),self.source_is_building(e)).final_armor(property.def_physic,e)-property.def_physic)),
             name::BASE_MAGIC_RESIST=>num(&|e|self.source_property(e).map(|property|property.def_magic)),
             name::BASE_ATTACK_RANGE=>num(&|e|self.source_attack(e).map(|attack|attack.range.v)),
             name::COLLISION_RADIUS=>num(&|e|Some(self.cache.collision.get(e).map_or(Fixed64::ZERO,|r|r.0.max(Fixed64::ZERO)))),
@@ -2028,6 +2033,7 @@ mod tests {
             buffs.add(me,"str_aura",Fixed64::from_i32(5),json!({ StatKey::StatsStrengthBonus.as_str(): 6 * 1024 }));
             buffs.add(summon,crate::runtime::native::rules::vocab::state::ILLUSION,Fixed64::from_i32(5),json!({}));
             buffs.add(me,crate::runtime::native::ability_channel::STATUS,Fixed64::from_i32(5),json!({}));
+            buffs.add(me,"plate",Fixed64::from_i32(5),json!({ StatKey::PhysicalArmorBonus.as_str(): 3 * 1024, StatKey::PreattackBonusDamage.as_str(): 12 * 1024 }));
         }
         crate::runtime::native::rules::world::start_temporary_night(&mut world,Fixed64::from_i32(3));
         // The hero's attack left with 40 physical and a 2x critical.
@@ -2056,6 +2062,9 @@ mod tests {
         assert_eq!(unit(s,name::ATTACK_DAMAGE),n(0),"no attack");
         assert_eq!(unit(h,name::OWNER),Ok(V::None));
         assert_eq!(unit(h,name::PROJECTILE_SPEED),n(900));
+        assert_eq!(unit(h,name::AVG_ATTACK),n(42),"30 base + 12 bonus, no critical");
+        assert_eq!(unit(h,name::BONUS_ARMOR),n(3));
+        assert_eq!(unit(s,name::AVG_ATTACK),n(0),"no attack");
         assert_eq!(unit(h,name::BASE_ATTACK_RANGE),n(500));
         assert_eq!(unit(h,name::BASE_MAGIC_RESIST),n(25));
         assert_eq!(unit(h,name::ATTACK_SPEED_MULT),n(1));

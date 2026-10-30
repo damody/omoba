@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 工作線 B：unit attr avg_attack／bonus_armor（t45）
+
+- script-abi ext `unit_attr::AVG_ATTACK`：下一次普攻離手時的物理傷害（基礎＋加成，含下一擊加成，不含暴擊），與 game_processor launch 的 `normal_attack_physical` 相同。target 不影響結果，因為護甲與建築修正在命中時才套用，所以 v3 `avg_attack_against(u, target)` 直接讀這個值。
+- `unit_attr::BONUS_ARMOR`：`final_armor(base) - base`，包含屬性與道具，被減甲時為負值。
+- 測試：`ext_reads_unit_ability_and_game_attributes` 新增兩項；omoba-core 1429 項全部通過。
+
 ## 2026-10-30 工作線 B：共用 dummy 單位（t44）
 
 - 召喚物模板新增 `dummy = true`（原作 dummy／majia，所有英雄與道具共用）：只用來掛狀態與光環。目錄驗證要求生命、攻擊、防禦、碰撞與移動都是 0，且 immobile；package_v2 同樣檢查。
