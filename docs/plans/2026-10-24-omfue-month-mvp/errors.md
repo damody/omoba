@@ -25,7 +25,11 @@
 
 ## E390 （保留）conformance：on_learn 就進入冷卻的技能，先等冷卻結束再開始情境（2026-10-31）
 
-## E389 （保留）第一次播放 cue 或第一次生成某種單位時在遊戲執行緒同步載入資產（含 Niagara 編譯），1+9 局出現 0.4–1.8 秒卡頓（2026-10-31）
+## E389 第一次播放 cue 或第一次生成某種單位時在遊戲執行緒同步載入資產（含 Niagara 編譯），1+9 局出現 0.4–1.8 秒卡頓（2026-10-31，history-nobu M6 UE 效能，工作線 C）
+- **現象**：1 人加 9 bot 的 quick demo（demo8），平均 frame interval 中位數 16.9 ms，但有 17 秒出現 ≥400 ms 的卡頓。卡頓那一幀的 presentation 工作集中在 `ability_events`（1.8 s、0.5 s、0.46 s，某個 cue 第一次播放）和 `entities`（0.1～0.8 s，某種單位第一次生成）。整局 287 次 `FlushAsyncLoading`，3 次 `Compiling System NiagaraSystem`。團戰最忙的一秒（39 個呈現事件）反而沒有掉幀。
+- **根因**：cue 的 Niagara 與音效、單位的模型、材質與動畫，都是用到時才 `TryLoad`／`LoadSynchronous`。第一次用到時，在遊戲執行緒同步載入並編譯，整幀都卡在那裡。
+- **通用修正**：`OmPresentationPreload` 在 bridge 的 BeginPlay 非同步預載。範圍包括：Editor cue overrides 的效果與音效、產生的技能 VFX 層、隱身與變形外觀；以及非英雄單位類別和載入名單上本局英雄類別的預設物件裡的所有 soft 引用（以反射收集）。handle 持有到比賽結束，新英雄不需要改 UE。automation 測試 `Om.Runtime.PresentationPreload`。demo9：同步載入 287 → 12 次，≥400 ms 的秒數 17 → 3，每秒最大值的 p95 400 → 71 ms；剩下的卡頓當下 presentation 工作只有 0～3 ms。
+- **避免**：遊戲中會用到的資產，要在載入畫面期間就準備好；量 frame time 時要看卡頓那一幀的工作是在哪個階段，不要只看 cue 數量。
 
 ## E388 （保留）conformance：狀態自己的 stats 沒有被檢查（2026-10-31）
 

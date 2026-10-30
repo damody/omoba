@@ -15,6 +15,22 @@
 
 ## 處理（E389）
 
-- 第一階段（本次）：`OmPresentationPreload` 在 bridge 的 BeginPlay 非同步預載所有 cue 可能播放的資產（Editor cue overrides 的效果與音效、產生的技能 VFX 層、隱身與變形外觀），持有到比賽結束；新英雄不需要改 UE。
-- 第二階段：單位模型、材質與動畫依本局出場的英雄與場上單位種類預載（`entities` 的首次生成卡頓）。
-- 完成後以同樣設定重跑並更新這份報告。
+- 第一階段（omfue 4e995da）：`OmPresentationPreload` 在 bridge 的 BeginPlay 非同步預載所有 cue 可能播放的資產（Editor cue overrides 的效果與音效、產生的技能 VFX 層、隱身與變形外觀），持有到比賽結束。
+- 第二階段（omfue c5c7e90）：非英雄單位類別與載入名單上本局英雄的類別，從預設物件以反射收集所有 soft 引用（模型、材質、動畫），一起預載。新英雄不需要改 UE。
+
+## 修正後（demo9，同樣設定，2026-10-31）
+
+`target/lineC-perf/demo9`：預載 242 個資產（cue 8、單位 234），開局 14.8 秒內完成，觀察端不一致 0 次。
+
+| | demo8（修正前） | demo9（修正後） |
+|---|---|---|
+| 熱身後的視窗 | 274 | 491 |
+| 平均 frame interval 中位數／p95 | 16.9／23.5 ms | 16.8／21.3 ms |
+| 每秒最大值的 p95 | 400 ms | 71.2 ms |
+| ≥400 ms 的秒數 | 17 | 3 |
+| 100～400 ms 的秒數 | 15 | 14 |
+| presentation 工作 >100 ms 的幀 | 8 | 2（都是開局第一個快照，在載入畫面期間、預載完成之前） |
+| 比賽中 FlushAsyncLoading | 287 | 12 |
+| Niagara 系統即時編譯 | 3 | 1 |
+
+剩下的 100～400 ms 卡頓，當下 presentation 的工作都只有 0～3 ms，時間不在 omfue 的 actor tick 裡（量測期間機器上同時有其他 session 的建置與實機局）。cue、狀態 cue、目標 cue 的數量與 frame time 沒有關聯，不需要 cue 上限、池化或 LOD。
