@@ -16,12 +16,23 @@ pub enum BotAbilityIntent {
     /// DOTA_UNIT_TARGET_HERO only, e.g. C17W; E170).
     EnemyHero,
     EnemyPoint {radius_key:String,min_targets:u16},
+    /// A point area with no cast range that leaps toward its aim (E281, e.g. B29W 震地斧): the
+    /// compiled `reach_key` extra (the package's targeting reach) is how far it reaches; aimed at
+    /// the disclosed enemy within that reach whose `radius_key` area covers the most enemies.
+    LeapEnemyPoint {radius_key:String,reach_key:String,min_targets:u16},
     /// Actual compiled source-sector geometry; no authored radius/angle-key guess.
     EnemyCone {min_targets:u16},
     /// Actual compiled nonmoving capsule geometry, over disclosed observations.
     EnemyLine {min_targets:u16},
     /// Author explicitly opts a point skill into closing on disclosed enemies.
     ApproachEnemyPoint {min_distance:u32},
+    /// A toggle (E263, e.g. A02W 蠍毒箭): switched on while a disclosed enemy hero is within
+    /// `threat_radius` and off when none is. `on_status` is the owner's own status the toggle's
+    /// on-switch applies (the generated program's own on/off test), read from the owner only.
+    ToggleEngage {threat_radius:u32,on_status:String},
+    /// A point summon (E260, e.g. B01E 雜賀眾): cast when a disclosed enemy hero or lane unit is
+    /// within `threat_radius`, at the nearest one, or toward it at the cast range when farther.
+    SummonNearEnemy {threat_radius:u32},
     SelfHeal { below_hp_per_mille:u16 },
     /// Untargeted area around the caster (E163): cast when at least `min_targets`
     /// disclosed enemies stand within the compiled radius extra.
@@ -117,6 +128,15 @@ pub(super) fn choose_upgrade(hero:&Hero,steps:&[BotAbilityLearningStep]) -> Opti
     None
 }
 
+/// A line skill's width at `rank`: the compiled line damage width, else the authored targeting
+/// width `shape_width` (E260: generated-Rust skills carry no LineDamage effect, so their compiled
+/// widths are zero).
+fn line_width(def:&omoba_template_ids::AbilityConst,rank:usize)->Option<Fixed64> {
+    def.line_widths.get(rank).copied().filter(|width|*width>Fixed64::ZERO)
+        .or_else(||def.extras.iter().find(|(key,_)|*key=="shape_width").and_then(|(_,widths)|widths.get(rank).copied()))
+        .filter(|width|*width>Fixed64::ZERO)
+}
+
 pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'static str> {
     if policies.len()>64 {return Err("bot ability policies exceed 64");}
     let mut ids=std::collections::BTreeSet::new();
@@ -127,8 +147,12 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
         let supported_cast=if matches!(policy.intent,BotAbilityIntent::SelfChannelRecovery {..}) {
             def.cast_type==CastTypeC::Channeled && def.recovery_channel.is_some()
                 && def.levels.iter().all(|rank|rank.cast_time==Fixed64::ZERO)
-        } else {def.cast_type==CastTypeC::Instant};
-        if !matches!(def.ability_type,AbilityTypeC::Active | AbilityTypeC::Ultimate) || !supported_cast {
+        } else {def.cast_type==CastTypeC::Instant
+            || def.cast_type==CastTypeC::Channeled && def.recovery_channel.is_none()
+                && !matches!(policy.intent,BotAbilityIntent::ToggleEngage {..})};
+        let toggle=matches!(policy.intent,BotAbilityIntent::ToggleEngage {..});
+        if !(matches!(def.ability_type,AbilityTypeC::Active | AbilityTypeC::Ultimate)
+            || toggle && def.ability_type==AbilityTypeC::Toggle) || !supported_cast {
             return Err("bot policy requires a supported explicit active execution type");
         }
         match &policy.intent {
@@ -144,6 +168,12 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
             BotAbilityIntent::ApproachEnemyPoint {min_distance} if def.target_type==TargetTypeC::Point
                 && (1..=10_000).contains(min_distance)
                 && def.levels.iter().all(|level|level.range>Fixed64::from_i32(*min_distance as i32))=>{},
+            BotAbilityIntent::ToggleEngage {threat_radius,on_status} if def.target_type==TargetTypeC::None
+                && def.ability_type==AbilityTypeC::Toggle && (1..=10_000).contains(threat_radius)
+                && !on_status.is_empty() && on_status.len()<=128=>{},
+            BotAbilityIntent::SummonNearEnemy {threat_radius} if def.target_type==TargetTypeC::Point
+                && (1..=10_000).contains(threat_radius)
+                && def.levels.iter().all(|level|level.range>Fixed64::ZERO&&level.range<=Fixed64::from_i32(10_000))=>{},
             BotAbilityIntent::SelfHeal {below_hp_per_mille} if def.target_type==TargetTypeC::None
                 && *below_hp_per_mille>0 && *below_hp_per_mille<=1000 => {},
             BotAbilityIntent::SelfEngage {threat_radius} if def.target_type==TargetTypeC::None
@@ -186,9 +216,18 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
                     return Err("bot point radius must be positive bounded per-rank data");
                 }
             },
+            BotAbilityIntent::LeapEnemyPoint {radius_key,reach_key,min_targets} if def.target_type==TargetTypeC::Point
+                && (1..=128).contains(min_targets)=>{
+                for key in [radius_key,reach_key] {
+                    let Some((_,values))=def.extras.iter().find(|(name,_)|*name==key) else {return Err("bot leap intent requires compiled radius and reach extras");};
+                    if values.len()!=def.levels.len() || values.iter().any(|v|*v<=Fixed64::ZERO || *v>Fixed64::from_i32(10_000)) {
+                        return Err("bot leap radius and reach must be positive bounded per-rank data");
+                    }
+                }
+            },
             BotAbilityIntent::EnemyLine {min_targets} if def.target_type==TargetTypeC::Point
-                && (1..=128).contains(min_targets) && def.line_widths.len()==def.levels.len()
-                && def.line_widths.iter().all(|width|*width>Fixed64::ZERO&&*width<=Fixed64::from_i32(5_000))=>{},
+                && (1..=128).contains(min_targets)
+                && (0..def.levels.len()).all(|rank|line_width(def,rank).is_some_and(|width|width<=Fixed64::from_i32(5_000)))=>{},
             BotAbilityIntent::EnemyCone {min_targets} if def.target_type==TargetTypeC::Point
                 && (1..=128).contains(min_targets)
                 && def.cone_half_angle_ticks.len()==def.levels.len()
@@ -235,13 +274,14 @@ pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,
     cost:impl Fn(&str,u8)->Option<Fixed64>,
     regen:impl Fn(&str,Fixed64)->Option<(Fixed64,Fixed64)>,
     relocation_clear:impl Fn(Vec2)->bool) -> Option<CastAbility> {
-    choose_cast_with_control_observation(hero,role,team,own,health,seen,policies,focus,defer_offense,immobilized,cost,regen,relocation_clear,|_|None)
+    choose_cast_with_control_observation(hero,role,team,own,health,seen,policies,focus,defer_offense,immobilized,cost,regen,relocation_clear,|_|None,&|_|false)
 }
 
 pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:u32,own:Vec2,health:&CProperty,
     seen:&[SeenUnit],policies:&[BotAbilityPolicy],focus:Option<u64>,defer_offense:bool,immobilized:bool,
     cost:impl Fn(&str,u8)->Option<Fixed64>,regen:impl Fn(&str,Fixed64)->Option<(Fixed64,Fixed64)>,
-    relocation_clear:impl Fn(Vec2)->bool,control_priority:impl Fn(u64)->Option<u8>) -> Option<CastAbility> {
+    relocation_clear:impl Fn(Vec2)->bool,control_priority:impl Fn(u64)->Option<u8>,
+    own_status:&dyn Fn(&str)->bool) -> Option<CastAbility> {
     let enemy=|unit:&&SeenUnit|unit.hp_raw>0 && unit.team!=team
         && if role==BotRole::Jungle {unit.kind==3
             || (unit.kind==1 && unit.team!=0 && Some(unit.canonical_id)==focus)}
@@ -256,7 +296,8 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
         if immobilized && matches!(policy.intent,BotAbilityIntent::ApproachEnemyPoint {..}) {continue;}
         if defer_offense && matches!(policy.intent,BotAbilityIntent::EnemyUnit|BotAbilityIntent::EnemyHero
             |BotAbilityIntent::SelfArea {..}|BotAbilityIntent::SelfEngage {..}
-            |BotAbilityIntent::EnemyPoint {..}|BotAbilityIntent::EnemyCone {..}|BotAbilityIntent::EnemyLine {..}|BotAbilityIntent::ApproachEnemyPoint {..}) {continue;}
+            |BotAbilityIntent::EnemyPoint {..}|BotAbilityIntent::LeapEnemyPoint {..}|BotAbilityIntent::EnemyCone {..}|BotAbilityIntent::EnemyLine {..}|BotAbilityIntent::ApproachEnemyPoint {..}
+            |BotAbilityIntent::SummonNearEnemy {..}|BotAbilityIntent::ToggleEngage {..}) {continue;}
         let Some(slot)=hero.abilities.iter().position(|id|id==&policy.ability) else {continue;};
         if slot>=4 {continue;} // formal PlayerInput exposes exactly four slots
         if !hero.can_use_ability(&policy.ability) || !hero.cast_ready(&policy.ability) {continue;}
@@ -389,9 +430,30 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
                 let (Ok(x),Ok(y))=(i32::try_from(unit.position.x.raw()),i32::try_from(unit.position.y.raw())) else {continue;};
                 target_pos=Some(crate::runtime::Vec2I {x,y});None
             }
+            BotAbilityIntent::ToggleEngage {threat_radius,on_status}=>{
+                if health.hp<=Fixed64::ZERO {continue;}
+                let radius=Fixed64::from_i32(*threat_radius as i32);
+                let threatened=seen.iter().filter(enemy).any(|unit|unit.kind==1
+                    && omoba_sim::terrain::point_in_swept_circle(unit.position,own,own,radius));
+                // Cast only to change the switch: on for a fight, off when it is over.
+                if threatened==own_status(on_status) {continue;}
+                None
+            }
+            BotAbilityIntent::SummonNearEnemy {threat_radius}=>{
+                if health.hp<=Fixed64::ZERO || level.range<=Fixed64::ZERO {continue;}
+                let radius=Fixed64::from_i32(*threat_radius as i32);
+                let Some(unit)=seen.iter().filter(enemy).filter(|unit|matches!(unit.kind,1|2))
+                    .filter(|unit|(unit.position-own).length_squared()<=radius*radius)
+                    .min_by_key(|unit|priority(unit)) else {continue;};
+                let offset=unit.position-own;
+                let point=if offset.length_squared()<=level.range*level.range {unit.position}
+                    else {own+offset*(level.range/offset.length().max(Fixed64::from_raw(1)))};
+                let (Ok(x),Ok(y))=(i32::try_from(point.x.raw()),i32::try_from(point.y.raw())) else {continue;};
+                target_pos=Some(crate::runtime::Vec2I{x,y});None
+            }
             BotAbilityIntent::EnemyLine {min_targets}=>{
                 if health.hp<=Fixed64::ZERO{continue;}
-                let Some(width)=def.line_widths.get(rank).copied()else{continue;};
+                let Some(width)=line_width(def,rank)else{continue;};
                 let Some(point)=choose_line_target(own,level.range,width,*min_targets,seen.iter().filter(enemy).collect(),if prioritizes_focus{focus}else{None})else{continue;};
                 let (Ok(x),Ok(y))=(i32::try_from(point.x.raw()),i32::try_from(point.y.raw()))else{continue;};
                 target_pos=Some(crate::runtime::Vec2I{x,y});None
@@ -404,15 +466,21 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
                 let (Ok(x),Ok(y))=(i32::try_from(point.x.raw()),i32::try_from(point.y.raw())) else {continue;};
                 target_pos=Some(crate::runtime::Vec2I{x,y});None
             }
-            BotAbilityIntent::EnemyPoint {radius_key,min_targets}=>{
+            BotAbilityIntent::EnemyPoint {radius_key,min_targets}
+            |BotAbilityIntent::LeapEnemyPoint {radius_key,min_targets,..}=>{
                 let Some((_,radii))=def.extras.iter().find(|(key,_)|*key==radius_key) else {continue;};
                 let Some(radius)=radii.get(rank).copied() else {continue;};
+                // A leap reaches its compiled reach extra; a placed area its cast range.
+                let reach=if let BotAbilityIntent::LeapEnemyPoint {reach_key,..}=&policy.intent {
+                    let Some(reach)=def.extras.iter().find(|(key,_)|*key==reach_key).and_then(|(_,values)|values.get(rank).copied()) else {continue;};
+                    reach
+                } else {level.range};
                 let mut eligible:Vec<_>=seen.iter().filter(enemy).collect();
                 eligible.sort_by_key(|u|priority(u));
                 eligible.truncate(512);
                 // Candidate centers are disclosed enemy poses; no hidden targets,
                 // inferred motion or private aggro. Most covered targets wins.
-                let center=eligible.iter().filter(|u|(u.position-own).length_squared()<=level.range*level.range).take(32)
+                let center=eligible.iter().filter(|u|(u.position-own).length_squared()<=reach*reach).take(32)
                     .filter_map(|u|{
                         let count=eligible.iter().filter(|v|(v.position-u.position).length_squared()<=radius*radius).count();
                         (count>=usize::from(*min_targets)).then_some((prioritizes_focus && Some(u.canonical_id)!=focus,
@@ -566,7 +634,7 @@ mod tests {
         let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let ally=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),team:1,kind:1,owner_player_id:3,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
         let injured=SeenUnit {canonical_id:8,hp_raw:20,..ally};let second=SeenUnit {canonical_id:9,..ally};
-        let decide=|seen:&[SeenUnit],observed:&[(u64,u8)]|choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,seen,&[policy.clone()],None,true,true,|_,_|None,|_,_|None,|_|panic!("nonmovement"),|id|observed.iter().find(|(key,_)|*key==id).map(|(_,p)|*p));
+        let decide=|seen:&[SeenUnit],observed:&[(u64,u8)]|choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,seen,&[policy.clone()],None,true,true,|_,_|None,|_,_|None,|_|panic!("nonmovement"),|id|observed.iter().find(|(key,_)|*key==id).map(|(_,p)|*p),&|_|false);
         assert!(decide(&[ally],&[]).is_none());
         assert_eq!(decide(&[injured,ally],&[(7,1)]).unwrap().target_entity,Some(7));
         assert_eq!(decide(&[ally,injured],&[(7,1)]).unwrap().target_entity,Some(7));
@@ -574,7 +642,7 @@ mod tests {
         assert_eq!(decide(&[second,ally],&[(7,1),(9,1)]).unwrap().target_entity,Some(7));
         assert_eq!(decide(&[injured],&[]).unwrap().target_entity,Some(8));
         for invalid in [SeenUnit {team:2,..ally},SeenUnit {kind:2,..ally},SeenUnit {hp_raw:0,..ally},SeenUnit {position:Vec2::new(Fixed64::from_i32(601),Fixed64::ZERO),..ally}] {
-            let result=choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,&[invalid],&[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|panic!("invalid candidate must not query public status"));assert!(result.is_none());}
+            let result=choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,&[invalid],&[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|panic!("invalid candidate must not query public status"),&|_|false);assert!(result.is_none());}
         assert!(decide(&[],&[(7,1)]).is_none());assert!(decide(&[ally],&[(7,0),(9,1)]).is_none());assert!(decide(&[ally],&[(7,255)]).is_none());
         for value in [0,1001]{let mut bad=policy.clone();bad.intent=BotAbilityIntent::AllyHealOrCleanse{below_hp_per_mille:value};assert!(validate_policies(&[bad]).is_err());}
         for ability in ["lumen_bolt","vanguard_strike","lumen_touch"]{let mut bad=policy.clone();bad.ability=ability.into();assert!(validate_policies(&[bad]).is_err());}
@@ -836,6 +904,37 @@ mod tests {
     }
 
     #[test]
+    fn leap_area_reaches_its_compiled_reach_and_channel_ultimate_casts_e281() {
+        // B29W 震地斧 has no cast range: a placed-area intent never finds a target (never cast in
+        // M6 batches); the leap intent reaches the compiled targeting reach (dash_max_distance).
+        let mut hero=Hero::new("murakami_yoshikiyo".into(),"murakami_yoshikiyo".into(),"murakami_yoshikiyo".into());
+        hero.abilities=vec!["b29_ground_slam".into(),"b29_quake_axe".into(),"b29_morale_boost".into(),"b29_earth_tremor".into()];
+        hero.ability_levels.insert("b29_quake_axe".into(),1);
+        hero.ability_levels.insert("b29_earth_tremor".into(),1);
+        let leap=BotAbilityPolicy {ability:"b29_quake_axe".into(),intent:BotAbilityIntent::LeapEnemyPoint {
+            radius_key:"radius".into(),reach_key:"dash_max_distance".into(),min_targets:1}};
+        let placed=BotAbilityPolicy {ability:"b29_quake_axe".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}};
+        assert!(validate_policies(&[leap.clone()]).is_ok());
+        for bad in [BotAbilityIntent::LeapEnemyPoint {radius_key:"radius".into(),reach_key:"missing".into(),min_targets:1},
+            BotAbilityIntent::LeapEnemyPoint {radius_key:"radius".into(),reach_key:"dash_max_distance".into(),min_targets:0}] {
+            assert!(validate_policies(&[BotAbilityPolicy {intent:bad,..leap.clone()}]).is_err());
+        }
+        let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
+        let at=|x:i32|SeenUnit {canonical_id:(1<<32)|77,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
+            team:2,kind:1,owner_player_id:6,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO};
+        let choose=|seen:&[SeenUnit],policy:&BotAbilityPolicy|choose_cast(&hero,BotRole::Top,1,Vec2::ZERO,&health,seen,&[policy.clone()]);
+        let cast=choose(&[at(280)],&leap).expect("an enemy within the leap reach");
+        assert_eq!(cast.ability_index,1);
+        assert_eq!(cast.target_pos.unwrap().x,Fixed64::from_i32(280).raw() as i32);
+        assert!(choose(&[at(400)],&leap).is_none(),"beyond the rank-1 reach (300)");
+        assert!(choose(&[at(280)],&placed).is_none(),"a placed area with range 0 never casts");
+        // B29R 大地震撼: a channeled point ultimate without a recovery rule casts like an instant.
+        let tremor=BotAbilityPolicy {ability:"b29_earth_tremor".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"area_radius".into(),min_targets:1}};
+        assert!(validate_policies(&[tremor.clone()]).is_ok());
+        assert_eq!(choose(&[at(900)],&tremor).expect("within the cast range").ability_index,3);
+    }
+
+    #[test]
     fn dash_effect_bot_approaches_only_disclosed_living_enemies_in_band() {
         let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
         hero.abilities=vec!["lumen_bolt".into(),"vanguard_resolve".into()];
@@ -936,5 +1035,57 @@ mod tests {
         assert!(choose(&[unit(7,300,2)],&[engage.clone()]).is_none(),"creeps do not start a fight");
         assert_eq!(choose(&[unit(7,700,1)],&[engage.clone()]).unwrap().ability_index,1);
         assert!(choose(&[unit(7,701,1)],&[engage]).is_none());
+    }
+    /// E260: a point summon is cast near the nearest disclosed enemy within the threat radius,
+    /// at the enemy when it is in cast range, else toward it at the cast range.
+    #[test]
+    fn summon_near_enemy_casts_at_or_toward_the_nearest_threat() {
+        assert!(matches!(serde_json::from_str::<BotAbilityIntent>(r#"{"kind":"summon_near_enemy","threat_radius":900}"#).unwrap(),
+            BotAbilityIntent::SummonNearEnemy {threat_radius:900}));
+        let summon=BotAbilityPolicy {ability:"b01_saika_corps".into(),intent:BotAbilityIntent::SummonNearEnemy {threat_radius:900}};
+        assert!(validate_policies(&[summon.clone()]).is_ok());
+        assert!(validate_policies(&[BotAbilityPolicy {intent:BotAbilityIntent::SummonNearEnemy {threat_radius:0},..summon.clone()}]).is_err());
+        assert!(validate_policies(&[BotAbilityPolicy {ability:"b01_sniper_mode".into(),..summon.clone()}]).is_err(),"an untargeted skill is no point summon");
+        let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
+        hero.abilities=vec!["b01_saika_corps".into()];
+        hero.ability_levels.insert("b01_saika_corps".into(),1);
+        let range=omoba_template_ids::ability_by_name("b01_saika_corps").and_then(omoba_template_ids::active_ability_const).unwrap().levels[0].range;
+        let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
+        let unit=|id:u64,x:i32,kind:u8|SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
+            team:2,kind,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+        let choose=|seen:&[SeenUnit]|choose_cast(&hero,BotRole::Carry,1,Vec2::ZERO,&health,seen,&[summon.clone()]);
+        assert!(choose(&[]).is_none());
+        assert!(choose(&[unit(7,901,1)]).is_none(),"no threat within 900");
+        let near=choose(&[unit(7,300,2),unit(8,600,1)]).unwrap();
+        assert_eq!(near.target_pos.unwrap().x,Fixed64::from_i32(300).raw() as i32,"the nearest enemy, inside cast range");
+        let far=choose(&[unit(8,850,1)]).unwrap();
+        let x=i64::from(far.target_pos.unwrap().x);
+        assert!(x<=range.raw() && x>range.raw()-1024,"toward a farther one, within the cast range: {x}");
+    }
+    /// E263: a toggle switches on while a disclosed enemy hero is within the threat radius and
+    /// off when none is; it reads only the owner's own on-marker and casts only to change it.
+    #[test]
+    fn toggle_engage_switches_by_threat_and_the_owners_own_marker() {
+        let toggle=BotAbilityPolicy {ability:"a02_venom_arrow".into(),
+            intent:BotAbilityIntent::ToggleEngage {threat_radius:900,on_status:"attack_orb:a02_venom_arrow".into()}};
+        assert!(validate_policies(&[toggle.clone()]).is_ok());
+        assert!(validate_policies(&[BotAbilityPolicy {intent:BotAbilityIntent::ToggleEngage {threat_radius:900,on_status:String::new()},..toggle.clone()}]).is_err());
+        assert!(validate_policies(&[BotAbilityPolicy {ability:"b01_sniper_mode".into(),..toggle.clone()}]).is_err(),"an active skill is no toggle");
+        assert!(validate_policies(&[BotAbilityPolicy {intent:BotAbilityIntent::SelfEngage {threat_radius:900},..toggle.clone()}]).is_err(),
+            "a toggle takes only the toggle intent");
+        let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
+        hero.abilities=vec!["a02_venom_arrow".into()];
+        hero.ability_levels.insert("a02_venom_arrow".into(),1);
+        let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
+        let unit=|id:u64,x:i32,kind:u8|SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
+            team:2,kind,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+        let decide=|seen:&[SeenUnit],on:bool|choose_cast_with_control_observation(&hero,BotRole::Carry,1,Vec2::ZERO,&health,seen,
+            &[toggle.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,
+            &|status:&str|on && status=="attack_orb:a02_venom_arrow").map(|cast|cast.ability_index);
+        assert_eq!(decide(&[unit(7,800,1)],false),Some(0),"off with an enemy hero near: switch on");
+        assert_eq!(decide(&[unit(7,800,1)],true),None,"already on");
+        assert_eq!(decide(&[],true),Some(0),"on with no threat: switch off");
+        assert_eq!(decide(&[unit(8,300,2)],false),None,"a creep is no fight");
+        assert_eq!(decide(&[unit(7,901,1)],false),None,"beyond the threat radius");
     }
 }

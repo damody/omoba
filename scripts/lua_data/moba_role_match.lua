@@ -60,11 +60,21 @@ local policies = {
   {ability='b06_flame_fangs',intent={kind='enemy_unit'}},
   {ability='b06_first_warrior',intent={kind='self_engage',threat_radius=900}},
   {ability='b06_brave_warriors',intent={kind='self_engage',threat_radius=800}},
+  -- E255: the heroes of the other roster had no policy for most of their kit (雜賀孫市 none,
+  -- 村上義清 none), so their bots never cast; the intents below are the compiled `bot` hints of
+  -- authored_heroes.lua that the bot supports. 雜賀眾 (summon_near_enemy) and the line dashes
+  -- (approach_enemy_point / enemy_line) wait for those intents. B29W 震地斧 has no explicit policy (E281):
+  -- a range-free leap, an explicit enemy_point never cast; its derived leap_enemy_point applies.
+  {ability='b29_ground_slam',intent={kind='self_area',radius_key='shape_radius',min_targets=1}},
+  {ability='b01_sniper_mode',intent={kind='self_engage',threat_radius=900}},
+  {ability='b01_three_stage',intent={kind='self_engage',threat_radius=900}},
+  {ability='b04_tanegashima',intent={kind='self_engage',threat_radius=900}},
 }
 return {schema_version=1,map_id='three_lane_training',think_hz=5,players=players,
   sustain={recall_below_hp_per_mille=350,leave_base_at_hp_per_mille=850,threat_radius=1000},
   -- Final inventories; the owner-only planner derives duplicate recipe materials.
   item_builds=item_builds,
   ability_learning={{ability='*',rank=0}},
-  ability_policies=policies,
+  -- Every other castable of a seated kit gets its derived v3 bot policy (E260).
+  ability_policies=assert(loadfile(assert(debug.getinfo(1,'S').source:sub(2):match('^(.*)[/\\]'))..'/bot_auto_policies.lua'))()(policies,players),
 }

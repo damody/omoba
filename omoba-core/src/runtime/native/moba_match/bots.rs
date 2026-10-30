@@ -721,7 +721,9 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                     let radius=radii.get(entity).map(|r|r.0).unwrap_or(Fixed64::from_i32(30));
                     !crate::runtime::native::tick::hero_move_tick::path_hits_regions(
                         own.position,point,radius,&regions)
-                },|identity|disclosed_control_priority(&visibility,team,identity))
+                },|identity|disclosed_control_priority(&visibility,team,identity),
+                // The owner's own statuses only (a toggle's on-marker, E263).
+                &|status|buffs.as_ref().is_some_and(|store|store.has(entity,status)))
             };
             if let Some(cast) = cast {
                 if let Some(id)=cast.target_entity {
