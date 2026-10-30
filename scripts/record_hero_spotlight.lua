@@ -16,7 +16,7 @@ local lfs=require('lfs')
 local M={}
 
 M.HEROES={'saika_magoichi','date_masamune','omatsu','oichi','inahime','asai_nagamasa','murakami_yoshikiyo','tamako'}
-M.SLOT_OF_ACTION={Q=0,W=1,E=2,R=3,extra1=4}
+M.SLOT_OF_ACTION={Q=0,W=1,E=2,R=3,extra1=4,extra2=5}
 M.RECIPE='scripts/lua_data/moba_hero_spotlight.lua'
 M.DEFAULT_FFMPEG='target/tools/ffmpeg/ffmpeg.exe'
 -- A spotlight run owns its authority port: never the shared split default (57061), so a
