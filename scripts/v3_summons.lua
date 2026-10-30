@@ -266,6 +266,30 @@ function M.existing(root)
   return ids
 end
 
+-- Every authored summon (templates/authored_heroes.lua) and every row of ours must load from
+-- templates/summons.lua: a lost row makes its summon fail only at run time (E341). Returns the
+-- missing ids.
+function M.missing_from_content(root)
+  local saved = package.path
+  package.path = root .. "/scripts/?.lua;" .. package.path
+  local context = require("content_builder").new(root .. "/scripts/lua_data")
+  package.path = saved
+  local loaded = {}
+  for _, row in ipairs(context.include("templates/summons.lua")) do loaded[row.id] = true end
+  local missing = {}
+  for _, row in ipairs(context.include("templates/authored_heroes.lua").summons or {}) do
+    if not loaded[row.id] then missing[#missing + 1] = row.id end
+  end
+  local f = io.open(root .. "/" .. M.OUT, "rb")
+  if f then
+    f:close()
+    for _, row in ipairs(context.include("templates/v3_summons.lua")) do
+      if not loaded[row.id] then missing[#missing + 1] = row.id end
+    end
+  end
+  return missing
+end
+
 -- template id -> problems (the generator's blockers), cached per root.
 local problems_cache = {}
 function M.problems(root)
@@ -283,9 +307,16 @@ function M.render(rows)
   return (body:gsub("^(.-)return ", "%1local rows = ", 1)) .. "return function(ctx) return rows end\n"
 end
 
-if ... == nil then
+-- require("v3_summons") passes the module name; a script run passes its arguments (with
+-- `--check` the old `... == nil` test skipped the CLI, so the check never ran, E341)
+if ... ~= "v3_summons" then
   local root = "."
   local check = arg[1] == "--check"
+  local missing = M.missing_from_content(root)
+  if #missing > 0 then
+    io.stderr:write("templates/summons.lua does not load " .. #missing .. " summon row(s): " .. table.concat(missing, ", ") .. "\n")
+    os.exit(1)
+  end
   local rows = M.build(root, M.existing(root))
   local text = M.render(rows)
   local f = io.open(M.OUT, "rb")

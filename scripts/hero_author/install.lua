@@ -62,6 +62,10 @@ M.HOOKS = {
         end
         out[#out + 1] = row
       end
+      -- v3 unit_templates (scripts/v3_summons.lua, E326): the summons the documents declare; an id
+      -- above keeps its row. Appended here: only a table constructor's last call expands to all
+      -- its values, so a second call field would cut this one to its first row (E341)
+      for _, row in ipairs(ctx.include('templates/v3_summons.lua')) do out[#out + 1] = row end
       return table.unpack(out)
     end)(),
 ]],

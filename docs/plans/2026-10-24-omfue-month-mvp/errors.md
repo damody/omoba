@@ -2,6 +2,24 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E341 summons.lua 第二個呼叫欄位把 authored 召喚物截成一列；v3_summons --check 沒有執行（2026-10-30，工作線 A）
+
+- **現象**：c15_hundred_arrows 從 6a19d48d 之後 12 個 conformance fail，前搖開始了卻一直沒有釋放。B 在 worktree 二分到 3bbdbdf6（過）與 c1c6a23e（不過）之間，指向 25359716。
+- **根因**：25359716 在 `templates/summons.lua` 的 authored 召喚物欄位 `(function() ... return table.unpack(out) end)()` 後面，又加了一個 v3_summons 的呼叫欄位。Lua 表格建構式只有最後一個欄位會展開成多個值，其餘的呼叫只取第一個值，所以 authored 召喚物只剩第一列。c15_lethal_arrow_r1..r3 從內容消失，百箭召喚失敗，施放也停在前搖。install.lua 的 hook 註解早就寫明它必須是「最後一個（多值）欄位」。land_to_live 本來應該由 `v3_summons.lua --check` 擋下這種情況，但它的 CLI 判斷是 `if ... == nil`，帶 `--check` 時 `...` 是 `"--check"`，整段 CLI 被跳過，檢查一直沒有實際執行。
+- **通用修正**：v3 列併進同一個函式，接在 authored 列後面（summons.lua，以及 hero_author/install.lua 給新檔用的 hook 文字），整個建構式只保留一個多值欄位。v3_summons.lua 新增 `missing_from_content`：每一列 authored 召喚物和每一列 v3 召喚物，都必須能從 summons.lua 載入，否則 `--check` 和產生都以 exit 1 結束並列出缺少的 id（修正前的 live 會列出 3 個）。CLI 判斷改成 `if ... ~= "v3_summons"`（被 require 時 `...` 是模組名稱）。
+- **以後如何避免**：在 Lua 的表格建構式裡，展開多個值的呼叫只能放在最後一個欄位；要加入更多列，就放進同一個函式。同時用「模組／腳本」雙用途判斷的工具，要確認帶參數時 CLI 真的有執行：檢查要印出 `ok` 或寫出結果，沒有任何輸出就表示檢查沒跑。
+
+## E340 （保留）conformance：狀態換入的子技能不限 requires.has_status，父技能學到對應 rank（2026-10-30）
+
+## E339 （保留）verify_m6_batch 只讀 v3.lua 前 2000 字找英雄 id，標頭較長的 3 位英雄對不到 package（2026-10-30）
+
+## E338 hero_author 目標型別表缺 unit_or_point，test_only 英雄產生失敗（2026-10-30，工作線 A）
+
+- **現象**：把 M6 第 2～9 批其餘 67 位加入 `scripts/v3_test_heroes.lua` 時，A06 `a06_flame_of_anger`（`target = { type = "unit_or_point" }`）讓產生中止：`unmapped v3 target type unit_or_point`。同一型別還有 C10 `c10_black_dragon_wave`、A32 `a32_asura_blade`。
+- **根因**：E315 只補了 direction。`v3_rust.lua` 早就把 unit_or_point 產生成點施放（TargetSpec `unit: false`，技能本體只讀 `cx.target_point()`；目標是單位時取它的位置），但 `hero_author/v3.lua` 的 V3_TARGET_TYPE 沒有對應，內容列和產生的程式不一致。`scripts/v3_test_heroes.lua` 另有一份沒人用的 TARGET_TYPE（第三份表，連 direction 都沒有）。
+- **通用修正**：V3_TARGET_TYPE 加上 `unit_or_point = "point"`，和產生器的點施放一致；刪掉 v3_test_heroes.lua 裡沒用到的那份表，對應只留在 hero_author/v3.lua。三招都確認只用 `target_point()`，沒有讀 `target_unit()`。
+- **以後如何避免**：v3 目標型別的對應以產生器的 TargetSpec 為準；新增型別時，同時檢查 `v3_rust.lua` 的 target_spec 和 V3_TARGET_TYPE。`tree`（B22 太原雪齋 2 招）在 host 沒有樹木目標的施放型別，所以仍然明確中止，不會偷偷當成點或單位。B22 這次不加入 test_only，等 host 有樹木目標後再加。
+
 ## E337 split 在實機鎖內建置，UE 前端建置吃掉整個時限，局在 Humans admitted 前超時（2026-10-30，history-nobu M6 呈現檢查，工作線 C）
 - **現象**：工作線 C 的 queue4 中，B29 村上義清這局 17:11 取得實機鎖，等了 20 秒建置鎖後開始建置，最後失敗：「client p1: time box reached before "Humans admitted" (builds and startup count toward --max-seconds)」。同一佇列後面三局沒有內容變更要建，都正常跑完。
 - **根因**：E269 讓 `--max-seconds` 從取得實機鎖開始算，包含建置。E330 又把 UE 前端建置（codegen、bridge、UBT）加進 split 的建置階段。只要有內容放回，建置就要好幾分鐘，600 秒還沒進對戰就用完了。建置本身不需要佔用這台機器的實機局。
