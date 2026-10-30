@@ -2242,7 +2242,7 @@ fn same_live_item_target(world: &World, entity: Entity) -> bool {
 /// Same precedence as committed `entity_visible_to_team`, read from ECS components.
 /// Occluder checks use the public segment test. A missing occluder resource is an empty set.
 pub(crate) fn item_entity_visible_to_team(world: &World, target: Entity, viewer_team: u32) -> bool {
-    let (scope_kind, owner_team, override_kind) = {
+    let (scope_kind, owner_team, override_kind, team) = {
         let factions = world.read_storage::<Faction>();
         let scopes = world.read_storage::<ReplicationScope>();
         let overrides = world.read_storage::<VisibilityOverride>();
@@ -2254,7 +2254,7 @@ pub(crate) fn item_entity_visible_to_team(world: &World, target: Entity, viewer_
         let override_kind = overrides.get(target).and_then(|rule| {
             (rule.team.is_none() || rule.team == Some(viewer_team)).then_some(rule.kind)
         });
-        (scope.kind, scope.owner_team, override_kind)
+        (scope.kind, scope.owner_team, override_kind, team)
     };
     if scope_kind == ReplicationScopeKind::ServerOnly {
         return false;
@@ -2271,8 +2271,13 @@ pub(crate) fn item_entity_visible_to_team(world: &World, target: Entity, viewer_
     let (target_pos, origins) = {
         let positions = world.read_storage::<Pos>();
         let Some(target_pos) = positions.get(target).map(|pos| pos.0) else { return false; };
-        let stealth = world.read_storage::<StealthProfile>().get(target).map(|profile| profile.stealth_level).unwrap_or(0)
-            .max(world.try_fetch::<BuffStore>().map_or(0, |buffs| buffs.stealth_level(target)));
+        let profile = world.read_storage::<StealthProfile>().get(target).map(|profile| profile.stealth_level).unwrap_or(0);
+        let buffs = world.try_fetch::<BuffStore>();
+        let stealth = buffs.as_ref().map_or(profile, |buffs| buffs.visible_stealth_level(target, profile));
+        // A carrier that provides vision is seen by the other teams (E392; same rule as Wave B).
+        let provided = stealth == 0 && team != viewer_team
+            && buffs.as_ref().is_some_and(|buffs| buffs.has(target, super::ability_runtime::PROVIDES_VISION));
+        drop(buffs);
         let sources = world.read_storage::<VisionSource>();
         let entities = world.entities();
         let mut origins: Vec<omoba_sim::Vec2> = (&entities, &positions, &sources).join().filter_map(|(_, pos, source)| {
@@ -2282,6 +2287,7 @@ pub(crate) fn item_entity_visible_to_team(world: &World, target: Entity, viewer_
             let delta = target_pos - pos.0;
             (delta.length_squared() <= source.radius * source.radius).then_some(pos.0)
         }).collect();
+        if provided { origins.push(target_pos); }
         // True-sight zones detect every stealth level (same rule as Wave B).
         if let Some(zones) = world.try_fetch::<super::reveal_zone::RevealZones>() {
             origins.extend(zones.sources().filter(|(_, zone)| zone.team == viewer_team && zone.detection_level >= stealth
@@ -7093,7 +7099,8 @@ fn handle_damage(
         // v3 status.absorb rows first (absorb.rs), then the plain damage shield; a packet a status
         // shield took whole still hit.
         let alive = world.read_storage::<CProperty>().get(target).is_some_and(|p| p.hp > Fixed64::ZERO);
-        let shielded = super::absorb::absorb(world, target, total_damage, mitigated.by_type);
+        let (shielded, absorbs) = super::absorb::absorb(world, source, target, total_damage, mitigated.by_type);
+        super::status_event::note_absorbs(world, absorbs);
         let (hit, dealt) = pipeline::absorb(world, target, shielded);
         (hit || (total_damage > Fixed64::ZERO && alive), dealt)
     };

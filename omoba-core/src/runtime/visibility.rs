@@ -372,6 +372,10 @@ pub struct CommittedVisibilityOverride {
     pub stable_rule_id: u64,
 }
 
+/// The sight a [`PROVIDES_VISION`](crate::runtime::native::ability_runtime::PROVIDES_VISION) carrier
+/// gives the other teams: the carrier itself (any position within it), not the area around it.
+pub const PROVIDED_VISION_RADIUS: Fixed64 = Fixed64::from_raw(1024);
+
 #[derive(Clone, Copy, Debug)]
 pub struct CommittedVisionSource {
     pub canonical_id: u64,
@@ -1105,6 +1109,52 @@ mod tests {
         }
         assert!(saw_unfactioned && saw_enemy && saw_dead_ally);
     }
+
+    /// E392: `revealed` takes away the carrier's invisibility; `provides_vision` shows the carrier
+    /// to the other teams through fog, but not while it is invisible.
+    #[test]
+    fn revealed_and_provided_vision_show_the_carrier_to_the_other_team() {
+        use crate::runtime::*;
+        use crate::runtime::native::ability_runtime::{PROVIDES_VISION, REVEALED};
+        use omoba_sim::{Fixed64, Vec2};
+        use specs::{Builder, Entity, World, WorldExt};
+        let mut world = specs::World::new();
+        for register in [World::register::<Pos>, World::register::<Faction>, World::register::<ReplicationScope>,
+            World::register::<StealthProfile>, World::register::<VisibilityOverride>, World::register::<RememberPolicy>,
+            World::register::<VisionSource>, World::register::<Unit>, World::register::<Hero>,
+            World::register::<PlayerOwner>, World::register::<CProperty>, World::register::<DemoPatrol>,
+            World::register::<TAttack>, World::register::<Facing>, World::register::<TurnSpeed>,
+            World::register::<CollisionRadius>, World::register::<Inventory>, World::register::<Gold>,
+            World::register::<ItemEffects>, World::register::<Tower>, World::register::<ScriptUnitTag>,
+            World::register::<PlacedWard>] {
+            register(&mut world);
+        }
+        world.insert(VisionOccluderSet::default());
+        world.insert(BuffStore::new());
+        let place = |x: i32| Pos(Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO));
+        world.create_entity().with(place(0)).with(Faction::new(FactionType::Ally, 1))
+            .with(VisionSource { team: 1, radius: Fixed64::from_i32(1000), detection_level: 0 }).build();
+        let near = world.create_entity().with(place(500)).with(Faction::new(FactionType::Enemy, 2))
+            .with(StealthProfile { stealth_level: 1 }).build();
+        let far = world.create_entity().with(place(5000)).with(Faction::new(FactionType::Enemy, 2)).build();
+        let seen = |world: &World, unit: Entity| {
+            let view = build_wave_b_read_view(world, 1);
+            let row = view.entities.iter().find(|row| row.canonical_id == crate::runtime::canonical_entity_id(unit)).unwrap();
+            let by_view = entity_visible_with_brush(row, 1, &view.vision_sources, &view.vision_occluders, &Default::default());
+            assert_eq!(by_view, crate::runtime::native::game_processor::item_entity_visible_to_team(world, unit, 1),
+                "the ECS read agrees with the committed view");
+            by_view
+        };
+        assert!(!seen(&world, near) && !seen(&world, far), "invisible within sight; visible but out of sight");
+        world.write_resource::<BuffStore>().add(near, REVEALED, Fixed64::from_i32(3), serde_json::json!({}));
+        world.write_resource::<BuffStore>().add(far, PROVIDES_VISION, Fixed64::from_i32(3), serde_json::json!({}));
+        assert!(seen(&world, near), "revealed: no longer invisible to the other team");
+        assert!(seen(&world, far), "provides vision: seen through fog");
+        world.write_storage::<StealthProfile>().insert(far, StealthProfile { stealth_level: 1 }).unwrap();
+        assert!(!seen(&world, far), "an invisible carrier stays hidden");
+        world.write_resource::<BuffStore>().add(far, REVEALED, Fixed64::from_i32(3), serde_json::json!({}));
+        assert!(seen(&world, far), "unless it is revealed too");
+    }
 }
 
 fn resolve_override(
@@ -1421,11 +1471,10 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 position: position.0,
                 scope: scope.kind,
                 owner_team: scope.owner_team,
-                stealth_level: stealth
-                    .get(entity)
-                    .map(|value| value.stealth_level)
-                    .unwrap_or(0)
-                    .max(buffs.as_ref().map_or(0, |buffs| buffs.stealth_level(entity))),
+                stealth_level: {
+                    let profile = stealth.get(entity).map(|value| value.stealth_level).unwrap_or(0);
+                    buffs.as_ref().map_or(profile, |buffs| buffs.visible_stealth_level(entity, profile))
+                },
                 overrides: entity_overrides,
                 remember: remembers
                     .get(entity)
@@ -1450,6 +1499,18 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             ignores_terrain: false,
         })
         .collect();
+    // A unit that provides vision (E392) is a sight of itself for every other team: a point
+    // source at its position that detects no stealth, so an invisible carrier stays hidden.
+    if let Some(store) = buffs.as_deref() {
+        for holder in store.holders(crate::runtime::native::ability_runtime::PROVIDES_VISION) {
+            let (Some(position), true) = (positions.get(holder), entities.is_alive(holder)) else { continue };
+            let team = factions.get(holder).map_or(0, |faction| faction.team_id.max(0) as u32);
+            let canonical_id = ((holder.gen().id() as u32 as u64) << 32) | u64::from(holder.id());
+            vision_sources.extend(crate::runtime::SUPPORTED_REPLICA_TEAMS.into_iter().filter(|viewer| *viewer != team)
+                .map(|viewer| CommittedVisionSource { canonical_id, team: viewer, position: position.0,
+                    radius: PROVIDED_VISION_RADIUS, detection_level: 0, ignores_terrain: true }));
+        }
+    }
     // G-4 reveal zones: team sight; true sight detects every stealth level,
     // a plain zone (原作 AddFOWViewer) detects none.
     if let Some(zones) = world.try_fetch::<crate::runtime::native::reveal_zone::RevealZones>() {

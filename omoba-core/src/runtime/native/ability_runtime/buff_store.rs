@@ -153,6 +153,12 @@ impl Default for MoveSpeedSums {
 
 /// State buff id: the carrier is not an obstacle for other units' movement.
 pub const NO_UNIT_COLLISION: &str = "no_unit_collision";
+/// State buff id (v3 `revealed`, 原作 modifier_truesight on the seen unit): the carrier's
+/// invisibility does not hide it from the other teams (E392).
+pub const REVEALED: &str = "revealed";
+/// State buff id (v3 `provides_vision`, 原作 MODIFIER_STATE_PROVIDES_VISION): the other teams see
+/// the carrier itself, through fog, unless it is invisible (E392).
+pub const PROVIDES_VISION: &str = "provides_vision";
 
 impl BuffStore {
     /// Canonical time-only disclosure for the closed shared modifier families.
@@ -666,6 +672,17 @@ impl BuffStore {
     pub fn stealth_level(&self, entity: Entity) -> u16 {
         let raw = self.sum_add(entity, StatKey::InvisibilityLevel).raw();
         u16::try_from((raw / 1024).max(0)).unwrap_or(u16::MAX)
+    }
+
+    /// The stealth level the other teams' sight must detect: the unit's own (`profile`) or its
+    /// statuses', none while it is [`REVEALED`].
+    pub fn visible_stealth_level(&self, entity: Entity, profile: u16) -> u16 {
+        if self.has(entity, REVEALED) { 0 } else { profile.max(self.stealth_level(entity)) }
+    }
+
+    /// The units carrying `buff_id`, in no particular order.
+    pub fn holders<'a>(&'a self, buff_id: &'a str) -> impl Iterator<Item = Entity> + 'a {
+        self.buffs.iter().filter(move |(_, rows)| rows.contains_key(buff_id)).map(|(entity, _)| *entity)
     }
 
     /// Other units' movement does not collide with this one while it carries

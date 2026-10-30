@@ -41,6 +41,12 @@ pub const KILL: u8 = 11;
 /// The holder's attack left (rules::attack AttackEvents Launch: after the windup, as the projectile
 /// leaves or an instant attack strikes; v3 `on_attack_launch`); `other` is the target.
 pub const ATTACK_LAUNCH: u8 = 12;
+/// The status's absorb (absorb.rs) took part of a hit (v3 `on_absorb`); `other` is the damage's
+/// source, `amount` what it absorbed (E393).
+pub const ABSORB: u8 = 13;
+/// The status's absorb was used up by a hit (v3 `on_broken`), before the status is removed;
+/// `other` is the damage's source, `amount` what that hit absorbed (E393).
+pub const BROKEN: u8 = 14;
 
 /// `Spec.mask` bits: which events the status listens to.
 pub const ON_END: u32 = 1 << 0;
@@ -54,8 +60,10 @@ pub const ON_ABILITY_EXECUTED: u32 = 1 << 7;
 pub const ON_ATTACK_START: u32 = 1 << 8;
 pub const ON_KILL: u32 = 1 << 9;
 pub const ON_ATTACK_LAUNCH: u32 = 1 << 10;
+pub const ON_ABSORB: u32 = 1 << 11;
+pub const ON_BROKEN: u32 = 1 << 12;
 pub const ALL: u32 = ON_END | ON_ATTACK_HIT | ON_ATTACKED | ON_TAKE_DAMAGE | ON_DEAL_DAMAGE | ON_TAKE_DAMAGE_PRE | ON_DEAL_DAMAGE_PRE
-    | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL | ON_ATTACK_LAUNCH;
+    | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL | ON_ATTACK_LAUNCH | ON_ABSORB | ON_BROKEN;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
@@ -104,6 +112,8 @@ impl Spec {
             ATTACK_START => ON_ATTACK_START,
             KILL => ON_KILL,
             ATTACK_LAUNCH => ON_ATTACK_LAUNCH,
+            ABSORB => ON_ABSORB,
+            BROKEN => ON_BROKEN,
             _ => 0,
         };
         self.mask & bit != 0
@@ -143,6 +153,27 @@ pub fn note_damage(world: &mut specs::World, note: DamageNote) {
 
 pub fn take_damage_notes(world: &mut specs::World) -> Vec<DamageNote> {
     world.try_fetch_mut::<DamageNotes>().map(|mut notes| std::mem::take(&mut notes.0)).unwrap_or_default()
+}
+
+/// A status absorb that took part of a hit (ABSORB, and BROKEN when it was used up). `spec` is read
+/// when it absorbed: a broken status is gone by the time the events run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AbsorbNote { pub holder: specs::Entity, pub row: String, pub spec: Spec, pub source: specs::Entity,
+    pub amount: Fixed64, pub broken: bool }
+
+/// The absorbs since status events last ran.
+#[derive(Clone, Debug, Default)]
+pub struct AbsorbNotes(pub Vec<AbsorbNote>);
+
+pub fn note_absorbs(world: &mut specs::World, notes: Vec<AbsorbNote>) {
+    use specs::WorldExt;
+    if notes.is_empty() { return; }
+    if world.try_fetch::<AbsorbNotes>().is_none() { world.insert(AbsorbNotes::default()); }
+    world.write_resource::<AbsorbNotes>().0.extend(notes);
+}
+
+pub fn take_absorb_notes(world: &mut specs::World) -> Vec<AbsorbNote> {
+    world.try_fetch_mut::<AbsorbNotes>().map(|mut notes| std::mem::take(&mut notes.0)).unwrap_or_default()
 }
 
 /// The `damage_kind` of a damage event: the largest-first type share (physical, magical, pure)
@@ -217,7 +248,8 @@ mod tests {
         assert!(!s.listens(ABILITY_EXECUTED) && spec(ON_ABILITY_EXECUTED).listens(ABILITY_EXECUTED));
         assert!(!s.listens(ATTACK_START) && spec(ON_ATTACK_START).listens(ATTACK_START));
         assert!(!s.listens(KILL) && spec(ON_KILL).listens(KILL));
-        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 11);
+        assert!(!s.listens(ABSORB) && spec(ON_ABSORB).listens(ABSORB) && spec(ON_BROKEN).listens(BROKEN));
+        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 13);
         assert_eq!(Spec::from_payload(&bad), None, "unknown event bits");
         let mut bad = payload.clone(); bad[KEY]["status"] = json!("B16T");
         assert_eq!(Spec::from_payload(&bad), None, "status ids are v3 ids");

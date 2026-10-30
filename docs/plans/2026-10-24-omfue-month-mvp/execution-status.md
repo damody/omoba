@@ -16,6 +16,17 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：吸收盾的 on_absorb／on_broken 事件（E393）
+
+- status_event 新增 `ABSORB`（13）與 `BROKEN`（14），遮罩是 `ON_ABSORB`（2048）與 `ON_BROKEN`（4096）。
+- absorb.rs 為監聽中的狀態記下每次吸收：吸收量、傷害來源、是否用完。dispatch 依序送出 ABSORB 和 BROKEN，再送該列的結束事件。
+- 測試：`a_listening_status_hears_each_absorb_and_its_breaking`。omoba-core lib 1453 個全部通過。
+## 2026-10-31 線 B：狀態 revealed 與 provides_vision 的 host 落點（E392）
+
+- vocab 新增 `revealed`、`provides_vision` 狀態 buff。
+- revealed：其他隊看到的隱形等級是 0（`BuffStore::visible_stealth_level`）。provides_vision：其他隊在持有者位置有半徑 1 的視野，隔著迷霧也看得到，隱形時看不到。
+- Wave B committed view 與 `item_entity_visible_to_team` 規則一致，由同一個測試對照。
+- 測試：`revealed_and_provided_vision_show_the_carrier_to_the_other_team`。
 ## 2026-10-31 線 B：召喚交易允許施法者自己的狀態、指令與位移（E395）
 
 - cast_settlement：帶 spawn 的施放允許施法者自己的 AddBuff 與 ScriptSetPos 出現在 spawn 前、中、後；所有 spawn 都會先提交。施法者的傷害與治療、其他單位的位移仍然拒絕。

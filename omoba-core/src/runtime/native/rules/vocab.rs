@@ -188,6 +188,9 @@ const STATE_EFFECTS: &[(&str, StateEffect)] = &[
     ("unselectable", StateEffect::Buff("unselectable")),
     ("no_healthbar", StateEffect::Buff("no_healthbar")),
     ("not_on_minimap", StateEffect::Buff("not_on_minimap")),
+    // Sight (E392): invisibility no longer hides the carrier; the other teams see the carrier.
+    ("revealed", StateEffect::Buff(crate::runtime::native::ability_runtime::REVEALED)),
+    ("provides_vision", StateEffect::Buff(crate::runtime::native::ability_runtime::PROVIDES_VISION)),
     // 魔法免疫：host 收到這個 buff 時先強驅散再授予（magic_immunity::grant_state）；status 結束或被
     // 移除時由 `__ctl` 來源列收回。
     ("magic_immune", StateEffect::Buff(crate::runtime::native::magic_immunity::BUFF)),

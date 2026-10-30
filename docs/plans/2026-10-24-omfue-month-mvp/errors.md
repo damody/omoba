@@ -17,9 +17,27 @@
 - **通用修正**：`role_bot_inputs` 對 held 座位只做一件事：離開自己的 placement 超過 60 就以 MoveTo 走回去，回到原位後再下 Hold Position（`stand_in_input`）。它仍然不攻擊、不施放、不購買，也不追任何單位。`showcase_stage_levels_places_and_holds_seats_without_role_decisions` 加入測試：被推開 450 時走回原位，回到原位後 Hold。
 - **避免**：示範舞台上的固定單位要能回到固定狀態；任何會移動單位的技能（擊退、拉扯、交換位置）都可能讓後續示範失去目標。
 
-## E393 （保留）吸收盾的 on_absorb／on_broken 觸發沒有 host 事件（2026-10-31）
+## E393 吸收盾的 on_absorb／on_broken 觸發沒有 host 事件（2026-10-31，工作線 B）
+- **現象**：工作線 A 的涵蓋率中，status.absorb 的 `on_broken` 擋住 7 招，`on_absorb` 擋住 6 招與 1 件道具。absorb.rs 只負責結算吸收量，用完就移除狀態，沒有回呼產生的技能。
+- **通用修正**：
+  - status_event 新增事件 `ABSORB = 13`、`BROKEN = 14`，以及遮罩 `ON_ABSORB = 1 << 11`、`ON_BROKEN = 1 << 12`。
+  - `absorb::absorb(world, source, target, total, by_type)` 回傳剩餘傷害與 `AbsorbNote`。每一列吸收了傷害時，若它的狀態在監聽這兩個事件，就記一筆：持有者、狀態列、當下讀到的 Spec（破掉的狀態等一下就會被移除）、傷害來源、吸收量、是否用完。
+  - handle_damage 以 `status_event::note_absorbs` 存入 `AbsorbNotes`。
+  - dispatch_status_events 先送 ABSORB，用完時再送 BROKEN，都在那一列的結束事件之前。`other` 是傷害來源，`amount` 是這一擊吸收的量，獨立堆疊的實例各自收到。
+  - 產生端對應：`on_absorb = { 2048, { 13 } }`、`on_broken = { 4096, { 14 } }`（工作線 A）。
+- **測試**：`a_listening_status_hears_each_absorb_and_its_breaking`；`payload_round_trips_strictly` 補上新的遮罩。
+- **避免**：host 結算的機制（吸收、驅散、到期）要改狀態時，同時想清楚 v3 對應的觸發要在什麼時候、帶什麼值回呼。
 
-## E392 （保留）v3 狀態 revealed／provides_vision 沒有 host 落點：被看穿與提供視野的單位照樣隱形或藏在迷霧裡（2026-10-31）
+## E392 v3 狀態 revealed／provides_vision 沒有 host 落點：被看穿與提供視野的單位照樣隱形或藏在迷霧裡（2026-10-31，工作線 B）
+- **現象**：工作線 A 的涵蓋率中，`state:revealed` 擋住 5 招與 8 件道具，`state:provides_vision` 擋住 4 招與 2 件道具。例如毛利元就 b05r_revealed、足利義昭 b07e_revealed（原作 modifier_truesight 掛在被看穿的人身上）、丹羽長秀 a30w_view、大友宗麟 c12d_mark、上杉謙信 b32d_mark（MODIFIER_STATE_PROVIDES_VISION）。
+- **根因**：vocab 的 STATE_EFFECTS 沒有這兩個狀態，視野計算也沒有讀它們。
+- **通用修正**：
+  - 新增狀態 buff `revealed` 與 `provides_vision`（ability_runtime::REVEALED／PROVIDES_VISION），並加進 vocab。
+  - `BuffStore::visible_stealth_level(entity, profile)`：帶 revealed 時，其他隊看到的隱形等級是 0；沒有時取 StealthProfile 與狀態隱形等級的最大值。Wave B 的 committed view（visibility.rs）與 ECS 讀法（game_processor::item_entity_visible_to_team）都改用它，兩邊規則一致。
+  - provides_vision：Wave B 為每個持有者，對每個其他隊加一個位於持有者本身的視野來源。半徑 `PROVIDED_VISION_RADIUS` 是 1，只看到持有者本身、不揭露周圍；detection 0，所以隱形的持有者仍然看不到；無視地形。ECS 讀法以同樣規則把持有者位置當成其他隊的視野原點。
+  - 兩隊制下「施加者的隊伍」就是持有者以外的隊伍，中立單位對兩隊都適用。
+- **測試**：`revealed_and_provided_vision_show_the_carrier_to_the_other_team`。同時檢查 committed view 與 ECS 讀法的結果一致。
+- **避免**：新增影響視野的狀態時，Wave B 與 `item_entity_visible_to_team` 要一起改，並用同一個測試對照兩邊。
 
 ## E391 （保留）conformance：apply_status 自帶的 duration、引導結束移除的狀態在死亡情境的期望（2026-10-31）
 

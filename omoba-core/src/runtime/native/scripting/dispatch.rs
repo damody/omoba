@@ -1015,7 +1015,8 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     let ended = world.write_resource::<crate::runtime::BuffStore>().drain_status_ended();
     let attacks = se::take_attack_events(world);
     let damage = se::take_damage_notes(world);
-    if combat.is_empty() && executed.is_empty() && ended.is_empty() && attacks.is_empty() && damage.is_empty() {
+    let absorbs = se::take_absorb_notes(world);
+    if combat.is_empty() && executed.is_empty() && ended.is_empty() && attacks.is_empty() && damage.is_empty() && absorbs.is_empty() {
         return;
     }
     let damage_kind = |k: &DamageKind| match k { DamageKind::Physical => 0u8, DamageKind::Magical => 1, DamageKind::Pure => 2 };
@@ -1064,6 +1065,14 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
             on_holder(note.target, se::TAKE_DAMAGE, Some(note.source), note.amount, note.damage_kind);
             on_holder(note.source, se::DEAL_DAMAGE, Some(note.target), note.amount, note.damage_kind);
             if let Some(killer) = note.killer { on_holder(killer, se::KILL, Some(note.target), note.amount, note.damage_kind); }
+        }
+    }
+    // A status's own absorbs (E393): each absorb, then its breaking, before the broken row's end.
+    for note in absorbs {
+        for (kind, happened) in [(se::ABSORB, true), (se::BROKEN, note.broken)] {
+            if happened && note.spec.listens(kind) {
+                calls.push((note.holder, note.row.clone(), note.spec.clone(), kind, Some(note.source), note.amount, 0, None));
+            }
         }
     }
     // an end carries the duration the status had left (`status.remaining` of an end trigger)
