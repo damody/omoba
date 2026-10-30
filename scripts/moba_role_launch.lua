@@ -21,6 +21,7 @@ function M.options(args)
     ['--host-simulations']='host_simulations',['--host-renderers']='host_renderers',
     ['--autopilot']='autopilot',['--packaged-game']='packaged_game',['--resolution']='resolution',['--frame-cap']='frame_cap',
     ['--accepted-inputs']='accepted_inputs',['--autopilot-shot-interval']='autopilot_shot_interval',['--base-content']='base_content',['--spotlight-script']='spotlight_script',
+    ['--autopilot-plan']='autopilot_plan',
     ['--round-time-box-seconds']='round_time_box_seconds',['--managed-rounds']='managed_rounds',['--managed-final-round-seconds']='managed_final_round_seconds',
     ['--wait-live-lock']='wait_live_lock'}
   local i=1
@@ -67,6 +68,12 @@ function M.options(args)
   if options.spotlight_script then
     assert(options.autopilot=='spotlight','--spotlight-script requires --autopilot spotlight')
     assert(not options.server_only,'--spotlight-script belongs to a renderer seat')
+  end
+  -- Directed autopilot steps (E280, autopilot_plan.lua): resolved per seat on the match map.
+  if options.autopilot_plan then
+    assert(options.autopilot and options.autopilot~='spotlight','--autopilot-plan requires a match --autopilot profile')
+    options.autopilot_plan=path.absolute(options.autopilot_plan,b.root)
+    assert(path.is_file(options.autopilot_plan),'--autopilot-plan file not found: '..options.autopilot_plan)
   end
   if options.finish_timeout_seconds then
     local raw = options.finish_timeout_seconds
@@ -644,6 +651,12 @@ function M.prepare(options,process)
       ue.args[#ue.args+1]='-om-loading-screenshot='..path.join(output,'loading-p'..id..'.png')
       -- and one while the match map is still loading (MoviePlayer phase).
       ue.args[#ue.args+1]='-om-loading-map-screenshot='..path.join(output,'loading-map-p'..id..'.png')
+      if options.autopilot_plan then
+        local plan_file=path.join(output,'autopilot-plan-p'..id..'.json')
+        require('autopilot_plan').write(options.autopilot_plan,path.join(b.root,'scripts','lua_data'),
+          report.map_id,human.team_id,plan_file)
+        ue.args[#ue.args+1]='-om-autopilot-plan='..plan_file
+      end
       if options.spotlight_script then
         ue.args[#ue.args+1]='-om-spotlight-script='..path.absolute(options.spotlight_script,b.root)
         ue.args[#ue.args+1]='-om-spotlight-frames='..path.join(output,'spotlight-frames-p'..id)

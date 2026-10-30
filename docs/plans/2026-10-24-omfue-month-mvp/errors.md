@@ -2,6 +2,21 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E287 UE 驗證局一再因 base_content 過舊被拒：run_moba_role_ue 不建 script DLL，UE 建置期間別人的改檔追上（2026-10-30，e187 遊戲模式 session；已放回 live）
+
+- **現象**：nobu UE 驗證局（ue-nobu5、7、8）連續四次在入場前結束，錯誤是「base_content was built before N of its sources changed」，列出 codegen.rs、base_content/src/lib.rs 等其他 session 剛放回的檔案；也有一次 build_ue_moba 的 stage 檢查碰到別人同時重建的 DLL。
+- **根因**：`run_moba_role_ue` 的 build_runtime 只建 moba-config、omobab 和 client runtime，不建 script DLL 組（base_content、items、各英雄 DLL）；launch 取 `scripts/target/<profile>` 最新的 base_content，再用 dep-info 比對來源。UE 建置要幾分鐘，這段時間其他 session 放回的改檔一定比事先建好的 DLL 新，所以被拒。和 E286（split 的 client）同一類。
+- **通用修正**：script DLL 組的 cargo 指令抽成 `moba_server_build.script_dll_command(profile)`（dedicated server 和 UE 啟動共用）；`run_moba_role_ue` 的 build_runtime 先建這組，並把 `run_artifacts.sources_as_of` 設成開始建置的時間（和 split 的 OMOBA_SOURCES_AS_OF 同義，E202）：建置開始之後才改的來源不會再讓這次建好的 binary 被拒，之前改的仍照樣擋。
+- **避免**：啟動器自己負責建它要 stage 的每個 binary，並以自己的建置時間判斷新舊；不要在外面先建、再用重試迴圈等別人停手（e187 曾用 target/e187/ue_retry.sh 繞過，已改用這個修正）。
+- 附帶發現：`scripts/tests/run_artifacts_test.lua` 在 live 已經失敗於第 39 行（測試夾具沒有 items.dll，items 加入 DLL 組之後沒有更新夾具），不是這次造成的；本次只在它後段加了 sources_as_of 的檢查，另以獨立腳本驗證。
+
+## E286 split 驗證局一再因為 client exe 過舊而啟動失敗：只有 server 角色會建置，鎖外預建會被別人的改檔追上（2026-10-30，工作線 C）
+
+- **現象**：lineC-statuscue 的 run、run2、run3、run-a1、run-b1 都在入場前結束（最短 25 秒）。錯誤是「omoba-client-runtime.exe／base_content was built before N of its sources changed」或「omoba-core 編不過」（別人半放回）。重試迴圈只是在賭兩次改檔之間的空檔。
+- **根因**：`run_moba_split_local` 只讓 server 角色建置（authority 與 script DLL），client 永遠 `--no-build`。所以 client runtime 只能在鎖外先建好，等鎖、或其他 session 改 omoba-core／lua_data 時，就變成過舊的 exe。
+- **通用修正**：取得鎖之後，父程序依 `M.build_commands()` 一次建好 authority、script DLL 和 client runtime，所有角色都改帶 `--no-build`；建置時間算進 `--max-seconds`（E269），失敗會直接說明是哪一個建置。`run_moba_split_local_test` 檢查建置清單涵蓋 authority 與 client runtime。
+- **避免**：驗證局不要用「鎖外預建＋`--no-build`」或重試迴圈；直接讓 split 在鎖內建置。UE 影子（bridge 內嵌 content hash）仍需先 `stage_ue_shadow --sync --build`。
+
 ## E285 產生的 routine 呼叫在引數裡讀 `cx`，借用衝突編譯不過；全量檢查的 crate 用 allow(warnings) 會漏掉英雄 crate 的 deny(warnings)（2026-10-30，工作線 A）
 
 - **現象**：全量產生 97 套件後，nene 的 `super::routines::a15e_moon(cx, { ... cx.random_point(...) })` 出現 E0499（同時兩個 &mut cx）。檢查用的暫時 crate 是 `#![allow(warnings)]`，而英雄 crate 是 `#![deny(warnings)]`，產生碼多出的未使用變數只在後者會擋下。
@@ -35,9 +50,27 @@
 - **以後**：改 v3 的 runtime_id 後要重產 lua_data；conformance 的 dispel 情境會抓到沒跟上的登記。
 - 已放回。
 
-## E281 （保留）村上義清震地斧、大地震撼從沒施放：跳躍落點技與引導大招的 bot 政策（2026-10-30，e187 遊戲模式 session；進行中）
+## E281 村上義清震地斧、大地震撼從沒施放：跳躍落點技與引導大招的 bot 政策（2026-10-30，e187 遊戲模式 session；已放回 live）
 
-## E280 （保留）autopilot 指令化：UE 驗證局可指定 autopilot 行為（2026-10-30，e187 遊戲模式 session；進行中）
+- **現象**：M6 批次腳本（E265）標出村上義清的震地斧（B29W）與大地震撼（B29R）在所有局都沒有施放。
+- **根因**（都是施放政策，不是產生碼）：
+  1. 震地斧是跳躍落點技，所有等級施放距離 0（射程在 select 運算式裡）；推導成 enemy_point，執行端只在 cast range 內找目標，永遠找不到。另外 moba_role_match.lua（E255）手寫了同一個 enemy_point 政策，明列的政策優先，蓋掉推導值。
+  2. 大地震撼是引導型 point 大招，推導成 self_engage（target none），型別對不上被擋；執行端也只收 instant 施放。
+- **通用修正**：bot 執行端新增 `LeapEnemyPoint {radius_key, reach_key, min_targets}`，射程讀編譯 extras 的 reach_key；沒有 recovery 規則的引導技像 instant 一樣可施放（bots.rs 本來就會等引導結束）。bot_auto_policies.lua 支援 leap_enemy_point，enemy_point 遇到 range 0 不收、引導技（有 pulses_key）可收。線 A 在 v3_bot.lua 推導：跳躍技寫明 leap_enemy_point（reach_key=leap_distance），一般規則「引導＋point＋aoe_radius → enemy_point」。拿掉 moba_role_match.lua 手寫的震地斧政策。
+- **避免**：施放政策在執行端驗證時要能看出「永遠不會施放」的組合（例如 range 0 的 enemy_point），推導端才不會靜默產生無效政策；手寫政策只留推導不出的。
+
+## E280 autopilot 指令化：UE 驗證局可指定 autopilot 行為，nobu 野怪營地、砍樹與重生入鏡（2026-10-30，e187 遊戲模式 session；已放回 live）
+
+- **需求**：nobu UE 驗收拍不到野怪營地、砍樹與重生，因為 autopilot 只會走兵線。
+- **做法（通用）**：`--autopilot-plan FILE`（scripts/autopilot_plan.lua）。計畫檔用地圖名詞寫步驟：walk、clear（打某點附近的中立單位）、watch（某點先看到空、再看到單位才算）、cast（某招打某點，可指定站位 from），目標可寫座標、`camp={side,rank}`、`tree={near=...}`、`same=步驟`，可設 delay／delay_from、timeout、步驟開始與結束的截圖。Lua 依對局地圖與座位隊伍解析成座標 JSON，UE 端 FOmAutoPilotPlan 解析，FOmAutoPilot::TickPlan 執行；步驟進行中取代走兵線，緊急撤退仍優先，步驟之間照常打兵線。範例 scripts/autopilot_plans/jungle_trees.lua。
+- **實機過程中修掉的問題**：
+  1. 計畫走路時不升級技能（英雄 6 分鐘還是 1 級）→ 計畫中仍會學技能，只是不放招。
+  2. 往森林裡的樹走會卡在樹之間 → cast 加站位 from（站在營地空地瞄準）。
+  3. 目標在 HUD 底下時一直重置鏡頭、從不點擊 → 找「目標會出現在畫面上」的站位（PlanAimSpot）再過去。
+  4. 開始截圖撞上載入畫面、和結束截圖互相蓋掉 → 截圖改成佇列；cast 的開始截圖在瞄準位置、施放前拍。
+- **結果**：ue-nobu8（伊達政宗，560 秒時限）01:22 營地旁的樹群在，01:33 火焰強襲砍掉，05:32 回到同一位置樹群仍空，07:22 樹群重生；三張都看得到營地單位。營地打架畫面在 ue-nobu7。replica mismatch 1 次，是 A34 冰霜箭冷卻沒進副本（已交線 A）。
+- **沒做到**：營地被清空再重生。nobu 每個營地 2,700 以上 HP、100 以上 DPS，前幾分鐘的英雄單打必死，10 分鐘內拿不到重生畫面；營地死亡、獎勵、重生由 headless 測試涵蓋。
+- **避免**：驗證要拍特定行為時，用計畫檔指定，不要等 autopilot 碰巧走到。
 
 ## E270 conformance：已照 fix-candidates 修正的 quirk 改成照修正後行為判讀（2026-10-30，conformance session）
 
