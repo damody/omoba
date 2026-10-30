@@ -2,6 +2,26 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E317 來源 KV 的 StatusStartingMana -1（滿魔力出生）讓 test_only 英雄的內容建置失敗（2026-10-30，工作線 A）
+
+- **現象**：M6 第 2 批的 C09 立花誾千代以 `source_stats = "C09"` 加入 v3 測試英雄後，omoba-template-ids 的 build.rs 中止：`source hero 'C09' starting_mana=-1 is outside 0..=100000`。roster 裡共有 33 位來源英雄是 -1。
+- **根因**：Dota unit KV 的 `StatusStartingMana "-1"` 表示「以滿魔力出生」，不是一個魔力數量，與沒有寫這個欄位的意思相同。`hero_source/roster.lua` 把 KV 的值原樣寫進 templates/hero_sources.lua，template-ids 的驗證則把它當成數量檢查範圍。之前只有 playable 英雄經過這個驗證，而它們都沒有 -1，所以沒發現。
+- **通用修正**：roster 匯入時把 starting_mana 的 -1 視同未設定（與 A02、B04 沒寫這欄一樣），重新產生 hero_sources.lua（只有那 33 列少了 `starting_mana = -1`）。驗證範圍不放寬，真的負數仍然會失敗。
+- **以後如何避免**：從來源 KV 匯入時，先確認欄位有沒有 sentinel 值（-1、0 代表預設等），在匯入器轉成我們的表示法，不要讓下游的驗證去猜。starting_mana 目前執行期沒有讀取者；以後接上出生魔力時，None 要表示滿魔力。
+
+## E316 verify_m6_batch 把只有 Ability fact、沒有 cast_trace 的施放判成 NEVER CAST（2026-10-30，e187 遊戲模式 session；已放回 live）
+- **現象**：m6gen3（伊達政宗、真田幸村、村上義清、淺井長政、阿松，9 局全部結束）報告 `b08_endless_fang` NEVER CAST；但 quick-02、quick_swap-01、quick_swap-03、teamfight-03 的 hero_stats 都有 accepted=1（authority 的 Ability fact），只是 cast trace 沒有任何一列（連 windup／rejected 都沒有）。
+- **根因**：報告的施放次數只看 cast trace 的 accepted；Ability fact 有、trace 沒有的施放被當成從未施放，真正的異常（trace 漏記）反而被蓋掉。
+- **通用修正**：施放次數取 trace accepted 與 Ability fact 兩者較大值；兩者不同時 trace 欄附上 `facts N`；fact 有而 trace 沒有標成 `NO TRACE`（異常，交給負責的線），只有兩者都為 0 才是 NEVER CAST，且只有 NEVER CAST 計入「never cast」總數。另外加 `--report-only --output DIR`，從既有的對局報告重出 report.md，不必重跑對局。m6gen3 重出報告：0 個 NEVER CAST，`b08_endless_fang` 為 NO TRACE（facts 4），已交給 B 線查 cast trace 為何沒有記錄這條施放路徑。
+- **避免**：統計「有沒有發生」時，對照兩個獨立來源；來源不一致要顯示成異常，不要選一個來源當真相。
+
+## E315 hero_author/v3.lua 的 ability_row 缺 v3 目標型別 direction（2026-10-30，工作線 A）
+
+- **現象**：把 M6 第 2 批 9 位加入 `scripts/v3_test_heroes.lua` 時，A24 `a24_slaughter_shot`（`target = { type = "direction" }`）讓產生直接中止：`unmapped v3 target type direction`。
+- **根因**：v3 的 `target.type` 有 `none unit point direction vector unit_or_point tree item`（v3.md §3.1）。`hero_author/generate.lua` 的 TARGET_TYPE 有把 direction 對應到 point，但 `hero_author/v3.lua` 的 V3_TARGET_TYPE（test 英雄與 `slot = "sub"` 技能的內容列）只有 none／unit／point／vector，兩份表不一致。
+- **通用修正**：V3_TARGET_TYPE 加上 `direction = "point"`，與 generate.lua 相同。v3 測試英雄的 direction 技能從此都能產生內容列。
+- **以後如何避免**：v3 目標型別到 omoba-core TargetType 的對應有兩份表，改其中一份時另一份也要一起改；之後應該讓 v3.lua 改用 generate.lua 的那一份。其餘型別（unit_or_point、tree、item）仍然會明確中止，不會被默默當成 none。
+
 ## E314 產生碼的 on_attack_windup 讀不到 event.target（2026-10-30，工作線 A）
 
 - **現象**：接 on_attack_launch 時發現，產生的 `on_status_event` 對 kind 10（ATTACK_START）沒有設定事件欄位。在 windup 觸發裡寫 `event.target` 的 5 處（C01R、A25R、A27R 等的暴擊 cue）會拿到無效單位。目前已換上 live 的招式都沒有用到，所以還沒有實際出錯。

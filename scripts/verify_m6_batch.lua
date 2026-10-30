@@ -9,7 +9,8 @@
 -- trace results, and flags the active abilities no bot ever cast.
 --
 -- Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua (--batch N [--group G] | --heroes a,b,...) [--matches 6]
---   [--parallel 6] [--ue] [--output NEW_DIRECTORY] [--no-build]
+--   [--parallel 6] [--ue] [--output NEW_DIRECTORY] [--no-build] [--report-only]
+-- --report-only --output DIR writes DIR/report.md again from the match reports already in DIR.
 local source = debug.getinfo(1, 'S').source:sub(2)
 package.path = assert(source:match('^(.*)[/\\]')) .. '/?.lua;' .. package.path
 local b = require('_bootstrap')
@@ -29,8 +30,9 @@ do
     elseif v == '--heroes' then options.heroes = arg[i + 1]; i = i + 1
     elseif v == '--ue' then options.ue = true
     elseif v == '--no-build' then options.no_build = true
+    elseif v == '--report-only' then options.report_only = true; options.no_build = true
     elseif v == '--help' then
-      print('Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua --batch N [--group G] [--matches 6] [--parallel 6] [--ue] [--output DIR] [--no-build]')
+      print('Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua --batch N [--group G] [--matches 6] [--parallel 6] [--ue] [--output DIR] [--no-build] [--report-only]')
       return
     else error('unknown argument ' .. v) end
     i = i + 1
@@ -83,7 +85,9 @@ assert(#group > 0, ('batch %d group %d has no playable hero; not yet playable: %
 local output
 if options.output then output = path.absolute(options.output, b.root)
 else output = path.join(b.root, 'target', 'm6-batch', ('batch%d-group%d-%d'):format(options.batch, options.group, os.time())) end
-assert(not path.exists(output), 'output must be a new directory: ' .. output)
+-- --report-only re-reads the match reports of an earlier run in that directory.
+if options.report_only then assert(options.output and path.is_directory(output), '--report-only needs --output of an earlier run')
+else assert(not path.exists(output), 'output must be a new directory: ' .. output) end
 path.mkdir_p(output)
 local function lua_list(list)
   local quoted = {}
@@ -128,13 +132,15 @@ if not options.no_build then
 end
 -- Run from a private copy so later builds never lock or change this batch's binaries (E125).
 local bin = path.join(output, 'bin')
-path.mkdir_p(bin)
-local release = path.join(b.root, 'scripts', 'target', 'release')
-for _, module in ipairs(require('script_dlls').modules()) do
-  path.write(path.join(bin, module.file), path.read(path.join(release, module.file), true), false, true)
-end
 local exe = path.join(bin, 'moba-headless.exe')
-path.write(exe, path.read(path.join(b.root, 'omb', 'target', 'release', 'moba-headless.exe'), true), false, true)
+if not options.report_only then
+  path.mkdir_p(bin)
+  local release = path.join(b.root, 'scripts', 'target', 'release')
+  for _, module in ipairs(require('script_dlls').modules()) do
+    path.write(path.join(bin, module.file), path.read(path.join(release, module.file), true), false, true)
+  end
+  path.write(exe, path.read(path.join(b.root, 'omb', 'target', 'release', 'moba-headless.exe'), true), false, true)
+end
 
 -- 4. Matches, `--parallel` at a time; never during a performance measurement (target/locks/performance).
 local function wait_performance_lock()
@@ -150,7 +156,7 @@ for _, r in ipairs(recipes) do
       log = path.join(output, ('%s-%02d.log'):format(r.name, seed)) }
   end
 end
-local running, next_job = {}, 1
+local running, next_job = {}, options.report_only and #jobs + 1 or 1
 while next_job <= #jobs or #running > 0 do
   while next_job <= #jobs and #running < options.parallel do
     wait_performance_lock()
@@ -236,7 +242,9 @@ for _, row in ipairs(summary.recipes) do
     row.median_minutes, table.concat(row.failures, ' '))
 end
 md[#md + 1] = ''
--- `casts` is the cast trace's accepted count (one per actual cast); `bot inputs` counts every
+-- `casts` is the larger of the cast trace's accepted count and the authority's Ability facts
+-- (E316: B08 無盡牙 left Ability facts but no trace row and was reported as never cast; such a
+-- row is now NO TRACE, an anomaly to hand over, not a never-cast); `bot inputs` counts every
 -- cast order the bots sent, repeats included.
 md[#md + 1] = '| hero | ability | kind | bot inputs | casts | trace | note |'
 md[#md + 1] = '|---|---|---|---|---|---|---|'
@@ -245,10 +253,12 @@ for _, a in ipairs(summary.abilities) do
   local results = {}
   for result, n in pairs(a.results) do results[#results + 1] = result .. ' ' .. n end
   table.sort(results)
+  if (a.accepted or 0) ~= (a.results.accepted or 0) then results[#results + 1] = 'facts ' .. (a.accepted or 0) end
   local castable = a.kind == 'active' or a.kind == 'ultimate' or a.kind == 'toggle'
-  local casts = a.results.accepted or 0
-  local note = castable and casts == 0 and 'NEVER CAST' or ''
-  if note ~= '' then never = never + 1 end
+  local casts = math.max(a.results.accepted or 0, a.accepted or 0)
+  local note = castable and casts == 0 and 'NEVER CAST'
+    or castable and (a.results.accepted or 0) == 0 and 'NO TRACE' or ''
+  if note == 'NEVER CAST' then never = never + 1 end
   md[#md + 1] = ('| %s | %s | %s | %d | %d | %s | %s |'):format(a.hero, a.ability, a.kind, a.inputs, casts, table.concat(results, ', '), note)
 end
 if summary.ue then
