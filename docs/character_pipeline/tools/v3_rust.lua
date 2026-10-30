@@ -618,6 +618,10 @@ function Gen:call(node, ctx)
   elseif fn == "select" then
     local c, ct = arg(1); local a, at = arg(2); local b, bt = arg(3)
     if at == "err" or bt == "err" or ct == "err" then return "Fixed64::ZERO", "err" end
+    -- a unit and a point: the unit stands for its position
+    if (at == "unit" and bt == "point") or (at == "point" and bt == "unit") then
+      a, b, at, bt = self:point(a, at), self:point(b, bt), "point", "point"
+    end
     if ct ~= "bool" or at ~= bt then self:block("fn:select types") end
     return string.format("(if %s { %s } else { %s })", c, a, b), at
   elseif fn == "floor" or fn == "ceil" or fn == "abs" then
@@ -816,7 +820,8 @@ end
 -- statuses
 ---------------------------------------------------------------------------
 local STATUS_FIELDS = set({ "id", "runtime_id", "duration", "stacking", "dispel", "visibility", "reveal", "cue", "remove_on",
-  "stats", "per_source", "states", "tags", "triggers", "text", "notes", "values", "vars", "absorb", "status_resistance", "aura" })
+  "stats", "per_source", "states", "tags", "triggers", "text", "notes", "values", "vars", "absorb", "status_resistance", "aura",
+  "unique_group", "unique_rule" })
 
 -- The StatusDef constant of every status; problems per status (states the host does not hold).
 local function emit_statuses(m, root)
@@ -855,9 +860,16 @@ local function emit_statuses(m, root)
     -- status resistance: "normal" (the default) or "ignore"; a number (its own resistance) waits
     local sr = s.status_resistance
     if sr ~= nil and sr ~= "normal" and sr ~= "ignore" then p[#p + 1] = "status.status_resistance:" .. (type(sr) == "table" and "value" or tostring(sr)) end
+    -- unique_group: per stat the strongest of the group (host aggregation family); `latest` waits
+    local family = ""
+    if s.unique_group ~= nil then
+      if type(s.unique_group) ~= "string" then p[#p + 1] = "status.unique_group of an expression"
+      else family = "unique_group:" .. s.unique_group end
+    end
+    if s.unique_rule ~= nil and s.unique_rule ~= "max" then p[#p + 1] = "status.unique_rule:" .. tostring(s.unique_rule) end
     problems[id] = p
-    out[#out + 1] = string.format("\n    pub const %s: StatusDef = StatusDef {\n        id: %s,\n        runtime_id: %s,\n        state_buffs: &[%s],\n        state_payload: &[%s],\n        owner: %s,\n        events: %d,\n        ignore_status_resistance: %s,\n    };\n",
-      upper(id), rust_str(id), rust_str(runtime_id), table.concat(buffs, ", "), table.concat(payload, ", "), rust_str(owner), mask, tostring(sr == "ignore"))
+    out[#out + 1] = string.format("\n    pub const %s: StatusDef = StatusDef {\n        id: %s,\n        runtime_id: %s,\n        state_buffs: &[%s],\n        state_payload: &[%s],\n        owner: %s,\n        events: %d,\n        ignore_status_resistance: %s,\n        family: %s,\n    };\n",
+      upper(id), rust_str(id), rust_str(runtime_id), table.concat(buffs, ", "), table.concat(payload, ", "), rust_str(owner), mask, tostring(sr == "ignore"), rust_str(family))
   end
   out[#out + 1] = "}\n"
   return table.concat(out), problems

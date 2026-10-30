@@ -27,7 +27,7 @@ use serde_json::Value;
 use specs::Entity;
 use std::collections::{BTreeMap, HashMap};
 
-const AGGREGATION_FAMILY_KEY: &str = "__aggregation_family";
+pub const AGGREGATION_FAMILY_KEY: &str = "__aggregation_family";
 /// Ability slows (原作 `dummy.lua` `Slow`／`slow_self_passive`).
 pub const ABILITY_SLOW_FAMILY: &str = "generic_ability_slow";
 const ABILITY_MOVE_SLOW_KEY: &str = "move_speed_bonus";
