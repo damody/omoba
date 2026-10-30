@@ -65,10 +65,14 @@ for name in lfs.dir(packages_dir) do
     if id then package_of[id] = name end
   end
 end
-local authored = assert(loadfile(path.join(b.root, 'scripts', 'lua_data', 'templates', 'authored_heroes.lua')))()({})
+-- Playable: every hero of the content hero table (templates/heroes.lua, which merges the authored
+-- heroes and the v3 heroes of templates/v3_test_heroes.lua) that is neither test_only nor a
+-- tombstone (E363: a v3 hero marked playable is a v3_test_heroes row, not an authored one).
+local content = require('content_builder').new(path.join(b.root, 'scripts', 'lua_data'))
 local playable = {}
-for _, hero in ipairs(authored.heroes) do playable[hero.id] = hero.abilities end
-for id, update in pairs(authored.hero_updates or {}) do playable[id] = update.abilities_by_slot end
+for _, hero in ipairs(content.include('templates/heroes.lua')) do
+  if not hero.test_only and not hero.tombstone then playable[hero.id] = true end
+end
 local batch_heroes, missing = {}, {}
 for _, hero in ipairs(wave.heroes) do
   local package = hero.package or package_of[hero.id]
@@ -261,7 +265,9 @@ for _, r in ipairs(recipes) do
   summary.recipes[#summary.recipes + 1] = row
 end
 local kinds = {}
-for _, a in ipairs(authored.abilities) do kinds[a.id] = a.ability_type end
+for _, file in ipairs({ 'templates/authored_heroes.lua', 'templates/v3_test_heroes.lua' }) do
+  for _, a in ipairs(content.include(file).abilities or {}) do kinds[a.id] = a.ability_type end
+end
 for _, a in pairs(ability_rows) do a.kind = kinds[a.ability] or '?'; summary.abilities[#summary.abilities + 1] = a end
 table.sort(summary.abilities, function(x, y) return x.hero == y.hero and x.slot < y.slot or x.hero < y.hero end)
 

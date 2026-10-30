@@ -14,7 +14,10 @@
 - **通用修正**：`moba_role_launch` 啟動 renderer 時，環境變數加上 `UE_SKIP_UBT_SDK_SETUP=1`，這是引擎本身提供、用來跳過這一步的開關。測試 `moba_role_launch_host_split_test` 會檢查 renderer 的環境變數裡有這個設定。
 - **避免**：只用來顯示畫面的遊戲程序，要關掉所有會去碰建置工具（UBT、Turnkey、DDC 服務）的啟動步驟；在機器上同時有建置在跑時，這些步驟的等待時間無法預估。
 
-## E363 （保留）verify_m6_batch 只從 authored_heroes 認可玩英雄，看不到標成 playable 的 v3 英雄（2026-10-30）
+## E363 verify_m6_batch 只從 authored_heroes 認可玩英雄，看不到標成 playable 的 v3 英雄（2026-10-30，e187 遊戲模式 session，線 A 通知；已放回 live）
+- **現象**：線 A 會在 scripts/v3_test_heroes.lua 把 M6 英雄標成 `playable = true`（列不是 test_only、帶 source_ref、列進 hero_dlls），但這些列在 templates/v3_test_heroes.lua，由 heroes.lua 合併進內容。verify_m6_batch 只讀 authored_heroes 的 heroes 與 hero_updates，會把它們當成「還不能玩」而跳過；技能表的 kind 也只查 authored_heroes。
+- **通用修正**：可玩英雄改為內容英雄表（content_builder 的 templates/heroes.lua，已合併兩個來源）裡所有非 test_only、非 tombstone 的英雄；技能 kind 同時查 authored_heroes 與 v3_test_heroes 的 abilities。確認過 test_only 的 hattori_hanzo 仍被排除。
+- **避免**：判斷「能不能玩」讀合併後的內容表，不讀其中一個來源。
 
 ## E362 conformance：需要狀態的技能先施放給狀態的技能；toggle 等冷卻結束才切換；on_death 連帶移除（2026-10-30，conformance session）
 
