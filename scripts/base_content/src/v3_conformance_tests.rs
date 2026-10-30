@@ -2097,7 +2097,9 @@ fn use_handlers(driver: &mut SimulationDriver) {
 const REPORT_ONLY: &[&str] = &["A13", "C05", "C09", "A18", "B30", "A16", "A24", "C01", "A23", "A35",
     "A01", "B20", "B26", "C22", "A12", "A14", "A26", "B27", "C03",
     // M6 batch 3
-    "C14", "C24", "A19", "A11", "A22", "A30", "A36", "B34", "B02"];
+    "C14", "C24", "A19", "A11", "A22", "A30", "A36", "B34", "B02",
+    // M6 batch 4
+    "C02", "A33", "B03", "B05", "B11", "B09", "B18", "B31", "A20"];
 
 fn conformance(id: &str) {
     let doc = document(id);
@@ -2168,6 +2170,10 @@ conformance_tests! {
     c14_saito_yoshitatsu => "C14", c24_yagyu_muneyoshi => "C24", a19_kuroda_yoshitaka => "A19", a11_saito_dosan => "A11",
     a22_sengoku_hidehisa => "A22", a30_niwa_nagahide => "A30", a36_maeno_nagayasu => "A36", b34_takeda_katsuyori => "B34",
     b02_fuma_kotaro => "B02",
+    // M6 batch 4 (report only until in the content and generated; E320)
+    c02_akechi_hidemitsu => "C02", a33_honda_masanobu => "A33", b03_saito_tomonobu => "B03", b05_mori_motonari => "B05",
+    b11_kikuhime => "B11", b09_sanada_masayuki => "B09", b18_koihime => "B18", b31_takeda_shingen => "B31",
+    a20_kuki_yoshitaka => "A20",
 }
 
 
