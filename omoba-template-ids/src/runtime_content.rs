@@ -585,6 +585,12 @@ impl RuntimeContent {
                 dummy: entry.dummy,
                 bounty_gold: entry.bounty_gold,
                 bounty_xp: entry.bounty_xp,
+                acquisition_range: fixed64(entry.acquisition_range.max(entry.attack_range)),
+                ai: match entry.ai {
+                    crate::lua_content::SummonAiEntry::Guard=>crate::SummonAi::Guard,
+                    crate::lua_content::SummonAiEntry::Idle=>crate::SummonAi::Idle,
+                },
+                projectile_speed: fixed64(if entry.projectile_speed > 0.0 { entry.projectile_speed } else { 900.0 }),
             })))
         })?;
         let summon_display = build_indexed(&manifest.summons, "summon", |raw, entry| {

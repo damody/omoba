@@ -1382,6 +1382,11 @@ pub enum SummonTargetPriority {Nearest,OwnerFocus}
 #[derive(Copy,Clone,Debug,PartialEq,Eq)]
 pub enum SummonOwnerDeath {Persist,Expire}
 
+/// A summon's own AI (base_content summons::generic).
+#[repr(u8)]
+#[derive(Copy,Clone,Debug,PartialEq,Eq)]
+pub enum SummonAi {Guard,Idle}
+
 /// Summon intrinsic stats — 對應 templates.lua summons[i]。
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -1413,6 +1418,11 @@ pub struct SummonStats {
     /// Gold and hero XP its killer's player gets (原作 bounty), credited like a neutral kill.
     pub bounty_gold: u32,
     pub bounty_xp: u32,
+    /// Auto-acquisition radius; never below the attack range.
+    pub acquisition_range: Fixed64,
+    pub ai: SummonAi,
+    /// Attack projectile speed (900 when the template gives none).
+    pub projectile_speed: Fixed64,
 }
 
 /// Ability 類型 — `omoba_core::ability_meta::AbilityType` 的 const-friendly

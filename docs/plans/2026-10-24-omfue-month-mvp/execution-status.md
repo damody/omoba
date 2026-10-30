@@ -16,6 +16,21 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 工作線 B：通用召喚物 AI 與 acquisition_range／ai／projectile_speed（t51）
+
+- 召喚物模板新增三個欄位：
+  - `acquisition_range`：原作 AttackAcquisitionRange，0 表示等於攻擊射程。
+  - `ai = "guard" | "idle"`：預設 guard。
+  - `projectile_speed`：0 表示 900。
+  - 驗證：數值必須有限，且介於 0 到 20000。SummonStats 新增 `acquisition_range`（不小於攻擊射程）、`ai`、`projectile_speed`。
+- base_content `summons::generic::Generic`：所有沒有專屬腳本、也不是 dummy 的召喚物模板，都由模板數值驅動。
+  - 攻擊射程內：攻擊最近的敵人（host 查詢，有 assigned target 時優先）。
+  - 射程外但在 acquisition 內：追擊。
+  - idle：不自己找目標。
+  - 固定式召喚物不移動，取代原本的 emplacement 註冊；dummy 不註冊 AI。
+- v3 對應（A）：owner_controlled = guard，follow 0；chase_target 仍擋下，等 chase 規格。
+- 測試：`a_generic_summon_attacks_in_range_closes_within_acquisition_and_idle_does_nothing`（base_content，在 live 上執行）；omoba-core 1434 項、template-ids 112 項全部通過。
+
 ## 2026-10-30 工作線 B：observer mismatch 列出不同的欄位（t55）
 
 - C 的 1+9 quick demo 在 tick 960 出現 Hero 元件 mismatch。原本日誌只印 authority 與 replica 的前 320 bytes，C17 那一列在出現差異的欄位之前就被截斷，看不出是哪個欄位不同。

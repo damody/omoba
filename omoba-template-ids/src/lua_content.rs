@@ -1673,6 +1673,21 @@ impl SummonTargetPriorityEntry {
     }
 }
 
+/// A summon's own AI (base_content summons::generic): `guard` attacks the nearest enemy in attack
+/// range and closes on one within its acquisition range; `idle` never acquires a target by itself.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all="snake_case")]
+pub(crate) enum SummonAiEntry {
+    #[default]
+    Guard,
+    Idle,
+}
+impl SummonAiEntry {
+    pub(crate) fn rust_variant(self)->&'static str {
+        match self {Self::Guard=>"Guard",Self::Idle=>"Idle"}
+    }
+}
+
 /// What happens to a summon when its owner dies or retires (G-3).
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, Default, PartialEq, Eq)]
 #[serde(rename_all="snake_case")]
@@ -1743,6 +1758,14 @@ pub(crate) struct SummonEntry {
     pub(crate) bounty_gold: u32,
     #[serde(default)]
     pub(crate) bounty_xp: u32,
+    /// Auto-acquisition radius (原作 AttackAcquisitionRange); 0 = its attack range.
+    #[serde(default)]
+    pub(crate) acquisition_range: f32,
+    #[serde(default)]
+    pub(crate) ai: SummonAiEntry,
+    /// Its attack projectile's speed; 0 = the default 900.
+    #[serde(default)]
+    pub(crate) projectile_speed: f32,
 }
 
 pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),String> {
@@ -1758,6 +1781,9 @@ pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),Stri
             entry.damage_per_owner_level].iter().all(|value|*value==0.0);
         if entry.dummy && (!bodiless || !entry.immobile || entry.invulnerable) {
             return Err(format!("summon {} is a dummy but has a body (life, attack, defense, collision, movement) or is not immobile",entry.id));
+        }
+        if [entry.acquisition_range,entry.projectile_speed].iter().any(|value|!value.is_finite()||!(0.0..=20_000.0).contains(value)) {
+            return Err(format!("summon {} has an invalid acquisition range or projectile speed",entry.id));
         }
         let (start,stop)=(entry.follow_start_distance,entry.follow_stop_distance);
         if !start.is_finite() || !stop.is_finite() || start<0.0 || start>10_000.0 || stop<0.0

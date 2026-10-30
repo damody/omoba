@@ -228,17 +228,15 @@ fn units() -> RVec<UnitDef> {
     for chaser in heroes::C15_tamako::No4_hundred_arrows::chasers() {
         v.push(UnitDef { unit_id: chaser.unit_id.clone(), script: UnitScript_TO::from_value(chaser, TD_Opaque) });
     }
-    // G-3: every immobile template without a dedicated script gets the generic
-    // emplacement AI, so fixed summons are pure data.
+    // G-3: every template without a dedicated script gets the generic summon AI from its stats
+    // (summons::generic; fixed emplacements never move), so summons are pure data. A dummy holds
+    // statuses only and gets none.
     // Tombstones leave holes in the ID space; scan a bounded range, once at load.
     for raw in 1..=4096u16 {
         let Some(name) = omoba_template_ids::try_summon_id_str(omoba_template_ids::SummonId(raw)) else { continue; };
-        let immobile = omoba_template_ids::active_summon_stats(omoba_template_ids::SummonId(raw)).is_some_and(|stats| stats.immobile);
-        if immobile && !v.iter().any(|def| def.unit_id.as_str() == name) {
-            v.push(UnitDef {
-                unit_id: name.into(),
-                script: UnitScript_TO::from_value(summons::emplacement::Emplacement { unit_id: name.into() }, TD_Opaque),
-            });
+        if v.iter().any(|def| def.unit_id.as_str() == name) { continue; }
+        if let Some(ai) = summons::generic::Generic::of(name) {
+            v.push(UnitDef { unit_id: name.into(), script: UnitScript_TO::from_value(ai, TD_Opaque) });
         }
     }
 

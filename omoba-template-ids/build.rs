@@ -1754,6 +1754,9 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \tdummy: {},\n\
              \tbounty_gold: {},\n\
              \tbounty_xp: {},\n\
+             \tacquisition_range: {},\n\
+             \tai: SummonAi::{},\n\
+             \tprojectile_speed: {},\n\
              }};\n",
             cname,
             fixed64_lit(e.hp),
@@ -1776,6 +1779,9 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             e.dummy,
             e.bounty_gold,
             e.bounty_xp,
+            fixed64_lit(e.acquisition_range.max(e.attack_range)),
+            e.ai.rust_variant(),
+            fixed64_lit(if e.projectile_speed > 0.0 { e.projectile_speed } else { 900.0 }),
         ));
     }
     out.push('\n');
