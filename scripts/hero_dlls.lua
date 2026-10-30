@@ -48,4 +48,7 @@ return {
   {hero='akechi_hidemitsu',package='hero_c02',dir='heroes/akechi_hidemitsu'},
   {hero='miyamoto_musashi',package='hero_c21',dir='heroes/miyamoto_musashi'},
   {hero='sasaki_kojiro',package='hero_c22',dir='heroes/sasaki_kojiro'},
+  -- M6 fourth batch (2026-10-31): every ability generated, conformance 0 fail on live d47398f0
+  {hero='miyoshi_nagayoshi',package='hero_b10',dir='heroes/miyoshi_nagayoshi'},
+  {hero='momochi_sandayu',package='hero_b13',dir='heroes/momochi_sandayu'},
 }

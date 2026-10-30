@@ -154,7 +154,8 @@ function M.derive(def, kind_of_entry, doc)
     if f.heal_self then return { kind = "self_channel_recovery", below_hp_per_mille = D.heal_below, threat_radius = D.threat } end
     for _, s in ipairs(f.selectors) do
       local r = value_name(s.radius)
-      if s.shape == "circle" and r then return { kind = "channel_enemy_area", radius_key = r, min_targets = D.min_targets } end
+      -- a channel around the caster: the executor's self_area takes a channeled cast (line B)
+      if s.shape == "circle" and r then return { kind = "self_area", radius_key = r, min_targets = D.min_targets } end
     end
     return { kind = "self_engage", threat_radius = D.engage, note = "channel without a recovery or area rule" }
   end
@@ -210,8 +211,9 @@ function M.derive(def, kind_of_entry, doc)
     return { kind = "self_recovery", below_hp_per_mille = 0, below_mana_per_mille = D.mana_below, restore_key = f.mana }
   end
   if f.heal_self and not f.damage then return { kind = "self_heal", below_hp_per_mille = D.heal_below } end
-  -- a summon without a target point (C02 phantom_move, B18 earth_claw): cast near a fight
-  if f.summon then return { kind = "self_engage", threat_radius = D.engage, note = "no-target summon" } end
+  -- a summon without a target point (C02 phantom_move, B18 earth_claw): summon_near_enemy takes
+  -- target none too (line B E419)
+  if f.summon then return { kind = "summon_near_enemy", threat_radius = D.threat } end
   for _, s in ipairs(f.selectors) do
     local r = value_name(s.radius)
     local around_caster = s.from == nil or s.from == "caster" or s.from == "self"

@@ -219,7 +219,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -10060,7 +10060,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "channel_enemy_area", min_targets = 1, proposed = true, radius_key = "radius", source = "derived" },
+        bot = { kind = "self_area", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -20311,7 +20311,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "channel_enemy_area", min_targets = 1, proposed = true, radius_key = "splash_radius", source = "derived" },
+        bot = { kind = "self_area", min_targets = 1, radius_key = "splash_radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "channel_time", value = "channel_time" },
@@ -27042,7 +27042,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "mana_cost", value = "mana_cost" },
@@ -29910,7 +29910,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -33471,7 +33471,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -35716,7 +35716,7 @@ local data = {
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "channel_enemy_area", min_targets = 1, proposed = true, radius_key = "radius", source = "derived" },
+        bot = { kind = "self_area", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -38651,7 +38651,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -39762,7 +39762,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -54284,7 +54284,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -56135,7 +56135,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -56860,7 +56860,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "channel_enemy_area", min_targets = 1, proposed = true, radius_key = "detect_radius", source = "derived" },
+        bot = { kind = "self_area", min_targets = 1, radius_key = "detect_radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -59081,7 +59081,7 @@ local data = {
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune", "can_target_buildings" },
-        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -61536,7 +61536,7 @@ local data = {
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -62333,7 +62333,7 @@ local data = {
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "channel_enemy_area", min_targets = 1, proposed = true, radius_key = "radius", source = "derived" },
+        bot = { kind = "self_area", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -62894,7 +62894,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -66188,7 +66188,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", note = "no-target summon", source = "derived", threat_radius = 900 },
+        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "effect_range" },
@@ -68031,16 +68031,13 @@ local data = {
     {
       abilities = { "b10_wrath_of_the_dead", "b10_corpse_assault", "b10_demonic_war_spirit", "b10_power_of_the_abyss" },
       authored_package = "miyoshi_nagayoshi",
-      background = "三好長慶（schema v3 產生的 Rust；測試用）",
       display_name = "三好長慶",
       id = "miyoshi_nagayoshi",
       moba_loadout = {
         ranks = { 1, 1, 1, 0 },
         skill_points = 0,
       },
-      source_stats = "B10",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B10",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "miyoshi_nagayoshi",
@@ -68332,16 +68329,13 @@ local data = {
     {
       abilities = { "b13_sense_break", "b13_hypnosis", "b13_blood_disguise", "b13_storm", "b13_burrow", "b13_shukuchi" },
       authored_package = "momochi_sandayu",
-      background = "百地三太夫（schema v3 產生的 Rust；測試用）",
       display_name = "百地三太夫",
       id = "momochi_sandayu",
       moba_loadout = {
         ranks = { 1, 1, 1, 0, 1, 1 },
         skill_points = 0,
       },
-      source_stats = "B13",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B13",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "momochi_sandayu",
