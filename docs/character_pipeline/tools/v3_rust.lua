@@ -437,6 +437,9 @@ function Gen:expr(node, ctx)
     if n == "caster" then return "cx.caster", "unit"
     elseif n == "self" then return "cx.self_unit", "unit"
     elseif n == "source" then return "cx.caster", "unit"
+    -- the summon's owner hero; a hero is its own (v3.md §5.4)
+    elseif n == "caster_hero" then
+      return "{ let c = cx.caster; let o = cx.unit_ref(c, ability_kit::unit_attr::OWNER); if o.is_valid() { o } else { c } }", "unit"
     elseif n == "target" then
       return "cx.target_unit()", "unit"
     elseif n == "point" then
@@ -596,9 +599,22 @@ function Gen:expr(node, ctx)
   self:block("expr:" .. tostring(k)); return "Fixed64::ZERO", "err"
 end
 
+-- `cx.<method>(..)` with unit arguments that may read through cx themselves (a borrow of cx
+-- inside the call's own borrow, E285): every argument that is not a plain name is bound first
+local function cx_call(fmt, ...)
+  local names, lets = {}, {}
+  for i, a in ipairs({ ... }) do
+    if a:match("^[%w_%.]+$") then names[i] = a
+    else names[i] = "a" .. i .. "_"; lets[#lets + 1] = "let " .. names[i] .. " = " .. a .. "; " end
+  end
+  local call = string.format(fmt, table.unpack(names))
+  if #lets == 0 then return call end
+  return "{ " .. table.concat(lets) .. call .. " }"
+end
+
 function Gen:point(code, ty)
   if ty == "point" or ty == "err" then return code end
-  if ty == "unit" then return "cx.pos(" .. code .. ")?" end
+  if ty == "unit" then return cx_call("cx.pos(%s)?", code) end
   self:block("expr: a position from a " .. ty); return "Vec2::ZERO"
 end
 
@@ -650,25 +666,25 @@ function Gen:call(node, ctx)
     if t == "err" or not name then return "false", "bool" end
     if t ~= "unit" then self:block("fn:is_template of a " .. t); return "false", "bool" end
     if not self.m.templates[name] then self:block("template:" .. name .. " not declared"); return "false", "bool" end
-    return string.format("cx.is_template(%s, %s)", u, rust_str(name)), "bool"
+    return cx_call("cx.is_template(%s, " .. rust_str(name) .. ")", u), "bool"
   elseif fn == "exists" then
     local u, t = arg(1)
     if t == "err" then return "false", "bool" end
     if t ~= "unit" then self:block("fn:exists of a " .. t); return "false", "bool" end
-    return "cx.exists(" .. u .. ")", "bool"
+    return cx_call("cx.exists(%s)", u), "bool"
   elseif fn == "has_state" then
     local u, t = arg(1)
     local st = name_arg(2)
     local e = st and self.opts.vocab.states[st]
     if t ~= "unit" or not e or not e.buff then self:block("fn:has_state:" .. tostring(st)); return "false", "bool" end
-    return string.format("cx.has_buff(%s, %s)", u, rust_str(e.buff)), "bool"
+    return cx_call("cx.has_buff(%s, " .. rust_str(e.buff) .. ")", u), "bool"
   elseif fn == "alive" then
     local u, t = arg(1)
     if t ~= "unit" then self:block("fn:alive of a " .. t) end
-    return "cx.alive(" .. u .. ")", "bool"
+    return cx_call("cx.alive(%s)", u), "bool"
   elseif fn == "is_enemy" then
     local a = arg(1); local b = arg(2)
-    return string.format("cx.is_enemy(%s, %s)", a, b), "bool"
+    return cx_call("cx.is_enemy(%s, %s)", a, b), "bool"
   elseif fn == "is_ally" then
     local a, at = arg(1); local b, bt = arg(2)
     if at == "err" or bt == "err" then return "false", "bool" end
@@ -709,7 +725,7 @@ function Gen:call(node, ctx)
     local sname = name_arg(2)
     if ut == "err" then return "Fixed64::ZERO", "err" end
     if ut ~= "unit" or not sname or not self.m.statuses[sname] then self:block("fn:status_remaining"); return "Fixed64::ZERO", "err" end
-    return string.format("cx.status_remaining(%s, &super::ids::status::%s)", u, upper(sname)), "num"
+    return cx_call("cx.status_remaining(%s, &super::ids::status::" .. upper(sname) .. ")", u), "num"
   elseif fn == "status_var" then
     -- a var of a status on a unit (apply_status `vars`); its init while the unit lacks the status
     local u, ut = arg(1)
@@ -740,7 +756,7 @@ function Gen:call(node, ctx)
     local sname = name_arg(2)
     if ut == "err" then return "Fixed64::ZERO", "err" end
     if ut ~= "unit" or not sname or not self.m.statuses[sname] then self:block("fn:stacks"); return "Fixed64::ZERO", "err" end
-    return string.format("cx.stacks(%s, &super::ids::status::%s)", u, upper(sname)), "num"
+    return cx_call("cx.stacks(%s, &super::ids::status::" .. upper(sname) .. ")", u), "num"
   elseif fn == "polar" then
     local p, pt = arg(1); local ang = self:value_node(args[2], ctx, "num"); local d = self:value_node(args[3], ctx, "num")
     return string.format("ability_kit::polar(%s, %s, %s)", self:point(p, pt), ang, d), "point"
@@ -768,7 +784,7 @@ function Gen:call(node, ctx)
       local u = arg(1)
       return string.format("({ let u = %s; cx.status_instances(u, &super::ids::status::%s) } > 0)", u, upper(s)), "bool"
     end
-    return string.format("cx.has_status(%s, &super::ids::status::%s)", u, upper(s)), "bool"
+    return cx_call("cx.has_status(%s, &super::ids::status::" .. upper(s) .. ")", u), "bool"
   elseif fn == "has_tag" or fn == "is_item" or fn == "is_ability" then
     local u, at = arg(1)
     local n = name_arg(2)
@@ -1490,7 +1506,6 @@ function Gen:action(a, ctx, ind)
       -- states would look for the plain id, so those wait (line B: instance keys in the host)
       if s.triggers and next(s.triggers) then self:block("status.stacking:independent with triggers") end
       if s.states and #s.states > 0 then self:block("status.stacking:independent with states") end
-      if a.source ~= nil then self:block("status.stacking:independent with a source") end
       if s.aura ~= nil then self:block("status.stacking:independent with aura") end
       if a.__aura then self:block("aura.status:independent") end
     end
@@ -1509,10 +1524,17 @@ function Gen:action(a, ctx, ind)
     self.slow_ok, self.last_slow = nil, nil
     if independent then
       if slow then self:block("status.stacking:independent with slow_pct") end
-      return line("{") .. line("    let to = " .. to .. ";") .. line("    let duration = " .. dur .. ";")
+      local call = "cx.apply_status_instance(to, &super::ids::status::" .. upper(a.status) .. ", duration, stats)"
+      local body = line("{") .. line("    let to = " .. to .. ";") .. line("    let duration = " .. dur .. ";")
         -- the stats first: their reads take &mut cx
         .. line("    let stats: &[(StatKey, i64)] = " .. stats .. ";")
-        .. line("    cx.apply_status_instance(to, &super::ids::status::" .. upper(a.status) .. ", duration, stats)?;") .. line("}")
+      if a.source ~= nil then
+        -- `source` applies it (its `{caster}` id, its instance count), as apply_status_from
+        return body .. line("    let source = " .. self:value(a.source, ctx, "unit") .. ";")
+          .. line("    let caster = cx.caster;") .. line("    cx.caster = source;") .. line("    let r = " .. call .. ";")
+          .. line("    cx.caster = caster;") .. line("    r?;") .. line("}")
+      end
+      return body .. line("    " .. call .. "?;") .. line("}")
     end
     if slow or a.source ~= nil then
       local src = a.source ~= nil and self:value(a.source, ctx, "unit") or "cx.caster"
