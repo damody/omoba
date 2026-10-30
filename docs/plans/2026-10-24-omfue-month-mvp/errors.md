@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E337 split 在實機鎖內建置，UE 前端建置吃掉整個時限，局在 Humans admitted 前超時（2026-10-30，history-nobu M6 呈現檢查，工作線 C）
+- **現象**：工作線 C 的 queue4 中，B29 村上義清這局 17:11 取得實機鎖，等了 20 秒建置鎖後開始建置，最後失敗：「client p1: time box reached before "Humans admitted" (builds and startup count toward --max-seconds)」。同一佇列後面三局沒有內容變更要建，都正常跑完。
+- **根因**：E269 讓 `--max-seconds` 從取得實機鎖開始算，包含建置。E330 又把 UE 前端建置（codegen、bridge、UBT）加進 split 的建置階段。只要有內容放回，建置就要好幾分鐘，600 秒還沒進對戰就用完了。建置本身不需要佔用這台機器的實機局。
+- **通用修正**：`run_moba_split_local` 新增 `M.build_all`，在取得實機鎖之前、在 repo 建置鎖下建完所有 binary（E301 的一致性不變）。`OMOBA_SOURCES_AS_OF` 改成建置開始的時間（E202），所以等實機鎖期間放回的變更不會讓這局被拒。時限現在只涵蓋鎖內的啟動、對戰和收尾，鎖的持有時間仍在 `--max-seconds` 內（E325）。測試 `run_moba_split_local_test` 檢查建置發生在取鎖之前。
+- **避免**：「一台機器同時只跑一局」的鎖只用來保護實機局本身；不需要這台機器的準備工作（建置）放在鎖外，不要占用鎖的時限。
+
 ## E336 （保留）bot 出裝是寫死的五份清單，單體／地點／隊友治療與魔免類主動道具從不使用，報告也沒有道具統計（2026-10-30）
 
 ## E335 帶 source 的 apply_status 用錯 caster 判斷狀態是否已存在，periodic 每次都重起；同一 tick 兩個施加者各起一條 periodic（2026-10-30，工作線 A）

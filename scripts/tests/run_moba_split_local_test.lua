@@ -103,4 +103,13 @@ do
   assert(split.shutdown_wait_ms(605000,601000,15000)==0,'past the deadline a child is terminated without waiting')
   assert(split.shutdown_wait_ms(0,nil,15000)==15000,'without a box the usual bounded wait applies')
 end
+-- E337: the build runs before the live lock, so the frontend build never uses the time box.
+do
+  local f=assert(io.open('scripts/run_moba_split_local.lua','rb'));local text=f:read('a');f:close()
+  local run=assert(text:find('function M.run(options)',1,true))
+  local build=assert(text:find('M.build_all(options)',run,true),'the run builds')
+  local lock=assert(text:find("machine_lock').acquire",run,true),'the run takes the live lock')
+  assert(build<lock,'the build happens before the live lock is taken')
+  assert(not text:find('while building',run,true),'no build step inside the time box')
+end
 print('split local topology: options, seats and per-role arguments passed')

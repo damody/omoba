@@ -143,11 +143,12 @@ function M.role_args(options,role,plan_file,player_id,humans,output,team_id)
   return args
 end
 
--- Every Rust binary a split run starts, built once after the lock is taken and before any role
+-- Every Rust binary a split run starts, built once by the run itself before any role
 -- launches (E286): the authority, its script DLLs and the client runtime. Building in the authority
 -- role alone left the client runtime as it was, and other sessions change shared sources between a
--- build made beforehand and the launch, so a client refused its stale binary. Under the lock the
--- sources are checked as of the run start (E202) and the build counts toward --max-seconds (E269).
+-- build made beforehand and the launch, so a client refused its stale binary. The sources are
+-- checked as of this build (E202), so changes landed while the run waits for the machine do not
+-- refuse it; the build itself happens before the live lock and its time box (E337).
 -- The UE frontend (codegen, bridge, UBT) is built first, like run_moba_role_ue does (E330): with every
 -- role on --no-build nothing rebuilt it, so content landed since the last frontend build gave the
 -- renderer bridge another content hash than the authority and every launch was refused. A shadow
@@ -183,7 +184,7 @@ local function wait_for(record,file,needle,timeout_ms,label,box_deadline)
   local deadline=time.monotonic_ms()+timeout_ms
   while true do
     assert(not box_deadline or time.monotonic_ms()<box_deadline,
-      label..': time box reached before "'..needle..'" (builds and startup count toward --max-seconds)')
+      label..': time box reached before "'..needle..'" (startup counts toward --max-seconds)')
     local text=path.is_file(file) and path.read(file) or ''
     if text:find(needle,1,true) then return end
     assert(not text:find('stack traceback',1,true),label..' failed; see '..file)
@@ -193,7 +194,28 @@ local function wait_for(record,file,needle,timeout_ms,label,box_deadline)
   end
 end
 
+-- Builds every binary of the match once, under one repo build lock (E301: the bridge and the
+-- authority are built from the same content; build_ue_moba joins it through the token in the
+-- environment). Runs before the live lock is taken (E337): the frontend build (codegen, UBT) can
+-- take minutes, and inside the lock it used up the whole --max-seconds before the match started.
+-- Returns the moment the sources were built as of, for OMOBA_SOURCES_AS_OF (E202).
+function M.build_all(options)
+  local build_lock <close> = require('build_lock').acquire(b.root,'run_moba_split_local build phase')
+  local as_of=os.time()
+  local build_env=build_lock:env()
+  for _,command in ipairs(M.build_commands(options,os.getenv('OM_UE_RUN_BINARIES'))) do
+    local result=process.run(command.exe,command.args,{cwd=b.root,check=false,env=build_env})
+    if result.exit_code~=0 then
+      io.stderr:write(result.stderr or '')
+      error('split build failed: '..command.exe..' '..table.concat(command.args,' '),0)
+    end
+  end
+  return as_of
+end
+
 function M.run(options)
+  -- Built before waiting for the machine (E337); without a build, the sources as of the match start.
+  local sources_as_of=not options.no_build and M.build_all(options) or nil
   local root=options.output and path.absolute(options.output,b.root) or nil
   if not root then
     local parent=path.mkdir_p(path.join(b.root,'target','split-runs'))
@@ -211,27 +233,13 @@ function M.run(options)
     wait_seconds=options.wait_live_lock or 0})
   if not acquired then lfs.rmdir(root);error(lock,0) end -- the refused run leaves no directory behind
   local held <close> = lock
-  -- The time box covers the whole lock hold, builds, startup and shutdown included (E269,
-  -- E325): play ends at the retire deadline so --max-seconds 600 frees the machine within ten minutes.
+  -- The time box covers the whole lock hold, startup and shutdown included (E269, E325): play ends
+  -- at the retire deadline so --max-seconds 600 frees the machine within ten minutes. The build
+  -- happened before the lock (E337).
   local box_deadline,hard_deadline=M.box_deadlines(time.monotonic_ms(),options.max_seconds)
   -- Every role of this match is checked against the sources as they were now (E202).
   local child_env=lock:env()
-  child_env.OMOBA_SOURCES_AS_OF=tostring(os.time())
-  if not options.no_build then
-    -- One repo build lock over the whole build phase (E301): the bridge and the authority are built
-    -- from the same content. build_ue_moba joins it through the token in the environment.
-    local build_lock <close> = require('build_lock').acquire(b.root,'run_moba_split_local build phase')
-    local build_env=build_lock:env()
-    for _,command in ipairs(M.build_commands(options,os.getenv('OM_UE_RUN_BINARIES'))) do
-      local result=process.run(command.exe,command.args,{cwd=b.root,check=false,env=build_env})
-      if result.exit_code~=0 then
-        io.stderr:write(result.stderr or '')
-        lfs.rmdir(root)
-        error('split build failed: '..command.exe..' '..table.concat(command.args,' '),0)
-      end
-      assert(not box_deadline or time.monotonic_ms()<box_deadline,'time box reached while building (builds count toward --max-seconds)')
-    end
-  end
+  child_env.OMOBA_SOURCES_AS_OF=tostring(sources_as_of or os.time())
   local children={}
   local function spawn(label,args)
     local log=path.join(root,label..'.log')
