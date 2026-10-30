@@ -1226,6 +1226,23 @@ pub fn item_ffi<S: AbilityScript + 'static>(id: &str, passive: bool, script: S) 
 }
 
 #[cfg(test)]
+mod aura_tests {
+    use super::*;
+
+    /// The emitter name carries its source back to on_aura; a name without one is not an emitter.
+    #[test]
+    fn aura_key_round_trips_its_source() {
+        let source = EntityHandle { id: 61, gen: 3 };
+        let key = aura_key("b06t_aura", source);
+        assert_eq!(key, "b06t_aura:61:3");
+        assert_eq!(aura_source(&key), Some(("b06t_aura", source)));
+        assert_eq!(aura_source("passive"), None);
+        assert_eq!(aura_source("passive:x:1"), None);
+        assert_eq!(AURA_PERIOD, omoba_core::runtime::native::aura::PERIOD);
+    }
+}
+
+#[cfg(test)]
 mod projectile_tests {
     use super::*;
 
