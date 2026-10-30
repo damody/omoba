@@ -2,6 +2,21 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E325 split 時限沒算關閉程序，持鎖 602 秒超過 10 分鐘（2026-10-30，history-nobu M6 呈現檢查，工作線 C）
+- **現象**：`target/lineC-pres/honda-run`（`--max-seconds 600`）從 14:54:10 持有 live_match 鎖到 15:04:12，共 602 秒。
+- **根因**：E269 讓時限從取得鎖開始算，但時限一到才開始關閉子程序：每個子程序先 TerminateProcess，再各等最多 15 秒，最後寫 lifecycle.json 並釋放鎖。這段收尾完全在時限之外，最壞情況會多出數十秒。
+- **通用修正**：`run_moba_split_local` 把時限分成兩段：`M.box_deadlines` 算出 hard deadline（取得鎖＋max-seconds），以及提早 `SHUTDOWN_RESERVE_MS`（30 秒，短時限最多保留一半）的 retire deadline。建置、啟動與對局都以 retire deadline 為界；關閉時每個子程序的等待由 `M.shutdown_wait_ms` 限制在 hard deadline 之前，過了就直接終止、不再等待。測試 `run_moba_split_local_test` 鎖住兩個 deadline 的關係與等待上限。
+- **避免**：時間預算要涵蓋到資源真正釋放為止；「時限到了才開始收尾」等於收尾不受限制。
+
+## E324 （保留）conformance：魔免排除漏算穿透目標與 include_magic_immune 選取；無間隔的 repeat 被當成延後結算（2026-10-30）
+
+## E323 使用者入口的 run_ue 預設 demo（完整地圖）10 分鐘內打不完；自動驗收改用 quick recipe 的固定驗收（2026-10-30，e187 遊戲模式 session；已放回 live）
+- **現象**：主 session 要求確認 `run_ue.bat` 預設的 1 人加 9 bot demo 能從進場打到結算，並在 10 分鐘內結束。demo2 進場、選角、開局、bot 對打都正常，但完整地圖 `three_lane_training` 600 秒內只倒 3 座塔，沒有結算。round time box 到時只會中止這局，不會出結算畫面。
+- **判斷**（主 session 決定）：不帶參數的 `run_ue.bat` 是使用者自己玩的入口，使用者指定要完整的 MOBA demo，不受 10 分鐘限制；10 分鐘上限只適用於自動驗證局。完整地圖的數值不動。
+- **通用做法**：新增固定驗收 `tools\lua\lua.exe scripts\verify_ue_demo_finish.lua [--hero HERO] [--output DIR] [--wait-live-lock S] [--no-build]`。它走和 run_ue.bat 相同的 demo 流程（互動選角，用 --selection-smoke-hero 選人類英雄，之後閒置），recipe 改用為實機局調過的 `moba_single_player_quick.lua`（`three_lane_quick_training`）。檢查四項：exit 0、Unreal 看到完整結算（native-result-observation）、有結算截圖、整局持 live_match 鎖不超過 600 秒（依 E322 從取得鎖開始計）。結果寫在 OUTPUT/demo-finish-report.json。
+- **實測**：demo3（同一流程）持鎖 429 秒，對局 6:55 結束，隊伍 2 勝，結算畫面出現（target/e187/demo3/result-p1.png）。
+- **避免**：使用者入口和自動驗收分開：自動驗收用有時限、數值為時限調過的 recipe，不靠改使用者入口的預設來符合時限。
+
 ## E322 run_moba_role_ue 的結算與 round 時限從 Unreal 啟動後才計，持鎖超過時限（2026-10-30，e187 遊戲模式 session；已放回 live）
 - **現象**：run_ue 預設 demo（demo2，`--finish-timeout-seconds 600`）14:21:44 取得 live_match 鎖，14:31:53 才放，共 609 秒，超過 10 分鐘上限。
 - **根因**：`moba_role_launch.launch` 的 finish 與 round time box 期限，是在 server 綁定、各 runtime 就緒、Unreal 程序啟動之後才開始計，鎖內的啟動時間不算。和 E269（split 的 `--max-seconds`）同類，role launch 這條路徑沒有跟著修。

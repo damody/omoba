@@ -155,6 +155,21 @@ function M.build_commands()
   return commands
 end
 
+-- The part of the time box kept for retiring the children: the run stops starting or
+-- playing at the retire deadline, and the lock is released by the hard deadline (E325).
+M.SHUTDOWN_RESERVE_MS=30000
+-- lock acquisition time (ms), --max-seconds -> retire deadline, hard deadline (nil without a box)
+function M.box_deadlines(start_ms,max_seconds)
+  if not max_seconds then return nil,nil end
+  local hard=start_ms+max_seconds*1000
+  return hard-math.min(M.SHUTDOWN_RESERVE_MS,max_seconds*500),hard
+end
+-- Milliseconds one child may still take to exit before the hard deadline (at least 0).
+function M.shutdown_wait_ms(now_ms,hard_deadline,cap_ms)
+  if not hard_deadline then return cap_ms end
+  return math.max(0,math.min(cap_ms,hard_deadline-now_ms))
+end
+
 local function wait_for(record,file,needle,timeout_ms,label,box_deadline)
   local deadline=time.monotonic_ms()+timeout_ms
   while true do
@@ -187,9 +202,9 @@ function M.run(options)
     wait_seconds=options.wait_live_lock or 0})
   if not acquired then lfs.rmdir(root);error(lock,0) end -- the refused run leaves no directory behind
   local held <close> = lock
-  -- The time box covers the whole lock hold, builds and startup included (E269), so
-  -- --max-seconds 600 really frees the machine within ten minutes.
-  local box_deadline=options.max_seconds and time.monotonic_ms()+options.max_seconds*1000
+  -- The time box covers the whole lock hold, builds, startup and shutdown included (E269,
+  -- E325): play ends at the retire deadline so --max-seconds 600 frees the machine within ten minutes.
+  local box_deadline,hard_deadline=M.box_deadlines(time.monotonic_ms(),options.max_seconds)
   -- Every role of this match is checked against the sources as they were now (E202).
   local child_env=lock:env()
   child_env.OMOBA_SOURCES_AS_OF=tostring(os.time())
@@ -267,7 +282,7 @@ function M.run(options)
       end
       if finished_at and time.monotonic_ms()-finished_at>=15000 then return end
       if deadline and time.monotonic_ms()>=deadline then
-        print(('time box of %d s reached; retiring this split run'):format(options.max_seconds))
+        print(('time box of %d s: play ends %d s early so shutdown and the lock release fit inside it; retiring this split run'):format(options.max_seconds,(hard_deadline-box_deadline)//1000))
         return
       end
       for _,child in ipairs(children) do
@@ -282,7 +297,11 @@ function M.run(options)
   for index=#children,1,-1 do
     local child=children[index]
     if child.label=='netem' and process.owned_alive(child) then M.stop_netem(child) end
-    if process.owned_alive(child) then process.stop_owned(child);process.wait_owned(child,15000) end
+    -- Termination is immediate; the wait is bounded by what is left before the hard deadline.
+    if process.owned_alive(child) then
+      process.stop_owned(child)
+      process.wait_owned(child,M.shutdown_wait_ms(time.monotonic_ms(),hard_deadline,15000))
+    end
   end
   path.write(path.join(root,'lifecycle.json'),json.encode({schema_version=1,ok=ok,error=ok and nil or tostring(err),children=children}),true)
   assert(ok,err)

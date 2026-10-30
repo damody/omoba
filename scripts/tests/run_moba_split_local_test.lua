@@ -86,4 +86,16 @@ do
   path.write(path.join(root,'p1','autopilot-p1.jsonl'),'{"event":"spotlight_finished","reason":"complete"}\n',true)
   assert(split.all_finished(root,{1}))
 end
+-- E325: the whole lock hold, shutdown included, fits inside --max-seconds.
+do
+  local retire,hard=split.box_deadlines(1000,600)
+  assert(hard==601000 and retire==hard-split.SHUTDOWN_RESERVE_MS,'play ends one shutdown reserve before the hard deadline')
+  assert(split.SHUTDOWN_RESERVE_MS>=15000,'the reserve covers one bounded child wait')
+  local short_retire,short_hard=split.box_deadlines(0,20)
+  assert(short_hard==20000 and short_retire==10000,'a short box keeps half of itself for play')
+  assert(split.box_deadlines(0,nil)==nil,'no box, no deadline')
+  assert(split.shutdown_wait_ms(590000,601000,15000)==11000,'a child wait never runs past the hard deadline')
+  assert(split.shutdown_wait_ms(605000,601000,15000)==0,'past the deadline a child is terminated without waiting')
+  assert(split.shutdown_wait_ms(0,nil,15000)==15000,'without a box the usual bounded wait applies')
+end
 print('split local topology: options, seats and per-role arguments passed')
