@@ -244,6 +244,7 @@ pub fn after_mitigation(world: &mut World, packet: &Packet, mitigated: &Mitigate
     // OnTakeDamage ends home_aura's speed_up (E187, dummy.lua:763-767).
     moba_match::break_home_speed_up(world, packet.target);
     let (credit, target, lethal) = (Some(packet.credit), packet.target, applied.first_lethal_hit);
+    crate::runtime::native::damage_tally::record(world, credit, target, applied.hp_before - applied.hp_after);
     moba_match::record_moba_hero_damage(world, credit, target, lethal);
     moba_match::record_moba_jungle_damage(world, credit, target, lethal);
     moba_match::record_moba_lane_damage(world, credit, target, lethal);

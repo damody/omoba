@@ -48,6 +48,7 @@ pub mod mana_drain;
 pub mod script_gold;
 pub mod mana_burn;
 pub mod damage_trace;
+pub mod damage_tally;
 pub mod cast_trace;
 pub mod ability_slots;
 pub mod order_targets;

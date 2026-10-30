@@ -4594,6 +4594,7 @@ fn apply_checked_direct_damage(world: &mut World, source: Option<Entity>, target
             super::shop::note_shop_undo_combat(world, source, target);
         }
         if took_damage && amount > Fixed64::ZERO {
+            super::damage_tally::record(world, source, target, amount.min(before.unwrap_or(Fixed64::ZERO)));
             super::cast_windup::interrupt_for_damage(world,target);
             // OnTakeDamage ends home_aura's speed_up (E187, dummy.lua:763-767).
             crate::runtime::native::moba_match::break_home_speed_up(world, target);

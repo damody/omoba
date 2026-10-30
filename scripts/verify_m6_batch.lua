@@ -119,33 +119,16 @@ local recipes = {
   { name = 'teamfight', file = recipe('teamfight', false, true), group_team = 1 },
 }
 
--- 3. Build once (the script DLL set and moba-headless), like run_moba_headless_batch.lua.
+-- 3. Build once (the script DLL set and moba-headless) from this batch's own source snapshot into
+-- its own cargo target (E347, source_snapshot.lua): no repo build lock. Both come from one snapshot
+-- and their content hashes are checked equal (E332); they run from a private copy (E125).
 local env = compiled.environment({ OMB_HEADLESS_HERO_STATS = '1' })
--- The script DLLs, moba-headless and their private copies come from one content state (E332):
--- a landing between the two builds gave them different content hashes and every match panicked
--- at load. The repo build lock keeps land_to_live and other builds out until the copies are made.
-local build_lock <close> = not options.report_only and require('build_lock').acquire(b.root, 'verify_m6_batch build') or nil
-if not options.no_build then
-  for _, args in ipairs({
-    require('script_dlls').cargo_args({ 'build', '--manifest-path', path.join(b.root, 'scripts', 'Cargo.toml') }, compiled.feature, { '--release' }),
-    { 'build', '--manifest-path', path.join(b.root, 'omb', 'Cargo.toml'), '-p', 'omobab', '--bin', 'moba-headless', '--features', compiled.feature, '--release' },
-  }) do
-    local result = process.run('cargo', args, { cwd = b.root, env = env, check = false })
-    assert(result.exit_code == 0, 'build failed: ' .. (result.stderr or ''):sub(-2000))
-  end
-end
--- Run from a private copy so later builds never lock or change this batch's binaries (E125).
 local bin = path.join(output, 'bin')
 local exe = path.join(bin, 'moba-headless.exe')
 if not options.report_only then
-  path.mkdir_p(bin)
-  local release = path.join(b.root, 'scripts', 'target', 'release')
-  for _, module in ipairs(require('script_dlls').modules()) do
-    path.write(path.join(bin, module.file), path.read(path.join(release, module.file), true), false, true)
-  end
-  path.write(exe, path.read(path.join(b.root, 'omb', 'target', 'release', 'moba-headless.exe'), true), false, true)
+  require('source_snapshot').build_headless(b.root, 'verify_m6_batch',
+    { env = { OMB_HEADLESS_HERO_STATS = '1' }, into = bin, no_build = options.no_build })
 end
-if build_lock then build_lock:release() end
 
 -- 4. Matches, `--parallel` at a time; never during a performance measurement (target/locks/performance).
 local function wait_performance_lock()
@@ -188,6 +171,8 @@ for _, hero in ipairs(group) do in_group[hero] = true end
 local summary = { batch = options.batch, group = options.group, heroes = group, not_playable = missing, recipes = {}, abilities = {} }
 local ability_rows = {}
 local item_rows = {}
+-- Balance (E342): per hero over every seat, and per item over the seats that obtained it.
+local hero_rows, holder_rows = {}, {}
 for _, r in ipairs(recipes) do
   local row = { name = r.name, matches = 0, finished = 0, group_wins = 0, minutes = {}, failures = {} }
   for _, job in ipairs(jobs) do
@@ -199,6 +184,19 @@ for _, r in ipairs(recipes) do
         row.minutes[#row.minutes + 1] = report.game_seconds / 60
         if report.winner_team == r.group_team then row.group_wins = row.group_wins + 1 end
         for _, hero in ipairs(report.hero_stats or {}) do
+          local won = hero.team ~= nil and hero.team == report.winner_team
+          local h = hero_rows[hero.hero] or { games = 0, wins = 0, kills = 0, deaths = 0, assists = 0, damage = 0, hero_damage = 0 }
+          hero_rows[hero.hero] = h
+          h.games, h.wins = h.games + 1, h.wins + (won and 1 or 0)
+          h.kills, h.deaths, h.assists = h.kills + (hero.kills or 0), h.deaths + (hero.deaths or 0), h.assists + (hero.assists or 0)
+          h.damage, h.hero_damage = h.damage + (hero.damage or 0), h.hero_damage + (hero.hero_damage or 0)
+          for id, item in pairs(hero.items or {}) do
+            if (item.obtained or 0) > 0 then
+              local holder = holder_rows[id] or { games = 0, wins = 0 }
+              holder_rows[id] = holder
+              holder.games, holder.wins = holder.games + 1, holder.wins + (won and 1 or 0)
+            end
+          end
           -- Shop items over every seat (E336): how often each was obtained and used.
           for id, item in pairs(hero.items or {}) do
             local row = item_rows[id] or { obtained = 0, used = 0 }
@@ -293,6 +291,57 @@ for _, item in ipairs(shop_items) do
   md[#md + 1] = ('| %s | %s | %d | %d | %s |'):format(item.id, item.active and item.active.kind or '', row.obtained, row.used, note)
 end
 json.write(path.join(output, 'report.json'), summary, true)
+-- Balance (E342): heroes whose win rate, KDA or damage per game sits far from the field, and
+-- items whose holders win far more or less than half. A flag is a lead to read, not a verdict:
+-- a few games per hero carry wide noise, and a bot policy can cause it as well as a value.
+local BALANCE = { min_games = 6, win_high = 0.75, win_low = 0.25, ratio_high = 1.5, ratio_low = 0.5 }
+summary.balance = { heroes = {}, items = {} }
+local heroes_sorted, total_damage, total_kda, counted = {}, 0, 0, 0
+local function kda(h) return (h.kills + h.assists) / math.max(1, h.deaths) end
+for id, h in pairs(hero_rows) do
+  heroes_sorted[#heroes_sorted + 1] = id
+  total_damage, total_kda, counted = total_damage + h.damage / h.games, total_kda + kda(h), counted + 1
+end
+table.sort(heroes_sorted)
+local mean_damage, mean_kda = total_damage / math.max(1, counted), total_kda / math.max(1, counted)
+local flagged = 0
+md[#md + 1] = ''
+md[#md + 1] = ('| hero | games | win rate | K/D/A | KDA | damage/game | hero damage/game | note |')
+md[#md + 1] = '|---|---|---|---|---|---|---|---|'
+for _, id in ipairs(heroes_sorted) do
+  local h = hero_rows[id]
+  local rate, per_game = h.wins / h.games, h.damage / h.games
+  local notes = {}
+  if h.games >= BALANCE.min_games then
+    if rate >= BALANCE.win_high then notes[#notes + 1] = 'WIN HIGH' elseif rate <= BALANCE.win_low then notes[#notes + 1] = 'WIN LOW' end
+    if mean_kda > 0 then
+      if kda(h) >= mean_kda * BALANCE.ratio_high then notes[#notes + 1] = 'KDA HIGH' elseif kda(h) <= mean_kda * BALANCE.ratio_low then notes[#notes + 1] = 'KDA LOW' end
+    end
+    -- No damage recorded at all (E352: a report without the tally) is no reading, not a balance flag.
+    if mean_damage > 0 then
+      if per_game >= mean_damage * BALANCE.ratio_high then notes[#notes + 1] = 'DAMAGE HIGH' elseif per_game <= mean_damage * BALANCE.ratio_low then notes[#notes + 1] = 'DAMAGE LOW' end
+    end
+  end
+  if #notes > 0 then flagged = flagged + 1 end
+  summary.balance.heroes[id] = { games = h.games, wins = h.wins, kills = h.kills, deaths = h.deaths, assists = h.assists,
+    damage_per_game = per_game, hero_damage_per_game = h.hero_damage / h.games, notes = notes }
+  md[#md + 1] = ('| %s | %d | %.0f%% | %d/%d/%d | %.2f | %.0f | %.0f | %s |'):format(id, h.games, rate * 100,
+    h.kills, h.deaths, h.assists, kda(h), per_game, h.hero_damage / h.games, table.concat(notes, ', '))
+end
+md[#md + 1] = ''
+md[#md + 1] = '| item | holders | holder win rate | note |'
+md[#md + 1] = '|---|---|---|---|'
+for _, item in ipairs(shop_items) do
+  local holder = holder_rows[item.id]
+  if holder then
+    local rate = holder.wins / holder.games
+    local note = holder.games >= BALANCE.min_games and (rate >= BALANCE.win_high and 'WIN HIGH' or rate <= BALANCE.win_low and 'WIN LOW') or ''
+    if note ~= '' then flagged = flagged + 1 end
+    summary.balance.items[item.id] = { holders = holder.games, wins = holder.wins, note = note }
+    md[#md + 1] = ('| %s | %d | %.0f%% | %s |'):format(item.id, holder.games, rate * 100, note)
+  end
+end
+json.write(path.join(output, 'report.json'), summary, true)
 if summary.ue then
   md[#md + 1] = ''
   md[#md + 1] = ('UE: exit %d, result UI %s, result screenshot %s, time-boxed %s (%s)'):format(summary.ue.exit_code,
@@ -300,8 +349,8 @@ if summary.ue then
 end
 path.write(path.join(output, 'report.md'), table.concat(md, '\n') .. '\n', true)
 print(table.concat(md, '\n'))
-print(('report: %s (%d castable abilities never cast, %d shop items never obtained or never used)'):format(
-  path.join(output, 'report.md'), never, unused_items))
+print(('report: %s (%d castable abilities never cast, %d shop items never obtained or never used, %d balance flags)'):format(
+  path.join(output, 'report.md'), never, unused_items, flagged))
 -- A batch where no match finished checked nothing (E332): fail, naming the first match's error.
 local finished = 0
 for _, row in ipairs(summary.recipes) do finished = finished + row.finished end

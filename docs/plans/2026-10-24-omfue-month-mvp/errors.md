@@ -2,7 +2,11 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E352 （保留）hero_stats 的傷害全是 0：英雄的攻擊與技能傷害不產生 DirectCombat 事實，平衡表把 0≥0 判成 DAMAGE HIGH（2026-10-30）
+## E352 hero_stats 的傷害全是 0：英雄的攻擊與技能傷害不產生 DirectCombat 事實，平衡表把 0≥0 判成 DAMAGE HIGH（2026-10-30，e187 遊戲模式 session；已放回 live）
+- **現象**：m6item2 的平衡表每位英雄 damage/game 都是 0，又因為平均也是 0，每位都被標成 DAMAGE HIGH。除錯版 moba-headless 跑 60 秒：562 筆 DirectCombat 事實全是小兵打小兵，沒有一筆來源是英雄。
+- **根因**：E342 用 DirectCombat 事實統計傷害；但英雄的普攻與技能在規則層結算（rules/damage.rs `after_mitigation`），道具與腳本直接傷害在 `apply_checked_direct_damage`，兩者都不發 DirectCombat 事實（只有 damage_tick 的 DamageInstance 路徑會發）。報表也沒處理「平均為 0」。
+- **通用修正**：新增 `omoba-core runtime::native::damage_tally`：harness 插入 `DamageTally` 時，兩個結算點各記一列（記功來源、目標、實際扣掉的生命）；沒插入就不記，正式對局與重播不受影響（單元測試一項）。moba_headless 在 hero_stats 啟用時插入它，每 tick 取走，依英雄的每一條命（lives）歸屬；不再用 DirectCombat。verify_m6_batch 在平均 KDA 或平均傷害為 0 時不標高低。
+- **避免**：統計一個量之前，先確認資料來源涵蓋所有產生它的路徑；平均為 0 的比較不算數。
 
 ## E351 （保留）conformance：父技能任何動作換入的子技能，與召喚單位自己的技能（2026-10-30）
 
@@ -20,7 +24,12 @@
 - **通用修正**：中斷原因的判定抽成 `interrupt_reason`，advance 和 synchronize_preparation 共用同一套原因與順序：dead、silenced、moved、recall、rank、target_lost。非 Playing 階段記 phase，invalid 只用在 view 無法對上的情況。測試 `public_preparation_settles_late_control_movement_rank_and_death_before_projection` 改成逐一斷言原因碼。
 - **避免**：同一件事的分類只寫在一個地方，兩條路徑都呼叫它，不要各自列一份條件。
 
-## E347 （保留）headless 批次排 repo 建置鎖排很久：改從自己的原始碼快照建在私有 target，不必排鎖（2026-10-30）
+## E347 headless 批次排 repo 建置鎖排很久：改從自己的原始碼快照建在私有 target，不必排鎖（2026-10-30，e187 遊戲模式 session，主 session 同意；已放回 live）
+- **現象**：m6item2（verify_m6_batch）18:19 開始，37 分鐘後仍在等 repo 建置鎖（target/locks/build_ue_moba），鎖輪流被 C 的 split 建置與 land_to_live 持有。A、conformance、C 也都排過很久。
+- **根因**：E332 為了讓 script DLL 與 moba-headless 來自同一份內容，讓批次在 repo 建置鎖下建置；但 headless 批次不 stage 進 Unreal，卻和所有 UE 建置、放回搶同一把鎖。
+- **通用修正**：新增 `scripts/source_snapshot.lua`。`capture(root, name)` 把 land_to_live 的原始碼集合鏡像到 `target/snapshots/<name>/tree`（跳過 target、.git、log），鏡像前後各列一次 live 的（路徑、大小、修改時間），途中有變動就重來，直到某一輪 live 沒變，所以快照是 live 的某一個狀態、不會是放回到一半；複製保留原檔修改時間，大小或時間不同就重複製，同一秒的修改不會漏。`build_headless(root, name, {env, into, no_build})` 從快照建 script DLL 與 moba-headless 到私有 cargo target（`target/snapshots/<name>/cargo-target`，保留供增量建置），複製到批次自己的 bin，並檢查所有 binary 內嵌的內容雜湊相同（E332 的保證）；同名快照有自己的目錄鎖，一次一個批次。`verify_m6_batch`、`run_moba_headless_batch` 改用它，不再取 repo 建置鎖；只有要 stage 進 UE 的建置才排那把鎖。`scripts/tests/source_snapshot_test.lua`（8 項：跳過輸出、保留時間、同大小修改、刪檔、鏡像途中 live 變動會重來），接進 test_lua_tooling.lua。
+- **實測**：m6item2 第一次快照 3109 個檔案、一輪就穩定，私有 release 建置後 9 個 binary 內容雜湊都是 af2ed55b5cf4dd49，12 局全部結束；第二次（m6item3）只更新 360 個檔案。
+- **避免**：不 stage 進共用產物的建置，用自己的快照與 target，不搶共用的建置鎖。
 
 ## E346 split client 的前端 verify 取 build 鎖，在實機鎖與時限內等別人的建置；被停掉的建置留下 build 鎖（2026-10-30，history-nobu M6 道具呈現，工作線 C）
 - **現象**：
@@ -59,7 +68,10 @@
 - **通用修正**：`run_moba_split_local --performance-lock`（必須搭配 `--max-seconds`）會在建置完成、取得實機鎖之後才取 performance 鎖，等其他量測最多 120 秒，而且算在時限內。這把鎖和實機鎖一起釋放，局裡的子程序也掛在它下面，所以從取鎖到釋放不會超過 `--max-seconds`。量測不再由外面的 wrapper 包。被佔住的兩把鎖已用原持有者的 token，透過 machine_lock API 正常釋放（history 有 released 紀錄）。測試 `run_moba_split_local_test` 檢查取鎖順序依序是建置、實機鎖、performance 鎖，也檢查沒有 `--max-seconds` 時會拒絕。
 - **避免**：需要持有機器鎖的流程，鎖要由啟動局的程式在局內取得，不要由呼叫端從外面包住整個流程。持有 `<close>` 鎖的 Lua 程式要結束時，用 `os.exit(code, true)` 或直接從 main 回傳。
 
-## E342 （保留）批次報告沒有勝率、KDA、傷害等平衡數字，hero_stats 也沒有傷害（2026-10-30）
+## E342 批次報告沒有勝率、KDA、傷害等平衡數字，hero_stats 也沒有傷害（2026-10-30，e187 遊戲模式 session，主 session 要求；已放回 live）
+- **現象**：主 session 要求依批次的 hero_stats 做平衡檢查（勝率、KDA、傷害明顯偏離的英雄與道具），但報告只有施放與道具次數，hero_stats 沒有傷害也沒有隊伍。
+- **通用修正**：moba_headless 的 hero_stats 加上 `team`、`damage`、`hero_damage`（傷害來源見 E352）。verify_m6_batch 的報告加兩張表：每位英雄（所有座位）的局數、勝率、K/D/A、KDA、每局傷害與對英雄傷害；每件道具持有者的勝率。至少 6 局才判斷：勝率 ≥75% 或 ≤25%、KDA 或每局傷害 ≥ 平均 1.5 倍或 ≤0.5 倍就標出；最後一行印出標記數。標記只是線索：局數少時雜訊大，也可能是 bot 政策造成。
+- **限制**：一位英雄同局出現在兩隊時（批次英雄取代一隊、對手名單裡也有同名英雄），它的勝率會互相抵消；看勝率要配合各 recipe 的勝負。
 
 ## E341 summons.lua 第二個呼叫欄位把 authored 召喚物截成一列；v3_summons --check 沒有執行（2026-10-30，工作線 A）
 

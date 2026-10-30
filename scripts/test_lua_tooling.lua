@@ -158,6 +158,11 @@ local ok, failure = xpcall(function()
     { cwd = b.root, check = false })
   assert(error_ids.exit_code == 0,
     "error id tests failed:\n" .. tostring(error_ids.stdout) .. tostring(error_ids.stderr))
+  -- E347: headless batches build from their own source snapshot.
+  local snapshots = process.run(lua, { path.join(b.root, "scripts", "tests", "source_snapshot_test.lua") },
+    { cwd = b.root, check = false })
+  assert(snapshots.exit_code == 0,
+    "source snapshot tests failed:\n" .. tostring(snapshots.stdout) .. tostring(snapshots.stderr))
 end, debug.traceback)
 remove_tree(temp)
 if not ok then error(failure) end

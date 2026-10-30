@@ -25,25 +25,17 @@ else
 end
 local report_file=path.join(output,'batch-report.json')
 local recipe_file=path.join(output,'role-plan.json')
-local scripts_dir=path.join(b.root,'scripts','target','release')
-local executable=path.join(b.root,'omb','target','release','moba-headless.exe')
+-- Built from this batch's own source snapshot and run from a private copy (E347, E125).
+local scripts_dir=path.join(output,'bin')
+local executable=path.join(scripts_dir,'moba-headless.exe')
 local function report_path(ordinal) return path.join(output,('match-%04d.json'):format(ordinal)) end
 local env=compiled.environment()
 local report=batch.execute(options,{
   prepare=function()
     require('export_moba_role_plan').export(options.recipe,recipe_file)
-    -- Both builds from one content state (E332): no landing between the script DLLs and moba-headless.
-    local build_lock <close> = require('build_lock').acquire(b.root,'run_moba_headless_batch build')
-    for _,args in ipairs({
-      require('script_dlls').cargo_args({'build','--manifest-path',path.join(b.root,'scripts','Cargo.toml')},
-        compiled.feature,{'--release'}),
-      {'build','--manifest-path',path.join(b.root,'omb','Cargo.toml'),'-p','omobab','--bin','moba-headless',
-        '--features',compiled.feature,'--release'},
-    }) do
-      local result=process.run('cargo',args,{cwd=b.root,env=env,check=false})
-      io.write(result.stdout or '');io.stderr:write(result.stderr or '')
-      assert(result.exit_code==0,'batch build failed: '..tostring(result.exit_code))
-    end
+    -- Script DLLs and moba-headless from one source snapshot, content hashes checked equal (E332,
+    -- E347); no repo build lock.
+    require('source_snapshot').build_headless(b.root,'run_moba_headless_batch',{into=scripts_dir})
   end,
   run=function(seed,ordinal)
     local result=process.run(executable,{'--role-plan',recipe_file,'--profile','60','--seed',tostring(seed),
