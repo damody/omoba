@@ -77,11 +77,21 @@ local function intent(hint)
 end
 
 -- policies: the recipe's explicit list (kept first); players: the recipe's seats.
+-- An explicit policy for an ability no seated hero has is left out (E376): it casts nothing, and
+-- with the derived policies of a reseated roster it pushed the plan past the executor's 64.
 return function(policies, players)
+  local seated = {}
+  for _, player in ipairs(players) do
+    for _, ability in ipairs(kits[player.hero] or {}) do seated[ability] = true end
+  end
   local listed = {}
-  for _, policy in ipairs(policies) do listed[policy.ability] = true end
   local out = {}
-  for _, policy in ipairs(policies) do out[#out + 1] = policy end
+  for _, policy in ipairs(policies) do
+    if seated[policy.ability] then
+      listed[policy.ability] = true
+      out[#out + 1] = policy
+    end
+  end
   local seen = {}
   for _, player in ipairs(players) do
     if not seen[player.hero] then
