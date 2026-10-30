@@ -433,23 +433,29 @@ impl<'a, 'w> Cx<'a, 'w> {
 
     // ---- the triggering ability (`event.ability`) ------------------------------------------------
 
+    /// The triggering skill: a passive hook's (`event_skill`), else a status hook's
+    /// `on_ability_executed` (host EVENT_ABILITY_ATTR, line B 94d609ce). An item is `item:<id>`.
+    fn event_skill_id(&mut self) -> Option<String> {
+        match self.event_skill { Some(k) => Some(k.to_owned()), None => self.event_ability_id() }
+    }
+
     /// `is_item(event.ability, item_x)`.
-    pub fn event_is_item(&self, item: &str) -> bool {
+    pub fn event_is_item(&mut self, item: &str) -> bool {
         let id = item.strip_prefix("item_").unwrap_or(item);
-        self.event_skill.and_then(|k| k.strip_prefix(ITEM_SKILL_PREFIX)) == Some(id)
+        self.event_skill_id().as_deref().and_then(|k| k.strip_prefix(ITEM_SKILL_PREFIX)) == Some(id)
     }
 
     /// `is_ability(event.ability, a)`.
-    pub fn event_is_ability(&self, ability: &str) -> bool { self.event_skill == Some(ability) }
+    pub fn event_is_ability(&mut self, ability: &str) -> bool { self.event_skill_id().as_deref() == Some(ability) }
 
     /// `has_tag(event.ability, item)`.
-    pub fn event_is_any_item(&self) -> bool { self.event_skill.is_some_and(|k| k.starts_with(ITEM_SKILL_PREFIX)) }
+    pub fn event_is_any_item(&mut self) -> bool { self.event_skill_id().is_some_and(|k| k.starts_with(ITEM_SKILL_PREFIX)) }
 
     /// `has_tag(event.ability, toggle)`: an authored toggle ability.
-    pub fn event_is_toggle(&self) -> bool {
+    pub fn event_is_toggle(&mut self) -> bool {
         use omoba_template_ids::AbilityTypeC;
-        self.event_skill.filter(|k| !k.starts_with(ITEM_SKILL_PREFIX))
-            .and_then(omoba_template_ids::ability_by_name).and_then(omoba_template_ids::active_ability_const)
+        self.event_skill_id().filter(|k| !k.starts_with(ITEM_SKILL_PREFIX))
+            .and_then(|k| omoba_template_ids::ability_by_name(&k)).and_then(omoba_template_ids::active_ability_const)
             .is_some_and(|c| c.ability_type == AbilityTypeC::Toggle)
     }
 

@@ -24,6 +24,33 @@ local function safe_env() return require("hero_author.cli").safe_env() end
 
 -- The value `ref` (`$name`, `$owner.name` or a number) of template `t` at `rank`; nil and the
 -- reason when it is not a plain value.
+-- A derived value (`expr`) as the catalog evaluates it (v3_compile.lua, the single evaluator):
+-- { [owner id] = { [name] = per-rank numbers } } of the document, cached per document.
+local compiled_cache = setmetatable({}, { __mode = "k" })
+local function compiled_values(doc)
+  if compiled_cache[doc] then return compiled_cache[doc] end
+  local tools = here .. "/../docs/character_pipeline/tools"
+  local compiler = dofile(tools .. "/v3_compile.lua")
+  local out = compiler.compile(doc, { names = compiler.item_names(here .. "/../docs/character_pipeline/items") })
+  local by_owner = {}
+  local function take(id, rows)
+    local t = by_owner[id] or {}
+    for _, row in ipairs(rows or {}) do
+      if row.ranks then
+        local nums = {}
+        for i, text in ipairs(row.ranks) do nums[i] = compiler.value_of(text) end
+        t[row.name] = { nums = nums, unit = row.unit }
+      end
+    end
+    by_owner[id] = t
+  end
+  for id, o in pairs(out.owner_values or {}) do take(id, o.values) end
+  for id, b in pairs(out.abilities or {}) do take(id, b.values) end
+  for id, b in pairs(out.items or {}) do take(id, b.values) end
+  compiled_cache[doc] = by_owner
+  return by_owner
+end
+
 local function resolver(doc, t)
   local owners = {}
   for _, a in ipairs(doc.abilities or {}) do owners[a.id] = a end
@@ -40,9 +67,19 @@ local function resolver(doc, t)
     local owner, name = ref:match("^%s*%$([%w_]+)%.([%w_]+)%s*$")
     if not owner then name = ref:match("^%s*%$([%w_]+)%s*$") end
     if not name then return nil, "the expression `" .. ref .. "`" end
-    local row
-    if owner then row = owners[owner] and owners[owner].values and owners[owner].values[name]
-    else row = (t.values or {})[name]; if row == nil then row = (doc.values or {})[name] end end
+    local row, from
+    if owner then row = owners[owner] and owners[owner].values and owners[owner].values[name]; from = owner
+    else
+      row = (t.values or {})[name]; from = t.id
+      if row == nil then row = (doc.values or {})[name]; from = "shared" end
+    end
+    -- derived: the compiled number (a pct value is shown x100 there, so it has none here)
+    if type(row) == "table" and row.expr ~= nil then
+      if row.unit == "pct" then return nil, "`" .. ref .. "` is a derived pct value" end
+      local c = (compiled_values(doc)[from] or {})[name]
+      if not c then return nil, "`" .. ref .. "` (derived) has no compiled value" end
+      row = c.nums
+    end
     local v = at(row, rank)
     if v == nil then return nil, "`" .. ref .. "` has no value" end
     return v
@@ -62,14 +99,41 @@ local DUMMY_STATES = { invulnerable = true, unselectable = true, attack_immune =
 
 local function has(list, v) for _, x in ipairs(list or {}) do if x == v then return true end end return false end
 
+-- Day and night sight into `row` (line B b8a572ea): `vision_radius` by day, `night_vision_radius`
+-- when the night differs. The host reads a night radius 0 as the day one, so a template blind at
+-- night has no row value.
+local function vision_into(row, vision, num, no)
+  local day, night = num(vision.day, "vision.day"), num(vision.night, "vision.night")
+  row.vision_radius = day or night or 0
+  if day and night and night ~= day then
+    if night > 0 then row.night_vision_radius = night else no("vision.night 0 (the host reads 0 as the day radius)") end
+  end
+end
+
+-- `statuses`: the generated create_unit applies them to the new unit (v3_rust.lua); the row
+-- carries none. -> the problem, or nil
+local function statuses_problem(t)
+  if t.statuses == nil then return nil end
+  if type(t.statuses) ~= "table" then return "statuses is not a list" end
+  for _, sid in ipairs(t.statuses) do if type(sid) ~= "string" then return "statuses entry of a " .. type(sid) end end
+  return nil
+end
+
 -- A template with no attack that is a dummy (`ai = "none"` or tag `dummy`): the host's dummy body
--- (line B ee50b7e7), with only its vision and owner rule from the document.
+-- (line B ee50b7e7). Its life and defenses (b8a572ea: a dummy with life can be destroyed), vision
+-- and owner rule come from the document.
 local function dummy_rows(doc, t, value)
   local problems = {}
   local function no(what) problems[#problems + 1] = what end
   local known = { id = true, source_id = true, values = true, text = true, notes = true, provenance = true, quirks = true,
-    max_level = true, attack = true, vision = true, owner_death = true, ai = true, tags = true, passive = true }
+    max_level = true, attack = true, vision = true, owner_death = true, ai = true, tags = true, passive = true, stats = true,
+    statuses = true }
   for _, k in ipairs(sorted(t)) do if not known[k] then no(k .. " on a dummy") end end
+  local sp = statuses_problem(t); if sp then no(sp) end
+  local stats = t.stats or {}
+  for _, k in ipairs(sorted(stats)) do
+    if k ~= "hp" and k ~= "hp_regen" and k ~= "armor" and k ~= "magic_resist" then no("stats." .. k .. " on a dummy") end
+  end
   if t.ai ~= nil and t.ai ~= "none" then no("ai:" .. tostring(t.ai) .. " on a dummy") end
   for _, tag in ipairs(t.tags or {}) do if tag ~= "dummy" and tag ~= "summon" then no("tag:" .. tag) end end
   if t.owner_death ~= nil and t.owner_death ~= "persist" and t.owner_death ~= "expire" then no("owner_death:" .. tostring(t.owner_death)) end
@@ -79,14 +143,21 @@ local function dummy_rows(doc, t, value)
   for _, st in ipairs(p.states or {}) do if not DUMMY_STATES[st] then no("passive.states:" .. st .. " on a dummy") end end
   local rows = {}
   for rank = 1, t.max_level or 1 do
-    local vision = t.vision or {}
-    local day = vision.day ~= nil and value(vision.day, rank) or nil
-    local night = vision.night ~= nil and value(vision.night, rank) or nil
-    if (vision.day ~= nil and day == nil) or (vision.night ~= nil and night == nil) then no("vision is not a plain value") end
-    if day and night and day ~= night then no("vision.day differs from vision.night") end
-    rows[#rows + 1] = { id = (t.max_level or 1) > 1 and (t.id .. "_r" .. rank) or t.id, authored_package = doc.__package,
+    local function num(ref, what)
+      if ref == nil then return nil end
+      local v, why = value(ref, rank)
+      if v == nil then no(what .. " is " .. why) end
+      return v
+    end
+    local row = { id = (t.max_level or 1) > 1 and (t.id .. "_r" .. rank) or t.id, authored_package = doc.__package,
       display_name = t.text and t.text.zh_TW and t.text.zh_TW.name or t.id,
-      dummy = true, immobile = true, vision_radius = day or night or 0, owner_death = t.owner_death or "persist" }
+      dummy = true, immobile = true, owner_death = t.owner_death or "persist" }
+    vision_into(row, t.vision or {}, num, no)
+    row.hp = num(stats.hp, "stats.hp")
+    row.hp_regen = num(stats.hp_regen, "stats.hp_regen")
+    row.armor = num(stats.armor, "stats.armor")
+    row.magic_resistance = num(stats.magic_resist, "stats.magic_resist")
+    rows[#rows + 1] = row
   end
   local seen, list = {}, {}
   for _, x in ipairs(problems) do if not seen[x] then seen[x] = true; list[#list + 1] = x end end
@@ -102,11 +173,12 @@ function M.template_rows(doc, t)
   if (not t.attack or t.attack.kind == "none") and (t.ai == "none" or has(t.tags, "dummy")) then return dummy_rows(doc, t, value) end
   local known = { id = true, source_id = true, values = true, text = true, notes = true, provenance = true, quirks = true,
     max_level = true, stats = true, attack = true, bounty = true, vision = true, collision_radius = true,
-    acquisition_range = true, owner_death = true, ai = true, tags = true, passive = true }
+    acquisition_range = true, owner_death = true, ai = true, tags = true, passive = true, statuses = true }
   for _, k in ipairs(sorted(t)) do if not known[k] then no(k) end end
+  local sp = statuses_problem(t); if sp then no(sp) end
   local stats = t.stats or {}
   for _, k in ipairs(sorted(stats)) do
-    if k ~= "hp" and k ~= "armor" and k ~= "magic_resist" and k ~= "move_speed" then no("stats." .. k) end
+    if k ~= "hp" and k ~= "hp_regen" and k ~= "armor" and k ~= "magic_resist" and k ~= "move_speed" then no("stats." .. k) end
   end
   local attack = t.attack
   if not attack or attack.kind == "none" then no("no attack (the dummy unit type, line B)") attack = {} end
@@ -139,6 +211,7 @@ function M.template_rows(doc, t)
     if row.hp == nil then no("stats.hp missing") end
     row.armor = num(stats.armor, "stats.armor") or 0
     row.magic_resistance = num(stats.magic_resist, "stats.magic_resist") or 0
+    row.hp_regen = num(stats.hp_regen, "stats.hp_regen")
     row.move_speed = num(stats.move_speed, "stats.move_speed")
     if row.move_speed == nil then no("stats.move_speed missing") end
     -- one damage per attack: the host's summons hit for `damage` (the mean of a min/max range,
@@ -186,10 +259,7 @@ function M.template_rows(doc, t)
         end
       end
     end
-    local vision = t.vision or {}
-    local day, night = num(vision.day, "vision.day"), num(vision.night, "vision.night")
-    if day and night and day ~= night then no("vision.day differs from vision.night") end
-    row.vision_radius = day or night or 0
+    vision_into(row, t.vision or {}, num, no)
     row.collision_radius = num(t.collision_radius, "collision_radius") or 0
     row.immobile = row.move_speed == 0 or nil
     row.follow_start_distance, row.follow_stop_distance = 0, 0

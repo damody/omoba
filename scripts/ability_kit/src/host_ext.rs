@@ -383,6 +383,14 @@ impl Cx<'_, '_> {
         }
     }
 
+    /// The skill of an `on_ability_executed` status trigger (`item:<id>` for an item); None
+    /// outside one.
+    pub fn event_ability_id(&mut self) -> Option<String> {
+        match self.read(op::EVENT_ABILITY_ATTR, &[ExtArg::Str(omb_script_abi::ext::event_ability_attr::ID.into())]) {
+            ExtValue::Str(id) => Some(id.into()), _ => None,
+        }
+    }
+
     /// v3 `event.ability.is_toggle` in an `on_ability_executed` status trigger.
     pub fn event_ability_is_toggle(&mut self) -> bool {
         matches!(self.read(op::EVENT_ABILITY_ATTR, &[ExtArg::Str(omb_script_abi::ext::event_ability_attr::IS_TOGGLE.into())]), ExtValue::Bool(true))

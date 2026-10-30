@@ -2,7 +2,7 @@
 
 由 `tools\lua\lua.exe docs\character_pipeline\tools\v3_codegen_coverage.lua` 產生，不要手改。取代 [ir-blockers.md](ir-blockers.md)（M3' ③，[m3-rust-codegen-design.md](m3-rust-codegen-design.md) §2.3）。產生器（`v3_rust.lua`）或 `ability_kit` 每補一批寫法就重跑。
 
-- 英雄技能：447 招中 317 招產生成 Rust。還不能產生的招式不輸出程式碼，列在這份報告；該英雄不進 `hero_dlls`。全部技能都產生的英雄：29 / 97 位。
+- 英雄技能：447 招中 319 招產生成 Rust。還不能產生的招式不輸出程式碼，列在這份報告；該英雄不進 `hero_dlls`。全部技能都產生的英雄：29 / 97 位。
 - 道具（items.dll，M7）：168 件中 36 件產生成 Rust。
 - 一位英雄要全部技能都產生才算解鎖。順序是 M5（已上架的 10 位），然後 M6 第 1～9 批（[m6-waves.md](m6-waves.md)）；每批內先做「每多支援一項、能解鎖最多英雄」的那位英雄缺的項目。
 - 「主要負責」是起點：`產生器` 是運算式、選取、目標這類產生器自己能降低的寫法；`ability_kit` 是要先有 kit 呼叫或 host 元件的寫法（工作線 B）。
@@ -19,15 +19,10 @@
 | 1 | `stat:status_resistance_pct` | ability_kit | 共用 | A07 | 2 招、5 件道具 | 8 / 10 |
 | 2 | `passive_trigger:on_order_targeted` | ability_kit | hook 候選 | B06 | 1 招、0 件道具 | 9 / 10 |
 | 3 | `action:issue_order.queue` | ability_kit | hook 候選 | C15 | 1 招、0 件道具 | 9 / 10 |
-| 4 | `unit_template acquisition_range is `$acquisition` has no value` | ability_kit | hook 候選 | C15 | 1 招、0 件道具 | 9 / 10 |
-| 5 | `unit_template attack range or interval missing` | ability_kit | hook 候選 | C15 | 1 招、0 件道具 | 9 / 10 |
-| 6 | `unit_template attack.interval is `$attack_interval` has no value` | ability_kit | hook 候選 | C15 | 1 招、0 件道具 | 9 / 10 |
-| 7 | `unit_template flying` | ability_kit | 共用 | C15 | 4 招、0 件道具 | 9 / 10 |
-| 8 | `unit_template passive.states` | ability_kit | hook 候選 | C15 | 1 招、0 件道具 | 9 / 10 |
-| 9 | `unit_template stats.hp_regen` | ability_kit | 共用 | C15 | 12 招、2 件道具 | 9 / 10 |
-| 10 | `unit_template stats.move_speed is `$move_speed` has no value` | ability_kit | hook 候選 | C15 | 1 招、0 件道具 | 9 / 10 |
-| 11 | `unit_template stats.move_speed missing` | ability_kit | 共用 | C15 | 4 招、0 件道具 | 9 / 10 |
-| 12 | `unit_template turn_rate` | ability_kit | 共用 | C15 | 7 招、0 件道具 | 10 / 10 |
+| 4 | `unit_template attack.attack_point outside the interval` | ability_kit | hook 候選 | C15 | 1 招、0 件道具 | 9 / 10 |
+| 5 | `unit_template flying` | ability_kit | 共用 | C15 | 4 招、0 件道具 | 9 / 10 |
+| 6 | `unit_template passive.states` | ability_kit | hook 候選 | C15 | 1 招、0 件道具 | 9 / 10 |
+| 7 | `unit_template turn_rate` | ability_kit | 共用 | C15 | 7 招、0 件道具 | 10 / 10 |
 
 ### M6 第 1 批（9 位）
 
@@ -35,11 +30,11 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 13 | `status.stacking:independent with states` | ability_kit | 共用 | C22 | 4 招、1 件道具 | 7 / 9 |
-| 14 | `event.damage.lethal` | ability_kit | hook 候選 | B26 | 1 招、0 件道具 | 8 / 9 |
-| 15 | `action:knockback.contact_radius` | ability_kit | hook 候選 | A14 | 1 招、0 件道具 | 8 / 9 |
-| 16 | `action:knockback.on_end` | ability_kit | hook 候選 | A14 | 1 招、0 件道具 | 8 / 9 |
-| 17 | `action:knockback.stop_on_contact` | ability_kit | hook 候選 | A14 | 1 招、0 件道具 | 9 / 9 |
+| 8 | `status.stacking:independent with states` | ability_kit | 共用 | C22 | 4 招、1 件道具 | 7 / 9 |
+| 9 | `event.damage.lethal` | ability_kit | hook 候選 | B26 | 1 招、0 件道具 | 8 / 9 |
+| 10 | `action:knockback.contact_radius` | ability_kit | hook 候選 | A14 | 1 招、0 件道具 | 8 / 9 |
+| 11 | `action:knockback.on_end` | ability_kit | hook 候選 | A14 | 1 招、0 件道具 | 8 / 9 |
+| 12 | `action:knockback.stop_on_contact` | ability_kit | hook 候選 | A14 | 1 招、0 件道具 | 9 / 9 |
 
 ### M6 第 2 批（10 位）
 
@@ -47,15 +42,14 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 18 | `event:point` | ability_kit | 共用 | A19 | 2 招、0 件道具 | 6 / 10 |
-| 19 | `action:modify_attack without crit_multiplier` | ability_kit | 共用 | C09 | 2 招、0 件道具 | 6 / 10 |
-| 20 | `action:modify_attack.is_orb` | ability_kit | hook 候選 | C09 | 1 招、0 件道具 | 7 / 10 |
-| 21 | `action:modify_attack.cannot_miss` | ability_kit | 共用 | C03 | 1 招、2 件道具 | 8 / 10 |
-| 22 | `event.damage.raw` | ability_kit | 共用 | B21 | 1 招、1 件道具 | 8 / 10 |
-| 23 | `passive_trigger:on_heal_received` | ability_kit | hook 候選 | B21 | 1 招、0 件道具 | 9 / 10 |
-| 24 | `state:provides_vision` | ability_kit | 共用 | A30 | 4 招、2 件道具 | 9 / 10 |
-| 25 | `unit_template stats.mana` | ability_kit | 共用 | A30 | 10 招、3 件道具 | 9 / 10 |
-| 26 | `unit_template vision.day differs from vision.night` | ability_kit | 共用 | A30 | 11 招、4 件道具 | 10 / 10 |
+| 13 | `event:point` | ability_kit | 共用 | A19 | 2 招、0 件道具 | 6 / 10 |
+| 14 | `action:modify_attack without crit_multiplier` | ability_kit | 共用 | C09 | 2 招、0 件道具 | 6 / 10 |
+| 15 | `action:modify_attack.is_orb` | ability_kit | hook 候選 | C09 | 1 招、0 件道具 | 7 / 10 |
+| 16 | `action:modify_attack.cannot_miss` | ability_kit | 共用 | C03 | 1 招、2 件道具 | 8 / 10 |
+| 17 | `state:provides_vision` | ability_kit | 共用 | A30 | 4 招、2 件道具 | 8 / 10 |
+| 18 | `unit_template stats.mana` | ability_kit | 共用 | A30 | 10 招、3 件道具 | 9 / 10 |
+| 19 | `event.damage.raw` | ability_kit | 共用 | B21 | 1 招、1 件道具 | 9 / 10 |
+| 20 | `passive_trigger:on_heal_received` | ability_kit | hook 候選 | B21 | 1 招、0 件道具 | 10 / 10 |
 
 ### M6 第 3 批（9 位）
 
@@ -63,16 +57,16 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 27 | `status.reapply_if_removed` | ability_kit | 共用 | A22 | 1 招、14 件道具 | 6 / 9 |
-| 28 | `status.per_source without {caster}` | ability_kit | hook 候選 | B31 | 1 招、0 件道具 | 7 / 9 |
-| 29 | `action:modify_cooldown.ability:se` | ability_kit | hook 候選 | C25 | 1 招、0 件道具 | 7 / 9 |
-| 30 | `action:modify_cooldown.ability:sq` | ability_kit | hook 候選 | C25 | 1 招、0 件道具 | 7 / 9 |
-| 31 | `action:modify_cooldown.ability:sw` | ability_kit | hook 候選 | C25 | 1 招、0 件道具 | 7 / 9 |
-| 32 | `fn:ability_in_slot` | 產生器 | 共用 | C25 | 2 招、0 件道具 | 8 / 9 |
-| 33 | `action:remove_status of its own independent status (this instance waits)` | ability_kit | hook 候選 | A06 | 1 招、0 件道具 | 8 / 9 |
-| 34 | `aura.flag:include_illusions` | ability_kit | 共用 | A06 | 2 招、0 件道具 | 8 / 9 |
-| 35 | `status.vars of an independent status` | ability_kit | 共用 | A06 | 2 招、0 件道具 | 8 / 9 |
-| 36 | `status_trigger:on_attack_miss` | ability_kit | hook 候選 | A06 | 1 招、0 件道具 | 9 / 9 |
+| 21 | `status.reapply_if_removed` | ability_kit | 共用 | A22 | 1 招、14 件道具 | 6 / 9 |
+| 22 | `status.per_source without {caster}` | ability_kit | hook 候選 | B31 | 1 招、0 件道具 | 7 / 9 |
+| 23 | `action:modify_cooldown.ability:se` | ability_kit | hook 候選 | C25 | 1 招、0 件道具 | 7 / 9 |
+| 24 | `action:modify_cooldown.ability:sq` | ability_kit | hook 候選 | C25 | 1 招、0 件道具 | 7 / 9 |
+| 25 | `action:modify_cooldown.ability:sw` | ability_kit | hook 候選 | C25 | 1 招、0 件道具 | 7 / 9 |
+| 26 | `fn:ability_in_slot` | 產生器 | 共用 | C25 | 2 招、0 件道具 | 8 / 9 |
+| 27 | `action:remove_status of its own independent status (this instance waits)` | ability_kit | hook 候選 | A06 | 1 招、0 件道具 | 8 / 9 |
+| 28 | `aura.flag:include_illusions` | ability_kit | 共用 | A06 | 2 招、0 件道具 | 8 / 9 |
+| 29 | `status.vars of an independent status` | ability_kit | 共用 | A06 | 2 招、0 件道具 | 8 / 9 |
+| 30 | `status_trigger:on_attack_miss` | ability_kit | hook 候選 | A06 | 1 招、0 件道具 | 9 / 9 |
 
 ### M6 第 4 批（9 位）
 
@@ -80,25 +74,24 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 37 | `action:create_illusion` | ability_kit | 共用 | B02 | 10 招、0 件道具 | 1 / 9 |
-| 38 | `expr: a position from a sym:ill` | 產生器 | 共用 | B02 | 3 招、0 件道具 | 1 / 9 |
-| 39 | `expr: wanted a unit, got a sym:ill` | 產生器 | 共用 | B02 | 8 招、0 件道具 | 3 / 9 |
-| 40 | `status.absorb.on_absorb` | ability_kit | 共用 | A24 | 6 招、1 件道具 | 3 / 9 |
-| 41 | `status.absorb.on_broken` | ability_kit | 共用 | A24 | 7 招、0 件道具 | 4 / 9 |
-| 42 | `action:create_unit.limit_per_owner (no host cap for it)` | ability_kit | 共用 | A36 | 3 招、0 件道具 | 4 / 9 |
-| 43 | `unit_template abilities on a dummy` | ability_kit | hook 候選 | A36 | 1 招、0 件道具 | 4 / 9 |
-| 44 | `unit_template stats on a dummy` | ability_kit | 共用 | A36 | 10 招、3 件道具 | 5 / 9 |
-| 45 | `status.stacking:independent with slow_pct` | ability_kit | 共用 | B34 | 2 招、0 件道具 | 5 / 9 |
-| 46 | `unit_template statuses on a dummy` | ability_kit | 共用 | B34 | 7 招、2 件道具 | 6 / 9 |
-| 47 | `action:cancel_delay` | ability_kit | 共用 | B14 | 4 招、0 件道具 | 6 / 9 |
-| 48 | `action:delay.id` | ability_kit | 共用 | B14 | 4 招、0 件道具 | 6 / 9 |
-| 49 | `action:set_time_of_day` | ability_kit | 共用 | B14 | 2 招、0 件道具 | 7 / 9 |
-| 50 | `attr:owner` | 產生器 | hook 候選 | A20 | 1 招、0 件道具 | 7 / 9 |
-| 51 | `state:not_on_minimap` | ability_kit | 共用 | A20 | 4 招、0 件道具 | 8 / 9 |
-| 52 | `aura.flag:exclude_invisible` | ability_kit | hook 候選 | B17 | 1 招、0 件道具 | 8 / 9 |
-| 53 | `aura.status:independent` | ability_kit | hook 候選 | B17 | 1 招、0 件道具 | 8 / 9 |
-| 54 | `event.damage.is_attack` | ability_kit | 共用 | B17 | 2 招、0 件道具 | 8 / 9 |
-| 55 | `unit_template tag:ward` | ability_kit | hook 候選 | B17 | 1 招、0 件道具 | 9 / 9 |
+| 31 | `action:create_illusion` | ability_kit | 共用 | B02 | 10 招、0 件道具 | 1 / 9 |
+| 32 | `expr: a position from a sym:ill` | 產生器 | 共用 | B02 | 3 招、0 件道具 | 1 / 9 |
+| 33 | `expr: wanted a unit, got a sym:ill` | 產生器 | 共用 | B02 | 8 招、0 件道具 | 3 / 9 |
+| 34 | `status.absorb.on_absorb` | ability_kit | 共用 | A24 | 6 招、1 件道具 | 3 / 9 |
+| 35 | `status.absorb.on_broken` | ability_kit | 共用 | A24 | 7 招、0 件道具 | 4 / 9 |
+| 36 | `state:not_on_minimap` | ability_kit | 共用 | B34 | 7 招、0 件道具 | 4 / 9 |
+| 37 | `status.stacking:independent with slow_pct` | ability_kit | 共用 | B34 | 2 招、0 件道具 | 5 / 9 |
+| 38 | `action:create_unit.limit_per_owner (no host cap for it)` | ability_kit | 共用 | A36 | 3 招、0 件道具 | 5 / 9 |
+| 39 | `unit_template abilities on a dummy` | ability_kit | hook 候選 | A36 | 1 招、0 件道具 | 5 / 9 |
+| 40 | `unit_template stats.move_speed on a dummy` | ability_kit | 共用 | A36 | 4 招、0 件道具 | 6 / 9 |
+| 41 | `action:cancel_delay` | ability_kit | 共用 | A20 | 4 招、0 件道具 | 6 / 9 |
+| 42 | `action:delay.id` | ability_kit | 共用 | A20 | 4 招、0 件道具 | 6 / 9 |
+| 43 | `attr:owner` | 產生器 | hook 候選 | A20 | 1 招、0 件道具 | 7 / 9 |
+| 44 | `action:set_time_of_day` | ability_kit | 共用 | B14 | 2 招、0 件道具 | 8 / 9 |
+| 45 | `aura.flag:exclude_invisible` | ability_kit | hook 候選 | B17 | 1 招、0 件道具 | 8 / 9 |
+| 46 | `aura.status:independent` | ability_kit | hook 候選 | B17 | 1 招、0 件道具 | 8 / 9 |
+| 47 | `event.damage.is_attack` | ability_kit | 共用 | B17 | 2 招、0 件道具 | 8 / 9 |
+| 48 | `unit_template tag:ward` | ability_kit | hook 候選 | B17 | 1 招、0 件道具 | 9 / 9 |
 
 ### M6 第 5 批（9 位）
 
@@ -106,14 +99,15 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 56 | `action:chance.mode` | ability_kit | hook 候選 | A17 | 1 招、0 件道具 | 3 / 9 |
-| 57 | `unit_template bounty on a dummy` | ability_kit | 共用 | A27 | 5 招、2 件道具 | 4 / 9 |
-| 58 | `selector.flag:exclude_invisible` | 產生器 | hook 候選 | B03 | 1 招、0 件道具 | 5 / 9 |
-| 59 | `action:modify_cooldown.item_tag` | ability_kit | hook 候選 | C13 | 1 招、0 件道具 | 6 / 9 |
-| 60 | `action:refund` | ability_kit | 共用 | A33 | 2 招、2 件道具 | 6 / 9 |
-| 61 | `state:revealed` | ability_kit | 共用 | A33 | 5 招、8 件道具 | 7 / 9 |
-| 62 | `selector.types:building+creep+neutral+summon` | 產生器 | 共用 | B18 | 1 招、1 件道具 | 8 / 9 |
-| 63 | `action:cue.at of a err` | ability_kit | hook 候選 | B05 | 1 招、0 件道具 | 9 / 9 |
+| 49 | `action:chance.mode` | ability_kit | hook 候選 | A17 | 1 招、0 件道具 | 3 / 9 |
+| 50 | `selector.flag:exclude_invisible` | 產生器 | hook 候選 | B03 | 1 招、0 件道具 | 4 / 9 |
+| 51 | `action:modify_cooldown.item_tag` | ability_kit | hook 候選 | C13 | 1 招、0 件道具 | 5 / 9 |
+| 52 | `status.triggers on a document-level status` | ability_kit | hook 候選 | A27 | 1 招、0 件道具 | 5 / 9 |
+| 53 | `unit_template bounty on a dummy` | ability_kit | 共用 | A27 | 5 招、2 件道具 | 6 / 9 |
+| 54 | `action:refund` | ability_kit | 共用 | A33 | 2 招、2 件道具 | 6 / 9 |
+| 55 | `state:revealed` | ability_kit | 共用 | A33 | 5 招、8 件道具 | 7 / 9 |
+| 56 | `selector.types:building+creep+neutral+summon` | 產生器 | 共用 | B18 | 1 招、1 件道具 | 8 / 9 |
+| 57 | `action:cue.at of a err` | ability_kit | hook 候選 | B05 | 1 招、0 件道具 | 9 / 9 |
 
 ### M6 第 6 批（9 位）
 
@@ -121,20 +115,20 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 64 | `unit_template passive.aura on a dummy` | ability_kit | 共用 | A10 | 1 招、3 件道具 | 4 / 9 |
-| 65 | `stat.when` | ability_kit | 共用 | C10 | 1 招、6 件道具 | 5 / 9 |
-| 66 | `action:impulse` | ability_kit | hook 候選 | B25 | 1 招、0 件道具 | 5 / 9 |
-| 67 | `attr:cooldown_remaining` | 產生器 | hook 候選 | B25 | 1 招、0 件道具 | 5 / 9 |
-| 68 | `fn:max of non-numbers` | 產生器 | hook 候選 | B25 | 1 招、0 件道具 | 6 / 9 |
-| 69 | `action:heal.source:owner_of(self)` | ability_kit | 共用 | A29 | 2 招、0 件道具 | 6 / 9 |
-| 70 | `status_trigger:on_mana_spent` | ability_kit | hook 候選 | A29 | 1 招、0 件道具 | 6 / 9 |
-| 71 | `unit_template ai:chase_target` | ability_kit | 共用 | A29 | 3 招、0 件道具 | 6 / 9 |
-| 72 | `unit_template chase` | ability_kit | 共用 | A29 | 3 招、0 件道具 | 6 / 9 |
-| 73 | `unit_template no attack (the dummy unit type, line B)` | ability_kit | 共用 | A29 | 4 招、1 件道具 | 6 / 9 |
-| 74 | `unit_template stats.hp missing` | ability_kit | 共用 | A29 | 4 招、3 件道具 | 6 / 9 |
-| 75 | `unit_template statuses` | ability_kit | 共用 | A29 | 2 招、5 件道具 | 8 / 9 |
-| 76 | `state:flying` | ability_kit | 共用 | C16 | 4 招、0 件道具 | 8 / 9 |
-| 77 | `unit_template attack.damage_type:pure` | ability_kit | hook 候選 | C16 | 1 招、0 件道具 | 9 / 9 |
+| 58 | `unit_template passive.aura on a dummy` | ability_kit | 共用 | A10 | 1 招、3 件道具 | 4 / 9 |
+| 59 | `stat.when` | ability_kit | 共用 | C10 | 1 招、6 件道具 | 5 / 9 |
+| 60 | `action:impulse` | ability_kit | hook 候選 | B25 | 1 招、0 件道具 | 5 / 9 |
+| 61 | `attr:cooldown_remaining` | 產生器 | hook 候選 | B25 | 1 招、0 件道具 | 5 / 9 |
+| 62 | `fn:max of non-numbers` | 產生器 | hook 候選 | B25 | 1 招、0 件道具 | 6 / 9 |
+| 63 | `action:heal.source:owner_of(self)` | ability_kit | 共用 | A29 | 2 招、0 件道具 | 6 / 9 |
+| 64 | `state:flying` | ability_kit | 共用 | A29 | 6 招、0 件道具 | 6 / 9 |
+| 65 | `status_trigger:on_mana_spent` | ability_kit | hook 候選 | A29 | 1 招、0 件道具 | 6 / 9 |
+| 66 | `unit_template ai:chase_target` | ability_kit | 共用 | A29 | 3 招、0 件道具 | 6 / 9 |
+| 67 | `unit_template chase` | ability_kit | 共用 | A29 | 3 招、0 件道具 | 6 / 9 |
+| 68 | `unit_template no attack (the dummy unit type, line B)` | ability_kit | 共用 | A29 | 4 招、1 件道具 | 6 / 9 |
+| 69 | `unit_template stats.hp missing` | ability_kit | 共用 | A29 | 4 招、0 件道具 | 6 / 9 |
+| 70 | `unit_template stats.move_speed missing` | ability_kit | 共用 | A29 | 3 招、0 件道具 | 8 / 9 |
+| 71 | `unit_template attack.damage_type:pure` | ability_kit | hook 候選 | C16 | 1 招、0 件道具 | 9 / 9 |
 
 ### M6 第 7 批（9 位）
 
@@ -142,11 +136,11 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 78 | `status_trigger:on_moved` | ability_kit | 共用 | A03 | 3 招、0 件道具 | 5 / 9 |
-| 79 | `selector.flag:exclude_illusions` | 產生器 | hook 候選 | B36 | 1 招、0 件道具 | 6 / 9 |
-| 80 | `action:attack without instant (a projectile attack)` | ability_kit | 共用 | A31 | 1 招、1 件道具 | 7 / 9 |
-| 81 | `fn:count_in_radius` | 產生器 | 共用 | C21 | 3 招、1 件道具 | 8 / 9 |
-| 82 | `action:modify_damage outside a damage-pre trigger` | ability_kit | hook 候選 | A08 | 1 招、0 件道具 | 9 / 9 |
+| 72 | `status_trigger:on_moved` | ability_kit | 共用 | A03 | 3 招、0 件道具 | 5 / 9 |
+| 73 | `selector.flag:exclude_illusions` | 產生器 | hook 候選 | B36 | 1 招、0 件道具 | 6 / 9 |
+| 74 | `action:attack without instant (a projectile attack)` | ability_kit | 共用 | A31 | 1 招、1 件道具 | 7 / 9 |
+| 75 | `fn:count_in_radius` | 產生器 | 共用 | C21 | 3 招、1 件道具 | 8 / 9 |
+| 76 | `action:modify_damage outside a damage-pre trigger` | ability_kit | hook 候選 | A08 | 1 招、0 件道具 | 9 / 9 |
 
 ### M6 第 8 批（9 位）
 
@@ -154,22 +148,21 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 83 | `unit_template passive.triggers` | ability_kit | hook 候選 | A09 | 1 招、0 件道具 | 3 / 9 |
-| 84 | `fn:enemy_team` | 產生器 | hook 候選 | B12 | 1 招、0 件道具 | 3 / 9 |
-| 85 | `fn:team_of` | 產生器 | hook 候選 | B12 | 1 招、0 件道具 | 4 / 9 |
-| 86 | `action:issue_order.order:follow` | ability_kit | hook 候選 | A04 | 1 招、0 件道具 | 4 / 9 |
-| 87 | `status_trigger:on_refreshed` | ability_kit | hook 候選 | A04 | 1 招、0 件道具 | 5 / 9 |
-| 88 | `action:end_channel` | ability_kit | 共用 | B09 | 3 招、0 件道具 | 5 / 9 |
-| 89 | `name:event outside an event` | 產生器 | 共用 | B09 | 4 招、2 件道具 | 6 / 9 |
-| 90 | `action:modify_base_stat` | ability_kit | hook 候選 | B11 | 1 招、0 件道具 | 6 / 9 |
-| 91 | `attr:is_silenced` | 產生器 | hook 候選 | B11 | 1 招、0 件道具 | 7 / 9 |
-| 92 | `action:reveal.teams:enemy` | ability_kit | 共用 | B23 | 2 招、0 件道具 | 7 / 9 |
-| 93 | `passive_trigger:on_moved` | ability_kit | hook 候選 | B23 | 1 招、0 件道具 | 7 / 9 |
-| 94 | `selector.flag:include_dead` | 產生器 | 共用 | B23 | 2 招、0 件道具 | 8 / 9 |
-| 95 | `action:create_unit.overrides.ability_level` | ability_kit | hook 候選 | A28 | 1 招、0 件道具 | 8 / 9 |
-| 96 | `stat:physical_block_chance` | ability_kit | 共用 | A28 | 1 招、2 件道具 | 8 / 9 |
-| 97 | `unit_template abilities` | ability_kit | 共用 | A28 | 2 招、2 件道具 | 8 / 9 |
-| 98 | `unit_template stats.mana_regen` | ability_kit | 共用 | A28 | 2 招、0 件道具 | 9 / 9 |
+| 77 | `unit_template passive.triggers` | ability_kit | hook 候選 | A09 | 1 招、0 件道具 | 3 / 9 |
+| 78 | `action:end_channel` | ability_kit | 共用 | B09 | 3 招、0 件道具 | 4 / 9 |
+| 79 | `fn:enemy_team` | 產生器 | hook 候選 | B12 | 1 招、0 件道具 | 4 / 9 |
+| 80 | `fn:team_of` | 產生器 | hook 候選 | B12 | 1 招、0 件道具 | 5 / 9 |
+| 81 | `action:issue_order.order:follow` | ability_kit | hook 候選 | A04 | 1 招、0 件道具 | 5 / 9 |
+| 82 | `status_trigger:on_refreshed` | ability_kit | hook 候選 | A04 | 1 招、0 件道具 | 6 / 9 |
+| 83 | `action:modify_base_stat` | ability_kit | hook 候選 | B11 | 1 招、0 件道具 | 6 / 9 |
+| 84 | `attr:is_silenced` | 產生器 | hook 候選 | B11 | 1 招、0 件道具 | 7 / 9 |
+| 85 | `action:reveal.teams:enemy` | ability_kit | 共用 | B23 | 2 招、0 件道具 | 7 / 9 |
+| 86 | `passive_trigger:on_moved` | ability_kit | hook 候選 | B23 | 1 招、0 件道具 | 7 / 9 |
+| 87 | `selector.flag:include_dead` | 產生器 | 共用 | B23 | 2 招、0 件道具 | 8 / 9 |
+| 88 | `action:create_unit.overrides.ability_level` | ability_kit | hook 候選 | A28 | 1 招、0 件道具 | 8 / 9 |
+| 89 | `stat:physical_block_chance` | ability_kit | 共用 | A28 | 1 招、2 件道具 | 8 / 9 |
+| 90 | `unit_template abilities` | ability_kit | 共用 | A28 | 2 招、2 件道具 | 8 / 9 |
+| 91 | `unit_template stats.mana_regen` | ability_kit | 共用 | A28 | 2 招、0 件道具 | 9 / 9 |
 
 ### M6 第 9 批（13 位）
 
@@ -177,60 +170,59 @@
 
 | # | 要支援的寫法 | 主要負責 | 分類 | 為了 | 用到的招式數（全量） | 本批累計解鎖 |
 |---|---|---|---|---|---|---|
-| 99 | `action:chain` | ability_kit | hook 候選 | B28 | 1 招、0 件道具 | 0 / 13 |
-| 100 | `fn:has_state:revealed` | 產生器 | hook 候選 | B28 | 1 招、0 件道具 | 1 / 13 |
-| 101 | `stat:heal_reduction_pct` | ability_kit | 共用 | B33 | 2 招、2 件道具 | 1 / 13 |
-| 102 | `token:vars` | 產生器 | 共用 | B33 | 1 招、2 件道具 | 2 / 13 |
-| 103 | `selector.relative_to` | 產生器 | 共用 | C07 | 2 招、0 件道具 | 3 / 13 |
-| 104 | `fn:orb_slot_free` | 產生器 | 共用 | B15 | 2 招、0 件道具 | 3 / 13 |
-| 105 | `passive:orb_slot` | ability_kit | 共用 | B15 | 1 招、1 件道具 | 4 / 13 |
-| 106 | `fn:landmark` | 產生器 | hook 候選 | A21 | 1 招、0 件道具 | 4 / 13 |
-| 107 | `status.forced_move` | ability_kit | 共用 | A21 | 2 招、0 件道具 | 5 / 13 |
-| 108 | `action:damage.flags:no_source_bonuses` | ability_kit | 共用 | A11 | 2 招、2 件道具 | 5 / 13 |
-| 109 | `attr:cast_point of an ability` | 產生器 | hook 候選 | A11 | 1 招、0 件道具 | 6 / 13 |
-| 110 | `action:add_ability` | ability_kit | 共用 | B16 | 2 招、0 件道具 | 6 / 13 |
-| 111 | `action:dodge_projectiles.of:caster_hero` | ability_kit | hook 候選 | B16 | 1 招、0 件道具 | 6 / 13 |
-| 112 | `action:dodge_projectiles.of:state.b16_moon` | ability_kit | 共用 | B16 | 2 招、0 件道具 | 6 / 13 |
-| 113 | `action:set_base_max_hp` | ability_kit | 共用 | B16 | 2 招、0 件道具 | 6 / 13 |
-| 114 | `token:state` | 產生器 | hook 候選 | B16 | 1 招、0 件道具 | 7 / 13 |
-| 115 | `action:modify_cooldown.item` | ability_kit | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
-| 116 | `action:pick_item` | ability_kit | 共用 | C18 | 3 招、0 件道具 | 7 / 13 |
-| 117 | `fn:ability_ready` | 產生器 | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
-| 118 | `fn:exists of a sym:blink_item` | 產生器 | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
-| 119 | `fn:status_source` | 產生器 | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
-| 120 | `selector.flag:include_illusions` | 產生器 | 共用 | C18 | 5 招、1 件道具 | 8 / 13 |
-| 121 | `action:create_unit.overrides.armor` | ability_kit | 共用 | B07 | 1 招、4 件道具 | 8 / 13 |
-| 122 | `action:give_item` | ability_kit | 共用 | B07 | 3 招、0 件道具 | 8 / 13 |
-| 123 | `fn:exists of a sym:item_a` | 產生器 | hook 候選 | B07 | 1 招、0 件道具 | 8 / 13 |
-| 124 | `fn:exists of a sym:item_b` | 產生器 | hook 候選 | B07 | 1 招、0 件道具 | 8 / 13 |
-| 125 | `unit_template inventory_locked` | ability_kit | hook 候選 | B07 | 1 招、0 件道具 | 8 / 13 |
-| 126 | `unit_template item_cast_blacklist` | ability_kit | hook 候選 | B07 | 1 招、0 件道具 | 9 / 13 |
-| 127 | `action:remove_item` | ability_kit | 共用 | C06 | 2 招、0 件道具 | 9 / 13 |
-| 128 | `attr:hero` | 產生器 | hook 候選 | C06 | 1 招、0 件道具 | 9 / 13 |
-| 129 | `attr:name` | 產生器 | hook 候選 | C06 | 1 招、0 件道具 | 9 / 13 |
-| 130 | `fn:exists of a sym:stolen` | 產生器 | hook 候選 | C06 | 1 招、0 件道具 | 9 / 13 |
-| 131 | `state type:item_name` | ability_kit | hook 候選 | C06 | 1 招、0 件道具 | 10 / 13 |
-| 132 | `action:remove_ability` | ability_kit | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
-| 133 | `action:set_ability_active (an ability id and a fixed active)` | ability_kit | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
-| 134 | `expr of type nil` | 產生器 | 共用 | C08 | 2 招、0 件道具 | 10 / 13 |
-| 135 | `fn:is_ability of a non-event ability` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
-| 136 | `selector.shape:segment` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
-| 137 | `selector.to` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
-| 138 | `selector.width` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
-| 139 | `state:blind` | ability_kit | hook 候選 | C08 | 1 招、0 件道具 | 11 / 13 |
-| 140 | `action:projectile.team:any` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
-| 141 | `action:projectile.where` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
-| 142 | `action:redirect_motion` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
-| 143 | `selector.types:boss+creep+neutral+summon` | 產生器 | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
-| 144 | `selector.types:building` | 產生器 | 共用 | B24 | 2 招、0 件道具 | 11 / 13 |
-| 145 | `unit_template blocks_pathing on a dummy` | ability_kit | 共用 | B24 | 2 招、1 件道具 | 11 / 13 |
-| 146 | `unit_template collision_radius on a dummy` | ability_kit | 共用 | B24 | 3 招、0 件道具 | 11 / 13 |
-| 147 | `unit_template tag:building` | ability_kit | 共用 | B24 | 2 招、1 件道具 | 12 / 13 |
-| 148 | `action:destroy_tree` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
-| 149 | `action:regrow_trees` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
-| 150 | `fn:tree_alive` | 產生器 | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
-| 151 | `status.immune_to` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
-| 152 | `target.type:tree` | 產生器 | 共用 | B22 | 2 招、0 件道具 | 13 / 13 |
+| 92 | `action:chain` | ability_kit | hook 候選 | B28 | 1 招、0 件道具 | 0 / 13 |
+| 93 | `fn:has_state:revealed` | 產生器 | hook 候選 | B28 | 1 招、0 件道具 | 1 / 13 |
+| 94 | `stat:heal_reduction_pct` | ability_kit | 共用 | B33 | 2 招、2 件道具 | 1 / 13 |
+| 95 | `token:vars` | 產生器 | 共用 | B33 | 1 招、2 件道具 | 2 / 13 |
+| 96 | `selector.relative_to` | 產生器 | 共用 | C07 | 2 招、0 件道具 | 3 / 13 |
+| 97 | `action:damage.flags:no_source_bonuses` | ability_kit | 共用 | A11 | 2 招、2 件道具 | 3 / 13 |
+| 98 | `status.forced_move` | ability_kit | 共用 | A11 | 2 招、0 件道具 | 4 / 13 |
+| 99 | `fn:landmark` | 產生器 | hook 候選 | A21 | 1 招、0 件道具 | 4 / 13 |
+| 100 | `fn:orb_slot_free` | 產生器 | 共用 | A21 | 2 招、0 件道具 | 5 / 13 |
+| 101 | `passive:orb_slot` | ability_kit | 共用 | B15 | 1 招、1 件道具 | 6 / 13 |
+| 102 | `action:add_ability` | ability_kit | 共用 | B16 | 2 招、0 件道具 | 6 / 13 |
+| 103 | `action:dodge_projectiles.of:caster_hero` | ability_kit | hook 候選 | B16 | 1 招、0 件道具 | 6 / 13 |
+| 104 | `action:dodge_projectiles.of:state.b16_moon` | ability_kit | 共用 | B16 | 2 招、0 件道具 | 6 / 13 |
+| 105 | `action:set_base_max_hp` | ability_kit | 共用 | B16 | 2 招、0 件道具 | 6 / 13 |
+| 106 | `token:state` | 產生器 | hook 候選 | B16 | 1 招、0 件道具 | 7 / 13 |
+| 107 | `action:modify_cooldown.item` | ability_kit | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
+| 108 | `action:pick_item` | ability_kit | 共用 | C18 | 3 招、0 件道具 | 7 / 13 |
+| 109 | `fn:ability_ready` | 產生器 | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
+| 110 | `fn:exists of a sym:blink_item` | 產生器 | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
+| 111 | `fn:status_source` | 產生器 | hook 候選 | C18 | 1 招、0 件道具 | 7 / 13 |
+| 112 | `selector.flag:include_illusions` | 產生器 | 共用 | C18 | 5 招、1 件道具 | 8 / 13 |
+| 113 | `action:create_unit.overrides.armor` | ability_kit | 共用 | B07 | 1 招、4 件道具 | 8 / 13 |
+| 114 | `action:give_item` | ability_kit | 共用 | B07 | 3 招、0 件道具 | 8 / 13 |
+| 115 | `fn:exists of a sym:item_a` | 產生器 | hook 候選 | B07 | 1 招、0 件道具 | 8 / 13 |
+| 116 | `fn:exists of a sym:item_b` | 產生器 | hook 候選 | B07 | 1 招、0 件道具 | 8 / 13 |
+| 117 | `unit_template inventory_locked` | ability_kit | hook 候選 | B07 | 1 招、0 件道具 | 8 / 13 |
+| 118 | `unit_template item_cast_blacklist` | ability_kit | hook 候選 | B07 | 1 招、0 件道具 | 9 / 13 |
+| 119 | `action:remove_item` | ability_kit | 共用 | C06 | 2 招、0 件道具 | 9 / 13 |
+| 120 | `attr:hero` | 產生器 | hook 候選 | C06 | 1 招、0 件道具 | 9 / 13 |
+| 121 | `attr:name` | 產生器 | hook 候選 | C06 | 1 招、0 件道具 | 9 / 13 |
+| 122 | `fn:exists of a sym:stolen` | 產生器 | hook 候選 | C06 | 1 招、0 件道具 | 9 / 13 |
+| 123 | `state type:item_name` | ability_kit | hook 候選 | C06 | 1 招、0 件道具 | 10 / 13 |
+| 124 | `action:remove_ability` | ability_kit | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
+| 125 | `action:set_ability_active (an ability id and a fixed active)` | ability_kit | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
+| 126 | `expr of type nil` | 產生器 | 共用 | C08 | 2 招、0 件道具 | 10 / 13 |
+| 127 | `fn:is_ability of a non-event ability` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
+| 128 | `selector.shape:segment` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
+| 129 | `selector.to` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
+| 130 | `selector.width` | 產生器 | hook 候選 | C08 | 1 招、0 件道具 | 10 / 13 |
+| 131 | `state:blind` | ability_kit | hook 候選 | C08 | 1 招、0 件道具 | 11 / 13 |
+| 132 | `action:projectile.team:any` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
+| 133 | `action:projectile.where` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
+| 134 | `action:redirect_motion` | ability_kit | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
+| 135 | `selector.types:boss+creep+neutral+summon` | 產生器 | hook 候選 | B24 | 1 招、0 件道具 | 11 / 13 |
+| 136 | `selector.types:building` | 產生器 | 共用 | B24 | 2 招、0 件道具 | 11 / 13 |
+| 137 | `unit_template blocks_pathing on a dummy` | ability_kit | 共用 | B24 | 2 招、1 件道具 | 11 / 13 |
+| 138 | `unit_template collision_radius on a dummy` | ability_kit | 共用 | B24 | 3 招、0 件道具 | 11 / 13 |
+| 139 | `unit_template tag:building` | ability_kit | 共用 | B24 | 2 招、1 件道具 | 12 / 13 |
+| 140 | `action:destroy_tree` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
+| 141 | `action:regrow_trees` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
+| 142 | `fn:tree_alive` | 產生器 | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
+| 143 | `status.immune_to` | ability_kit | hook 候選 | B22 | 1 招、0 件道具 | 12 / 13 |
+| 144 | `target.type:tree` | 產生器 | 共用 | B22 | 2 招、0 件道具 | 13 / 13 |
 
 ## 2. 每位英雄、每招還缺什麼
 
@@ -316,7 +308,7 @@
 | `c15_scatter_shot` | ✓ 已產生 |
 | `c15_burst_arrow` | ✓ 已產生 |
 | `c15_precise_light` | ✓ 已產生 |
-| `c15_hundred_arrows` | `action:issue_order.queue`、`unit_template acquisition_range is `$acquisition` has no value`、`unit_template attack range or interval missing`、`unit_template attack.interval is `$attack_interval` has no value`、`unit_template flying`、`unit_template passive.states`、`unit_template stats.hp_regen`、`unit_template stats.move_speed is `$move_speed` has no value`、`unit_template stats.move_speed missing`、`unit_template turn_rate` |
+| `c15_hundred_arrows` | `action:issue_order.queue`、`unit_template attack.attack_point outside the interval`、`unit_template flying`、`unit_template passive.states`、`unit_template turn_rate` |
 
 ### C17 `oichi`（5 / 5 招）　已上架
 
@@ -351,7 +343,7 @@
 
 | 招式 | 還缺 |
 |---|---|
-| `a04_water_shikigami` | `action:issue_order.order:follow`、`unit_template stats.hp_regen`、`unit_template stats.mana`、`unit_template turn_rate`、`unit_template vision.day differs from vision.night` |
+| `a04_water_shikigami` | `action:issue_order.order:follow`、`unit_template stats.mana`、`unit_template turn_rate` |
 | `a04_ice_path` | ✓ 已產生 |
 | `a04_frost_shelter` | `status.absorb.on_absorb`、`status.absorb.on_broken`、`status_trigger:on_refreshed` |
 | `a04_frost_sparrow` | ✓ 已產生 |
@@ -411,7 +403,7 @@
 |---|---|
 | `a11_vortex` | `action:damage.flags:no_source_bonuses` |
 | `a11_evil_gaze` | `status.forced_move` |
-| `a11_old_fox` | `attr:cast_point of an ability`、`aura.flag:include_illusions`、`name:event outside an event` |
+| `a11_old_fox` | `aura.flag:include_illusions` |
 | `a11_myriad_forms` | ✓ 已產生 |
 
 ### A12 `otani_yoshitsugu`（9 / 9 招）
@@ -498,7 +490,7 @@
 
 | 招式 | 還缺 |
 |---|---|
-| `a20_pirate_domain` | `action:cancel_delay`、`action:create_unit.limit_per_owner (no host cap for it)`、`action:delay.id`、`attr:owner`、`state:not_on_minimap`、`unit_template stats on a dummy` |
+| `a20_pirate_domain` | `action:cancel_delay`、`action:create_unit.limit_per_owner (no host cap for it)`、`action:delay.id`、`attr:owner`、`state:not_on_minimap`、`unit_template stats.move_speed on a dummy` |
 | `a20_water_burst` | `status.stacking:independent with slow_pct` |
 | `a20_pirate_boots` | ✓ 已產生 |
 | `a20_pirate_daimyo` | `stat:status_resistance_pct` |
@@ -510,7 +502,7 @@
 | `a21_mana_steal` | ✓ 已產生 |
 | `a21_half_blade` | `fn:orb_slot_free` |
 | `a21_energy_press` | ✓ 已產生 |
-| `a21_pearl_disc` | `action:reveal.teams:enemy`、`unit_template stats.hp_regen`、`unit_template stats.mana`、`unit_template stats.mana_regen` |
+| `a21_pearl_disc` | `action:reveal.teams:enemy`、`unit_template stats.mana`、`unit_template stats.mana_regen` |
 | `a21_false_intel` | `fn:landmark`、`status.forced_move` |
 
 ### A22 `sengoku_hidehisa`（3 / 4 招）
@@ -565,7 +557,7 @@
 | 招式 | 還缺 |
 |---|---|
 | `a27_unstoppable_advance` | `action:create_illusion` |
-| `a27_war_banner` | `unit_template bounty on a dummy`、`unit_template stats on a dummy`、`unit_template statuses on a dummy` |
+| `a27_war_banner` | `status.triggers on a document-level status`、`unit_template bounty on a dummy` |
 | `a27_way_of_warrior` | ✓ 已產生 |
 | `a27_tyrant_hammer` | ✓ 已產生 |
 | `a27_oni_shibata` | ✓ 已產生 |
@@ -577,7 +569,7 @@
 | `a28_evil_art` | `stat:physical_block_chance` |
 | `a28_creation` | ✓ 已產生 |
 | `a28_binding_swamp` | ✓ 已產生 |
-| `a28_phoenix_summon` | `action:create_unit.overrides.ability_level`、`unit_template abilities`、`unit_template stats.hp_regen`、`unit_template stats.mana`、`unit_template stats.mana_regen`、`unit_template turn_rate`、`unit_template vision.day differs from vision.night` |
+| `a28_phoenix_summon` | `action:create_unit.overrides.ability_level`、`unit_template abilities`、`unit_template stats.mana`、`unit_template stats.mana_regen`、`unit_template turn_rate` |
 | `a28_heaven_fire` | ✓ 已產生 |
 | `a28_spreading_fire` | ✓ 已產生 |
 
@@ -588,13 +580,13 @@
 | `a29_sleeve_poison_arrow` | ✓ 已產生 |
 | `a29_abyss_grip` | ✓ 已產生 |
 | `a29_withering_aura` | `status_trigger:on_mana_spent` |
-| `a29_vulture_swarm` | `action:heal.source:owner_of(self)`、`unit_template ai:chase_target`、`unit_template chase`、`unit_template flying`、`unit_template no attack (the dummy unit type, line B)`、`unit_template stats.hp missing`、`unit_template stats.move_speed missing`、`unit_template statuses` |
+| `a29_vulture_swarm` | `action:heal.source:owner_of(self)`、`state:flying`、`state:not_on_minimap`、`unit_template ai:chase_target`、`unit_template chase`、`unit_template flying`、`unit_template no attack (the dummy unit type, line B)`、`unit_template stats.hp missing`、`unit_template stats.move_speed missing` |
 
 ### A30 `niwa_nagahide`（3 / 4 招）
 
 | 招式 | 還缺 |
 |---|---|
-| `a30_wolf_mark` | `state:provides_vision`、`unit_template stats.hp_regen`、`unit_template stats.mana`、`unit_template vision.day differs from vision.night` |
+| `a30_wolf_mark` | `state:provides_vision`、`unit_template stats.mana` |
 | `a30_earth_fang` | ✓ 已產生 |
 | `a30_fire_sea` | ✓ 已產生 |
 | `a30_red_fuji` | ✓ 已產生 |
@@ -642,7 +634,7 @@
 | 招式 | 還缺 |
 |---|---|
 | `a36_shadow_step` | ✓ 已產生 |
-| `a36_spike_trap` | `action:create_unit.limit_per_owner (no host cap for it)`、`unit_template abilities on a dummy`、`unit_template stats on a dummy` |
+| `a36_spike_trap` | `action:create_unit.limit_per_owner (no host cap for it)`、`unit_template abilities on a dummy`、`unit_template stats.move_speed on a dummy` |
 | `a36_detonate` | ✓ 已產生 |
 | `a36_bitter_brew` | ✓ 已產生 |
 | `a36_deadly_strike` | ✓ 已產生 |
@@ -682,16 +674,16 @@
 | 招式 | 還缺 |
 |---|---|
 | `b07_starfall` | ✓ 已產生 |
-| `b07_battle_line` | `action:create_unit.limit_per_owner (no host cap for it)`、`action:create_unit.overrides.armor`、`action:give_item`、`action:pick_item`、`fn:exists of a sym:item_a`、`fn:exists of a sym:item_b`、`state:revealed`、`unit_template abilities`、`unit_template inventory_locked`、`unit_template item_cast_blacklist`、`unit_template stats.mana`、`unit_template turn_rate`、`unit_template vision.day differs from vision.night` |
+| `b07_battle_line` | `action:create_unit.limit_per_owner (no host cap for it)`、`action:create_unit.overrides.armor`、`action:give_item`、`action:pick_item`、`fn:exists of a sym:item_a`、`fn:exists of a sym:item_b`、`state:revealed`、`unit_template abilities`、`unit_template inventory_locked`、`unit_template item_cast_blacklist`、`unit_template stats.mana`、`unit_template turn_rate` |
 | `b07e_camp_regen` | ✓ 已產生 |
 | `b07_glorious_momentum` | ✓ 已產生 |
 | `b07_reign_over_all` | ✓ 已產生 |
 
-### B09 `sanada_masayuki`（2 / 4 招）
+### B09 `sanada_masayuki`（3 / 4 招）
 
 | 招式 | 還缺 |
 |---|---|
-| `b09_backlash_rift` | `name:event outside an event` |
+| `b09_backlash_rift` | ✓ 已產生 |
 | `b09_mind_burst` | `routine b09e_pulse: action:end_channel` |
 | `b09_will_shield` | ✓ 已產生 |
 | `b09_mind_suppression` | ✓ 已產生 |
@@ -700,7 +692,7 @@
 
 | 招式 | 還缺 |
 |---|---|
-| `b10_wrath_of_the_dead` | `unit_template ai:chase_target`、`unit_template chase`、`unit_template flying`、`unit_template no attack (the dummy unit type, line B)`、`unit_template stats.hp missing`、`unit_template stats.move_speed missing`、`unit_template statuses` |
+| `b10_wrath_of_the_dead` | `state:flying`、`state:not_on_minimap`、`unit_template ai:chase_target`、`unit_template chase`、`unit_template flying`、`unit_template no attack (the dummy unit type, line B)`、`unit_template stats.hp missing`、`unit_template stats.move_speed missing` |
 | `b10_corpse_assault` | ✓ 已產生 |
 | `b10_demonic_war_spirit` | ✓ 已產生 |
 | `b10_power_of_the_abyss` | ✓ 已產生 |
@@ -763,7 +755,7 @@
 | `b16_flying_raid` | `action:dodge_projectiles.of:state.b16_moon` |
 | `b16_falling_leaves` | ✓ 已產生 |
 | `b16_swift_thunder` | `routine b16_adjust: action:set_base_max_hp` |
-| `b16_summon_hound` | `action:add_ability`、`unit_template stats.hp_regen`、`unit_template stats.mana`、`unit_template vision.day differs from vision.night` |
+| `b16_summon_hound` | `action:add_ability`、`unit_template stats.mana` |
 | `b16_phase_shift` | `action:dodge_projectiles.of:state.b16_moon` |
 | `b16_beast_union` | `action:refund`、`action:set_base_max_hp`、`token:state` |
 | `b16_mm_phase_shift` | `action:dodge_projectiles.of:caster_hero` |
@@ -774,7 +766,7 @@
 
 | 招式 | 還缺 |
 |---|---|
-| `b17_death_ward` | `aura.flag:exclude_invisible`、`aura.status:independent`、`event.damage.is_attack`、`unit_template stats.hp_regen`、`unit_template tag:ward` |
+| `b17_death_ward` | `aura.flag:exclude_invisible`、`aura.status:independent`、`event.damage.is_attack`、`unit_template tag:ward` |
 | `b17_tooth_poison` | ✓ 已產生 |
 | `b17_shadow_leap` | ✓ 已產生 |
 | `b17_heartseeker` | ✓ 已產生 |
@@ -786,7 +778,7 @@
 | `b18_earth_raid` | ✓ 已產生 |
 | `b18_echo` | ✓ 已產生 |
 | `b18_earth_shelter` | ✓ 已產生 |
-| `b18_earth_claw` | `selector.types:building+creep+neutral+summon`、`state:revealed`、`unit_template stats.hp_regen`、`unit_template stats.mana` |
+| `b18_earth_claw` | `selector.types:building+creep+neutral+summon`、`state:revealed`、`unit_template stats.mana` |
 
 ### B19 `usami_sadamitsu`（3 / 4 招）
 
@@ -795,7 +787,7 @@
 | `b19_water_dragon` | ✓ 已產生 |
 | `b19_ice_fence` | ✓ 已產生 |
 | `b19_echigo_tactics` | ✓ 已產生 |
-| `b19_kuruma_gakari` | `unit_template stats.hp_regen`、`unit_template stats.mana`、`unit_template vision.day differs from vision.night` |
+| `b19_kuruma_gakari` | `unit_template stats.mana` |
 
 ### B20 `yamagata_masakage`（4 / 4 招）
 
@@ -819,17 +811,17 @@
 
 | 招式 | 還缺 |
 |---|---|
-| `b22_natural_barrier` | `unit_template blocks_pathing on a dummy`、`unit_template bounty on a dummy`、`unit_template collision_radius on a dummy`、`unit_template stats on a dummy`、`unit_template tag:building`、`unit_template vision.day differs from vision.night` |
-| `b22_force_of_nature` | `action:destroy_tree`、`state:flying`、`target.type:tree`、`unit_template stats.hp missing`、`unit_template stats.hp_regen`、`unit_template turn_rate`、`unit_template vision.day differs from vision.night` |
+| `b22_natural_barrier` | `unit_template blocks_pathing on a dummy`、`unit_template bounty on a dummy`、`unit_template collision_radius on a dummy`、`unit_template tag:building` |
+| `b22_force_of_nature` | `action:destroy_tree`、`state:flying`、`target.type:tree`、`unit_template stats.hp missing`、`unit_template turn_rate` |
 | `b22_purify` | `status.immune_to` |
-| `b22_wood_spirit` | `fn:tree_alive`、`state:revealed`、`target.type:tree`、`unit_template statuses on a dummy` |
-| `b22_wrath_of_nature` | `action:regrow_trees`、`unit_template bounty on a dummy`、`unit_template stats on a dummy`、`unit_template statuses on a dummy`、`unit_template vision.day differs from vision.night` |
+| `b22_wood_spirit` | `fn:tree_alive`、`state:revealed`、`target.type:tree` |
+| `b22_wrath_of_nature` | `action:regrow_trees`、`unit_template bounty on a dummy` |
 
 ### B23 `ise_hime`（3 / 5 招）
 
 | 招式 | 還缺 |
 |---|---|
-| `b23_undead_pact` | `passive_trigger:on_moved`、`selector.flag:include_dead`、`status_trigger:on_moved`、`unit_template stats.hp_regen`、`unit_template turn_rate` |
+| `b23_undead_pact` | `passive_trigger:on_moved`、`selector.flag:include_dead`、`status_trigger:on_moved`、`unit_template turn_rate` |
 | `b23_spirit_gathering` | ✓ 已產生 |
 | `b23_living_soul_shock` | ✓ 已產生 |
 | `b23_soul_feast` | ✓ 已產生 |
@@ -839,10 +831,10 @@
 
 | 招式 | 還缺 |
 |---|---|
-| `b24_earth_stele` | `action:redirect_motion`、`selector.flag:include_illusions`、`selector.types:boss+creep+neutral+summon`、`selector.types:building`、`unit_template bounty on a dummy`、`unit_template collision_radius on a dummy`、`unit_template stats on a dummy`、`unit_template statuses on a dummy`、`unit_template vision.day differs from vision.night` |
+| `b24_earth_stele` | `action:redirect_motion`、`selector.flag:include_illusions`、`selector.types:boss+creep+neutral+summon`、`selector.types:building`、`unit_template bounty on a dummy`、`unit_template collision_radius on a dummy` |
 | `b24_taunt` | `selector.flag:include_illusions` |
 | `b24_stone_resonance` | `action:projectile.team:any`、`action:projectile.where`、`expr of type nil`、`selector.flag:include_illusions` |
-| `b24_earth_prison` | `selector.flag:include_illusions`、`unit_template blocks_pathing on a dummy`、`unit_template bounty on a dummy`、`unit_template collision_radius on a dummy`、`unit_template stats on a dummy`、`unit_template statuses on a dummy`、`unit_template tag:building` |
+| `b24_earth_prison` | `selector.flag:include_illusions`、`unit_template blocks_pathing on a dummy`、`unit_template bounty on a dummy`、`unit_template collision_radius on a dummy`、`unit_template tag:building` |
 | `b24_shatter` | `selector.types:building` |
 
 ### B25 `honganji_kennyo`（2 / 4 招）
@@ -878,7 +870,7 @@
 | 招式 | 還缺 |
 |---|---|
 | `b28_phoenix_flame` | ✓ 已產生 |
-| `b28_flame_shackle` | `action:end_channel`、`name:event outside an event` |
+| `b28_flame_shackle` | `action:end_channel` |
 | `b28_fire_stream` | ✓ 已產生 |
 | `b28_serpent_fire` | `action:chain`、`fn:has_state:revealed` |
 
@@ -917,14 +909,14 @@
 | `b33_corrosive_arrow` | ✓ 已產生 |
 | `b33_spider_web` | ✓ 已產生 |
 | `b33_voodoo_power` | ✓ 已產生 |
-| `b33_spider_attack` | `stat:heal_reduction_pct`、`state:flying`、`token:vars`、`unit_template stats on a dummy`、`unit_template statuses on a dummy` |
+| `b33_spider_attack` | `stat:heal_reduction_pct`、`state:flying`、`token:vars`、`unit_template stats.move_speed on a dummy` |
 
 ### B34 `takeda_katsuyori`（2 / 4 招）
 
 | 招式 | 還缺 |
 |---|---|
 | `b34_wrath_axe` | ✓ 已產生 |
-| `b34_spike_wall` | `unit_template stats on a dummy`、`unit_template statuses on a dummy` |
+| `b34_spike_wall` | `state:not_on_minimap` |
 | `b34_frenzy` | ✓ 已產生 |
 | `b34_tenmoku_howl` | `status.stacking:independent with slow_pct` |
 
@@ -1003,14 +995,14 @@
 | `c06_grand_heist` | ✓ 已產生 |
 | `item_c06e` | `action:give_item`、`action:remove_item`、`state type:item_name` |
 
-### C07 `tachibana_dosetsu`（3 / 6 招）
+### C07 `tachibana_dosetsu`（4 / 6 招）
 
 | 招式 | 還缺 |
 |---|---|
 | `c07_heaven_thunder` | ✓ 已產生 |
-| `c07_thunder_shackle` | `name:event outside an event` |
+| `c07_thunder_shackle` | ✓ 已產生 |
 | `c07_thunderbolt` | `selector.relative_to` |
-| `c07_raijin_wrath` | `stat:heal_reduction_pct`、`unit_template stats on a dummy` |
+| `c07_raijin_wrath` | `stat:heal_reduction_pct`、`unit_template stats.move_speed on a dummy` |
 | `c07_storm_move` | ✓ 已產生 |
 | `c07_magic_shield` | ✓ 已產生 |
 
@@ -1086,10 +1078,10 @@
 | 招式 | 還缺 |
 |---|---|
 | `c16_soul_sever` | ✓ 已產生 |
-| `c16_curse_shadow` | `unit_template no attack (the dummy unit type, line B)`、`unit_template stats.hp_regen` |
+| `c16_curse_shadow` | `unit_template no attack (the dummy unit type, line B)` |
 | `c16_wandering_souls` | `action:heal.source:owner_of(self)`、`state:flying`、`state:not_on_minimap`、`unit_template ai:chase_target`、`unit_template chase`、`unit_template flying`、`unit_template no attack (the dummy unit type, line B)`、`unit_template stats.hp missing`、`unit_template stats.move_speed missing` |
 | `c16_phantom_sight` | `action:create_illusion`、`expr: a position from a sym:ill`、`expr: wanted a unit, got a sym:ill` |
-| `c16_eight_gates` | `unit_template attack.damage_type:pure`、`unit_template vision.day differs from vision.night` |
+| `c16_eight_gates` | `unit_template attack.damage_type:pure` |
 
 ### C18 `kobayakawa_takakage`（2 / 5 招）
 
@@ -1172,7 +1164,7 @@
 
 | 情況 | 招數 |
 |---|---|
-| 施放檢查：rank、施法者存活、目標存活／隊伍／類別、施法距離（同 IR） | 262 |
+| 施放檢查：rank、施法者存活、目標存活／隊伍／類別、施法距離（同 IR） | 264 |
 | 召喚：附近放不下、lifetime 不在 0～600 秒 | 2 |
 | 召喚：count 不是 1 | 1 |
 | 視野：半徑或位置不合法 | 16 |
@@ -1208,22 +1200,17 @@
 
 | 寫法 | 主要負責 | 分類 | 招式 | 道具 | 英雄 |
 |---|---|---|---|---|---|
-| `unit_template stats.hp_regen` | ability_kit | 共用 | 12 | 2 | 12 |
 | `unit_template stats.mana` | ability_kit | 共用 | 10 | 3 | 10 |
-| `unit_template vision.day differs from vision.night` | ability_kit | 共用 | 11 | 4 | 9 |
-| `unit_template stats on a dummy` | ability_kit | 共用 | 10 | 3 | 8 |
 | `action:create_illusion` | ability_kit | 共用 | 10 | 0 | 7 |
+| `state:not_on_minimap` | ability_kit | 共用 | 7 | 0 | 7 |
 | `unit_template turn_rate` | ability_kit | 共用 | 7 | 0 | 7 |
+| `state:flying` | ability_kit | 共用 | 6 | 0 | 6 |
 | `expr: wanted a unit, got a sym:ill` | 產生器 | 共用 | 8 | 0 | 5 |
-| `unit_template statuses on a dummy` | ability_kit | 共用 | 7 | 2 | 5 |
 | `state:revealed` | ability_kit | 共用 | 5 | 8 | 5 |
-| `name:event outside an event` | 產生器 | 共用 | 4 | 2 | 4 |
-| `state:flying` | ability_kit | 共用 | 4 | 0 | 4 |
-| `state:not_on_minimap` | ability_kit | 共用 | 4 | 0 | 4 |
 | `state:provides_vision` | ability_kit | 共用 | 4 | 2 | 4 |
 | `unit_template flying` | ability_kit | 共用 | 4 | 0 | 4 |
-| `unit_template stats.hp missing` | ability_kit | 共用 | 4 | 3 | 4 |
-| `unit_template stats.move_speed missing` | ability_kit | 共用 | 4 | 0 | 4 |
+| `unit_template stats.hp missing` | ability_kit | 共用 | 4 | 0 | 4 |
+| `unit_template stats.move_speed on a dummy` | ability_kit | 共用 | 4 | 0 | 4 |
 | `status.absorb.on_broken` | ability_kit | 共用 | 7 | 0 | 3 |
 | `unit_template bounty on a dummy` | ability_kit | 共用 | 5 | 2 | 3 |
 | `action:cancel_delay` | ability_kit | 共用 | 4 | 0 | 3 |
@@ -1238,6 +1225,7 @@
 | `status_trigger:on_moved` | ability_kit | 共用 | 3 | 0 | 3 |
 | `unit_template ai:chase_target` | ability_kit | 共用 | 3 | 0 | 3 |
 | `unit_template chase` | ability_kit | 共用 | 3 | 0 | 3 |
+| `unit_template stats.move_speed missing` | ability_kit | 共用 | 3 | 0 | 3 |
 | `status.absorb.on_absorb` | ability_kit | 共用 | 6 | 1 | 2 |
 | `selector.flag:include_illusions` | 產生器 | 共用 | 5 | 1 | 2 |
 | `action:give_item` | ability_kit | 共用 | 3 | 0 | 2 |
@@ -1265,7 +1253,6 @@
 | `unit_template abilities` | ability_kit | 共用 | 2 | 2 | 2 |
 | `unit_template blocks_pathing on a dummy` | ability_kit | 共用 | 2 | 1 | 2 |
 | `unit_template stats.mana_regen` | ability_kit | 共用 | 2 | 0 | 2 |
-| `unit_template statuses` | ability_kit | 共用 | 2 | 5 | 2 |
 | `unit_template tag:building` | ability_kit | 共用 | 2 | 1 | 2 |
 | `action:dodge_projectiles.of:state.b16_moon` | ability_kit | 共用 | 2 | 0 | 1 |
 | `action:remove_item` | ability_kit | 共用 | 2 | 0 | 1 |
@@ -1305,7 +1292,6 @@
 | `action:remove_ability` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `action:remove_status of its own independent status (this instance waits)` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `action:set_ability_active (an ability id and a fixed active)` | ability_kit | hook 候選 | 1 | 0 | 1 |
-| `attr:cast_point of an ability` | 產生器 | hook 候選 | 1 | 0 | 1 |
 | `attr:cooldown_remaining` | 產生器 | hook 候選 | 1 | 0 | 1 |
 | `attr:hero` | 產生器 | hook 候選 | 1 | 0 | 1 |
 | `attr:is_silenced` | 產生器 | hook 候選 | 1 | 0 | 1 |
@@ -1348,22 +1334,20 @@
 | `status.immune_to` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `status.per_source without {caster}` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `status.reapply_if_removed` | ability_kit | 共用 | 1 | 14 | 1 |
+| `status.triggers on a document-level status` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `status_trigger:on_attack_miss` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `status_trigger:on_mana_spent` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `status_trigger:on_refreshed` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `token:state` | 產生器 | hook 候選 | 1 | 0 | 1 |
 | `token:vars` | 產生器 | 共用 | 1 | 2 | 1 |
 | `unit_template abilities on a dummy` | ability_kit | hook 候選 | 1 | 0 | 1 |
-| `unit_template acquisition_range is `$acquisition` has no value` | ability_kit | hook 候選 | 1 | 0 | 1 |
-| `unit_template attack range or interval missing` | ability_kit | hook 候選 | 1 | 0 | 1 |
+| `unit_template attack.attack_point outside the interval` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `unit_template attack.damage_type:pure` | ability_kit | hook 候選 | 1 | 0 | 1 |
-| `unit_template attack.interval is `$attack_interval` has no value` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `unit_template inventory_locked` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `unit_template item_cast_blacklist` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `unit_template passive.aura on a dummy` | ability_kit | 共用 | 1 | 3 | 1 |
 | `unit_template passive.states` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `unit_template passive.triggers` | ability_kit | hook 候選 | 1 | 0 | 1 |
-| `unit_template stats.move_speed is `$move_speed` has no value` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `unit_template tag:ward` | ability_kit | hook 候選 | 1 | 0 | 1 |
 | `action:damage.type:event` | ability_kit | hook 候選 | 0 | 1 | 0 |
 | `action:issue_order.ability` | ability_kit | 共用 | 0 | 2 | 0 |
@@ -1446,10 +1430,7 @@
 | `status_trigger:on_order` | ability_kit | 共用 | 0 | 2 | 0 |
 | `status_trigger:on_order_targeted` | ability_kit | 共用 | 0 | 2 | 0 |
 | `target.types:building+courier+creep+neutral+summon` | 產生器 | hook 候選 | 0 | 1 | 0 |
-| `unit_template attack.damage is `$damage` has no value` | ability_kit | 共用 | 0 | 3 | 0 |
-| `unit_template attack.damage_max is `$damage_max` has no value` | ability_kit | 共用 | 0 | 3 | 0 |
 | `unit_template passive.aura` | ability_kit | 共用 | 0 | 2 | 0 |
-| `unit_template stats.hp is `$hp` has no value` | ability_kit | 共用 | 0 | 3 | 0 |
 
 ## 5. hook 候選
 
@@ -1463,7 +1444,6 @@
 | `status_trigger:on_attack_miss` | `a06_red_fury` | A06 ii_naomasa |
 | `action:modify_damage outside a damage-pre trigger` | `a08_steadfast_general` | A08 sakakibara_yasumasa |
 | `unit_template passive.triggers` | `a09_deep_tentacles` | A09 hachisuka_masakatsu |
-| `attr:cast_point of an ability` | `a11_old_fox` | A11 saito_dosan |
 | `action:cue.at of a sym:il` | `a13_shadow_illusion` | A13 hattori_hanzo |
 | `action:dodge_projectiles.of:il` | `a13_shadow_illusion` | A13 hattori_hanzo |
 | `expr: wanted a unit, got a sym:il` | `a13_shadow_illusion` | A13 hattori_hanzo |
@@ -1475,6 +1455,7 @@
 | `action:chance.mode` | `a17_vital_shot` | A17 sassa_narimasa |
 | `attr:owner` | `a20_pirate_domain` | A20 kuki_yoshitaka |
 | `fn:landmark` | `a21_false_intel` | A21 zuiryuin_nisshu |
+| `status.triggers on a document-level status` | `a27_war_banner` | A27 shibata_katsuie |
 | `action:create_unit.overrides.ability_level` | `a28_phoenix_summon` | A28 hashiba_hideyoshi |
 | `status_trigger:on_mana_spent` | `a29_withering_aura` | A29 ishida_mitsunari |
 | `unit_template abilities on a dummy` | `a36_spike_trap` | A36 maeno_nagayasu |
@@ -1526,11 +1507,8 @@
 | `action:modify_attack.is_orb` | `c09_frost_thorn` | C09 tachibana_ginchiyo |
 | `action:modify_cooldown.item_tag` | `c13_tornado_vortex` | C13 ryuzoji_takanobu |
 | `action:issue_order.queue` | `c15_hundred_arrows` | C15 tamako |
-| `unit_template acquisition_range is `$acquisition` has no value` | `c15_hundred_arrows` | C15 tamako |
-| `unit_template attack range or interval missing` | `c15_hundred_arrows` | C15 tamako |
-| `unit_template attack.interval is `$attack_interval` has no value` | `c15_hundred_arrows` | C15 tamako |
+| `unit_template attack.attack_point outside the interval` | `c15_hundred_arrows` | C15 tamako |
 | `unit_template passive.states` | `c15_hundred_arrows` | C15 tamako |
-| `unit_template stats.move_speed is `$move_speed` has no value` | `c15_hundred_arrows` | C15 tamako |
 | `unit_template attack.damage_type:pure` | `c16_eight_gates` | C16 kashin_koji |
 | `action:modify_cooldown.item` | `c18_lone_rider` | C18 kobayakawa_takakage |
 | `fn:exists of a sym:blink_item` | `c18_lone_rider` | C18 kobayakawa_takakage |
@@ -1597,7 +1575,7 @@
 | `catalog: ability ninja1_flash is not a content ability (templates/abilities.lua)` | `ninja1_flash` | 道具 |
 | `catalog: ability ninja2_burrow is not a content ability (templates/abilities.lua)` | `ninja2_burrow` | 道具 |
 
-共 139 種寫法、104 招。
+共 136 種寫法、104 招。
 
 ## 重跑
 

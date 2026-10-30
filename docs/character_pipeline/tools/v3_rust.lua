@@ -541,12 +541,19 @@ function Gen:expr(node, ctx)
     if ot == "event_ability" then
       if node.name == "is_toggle" then return "cx.event_is_toggle()", "bool" end
       if node.name == "is_item" then return "cx.event_is_any_item()", "bool" end
+      -- the cast point at the caster's rank (0 for an item): the host tells it to a status trigger
+      if node.name == "cast_point" and ctx.event == "ability_executed" then return "cx.event_ability_cast_point()", "num" end
       self:block("attr:" .. node.name .. " of an ability"); return "Fixed64::ZERO", "err"
     end
     if ot == "event" and (ctx.event == "channel_tick" or ctx.event == "channel_end") then
       if ctx.event == "channel_tick" and node.name == "tick" then return "cx.event_amount", "num" end
       if ctx.event == "channel_end" and node.name == "interrupted" then return "(cx.event_amount != Fixed64::ZERO)", "bool" end
       self:block("event:" .. node.name .. " of a channel"); return "Fixed64::ZERO", "err"
+    end
+    -- a status's on_ability_executed tells only the skill (line B 94d609ce)
+    if ot == "event" and ctx.event == "ability_executed" then
+      if node.name == "ability" then return "", "event_ability" end
+      self:block("event:" .. node.name .. " of a status on_ability_executed"); return "EntityHandle::INVALID", "unit"
     end
     if ot == "event" then
       if node.name == "target" then return "cx.event_target", "unit"
@@ -2051,6 +2058,20 @@ function Gen:action(a, ctx, ind)
       end
       make = "{ " .. table.concat(lets) .. "let u = " .. make .. "; cx.unit_overrides(u, &[" .. table.concat(rows, ", ") .. "])?; u }"
     end
+    -- the template's `statuses` go on the new unit as it appears, applied by this cast like an
+    -- `apply_status` to it (v3_summons rows carry no statuses)
+    local statuses = t and t.def.statuses or {}
+    if #statuses > 0 then
+      local scope = scope_child(ctx.scope)
+      local sub = setmetatable({ scope = scope }, { __index = ctx })
+      local var = self:bind(scope, "created", "unit")
+      local list = {}
+      for _, sid in ipairs(statuses) do
+        if type(sid) ~= "string" then self:block("unit_template statuses entry of a " .. type(sid))
+        else list[#list + 1] = { op = "apply_status", status = sid, to = "created" } end
+      end
+      make = "{ let " .. var .. " = " .. make .. ";\n" .. self:actions(list, sub, I .. "    ") .. I .. "    " .. var .. " }"
+    end
     -- limit_per_owner: only the host's summon_owner_cap (omoba-core summon_owner_cap: after the
     -- cast commits, the earliest live summons of the cast's templates beyond the cap leave). That
     -- needs the cap to be the content extra `summon_owner_cap` of this very ability, `remove_oldest`,
@@ -2962,13 +2983,15 @@ local function emit_entry(m, o, opts, status_problems)
               .. "        let owner = cx.self_unit;\n" .. string.format("        cx.schedule(owner, ID, %d, first, &args)?;\n    }\n", step)
           else
             local filter, actions = trigger_parts(tr)
-            -- on_ability_executed of the holder only; its event carries no ability (event.* stays blocked)
+            -- on_ability_executed of the holder only; its event is the skill (event.ability, line B
+            -- 94d609ce), nothing else
             local executed = name == "on_ability_executed"
             if executed and tr.who ~= nil and tr.who ~= "self" then g:block("status_trigger:on_ability_executed.who:" .. tostring(tr.who)) end
             local evented = t[2] ~= nil and name ~= "on_removed" and name ~= "on_expired" and name ~= "on_death" and not executed
             local pre = name == "on_take_damage_pre" or name == "on_deal_damage_pre"
             local ended = name == "on_removed" or name == "on_expired" or name == "on_death"
-            local ctx = { owner = so, scope = scope_child(nil), event = evented, pre = pre, ended = ended, windup = name == "on_attack_windup" }
+            local ctx = { owner = so, scope = scope_child(nil), event = executed and "ability_executed" or evented, pre = pre, ended = ended,
+              windup = name == "on_attack_windup" }
             local cond = filter and g:value(filter, ctx, "bool") or nil
             local fname = "st_" .. sd.id .. "_" .. name
             local guard = name == "on_death" and "    if cx.alive(cx.self_unit) { return Ok(()); }\n" or ""
