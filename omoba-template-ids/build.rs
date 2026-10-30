@@ -1466,9 +1466,12 @@ fn emit_hero_abilities(
             cname,
         ));
         for ab_id in &e.abilities {
-            let raw = ability_ids.get(ab_id.as_str()).unwrap_or_else(|| {
-                panic!("hero '{}' references unknown ability '{}'", e.id, ab_id)
-            });
+            // An empty slot (omoba_content_model::EMPTY_ABILITY_SLOT) is AbilityId(0): ids start at 1.
+            let raw = if omoba_content_model::is_empty_ability_slot(ab_id) { &0 } else {
+                ability_ids.get(ab_id.as_str()).unwrap_or_else(|| {
+                    panic!("hero '{}' references unknown ability '{}'", e.id, ab_id)
+                })
+            };
             out.push_str(&format!("\tAbilityId({}),\n", raw));
         }
         out.push_str("];\n");

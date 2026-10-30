@@ -528,6 +528,8 @@ impl RuntimeContent {
             ensure_id("hero", raw, &entry.id, hero_id_str(HeroId(raw)))?;
             let mut abilities = Vec::new();
             for ability in &entry.abilities {
+                // An empty slot keeps the next one in place (build.rs emits the same AbilityId(0)).
+                if omoba_content_model::is_empty_ability_slot(ability) { abilities.push(AbilityId(0)); continue; }
                 let id = ability_by_name(ability).ok_or_else(|| {
                     format!(
                         "hero '{}' references unknown ability '{}'",

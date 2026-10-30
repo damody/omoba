@@ -14,6 +14,8 @@ mod summon_bounty;
 mod original_rewards;
 #[cfg(test)]
 mod projectile_credit_tests;
+#[cfg(test)]
+mod birth_loadout_tests;
 mod base_structures;
 mod structure_regen;
 mod tower_focus;
@@ -1677,6 +1679,11 @@ pub fn apply_moba_birth_loadout(hero: &mut Hero, loadout: omoba_template_ids::Mo
     if hero.abilities.len() > HERO_ABILITY_SLOTS { return Err(err_msg(format!("MOBA loadout exceeds {HERO_ABILITY_SLOTS} slots"))); }
     for (slot, ability) in hero.abilities.iter().enumerate() {
         let rank = loadout.ranks[slot];
+        // An empty slot ("", F without D) holds no ability and is never learned.
+        if ability.is_empty() {
+            if rank != 0 { return Err(err_msg(format!("MOBA loadout assigns rank to the empty slot {slot}"))); }
+            continue;
+        }
         let definition = omoba_template_ids::ability_by_name(ability)
             .and_then(omoba_template_ids::active_ability_const)
             .ok_or_else(|| err_msg(format!("missing initial ability progression: {ability}")))?;
@@ -1695,7 +1702,7 @@ pub fn apply_moba_birth_loadout(hero: &mut Hero, loadout: omoba_template_ids::Mo
     if loadout.ranks[hero.abilities.len()..].iter().any(|rank| *rank > 1) {
         return Err(err_msg("MOBA loadout assigns rank to an empty slot"));
     }
-    for (slot, ability) in hero.abilities.iter().enumerate() {
+    for (slot, ability) in hero.abilities.iter().enumerate().filter(|(_, ability)| !ability.is_empty()) {
         hero.ability_levels.insert(ability.clone(), i32::from(loadout.ranks[slot]));
     }
     hero.skill_points = i32::from(loadout.skill_points);

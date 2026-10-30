@@ -360,7 +360,8 @@ for _, hero in ipairs(heroes) do
     -- Loadout abilities, then abilities an authored update moved out of the
     -- loadout (hero.retained_abilities): still registered, never in a slot.
     local registered_ids = {}
-    for _, id in ipairs(hero.abilities or {}) do registered_ids[#registered_ids + 1] = id end
+    -- An empty slot ("", F without D) holds no ability to register.
+    for _, id in ipairs(hero.abilities or {}) do if id ~= "" then registered_ids[#registered_ids + 1] = id end end
     for _, id in ipairs(hero.retained_abilities or {}) do registered_ids[#registered_ids + 1] = id end
     for _, ability_id in ipairs(registered_ids) do
       identifier(ability_id, hero_id .. ' ability id')

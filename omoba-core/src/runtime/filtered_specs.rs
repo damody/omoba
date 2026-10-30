@@ -1725,7 +1725,8 @@ fn apply_disclosed_events(
             let ranks:Vec<i32>=(0..slots).map(|slot|
                 i32::from_le_bytes(payload[slot*4..slot*4+4].try_into().unwrap())).collect();
             for (slot,rank) in ranks.iter().enumerate() {
-                if let Some(ability)=hero.abilities.get(slot) {
+                // An empty slot ("") is never learned: like a slot past the row, its rank is 0.
+                if let Some(ability)=hero.abilities.get(slot).filter(|ability|!ability.is_empty()) {
                     let def=omoba_template_ids::ability_by_name(ability)
                         .and_then(omoba_template_ids::active_ability_const)
                         .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
@@ -1733,7 +1734,7 @@ fn apply_disclosed_events(
                 } else if *rank!=0 {return Err(ReplicaRuntimeError::MalformedBaseline);}
             }
             for (slot,rank) in ranks.iter().enumerate() {
-                if let Some(ability)=hero.abilities.get(slot) {
+                if let Some(ability)=hero.abilities.get(slot).filter(|ability|!ability.is_empty()) {
                     hero.ability_levels.insert(ability.clone(),*rank);
                 }
             }

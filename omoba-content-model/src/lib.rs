@@ -1187,12 +1187,25 @@ fn four_to_six_ranks<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Resul
 }
 
 /// Both Rust and Unreal generators validate the same MOBA-only birth rules.
+/// A hero's ability row keeps its slots in place: an unused slot before a used one (an original
+/// hero with F but no D) is this empty id. It has no ability, rank or skill points.
+pub const EMPTY_ABILITY_SLOT: &str = "";
+
+pub fn is_empty_ability_slot(id: &str) -> bool { id == EMPTY_ABILITY_SLOT }
+
 pub fn validate_moba_loadout<'a>(hero: &HeroDefinition, abilities: impl IntoIterator<Item = &'a AbilityDefinition>) -> Result<(), String> {
     if hero.tombstone { return Ok(()); }
     if hero.abilities.len() > HERO_ABILITY_SLOTS { return Err(format!("hero '{}': MOBA loadout exceeds {HERO_ABILITY_SLOTS} slots",hero.id)); }
+    if hero.abilities.last().is_some_and(|id| is_empty_ability_slot(id)) {
+        return Err(format!("hero '{}': an empty ability slot must be followed by a used one",hero.id));
+    }
     let definitions: std::collections::BTreeMap<_,_> = abilities.into_iter().map(|a| (a.id.as_str(),a)).collect();
     for (slot,id) in hero.abilities.iter().enumerate() {
         let rank = hero.moba_loadout.ranks[slot];
+        if is_empty_ability_slot(id) {
+            if rank != 0 { return Err(format!("hero '{}': MOBA loadout assigns rank to the empty slot {slot}",hero.id)); }
+            continue;
+        }
         let ability = definitions.get(id.as_str()).filter(|a| !a.tombstone)
             .ok_or_else(||format!("hero '{}': unknown MOBA ability '{id}'",hero.id))?;
         validate_ability_progression(ability)?;
@@ -1368,7 +1381,7 @@ impl ContentCatalog {
 
         for hero in self.heroes.iter().filter(|hero| !hero.tombstone) {
             let mut seen = BTreeSet::new();
-            for ability in &hero.abilities {
+            for ability in hero.abilities.iter().filter(|id| !is_empty_ability_slot(id)) {
                 if !active_abilities.contains(ability.as_str()) {
                     return Err(format!(
                         "hero '{}' references missing or tombstoned ability '{}'",
@@ -1530,6 +1543,22 @@ mod tests {
         hero.moba_loadout.ranks[0]=2;
         assert!(validate_moba_loadout(&hero,[&ability]).is_err());
         assert!(serde_json::from_value::<MobaLoadout>(serde_json::json!({"rank":[0,0,0,0]})).is_err());
+    }
+
+    /// An original hero with F but no D keeps F in its slot: the empty D has no ability or rank,
+    /// and a row may not end in an empty slot.
+    #[test]
+    fn an_empty_ability_slot_keeps_the_next_slot_in_place() {
+        let mut hero: HeroDefinition = serde_json::from_value(serde_json::json!({"id":"archer",
+            "abilities":["q","w","e","r","","f"],"moba_loadout":{"ranks":[0,0,0,0,0,0],"skill_points":1}})).unwrap();
+        let abilities: Vec<AbilityDefinition> = ["q","w","e","r","f"].iter().map(|id| serde_json::from_value(serde_json::json!({"id":id,"max_level":1,
+            "levels":[{"required_hero_level":1}]})).unwrap()).collect();
+        validate_moba_loadout(&hero,&abilities).unwrap();
+        hero.moba_loadout.ranks[4]=1;
+        assert!(validate_moba_loadout(&hero,&abilities).unwrap_err().contains("empty slot 4"));
+        hero.moba_loadout.ranks[4]=0;
+        hero.abilities.pop();
+        assert!(validate_moba_loadout(&hero,&abilities).unwrap_err().contains("followed by a used one"));
     }
 
     #[test]

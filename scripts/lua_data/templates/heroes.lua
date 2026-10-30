@@ -318,10 +318,14 @@ return function(ctx)
         for i, id in ipairs(hero.abilities or {}) do list[i] = id end
         -- Slots 5 and 6 are the optional extra action slots (D, F).
         for i = 1, 6 do if update.abilities_by_slot[i] then list[i] = update.abilities_by_slot[i] end end
+        -- An unused slot before a used one (F without D) stays in place as the empty id "".
+        local top = 0
+        for i = 1, 6 do if list[i] then top = i end end
+        for i = 1, top do list[i] = list[i] or "" end
         -- Replaced abilities stay registered (gen_hero_registry reads
         -- retained_abilities) so legacy content keeps its handlers and tests.
         local kept, in_list = {}, {}
-        for _, id in ipairs(list) do in_list[id] = true end
+        for _, id in ipairs(list) do if id ~= "" then in_list[id] = true end end
         for _, id in ipairs(hero.retained_abilities or {}) do if not in_list[id] then kept[#kept + 1] = id; in_list[id] = true end end
         for _, id in ipairs(hero.abilities or {}) do if not in_list[id] then kept[#kept + 1] = id; in_list[id] = true end end
         hero.abilities = list
@@ -330,8 +334,8 @@ return function(ctx)
         local loadout = hero.moba_loadout or {}
         local base = loadout.ranks or { 1, 1, 1, 1 }
         local ranks = {}
-        -- One rank per slot the hero has (an F without a D keeps D unlearned, never a gap).
-        for i = 1, math.max(#list, 4) do ranks[i] = (update.ranks_by_slot or {})[i] or base[i] or 0 end
+        -- One rank per slot the hero has; an empty slot is never learned.
+        for i = 1, math.max(#list, 4) do ranks[i] = list[i] == "" and 0 or (update.ranks_by_slot or {})[i] or base[i] or 0 end
         hero.moba_loadout = { ranks = ranks, skill_points = update.skill_points or loadout.skill_points or 0 }
         -- The package that updates a hand-written hero carries its source hero.
         if update.source_ref then hero.source_ref = update.source_ref end

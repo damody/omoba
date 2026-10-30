@@ -16,6 +16,24 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：英雄技能列允許空欄（原作英雄有 F 沒有 D）
+
+- 英雄的 `abilities` 可以用空字串 `""` 表示空欄，後面的欄位因此留在原位（Q W E R D F = 0..5）。例如 A32 瀧川一益只有 F，寫成 `{q, w, e, r, "", f}`。
+  - 空欄沒有技能，出生等級必須是 0。
+  - 列尾不可以是空欄。
+  - 驗證位置：`omoba_content_model::validate_moba_loadout` 與 `ContentCatalog::validate`，由 `EMPTY_ABILITY_SLOT`／`is_empty_ability_slot` 判斷。
+- 產生的程式碼（build.rs `hero_abilities`）與 dev 熱載入（runtime_content）都把空欄寫成 `AbilityId(0)`。技能 id 從 1 開始，所以 0 不會撞到真的技能。
+- 執行期只有幾個地方需要修：
+  - 出生配點 `apply_moba_birth_loadout`：跳過空欄；空欄給等級就拒絕。
+  - replica 的技能等級 baseline（filtered_specs）：空欄的等級一律是 0，不寫入 ability_levels。
+  - `gen_hero_registry.lua`：空欄不註冊。
+  - HUD ping（`owned_ability`）：空欄回傳 None。
+  - omb 舊路徑 `upgrade_skill`：空欄不扣技能點。
+- 施放、升級、自動學技能、bot 出招與冷卻本來就把 "" 當成沒有技能（`ABILITY_NOT_BOUND`），這次稽核過，不需要改。
+- `heroes.lua` 的 `abilities_by_slot` 遇到「有 F 沒有 D」時，會補上 "" 並給 0 等。
+- 測試：
+  - content-model `an_empty_ability_slot_keeps_the_next_slot_in_place`
+  - omoba-core `moba_match::birth_loadout_tests::an_empty_slot_is_skipped_by_the_birth_loadout`
 ## 2026-10-30 線 B：傷害旗標 no_source_bonuses（原作用 dummy 造成的傷害）
 
 - 新增 `DamageProfile::NO_SOURCE_BONUSES`（1<<13，加入 FLAG_BITS，和 SPELL 一起剝掉）。原作有些技能改由 dummy 造成傷害，所以來源身上的加成都不會套用。
