@@ -2,17 +2,45 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E371 （保留）bot_auto_policies 只讀 authored_heroes：標成 playable 的 v3 英雄沒有施放政策，bot 一招都不放（2026-10-30）
+
+## E370 （保留）conformance：狀態造成的無敵（states = invulnerable）等它結束再打致命一擊（2026-10-30）
+
+## E369 （保留）conformance：投射物自己的 include_magic_immune 也保留魔免單位（2026-10-30）
+
 ## E368 M3' 的 stage-dll 從寫死的 scripts/target 取英雄 DLL，用自己 CARGO_TARGET_DIR／OM_RUST_RUN_BINARIES 建置的局在 stage 失敗（2026-10-30，history-nobu M6 UE 呈現，工作線 C）
 - **現象**：工作線 C 為 A 轉正式的 14 位英雄跑 UE spotlight（`OM_RUST_RUN_BINARIES=target/lineC-bins`）。build_ue_moba 已把 base_content 和每位英雄的 DLL 建到 lineC-bins，接著「stage current base_content.dll」失敗，訊息是 `source missing: scripts/target/debug/hero_c05.dll`，整局沒有開始。
 - **根因**：E333 讓 build、stage、契約檢查都向 `ue_bridge_stage.rust_target` 取 Rust target 目錄。M3'（每位英雄一個 DLL）新增的 `dev_run_freshness --action stage-dll` 卻仍寫死 `scripts/target/<profile>`。舊的 base_content.dll 剛好留在共用目錄裡，所以之前的局不會失敗，但 stage 進去的可能是別人建的舊檔；新英雄的 DLL 只在自己的 target 裡有，這次就直接失敗了。
 - **通用修正**：`dev_run_freshness` 的 script-dll 輸出（stage-dll 的來源目錄和 `--action check`）改用 `ue_bridge_stage.rust_target(root,'scripts','target')`，與 build_ue_moba 傳給 cargo 的 `--target-dir` 是同一個答案。測試 `scripts/tests/dev_run_freshness_target_test.lua` 檢查不再出現寫死的路徑。
 - **避免**：新增任何讀 Rust 建置產物的步驟時，一律向 `rust_target` 取目錄，不要自己組 `<crate>/target`；只在共用 target 底下測試，看不出這種錯。
 
-## E367 （保留）conformance：死亡時收起的 hero 狀態在復活後檢查；施放後停用自己的技能在冷卻後預期被拒（2026-10-30）
+## E367 conformance：死亡時收起的 hero 狀態在復活後檢查；施放後停用自己的技能在冷卻後預期被拒（2026-10-30，conformance session）
 
-## E366 （保留）kit 把 cast range 0 當成無效，點施放不能不限距離（2026-10-30）
+- **現象**：
+  - A05 crusade_affidavit 的 caster_dies_after_cast 寫著「a05t_oath was removed」。a05t_oath 是 scope = hero 的狀態。
+  - A05 counter_stance 的冷卻情境，冷卻結束後的第三次施放被拒。
+- **根因**：
+  1. B 的 8a30384b 規定 hero／permanent 狀態在死亡時先收起來，復活時放回，期間照樣倒數。harness 在施法者還死著時就檢查狀態在不在。
+  2. A05R 施放時會 set_ability_active(false)，累積受到傷害才恢復。情境仍預期冷卻後能再施放。
+- **通用修正**：
+  - 死亡時記下每個狀態的剩餘秒數。施法者死亡後的 status_kept：等復活（最多 180 秒），檢查狀態是否回來，剩餘時間是否扣掉了死亡期間。若在死亡期間到期，就檢查它沒有回來。
+  - 施放時無條件停用自己（on_cast 的 set_ability_active false）的技能，冷卻情境的第三次施放改為預期被拒（reason inactive）。
+- **結果**：103 個測試比對同一份 live，0 退步。A05 7→0，B36 naoe_seal +4，共 11 個 fail 轉 pass。C15 的 per_source 份數情境（E359）在含 1ddfffc3 的 live 上 r1～r4 通過。
+- 已放回。
 
-## E365 （保留）文件層級的狀態不在任何技能區塊，host 的 dispel 登錄表找不到（2026-10-30）
+## E366 kit 把 cast range 0 當成無效，點施放不能不限距離（2026-10-30，工作線 A）
+
+- **現象**：conformance：A12 a12_mystic_arrow 一律 `CAST_REJECTED: v3: invalid cast range`（target 是 point，沒寫 range）。
+- **根因**：ability_kit `Cx::cast` 只把 0 < range ≤ 10000 當成有效射程，range 0 時 cast_range 是 None，點與單位施放就被拒絕。原作 cast range 0 是不限距離，B 也已經讓 range 0 的引導不限射程（62e8eeaf／cd564b83）。
+- **通用修正**：level range 恰好是 0 時不檢查距離；其他不合法的值（負數、非有限數、大於 10000）照舊拒絕。
+- **以後如何避免**：同一個欄位的特殊值（0 = 不限），kit、host 准入、引導三處要用相同的語意。
+
+## E365 文件層級的狀態不在任何技能區塊，host 的 dispel 登錄表找不到（2026-10-30，工作線 A）
+
+- **現象**：conformance：C11 c11_lightning_form 在 content 中沒有 dispel class（c11_raikiri 8 個、c11_unrivaled 9 個情境 fail）。
+- **根因**：c11_lightning_form 寫在文件層級的 `statuses`，由文件 routine（bolt_start）套用。v3_compile 只把技能自己的 `statuses` 放進技能區塊；host 的 dispel 登錄表（dispel.rs Registry::from_catalog）和 buff 圖示只讀 V3_CATALOG 的 `abilities[].v3.statuses`，所以文件層級的狀態不在登錄表裡。
+- **通用修正**：v3_compile 的技能區塊也列出它用到的文件層級狀態：直接寫的、經由它呼叫的 routine（遞迴）、以及這些狀態本身觸發中再套用的狀態，依 id 排序。文件層級狀態的數值只有一級，所以複製成技能的每一級（不改動快取中的列）。影子 C11 的 fail 從 17 降到 3。
+- **以後如何避免**：host 是依技能區塊找狀態，所以每個會被套用的狀態都必須出現在某個技能區塊裡，不管它定義在哪一層。
 
 ## E364 UE 啟動時 TurnkeySupport 跑 UBT 查 AutoSDK，碰上別人的 UBT 建置就排隊數分鐘，吃掉實機局時限（2026-10-30，history-nobu M6 UE 效能，工作線 C）
 - **現象**：工作線 C 的 1＋9 quick demo（`target/lineC-perf/demo5`）在 21:11 啟動 UE，log 停在「InternalLoadLibrary: TurnkeySupport」345 秒，21:17 才出現「UBT AutoSDK ReturnCode: 0」，接著才載入地圖。600 秒的時限只剩大約 1.5 分鐘能玩，frame time 只量到 11 個窗口。

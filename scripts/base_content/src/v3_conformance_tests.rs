@@ -169,7 +169,8 @@ struct Run {
     /// not end because earlier casts killed the target.
     sustain: bool,
     /// The keys the caster and the target held when the harness killed the caster after the cast.
-    held_at_death: Vec<(specs::Entity, String)>,
+    /// The statuses on the caster and the target just before the death, with their seconds left.
+    held_at_death: Vec<(specs::Entity, String, f64)>,
     /// A point cast aims here instead of at the target (no_unit_in_line: the target stands aside).
     aim: Option<omoba_sim::Vec2>,
     /// An ability whose own buff stays while other entries are cast (its status keyed by its id; E264).
@@ -1388,8 +1389,8 @@ fn run(hero: &str, s: &Value) -> Verdict {
                     run.step(1);
                 }
                 let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
-                let held: Vec<(specs::Entity, String)> = [run.caster, run.target].into_iter()
-                    .flat_map(|unit| buffs.iter_for(unit).map(move |(key, _)| (unit, key.to_owned())).collect::<Vec<_>>()).collect();
+                let held: Vec<(specs::Entity, String, f64)> = [run.caster, run.target].into_iter()
+                    .flat_map(|unit| buffs.iter_for(unit).map(move |(key, entry)| (unit, key.to_owned(), real(entry.remaining))).collect::<Vec<_>>()).collect();
                 drop(buffs);
                 run.held_at_death = held;
                 run.died_at = Some(run.world.read_resource::<Tick>().0);
@@ -1496,7 +1497,8 @@ fn run(hero: &str, s: &Value) -> Verdict {
             "status_removed" | "status_kept" => {
                 let id = e["runtime_id"].as_str().unwrap_or("");
                 let unit = match e["on"].as_str() { Some("caster" | "self") => run.caster, _ => run.target };
-                let before = run.held_at_death.iter().any(|(u, key)| *u == unit && omoba_core::runtime::native::dispel::runtime_id_matches(id, key));
+                let left = run.held_at_death.iter().find(|(u, key, _)| *u == unit && omoba_core::runtime::native::dispel::runtime_id_matches(id, key)).map(|(_, _, left)| *left);
+                let before = left.is_some();
                 // Applied later (a projectile still flying): the death says nothing about it here.
                 if !before { return Err(format!("{UNOBSERVED}{id} was not on the unit before the death")); }
                 if living(&run, unit) && deathless(&run, unit) { return Err(format!("{UNOBSERVED}the unit's statuses cancel every hit: it cannot die")); }
@@ -1504,6 +1506,29 @@ fn run(hero: &str, s: &Value) -> Verdict {
                 // the scenario asks for does not happen.
                 let invulnerable = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(unit).any(|(key, _)| key.contains("invulnerable"));
                 if living(&run, unit) && invulnerable { return Err(format!("{UNOBSERVED}the unit is invulnerable: it cannot die")); }
+                // A kept (hero/permanent scope) status of a dead hero is put away until it respawns
+                // and counts down meanwhile (B 8a30384b; E367): it is back after the respawn with
+                // the time it was away taken off, or gone if it ran out.
+                if kind == "status_kept" && !living(&run, unit) && unit == run.caster {
+                    let died = run.died_at.unwrap_or(0);
+                    let mut back = None;
+                    for _ in 0..ticks(180.0) {
+                        let hero = run.world.read_resource::<MobaMatch>().heroes[0].entity;
+                        if let Some(hero) = hero.filter(|hero| living(&run, *hero)) { back = Some(hero); break; }
+                        run.step(1);
+                    }
+                    let Some(hero) = back else { return Err(format!("{UNOBSERVED}the caster did not respawn within 180 s")) };
+                    run.caster = hero;
+                    let away = (run.world.read_resource::<Tick>().0.saturating_sub(died)) as f64 / 60.0;
+                    let left = left.unwrap_or(0.0);
+                    return match (left > away + 0.1, remaining(&run, hero, id)) {
+                        (true, Some(now)) if (now - (left - away)).abs() <= 0.25 || left > 1.0e6 => Ok(()),
+                        (true, Some(now)) => Err(format!("{id} back after the respawn with {now:.2}s left, expected {:.2}s ({left:.2}s at the death, {away:.2}s away)", left - away)),
+                        (true, None) => Err(format!("{id} not back after the respawn ({left:.2}s left at the death, {away:.2}s away)")),
+                        (false, None) => Ok(()),
+                        (false, Some(now)) => Err(format!("{id} back after the respawn with {now:.2}s left; it had {left:.2}s and was away {away:.2}s")),
+                    };
+                }
                 let now = living(&run, unit) && holds(&run, unit, id);
                 match (kind == "status_removed", now) {
                     (true, false) | (false, true) => Ok(()),

@@ -348,10 +348,19 @@ local function entry_scenarios(doc, def, entry_kind, out)
       -- With stored charges a second cast right away spends the next charge; no_charges covers
       -- the empty case (E207).
       if cost.cooldown and not cost.charges then
+        -- An entry its own cast deactivates (A05R until it has taken enough damage; E367) stays
+        -- refused after the cooldown.
+        local deactivates = false
+        for _, e in ipairs(base_effects) do
+          if e.op == "set_ability_active" and e.args and e.args.ability == def.id and e.args.active == false
+            and e.phase == "on_cast" and not (e.conds and #e.conds > 0) then deactivates = true end
+        end
         push(rank, "cooldown", { given = given({ valid_target }),
           when = { cast_step, { kind = "wait", seconds = "0" }, cast_step },
           expect = { { kind = "cast_rejected", nth = 2, reason = "cooldown", remaining = cost.cooldown },
-            { kind = "cast_accepted", nth = 3, after_wait = cost.cooldown, note = "the third cast, after waiting the cooldown" } } })
+            deactivates and { kind = "cast_rejected", nth = 3, after_wait = cost.cooldown, reason = "inactive",
+              note = "the third cast, after waiting the cooldown: the cast deactivated the entry" }
+            or { kind = "cast_accepted", nth = 3, after_wait = cost.cooldown, note = "the third cast, after waiting the cooldown" } } })
       end
       -- targeting
       if target.type == "unit" then
