@@ -710,6 +710,13 @@ function Gen:call(node, ctx)
   elseif fn == "is_enemy" then
     local a = arg(1); local b = arg(2)
     return cx_call("cx.is_enemy(%s, %s)", a, b), "bool"
+  elseif fn == "is_visible_to" then
+    -- whether u's team sees x now (host IS_VISIBLE_TO: its own units always; an enemy team by
+    -- the EnemySight disclosure, the same on the authority and every replica)
+    local x, xt = arg(1); local u, ut = arg(2)
+    if xt == "err" or ut == "err" then return "false", "bool" end
+    if xt ~= "unit" or ut ~= "unit" then self:block("fn:is_visible_to of a " .. xt .. " and a " .. ut); return "false", "bool" end
+    return cx_call("cx.is_visible_to(%s, %s)", x, u), "bool"
   elseif fn == "is_ally" then
     local a, at = arg(1); local b, bt = arg(2)
     if at == "err" or bt == "err" then return "false", "bool" end
@@ -1013,7 +1020,7 @@ local ACTION_FIELDS = {
   ["if"] = set({ "op", "cond", "actions", "otherwise" }),
   let = set({ "op", "name", "value" }),
   for_each = set({ "op", "select", "as", "actions" }),
-  create_unit = set({ "op", "template", "at", "count", "lifetime", "control", "limit_per_owner", "over_limit", "as", "owner", "team", "facing" }),
+  create_unit = set({ "op", "template", "at", "count", "lifetime", "control", "limit_per_owner", "over_limit", "as", "owner", "team", "facing", "overrides" }),
   reveal = set({ "op", "at", "radius", "duration", "teams", "follow", "ignore_terrain" }),
   call = set({ "op", "routine", "args" }),
   delay = set({ "op", "time", "actions", "capture" }),
@@ -1921,9 +1928,8 @@ function Gen:action(a, ctx, ind)
       if f == "include_magic_immune" then mi = true elseif f == "include_invulnerable" then inv = true
       -- include_hidden: Select.include_hidden (ability_kit hidden_excluded: no hidden state in the host yet)
       elseif f == "include_hidden" then hid = true
-      -- visible_only: enemies_in_circle already takes the caster team's disclosed units;
-      -- include_hidden: the host has no hidden state, so a selection never leaves one out (line B)
-      elseif f ~= "include_untargetable" and f ~= "visible_only" and f ~= "include_hidden" then self:block("selector.flag:" .. f) end
+      -- visible_only: enemies_in_circle already takes the caster team's disclosed units
+      elseif f ~= "include_untargetable" and f ~= "visible_only" then self:block("selector.flag:" .. f) end
     end
     if s.order ~= nil and s.order ~= "id" and s.order ~= "nearest" and s.order ~= "random" then self:block("selector.order:" .. tostring(s.order)) end
     local exclude = s.exclude ~= nil and self:value(s.exclude, ctx, "unit") or nil
@@ -1959,6 +1965,7 @@ function Gen:action(a, ctx, ind)
     str = str .. self:actions(a.actions, { owner = ctx.owner, scope = body_scope, event = ctx.event, pre = ctx.pre, cast = ctx.cast, ended = ctx.ended, windup = ctx.windup }, I .. "        ")
     return str .. line("    }") .. line("}")
   elseif op == "create_unit" then
+    local CREATE_OVERRIDES = { hp = true, attack_damage = true, attack_damage_max = true, move_speed = true }
     local t = self.m.templates[a.template]
     if not t then self:block("template:" .. tostring(a.template) .. " not declared") end
     -- control: "ai" (default) and "owner" the host summon; "none" also refuses its owner's orders
@@ -1973,6 +1980,20 @@ function Gen:action(a, ctx, ind)
       local f, ft = self:value(a.facing, ctx)
       if ft ~= "vec" and ft ~= "point" and ft ~= "err" then self:block("action:create_unit.facing of a " .. tostring(ft)) end
       make = "{ let facing = " .. f .. "; let u = " .. make .. "; cx.face_dir(u, facing); u }"
+    end
+    if a.overrides ~= nil then
+      -- the template's values replaced right after the spawn (host unit_overrides; the values
+      -- are read before the unit exists, in key order)
+      local lets, rows = {}, {}
+      for _, k in ipairs(sorted_keys(a.overrides)) do
+        if not CREATE_OVERRIDES[k] then self:block("action:create_unit.overrides." .. tostring(k))
+        else
+          local name = "ov_" .. k
+          lets[#lets + 1] = "let " .. name .. " = " .. self:value(a.overrides[k], ctx, "num") .. "; "
+          rows[#rows + 1] = "(" .. rust_str(k) .. ", " .. name .. ")"
+        end
+      end
+      make = "{ " .. table.concat(lets) .. "let u = " .. make .. "; cx.unit_overrides(u, &[" .. table.concat(rows, ", ") .. "])?; u }"
     end
     -- limit_per_owner: only the host's summon_owner_cap (omoba-core summon_owner_cap: after the
     -- cast commits, the earliest live summons of the cast's templates beyond the cap leave). That
@@ -2611,6 +2632,7 @@ local function emit_hook_entry(m, o, opts)
     fn on_status_event(&self, holder: EntityHandle, status: RStr<'_>, event: StatusEvent, world: &mut GameWorldDyn<'_>) {
         let mut cx = Cx::passive(world, holder, event.level.max(1));
         cx.caster = event.source;
+        cx.event_instance = event.instance;
         let _ = <hand::Impl as Hook>::on_status_event(&mut cx, status.as_str(), event);
     }
 ]]
@@ -2620,6 +2642,7 @@ local function emit_hook_entry(m, o, opts)
     fn on_damage_pre(&self, holder: EntityHandle, status: RStr<'_>, event: StatusEvent, world: &mut GameWorldDyn<'_>) -> DamageEdit {
         let mut cx = Cx::passive(world, holder, event.level.max(1));
         cx.caster = event.source;
+        cx.event_instance = event.instance;
         <hand::Impl as Hook>::on_damage_pre(&mut cx, status.as_str(), event)
     }
 ]]
@@ -3025,12 +3048,14 @@ local function emit_entry(m, o, opts, status_problems)
       impl[#impl + 1] = "\n    fn on_status_event(&self, holder: EntityHandle, status: RStr<'_>, event: StatusEvent, world: &mut GameWorldDyn<'_>) {\n"
         .. "        let mut cx = Cx::passive(world, holder, event.level.max(1));\n"
         .. "        cx.caster = event.source;\n"
+        .. "        cx.event_instance = event.instance;\n"
         .. "        match (status.as_str(), event.kind) {\n" .. table.concat(arms) .. "            _ => {}\n        }\n    }\n"
     end
     if #pre_arms > 0 then
       impl[#impl + 1] = "\n    fn on_damage_pre(&self, holder: EntityHandle, status: RStr<'_>, event: StatusEvent, world: &mut GameWorldDyn<'_>) -> DamageEdit {\n"
         .. "        let mut cx = Cx::passive(world, holder, event.level.max(1));\n"
         .. "        cx.caster = event.source;\n"
+        .. "        cx.event_instance = event.instance;\n"
         .. "        match (status.as_str(), event.kind) {\n" .. table.concat(pre_arms) .. "            _ => {}\n        }\n        cx.damage_edit\n    }\n"
     end
   end
