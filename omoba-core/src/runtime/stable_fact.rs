@@ -82,6 +82,9 @@ pub enum FactKind {
     /// A visible hero's derived attributes (totals and attribute max HP) after the authority's settle,
     /// for replicas that do not receive its inventory (E374).
     CommittedAttributes = 42,
+    /// A visible hero's ability in each slot (a swap_abilities changes them on the authority,
+    /// whose scripts an opposing replica does not run; E401).
+    CommittedAbilitySlots = 43,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -120,6 +123,8 @@ pub enum ObservableFact {
     CommittedEquipmentStats { source: u64, hp_raw: i64, max_hp_raw: i64, speed_raw: i64, armor_raw: i64, attack_raw: i64 },
     /// Public derived values only (what the attribute panel shows); never the items behind them.
     CommittedAttributes { source: u64, strength_raw: i64, agility_raw: i64, intelligence_raw: i64, attribute_hp_raw: i64 },
+    /// The compiled ability id (`AbilityId`, 0 = empty slot) in each of a visible hero's slots.
+    CommittedAbilitySlots { source: u64, abilities: Vec<u16> },
     /// Final, already-disclosable state after an authority-owned settlement.
     CommittedVitals { source: u64, hp_raw: i64, max_hp_raw: i64 },
     CommittedCooldown { source: u64, slot: u32, remaining_raw: i64 },

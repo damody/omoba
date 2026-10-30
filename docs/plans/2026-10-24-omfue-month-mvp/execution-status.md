@@ -16,6 +16,11 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：自己隊伍的冷卻也由權威揭露，敵方英雄的技能槽位揭露（E401）
+
+- CommittedCooldown／CommittedCharge 送給所有看得到這個英雄的隊伍，包括自己的隊伍。修正瞬雷閃被只在權威端可見的原因打斷時，replica 冷卻不一致的問題。
+- 新增 CommittedAbilitySlots（43）：揭露每個槽位的 AbilityId，replica 跟著權威端的 swap_abilities 更新。修正齋藤義龍龍化槽位不一致的問題。
+- 起因：e187 split396 在 3:06 出現 observer mismatch。
 ## 2026-10-31 線 B：headless 統計按輸入當下的槽位技能計數（E400）
 
 - moba_headless 的 HeroStats 以「輸入當下槽位上的技能」計數，報表列出所有曾經放在槽位上的技能（包括被 swap 換掉的）。

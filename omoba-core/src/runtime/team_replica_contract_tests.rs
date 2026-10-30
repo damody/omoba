@@ -105,9 +105,10 @@ fn committed_actor_state_is_visible_only_and_has_no_canonical_identity_payload()
     assert!(frame.post_step.unwrap().component_repairs.is_empty());
     let own = disclosed_projector(2, 10).build_frame(1, 1, &BTreeSet::from([10]), vec![], &facts, &ProjectionDependencyGraph::default()).unwrap().frame;
     let own_events = own.step.unwrap().public_events;
-    assert_eq!(own_events.len(), 4);
-    assert!(!own_events.iter().any(|event| event.event_kind == FactKind::CommittedCooldown as u32),
-        "owner cooldown stays deterministic, not overwritten");
+    // E401: the owner team gets its settled cooldown too (an authority-only hook may have reset it).
+    assert_eq!(own_events.len(), 5);
+    assert!(own_events.iter().any(|event| event.event_kind == FactKind::CommittedCooldown as u32),
+        "owner cooldown follows the authority's settlement");
 }
 
 #[test]

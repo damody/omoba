@@ -2,9 +2,24 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E404 （保留）conformance：被動技只有 passive_stats 情境逐級學習，光環發射器停在 r1（2026-10-31）
+
+## E403 （保留）沒有以樹木為目標的施放與單棵樹操作：B22 的樹木技能被排除（2026-10-31）
+
 ## E402 （保留）並行的 UBT 共用 MSBuild 常駐節點，其中一個建置結束時節點被關閉，另一個建置以 MSB4166／999 失敗（2026-10-31）
 
-## E401 （保留）replica 與權威不一致：被敵方效果打斷的引導冷卻、敵方英雄的 swap_abilities 槽位沒有揭露（2026-10-31）
+## E401 replica 與權威不一致：被敵方效果打斷的引導冷卻、敵方英雄的 swap_abilities 槽位沒有揭露（2026-10-31，工作線 B）
+- **現象**：遊戲模式 session 的 live split（target/e187/split396，10 位 M6 英雄）在 3:06（tick 12720）以 observer-mismatch-after-rebase 結束。兩個不一致都來自 E387／c78f8fda 之後 bot 才開始施放的技能：
+  1. 前田慶次（entity 1，team 1 自己的英雄）c05_flash_thunder 的冷卻：權威 18978，replica 111121。
+  2. 齋藤義龍（entity 375，敵方 bot）的 c14_dragon_form：權威 abilities 換成 c14_fire_breath_dragon（等級 2），replica 還是 c14_fire_breath，也沒有子技能的等級。
+- **根因**：
+  1. 權威端的瞬雷閃引導在開始的同一個 tick，就以 `reason=moved` 結束了。前後只有 tick 12636 敵方 pid 7 的 a35_flame_raid，原因只在權威端可見。replica 只在收到權威結束事件時 `forget`，不會跑 on_channel_end，所以 `event.interrupted` 的 `modify_cooldown set 20` 只發生在權威端。而 team_projector 對自己隊伍的 CommittedCooldown／CommittedCharge 一律不送（原本假設自己隊伍的冷卻都能從輸入推導出來），replica 因此一直保留完整的 110 秒冷卻。
+  2. swap_abilities 是腳本結果（ability_slots），只在權威端與擁有隊伍的 replica 執行。對方隊伍的 replica 只收到 CommittedAbilityRanks（逐槽位的等級），沒有槽位上技能的名稱。
+- **通用修正**：
+  1. CommittedCooldown／CommittedCharge 送給所有看得到這個英雄的隊伍，包括它自己的隊伍。replica 已經預測出相同值時，套用不會改變任何東西；只有權威端執行的 hook 改了冷卻時，replica 才會被更正。
+  2. 新增 `FactKind::CommittedAbilitySlots = 43`：每個槽位一個 u16 AbilityId（0 = 空槽），與 CommittedAbilityRanks 同一個 HERO_ABILITY 政策、同一個時機送出。replica 依序更新槽位，換入的技能沒有等級時，取用被換出技能的等級，與 ability_slots::swap 的規則相同。未知 id 或長度錯誤時整筆拒絕，不會寫入任何東西。
+- **測試**：`committed_ability_slots_follow_the_authoritys_swaps`；`committed_actor_state_is_visible_only_and_has_no_canonical_identity_payload` 改成擁有隊伍也會收到冷卻。omoba-core lib 全部通過。
+- **避免**：「自己的隊伍可以自行推導」的假設，遇到只在權威端執行的 hook（被不可見的原因打斷、敵方效果觸發）就不成立。會改變狀態的腳本結果，一律要有對應的 committed 揭露。
 
 ## E400 headless 統計把 cast 輸入記到局末的槽位名稱：被替換的技能看起來從沒施放（2026-10-31，工作線 B）
 - **現象**：遊戲模式 session 的 e187 m6a4g1 中，c14_fire_breath_dragon（C14 龍化期間取代 c14_fire_breath 的子技能）18 局共有 154 次 bot 輸入，0 次 accepted，也沒有任何 CastTrace 結果。

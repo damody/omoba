@@ -1477,17 +1477,10 @@ impl TeamViewProjector {
                     continue;
                 }
             }
-            // Our team's cooldowns remain deterministic gameplay from its
-            // accepted inputs. Only disclosed opponents need settled state.
-            if let ObservableFact::CommittedCooldown { source, .. } | ObservableFact::CommittedCharge { source, .. } = &fact.fact {
-                if self.identity.replica_for(unpack_canonical(*source))
-                    .and_then(|mapping| self.hash_entities.get(&mapping.replica_id.get()))
-                    .and_then(|(_, _, components)| components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID))
-                    .and_then(|bytes| crate::runtime::decode_demo_render_state(bytes))
-                    .is_some_and(|render| render.team_id == self.team_id) {
-                    continue;
-                }
-            }
+            // Settled cooldowns and charges reach every team that sees the hero, its own included: a
+            // hook the authority alone runs (a channel an opposing effect ended, its on_channel_end
+            // resetting the cooldown) changes them where our replica cannot (E401). Where our
+            // replica predicted the same value, applying it changes nothing.
             // A cast's ground-point target reaches only the teams whose vision covers the point.
             if let ObservableFact::AbilityTarget { target: None, point: Some((x, y)), .. } = &fact.fact {
                 let point = omoba_sim::Vec2::new(omoba_sim::Fixed64::from_raw(*x), omoba_sim::Fixed64::from_raw(*y));
@@ -1733,6 +1726,10 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
         }
         ObservableFact::CommittedAttributes { source, strength_raw, agility_raw, intelligence_raw, attribute_hp_raw } => {
             for value in [strength_raw, agility_raw, intelligence_raw, attribute_hp_raw] { payload.extend(value.to_le_bytes()); }
+            (Some(*source), None, payload)
+        }
+        ObservableFact::CommittedAbilitySlots { source, abilities } => {
+            for id in abilities { payload.extend(id.to_le_bytes()); }
             (Some(*source), None, payload)
         }
         ObservableFact::CommittedProgression { source, level, experience, experience_to_next, skill_points } => {

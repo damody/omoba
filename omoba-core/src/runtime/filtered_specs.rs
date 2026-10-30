@@ -1740,6 +1740,39 @@ fn apply_disclosed_events(
             }
             *bytes=crate::runtime::visibility::canonical_disclosed_json(&hero);
         }
+        // A visible hero's slots (E401): a swap the authority made takes the slot here too, and the
+        // ability swapped in takes the swapped-out one's rank when it has none (ability_slots::swap).
+        if event.event_kind == crate::runtime::FactKind::CommittedAbilitySlots as u32 {
+            let payload = &event.sanitized_payload;
+            if payload.len() % 2 != 0
+                || !(crate::runtime::LEGACY_HERO_ABILITY_SLOTS..=crate::runtime::HERO_ABILITY_SLOTS).contains(&(payload.len() / 2)) {
+                return Err(ReplicaRuntimeError::MalformedBaseline);
+            }
+            let mut names = Vec::with_capacity(payload.len() / 2);
+            for slot in 0..payload.len() / 2 {
+                let raw = u16::from_le_bytes([payload[slot * 2], payload[slot * 2 + 1]]);
+                let name = if raw == 0 { String::new() } else {
+                    let id = omoba_template_ids::AbilityId(raw);
+                    let name = id.as_str();
+                    if name.is_empty() || omoba_template_ids::ability_by_name(name) != Some(id) { return Err(ReplicaRuntimeError::MalformedBaseline); }
+                    name.to_owned()
+                };
+                names.push(name);
+            }
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            if hero.abilities.len() > names.len() { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            for (slot, name) in names.into_iter().enumerate().take(hero.abilities.len()) {
+                if hero.abilities[slot] == name { continue; }
+                let rank = hero.get_ability_level(&hero.abilities[slot]);
+                if !name.is_empty() && hero.get_ability_level(&name) <= 0 && rank > 0 { hero.ability_levels.insert(name.clone(), rank); }
+                hero.abilities[slot] = name;
+            }
+            *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);
+        }
         // A visible hero's derived attributes: a replica without its inventory takes them as they
         // are (attributes.rs skips deriving them, E374).
         if event.event_kind == crate::runtime::FactKind::CommittedAttributes as u32 {
@@ -2368,6 +2401,32 @@ mod committed_actor_state_tests {
             assert!(apply_disclosed_events(&mut world, &event(FactKind::CommittedProgression,
                 fields.into_iter().flat_map(i32::to_le_bytes).collect())).is_err());
             assert_eq!(world, before);
+        }
+    }
+
+    /// E401: an opposing hero's swap_abilities reaches the replica: the swapped-in ability takes the
+    /// slot and, having no rank, the swapped-out one's; unknown ids change nothing.
+    #[test]
+    fn committed_ability_slots_follow_the_authoritys_swaps() {
+        let mut world=world();
+        apply_disclosed_events(&mut world,&event(FactKind::CommittedAbilityRanks,
+            [2i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect())).unwrap();
+        let id=|name:&str|omoba_template_ids::ability_by_name(name).unwrap().raw();
+        let slots=|first:u16|event(FactKind::CommittedAbilitySlots,[first,0,0,0].into_iter().flat_map(u16::to_le_bytes).collect());
+        apply_disclosed_events(&mut world,&slots(id("lumen_touch"))).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities,vec!["lumen_touch"]);
+        assert_eq!((hero.get_ability_level("lumen_touch"),hero.get_ability_level("lumen_bolt")),(2,2));
+        let once=world.clone();
+        apply_disclosed_events(&mut world,&slots(id("lumen_touch"))).unwrap();
+        assert_eq!(world,once,"idempotent");
+        apply_disclosed_events(&mut world,&slots(id("lumen_bolt"))).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities,vec!["lumen_bolt"],"swapped back");
+        let before=world.clone();
+        for bad in [slots(u16::MAX),event(FactKind::CommittedAbilitySlots,vec![0;7]),event(FactKind::CommittedAbilitySlots,vec![0;2])] {
+            assert!(apply_disclosed_events(&mut world,&bad).is_err());
+            assert_eq!(world,before);
         }
     }
 

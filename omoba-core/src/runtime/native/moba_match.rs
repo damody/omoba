@@ -3292,6 +3292,19 @@ pub fn finish_moba_match_tick(world: &mut World) {
                             omb_script_abi::types::projection_policy_ids::HERO_ABILITY.to_owned()),
                         fact:crate::runtime::ObservableFact::CommittedAbilityRanks {source,ranks},
                     }).expect("valid disclosed ability ranks");
+                // The ability in each slot, the same slots as the ranks (E401: swap_abilities).
+                let abilities = (0..progression.abilities.len().clamp(LEGACY_HERO_ABILITY_SLOTS, HERO_ABILITY_SLOTS))
+                    .map(|slot| progression.abilities.get(slot).and_then(|id| omoba_template_ids::ability_by_name(id)).map_or(0, |id| id.raw()))
+                    .collect();
+                world.read_resource::<crate::runtime::ObservableFactBuffer>()
+                    .emit(crate::runtime::OrderedFact {
+                        key: crate::runtime::FactOrderingKey {tick,
+                            phase:crate::runtime::FactPhase::PostStep,canonical_source_order:source,
+                            local_ordinal:0,fact_kind:crate::runtime::FactKind::CommittedAbilitySlots},
+                        audience:crate::runtime::FactAudience::VisibilityPolicy(
+                            omb_script_abi::types::projection_policy_ids::HERO_ABILITY.to_owned()),
+                        fact:crate::runtime::ObservableFact::CommittedAbilitySlots {source,abilities},
+                    }).expect("valid disclosed ability slots");
                 // Legacy matches must not receive unknown committed fact 26.
                 if state.config.mana_enabled || progression.mana_pool.is_some() {
                     world.read_resource::<crate::runtime::ObservableFactBuffer>()
