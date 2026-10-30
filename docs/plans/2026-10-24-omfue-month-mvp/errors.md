@@ -11,7 +11,11 @@
 
 ## E340 （保留）conformance：狀態換入的子技能不限 requires.has_status，父技能學到對應 rank（2026-10-30）
 
-## E339 （保留）verify_m6_batch 只讀 v3.lua 前 2000 字找英雄 id，標頭較長的 3 位英雄對不到 package（2026-10-30）
+## E339 verify_m6_batch 只讀 v3.lua 前 2000 字找英雄 id，標頭較長的 3 位英雄對不到 package（2026-10-30，e187 遊戲模式 session，A 線回報；已放回 live）
+- **現象**：A 線發現 B03 齋藤朝信、C11 立花宗茂、B07 足利義昭的 v3.lua 裡 `kind = "hero", id = ...` 在第 34 行左右、超過前 2000 字，verify_m6_batch 對不到他們的 package，第 5、6、9 批會少算這 3 位。
+- **根因**：找 package 時只讀檔案開頭 2000 字（`path.read(file):sub(1, 2000)`），假設英雄 id 一定在檔頭附近。
+- **通用修正**：讀整份 v3.lua 再比對第一個 `kind = "hero", id = "..."`。目前 live 有 97 份 hero 文件都對得到；這 3 位的 package 尚未放回 live，放回後即可被找到。
+- **避免**：從文件取欄位時不要截斷內容；要的是結構中的值就整份讀取比對。
 
 ## E338 hero_author 目標型別表缺 unit_or_point，test_only 英雄產生失敗（2026-10-30，工作線 A）
 

@@ -59,8 +59,8 @@ local packages_dir = path.join(b.root, 'docs', 'character_pipeline', 'packages')
 for name in lfs.dir(packages_dir) do
   local file = path.join(packages_dir, name, 'v3.lua')
   if name:sub(1, 1) ~= '.' and path.is_file(file) then
-    local head = path.read(file):sub(1, 2000)
-    local id = head:match('kind%s*=%s*"hero"%s*,%s*id%s*=%s*"([%w_]+)"')
+    -- The whole document (E339): a long header put the hero id past the first 2000 bytes.
+    local id = path.read(file):match('kind%s*=%s*"hero"%s*,%s*id%s*=%s*"([%w_]+)"')
     if id then package_of[id] = name end
   end
 end
