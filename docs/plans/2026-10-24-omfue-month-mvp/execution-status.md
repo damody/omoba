@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：前搖中死亡的 CastTrace 原因改記 dead，不再記成 invalid（E348）
+
+- 一致性線回報：施法者在前搖中死亡時，CastTrace 記的是 `Interrupted("invalid")`。原因是投影前的 `synchronize_preparation` 比 `advance` 先發現死亡，而它把所有規則中斷都歸成 invalid。
+- 修正：把中斷原因的判定抽成 `interrupt_reason`，`advance` 和 `synchronize_preparation` 共用同一套原因與順序（dead、silenced、moved、recall、rank、target_lost）。非 Playing 階段記 `phase`，`invalid` 只留給 replica 無法對上的 view。
+- 測試：`public_preparation_settles_late_control_movement_rank_and_death_before_projection` 改為逐一斷言原因碼。
+
 ## 2026-10-30 線 B：狀態的 on_ability_executed 帶出施放的技能（id、cast_point、is_toggle）
 
 - dispatch 的 ABILITY_EXECUTED 清單改成記下 (施放者, 技能)：施法成功時是結算技能 id，使用道具時是 `item:<道具 id>`。呼叫狀態 hook 時把對應技能放進 adapter 的 `event_ability`。

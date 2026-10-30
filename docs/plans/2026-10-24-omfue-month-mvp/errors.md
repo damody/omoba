@@ -2,6 +2,24 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E352 （保留）hero_stats 的傷害全是 0：英雄的攻擊與技能傷害不產生 DirectCombat 事實，平衡表把 0≥0 判成 DAMAGE HIGH（2026-10-30）
+
+## E351 （保留）conformance：父技能任何動作換入的子技能，與召喚單位自己的技能（2026-10-30）
+
+## E350 （保留）point 引導 range 0 在 stage_ability_channel 被當成射程 0；釋放時被拒的施放沒有 CastTrace（2026-10-30）
+
+## E349 scheduled_effect 週期少一個 tick：due 在 buff_tick 之後又扣一次 dt（2026-10-30，工作線 B）
+- **現象**：C15 c15e_burn 的 periodic interval 是 0.25 s，60 Hz 下應該每 15 tick 觸發一次，實測 DamageTrace 卻是 38、52、66、80、94，每 14 tick 一次。conformance 因此有 4 個 fail。所有產生碼的 periodic／repeat 都受影響。
+- **根因**：每個 tick 的順序是「系統（含 buff_tick）→ outcome → script dispatch」。`scheduled_effect::due(buffs, dt)` 用 `remaining - dt <= GRACE` 判定，等於把下一個 tick 的 dt 也算進去，可是 buff_tick 已經扣過這一 tick 的 dt。結果在 tick N 排入、延遲 k tick 的列，在 N+k-1 就觸發。原本的單元測試把 due 放在 buff tick 之前呼叫，和實際順序相反，所以沒有抓到。
+- **通用修正**：`due(buffs)` 不再收 dt，改為 `remaining <= GRACE`。在 tick N 排入、延遲 k tick 的列會在 N+k 觸發，on_scheduled 裡重排也一樣。單元測試改成實際順序（先 buff tick、再 dispatch），並新增 `a_row_rescheduled_in_the_dispatch_keeps_its_period`：60 Hz 為 15、30、45、60，120 Hz 為 30、60、90、120。
+- **避免**：判定「到期」的函式只讀已結算的狀態，不要再預扣下一個 tick。時序測試的呼叫順序要和 simulation_driver 的 tick 順序一致。
+
+## E348 前搖中死亡在投影前結算時，CastTrace 記成 invalid（2026-10-30，工作線 B）
+- **現象**：conformance 讓施法者在前搖中死亡（A26 a26_scorching_bomb、A12 a12_mystic_field），CastTrace 記的是 `Interrupted("invalid")`，不是 `dead`。依 cast_trace 的定義，invalid 是「replica 的 view 對不上」。
+- **根因**：投影前的 `synchronize_preparation` 比 `AbilityWindups::advance` 先看到死亡。它把所有不再成立的條件（死亡、控制、位移、rank、目標）都歸成 invalid。
+- **通用修正**：中斷原因的判定抽成 `interrupt_reason`，advance 和 synchronize_preparation 共用同一套原因與順序：dead、silenced、moved、recall、rank、target_lost。非 Playing 階段記 phase，invalid 只用在 view 無法對上的情況。測試 `public_preparation_settles_late_control_movement_rank_and_death_before_projection` 改成逐一斷言原因碼。
+- **避免**：同一件事的分類只寫在一個地方，兩條路徑都呼叫它，不要各自列一份條件。
+
 ## E347 （保留）headless 批次排 repo 建置鎖排很久：改從自己的原始碼快照建在私有 target，不必排鎖（2026-10-30）
 
 ## E346 split client 的前端 verify 取 build 鎖，在實機鎖與時限內等別人的建置；被停掉的建置留下 build 鎖（2026-10-30，history-nobu M6 道具呈現，工作線 C）
