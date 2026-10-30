@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：可以移動的 dummy（E417）
+
+- dummy 可以帶 move_speed，由腳本命令移動（E412）。仍不能有攻擊、碰撞或 follow。
 ## 2026-10-31 線 B：召喚施法可以先對敵方單位套狀態（E416）
 
 - cast_settlement 允許召喚施法在 spawn 之前或之間對其他隊的單位 AddBuff 或造成傷害（位置規劃只看同隊佔位）。b11_crow_raid 不再被 SettlementRefused。

@@ -1842,13 +1842,15 @@ pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),Stri
         if !entry.damage_per_owner_level.is_finite() || !(0.0..=10_000.0).contains(&entry.damage_per_owner_level) {
             return Err(format!("summon {} has invalid damage_per_owner_level",entry.id));
         }
-        // A dummy may have life and defenses (then it can be destroyed), never an attack, collision or movement.
-        let bodiless=[entry.damage,entry.move_speed,entry.attack_range,entry.attack_interval,
+        // A dummy may have life and defenses (then it can be destroyed), never an attack, collision or
+        // follow rules. It moves only when it is mobile: by its own move speed under the orders a
+        // script gives it (hero_command, E412; 原作 a moving majia, E417), or by its chase table (E406).
+        let bodiless=[entry.damage,entry.attack_range,entry.attack_interval,
             entry.collision_radius,entry.follow_start_distance,entry.follow_stop_distance,
             entry.damage_per_owner_level].iter().all(|value|*value==0.0);
-        // A chase dummy (E406) moves by its chase table, not by its own move speed.
-        if entry.dummy && (!bodiless || (!entry.immobile && entry.chase.is_none()) || entry.invulnerable) {
-            return Err(format!("summon {} is a dummy but has an attack, collision or movement, or is not immobile",entry.id));
+        let moves=entry.chase.is_some() || entry.move_speed>0.0;
+        if entry.dummy && (!bodiless || entry.immobile==moves || entry.invulnerable) {
+            return Err(format!("summon {} is a dummy but has an attack, collision or follow rules, or moves while immobile (or is mobile without a way to move)",entry.id));
         }
         if (entry.ai==SummonAiEntry::ChaseTarget) != entry.chase.is_some() || entry.chase.as_ref().is_some_and(|chase| !chase.valid())
             || (entry.chase.is_some() && entry.immobile) {
@@ -1913,7 +1915,10 @@ fn a_dummy_summon_is_bodiless_and_immobile() {
     let mut blocking=dummy.clone();blocking.collision_radius=24.0;
     let mut attacking=dummy.clone();attacking.attack_interval=1.0;
     let mut doubled=dummy.clone();doubled.invulnerable=true;
-    for entry in [moving,blocking,attacking,doubled] {assert!(validate_summon_navigation(&[entry]).is_err());}
+    for entry in [moving.clone(),blocking,attacking,doubled] {assert!(validate_summon_navigation(&[entry]).is_err());}
+    // E417: a mobile dummy walks at its own move speed (under a script's orders).
+    moving.move_speed=300.0;assert!(validate_summon_navigation(&[moving.clone()]).is_ok(),"a walking dummy");
+    let mut stuck=moving.clone();stuck.immobile=true;assert!(validate_summon_navigation(&[stuck]).is_err(),"immobile with a move speed");
     // MovementTurnRate 1.5 turns 1.5 rad every 0.03 s (50 rad/s); none keeps π/2 rad/s.
     let mut turning=dummy.clone();turning.turn_rate=1.5;
     assert!((turning.turn_speed()-50.0).abs()<1e-3 && dummy.turn_speed()==std::f32::consts::FRAC_PI_2);

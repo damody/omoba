@@ -2,7 +2,21 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E417 （保留）dummy 一律 immobile：有 move_speed 的 dummy（a20、a36、b33、c07）無法產生（2026-10-31）
+## E421 （保留）damage hook 的效果被丟掉時 edit 仍套用：a05_loyal_secret 取消致命傷卻沒有回血、假死與冷卻，A05 永遠不死（2026-10-31）
+
+## E420 （保留）FC-024 沒有 conformance 測試：A05D 假死後冷卻是否啟動沒人驗（e187 批次中酒井不會死）（2026-10-31）
+
+## E419 （保留）bot 的 summon_near_enemy 只接受 point 技能：不需目標的召喚（c02_phantom_move、b18_earth_claw）從不施放（2026-10-31）
+
+## E418 （保留）create_unit 的 limit_per_owner 只能用 summon_owner_cap extras：a20、a36、b07 無法產生（2026-10-31）
+
+## E417 dummy 一律 immobile：有 move_speed 的 dummy（a20、a36、b33、c07）無法產生（2026-10-31，工作線 B）
+- **現象**：工作線 A 回報 a20_pirate_domain、a36_spike_trap、b33_spider_attack、c07_raijin_wrath 的召喚物是「會移動的 dummy」（原作的 majia 帶移動速度，由腳本下命令移動）。內容驗證規定 dummy 必須 immobile、move_speed 為 0，所以這幾招都卡住。
+- **根因**：`validate_summon_navigation` 把 move_speed 列為 dummy 不可有的「身體」欄位，而且非 immobile 的 dummy 必須有 chase 表（E406）。但 host 其實可以移動 dummy：msd 取自 move_speed；E412 之後腳本的 issue_order 可以對 dummy 下命令（不受 command_restricted 限制）；summon_tick 照 `MoveTarget` 移動。
+- **通用修正**：dummy 仍不能有攻擊、碰撞、follow 距離或 invulnerable。可以移動的 dummy（非 immobile）必須有移動的方式：move_speed > 0，或 chase 表；immobile 的 dummy 不能有任何移動方式。
+- **測試**：`a_dummy_summon_is_bodiless_and_immobile` 新增：會走的 dummy 可以；immobile 卻帶 move_speed 的不行。template-ids 測試全部通過。
+- **後續**：工作線 A 讓 v3_summons 的 dummy_rows 接受 move_speed（stats.move_speed）與 bounty。bounty 本來就對任何召喚物生效，dummy 也一樣（`summoned.bounty`，summon_bounty.rs）。
+- **避免**：內容限制要對應 host 實際不能做的事，不要把「目前沒人用」寫成驗證規則。
 
 ## E416 召喚施法的 settlement 擋下 spawn 之前對敵方單位的 AddBuff：b11_crow_raid 每次 SettlementRefused（2026-10-31，工作線 B）
 - **現象**：conformance 的 b11_crow_raid 每次施法都是 `WindupStarted, Accepted, SettlementRefused("AddBuff")`（tick 70、137、324、430、1157…）。on_cast 先對目標套用 `b11r_phased`，`b11r_proc` 之後才以機率產生分身。
