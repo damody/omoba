@@ -395,6 +395,8 @@ do
     owner = { "unit", "unit_ref", "OWNER" }, attack_target = { "unit", "unit_ref", "ATTACK_TARGET" },
     -- the player's single gold pool (a summon reads its owner's; line-gamemode E243)
     gold = { "num", "unit_num", "GOLD" },
+    -- armor above the base (line B ee0292ee)
+    bonus_armor = { "num", "unit_num", "BONUS_ARMOR" },
   }
   for name, e in pairs(EXT) do
     -- the operand first: a read takes &mut cx
@@ -713,6 +715,13 @@ function Gen:call(node, ctx)
   elseif fn == "is_enemy" then
     local a = arg(1); local b = arg(2)
     return cx_call("cx.is_enemy(%s, %s)", a, b), "bool"
+  elseif fn == "avg_attack_against" then
+    -- the attacker's attack as it leaves, without a critical (unit attr AVG_ATTACK, line B
+    -- ee0292ee); the target changes nothing there: armor and building modifiers apply at the hit
+    local u, ut = arg(1); local _, tt = arg(2)
+    if ut == "err" or tt == "err" then return "Fixed64::ZERO", "err" end
+    if ut ~= "unit" or tt ~= "unit" then self:block("fn:avg_attack_against of a " .. ut .. " and a " .. tt); return "Fixed64::ZERO", "err" end
+    return cx_call("cx.unit_num(%s, ability_kit::unit_attr::AVG_ATTACK)", u), "num"
   elseif fn == "is_visible_to" then
     -- whether u's team sees x now (host IS_VISIBLE_TO: its own units always; an enemy team by
     -- the EnemySight disclosure, the same on the authority and every replica)
