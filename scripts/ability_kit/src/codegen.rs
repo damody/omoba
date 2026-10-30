@@ -384,6 +384,21 @@ impl<'a, 'w> Cx<'a, 'w> {
         }
     }
 
+    /// v3 `is_ally(a, b)`: both on the same known team (a unit is its own ally).
+    pub fn is_ally(&self, a: EntityHandle, b: EntityHandle) -> bool {
+        match (self.world.faction_of(a).into_option(), self.world.faction_of(b).into_option()) {
+            (Some(x), Some(y)) => x == y,
+            _ => false,
+        }
+    }
+
+    /// v3 `edge_distance(a, b)`: the gap between the two units' collision circles (0 once they touch).
+    pub fn edge_distance(&mut self, a: EntityHandle, b: EntityHandle) -> Result<Fixed64, &'static str> {
+        use omb_script_abi::ext::unit_attr::COLLISION_RADIUS;
+        let gap = distance(self.pos(a)?, self.pos(b)?) - self.unit_num(a, COLLISION_RADIUS) - self.unit_num(b, COLLISION_RADIUS);
+        Ok(gap.max(Fixed64::ZERO))
+    }
+
     pub fn has_status(&self, u: EntityHandle, status: &StatusDef) -> bool {
         self.world.has_buff(u, RStr::from_str(&self.runtime_id(status)))
     }

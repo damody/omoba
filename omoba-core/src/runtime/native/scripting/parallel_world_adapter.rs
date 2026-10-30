@@ -702,6 +702,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             name::PROJECTILE_SPEED=>num(&|e|self.source_attack(e).map(|attack|attack.bullet_speed)),
             name::BASE_MAGIC_RESIST=>num(&|e|self.source_property(e).map(|property|property.def_magic)),
             name::BASE_ATTACK_RANGE=>num(&|e|self.source_attack(e).map(|attack|attack.range.v)),
+            name::COLLISION_RADIUS=>num(&|e|Some(self.cache.collision.get(e).map_or(Fixed64::ZERO,|r|r.0.max(Fixed64::ZERO)))),
             name::CAST_RANGE_BONUS=>num(&|e|Some(buffs(e).sum_add(e,omb_script_abi::stat_keys::StatKey::CastRangeBonus)
                 +buffs(e).sum_add(e,omb_script_abi::stat_keys::StatKey::CastRangeBonusStacking))),
             // The unit's own pool, else the pool of a unit its player owns that has one (a summon's hero).

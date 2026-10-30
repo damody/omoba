@@ -665,6 +665,16 @@ function Gen:call(node, ctx)
   elseif fn == "is_enemy" then
     local a = arg(1); local b = arg(2)
     return string.format("cx.is_enemy(%s, %s)", a, b), "bool"
+  elseif fn == "is_ally" then
+    local a, at = arg(1); local b, bt = arg(2)
+    if at == "err" or bt == "err" then return "false", "bool" end
+    if at ~= "unit" or bt ~= "unit" then self:block("fn:is_ally of a " .. at .. " and a " .. bt); return "false", "bool" end
+    return string.format("{ let a = %s; let b = %s; cx.is_ally(a, b) }", a, b), "bool"
+  elseif fn == "edge_distance" then
+    local a, at = arg(1); local b, bt = arg(2)
+    if at == "err" or bt == "err" then return "Fixed64::ZERO", "err" end
+    if at ~= "unit" or bt ~= "unit" then self:block("fn:edge_distance of a " .. at .. " and a " .. bt); return "Fixed64::ZERO", "err" end
+    return string.format("{ let a = %s; let b = %s; cx.edge_distance(a, b)? }", a, b), "num"
   elseif fn == "distance" then
     local a, at = arg(1); local b, bt = arg(2)
     return string.format("ability_kit::distance(%s, %s)", self:point(a, at), self:point(b, bt)), "num"
