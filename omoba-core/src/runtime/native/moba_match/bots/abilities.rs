@@ -40,6 +40,7 @@ pub enum BotAbilityIntent {
     ToggleEngage {threat_radius:u32,on_status:String},
     /// A point summon (E260, e.g. B01E 雜賀眾): cast when a disclosed enemy hero or lane unit is
     /// within `threat_radius`, at the nearest one, or toward it at the cast range when farther.
+    /// An untargeted summon (E419, e.g. C02E 幻影步, B18R 土爪) is cast then, with no point.
     SummonNearEnemy {threat_radius:u32},
     SelfHeal { below_hp_per_mille:u16 },
     /// Untargeted area around the caster (E163): cast when at least `min_targets`
@@ -199,9 +200,9 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
             BotAbilityIntent::ToggleEngage {threat_radius,on_status} if def.target_type==TargetTypeC::None
                 && def.ability_type==AbilityTypeC::Toggle && (1..=10_000).contains(threat_radius)
                 && !on_status.is_empty() && on_status.len()<=128=>{},
-            BotAbilityIntent::SummonNearEnemy {threat_radius} if def.target_type==TargetTypeC::Point
-                && (1..=10_000).contains(threat_radius)
-                && def.levels.iter().all(|level|level.range>Fixed64::ZERO&&level.range<=Fixed64::from_i32(10_000))=>{},
+            BotAbilityIntent::SummonNearEnemy {threat_radius} if (1..=10_000).contains(threat_radius)
+                && (def.target_type==TargetTypeC::None || def.target_type==TargetTypeC::Point
+                    && def.levels.iter().all(|level|level.range>Fixed64::ZERO&&level.range<=Fixed64::from_i32(10_000)))=>{},
             BotAbilityIntent::SelfHeal {below_hp_per_mille} if def.target_type==TargetTypeC::None
                 && *below_hp_per_mille>0 && *below_hp_per_mille<=1000 => {},
             BotAbilityIntent::SelfEngage {threat_radius} if def.target_type==TargetTypeC::None
@@ -514,16 +515,19 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
                 None
             }
             BotAbilityIntent::SummonNearEnemy {threat_radius}=>{
-                if health.hp<=Fixed64::ZERO || level.range<=Fixed64::ZERO {continue;}
+                let untargeted=def.target_type==TargetTypeC::None;
+                if health.hp<=Fixed64::ZERO || (!untargeted && level.range<=Fixed64::ZERO) {continue;}
                 let radius=Fixed64::from_i32(*threat_radius as i32);
                 let Some(unit)=seen.iter().filter(enemy).filter(|unit|matches!(unit.kind,1|2))
                     .filter(|unit|(unit.position-own).length_squared()<=radius*radius)
                     .min_by_key(|unit|priority(unit)) else {continue;};
+                if untargeted {None} else {
                 let offset=unit.position-own;
                 let point=if offset.length_squared()<=level.range*level.range {unit.position}
                     else {own+offset*(level.range/offset.length().max(Fixed64::from_raw(1)))};
                 let (Ok(x),Ok(y))=(i32::try_from(point.x.raw()),i32::try_from(point.y.raw())) else {continue;};
                 target_pos=Some(crate::runtime::Vec2I{x,y});None
+                }
             }
             BotAbilityIntent::EnemyLine {min_targets}=>{
                 if health.hp<=Fixed64::ZERO{continue;}
@@ -1207,7 +1211,22 @@ mod tests {
         let summon=BotAbilityPolicy {ability:"b01_saika_corps".into(),intent:BotAbilityIntent::SummonNearEnemy {threat_radius:900}};
         assert!(validate_policies(&[summon.clone()]).is_ok());
         assert!(validate_policies(&[BotAbilityPolicy {intent:BotAbilityIntent::SummonNearEnemy {threat_radius:0},..summon.clone()}]).is_err());
-        assert!(validate_policies(&[BotAbilityPolicy {ability:"b01_sniper_mode".into(),..summon.clone()}]).is_err(),"an untargeted skill is no point summon");
+        assert!(validate_policies(&[BotAbilityPolicy {ability:"b01_sniper_mode".into(),..summon.clone()}]).is_ok(),"an untargeted skill is cast with no point (E419)");
+        {
+            // E419: an untargeted summon is cast when a threat is near, with no point.
+            let mut kojiro=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
+            kojiro.abilities=vec!["c02_phantom_move".into()];
+            kojiro.ability_levels.insert("c02_phantom_move".into(),1);
+            let phantom=BotAbilityPolicy {ability:"c02_phantom_move".into(),intent:BotAbilityIntent::SummonNearEnemy {threat_radius:900}};
+            assert!(validate_policies(&[phantom.clone()]).is_ok());
+            let near=SeenUnit {canonical_id:(1<<32)|9,position:Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO),team:2,kind:1,
+                owner_player_id:9,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+            let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
+            let cast=choose_cast(&kojiro,BotRole::Top,1,Vec2::ZERO,&health,&[near.clone()],&[phantom.clone()]).expect("a threat near");
+            assert!(cast.target_pos.is_none() && cast.target_entity.is_none());
+            let far=SeenUnit {position:Vec2::new(Fixed64::from_i32(2000),Fixed64::ZERO),..near};
+            assert!(choose_cast(&kojiro,BotRole::Top,1,Vec2::ZERO,&health,&[far],&[phantom]).is_none());
+        }
         let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
         hero.abilities=vec!["b01_saika_corps".into()];
         hero.ability_levels.insert("b01_saika_corps".into(),1);
