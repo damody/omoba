@@ -230,9 +230,20 @@ function M.acquire_performance(root,options)
     wait_flag='(another measurement holds it; rerun later)'})
 end
 
+-- The script DLL set as the sources list it now (base_content, items, every playable hero's DLL),
+-- read afresh: hero_dlls.lua changes when a hero is made playable (E399).
+function M.script_set()
+  package.loaded['hero_dlls']=nil
+  local files={}
+  for _,module in ipairs(require('script_dlls').modules()) do files[#files+1]=module.file end
+  table.sort(files)
+  return table.concat(files,',')
+end
+
 function M.run(options)
   -- Built before waiting for the machine (E337); without a build, the sources as of the match start.
   local sources_as_of=not options.no_build and M.build_all(options) or nil
+  local built_set=sources_as_of and M.script_set()
   local root=options.output and path.absolute(options.output,b.root) or nil
   if not root then
     local parent=path.mkdir_p(path.join(b.root,'target','split-runs'))
@@ -250,6 +261,12 @@ function M.run(options)
     wait_seconds=options.wait_live_lock or 0})
   if not acquired then lfs.rmdir(root);error(lock,0) end -- the refused run leaves no directory behind
   local held <close> = lock
+  -- E399: a hero made playable while this run waited for the machine adds a script DLL its build
+  -- does not have, and the launch refuses it. Built once more, before the time box starts.
+  if built_set and M.script_set()~=built_set then
+    io.stderr:write('[split] the script DLL set changed while waiting for the machine; building again\n')
+    sources_as_of=M.build_all(options)
+  end
   -- E343: taken after the live lock and released with it, so the measurement holds it only for
   -- this match; a short wait for another measurement to end counts toward the box.
   local measured <close> = options.performance_lock and M.acquire_performance(root,options) or nil

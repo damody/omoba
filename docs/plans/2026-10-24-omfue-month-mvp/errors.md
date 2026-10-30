@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E399 split run 建置後等機器鎖期間 hero_dlls 名單變動（新英雄轉 playable），開局檢查找不到新英雄的 DLL 而失敗（2026-10-31，history-nobu M6 UE 呈現，工作線 C）
+- **現象**：pres14 佇列中齋藤義龍那一局建置完成後，等了 544 秒才拿到機器鎖。拿到鎖 2 秒後 authority 就失敗了：`missing script DLL beside base_content: target/lineC-bins/release/hero_a05.dll`。在這段等待期間，A 的 c78f8fda 把 A05 等 6 位英雄轉為 playable，hero_dlls.lua 多了它們的 DLL。
+- **根因**：run_moba_split_local 在等機器鎖之前建置（E337），建出來的是當時 hero_dlls 名單的 DLL 組合。開局時 `moba_server_build.verify` 卻用最新的名單檢查。等待期間名單一變，建好的二進位就少了新英雄的 DLL。
+- **通用修正**：`M.script_set()` 每次都重新讀 hero_dlls，回傳 script DLL 組合。run 在建置後記下這個組合，拿到機器鎖後再比一次；如果不同，就在時限開始之前再建置一次。測試 `run_moba_split_local_test` 檢查比對發生在機器鎖之後、第二次建置在時限之前，也檢查組合的內容。
+- **避免**：「先建置、後排隊」的流程，凡是會在排隊期間改變的輸入（名單、設定、產生檔），都要在拿到鎖之後再確認一次，不能只看建置當下的狀態。
+
 ## E396 teamfight recipe 雙方全在中路，回城 35%／出泉 85% 讓會戰一再重置，中位數 11.9 分鐘（2026-10-31，e187 遊戲模式 session，主 session 要求；已放回 live）
 - **現象**：m6a3g1（10 位 M6 英雄）的 teamfight 6 局 7.0～14.4 分鐘，中位數 11.9，4 局超過 10 分鐘；quick 與換邊都在 10 分鐘內。結束時兩側邊路塔幾乎都還在（每邊 6～9 座），勝負只取決於中路。
 - **根因**：teamfight 把十位英雄都放在中路，用出貨的 sustain（低於 35% 回城、回到 85% 才出泉）。一方血量下降就整隊走回泉水，會戰不斷重置，中路塔要很久才推得倒。

@@ -126,4 +126,18 @@ do
   assert(build<lock,'the build happens before the live lock is taken')
   assert(not text:find('while building',run,true),'no build step inside the time box')
 end
+-- E399: a script DLL set that changed during the wait for the machine is built again, once, before
+-- the time box starts; the set is read afresh each time.
+do
+  local f=assert(io.open('scripts/run_moba_split_local.lua','rb'));local text=f:read('a');f:close()
+  local run=assert(text:find('function M.run(options)',1,true))
+  local lock=assert(text:find("machine_lock').acquire",run,true))
+  local again=assert(text:find('M.script_set()~=built_set',lock,true),'the set is compared after the live lock')
+  local rebuild=assert(text:find('M.build_all(options)',again,true))
+  local box=assert(text:find('M.box_deadlines(',run,true))
+  assert(rebuild<box,'the second build happens before the time box starts')
+  local set=split.script_set()
+  assert(set:find('base_content.dll',1,true) and set:find('items.dll',1,true),'the set names the script DLLs')
+  assert(split.script_set()==set,'reading it again gives the same set')
+end
 print('split local topology: options, seats and per-role arguments passed')
