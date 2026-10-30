@@ -23324,6 +23324,7 @@ local data = {
         damage = { 215.0, 265.0, 315.0, 365.0 },
         distance = { 575.0, 575.0, 575.0, 575.0 },
         end_radius = { 300.0, 300.0, 300.0, 300.0 },
+        shape_width = { 600.0, 600.0, 600.0, 600.0 },
         speed = { 1150.0, 1150.0, 1150.0, 1150.0 },
         start_radius = { 135.0, 135.0, 135.0, 135.0 },
       },
@@ -23336,9 +23337,10 @@ local data = {
       },
       max_level = 4,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_unit", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "end_radius", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -37511,6 +37513,7 @@ local data = {
         pull_distance = { 300.0, 300.0, 300.0 },
         pull_time = { 0.5, 0.5, 0.5 },
         required_level = { 6.0, 12.0, 18.0 },
+        shape_width = { 1000.0, 1000.0, 1000.0 },
         slow = { 80.0, 80.0, 80.0 },
         slow_check = { 0.1, 0.1, 0.1 },
         slow_checks = { 25.0, 25.0, 25.0 },
@@ -37528,10 +37531,11 @@ local data = {
       max_level = 3,
       pierces_magic_immunity = true,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "enemy_unit", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "end_radius", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -40323,6 +40327,7 @@ local data = {
         damage = { 150.0, 250.0, 350.0, 450.0 },
         distance = { 800.0, 800.0, 800.0, 800.0 },
         end_radius = { 245.0, 245.0, 245.0, 245.0 },
+        shape_width = { 490.0, 490.0, 490.0, 490.0 },
         slow = { 15.0, 20.0, 25.0, 30.0 },
         slow_duration = { 6.0, 6.0, 6.0, 6.0 },
         speed = { 1320.0, 1320.0, 1320.0, 1320.0 },
@@ -40338,10 +40343,11 @@ local data = {
       max_level = 4,
       pierces_magic_immunity = true,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "enemy_unit", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "end_radius", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },

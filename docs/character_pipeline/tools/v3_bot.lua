@@ -151,7 +151,9 @@ function M.derive(def, kind_of_entry, doc)
   local t = target.type or "none"
   local team = target.team or "enemy"
   local hero_only = type(target.types) == "table" and #target.types == 1 and target.types[1] == "hero"
-  if t == "unit" or t == "unit_or_point" then
+  -- a tree target: no bot finds trees yet
+  if t == "tree" then return { kind = "none", reason = "tree target" } end
+  if t == "unit" then
     if team == "enemy" or team == "both" then
       if team == "both" and (f.heal_target or f.cleanse) and not f.damage then
         return { kind = f.cleanse and "ally_heal_or_cleanse" or "ally_heal", below_hp_per_mille = D.heal_below }
@@ -163,7 +165,8 @@ function M.derive(def, kind_of_entry, doc)
     end
     return { kind = "ally_engage", threat_radius = D.engage }
   end
-  if t == "point" or t == "direction" or t == "vector" then
+  -- unit_or_point: the row's target is a point (hero_author/v3.lua), so the bot aims at one
+  if t == "point" or t == "direction" or t == "vector" or t == "unit_or_point" then
     if f.move and not f.damage then return { kind = "approach_enemy_point", min_distance = D.approach } end
     local area = value_name(target.aoe_radius)
     -- no cast range (range 0, E366): anywhere on the map
