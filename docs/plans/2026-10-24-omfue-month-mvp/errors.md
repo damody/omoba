@@ -2,6 +2,15 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E293 land_to_live 的 BASE 給錯，倒退了別人剛放回 live 的修改（2026-10-30，工作線 A）
+
+- **現象**：864230c0（unique_group）放回 `scripts/ability_kit/src/codegen.rs` 時，把 B 在 57d0e388 剛放進 live 的兩段改動拿掉了：`Cx::cast` 在 release 時跳過射程（E292 的 `CAST_RELEASED`）和 `Guarded` 的 `on_equip`／`on_unequip`。cargo check 照樣通過（這兩段都是新增的），所以 land 沒有擋下來。
+- **根因**：我在影子 tree（`target/lineA/host`）改完後，把影子的檔案當 SRC，又把「當下的 live」複製一份當 BASE。可是影子是從較舊的 live 改出來的，B 的改動不在裡面。3-way merge 看到 BASE（有 B 的改動）→ SRC（沒有）是「刪除」，就照著刪了。BASE 必須是 SRC 改出來的那一版，不是當下的 live。
+- **通用修正**：
+  - 補回 B 的兩段（本次 commit）。逐一檢查今天線 A 的其他放回：之前每次都先 `cmp` 確認影子和 live 一致才改，只有這次漏了，沒有別的倒退。
+  - 以後線 A 的 patch 一律寫成腳本（`rep(old, new)`），對「當下 live 的新副本」執行，產生 SRC；BASE 就是同一份副本。影子只用來跑覆蓋與編譯檢查，不再把影子的檔案當 SRC。
+- **以後如何避免**：放回前看 `git diff --no-index BASE SRC`，裡面只能有自己的改動；出現任何不是自己寫的刪除行，就停下來重做。
+
 ## E292 team replica 在前搖 release 時用自己的位置重判射程，和 authority 分歧（2026-10-30，工作線 B）
 
 - **現象**：e187（`target/e187/ue-nobu8`）中，team 2 的 replica 少了 a34_frost_bolt 的冷卻，剩餘 13363 = 14336 − 973，等於 57 tick 從未開始。authority 有 `[scripting] cast ok`，replica 沒有。

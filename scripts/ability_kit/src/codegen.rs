@@ -245,7 +245,11 @@ impl<'a, 'w> Cx<'a, 'w> {
             }
             Target::None => { if spec.unit { return Err("v3: the ability needs a unit target"); } None }
         };
-        if let Some(at) = at {
+        // A cast released from a windup had its range judged when the windup began (host
+        // dispatch); judging again here would split a team replica from the authority.
+        let released = matches!(cx.world.ext(omb_script_abi::ext::op::CAST_RELEASED, abi_stable::std_types::RSlice::from_slice(&[])).into_result(),
+            Ok(omb_script_abi::ext::ExtValue::Bool(true)));
+        if let (Some(at), false) = (at, released) {
             let range = cast_range.ok_or("v3: invalid cast range")?;
             let origin = cx.pos(caster)?;
             if !omoba_sim::terrain::point_in_swept_circle(at, origin, origin, range) { return Err("v3: target outside cast range"); }
@@ -1157,6 +1161,12 @@ impl<S: AbilityScript> AbilityScript for Guarded<S> {
     fn on_channel_start(&self, caster: EntityHandle, target: Target, start: omb_script_abi::types::ChannelPulse,
         world: &mut GameWorldDyn<'_>) {
         guarded_hook!(self, world, "on_channel_start", self.0.on_channel_start(caster, target, start, world))
+    }
+    fn on_equip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_equip", self.0.on_equip(owner, world))
+    }
+    fn on_unequip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_unequip", self.0.on_unequip(owner, world))
     }
     fn on_aura(&self, holder: EntityHandle, aura: RStr<'_>, level: u8, receivers: RVec<EntityHandle>, world: &mut GameWorldDyn<'_>) {
         guarded_hook!(self, world, "on_aura", self.0.on_aura(holder, aura, level, receivers, world))
