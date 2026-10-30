@@ -2,6 +2,19 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E383 conformance session 用 taskkill /IM cargo.exe 殺掉全機 cargo，中斷其他 session 的建置（2026-10-31，conformance session）
+
+- **現象**：約 00:2x，一致性線為了重新啟動自己的 conformance 跑，執行了 `taskkill //F //IM cargo.exe`。整台機器上所有的 cargo 程序都被終止，包括工作線 A、B、C 和遊戲模式線當時可能正在跑的 cargo build、test 或 land_to_live。
+- **根因**：按程序名稱殺程序，會殺到同名的所有程序。多個 session 共用同一台機器時，cargo.exe、rustc.exe、UnrealEditor.exe 這類名稱都不屬於某一個 session。
+- **影響**：land_to_live 失敗時不寫入 live，所以 live 不會寫到一半。被中斷的建置或測試需要各線重跑；主 session 已通知四條線。
+- **通用規則（預防）**：停止背景工作，只能用自己的 task ID（TaskStop），或自己記下的 PID。**絕對不要按程序名稱殺程序**（`taskkill /IM`、`Stop-Process -Name`、`pkill`／`killall` 等）。自己的長時間工作要能被單獨停止：用背景任務啟動，或在啟動時記下 PID。
+
+## E382 （保留）conformance：吸收下一次傷害的狀態吃掉致命一擊，死亡步驟再補打（2026-10-31）
+
+## E381 （保留）conformance：施放同時回魔給施法者，mana_spent 允許扣掉這份回魔（2026-10-31）
+
+## E380 （保留）英雄死亡時 hero 範圍狀態變數從屍體移除，死後到期的 hook 讀到初始值（2026-10-31）
+
 ## E379 HUD sync 把英雄技能列的空欄 "" 當成未知技能而中斷，所有 UE 建置被擋下（2026-10-31，history-nobu M6，工作線 C）
 - **現象**：B 讓英雄技能列可以有空欄 `""`（cddcb1af：有 F 沒有 D 的原作英雄，例如 A32 瀧川一益）之後，build_ue_moba 的「synchronize original HUD content names」失敗，訊息是 `hero takigawa_kazumasu equips unknown ability: `。工作線 C 的 1+9 demo（demo7）和宇喜多秀家的 spotlight 都卡在建置。A 的 E377 只修了 om_codegen。
 - **根因**：`ue_hud_portrait_coverage.hero_abilities` 依英雄技能列推導技能圖示列，要求每一欄都是已知技能。`record_hero_spotlight.load_v3_package` 也有同樣的假設。
