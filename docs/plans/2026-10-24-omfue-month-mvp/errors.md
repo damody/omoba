@@ -2,6 +2,188 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E283 conformance：B08 整位換上與 A 新解鎖 5 招的影子比對；A34 淨化回歸修好（2026-10-30，conformance session）
+
+- **做法**：A 的影子（target/lineA/host）比 live 舊（沒有 E282），直接在那裡跑會把舊 harness 的差異算成換上的差異。改成在 live 鏡像上只疊加換上本身：base_content 的 Cargo.toml／lib.rs、hero_dlls.lua、heroes/asai_nagamasa；5 招則加進 lib.rs 的產生版換上清單（a07_rouse_free 沒有 handler，改用 push）。以後別線的影子都先比對 harness／known／v3_scenarios 是否等於 live，不同時就這樣疊加。
+- **B08 整位**：25 個 unsupported 變通過（b08d／b08e_phased 現在觀察得到）。退步 5 個：b08_flash_cut r1～r4 施法者死後 on_cast[5].actions[2]（`damage $damage`，要求來源存活）仍造成傷害；b08_endless_fang/r1/normal 重施被接受，但 invulnerable 和兩個 stun 都是 0 筆。交 A，尚未換上。
+- **A07 三招（碎擊槍、奮起、a07_rouse_free）**：0 差異。**B06 兩招（勇士、火牙）**：0 退步，b06e_stun 的淨化 8 個變通過。
+- **B29 震地**：退步 6 個。b29t_stun 暈 1.0 秒，文件寫 0.2 秒：routine b29t_strike 裡的 `$stun` 讀到同英雄另一招的 stun（1／1.3／1.6／1.9）。暈眩也被 basic 淨化掉，但文件寫 strong。交 A，尚未換上。
+- **A34**：A 用 hero_author 重產 authored_heroes 後，a34t_active 的淨化登記回到 basic，6 列 (c) 通過，已從 known_differences 刪除；(c) 歸零。
+- 已放回（known_differences）。
+
+## E282 conformance：FC-078 修正、FC-008／FC-078 補測試；A34T 修正後重跑，9 個 (c) 刪除、新增 6 個 a34t_active 淨化回歸（2026-10-30，conformance session）
+
+- **FC-078（A02W 蠍毒箭）**：拿掉目標是建築或魔免時的 `otherwise { attack }`（原作改呼叫 PerformAttack，每次出手多打一下）。quirk 改 `fixed`，刪掉重複的 port_adaptation 那條（「現行不實作 PerformAttack」），fix-candidates 打勾，`v3_fixed_quirks_test.lua` 加一項（34 項全過）。測試 `fc078_a02w_does_nothing_on_buildings` 比較蠍毒箭開與關時打建築 8 秒的出手次數與耗魔（必須相同），也檢查打一般單位時會扣魔。
+- **FC-008（B04T 種子島）**：測試 `fc008_b04t_extra_shots_keep_the_launch_aim`：每次出手後馬上把政宗移開 150，延遲追加的子彈終點必須等於同一次出手的子彈終點，飛行中也不能變。一開始用 attack_seq 判斷出手，但它變化的 tick 和子彈射出的 tick 不同；改成以新子彈出現、且距上次出手超過追加延遲窗口，來判定一次出手。
+- **注意**：harness setup 會解除兩邊攻擊（asd_count = -100）；fix_candidates 測試要下攻擊指令前必須先把 asd_count 歸零（fc046 原本就有，新測試一開始漏掉，所以 0 次出手）。
+- **A34T 重跑**：A 的 E268 修正（拿掉 host 的 cast_cooldown_refund、a34t_active 不再共用 a34_rapid_cooling 那一列）與 B 的 set_mana 改套變化量之後，r1～r3 三個觸發情境都通過：每次施法回魔只多 +100／150／200，冷卻返還 2 秒，periodic 上限有作用。known_differences 刪掉這 9 列。
+- **新回歸（交 A）**：a34t_active 在 v3 拿掉 runtime_id，但 `scripts/lua_data/templates/authored_heroes.lua` 沒有重產，仍寫 `runtime_id = "a34_rapid_cooling"`。內容的 dispel 登記因此掛在舊 key，buff a34t_active 沒有淨化類別，淨化不掉。r1～r3 的 basic／strong 共 6 列列為 (c)，修好條件是重產 lua_data 後 dispel::registry 有 a34t_active（basic）。
+- **以後**：改 v3 的 runtime_id 後要重產 lua_data；conformance 的 dispel 情境會抓到沒跟上的登記。
+- 已放回。
+
+## E281 （保留）村上義清震地斧、大地震撼從沒施放：跳躍落點技與引導大招的 bot 政策（2026-10-30，e187 遊戲模式 session；進行中）
+
+## E280 （保留）autopilot 指令化：UE 驗證局可指定 autopilot 行為（2026-10-30，e187 遊戲模式 session；進行中）
+
+## E270 conformance：已照 fix-candidates 修正的 quirk 改成照修正後行為判讀（2026-10-30，conformance session）
+
+- **做法**：10 位已移植英雄的 288 個 quirk 情境中，`policy = fixed` 的有 4 個（FC-005、FC-025、FC-046、FC-008）。quirk 文字以 FC 編號開頭、而且 `v3_conformance::fix_candidates` 有對應測試的，直接執行那個測試（catch_unwind），通過就算通過；沒有測試的記 unsupported，並註明「已修正但還沒有測試」。
+- **結果**：A07W 毫髮無傷（FC-025）、A07R 碎擊槍（FC-046）、B08R 活心（FC-005）的 quirk 情境通過。B04T 種子島（FC-008，資料本來就照意圖寫）還沒有測試，維持 unsupported。
+- **其他 quirk**：as_source 136、port_adaptation 68、note 66、no_effect 10、design_intent 2 是照原作或說明性的文字，無法機械判定。fix_candidate 2 個還沒修：A02W 蠍毒箭打建築或魔免時多打一下（FC-078），以及 B08R 第 264、268 行 hCaster 未定義（不在 fix-candidates 表，現行依字面意圖刷新持續時間）。
+- 已放回。
+
+## E269 驗證局持鎖 724 秒，超過 10 分鐘上限：--max-seconds 只從所有玩家入場後才開始計（2026-10-30，工作線 C）
+
+- **現象**：lineC-itemcue2（`run_moba_split_local --max-seconds 420`）09:13 取得 live_match 鎖，09:25 才釋放，共 724 秒。
+- **根因**：split 的時間上限從「所有玩家入場」才開始計。這局 server 子程序在鎖內先 cargo 重建 omoba-core 與各英雄 DLL（其他 session 剛改了原始碼），server 啟動到 client 啟動相隔約 331 秒，加上 420 秒的上限就超過 10 分鐘。
+- **通用修正**：`scripts/run_moba_split_local.lua` 的時間上限改為從取得鎖開始計，涵蓋建置、啟動與入場；等待 server／client 就緒時若超過上限就直接結束並說明，鎖隨之釋放。
+- **避免**：驗證局先在鎖外建好（client release、scripts workspace release、影子 stage），再開局；`--max-seconds` 填整局可接受的持鎖時間（最多 600），只跑到要觀察的事件就結束。
+
+## E268 A34 換成產生的 Rust 後副本不一致：被動標記與狀態共用一列、測試捷徑跳過 on_learn、腳本冷卻變更沒通知對手、host 退冷卻重複（2026-10-30，工作線 A）
+
+- **現象**：A34 改由 hero_a34 註冊後，base_content `omatsu_homing_slow_dot_and_cast_refund_keep_team_replicas_identical` 在 tick 6776 失敗（寒冰箭冷卻 authority 與副本差 2 秒）。conformance 另量到 A34T 每次施法退冷卻 4 秒（文件 2 秒）、回魔多一份耗魔、主動的冷卻上限沒作用。
+- **根因**（逐一以影子除錯確認）：
+  1. host content 的 `cast_cooldown_refund`（v2 abilities.lua 的 cooldown_refund_on_cast）還在，產生的被動 on_ability_executed 又退一次 → 4 秒。
+  2. soak 的 prepare 直接寫 `ability_levels`，大招沒有 SkillLearn、沒有 on_learn，authority 上沒有被動的學會標記；副本 bootstrap 會重播 SkillLearn，所以只有副本跑被動。
+  3. 產生的 `cooldown_reduce/start/end`（hero_command）不進 `committed_cooldowns`，對手隊伍的副本不跑腳本、也收不到結算後的剩餘冷卻。
+  4. `a34t_active` 的 runtime_id 寫成 `a34_rapid_cooling`，和被動的學會標記同一個 BuffStore 列：施放時 `existed` 恆為真，cap 的 periodic 從不啟動；主動結束時連標記和最大法力加成一起移除。
+  5. 回魔多一份：`set_mana` 以施法前快照寫絕對值，蓋掉同 tick 的耗魔（B 的 host_ext，已通知 B）。
+- **修正**：1 拿掉 A34 的 host 退冷卻；2 soak prepare 給的等級也排 SkillLearn；3 hero_command 的冷卻指令列入 committed_cooldowns；4 文件拿掉 runtime_id，產生器把「狀態 runtime id 等於同文件被動技能 id」列為阻擋；5 由 B 處理。
+- **以後如何避免**：換成產生的 Rust 時，一併拿掉 v2 內容裡由 host 代做的同一行為（cast_cooldown_refund 這類），換上前跑該英雄的副本一致性 soak；產生碼對 Hero 元件的任何寫入都要經 committed fact 讓對手看得到；測試捷徑不能繞過 on_learn。
+
+## E267 conformance：施放技能時的觸發（on_ability_executed）與 routine 展開；A34T 一次施放觸發兩次、冷卻上限沒作用（2026-10-30，conformance session）
+
+- **做法**：
+  - 情境產生器：觸發（triggers）的效果清單裡，`call` 展開成 routine 的動作（path `routines.<名稱>.actions[i]`，沿用呼叫處的條件）。本招一般事件裡的 `call` 不展開，否則別的招式的狀態會被當成本招的，多出大量情境（第一次試時 A07 奮起多 30 個失敗，A07 戰國最強 3 個由通過變 unsupported）。查狀態定義時也找其他條目的狀態；「施放後死亡」排除條件依賴其他狀態（`has_status(`、`stacks(`）的狀態。
+  - harness：`on_ability_executed`（被動的，或施放本招後身上狀態的）：施法者生命與法力降到一半、其他招冷卻設 30 秒，施放這位英雄的另一招（條件指名的優先），比對施法者生命、法力（扣掉 content 的 mana_cost 與同期自然回復）與其他招冷卻的變化（heal、restore_mana、set_mana、modify_cooldown reduce）。狀態的 periodic 若是 `modify_cooldown set` 到 `ability_of(...).cooldown * (1 − $cap)`：把冷卻設滿，至少等 1 秒後檢查有沒有被壓到上限。
+- **發現（c，交給 A）**：A34 阿松（產生的 Rust）施放寒冰箭一次，被動的冷卻返還（4 秒，文件 2 秒）與 a34t_active 的回魔（r1 +200，文件 100）都是兩倍，像是一次施放觸發兩次 on_ability_executed；a34t_cap 的 periodic 沒有把冷卻壓到上限。9 個情境列入 known_differences（c，負責 A）。C17 奉獻的 on_ability_executed（routine c17d_restore）通過，治療與回魔都只算一次。
+- **結果**：10 位 1722 通過、15 (b)、9 (c)、542 unsupported（已換上的招式剩下的 unsupported 只剩這 9 個 (c) 與少數說明）。和換上前的 live 相比，沒有任何通過變差。已放回。
+- **以後如何避免**：產生器加入新的展開時，要比對每份文件的情境數，確認只有預期的情境變了。
+
+## E266 道具的主動在 UE 看不到：使用道具從來沒有送出任何事實，產生碼的 cue 也丟掉了 cue id（2026-10-30，工作線 C）
+
+- **現象**：
+  - 35 件 items.dll 道具的資料齊全：圖示、上架目錄的冷卻、cue 目錄、狀態 buff 都有。
+  - 但實際使用道具主動時，UE 不會播道具自己的 cue（fire_scroll_cast、blowgun_shot、rations_restore 等）。
+- **根因**：
+  - `ObservableFact::Item` 雖然有投影，host 卻從沒發出。道具提交只推 `ScriptEvent::ItemUsed`，這是給 hook 用的，不會到 replica。
+  - v3 的 `op = "cue"` 在產生碼裡是 `cx.cue(_id, ...)`：cue id 被丟掉，只有帶半徑時才發一個通用爆炸。cue 只能靠「事實加上 UE 端的對照表」呈現。
+- **修正**：
+  - host：兩條道具提交路徑（script 與目錄）都以 `publish_successful_cast_facts` 發出 `item:<id>` 的施放事實。投影政策和英雄技能相同，只有看得到使用者的隊伍收到。
+  - bridge：查不到技能時改查上架道具，事件帶 `OM_ABILITY_EVENT_FLAG_ITEM`。
+  - UE：收到 ITEM 事件時，`AOmUnitActor::PlayItemCues` 依 `Content/Omoba/UI/item-cues-v1.json`（`scripts/item_cues.lua` 從道具文件的 `active.events.on_cast` 產生，71 件）播放使用者身上的 cue。
+- **以後**：
+  - 驗收呈現要從事實的來源追到 UE；資料表齊全，不代表畫面上有東西。
+  - 還有一個缺口：狀態的 `cue`（例如 sake_haste 的光環）也只有在英雄 presentation 有對照時才播，見 execution-status。
+
+## E265 M6 批次驗收腳本 verify_m6_batch.lua；headless 報告加逐英雄逐招統計；nobu UE 實機驗收（2026-10-30，e187 遊戲模式 session；已放回 live）
+
+- **headless 統計**（`omb/src/bin/moba_headless.rs`）：設 `OMB_HEADLESS_HERO_STATS=1` 時，報告多一個 `hero_stats` 欄位。
+  - 內容：每位英雄的 K/D/A、召喚物數，以及每一招的 bot 施放輸入、Ability 事實次數、cast_trace 結果（接受、前搖、拒絕碼、腳本錯誤）。
+  - Ability 事實和輸入一樣是每次下令都算；真正施放了幾次以 cast_trace 的 accepted 為準。
+- **批次驗收**（`scripts/verify_m6_batch.lua`）：
+
+  ```bat
+  tools\lua\lua.exe scripts\verify_m6_batch.lua --batch N [--group G] [--matches 6] [--ue]
+  tools\lua\lua.exe scripts\verify_m6_batch.lua --heroes a,b,c   :: 指定英雄（複驗已上架英雄）
+  ```
+
+  - 讀 `v3_waves.lua` 的批次，把原作編號對到 package；只用 `authored_heroes.lua` 裡已能上場的英雄，其餘列成「尚未上架」。每 10 位一組。
+  - 產生三種陣容：quick、對調、teamfight（全員走中路）。在原本的陣容上換上這批英雄，施放政策由 `bot_auto_policies` 重新推導。
+  - 建置一次（整組 script DLL 與 headless），複製到輸出目錄，平行跑。遇到 `target/locks/performance` 就等待。
+  - `--ue` 再開一局 UE 實機局（機器鎖、560 秒時限、autopilot 截圖），檢查結算畫面。
+  - 輸出 `report.md`、`report.json`：每種陣容的完成局數、這批英雄的勝場、局長中位，以及每位英雄每一招的施放統計，並標出 **NEVER CAST**（主動、大招、切換技卻從沒施放）。
+  - 試跑（live，5 位已上架英雄，每種 2 局）：全部打完；標出村上義清的震地斧、大地震撼從沒施放。批次 1 目前還沒有可上場的英雄，腳本會列出 9 位待上架。
+- **nobu UE 實機**（`target/e187/ue-nobu4`，伊達政宗由 autopilot 操作，560 秒時限到自動收尾）：
+  - UE 138 秒進場，截圖 23 張。看得到兵線、塔與建築，畫面有樹；presentation 一直是 1,564 棵樹。
+  - replica 沒有任何 mismatch。
+  - **沒拍到的**：野怪營地（autopilot 一直在上路）；砍樹與重生（autopilot 沒有在樹旁施放火焰強襲）；結算畫面（nobu 一局 40 分鐘以上，10 分鐘內不會結束；結算畫面已在 quick 的 ue-quick10 驗過）。
+  - 砍樹的正確性目前由 headless 與 replica 對拍測試（E242）、線 C 的 bridge 測試涵蓋。
+- **錯誤編號又撞號**：程式先寫 E264，結果已被 conformance 使用，改成 E265 並一起放回。
+- **以後如何避免**：
+  - 驗收統計要用「真的施放了」的來源（cast_trace），不要用每次下令都會出現的事實。
+  - 要在 UE 拍特定事件（砍樹、營地），autopilot 需要能指定行為；目前的 lane_v0 做不到，這要列為後續。
+
+## E264 conformance：施放其他技能才套上的狀態（A34T 減魔抗、B08R 活心）；harness 自己移除了這招的狀態（2026-10-30，conformance session）
+
+- **現象**：A34T 的 a34t_mr_cut（施放冰系技能命中英雄時疊一層）、B08R 的 b08r_buff（施放技能後）一直「施放後觀察不到」。
+- **做法**：套狀態的嘗試最後加一步：施放本招後，學會這位英雄的其他主動技能，逐一對敵方英雄施放，直到狀態出現。
+- **發現（a，harness）**：第一次試仍觀察不到。原因是 `Run::cast` 施放前會移除「其他技能」的學會標記 buff，而 a34t_active 的 runtime id 就是技能 id（`a34_rapid_cooling`），施放寒冰箭時把它當標記移除了。改成這段後續施放保留原本那招的 buff。
+- **結果**：A34T 減魔抗 15 個、B08R 活心 20 個轉為通過，沒有新失敗。10 位 1721 通過、15 (b)、0 (c)、553 unsupported。已放回。
+- **另記**：B04 流火突進的施法點是 0.01 秒，不到 60 Hz 的一個 tick，「施法點期間死亡」在 host 上不可能發生，維持 unsupported。
+- **以後如何避免**：harness 為了隔離而移除 buff 時，要用「學會標記」的身分判斷，不要只看 key 是否等於技能 id；狀態的 runtime id 可能和技能 id 相同。
+
+## E263 bot 通用切換技意圖 toggle_engage：讀英雄自己的開啟標記狀態決定開關（2026-10-30，e187 遊戲模式 session；已放回 live）
+
+- **背景**：host 沒有通用的切換狀態。產生的程式用「施法者身上有沒有 `on_toggle_on` 套上的狀態」決定這次施放是開還是關，例如稻姬毒箭的 `attack_orb:a02_venom_arrow`。
+- **做法**（放回 3 個檔）：
+  - `bots/abilities.rs`：新增 `ToggleEngage {threat_radius, on_status}`。
+    - 只接受 ability_type 為 Toggle、目標為 none 的技能；切換技也只能用這個意圖。
+    - 威脅範圍內有敵方英雄而且還沒開，就施放去開；沒有敵方英雄而且開著，就施放去關。其他情況不施放。
+  - 選擇函式多一個參數，只能讀**自己英雄**身上的狀態（`bots.rs` 傳入 BuffStore 查詢）。
+  - `bot_auto_policies.lua`：接受 toggle_engage 提示。提示若沒有 `on_status`，暫時用該招 v3 狀態中第一個不含 `{caster}` 的 runtime id；已請線 A 由 `v3_bot.lua` 直接產生 `on_status`。
+- **測試**：bots 81 項全過，新增 `toggle_engage_switches_by_threat_and_the_owners_own_marker`（開、已開、關、小兵不算、超出範圍）。
+- **量測**（quick，seed 1～6，兩種排法）：毒箭每局開關 2～18 次，全部被接受；陣容 A 勝 7/12。
+- **錯誤編號**：程式先寫 E261，寫紀錄前發現已被占用，改成 E263（這次在放回前就改好了）。
+
+## E262 conformance：狀態的 on_created 傷害用 DamageTrace 的 path 判斷；A34 阿松換成產生的 Rust 前後 0 退步（2026-10-30，conformance session）
+
+- **做法（harness）**：持有者身上狀態的 `on_created` 觸發只有對持有者自己的傷害（cue 不計）時，從 DamageTrace 找 `statuses.<id>.triggers.on_created[i]` 這條 path 的傷害，要 Applied，結算前的量等於文件。有其他效果的記 unsupported；找不到帶 path 的紀錄（手寫 handler）也記 unsupported。
+- **結果**：C17W 光之鎖鏈的 c17w_root on_created 傷害 r1～r4 通過。C15T 的 c15t_stun 仍是手寫 handler，記 unsupported。
+- **A34 阿松換上 live**：和換上前的 live 逐筆比，21 個差異和影子的預測完全相同：6 個 passive_stats 由 unsupported 轉為通過、15 個只有說明不同，0 退步、0 fail。
+- **合計**：10 位 1686 通過、15 (b)、0 (c)、588 unsupported；A13 100 通過、12 fail（替身術）。已放回。
+
+## E261 items.dll 載入時 panic：道具文件裡的子技能不在技能 catalog（2026-10-30，工作線 A）
+
+- **現象**：burn_mana source 與 dodge 解除後，base_content 測試程序異常中止：`ninja1_flash: not in the compiled catalog`，並出現「Attempted to panic across the ffi boundary」（items/src/lib.rs）。
+- **根因**：道具文件也宣告一般技能（道具附帶的子技能）。它們一能產生，registry 就呼叫 `ability_ffi`，但這類技能不在 templates 的技能 catalog，所以 panic；在 DLL 邊界上 panic 會讓整個程序中止。
+- **修正**：有道具的文件裡，一般技能改用 `ability_ffi_opt`（catalog 沒有就回傳 None、不註冊）。道具本身原本就是 `item_ffi`（Option）。
+- **以後**：DLL 匯出的 registry 一律不 panic，查不到就不註冊。放回產生器修改後，除了 cargo check 也要跑一次載入 manifest 的測試（base_content 任一個施放測試就會載入 items.dll）。
+## E260 bot 施放政策改成從 v3 推導的 bot 提示自動補齊；新增召喚意圖 summon_near_enemy；直線技改讀 shape_width（2026-10-30，e187 遊戲模式 session；已放回 live）
+
+- **做法**（放回 3 個檔）：
+  - 新檔 `scripts/lua_data/bot_auto_policies.lua`：陣容設定匯出時，每位上場英雄的每一招，只要沒有手寫政策，就採用 `authored_heroes.lua` 的 `v3.bot` 提示（由 `docs/character_pipeline/tools/v3_bot.lua` 從 v3 文件推導）。
+    - 用和 Rust 端相同的條件過濾：主動或大招、瞬發、目標型別相符、`*_key` 指的 extras 存在。執行器沒有的意圖不採用。
+    - 英雄的招式清單同時讀 `heroes` 與 `hero_updates`（雜賀孫市、伊達政宗屬於後者）。
+    - 手寫政策保留，而且優先。
+  - `moba_role_match.lua` 改呼叫它；陣容 quick 的政策從 23 條變成 32 條。
+  - `bots/abilities.rs`：
+    - 新增 `SummonNearEnemy {threat_radius}`：目標是點的召喚技，威脅範圍內有敵方英雄或小兵時，對最近的那個施放；超出施法距離時，往它的方向、在施法距離處施放。
+    - 直線技（EnemyLine）的寬度：編譯好的 `line_widths` 只有舊的 LineDamage 效果才有值，產生 Rust 的技能都是 0，所以 3 條直線政策被驗證擋下（踏火、天牙、冰霜吐息）。改成 0 時讀 `shape_width` extras。
+- **現象**：第一次量測整批 headless 開不了局，訊息是「bot ability intent does not match target type」。逐條加入、逐條開局，找出是 enemy_line 的這 3 招。
+- **測試**：bots 80 項全過，新增 `summon_near_enemy_casts_at_or_toward_the_nearest_threat`。
+- **量測**（quick，seed 1～12，原陣容與對調各 12 局，共 24 局）：
+  - 陣容 A（含雜賀孫市）勝 14，陣容 B 勝 10。之前是 3/12，更早是 2/24。
+  - 雜賀眾召喚 6 局施放 146 次，雜賀孫市擊殺 19。
+  - 局長中位 6～7 分。
+- **還沒做**：
+  - 切換技 `toggle_engage`（稻姬毒箭）要讀英雄自己的 buff，選擇函式目前拿不到，還沒支援。
+  - `v3_bot.lua` 的 `KINDS` 還把 summon_near_enemy 標成 proposed，已請線 A 拿掉；Lua 端目前是特別放行。
+- **以後如何避免**：
+  - 從 Lua 自動產生要交給 Rust 嚴格驗證的資料時，Lua 端的過濾要照抄 Rust 的驗證條件。
+  - 驗證失敗要能指出是哪一條政策；這次靠逐條開局才找到。
+
+## E258 工作線 B：共用的選取函式加了魔免排除，連帶讓穿透魔免的大地震撼選不到魔免英雄（2026-10-30）
+
+- **現象**：base_content `piercing_hero_skills_on_magic_immune_heroes_keep_team_replicas_identical` 從 M3'（5a684594）起失敗，斷言「大地震撼 stunned the magic-immune hero」。tick 300 起 p1 魔免，大地震撼引導期間的地震波一直沒打到 p1；直到魔免結束的 tick 520 才第一次打中。
+- **根因**：E226 依原作 FindUnitsInRadius 預設，讓 B29W 動地斧的 `enemy_units_in_circle` 排除魔免與無敵。但大地震撼（No4，SPELL_IMMUNITY_ENEMIES_YES）`use` 的也是同一個函式，結果穿透魔免的大招在選目標時就把魔免英雄排除了。暈眩 payload 帶 `__pierces_magic_immunity`，BuffStore 本來會收下，只是根本沒送到。
+- **修正**：No1 加 `enemy_units_in_circle_with(.., include_magic_immune)`，No4 傳 true（無敵照樣排除）。測試不改，base_content 590 全過。
+- **以後**：改共用選取函式的目標規則時，先找出所有呼叫者，逐一核對各招的穿透旗標（`pierce_magic_immune`／`pierces_magic_immunity`）。依招式而異的規則要做成參數，不要寫死在共用函式裡。另外，看到「狀態沒套上」先確認目標有沒有被選到，再查 host 准入。
+
+## E259 工作線 B：新增的 StatKey 與既有字串鍵撞名，減速抗性被套用兩次（2026-10-30）
+
+- **現象**：新增 `StatKey::SlowResistance`（字串 `slow_resistance`）時，又在 `UnitStats::final_move_speed` 縮小一次負的移速百分比。但 `damage_immunity::resist` 早已用同一個字串鍵 `slow_resistance`，在套用減速時就縮小過。兩者同時生效，減速抗性等於套了兩次。
+- **根因**：新增 StatKey 前只查了 `stat_keys.rs`，沒有在 omoba-core 全域搜尋同名的字串鍵。
+- **修正**：拿掉 final_move_speed 那段，`slow_resistance_pct` 只作為既有鍵的 v3 名稱（StatKey 保留，給產生器與文件用），測試改成只驗 cast_point_reduction。
+- **以後**：新增 StatKey 或 payload 鍵之前，用 `rg '"<字串>"' omoba-core scripts` 確認沒有手寫的同名鍵；有的話沿用既有的機制。
+
+## E257 conformance：被動的普攻命中事件（DamageTrace 的 path）；產生碼與情境的 effect path 寫法不一致（2026-10-30，conformance session）
+
+- **做法（harness）**：學會的被動 `event on_attack_hit` 有對 `event.target` 的傷害時，施法者普攻敵方英雄，從 DamageTrace 找這條 v3 path 的傷害，要是 Applied。傷害量是數字時直接比；是 `self.attack * select(... $hero_pct ...)` 時，和同一 tick、同一次普攻本身那筆（沒有 path）的結算前量乘上 hero_pct 比（誤差 2%）。找不到帶這條 path 的紀錄時記 unsupported，因為手寫 handler 不帶 path。
+- **發現（交給 A）**：effect path 兩邊寫法不同。觸發的動作，產生碼寫 `passive.triggers.on_attack_hit.actions[1]`，情境寫 `passive.triggers.on_attack_hit[1]`；狀態，產生碼寫 `statuses[1]…`，情境寫 `statuses.<id>…`。harness 先把前一種視為相同；後一種還沒對應。
+- **結果**：B01R 雨鐵炮 r1～r4 通過（附加傷害 17.1／30.9／41.1／51.5，等於該次普攻 × hero_pct）。10 位 1676 通過、15 (b)、0 (c)、598 unsupported；手寫 handler 模式下這 4 個是 unsupported（手寫版不帶 path），其餘 0 差異。已放回。
+- **以後如何避免**：兩個產生器都要輸出同一份資料的定位字串時，要先約定格式，並各自有測試對照。
+
 ## E256 conformance：友方英雄當目標（C17W 光之鎖鏈的友方分支）（2026-10-30，conformance session）
 
 - **現象**：C17W 對友方施放的 guard 狀態、`normal/ally` 共 24 個情境一直 unsupported。測試世界固定兩位英雄（施法者與敵方的 training_luminary），沒有友方英雄可以當目標。
@@ -11,9 +193,30 @@
 - **結果**：C17W r1～r4 的 guard（驅散、死亡、到期、可見性）與 normal/ally 共 24 個轉為通過，沒有新失敗。10 位：1672 通過、15 (b)、0 (c)、602 unsupported；產生版與手寫 0 差異。已放回。
 - **以後如何避免**：測試世界缺某種單位時，先看敵友是怎麼判定的；能用既有單位改陣營模擬，就不需要另外生英雄。
 
-## E255 陣容 A 一直輸：雜賀孫市、村上義清在 bot 施放政策裡一條都沒有，bot 從不放技能；M3' 的產生 Rust 沒有變差（2026-10-30，e187 遊戲模式 session；進行中）
+## E255 陣容 A 一直輸：雜賀孫市、村上義清在 bot 施放政策裡一條都沒有，bot 從不放技能；M3' 的產生 Rust 沒有變差（2026-10-30，e187 遊戲模式 session；已放回 live）
 
-- 編號先占用，內容完成後補上。
+- **問題**：主 session 懷疑 M3' 讓 B01、C17 變弱，因為一直輸的陣容 A 正好有這兩位，而 base_content 的 27 項失敗也都在他們身上。
+- **比較方法**：
+  - 722630e4（M3' 前）與目前 live 各建一份 headless，各加同一段只在影子使用的統計（環境變數開啟，不放回）。
+  - 統計內容：bot 每格施放輸入、成功施放（Ability 事實）、召喚物、KDA；live 另外讀 cast_trace 的拒絕碼。
+  - quick 原陣容，同 seed 1～6。nobu 在 722630e4 時還沒有 24 營與樹，無法公平比較，所以沒比。
+  - 傷害量不到：`DirectCombat` 事實不涵蓋普攻傷害，統計值全是 0。
+- **結果**：
+  - C17 阿市：兩版施放數相近（神聖打擊 132／114、勝利祝福 150／142），全部被接受，cast_trace 沒有任何拒絕。
+  - B01 雜賀孫市：**兩版都是 0 次施放輸入**。陣容設定 `moba_role_match.lua` 裡完全沒有 B01 的政策，村上義清（B29）也沒有。陣容 B 有 10 條政策，陣容 A 只有 7 條，而且集中在阿市與淺井。
+  - 兩版的 KDA 也相近（例如淺井 1/34/0 對 1/30/2）。M3' 沒有讓產生版變差。
+- **修正**：照 `authored_heroes.lua` 推導的 `bot` 提示，補上 bot 已支援的政策。
+  - 地裂：self_area。
+  - 震地斧：enemy_point。
+  - 狙擊模式、三段擊、種子島：self_engage。
+  - 雜賀眾的 summon_near_enemy，以及直線衝刺類的 approach_enemy_point／enemy_line，bot 還沒有這些意圖，所以沒加。
+- **量測**（quick，6＋6 局）：
+  - 雜賀孫市 KDA 從 1/2/1 變成 13/4/5；狙擊模式施放 45 次、三段擊 9 次。
+  - 陣容 A 的勝率從 2/24 升到 3/12。
+  - 試過把「只打打得過的營地」推廣到所有地圖，對 quick 沒有幫助，已撤回。
+- **以後如何避免**：
+  - 一面倒時先比對兩組陣容「有施放政策的技能數」與實際施放次數，再懷疑英雄實作。
+  - 新英雄上架時，陣容設定要跟著補上政策；`authored_heroes.lua` 的 `bot` 提示可以直接照抄。
 
 ## E254 conformance：B 修正控制列後 8 筆 (c) 通過並刪除；harness 接上 CastTrace（2026-10-30，conformance session）
 

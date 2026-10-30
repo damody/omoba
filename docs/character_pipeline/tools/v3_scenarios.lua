@@ -71,6 +71,13 @@ local function ref_list(set)
 end
 
 -- every action of a program tree, in order, with its path and enclosing conditions
+-- The document being built: in a trigger's effects, `call` expands into its routine's actions
+-- (E267). An entry's own events keep the call as one effect: the statuses and scenarios an entry
+-- gets come from what it applies itself, not from the routines it shares with other entries.
+local current_doc
+local expanding = {}
+local expand_calls = false
+
 local function walk_program(prog, path, phase, conds, out)
   for i, a in ipairs(prog or {}) do
     local here = path .. "[" .. i .. "]"
@@ -84,6 +91,14 @@ local function walk_program(prog, path, phase, conds, out)
       end
     end
     out[#out + 1] = { op = a.op, path = here, phase = phase, conds = #conds > 0 and conds or nil, args = next(args) and args or nil }
+    -- A call runs its routine's actions here (E267): they carry the call's conditions and the
+    -- routine's own path (`routines.<name>.actions[i]`, as the generated Rust tags them).
+    local routine = expand_calls and a.op == "call" and current_doc and current_doc.routines and current_doc.routines[a.routine]
+    if routine and not expanding[a.routine] then
+      expanding[a.routine] = true
+      walk_program(routine.actions or routine, "routines." .. a.routine .. ".actions", phase, conds, out)
+      expanding[a.routine] = nil
+    end
     for _, k in ipairs(nested) do
       local c = {}
       for j, x in ipairs(conds) do c[j] = x end
@@ -113,7 +128,10 @@ local function trigger_effects(trig, path, phase)
   local out = {}
   local conds = {}
   if trig.filter then conds[1] = trig.filter end
+  local was = expand_calls
+  expand_calls = true
   walk_program(trig.actions or trig, path, phase, conds, out)
+  expand_calls = was
   return out
 end
 
@@ -121,6 +139,11 @@ end
 local function status_index(doc, def)
   local by = {}
   for _, s in ipairs(doc.statuses or {}) do by[s.id] = s end
+  -- A routine an entry calls may apply another entry's status (A34W's on-hit routine puts on
+  -- A34T's resist shred; E267): every entry's statuses are known, the entry's own win.
+  for _, list in ipairs({ doc.abilities or {}, doc.items or {} }) do
+    for _, e in ipairs(list) do for _, s in ipairs(e.statuses or {}) do by[s.id] = by[s.id] or s end end
+  end
   for _, s in ipairs(def.statuses or {}) do by[s.id] = s end
   return by
 end
@@ -364,6 +387,9 @@ local function entry_scenarios(doc, def, entry_kind, out)
           if side == "enemy" and c == "not (is_enemy(caster, target))" then return false end
           if side == "ally" and c == "is_enemy(caster, target)" then return false end
           if c:match("^[%w_]+%.on_expire$") or c:match("^delay%.") or c:match("^repeat%.") then return false end
+          -- Applied only when some other status is up (A34W's routine adds A34T's shred only under
+          -- a34t_active; E267): this scenario does not set that up.
+          if c:find("has_status(", 1, true) or c:find("stacks(", 1, true) then return false end
         end
         return true
       end
@@ -492,6 +518,7 @@ end
 -- doc -> { schema, id, kind, scenarios }
 function M.build(doc, opts)
   opts = opts or {}
+  current_doc = doc
   local out = {}
   for _, a in ipairs(doc.abilities or {}) do
     if a.coverage ~= "deferred" then entry_scenarios(doc, a, "ability", out) end

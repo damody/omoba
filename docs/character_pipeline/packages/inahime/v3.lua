@@ -52,12 +52,9 @@ return function(ctx)
                     { op = "toggle_ability", of = "self", ability = "a02_venom_arrow", on = false },
                   },
                   otherwise = {
+                    -- FC-078（D13）：建築與魔免不作用（原作改呼叫 PerformAttack，每次出手多打一下）
                     { op = "if", cond = "not event.target.is_building and not event.target.is_magic_immune",
-                      actions = { { op = "spend_mana", from = "self", amount = "$mana_per_attack", ability = "a02_venom_arrow" } },
-                      otherwise = {
-                        { op = "attack", attacker = "self", target = "event.target", use_orb = false, trigger_effects = false,
-                          instant = false, cannot_miss = false },
-                      } },
+                      actions = { { op = "spend_mana", from = "self", amount = "$mana_per_attack", ability = "a02_venom_arrow" } } },
                   } },
               } },
               on_attack_hit = {
@@ -88,8 +85,6 @@ return function(ctx)
         quirks = {
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A02.lua:36-43",
             text = "攻擊開始時先檢查法力不足（關閉並 return，該次不附加），目標不是建築才扣法力；host 在攻擊前搖開始（AttackPhaseCue）結算，前搖被取消也已扣魔。" },
-          { policy = "port_adaptation", ref = "vscripts/heroes/A_Oda/A02.lua:45",
-            text = "打建築時原作另呼叫 PerformAttack 補一次不觸發法球的普攻；引擎沒有腳本發動普攻的 API，現行不實作（needs_framework）。" },
           { policy = "as_source", ref = "vscripts/library/common/dummy.lua:866-902",
             text = "攻速減益是 slow_self 的攻速常數點數，多來源只取最強（host aggregation family slow_self_attack_speed）；移速減益依來源乘法疊加。" },
           { policy = "note", ref = "npc/A_Oda/A02.txt:42",
@@ -101,8 +96,8 @@ return function(ctx)
           -- 以下由 census-v3 移入
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A02.lua:36-39",
             text = "法力檢查在 OnAttackStart（前搖開始），在建築判定之前：對建築出手時法力不足也會關閉。扣魔也在前搖開始，攻擊被取消仍然扣魔。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A02.lua:41-46",
-            text = "目標是建築或魔免時不扣魔，改呼叫 PerformAttack(target, false, false, false, false, true, false, false)：在前搖開始時立刻多射出一發不觸發法球與攻擊特效的普通攻擊，原本那一擊照常進行，等於對建築與魔免單位每次出手打兩下。註解寫「當目標是英雄或小兵才作用」，推定意圖只是不作用，不是加倍攻擊。資料照原作寫 attack。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A02.lua:41-46",
+            text = "FC-078（D13 修正：對建築與魔免單位不作用，不扣魔也不多打一下）。原作：目標是建築或魔免時不扣魔，改呼叫 PerformAttack(target, false, false, false, false, true, false, false)：在前搖開始時立刻多射出一發不觸發法球與攻擊特效的普通攻擊，原本那一擊照常進行，等於對建築與魔免單位每次出手打兩下。註解寫「當目標是英雄或小兵才作用」，推定意圖只是不作用，不是加倍攻擊。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A02.lua:49-69",
             text = "OnAttackLanded 只排除建築與魔免，不分敵我：反補友方小兵也會附加毒傷與緩速。傷害走 ApplyDamage（不經 AMHC），稻姬在箭飛行中死亡仍會造成傷害。攻擊落空不觸發 OnAttackLanded。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A02.lua:22-69",

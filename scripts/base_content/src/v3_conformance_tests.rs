@@ -165,12 +165,15 @@ struct Run {
     held_at_death: Vec<(specs::Entity, String)>,
     /// A point cast aims here instead of at the target (no_unit_in_line: the target stands aside).
     aim: Option<omoba_sim::Vec2>,
+    /// An ability whose own buff stays while other entries are cast (its status keyed by its id; E264).
+    keep: Option<String>,
     /// The tick the harness killed the caster after the cast (damage_skipped_if_source_dead).
     died_at: Option<u64>,
 }
 
 impl Run {
     fn hero<R>(&self, f: impl FnOnce(&Hero) -> R) -> R { f(self.world.read_storage::<Hero>().get(self.caster).unwrap_or(&self.last)) }
+    fn mana_max(&self) -> Option<f64> { self.hero(|h| h.mana_pool.as_ref().map(|pool| real(pool.maximum()))) }
     fn mana(&self) -> f64 { self.hero(|h| h.mana_pool.as_ref().map_or(0.0, |pool| real(pool.current()))) }
     fn cooldown(&self) -> f64 { let entry = self.entry.clone(); self.hero(|h| real(h.get_cooldown(&entry))) }
     /// The entry's stored charges, for a charge ability (E229).
@@ -229,7 +232,7 @@ impl Run {
         let others: Vec<String> = self.hero(|h| h.abilities.iter().chain(h.ability_levels.keys()).filter(|id| **id != self.entry).cloned().collect());
         {
             let mut buffs = self.world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
-            for id in &others { buffs.remove(self.caster, id); }
+            for id in others.iter().filter(|id| self.keep.as_deref() != Some(id.as_str())) { buffs.remove(self.caster, id); }
         }
         // Every cast starts from the scenario's positions (a dash or blink moved the caster).
         let origin = omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(isolated_skill_origin_y()));
@@ -410,7 +413,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     }
     let last = world.read_storage::<Hero>().get(caster).unwrap().clone();
     let target_at = world.read_storage::<Pos>().get(target).map(|pos| pos.0).unwrap_or(at);
-    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim: clear_line.then_some(at) };
+    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim: clear_line.then_some(at), keep: None };
     // Let auto-learn settle the ranks set above (it learns passives at their hero level).
     run.step(2);
     if passive {
@@ -519,6 +522,276 @@ fn deathless(run: &Run, unit: specs::Entity) -> bool {
     DEATHLESS.with(|ids| ids.borrow().iter().any(|id| buffs.iter_for(unit).any(|(key, _)| omoba_core::runtime::native::dispel::runtime_id_matches(id, key))))
 }
 
+/// A quirk the port fixed (fix-candidates.md, D13; E270): its text starts with the FC id, and the
+/// behavior the fix stands for is that FC's own test (`fix_candidates`), run here.
+fn check_fixed_quirk(s: &Value) -> Option<Verdict> {
+    let quirk = s["expect"].as_array()?.iter().find(|e| e["kind"] == "quirk_policy")?;
+    if quirk["policy"] != "fixed" { return None; }
+    let text = quirk["text"].as_str().unwrap_or("");
+    let fc = text.strip_prefix("FC-")?.get(..3)?;
+    let test: fn() = match fc {
+        "005" => fix_candidates::fc005_b08_casts_keep_other_shields,
+        "025" => fix_candidates::fc025_a07w_cancels_lethal_non_physical_damage,
+        "046" => fix_candidates::fc046_a07r_crits_after_misses_in_a_row,
+        "008" => fix_candidates::fc008_b04t_extra_shots_keep_the_launch_aim,
+        "078" => fix_candidates::fc078_a02w_does_nothing_on_buildings,
+        _ => return Some(Verdict::Unsupported(format!("FC-{fc} is fixed but has no test here yet"))),
+    };
+    match std::panic::catch_unwind(test) {
+        Ok(()) => Some(Verdict::PassNoted(format!("FC-{fc}: fix_candidates test passed"))),
+        Err(e) => Some(Verdict::Fail(format!("FC-{fc}: {}", e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default()))),
+    }
+}
+
+/// `$owner.name`／`$name` → its number for an expression (`pct` values as fractions), and the
+/// unit's `max_hp`／`max_mana`／`mana`; None when anything is left unresolved (E267).
+fn amount_of(text: &str, entry: &str, rank: usize, unit: &[(&str, f64)]) -> Option<f64> {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(i) = rest.find('$') {
+        out.push_str(&rest[..i]);
+        let tail = &rest[i + 1..];
+        let end = tail.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.')).unwrap_or(tail.len());
+        let name = &tail[..end];
+        let (owner, value_name) = match name.split_once('.') { Some((o, n)) => (o, n), None => (entry, name) };
+        let raw = value(owner, rank, value_name)?;
+        let pct = value_unit(owner, &json!(format!("${value_name}"))).as_deref() == Some("pct");
+        out.push_str(&format!("{}", if pct { raw / 100.0 } else { raw }));
+        rest = &tail[end..];
+    }
+    out.push_str(rest);
+    for (name, v) in unit { out = out.replace(name, &format!("{v}")); }
+    eval(&out, entry, rank)
+}
+
+/// A cast of another ability fires the entry's `on_ability_executed` (E267): a learned passive's,
+/// or that of a status the entry put on the caster. With the caster at half life and mana and the
+/// other abilities cooling down, one of the hero's other abilities is cast at the enemy hero; the
+/// caster's life, mana and those cooldowns change by what the effects say (`heal`／`restore_mana`
+/// to the caster or its allies, `set_mana` to min(mana + x, max), `modify_cooldown reduce`).
+fn check_ability_executed(hero: &str, s: &Value) -> Option<Verdict> {
+    let (entry, rank) = (s["entry"].as_str()?.to_owned(), s["rank"].as_u64()? as usize);
+    let effects: Vec<Value> = s["expect"].as_array()?.iter().find(|e| e["kind"] == "effects")?["effects"].as_array()?.clone();
+    let known = ["if", "let", "for_each", "cue", "call", "heal", "restore_mana", "set_mana", "modify_cooldown"];
+    if let Some(other) = effects.iter().find(|f| !known.contains(&f["op"].as_str().unwrap_or(""))) { return Some(Verdict::Unsupported(format!("on_ability_executed {}", other["op"]))); }
+    // The ability cast: one the conditions name (`is_ability(event.ability, x)`), else any other.
+    let named: Vec<String> = effects.iter().flat_map(|f| f["conds"].as_array().cloned().unwrap_or_default())
+        .filter_map(|c| c.as_str().map(str::to_owned)).flat_map(|c| c.split("is_ability(event.ability, ").skip(1).filter_map(|t| t.split(')').next().map(str::to_owned)).collect::<Vec<_>>())
+        .collect();
+    let learn = json!({"entry": entry, "rank": rank, "given": [{"kind": "learned", "entry": entry, "rank": rank}], "expect": [{"kind": "passive_stats"}]});
+    let mut run = match setup(hero, &learn) { Ok(run) => run, Err(e) => return Some(Verdict::Unsupported(e)) };
+    // A status's trigger: the entry is cast first and its status must be on the caster.
+    if s["when"][0]["kind"] == "status_event" {
+        let runtime_id = s["given"].as_array()?.iter().find(|g| g["kind"] == "status_on_unit")?["runtime_id"].as_str()?.to_owned();
+        let kind = omoba_template_ids::ability_by_name(&entry).and_then(omoba_template_ids::active_ability_const).map(|c| c.target_type);
+        let aim = match kind { Some(omoba_template_ids::TargetTypeC::Unit) => "unit", Some(omoba_template_ids::TargetTypeC::Point) => "point", _ => "none" };
+        let _ = run.cast(aim, value(&entry, rank, "cast_point").unwrap_or(0.0) + 1.0, None);
+        if !holds(&run, run.caster, &runtime_id) { return Some(Verdict::Unsupported(format!("{runtime_id} not on the caster after casting"))); }
+    }
+    let (entry_id, entry_slot) = (run.entry.clone(), run.slot);
+    let abilities: Vec<(u32, String)> = run.hero(|h| h.abilities.iter().enumerate().filter(|(_, id)| **id != entry_id).map(|(i, id)| (i as u32, id.clone())).collect());
+    let castable = |id: &str| omoba_template_ids::ability_by_name(id).and_then(omoba_template_ids::active_ability_const).is_some();
+    let Some((slot, trigger)) = abilities.iter().find(|(_, id)| castable(id) && (named.is_empty() || named.contains(id))).cloned()
+        else { return Some(Verdict::Unsupported("no other ability to cast".into())) };
+    // What to expect.
+    let caster = run.caster;
+    let (max_hp, max_mana) = (run.world.read_storage::<CProperty>().get(caster).map(|p| real(p.mhp))?, run.mana_max()?);
+    let unit = [("it.max_hp", max_hp), ("self.max_hp", max_hp), ("it.max_mana", max_mana), ("self.max_mana", max_mana)];
+    let (mut heal, mut mana, mut refunds) = (0.0, 0.0, Vec::<(String, f64)>::new());
+    for f in &effects {
+        let to = f["args"]["to"].as_str().unwrap_or("");
+        match f["op"].as_str().unwrap_or("") {
+            "heal" if to == "it" || to == "self" => heal += amount_of(f["args"]["amount"].as_str()?, &entry, rank, &unit)?,
+            "restore_mana" if to == "it" || to == "self" => mana += amount_of(f["args"]["amount"].as_str()?, &entry, rank, &unit)?,
+            "set_mana" if to == "self" => {
+                let inner = f["args"]["value"].as_str()?.strip_prefix("min(self.mana + ")?.strip_suffix(", self.max_mana)")?;
+                mana += amount_of(inner, &entry, rank, &unit)?;
+            }
+            "modify_cooldown" if f["args"]["mode"] == "reduce" && f["args"]["of"] == "self" => {
+                let ability = f["args"]["ability"].as_str()?.to_owned();
+                // `not is_ability(event.ability, x)`: the cast ability's own cooldown is not refunded.
+                if ability != trigger { refunds.push((ability, amount_of(f["args"]["amount"].as_str()?, &entry, rank, &unit)?)); }
+            }
+            "heal" | "restore_mana" | "set_mana" | "modify_cooldown" => return Some(Verdict::Unsupported(format!("{} to {to}", f["op"]))),
+            _ => {}
+        }
+    }
+    if heal == 0.0 && mana == 0.0 && refunds.is_empty() { return Some(Verdict::Unsupported("nothing on_ability_executed changes that is read here".into())); }
+    // Half life and mana, the other abilities cooling down for 30 s.
+    {
+        let mut props = run.world.write_storage::<CProperty>();
+        if let Some(p) = props.get_mut(caster) { p.hp = p.mhp / Fixed64::from_i32(2); }
+    }
+    {
+        let mut heroes = run.world.write_storage::<Hero>();
+        let h = heroes.get_mut(caster)?;
+        h.ability_levels.insert(trigger.clone(), 1);
+        h.ability_cooldowns.clear();
+        for (ability, _) in &refunds {
+            h.ability_cooldowns.insert(ability.clone(), Fixed64::from_i32(30));
+            h.ability_cooldown_totals.insert(ability.clone(), Fixed64::from_i32(30));
+        }
+        if let Some(pool) = h.mana_pool.as_mut() { let max = pool.maximum(); if let Ok(half) = omoba_core::runtime::ability_runtime::ManaPool::new(max / Fixed64::from_i32(2), max) { *pool = half; } }
+    }
+    let hp = |run: &Run| run.world.read_storage::<CProperty>().get(caster).map(|p| real(p.hp)).unwrap_or(0.0);
+    let cd = |run: &Run, id: &str| run.hero(|h| real(h.get_cooldown(id)));
+    // Natural regeneration over the same time is taken out: its rate over half a second first.
+    let (hr0, mr0) = (hp(&run), run.mana());
+    run.step(30);
+    let (hp_rate, mana_rate) = ((hp(&run) - hr0) / 0.5, (run.mana() - mr0) / 0.5);
+    let (h0, m0, t0) = (hp(&run), run.mana(), run.world.read_resource::<Tick>().0);
+    let c0: Vec<f64> = refunds.iter().map(|(id, _)| cd(&run, id)).collect();
+    let kind = omoba_template_ids::ability_by_name(&trigger).and_then(omoba_template_ids::active_ability_const).map(|c| c.target_type);
+    let aim = match kind { Some(omoba_template_ids::TargetTypeC::Unit) => "unit", Some(omoba_template_ids::TargetTypeC::Point) => "point", _ => "none" };
+    run.target = run.enemy;
+    run.keep = Some(entry_id.clone());
+    run.entry = trigger.clone();
+    run.slot = slot;
+    let cast = run.cast(aim, value(&trigger, 1, "cast_point").unwrap_or(0.0) + 1.0, None).ok()?;
+    run.entry = entry_id;
+    run.slot = entry_slot;
+    run.keep = None;
+    if !cast.accepted { return Some(Verdict::Unsupported(format!("{trigger} was not cast{}", cast.why()))); }
+    run.step(3);
+    let elapsed = (run.world.read_resource::<Tick>().0 - t0) as f64 / 60.0;
+    let mut wrong = Vec::new();
+    let healed = hp(&run) - h0 - hp_rate * elapsed;
+    if heal > 0.0 && (healed - heal).abs() > (heal * 0.03).max(3.0) { wrong.push(format!("life +{healed:.1}, expected +{heal:.1}")); }
+    if mana > 0.0 {
+        // The cast's own cost (from content: a restore in the same tick nets against it).
+        let cost = value(&trigger, 1, "mana_cost").unwrap_or(cast.mana_spent);
+        let got = run.mana() - m0 + cost - mana_rate * elapsed;
+        if (got - mana).abs() > (mana * 0.03).max(3.0) { wrong.push(format!("mana +{got:.1} besides the cost, expected +{mana:.1}")); }
+    }
+    for ((id, refund), before) in refunds.iter().zip(&c0) {
+        let drop = before - cd(&run, id) - elapsed;
+        if (drop - refund).abs() > 0.1 { wrong.push(format!("{id} cooldown -{drop:.2} besides time, expected -{refund}")); }
+    }
+    if wrong.is_empty() { Some(Verdict::PassNoted(format!("cast {trigger}: life {heal:.0}, mana {mana:.0}, refunds {}", refunds.len()))) }
+    else { Some(Verdict::Fail(format!("on_ability_executed after {trigger}: {}", wrong.join("; ")))) }
+}
+
+/// A status's `periodic` that caps cooldowns (A34T's a34t_cap; E267): `let x = ability_of(caster, a)
+/// .cooldown * (1 - $cap)` then `modify_cooldown set x` when the remaining is above it. With the
+/// status on and `a` at its full cooldown, one interval later its remaining is at most the cap.
+fn check_cooldown_cap(hero: &str, s: &Value) -> Option<Verdict> {
+    let (entry, rank) = (s["entry"].as_str()?.to_owned(), s["rank"].as_u64()? as usize);
+    let effects: Vec<Value> = s["expect"].as_array()?.iter().find(|e| e["kind"] == "effects")?["effects"].as_array()?.clone();
+    if effects.iter().any(|f| !["let", "if", "modify_cooldown", "call", "cue"].contains(&f["op"].as_str().unwrap_or(""))) { return None; }
+    let mut caps = Vec::new();
+    for f in effects.iter().filter(|f| f["op"] == "modify_cooldown" && f["args"]["mode"] == "set") {
+        let name = f["args"]["amount"].as_str()?;
+        let value_text = effects.iter().find(|l| l["op"] == "let" && l["args"]["name"] == name)?["args"]["value"].as_str()?;
+        let ability = value_text.strip_prefix("ability_of(caster, ")?.split(')').next()?.to_owned();
+        let frac = amount_of(value_text.split_once(".cooldown * ")?.1, &entry, rank, &[])?;
+        caps.push((ability, frac));
+    }
+    if caps.is_empty() { return None; }
+    let interval = expr(&s["when"][0]["interval"], &entry, rank).ok()?;
+    let runtime_id = s["given"].as_array()?.iter().find(|g| g["kind"] == "status_on_unit")?["runtime_id"].as_str()?.to_owned();
+    let learn = json!({"entry": entry, "rank": rank, "given": [{"kind": "learned", "entry": entry, "rank": rank}], "expect": [{"kind": "passive_stats"}]});
+    let mut run = match setup(hero, &learn) { Ok(run) => run, Err(e) => return Some(Verdict::Unsupported(e)) };
+    let kind = omoba_template_ids::ability_by_name(&entry).and_then(omoba_template_ids::active_ability_const).map(|c| c.target_type);
+    let aim = match kind { Some(omoba_template_ids::TargetTypeC::Unit) => "unit", Some(omoba_template_ids::TargetTypeC::Point) => "point", _ => "none" };
+    let _ = run.cast(aim, value(&entry, rank, "cast_point").unwrap_or(0.0) + 1.0, None);
+    if !holds(&run, run.caster, &runtime_id) { return Some(Verdict::Unsupported(format!("{runtime_id} not on the caster after casting"))); }
+    let caster = run.caster;
+    let mut full = Vec::new();
+    {
+        let mut heroes = run.world.write_storage::<Hero>();
+        let h = heroes.get_mut(caster)?;
+        for (ability, _) in &caps {
+            let total = value(ability, 1, "cooldown")?;
+            h.ability_levels.entry(ability.clone()).or_insert(1);
+            h.ability_cooldowns.insert(ability.clone(), fixed(total));
+            h.ability_cooldown_totals.insert(ability.clone(), fixed(total));
+            full.push(total);
+        }
+    }
+    run.step(ticks((interval + 0.2).max(1.0)));
+    let mut wrong = Vec::new();
+    for ((ability, frac), total) in caps.iter().zip(&full) {
+        let left = run.hero(|h| real(h.get_cooldown(ability)));
+        if left > total * frac + 0.05 { wrong.push(format!("{ability} {left:.2}s left, capped at {:.2}", total * frac)); }
+    }
+    if wrong.is_empty() { Some(Verdict::PassNoted(format!("capped {}", caps.len()))) } else { Some(Verdict::Fail(format!("periodic cap: {}", wrong.join("; ")))) }
+}
+
+/// Two spellings of one v3 effect path (E257): the scenarios write a trigger's actions as
+/// `…triggers.on_attack_hit[1]`, the generated Rust as `…triggers.on_attack_hit.actions[1]`.
+fn same_path(a: &str, b: &str) -> bool {
+    fn plain(p: &str) -> String {
+        let mut out = String::new();
+        let mut rest = p;
+        while let Some(i) = rest.find(".actions[") {
+            let before = &rest[..i];
+            // Only right after a trigger's event name: `triggers.<event>.actions[`.
+            let last = before.rsplit('.').next().unwrap_or("");
+            let parent = before.rsplit('.').nth(1).unwrap_or("");
+            out.push_str(before);
+            if parent == "triggers" && !last.contains('[') { out.push('['); } else { out.push_str(".actions["); }
+            rest = &rest[i + ".actions[".len()..];
+        }
+        out.push_str(rest);
+        out
+    }
+    plain(a) == plain(b)
+}
+
+/// A learned passive's `on_attack_hit` damage to the attacked unit (E257): the caster attacks the
+/// enemy hero, and the damage trace shows the passive's hit (by its v3 path) applied, with the
+/// document's amount before mitigation: a number, or `self.attack * select(... $hero_pct ...)`
+/// against the same attack's own hit.
+fn check_passive_attack_hit(hero: &str, s: &Value) -> Option<Verdict> {
+    use omoba_core::runtime::native::damage_trace::{DamageTrace, DamageTraceResult};
+    let (entry, rank) = (s["entry"].as_str()?.to_owned(), s["rank"].as_u64()? as usize);
+    let effects = s["expect"].as_array()?.iter().find(|e| e["kind"] == "effects")?["effects"].as_array()?;
+    let hits: Vec<&Value> = effects.iter().filter(|f| f["op"] == "damage" && f["args"]["to"] == "event.target")
+        .filter(|f| f["conds"].as_array().into_iter().flatten().all(|c| ATTACK_HIT_CONDS.contains(&c.as_str().unwrap_or(""))))
+        .collect();
+    let [hit] = hits.as_slice() else { return None };
+    let path = hit["path"].as_str()?.to_owned();
+    let amount = hit["args"]["amount"].as_str()?;
+    // A share of the attack: `self.attack * select(event.target.is_building, $b, select(event.target.is_hero, $h, $c))`.
+    let share = amount.strip_prefix("self.attack * select(event.target.is_building, $").and_then(|rest| {
+        let hero_pct = rest.split("select(event.target.is_hero, $").nth(1)?.split(',').next()?;
+        value(&entry, rank, hero_pct.trim()).map(|pct| if value_unit(&entry, &json!(format!("${}", hero_pct.trim()))).as_deref() == Some("pct") { pct / 100.0 } else { pct })
+    });
+    let fixed_amount = expr(&hit["args"]["amount"], &entry, rank).ok();
+    if share.is_none() && fixed_amount.is_none() { return Some(Verdict::Unsupported(format!("on_attack_hit damage {amount}"))); }
+    let learn = json!({"entry": entry, "rank": rank, "given": [{"kind": "learned", "entry": entry, "rank": rank}], "expect": [{"kind": "passive_stats"}]});
+    let mut run = match setup(hero, &learn) { Ok(run) => run, Err(e) => return Some(Verdict::Unsupported(e)) };
+    let (caster, enemy) = (run.caster, run.enemy);
+    if let Some(attack) = run.world.write_storage::<TAttack>().get_mut(caster) { attack.asd_count = Fixed64::ZERO; }
+    let order = PlayerInput { action: Some(PlayerInputEnum::AttackTarget(AttackTarget { target_id: enemy.id(), queued: false })) };
+    { let result = run.driver.step(&mut run.world, [(1, order)]).unwrap(); project_tick(&mut run.world, result); }
+    let passive_rows = |run: &Run| -> Vec<(u64, f64, DamageTraceResult)> {
+        run.world.read_resource::<DamageTrace>().0.iter().filter(|r| r.source == caster && r.target == enemy && same_path(&r.path, &path))
+            .map(|r| (r.tick, real(r.before.0 + r.before.1 + r.before.2), r.result)).collect()
+    };
+    for _ in 0..ticks(5.0) { if !passive_rows(&run).is_empty() { break; } run.step(1); }
+    let rows = passive_rows(&run);
+    let Some((tick, dealt, result)) = rows.first().copied() else {
+        let seen: Vec<String> = run.world.read_resource::<DamageTrace>().0.iter().filter(|r| r.source == caster)
+            .map(|r| format!("{}:{:?}:{:.0}", if r.path.is_empty() { "-" } else { r.path.as_str() }, r.result, real(r.before.0 + r.before.1 + r.before.2))).collect();
+        // A hand-written handler tags no path: nothing to judge here.
+        return Some(Verdict::Unsupported(format!("no traced hit with {path} within 5 s of attacking (the caster's hits: [{}])", seen.join(", "))))
+    };
+    if result != DamageTraceResult::Applied { return Some(Verdict::Fail(format!("on_attack_hit: {path} was {result:?}"))); }
+    let expected = match (fixed_amount, share) {
+        (Some(v), _) => v,
+        (None, Some(share)) => {
+            // The same attack's own hit (no path) gives self.attack.
+            let attack = run.world.read_resource::<DamageTrace>().0.iter()
+                .find(|r| r.source == caster && r.target == enemy && r.path.is_empty() && r.tick == tick).map(|r| real(r.before.0));
+            match attack { Some(a) => a * share, None => return Some(Verdict::PassNoted(format!("{path} applied ({dealt:.1}); the attack's own hit is not traced"))) }
+        }
+        _ => unreachable!(),
+    };
+    if (dealt - expected).abs() <= (expected * 0.02).max(1.0) { Some(Verdict::PassNoted(format!("{path} {dealt:.1}"))) }
+    else { Some(Verdict::Fail(format!("on_attack_hit: {path} dealt {dealt:.2}, expected {expected:.2}"))) }
+}
+
 /// A status's own triggers other than attack events (E249):
 /// - `on_take_damage_pre` that cancels an enemy's non-physical damage: an enemy's magical and pure
 ///   hits leave the holder's life where it was (or higher, a heal back);
@@ -571,6 +844,28 @@ fn status_trigger(run: &mut Run, holder: specs::Entity, step: &Value, expectatio
             if left.is_empty() && missing.is_empty() { Verdict::PassNoted(format!("on_removed: removed {gone:?}, applied {put:?}")) }
             else { Verdict::Fail(format!("on_removed: still on the holder {left:?}, not applied {missing:?}")) }
         }
+        // The status's own damage when it is put on (E262): only damage to its holder (cues aside),
+        // each hit found in the damage trace by its v3 path, applied, with the document's amount.
+        Some("on_created") => {
+            use omoba_core::runtime::native::damage_trace::{DamageTrace, DamageTraceResult};
+            if effects.iter().any(|f| f["op"] != "damage" && f["op"] != "cue") { return Verdict::Unsupported("on_created with effects other than damage".into()); }
+            let hits: Vec<&&Value> = effects.iter().filter(|f| f["op"] == "damage").collect();
+            if hits.is_empty() || hits.iter().any(|f| f["args"]["to"] != "self") { return Verdict::Unsupported("on_created damage not to the holder".into()); }
+            let rank = run.rank;
+            let mut notes = Vec::new();
+            for hit in hits {
+                let path = hit["path"].as_str().unwrap_or("").to_owned();
+                let Ok(amount) = expr(&hit["args"]["amount"], &entry, rank) else { return Verdict::Unsupported(format!("on_created damage {}", hit["args"]["amount"])) };
+                let rows: Vec<(f64, DamageTraceResult)> = run.world.read_resource::<DamageTrace>().0.iter()
+                    .filter(|r| r.target == holder && same_path(&r.path, &path))
+                    .map(|r| (real(r.before.0 + r.before.1 + r.before.2), r.result)).collect();
+                let Some((dealt, result)) = rows.first().copied() else { return Verdict::Unsupported(format!("no traced hit with {path} (a hand-written handler tags none)")) };
+                if result != DamageTraceResult::Applied { return Verdict::Fail(format!("on_created: {path} was {result:?}")); }
+                if (dealt - amount).abs() > (amount * 0.01).max(1.0) { return Verdict::Fail(format!("on_created: {path} dealt {dealt:.2}, expected {amount}")); }
+                notes.push(format!("{path} {dealt:.1}"));
+            }
+            Verdict::PassNoted(notes.join("; "))
+        }
         other => Verdict::Unsupported(format!("status event {other:?}")),
     }
 }
@@ -601,7 +896,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         ("dispel", Some("strong")) => Some(dispel::Strength::Strong),
         ("holder_dies", _) | ("wait", _) | ("observe", _) => None,
         ("status_event", _) if step["event"] == "on_attack_hit" || step["event"] == "on_attack_windup" => None,
-        ("status_event", _) if step["event"] == "on_take_damage_pre" || step["event"] == "on_removed" => None,
+        ("status_event", _) if step["event"] == "on_take_damage_pre" || step["event"] == "on_removed" || step["event"] == "on_created" => None,
         _ => return Verdict::Unsupported(format!("status step {kind}")),
     };
     let expect = s["expect"].as_array().unwrap();
@@ -714,6 +1009,40 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         }
         if holder.is_some() { set_hold(&mut run.world, run.caster); disarm_attack(&mut run.world, run.caster); }
     }
+    // A status the entry puts on when the hero casts something else (A34T's resist shred on each
+    // frost spell; E264): with the entry's own status up, each of the hero's other active
+    // abilities is learned and cast at the enemy hero, until the status shows.
+    if holder.is_none() {
+        let (entry_id, entry_slot) = (run.entry.clone(), run.slot);
+        let others: Vec<(u32, String)> = run.hero(|h| h.abilities.iter().enumerate()
+            .filter(|(_, id)| **id != entry_id).map(|(i, id)| (i as u32, id.clone())).collect());
+        for (slot, other) in others {
+            if holder.is_some() { break; }
+            let Some(kind) = omoba_template_ids::ability_by_name(&other).and_then(omoba_template_ids::active_ability_const).map(|c| c.target_type) else { continue };
+            let aim = match kind { omoba_template_ids::TargetTypeC::Unit => "unit", omoba_template_ids::TargetTypeC::Point => "point", _ => "none" };
+            {
+                let mut heroes = run.world.write_storage::<Hero>();
+                if let Some(h) = heroes.get_mut(run.caster) {
+                    h.ability_levels.insert(other.clone(), 1);
+                    h.ability_cooldowns.clear();
+                    if let Some(pool) = h.mana_pool.as_mut() { let max = pool.maximum(); if let Ok(full) = omoba_core::runtime::ability_runtime::ManaPool::new(max, max) { *pool = full; } }
+                }
+            }
+            run.target = run.enemy;
+            run.keep = Some(entry_id.clone());
+            run.entry = other.clone();
+            run.slot = slot;
+            let cast_point = value(&other, 1, "cast_point").unwrap_or(0.0);
+            let _ = run.cast(aim, cast_point + 1.0, None);
+            run.entry = entry_id.clone();
+            run.slot = entry_slot;
+            run.keep = None;
+            for _ in 0..ticks(cast_point + 2.0) {
+                if let Some(found) = find(&run) { holder = Some(found); break; }
+                run.step(1);
+            }
+        }
+    }
     // A shared control follows its own status's class when the holder carries that status's
     // control row (B's `__ctl:<status>`, generated heroes); a handler's shared stun does not.
     if let (Some(why), Some(h)) = (&shared_class, holder) {
@@ -810,6 +1139,16 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
 }
 
 fn run(hero: &str, s: &Value) -> Verdict {
+    if s["case"] == "quirk" { if let Some(verdict) = check_fixed_quirk(s) { return verdict; } }
+    if s["when"][0]["kind"] == "event" && s["when"][0]["event"] == "on_attack_hit" {
+        if let Some(verdict) = check_passive_attack_hit(hero, s) { return verdict; }
+    }
+    if s["when"][0]["event"] == "on_ability_executed" && (s["when"][0]["kind"] == "event" || s["when"][0]["kind"] == "status_event") {
+        if let Some(verdict) = check_ability_executed(hero, s) { return verdict; }
+    }
+    if s["when"][0]["kind"] == "status_event" && s["when"][0]["event"] == "periodic" {
+        if let Some(verdict) = check_cooldown_cap(hero, s) { return verdict; }
+    }
     if s["when"][0]["kind"] == "status_event" && s["when"][0]["event"] == "periodic" {
         if let Some(verdict) = check_periodic(hero, s) { return verdict; }
     }
@@ -1134,7 +1473,7 @@ fn run(hero: &str, s: &Value) -> Verdict {
                     let alive_bit = omb_script_abi::types::DamageProfile::REQUIRE_SOURCE_ALIVE.bits();
                     run.world.read_resource::<DamageTrace>().0.iter()
                         .filter(|r| r.source == dead && r.tick >= died)
-                        .filter(|r| if r.path.is_empty() { r.profile & alive_bit != 0 } else { r.path == path })
+                        .filter(|r| if r.path.is_empty() { r.profile & alive_bit != 0 } else { same_path(&r.path, &path) })
                         .map(|r| (r.result, r.path.is_empty())).collect()
                 };
                 for _ in 0..ticks(6.0) { if !rows(&run).is_empty() { break; } run.step(1); }
@@ -1766,7 +2105,7 @@ mod fix_candidates {
     /// once the status ends the same hit kills.
     #[test]
     #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
-    fn fc025_a07w_cancels_lethal_non_physical_damage() {
+    pub(super) fn fc025_a07w_cancels_lethal_non_physical_damage() {
         for rank in 1..=4 {
             let mut run = learned("honda_tadakatsu", "a07_unscathed", rank, false);
             let cast = run.cast("none", 0.5, None).unwrap();
@@ -1786,7 +2125,7 @@ mod fix_candidates {
     /// FC-046: A07R's guarantee — after `$misses` attacks in a row without a crit, the next one crits.
     #[test]
     #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
-    fn fc046_a07r_crits_after_misses_in_a_row() {
+    pub(super) fn fc046_a07r_crits_after_misses_in_a_row() {
         let rank = 4;
         let mut run = learned("honda_tadakatsu", "a07_shattering_spear", rank, true);
         let misses = value("a07_shattering_spear", rank, "misses").unwrap() as usize;
@@ -1819,11 +2158,119 @@ mod fix_candidates {
         assert!(longest <= misses, "{longest} attacks in a row without a crit; the guarantee allows {misses} (hits {hits:?})");
     }
 
+    /// An enemy body `x` east of the caster, seen by the caster's team; with `building` it is one.
+    fn seen_body(run: &mut Run, x: i32, building: bool) -> specs::Entity {
+        let enemy_team = run.world.read_storage::<Faction>().get(run.enemy).unwrap().team_id;
+        let caster_team = run.world.read_storage::<Faction>().get(run.caster).unwrap().team_id;
+        let body = spawn_body(&mut run.world, x, isolated_skill_origin_y(), enemy_team, 1_000_000, None);
+        run.world.write_storage::<VisibilityOverride>().insert(body, VisibilityOverride {
+            team: Some(caster_team.max(0) as u32), kind: VisibilityOverrideKind::ForceShow, priority: 1, stable_rule_id: 0xE282 }).unwrap();
+        if building {
+            run.world.write_storage::<omoba_core::runtime::native::comp::building::IsBuilding>()
+                .insert(body, omoba_core::runtime::native::comp::building::IsBuilding).unwrap();
+        }
+        body
+    }
+
+    fn attack_order(run: &mut Run, body: specs::Entity) {
+        let caster = run.caster;
+        if let Some(attack) = run.world.write_storage::<TAttack>().get_mut(caster) { attack.asd_count = Fixed64::ZERO; }
+        let order = PlayerInput { action: Some(PlayerInputEnum::AttackTarget(AttackTarget { target_id: body.id(), queued: false })) };
+        let result = run.driver.step(&mut run.world, [(1, order)]).unwrap();
+        project_tick(&mut run.world, result);
+    }
+
+    /// FC-078: A02W does nothing on buildings: no mana spent and no extra attack (the source
+    /// called PerformAttack instead, so every swing at a building hit twice).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc078_a02w_does_nothing_on_buildings() {
+        // (ticks the body lost life on, mana spent) over 8 s of attacking it
+        let swings = |toggled: bool, building: bool| -> (usize, f64) {
+            let mut run = learned("inahime", "a02_venom_arrow", 4, false);
+            if toggled {
+                let cast = run.cast("none", 0.5, None).unwrap();
+                assert!(cast.accepted, "a02_venom_arrow did not turn on");
+                run.step(2);
+            }
+            let body = seen_body(&mut run, 300, building);
+            let hp = |run: &Run| real(run.world.read_storage::<CProperty>().get(body).unwrap().hp);
+            let mana = run.mana();
+            attack_order(&mut run, body);
+            let (mut previous, mut hits) = (hp(&run), 0);
+            for _ in 0..ticks(8.0) {
+                run.step(1);
+                let now = hp(&run);
+                if now < previous { hits += 1; }
+                previous = now;
+            }
+            (hits, mana - run.mana())
+        };
+        let (off, off_mana) = swings(false, true);
+        let (on, on_mana) = swings(true, true);
+        assert!(off >= 4, "only {off} attacks landed on the building");
+        assert!(on <= off + 1, "A02W on: {on} hits on the building in 8 s, {off} without it (an extra attack per swing)");
+        assert!((on_mana - off_mana).abs() < 1.0, "A02W spent {:.1} mana attacking a building", on_mana - off_mana);
+        // The orb itself works: on a unit it spends mana.
+        let (_, creep_mana) = swings(true, false);
+        assert!(creep_mana - off_mana > 5.0, "A02W spent no mana on a unit either ({creep_mana:.1} vs {off_mana:.1})");
+    }
+
+    /// FC-008: B04T's delayed extra shots fly from where Masamune stood and toward where he aimed
+    /// when the attack left (the source read a shared table another cast could overwrite). Masamune
+    /// is moved right after every launch; each later shot must end where a shot of that launch ends.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc008_b04t_extra_shots_keep_the_launch_aim() {
+        use omoba_core::runtime::native::ability_projectile::AbilityProjectiles;
+        let mut run = learned("date_masamune", "b04_tanegashima", 1, false);
+        let caster = run.caster;
+        let cast = run.cast("none", value("b04_tanegashima", 1, "cast_point").unwrap_or(0.0) + 0.5, None).unwrap();
+        assert!(cast.accepted, "b04_tanegashima was not cast");
+        let body = seen_body(&mut run, 500, false);
+        attack_order(&mut run, body);
+        let shots = |run: &Run| -> Vec<(specs::Entity, omoba_sim::Vec2)> {
+            run.world.try_fetch::<AbilityProjectiles>().map(|rows| rows.0.iter()
+                .filter(|(_, state)| state.spec.ability == "b04_tanegashima").map(|(e, state)| (*e, state.end)).collect()).unwrap_or_default()
+        };
+        let window = ticks(value("b04_tanegashima", 1, "extra_delay_second").unwrap() + 0.1);
+        let mut seen = std::collections::BTreeMap::new();
+        // (tick, the ends of the shots that left with that launch)
+        let mut launches: Vec<(u32, Vec<omoba_sim::Vec2>)> = Vec::new();
+        let (mut extras, mut side) = (0, 1);
+        for tick in 0..ticks(20.0) {
+            run.step(1);
+            let fresh: Vec<_> = shots(&run).into_iter().filter(|(e, _)| !seen.contains_key(e)).collect();
+            for (e, end) in &fresh { seen.insert(*e, *end); }
+            // A shot well after the last launch's extras starts a launch (attacks are much further
+            // apart than the extras' delays); one inside that window is an extra of it.
+            let launched = !fresh.is_empty() && launches.last().is_none_or(|(t, _)| tick - *t > window);
+            if launched {
+                launches.push((tick, fresh.iter().map(|(_, end)| *end).collect()));
+                // Somewhere else right away (still in range): a shot aimed when it fires would differ.
+                { let mut positions = run.world.write_storage::<Pos>(); positions.get_mut(caster).unwrap().0.y += Fixed64::from_i32(150 * side); }
+                side = -side;
+            } else if !fresh.is_empty() {
+                let of: Vec<_> = launches.iter().filter(|(t, _)| tick - *t <= window).flat_map(|(_, ends)| ends.iter().copied()).collect();
+                for (_, end) in &fresh {
+                    assert!(of.contains(end), "a B04T shot fired {tick} ticks in ends at {end:?}, not where a shot of the launch before it ends ({of:?})");
+                    extras += 1;
+                }
+            }
+            for (e, end) in shots(&run) { assert_eq!(seen[&e], end, "a B04T shot changed its aim while flying"); }
+        }
+        let shared = launches.iter().map(|(_, ends)| ends.len().saturating_sub(1)).sum::<usize>();
+        assert!(launches.len() >= 8, "only {} attacks left", launches.len());
+        assert!(extras + shared >= 1, "no extra shot in {} attacks", launches.len());
+        // Extra shots that show up with their launch (waiting where it left) end where its first shot ends.
+        for (tick, ends) in &launches { assert!(ends.windows(2).all(|w| w[0] == w[1]), "the shots of the launch at tick {tick} differ: {ends:?}"); }
+    }
+
     /// FC-005: B08's casts leave the damage shields others put on Nagamasa alone (the source's
     /// B08R_SE zeroed the shared shield field).
     #[test]
     #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
-    fn fc005_b08_casts_keep_other_shields() {
+    pub(super) fn fc005_b08_casts_keep_other_shields() {
         let mut run = learned("asai_nagamasa", "b08_fang_slash", 1, false);
         let caster = run.caster;
         // B08R learned too (its effect on executed abilities is what the source got wrong).

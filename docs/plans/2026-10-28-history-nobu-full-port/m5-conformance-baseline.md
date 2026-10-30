@@ -2,25 +2,25 @@
 
 建立日期：2026-10-29。負責：已移植英雄 conformance 測試（M5 前置）session。錯誤紀錄：`docs/plans/2026-10-24-omfue-month-mvp/errors.md` 的 E207。
 
-## 0. 現況（2026-10-30 早上，目前的 live；E256 之後）
+## 0. 現況（2026-10-30，目前的 live；E283 之後）
 
 | 文件 | 英雄 | 情境 | 通過 | 已知差異 | unsupported | 執行 |
 |---|---|---|---|---|---|---|
-| A02 | inahime | 168 | 142 | 0 | 26 | 產生的 Rust（hero_a02） |
-| A07 | honda_tadakatsu | 208 | 143 | 15 (b) | 50 | A07W 產生，其餘手寫 |
-| A34 | omatsu | 297 | 238 | 0 | 59 | A34W／A34E／A34R 產生，A34T 手寫 |
-| B01 | saika_magoichi | 116 | 97 | 0 | 19 | 產生的 Rust（hero_b01） |
-| B04 | date_masamune | 189 | 120 | 0 | 69 | 火焰強襲、炎之迅捷產生，其餘手寫 |
+| A02 | inahime | 167 | 143 | 0 | 24 | 產生的 Rust（hero_a02） |
+| A07 | honda_tadakatsu | 208 | 145 | 15 (b) | 48 | A07W 產生，其餘手寫 |
+| A34 | omatsu | 297 | 268 | 0 | 29 | 產生的 Rust（hero_a34） |
+| B01 | saika_magoichi | 116 | 101 | 0 | 15 | 產生的 Rust（hero_b01） |
+| B04 | date_masamune | 189 | 121 | 0 | 68 | 火焰強襲、炎之迅捷產生，其餘手寫 |
 | B06 | sanada_yukimura | 276 | 169 | 0 | 107 | 手寫 |
-| B08 | asai_nagamasa | 292 | 197 | 0 | 95 | 手寫（全部能產生時再換） |
+| B08 | asai_nagamasa | 292 | 218 | 0 | 74 | 手寫（全部能產生時再換） |
 | B29 | murakami_yoshikiyo | 251 | 178 | 0 | 73 | 地裂產生，其餘手寫 |
 | C15 | tamako | 245 | 174 | 0 | 71 | 精準之光、散射產生，其餘手寫 |
-| C17 | oichi | 247 | 214 | 0 | 33 | 產生的 Rust（hero_c17） |
-| **合計** | | **2289** | **1672** | **15 (b)、0 (c)** | **602** | |
+| C17 | oichi | 247 | 219 | 0 | 28 | 產生的 Rust（hero_c17） |
+| **合計** | | **2288** | **1736** | **15 (b)** | **537** | |
 | A13（report-only） | hattori_hanzo | 460 | 100 | 12 fail | 348 | 鎖鏈鐮為 hook，其餘 3 招尚未產生 |
 
 - **(b) 15 筆**：都是 `a07_rouse_free`（port 沒有 A07D2 這一招）。
-- **(c) 0 筆**：A34W、B29 地裂 basic 暈眩的 8 筆（控制列以 runtime id 命名造成）已由 B 修好、刪除（E254）。施放沒被接受時，說明會附上 CastTrace 的原因碼。
+- **(c) 0 筆**（E283：A 重產 lua_data 後通過、已刪除）。原本 6 筆：a34t_active 拿掉 runtime_id 後 lua_data 沒重產，淨化登記還在舊 key a34_rapid_cooling，a34t_active 淨化不掉（r1～r3 × basic／strong）。負責線 A（E282），重產 lua_data 後通過即刪。原本的 9 筆 A34T 已由 A 的 E268 與 B 的 set_mana 修好、刪除。
 - **A13 的 12 個 fail**：替身術不在 loadout（預期）。a13r_debuff 的圖示已由 A 修好。鎖鏈鐮 hook 的 3 個 case × r1～r4 全部通過。
 - **產生版與手寫**：`V3_CONFORMANCE_HANDLERS=1` 換回 `legacy_handlers` 的手寫版，逐筆 0 差異。A07W、A34 三招、B29 地裂、C15 兩招沒有收進 legacy_handlers，這 7 招是用換上前後的 live 結果逐筆比對（0 退步，46 個轉為通過）。
 - **比對工具**：`tools\lua\lua.exe scripts\v3_conformance_report.lua summary DIR`／`compare BEFORE AFTER [ID ...]`。
@@ -68,6 +68,11 @@ cargo test --release --manifest-path scripts/Cargo.toml -p base_content --lib --
 | A13 與 hook 期望（E245） | 沒有 AbilityScript 的招式記「not generated yet」。hook cases 的 `status_applied`（目標）、`damage`（DamageTrace 結算前量）、`moved_toward cast_origin`、`no_unit_in_line`。共用控制狀態：持有者帶 `__ctl:<狀態 id 或 runtime id>` 時依實際驅散結果判斷 |
 | 狀態觸發（E249） | `on_take_damage_pre`：取消敵方非物理傷害（敵方魔法、純粹各打一次，生命不減）。`on_removed`：驅散狀態後，觸發移除的狀態不在、套上的狀態在 |
 | 友方英雄（E256） | 另一位英雄改成施法者那隊，當友方英雄目標；給目標的增益狀態依序試對敵人、對自己、對友方英雄施放 |
+| 被動的普攻命中（E257） | `event on_attack_hit` 的傷害：普攻敵方英雄，DamageTrace 中這條 path 的傷害要 Applied，量等於文件（數字，或該次普攻 × hero_pct） |
+| 狀態的 on_created 傷害（E262） | 只對持有者自己的傷害：DamageTrace 中 `statuses.<id>.triggers.on_created[i]` 要 Applied、量等於文件 |
+| 施放其他技能才套上的狀態（E264） | 施放本招後，再逐一對敵方英雄施放這位英雄的其他主動技能（保留本招自己的 buff），直到狀態出現 |
+| 施放技能時的觸發（E267） | 施放這位英雄的另一招後，施法者生命、法力與其他招冷卻依 heal／restore_mana／set_mana／modify_cooldown 變化；routine 在觸發裡展開；periodic 的冷卻上限 |
+| 已修正的 quirk（E270） | `policy = fixed` 且以 FC 編號開頭的 quirk，執行該 FC 的 `fix_candidates` 測試；沒有測試的記 unsupported |
 | fix-candidate（E237） | `v3_conformance::fix_candidates`：FC-005（B08 不清空別人給的護盾）、FC-025（A07W 擋下非物理致死）、FC-046（A07R 連續 4 次沒暴擊後必中） |
 
 尚未檢查（記為 unsupported）：

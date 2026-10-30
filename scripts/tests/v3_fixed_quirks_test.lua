@@ -633,7 +633,7 @@ test('waves 5-8: each fix holds in its document', function()
   end
 end)
 
-test('listed heroes: B08 leaves other shields alone, A07 negates before settling and has its pity crit', function()
+test('listed heroes: B08 leaves other shields alone, A07 negates before settling and has its pity crit, A02W skips buildings', function()
   -- FC-005
   local b08 = load('B08')
   assert(not any(b08, contains('var', 'aphotic_shield_remaining')), 'B08R never touches the shared shield field')
@@ -646,6 +646,9 @@ test('listed heroes: B08 leaves other shields alone, A07 negates before settling
   local spear = ability(load('A07'), 'a07_shattering_spear')
   assert(spear.unit_state.a07r_noncrit.type == 'int')
   assert(any(spear.passive, contains('cond', 'state.a07r_noncrit >= $misses')), 'the pity crit')
+  -- FC-078
+  local venom = ability(load('A02'), 'a02_venom_arrow')
+  assert(not any(venom, op_is('attack', {})), 'A02W never attacks again on a building')
 end)
 
 print(('%d tests passed'):format(count))

@@ -184,7 +184,7 @@ datadriven modifier 的 Properties 不會乘上 StackCount，所以腳本疊的�
 
 | 編號 | 英雄／道具 | 技能 | 原作實際行為 | 設計意圖（推定） | 影響 | 建議 | 出處 |
 |---|---|---|---|---|---|---|---|
-| FC-078 | A02 稻姬 | 蠍毒箭（A02W） | 目標是建築或魔免時改呼叫 PerformAttack，每次出手多打一下，拆塔速度加倍 | 註解寫「只對英雄或小兵作用」，對建築應單純不作用 | 中 | 修 | A02.lua · a02_venom_arrow（A02W） · vscripts/heroes/A_Oda/A02.lua:41-46 |
+| FC-078 | A02 稻姬 | 蠍毒箭（A02W） | 目標是建築或魔免時改呼叫 PerformAttack，每次出手多打一下，拆塔速度加倍 | 註解寫「只對英雄或小兵作用」，對建築應單純不作用 | 中 | 修 ✓ 2026-10-30 拿掉 otherwise 的 attack，quirk 改 `fixed` | A02.lua · a02_venom_arrow（A02W） · vscripts/heroes/A_Oda/A02.lua:41-46 |
 | FC-079 | A04 竹中重治 | 式神．水（A04W） | basic_speed 370～460 被當成移速 +370%～+460%，直接頂到引擎上限；攻擊間隔 1.4～0.8 被當成攻速常數，只加一點多 | 移速 370～460、攻擊間隔 1.4～0.8 | 高 | 修 ✓ 2026-10-29 已改 v3 文件，quirk 改 `fixed` | A04.lua · a04_water_shikigami（A04W） · npc/A_Oda/A04.txt:146-152 |
 | FC-080 | A05 酒井忠次 | 誓伐狀（A05T） | 目標標記被驅散或目標死亡後，施法者的免傷仍持續到時間結束，連原目標的傷害也免疫，等於完全免傷 | 只免疫標記目標以外的傷害，標記消失就結束 | 高 | 修 ✓ 2026-10-29 已改 v3 文件，quirk 改 `fixed` | A05.lua · a05_crusade_affidavit（A05T） · vscripts/heroes/A_Oda/A05.lua:160-166 |
 | FC-081 | A13 服部半藏 | 忍法．影惑之術（A13W） | 施放時移除技能、6 秒後加回新實例，新實例沒有冷卻，有效冷卻約 6 秒而不是 15 秒 | 冷卻 15 秒 | 高 | 修 ✓ 2026-10-29 已改 v3 文件，quirk 改 `fixed` | A13.lua · a13_shadow_illusion（A13W） · vscripts/heroes/A_Oda/A13_Hattori_Hanzo.lua:232-237 |
@@ -270,6 +270,7 @@ datadriven modifier 的 Properties 不會乘上 StackCount，所以腳本疊的�
 | FC-132 | A13 服部半藏 | 忍法．換位之術（A13W2） | KV 沒寫 AbilityCastRange，推定 Dota 取 0：要走到與自己的幻象相接才能換位（2026-10-29 依 D13 推定，無法實測） | 不限距離或與分身技能相同的距離 | 中 | 修（要先決定距離） ✓ 2026-10-29 已改 v3 文件（決定：不限距離），quirk 改 `fixed` | packages/hattori_hanzo/v3.lua · a13_substitution（A13W2） · npc/A_Oda/A13.txt:378-413 |
 | FC-133 | A32 瀧川一益 | 魂刃（A32F） | 切換技死亡不關閉，但 modifier_A32F 死亡時移除；復活後物理普攻仍被取消，卻沒有魔法傷害（2026-10-29 依 D13 推定） | 死亡時關閉切換，或復活後重掛 modifier | 高 | 修 ✓ 2026-10-29 已改 v3 文件，quirk 改 `fixed` | packages/takigawa_kazumasu/v3.lua · a32_soul_blade（A32F） · npc/A_Oda/A32.txt |
 | FC-134 | 下忍 | 召喚 | 被頂替的舊下忍死亡時，依自己的編號清空主人的槽位、不檢查槽位裡是不是自己，同編號的新下忍因此脫離名額（與 FC-093 同一段程式，資料已照原作寫） | 只清空自己所在的槽位 | 中 | 修（與 FC-093 一起） ✓ 2026-10-29 已改 v3 文件，quirk 改 `fixed` | items/pilot_a.lua · item_ninja1 · vscripts/items/Addon_Items/tofar_goback.lua:645-653 |
+| FC-135 | B08 淺井長政 | 活心．魂（B08R） | 觸發時刷新增益持續時間的兩行（264、268）引用未定義的 hCaster，刷新不會發生 | 每次觸發都刷新持續時間 | 低 | 修 ✓ 2026-10-30 v3 文件本來就依意圖寫，quirk 改 `fixed`（工作線 A） | B08_Asai_Nagamasa.lua:264,268 |
 
 ---
 
