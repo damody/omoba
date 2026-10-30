@@ -252,6 +252,19 @@ local function entry_scenarios(doc, def, entry_kind, out)
       end
     end
   end
+  -- An entry in its own slot that requires a status another ability gives (A12F needs A12T's
+  -- form; E362): every case starts by casting that ability.
+  if not swapped and def.slot ~= "sub" and def.requires and def.requires.has_status and current_doc then
+    for _, list in ipairs({ current_doc.abilities or {}, current_doc.items or {} }) do
+      for _, owner in ipairs(list) do
+        for _, st in ipairs(owner.statuses or {}) do
+          if st.id == def.requires.has_status and owner.id ~= def.id and not swapped then
+            swapped = { kind = "required_status", by = owner.id, status = runtime_key(st) }
+          end
+        end
+      end
+    end
+  end
   -- An ability of a unit the hero creates (a unit template's list, add_ability on another unit):
   -- not the hero's, so its cases need that unit (E351).
   local unit_owned
@@ -474,6 +487,14 @@ local function entry_scenarios(doc, def, entry_kind, out)
         end
         return true
       end
+      local death_removes = {}
+      for _, a in ipairs(applied) do
+        local on_death = a.status and a.status.triggers and a.status.triggers.on_death
+        local actions = type(on_death) == "table" and (on_death.actions or on_death) or {}
+        for _, act in ipairs(actions) do
+          if act.op == "remove_status" and act.from == "self" and act.status then death_removes[act.status] = true end
+        end
+      end
       for _, a in ipairs(applied) do
         if not this_branch(a.conds) or deferred(a.path) then goto continue end
         -- Only the scenario's own units: a status on a unit the cast creates (C15T's arrows; E324)
@@ -481,7 +502,7 @@ local function entry_scenarios(doc, def, entry_kind, out)
         if not (a.to == "caster" or a.to == "self" or a.to == "target" or a.to == "it") then goto continue end
         local s = a.status or {}
         local on_caster = a.to == "caster" or a.to == "self"
-        local kept = s.scope == "hero" or s.scope == "unit" or s.scope == "permanent"
+        local kept = (s.scope == "hero" or s.scope == "unit" or s.scope == "permanent") and not death_removes[a.id]
         exp_d[#exp_d + 1] = { kind = (on_caster and not kept) and "status_removed" or "status_kept", status = a.id, on = a.to, runtime_id = runtime_key(s),
           rule = on_caster and "v3.md §12：狀態隨持有者死亡移除，scope hero/unit/permanent 例外" or "施加者死亡不移除別人身上的狀態" }
         ::continue::
@@ -551,6 +572,31 @@ local function entry_scenarios(doc, def, entry_kind, out)
             -- interval: a periodic trigger's period (E220), so a test can time its ticks
             when = { { kind = "status_event", status = s.id, event = ev, interval = type(s.triggers[ev]) == "table" and s.triggers[ev].interval or nil } },
             expect = { { kind = "effects", effects = trigger_effects(s.triggers[ev], "statuses." .. s.id .. ".triggers." .. ev, ev) } } })
+        end
+        -- One instance per source (E359): a per-source status that another status's holders apply
+        -- from themselves (for_each from self) stacks once per holder that reaches the unit.
+        if s.per_source then
+          local function applies_from_self(node, radius)
+            if type(node) ~= "table" then return nil end
+            if node.op == "for_each" and type(node.select) == "table" and node.select.from == "self" and node.select.radius then
+              radius = node.select.radius
+            end
+            if node.op == "apply_status" and node.status == s.id and node.source == "self" and radius then return radius end
+            for _, child in pairs(node) do
+              local found = applies_from_self(child, radius)
+              if found then return found end
+            end
+            return nil
+          end
+          for _, h in ipairs(def.statuses or {}) do
+            local radius = h.id ~= s.id and applies_from_self(h)
+            if radius then
+              push(rank, "normal", { suffix = s.id .. "/per_source", given = given({ on_unit(s, a) }),
+                when = { { kind = "observe_sources", holder = runtime_key(h), radius = radius } },
+                expect = { { kind = "instances_per_source", status = s.id } } })
+              break
+            end
+          end
         end
         if s.duration and s.duration ~= "infinite" then
           push(rank, "normal", { suffix = s.id .. "/expires", given = given({ on_unit(s, a) }),

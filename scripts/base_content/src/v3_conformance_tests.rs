@@ -28,7 +28,7 @@ use super::*;
 use serde_json::{json, Value};
 
 const ENEMY: &str = "training_luminary";
-const GIVEN: &[&str] = &["learned", "swapped_in", "unit_ability", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line"];
+const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "unit_ability", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line"];
 const WHEN: &[&str] = &["cast", "wait", "caster_dies", "target_dies", "owner_dies", "owner_respawns", "toggle", "cast_until_over_cap"];
 /// A document entry the ported hero does not have at all: a difference, not a harness gap.
 const MISSING: &str = "missing entry: ";
@@ -139,12 +139,19 @@ fn fixed(seconds: f64) -> Fixed64 { Fixed64::from_raw((seconds * 1024.0).round()
 fn real(value: Fixed64) -> f64 { value.raw() as f64 / 1024.0 }
 fn ticks(seconds: f64) -> u32 { (seconds.max(0.0) * 60.0).ceil() as u32 }
 
-#[derive(Clone, Copy, Debug)]
-struct CastResult { accepted: bool, mana_spent: f64, charges: Option<(u16, u16)>, refused: Option<&'static str> }
+#[derive(Clone, Debug)]
+struct CastResult { accepted: bool, mana_spent: f64, charges: Option<(u16, u16)>, refused: Option<&'static str>, error: Option<String> }
 
 impl CastResult {
     /// " (NOT_ENOUGH_MANA)" when the cast trace gave a reason it was refused (E254).
-    fn why(&self) -> String { self.refused.map(|code| format!(" ({code})")).unwrap_or_default() }
+    /// With the script's own text when it returned an error (E361).
+    fn why(&self) -> String {
+        match (self.refused, &self.error) {
+            (Some(code), Some(error)) => format!(" ({code}: {error})"),
+            (Some(code), None) => format!(" ({code})"),
+            _ => String::new(),
+        }
+    }
 }
 
 enum Verdict { Pass, Fail(String), Unsupported(String), PassNoted(String) }
@@ -284,7 +291,7 @@ impl Run {
         // A refusal the trace records overrides the indirect signs (E288): a status an earlier
         // cast applies later (B08D's phase at its return) shows up on the caster within this window
         // and would read as this cast landing.
-        let (refused, ran, unrecorded) = {
+        let (refused, ran, unrecorded, error) = {
             use omoba_core::runtime::native::cast_trace::{CastTrace, CastTraceResult};
             let (caster, entry) = (self.caster, self.entry.clone());
             let trace = self.world.read_resource::<CastTrace>();
@@ -297,12 +304,13 @@ impl Run {
             // A windup that ended without its release (the caster died in the cast point) did not
             // land either, whatever the window saw meanwhile (A26T; E340).
             let cut = rows.iter().any(|row| matches!(row.result, CastTraceResult::Interrupted(_)));
-            (code, rows.iter().any(|row| matches!(row.result, CastTraceResult::Accepted)), (recorded && rows.is_empty()) || cut)
+            let error = rows.iter().find_map(|row| match &row.result { CastTraceResult::ScriptError { error, .. } => Some(error.clone()), _ => None });
+            (code, rows.iter().any(|row| matches!(row.result, CastTraceResult::Accepted)), (recorded && rows.is_empty()) || cut, error)
         };
         if (refused.is_some() || unrecorded) && !ran { accepted = false; }
-        let refused = if accepted { None } else { refused };
-        let result = CastResult { accepted, mana_spent: spent, charges: charges_before.zip(self.charges()), refused };
-        self.casts.push(result);
+        let (refused, error) = if accepted { (None, None) } else { (refused, error) };
+        let result = CastResult { accepted, mana_spent: spent, charges: charges_before.zip(self.charges()), refused, error };
+        self.casts.push(result.clone());
         Ok(result)
     }
 }
@@ -310,7 +318,11 @@ impl Run {
 /// `given swapped_in` (E313): learn the parent (`by`) and the ability the entry replaces at this
 /// rank, cast the parent, and wait until its status has swapped the entry into the hero's list.
 fn swap_in(world: &mut World, driver: &mut SimulationDriver, caster: specs::Entity, entry: &str, rank: usize, swap: &Value) -> Result<(), String> {
-    let (by, replaces) = (swap["by"].as_str().ok_or("swapped_in without by")?, swap["replaces"].as_str().ok_or("swapped_in without replaces")?);
+    // `required_status` (E362): the entry sits in its own slot and needs the status `by` gives.
+    let required = (swap["kind"] == "required_status").then(|| swap["status"].as_str().unwrap_or("").to_owned());
+    let by = swap["by"].as_str().ok_or("swapped_in without by")?;
+    let replaces = swap["replaces"].as_str();
+    if required.is_none() && replaces.is_none() { return Err("swapped_in without replaces".into()); }
     let slot = {
         let mut heroes = world.write_storage::<Hero>();
         let h = heroes.get_mut(caster).unwrap();
@@ -320,7 +332,7 @@ fn swap_in(world: &mut World, driver: &mut SimulationDriver, caster: specs::Enti
         let top = omoba_template_ids::ability_by_name(by).and_then(omoba_template_ids::active_ability_const).map_or(rank, |a| a.levels.len().max(1));
         let by_rank = (1..=rank.min(top)).rev().find(|r| value(by, *r, "cooldown").is_some()).unwrap_or(1);
         h.ability_levels.insert(by.to_owned(), by_rank as i32);
-        h.ability_levels.insert(replaces.to_owned(), rank as i32);
+        if let Some(replaces) = replaces { h.ability_levels.insert(replaces.to_owned(), rank as i32); }
         if let Some(pool) = h.mana_pool.as_mut() {
             let maximum = pool.maximum().max(Fixed64::from_i32(5000));
             *pool = omoba_core::runtime::ability_runtime::ManaPool::new(maximum, maximum).map_err(|e| format!("{e:?}"))?;
@@ -336,10 +348,18 @@ fn swap_in(world: &mut World, driver: &mut SimulationDriver, caster: specs::Enti
     { let result = driver.step(world, [(1, order)]).unwrap(); project_tick(world, result); }
     let window = ticks(value(by, 1, "cast_point").unwrap_or(0.0) + 2.0);
     for _ in 0..window {
-        if world.read_storage::<Hero>().get(caster).is_some_and(|h| h.abilities.iter().any(|id| id == entry)) { return Ok(()); }
+        let done = match &required {
+            Some(status) => world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(caster)
+                .any(|(key, _)| omoba_core::runtime::native::dispel::runtime_id_matches(status, key)),
+            None => world.read_storage::<Hero>().get(caster).is_some_and(|h| h.abilities.iter().any(|id| id == entry)),
+        };
+        if done { return Ok(()); }
         let result = driver.step(world, []).unwrap(); project_tick(world, result);
     }
-    Err(format!("{MISSING}{by} did not swap {entry} in"))
+    match required {
+        Some(status) => Err(format!("{MISSING}{by} did not give {status}, which {entry} requires")),
+        None => Err(format!("{MISSING}{by} did not swap {entry} in")),
+    }
 }
 
 fn setup(hero: &str, s: &Value) -> Result<Run, String> {
@@ -354,7 +374,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     if let Some(unit) = s["given"].as_array().and_then(|g| g.iter().find(|g| g["kind"] == "unit_ability")) {
         return Err(format!("{entry} belongs to a unit the hero creates ({}), not to the hero", unit["unit"].as_str().unwrap_or("added by add_ability")));
     }
-    let swapped = s["given"].as_array().and_then(|g| g.iter().find(|g| g["kind"] == "swapped_in")).cloned();
+    let swapped = s["given"].as_array().and_then(|g| g.iter().find(|g| g["kind"] == "swapped_in" || g["kind"] == "required_status")).cloned();
     if let Some(swap) = &swapped { swap_in(&mut world, &mut driver, caster, &entry, rank, swap)?; }
     let slot = world.read_storage::<Hero>().get(caster).unwrap().abilities.iter().position(|id| *id == entry)
         .ok_or_else(|| format!("{MISSING}{hero} has no {entry}"))? as u32;
@@ -397,7 +417,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
                 if state != "magic_immune" { return Err(format!("unit state {state}")); }
                 immune = true;
             },
-            "toggled_on" | "charges" | "swapped_in" | "unit_ability" => {} // after the setup (run), or before it (swap_in)
+            "toggled_on" | "charges" | "swapped_in" | "required_status" | "unit_ability" => {} // after the setup (run), or before it (swap_in)
             // Nobody on the cast's line (a hook case, E245): the enemy hero stands well aside.
             "no_unit_in_line" => clear_line = true,
             other => return Err(format!("given {other}")),
@@ -1226,6 +1246,9 @@ fn run(hero: &str, s: &Value) -> Verdict {
     if s["when"][0]["kind"] == "status_event" && s["when"][0]["event"] == "periodic" {
         if let Some(verdict) = check_periodic(hero, s) { return verdict; }
     }
+    if s["when"][0]["kind"] == "observe_sources" {
+        return check_per_source(hero, s).unwrap_or_else(|| Verdict::Unsupported("instances_per_source: no cast at a body".into()));
+    }
     if s["given"].as_array().unwrap().iter().any(|g| g["kind"] == "status_on_unit") { return run_status(hero, s); }
     for (list, allowed) in [("given", GIVEN), ("when", WHEN)] {
         for step in s[list].as_array().unwrap() {
@@ -1303,7 +1326,14 @@ fn run(hero: &str, s: &Value) -> Verdict {
                     run.cast(&last_target, window + approach, None).map(|_| ())
                 }
             }
-            "toggle" => { last_target = "none".into(); run.cast("none", window, None).map(|_| ()) }
+            // Toggling waits for the toggle's cooldown: the host, like Dota, refuses a toggle
+            // while it cools down (A03E's 7 s; E362).
+            "toggle" => {
+                last_target = "none".into();
+                let mut waited = 0;
+                while run.cooldown() > 0.0 && waited < ticks(120.0) { run.step(1); waited += 1; }
+                run.cast("none", window, None).map(|_| ())
+            }
             // Cast again (cooldown cleared, charges and mana refilled) until the casts have made
             // more units of the template than the per-owner limit.
             "cast_until_over_cap" => {
@@ -1412,7 +1442,7 @@ fn run(hero: &str, s: &Value) -> Verdict {
                 if let Err(err) = run.cast(&last_target, window, None) { return Verdict::Unsupported(err); }
             }
         }
-        let Some(cast) = run.casts.get(nth - 1).copied() else { return Verdict::Unsupported(format!("{kind}: no cast {nth}")); };
+        let Some(cast) = run.casts.get(nth - 1).cloned() else { return Verdict::Unsupported(format!("{kind}: no cast {nth}")); };
         let check: Result<(), String> = (|| match kind {
             "cast_accepted" | "then_cast_accepted" | "approach_until" =>
                 if cast.accepted { Ok(()) } else { Err(format!("cast {nth} was not accepted{}", cast.why())) },
@@ -1434,8 +1464,10 @@ fn run(hero: &str, s: &Value) -> Verdict {
                 if remaining == 0.0 { Ok(()) } else { Err(format!("cooldown {remaining:.3} running")) }
             }
             "no_effects" => {
-                let hp = run.world.read_storage::<CProperty>().get(run.target).map(|p| p.hp).unwrap_or(Fixed64::ZERO);
-                if run.target_killed || hp >= run.target_hp { Ok(()) }
+                // Still at its full life is untouched: the caster as its own target can have its
+                // maximum shrink in the window (attributes settling), which lowers life with it (E361).
+                let (hp, full) = run.world.read_storage::<CProperty>().get(run.target).map(|p| (p.hp, p.hp >= p.mhp)).unwrap_or((Fixed64::ZERO, false));
+                if run.target_killed || hp >= run.target_hp || full { Ok(()) }
                 else { Err(format!("target hp {:.1} -> {:.1}", real(run.target_hp), real(hp))) }
             }
             // Only an admitted cast breaks invisibility; what is read is the invisibility the caster
@@ -1713,7 +1745,7 @@ fn expected_damage(s: &Value, entry: &str, rank: usize) -> Option<f64> {
 /// valid targets do not include such a unit (e.g. hero-only targets, whose resistance pool applies).
 /// The givens that learn the entry: `learned`, and `swapped_in` when a status swaps it in (E340).
 fn learning(s: &Value) -> Vec<Value> {
-    s["given"].as_array().map(|g| g.iter().filter(|g| g["kind"] == "learned" || g["kind"] == "swapped_in" || g["kind"] == "unit_ability").cloned().collect()).unwrap_or_default()
+    s["given"].as_array().map(|g| g.iter().filter(|g| ["learned", "swapped_in", "required_status", "unit_ability"].iter().any(|k| g["kind"] == *k)).cloned().collect()).unwrap_or_default()
 }
 
 fn cast_at_body(hero: &str, s: &Value) -> Option<(Run, specs::Entity, &'static str)> {
@@ -2053,6 +2085,42 @@ fn check_summons(hero: &str, s: &Value) -> Option<Result<String, String>> {
 
 /// A `periodic` trigger whose actions are damage to the holder (E220): once the cast puts the
 /// status on the body, its hits are the document's amount, one interval apart.
+/// One instance per source (E359): a per-source status that units holding `holder` apply from
+/// themselves within `radius`; the body ends up with as many instances as holders reach it.
+fn check_per_source(hero: &str, s: &Value) -> Option<Verdict> {
+    let (entry, rank) = (s["entry"].as_str()?.to_owned(), s["rank"].as_u64()? as usize);
+    let runtime_id = s["given"].as_array()?.iter().find(|g| g["kind"] == "status_on_unit")?["runtime_id"].as_str()?.to_owned();
+    let observe = &s["when"][0];
+    let holder = observe["holder"].as_str()?.to_owned();
+    let radius = expr(&observe["radius"], &entry, rank).ok()?;
+    let (mut run, body, target) = cast_at_body(hero, s)?;
+    let cast_point = value(&entry, rank, "cast_point").unwrap_or(0.0);
+    let Ok(cast) = run.cast(target, cast_point + 1.0, None) else { return None };
+    if !cast.accepted { return Some(Verdict::Unsupported(format!("instances_per_source: the cast was not accepted{}", cast.why()))); }
+    let (mut most_instances, mut most_sources) = (0usize, 0usize);
+    for _ in 0..ticks(4.0) {
+        run.step(1);
+        let instances = {
+            let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
+            buffs.iter_for(body).filter(|(key, _)| omoba_core::runtime::native::dispel::runtime_id_matches(&runtime_id, key)).count()
+        };
+        let at = run.world.read_storage::<Pos>().get(body).map(|p| p.0)?;
+        let units: Vec<(specs::Entity, omoba_sim::Vec2)> = {
+            let (entities, positions) = (run.world.entities(), run.world.read_storage::<Pos>());
+            (&entities, &positions).join().filter(|(e, _)| *e != body).map(|(e, p)| (e, p.0)).collect()
+        };
+        let sources = units.iter().filter(|(e, p)| {
+            let (dx, dy) = (real(p.x - at.x), real(p.y - at.y));
+            (dx * dx + dy * dy).sqrt() <= radius + 1.0 && holds(&run, *e, &holder)
+        }).count();
+        most_instances = most_instances.max(instances);
+        most_sources = most_sources.max(sources);
+    }
+    if most_sources < 2 { return Some(Verdict::Unsupported(format!("instances_per_source: {most_sources} holder(s) of {holder} reached the body"))); }
+    if most_instances == most_sources { Some(Verdict::PassNoted(format!("{most_instances} instances from {most_sources} sources"))) }
+    else { Some(Verdict::Fail(format!("instances_per_source: at most {most_instances} of {runtime_id} on the body, {most_sources} holders of {holder} within {radius}"))) }
+}
+
 fn check_periodic(hero: &str, s: &Value) -> Option<Verdict> {
     let (entry, rank) = (s["entry"].as_str()?.to_owned(), s["rank"].as_u64()? as usize);
     let status = s["given"].as_array()?.iter().find(|g| g["kind"] == "status_on_unit")?;

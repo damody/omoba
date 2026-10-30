@@ -1257,6 +1257,12 @@
 - 2026-10-30 線 A：C15 灼燒改回每段火焰一份（E356，原作 KV）；c15_burst_arrow 換上產生版（C15 有 3 招產生，百箭仍是手寫 handler）；v3 列帶 charges／toggle／ultimate、F 欄進第 6 欄（E360）。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
+## 2026-10-30（conformance：E359、E361、E362；C15 爆裂箭產生版、C05 通過）
+
+- E359：per_source 狀態的份數等於範圍內的持有者數（鎖住 C15 灼燒份數）。E361：no_effects 以目前最大生命為準，拒絕施放的 detail 帶 script 錯誤文字。E362：需要狀態的技能先施放給狀態的那招；toggle 等冷卻結束才切換；on_death 連帶移除。0 退步，fail 418→220。
+- c15_burst_arrow 換成產生版：C15 +16、0 退步，A 已換上（1ddfffc3）。C05 在 cd564b83 之後 0 fail。
+- A 的 22 位全產生英雄中，0 fail 的 14 位可以轉正式；其餘 8 位的 fail 交 A／B（見共用筆記）。
+
 ## 2026-10-30（conformance：M6 第 2～9 批 66 位第一次實跑；E351）
 
 - live cde5ab49 之後跑全部 103 個測試：13675 通過、418 fail、15 (b)、12248 unsupported。

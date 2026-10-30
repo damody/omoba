@@ -8,6 +8,33 @@
 - **通用修正**：`moba_role_launch` 啟動 renderer 時，環境變數加上 `UE_SKIP_UBT_SDK_SETUP=1`，這是引擎本身提供、用來跳過這一步的開關。測試 `moba_role_launch_host_split_test` 會檢查 renderer 的環境變數裡有這個設定。
 - **避免**：只用來顯示畫面的遊戲程序，要關掉所有會去碰建置工具（UBT、Turnkey、DDC 服務）的啟動步驟；在機器上同時有建置在跑時，這些步驟的等待時間無法預估。
 
+## E363 （保留）verify_m6_batch 只從 authored_heroes 認可玩英雄，看不到標成 playable 的 v3 英雄（2026-10-30）
+
+## E362 conformance：需要狀態的技能先施放給狀態的技能；toggle 等冷卻結束才切換；on_death 連帶移除（2026-10-30，conformance session）
+
+- **現象**：
+  - a12_mystic_arrow 在 F 欄有了 entry，但沒有 A12T 的形態就被拒絕。這是正確的拒絕，情境卻記成 fail。
+  - A03 spider_form、A17 great_cannon 的 toggle_off fail。
+  - A03 的 caster_dies_after_cast 記成「a03e_melee was removed」。
+- **根因**：
+  1. E340 只替 sub 技能做前置。坐在自己欄位、但 `requires.has_status` 的技能（A12F），沒有先施放給狀態的那招。
+  2. harness 在 toggle 的冷卻內就關閉。host 和 Dota 一樣，冷卻中不能切換。
+  3. 文件中 a03e_spider 的 on_death 會移除 a03e_melee（scope hero）。情境只看 scope，沒有看其他狀態的 on_death。
+- **通用修正**：
+  - 非 sub 的技能有 requires.has_status 時，產生 `required_status`：先施放給這個狀態的技能，等施法者身上出現該狀態。
+  - toggle 步驟先等冷卻結束。
+  - 施放套上的狀態中，有 on_death 觸發會從持有者移除的狀態，在施法者死亡時判定為移除。
+- **結果**：全部 103 個測試比對同一份 live，沒有任何 pass 變成 fail。A03 +8、A17 +3 轉 pass。b36_footsteps 需要 b36_naoe_seal（單位目標）給的狀態，轉為 unsupported；其中 1 個原本的 pass 是因為缺前置被拒絕才誤判為通過。a12_mystic_arrow 現在的拒絕原因是「v3: invalid cast range」，交工作線 A。
+- 已放回。
+
+## E361 conformance：拒絕施放的細節帶 script 錯誤文字；no_effects 以目前最大生命為準（2026-10-30，conformance session）
+
+- **現象**：A05、A08、A14、B32、C24 對自己施放 team=enemy 的單體技能，target_invalid/self 判成 fail，寫著「target hp 2900 -> 2825」這類扣血。CAST_REJECTED 的 fail 只有原因碼，看不出是哪一條規則擋下。
+- **根因**：CastTrace 是 ScriptError(CAST_REJECTED,「the target is not on an admitted team」)，目標身上沒有任何 DamageTrace。施法者既是目標，自己的最大生命在觀察窗內變小，生命跟著被壓低，no_effects 把這當成受到效果。CastResult 只留下原因碼。
+- **通用修正**：no_effects 時，目標仍是目前的滿血就算沒有受到效果。CastResult 帶上 ScriptError 的文字，fail 的 detail 會寫成「(CAST_REJECTED: v3: …)」。
+- **結果**：這 5 位的 19 個 self 情境轉為 pass，0 退步。
+- 已放回。
+
 ## E360 v3 測試英雄的技能列沒有 charges、toggle 記成 active、F 欄沒有座位（2026-10-30，工作線 A）
 
 - **現象**：conformance 第 2～9 批第一次實跑：a17_shrapnel、c25_raid 缺 charges；toggle 技能的 event.ability.is_toggle 一律是 false；F 欄技能（A12、B03、B11、B13、B16、C07 共 144 個情境）都是 missing entry。
@@ -15,7 +42,12 @@
 - **通用修正**：ability_row 新增 charges_delivery。`max`／`restore` 必須是逐級數值（extras），轉成 `{ max_key, recharge_key }`；`initial` 必須等於 max，`scope` 必須是 instance，`on_rank_up` 只支援 keep_restart（extras 旗標）。其他寫法會中止產生，不會默默丟掉規則。ability_type 依 kind 和 tag 給 passive／toggle／ultimate／active。v3_test_heroes 支援第 6 欄 F（B f04f942d）；接在空欄後面的欄位（A32 只有 F、沒有 D）host 還沒有對應寫法，列在產生檔開頭的「Not seated」，不會悄悄消失。
 - **以後如何避免**：v3 內容列和 authored 列要帶相同的 host 欄位；新增一個 host 欄位時，兩條路徑都要接上。
 
-## E359 （保留）conformance：per_source 狀態每個來源一份（C15 爆裂箭灼燒份數）（2026-10-30）
+## E359 conformance：per_source 狀態每個來源一份（C15 爆裂箭灼燒份數）（2026-10-30，conformance session）
+
+- **背景**：工作線 A 的 E356 把 C15 灼燒改回原作，每段火焰各一份。需要一個情境鎖住份數。
+- **通用規則**：一個 `per_source = true` 的狀態，若由另一個狀態的持有者以 `for_each`（select from self、radius R）施加且 source = self，產生 `normal/<status>/per_source` 情境。目標身上的實例數最大值，必須等於同時在 R 內持有該狀態的單位數最大值。來源少於 2 個時回報 unsupported。
+- **結果**：C15 c15_burst_arrow r1～r4 各一個。在 1ddfffc3（產生版換上）之前的 live 上，手寫版看不到火焰持有者，回報 unsupported；換上後重比。
+- 已放回。
 
 ## E358 （保留）沒有 bot 出裝會取得的上架道具從沒被驗證：批次加道具覆蓋模式（2026-10-30）
 
