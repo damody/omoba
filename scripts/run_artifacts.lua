@@ -87,6 +87,8 @@ end
 -- for one match) tolerates sources changed after that moment: the authority was checked
 -- when the match started, and a client started minutes later must not be refused because
 -- another session landed a change meanwhile (E202). A deleted source is always stale.
+-- M.sources_as_of is the same moment set in-process by a launcher that built the binaries itself
+-- (run_moba_role_ue, E287): sources changed after its build started do not refuse that build.
 function M.dep_info_sources(text)
   local body=text:match('^.-: (.-)\r?\n') or text:match('^.-: (.*)$') or ''
   local sources,current={},{}
@@ -109,7 +111,7 @@ function M.stale_sources(binary,deps)
   local dep_info=binary:gsub('%.[^./\\]+$','')..'.d'
   if not built or not d.path.is_file(dep_info) then return nil end
   local stale={}
-  local as_of=math.tointeger(tonumber(d.getenv('OMOBA_SOURCES_AS_OF') or ''))
+  local as_of=math.tointeger(tonumber(d.getenv('OMOBA_SOURCES_AS_OF') or '')) or M.sources_as_of
   for _,source_file in ipairs(M.dep_info_sources(d.path.read(dep_info,true))) do
     local a=stat(d,source_file)
     -- A listed directory (a tracked content root) changes time whenever any file in it is

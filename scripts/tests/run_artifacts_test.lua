@@ -160,6 +160,10 @@ do
   local as_of = function(at) return {getenv = function(key) return key == 'OMOBA_SOURCES_AS_OF' and tostring(at) or nil end} end
   check(#artifacts.stale_sources(exe, as_of(now - 5)) == 0, 'a source changed after the match started is tolerated')
   check(#artifacts.stale_sources(exe, as_of(now + 5)) == 1, 'a source changed before the match started is still stale')
+  -- E287: the same moment set in-process by a launcher that built the binaries itself.
+  artifacts.sources_as_of = now - 5
+  check(#artifacts.stale_sources(exe) == 0, 'a source changed after the launcher build started is tolerated')
+  artifacts.sources_as_of = nil
   lfs.touch(spaced, now - 100, now - 100)
   os.remove(a)
   rejects(function() artifacts.verify_current_build('server', exe) end, '(deleted)')

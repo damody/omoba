@@ -9,6 +9,11 @@ local function profile(options)
   assert(value=='debug' or value=='release','invalid server build profile')
   return value
 end
+-- The script DLL set: base_content and every hero DLL (script_dlls.lua), for profile SELECTED.
+function M.script_dll_command(selected)
+  return {exe='cargo',args=require('script_dlls').cargo_args({'build','--manifest-path',
+    path.join(b.root,'scripts/Cargo.toml')},'compiled-content-only',selected=='release' and {'--release'} or nil)}
+end
 function M.commands(options)
   local selected=profile(options)
   local commands={}
@@ -19,9 +24,7 @@ function M.commands(options)
     if selected=='release' then args[#args+1]='--release' end
     commands[#commands+1]={exe='cargo',args=args}
   end
-  -- The script DLL set: base_content and every hero DLL (script_dlls.lua).
-  commands[#commands+1]={exe='cargo',args=require('script_dlls').cargo_args({'build','--manifest-path',
-    path.join(b.root,'scripts/Cargo.toml')},'compiled-content-only',selected=='release' and {'--release'} or nil)}
+  commands[#commands+1]=M.script_dll_command(selected)
   build('omb/Cargo.toml','omobab','moba-config')
   build('omb/Cargo.toml','omobab','omobab')
   commands[#commands+1]={exe=platform.lua_executable,args={
