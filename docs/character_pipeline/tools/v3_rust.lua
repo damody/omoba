@@ -2749,12 +2749,18 @@ local function emit_entry(m, o, opts, status_problems)
   end
   local filters = {}
   local passive_mask, passive_arms, passive_periodic, passive_created = 0, {}, nil, false
+  local item_equip = {}
   local function doc_id_of(_) return (m.doc_id or "doc"):lower() end
   for _, ev in ipairs(sorted_keys(passive.triggers)) do
     local tr = passive.triggers[ev]
     -- shorthand: a trigger written as its action list
     if tr[1] ~= nil then tr = { actions = tr } end
-    if not PASSIVE_TRIGGERS[ev] then g:block("passive_trigger:" .. ev)
+    -- an item's passive is made when a copy is gained and ends when it is lost (host item_equip:
+    -- AbilityScript::on_equip / on_unequip); nothing learns an item, so the triggers a learn
+    -- marker serves wait
+    local item = o.kind == "item"
+    if item and ev ~= "on_created" and ev ~= "on_removed" then g:block("passive_trigger:" .. ev .. " of an item (no learn marker)")
+    elseif not PASSIVE_TRIGGERS[ev] and not (item and ev == "on_removed") then g:block("passive_trigger:" .. ev)
     else
       for _, k in ipairs(sorted_keys(tr)) do
         if k ~= "actions" and k ~= "filter" and k ~= "notes" and not (k == "who" and ev == "on_ability_executed")
@@ -2791,10 +2797,10 @@ local function emit_entry(m, o, opts, status_problems)
         filters[ev] = filter
         local body = g:actions(tr.actions, ctx, "    ")
         fns[#fns + 1] = string.format("fn %s(cx: &mut Cx<'_, '_>) -> Res {\n    if !(%s) { return Ok(()); }\n%s    Ok(())\n}\n", ev, filter, body)
-        if ev == "on_created" then
-          -- a learned passive is a permanent implicit status made at the first learn (v3.md §3);
-          -- an item's is made on equip, which items.dll does not serve yet
-          if o.kind ~= "ability" then g:block("passive_trigger:on_created of an item") end
+        if item then
+          item_equip[ev] = true
+        elseif ev == "on_created" then
+          -- a learned passive is a permanent implicit status made at the first learn (v3.md §3)
           passive_created = true
         elseif evt then
           passive_mask = passive_mask + (passive_mask & evt[1] == 0 and evt[1] or 0)
@@ -2960,6 +2966,16 @@ local function emit_entry(m, o, opts, status_problems)
     impl[#impl + 1] = "\n    fn on_learn(&self, caster: EntityHandle, new_level: u8, world: &mut GameWorldDyn<'_>) {\n"
       .. "        if new_level == 0 || new_level > MAX_LEVEL { return; }\n"
       .. "        let mut cx = Cx::passive(world, caster, new_level);\n" .. g:finish(table.concat(learn)) .. "    }\n"
+  end
+  -- an item's passive: on_created per copy gained, on_removed per copy lost (its stats are the
+  -- shop catalog's, which the host applies)
+  if item_equip.on_created then
+    impl[#impl + 1] = "\n    fn on_equip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {\n"
+      .. "        let mut cx = Cx::passive(world, owner, 1);\n        let _ = on_created(&mut cx);\n    }\n"
+  end
+  if item_equip.on_removed then
+    impl[#impl + 1] = "\n    fn on_unequip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {\n"
+      .. "        let mut cx = Cx::passive(world, owner, 1);\n        let _ = on_removed(&mut cx);\n    }\n"
   end
   if #auras > 0 then
     local arms = {}
