@@ -116,3 +116,26 @@
 - 2026-10-30 06:57：C 為 4 招 direction 技能補 vector_length（B08 兩招、A34、A24），UE 以直線預覽；C 問金袋要不要花約 25 Tripo credits，主 session 決定不花，改用基本 mesh＋金色材質＋Grok 圖示。已請 C 實機驗 vector 預覽並回報 runtime 呈現欄位進度。
 - 2026-10-30 07:00：C 把 runtime 呈現欄位從 host 做到 UE 並放回（21 檔，含 UBT；E247）：地面區域、繫繩（兩端都揭露才送）、幻象（只送同隊）、日夜；實機確認阿市光鍊、玉子爆裂箭；幻象與夜晚尚無產生者。換模型未做，接著做金袋、vector 預覽實機截圖、hex 變形外觀。A：B08 投射物指定起點、remove_status tags，138 招可產生。conformance：(c) 歸零。
 - 2026-10-30 07:07：A 把產生碼 effect path 對齊情境產生器寫法（觸發不帶 .actions、狀態用 id）後又停；已催它依序做 independent 疊加、M5 驗收與刪除三位手寫 handler、items 接線、第 1 批解鎖。
+- 2026-10-30 07:15：A 完成 M5 第一批（A02、B01＋C17、B04 去掉 applier 後 5400 tick 每 tick 相同，刪三位手寫 handler 與逐 tick 比對，E250）與 items.dll 接線（16 檔，B 審），base_content 失敗 27→1（大地震撼魔免暈眩交 B）。主 session 第二次 commit 並 push：主 repo 6af08b08、omfue 48f68a5（含刪除 570 個舊 Niagara，不改寫歷史）、omb 無變更。
+- 2026-10-30 07:17：A：independent 疊加（key <runtime_id>#<n>）、set_ability_active／swap_abilities、on_attack_windup 放回，可產生 146 招，wave1 21/44；剩餘多等 B 的 host 元件。已派 A 跟 B 劃分，分擔 set_mana、友軍範圍查詢、投射物結束效果等不衝突的 host 元件。C 開 lineC-vector/asai_nagamasa 實機局驗 vector 預覽。
+- 2026-10-30 07:27：A：友軍／雙方範圍選取、set_mana、投射物結束效果、ability_of 等，可產生 153 招，wave1 24/44，A34 阿松 4 招全可產生（待 conformance 比對）。已催 A 開始 wave2。C 在跑 lineC-vector/asai_nagamasa 第二局。
+- 2026-10-30 07:35：gamemode 完成 M3' 前後實戰比較（E255）：C17 施放數相近、cast_trace 無拒絕、KDA 相近，產生的 Rust 沒變差；陣容 A 偏弱是 bot 施放政策缺雜賀孫市、村上義清，補 5 條後陣容 A 勝率 2/24→3/12。已派 gamemode 把 bot 施放意圖改成依 catalog／v3 自動推導（含召喚、直線衝刺），目標所有已上架英雄每招都會用。
+- 2026-10-30 07:47：A 把 A34 阿松換上 live；同時發現上一批產生器修改讓 items.dll 載入時 panic、base_content 測試程序中止（道具文件的子技能不在 catalog），已修（E261，查不到就不註冊）。主 session 要求改成建置期比對 catalog 並列入 coverage、FFI 邊界包 catch_unwind、改產生器後固定跑載入 manifest 的測試。conformance 閒置，已請它繼續降 unsupported。
+- 2026-10-30 07:55：A 完成 E261 三項：建置期比對 catalog（50 處列入 coverage；items.dll 實際可註冊道具 35 件，先前 60 件是虛數）、Guarded 包 catch_unwind（execute panic 轉 RErr）、每份 registry 產生 manifest_loads 測試並加進 land_to_live 檢查。A34 阿松整位改跑產生的 Rust（hero_a34），待 conformance 比對；A 繼續 wave2。
+- 2026-10-30 08:17：conformance 確認 A34 阿松換成 hero_a34 後 0 退步；10 位 1686 通過、15 (b)、0 (c)、588 unsupported。已請它持續降 unsupported。C 在跑 lineC-vector spotlight1～4（阿松、淺井長政），08:08 有一局 1 秒就釋放鎖（疑似啟動失敗），下一輪看它的紀錄。
+- 2026-10-30 08:20：gamemode 完成通用 bot 施放政策（E260）：沒手寫政策的招式自動採 v3 推導提示、新增召喚意圖、直線技讀 shape_width；quick 政策 23→32 條，陣容 A 勝率 2/24→14/24（58%）。已派 toggle 意圖、nobu UE 驗收、M6 每批驗收腳本。A：independent 實例移除與 has_status 接上 B，可產生 170 招。conformance：A34 換上 0 退步。
+- 2026-10-30 08:27：C 查 swap_abilities：UE 每 frame 重建技能欄不用改，但被換進來的子技能（如 a07_rouse_free）不在 content 目錄時那欄失效，已轉 A 補 catalog 條目（影響 6 位英雄）。C 閒置，已請它收尾 vector 預覽驗證、金袋、hex 外觀、檢查 35 件道具的 UE 呈現。gamemode 放回 v3_bot.lua。
+- 2026-10-30 08:35：C 完成 vector 預覽實機驗證（autopilot 瞄準太快沒畫出，改先瞄 0.6 秒；b08_fang_slash、a34_frost_breath、b08_sky_fang 截圖確認，a24 未上架）、金袋 SM_gold_bag（基本形狀＋麻布＋金色材質，item_money）、hex 變形成青蛙 SM_hex_critter；接著檢查 35 件道具的 UE 呈現。
+- 2026-10-30 08:40：conformance E264：10 位 1721 通過、15 (b)、0 (c)、553 unsupported（626→553）；剩下 quirk 288、非 quirk 265（255 在仍跑手寫 handler 的招式，換成產生 Rust 後預期轉通過；已換上的只剩 10 個），無需要 host 新能力的項目。分類在共用筆記 conformance-unsupported-2026-10-30.md。A 排入被換進的子技能補 content 目錄。
+- 2026-10-30 08:56 使用者指示無人值守 96 小時（到 11-03 08:56），10 分鐘例行檢查持續（cron a88ef402）
+- 2026-10-30 09:00 check_live_consistent 通過（gamemode 08:43 bot 技能施放 land 之後）
+- 2026-10-30 09:26 B set_mana 改套用變化量已 land；C lineC-itemcue2 局跑 724 秒超過 10 分鐘，已通知 C 記 errors 並設上限；C 的狀態期間 cue 決定做（英雄道具共用）；conformance 排重跑 A34T
+- 2026-10-30 09:30 check_live_consistent 通過（B set_mana land 之後）
+- 2026-10-30 09:32 conformance E267/E270：1725 通過、15 (b)、9 (c)、539 unsupported；A34T 產生碼重複觸發 on_ability_executed 與 a34t_cap 無效交 A，FC-078 交 conformance，B08R hCaster 交 A
+- 2026-10-30 09:38 gamemode e187 三項 land：toggle_engage（E263，陣容 A 7/12）、nobu UE 實機 560 秒 replica mismatch 0（野怪營地／砍樹畫面待 autopilot 指令化）、verify_m6_batch.lua；下一步 autopilot 指令化與 B29 從沒施放
+- 2026-10-30 09:45 線 A land 17 檔（E268）：A34 副本不一致與 A34T 兩個 (c) 修好（host 退冷卻拿掉、a34t_active 不再與學會標記共用一列、hero_command 冷卻進 committed_cooldowns、soak 給等級走 SkillLearn），A34 手寫 handler 刪除；產生器接上 absorb／damage source+flags／status_resistance ignore／modify_attack crit，projectile 參數遮蔽修正；FC-135（B08R hCaster）；英雄產生 188／447
+- 2026-10-30 09:46 B knockback 擴充 land（可從點推開、可不附暈眩，1399 測試全過）；下一步 on_channel_end／on_phase_start
+- 2026-10-30 10:04 check_live_consistent 通過（B knockback land 之後）
+- 2026-10-30 10:24 線 A：產生器 knockback、routine 內聯（含遞迴本地函式）、跨招式狀態模組檢查、order=random、rotate／random_int／%、技能被動 on_created、swap 子技能進 content（a07_rouse_free）、B06 crate；英雄產生 202／447；B08 整位換上與 A07／B29／B06 逐招比對交 conformance
+- 2026-10-30 11:20 線 A：產生器接上 B 的 knockback（負距離往回拉、height → knockback_arc；distance 0 的原地拋起仍擋，B36）、on_phase_start 完整程式與 cancel_cast（Cx.cancelled，hook 回 false）、routine 呼叫先綁引數（修 nene 借用衝突）；英雄產生 205／447（B05、C25 解鎖）；97 套件全量編譯通過，已 land
+- 2026-10-30 10:49 使用者新規則 D18：各工作線每完成一件事就 commit（只 commit 自己的檔案、不 push），已通知五條線；conformance 1736 通過、15 (b)、0 (c)、537 unsupported，A07 三招與 B06 兩招 0 退步可換上
