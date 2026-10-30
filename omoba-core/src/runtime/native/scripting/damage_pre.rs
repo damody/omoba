@@ -47,6 +47,20 @@ fn rows(buffs: &BuffStore, holder: specs::Entity, bit: u32) -> Vec<(String, Spec
 
 fn total(packet: &Packet) -> Fixed64 { packet.physical + packet.magical + packet.pure }
 
+/// One hook's result: its effects join `accepted` and its edit applies, or, when an effect may not
+/// run in a damage hook (it charges or spawns), neither does (E421), so a cancel never lands
+/// without its effects. Returns the refused outcome's kind.
+fn settle_hook(packet: &mut Packet, edit: DamageEdit, outcomes: Vec<crate::comp::Outcome>,
+    accepted: &mut Vec<crate::comp::Outcome>) -> Option<String> {
+    if let Some(refused) = outcomes.iter().find(|o| !crate::runtime::native::ability_channel::pulse_outcome_allowed(o)) {
+        let kind = format!("{refused:?}");
+        return Some(kind.split([' ', '{', '(']).next().unwrap_or("").to_owned());
+    }
+    accepted.extend(outcomes);
+    apply_edit(packet, edit);
+    None
+}
+
 /// `DamageEdit` on the packet: `mode` 1 multiplies every kind by `value`, 2 scales them so the
 /// total is `value` (never more than it was), 3 cancels; anything else keeps it.
 pub fn apply_edit(packet: &mut Packet, edit: DamageEdit) {
@@ -106,13 +120,10 @@ pub fn status_damage_pre(world: &World, packet: &mut Packet) {
                 adapter.discard_cast();
                 continue;
             };
-            let outcomes = adapter.finish();
-            if outcomes.iter().all(crate::runtime::native::ability_channel::pulse_outcome_allowed) {
-                accepted.extend(outcomes);
-            } else {
-                log::warn!("[scripting] damage hook of '{}' ({}) tried to charge or spawn; its effects dropped", spec.status, spec.ability);
+            if let Some(refused) = settle_hook(packet, edit, adapter.finish(), &mut accepted) {
+                log::warn!("[scripting] damage hook of '{}' ({}) tried to charge or spawn ({}); its effects and edit dropped",
+                    spec.status, spec.ability, refused);
             }
-            apply_edit(packet, edit);
         }
     }
     if !accepted.is_empty() {
@@ -129,6 +140,20 @@ mod tests {
         let mut world = World::new();
         let e = world.create_entity().build();
         Packet::new(e, e, Fixed64::from_i32(p), Fixed64::from_i32(m), Fixed64::from_i32(r), 1)
+    }
+
+    /// E421: a damage hook whose effects are dropped does not edit the packet either.
+    #[test]
+    fn a_hook_with_refused_effects_leaves_the_packet_as_it_was() {
+        let cancel = DamageEdit { mode: DamageEdit::CANCEL, value: Fixed64::ZERO };
+        let mut p = packet(100, 0, 0);
+        let mut accepted = Vec::new();
+        let spend = crate::comp::Outcome::ScriptManaSpent { entity: p.target, amount: Fixed64::ONE, ability_id: "x".into() };
+        assert_eq!(settle_hook(&mut p, cancel, vec![spend], &mut accepted).as_deref(), Some("ScriptManaSpent"));
+        assert_eq!((p.physical, accepted.len()), (Fixed64::from_i32(100), 0));
+        let heal = crate::comp::Outcome::ScriptRemoveBuff { target: p.target, buff_id: "x".into() };
+        assert_eq!(settle_hook(&mut p, cancel, vec![heal], &mut accepted), None);
+        assert_eq!((p.physical, accepted.len()), (Fixed64::ZERO, 1));
     }
 
     #[test]

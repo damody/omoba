@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：damage hook 的效果與 edit 一起成立（E421）
+
+- 效果被拒時，edit 也不套用；log 寫出被拒的 outcome 種類。A05 不再無限取消致命傷。
 ## 2026-10-31 線 B：per-owner 召喚上限封包（E418）、不需目標的召喚的 bot 施放（E419）
 
 - `__summon_limit {template, limit}`：kit `limit_summons`，保留最新的 limit 個召喚物（a20、a36、b07）。

@@ -8,7 +8,13 @@
 
 ## E422 （保留）check_heal 把施法者同一個 tick 的自然回復算進 heal（C16W 多 3.26）（2026-10-31）
 
-## E421 （保留）damage hook 的效果被丟掉時 edit 仍套用：a05_loyal_secret 取消致命傷卻沒有回血、假死與冷卻，A05 永遠不死（2026-10-31）
+## E421 damage hook 的效果被丟掉時 edit 仍套用：a05_loyal_secret 取消致命傷卻沒有回血、假死與冷卻，A05 永遠不死（2026-10-31，工作線 B）
+- **現象**：gamemode 回報酒井忠次（A05）永遠不會死（12/0/35）。a05_loyal_secret 的 on_take_damage_pre 會：取消傷害 → set_health → set_mana → 移除敵方狀態 → 套用假死 a05d_feign → 開始 270 秒冷卻，filter 是 `ability_ready`。log 顯示「damage hook ... tried to charge or spawn」。
+- **根因**：`status_damage_pre` 遇到不允許的效果時，只丟掉整批效果，下一行的 `apply_edit(packet, edit)` 仍照常套用。所以取消生效，但冷卻沒有開始、回血與假死也沒發生；下一次致命傷又被取消，無限循環。
+- **通用修正**：抽出 `settle_hook`：效果與 edit 一起成立或一起作廢。任何一個效果不能在 damage hook 裡執行時，兩者都丟掉，傷害照原本的封包結算。log 會寫出被拒的 outcome 種類，方便找出哪一個動作不能在 damage hook 執行。
+- **測試**：`a_hook_with_refused_effects_leaves_the_packet_as_it_was`。
+- **後續**：產生碼的這些動作都走封包（hero_command、`__mana_set`、dispel purge），照理都是允許的；究竟是哪個 outcome 被拒，要看重跑後的 log。到時再修正那個動作，讓假死能成立。
+- **避免**：一個 hook 的結果（效果與回傳值）必須一起套用或一起丟棄，不能只丟一半。
 
 ## E420 （保留）FC-024 沒有 conformance 測試：A05D 假死後冷卻是否啟動沒人驗（e187 批次中酒井不會死）（2026-10-31）
 
