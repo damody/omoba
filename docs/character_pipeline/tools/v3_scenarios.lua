@@ -617,8 +617,10 @@ local function entry_scenarios(doc, def, entry_kind, out)
           expect = { { kind = (s.scope == "hero" or s.scope == "unit" or s.scope == "permanent") and "status_kept" or "status_removed", status = s.id } } })
         for _, ev in ipairs(sorted_keys(s.triggers or {})) do
           push(rank, "trigger", { suffix = s.id .. "/" .. ev, given = given({ on_unit(s, a) }),
-            -- interval: a periodic trigger's period (E220), so a test can time its ticks
-            when = { { kind = "status_event", status = s.id, event = ev, interval = type(s.triggers[ev]) == "table" and s.triggers[ev].interval or nil } },
+            -- interval: a periodic trigger's period (E220), so a test can time its ticks; duration:
+            -- how long the status lasts where it is applied, which bounds its hits (E415)
+            when = { { kind = "status_event", status = s.id, event = ev, interval = type(s.triggers[ev]) == "table" and s.triggers[ev].interval or nil,
+              duration = a.duration or s.duration } },
             expect = { { kind = "effects", effects = trigger_effects(s.triggers[ev], "statuses." .. s.id .. ".triggers." .. ev, ev) } } })
         end
         -- The status's own stats on its holder (E388).

@@ -2294,6 +2294,11 @@ fn check_periodic(hero: &str, s: &Value) -> Option<Verdict> {
     if effects.iter().any(|e| e["op"] != "damage" && e["op"] != "cue") || damage.iter().any(|e| e["args"]["to"] != "self") { return None; }
     let expected: f64 = damage.iter().map(|e| expr(&e["args"]["amount"], &entry, rank)).sum::<Result<f64, String>>().ok()?;
     let interval = expr(&s["when"][0]["interval"], &entry, rank).ok()?;
+    // The host runs a periodic trigger every interval, rounded to the nearest tick, and a hit only
+    // while the status lasts: one due on the tick it expires does not run (B; E385). So an instance
+    // hits (duration - 1 tick) / interval times (duration 1 and interval 0.99: once; 1 and 1: never).
+    let period = ((interval * 60.0).round() as i64).max(1);
+    let lasts = expr(&s["when"][0]["duration"], &entry, rank).ok().map(|d| (((d * 60.0).round() as i64) - 1).max(0) / period);
     let (mut run, body, target) = cast_at_body(hero, s)?;
     let cast_point = value(&entry, rank, "cast_point").unwrap_or(0.0);
     let Ok(cast) = run.cast(target, cast_point + 1.0, None) else { return None };
@@ -2325,19 +2330,29 @@ fn check_periodic(hero: &str, s: &Value) -> Option<Verdict> {
     let by_trace = !traced.is_empty();
     let hits: Vec<(i64, f64)> = if by_trace { traced.into_iter().map(|(t, a)| (t as i64, a)).collect() }
         else { hits.into_iter().map(|(t, a)| (i64::from(t), a)).collect() };
-    if hits.len() < 2 { return Some(Verdict::Fail(format!("periodic: {} hits within {:.1}s", hits.len(), interval * 3.0))); }
+    // The hits one instance makes within the window (3 intervals), at least the 2 that time it.
+    let wanted = lasts.map_or(2, |n| n.min(2)) as usize;
+    if wanted == 0 {
+        return Some(if hits.is_empty() { Verdict::PassNoted(format!("periodic: no hit, the status ends before its interval {interval}s")) }
+            else { Verdict::Fail(format!("periodic: {} hits, expected none: the status ends before its interval {interval}s", hits.len())) });
+    }
+    if hits.len() < wanted {
+        return Some(Verdict::Fail(format!("periodic: {} hits within {:.1}s, expected {wanted}{}", hits.len(), interval * 3.0,
+            lasts.map_or(String::new(), |n| format!(" ({n} in the status's duration)")))));
+    }
     let tolerance = (expected * 0.01).max(1.0);
     if let Some((_, bad)) = hits.iter().find(|(_, amount)| (amount - expected).abs() > tolerance) {
         return Some(Verdict::Fail(format!("periodic: a hit of {bad:.2}, expected {expected}")));
     }
-    let period = ticks(interval) as i64;
     if by_trace {
         // Independent instances (stacking = independent) tick on their own phases: the first
         // instance's hits still come one interval apart.
         let first = hits[0].0;
         let last = hits.iter().map(|(t, _)| *t).max().unwrap_or(first);
+        // Only the hits the first instance's duration holds (an instance applied later hits on
+        // its own phase).
         let mut k = 1;
-        while first + k * period <= last {
+        while first + k * period <= last && lasts.is_none_or(|n| k < n) {
             let due = first + k * period;
             if !hits.iter().any(|(t, _)| (t - due).abs() <= 1) {
                 return Some(Verdict::Fail(format!("periodic: no hit {} ticks after the first, expected every {period}", k * period)));

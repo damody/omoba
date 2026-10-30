@@ -2,6 +2,8 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E417 （保留）dummy 一律 immobile：有 move_speed 的 dummy（a20、a36、b33、c07）無法產生（2026-10-31）
+
 ## E416 召喚施法的 settlement 擋下 spawn 之前對敵方單位的 AddBuff：b11_crow_raid 每次 SettlementRefused（2026-10-31，工作線 B）
 - **現象**：conformance 的 b11_crow_raid 每次施法都是 `WindupStarted, Accepted, SettlementRefused("AddBuff")`（tick 70、137、324、430、1157…）。on_cast 先對目標套用 `b11r_phased`，`b11r_proc` 之後才以機率產生分身。
 - **根因**：cast_settlement 規定，召喚施法中對施法者以外單位的 AddBuff 或傷害，只能排在最後一個 spawn 之後，以免改變分身位置規劃所依賴的世界。但 b11 的順序是原作語意（先讓目標 phased，再傳送、攻擊），產生器不能調換。
