@@ -213,6 +213,15 @@ impl Run {
             other => Err(format!("cast target {other}")),
         }
     }
+    /// The trace shows this entry's windup started in this cast and not yet released, refused or
+    /// interrupted: a status the windup puts on (C05T's restrict) is not the cast landing (E340).
+    fn in_windup(&self, traced_from: usize) -> bool {
+        use omoba_core::runtime::native::cast_trace::{CastTrace, CastTraceResult};
+        let trace = self.world.read_resource::<CastTrace>();
+        let rows: Vec<_> = trace.0.iter().skip(traced_from).filter(|row| row.caster == self.caster && row.ability == self.entry).collect();
+        rows.iter().any(|row| matches!(row.result, CastTraceResult::WindupStarted))
+            && !rows.iter().any(|row| !matches!(row.result, CastTraceResult::WindupStarted))
+    }
     fn observe(&mut self, cooldown: f64, previous: &mut f64, spent: &mut f64, fresh: &[String]) -> bool {
         let now = self.mana();
         if now < *previous - 0.01 { *spent += *previous - now; }
@@ -245,6 +254,12 @@ impl Run {
             self.target_hp = self.world.read_storage::<CProperty>().get(self.target).map(|p| p.hp).unwrap_or(self.target_hp);
         }
         self.sustain = !self.casts.is_empty();
+        // A form that swapped the entry in can end before a later cast (A12T lasts as long as
+        // A12E's cooldown): the slot then holds another ability, and its cast says nothing (E340).
+        let in_slot = self.hero(|h| h.abilities.get(self.slot as usize).cloned());
+        if in_slot.as_deref() != Some(self.entry.as_str()) {
+            return Err(format!("slot {} holds {} now, not {}", self.slot, in_slot.as_deref().unwrap_or("nothing"), self.entry));
+        }
         let input = self.input(target)?;
         let (mut previous, mut spent) = (self.mana(), 0.0);
         let charges_before = self.charges();
@@ -263,21 +278,28 @@ impl Run {
             if tick == 0 { if let Some((victim, source)) = death { self.kill(source, victim); self.target_killed |= victim == self.target; } }
             self.step(1);
             accepted |= self.observe(cooldown, &mut previous, &mut spent, &fresh);
-            if accepted && death.is_none() { break; }
+            if accepted && death.is_none() && !self.in_windup(traced_from) { break; }
         }
         // Why the host refused it (B's cast trace): the first refusal or script error of this entry.
         // A refusal the trace records overrides the indirect signs (E288): a status an earlier
         // cast applies later (B08D's phase at its return) shows up on the caster within this window
         // and would read as this cast landing.
-        let (refused, ran) = {
+        let (refused, ran, unrecorded) = {
             use omoba_core::runtime::native::cast_trace::{CastTrace, CastTraceResult};
             let (caster, entry) = (self.caster, self.entry.clone());
             let trace = self.world.read_resource::<CastTrace>();
             let rows: Vec<_> = trace.0.iter().skip(traced_from).filter(|row| row.caster == caster && row.ability == entry).collect();
             let code = rows.iter().find_map(|row| match &row.result { CastTraceResult::Rejected(code) => Some(*code), CastTraceResult::ScriptError { code, .. } => Some(*code), _ => None });
-            (code, rows.iter().any(|row| matches!(row.result, CastTraceResult::Accepted)))
+            // The authority drops an order at admission (cooldown) without a row: once the trace
+            // has recorded this entry, a cast it does not record did not land, whatever status
+            // an earlier cast keeps re-applying (A12E's field; E340).
+            let recorded = trace.0.iter().take(traced_from).any(|row| row.caster == caster && row.ability == entry);
+            // A windup that ended without its release (the caster died in the cast point) did not
+            // land either, whatever the window saw meanwhile (A26T; E340).
+            let cut = rows.iter().any(|row| matches!(row.result, CastTraceResult::Interrupted(_)));
+            (code, rows.iter().any(|row| matches!(row.result, CastTraceResult::Accepted)), (recorded && rows.is_empty()) || cut)
         };
-        if refused.is_some() && !ran { accepted = false; }
+        if (refused.is_some() || unrecorded) && !ran { accepted = false; }
         let refused = if accepted { None } else { refused };
         let result = CastResult { accepted, mana_spent: spent, charges: charges_before.zip(self.charges()), refused };
         self.casts.push(result);
@@ -293,7 +315,9 @@ fn swap_in(world: &mut World, driver: &mut SimulationDriver, caster: specs::Enti
         let mut heroes = world.write_storage::<Hero>();
         let h = heroes.get_mut(caster).unwrap();
         h.level = 18;
-        h.ability_levels.insert(by.to_owned(), 1);
+        // The parent at this rank, or its highest below it (its level sets the sub's; A12T; E340).
+        let by_rank = (1..=rank).rev().find(|r| value(by, *r, "cooldown").is_some()).unwrap_or(1);
+        h.ability_levels.insert(by.to_owned(), by_rank as i32);
         h.ability_levels.insert(replaces.to_owned(), rank as i32);
         if let Some(pool) = h.mana_pool.as_mut() {
             let maximum = pool.maximum().max(Fixed64::from_i32(5000));
@@ -986,7 +1010,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
             Some(_) => {}
         }
     }
-    let learned_only = json!({"entry": s["entry"], "rank": s["rank"], "given": [given[0].clone()]});
+    let learned_only = json!({"entry": s["entry"], "rank": s["rank"], "given": learning(s)});
     let mut run = match setup(hero, &learned_only) {
         Ok(run) => run,
         Err(e) if e.starts_with(MISSING) => return Verdict::Fail(e),
@@ -1679,6 +1703,11 @@ fn expected_damage(s: &Value, entry: &str, rank: usize) -> Option<f64> {
 /// A fresh run whose only reachable enemy is a sturdy unit without defenses, at a distance the
 /// cast reaches; returns the run, the body and the cast's target kind. None when the entry's
 /// valid targets do not include such a unit (e.g. hero-only targets, whose resistance pool applies).
+/// The givens that learn the entry: `learned`, and `swapped_in` when a status swaps it in (E340).
+fn learning(s: &Value) -> Vec<Value> {
+    s["given"].as_array().map(|g| g.iter().filter(|g| g["kind"] == "learned" || g["kind"] == "swapped_in").cloned().collect()).unwrap_or_default()
+}
+
 fn cast_at_body(hero: &str, s: &Value) -> Option<(Run, specs::Entity, &'static str)> {
     let (entry, rank) = (s["entry"].as_str()?.to_owned(), s["rank"].as_u64()? as usize);
     let target_unit = s["given"].as_array()?.iter().find(|g| g["kind"] == "target_unit");
@@ -1687,7 +1716,7 @@ fn cast_at_body(hero: &str, s: &Value) -> Option<(Run, specs::Entity, &'static s
         let types: Vec<&str> = unit["types"].as_array().map(|t| t.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
         if !types.iter().any(|t| *t == "creep" || *t == "all") { return None; }
     }
-    let learned_only = json!({"entry": entry, "rank": rank, "given": [s["given"][0].clone()]});
+    let learned_only = json!({"entry": entry, "rank": rank, "given": learning(s)});
     let mut run = setup(hero, &learned_only).ok()?;
     let kind = omoba_template_ids::ability_by_name(&entry).and_then(omoba_template_ids::active_ability_const).map(|c| c.target_type)?;
     let target = match kind { omoba_template_ids::TargetTypeC::Unit => "unit", omoba_template_ids::TargetTypeC::Point => "point", _ => "none" };

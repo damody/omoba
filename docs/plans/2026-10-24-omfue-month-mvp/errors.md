@@ -2,6 +2,8 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E347 （保留）headless 批次排 repo 建置鎖排很久：改從自己的原始碼快照建在私有 target，不必排鎖（2026-10-30）
+
 ## E346 split client 的前端 verify 取 build 鎖，在實機鎖與時限內等別人的建置；被停掉的建置留下 build 鎖（2026-10-30，history-nobu M6 道具呈現，工作線 C）
 - **現象**：
   - 工作線 C 的道具 spotlight a 局在 18:15 取得實機鎖。p1 client 的 log 一直是空的，18:24 以「time box reached before Humans admitted」失敗。
@@ -19,11 +21,27 @@
   - 測試：build_lock_test（13 項，含已結束與仍在執行的持有者）、frontend_target_dir_test（verify 不取鎖、split 的等待有上限）。
 - **避免**：在實機鎖和時限內執行的步驟，不要去等 repo 層級的鎖。鎖要記錄持有者程序，讓等待的一方能判斷鎖是否已經沒人用。停掉建置中的流程之後，要確認它的鎖已經釋放。
 
+## E345 v3_test_heroes 給 rank 1 需要更高英雄等級的技能出生 rank 1（2026-10-30，工作線 A）
+
+- **現象**：omoba-template-ids 的 build script 中止：`hero 'imagawa_yoshimoto': invalid MOBA birth rank 1 for 'b15_multishot'`。
+- **根因**：B15D 是 D 欄的不可學被動，英雄 8 級時才拿到（rank 1 的 required_hero_level 是 8）。v3_test_heroes 決定出生 rank 的規則是「自動學會或不是大招就給 1」，沒有看等級需求；omoba-content-model 的 validate_moba_loadout 則不允許出生 rank 的需求等級大於 1。
+- **通用修正**：rank 1 的 required_hero_level 大於 1 時，出生 rank 一律給 0，判斷方式和 content model 相同，其餘規則不變。
+- **以後如何避免**：出生 rank 由內容列本身的等級需求決定，不要只看 tag。新增 loadout 規則時，同時參考 content model 的驗證條件。
+
+## E344 來源 KV 數值帶尾端雜字（B19 AttackRange 600Z），roster 當成缺值（2026-10-30，工作線 A）
+
+- **現象**：把 M6 第 2～9 批其餘英雄加入 test_only 後，omoba-template-ids 的 build script 中止：`hero 'usami_sadamitsu': source hero 'B19' unit stats lack attack_range`。
+- **根因**：原作 B19 的 unit KV 寫的是 `"AttackRange" "600Z"`（多了一個 Z）。Dota 讀 KV 數值時只取開頭的數字，所以原作實際是 600。`hero_source/roster.lua` 用的是 `tonumber`，整個字串不是數字就得到 nil，這個值被當成缺值，build script 因此拒絕。全部來源英雄裡只有這一個值有尾端雜字。
+- **通用修正**：roster.lua 新增 `kv_number`，和引擎一樣取開頭的數字、忽略後面的字元；開頭不是數字仍然回傳 nil，照舊視為缺值。重新產生 hero_sources.lua，只有 B19 這一列多了 `attack_range = 600`。
+- **以後如何避免**：從來源 KV 讀數值一律經過 `kv_number`，讀法和引擎相同，不要直接用 `tonumber`。缺值仍然由 build script 擋下，不會補上預設值。
+
 ## E343 效能量測的 performance 鎖包住建置、等實機鎖與非量測局，擋住 conformance 與其他建置（2026-10-30，history-nobu M6 UE 效能，工作線 C）
 - **現象**：工作線 C 量測 1＋9 quick demo 的 UE frame time 時，用一個 wrapper 在 `run_moba_split_local` 外面先取得 performance 鎖再開局。這把鎖從 17:41 一路持有：先是 demo1，18:06 換到 demo2，demo2 又持有 16 分鐘。demo1 只跑了 20 秒（被 observer mismatch 中止）；demo2 一直在等建置鎖和實機鎖（實機鎖當時由道具 spotlight 持有），根本沒開始量測。這段期間 conformance 的全量比對和線 A 的 release 建置都被擋住。demo1 的鎖結束後還沒釋放，因為 wrapper 用 `os.exit` 結束，沒有執行 `<close>`。
 - **根因**：performance 鎖由呼叫端包住整個 split，涵蓋了建置、等實機鎖、局前準備，甚至別人的局。E328 已規定鎖只包實際量測那一段，但 split 沒有讓鎖只持有在量測局內的選項，呼叫端只好自己從外面包。另外，Lua 的 `os.exit(code)` 不會關閉 to-be-closed 變數，所以鎖沒有被釋放。
 - **通用修正**：`run_moba_split_local --performance-lock`（必須搭配 `--max-seconds`）會在建置完成、取得實機鎖之後才取 performance 鎖，等其他量測最多 120 秒，而且算在時限內。這把鎖和實機鎖一起釋放，局裡的子程序也掛在它下面，所以從取鎖到釋放不會超過 `--max-seconds`。量測不再由外面的 wrapper 包。被佔住的兩把鎖已用原持有者的 token，透過 machine_lock API 正常釋放（history 有 released 紀錄）。測試 `run_moba_split_local_test` 檢查取鎖順序依序是建置、實機鎖、performance 鎖，也檢查沒有 `--max-seconds` 時會拒絕。
 - **避免**：需要持有機器鎖的流程，鎖要由啟動局的程式在局內取得，不要由呼叫端從外面包住整個流程。持有 `<close>` 鎖的 Lua 程式要結束時，用 `os.exit(code, true)` 或直接從 main 回傳。
+
+## E342 （保留）批次報告沒有勝率、KDA、傷害等平衡數字，hero_stats 也沒有傷害（2026-10-30）
 
 ## E341 summons.lua 第二個呼叫欄位把 authored 召喚物截成一列；v3_summons --check 沒有執行（2026-10-30，工作線 A）
 
@@ -32,7 +50,23 @@
 - **通用修正**：v3 列併進同一個函式，接在 authored 列後面（summons.lua，以及 hero_author/install.lua 給新檔用的 hook 文字），整個建構式只保留一個多值欄位。v3_summons.lua 新增 `missing_from_content`：每一列 authored 召喚物和每一列 v3 召喚物，都必須能從 summons.lua 載入，否則 `--check` 和產生都以 exit 1 結束並列出缺少的 id（修正前的 live 會列出 3 個）。CLI 判斷改成 `if ... ~= "v3_summons"`（被 require 時 `...` 是模組名稱）。
 - **以後如何避免**：在 Lua 的表格建構式裡，展開多個值的呼叫只能放在最後一個欄位；要加入更多列，就放進同一個函式。同時用「模組／腳本」雙用途判斷的工具，要確認帶參數時 CLI 真的有執行：檢查要印出 `ok` 或寫出結果，沒有任何輸出就表示檢查沒跑。
 
-## E340 （保留）conformance：狀態換入的子技能不限 requires.has_status，父技能學到對應 rank（2026-10-30）
+## E340 conformance：狀態換入的子技能、前搖期間的間接訊號、被准入擋下而沒有 trace 的施放（2026-10-30，conformance session）
+
+- **現象**：A12 有 153 個 fail，大多寫著「missing entry: otani_yoshitsugu has no a12_awe_t／a12_mystic_field／a12_insight_flash_t」。換回原本技能的情境裡，a12_mystic_field 的 cooldown 情境寫著「cast 2 was accepted」。A26 a26_scorching_bomb 和 C05 c05_flash_thunder 的 caster_dies_in_cast_point 寫著「cast 1 was accepted」。A26 normal 寫著 mana 0、冷卻 0，同一份報告卻判定施放成功。
+- **根因**（都在 harness，不是產生碼）：
+  1. v3_scenarios 只替 `requires.has_status` 指名的子技能產生 `swapped_in`。A12T 的形態會換入三個子技能，其中兩個沒有 requires。換入時父技能固定學 1 級，但子技能的等級跟著父技能。
+  2. 狀態類情境（dispel／expires／holder_dies／visibility）和 cast_at_body 只把 `given[0]` 交給 setup，`swapped_in` 被丟掉。
+  3. 冷卻中的施放在准入就被丟掉，CastTrace 沒有任何一列。可是前一次施放的力場每 0.1 秒補上 a12e_field_guard，cast() 的「新出現的狀態」訊號因此把它看成成功。
+  4. 前搖一開始就上的狀態（C05T 的 c05t_restrict）讓 cast() 在付 mana、開始冷卻之前就判定成功並停止觀察。前搖中死亡（Interrupted）也會被間接訊號看成落地。
+  5. A12T 的形態和 A12E 的冷卻一樣是 20 秒。等完冷卻後的第三次施放，欄位已經換回 a12_mystic_pierce，卻被算成 a12_mystic_field 的成功。
+- **通用修正**：
+  - 任何被狀態換入的 sub 技能都產生 `swapped_in`，requires 指名的那個優先。父技能學到這個 rank，或它有數值的最高 rank。
+  - 狀態類路徑和 cast_at_body 都保留 `learned` 與 `swapped_in`（`learning(s)`）。
+  - trace 在這次 run 已經記過這個 entry，這次施放卻沒有任何一列時，判定為沒有落地。trace 有 Interrupted 而沒有 Accepted 時，也判定為沒有落地。
+  - trace 顯示這個 entry 的前搖還沒結束時，間接訊號不會結束觀察窗。
+  - 施放時欄位已經不是這個 entry，就回報 unsupported（slot N holds X now）。
+- **結果**：全部 103 個 conformance 測試，以同一份 live 比對 base 與修正版，沒有任何 pass 變成 fail 或 unsupported。A12 fail 153→36，剩下的 36 個是 a12_mystic_arrow：host 的 HERO_ABILITY_SLOTS 是 5，F 欄放不進去，等 B 提高到 6。A26 3→0，C05 9→6（剩下的是前搖永遠不釋放，已交給工作線 A）。同一個根因先前讓 A01 mikawa_valor、B27 mighty_strike 的冷卻情境判成 fail；在第一次 base 比對裡，這 7 個因修正由 fail 轉 pass。
+- 已放回。
 
 ## E339 verify_m6_batch 只讀 v3.lua 前 2000 字找英雄 id，標頭較長的 3 位英雄對不到 package（2026-10-30，e187 遊戲模式 session，A 線回報；已放回 live）
 - **現象**：A 線發現 B03 齋藤朝信、C11 立花宗茂、B07 足利義昭的 v3.lua 裡 `kind = "hero", id = ...` 在第 34 行左右、超過前 2000 字，verify_m6_batch 對不到他們的 package，第 5、6、9 批會少算這 3 位。

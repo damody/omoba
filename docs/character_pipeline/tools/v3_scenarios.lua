@@ -219,11 +219,13 @@ local function entry_scenarios(doc, def, entry_kind, out)
   -- A sub-ability that is not in the hero's list until its parent's status swaps it in (A07D2
   -- replaces A07D while A07T's status is up; E313): every case starts with that swap.
   local swapped
-  if def.slot == "sub" and def.requires and def.requires.has_status and current_doc then
+  -- Any sub-ability a status swaps in (A12T's form swaps three; E340), the required one first.
+  if def.slot == "sub" and current_doc then
+    local required = def.requires and def.requires.has_status
     for _, list in ipairs({ current_doc.abilities or {}, current_doc.items or {} }) do
       for _, owner in ipairs(list) do
         for _, st in ipairs(owner.statuses or {}) do
-          if st.id == def.requires.has_status then
+          if (required == nil or st.id == required) and not swapped then
             for _, a in ipairs((st.triggers or {}).on_created or {}) do
               if a.op == "swap_abilities" and a.to == def.id then
                 swapped = { kind = "swapped_in", status = st.id, by = owner.id, replaces = a.from }
