@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E318 headless 逐招統計只用目前這條命比對 cast trace，死過的英雄 trace 整列消失（2026-10-30，工作線 B）
+
+- **現象**：e187 m6gen3 的 hero_stats 中，B08 無盡牙有 Ability fact，卻沒有任何 cast trace。但這不只發生在 B08：同一局多數英雄每一招的 `results` 都是空的，只有少數英雄有。
+- **根因**：`moba_headless` 的 `HeroStats::report` 用比賽結束時 `slot.entity`（英雄目前這條命）比對 `row.caster`。復活會換成新的 entity，所以之前每條命的施放紀錄都被丟掉；英雄在結束時剛好死亡（`slot.entity = None`）的話，連這條命的紀錄也沒有。施放本身與 trace 的記錄都正常，錯在報告的比對。
+- **通用修正**：`HeroStats` 每次 observe 時，把每位玩家看到的每個英雄 entity 記進 `lives`（entity → 玩家，涵蓋所有命）；report 先查 `lives`，查不到再用目前的 slot。
+- **避免**：凡是跨時間的統計，要用在事件發生當時記下的身分（玩家）歸屬，不要在最後用「目前的 entity」反查。英雄每條命是不同的 entity（moba_match 的 respawn 會 create_entity）。
+
 ## E317 來源 KV 的 StatusStartingMana -1（滿魔力出生）讓 test_only 英雄的內容建置失敗（2026-10-30，工作線 A）
 
 - **現象**：M6 第 2 批的 C09 立花誾千代以 `source_stats = "C09"` 加入 v3 測試英雄後，omoba-template-ids 的 build.rs 中止：`source hero 'C09' starting_mana=-1 is outside 0..=100000`。roster 裡共有 33 位來源英雄是 -1。
