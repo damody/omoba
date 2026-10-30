@@ -916,6 +916,7 @@
 - 2026-10-30 線 A：產生器 knockback 支援往回拉與高度（`cx.knockback_arc`）；`on_phase_start` 產生完整程式，`cancel_cast` 設 `Cx.cancelled`，`AbilityScript::on_phase_start` 回傳 false 取消施法；routine 呼叫的引數先綁成區域變數。英雄產生 205／447。
 - 2026-10-30 線 A：產生器支援 `target.type = unit_or_point`、`face`、`spend_mana`、`requires.condition`、`status_var`、`leap`、`swap_positions`、`stacking = "replace"`、`shape = "global"`、`is_template`、`owner_of`；`rules/vocab.rs` 的 `set_absolute` 加 `move_speed`。英雄產生 226／447。引導招式（26 招）卡在 host：PulseChannel 不跑 execute，v3 的 on_cast 沒地方執行，已問 B。
 - 2026-10-30 線 A：產生器支援 `clear_slow_pool`、`zone`（只有 on_tick 的圓形區域）、point／vec 型別的 unit_state、`ability.mana_cost`、`status.stacks`、periodic 觸發的 `filter`、tracking 投射物飛向點。英雄產生 237／447。
+- 2026-10-30 線 A：A07（碎擊槍、奮起、a07_rouse_free）與 B06（兩招）改跑產生的 Rust；引導招式以 on_channel_start／on_channel_pulse／on_channel_end 產生，v3 content 列宣告 host 引導；host 新增 kill（script_kill）、on_kill 狀態事件、has_status_tag、low_attack_priority／unselectable／no_healthbar。英雄產生 255／447。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
 ## 2026-10-30（conformance：B08 整位與 5 招換上的影子比對、A34 (c) 歸零；E283）

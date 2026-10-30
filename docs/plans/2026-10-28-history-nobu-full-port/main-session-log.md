@@ -143,3 +143,5 @@
 - 2026-10-30 13:10 線 A：產生器再三批 land——target unit_or_point、face、spend_mana、requires.condition、status_var、leap（knockback_arc 拉到點）、swap_positions、stacking=replace（先移除再當新狀態）、shape=global、is_template、owner_of；vocab ABSOLUTE_STATS 加 move_speed（MoveSpeedAbsolute）；英雄產生 226／447，97 套件全量編譯通過。已向 B 要：引導開始效果（on_channel_start 或 PulseChannel 也跑 execute）、magic_immune 腳本入口、on_kill 事件、一般光環、kill、has_status_tag
 - 2026-10-30 14:30 線 A：產生器再 land——clear_slow_pool（self_slow_cleanse 封包，A07 red_thunder 解鎖）、zone（cue＋repeat）、unit_state 的 point/vec、ability.mana_cost、status.stacks、status/passive periodic 的 filter、tracking 投射物飛向點；英雄產生 237／447，97 套件以 deny(warnings) 全量編譯通過；已通知 conformance 比對 a07_red_thunder、b29_quake_axe
 - 2026-10-30 11:14 使用者規則 D19：遇到問題一律用通用解修正，已通知五條線
+- 2026-10-30 11:26 各線開始照 D18 commit：A d4621c71（引導事件，250／447）、1c655563（A07、B06 換上產生 Rust）；gamemode eb9c9638（verify_m6_batch）
+- 2026-10-30 17:40 線 A：A07 碎擊槍／奮起／a07_rouse_free、B06 兩招換上產生的 Rust（1c655563）；產生器 host 引導（d4621c71）；host kill、on_kill、has_status_tag、三個狀態（1fcf988a）；英雄產生 255／447；B08 兩個退步判定為 harness 問題，conformance 已從通用處修 harness，重跑後換上
