@@ -43,4 +43,24 @@ lock.WAIT_MS, lock.POLL_MS = saved_wait, saved_poll
 assert(not waited, 'a fresh lock held by another build is waited on, not taken')
 os.remove(path.join(lock_dir, 'owner.txt'))
 lfs.rmdir(lock_dir)
-print('build lock: 5 checks passed')
+-- E301: a nested build carrying the holder's token joins the held lock; closing the joined guard
+-- releases nothing, and the holder's release is idempotent.
+do
+  local holder = lock.acquire(root, 'phase', deps)
+  local env = holder:env()
+  assert(env[lock.TOKEN_ENV] == holder.token and holder.token ~= '', 'holder exports its token')
+  do
+    local nested <close> = lock.acquire(root, 'nested', {log = deps.log, getenv = function(key) return env[key] end})
+    assert(nested.joined, 'a nested build with the token joins')
+  end
+  assert(path.is_directory(lock_dir), 'closing the joined guard keeps the holder lock')
+  local saved_wait2, saved_poll2 = lock.WAIT_MS, lock.POLL_MS
+  lock.WAIT_MS, lock.POLL_MS = 50, 10
+  local stranger = pcall(lock.acquire, root, 'stranger', {log = deps.log, getenv = function() return 'other-token' end})
+  lock.WAIT_MS, lock.POLL_MS = saved_wait2, saved_poll2
+  assert(not stranger, 'a wrong token waits like any other build')
+  holder:release()
+  holder:release()
+  assert(not path.is_directory(lock_dir), 'release frees the lock once')
+end
+print('build lock: 9 checks passed')

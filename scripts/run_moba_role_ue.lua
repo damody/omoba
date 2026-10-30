@@ -37,21 +37,29 @@ if not options.output then
 end
 local output=path.absolute(options.output,b.root)
 local owns_output=not path.exists(output)
+local build_lock -- held through the build phase (E301); released on success or failure
 local ok,err=xpcall(function()
 assert(owns_output,'output must be a new directory: '..output)
 if options.interactive_selection then
   assert(not path.exists(output..'-selection'),'selection output must be a new directory: '..output..'-selection')
 end
 local editor,ue_root
+-- The build phase (UE frontend, then authority, script DLLs and client runtime) runs under one
+-- repo build lock (E301): content landed between the bridge build and the authority build gave
+-- them different content hashes and the launch was refused. build_ue_moba joins it by token.
 local function stage(mode)
-  local result=process.run(platform.lua_executable,{path.join(b.root,'scripts','build_ue_moba.lua'),mode,'--ue-root',ue_root},{cwd=b.root})
+  local result=process.run(platform.lua_executable,{path.join(b.root,'scripts','build_ue_moba.lua'),mode,'--ue-root',ue_root},
+    {cwd=b.root,env=build_lock and build_lock:env() or nil})
   print(result.stdout)
 end
 return workflow.execute(options,{
 build_server=function() require('moba_server_build').build(options,process) end,
 verify_server=function() require('moba_server_build').verify(options) end,
 resolve_editor=function() editor,ue_root=launch.editor(options) end,
-build_frontend=function() stage('--build-only') end,
+build_frontend=function()
+  build_lock=require('build_lock').acquire(b.root,'run_moba_role_ue build phase')
+  stage('--build-only')
+end,
 build_runtime=function()
   -- Every binary this launch stages is built here, the script DLL set too, and checked against
   -- the sources as of this build (E287): the UE build before it takes minutes, other sessions land
@@ -72,6 +80,7 @@ build_runtime=function()
     local result=process.run('cargo',build,{cwd=b.root})
     print(result.stdout)
   end
+  if build_lock then build_lock:release();build_lock=nil end
 end,
 verify_stage=function()
   require('moba_frontend_preflight').verify(ue_root,process)
@@ -101,6 +110,7 @@ launch=function(plan)
 end,
 })
 end,debug.traceback)
+if build_lock then build_lock:release();build_lock=nil end
 if not ok then
   -- Never write a failure record into a refused pre-existing output directory.
   if owns_output then
