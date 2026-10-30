@@ -16,6 +16,16 @@ local OUT = "scripts/lua_data/templates/v3_test_heroes.lua"
 -- package: docs/character_pipeline/packages/<package>/v3.lua and scripts/heroes/<package>
 local HEROES = {
   { package = "hattori_hanzo" },
+  -- M6 batch 2 (line-conformance REPORT_ONLY)
+  { package = "maeda_keiji" },
+  { package = "tachibana_ginchiyo" },
+  { package = "inaba_ittetsu" },
+  { package = "kakizaki_kageie" },
+  { package = "torii_mototada" },
+  { package = "sakuma_morimasa" },
+  { package = "akechi_mitsuhide" },
+  { package = "ukita_hideie" },
+  { package = "shima_sakon" },
 }
 
 -- v3 hero slots in the MOBA loadout order (Q W E R, then the D slot)

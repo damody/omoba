@@ -45,6 +45,15 @@ hero_b08_impl = { path = "../heroes/asai_nagamasa" }
 hero_b29_impl = { path = "../heroes/murakami_yoshikiyo" }
 # test_only (scripts/v3_test_heroes.lua): no DLL of its own yet; conformance runs its scenarios
 hero_a13_impl = { path = "../heroes/hattori_hanzo" }
+hero_c05_impl = { path = "../heroes/maeda_keiji" }
+hero_c09_impl = { path = "../heroes/tachibana_ginchiyo" }
+hero_a18_impl = { path = "../heroes/inaba_ittetsu" }
+hero_b30_impl = { path = "../heroes/kakizaki_kageie" }
+hero_a16_impl = { path = "../heroes/torii_mototada" }
+hero_a24_impl = { path = "../heroes/sakuma_morimasa" }
+hero_c01_impl = { path = "../heroes/akechi_mitsuhide" }
+hero_a23_impl = { path = "../heroes/ukita_hideie" }
+hero_a35_impl = { path = "../heroes/shima_sakon" }
 # items.dll's scripts (M7), linked like a launch loads them
 items_impl = { path = "../items" }
 prost = "0.13"

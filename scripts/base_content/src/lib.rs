@@ -94,6 +94,15 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
         v.extend(hero_c17_impl::units());
         v.extend(hero_a34_impl::units());
         v.extend(hero_a13_impl::units());
+        v.extend(hero_c05_impl::units());
+        v.extend(hero_c09_impl::units());
+        v.extend(hero_a18_impl::units());
+        v.extend(hero_b30_impl::units());
+        v.extend(hero_a16_impl::units());
+        v.extend(hero_a24_impl::units());
+        v.extend(hero_c01_impl::units());
+        v.extend(hero_a23_impl::units());
+        v.extend(hero_a35_impl::units());
         v.extend(hero_b08_impl::units());
         v.extend(hero_b29_impl::units());
         v.extend(items_impl::units());
@@ -107,6 +116,15 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
         v.extend(hero_c17_impl::abilities());
         v.extend(hero_a34_impl::abilities());
         v.extend(hero_a13_impl::abilities());
+        v.extend(hero_c05_impl::abilities());
+        v.extend(hero_c09_impl::abilities());
+        v.extend(hero_a18_impl::abilities());
+        v.extend(hero_b30_impl::abilities());
+        v.extend(hero_a16_impl::abilities());
+        v.extend(hero_a24_impl::abilities());
+        v.extend(hero_c01_impl::abilities());
+        v.extend(hero_a23_impl::abilities());
+        v.extend(hero_a35_impl::abilities());
         v.extend(hero_b08_impl::abilities());
         v.extend(hero_b29_impl::abilities());
         // B01's retained legacy abilities (templates/heroes.lua retained_abilities): tests pin that

@@ -42,6 +42,9 @@ function M.stats(unit, defaults)
       else stats[pair[2]] = tonumber(value) end
     end
   end
+  -- StatusStartingMana -1 is Dota's "spawn at full mana", the same as a unit that sets none
+  -- (not an amount of mana): the roster leaves it out (E317)
+  if stats.starting_mana == -1 then stats.starting_mana = nil end
   return stats
 end
 

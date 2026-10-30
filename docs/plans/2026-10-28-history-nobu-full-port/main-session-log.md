@@ -161,3 +161,8 @@
 - 2026-10-30 13:30 B E294 實機確認（replica 不一致 5→0）；conformance 修好子技能情境（靠父技能換進來的子技能先施放父技能），B06 第一勇士急件 A 已換上產生版；errors.md 又出現兩個 E297，交 gamemode 隨配號工具一起修
 - 2026-10-30 13:36 gamemode 612d3f49 取號工具 error_id.lua（重複編號已改號，E300）、d5888106 UE 驗證局建置持 repo 建置鎖（E301）；B 9a9bd537 is_visible_to 敵方視野揭露與 include_hidden（E312）；nobu10 570 秒
 - 2026-10-30 21:40 線 A：B29 村上義清整位換上產生的 Rust（hero_b29，刪 handler）；b06_first_warrior、b04_flame_trail_dash 換上（conformance 0 退步；修掉 c185371b 讓手寫第一武士壞掉的急件）；c15_burst_arrow 仍有退步待查
+- 2026-10-30 13:46 C c0688726 第 1～4 批 33 位英雄載入圖（Grok）、8167eb51 UE 呈現逐招報告；A include_hidden no-op；B 與 gamemode 閒置已催
+- 2026-10-30 13:56 C 第 5～9 批 48 位英雄載入圖（7240bed8）；A C15 爆裂箭修正、道具被動接 on_equip；B create_unit.overrides
+- 2026-10-30 14:16 M6 載入圖補齊（f79da68d，86 位缺口 0）；C15 爆裂箭產生版仍有 24 個燒傷情境退步（adbd940b）；E318、E319 修正
+- 2026-10-30 14:26 B 8a30384b hero／permanent 狀態跨死亡保留；gamemode 開 demo2（1+9 MOBA demo）；conformance 停在等 A，已催它先擴展到第 2 批
+- 2026-10-30 14:44 線 A：M6 第 2 批 9 位（C05、C09、A18、B30、A16、A24、C01、A23、A35）加入 v3_test_heroes（test_only，各自的 hero crate），供 conformance REPORT_ONLY；修 E315（direction 目標型別）、E317（來源 starting_mana -1）
