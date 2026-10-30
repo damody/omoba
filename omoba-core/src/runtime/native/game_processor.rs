@@ -828,13 +828,21 @@ fn auto_learned_birth_ranks_are_announced_once_per_life() {
     assert!(announced(&world).contains(&(second, "c17_devotion".to_owned(), 1)), "a new life announces again");
 }
 
-pub fn drain_pending_ability_upgrades(world: &mut World) {
-    super::command_outcome::ensure(world);
-    // Item passives, then the attributes they feed (STATS_* bonuses), then max-HP buffs. The
-    // authority and replicas run these same settles: each is the only writer of its state.
-    super::retaliation::retire(world);
+/// Item passives and item auras from the inventories as they stand at the start of the tick,
+/// before any system runs: the authority (`begin_moba_match_tick`) and a team replica (before its
+/// phases) both hold exactly the previous tick's committed inventories there. A purchase settles in
+/// the shop system of the authority only; the replica receives it after its step (E353).
+pub fn settle_inventory_modifiers(world: &mut World) {
     super::item::settle_item_passives(world);
     super::item_modifiers::settle_item_auras(world);
+}
+
+pub fn drain_pending_ability_upgrades(world: &mut World) {
+    super::command_outcome::ensure(world);
+    // The attributes the tick-start item passives feed (STATS_* bonuses, see
+    // settle_inventory_modifiers), then max-HP buffs. The authority and replicas run these same
+    // settles: each is the only writer of its state.
+    super::retaliation::retire(world);
     super::attributes::settle_hero_attributes(world);
     settle_health_bonus(world);
     relearn_life_ranks(world);

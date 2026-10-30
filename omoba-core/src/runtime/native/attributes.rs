@@ -315,3 +315,7 @@ mod tests {
         assert!(payload.get(StatKey::PhysicalArmorBonus.as_str()).is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "attribute_replica_tests.rs"]
+mod attribute_replica_tests;

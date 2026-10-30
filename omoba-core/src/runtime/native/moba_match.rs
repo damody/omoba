@@ -2208,6 +2208,7 @@ impl MobaMatch {
 }
 
 pub fn begin_moba_match_tick(world: &mut World) -> bool {
+    super::game_processor::settle_inventory_modifiers(world);
     if world.try_fetch::<MobaMatch>().is_some_and(|state|state.phase!=MobaMatchPhase::Playing) {
         super::recovery_channel::clear(world);
         super::ability_channel::clear(world);

@@ -1341,6 +1341,9 @@ impl SpecsDisclosedWorldStepper {
         }
         // The tick-start positions the authority captured too (approach to cast, E210).
         crate::runtime::native::cast_approach::capture_tick_start(&mut self.filtered.world);
+        // Item passives from the inventories committed by the previous tick, as the authority
+        // settles them at the start of begin_moba_match_tick (E353).
+        crate::runtime::native::game_processor::settle_inventory_modifiers(&mut self.filtered.world);
         run_deterministic_gameplay_phases(&mut |phase| -> Result<(), ReplicaRuntimeError> {
             let phase_started = Instant::now();
             self.filtered

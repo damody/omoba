@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：item passives 改在 tick 開頭結算，replica 與權威端的 attribute_hp 一致（E353）
+
+- 工作線 C 的 1+9 demo 兩隊都出現 `attribute_hp` mismatch，權威端多一件道具的力量 HP。原因是權威端在 shop 系統購買後，同一 tick 就結算 item passives，而 replica 要到 step 之後才收到新的 Inventory。
+- `game_processor::settle_inventory_modifiers`（item passives、item auras）改在 tick 開頭執行：權威端在 `begin_moba_match_tick`，replica 在 phases 之前。購買的效果從下一個 tick 開始，兩邊一致。
+- 新增重現測試 `a_replica_settles_the_attribute_hp_of_a_bought_strength_item_like_the_authority`（兩隊 replica 逐 tick 比對 hash）；omoba-core lib 全部 1444 通過；base_content 的 shop／item／attribute／passive 64 項通過。
+
 ## 2026-10-30 線 B：英雄技能欄 5 → 6（F 欄，v3 slot_index 6）
 
 - `HERO_ABILITY_SLOTS` 改為 6（content model、template-ids，build.rs 斷言同步）。`MobaLoadout.ranks` 接受 4 到 6 項，沒寫到的欄位出生時未學。
