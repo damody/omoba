@@ -538,9 +538,11 @@ function Gen:expr(node, ctx)
       -- before it lands the host packet already has armor and resistance (rules::damage ③ runs at
       -- the raw packet's conversion): `raw` / `after_armor` read that amount (conformance checks it)
       elseif ctx.pre and (node.name == "raw" or node.name == "after_armor") then return "cx.event_amount", "num"
-      elseif node.name == "is_physical" then return "(cx.event_damage_kind == 0)", "bool"
-      elseif node.name == "is_magical" then return "(cx.event_damage_kind == 1)", "bool"
-      elseif node.name == "is_pure" then return "(cx.event_damage_kind == 2)", "bool" end
+      -- the kind is the low nibble; 0x10 marks a reflected hit (StatusEvent::REFLECTION)
+      elseif node.name == "is_physical" then return "((cx.event_damage_kind & 0x0f) == 0)", "bool"
+      elseif node.name == "is_magical" then return "((cx.event_damage_kind & 0x0f) == 1)", "bool"
+      elseif node.name == "is_pure" then return "((cx.event_damage_kind & 0x0f) == 2)", "bool"
+      elseif node.name == "is_reflection" then return "((cx.event_damage_kind & 0x10) != 0)", "bool" end
       self:block("event.damage." .. node.name); return "Fixed64::ZERO", "err"
     end
     if ot == "unit" then
@@ -1510,9 +1512,11 @@ function Gen:action(a, ctx, ind)
     local kinds = { physical = "Physical", magical = "Magical", pure = "Pure" }
     local kind = kinds[a.type]
     if not kind then self:block("action:damage.type:" .. tostring(a.type)); kind = "Pure" end
-    local no_amp, hp_removal, ignore_armor = false, false, false
+    local no_amp, hp_removal, ignore_armor, reflection = false, false, false, false
     for _, f in ipairs(a.flags or {}) do
       if f == "no_amplify" then no_amp = true
+      -- line B's damage_reflect_at: the target's statuses see a reflected hit
+      elseif f == "reflection" then reflection = true
       -- line B's damage_ex_at: life paid as a cost (no shield, no amplification) / armor ignored
       elseif f == "hp_removal" then hp_removal = true
       elseif f == "ignore_armor" then ignore_armor = true
@@ -1521,14 +1525,14 @@ function Gen:action(a, ctx, ind)
     local to = self:value(a.to, ctx, "unit")
     local amount = self:value(a.amount, ctx, "num")
     local who = self.entry and self.entry.def.id or self.trace_owner or "?"
-    if hp_removal or ignore_armor or a.credit ~= nil then
+    if hp_removal or ignore_armor or reflection or a.credit ~= nil then
       local credit = a.credit ~= nil and ("Some(" .. self:value(a.credit, ctx, "unit") .. ")") or "None"
       -- another source: line B's damage_ex_from_at
       local from = a.source ~= nil and a.source ~= "self"
       local src = from and line("    let source = " .. self:value(a.source, ctx, "unit") .. ";") or ""
       return line("{") .. line("    let to = " .. to .. ";") .. line("    let amount = " .. amount .. ";") .. src .. line("    let credit = " .. credit .. ";")
         .. line(string.format("    cx.%s(%s, %s, %sto, amount, DamageKind::%s, Dmg { require_source_alive: %s, no_amplify: %s }, ability_kit::DmgExtra { hp_removal: %s, ignore_armor: %s, credit })?;",
-          from and "damage_ex_from_at" or "damage_ex_at", rust_str(who), rust_str(self.cur_path or "?"), from and "source, " or "", kind, a.require_source_alive ~= false and "true" or "false", no_amp and "true" or "false",
+          reflection and (from and "damage_reflect_from_at" or "damage_reflect_at") or (from and "damage_ex_from_at" or "damage_ex_at"), rust_str(who), rust_str(self.cur_path or "?"), from and "source, " or "", kind, a.require_source_alive ~= false and "true" or "false", no_amp and "true" or "false",
           tostring(hp_removal), tostring(ignore_armor))) .. line("}")
     end
     if a.source ~= nil and a.source ~= "self" then
