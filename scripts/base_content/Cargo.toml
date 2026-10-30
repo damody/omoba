@@ -23,6 +23,7 @@ hero_b04_impl = { path = "../heroes/date_masamune" }
 hero_a07_impl = { path = "../heroes/honda_tadakatsu" }
 hero_a34_impl = { path = "../heroes/omatsu" }
 hero_b29_impl = { path = "../heroes/murakami_yoshikiyo" }
+hero_b06_impl = { path = "../heroes/sanada_yukimura" }
 hero_c15_impl = { path = "../heroes/tamako" }
 omoba-core = { path = "../../omoba-core", default-features = false }
 omoba-content-model = { path = "../../omoba-content-model" }

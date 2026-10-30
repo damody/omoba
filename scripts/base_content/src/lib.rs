@@ -218,6 +218,11 @@ fn abilities() -> RVec<AbilityDefFFI> {
             "b04_fire_blast" => hero_b04_impl::generated::b04_fire_blast::ffi(),
             "b04_flame_swiftness" => hero_b04_impl::generated::b04_flame_swiftness::ffi(),
             "a07_unscathed" => hero_a07_impl::generated::a07_unscathed::ffi(),
+            // conformance 2026-10-30: 0 differences (208 scenarios A07, B06 0 regressions)
+            "a07_shattering_spear" => hero_a07_impl::generated::a07_shattering_spear::ffi(),
+            "a07_rouse" => hero_a07_impl::generated::a07_rouse::ffi(),
+            "b06_brave_warriors" => hero_b06_impl::generated::b06_brave_warriors::ffi(),
+            "b06_flame_fangs" => hero_b06_impl::generated::b06_flame_fangs::ffi(),
             "b29_ground_slam" => hero_b29_impl::generated::b29_ground_slam::ffi(),
             "c15_precise_light" => hero_c15_impl::generated::c15_precise_light::ffi(),
             "c15_scatter_shot" => hero_c15_impl::generated::c15_scatter_shot::ffi(),
@@ -226,6 +231,8 @@ fn abilities() -> RVec<AbilityDefFFI> {
         // The metadata stays the catalog one the handler used; only the script changes.
         entry.script = generated.script;
     }
+    // A07's free rouse (the swap sub-ability, slot "sub") has no handler: only generated Rust.
+    v.push(hero_a07_impl::generated::a07_rouse_free::ffi());
     v
 }
 
