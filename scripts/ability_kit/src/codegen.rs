@@ -699,7 +699,13 @@ impl<'a, 'w> Cx<'a, 'w> {
         // takes the states only it held (omoba-core dispel::CONTROL_SOURCE_PREFIX, dispel::remove_status).
         let controls: Vec<&str> = status.state_buffs.to_vec();
         if !controls.is_empty() {
-            let row = format!("{}{}", dispel::CONTROL_SOURCE_PREFIX, status.id);
+            // an independent instance `<runtime id>#<n>` holds its own row `__ctl:<status id>#<n>`
+            // with its own duration (line B 94aadadf: dispel reads the status without `#n`)
+            let instance = id.rsplit_once('#').map(|(_, n)| n).filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+            let row = match instance {
+                Some(n) => format!("{}{}#{}", dispel::CONTROL_SOURCE_PREFIX, status.id, n),
+                None => format!("{}{}", dispel::CONTROL_SOURCE_PREFIX, status.id),
+            };
             self.world.add_stat_buff(to, RStr::from_str(&row), duration, RStr::from_str(&dispel::control_source_payload(&controls).to_string()));
         }
         Ok(())

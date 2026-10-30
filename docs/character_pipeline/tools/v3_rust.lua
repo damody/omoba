@@ -1594,9 +1594,8 @@ function Gen:action(a, ctx, ind)
     end
     if independent then
       -- an instance row `<runtime id>#<n>` (cx.apply_status_instance); its triggers run as that
-      -- instance (host events carry `instance`, its on_created and periodic clock get `n`); shared
-      -- states would look for the plain id, so those wait
-      if s.states and #s.states > 0 then self:block("status.stacking:independent with states") end
+      -- instance (host events carry `instance`, its on_created and periodic clock get `n`); its
+      -- shared states ride its own control-source row `__ctl:<id>#<n>` (line B 94aadadf)
       if s.aura ~= nil then self:block("status.stacking:independent with aura") end
       if a.__aura then self:block("aura.status:independent") end
     end
