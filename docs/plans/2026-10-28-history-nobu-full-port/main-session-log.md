@@ -166,3 +166,6 @@
 - 2026-10-30 14:16 M6 載入圖補齊（f79da68d，86 位缺口 0）；C15 爆裂箭產生版仍有 24 個燒傷情境退步（adbd940b）；E318、E319 修正
 - 2026-10-30 14:26 B 8a30384b hero／permanent 狀態跨死亡保留；gamemode 開 demo2（1+9 MOBA demo）；conformance 停在等 A，已催它先擴展到第 2 批
 - 2026-10-30 14:44 線 A：M6 第 2 批 9 位（C05、C09、A18、B30、A16、A24、C01、A23、A35）加入 v3_test_heroes（test_only，各自的 hero crate），供 conformance REPORT_ONLY；修 E315（direction 目標型別）、E317（來源 starting_mana -1）
+- 2026-10-30 14:46 A 2db1dabe M6 第 2 批 9 位加入 v3 測試英雄供 conformance；m6gen3 0 NEVER CAST；demo2 持鎖 609 秒略超上限，已請 gamemode 讓 role_ue 時限從取鎖起算
+- 2026-10-30 14:50 gamemode E322 UE 局時限從取 live_match 鎖起算（649c147c）；demo2 完整地圖 600 秒只倒 3 塔；決定 run_ue.bat 預設維持完整地圖（使用者入口），自動驗收用 quick recipe；C E321 負 key 狀態不顯示修正；B 7 項 host 變更 commit，下一步 create_illusion
+- 2026-10-30 15:05 線 A：產生器接上 is_visible_to、create_unit.overrides、event.instance、status.scope（hero／permanent）、獨立實例狀態的觸發；道具的狀態事件型被動改用裝備時建立 marker；307→314／447（a05_valiant_power、a23_falling_fire 等）
