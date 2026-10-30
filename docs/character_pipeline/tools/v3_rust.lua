@@ -921,6 +921,7 @@ local ACTION_FIELDS = {
   clear_slow_pool = set({ "op", "of" }),
   kill = set({ "op", "to", "silent" }),
   remove_unit = set({ "op", "to" }),
+  set_display_stacks = set({ "op", "status", "to", "count" }),
   zone = set({ "op", "shape", "at", "radius", "duration", "interval", "first", "cue", "on_tick" }),
   spend_mana = set({ "op", "from", "amount", "ability" }),
   set_var = set({ "op", "var", "value", "on", "status" }),
@@ -1668,6 +1669,24 @@ function Gen:action(a, ctx, ind)
     local silent = a.silent == true and "true" or "false"
     if a.silent ~= nil and type(a.silent) ~= "boolean" then self:block("action:kill.silent of an expression"); return "" end
     return line("{") .. line("    let to = " .. self:value(a.to, ctx, "unit") .. ";") .. line("    cx.kill(to, " .. silent .. ")?;") .. line("}")
+  elseif op == "set_display_stacks" then
+    -- the stack number a plain status shows (and `status.stacks` reads); its stats and time stay
+    local so = self.m.statuses[a.status]
+    if not so then self:block("status:" .. tostring(a.status) .. " not declared"); return "" end
+    local s = so.def
+    if type(s.stacking) == "table" then self:block("action:set_display_stacks of a counted status (set_stacks)") end
+    if s.stacking == "independent" then self:block("action:set_display_stacks of an independent status") end
+    for _, p in ipairs(self.status_problems[a.status] or {}) do self:block(p) end
+    local sctx = { owner = so, scope = ctx.scope, event = ctx.event, pre = ctx.pre, cast = ctx.cast, ended = ctx.ended, windup = ctx.windup }
+    local to = self:value(a.to, ctx, "unit")
+    local count = self:value(a.count, ctx, "num")
+    self.slow_ok, self.last_slow = true, nil
+    local stats = s.stats and self:stat_rows(s.stats, sctx) or "&[]"
+    if self.last_slow then self:block("action:set_display_stacks of a slowing status") end
+    self.slow_ok, self.last_slow = nil, nil
+    return line("{") .. line("    let to = " .. to .. ";") .. line("    let count = " .. count .. ";")
+      .. line("    let stats: &[(StatKey, i64)] = " .. stats .. ";")
+      .. line("    cx.set_display_stacks(to, &super::ids::status::" .. upper(a.status) .. ", count, stats)?;") .. line("}")
   elseif op == "remove_unit" then
     -- the unit leaves without dying (host script_kill silent): no bounty, no death events
     return line("{") .. line("    let to = " .. self:value(a.to, ctx, "unit") .. ";") .. line("    cx.remove_unit(to)?;") .. line("}")

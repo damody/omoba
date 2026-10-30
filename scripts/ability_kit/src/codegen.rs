@@ -524,6 +524,19 @@ impl<'a, 'w> Cx<'a, 'w> {
         r
     }
 
+    /// v3 `set_display_stacks`: the stack number `to`'s `status` shows (and `status.stacks` reads)
+    /// becomes `count` (floored, at least 0); the status keeps its time left and its `stats`.
+    /// Nothing when `to` does not hold it.
+    pub fn set_display_stacks(&mut self, to: EntityHandle, status: &StatusDef, count: Fixed64, stats: &[(StatKey, i64)]) -> Res {
+        if !to.is_valid() || !self.has_status(to, status) { return Ok(()); }
+        let left = self.world.get_buff_remaining(to, RStr::from_str(&self.runtime_id(status)));
+        if left <= Fixed64::ZERO { return Ok(()); }
+        self.stack_count = Some((floor(count).raw() >> 10).clamp(0, i64::from(i32::MAX)));
+        let r = self.apply_status(to, status, left, stats);
+        self.stack_count = None;
+        r
+    }
+
     pub fn apply_status(&mut self, to: EntityHandle, status: &StatusDef, duration: Fixed64, stats: &[(StatKey, i64)]) -> Res {
         if !to.is_valid() { return Ok(()); }
         let id = self.runtime_id(status);
