@@ -1,7 +1,7 @@
 # 上架道具在 UE 的呈現（items.dll，工作線 C）
 
 由 `scripts/item_presentation_audit.lua` 產生。只列 items.dll 有註冊、而且在上架目錄的道具。
-共 35 件，有問題 0 件。
+共 37 件，有問題 0 件。
 
 
 | 道具 | 圖示 | 主動 | cue | 玩家看得到的狀態 | 問題 |
@@ -24,10 +24,12 @@
 | 法力鋼 `mana_ingot` | original | — | — | — |  |
 | 斬月槍 `moon_spear` | original | — | — | — |  |
 | 薙刀 `naginata` | original | — | — | — |  |
+| 般若湯 `perceive_wine` | original | 有 | item_perceive_wine（aura） | perceive_wine_immune |  |
 | 強化鋼 `power_ingot` | original | — | — | — |  |
 | 軍糧丸 `rations` | original | 有 | rations_restore（effect） | — |  |
 | 皆朱槍 `red_spear` | original | 有 | fire_scroll_cast（effect）、fire_scroll_overhead（aura） | red_spear_attack |  |
 | 再生鋼 `regeneration_ingot` | original | — | — | — |  |
+| 落石之書 `rockfall_book` | original | 有 | rockfall_meteor（effect） | rockfall_stun |  |
 | 清酒 `sake` | original | 有 | lone_druid_rabid_glow（aura） | sake_haste |  |
 | 手裏劍 `shuriken` | original | 有 | shuriken_projectile（projectile） | shuriken_stun |  |
 | 長槍 `spear` | original | — | — | — |  |
