@@ -121,6 +121,8 @@ function M.load_v3_package(root,hero)
   local aim=require('item_spotlight').AIM
   local slots={}
   for index,id in ipairs(assert(row.abilities,'hero without abilities')) do
+    -- "" is an empty slot (an F without a D): nothing to show, the next slot keeps its number.
+    if id~='' then
     local ability=assert(by_id[id],'ability '..id..' of '..hero..' is not in the content catalog')
     local kind=ability.ability_type
     if kind~='passive' and kind~='toggle' and kind~='ultimate' then kind='active' end
@@ -133,6 +135,7 @@ function M.load_v3_package(root,hero)
     end
     slots[#slots+1]={slot=index-1,id=id,name=assert(ability.display_name,'ability without a name'),
       line=M.first_line(ability.description),kind=kind,team=team}
+    end
   end
   return {hero=hero,hero_name=row.display_name or hero,title=row.title or '',slots=slots}
 end

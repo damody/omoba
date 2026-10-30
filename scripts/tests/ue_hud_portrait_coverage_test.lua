@@ -142,6 +142,10 @@ do
  local removed=M.prune_ability_placeholders(hs,as,ms)
  check(#removed==1 and removed[1]=='gamma_q','placeholder of an ability no hero equips is pruned')
  check(#M.prune_ability_placeholders(hs,as,ms)==0 and M.validate_abilities(hs,as,ms,image)==4,'authored ability rows are never pruned')
+ -- An empty slot ("", an F without a D, E379) keeps its place and equips nothing.
+ hs[#hs+1]={id='hero_delta',display_name='Hero delta',abilities={'alpha_q','','gamma_q'}}
+ check(#M.ability_placeholder_entries(hs,as,ms)==1 and #M.prune_ability_placeholders(hs,as,ms)==0,'an empty slot is skipped, the rest of the kit is kept')
+ table.remove(hs);M.prune_ability_placeholders(hs,as,ms)
 end
 -- The real repository catalog: every equipped hero ability has a HUD icon row.
 do

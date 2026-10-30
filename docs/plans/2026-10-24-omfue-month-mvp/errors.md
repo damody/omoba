@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E379 HUD sync 把英雄技能列的空欄 "" 當成未知技能而中斷，所有 UE 建置被擋下（2026-10-31，history-nobu M6，工作線 C）
+- **現象**：B 讓英雄技能列可以有空欄 `""`（cddcb1af：有 F 沒有 D 的原作英雄，例如 A32 瀧川一益）之後，build_ue_moba 的「synchronize original HUD content names」失敗，訊息是 `hero takigawa_kazumasu equips unknown ability: `。工作線 C 的 1+9 demo（demo7）和宇喜多秀家的 spotlight 都卡在建置。A 的 E377 只修了 om_codegen。
+- **根因**：`ue_hud_portrait_coverage.hero_abilities` 依英雄技能列推導技能圖示列，要求每一欄都是已知技能。`record_hero_spotlight.load_v3_package` 也有同樣的假設。
+- **通用修正**：兩處都跳過 `""`，但保留格位編號（F 仍在第 6 格）。`ue_hud_portrait_coverage_test` 加入含空欄的英雄，`record_hero_spotlight_test` 檢查 A32 的 F 在第 6 格、空的 D 不示範。
+- **避免**：資料格式加入新的哨兵值（例如空欄）時，同一批變更要搜尋所有讀這個欄位的工具一起更新，不能只修造成第一個錯誤的那一處。
+
 ## E378 hero spotlight 的示範英雄在 UE 啟動期間自動攻擊敵方替身並打死它，示範開始時找不到敵人，敵方技能與被動都被跳過（2026-10-30，history-nobu M6 UE 呈現，工作線 C）
 - **現象**：稻葉一鐵（A18）的 spotlight 中，Q（執念壓迫）、W（打壓）與被動都記成 `spotlight_skipped`（等級 4、冷卻 0），只有自我施放的大招有呈現。server log 顯示 30 倍血量的敵方替身在 tick 5171 被稻葉一鐵打死，而 autopilot 的示範在 tick 20686 才開始。
 - **根因**：showcase 舞台只對 held 的 bot 替身下 Hold Position，示範者出生時沒有指令。UE 啟動加上 autopilot 準備要好幾分鐘，這段期間示範者會自動攻擊在攻擊範圍內的敵方替身；暴擊被動的英雄足以在示範開始前把它打死。替身重生後回到泉水，前端看不到，autopilot 找不到敵方英雄，所有對敵與被動示範都被跳過。之前跑過的英雄攻擊力較低，所以沒有發生。

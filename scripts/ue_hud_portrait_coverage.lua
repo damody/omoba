@@ -181,8 +181,11 @@ local function hero_abilities(heroes,abilities)
  end
  for _,hero in ipairs(heroes)do
   for _,ability in ipairs(hero.abilities or{})do
+   -- "" keeps an empty slot's place (an F without a D); it equips nothing.
+   if ability~='' then
    assert(id(ability)and names[ability],'hero '..tostring(hero.id)..' equips unknown ability: '..tostring(ability))
    if not seen[ability]then seen[ability]=true;order[#order+1]=ability end
+   end
   end
  end
  for _,hero in ipairs(heroes)do

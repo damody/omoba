@@ -66,6 +66,11 @@ assert(keiji.slots[1].id=='c05_matsukaze' and keiji.slots[1].team=='self' and ke
 assert(keiji.slots[3].kind=='passive' and keiji.slots[3].team=='self')
 assert(keiji.slots[4].kind=='ultimate' and keiji.slots[4].team=='enemy')
 
+-- An empty slot (an F without a D, E379) is skipped and the F keeps slot 5.
+local kazumasu=spotlight.load_package(b.root,'takigawa_kazumasu')
+assert(kazumasu.slots[#kazumasu.slots].slot==5 and kazumasu.slots[#kazumasu.slots].id=='a32_soul_blade','F keeps the sixth slot')
+for _,slot in ipairs(kazumasu.slots) do assert(slot.slot~=4,'the empty D slot shows nothing') end
+
 local saika=spotlight.load_package(b.root,'saika_magoichi')
 assert(saika.hero_name=='雜賀孫市' and saika.slots[1].name=='狙擊模式' and saika.slots[2].team=='ally' and saika.slots[3].kind=='passive')
 assert(not pcall(spotlight.load_package,b.root,'missing_hero'))
