@@ -14,7 +14,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "B13",
-      text = { zh_TW = { name = "百地三太夫" }, en = { name = "Momochi Sandayu" } },
+      text = { zh_TW = { name = "百地三太夫", title = "伊賀的上忍",
+        background = "忍術刺客：感官破壞讓目標普攻落空，催眠使目標沉睡、受擊醒來後暈眩；被動血化裝以自身生命追加純粹傷害；遁地術潛入地下隱形回復並可用縮地瞬移，大招暴風範圍緩速。" }, en = { name = "Momochi Sandayu" } },
       auto_learn = { "b13_burrow", "b13_shukuchi" },
     },
     abilities = {

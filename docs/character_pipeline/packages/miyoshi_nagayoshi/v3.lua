@@ -11,7 +11,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "B10",
-      text = { zh_TW = { name = "三好長慶" }, en = { name = "Miyoshi Nagayoshi" } },
+      text = { zh_TW = { name = "三好長慶", title = "天下人前夜",
+        background = "亡靈統帥：亡靈之怒持續放出追擊敵人的亡靈，亡骸之襲以無法躲避的黑炎暈眩目標；被動魔性戰魂為周圍友軍加攻速並吸血；大招深淵之力削減周圍敵人護甲，啟動時回滿生命並加速。" }, en = { name = "Miyoshi Nagayoshi" } },
     },
     abilities = {
       -------------------------------------------------------------------------

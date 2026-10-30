@@ -68031,6 +68031,7 @@ local data = {
     {
       abilities = { "b10_wrath_of_the_dead", "b10_corpse_assault", "b10_demonic_war_spirit", "b10_power_of_the_abyss" },
       authored_package = "miyoshi_nagayoshi",
+      background = "亡靈統帥：亡靈之怒持續放出追擊敵人的亡靈，亡骸之襲以無法躲避的黑炎暈眩目標；被動魔性戰魂為周圍友軍加攻速並吸血；大招深淵之力削減周圍敵人護甲，啟動時回滿生命並加速。",
       display_name = "三好長慶",
       id = "miyoshi_nagayoshi",
       moba_loadout = {
@@ -68038,6 +68039,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B10",
+      title = "天下人前夜",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "miyoshi_nagayoshi",
@@ -68329,6 +68331,7 @@ local data = {
     {
       abilities = { "b13_sense_break", "b13_hypnosis", "b13_blood_disguise", "b13_storm", "b13_burrow", "b13_shukuchi" },
       authored_package = "momochi_sandayu",
+      background = "忍術刺客：感官破壞讓目標普攻落空，催眠使目標沉睡、受擊醒來後暈眩；被動血化裝以自身生命追加純粹傷害；遁地術潛入地下隱形回復並可用縮地瞬移，大招暴風範圍緩速。",
       display_name = "百地三太夫",
       id = "momochi_sandayu",
       moba_loadout = {
@@ -68336,6 +68339,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B13",
+      title = "伊賀的上忍",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "momochi_sandayu",
