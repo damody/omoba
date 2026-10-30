@@ -54,6 +54,16 @@ hero_a24_impl = { path = "../heroes/sakuma_morimasa" }
 hero_c01_impl = { path = "../heroes/akechi_mitsuhide" }
 hero_a23_impl = { path = "../heroes/ukita_hideie" }
 hero_a35_impl = { path = "../heroes/shima_sakon" }
+hero_a01_impl = { path = "../heroes/tokugawa_ieyasu" }
+hero_b20_impl = { path = "../heroes/yamagata_masakage" }
+hero_b26_impl = { path = "../heroes/okuma_tomohide" }
+hero_c22_impl = { path = "../heroes/sasaki_kojiro" }
+hero_a12_impl = { path = "../heroes/otani_yoshitsugu" }
+hero_a14_impl = { path = "../heroes/maeda_toshiie" }
+hero_a26_impl = { path = "../heroes/nohime" }
+hero_b27_impl = { path = "../heroes/kojima_sadaoki" }
+hero_c03_impl = { path = "../heroes/shimazu_yoshihiro" }
+hero_a05_impl = { path = "../heroes/sakai_tadatsugu" }
 # items.dll's scripts (M7), linked like a launch loads them
 items_impl = { path = "../items" }
 prost = "0.13"

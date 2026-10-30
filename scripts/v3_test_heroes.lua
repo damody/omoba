@@ -26,6 +26,17 @@ local HEROES = {
   { package = "akechi_mitsuhide" },
   { package = "ukita_hideie" },
   { package = "shima_sakon" },
+  -- M6 batch 1 (line-conformance REPORT_ONLY), plus A05
+  { package = "tokugawa_ieyasu" },
+  { package = "yamagata_masakage" },
+  { package = "okuma_tomohide" },
+  { package = "sasaki_kojiro" },
+  { package = "otani_yoshitsugu" },
+  { package = "maeda_toshiie" },
+  { package = "nohime" },
+  { package = "kojima_sadaoki" },
+  { package = "shimazu_yoshihiro" },
+  { package = "sakai_tadatsugu" },
 }
 
 -- v3 hero slots in the MOBA loadout order (Q W E R, then the D slot)

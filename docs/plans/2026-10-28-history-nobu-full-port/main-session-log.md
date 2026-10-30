@@ -175,3 +175,10 @@
 - 2026-10-30 15:46 perfcmp 持 live_match 超過 17 分鐘，已通知 gamemode；A 25359716 v3 unit_templates 成為召喚物單一來源，308／447
 - 2026-10-30 15:55 效能量測：M3' 版中位數 1.97 ms、HEAD 2.33 ms，同輪差距有正有負，在雜訊範圍內；最快一輪 1.86 對 1.99 ms（7%）待安靜時段複測；E328 measure_headless_perf.lua 每局取 live_match 鎖、600 秒上限（c4520191）
 - 2026-10-30 15:50 線 A：E326 C15 燒傷退步原因（v3 unit_templates 不在內容召喚物）＋ scripts/v3_summons.lua（37 模板全被召喚物模型缺口擋住，清單交 B）；接上 attack／force／道具 on_attack_hit，303→308；E327 v3_test_heroes 引導被寫成 instant，重產待 B 支援射程 0 引導
+- 2026-10-30 16:10 check_live_consistent 失敗：v3_test_heroes.lua 跟產生器不一致（E329 新檢查抓到），交 A 重產
+- 2026-10-30 16:15 v3_test_heroes 過期（E327）：重產檔已備妥，等 B 放回射程 0 的引導後由 A 放回；期間其他 land 只印警告不被擋
+- 2026-10-30 16:30 A 72ff5115 重產 v3_test_heroes 後 check_live_consistent 恢復通過
+- 2026-10-30 16:56 fire_blast 前搖中斷主因是 interrupted:moved（129／305），交 B；C 四局因 E333 失敗、修正後重排；gamemode 下一步做 bot 買道具與用主動道具
+- 2026-10-30 17:26 A 182e9e69 C15 爆裂箭燒傷改為一份、一個時鐘（E335：source=caster_hero、existed 以來源判斷、週期鏈 start_chain/chain_current），影子內燒傷 5 次 25 通過；287d7c68 v3_summons 把 ai owner_controlled 對應 guard、不跟隨；C05 剩 9 fail 疑為前搖未放行，等 CastTrace
+- 2026-10-30 17:35 C E337 split 先建置再取實機鎖（64f6f9a3）；B01、C17、A34 UE 呈現報告（be28bc37）；B29 拋物線高度重跑中
+- 2026-10-30 17:36 C db80a038 實機確認擊退拋物線高度（E331），已換上英雄的 UE 呈現檢查全部完成
