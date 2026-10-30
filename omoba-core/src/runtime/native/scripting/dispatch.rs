@@ -710,10 +710,10 @@ fn dispatch_item_equips(world: &mut World, registry: &ScriptRegistry, rng_seed: 
             continue;
         }
         let outcomes = adapter.finish();
-        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+        if let Some(outcomes) = effect_batch(&cache, outcomes) {
             accepted.extend(outcomes);
         } else {
-            log::warn!("[scripting] (un)equip of '{}' tried to charge or spawn; dropped", change.item_id);
+            log::warn!("[scripting] (un)equip of '{}' tried to charge; dropped", change.item_id);
         }
     }
     drop(cache);
@@ -747,10 +747,10 @@ fn dispatch_auras(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, o
             continue;
         }
         let outcomes = adapter.finish();
-        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+        if let Some(outcomes) = effect_batch(&cache, outcomes) {
             accepted.extend(outcomes);
         } else {
-            log::warn!("[scripting] aura '{}' of '{}' tried to charge or spawn; dropped", pulse.spec.aura, pulse.spec.ability);
+            log::warn!("[scripting] aura '{}' of '{}' tried to charge; dropped", pulse.spec.aura, pulse.spec.ability);
         }
     }
     drop(cache);
@@ -790,10 +790,10 @@ fn dispatch_channel_pulses(world: &mut World, registry: &ScriptRegistry, rng_see
             continue;
         }
         let outcomes = adapter.finish();
-        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+        if let Some(outcomes) = effect_batch(&cache, outcomes) {
             accepted.extend(outcomes);
         } else {
-            log::warn!("[scripting] channel start of '{}' tried to charge or spawn; dropped", start.skill_id);
+            log::warn!("[scripting] channel start of '{}' tried to charge; dropped", start.skill_id);
         }
     }
     for (ordinal, pulse) in due.into_iter().enumerate() {
@@ -811,10 +811,10 @@ fn dispatch_channel_pulses(world: &mut World, registry: &ScriptRegistry, rng_see
             continue;
         }
         let outcomes = adapter.finish();
-        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+        if let Some(outcomes) = effect_batch(&cache, outcomes) {
             accepted.extend(outcomes);
         } else {
-            log::warn!("[scripting] channel pulse {} of '{}' tried to charge or spawn; dropped", pulse.pulse.index, pulse.skill_id);
+            log::warn!("[scripting] channel pulse {} of '{}' tried to charge; dropped", pulse.pulse.index, pulse.skill_id);
         }
     }
     // v3 on_channel_end: after every pulse, same pulse rule.
@@ -833,10 +833,10 @@ fn dispatch_channel_pulses(world: &mut World, registry: &ScriptRegistry, rng_see
             continue;
         }
         let outcomes = adapter.finish();
-        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+        if let Some(outcomes) = effect_batch(&cache, outcomes) {
             accepted.extend(outcomes);
         } else {
-            log::warn!("[scripting] channel end of '{}' tried to charge or spawn; dropped", end.skill_id);
+            log::warn!("[scripting] channel end of '{}' tried to charge; dropped", end.skill_id);
         }
     }
     drop(cache);
@@ -901,10 +901,10 @@ fn dispatch_delayed_effects(world: &mut World, registry: &ScriptRegistry, rng_se
             continue;
         }
         let outcomes = adapter.finish();
-        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+        if let Some(outcomes) = effect_batch(&cache, outcomes) {
             accepted.extend(outcomes);
         } else {
-            log::warn!("[scripting] delayed effect {} of '{}' tried to charge or spawn; dropped", spec.index, spec.ability);
+            log::warn!("[scripting] delayed effect {} of '{}' tried to charge; dropped", spec.index, spec.ability);
         }
     }
     drop(cache);
@@ -945,16 +945,31 @@ fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_
             continue;
         }
         let outcomes = adapter.finish();
-        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+        if let Some(outcomes) = effect_batch(&cache, outcomes) {
             accepted.extend(outcomes);
         } else {
-            log::warn!("[scripting] schedule {} of '{}' tried to charge or spawn; dropped", spec.step, spec.ability);
+            log::warn!("[scripting] schedule {} of '{}' tried to charge; dropped", spec.step, spec.ability);
         }
     }
     drop(cache);
     if !accepted.is_empty() {
         world.write_resource::<Vec<crate::comp::Outcome>>().extend(accepted);
     }
+}
+
+/// An effect-only hook's outcomes (equip, aura, channel start/pulse/end, delayed effect, schedule,
+/// status event): its effects may create units (原作 timers, pulses and events do; the serial
+/// settlement commits each spawn before the effects after it), but never charge mana, cooldown or a
+/// charge. A refused batch releases the summons it reserved.
+fn effect_batch(cache: &ParallelAdapterCache<'_>, outcomes: Vec<crate::comp::Outcome>) -> Option<Vec<crate::comp::Outcome>> {
+    use crate::comp::Outcome;
+    if outcomes.iter().all(|o| matches!(o, Outcome::SpawnSummoned {..}) || super::super::ability_channel::pulse_outcome_allowed(o)) {
+        return Some(outcomes);
+    }
+    for outcome in &outcomes {
+        if let Outcome::SpawnSummoned { entity, .. } = outcome { cache.release_reserved(*entity); }
+    }
+    None
 }
 
 /// `on_status_event` of the abilities whose marked statuses (omoba-core `status_event`) saw an
@@ -1037,10 +1052,10 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
             continue;
         }
         let outcomes = adapter.finish();
-        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+        if let Some(outcomes) = effect_batch(&cache, outcomes) {
             accepted.extend(outcomes);
         } else {
-            log::warn!("[scripting] status event of '{}' ({}) tried to charge or spawn; dropped", spec.status, spec.ability);
+            log::warn!("[scripting] status event of '{}' ({}) tried to charge; dropped", spec.status, spec.ability);
         }
     }
     drop(cache);
@@ -2444,5 +2459,35 @@ mod worker_pool_ownership {
         assert_eq!(hits.len(), 1);
         assert!(hits[0].on_pool.is_none());
         assert!(hits[0].workers.is_none());
+    }
+}
+
+#[cfg(test)]
+mod effect_batch_tests {
+    use super::*;
+    use crate::comp::{Faction, FactionType, Outcome};
+    use specs::WorldExt;
+
+    #[test]
+    fn an_effect_hook_may_spawn_and_buff_its_summon_but_a_refused_batch_releases_the_reservation() {
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        let cache = ParallelAdapterCache::new(&world, 1);
+        let reserve = || {
+            let entity = cache.entities.create();
+            let spawn = Outcome::SpawnSummoned { entity, pos: omoba_sim::Vec2::ZERO, unit_id: "dummy".into(), owner: entity,
+                faction: Faction::new(FactionType::Player, 1), player_owner: None, duration: Fixed64::ONE };
+            (entity, spawn)
+        };
+        let buff = |target| Outcome::AddBuff { target, buff_id: "fire_field".into(), duration: Fixed64::ONE, payload: serde_json::Value::Null };
+        let (kept, spawn) = reserve();
+        assert_eq!(effect_batch(&cache, vec![spawn, buff(kept)]).map(|rows| rows.len()), Some(2), "spawn, then its status");
+        let (refused, spawn) = reserve();
+        let charge = Outcome::ScriptStartCooldown { entity: refused, ability_id: "x".into(), duration: Fixed64::ONE };
+        assert!(effect_batch(&cache, vec![spawn, charge]).is_none(), "never charges");
+        drop(cache);
+        let mut world = world;
+        world.maintain();
+        assert!(world.entities().is_alive(kept) && !world.entities().is_alive(refused), "the refused reservation is released");
     }
 }

@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 工作線 B：effect-only hook 可以產生召喚物（t52）
+
+- 問題（A 回報 C15 爆裂箭）：schedule、delayed effect、status event、channel start／pulse／end、aura、equip 這些 effect-only hook，只要產生 SpawnSummoned，整批 outcome 都被丟掉，因為 pulse_outcome_allowed 把 spawn 當成 charge。所以 create_unit 回傳 ok，但召喚物和之後掛在它身上的狀態全部消失。
+- 修正：dispatch `effect_batch`。這些 hook 可以 spawn，但仍然不能 charge（魔力、冷卻、次數）。serial settlement 會先提交 spawn，再套用其後的效果。被拒絕的批次以 `ParallelAdapterCache::release_reserved` 釋放保留的 entity 與位置。phase start 和 damage_pre 仍不能 spawn。
+- 測試：`an_effect_hook_may_spawn_and_buff_its_summon_but_a_refused_batch_releases_the_reservation`；omoba-core 1433 項全部通過。
+
 ## 2026-10-30 工作線 B：前搖中斷寫入 cast trace（t50）
 
 - gamemode m6gen3b：b04_fire_blast 有 282 次 windup，只有 159 次 accepted，而且沒有任何 rejected 列，差額無從查起。

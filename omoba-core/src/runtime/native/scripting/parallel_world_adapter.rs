@@ -66,6 +66,12 @@ pub struct ParallelAdapterCache<'a> {
 }
 
 impl<'a> ParallelAdapterCache<'a> {
+    /// Undoes the reservation of a summon whose outcomes were refused after `finish`.
+    pub(crate) fn release_reserved(&self, entity: Entity) {
+        self.summon_placements.release(entity);
+        let _ = self.entities.delete(entity);
+    }
+
     pub fn new(world: &'a World, rng_seed: u64) -> Self {
         let summon_placements=world.try_fetch::<super::super::summon_navigation::PlacementReservations>()
             .map(|ledger|(*ledger).clone()).unwrap_or_default();
