@@ -782,8 +782,10 @@ impl<'a, 'w> Cx<'a, 'w> {
     }
 
     /// `create_unit` of one summoned template at `at`; the host relocates a blocked point.
+    /// `lifetime` 0 (no `lifetime` written) is a permanent summon until something kills it, as the
+    /// host's summon settlement reads 0; at most an hour (summon_settlement lifetime bounds).
     pub fn create_unit(&mut self, template: &str, at: Vec2, lifetime: Fixed64) -> Result<EntityHandle, &'static str> {
-        if lifetime <= Fixed64::ZERO || lifetime > Fixed64::from_i32(600) { return Err("v3: invalid unit lifetime"); }
+        if lifetime < Fixed64::ZERO || lifetime > Fixed64::from_i32(3600) { return Err("v3: invalid unit lifetime"); }
         let unit = self.world.spawn_summoned_unit(at, RStr::from_str(template), self.caster, lifetime);
         if !unit.is_valid() { return Err("v3: unit placement rejected"); }
         Ok(unit)

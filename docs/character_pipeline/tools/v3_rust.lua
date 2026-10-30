@@ -157,7 +157,24 @@ local STATUS_TRIGGERS = {
   -- the holder's attack leaves (projectile out / melee strike; line B AttackEvent::Launch);
   -- event.target is its target
   on_attack_launch = { 1024, { 12 } },
+  -- a status's absorb shield took part of a hit / ran out (status.absorb.on_absorb / on_broken,
+  -- line B E393): event.other the damage's source, event.amount this hit's absorbed share
+  on_absorb = { 2048, { 13 } }, on_broken = { 4096, { 14 } },
 }
+-- a status's triggers with its absorb shield's on_absorb / on_broken among them
+local merged_triggers = setmetatable({}, { __mode = "k" })
+local function triggers_of(def)
+  local ab = type(def.absorb) == "table" and def.absorb or nil
+  if not ab or (ab.on_absorb == nil and ab.on_broken == nil) then return def.triggers end
+  if merged_triggers[def] then return merged_triggers[def] end
+  local t = {}
+  for k, v in pairs(def.triggers or {}) do t[k] = v end
+  for _, k in ipairs({ "on_absorb", "on_broken" }) do
+    if ab[k] ~= nil then t[k] = t[k] == nil and ab[k] or error(tostring(def.id) .. ": " .. k .. " in both absorb and triggers") end
+  end
+  merged_triggers[def] = t
+  return t
+end
 M.STATUS_TRIGGERS = STATUS_TRIGGERS
 -- `periodic`, `periodic_2`, ...: every periodic trigger of a status
 local function trigger_kind(name) return name:match("^periodic_%d+$") and STATUS_TRIGGERS.periodic or STATUS_TRIGGERS[name] end
@@ -171,7 +188,7 @@ end
 local function status_mask(def)
   if (def.runtime_id or ""):match("^attack_orb:") then return 0 end
   local mask = 0
-  for name in pairs(def.triggers or {}) do
+  for name in pairs(triggers_of(def) or {}) do
     local t = STATUS_TRIGGERS[name]
     if t and t[1] ~= 0 and mask & t[1] == 0 then mask = mask + t[1] end
   end
@@ -954,8 +971,8 @@ local function emit_statuses(m, root)
     elseif s.reapply_if_removed == true and s.stacking ~= "refresh" and s.stacking ~= "keep" and s.stacking ~= "replace" then
       p[#p + 1] = "status.reapply_if_removed with stacking:" .. (type(s.stacking) == "table" and "stacks" or tostring(s.stacking))
     end
-    if (s.triggers or s.reapply_if_removed == true) and not runtime_id:match("^attack_orb:") then
-      for _, name in ipairs(sorted_keys(s.triggers or {})) do
+    if (triggers_of(s) or s.reapply_if_removed == true) and not runtime_id:match("^attack_orb:") then
+      for _, name in ipairs(sorted_keys(triggers_of(s) or {})) do
         if not trigger_kind(name) then p[#p + 1] = "status_trigger:" .. name end
       end
       local o = m.statuses[id].parent
@@ -1082,6 +1099,7 @@ local ACTION_FIELDS = {
   let = set({ "op", "name", "value" }),
   for_each = set({ "op", "select", "as", "actions" }),
   create_unit = set({ "op", "template", "at", "count", "lifetime", "control", "limit_per_owner", "over_limit", "as", "owner", "team", "facing", "overrides" }),
+  create_illusion = set({ "op", "of", "at", "duration", "control", "copy", "outgoing", "incoming", "as" }),
   reveal = set({ "op", "at", "radius", "duration", "teams", "follow", "ignore_terrain" }),
   call = set({ "op", "routine", "args" }),
   delay = set({ "op", "time", "actions", "capture" }),
@@ -1505,7 +1523,7 @@ function Gen:action(a, ctx, ind)
     local ok = type(ab) == "table" and ab.amount ~= nil
     if not ok then self:block("status.absorb without amount"); return "" end
     for _, k in ipairs(sorted_keys(ab)) do
-      if k ~= "amount" and k ~= "types" and k ~= "phase" then self:block("status.absorb." .. k) end
+      if k ~= "amount" and k ~= "types" and k ~= "phase" and k ~= "on_absorb" and k ~= "on_broken" then self:block("status.absorb." .. k) end
     end
     if ab.phase ~= nil and ab.phase ~= "post_mitigation" then self:block("status.absorb.phase:" .. tostring(ab.phase)) end
     if aso.def.stacking == "independent" then self:block("status.absorb on an independent status"); return "" end
@@ -2331,6 +2349,70 @@ function Gen:action(a, ctx, ind)
     local lifetime = a.lifetime ~= nil and self:value(a.lifetime, ctx, "num") or "Fixed64::ZERO"
     return line("{") .. line("    let at = " .. at .. ";") .. line("    let gold = " .. gold .. ";")
       .. line(string.format("    cx.create_pickup(at, gold, %s, %s, %s)?;", rust_str(who), tostring(a.killable == true), lifetime)) .. line("}")
+  elseif op == "create_illusion" then
+    -- an `illusion` summon of the caster that copies `of` (host illusion.rs, line B t76): its body,
+    -- level and items always; life (default: `of`'s), mana (default: `of`'s current), learned
+    -- abilities (default) and the statuses `copy.statuses = { "all" }` names
+    local c = a.copy or {}
+    local COPY = set({ "level", "abilities", "except_abilities", "items", "statuses", "hp", "mana", "unit_state",
+      "status_duration", "status_caster", "status_tags", "status_except", "team" })
+    for _, k in ipairs(sorted_keys(c)) do if not COPY[k] then self:block("action:create_illusion.copy." .. k) end end
+    if c.level == false then self:block("action:create_illusion.copy.level = false") end
+    if c.items ~= nil and c.items ~= "fresh" then self:block("action:create_illusion.copy.items:" .. tostring(c.items)) end
+    if c.unit_state == true then self:block("action:create_illusion.copy.unit_state = true") end
+    if c.team ~= nil and c.team ~= "caster" then self:block("action:create_illusion.copy.team:" .. tostring(c.team)) end
+    if a.control ~= nil and a.control ~= "ai" and a.control ~= "owner" and a.control ~= "none" then
+      self:block("action:create_illusion.control:" .. tostring(a.control))
+    end
+    local function strs(list)
+      local out = {}
+      for _, x in ipairs(list or {}) do out[#out + 1] = rust_str(x) .. ".to_owned()" end
+      return "vec![" .. table.concat(out, ", ") .. "]"
+    end
+    local statuses = "None"
+    local st = c.statuses
+    if type(st) == "table" and #st > 0 then
+      if #st ~= 1 or st[1] ~= "all" then self:block("action:create_illusion.copy.statuses other than { \"all\" }") end
+      if c.status_duration ~= nil and c.status_duration ~= "remaining" and c.status_duration ~= "original" then
+        self:block("action:create_illusion.copy.status_duration:" .. tostring(c.status_duration))
+      end
+      if c.status_caster ~= nil and c.status_caster ~= "original" and c.status_caster ~= "illusion" then
+        self:block("action:create_illusion.copy.status_caster:" .. tostring(c.status_caster))
+      end
+      statuses = string.format("Some(ability_kit::IllusionStatusCopy { tags: %s, except: %s, original_duration: %s, illusion_caster: %s })",
+        strs(c.status_tags), strs(c.status_except), tostring(c.status_duration == "original"), tostring(c.status_caster == "illusion"))
+    elseif st ~= nil and type(st) ~= "table" then self:block("action:create_illusion.copy.statuses of an expression") end
+    -- outgoing / incoming: per type (physical, magical, pure) fractions, `all` for the rest
+    local function scale(t, what)
+      t = t or {}
+      for _, k in ipairs(sorted_keys(t)) do
+        if k ~= "all" and k ~= "physical" and k ~= "magical" and k ~= "pure" then self:block("action:create_illusion." .. what .. "." .. k) end
+      end
+      local parts, rest = {}, false
+      for _, k in ipairs({ "physical", "magical", "pure" }) do
+        if t[k] ~= nil then parts[#parts + 1] = self:value(t[k], ctx, "num") else parts[#parts + 1] = "all_" .. what; rest = true end
+      end
+      local all = rest and ("let all_" .. what .. " = " .. (t.all ~= nil and self:value(t.all, ctx, "num") or "Fixed64::ZERO") .. "; ") or ""
+      return all .. "let " .. what .. " = ability_kit::IllusionScale([" .. table.concat(parts, ", ") .. "]);"
+    end
+    local of = self:value(a.of, ctx, "unit")
+    local at = self:value(a.at, ctx, "point")
+    local lifetime = self:value(a.duration, ctx, "num")
+    local hp = c.hp ~= nil and ("Some(" .. self:value(c.hp, ctx, "num") .. ")") or "None"
+    local mana = c.mana ~= nil and ("Some(" .. self:value(c.mana, ctx, "num") .. ")") or "Some(cx.mana(of))"
+    local abilities = c.abilities == false and "None" or ("Some(" .. strs(c.except_abilities) .. ")")
+    local body = line("{") .. line("    let of = " .. of .. ";") .. line("    let at = " .. at .. ";")
+      .. line("    let lifetime = " .. lifetime .. ";")
+      .. line("    let hp = " .. hp .. ";") .. line("    let mana = " .. mana .. ";")
+      .. line("    " .. scale(a.outgoing, "outgoing")) .. line("    " .. scale(a.incoming, "incoming"))
+      .. line("    let copy = ability_kit::IllusionCopy { hp, mana, abilities: " .. abilities .. ", statuses: " .. statuses .. ", outgoing, incoming };")
+    local make = "cx.create_illusion(of, at, lifetime, " .. rust_str(a.control or "ai") .. ", &copy)?"
+    if a.as then
+      -- the binding outlives the block: declared before it
+      local marker = self:bind(ctx.scope, a.as, "unit")
+      return line("let " .. marker .. " = {") .. body:gsub("^" .. I:gsub("%p", "%%%0") .. "{\n", "") .. line("    " .. make) .. line("};")
+    end
+    return body .. line("    let _ = " .. make .. ";") .. line("}")
   elseif op == "end_channel" then
     if a.interrupted ~= true then self:block("action:end_channel without interrupted = true"); return "" end
     return line("cx.end_channel(cx.self_unit);")
@@ -2979,7 +3061,7 @@ local function emit_entry(m, o, opts, status_problems)
   local status_arms = {}
   for _, sd in ipairs(def.statuses or {}) do
     local so = m.statuses[sd.id]
-    if (sd.triggers or sd.aura or sd.reapply_if_removed == true) and not (sd.runtime_id or ""):match("^attack_orb:") then
+    if (triggers_of(sd) or sd.aura or sd.reapply_if_removed == true) and not (sd.runtime_id or ""):match("^attack_orb:") then
       local begin = {}
       if sd.aura then
         -- cx.self_unit holds the status; cx.caster applied it
@@ -2999,11 +3081,12 @@ local function emit_entry(m, o, opts, status_problems)
           .. "    if cx.event_amount > Fixed64::ZERO && cx.alive(cx.self_unit) {\n%s    }\n    Ok(())\n}\n", fname, again)
         status_arms[#status_arms + 1] = { status = sd.id, kind = STATUS_TRIGGERS.on_removed[2][2], fn = fname }
       end
-      for _, name in ipairs(sorted_keys(sd.triggers or {})) do
+      local sd_triggers = triggers_of(sd) or {}
+      for _, name in ipairs(sorted_keys(sd_triggers)) do
         local t = trigger_kind(name)
         if not t then g:block("status_trigger:" .. name)
         else
-          local tr = sd.triggers[name]
+          local tr = sd_triggers[name]
           if name:match("^periodic") then
             for _, k in ipairs(sorted_keys(tr)) do if k ~= "interval" and k ~= "first" and k ~= "actions" and k ~= "notes" and k ~= "filter" then g:block("status_trigger:periodic." .. k) end end
             local ctx = { owner = so, scope = scope_child(nil), event = false }
@@ -3041,6 +3124,10 @@ local function emit_entry(m, o, opts, status_problems)
             local ended = name == "on_removed" or name == "on_expired" or name == "on_death"
             local ctx = { owner = so, scope = scope_child(nil), event = executed and "ability_executed" or evented, pre = pre, ended = ended,
               windup = name == "on_attack_windup" }
+            -- an absorb event names this hit's absorbed share `absorbed` (v3.md §4)
+            if name == "on_absorb" or name == "on_broken" then
+              ctx.scope.names.absorbed = { name = "absorbed", ty = "num", marker = "cx.event_amount", used = false }
+            end
             local cond = filter and g:value(filter, ctx, "bool") or nil
             local fname = "st_" .. sd.id .. "_" .. name
             local guard = name == "on_death" and "    if cx.alive(cx.self_unit) { return Ok(()); }\n" or ""
@@ -3209,6 +3296,8 @@ local function emit_entry(m, o, opts, status_problems)
       [10] = "cx.event_target = event.other; cx.target = Target::Entity(event.other);",
       [12] = "cx.event_target = event.other; cx.target = Target::Entity(event.other);",
       [11] = "cx.event_target = event.other; cx.event_amount = event.amount; cx.event_damage_kind = event.damage_kind;",
+      [13] = "cx.event_attacker = event.other; cx.event_amount = event.amount;",
+      [14] = "cx.event_attacker = event.other; cx.event_amount = event.amount;",
     }
     local arms, pre_arms = {}, {}
     for _, key in ipairs(order) do

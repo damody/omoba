@@ -19,5 +19,7 @@ pub use host_ext::{DmgExtra, StatusFilter};
 /// rule layer's one armor formula).
 pub use omoba_core::runtime::native::comp::damage::armor_multiplier;
 pub use omoba_core::runtime::native::hero_command::OrderKind;
+// v3 create_illusion's copy options (Cx::create_illusion)
+pub use omoba_core::runtime::native::illusion::{Copy as IllusionCopy, Scale as IllusionScale, StatusCopy as IllusionStatusCopy};
 /// Attribute names for `Cx::unit_num` / `unit_flag` / `unit_ref`.
 pub use omb_script_abi::ext::unit_attr;
