@@ -153,7 +153,8 @@ local function applied_statuses(effects, by)
   for _, e in ipairs(effects) do
     if e.op == "apply_status" and e.args and e.args.status and not seen[e.args.status] then
       seen[e.args.status] = true
-      out[#out + 1] = { status = by[e.args.status], id = e.args.status, to = e.args.to, path = e.path, conds = e.conds }
+      out[#out + 1] = { status = by[e.args.status], id = e.args.status, to = e.args.to, path = e.path, conds = e.conds,
+        duration = e.args.duration }
     end
   end
   return out
@@ -203,9 +204,35 @@ local function entry_scenarios(doc, def, entry_kind, out)
     out[#out + 1] = s
   end
   local cast_step = { kind = "cast", entry = def.id, target = target.type or "none", range = target.range }
+  -- Mana the cast itself gives back to its caster (restore_mana / set_mana "x.mana + n" on the
+  -- caster, or on `it` under a for_each that picks allies; B19's tactics; E381): the caster's
+  -- mana nets the cost and this regain in the same tick.
+  local function caster_regain()
+    local allies = {}
+    for _, e in ipairs(base_effects) do
+      local team = e.op == "for_each" and e.args and e.args.select and e.args.select.team
+      if team == "ally" or team == "both" then allies[#allies + 1] = e.path end
+    end
+    local function under_allies(path)
+      for _, outer in ipairs(allies) do if path and path:sub(1, #outer + 1) == outer .. "." then return true end end
+      return false
+    end
+    local regain
+    for _, e in ipairs(base_effects) do
+      local to = e.args and e.args.to
+      local reaches = to == "caster" or to == "self" or (to == "it" and under_allies(e.path))
+      if reaches and e.phase == "on_cast" and (e.op == "restore_mana" or e.op == "set_mana") then
+        local amount = e.op == "restore_mana" and e.args.amount
+          or (type(e.args.value) == "string" and e.args.value:match("^min%(%s*[%w_]+%.mana%s*%+%s*(.-),%s*[%w_]+%.max_mana%s*%)$"))
+          or (type(e.args.value) == "string" and e.args.value:match("^[%w_]+%.mana%s*%+%s*(.+)$"))
+        regain = amount or "any"
+      end
+    end
+    return regain
+  end
   local function cost_outcomes(spent)
     local o = {}
-    if cost.mana then o[#o + 1] = { kind = "mana_spent", amount = spent and cost.mana or "0" } end
+    if cost.mana then o[#o + 1] = { kind = "mana_spent", amount = spent and cost.mana or "0", regain = spent and caster_regain() or nil } end
     if cost.health then o[#o + 1] = { kind = "health_spent", amount = spent and cost.health or "0" } end
     if cost.charges then o[#o + 1] = { kind = "charge_spent", count = spent and "1" or "0" } end
     if cost.cooldown then
@@ -506,6 +533,16 @@ local function entry_scenarios(doc, def, entry_kind, out)
           if act.op == "remove_status" and act.from == "self" and act.status then death_removes[act.status] = true end
         end
       end
+      -- The caster's death ends a channel: what its on_channel_end / on_interrupted removes goes (B09E; E391).
+      for _, ev in ipairs({ "on_channel_end", "on_interrupted" }) do
+        local list = castable and castable.events and castable.events[ev]
+        local function walk(node)
+          if type(node) ~= "table" then return end
+          if node.op == "remove_status" and node.status then death_removes[node.status] = true end
+          for _, child in pairs(node) do walk(child) end
+        end
+        walk(list)
+      end
       for _, a in ipairs(applied) do
         if not this_branch(a.conds) or deferred(a.path) then goto continue end
         -- Only the scenario's own units: a status on a unit the cast creates (C15T's arrows; E324)
@@ -514,7 +551,7 @@ local function entry_scenarios(doc, def, entry_kind, out)
         local s = a.status or {}
         local on_caster = a.to == "caster" or a.to == "self"
         local kept = (s.scope == "hero" or s.scope == "unit" or s.scope == "permanent") and not death_removes[a.id]
-        exp_d[#exp_d + 1] = { kind = (on_caster and not kept) and "status_removed" or "status_kept", status = a.id, on = a.to, runtime_id = runtime_key(s),
+        exp_d[#exp_d + 1] = { kind = ((on_caster and not kept) or death_removes[a.id]) and "status_removed" or "status_kept", status = a.id, on = a.to, runtime_id = runtime_key(s),
           rule = on_caster and "v3.md §12：狀態隨持有者死亡移除，scope hero/unit/permanent 例外" or "施加者死亡不移除別人身上的狀態" }
         ::continue::
       end
@@ -584,6 +621,14 @@ local function entry_scenarios(doc, def, entry_kind, out)
             when = { { kind = "status_event", status = s.id, event = ev, interval = type(s.triggers[ev]) == "table" and s.triggers[ev].interval or nil } },
             expect = { { kind = "effects", effects = trigger_effects(s.triggers[ev], "statuses." .. s.id .. ".triggers." .. ev, ev) } } })
         end
+        -- The status's own stats on its holder (E388).
+        if type(s.stats) == "table" and next(s.stats) then
+          push(rank, "normal", { suffix = s.id .. "/stats", given = given({ on_unit(s, a) }),
+            when = { { kind = "observe", from = "stats" } },
+            expect = { { kind = "status_stats", status = s.id, stats = s.stats,
+              value_stacks = type(s.stacking) == "table" and s.stacking.value_stacks or nil,
+              max_stacks = type(s.stacking) == "table" and s.stacking.max or nil } } })
+        end
         -- One instance per source (E359): a per-source status that another status's holders apply
         -- from themselves (for_each from self) stacks once per holder that reaches the unit.
         if s.per_source then
@@ -609,9 +654,11 @@ local function entry_scenarios(doc, def, entry_kind, out)
             end
           end
         end
-        if s.duration and s.duration ~= "infinite" then
+        -- The applying action's own duration wins over the status's default (C21R; E391).
+        local lasts = a.duration or s.duration
+        if lasts and lasts ~= "infinite" then
           push(rank, "normal", { suffix = s.id .. "/expires", given = given({ on_unit(s, a) }),
-            when = { { kind = "wait", seconds = s.duration } }, expect = { { kind = "status_removed", status = s.id } } })
+            when = { { kind = "wait", seconds = lasts } }, expect = { { kind = "status_removed", status = s.id } } })
         end
         push(rank, "visibility", { suffix = s.id, given = given({ on_unit(s, a) }),
           when = { { kind = "observe", from = "both_teams" } },

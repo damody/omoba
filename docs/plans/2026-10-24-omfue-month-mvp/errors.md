@@ -42,7 +42,15 @@
 - **通用修正**：`validate_single_lane_scripts` 用 `omoba_content_model::is_empty_ability_slot` 略過空欄，判斷方式和內容驗證相同。
 - **避免**：資料形狀新增一種值（空欄）時，要把 `active_hero_abilities` 的所有使用端都列出來逐一檢查。英雄從 test_only 轉成 playable 之前，至少讓 headless 開一局有安排他的比賽，不能只看 conformance。
 
-## E404 （保留）conformance：被動技只有 passive_stats 情境逐級學習，光環發射器停在 r1（2026-10-31）
+## E404 conformance：被動技只有 passive_stats 情境逐級學習，光環發射器停在 r1（2026-10-31，conformance session）
+
+- **現象**：新加的狀態 stats 檢查（E388）中，A22 a22r_weaken、B29 b29r_morale、A33 a33r_armor_cut 在 r2 以上讀到的都是 r1 的值。工作線 A 實測過，產生碼的值會跟著等級走。
+- **根因**：setup 只在 passive_stats 情境中照玩家升級順序逐級學習，其他情境直接寫入技能等級。被動技的 on_learn 因此只以 1 級觸發一次，光環發射器的 level 停在 1（payload 中 `__aura_v2.level = 1`，ability_levels 卻是 3）。
+- **通用修正**：凡是 ability_type 為 Passive 的 entry，一律逐級 upgrade(slot) 學習。升級後再把目標放回情境原本的位置。
+- **結果**：A22、B29、A33 的 stats 轉 pass。另外發現兩個真問題，已交工作線 A：
+  - B12 的光環只在 emit 時套一次 b12r_slow，之後不再刷新，0.75 s 後到期（dump 在共用筆記 b12-aura-dump.md）。以前直接寫入等級時，harness 剛好在 0.75 s 內看到才判通過。B12 的 13 個情境、A36 的 5 個情境因此轉為 unsupported（not observed）。
+  - A34 a34t_mr_cut 在 r2 以上使用寒霜彈的等級（工作線 A E411，c6c670f5 已修）。
+- 已放回。
 
 ## E403 沒有以樹木為目標的施放與單棵樹操作：B22 的樹木技能被排除（2026-10-31，工作線 B）
 - **現象**：太原雪齋（B22）的 b22e（砍掉目標樹木，原地召喚樹人）、b22d（喚醒目標樹木，樹倒前提供視野與真實視域）用 `target = { type = "tree" }`、`destroy_tree`、`tree_alive(tree)`；大招用 `regrow_trees`。host 都沒有這些能力，工作線 A 只好把這幾招排除。
@@ -152,9 +160,20 @@
 - **測試**：`revealed_and_provided_vision_show_the_carrier_to_the_other_team`。同時檢查 committed view 與 ECS 讀法的結果一致。
 - **避免**：新增影響視野的狀態時，Wave B 與 `item_entity_visible_to_team` 要一起改，並用同一個測試對照兩邊。
 
-## E391 （保留）conformance：apply_status 自帶的 duration、引導結束移除的狀態在死亡情境的期望（2026-10-31）
+## E391 conformance：apply_status 自帶的 duration、引導結束移除的狀態在死亡情境的期望（2026-10-31，conformance session）
 
-## E390 （保留）conformance：on_learn 就進入冷卻的技能，先等冷卻結束再開始情境（2026-10-31）
+- **現象**：C21 c21r_crit 的 expires 寫著「lasts 1.999s, the document says 0.0996」。B09 b09_mind_burst 的 caster_dies_after_cast 寫著「b09e_burst was removed」。
+- **根因**：expires 只用狀態的預設 duration，沒有用施加動作自己的 duration（C21 是 `self.attack_speed_mult + $crit_pad`）。死亡情境沒有考慮施法者死亡會結束引導，而引導的 on_channel_end／on_interrupted 會移除狀態。
+- **通用修正**：applied_statuses 帶出施加動作的 duration，expires 優先用它。施放的 on_channel_end 或 on_interrupted 會移除的狀態，在施法者死亡情境預期為移除。
+- **結果**：C21、B09 不再誤判。A15、C12、C17 共 12 個 expires 由 pass 轉 unsupported：它們的動作 duration 是 harness 算不出的式子，原本的 pass 是拿狀態預設值比對，比錯了值。
+- 已放回。
+
+## E390 conformance：on_learn 就進入冷卻的技能，先等冷卻結束再開始情境（2026-10-31，conformance session）
+
+- **現象**：C19 c19_surprise_raid 的第一次施放被拒，冷卻檢查寫著 30 vs 35。
+- **根因**：on_learn 照原作套上 30 秒冷卻（eventforspawned.lua:128），harness 學會後立刻施放。
+- **通用修正**：setup 結束時如果技能已在冷卻中，先等冷卻跑完（最多 120 秒），再把施法者的 mana 還原成 given 設定的值。
+- 已放回。
 
 ## E389 第一次播放 cue 或第一次生成某種單位時在遊戲執行緒同步載入資產（含 Niagara 編譯），1+9 局出現 0.4–1.8 秒卡頓（2026-10-31，history-nobu M6 UE 效能，工作線 C）
 - **現象**：1 人加 9 bot 的 quick demo（demo8），平均 frame interval 中位數 16.9 ms，但有 17 秒出現 ≥400 ms 的卡頓。卡頓那一幀的 presentation 工作集中在 `ability_events`（1.8 s、0.5 s、0.46 s，某個 cue 第一次播放）和 `entities`（0.1～0.8 s，某種單位第一次生成）。整局 287 次 `FlushAsyncLoading`，3 次 `Compiling System NiagaraSystem`。團戰最忙的一秒（39 個呈現事件）反而沒有掉幀。
@@ -162,7 +181,15 @@
 - **通用修正**：`OmPresentationPreload` 在 bridge 的 BeginPlay 非同步預載。範圍包括：Editor cue overrides 的效果與音效、產生的技能 VFX 層、隱身與變形外觀；以及非英雄單位類別和載入名單上本局英雄類別的預設物件裡的所有 soft 引用（以反射收集）。handle 持有到比賽結束，新英雄不需要改 UE。automation 測試 `Om.Runtime.PresentationPreload`。demo9：同步載入 287 → 12 次，≥400 ms 的秒數 17 → 3，每秒最大值的 p95 400 → 71 ms；剩下的卡頓當下 presentation 工作只有 0～3 ms。
 - **避免**：遊戲中會用到的資產，要在載入畫面期間就準備好；量 frame time 時要看卡頓那一幀的工作是在哪個階段，不要只看 cue 數量。
 
-## E388 （保留）conformance：狀態自己的 stats 沒有被檢查（2026-10-31）
+## E388 conformance：狀態自己的 stats 沒有被檢查（2026-10-31，conformance session）
+
+- **現象**：遊戲模式線發現幾位 M6 英雄弱到不正常（家康 1/113/11），想確認 buff 有沒有真的改變數值。conformance 只檢查狀態「有沒有套上」，不檢查它的 stats。
+- **通用規則**：有 stats 的狀態產生 `normal/<status>/stats` 情境。harness 先等 0.5 s，讓光環接收者拿到新等級，再讀持有者身上該狀態的 BuffStore 列：
+  - 每項 stat 照 vocab::stat 的單位換算後，要等於文件數值。`-$x` 取 x 的單位。
+  - value_stacks 的狀態接受 1 到 max 層的整數倍。
+  - 整列都沒有 stat 時記為 unsupported。
+- **結果**：抓到 A34 用錯等級（工作線 A E411），並引出 E404。
+- 已放回。
 
 ## E387 bot 沒有任意距離的施放意圖：瞬雷閃與最期一生從沒施放（2026-10-31，工作線 B）
 - **現象**：遊戲模式 session 的 M6 14 英雄批次（target/e187/m6a3g{1,2}）中，c05_flash_thunder（前田慶次）與 c24_last_life（柳生宗嚴）兩招大招一次都沒施放。
@@ -177,7 +204,13 @@
 - **測試**：`any_distance_ultimates_aim_at_disclosed_heroes_e387`。
 - **避免**：range 0 在 v3 代表「任意距離」或「射程寫在運算式裡（跳躍）」，推導時要明確選對意圖。執行端驗證要能擋下永遠不會施放的組合。
 
-## E386 （保留）conformance：狀態攻擊觸發造成的傷害（觸發機率、順劈）沒有被檢查（2026-10-31）
+## E386 conformance：狀態攻擊觸發造成的傷害（觸發機率、順劈）沒有被檢查（2026-10-31，conformance session）
+
+- **現象**：a01r_thunder（50% proc）、c20t_demon（順劈）這類狀態 on_attack_hit 的傷害，都記為 unsupported（「no status the attack applies, no mana it spends」）。
+- **通用規則**：攻擊觸發中打 event.target 或 it 的 damage（條件只允許攻擊命中類、`chance:`、`not event.target.is_building`）列為 strike。持有者攻擊敵方英雄，trace 必須在那條 path 上看到 Applied 命中；數值固定時要對得上；有機率的觸發攻擊 10 秒。
+  - 敵方只有沒有 path 的命中時（host 的 attack_orb、手寫 handler），只判斷其他部分（狀態、mana）並註明無法追蹤；沒有其他可判斷的部分就記為 unsupported。
+- **結果**：A01 proc（r1 80）、C20 順劈都確認有打到英雄。A02 orb 與 A07 strongest 是 host 或手寫的命中，沒有 path。
+- 已放回。
 
 ## E385 排程效果在兩個 tick 之間到期時延到下一個 tick，0.99 s 的週期在 1 s 狀態內一次都沒打到（2026-10-31，工作線 B）
 - **現象**：工作線 A 回報 a19w_burn（持續 1 s、間隔 0.99 s）、a29e_grip、b33e_web 的週期效果一次都沒打到。
@@ -199,9 +232,20 @@
 - **影響**：land_to_live 失敗時不寫入 live，所以 live 不會寫到一半。被中斷的建置或測試需要各線重跑；主 session 已通知四條線。
 - **通用規則（預防）**：停止背景工作，只能用自己的 task ID（TaskStop），或自己記下的 PID。**絕對不要按程序名稱殺程序**（`taskkill /IM`、`Stop-Process -Name`、`pkill`／`killall` 等）。自己的長時間工作要能被單獨停止：用背景任務啟動，或在啟動時記下 PID。
 
-## E382 （保留）conformance：吸收下一次傷害的狀態吃掉致命一擊，死亡步驟再補打（2026-10-31）
+## E382 conformance：吸收下一次傷害的狀態吃掉致命一擊，死亡步驟再補打（2026-10-31，conformance session）
 
-## E381 （保留）conformance：施放同時回魔給施法者，mana_spent 允許扣掉這份回魔（2026-10-31）
+- **現象**：C23 c23_blood_for_blood／c23_tainted_frenzy 的 holder_dies、caster_dies_after_cast 判成 fail：吃了致命一擊卻還活著。
+- **根因**：c23r_on_spell 會吸收下一次受到的傷害，harness 只打一次致命一擊。
+- **通用修正**：致命一擊後如果受害者還活著，且不是「取消所有非物理傷害」的 deathless 狀態，就再補打致命一擊，最多 3 次。
+- 已放回。
+
+## E381 conformance：施放同時回魔給施法者，mana_spent 允許扣掉這份回魔（2026-10-31，conformance session）
+
+- **現象**：B19 b19_echigo_tactics 判成 fail：「mana spent 124.67, expected 150」。這招扣 150 魔，同一個 tick 又替全地圖友方回 25 魔，施法者自己也包括在內（原作如此）。
+- **根因**：harness 只看施法者 mana 每 tick 的下降量，花費和回魔在同一 tick 互相抵銷。
+- **通用修正**：on_cast 中有 restore_mana 或 set_mana「x.mana + n」作用在施法者身上，或作用在選到友方的 for_each 底下時，mana_spent 帶 regain=n，允許花費最低到 cost − regain，但仍須大於 0。regain 算不出來時只檢查上限。
+- **結果**：B19 4 個轉 pass。第一版在 regain 算不出來時直接報錯，讓 B30 退步 8 個；已修正。
+- 已放回。
 
 ## E380 英雄死亡時把 hero 範圍的狀態變數從屍體移除，死後才到期的 hook 讀到初始值（2026-10-31，工作線 B）
 - **現象**：一致性線回報 b13_hypnosis 的 death/caster_dies_after_cast（r1～r4）會在施法者死亡時移除 b13e_sleep。在 shadow 加診斷後看到，死亡那一個 tick，目標的 b13e_sleep 就換成了 b13e_wake_stun。

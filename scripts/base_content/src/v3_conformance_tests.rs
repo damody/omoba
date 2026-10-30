@@ -202,8 +202,18 @@ impl Run {
     /// After a lethal (pure) hit the victim survived because a status cancels non-physical damage
     /// (A07W after FC-025; E237): a lethal physical hit as well. A victim that survives both cannot
     /// die here (deathless).
+    /// A victim that survived because a status absorbed the hit (C23R absorbs the next damage;
+    /// E382) is hit again, up to three more times.
     fn kill_physical_too(&mut self, source: specs::Entity, victim: specs::Entity) {
-        if !living(self, victim) || !deathless(self, victim) { return; }
+        if !living(self, victim) { return; }
+        if !deathless(self, victim) {
+            for _ in 0..3 {
+                if !living(self, victim) { break; }
+                self.kill(source, victim);
+                self.step(3);
+            }
+            return;
+        }
         let Outcome::Damage { pos, real, source, target, damage_profile, predeclared, .. } = lethal(source, victim) else { unreachable!() };
         self.world.write_resource::<Vec<Outcome>>().push(Outcome::Damage { pos, phys: real, magi: Fixed64::ZERO, real: Fixed64::ZERO,
             source, target, damage_profile, predeclared });
@@ -445,7 +455,11 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     // An entry whose passive stats the scenario reads is learned rank by rank through the
     // player's upgrade order (E227): its handler applies each rank as it is learned, which
     // writing the level would skip.
-    let passive = s["expect"].as_array().into_iter().flatten().any(|e| e["kind"] == "passive_stats");
+    // Any passive entry, not only a passive_stats case (E404): its aura emitter is emitted
+    // again at each level (A22R's weaken read rank 1 when the level was written at once).
+    let passive = s["expect"].as_array().into_iter().flatten().any(|e| e["kind"] == "passive_stats")
+        || omoba_template_ids::ability_by_name(&entry).and_then(omoba_template_ids::active_ability_const)
+            .is_some_and(|a| a.ability_type == omoba_template_ids::AbilityTypeC::Passive);
     let target = match team.as_str() {
         "self" => caster,
         // An ally hero (E256): the match has two heroes, so the other one joins the caster's team.
@@ -526,8 +540,22 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
         }
         // Passive grants settle on the hero's next update.
         run.step(ticks(1.0));
+        // The target back where the scenario put it (it may have walked out of an aura; E404).
+        if run.target != run.caster {
+            let at = run.target_at;
+            if let Some(pos) = run.world.write_storage::<Pos>().get_mut(run.target) { pos.0 = at; }
+            run.step(ticks(0.5));
+        }
         let level = run.world.read_storage::<Hero>().get(run.caster).and_then(|h| h.ability_levels.get(&run.entry).copied()).unwrap_or(0);
         if level != rank as i32 { return Err(format!("learned {} to rank {level}, not {rank}", run.entry)); }
+    }
+    // A cooldown the entry's own on_learn starts (C19's spawn cooldown; E390) runs out before the
+    // scenario; the mana the givens set is put back after the wait.
+    if run.cooldown() > 0.0 {
+        let pool = run.hero(|h| h.mana_pool.clone());
+        let mut waited = 0;
+        while run.cooldown() > 0.0 && waited < ticks(120.0) { run.step(1); waited += 1; }
+        if let Some(h) = run.world.write_storage::<Hero>().get_mut(run.caster) { h.mana_pool = pool; }
     }
     if dead {
         if target == caster { return Err("dead self target".into()); }
@@ -1012,6 +1040,9 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
     // What the holder's attack does (E229): the statuses its hit puts on the target, and the mana
     // its windup spends (an orb's cost per attack; the caster starts with a full pool).
     let (mut on_hit, mut spend) = (Vec::new(), None);
+    // Damage the attack trigger deals the attacked unit (path, plain amount), and whether a
+    // chance gates it (E386).
+    let (mut strikes, mut chancy): (Vec<(String, Option<f64>)>, bool) = (Vec::new(), false);
     let attack_event = kind == "status_event" && (step["event"] == "on_attack_hit" || step["event"] == "on_attack_windup");
     if attack_event {
         let holds_for_full_mana = |c: &str| ATTACK_HIT_CONDS.contains(&c) || c.starts_with("not (self.mana < ");
@@ -1029,7 +1060,15 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
                 _ => {}
             }
         }
-        if on_hit.is_empty() && spend.is_none() { return Verdict::Unsupported("no status the attack applies, no mana it spends".into()); }
+        let (entry_id, rank_n) = (s["entry"].as_str().unwrap_or(""), s["rank"].as_u64().unwrap_or(1) as usize);
+        for f in expectation["effects"].as_array().into_iter().flatten() {
+            if f["op"] != "damage" || !matches!(f["args"]["to"].as_str(), Some("event.target" | "it")) { continue; }
+            let conds: Vec<&str> = f["conds"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+            if conds.iter().any(|c| !holds_for_full_mana(c) && !c.starts_with("chance: ") && *c != "not event.target.is_building") { continue; }
+            chancy |= conds.iter().any(|c| c.starts_with("chance: "));
+            strikes.push((f["path"].as_str().unwrap_or("").to_owned(), expr(&f["args"]["amount"], entry_id, rank_n).ok()));
+        }
+        if on_hit.is_empty() && spend.is_none() && strikes.is_empty() { return Verdict::Unsupported("no status the attack applies, no mana it spends, no damage it deals".into()); }
         if !matches!(on.as_str(), "caster" | "self") { return Verdict::Unsupported(format!("attack hit of a status on {on}")); }
     }
     let removed = match expectation["kind"].as_str() {
@@ -1037,6 +1076,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         Some("status_removed") => true,
         Some("status_kept") => false,
         Some("status_display") if kind == "observe" => false,
+        Some("status_stats") if kind == "observe" => false,
         other => return Verdict::Unsupported(format!("status expectation {other:?}")),
     };
     // A runtime id several statuses share (`stun`) is one BuffStore entry, dispelled by the
@@ -1180,18 +1220,49 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         let mut previous = mana(&run);
         let mut drop: f64 = 0.0;
         { let result = run.driver.step(&mut run.world, [(1, order)]).unwrap(); project_tick(&mut run.world, result); }
-        for _ in 0..ticks(5.0) {
+        // A strike lands when the enemy takes an applied, traced hit on its path (of its amount).
+        let struck = |run: &Run, path: &str| -> Vec<f64> {
+            use omoba_core::runtime::native::damage_trace::{DamageTrace, DamageTraceResult};
+            run.world.read_resource::<DamageTrace>().0.iter()
+                .filter(|r| r.target == enemy && r.result == DamageTraceResult::Applied && same_path(&r.path, path))
+                .map(|r| real(r.before.0 + r.before.1 + r.before.2)).collect()
+        };
+        let seconds = if chancy { 10.0 } else { 5.0 };
+        for _ in 0..ticks(seconds) {
             let now = mana(&run);
             drop = drop.max(previous - now);
             previous = now;
             let spent = spend.is_none_or(|amount| (drop - amount).abs() <= 1.0);
-            if spent && on_hit.iter().all(|id| holds(&run, enemy, id)) {
-                return Verdict::PassNoted(format!("attack applied {}; spent {drop:.1}", on_hit.join(", ")));
+            let hit = strikes.iter().all(|(path, amount)| struck(&run, path).iter()
+                .any(|dealt| amount.is_none_or(|amount| (dealt - amount).abs() <= (amount * 0.02).max(1.0))));
+            if spent && hit && on_hit.iter().all(|id| holds(&run, enemy, id)) {
+                return Verdict::PassNoted(format!("attack applied {}; spent {drop:.1}; struck {}", on_hit.join(", "),
+                    strikes.iter().map(|(path, _)| format!("{path} {:?}", struck(&run, path).first().map(|d| (d * 10.0).round() / 10.0))).collect::<Vec<_>>().join(", ")));
             }
             run.step(1);
         }
         let missing: Vec<&String> = on_hit.iter().filter(|id| !holds(&run, enemy, id)).collect();
-        return Verdict::Fail(format!("{}: not on the attacked unit within 5 s {missing:?}; largest one-tick mana drop {drop:.2}, expected {spend:?}", step["event"]));
+        let strikes_seen: Vec<String> = strikes.iter().map(|(path, amount)| format!("{path}: {:?} (expected {amount:?})", struck(&run, path))).collect();
+        // What the holder's hits on the enemy were traced as, to tell a renamed path from a missing hit.
+        let traced: Vec<String> = {
+            use omoba_core::runtime::native::damage_trace::DamageTrace;
+            let mut seen: Vec<String> = run.world.read_resource::<DamageTrace>().0.iter().filter(|r| r.target == enemy)
+                .map(|r| format!("{}:{:?}", if r.path.is_empty() { "-" } else { r.path.as_str() }, r.result)).collect();
+            seen.dedup();
+            seen
+        };
+        // A strike the enemy took only untagged hits for (a hand-written path, an orb folded into
+        // the attack) cannot be told apart here (as E334's untagged hits).
+        let untagged_only = !traced.is_empty() && traced.iter().all(|t| t.starts_with("-:"));
+        let strikes_missing = strikes.iter().any(|(path, _)| struck(&run, path).is_empty());
+        if strikes_missing && untagged_only && missing.is_empty() && spend.is_none_or(|amount| (drop - amount).abs() <= 1.0) {
+            // What else the attack does held (its statuses, its mana): that much is judged.
+            if on_hit.is_empty() && spend.is_none() {
+                return Verdict::Unsupported(format!("{}: the enemy's hits carry no path; strikes [{}]", step["event"], strikes_seen.join("; ")));
+            }
+            return Verdict::PassNoted(format!("attack applied {}; spent {drop:.1}; strikes not traced (the enemy's hits carry no path)", on_hit.join(", ")));
+        }
+        return Verdict::Fail(format!("{}: within {seconds} s, not on the attacked unit {missing:?}; largest one-tick mana drop {drop:.2}, expected {spend:?}; strikes [{}]; the enemy's traced hits [{}]", step["event"], strikes_seen.join("; "), traced.join(", ")));
     }
     match kind {
         // A debuff goes to a dispel by its holder's side, a buff to an enemy purge (E214); a
@@ -1210,6 +1281,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
             // aura's next update (B29R), which the document expects.
             dispel::dispel(&run.world, holder, strength.unwrap(), purge);
         }
+        "observe" if expectation["kind"] == "status_stats" => return status_stats(&mut run, holder, &runtime_id, expectation),
         "observe" => return observe(&mut run, holder, &runtime_id, expectation),
         "holder_dies" => {
             let source = if holder == run.caster { run.enemy } else { run.caster };
@@ -1475,8 +1547,11 @@ fn run(hero: &str, s: &Value) -> Verdict {
                 if cast.accepted { Err(format!("cast {nth} was accepted ({kind} expected, reason {})", e["reason"])) } else { Ok(()) },
             "mana_spent" => {
                 let amount = expr(&e["amount"], &entry, rank)?;
+                // Mana the cast gives back to its caster in the same tick nets out (B19; E381):
+                // the spend can be that much lower; "any" (or an amount the harness cannot work out) allows any regain.
+                let regain = match e["regain"].as_str() { None => 0.0, Some("any") => amount, Some(_) => expr(&e["regain"], &entry, rank).unwrap_or(amount) };
                 // Regeneration during the cast window is tolerated (a few mana), overspending is not.
-                if cast.mana_spent <= amount + 0.5 && cast.mana_spent >= amount - 6.0 { Ok(()) }
+                if cast.mana_spent <= amount + 0.5 && cast.mana_spent >= amount - regain - 6.0 && (regain == 0.0 || cast.mana_spent > 0.0) { Ok(()) }
                 else { Err(format!("mana spent {:.2}, expected {amount}", cast.mana_spent)) }
             }
             "cooldown_started" => {
@@ -1981,6 +2056,47 @@ fn passive_stats(run: &Run, e: &Value, entry: &str, rank: usize) -> Result<(), S
         if (actual - expected).abs() > (expected.abs() * 0.01).max(0.01) { wrong.push(format!("{name} {actual:.3}, expected {expected}")); }
     }
     if wrong.is_empty() { Ok(()) } else { Err(wrong.join(", ")) }
+}
+
+/// A status's stats on its holder (E388): its BuffStore entry carries each stat at the document's
+/// amount (fractions and percent points as `vocab::stat` keeps them).
+fn status_stats(run: &mut Run, holder: specs::Entity, runtime_id: &str, e: &Value) -> Verdict {
+    use omoba_core::runtime::native::rules::vocab::{self, Unit};
+    // Half a second on: an aura's receivers take the emitter's level on its next tick (0.25 s).
+    for _ in 0..ticks(0.5) { if !holds(run, holder, runtime_id) { break; } run.step(1); }
+    // Stats that count stacks (`value_stacks`): a whole number of stacks, up to the maximum.
+    let stacks = if e["value_stacks"] == true { expr(&e["max_stacks"], &run.entry, run.rank).map_or(1, |m| m.max(1.0) as i64) } else { 1 };
+    let run = &*run;
+    let Some((_, buff)) = held(run, holder, runtime_id) else { return Verdict::Unsupported(format!("{runtime_id} ended before it was observed")) };
+    let Some(stats) = e["stats"].as_object() else { return Verdict::Unsupported("no stats".into()) };
+    let entry = run.entry.as_str();
+    let mut wrong = Vec::new();
+    let mut checked = 0;
+    for (name, value) in stats {
+        let Some((key, unit)) = vocab::stat(name) else { return Verdict::Unsupported(format!("stat {name}")) };
+        let amount = if value.is_object() {
+            if value["op"].as_str().unwrap_or("add") != "add" || value.get("when").is_some() { return Verdict::Unsupported(format!("stat {name} {}", value["op"])); }
+            &value["value"]
+        } else { value };
+        let Ok(v) = expr(amount, entry, run.rank) else { return Verdict::Unsupported(format!("stat {name}: {amount}")) };
+        // `-$x` is the value `x` negated: its unit is x's.
+        let named = amount.as_str().map(|text| json!(text.trim().trim_start_matches('-').trim()));
+        let pct = named.as_ref().and_then(|named| value_unit(entry, named)).as_deref() == Some("pct");
+        let expected = match (unit, pct) { (Unit::Fraction, true) => v / 100.0, (Unit::Fraction, false) => v, (Unit::PercentPoints, true) => v, (Unit::PercentPoints, false) => v * 100.0 };
+        let Some(carried) = buff.payload.get(key.as_str()).and_then(Value::as_f64) else {
+            wrong.push(format!("{name} not carried by {runtime_id}"));
+            continue;
+        };
+        let actual = carried / 1024.0;
+        checked += 1;
+        let tolerance = (expected.abs() * 0.01).max(0.01);
+        if !(1..=stacks).any(|k| (actual - expected * k as f64).abs() <= tolerance * k as f64) {
+            wrong.push(format!("{name} {actual:.3}, expected {expected}{}", if stacks > 1 { format!(" per stack (up to {stacks})") } else { String::new() }));
+        }
+    }
+    // None carried in the entry at all: the port keeps them elsewhere, nothing to read here.
+    if checked == 0 { return Verdict::Unsupported(format!("no stat of {runtime_id} in its own entry ({})", wrong.join(", "))); }
+    if wrong.is_empty() { Verdict::PassNoted(format!("{checked} stats")) } else { Verdict::Fail(format!("status_stats: {}", wrong.join(", "))) }
 }
 
 /// The other hero joins `team` (an ally hero target; E256). Faction decides who is hostile.
