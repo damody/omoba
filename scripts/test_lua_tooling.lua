@@ -153,6 +153,11 @@ local ok, failure = xpcall(function()
     { cwd = b.root, check = false })
   assert(text_patch.exit_code == 0,
     "text patch tests failed:\n" .. tostring(text_patch.stdout) .. tostring(text_patch.stderr))
+  -- E300: error ids are taken through scripts/error_id.lua; errors.md has no duplicate id.
+  local error_ids = process.run(lua, { path.join(b.root, "scripts", "tests", "error_id_test.lua") },
+    { cwd = b.root, check = false })
+  assert(error_ids.exit_code == 0,
+    "error id tests failed:\n" .. tostring(error_ids.stdout) .. tostring(error_ids.stderr))
 end, debug.traceback)
 remove_tree(temp)
 if not ok then error(failure) end

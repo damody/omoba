@@ -2,6 +2,23 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E312 （保留）v3 is_visible_to 需要敵方視野揭露；selector include_hidden 不再略過（2026-10-30）
+
+## E301 UE 驗證局只持鎖 6 秒就結束：建置期間有內容放回，bridge 與 authority 的內容雜湊不同（2026-10-30，e187 遊戲模式 session；已放回 live）
+
+- **現象**：ue-nobu10 第一次在入場前結束（live_match 鎖只持有 6 秒）：「launch binaries carry different content: authority content=…, renderer bridge=…」。
+- **根因**：run_moba_role_ue 的建置分兩段：先 build_ue_moba（UE 前端與 bridge，數分鐘，持 repo 建置鎖），再建 authority、script DLL 與 client runtime（不持鎖）。兩段之間 land_to_live 拿到建置鎖放回了內容，bridge 內嵌舊內容雜湊、authority 是新的，啟動前比對拒絕。和 E287 同類（建置期間別人的改動追上），E287 處理的是來源新舊，這次是兩個 binary 的內容不一致。
+- **通用修正**：`build_lock` 可以帶 token 加入：持有者用 `guard:env()` 把 token（OM_BUILD_LOCK_TOKEN）傳給子程序，子程序的 build_ue_moba 加入同一把鎖、不再排隊；`run_moba_role_ue` 從前端建置開始取得建置鎖，一直持有到 authority 與 runtime 建好才放（失敗也會放），整段建置期間不會有 land_to_live 插進來。build_lock_test 加入 token 加入、錯誤 token 照常等待、重複 release 的檢查。
+- **避免**：一個啟動流程裡要互相一致的 binary，放在同一把建置鎖下一次建完；不要建一半放鎖。
+
+## E300 errors.md 錯誤編號一再撞號：新增 scripts/error_id.lua 在檔案鎖下取號（2026-10-30，e187 遊戲模式 session；已放回 live）
+
+- **現象**：E285、E294、E297 各被兩條線同時使用；檢查整份檔案，E023～E028、E150、E151、E210、E211 也都有兩筆。
+- **根因**：各 session 讀檔看最大編號，過幾分鐘才寫標題，中間別人也取了同一號；程式註解先寫編號更放大了這個時間差。
+- **通用修正**：`tools\lua\lua.exe scripts\error_id.lua reserve "<一行標題>"` 在檔案鎖（target/locks/error_id）下讀最大編號、立刻寫入佔位標題並印出新編號；`check` 列出重複並以 exit 1 結束；`renumber E123` 把同號的第二筆改成下一個空號，標題註明原編號。`scripts/tests/error_id_test.lua` 驗證取號、改號、等鎖與 live 沒有重複，接進 test_lua_tooling.lua；check_live_consistent.lua 也檢查重複，有重複就判為不一致。
+- **既有重複已改號**：E023→E302、E024→E303、E025→E304、E026→E305、E027→E306、E028→E307、E150→E308、E151→E309、E210→E310、E211→E311（各改同號中較舊、位置較後的那一筆）。
+- **避免**：先 `error_id.lua reserve` 取號，再把編號寫進程式或 commit。
+
 ## E298 base_content 的 registry 測試從 1c655563 起一直失敗：多推了一個沒有 registry 列的產生技能（2026-10-30，工作線 A）
 
 - **現象**：`generated_registry_tests::lua_generated_registry_matches_exported_script_ids` 失敗。`abilities()` 的結果比 `hero_ability_ids.rs` 多一個 `a07_rouse_free`。
@@ -9,7 +26,7 @@
 - **通用修正**：`lib.rs` 新增 `GENERATED_ONLY` 表，列出「只有產生的 Rust、沒有 registry 列」的技能。`abilities()` 從這張表推入，測試的期望值改成 registry ids 加上這張表。以後這類子技能只要加進表裡。
 - **以後如何避免**：換上產生的技能後，跑 `cargo test -p base_content --lib generated_registry` 和該英雄的 `v3_conformance`，不能只靠 land 的 cargo check。
 
-## E297 產生的 B06 第一武士施放全被退回：狀態 runtime_id 借用了 host 封包前綴（2026-10-30，工作線 A）
+## E299 產生的 B06 第一武士施放全被退回：狀態 runtime_id 借用了 host 封包前綴（2026-10-30，工作線 A）
 
 - **現象**：在影子把 b06_first_warrior 換成產生的 Rust 後，conformance 每次施放都是 CAST_REJECTED，不扣法力，也不進冷卻；手寫 handler 正常。
 - **根因**：v3 的 `b06t_aura` 狀態為了對齊舊 handler，把 runtime_id 寫成 `__aura_emitter:b06_first_warrior_haste:{caster}`。產生的程式照這個 id 套狀態，cast settlement 看到 `__aura_emitter:` 前綴，就當成光環發射器封包驗證（`aura_emitter::admitted`）。狀態的 payload 不是發射器格式，所以整筆交易被退回。B 的新光環也會因為 `requires` 以 `__` 開頭而判為無效。
@@ -1035,7 +1052,7 @@
   - 需要「每 tick 判定」的 host 行為，判定要讀 tick 開頭的共同快照。結束條件如果需要 authority 才有的資訊（例如視野），就由 authority 決定，再以合成輸入通知 replica，不能讓 replica 自己判斷。
   - 新增 host 指令時，同時寫雙 replica 逐 tick 的 soak 測試，並驗證行為真的發生（不只驗證 0 mismatch）。
 
-## E211 狀態視覺上限量測：團戰壓力下沒有碰到 512 的上限；過程中又把 CRLF 檔改成 LF（2026-10-29，history-nobu M6 前置，工作線 C）
+## E311 狀態視覺上限量測：團戰壓力下沒有碰到 512 的上限；過程中又把 CRLF 檔改成 LF（2026-10-29，history-nobu M6 前置，工作線 C）（原編號 E211，撞號後改號）
 
 - **背景**：E221 之後，敵方單位的公開狀態也會畫出視覺。需要確認共用視覺池（`UOmCombatVisualSubsystem::Capacity` = 512）在團戰時會不會額滿或拖慢畫面。
 - **量測方法**：
@@ -1059,7 +1076,7 @@
   - 改 CRLF 檔一律用 Lua 腳本或 `sed -b`。
   - 內容量大增時（M6 每批上架後），用同一個 recipe 重跑，並看 `OM_VISUAL_POOL` 的 `window_peak` 與 `rejected_full`。
 
-## E210 `stage_ue_shadow --sync` 蓋掉影子裡未放回的修改；選角完成後對局沒有開始（2026-10-29，history-nobu M6 前置，工作線 C）
+## E310 `stage_ue_shadow --sync` 蓋掉影子裡未放回的修改；選角完成後對局沒有開始（2026-10-29，history-nobu M6 前置，工作線 C）（原編號 E210，撞號後改號）
 
 - **現象**：
   - 選角截圖第一次沒有拍到：影子裡新加的截圖程式不見了。
@@ -2916,7 +2933,7 @@
   - 照參考圖固定一行的列，要先算出最小縮放時的總寬；放不下的內容移到 tooltip 或其他區域，不能讓它換行到框外。
   - 改了 lua_data 或 bridge 之後的實機局，不要帶 `--no-build`。
 
-## E151 實機畫面裡有不明的小灰方塊：視野守衛沒有外觀目錄，UE 端退回預設方塊（2026-10-27，session-tripo）
+## E309 實機畫面裡有不明的小灰方塊：視野守衛沒有外觀目錄，UE 端退回預設方塊（2026-10-27，session-tripo）（原編號 E151，撞號後改號）
 
 - **現象**：最終驗收的實機截圖（final-match-3 第 061、070 張）在草地上有一個灰色方塊，沒有名牌、不會移動。
 - **根因**：
@@ -2930,7 +2947,7 @@
   - 實機第一張守衛圖仍是米白色：守衛沒有戰鬥資料，`GetPublishedUnitTeamMarkerKind` 只處理 hero 到 summon，守衛的關係永遠是 Unknown。改成依擁有者英雄的隊伍判斷：自己的守衛算友方，已揭露的敵方英雄的守衛算敵方，查不到擁有者隊伍就維持 Unknown。`Om.Runtime.PublicUnitTeamRelations` 加了這三種情況。
 - **以後**：新增會出現在對局中的 entity kind 時，同一批要在 world_units 給它一個有模型的 identity，並在 bridge 做對應；不要依賴 runtime 的預設方塊。TD、訓練模式的 30 個類別目前仍沒有模型，不在這個檢查範圍內，要納入需要另外補模型。
 
-## E150 換上 Tripo 身體後，NativeCharacterAssembly 和 NativeCreepPresentation 仍寫死 CC0 的配件數與材質（2026-10-27，session-tripo）
+## E308 換上 Tripo 身體後，NativeCharacterAssembly 和 NativeCreepPresentation 仍寫死 CC0 的配件數與材質（2026-10-27，session-tripo）（原編號 E150，撞號後改號）
 
 - **現象**：ward 跑完整的 Om.Runtime，這兩支失敗。
   - NativeCreepPresentation：期望小兵、超級兵、南北守衛各有 1／1／2／1 個頭部或劍的配件，實際是 0。
@@ -5001,42 +5018,42 @@
 - **通用修正**：參數改名為 `-om-autopilot-shot-interval=`；`moba_role_launch.assert_engine_safe_args` 檢查所有 `-om-*` 參數，不得含 `seconds=`、`benchmark`、`fps=`、`deterministic`、`fixedtimestep` 這類引擎會用子字串解析的保留字。prepare 時強制檢查，也有測試。
 - **避免**：替 UE 新增命令列參數時，先在引擎原始碼裡搜尋 `FParse::Value(...TEXT("<名稱尾段>")`；專案參數名稱不要以常見單字結尾。
 
-## E028 三個 writer 同時直接編輯共用樹，一致性建置永遠等不到穩定（2026-10-25，協作）
+## E307 三個 writer 同時直接編輯共用樹，一致性建置永遠等不到穩定（2026-10-25，協作）（原編號 E028，撞號後改號）
 
 - **現象**：連續 4 輪都是「sources changed during pass N」，最後以「another writer is active」失敗；其中一輪還編到半成品 `stage_ability_channel`。
 - **根因**：ward（channel）、omfx-decouple（toggle orb）、source-index（H03）同時在共用樹上逐步修改 omoba-core 和 Lua。每一筆修改都會打斷一輪約 15 分鐘的建置；Lua 一改，codegen 輸出也跟著變。
 - **通用修正**：(1) `consistent_build` 每一輪開始前，先等輸入靜止 3 分鐘（最多等 30 分鐘），輪數上限提高到 8；(2) 所有 writer 改用著陸流程：在 shadow 樹完成、編譯並測試通過後，一次套回共用樹，著陸之間至少隔 3 分鐘。
 - **避免**：多個 writer 共用一個工作樹時，要讓變更以批次方式出現，不能一筆一筆持續流入；建置要找空檔開始，而不是硬撞。
 
-## E027 一致性建置遇到別的 session 改到一半、暫時編不過的共用原始碼（2026-10-25，建置）
+## E306 一致性建置遇到別的 session 改到一半、暫時編不過的共用原始碼（2026-10-25，建置）（原編號 E027，撞號後改號）
 
 - **現象**：`consistent_build` 在 omoba-core 失敗：`ChannelPulse` 缺 `elapsed`、`Outcome::ScriptAbilityChannel` 的 match 沒有處理完。這是 ward session 正在做的 G-2 channel。
 - **根因**：共用 checkout 裡，其他 writer 的半成品隨時可能暫時編不過；原本的腳本只處理「原始碼在建置期間變動」，沒處理「建置開始時就是壞的」。
 - **通用修正**：編譯失敗時，如果輸入檔在最近 10 分鐘內被改過，就判定為 writer 正在編輯：等 2 分鐘後重試整組，最多 15 次。原始碼已經靜止卻仍失敗，才當成真的錯誤回報。測試涵蓋三種情況（立即失敗、等待後成功、持續損壞）。另外請其他 session 在自己的 shadow 副本完成整段修改後再一次套回共用樹。
 - **避免**：共用工作樹的建置要能分辨「正在編輯」和「真的壞掉」，不能把別人的半成品當成自己的錯誤。
 
-## E026 patch 腳本的 Lua 長字串被程式碼裡的 `]]` 提早結束（2026-10-25，J1）
+## E305 patch 腳本的 Lua 長字串被程式碼裡的 `]]` 提早結束（2026-10-25，J1）（原編號 E026，撞號後改號）
 
 - **現象**：patch 腳本解析失敗：`'}' expected near '='`。
 - **根因**：要替換的程式碼裡有 `per_team[teams[id]]`，`]]` 結束了 `[[ ... ]]` 長字串。
 - **通用修正**：patch 腳本的長字串一律使用 `[==[ ... ]==]`；套用前先 `loadfile` 檢查語法（patchlib 每個檔案只在所有修改都成功時才寫入，所以失敗不會留下半套修改）。
 - **避免**：產生包含任意程式碼的 Lua 字串時，預設使用 level-2 長括號；同時參考 E010（不要用 shell heredoc 傳含特殊字元的內容）。
 
-## E025 BUILD_FREEZE 忘了刪，平行 session 空等（2026-10-25，協作）
+## E304 BUILD_FREEZE 忘了刪，平行 session 空等（2026-10-25，協作）（原編號 E025，撞號後改號）
 
 - **現象**：兩個 session 回報「等 freeze 解除才能編輯」，但主 session 早就不需要它了。
 - **根因**：凍結檔是手動建立、手動刪除的約定，沒有任何機制保證會被刪掉；訊息又是排隊送達，等到被讀時早已過期。
 - **通用修正**：廢除 `target/BUILD_FREEZE`；建置競爭一律交給 `consistent_build.lua` 的原始碼指紋處理（E018），它不需要別人配合。
 - **避免**：跨 session 協作不要依賴「要記得清除」的標記；優先使用自己能檢查和修正的機制。
 
-## E024 合成按鍵沒有真的按下 modifier，Ctrl+R 被當成 R；還誤判成遊戲 bug（2026-10-25，B2）
+## E303 合成按鍵沒有真的按下 modifier，Ctrl+R 被當成 R；還誤判成遊戲 bug（2026-10-25，B2）（原編號 E024，撞號後改號）
 
 - **現象**：autopilot 的「升級 R」一直 `no_effect`，R 的冷卻卻開始跑。server log 有 pid=1 的 `CastAbility ability_index=3`（`lumen_mend` cast ok），沒有 `UpgradeAbility`。主 session 先把它當成「ACK 卻沒套用」的遊戲 bug，轉交給 ward session，之後才撤回。
 - **根因**：合成 `FKeyEvent` 時只在 modifier 欄位帶了 Ctrl，沒有送出 LeftControl 的按下事件；`UPlayerInput` 依自己記錄的 key state 判斷 Ctrl。而且它是在下一個 tick 才評估綁定，同一幀內按下又放開的鍵，在評估時早已放開。
 - **通用修正**：先送 modifier 的按下事件，再送主鍵；所有鍵按住 0.12 秒（好幾個 tick）才依相反順序放開。滑鼠點擊時，modifier 也一樣按住。autopilot 結束時強制放開所有鍵。
 - **避免**：在指控遊戲端之前，先比對 server log「實際收到的是什麼指令」；合成輸入要模擬真人的完整按鍵時序，不能只填事件欄位。
 
-## E023 autopilot 把 ACK 當成「權威已套用」，升級指令狂送 266 次（2026-10-25，B2）
+## E302 autopilot 把 ACK 當成「權威已套用」，升級指令狂送 266 次（2026-10-25，B2）（原編號 E023，撞號後改號）
 
 - **現象**：`upgrade_r` 每次都收到 `accepted, status 0`，HUD 的等級卻一直是 0。server log 完全沒有 pid=1 的 `UpgradeAbility`（Bot 的升級正常），也就是指令被 ACK 卻沒有套用（已轉交 ward-canonical session 追根因，見 work-upgrade-ack.md）。
 - **根因（autopilot 端）**：trace 欄位叫 `authority_result`，誤導成「權威已處理」；效果驗證每次重新選擇時都覆寫了待驗證狀態，期限永遠到不了，於是不斷重送。

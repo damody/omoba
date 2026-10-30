@@ -38,6 +38,14 @@ function M.main(argv,deps)
   print(('line endings: %d tracked text file(s) differ from a checkout (list: %s)'):format(#rows,file))
   for index=1,math.min(#lines,20) do print('  '..lines[index]) end
   report.eol_mismatches=#rows
+  -- Error ids (E300): two entries of errors.md with one id make every reference ambiguous.
+  local error_id=require('error_id')
+  local errors_file=d.path.join(d.root,error_id.RELATIVE)
+  local dups=d.path.is_file(errors_file) and error_id.duplicates(d.path.read(errors_file)) or {}
+  for _,dup in ipairs(dups) do print(('duplicate error id %s (%d headings); renumber with scripts/error_id.lua renumber'):format(error_id.format(dup.id),#dup.rows)) end
+  print(('error ids: %d duplicate(s)'):format(#dups))
+  report.duplicate_error_ids=#dups
+  if #dups>0 then report.passed=false end
   if not report.passed then os.exit(1) end
   return report
 end
