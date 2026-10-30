@@ -16,6 +16,22 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 午後（工作線 C：狀態持續期間的 cue，英雄與道具共用；split 在鎖內一次建置；E269、E284、E286，已放回 live）
+
+- **狀態 cue（D7 共用）**：
+  - `scripts/status_cues.lua` 走過所有英雄 v3 與道具文件，產生 `omfue/Content/Omoba/UI/status-cues-v1.json`。表以狀態 id 對應 cue，共 335 個，0 個衝突。
+  - UE 端：`OmStatusLook::CueForBuff` 查表；`AOmUnitActor::SyncStatusCue` 在 buff 存在期間顯示 cue。cue 有美術時掛 Niagara，沒有時用 cue 顏色與大小的地面環（`SyncBuff` 可帶顏色和半徑）。不針對個別狀態寫任何東西。
+  - 測試：`status_cues_test` 6 項；UE `Om.Runtime.StatusCue`、`StatusLook`、`ItemCues` 通過。
+- **E284**：第一版以 runtime_id 當鍵，實機 0 次。UE 收到的是 content buff 目錄 id，也就是狀態 id；改成用狀態 id 當鍵後重新放回 live。
+- **實機**：`target/lineC-statuscue/run-c`，split 自動駕駛，時限 540 秒，持鎖 541 秒（含建置）。p1 的 UE 顯示狀態 cue 共 61 次，分布在 8 種狀態：
+  - 道具：火之卷 fire_scroll_attack 26、燒酒 liquor_haste 6。
+  - 英雄：a07d_rouse 8、c17e_blessing 6、b08r_buff 5、b01w_sniper 5、b06w_rally 3、a34r_frostbite 2。
+  - 目前都沒有指定美術，顯示的是 placeholder 環（art=0）。
+- **工具**：
+  - E269：split 的 `--max-seconds` 改成從取得鎖開始計。
+  - E286：split 在取得鎖後由父程序一次建好 authority、script DLL 與 client runtime，所有角色都帶 `--no-build`；不再需要鎖外預建或重試。
+- **限制**：只有 content buff 目錄裡有的狀態會送到 UE（目前 78 個）；英雄進 content 後就會自動帶進。
+
 ## 2026-10-30 下午（遊戲模式線：切換技意圖、nobu UE 實機、M6 批次驗收腳本；E263、E265，已放回 live）
 
 - **切換技意圖 toggle_engage**（E263）：

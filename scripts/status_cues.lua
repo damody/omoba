@@ -1,7 +1,8 @@
 -- The cue a status shows while it lasts (work line C, M7): from every hero package (packages/<hero>/v3.lua)
--- and item document, each status with a `cue`, keyed by the buff it lives as (`runtime_id`, else `id`,
--- as the generated Rust names it). Unreal shows the cue for as long as the unit carries that buff
--- (AOmUnitActor::OnBuffState). One table for heroes and items alike; nothing per status.
+-- and item document, each status with a `cue`, keyed by the status id: the content buff registry names
+-- a buff by it, and that is the BuffId Unreal receives (OmWorldBridgeActor BuffIdName). Unreal shows the
+-- cue for as long as the unit carries that buff (AOmUnitActor::OnBuffState). One table for heroes and
+-- items alike; nothing per status.
 --
 --   tools\lua\lua.exe scripts\status_cues.lua [--out omfue/Content/Omoba/UI/status-cues-v1.json]
 package.path = "scripts/?.lua;" .. package.path
@@ -28,21 +29,15 @@ local function each_status(node, fn, seen)
   for _, v in pairs(node) do each_status(v, fn, seen) end
 end
 
--- buff id -> cue for the given documents. A buff id filled in per source or rank (`x:{caster}` ->
--- `x:<entity>`) is kept as the prefix before its first `{`, ending in `*`. A buff id that statuses with
--- different cues (or one without a cue) share, such as the runtime's `stun`, cannot say which status it
--- is: it shows no cue and is listed as ambiguous.
+-- status id -> cue for the given documents. A status id two documents give different cues (or one
+-- without a cue) cannot say which to show: it shows none and is listed as ambiguous.
 function M.table_of(docs)
   local out, ambiguous = {}, {}
   for _, doc in ipairs(docs) do
     each_status(doc.value, function(s)
-      if type(s.id) ~= "string" then return end
-      local buff = s.runtime_id or s.id
-      if type(buff) ~= "string" or buff:match("^attack_orb:") then return end
+      if type(s.id) ~= "string" or (s.runtime_id or ""):match("^attack_orb:") then return end
       local cue = type(s.cue) == "string" and s.cue or false
-      local key = buff
-      local at = buff:find("{", 1, true)
-      if at then key = buff:sub(1, at - 1) .. "*" end
+      local key = s.id
       if out[key] ~= nil and out[key] ~= cue then ambiguous[key] = true end
       if out[key] == nil then out[key] = cue end
     end, {})
@@ -82,8 +77,8 @@ function M.main(args)
   local cues, ambiguous = M.table_of(M.documents())
   local n = 0
   for _ in pairs(cues) do n = n + 1 end
-  b.lib("json").write(out, { schema = "omoba.status-cues.v1", buffs = cues, ambiguous = ambiguous }, true)
-  print(string.format("status cues: %d buffs -> %s (%d shared buff id(s) without a cue: %s)", n, out, #ambiguous, table.concat(ambiguous, ", ")))
+  b.lib("json").write(out, { schema = "omoba.status-cues.v1", statuses = cues, ambiguous = ambiguous }, true)
+  print(string.format("status cues: %d statuses -> %s (%d ambiguous status id(s) without a cue: %s)", n, out, #ambiguous, table.concat(ambiguous, ", ")))
 end
 
 if not STATUS_CUES_AS_MODULE and arg and arg[0] and arg[0]:match("status_cues%.lua$") then M.main(arg) end

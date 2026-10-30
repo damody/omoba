@@ -128,8 +128,8 @@ function M.role_args(options,role,plan_file,player_id,humans,output,team_id)
     -- Same machine, same match: clients load the authority's own base_content copy (E124).
     add('--base-content',path.join(path.parent(plan_file),'artifacts','scripts','base_content.dll'))
   end
-  -- Only the authority builds; clients reuse the same artifacts (no mid-run rebuild).
-  if options.no_build or role~='server' then add('--no-build') end
+  -- No role builds: this run built every binary once, under the lock (M.build_commands).
+  add('--no-build')
   if role~='server' and options.netem then
     add('--port',tostring(assert(M.NETEM_TEAM_PORT[team_id],'netem needs team 1 or 2')))
   elseif options.port then add('--port',options.port) end
@@ -141,6 +141,18 @@ function M.role_args(options,role,plan_file,player_id,humans,output,team_id)
   if role~='server' and options.resolution then add('--resolution',options.resolution) end
   if role~='server' and options.frame_cap then add('--frame-cap',options.frame_cap) end
   return args
+end
+
+-- Every Rust binary a split run starts, built once after the lock is taken and before any role
+-- launches (E286): the authority, its script DLLs and the client runtime. Building in the authority
+-- role alone left the client runtime as it was, and other sessions change shared sources between a
+-- build made beforehand and the launch, so a client refused its stale binary. Under the lock the
+-- sources are checked as of the run start (E202) and the build counts toward --max-seconds (E269).
+function M.build_commands()
+  local commands=require('moba_server_build').commands({profile='release'})
+  commands[#commands+1]={exe='cargo',args={'build','--manifest-path',path.join(b.root,'omoba-client-runtime','Cargo.toml'),
+    '--features','compiled-content-only','--release'}}
+  return commands
 end
 
 local function wait_for(record,file,needle,timeout_ms,label,box_deadline)
@@ -181,6 +193,17 @@ function M.run(options)
   -- Every role of this match is checked against the sources as they were now (E202).
   local child_env=lock:env()
   child_env.OMOBA_SOURCES_AS_OF=tostring(os.time())
+  if not options.no_build then
+    for _,command in ipairs(M.build_commands()) do
+      local result=process.run(command.exe,command.args,{cwd=b.root,check=false})
+      if result.exit_code~=0 then
+        io.stderr:write(result.stderr or '')
+        lfs.rmdir(root)
+        error('split build failed: '..command.exe..' '..table.concat(command.args,' '),0)
+      end
+      assert(not box_deadline or time.monotonic_ms()<box_deadline,'time box reached while building (builds count toward --max-seconds)')
+    end
+  end
   local children={}
   local function spawn(label,args)
     local log=path.join(root,label..'.log')

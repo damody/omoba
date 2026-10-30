@@ -38,10 +38,15 @@ do local off={} for k,v in pairs(o) do off[k]=v end off.no_accepted_inputs=true
   assert(not table.concat(split.role_args(off,'server',nil,nil,2,'S'),' '):find('--accepted-inputs',1,true)) end
 assert(client:find('--connect 127.0.0.1 --recipe PLAN --local-player 6',1,true) and client:find('--no-build',1,true))
 assert(client:find('--host-simulations 3 --host-renderers 2',1,true) and client:find('--autopilot lane_v0',1,true))
--- Clients never rebuild mid-run even when the authority is allowed to build.
+-- No role rebuilds: the run builds every binary once under the lock (E286), the client runtime included.
 local built=split.options({})
-assert(not table.concat(split.role_args(built,'server',nil,nil,2,'S'),' '):find('--no-build',1,true))
+assert(table.concat(split.role_args(built,'server',nil,nil,2,'S'),' '):find('--no-build',1,true))
 assert(table.concat(split.role_args(built,'client','PLAN',1,2,'C'),' '):find('--no-build',1,true))
+do local all={}
+  for _,c in ipairs(split.build_commands()) do all[#all+1]=c.exe..' '..table.concat(c.args,' ') end
+  all=table.concat(all,'\n')
+  assert(all:find('omobab',1,true) and all:find('omoba-client-runtime',1,true) and all:find('--release',1,true),
+    'the split build covers the authority and the client runtime') end
 assert(#split.humans(require('moba_role_launch').load_recipe({recipe='scripts/lua_data/moba_two_player.lua',hero_selections={}}))==2)
 -- Netem: each team client enters through its own proxy bind; the authority is untouched.
 local n=split.options({'--netem','wan-80-20-loss1','--netem-seed','7'})
