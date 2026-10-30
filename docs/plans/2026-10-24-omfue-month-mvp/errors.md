@@ -2,6 +2,16 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E335 （保留）同一 tick 兩個施加者各自起了狀態的 periodic，同一列每次間隔跳兩次（C15 灼燒）（2026-10-30）
+
+## E334 conformance：periodic 檢查改看 DamageTrace 路徑，持續施法中的其他傷害不再算進來（2026-10-30，conformance session）
+
+- **現象**：A23 a23_falling_fire 的 periodic（r1～r4）判成 fail：量到「a hit of 40／80／120／160」，文件的燃燒傷害 $dot 是 20／25／30／35。量到的數字其實是火雨每一波的 $damage：引導期間火雨持續落在同一個目標上。
+- **根因**：check_periodic 用目標血量下降來認定 periodic 的每一下，分不出是哪個效果打的。同一段時間裡還有其他傷害（引導中的波次、其他狀態）時，就會算錯。
+- **通用修正**：script 有替傷害標上 v3 路徑時（產生碼都有），只算路徑屬於這個狀態 periodic 動作的那幾下（DamageTrace，用 same_path 比對）。independent 疊加時每份實例各自計時，所以改成檢查第一下之後每隔一個 interval 都有一下。沒有路徑的傷害（手寫 handler）仍看血量。
+- **結果**：A23 的 4 個由 fail 轉 pass（17 下都是 $dot）。A34、B30 原本通過的 periodic 改由 trace 判定，仍然通過；其他 0 差異。同一次放回也把 M6 第 1 批 9 位（A01、B20、B26、C22、A12、A14、A26、B27、C03）用 E320 的方式接進 harness，共 2186 個情境，因為尚未進 content，全部記為 unsupported。
+- 已放回。
+
 ## E333 前端建置沒指定 cargo 目標目錄，設了 CARGO_TARGET_DIR 就 stage 到舊的 bridge（2026-10-30，history-nobu M6 呈現檢查，工作線 C）
 - **現象**：E330 之後 split 會在建置鎖內跑 `build_ue_moba --build-only`。工作線 C 的 spotlight 佇列設了 `CARGO_TARGET_DIR`（自己的 Rust 目標目錄），四局都在 stage 檢查失敗：「staged bridge differs from current build: omfue/Plugins/OmRuntime/Binaries/Win64/om_bridge.dll」。
 - **根因**：`build_ue_bridge.lua` 的 bridge build 與 `build_ue_moba.lua` 的 script DLL build 都沒有指定目標目錄，cargo 依環境的 CARGO_TARGET_DIR 輸出；但 stage 與 `moba_stage_contract` 固定從 `omfue/bridge/target/debug`、`scripts/target/debug` 讀取。新建的 bridge 跑到別的目錄，stage 拿的是舊的那份，檢查就判定不一致。

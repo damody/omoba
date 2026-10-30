@@ -2045,16 +2045,40 @@ fn check_periodic(hero: &str, s: &Value) -> Option<Verdict> {
         if now < previous { hits.push((tick, previous - now)); }
         previous = now;
     }
+    // A generated script tags each hit with its v3 path (E334): only this status's periodic hits
+    // count, not the other hits the cast keeps landing on the body (A23R's waves while channeling).
+    // Untagged hits (a hand-written handler) fall back to the body's life.
+    use omoba_core::runtime::native::damage_trace::DamageTrace;
+    let paths: Vec<String> = damage.iter().filter_map(|e| e["path"].as_str().map(str::to_owned)).collect();
+    let traced: Vec<(u64, f64)> = run.world.read_resource::<DamageTrace>().0.iter()
+        .filter(|r| r.target == body && paths.iter().any(|p| same_path(&r.path, p)))
+        .map(|r| { let (a, b, c) = r.after.unwrap_or(r.before); (r.tick, real(a + b + c)) }).collect();
+    let by_trace = !traced.is_empty();
+    let hits: Vec<(i64, f64)> = if by_trace { traced.into_iter().map(|(t, a)| (t as i64, a)).collect() }
+        else { hits.into_iter().map(|(t, a)| (i64::from(t), a)).collect() };
     if hits.len() < 2 { return Some(Verdict::Fail(format!("periodic: {} hits within {:.1}s", hits.len(), interval * 3.0))); }
     let tolerance = (expected * 0.01).max(1.0);
     if let Some((_, bad)) = hits.iter().find(|(_, amount)| (amount - expected).abs() > tolerance) {
         return Some(Verdict::Fail(format!("periodic: a hit of {bad:.2}, expected {expected}")));
     }
     let period = ticks(interval) as i64;
-    if let Some(gap) = hits.windows(2).map(|w| w[1].0 as i64 - w[0].0 as i64).find(|gap| (gap - period).abs() > 1) {
+    if by_trace {
+        // Independent instances (stacking = independent) tick on their own phases: the first
+        // instance's hits still come one interval apart.
+        let first = hits[0].0;
+        let last = hits.iter().map(|(t, _)| *t).max().unwrap_or(first);
+        let mut k = 1;
+        while first + k * period <= last {
+            let due = first + k * period;
+            if !hits.iter().any(|(t, _)| (t - due).abs() <= 1) {
+                return Some(Verdict::Fail(format!("periodic: no hit {} ticks after the first, expected every {period}", k * period)));
+            }
+            k += 1;
+        }
+    } else if let Some(gap) = hits.windows(2).map(|w| w[1].0 - w[0].0).find(|gap| (gap - period).abs() > 1) {
         return Some(Verdict::Fail(format!("periodic: hits {gap} ticks apart, expected {period}")));
     }
-    Some(Verdict::PassNoted(format!("periodic {} hits of {expected}", hits.len())))
+    Some(Verdict::PassNoted(format!("periodic {} hits of {expected}{}", hits.len(), if by_trace { " (traced)" } else { "" })))
 }
 
 /// `V3_CONFORMANCE_HANDLERS=1` (M3' ④, E238): the hand-written handlers the generated Rust replaced
@@ -2068,9 +2092,10 @@ fn use_handlers(driver: &mut SimulationDriver) {
 }
 
 /// Documents whose hero is only partly ported: results are written, differences do not fail.
-/// M6 batch 2 (m6-waves.md; E320): test_only heroes as line A brings them into the content and
-/// generates their entries; until then every scenario is unsupported and nothing fails.
-const REPORT_ONLY: &[&str] = &["A13", "C05", "C09", "A18", "B30", "A16", "A24", "C01", "A23", "A35"];
+/// M6 batches 1 and 2 (m6-waves.md; E320): test_only heroes as line A brings them into the content
+/// and generates their entries; until then every scenario is unsupported and nothing fails.
+const REPORT_ONLY: &[&str] = &["A13", "C05", "C09", "A18", "B30", "A16", "A24", "C01", "A23", "A35",
+    "A01", "B20", "B26", "C22", "A12", "A14", "A26", "B27", "C03"];
 
 fn conformance(id: &str) {
     let doc = document(id);
@@ -2133,6 +2158,10 @@ conformance_tests! {
     c05_maeda_keiji => "C05", c09_tachibana_ginchiyo => "C09", a18_inaba_ittetsu => "A18", b30_kakizaki_kageie => "B30",
     a16_torii_mototada => "A16", a24_sakuma_morimasa => "A24", c01_akechi_mitsuhide => "C01", a23_ukita_hideie => "A23",
     a35_shima_sakon => "A35",
+    // M6 batch 1 (report only until in the content and generated; E320)
+    a01_tokugawa_ieyasu => "A01", b20_yamagata_masakage => "B20", b26_okuma_tomohide => "B26", c22_sasaki_kojiro => "C22",
+    a12_otani_yoshitsugu => "A12", a14_maeda_toshiie => "A14", a26_nohime => "A26", b27_kojima_sadaoki => "B27",
+    c03_shimazu_yoshihiro => "C03",
 }
 
 

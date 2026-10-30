@@ -1176,6 +1176,13 @@
 - 2026-10-30 線 A：C15 爆裂箭燒傷退步查明（E326：v3 unit_templates 不在內容召喚物表，create_unit 執行期失敗），產生器擋下這類模板（314→302）；新增 scripts/v3_summons.lua 讓 unit_templates 成為召喚物單一來源（目前 37 個模板都被召喚物模型缺口擋住：bounty、dummy、索敵距離、hp_regen、ai 種類、日夜視野…，清單已交 B）。接上 perform_attack、issue_order.force、道具 on_attack_hit、angle_between、farthest／ally_not_self、觸發裡的 ability.*（302→308）。E327：v3_test_heroes 的引導技能被寫成 instant（C05 閃雷 12 fail 的原因），重產待 B 支援射程 0 引導。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
+## 2026-10-30（conformance：M6 第 1 批接線、periodic 改看 trace（E334）、C15 百箭 live 退步）
+
+- live 上手寫的 c15_hundred_arrows 前搖一直沒有釋放（6a19d48d 之後的 host 改動），12 fail，B 正在逐一還原 commit 找原因。
+- c15_burst_arrow 產生版仍有 24 個燒傷情境退步，等 B 的 t52。
+- C05 在 72ff5115 之後還有 9 fail（施放沒有真正開始），交 A；A23 a23_falling_fire 的 4 個 periodic fail 是 harness 的錯，已修正（E334）。
+- M6 第 1 批 9 位接進 harness（只報告），共 2186 個情境作為基準。
+
 ## 2026-10-30（conformance：A 6a19d48d 退回 12 招後重跑）
 
 - A 在 E326 讓產生器擋下 template 不在內容召喚物表的 create_unit，12 招退回未產生，其中包括 c15_burst_arrow 的燒傷退步。等 performance 鎖釋放後重跑，和上一次 0 差異，退回的招式都還沒有換上 live。
