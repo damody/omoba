@@ -1550,7 +1550,7 @@ local data = {
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
+        bot = { kind = "global_enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -2042,7 +2042,7 @@ local data = {
       target_type = "point",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
+        bot = { kind = "global_enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -11236,6 +11236,7 @@ local data = {
       extras = {
         damage = { 300.0, 400.0, 500.0 },
         distance = { 1850.0, 2350.0, 2850.0 },
+        shape_width = { 400.0, 400.0, 400.0 },
         shred = { -10.0, -10.0, -10.0 },
         shred_duration = { 3.0, 3.0, 3.0 },
         speed = { 2500.0, 2500.0, 2500.0 },
@@ -11249,9 +11250,10 @@ local data = {
       },
       max_level = 3,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_line", min_targets = 1, note = "point skill without an area: aimed at the nearest enemy", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "width", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { expr = "0", field = "cast_point" },
@@ -14570,7 +14572,7 @@ local data = {
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
+        bot = { kind = "global_enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -16524,6 +16526,7 @@ local data = {
         cast_range = { 800.0, 800.0, 800.0, 800.0 },
         damage = { 100.0, 200.0, 300.0, 400.0 },
         distance = { 1000.0, 1000.0, 1000.0, 1000.0 },
+        shape_width = { 400.0, 400.0, 400.0, 400.0 },
         speed = { 2000.0, 2000.0, 2000.0, 2000.0 },
         stun = { 0.9, 1.4, 1.9, 2.4 },
         width = { 200.0, 200.0, 200.0, 200.0 },
@@ -16537,9 +16540,10 @@ local data = {
       },
       max_level = 4,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_line", min_targets = 1, note = "point skill without an area: aimed at the nearest enemy", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "width", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -16871,7 +16875,7 @@ local data = {
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
+        bot = { kind = "global_enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -17053,6 +17057,7 @@ local data = {
         cast_range = { 1500.0, 1500.0, 1500.0, 1500.0 },
         damage = { 250.0, 350.0, 450.0, 550.0 },
         radius = { 200.0, 200.0, 200.0, 200.0 },
+        shape_width = { 400.0, 400.0, 400.0, 400.0 },
         speed = { 2000.0, 2000.0, 2000.0, 2000.0 },
       },
       id = "b21_sky_wave",
@@ -17064,9 +17069,10 @@ local data = {
       },
       max_level = 4,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_line", min_targets = 1, note = "point skill without an area: aimed at the nearest enemy", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "radius", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -17864,6 +17870,7 @@ local data = {
         distance = { 800.0, 800.0, 800.0, 800.0 },
         end_radius = { 300.0, 300.0, 300.0, 300.0 },
         lock_time = { 0.1, 0.1, 0.1, 0.1 },
+        shape_width = { 600.0, 600.0, 600.0, 600.0 },
         speed = { 2000.0, 2000.0, 2000.0, 2000.0 },
         start_radius = { 100.0, 100.0, 100.0, 100.0 },
       },
@@ -17876,9 +17883,10 @@ local data = {
       },
       max_level = 4,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_line", min_targets = 1, note = "point skill without an area: aimed at the nearest enemy", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "end_radius", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -19186,7 +19194,7 @@ local data = {
       unit_target = "ally",
       v3 = {
         ability_flags = { "self_cast_allowed" },
-        bot = { kind = "ally_engage", proposed = true, source = "derived", threat_radius = 900 },
+        bot = { kind = "ally_engage", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -25170,7 +25178,7 @@ local data = {
       unit_target = "ally",
       v3 = {
         ability_flags = { "self_cast_allowed" },
-        bot = { kind = "ally_engage", proposed = true, source = "derived", threat_radius = 900 },
+        bot = { kind = "ally_engage", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -26531,7 +26539,7 @@ local data = {
       target_type = "point",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
+        bot = { kind = "global_enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -32052,6 +32060,7 @@ local data = {
         cast_point = { 0.1, 0.1, 0.1, 0.1 },
         cast_range = { 1500.0, 1500.0, 1500.0, 1500.0 },
         damage = { 100.0, 150.0, 200.0, 250.0 },
+        shape_width = { 200.0, 200.0, 200.0, 200.0 },
         shock_distance = { 2000.0, 2000.0, 2000.0, 2000.0 },
         shock_speed = { 3500.0, 3500.0, 3500.0, 3500.0 },
         shock_vision = { 100.0, 100.0, 100.0, 100.0 },
@@ -32066,9 +32075,10 @@ local data = {
       },
       max_level = 4,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_line", min_targets = 1, note = "point skill without an area: aimed at the nearest enemy", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "shock_width", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -35424,7 +35434,7 @@ local data = {
       target_type = "point",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_point", min_targets = 1, radius_key = "wave_radius", source = "derived" },
+        bot = { kind = "global_enemy_point", min_targets = 1, radius_key = "wave_radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "wave_radius" },
@@ -39887,7 +39897,7 @@ local data = {
       unit_target = "ally",
       v3 = {
         ability_flags = { "self_cast_allowed" },
-        bot = { kind = "ally_engage", proposed = true, source = "derived", threat_radius = 900 },
+        bot = { kind = "ally_engage", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -43404,6 +43414,7 @@ local data = {
         distance = { 1200.0, 1200.0, 1200.0 },
         end_width = { 400.0, 400.0, 400.0 },
         required_level = { 6.0, 12.0, 18.0 },
+        shape_width = { 800.0, 800.0, 800.0 },
         speed = { 800.0, 800.0, 800.0 },
         start_width = { 300.0, 300.0, 300.0 },
       },
@@ -43415,9 +43426,10 @@ local data = {
       },
       max_level = 3,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_line", min_targets = 1, note = "point skill without an area: aimed at the nearest enemy", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "end_width", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -43688,7 +43700,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_area", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -55006,7 +55018,7 @@ local data = {
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
+        bot = { kind = "global_enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -56914,6 +56926,7 @@ local data = {
         dot_damage = { 50.0, 85.0, 120.0, 155.0 },
         dot_duration = { 5.0, 5.0, 5.0, 5.0 },
         dot_interval = { 1.0, 1.0, 1.0, 1.0 },
+        shape_width = { 600.0, 600.0, 600.0, 600.0 },
         speed = { 1100.0, 1100.0, 1100.0, 1100.0 },
         vision = { 200.0, 200.0, 200.0, 200.0 },
         width = { 300.0, 300.0, 300.0, 300.0 },
@@ -56927,9 +56940,10 @@ local data = {
       },
       max_level = 4,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_line", min_targets = 1, note = "point skill without an area: aimed at the nearest enemy", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "width", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -67274,16 +67288,15 @@ local data = {
     {
       abilities = { "a12_insight_flash", "a12_mystic_pierce", "a12_awe", "a12_mystic_possession", "a12_scheme", "a12_mystic_arrow" },
       authored_package = "otani_yoshitsugu",
-      background = "大谷吉繼（schema v3 產生的 Rust；測試用）",
+      background = "施法者：智芒乍現推開周圍敵人，玄能通貫提高攻速並回復，為智畏服範圍傷害並緩速，奇計每累積一定次數就強化下一招；大招玄能附體讓技能換成遠距版本，並可射出貫穿的玄滅箭。",
       display_name = "大谷吉繼",
       id = "otani_yoshitsugu",
       moba_loadout = {
         ranks = { 1, 1, 1, 0, 1, 1 },
         skill_points = 0,
       },
-      source_stats = "A12",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A12",
+      title = "玄能的智將",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "otani_yoshitsugu",
@@ -67357,16 +67370,15 @@ local data = {
     {
       abilities = { "a05_valiant_power", "a05_mikawa_courage", "a05_counter_stance", "a05_crusade_affidavit", "a05_loyal_secret" },
       authored_package = "sakai_tadatsugu",
-      background = "酒井忠次（schema v3 產生的 Rust；測試用）",
+      background = "坦克：強悍之力範圍傷害並讓普攻帶短暫暈眩，三河之勇大幅減傷並提高攻速，反擊態勢在累積承傷後反擊周圍；大招誓伐狀只承受指定敵方英雄的傷害，忠之極意讓致命一擊改為假死倒地。",
       display_name = "酒井忠次",
       id = "sakai_tadatsugu",
       moba_loadout = {
         ranks = { 1, 1, 1, 0, 1 },
         skill_points = 0,
       },
-      source_stats = "A05",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A05",
+      title = "德川四天王之首",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "sakai_tadatsugu",
@@ -67457,16 +67469,15 @@ local data = {
     {
       abilities = { "a22_flame_whirl", "a22_flame_heart", "a22_boiling_blood", "a22_torment" },
       authored_package = "sengoku_hidehisa",
-      background = "仙石秀久（schema v3 產生的 Rust；測試用）",
+      background = "前排戰士：旋焰斬淨化並在魔法免疫中旋轉傷害周圍，焰心鼓動以火焰彈範圍傷害並減速，沸血靈光削弱周圍敵人攻擊並持續灼燒；大招折磨使目標受到的傷害提高並減速。",
       display_name = "仙石秀久",
       id = "sengoku_hidehisa",
       moba_loadout = {
         ranks = { 1, 1, 1, 0 },
         skill_points = 0,
       },
-      source_stats = "A22",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A22",
+      title = "不屈的焰心",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "sengoku_hidehisa",
@@ -67745,16 +67756,15 @@ local data = {
     {
       abilities = { "a25_lightning_lure", "a25_calamity_thorns", "a25_heshikiri", "a25_crimson_barrier", "a25_tenka_fubu" },
       authored_package = "oda_nobunaga",
-      background = "織田信長（schema v3 產生的 Rust；測試用）",
+      background = "物理輸出：導雷射出貫穿的雷電，厄災之棘範圍暈眩並強化攻擊，壓切帶來攻速、攻擊力與暴擊；大招深紅障壁淨化並魔法免疫，持續傷害周圍並放出龍捲，天下布武讓擊殺英雄時全隊加速。",
       display_name = "織田信長",
       id = "oda_nobunaga",
       moba_loadout = {
         ranks = { 1, 1, 1, 0, 1 },
         skill_points = 0,
       },
-      source_stats = "A25",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A25",
+      title = "第六天魔王",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "oda_nobunaga",
@@ -67847,16 +67857,15 @@ local data = {
     {
       abilities = { "a32_flying_slash", "a32_soul_drain", "a32_phantom_blade", "a32_asura_blade", "", "a32_soul_blade" },
       authored_package = "takigawa_kazumasu",
-      background = "瀧川一益（schema v3 產生的 Rust；測試用）",
+      background = "忍者：怨靈飛翔斬躍向目標落地暈眩並可二段施放，忍法．魂連結敵人吸取生命，幽魄刀帶來暴擊並讓單位進入虛空；大招修羅吞世刀斬出擴散刀氣並拉近敵人，斬魂刀把普攻轉為魔法傷害。",
       display_name = "瀧川一益",
       id = "takigawa_kazumasu",
       moba_loadout = {
         ranks = { 1, 1, 1, 0, 0, 1 },
         skill_points = 0,
       },
-      source_stats = "A32",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A32",
+      title = "進退皆瀧川",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "takigawa_kazumasu",
@@ -67932,16 +67941,15 @@ local data = {
     {
       abilities = { "c11_raikiri", "c11_thunder_speed", "c11_thunder_eye", "c11_unrivaled" },
       authored_package = "tachibana_muneshige",
-      background = "立花宗茂（schema v3 產生的 Rust；測試用）",
+      background = "雷擊戰士：雷切化為雷電在敵人之間傳導並燃燒法力，雷之疾提高攻速與移速，雷之眼降下落雷範圍暈眩；大招西國無雙強化屬性、讓普攻燃燒法力，並可化為雷電射向敵人。",
       display_name = "立花宗茂",
       id = "tachibana_muneshige",
       moba_loadout = {
         ranks = { 1, 1, 1, 0 },
         skill_points = 0,
       },
-      source_stats = "C11",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:C11",
+      title = "西國無雙",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "tachibana_muneshige",

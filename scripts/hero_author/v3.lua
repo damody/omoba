@@ -114,6 +114,18 @@ function M.ability_row(package, ab, compiled, opts)
   end
   local channel = ab.cast and ab.cast.channel_time ~= nil and channel_delivery(id, ab, extras, block.max_level) or nil
   local charges = charges_delivery(id, ab, extras, block.max_level)
+  -- a line the bot aims (v3_bot enemy_line): the host's line shape reads the width from extras
+  -- `shape_width` (bots/abilities.rs), the named value times its scale (a radius is half a width)
+  local targeting_shape
+  local bot = block.bot
+  if type(bot) == "table" and bot.kind == "enemy_line" and bot.line_width then
+    local nums = assert(extras[bot.line_width], id .. ": bot line width `" .. bot.line_width .. "` has no per-rank numbers")
+    assert(extras.shape_width == nil, id .. ": a value named shape_width collides with the line width")
+    local widths = {}
+    for i, n in ipairs(nums) do widths[i] = n * (bot.line_width_scale or 1) end
+    extras.shape_width = widths
+    targeting_shape = { kind = "line", width_key = "shape_width" }
+  end
   return {
     id = id,
     authored_package = package,
@@ -129,6 +141,7 @@ function M.ability_row(package, ab, compiled, opts)
     cast_type = channel and "channeled" or "instant",
     channel = channel,
     charges = charges,
+    targeting_shape = targeting_shape,
     max_level = block.max_level,
     levels = levels,
     extras = extras,

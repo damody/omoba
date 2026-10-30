@@ -31,4 +31,11 @@ return {
   {hero='chosokabe_motochika',package='hero_c20',dir='heroes/chosokabe_motochika'},
   {hero='kamiizumi_nobutsuna',package='hero_b35',dir='heroes/kamiizumi_nobutsuna'},
   {hero='nene',package='hero_a15',dir='heroes/nene'},
+  -- M6 second batch (2026-10-31): every ability generated, conformance 0 fail on live 6abaf6ce
+  {hero='sakai_tadatsugu',package='hero_a05',dir='heroes/sakai_tadatsugu'},
+  {hero='otani_yoshitsugu',package='hero_a12',dir='heroes/otani_yoshitsugu'},
+  {hero='sengoku_hidehisa',package='hero_a22',dir='heroes/sengoku_hidehisa'},
+  {hero='oda_nobunaga',package='hero_a25',dir='heroes/oda_nobunaga'},
+  {hero='takigawa_kazumasu',package='hero_a32',dir='heroes/takigawa_kazumasu'},
+  {hero='tachibana_muneshige',package='hero_c11',dir='heroes/tachibana_muneshige'},
 }

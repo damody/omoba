@@ -7,7 +7,7 @@ use omoba_core::runtime::native::{mana_burn, script_gold};
 use crate::codegen::{Cx, Dmg, Res};
 use omb_script_abi::ext::{ability_attr, game_attr, op, ExtArg, ExtValue};
 
-use omb_script_abi::types::{DamageKind, EntityHandle, Fixed64, Vec2};
+use omb_script_abi::types::{DamageKind, EntityHandle, Fixed64, Target, Vec2};
 
 /// Whole gold units of an amount (the fraction is dropped, as the original's integer gold).
 fn whole_gold(amount: Fixed64) -> i64 {
@@ -391,6 +391,43 @@ impl Cx<'_, '_> {
         match self.read(op::EVENT_ABILITY_ATTR, &[ExtArg::Str(omb_script_abi::ext::event_ability_attr::POINT.into())]) {
             ExtValue::Point(point) => Some(point), _ => None,
         }
+    }
+
+    /// v3 `event.point` of an `on_ability_executed` trigger: the host's (a status trigger), else
+    /// the cast's own target (an owner's passive: a point, a unit's position, else the caster's).
+    pub fn event_cast_point(&mut self) -> Result<Vec2, &'static str> {
+        if let Some(point) = self.event_ability_point() { return Ok(point); }
+        match self.target {
+            Target::None => self.pos(self.self_unit),
+            _ => self.target_point(),
+        }
+    }
+
+    /// Whether `u` is of the v3 unit class `class` (`has_tag(u, <class>)`): hero, creep,
+    /// building, summon or neutral (host unit_attr `tag:summon` / `tag:neutral`).
+    pub fn of_class(&mut self, u: EntityHandle, class: &str) -> bool {
+        match class {
+            "hero" => self.is_hero(u),
+            "building" => self.is_building(u),
+            "creep" => self.unit_flag(u, omb_script_abi::ext::unit_attr::IS_CREEP),
+            "summon" | "neutral" => self.has_unit_tag(u, class),
+            _ => false,
+        }
+    }
+
+    /// v3 `count_in_radius(center, radius, team, class)`: the living units of `class` within
+    /// `radius` of `center` on `team` (`"ally"` / `"enemy"`) relative to `of`, as a selector
+    /// without flags takes them (invulnerable left out, magic-immune enemies left out).
+    pub fn count_in_radius(&mut self, center: Vec2, radius: Fixed64, of: EntityHandle, team: &str, class: &str) -> Fixed64 {
+        let units = self.units_in_range(center, radius, of, team);
+        let mut n = 0;
+        for u in units {
+            if !self.alive(u) || !self.of_class(u, class) { continue; }
+            if self.world.has_buff(u, RStr::from_str("invulnerable")) { continue; }
+            if self.is_enemy(of, u) && self.is_magic_immune(u) { continue; }
+            n += 1;
+        }
+        Fixed64::from_i32(n)
     }
 
     /// v3 `end_channel { interrupted = true }`: `unit` (the hook's own) ends its channel now; its

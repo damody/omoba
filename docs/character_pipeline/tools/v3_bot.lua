@@ -32,8 +32,11 @@ M.KINDS = {
   toggle_engage = { params = { threat_radius = "radius", on_status = "status" } },
   -- E281: a leap aimed at a point with no cast range (it lands at most `reach_key` away)
   leap_enemy_point = { params = { radius_key = "value", reach_key = "value", min_targets = "count" } },
+  -- E387 (line B): an area placed anywhere (no cast range) at the revealed enemy hero with the
+  -- most enemy heroes around it; a cast on another allied hero near revealed enemies
+  global_enemy_point = { params = { radius_key = "value", min_targets = "count" } },
+  ally_engage = { params = { threat_radius = "radius" } },
   -- proposed (m6-bot-intents.md): not cast until the executor has them
-  ally_engage = { params = { threat_radius = "radius" }, proposed = true },
   escape = { params = { below_hp_per_mille = "per_mille", threat_radius = "radius" }, proposed = true },
   channel_enemy_area = { params = { radius_key = "value", min_targets = "count" }, proposed = true },
 }
@@ -51,18 +54,25 @@ local function value_name(expr)
   return expr:match("^%s*%$([%a_][%w_]*)%s*$")
 end
 
--- every action and selector of a program tree
-local function walk(t, on_action, on_selector)
+-- every action and selector of a program tree, into the document's routines it calls (once each)
+local function walk(t, on_action, on_selector, doc, seen)
   if type(t) ~= "table" then return end
   if type(t.op) == "string" then on_action(t) end
   if type(t.shape) == "string" then on_selector(t) end
-  for _, k in ipairs(sorted_keys(t)) do walk(t[k], on_action, on_selector) end
+  if t.op == "call" and type(t.routine) == "string" and doc and doc.routines and doc.routines[t.routine] then
+    seen = seen or {}
+    if not seen[t.routine] then
+      seen[t.routine] = true
+      walk(doc.routines[t.routine].actions, on_action, on_selector, doc, seen)
+    end
+  end
+  for _, k in ipairs(sorted_keys(t)) do walk(t[k], on_action, on_selector, doc, seen) end
 end
 
 -- facts about one castable's behavior
-function M.facts(def, castable)
+function M.facts(def, castable, doc)
   local f = { heal_self = false, heal_target = false, cleanse = false, mana = nil, damage = false,
-    summon = false, move = false, selectors = {}, enemy_status = false }
+    summon = false, move = false, selectors = {}, lines = {}, enemy_status = false }
   local function action(a)
     if a.op == "heal" then
       if a.to == "caster" or a.to == "self" then f.heal_self = true else f.heal_target = true end
@@ -71,17 +81,21 @@ function M.facts(def, castable)
     elseif a.op == "damage" then f.damage = true
     elseif a.op == "create_unit" or a.op == "create_illusion" then f.summon = true
     elseif a.op == "dash" or a.op == "leap" or a.op == "blink" or a.op == "teleport" then f.move = true
-    elseif a.op == "apply_status" and a.to ~= "caster" and a.to ~= "self" then f.enemy_status = true end
+    elseif a.op == "apply_status" and a.to ~= "caster" and a.to ~= "self" then f.enemy_status = true
+    -- a linear projectile sweeps a line as wide as its largest radius on both sides
+    elseif a.op == "projectile" and a.kind == "linear" then
+      f.lines[#f.lines + 1] = a.end_radius or a.radius
+    end
   end
   -- the cast's own selectors decide the aim; status triggers (on-hit cleaves, auras) only add facts
   local function selector(s) f.selectors[#f.selectors + 1] = s end
-  walk(castable.events, action, selector)
-  for _, s in ipairs(def.statuses or {}) do walk(s.triggers, action, function() end) end
+  walk(castable.events, action, selector, doc)
+  for _, s in ipairs(def.statuses or {}) do walk(s.triggers, action, function() end, doc) end
   return f
 end
 
 -- the derived policy (a table with `kind`, or { kind = "none", reason })
-function M.derive(def, kind_of_entry)
+function M.derive(def, kind_of_entry, doc)
   local castable = kind_of_entry == "item" and def.active or def
   if not castable or (kind_of_entry == "ability" and def.kind == "passive") then return { kind = "none", reason = "passive" } end
   if kind_of_entry == "ability" and (def.slot == "hidden" or def.slot == "sub") then
@@ -90,7 +104,7 @@ function M.derive(def, kind_of_entry)
   local D = M.DEFAULTS
   local target = castable.target or {}
   local cast = castable.cast or {}
-  local f = M.facts(def, castable)
+  local f = M.facts(def, castable, doc)
   local toggle = kind_of_entry == "ability" and def.kind == "toggle"
   if toggle then
     -- on: the first status on_toggle_on puts on the caster under a fixed runtime id
@@ -107,7 +121,9 @@ function M.derive(def, kind_of_entry)
   if cast.channel_time then
     -- E281: a channel aimed at a point hits the area there (the bot waits for the channel)
     local channel_area = (target.type == "point") and value_name(target.aoe_radius)
-    if channel_area and not f.heal_self then return { kind = "enemy_point", radius_key = channel_area, min_targets = D.min_targets } end
+    if channel_area and not f.heal_self then
+      return { kind = target.range == nil and "global_enemy_point" or "enemy_point", radius_key = channel_area, min_targets = D.min_targets }
+    end
     if f.heal_self then return { kind = "self_channel_recovery", below_hp_per_mille = D.heal_below, threat_radius = D.threat } end
     for _, s in ipairs(f.selectors) do
       local r = value_name(s.radius)
@@ -133,10 +149,15 @@ function M.derive(def, kind_of_entry)
   if t == "point" or t == "direction" or t == "vector" then
     if f.move and not f.damage then return { kind = "approach_enemy_point", min_distance = D.approach } end
     local area = value_name(target.aoe_radius)
-    if area then return { kind = "enemy_point", radius_key = area, min_targets = D.min_targets } end
+    -- no cast range (range 0, E366): anywhere on the map
+    if area then return { kind = target.range == nil and "global_enemy_point" or "enemy_point", radius_key = area, min_targets = D.min_targets } end
     for _, s in ipairs(f.selectors) do
       if s.shape == "cone" then return { kind = "enemy_cone", min_targets = D.min_targets } end
-      if s.shape == "line" or s.shape == "segment" or s.shape == "rect" then return { kind = "enemy_line", min_targets = D.min_targets } end
+      -- line_width / line_width_scale: the value the line's width is (scaled), for the row's
+      -- targeting shape (hero_author/v3.lua shape_width); not an executor parameter
+      if s.shape == "line" or s.shape == "segment" or s.shape == "rect" then
+        return { kind = "enemy_line", min_targets = D.min_targets, line_width = value_name(s.width), line_width_scale = value_name(s.width) and 1 or nil }
+      end
     end
     for _, s in ipairs(f.selectors) do
       local r = value_name(s.radius)
@@ -144,6 +165,10 @@ function M.derive(def, kind_of_entry)
     end
     if f.summon then return { kind = "summon_near_enemy", threat_radius = D.threat } end
     if f.move then return { kind = "approach_enemy_point", min_distance = D.approach } end
+    -- a point skill whose only reach is a linear projectile: the line it sweeps
+    for _, r in ipairs(f.lines) do
+      if value_name(r) then return { kind = "enemy_line", min_targets = D.min_targets, line_width = value_name(r), line_width_scale = 2 } end
+    end
     return { kind = "enemy_line", min_targets = D.min_targets, note = "point skill without an area: aimed at the nearest enemy" }
   end
   -- no target
@@ -192,7 +217,7 @@ function M.check(bot, find_value)
 end
 
 -- the catalog row: Rust BotAbilityIntent shape plus `source` (authored | derived) and `proposed`
-function M.export(def, kind_of_entry)
+function M.export(def, kind_of_entry, doc)
   local castable = kind_of_entry == "item" and def.active or def
   local authored = castable and castable.bot
   if kind_of_entry == "item" and authored == nil then authored = def.bot end
@@ -202,7 +227,7 @@ function M.export(def, kind_of_entry)
     policy, source = {}, "authored"
     for k, v in pairs(authored) do policy[k] = v end
   else
-    policy, source = M.derive(def, kind_of_entry), "derived"
+    policy, source = M.derive(def, kind_of_entry, doc), "derived"
   end
   local spec = M.KINDS[policy.kind]
   for k, v in pairs(policy) do

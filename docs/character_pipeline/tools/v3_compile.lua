@@ -428,7 +428,7 @@ function M.compile(doc, opts)
     -- bot cast policy (v3.3, v3_bot.lua): authored or derived; a `*_key` must name a value with
     -- per-rank numbers (the bot reads it from the compiled extras)
     if castable or o.kind == "ability" then
-      local policy = BOT.export(def, o.kind)
+      local policy = BOT.export(def, o.kind, doc)
       local spec = BOT.KINDS[policy.kind]
       for k, v in pairs(policy) do
         if spec and spec.params[k] == "value" then

@@ -555,6 +555,7 @@ function Gen:expr(node, ctx)
     -- a status's on_ability_executed tells only the skill (line B 94d609ce)
     if ot == "event" and ctx.event == "ability_executed" then
       if node.name == "ability" then return "", "event_ability" end
+      if node.name == "point" then return "cx.event_cast_point()?", "point" end
       self:block("event:" .. node.name .. " of a status on_ability_executed"); return "EntityHandle::INVALID", "unit"
     end
     if ot == "event" then
@@ -563,7 +564,9 @@ function Gen:expr(node, ctx)
       elseif node.name == "ability" then return "", "event_ability"
       elseif node.name == "damage" then return "", "event_damage"
       elseif node.name == "attack" then return "", "event_attack"
-      elseif node.name == "victim" then return "cx.event_target", "unit" end
+      elseif node.name == "victim" then return "cx.event_target", "unit"
+      -- the cast's point (an owner's passive on_ability_executed: on_owner_cast's target)
+      elseif node.name == "point" and ctx.event == "owner_cast" then return "cx.event_cast_point()?", "point" end
       self:block("event:" .. node.name); return "EntityHandle::INVALID", "unit"
     end
     if ot == "event_attack" then
@@ -839,6 +842,20 @@ function Gen:call(node, ctx)
   elseif fn == "position" then
     local p, pt = arg(1)
     return self:point(p, pt), "point"
+  elseif fn == "count_in_radius" then
+    local c, ct = arg(1)
+    local r, rt = arg(2)
+    if rt ~= "num" and rt ~= "err" then self:block("fn:count_in_radius radius of a " .. rt) end
+    local tm, class = args[3], name_arg(4)
+    local CLASSES = { hero = true, creep = true, building = true, summon = true, neutral = true }
+    if not (tm and tm.k == "call" and (tm.fn == "team_of" or tm.fn == "enemy_team") and #tm.args == 1) then
+      self:block("fn:count_in_radius of a team other than team_of／enemy_team"); return "Fixed64::ZERO", "err"
+    end
+    if not class or not CLASSES[class] then self:block("fn:count_in_radius of class " .. tostring(class)); return "Fixed64::ZERO", "err" end
+    local of, ot = self:expr(tm.args[1], ctx)
+    if ot ~= "unit" then self:block("fn:" .. tm.fn .. " of a " .. ot); return "Fixed64::ZERO", "err" end
+    return string.format("{ let center = %s; let radius = %s; let of = %s; cx.count_in_radius(center, radius, of, %s, %s) }",
+      self:point(c, ct), r, of, rust_str(tm.fn == "team_of" and "ally" or "enemy"), rust_str(class)), "num"
   elseif fn == "has_status" then
     local u, ut = arg(1)
     local s = name_arg(2)
@@ -858,7 +875,7 @@ function Gen:call(node, ctx)
       -- unit tags (GameWorld::ext TAG_PREFIX; this game has no fountain or general units)
       local reads = { building = "cx.is_building(%s)", hero = "cx.is_hero(%s)", creep = "cx.unit_flag(%s, ability_kit::unit_attr::IS_CREEP)" }
       if reads[n] then return "{ let u = " .. u .. "; " .. reads[n]:format("u") .. " }", "bool" end
-      local HOST_TAGS = { boss = true, dummy = true, fountain = true, general = true }
+      local HOST_TAGS = { boss = true, dummy = true, fountain = true, general = true, summon = true, neutral = true }
       if HOST_TAGS[n] then return "{ let u = " .. u .. "; cx.has_unit_tag(u, " .. rust_str(n) .. ") }", "bool" end
       self:block("fn:has_tag:" .. n .. " of a unit"); return "false", "bool"
     end
@@ -1029,6 +1046,7 @@ local ACTION_FIELDS = {
   set_stacks = set({ "op", "to", "status", "count" }),
   modify_cooldown = set({ "op", "of", "ability", "mode", "amount" }),
   set_ability_level = set({ "op", "of", "ability", "level" }),
+  end_channel = set({ "op", "interrupted" }),
   set_health = set({ "op", "to", "value" }),
   order_attack = set({ "op", "who", "target" }),
   random_pick = set({ "op", "options", "as" }),
@@ -2313,6 +2331,9 @@ function Gen:action(a, ctx, ind)
     local lifetime = a.lifetime ~= nil and self:value(a.lifetime, ctx, "num") or "Fixed64::ZERO"
     return line("{") .. line("    let at = " .. at .. ";") .. line("    let gold = " .. gold .. ";")
       .. line(string.format("    cx.create_pickup(at, gold, %s, %s, %s)?;", rust_str(who), tostring(a.killable == true), lifetime)) .. line("}")
+  elseif op == "end_channel" then
+    if a.interrupted ~= true then self:block("action:end_channel without interrupted = true"); return "" end
+    return line("cx.end_channel(cx.self_unit);")
   elseif op == "issue_order" then
     -- as the owner's order (hero_command; only heroes take it); nothing is locked
     if a.force ~= nil and type(a.force) ~= "boolean" then self:block("action:issue_order.force of an expression"); return "" end
@@ -2930,7 +2951,7 @@ local function emit_entry(m, o, opts, status_problems)
       else
         local evt = PASSIVE_EVENTS[ev]
         local pre = ev == "on_take_damage_pre" or ev == "on_deal_damage_pre"
-        local ctx = { owner = o, scope = scope_child(nil), event = ev ~= "on_created", pre = pre, windup = ev == "on_attack_windup" }
+        local ctx = { owner = o, scope = scope_child(nil), event = ev == "on_ability_executed" and "owner_cast" or ev ~= "on_created", pre = pre, windup = ev == "on_attack_windup" }
         local filter = tr.filter and g:value(tr.filter, ctx, "bool") or "true"
         filters[ev] = filter
         local body = g:actions(tr.actions, ctx, "    ")
@@ -3248,10 +3269,13 @@ fn learned(world: &GameWorldDyn<'_>, owner: EntityHandle) -> bool { world.has_bu
       if ev == "on_ability_executed" then
         s[#s + 1] = [[
 
-pub fn on_owner_cast(owner: EntityHandle, skill: &str, world: &mut GameWorldDyn<'_>) {
+pub fn on_owner_cast(owner: EntityHandle, skill: &str, target: Target, world: &mut GameWorldDyn<'_>) {
     if !learned(world, owner) { return; }
     let mut cx = Cx::passive(world, owner, 1);
     cx.event_skill = Some(skill);
+    // event.target / event.point: the cast's own target
+    if let Target::Entity(e) = &target { cx.event_target = *e; }
+    cx.target = target;
     let _ = on_ability_executed(&mut cx);
 }
 ]]
@@ -3511,7 +3535,7 @@ function M.generate(doc, opts)
   local has_owner = #owner_calls.on_ability_executed + #owner_calls.on_respawn > 0
   if has_owner then
     local casts, respawns = {}, {}
-    for _, id in ipairs(owner_calls.on_ability_executed) do casts[#casts + 1] = "        super::" .. id .. "::on_owner_cast(caster, skill_id.as_str(), world);\n" end
+    for _, id in ipairs(owner_calls.on_ability_executed) do casts[#casts + 1] = "        super::" .. id .. "::on_owner_cast(caster, skill_id.as_str(), target.clone(), world);\n" end
     for _, id in ipairs(owner_calls.on_respawn) do respawns[#respawns + 1] = "        super::" .. id .. "::on_owner_respawn(e, world);\n" end
     rg[#rg + 1] = string.format([[
 
@@ -3520,8 +3544,8 @@ pub struct HeroUnit;
 
 impl UnitScript for HeroUnit {
     fn unit_id(&self) -> RStr<'_> { RStr::from_str(%s) }
-    fn on_skill_cast(&self, caster: EntityHandle, skill_id: RStr<'_>, _: Target, world: &mut GameWorldDyn<'_>) {
-        let _ = (&caster, &skill_id, &world);
+    fn on_skill_cast(&self, caster: EntityHandle, skill_id: RStr<'_>, target: Target, world: &mut GameWorldDyn<'_>) {
+        let _ = (&caster, &skill_id, &target, &world);
 %s    }
     fn on_respawn(&self, e: EntityHandle, world: &mut GameWorldDyn<'_>) {
         let _ = (&e, &world);

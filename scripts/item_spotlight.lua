@@ -26,6 +26,7 @@ M.PLAYER = 1
 -- is enemy_point).
 M.AIM = {
   enemy_point = { team = "enemy", target = "point" },
+  global_enemy_point = { team = "enemy", target = "point" },
   approach_enemy_point = { team = "enemy", target = "point" },
   leap_enemy_point = { team = "enemy", target = "point" },
   enemy_line = { team = "enemy", target = "point" },
