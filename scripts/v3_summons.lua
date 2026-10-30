@@ -173,7 +173,7 @@ function M.template_rows(doc, t)
   if (not t.attack or t.attack.kind == "none") and (t.ai == "none" or has(t.tags, "dummy")) then return dummy_rows(doc, t, value) end
   local known = { id = true, source_id = true, values = true, text = true, notes = true, provenance = true, quirks = true,
     max_level = true, stats = true, attack = true, bounty = true, vision = true, collision_radius = true,
-    acquisition_range = true, owner_death = true, ai = true, tags = true, passive = true, statuses = true }
+    acquisition_range = true, owner_death = true, ai = true, tags = true, passive = true, statuses = true, turn_rate = true }
   for _, k in ipairs(sorted(t)) do if not known[k] then no(k) end end
   local sp = statuses_problem(t); if sp then no(sp) end
   local stats = t.stats or {}
@@ -261,6 +261,11 @@ function M.template_rows(doc, t)
     end
     vision_into(row, t.vision or {}, num, no)
     row.collision_radius = num(t.collision_radius, "collision_radius") or 0
+    -- the source's MovementTurnRate (0..10; the host turns at turn_rate / 0.03 rad/s, line B 530f1f9f)
+    if t.turn_rate ~= nil then
+      local tr = num(t.turn_rate, "turn_rate")
+      if tr and (tr < 0 or tr > 10) then no("turn_rate " .. tr .. " outside 0..10") elseif tr then row.turn_rate = tr end
+    end
     row.immobile = row.move_speed == 0 or nil
     row.follow_start_distance, row.follow_stop_distance = 0, 0
     row.target_priority = "nearest"
