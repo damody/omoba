@@ -2,6 +2,18 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E358 （保留）沒有 bot 出裝會取得的上架道具從沒被驗證：批次加道具覆蓋模式（2026-10-30）
+
+## E357 （保留）批次英雄依名單順序入座，不看定位：改從資料推導上路、中路、carry、輔助、打野（2026-10-30）
+
+## E356 C15 爆裂箭灼燒照說明文字改成一份，和原作每段火焰各一份不符（2026-10-30，工作線 A）
+
+- **現象**：主 session 依 gamemode 平衡表（C15 對英雄傷害約為其他英雄的 1.8～3 倍，m6item2／m6item3）要求查證灼燒是否和原作一致。
+- **查證**：原作 C15E（source-catalog C15E raw）的 modifier_C15E_2 掛在每個火焰 dummy 上，每 0.1 秒用 ActOnTargets 對 170 內的敵方英雄與一般單位 ApplyModifier modifier_C15E_3，施加者是 dummy。modifier_C15E_3 持續 1.01 秒，每 0.25 秒造成 %dmg（25／30／35／40）魔法傷害。Dota 對不同施加者套用的同名 modifier 各自保留一份，同一施加者則是刷新、不重設計時。火焰每 100 一段、半徑 170，所以火線中的單位同時有 3～4 份灼燒。文件的 notes 本來就寫「每團火焰各一份」；說明文字卻寫「重疊的火焰只算一份灼燒」，兩者在 1e43d64f 匯入時就互相矛盾。E335 照說明文字把 source 改成 caster_hero，變成只剩一份，比原作少。
+- **平衡表的原因不是灼燒**：m6item1 的玉子百箭被接受 0 次（E341，lethal arrow 召喚物消失），m6item2／m6item3 是 10／8 次。玉子傷害變高的時間點是百箭恢復；灼燒在 E335 之後反而比原作少。
+- **修正**：tamako v3.lua 的 c15e_fire_field 改回 `source = "self"`（每個 dummy 各一份）；說明文字（中英）改成「每段火焰各自灼燒，重疊時同時受到多份」；notes 註明份數和這次錯誤。E335 的產生器修正（existed 以來源判斷、每個實例一個時鐘）保留，那兩個才是真正的 bug。
+- **以後如何避免**：說明文字和 notes／原作不一致時，以原作 KV 與腳本為準（D13），並同時修正說明文字；不要為了符合說明文字而修改行為。conformance 加情境鎖住份數（站在重疊火焰中的灼燒份數＝170 內的火焰段數）。
+
 ## E355 自動操作的 UE 等 ZenServer 超過 20 秒時跳出是／否對話框，局卡在啟動（2026-10-30，history-nobu M6 道具呈現，工作線 C）
 - **現象**：工作線 C 的道具 spotlight a 局（19:24）和 b 局（19:59）都有開局，但 UE 的 log 停在「LogZenServiceInstance: Waiting for ZenServer to be ready...」，之後近 10 分鐘沒有任何輸出，autopilot 的 trace 也沒有建立，最後被時限收掉。17:32 之前的 spotlight 都正常。
 - **根因**：ZenServer 的 log 顯示，啟動時載入 1000 個保存的 session，17:31 只花 2 秒，19:24 卻花了 24 秒（當時機器上同時在跑 verify_m6_batch 和多個建置，磁碟忙碌）。引擎的 `ZenServerInterface.cpp` 在不是 unattended 時，等待超過 20 秒就會跳出 Yes/No 對話框（ZenLongWaitPrompt）；autopilot 的座位沒有人按，UE 就停在那裡。我們的角色啟動沒有帶 `-unattended`。
@@ -14,7 +26,12 @@
 - **通用修正**：verify_m6_batch 判斷 NEVER USED 前，查道具目錄裡有沒有哪件已取得的道具以它為配方零件；有的話標成「unused, built into an upgrade」，不計入未取得／未使用的總數。m6item3 重出報告：dark_boots 改標，未取得／未使用由 4 件降為 3 件（mana_boots、mana_boots_1、napalm_bomb，沒有角色選到）。
 - **避免**：報告的「從沒用過」要排除有合理原因的情況（零件、只在合成途中出現），否則真正沒被用到的內容會被淹沒。
 
-## E353 （保留）replica 晚一個 tick 結算新買道具的 item passives（attribute_hp 不一致）（2026-10-30）
+## E353 replica 晚一個 tick 結算新買道具的 item passives，attribute_hp 不一致（2026-10-30，工作線 B）
+- **現象**：工作線 C 的 1+9 demo 在 tick 960 出現 observer mismatch，兩隊都只有 `attribute_hp` 不同，權威端多 125（C17：[1049600, 921600]，A02：[947200, 819200]）。診斷日誌（omb 12655f7）顯示權威端的 `__item_passives` 有 `stats_strength_bonus 5120`，也就是 strength_ingot 的 +5 力量 × 25 HP。
+- **重現**：新增 omoba-core 測試 `a_replica_settles_the_attribute_hp_of_a_bought_strength_item_like_the_authority`。兩位 saika_magoichi 在 step 2 購買 strength_ingot，購買的那個 tick 兩隊 replica 的 hash 都對不上：replica 的 Inventory 已經有道具，`__item_passives` 卻是空的。
+- **根因**：權威端的購買在 dispatcher 的 shop 系統裡完成，同一 tick 的 `drain_pending_ability_upgrades` 接著 `settle_item_passives` 與 `settle_hero_attributes`，所以 attribute_hp 當 tick 就加上去。replica 不執行 shop，新的 Inventory 要等 step 之後才以 CommittedEconomy 寫入，因此它在那個 tick 是用舊的 Inventory 結算。兩邊讀到的 Inventory 不是同一個時間點的。
+- **通用修正**：新增 `game_processor::settle_inventory_modifiers`（item passives、item auras），從 drain 移到 tick 開頭：權威端在 `begin_moba_match_tick` 一開始執行，replica 在 phases 之前（`capture_tick_start` 之後）執行。兩邊在這個時間點持有的都是上一個 tick 提交的 Inventory。購買的效果因此一律從下一個 tick 開始，兩邊一致。attributes 和 health bonus 仍然在 drain 結算，讀的是 tick 開頭的 passives。
+- **避免**：replica 會延後收到的權威端狀態（例如經濟、裝備），由它推導出來的值要在雙方都已持有該狀態的時間點結算，不要在權威端獨有的系統之後才結算。
 
 ## E352 hero_stats 的傷害全是 0：英雄的攻擊與技能傷害不產生 DirectCombat 事實，平衡表把 0≥0 判成 DAMAGE HIGH（2026-10-30，e187 遊戲模式 session；已放回 live）
 - **現象**：m6item2 的平衡表每位英雄 damage/game 都是 0，又因為平均也是 0，每位都被標成 DAMAGE HIGH。除錯版 moba-headless 跑 60 秒：562 筆 DirectCombat 事實全是小兵打小兵，沒有一筆來源是英雄。

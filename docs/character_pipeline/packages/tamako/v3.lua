@@ -125,9 +125,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "爆裂箭",
-            body = "朝指定方向射出爆裂箭（速度 {arrow_speed}、飛行 {arrow_distance}，箭本身不命中單位），從前方 {fire_offset} 起沿途逐段鋪下長 {fire_length}、半寬 {fire_radius} 的火焰，每段持續 {fire_duration} 秒，並給己方沿線 {vision_radius} 範圍視野 {vision_duration} 秒。碰到火焰的敵人每 {tick_interval} 秒受到 {tick_damage} 魔法傷害，離開火焰後灼燒最多再持續 {burn_linger} 秒；重疊的火焰只算一份灼燒。" },
+            body = "朝指定方向射出爆裂箭（速度 {arrow_speed}、飛行 {arrow_distance}，箭本身不命中單位），從前方 {fire_offset} 起沿途逐段鋪下長 {fire_length}、半寬 {fire_radius} 的火焰，每段持續 {fire_duration} 秒，並給己方沿線 {vision_radius} 範圍視野 {vision_duration} 秒。碰到火焰的敵人每 {tick_interval} 秒受到 {tick_damage} 魔法傷害，離開火焰後灼燒最多再持續 {burn_linger} 秒；每段火焰各自灼燒，站在重疊的火焰裡會同時受到多份灼燒。" },
           en = { name = "Burst Arrow",
-            body = "Fires a burst arrow in the target direction (speed {arrow_speed}, travels {arrow_distance}; the arrow itself hits nothing), laying a line of fire {fire_length} long with a half-width of {fire_radius}, starting {fire_offset} ahead. Each segment burns for {fire_duration} seconds and grants allies vision within {vision_radius} along the line for {vision_duration} seconds. Enemies touching the fire take {tick_damage} magic damage every {tick_interval} seconds, and the burn lingers for up to {burn_linger} seconds after they leave; overlapping fire counts as one burn." },
+            body = "Fires a burst arrow in the target direction (speed {arrow_speed}, travels {arrow_distance}; the arrow itself hits nothing), laying a line of fire {fire_length} long with a half-width of {fire_radius}, starting {fire_offset} ahead. Each segment burns for {fire_duration} seconds and grants allies vision within {vision_radius} along the line for {vision_duration} seconds. Enemies touching the fire take {tick_damage} magic damage every {tick_interval} seconds, and the burn lingers for up to {burn_linger} seconds after they leave; each segment burns on its own, so standing in overlapping fire stacks the burns." },
         },
         target = { type = "direction", range = "$cast_range" },
         cast = { cast_point = "$cast_point", ignore_backswing = true },
@@ -140,7 +140,7 @@ return function(ctx)
                 { op = "for_each",
                   select = { from = "self", shape = "circle", radius = "$fire_radius", team = "enemy", types = BASIC },
                   actions = {
-                    { op = "apply_status", status = "c15e_burn", to = "it", source = "caster_hero" },
+                    { op = "apply_status", status = "c15e_burn", to = "it", source = "self" },
                   } },
               } },
             },
@@ -153,7 +153,7 @@ return function(ctx)
                   require_source_alive = false, flags = { "no_amplify" } },
               } },
             },
-            notes = "原作 modifier_C15E_3：1.01 秒、ThinkInterval 0.25、IsHidden、IsDebuff 0；datadriven Damage 的攻擊者是套用它的 dummy。每團火焰（不同施加者）各一份，同一團每 0.1 秒刷新持續時間、不重設計時。沒寫 IsPurgable，暫定 basic。" },
+            notes = "原作 modifier_C15E_3：1.01 秒、ThinkInterval 0.25、IsHidden、IsDebuff 0；datadriven Damage 的攻擊者是套用它的 dummy。每團火焰（不同施加者）各一份，同一團每 0.1 秒刷新持續時間、不重設計時；段距 100、半徑 170，火線中的單位同時有 3～4 份（E356：曾誤照說明文字改成只有一份）。沒寫 IsPurgable，暫定 basic。" },
         },
         events = {
           on_cast = {
