@@ -57,6 +57,10 @@ pub mod op {
     /// `(Unit, Str runtime_id) -> Num`: how many independent instances (`<runtime_id>#<n>`) of a
     /// status the unit holds (0 when none).
     pub const STATUS_INSTANCES: u32 = 10;
+    /// `()` -> `Bool`: the cast running now was released from a windup; its target and range
+    /// were judged once, when the windup began, and must not be judged again (a team replica's
+    /// view of a moving target may differ from the authority's by then).
+    pub const CAST_RELEASED: u32 = 11;
 }
 
 /// Attribute names of [`op::UNIT_ATTR`] and what they return.
@@ -104,6 +108,13 @@ pub mod unit_attr {
     /// `tag:` (e.g. `"tag:boss"`). A map boss carries the boss tag; a training dummy is a dummy;
     /// this game has no fountain or general units, so those are always false.
     pub const TAG_PREFIX: &str = "tag:";
+    /// `Num`: v3 `event.attack.damage` in an attack trigger: the physical damage of the unit's
+    /// current (or last) attack as it left, with its critical multiplier; 0 before it leaves or
+    /// without one (omoba-core rules::attack AttackRecords).
+    pub const ATTACK_DAMAGE: &str = "attack_damage";
+    /// `Num`: v3 `event.attack.effect_multiplier` of that attack: 1 for an ordinary attack; 0
+    /// without one.
+    pub const ATTACK_EFFECT_MULTIPLIER: &str = "attack_effect_multiplier";
     /// `Bool`: v3 `has_status_tag(unit, tag)`, the tag after `status_tag:`: some status on the
     /// unit carries that catalog tag.
     pub const STATUS_TAG_PREFIX: &str = "status_tag:";

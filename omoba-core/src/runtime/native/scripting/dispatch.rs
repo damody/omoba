@@ -296,7 +296,12 @@ fn dispatch_scripts(
                         if !cache.entities.is_alive(*caster)
                             || cache.cprop.get(*caster).is_none_or(|p|p.hp<=Fixed64::ZERO) {reject_cast!(cast_outcomes,ev,releasing,code::HERO_INACTIVE);}
                         let Some(origin)=cache.pos.get(*caster).map(|p|p.0) else {reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);};
-                        if let Err(reason)=windup_target_allowed(&cache,def,level,target,origin) {reject_cast!(cast_outcomes,ev,releasing,reason);}
+                        // The target and range are judged once, when the windup begins: a released cast
+                        // follows that judgment (a team replica's view of a moving target may differ
+                        // from the authority's by then). A dead target already ended the windup.
+                        if !releasing {
+                            if let Err(reason)=windup_target_allowed(&cache,def,level,target,origin) {reject_cast!(cast_outcomes,ev,releasing,reason);}
+                        }
                         if !releasing {
                             let base=Fixed64::from_raw((f64::from(level.cast_time)*1024.0).round().max(1.0) as i64);
                             let Some(duration)=crate::runtime::ability_runtime::UnitStats::from_refs(
@@ -350,6 +355,7 @@ fn dispatch_scripts(
                         definition.target_type == crate::ability_meta::TargetType::Unit) => Some((*caster, *target)),
                 _ => None,
             };
+            adapter.set_cast_released(releasing && is_cast);
             dispatch_one(&mut adapter, registry, ev, cast_level, cooldown, rng_seed, &mut visual_events);
             if releasing {windups.result(invocation_entity,adapter.cast_succeeded());}
             // SkillCast is provisional until the actual handler succeeds.
@@ -560,6 +566,8 @@ fn dispatch_scripts(
     dispatch_scheduled_effects(world, registry, rng_seed, dt, event_count as u64 + tagged.len() as u64 + 8192);
     // status_event: holder combat events, then statuses that ended, serial, same pulse rule.
     dispatch_status_events(world, registry, rng_seed, &status_combat, &status_executed, event_count as u64 + tagged.len() as u64 + 12288);
+    // item_equip: each item copy gained or lost reaches its item script, same pulse rule.
+    dispatch_item_equips(world, registry, rng_seed, event_count as u64 + tagged.len() as u64 + 20480);
     // aura: every aura::PERIOD, each emitter hears its receivers, same pulse rule.
     dispatch_auras(world, registry, rng_seed, event_count as u64 + tagged.len() as u64 + 16384);
     let on_tick_compute_ns = on_tick_compute_started.elapsed().as_nanos();
@@ -657,6 +665,42 @@ pub(crate) fn bind_hero_unit_scripts(world: &mut World, registry: &ScriptRegistr
         }
     }
     world.insert(seen);
+}
+
+/// One `on_equip` / `on_unequip` per item copy a unit gained or lost (omoba-core `item_equip`),
+/// in the ledger's canonical order. Like a channel pulse, only effects are kept.
+fn dispatch_item_equips(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, ordinal_base: u64) {
+    let changes = super::super::item_equip::changes(world);
+    if changes.is_empty() {
+        return;
+    }
+    let cache = ParallelAdapterCache::new(&*world, rng_seed);
+    let mut accepted = Vec::new();
+    for (ordinal, change) in changes.into_iter().enumerate() {
+        let Some((_, script)) = super::super::game_processor::item_script_id(&change.item_id)
+            .and_then(|script| registry.get_ability(script)) else { continue };
+        let handle = ParallelWorldAdapter::entity_to_handle(change.owner);
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, change.owner, ordinal_base + ordinal as u64);
+        let mut world_dyn = world_dyn_of(&mut adapter);
+        let result = catch_unwind(AssertUnwindSafe(|| if change.equipped { script.on_equip(handle, &mut world_dyn) }
+            else { script.on_unequip(handle, &mut world_dyn) }));
+        drop(world_dyn);
+        if result.is_err() {
+            log::error!("[scripting] panic in AbilityScript::on_(un)equip of {}", change.item_id);
+            adapter.discard_cast();
+            continue;
+        }
+        let outcomes = adapter.finish();
+        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+            accepted.extend(outcomes);
+        } else {
+            log::warn!("[scripting] (un)equip of '{}' tried to charge or spawn; dropped", change.item_id);
+        }
+    }
+    drop(cache);
+    if !accepted.is_empty() {
+        world.write_resource::<Vec<crate::comp::Outcome>>().extend(accepted);
+    }
 }
 
 /// One `on_aura` per live emitter when the aura clock comes due (omoba-core `aura`), in canonical

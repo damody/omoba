@@ -2,6 +2,30 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E292 team replica 在前搖 release 時用自己的位置重判射程，和 authority 分歧（2026-10-30，工作線 B）
+
+- **現象**：e187（`target/e187/ue-nobu8`）中，team 2 的 replica 少了 a34_frost_bolt 的冷卻，剩餘 13363 = 14336 − 973，等於 57 tick 從未開始。authority 有 `[scripting] cast ok`，replica 沒有。
+- **根因**：有前搖的單體技，在前搖開始時兩邊都通過了射程判定，但 release 時又各自用自己的 `cache.pos` 重判一次：host 的 `windup_target_allowed` 一次、kit 的 `Cx::cast` 一次。目標在前搖期間移動時，replica 對敵方位置的認知可能和 authority 不同；目標正好在射程邊緣時，一邊放行、一邊拒絕。
+- **通用修正**：射程與目標只在准入時（前搖開始）判斷一次。
+  - host：release 時不再呼叫 `windup_target_allowed`。目標死亡仍由前搖推進邏輯取消。
+  - kit：新增 ext op 11 `CAST_RELEASED`。`Cx::cast` 在 release 時跳過射程檢查，所有產生的技能一併生效。
+  - 測試：`a_released_windup_follows_the_range_judged_when_it_began`（前搖中目標走出射程，release 仍然成立）。
+- **避免**：同一件事只讓一個地方判斷。replica 不要用自己的視角，重新判斷 authority 已經判過的事。
+
+## E291 狀態上的 on_take_damage／on_deal_damage／on_attack_hit／on_attacked 在 live 從未觸發（2026-10-30，工作線 B）
+
+- **現象**：v3 有 37 處 on_take_damage、5 處 on_deal_damage，以及多處 on_attack_hit／on_attacked 寫在狀態上，產生器也都接了，但 live 一次都沒觸發。唯一的測試是手動推 `ScriptEvent::Damage`。
+- **根因**：
+  - `dispatch_status_events` 只讀事件佇列裡的 `ScriptEvent::Damage`／`AttackHit`，但正式流程沒有任何地方推它們（AttackHit 只有舊的 omb 會推）。
+  - `ScriptEvent::Damage` 本身是「請求造成傷害」，推進去會再扣一次血，所以不能拿來當通知用。
+- **通用修正**：
+  - 命中：改讀規則層的 `AttackEvent::Hit`，和前搖共用游標。
+  - 傷害：`handle_damage` 在血真的扣下去之後，記一筆 `status_event::DamageNote`，只有有人監聽時才記。
+  - 測試：改用真的 RawDamage 跑過 `handle_damage`。
+- **避免**：host 事件的測試要從正式來源觸發（規則層事件、真的傷害封包），不要手動推事件。
+
+## E290 （保留）nobu UE 營地清空與重生入鏡：開局等級與最弱營地（2026-10-30，e187 遊戲模式 session；進行中）
+
 ## E289 影子專案的修改被 `stage_ue_shadow --sync` 悄悄蓋掉（2026-10-30，工作線 C）
 
 - **現象**：

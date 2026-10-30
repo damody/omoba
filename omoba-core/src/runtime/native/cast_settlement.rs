@@ -114,6 +114,8 @@ pub(super) fn admit(world:&World,caster:Entity,skill:&str,rank:u32,faction:Optio
             && super::super::ability_channel::can_start(world,caster,*owner,*spec,*anchor),
         Outcome::SpawnSummoned {owner,..}=>*owner==caster,
         Outcome::AddBuff {target,..} if spawned.contains(target)=>true,
+        // v3 create_unit.facing: a summon this cast spawns faces where the script says.
+        Outcome::ScriptSetFacing {entity,..} if spawned.contains(entity)=>true,
         // Never the caster: its life and resources back the whole transaction.
         Outcome::AddBuff {target,..}|Outcome::RawDamage {target,..}|Outcome::Damage {target,..}|Outcome::ScriptDirectDamage {target,..}
             if summons && channels==0 && *target!=caster && last_spawn.is_some_and(|last|index>last)=>true,
@@ -153,6 +155,9 @@ fn summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_betwe
     assert!(accepts(&[spawn(first),assign(first),spawn(second),assign(second),stun.clone()]),"own setup and a trailing stun");
     assert!(!accepts(&[spawn(first),stun.clone(),spawn(second)]),"a control between planned siblings");
     assert!(!accepts(&[spawn(first),assign(victim),spawn(second)]),"a buff on another unit between siblings");
+    let face=|entity|Outcome::ScriptSetFacing {entity,facing:omoba_sim::Angle::ZERO};
+    assert!(accepts(&[spawn(first),face(first),spawn(second)]),"a summon of this cast faces its way");
+    assert!(!accepts(&[spawn(first),face(victim)]),"never another unit's facing");
     assert!(!accepts(&[spawn(first),Outcome::ScriptDirectDamage {target:hero,amount:Fixed64::ONE}]),"never the caster, even trailing");
 }
 

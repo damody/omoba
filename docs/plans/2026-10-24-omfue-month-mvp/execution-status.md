@@ -84,6 +84,17 @@
   - live 試跑 5 位已上架英雄：全部打完；標出村上義清的震地斧、大地震撼從沒施放。批次 1 目前還沒有英雄可上場，腳本會列出 9 位待上架。
 - **還沒做**：在 UE 拍到砍樹與營地，需要 autopilot 能指定行為；震地斧、大地震撼的 bot 政策。
 
+## 2026-10-30（history-nobu 工作線 B：replica 射程只判一次（E292）、道具 equip／unequip、event.attack、armor_multiplier、召喚物朝向；已放回 live）
+
+- **E292**：有前搖的技能，射程和目標只在前搖開始時判斷一次。host release 時不再重判；kit 的 `Cx::cast` 透過新的 ext op 11 `CAST_RELEASED`，在 release 時跳過射程檢查。這修掉 e187 中 replica 少了 a34_frost_bolt 冷卻的問題。新增測試：前搖中目標走出射程，release 仍成立。
+- **道具 on_equip／on_unequip**（44 件道具的 passive on_created／on_removed）：新模組 `item_equip.rs`。
+  - 用一份裝備帳本比對每個單位的背包，每多一份或少一份道具各回報一次（同一單位先處理移除，再處理新增；只換格子不算變動）。購買、出售、合成、丟棄、撿起全部走這一條。
+  - dispatch 依 `item_script_id` 找到道具腳本，呼叫 `AbilityScript::on_equip`／`on_unequip`，規則同一跳。
+- **event.attack**：unit_attr `attack_damage`（出手時的物理攻擊，乘上爆擊倍率）與 `attack_effect_multiplier`，從規則層的 AttackRecords 讀取。
+- **armor_multiplier**：在 `comp::damage` 抽出 `armor_reduction`，由 `mitigate_base_defenses` 與 `armor_multiplier` 共用，公式只有一份；kit 匯出 `ability_kit::armor_multiplier`。
+- **召喚物朝向**（create_unit.facing，4 招）：cast_settlement 放行「這次施法剛召喚的單位」的 ScriptSetFacing。
+- **測試**：item_equip、armor 公式、ext 攻擊屬性、cast_settlement 朝向、release 射程。影子上 omoba-core 1408 個測試全過，之後追加的部分各自測過；land 的檢查也通過。合併 t32 之後的 live 也重跑過，1406 個全過。
+
 ## 2026-10-30（history-nobu 工作線 B：一般光環 aura、create_unit control；已放回 live）
 
 - **一般光環**（v3 `aura`，26 處，其中 12 招只差這一項）：新模組 `omoba-core/src/runtime/native/aura.rs`。

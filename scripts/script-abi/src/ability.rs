@@ -199,6 +199,14 @@ pub trait AbilityScript: Send + Sync {
     ) {
     }
 
+    /// v3 item `passive.triggers.on_created`: `owner` gained a copy of this item (omoba-core
+    /// `item_equip`, once per copy). Only effects may be applied. Default: nothing.
+    fn on_equip(&self, _owner: EntityHandle, _world: &mut GameWorldDyn<'_>) {}
+
+    /// v3 item `passive.triggers.on_removed` (and `remove_on = unequip`): `owner` lost a copy of
+    /// this item. Only effects may be applied. Default: nothing.
+    fn on_unequip(&self, _owner: EntityHandle, _world: &mut GameWorldDyn<'_>) {}
+
     /// v3 `aura` pulse (omoba-core `aura`): `holder`'s emitter `aura` of this ability, at `level`,
     /// with the living units in its radius on its team, nearest first. The generated code filters
     /// them (types, flags, where) and applies the aura's status. Like a pulse, only effects may be

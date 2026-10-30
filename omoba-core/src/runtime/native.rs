@@ -33,6 +33,7 @@ pub mod ally_area_restore;
 pub mod item_modifiers;
 pub mod aura_emitter;
 pub mod aura;
+pub mod item_equip;
 pub mod magic_immunity;
 pub mod dispel;
 pub mod blink_landing;

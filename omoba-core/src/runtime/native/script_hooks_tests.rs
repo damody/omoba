@@ -206,3 +206,50 @@ fn hero_commands_settle_cooldowns_levels_and_health_at_once() {
     let hp = world.read_storage::<CProperty>().get(hero).unwrap().hp;
     assert!(hp >= Fixed64::from_i32(123) && hp < Fixed64::from_i32(126), "set, then a tick of regen: {hp:?}");
 }
+
+/// A unit-target cast with a windup: its range is judged when the windup begins, and the release
+/// follows that judgment even if the target has moved away (a team replica's view of the target
+/// may differ from the authority's by then; e187).
+#[test]
+fn a_released_windup_follows_the_range_judged_when_it_began() {
+    use crate::runtime::{SingleLaneConfig, StateInitializer};
+    use crate::runtime::native::comp::Pos;
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let pool = StateInitializer::create_thread_pool();
+    let mut world = StateInitializer::setup_campaign_ecs_world(&pool);
+    crate::runtime::setup_single_lane_match(&mut world, SingleLaneConfig {
+        warmup: Fixed64::ZERO, wave_interval: Fixed64::from_i32(1_000_000), ..SingleLaneConfig::default()
+    }).unwrap();
+    let slot = |world: &specs::World, player: u32| world.read_resource::<crate::runtime::MobaMatch>().heroes.iter()
+        .find(|slot| slot.player_id == player).and_then(|slot| slot.entity).unwrap();
+    let (hero, enemy) = (slot(&world, 1), slot(&world, 2));
+    let id = world.read_storage::<Hero>().get(hero).unwrap().abilities[0].clone();
+    let level = serde_json::json!({"cooldown": 1, "mana_cost": 0, "cast_time": 0.25, "range": 300});
+    let def: crate::ability_meta::AbilityDef = serde_json::from_value(serde_json::json!({
+        "id": id, "name": id, "ability_type": "active", "target_type": "unit", "max_level": 4,
+        "levels": {"1": level, "2": level, "3": level, "4": level},
+    })).unwrap();
+    world.insert(crate::runtime::TowerTemplateRegistry::default());
+    let mut abilities = crate::runtime::ability_runtime::AbilityRegistry::new();
+    abilities.register(def.clone());
+    world.insert(abilities);
+    let mut scripts = crate::runtime::ScriptRegistry::new();
+    scripts.insert_ability_for_test(def, omb_script_abi::ability::AbilityScript_TO::from_value(
+        Probe { calls: calls.clone(), id: id.clone() }, abi_stable::sabi_trait::prelude::TD_Opaque));
+    world.insert(scripts);
+    let mut driver = crate::runtime::SimulationDriver::from_world(&mut world, crate::runtime::SimulationTickProfile::Production60Hz).unwrap();
+    driver.step(&mut world, []).unwrap();
+    let at = world.read_storage::<Pos>().get(hero).unwrap().0;
+    world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = at + omoba_sim::Vec2::new(Fixed64::from_i32(200), Fixed64::ZERO);
+    {
+        use crate::game_proto::{player_input::Action, CastAbility, PlayerInput};
+        driver.step(&mut world, [(1, PlayerInput { action: Some(Action::CastAbility(CastAbility {
+            ability_index: 0, target_entity: Some(enemy.id()), ..Default::default() })) })]).unwrap();
+    }
+    let executed = |calls: &Arc<Mutex<Vec<Call>>>| calls.lock().unwrap().iter().filter(|c| matches!(c, Call::ReadVar(_))).count();
+    assert_eq!(executed(&calls), 0, "the windup runs first");
+    // The target walks far out of range during the windup.
+    world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = at + omoba_sim::Vec2::new(Fixed64::from_i32(2_000), Fixed64::ZERO);
+    for _ in 0..30 { driver.step(&mut world, []).unwrap(); }
+    assert_eq!(executed(&calls), 1, "the release follows the range judged when the windup began");
+}

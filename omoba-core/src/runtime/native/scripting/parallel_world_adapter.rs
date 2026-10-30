@@ -55,6 +55,8 @@ pub struct ParallelAdapterCache<'a> {
     gold: Option<ReadStorage<'a, Gold>>,
     /// `game.is_night` this tick (ext GAME_ATTR).
     night: bool,
+    /// Each attacker's current attack (unit attributes `attack_damage` / `attack_effect_multiplier`).
+    attacks: Option<Read<'a, super::super::rules::attack::AttackRecords>>,
 }
 
 impl<'a> ParallelAdapterCache<'a> {
@@ -105,6 +107,7 @@ impl<'a> ParallelAdapterCache<'a> {
             damage_trace: super::super::damage_trace::enabled(world),
             gold: world.has_value::<specs::storage::MaskedStorage<Gold>>().then(||world.read_storage::<Gold>()),
             night: super::super::rules::world::is_night(world),
+            attacks: world.try_fetch::<super::super::rules::attack::AttackRecords>().map(Into::into),
         }
     }
 }
@@ -120,6 +123,8 @@ pub struct ParallelWorldAdapter<'a> {
     cast_rejection: Option<&'static str>,
     /// The `Err` text of a cast handler that did not succeed (test cast trace).
     script_error: Option<String>,
+    /// The cast running now was released from a windup (ext CAST_RELEASED).
+    cast_released: bool,
     hook_panicked: bool,
     mana_transaction: bool,
     mana_views: HashMap<Entity, crate::runtime::ability_runtime::ManaPool>,
@@ -533,6 +538,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             cast_succeeded: false,
             cast_rejection: None,
             script_error: None,
+            cast_released: false,
             hook_panicked: false,
             mana_transaction: false,
             mana_views: HashMap::new(),
@@ -573,6 +579,8 @@ impl<'a> ParallelWorldAdapter<'a> {
 
     pub(crate) fn cast_rejection(&self) -> Option<&'static str> { self.cast_rejection }
     pub(crate) fn note_script_error(&mut self, error: String) { self.script_error = Some(error); }
+    /// The cast about to run was released from a windup (ext CAST_RELEASED).
+    pub(crate) fn set_cast_released(&mut self, released: bool) { self.cast_released = released; }
     pub(crate) fn take_script_error(&mut self) -> Option<String> { self.script_error.take() }
 
     pub(crate) fn stage_recovery_channel(&mut self,caster:Entity,spec:super::super::recovery_channel::Spec)->bool {
@@ -706,6 +714,9 @@ impl<'a> ParallelWorldAdapter<'a> {
             name::CAST_RANGE_BONUS=>num(&|e|Some(buffs(e).sum_add(e,omb_script_abi::stat_keys::StatKey::CastRangeBonus)
                 +buffs(e).sum_add(e,omb_script_abi::stat_keys::StatKey::CastRangeBonusStacking))),
             // The unit's own pool, else the pool of a unit its player owns that has one (a summon's hero).
+            name::ATTACK_DAMAGE=>num(&|e|self.cache.attacks.as_ref()?.0.get(&e).filter(|record|record.launched)
+                .map(|record|record.launch_physical*record.critical.unwrap_or(Fixed64::ONE))),
+            name::ATTACK_EFFECT_MULTIPLIER=>num(&|e|self.cache.attacks.as_ref()?.0.get(&e).map(|record|record.effect_multiplier)),
             name::GOLD=>num(&|e|{
                 let pools=self.cache.gold.as_ref()?;
                 pools.get(e).map(|pool|pool.0).or_else(||{
@@ -1680,6 +1691,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 found.sort_by_key(|(distance, id, _)| (*distance, *id));
                 ROk(V::Units(found.into_iter().map(|(_, _, entity)| Self::entity_to_handle(entity)).collect()))
             }
+            (op::CAST_RELEASED, []) => ROk(V::Bool(self.cast_released)),
             (op::STATUS_INSTANCES, [A::Unit(unit), A::Str(runtime_id)]) => {
                 let count = Self::handle_to_entity(*unit).map_or(0, |entity| self.source_buffs(entity).iter_for(entity)
                     .filter(|(key, _)| omoba_template_ids::instance_number(key).is_some()
@@ -1968,6 +1980,10 @@ mod tests {
             buffs.add(me,crate::runtime::native::ability_channel::STATUS,Fixed64::from_i32(5),json!({}));
         }
         crate::runtime::native::rules::world::start_temporary_night(&mut world,Fixed64::from_i32(3));
+        // The hero's attack left with 40 physical and a 2x critical.
+        world.insert(crate::runtime::native::rules::attack::AttackRecords([(me,crate::runtime::native::rules::attack::AttackRecord {
+            seq:1,target:None,windup_tick:0,critical:Some(Fixed64::from_i32(2)),launched:true,missed:false,
+            launch_physical:Fixed64::from_i32(40),procs_attack_effects:true,effect_multiplier:Fixed64::ONE})].into_iter().collect()));
         let cache=ParallelAdapterCache::new(&world,1);let mut adapter=ParallelWorldAdapter::new(&cache,me);
         let (h,s)=(ParallelWorldAdapter::entity_to_handle(me),ParallelWorldAdapter::entity_to_handle(summon));
         let mut unit=|u:EntityHandle,attr:&str|adapter.ext(op::UNIT_ATTR,RSlice::from_slice(&[A::Unit(u),A::Str(attr.into())])).into_result();
@@ -1985,6 +2001,9 @@ mod tests {
         assert_eq!(unit(s,name::IS_RANGED),Ok(V::Bool(false)),"no attack");
         assert_eq!(unit(h,name::IS_CREEP),Ok(V::Bool(false)));
         assert_eq!(unit(s,name::OWNER),Ok(V::Unit(h)));
+        assert_eq!(unit(h,name::ATTACK_DAMAGE),n(80),"the attack as it left, critical included");
+        assert_eq!(unit(h,name::ATTACK_EFFECT_MULTIPLIER),n(1));
+        assert_eq!(unit(s,name::ATTACK_DAMAGE),n(0),"no attack");
         assert_eq!(unit(h,name::OWNER),Ok(V::None));
         assert_eq!(unit(h,name::PROJECTILE_SPEED),n(900));
         assert_eq!(unit(h,name::BASE_ATTACK_RANGE),n(500));
