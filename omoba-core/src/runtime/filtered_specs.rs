@@ -800,6 +800,7 @@ impl SpecsDisclosedWorldStepper {
             crate::runtime::DISCLOSED_TURN_SPEED_COMPONENT_SCHEMA_ID,
             TurnSpeed
         );
+        restore_json_component!(crate::runtime::native::unit_mana::SCHEMA_ID, crate::runtime::native::unit_mana::UnitMana);
         restore_json_component!(
             crate::runtime::DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID,
             CollisionRadius
@@ -879,6 +880,8 @@ impl SpecsDisclosedWorldStepper {
             .filtered
             .world
             .read_storage::<crate::runtime::TurnSpeed>();
+        let unit_manas = crate::runtime::native::unit_mana::registered(&self.filtered.world)
+            .then(|| self.filtered.world.read_storage::<crate::runtime::native::unit_mana::UnitMana>());
         let collision_radii = self
             .filtered
             .world
@@ -946,6 +949,7 @@ impl SpecsDisclosedWorldStepper {
                 turn_speeds,
                 crate::runtime::DISCLOSED_TURN_SPEED_COMPONENT_SCHEMA_ID
             );
+            if let Some(unit_manas) = &unit_manas { export_json_component!(unit_manas, crate::runtime::native::unit_mana::SCHEMA_ID); }
             export_json_component!(
                 collision_radii,
                 crate::runtime::DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID
@@ -1689,6 +1693,14 @@ fn apply_disclosed_events(
                 .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
             let id = event.subject.as_ref().map_or(0, |id| id.value);
             let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            // A summon's mana (unit_mana) rides its own component; it always has a pool.
+            if let Some(bytes) = entity.components.get_mut(&crate::runtime::native::unit_mana::SCHEMA_ID) {
+                let mut mana: crate::runtime::native::unit_mana::UnitMana = serde_json::from_slice(bytes)
+                    .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+                mana.pool = state.0.ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+                *bytes = crate::runtime::visibility::canonical_disclosed_json(&mana);
+                continue;
+            }
             let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes)

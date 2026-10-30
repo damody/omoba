@@ -1775,6 +1775,11 @@ pub(crate) struct SummonEntry {
     /// The source's MovementTurnRate (radians per 0.03 s); 0 = the engine's default turn speed.
     #[serde(default)]
     pub(crate) turn_rate: f32,
+    /// Mana (full at birth; 0 = no mana), and mana regenerated per second.
+    #[serde(default)]
+    pub(crate) mana: f32,
+    #[serde(default)]
+    pub(crate) mana_regen: f32,
 }
 
 impl SummonEntry {
@@ -1805,6 +1810,10 @@ pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),Stri
         }
         if !entry.turn_rate.is_finite() || !(0.0..=10.0).contains(&entry.turn_rate) {
             return Err(format!("summon {} has an invalid turn_rate",entry.id));
+        }
+        if !entry.mana.is_finite() || !(0.0..=100_000.0).contains(&entry.mana)
+            || !entry.mana_regen.is_finite() || !(0.0..=1_000.0).contains(&entry.mana_regen) || (entry.mana_regen > 0.0 && entry.mana == 0.0) {
+            return Err(format!("summon {} has an invalid mana or mana_regen (regen needs mana)",entry.id));
         }
         if [entry.acquisition_range,entry.projectile_speed].iter().any(|value|!value.is_finite()||!(0.0..=20_000.0).contains(value)) {
             return Err(format!("summon {} has an invalid acquisition range or projectile speed",entry.id));
@@ -1860,6 +1869,8 @@ fn a_dummy_summon_is_bodiless_and_immobile() {
     let mut turning=dummy.clone();turning.turn_rate=1.5;
     assert!((turning.turn_speed()-50.0).abs()<1e-3 && dummy.turn_speed()==std::f32::consts::FRAC_PI_2);
     turning.turn_rate=11.0;assert!(validate_summon_navigation(&[turning]).is_err());
+    let mut regen_only=dummy.clone();regen_only.mana_regen=2.0;assert!(validate_summon_navigation(&[regen_only.clone()]).is_err());
+    regen_only.mana=400.0;assert!(validate_summon_navigation(&[regen_only]).is_ok());
 }
 
 pub(crate) use omoba_content_model::AbilityDefinition as AbilityEntry;

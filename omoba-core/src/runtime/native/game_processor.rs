@@ -3057,6 +3057,7 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::ScriptManaCommit { .. } => "ScriptManaCommit",
         Outcome::ScriptManaGained { .. } => "ScriptManaGained",
         Outcome::ScriptManaSpent { .. } => "ScriptManaSpent",
+        Outcome::ScriptUnitManaDelta { .. } => "ScriptUnitManaDelta",
         Outcome::EntityRemoved { .. } => "EntityRemoved",
     }
 }
@@ -3641,9 +3642,11 @@ pub fn process_outcomes(
                 }
             }
             Outcome::ScriptSetMana { entity, pool } => {
-                if let Some(hero) = world.write_storage::<Hero>().get_mut(entity) {
-                    if hero.mana_pool.is_some() { hero.mana_pool = Some(pool); }
-                }
+                // A hero's pool, else a summon's (unit_mana); a unit without one keeps none.
+                super::unit_mana::with_pool_mut(world, entity, |current| *current = pool);
+            }
+            Outcome::ScriptUnitManaDelta { entity, amount } => {
+                super::unit_mana::apply_delta(world, entity, amount);
             }
             Outcome::ScriptManaCommit {changes,notifications} => {
                 if changes.iter().all(|row|!remove_uids.contains(&row.entity)) {
@@ -4455,6 +4458,9 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
         if let Some(mut state)=world.try_fetch_mut::<crate::runtime::MobaMatch>() {state.add_invulnerable_summon(&world.entities(),entity);}
     }
     if stats.dummy {super::dummy_unit::hold_states(&mut world.write_resource::<crate::runtime::BuffStore>(),entity,duration,breakable);}
+    if let Some(mana)=super::unit_mana::UnitMana::of_template(stats.mana,stats.mana_regen) {
+        world.write_storage::<super::unit_mana::UnitMana>().insert(entity,mana)?;
+    }
     super::dummy_unit::hold_base_stats(&mut world.write_resource::<crate::runtime::BuffStore>(),entity,stats);
     if let Some(player_id)=player_owner {world.write_storage::<PlayerOwner>().insert(entity,PlayerOwner::new(player_id))?;}
     world.write_resource::<ScriptEventQueue>().push(ScriptEvent::Spawn {e:entity});

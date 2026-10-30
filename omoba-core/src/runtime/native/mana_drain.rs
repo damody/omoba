@@ -10,7 +10,7 @@ use omoba_sim::Fixed64;
 use omb_script_abi::types::{DamageKind,DamageProfile};
 use serde_json::{Value,json};
 use specs::{Entity,World,WorldExt};
-use super::comp::{Hero,Outcome,Pos};
+use super::comp::{Outcome,Pos};
 pub const KEY:&str="__enemy_mana_drain_v1";
 pub const BUFF:&str="__enemy_mana_drain";
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
@@ -54,7 +54,7 @@ pub fn admitted(world:&World,target:Entity,buff_id:&str,duration:Fixed64,payload
 }
 /// Drains and returns the mana actually removed (0 for a target without a pool).
 fn drain(world:&mut World,target:Entity,spec:&Spec)->Fixed64 {
-    world.write_storage::<Hero>().get_mut(target).and_then(|h|h.mana_pool.as_mut()).and_then(|pool|pool.drain(spec.amount).ok()).unwrap_or(Fixed64::ZERO)
+    super::unit_mana::with_pool_mut(world,target,|pool|pool.drain(spec.amount).ok()).flatten().unwrap_or(Fixed64::ZERO)
 }
 pub fn apply(world:&mut World,target:Entity,buff_id:&str,duration:Fixed64,payload:&Value)->bool {
     let Some(spec)=admitted(world,target,buff_id,duration,payload,None)else{return false;};

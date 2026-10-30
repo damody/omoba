@@ -3108,6 +3108,10 @@ pub fn finish_moba_match_tick(world: &mut World) {
             }
         }
     }
+    // Summons with mana (unit_mana): their own rate plus mana regen buffs.
+    if state.config.mana_enabled && delta > 0 {
+        super::unit_mana::regenerate(world, Fixed64::from_raw(delta));
+    }
     // Authoritative post-combat settlement, never executed by a Bot or replica.
     // Use the same active-time delta as income; warmup/pause cannot heal.
     if state.config.base_recovery_enabled && delta>0 {
@@ -3315,6 +3319,25 @@ pub fn finish_moba_match_tick(world: &mut World) {
                         facing_ticks: facings.get(entity).map(|facing| facing.0.ticks()) },
                 })
                 .expect("valid committed visible summon pose");
+        }
+    }
+    // A summon's mana (unit_mana), like a hero's: the authority regenerates it and enemy scripts
+    // burn it, so every replica that discloses the summon adopts the committed pool.
+    if super::unit_mana::registered(world) {
+        use specs::Join;
+        let manas = world.read_storage::<super::unit_mana::UnitMana>();
+        for (entity, mana) in (&world.entities(), &manas).join() {
+            let source = crate::runtime::canonical_entity_id(entity);
+            world.read_resource::<crate::runtime::ObservableFactBuffer>()
+                .emit(crate::runtime::OrderedFact {
+                    key: crate::runtime::FactOrderingKey { tick, phase: crate::runtime::FactPhase::PostStep,
+                        canonical_source_order: source, local_ordinal: 0, fact_kind: crate::runtime::FactKind::CommittedMana },
+                    audience: crate::runtime::FactAudience::VisibilityPolicy(
+                        omb_script_abi::types::projection_policy_ids::HERO_ABILITY.to_owned()),
+                    fact: crate::runtime::ObservableFact::CommittedMana { source,
+                        state: crate::runtime::ability_runtime::CommittedManaState(Some(mana.pool.clone())) },
+                })
+                .expect("valid disclosed summon mana state");
         }
     }
     // Every other attacker too (E083): an attack clock advances only while a

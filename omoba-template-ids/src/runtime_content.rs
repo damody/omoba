@@ -594,6 +594,8 @@ impl RuntimeContent {
                 hp_regen: fixed64(entry.hp_regen),
                 night_vision_bonus: fixed64(if entry.night_vision_radius > 0.0 { entry.night_vision_radius - entry.vision_radius } else { 0.0 }),
                 turn_speed: fixed64(entry.turn_speed()),
+                mana: fixed64(entry.mana),
+                mana_regen: fixed64(entry.mana_regen),
             })))
         })?;
         let summon_display = build_indexed(&manifest.summons, "summon", |raw, entry| {

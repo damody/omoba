@@ -47,6 +47,7 @@ pub mod script_kill;
 pub mod mana_drain;
 pub mod script_gold;
 pub mod mana_burn;
+pub mod unit_mana;
 pub mod damage_trace;
 pub mod damage_tally;
 pub mod cast_trace;

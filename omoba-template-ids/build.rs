@@ -1760,6 +1760,8 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \thp_regen: {},\n\
              \tnight_vision_bonus: {},\n\
              \tturn_speed: {},\n\
+             \tmana: {},\n\
+             \tmana_regen: {},\n\
              }};\n",
             cname,
             fixed64_lit(e.hp),
@@ -1788,6 +1790,8 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             fixed64_lit(e.hp_regen),
             fixed64_lit(if e.night_vision_radius > 0.0 { e.night_vision_radius - e.vision_radius } else { 0.0 }),
             fixed64_lit(e.turn_speed()),
+            fixed64_lit(e.mana),
+            fixed64_lit(e.mana_regen),
         ));
     }
     out.push('\n');

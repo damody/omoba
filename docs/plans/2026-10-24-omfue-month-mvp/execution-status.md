@@ -16,6 +16,15 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：召喚物的魔力（unit mana）：模板 mana／mana_regen、回魔、燒魔、吸魔、回復、設定、讀取、施放耗魔、replica 揭露
+
+- 召喚物模板新增 `mana`（出生滿魔）與 `mana_regen`（每秒）。驗證：mana 0..=100000、mana_regen 0..=1000，有 regen 時必須有 mana。新增元件 `unit_mana::UnitMana { pool, regen }`。
+- 所有讀寫單位魔力的路徑都改走 `unit_mana::pool`／`with_pool_mut`（英雄用 `Hero::mana_pool`，其他單位用 UnitMana）：燒魔與設定魔力（mana_burn）、吸魔（mana_drain）、範圍回復（ally_area_restore）、ScriptSetMana 結算。腳本讀到的 `current_mana`、`max_mana` 也包含召喚物。
+- 腳本對召喚物的耗魔與回魔（spend_mana／restore_mana）：hook 內立即看得到自己的變動，以新的 `Outcome::ScriptUnitManaDelta` 依序結算，同一 tick 的多個 hook 會累加，不會互相覆蓋。沒有魔力的單位無法支付。
+- 權威端回魔：`unit_mana::regenerate` 跟英雄共用 `rules::regen::mana_per_second`，自身回魔加上回魔 buff（例如 B07 的友方回魔光環），只在 mana_enabled 的對局執行。
+- 揭露：UnitMana 以 JSON 元件 `0x464f471a` 揭露，並加入 secure replica allowlist。權威端每個 tick 對每隻有魔力的召喚物送出 CommittedMana，replica 收到後寫入這個元件，跟英雄的魔力用同一套機制。
+- 測試：`a_summon_holds_template_mana_that_regenerates_and_takes_deltas_and_sets`、`a_summon_spends_and_restores_its_own_mana_as_settled_deltas`、template-ids 驗證；omoba-core lib 1446 項、template-ids 112 項通過。目前還沒有模板實際帶 mana，A 加上之後再補一個 replica 逐 tick 比對的對局測試。
+
 ## 2026-10-30 線 B：召喚物模板 turn_rate（照原作 MovementTurnRate），攻擊彈道速度用模板值
 
 - 召喚物模板新增 `turn_rate`，照原作的 MovementTurnRate（每 0.03 秒轉幾弧度）。`SummonStats.turn_speed` = turn_rate / 0.03 rad/s，0 沿用引擎預設的 π/2 rad/s，驗證範圍 0..=10。召喚物出生時掛上 `TurnSpeed`，移動時依此轉向。

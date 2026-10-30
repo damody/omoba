@@ -1209,6 +1209,8 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     let attacks = world.read_storage::<crate::runtime::TAttack>();
     let facings = world.read_storage::<crate::runtime::Facing>();
     let turn_speeds = world.read_storage::<crate::runtime::TurnSpeed>();
+    let unit_manas = crate::runtime::native::unit_mana::registered(world)
+        .then(|| world.read_storage::<crate::runtime::native::unit_mana::UnitMana>());
     let collision_radii = world.read_storage::<crate::runtime::CollisionRadius>();
     let inventories = world.read_storage::<crate::runtime::Inventory>();
     let gold = world.read_storage::<crate::runtime::Gold>();
@@ -1353,6 +1355,7 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             if moba {if let Some(range)=attack_ranges.get(&canonical_id){disclosed.push((crate::runtime::attack_visual_state::RANGE_SCHEMA_ID,crate::runtime::attack_visual_state::encode_range(*range).expect("bounded resolved range")));}}
             disclose_json!(facings, DISCLOSED_FACING_COMPONENT_SCHEMA_ID);
             disclose_json!(turn_speeds, DISCLOSED_TURN_SPEED_COMPONENT_SCHEMA_ID);
+            if let Some(unit_manas) = &unit_manas { disclose_json!(unit_manas, crate::runtime::native::unit_mana::SCHEMA_ID); }
             disclose_json!(
                 collision_radii,
                 DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID

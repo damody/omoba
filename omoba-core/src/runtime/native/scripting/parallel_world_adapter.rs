@@ -31,6 +31,8 @@ pub struct ParallelAdapterCache<'a> {
     pub cprop: ReadStorage<'a, CProperty>,
     pub unit: ReadStorage<'a, Unit>,
     pub hero: ReadStorage<'a, Hero>,
+    /// A non-hero unit's mana (unit_mana); read through [`Self::unit_mana`].
+    unit_manas: Option<ReadStorage<'a, super::super::unit_mana::UnitMana>>,
     pub faction: ReadStorage<'a, Faction>,
     pub creep: ReadStorage<'a, Creep>,
     pub tower: ReadStorage<'a, Tower>,
@@ -66,6 +68,11 @@ pub struct ParallelAdapterCache<'a> {
 }
 
 impl<'a> ParallelAdapterCache<'a> {
+    /// A non-hero unit's mana (unit_mana).
+    pub fn unit_mana(&self, entity: Entity) -> Option<&super::super::unit_mana::UnitMana> {
+        self.unit_manas.as_ref().and_then(|manas| manas.get(entity))
+    }
+
     /// Undoes the reservation of a summon whose outcomes were refused after `finish`.
     pub(crate) fn release_reserved(&self, entity: Entity) {
         self.summon_placements.release(entity);
@@ -99,6 +106,8 @@ impl<'a> ParallelAdapterCache<'a> {
             cprop: world.read_storage::<CProperty>(),
             unit: world.read_storage::<Unit>(),
             hero: world.read_storage::<Hero>(),
+            unit_manas: world.has_value::<specs::storage::MaskedStorage<super::super::unit_mana::UnitMana>>()
+                .then(||world.read_storage::<super::super::unit_mana::UnitMana>()),
             faction,
             creep: world.read_storage::<Creep>(),
             tower: world.read_storage::<Tower>(),
@@ -763,7 +772,8 @@ impl<'a> ParallelWorldAdapter<'a> {
             name::AGI=>num(&|e|totals(e).map(|t|t.agility)),
             name::INT=>num(&|e|totals(e).map(|t|t.intelligence)),
             name::MAX_MANA=>num(&|e|self.mana_views.get(&e).map(|pool|pool.maximum())
-                .or_else(||hero.and_then(|hero|hero.mana_pool.as_ref()).map(|pool|pool.maximum()))),
+                .or_else(||hero.and_then(|hero|hero.mana_pool.as_ref()).map(|pool|pool.maximum()))
+                .or_else(||self.cache.unit_mana(e).map(|mana|mana.pool.maximum()))),
             name::IS_ILLUSION=>V::Bool(has(state::ILLUSION)),
             name::IS_CHANNELING=>V::Bool(has(super::super::ability_channel::STATUS)),
             name::IS_INVULNERABLE=>V::Bool(has(state::INVULNERABLE)),
@@ -940,6 +950,13 @@ impl<'a> ParallelWorldAdapter<'a> {
         }
         result
     }
+    /// A living summon's mana as this hook sees it: its committed pool plus this hook's own
+    /// spends and restores (unit_mana); None for a unit without mana.
+    fn unit_mana_view(&self, entity:Entity) -> Option<crate::runtime::ability_runtime::ManaPool> {
+        if !self.cache.entities.is_alive(entity) || self.cache.cprop.get(entity).is_none_or(|health|health.hp<=Fixed64::ZERO) {return None;}
+        self.mana_views.get(&entity).cloned().or_else(||self.cache.unit_mana(entity).map(|mana|mana.pool.clone()))
+    }
+
     fn managed_mana_entity(&self, e:EntityHandle) -> Option<Entity> {
         let entity=Self::handle_to_entity(e)?;
         if !self.cache.entities.is_alive(entity)
@@ -1693,6 +1710,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 if let Some(pool)=self.mana_views.get(&ent) {return Some(pool.current());}
                 self.cache.hero.get(ent).map(|hero| hero.mana_pool.as_ref()
                     .map(|pool| pool.current()).unwrap_or_else(|| hero.get_max_mana()))
+                    .or_else(|| self.cache.unit_mana(ent).map(|mana| mana.pool.current()))
             })
             .unwrap_or(Fixed64::ZERO)
     }
@@ -1700,6 +1718,17 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     fn spend_mana(&mut self, e: EntityHandle, amount: Fixed64, ability_id: RStr<'_>) -> bool {
         let Some(entity)=Self::handle_to_entity(e) else {return false;};
         if !self.cache.entities.is_alive(entity) {return false;}
+        // A summon with mana (unit_mana) spends from its own pool, settled as a delta.
+        if self.cache.hero.get(entity).is_none() {
+            let Some(mut pool)=self.unit_mana_view(entity) else {return false;};
+            if ability_id.len()>256 || pool.spend(amount).is_err() {return false;}
+            if amount>Fixed64::ZERO {
+                self.mana_views.insert(entity,pool);
+                self.outcomes.push(Outcome::ScriptUnitManaDelta {entity,amount:-amount});
+                self.stage_mana_spent(entity,amount,ability_id.as_str().to_owned());
+            }
+            return true;
+        }
         let Some(hero)=self.cache.hero.get(entity) else {return false;};
         if hero.mana_pool.is_none() {return amount>=Fixed64::ZERO;}
         if !self.mana_transaction || self.managed_mana_entity(e).is_none()
@@ -1714,6 +1743,16 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     }
 
     fn restore_mana(&mut self, e: EntityHandle, amount: Fixed64) {
+        if let Some(entity)=Self::handle_to_entity(e).filter(|entity|self.cache.hero.get(*entity).is_none()) {
+            let Some(mut pool)=self.unit_mana_view(entity) else {return;};
+            let Ok(restored)=pool.restore(amount) else {return;};
+            if restored>Fixed64::ZERO {
+                self.mana_views.insert(entity,pool);
+                self.outcomes.push(Outcome::ScriptUnitManaDelta {entity,amount:restored});
+                self.outcomes.push(Outcome::ScriptManaGained {entity,amount:restored});
+            }
+            return;
+        }
         if !self.mana_transaction {return;}
         let Some(entity)=self.managed_mana_entity(e) else {return;};
         let mut pool=self.mana_views.get(&entity).cloned()
@@ -2116,6 +2155,30 @@ mod tests {
         assert_eq!(near("enemy"),Ok(V::Units(vec![e].into())));
         assert_eq!(near("both"),Ok(V::Units(vec![h,e,a].into())));
         assert!(near("nobody").is_err());
+    }
+
+    /// A summon with mana (unit_mana) spends and regains it like a hero: the hook sees its own
+    /// changes at once and settles them as deltas; a unit without mana cannot pay.
+    #[test]
+    fn a_summon_spends_and_restores_its_own_mana_as_settled_deltas() {
+        use crate::runtime::native::unit_mana::UnitMana;
+        use omb_script_abi::world::GameWorld;
+        let mut world=world_for_adapter_tests();world.register::<UnitMana>();
+        let life=CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
+        let summon=world.create_entity().with(life.clone()).with(UnitMana::of_template(Fixed64::from_i32(100),Fixed64::ZERO).unwrap()).build();
+        let plain=world.create_entity().with(life).build();
+        let cache=ParallelAdapterCache::new(&world,1);
+        let mut adapter=ParallelWorldAdapter::new(&cache,summon);
+        let (s,p)=(ParallelWorldAdapter::entity_to_handle(summon),ParallelWorldAdapter::entity_to_handle(plain));
+        assert!(adapter.spend_mana(s,Fixed64::from_i32(70),"a28_flame".into()));
+        assert_eq!(adapter.current_mana(s),Fixed64::from_i32(30),"the hook sees its own spend");
+        assert!(!adapter.spend_mana(s,Fixed64::from_i32(40),"a28_flame".into()),"not enough left");
+        adapter.restore_mana(s,Fixed64::from_i32(500));
+        assert_eq!(adapter.current_mana(s),Fixed64::from_i32(100),"capped at the maximum");
+        assert!(!adapter.spend_mana(p,Fixed64::ONE,"x".into()),"no mana, no payment");
+        let deltas:Vec<_>=adapter.finish().into_iter().filter_map(|outcome|match outcome {
+            Outcome::ScriptUnitManaDelta {entity,amount} if entity==summon=>Some(amount),_=>None}).collect();
+        assert_eq!(deltas,vec![Fixed64::from_i32(-70),Fixed64::from_i32(70)]);
     }
 
     /// A point channel with range 0 has no range of its own (the cast's targeting bounds it):

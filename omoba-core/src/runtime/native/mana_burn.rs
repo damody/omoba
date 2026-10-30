@@ -6,6 +6,7 @@ use omoba_sim::Fixed64;
 use serde_json::{json, Value};
 use specs::{Entity, World, WorldExt};
 
+#[cfg(test)]
 use super::comp::Hero;
 
 pub const KEY: &str = "__mana_burn_v1";
@@ -44,8 +45,7 @@ pub fn admitted(world: &World, target: Entity, buff_id: &str, duration: Fixed64,
 /// Removes the mana and returns how much was removed (0 without a pool).
 pub fn apply(world: &mut World, target: Entity, buff_id: &str, duration: Fixed64, payload: &Value) -> Fixed64 {
     let Some(spec) = admitted(world, target, buff_id, duration, payload) else { return Fixed64::ZERO };
-    world.write_storage::<Hero>().get_mut(target).and_then(|hero| hero.mana_pool.as_mut())
-        .and_then(|pool| pool.drain(spec.amount).ok()).unwrap_or(Fixed64::ZERO)
+    super::unit_mana::with_pool_mut(world, target, |pool| pool.drain(spec.amount).ok()).flatten().unwrap_or(Fixed64::ZERO)
 }
 
 /// v3 `set_mana`: sets a unit's mana to a value, clamped to its pool (A34 急速冷卻). Works in any
@@ -101,15 +101,15 @@ pub fn set_admitted(world: &World, target: Entity, buff_id: &str, duration: Fixe
 /// Sets the mana (clamped to the pool's maximum); returns the new value (None without a pool).
 pub fn apply_set(world: &mut World, target: Entity, buff_id: &str, duration: Fixed64, payload: &Value) -> Option<Fixed64> {
     let spec = set_admitted(world, target, buff_id, duration, payload)?;
-    let mut heroes = world.write_storage::<Hero>();
-    let pool = heroes.get_mut(target)?.mana_pool.as_mut()?;
-    let current = pool.current();
-    let value = match spec.expected {
-        None => spec.value,
-        Some(expected) => (current + spec.value - expected).max(Fixed64::ZERO),
-    }.min(pool.maximum());
-    if value < current { pool.drain(current - value).ok()?; } else if value > current { pool.restore(value - current).ok()?; }
-    Some(pool.current())
+    super::unit_mana::with_pool_mut(world, target, |pool| {
+        let current = pool.current();
+        let value = match spec.expected {
+            None => spec.value,
+            Some(expected) => (current + spec.value - expected).max(Fixed64::ZERO),
+        }.min(pool.maximum());
+        if value < current { pool.drain(current - value).ok()?; } else if value > current { pool.restore(value - current).ok()?; }
+        Some(pool.current())
+    }).flatten()
 }
 
 #[cfg(test)]

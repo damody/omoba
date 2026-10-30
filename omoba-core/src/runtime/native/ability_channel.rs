@@ -379,7 +379,7 @@ pub(crate) fn pulse_outcome_allowed(outcome: &super::comp::Outcome) -> bool {
     use super::comp::Outcome as O;
     !matches!(outcome,
         O::ScriptCastTransaction {..} | O::ScriptCastCommitted {..} | O::ScriptManaCommit {..}
-        | O::ScriptSetMana {..} | O::ScriptManaGained {..} | O::ScriptManaSpent {..}
+        | O::ScriptSetMana {..} | O::ScriptManaGained {..} | O::ScriptManaSpent {..} | O::ScriptUnitManaDelta {..}
         | O::ScriptStartCooldown {..} | O::ScriptRecoveryChannel {..} | O::ScriptAbilityChannel {..}
         | O::SpawnSummoned {..} | O::ScriptConsumeCharge {..})
 }

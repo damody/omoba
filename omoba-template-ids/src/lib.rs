@@ -1429,6 +1429,9 @@ pub struct SummonStats {
     pub night_vision_bonus: Fixed64,
     /// Turn speed in radians per second (the source's MovementTurnRate / 0.03 s; π/2 without one).
     pub turn_speed: Fixed64,
+    /// Mana, full at birth (0 = none), and its regeneration per second.
+    pub mana: Fixed64,
+    pub mana_regen: Fixed64,
 }
 
 /// Ability 類型 — `omoba_core::ability_meta::AbilityType` 的 const-friendly

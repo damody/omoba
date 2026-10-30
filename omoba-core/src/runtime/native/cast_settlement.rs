@@ -124,7 +124,7 @@ pub(super) fn admit(world:&World,caster:Entity,skill:&str,rank:u32,faction:Optio
         _ if !summons&&channels==0=>true,
         // A formation may update its caster's resources/facing, but cannot
         // insert arbitrary terrain/life mutations between planned siblings.
-        Outcome::ScriptSetMana {entity,..}|Outcome::ScriptManaGained {entity,..}
+        Outcome::ScriptSetMana {entity,..}|Outcome::ScriptManaGained {entity,..}|Outcome::ScriptUnitManaDelta {entity,..}
             |Outcome::ScriptSetFacing {entity,..}=>*entity==caster,
         Outcome::ScriptManaSpent {entity,amount,ability_id}=>*entity==caster&&*amount>=Fixed64::ZERO&&ability_id==skill,
         Outcome::ScriptStartCooldown {entity,ability_id,duration}=>*entity==caster&&ability_id==skill

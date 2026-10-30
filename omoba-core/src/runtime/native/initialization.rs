@@ -796,6 +796,7 @@ impl StateInitializer {
         ecs.register::<Facing>();
         ecs.register::<FacingBroadcast>();
         ecs.register::<TurnSpeed>();
+        ecs.register::<crate::runtime::native::unit_mana::UnitMana>();
         ecs.register::<ReplicationScope>();
         ecs.register::<VisionSource>();
         ecs.register::<PlacedWard>();

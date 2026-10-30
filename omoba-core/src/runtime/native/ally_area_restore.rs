@@ -110,12 +110,12 @@ pub fn targets(world: &World, spec: &Spec) -> Vec<Entity> {
 pub fn restore_mana(world: &mut World, spec: &Spec) {
     if spec.mana_fraction <= Fixed64::ZERO { return; }
     let targets = targets(world, spec);
-    let mut heroes = world.write_storage::<super::comp::Hero>();
     for entity in targets {
-        if let Some(pool) = heroes.get_mut(entity).and_then(|hero| hero.mana_pool.as_mut()) {
+        // A hero's pool, else a summon's (unit_mana).
+        super::unit_mana::with_pool_mut(world, entity, |pool| {
             let amount = Fixed64::from_raw((i128::from(pool.maximum().raw()) * i128::from(spec.mana_fraction.raw()) / 1024) as i64);
             let _ = pool.restore(amount);
-        }
+        });
     }
 }
 
