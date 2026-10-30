@@ -227,6 +227,11 @@ return function(ctx)
           heal_base = { 60, 90, 150, unit = "heal", source = "kv:average_damage" },
           heal_percent = { 60, 70, 80, unit = "pct", source = "kv:heal_percent" },
           spirit_speed = { 700, unit = "speed", hidden = true, source = "kv:spirit_speed" },
+          chase_turn = { 10, unit = "deg", hidden = true, source = "script:vscripts/heroes/A_Oda/A29_Ishida_Mitsunari.lua:218-221 QAngle(0,±10,0)", note = "chase.turn_degrees" },
+          chase_turn_frames = { 3, unit = "count", hidden = true, source = "script:vscripts/heroes/A_Oda/A29_Ishida_Mitsunari.lua:199 frameCount % 3", note = "chase.turn_every_frames" },
+          chase_snap = { 5, unit = "deg", hidden = true, source = "script:vscripts/heroes/A_Oda/A29_Ishida_Mitsunari.lua:213 angle_difference < 5", note = "chase.snap_degrees" },
+          chase_random_target = { 0.5, unit = "ratio", hidden = true, source = "script:vscripts/heroes/A_Oda/A29_Ishida_Mitsunari.lua:262-272 RandomInt(1,100) > 50", note = "chase.random_retarget_chance" },
+          chase_wander_return = { 0.5, unit = "ratio", hidden = true, source = "script:vscripts/heroes/A_Oda/A29_Ishida_Mitsunari.lua:378 RollPercentage(50)", note = "chase.wander_return_chance" },
           give_up_distance = { 1200, unit = "dist", hidden = true, source = "kv:give_up_distance" },
           max_distance = { 2000, unit = "dist", hidden = true, source = "kv:max_distance" },
           hit_radius = { 300, unit = "dist", hidden = true,
@@ -349,6 +354,8 @@ return function(ctx)
         chase = { speed = "$a29_vulture_swarm.spirit_speed", max_distance = "$a29_vulture_swarm.give_up_distance", anchor = "owner",
           teleport_back_distance = "$a29_vulture_swarm.max_distance",
           reach_radius = "$a29_vulture_swarm.hit_radius", retarget = "owner_target",
+          turn_degrees = "$a29_vulture_swarm.chase_turn", turn_every_frames = "$a29_vulture_swarm.chase_turn_frames", snap_degrees = "$a29_vulture_swarm.chase_snap",
+          random_retarget_chance = "$a29_vulture_swarm.chase_random_target", wander_return_chance = "$a29_vulture_swarm.chase_wander_return",
           on_reach = {
             { op = "if", cond = "not has_state(target, attack_immune) and not has_status(self, a29t_spirit_rest)", actions = {
               { op = "damage", to = "target", source = "owner_of(self)", type = "physical",

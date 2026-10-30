@@ -1198,7 +1198,8 @@ function M.validate_doc(doc, opts)
     if u.inventory_locked ~= nil and type(u.inventory_locked) ~= "boolean" then err(path .. ".inventory_locked", "必須是 boolean") end
     if u.chase ~= nil and fields(u.chase, V.CHASE_FIELDS, path .. ".chase") then
       if u.chase.anchor ~= nil then enum(u.chase.anchor, V.CHASE_ANCHORS, path .. ".chase.anchor") end
-      for _, k in ipairs({ "speed", "leash", "reach_radius", "give_up_after", "max_distance", "teleport_back_distance" }) do
+      for _, k in ipairs({ "speed", "leash", "reach_radius", "give_up_after", "max_distance", "teleport_back_distance",
+        "turn_degrees", "turn_every_frames", "snap_degrees", "random_retarget_chance", "wander_return_chance" }) do
         if u.chase[k] ~= nil then check_expr(u.chase[k], "num", ctx, path .. ".chase." .. k) end
       end
       if u.chase.retarget ~= nil then enum(u.chase.retarget, V.CHASE_RETARGET, path .. ".chase.retarget") end

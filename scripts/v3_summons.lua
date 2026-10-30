@@ -130,6 +130,49 @@ local function mana_into(row, stats, num, no)
   end
 end
 
+-- The ability of `doc` whose program creates template `id`: the host runs a chase unit's
+-- on_reach in that ability's on_status_event (line B E406). -> id, or nil and why
+function M.reach_ability(doc, id)
+  local function creates(x, seen)
+    if type(x) ~= "table" or seen[x] then return false end
+    seen[x] = true
+    if x.op == "create_unit" and x.template == id then return true end
+    for _, v in pairs(x) do if creates(v, seen) then return true end end
+    return false
+  end
+  local found = {}
+  for _, a in ipairs(doc.abilities or {}) do if creates(a, {}) then found[#found + 1] = a.id end end
+  for name, r in pairs(doc.routines or {}) do if creates(r, {}) then return nil, "created in routine " .. name end end
+  if #found == 0 then return nil, "no ability creates it" end
+  if #found > 1 then return nil, "created by " .. table.concat(found, " and ") end
+  return found[1]
+end
+
+-- The host chase table of a chase_target template (line B E406): every number from the document.
+local CHASE_NUMS = { "speed", "max_distance", "teleport_back_distance", "reach_radius", "turn_degrees", "turn_every_frames",
+  "snap_degrees", "random_retarget_chance", "wander_return_chance" }
+local function chase_row(doc, t, num, no)
+  local c = t.chase
+  local known = { on_reach = true, anchor = true, retarget = true, leash = true }
+  for _, k in ipairs(CHASE_NUMS) do known[k] = true end
+  for _, k in ipairs(sorted(c)) do if not known[k] then no("chase." .. k) end end
+  local row = { anchor = c.anchor or "owner", retarget = c.retarget or "none" }
+  if row.anchor ~= "owner" and row.anchor ~= "spawn" then no("chase.anchor:" .. tostring(row.anchor)) end
+  if row.retarget ~= "owner_target" and row.retarget ~= "none" then no("chase.retarget:" .. tostring(row.retarget)) end
+  for _, k in ipairs(CHASE_NUMS) do
+    -- leash is max_distance's old name (v3.md §7)
+    local ref = c[k]; if k == "max_distance" and ref == nil then ref = c.leash end
+    if ref == nil then no("chase." .. k .. " missing") else row[k] = num(ref, "chase." .. k) end
+  end
+  if row.turn_every_frames and math.type(row.turn_every_frames) ~= "integer" then
+    local n = math.tointeger(row.turn_every_frames)
+    if n then row.turn_every_frames = n else no("chase.turn_every_frames is not a whole number") end
+  end
+  local ability, why = M.reach_ability(doc, t.id)
+  if ability then row.reach_ability = ability else no("chase reach ability: " .. why) end
+  return row
+end
+
 -- A template with no attack that is a dummy (`ai = "none"` or tag `dummy`): the host's dummy body
 -- (line B ee50b7e7). Its life and defenses (b8a572ea: a dummy with life can be destroyed), vision
 -- and owner rule come from the document.
@@ -139,13 +182,16 @@ local function dummy_rows(doc, t, value)
   local known = { id = true, source_id = true, values = true, text = true, notes = true, provenance = true, quirks = true,
     max_level = true, attack = true, vision = true, owner_death = true, ai = true, tags = true, passive = true, stats = true,
     statuses = true, flying = true }
+  -- a chase_target dummy moves by its chase table and acquires within acquisition_range (E406)
+  if t.ai == "chase_target" then known.chase = true; known.acquisition_range = true end
   for _, k in ipairs(sorted(t)) do if not known[k] then no(k .. " on a dummy") end end
+  if t.ai == "chase_target" and type(t.chase) ~= "table" then no("ai chase_target without a chase table") end
   local sp = statuses_problem(t); if sp then no(sp) end
   local stats = t.stats or {}
   for _, k in ipairs(sorted(stats)) do
     if k ~= "hp" and k ~= "hp_regen" and k ~= "armor" and k ~= "magic_resist" and k ~= "mana" and k ~= "mana_regen" then no("stats." .. k .. " on a dummy") end
   end
-  if t.ai ~= nil and t.ai ~= "none" then no("ai:" .. tostring(t.ai) .. " on a dummy") end
+  if t.ai ~= nil and t.ai ~= "none" and t.ai ~= "chase_target" then no("ai:" .. tostring(t.ai) .. " on a dummy") end
   for _, tag in ipairs(t.tags or {}) do if tag ~= "dummy" and tag ~= "summon" then no("tag:" .. tag) end end
   if t.owner_death ~= nil and t.owner_death ~= "persist" and t.owner_death ~= "expire" then no("owner_death:" .. tostring(t.owner_death)) end
   local p = t.passive or {}
@@ -170,6 +216,13 @@ local function dummy_rows(doc, t, value)
     row.magic_resistance = num(stats.magic_resist, "stats.magic_resist")
     mana_into(row, stats, num, no)
     if t.flying ~= nil and type(t.flying) ~= "boolean" then no("flying of a " .. type(t.flying)) elseif t.flying then row.flying = true end
+    if t.ai == "chase_target" and type(t.chase) == "table" then
+      row.immobile, row.ai = nil, "chase_target"
+      row.chase = chase_row(doc, t, num, no)
+      local acq = num(t.acquisition_range, "acquisition_range")
+      if acq and (acq < 0 or acq > HOST_RANGE_MAX) then no("acquisition_range " .. acq .. " outside 0.." .. HOST_RANGE_MAX)
+      elseif acq then row.acquisition_range = acq end
+    end
     rows[#rows + 1] = row
   end
   local seen, list = {}, {}
@@ -183,7 +236,7 @@ function M.template_rows(doc, t)
   local function no(what) problems[#problems + 1] = what end
   local value = resolver(doc, t)
   local ranks = t.max_level or 1
-  if (not t.attack or t.attack.kind == "none") and (t.ai == "none" or has(t.tags, "dummy")) then return dummy_rows(doc, t, value) end
+  if (not t.attack or t.attack.kind == "none") and (t.ai == "none" or t.ai == "chase_target" or has(t.tags, "dummy")) then return dummy_rows(doc, t, value) end
   local known = { id = true, source_id = true, values = true, text = true, notes = true, provenance = true, quirks = true,
     max_level = true, stats = true, attack = true, bounty = true, vision = true, collision_radius = true,
     acquisition_range = true, owner_death = true, ai = true, tags = true, passive = true, statuses = true, turn_rate = true, flying = true }

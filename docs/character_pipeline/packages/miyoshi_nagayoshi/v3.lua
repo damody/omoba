@@ -38,6 +38,11 @@ return function(ctx)
           slow_max = { expr = "$slow_step * $slow_max_stacks", unit = "pct", source = "derived" },
           slow_duration = { 4, unit = "s", source = "kv:modifier_B10W_slow Duration" },
           spirit_speed = { 700, unit = "speed", hidden = true, source = "kv:spirit_speed" },
+          chase_turn = { 10, unit = "deg", hidden = true, source = "script:vscripts/heroes/B_Unified/B10.lua:230-233 QAngle(0,±10,0)", note = "chase.turn_degrees" },
+          chase_turn_frames = { 2, unit = "count", hidden = true, source = "script:vscripts/heroes/B_Unified/B10.lua:211 frameCount % 2", note = "chase.turn_every_frames" },
+          chase_snap = { 5, unit = "deg", hidden = true, source = "script:vscripts/heroes/B_Unified/B10.lua:225 angle_difference < 5", note = "chase.snap_degrees" },
+          chase_random_target = { 0.5, unit = "ratio", hidden = true, source = "script:vscripts/heroes/B_Unified/B10.lua:273-283 RandomInt(1,100) > 50", note = "chase.random_retarget_chance" },
+          chase_wander_return = { 0.5, unit = "ratio", hidden = true, source = "script:vscripts/heroes/B_Unified/B10.lua:409 RollPercentage(50)", note = "chase.wander_return_chance" },
           give_up_distance = { 1000, unit = "dist", hidden = true, source = "kv:give_up_distance" },
           max_distance = { 1600, unit = "dist", hidden = true, source = "kv:max_distance",
             note = "亡靈與目前目標點的距離超過這個值就瞬移回長慶（chase.teleport_back_distance）" },
@@ -345,6 +350,8 @@ return function(ctx)
         chase = { speed = "$b10_wrath_of_the_dead.spirit_speed", max_distance = "$b10_wrath_of_the_dead.give_up_distance", anchor = "owner",
           teleport_back_distance = "$b10_wrath_of_the_dead.max_distance",
           reach_radius = "$b10_wrath_of_the_dead.hit_radius", retarget = "owner_target",
+          turn_degrees = "$b10_wrath_of_the_dead.chase_turn", turn_every_frames = "$b10_wrath_of_the_dead.chase_turn_frames", snap_degrees = "$b10_wrath_of_the_dead.chase_snap",
+          random_retarget_chance = "$b10_wrath_of_the_dead.chase_random_target", wander_return_chance = "$b10_wrath_of_the_dead.chase_wander_return",
           on_reach = {
             { op = "if", cond = "not has_state(target, attack_immune) and not has_status(self, b10w_spirit_rest)", actions = {
               { op = "call", routine = "b10w_spirit_hit", args = { owner = "owner_of(self)", victim = "target" } },

@@ -141,8 +141,11 @@ V.ILLUSION_ITEMS = set({ "same", "fresh", "none" })
 -- chase_target (v3.2): runs at the unit given by create_unit.ai_target (原作召喚物追擊 AI：A29T、B10W、C16R)
 V.UNIT_AI = set({ "none", "follow_owner", "guard", "attack_move", "owner_controlled", "idle", "wander", "chase_target" })
 -- teleport_back_distance: farther than this from its current target point, the unit teleports to the anchor
+-- turn_degrees every turn_every_frames physics frames (0.03 s), straight at it within snap_degrees;
+-- random_retarget_chance: a random candidate instead of the preferred one at each acquisition;
+-- wander_return_chance: back to the anchor (else acquire again) on reaching a wander point
 V.CHASE_FIELDS = set({ "speed", "leash", "on_reach", "reach_radius", "retarget", "give_up_after", "max_distance", "anchor",
-  "teleport_back_distance" })
+  "teleport_back_distance", "turn_degrees", "turn_every_frames", "snap_degrees", "random_retarget_chance", "wander_return_chance" })
 -- max_distance is measured from the anchor: the owner (default) or where the unit was created
 V.CHASE_ANCHORS = set({ "owner", "spawn" })
 V.CHASE_RETARGET = set({ "none", "nearest_enemy", "owner_target", "attacker" })

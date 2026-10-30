@@ -1838,14 +1838,18 @@ function Gen:action(a, ctx, ind)
         rust_str(who), rust_str(self.cur_path or "?")):format(
         kind, a.require_source_alive ~= false and "true" or "false", no_amp and "true" or "false")) .. line("}")
   elseif op == "heal" or op == "restore_mana" then
-    -- the host heals with the caster as the healer: `self` is the caster in a passive or a cast
-    if a.source ~= nil and a.source ~= "caster" and not (a.source == "self" and self.entry) then
-      self:block("action:" .. op .. ".source:" .. tostring(a.source))
-    end
+    -- the host heals with the caster as the healer: `self` is the caster in a passive or a cast;
+    -- another `source` (a summon's owner, A29T) is the healer for this one heal
     local to = self:value(a.to, ctx, "unit")
     local amount = self:value(a.amount, ctx, "num")
-    return line("{") .. line("    let to = " .. to .. ";") .. line("    let amount = " .. amount .. ";")
-      .. line("    cx." .. op .. "(to, amount)?;") .. line("}")
+    local head = line("{") .. line("    let to = " .. to .. ";") .. line("    let amount = " .. amount .. ";")
+    if a.source == nil or a.source == "caster" or (a.source == "self" and self.entry) then
+      return head .. line("    cx." .. op .. "(to, amount)?;") .. line("}")
+    end
+    local source = self:value(a.source, ctx, "unit")
+    return head .. line("    let source = " .. source .. ";") .. line("    let caster = cx.caster;")
+      .. line("    cx.caster = source;") .. line("    let r = cx." .. op .. "(to, amount);")
+      .. line("    cx.caster = caster;") .. line("    r?;") .. line("}")
   elseif op == "cue" then
     self.cues[a.id] = true
     -- presentation never fails a program: a unit without a position shows nothing
@@ -2121,6 +2125,11 @@ function Gen:action(a, ctx, ind)
       local why = self.opts.summon_problems[a.template]
       if why then for _, p in ipairs(why) do self:block("unit_template " .. p) end
       else self:block("template:" .. tostring(a.template) .. " is not a content summon (templates/summons.lua)") end
+    end
+    -- a chase unit's on_reach runs in this entry's on_status_event (CHASE_REACH, line B E406)
+    if t and t.def.chase and t.def.chase.on_reach then
+      if not self.entry then self:block("create_unit of a chase_target template in a routine")
+      else self.chase_reach = self.chase_reach or {}; self.chase_reach[a.template] = t end
     end
     local template = ranked and ("&format!(\"" .. a.template .. "_r{}\", cx.rank.clamp(1, " .. t.def.max_level .. "))") or rust_str(a.template)
     -- control: "ai" (default) and "owner" the host summon; "none" also refuses its owner's orders
@@ -3190,6 +3199,15 @@ local function emit_entry(m, o, opts, status_problems)
     end
   end
 
+  -- a chase unit this entry creates reached its target (status_event CHASE_REACH 15, line B E406):
+  -- `self` is the unit, `target` what it chased, the caster its owner at this entry's rank
+  for _, tid in ipairs(sorted_keys(g.chase_reach or {})) do
+    local to = g.chase_reach[tid]
+    local fname = "ch_" .. tid .. "_reach"
+    local body = g:actions(to.def.chase.on_reach, { owner = to, scope = scope_child(nil), event = false }, "    ")
+    fns[#fns + 1] = string.format("pub(crate) fn %s(cx: &mut Cx<'_, '_>) -> Res {\n%s    Ok(())\n}\n", fname, body)
+    status_arms[#status_arms + 1] = { status = tid, kind = 15, fn = fname }
+  end
   -- the AbilityScript
   for _, a in ipairs(auras) do fns[#fns + 1] = a.fn end
   local blockers = sorted_keys(g.blockers)
@@ -3338,6 +3356,7 @@ local function emit_entry(m, o, opts, status_problems)
       [11] = "cx.event_target = event.other; cx.event_amount = event.amount; cx.event_damage_kind = event.damage_kind;",
       [13] = "cx.event_attacker = event.other; cx.event_amount = event.amount;",
       [14] = "cx.event_attacker = event.other; cx.event_amount = event.amount;",
+      [15] = "cx.event_target = event.other; cx.target = Target::Entity(event.other);",
     }
     local arms, pre_arms = {}, {}
     for _, key in ipairs(order) do

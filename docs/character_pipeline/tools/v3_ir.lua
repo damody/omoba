@@ -528,7 +528,8 @@ function M.compile_doc(doc, opts)
       end
       if type(u.chase) == "table" then
         out.chase = { anchor = u.chase.anchor, retarget = u.chase.retarget }
-        for _, k in ipairs({ "speed", "leash", "reach_radius", "give_up_after", "max_distance", "teleport_back_distance" }) do
+        for _, k in ipairs({ "speed", "leash", "reach_radius", "give_up_after", "max_distance", "teleport_back_distance",
+        "turn_degrees", "turn_every_frames", "snap_degrees", "random_retarget_chance", "wander_return_chance" }) do
           if u.chase[k] ~= nil then out.chase[k] = expr(u.chase[k], ctx) end
         end
         if u.chase.on_reach then

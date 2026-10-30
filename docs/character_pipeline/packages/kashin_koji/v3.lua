@@ -149,6 +149,11 @@ return function(ctx)
           heal_base = { 84, unit = "heal", source = "kv:average_damage" },
           heal_percent = { 25, unit = "pct", source = "kv:heal_percent" },
           spirit_speed = { 700, unit = "speed", hidden = true, source = "kv:spirit_speed" },
+          chase_turn = { 10, unit = "deg", hidden = true, source = "script:vscripts/heroes/C_Neutral/C16.lua:261-264 QAngle(0,±10,0)", note = "chase.turn_degrees" },
+          chase_turn_frames = { 3, unit = "count", hidden = true, source = "script:vscripts/heroes/C_Neutral/C16.lua:242 frameCount % 3", note = "chase.turn_every_frames" },
+          chase_snap = { 5, unit = "deg", hidden = true, source = "script:vscripts/heroes/C_Neutral/C16.lua:256 angle_difference < 5", note = "chase.snap_degrees" },
+          chase_random_target = { 0.5, unit = "ratio", hidden = true, source = "script:vscripts/heroes/C_Neutral/C16.lua:305-315 RandomInt(1,100) > 50", note = "chase.random_retarget_chance" },
+          chase_wander_return = { 0.5, unit = "ratio", hidden = true, source = "script:vscripts/heroes/C_Neutral/C16.lua:419 RollPercentage(50)", note = "chase.wander_return_chance" },
           give_up_distance = { 1200, unit = "dist", hidden = true, source = "kv:give_up_distance" },
           max_distance = { 800, unit = "dist", hidden = true, source = "kv:max_distance",
             note = "魂體與目前目標點的距離超過這個值就瞬移回果心居士（chase.teleport_back_distance）" },
@@ -422,6 +427,8 @@ return function(ctx)
         chase = { speed = "$c16_wandering_souls.spirit_speed", max_distance = "$c16_wandering_souls.give_up_distance", anchor = "owner",
           teleport_back_distance = "$c16_wandering_souls.max_distance",
           reach_radius = "$c16_wandering_souls.hit_radius", retarget = "owner_target",
+          turn_degrees = "$c16_wandering_souls.chase_turn", turn_every_frames = "$c16_wandering_souls.chase_turn_frames", snap_degrees = "$c16_wandering_souls.chase_snap",
+          random_retarget_chance = "$c16_wandering_souls.chase_random_target", wander_return_chance = "$c16_wandering_souls.chase_wander_return",
           on_reach = {
             { op = "if", cond = "not has_state(target, attack_immune) and not has_status(self, c16r_spirit_rest)", actions = {
               { op = "damage", to = "target", source = "owner_of(self)", type = "physical",
