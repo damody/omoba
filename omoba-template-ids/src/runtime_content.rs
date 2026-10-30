@@ -593,6 +593,7 @@ impl RuntimeContent {
                 projectile_speed: fixed64(if entry.projectile_speed > 0.0 { entry.projectile_speed } else { 900.0 }),
                 hp_regen: fixed64(entry.hp_regen),
                 night_vision_bonus: fixed64(if entry.night_vision_radius > 0.0 { entry.night_vision_radius - entry.vision_radius } else { 0.0 }),
+                turn_speed: fixed64(entry.turn_speed()),
             })))
         })?;
         let summon_display = build_indexed(&manifest.summons, "summon", |raw, entry| {

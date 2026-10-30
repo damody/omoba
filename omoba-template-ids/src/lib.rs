@@ -1427,6 +1427,8 @@ pub struct SummonStats {
     pub hp_regen: Fixed64,
     /// Night sight minus day sight (0 when the template gives one sight).
     pub night_vision_bonus: Fixed64,
+    /// Turn speed in radians per second (the source's MovementTurnRate / 0.03 s; π/2 without one).
+    pub turn_speed: Fixed64,
 }
 
 /// Ability 類型 — `omoba_core::ability_meta::AbilityType` 的 const-friendly

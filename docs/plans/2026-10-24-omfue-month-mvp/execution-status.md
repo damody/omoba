@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 線 B：召喚物模板 turn_rate（照原作 MovementTurnRate），攻擊彈道速度用模板值
+
+- 召喚物模板新增 `turn_rate`，照原作的 MovementTurnRate（每 0.03 秒轉幾弧度）。`SummonStats.turn_speed` = turn_rate / 0.03 rad/s，0 沿用引擎預設的 π/2 rad/s，驗證範圍 0..=10。召喚物出生時掛上 `TurnSpeed`，移動時依此轉向。
+- 召喚物的 `TAttack` 彈道速度改用模板的 `projectile_speed`（先前固定 900）。
+- 測試：template-ids 112 項（含 turn_speed 換算與驗證）、omoba-core lib 1444 項（`summon_settlement_commits_once...` 檢查 TurnSpeed 與彈道速度）。
+
 ## 2026-10-30 線 B：item passives 改在 tick 開頭結算，replica 與權威端的 attribute_hp 一致（E353）
 
 - 工作線 C 的 1+9 demo 兩隊都出現 `attribute_hp` mismatch，權威端多一件道具的力量 HP。原因是權威端在 shop 系統購買後，同一 tick 就結算 item passives，而 replica 要到 step 之後才收到新的 Inventory。

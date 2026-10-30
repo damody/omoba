@@ -1759,6 +1759,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \tprojectile_speed: {},\n\
              \thp_regen: {},\n\
              \tnight_vision_bonus: {},\n\
+             \tturn_speed: {},\n\
              }};\n",
             cname,
             fixed64_lit(e.hp),
@@ -1786,6 +1787,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             fixed64_lit(if e.projectile_speed > 0.0 { e.projectile_speed } else { 900.0 }),
             fixed64_lit(e.hp_regen),
             fixed64_lit(if e.night_vision_radius > 0.0 { e.night_vision_radius - e.vision_radius } else { 0.0 }),
+            fixed64_lit(e.turn_speed()),
         ));
     }
     out.push('\n');

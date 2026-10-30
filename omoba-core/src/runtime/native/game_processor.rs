@@ -4430,10 +4430,12 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     world.write_storage::<CProperty>().insert(entity,CProperty {hp:life,mhp:life,
         msd:stats.move_speed,def_physic:stats.armor,def_magic:stats.magic_resistance})?;
     if !stats.dummy {
-        world.write_storage::<TAttack>().insert(entity,TAttack::new(damage,stats.attack_interval,stats.attack_range,Fixed64::from_i32(900)))?;
+        world.write_storage::<TAttack>().insert(entity,TAttack::new(damage,stats.attack_interval,stats.attack_range,stats.projectile_speed))?;
     }
     world.write_storage::<Facing>().insert(entity,facing)?;
     world.write_storage::<FacingBroadcast>().insert(entity,FacingBroadcast(None))?;
+    // The template's MovementTurnRate (π/2 rad/s without one, the engine default).
+    world.write_storage::<TurnSpeed>().insert(entity,TurnSpeed(stats.turn_speed))?;
     world.write_storage::<CollisionRadius>().insert(entity,CollisionRadius(stats.collision_radius))?;
     if stats.vision_radius>Fixed64::ZERO {
         world.write_storage::<VisionSource>().insert(entity,VisionSource {

@@ -1772,6 +1772,17 @@ pub(crate) struct SummonEntry {
     /// Sight at night; 0 = its `vision_radius` day and night.
     #[serde(default)]
     pub(crate) night_vision_radius: f32,
+    /// The source's MovementTurnRate (radians per 0.03 s); 0 = the engine's default turn speed.
+    #[serde(default)]
+    pub(crate) turn_rate: f32,
+}
+
+impl SummonEntry {
+    /// Turn speed in radians per second: MovementTurnRate turns that many radians every 0.03 s;
+    /// 0 keeps the engine default (π/2 rad/s, `TurnSpeed::default`).
+    pub(crate) fn turn_speed(&self) -> f32 {
+        if self.turn_rate > 0.0 { self.turn_rate / 0.03 } else { std::f32::consts::FRAC_PI_2 }
+    }
 }
 
 pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),String> {
@@ -1791,6 +1802,9 @@ pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),Stri
         }
         if [entry.hp_regen,entry.night_vision_radius].iter().any(|value|!value.is_finite()||!(0.0..=10_000.0).contains(value)) {
             return Err(format!("summon {} has an invalid hp_regen or night_vision_radius",entry.id));
+        }
+        if !entry.turn_rate.is_finite() || !(0.0..=10.0).contains(&entry.turn_rate) {
+            return Err(format!("summon {} has an invalid turn_rate",entry.id));
         }
         if [entry.acquisition_range,entry.projectile_speed].iter().any(|value|!value.is_finite()||!(0.0..=20_000.0).contains(value)) {
             return Err(format!("summon {} has an invalid acquisition range or projectile speed",entry.id));
@@ -1842,6 +1856,10 @@ fn a_dummy_summon_is_bodiless_and_immobile() {
     let mut attacking=dummy.clone();attacking.attack_interval=1.0;
     let mut doubled=dummy.clone();doubled.invulnerable=true;
     for entry in [moving,blocking,attacking,doubled] {assert!(validate_summon_navigation(&[entry]).is_err());}
+    // MovementTurnRate 1.5 turns 1.5 rad every 0.03 s (50 rad/s); none keeps π/2 rad/s.
+    let mut turning=dummy.clone();turning.turn_rate=1.5;
+    assert!((turning.turn_speed()-50.0).abs()<1e-3 && dummy.turn_speed()==std::f32::consts::FRAC_PI_2);
+    turning.turn_rate=11.0;assert!(validate_summon_navigation(&[turning]).is_err());
 }
 
 pub(crate) use omoba_content_model::AbilityDefinition as AbilityEntry;

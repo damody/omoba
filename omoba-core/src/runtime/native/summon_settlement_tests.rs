@@ -45,6 +45,10 @@ fn summon_settlement_commits_once_and_duplicate_preserves_the_existing_body() {
         if source==crate::runtime::canonical_entity_id(owner)));
     assert_eq!(world.read_storage::<PlayerOwner>().get(entity).unwrap().player_id,7);
     assert_eq!(world.read_storage::<SummonedUnit>().get(entity).unwrap().summoner,owner);
+    // The body takes the template's turn speed and attack projectile speed.
+    let stats=*omoba_template_ids::summon_by_name("saika_gunner").and_then(omoba_template_ids::active_summon_stats).unwrap();
+    assert_eq!(world.read_storage::<TurnSpeed>().get(entity).unwrap().0,stats.turn_speed);
+    assert_eq!(world.read_storage::<TAttack>().get(entity).unwrap().bullet_speed,stats.projectile_speed);
     let events=world.write_resource::<ScriptEventQueue>().drain();
     assert_eq!(events.len(),1);assert!(matches!(events[0],ScriptEvent::Spawn {e} if e==entity));
     world.write_storage::<CProperty>().get_mut(entity).unwrap().hp=Fixed64::ONE;
