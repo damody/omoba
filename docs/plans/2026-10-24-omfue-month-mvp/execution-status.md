@@ -995,6 +995,12 @@
 - 2026-10-30 線 A：產生器支援一般光環：`passive.aura` 學會時 `cx.emit_aura`（每級重發，帶等級）、`status.aura` 在狀態開始時發（`requires` 綁該狀態）；`on_aura` 依 types／flags／where 篩 host 給的接收者，套狀態 `linger + AURA_PERIOD`（每次脈衝刷新，keep／replace 也刷新）。發射器名稱帶設立者（`aura_key`／`aura_source`），所以狀態以施加者身分套上。kit 新增 `Cx::admits`。knockback 距離 0 加高度不再擋。覆蓋 256→268／447。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
+## 2026-10-30（conformance：士氣、炎之軌跡、第一勇士、爆裂箭換上比對）
+
+- 基準是目前的 live，和上一輪 live 相比 0 差異。
+- b29_morale_boost：0 退步（+8 通過）；b04_flame_trail_dash：0 退步（+20 通過）。可以換上，已通知 A。
+- b06_first_warrior：每次施放都被拒（CAST_REJECTED），54 個情境退步。c15_burst_arrow：火焰地帶與燒傷從沒套上，44 個情境由 pass 變 unsupported。兩招維持手寫，交 A。
+
 ## 2026-10-30（conformance：harness 兩個通用誤判修正、B08／A07／B06／震地換上比對；E288）
 
 - harness：條件式的 on_cast 傷害不再算成施放後才結算；CastTrace 記到拒絕的施放不再判為接受（E288，已放回 live 並 commit）。
