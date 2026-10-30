@@ -16,6 +16,7 @@ local seen = M.parse(table.concat({
   "LogTemp: Display: OM_BUFF buff=h01w_guard unit=12 route=status_cue",
   "LogTemp: Display: OM_BUFF buff=h01w_guard unit=12 route=aura",
   "LogTemp: Display: OM_CUE ability=h01_guard cue=cast unit=12 art=style",
+  "LogTemp: Display: OM_BUFF buff=stun unit=40 route=ring",
 }, "\n"))
 ok(seen.cue.h01_strike.effect == 2 and seen.cue.h01_strike.placeholder == 1 and seen.cue.h01_strike.cues.h01q_spark == 1, "cue plays counted by art and id")
 ok(seen.cue.h01_ghost.unresolved == 1, "an unknown cue id is counted as unresolved")
@@ -29,7 +30,7 @@ local source_id, rows = M.expected("hero_one",
   { abilities = {
     { id = "h01_strike", hero = "H01" },
     { id = "h01_guard", hero = "H01", v3 = { statuses = { { id = "h01w_guard" }, { id = "h01w_secret", visibility = "hidden" } } } },
-    { id = "h01_ghost", hero = "H01" },
+    { id = "h01_ghost", hero = "H01", v3 = { statuses = { { id = "h01e_stun", runtime_id = "stun" }, { id = "h01e_mark", runtime_id = "h01_ghost:{caster}" } } } },
     { id = "h01_idle", hero = "H01" },
     { id = "h02_other", hero = "H02" },
   } },
@@ -42,6 +43,8 @@ ok(#rows[2].statuses == 1 and rows[2].statuses[1].cue == "h01w_ring", "hidden st
 local md, defects = M.render("hero_one", source_id, rows, seen)
 ok(md:find("`h01_strike` | effect 2、placeholder 1 | 1（預期 1 個）", 1, true), "strike row")
 ok(md:find("h01w_guard：aura 1、status_cue 1", 1, true), "status row lists routes")
+ok(md:find("h01e_stun（stun）：ring 1", 1, true), "a shared runtime status is matched by its shared id")
+ok(md:find("h01e_mark：0", 1, true), "a per-caster runtime id is not a shared id")
 ok(#defects == 2 and defects[1]:find("h01_ghost", 1, true) and defects[2]:find("h01_idle", 1, true), "unresolved cue and silent ability are defects")
 ok(md:find("擊退拋物線（全局）：1 次，最高 180 cm", 1, true), "arc summary")
 ok(not pcall(M.expected, "nobody", { abilities = {} }, { entries = {} }, {}, { statuses = {} }), "unknown hero refused")

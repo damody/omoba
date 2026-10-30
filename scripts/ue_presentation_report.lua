@@ -75,7 +75,9 @@ function M.expected(hero_id, catalog, icons, cast_cues, status_cues)
         list[#list + 1] = cue.cue
       end
       for _, s in ipairs(a.v3 and a.v3.statuses or {}) do
-        if s.visibility ~= "hidden" then row.statuses[#row.statuses + 1] = { id = s.id, cue = status_cues.statuses[s.id] } end
+        -- A status applied as a shared runtime status (`stun`) reaches UE under that shared id.
+        local shared = s.runtime_id and not s.runtime_id:find("[:{]") and s.runtime_id or nil
+        if s.visibility ~= "hidden" then row.statuses[#row.statuses + 1] = { id = s.id, shared = shared, cue = status_cues.statuses[s.id] } end
       end
       rows[#rows + 1] = row
     end
@@ -105,11 +107,11 @@ function M.render(hero_id, source_id, rows, seen)
     for _, s in ipairs(r.statuses) do
       local routes, shown = {}, 0
       for _, route in ipairs({ "aura", "status_cue", "ring", "channel", "off" }) do
-        local n = (seen.buff[s.id] or {})[route]
+        local n = (seen.buff[s.id] or (s.shared and seen.buff[s.shared]) or {})[route]
         if n then routes[#routes + 1] = route .. " " .. n; if route ~= "off" then shown = shown + n end end
       end
       status_total = status_total + shown
-      statuses[#statuses + 1] = s.id .. "：" .. (#routes > 0 and table.concat(routes, "、") or "0")
+      statuses[#statuses + 1] = s.id .. (s.shared and ("（" .. s.shared .. "）") or "") .. "：" .. (#routes > 0 and table.concat(routes, "、") or "0")
     end
     local verdict = "有呈現"
     if cue_row and cue_row.unresolved then
