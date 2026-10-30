@@ -278,7 +278,7 @@ return function(ctx)
               on_attack_hit = { { op = "cue", id = "b06t_hit_shake", at = "event.target" } },
             },
             notes = "原作 modifier_B06T：BASE_ATTACK_TIME_CONSTANT 0.9、HEALTH_BONUS、BASEATTACK_BONUSDAMAGE（白字）、MOVESPEED_BONUS_PERCENTAGE；OnDeath 移除自己；沒寫 IsPurgable，依 §12.3 暫定 basic。" },
-          { id = "b06t_aura", runtime_id = "__aura_emitter:b06_first_warrior_haste:{caster}", duration = "$aura_duration", stacking = "refresh", dispel = "basic", visibility = "hidden",
+          { id = "b06t_aura", runtime_id = "b06_first_warrior_aura:{caster}", duration = "$aura_duration", stacking = "refresh", dispel = "basic", visibility = "hidden",
             reveal = "public",
             aura = { radius = "$aura_radius", team = "ally", types = BASIC, include_self = true,
               status = "b06t_haste", linger = "$aura_linger" },

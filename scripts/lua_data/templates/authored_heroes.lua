@@ -7641,7 +7641,7 @@ local data = {
             },
             visibility = "buff",
           },
-          { dispel = "basic", id = "b06t_aura", reveal = "public", runtime_id = "__aura_emitter:b06_first_warrior_haste:{caster}", visibility = "hidden" },
+          { dispel = "basic", id = "b06t_aura", reveal = "public", runtime_id = "b06_first_warrior_aura:{caster}", visibility = "hidden" },
           {
             dispel = "basic",
             id = "b06t_haste",

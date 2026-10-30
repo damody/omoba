@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E297 產生的 B06 第一武士施放全被退回：狀態 runtime_id 借用了 host 封包前綴（2026-10-30，工作線 A）
+
+- **現象**：在影子把 b06_first_warrior 換成產生的 Rust 後，conformance 每次施放都是 CAST_REJECTED，不扣法力，也不進冷卻；手寫 handler 正常。
+- **根因**：v3 的 `b06t_aura` 狀態為了對齊舊 handler，把 runtime_id 寫成 `__aura_emitter:b06_first_warrior_haste:{caster}`。產生的程式照這個 id 套狀態，cast settlement 看到 `__aura_emitter:` 前綴，就當成光環發射器封包驗證（`aura_emitter::admitted`）。狀態的 payload 不是發射器格式，所以整筆交易被退回。B 的新光環也會因為 `requires` 以 `__` 開頭而判為無效。
+- **通用修正**：內容改成一般的 id `b06_first_warrior_aura:{caster}`（v3.lua 和 authored_heroes.lua 同一個欄位）。光環本身改由 v3 `status.aura` 走 emit_aura／on_aura，不再需要假扮成舊發射器。
+- **以後如何避免**：v3 狀態的 runtime_id 不得使用 host 封包的前綴（`__aura:`、`__aura_emitter:`，以及 cast_settlement admit 會檢查的其他 BUFF／PREFIX）。只有刻意要讓 host 讀取的 host 狀態名稱可以用 `__`，例如 `__spell_guard_active`。換上產生的技能前，在影子把該招對到 generated，跑那位英雄的 conformance。
+
 ## E296 client runtime 商店測試寫死「只有一個重複材料配方、catalog 4」，M7 道具內容一加就失敗（2026-10-30，e187 遊戲模式 session；已放回 live）
 
 - **現象**：`owner_shop_ready_keeps_epoch_slots_and_catalog_only_buy_wire` 失敗：測試寫死重複材料配方只有 1 個（catalog 4、兩把 moba_sword），M7 道具內容現在有 3 個。
