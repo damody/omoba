@@ -58,6 +58,14 @@ for _,hero in ipairs(spotlight.HEROES) do
   local script=json.decode(json.encode(spotlight.script(package)))
   assert(script.schema==1 and script.hero==hero and #script.slots==#package.slots)
 end
+-- A v3-only package (no abilities.lua) takes its slots from the content catalog, in slot order.
+local keiji=spotlight.load_package(b.root,'maeda_keiji')
+assert(keiji.hero_name=='前田慶次' and #keiji.slots==4,'v3 package slots')
+for index,slot in ipairs(keiji.slots) do assert(slot.slot==index-1 and slot.name~='' and slot.line~='') end
+assert(keiji.slots[1].id=='c05_matsukaze' and keiji.slots[1].team=='self' and keiji.slots[1].kind=='active')
+assert(keiji.slots[3].kind=='passive' and keiji.slots[3].team=='self')
+assert(keiji.slots[4].kind=='ultimate' and keiji.slots[4].team=='enemy')
+
 local saika=spotlight.load_package(b.root,'saika_magoichi')
 assert(saika.hero_name=='雜賀孫市' and saika.slots[1].name=='狙擊模式' and saika.slots[2].team=='ally' and saika.slots[3].kind=='passive')
 assert(not pcall(spotlight.load_package,b.root,'missing_hero'))

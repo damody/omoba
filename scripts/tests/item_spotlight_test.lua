@@ -41,4 +41,7 @@ local recipe = assert(load(text))()
 ok(recipe.players[1].hero == "oichi" and recipe.players[2].hero == "x", "the demonstrator plays the chosen hero")
 ok(recipe.showcase.start_items["1"][1] == "bomb" and recipe.showcase.start_items["1"][2] == "drink", "start items by authority id")
 ok(recipe.showcase.start_level == 16, "the rest of the stage is kept")
+-- Every bot kind of the v3 vocabulary has an aim (hero spotlights read it too).
+local kinds = dofile("docs/character_pipeline/tools/v3_bot.lua").KINDS
+for kind in pairs(kinds) do ok(M.AIM[kind] ~= nil, "the spotlight aims bot kind " .. kind) end
 print("item_spotlight_test: " .. checks .. " checks passed")

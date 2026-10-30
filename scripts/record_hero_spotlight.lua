@@ -106,9 +106,41 @@ function M.first_line(text,max,min)
   return table.concat(chars,'',1,max-1)..'…'
 end
 
+-- A package that is only a v3 document (heroes promoted from scripts/v3_test_heroes.lua) has no
+-- abilities.lua or character.lua: its slots come from the content catalog (the hero row's ability
+-- order, each ability's name, description and type; its team from the v3 bot kind, as the item
+-- spotlight aims items).
+function M.load_v3_package(root,hero)
+  local ctx=require('content_builder').new(path.join(root,'scripts','lua_data'))
+  local row
+  for _,entry in ipairs(ctx.include('templates/heroes.lua')) do if entry.id==hero then row=entry end end
+  assert(row,'hero '..hero..' is not in the content catalog')
+  local by_id={}
+  for _,ability in ipairs(ctx.include('templates/abilities.lua')) do by_id[ability.id]=ability end
+  ITEM_SPOTLIGHT_AS_MODULE=true
+  local aim=require('item_spotlight').AIM
+  local slots={}
+  for index,id in ipairs(assert(row.abilities,'hero without abilities')) do
+    local ability=assert(by_id[id],'ability '..id..' of '..hero..' is not in the content catalog')
+    local kind=ability.ability_type
+    if kind~='passive' and kind~='toggle' and kind~='ultimate' then kind='active' end
+    local bot=ability.v3 and ability.v3.bot
+    local team='self'
+    if kind~='passive' then
+      local target=bot and aim[bot.kind]
+      assert(target,('ability %s has no bot kind the spotlight can aim (%s)'):format(id,tostring(bot and bot.kind)))
+      team=target.team
+    end
+    slots[#slots+1]={slot=index-1,id=id,name=assert(ability.display_name,'ability without a name'),
+      line=M.first_line(ability.description),kind=kind,team=team}
+  end
+  return {hero=hero,hero_name=row.display_name or hero,title=row.title or '',slots=slots}
+end
+
 function M.load_package(root,hero)
   local dir=path.join(root,'docs','character_pipeline','packages',hero)
   assert(path.is_directory(dir),'no hero package for '..hero..': '..dir)
+  if not path.is_file(path.join(dir,'abilities.lua')) then return M.load_v3_package(root,hero) end
   local abilities=assert(loadfile(path.join(dir,'abilities.lua')))()({})
   local character=assert(loadfile(path.join(dir,'character.lua')))()({})
   local info=character.hero or character

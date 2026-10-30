@@ -20,17 +20,28 @@ M.CATALOG = "target/site/source-catalog.json"
 M.STAGE = "scripts/lua_data/moba_hero_spotlight.lua"
 M.PLAYER = 1
 
--- How the bot uses an item (catalog v3.bot.kind) -> who the demonstration aims at and the
--- item's target shape. A passive item (no bot use) has nothing to press.
+-- How the bot uses an item or ability (catalog v3.bot.kind) -> who the demonstration aims at and
+-- the target shape; every kind of docs/character_pipeline/tools/v3_bot.lua. A passive item (no bot
+-- use) has nothing to press. channel_enemy_area channels around the caster (a point-target channel
+-- is enemy_point).
 M.AIM = {
   enemy_point = { team = "enemy", target = "point" },
   approach_enemy_point = { team = "enemy", target = "point" },
+  leap_enemy_point = { team = "enemy", target = "point" },
   enemy_line = { team = "enemy", target = "point" },
+  enemy_cone = { team = "enemy", target = "point" },
+  channel_enemy_area = { team = "self", target = "none" },
   summon_near_enemy = { team = "enemy", target = "point" },
   enemy_unit = { team = "enemy", target = "unit" },
   enemy_hero = { team = "enemy", target = "unit" },
   ally_heal = { team = "ally", target = "unit" },
+  ally_heal_or_cleanse = { team = "ally", target = "unit" },
   ally_engage = { team = "ally", target = "unit" },
+  self_heal = { team = "self", target = "none" },
+  self_channel_recovery = { team = "self", target = "none" },
+  self_mana_regeneration = { team = "self", target = "none" },
+  escape = { team = "self", target = "none" },
+  toggle_engage = { team = "self", target = "none" },
   self_engage = { team = "self", target = "none" },
   self_area = { team = "self", target = "none" },
   self_recovery = { team = "self", target = "none" },
