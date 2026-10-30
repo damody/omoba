@@ -599,13 +599,23 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// `stacking = "independent"`: each apply is its own row `<runtime id>#<n>` with its own expiry;
     /// `n` counts this holder's instances of the status (a unit_var), from 1, never reused, so the
     /// smallest live `n` is the earliest instance.
-    pub fn apply_status_instance(&mut self, to: EntityHandle, status: &StatusDef, duration: Fixed64, stats: &[(StatKey, i64)]) -> Res {
-        if !to.is_valid() { return Ok(()); }
+    /// Returns the new instance's `n` (0 when `to` is gone): its triggers run as that instance
+    /// (`event_instance`, [`Cx::has_status_instance`]).
+    pub fn apply_status_instance(&mut self, to: EntityHandle, status: &StatusDef, duration: Fixed64, stats: &[(StatKey, i64)]) -> Result<u32, &'static str> {
+        if !to.is_valid() { return Ok(0); }
         let base = self.runtime_id(status);
         let counter = format!("__inst:{base}");
         let n = self.state_num(to, &counter, Fixed64::ZERO) + Fixed64::ONE;
         self.set_state_num(to, &counter, n, false)?;
-        self.apply_status_keyed(to, status, format!("{base}#{}", n.raw() >> 10), duration, stats)
+        let instance = u32::try_from(n.raw() >> 10).map_err(|_| "v3: status instance count out of range")?;
+        self.apply_status_keyed(to, status, format!("{base}#{instance}"), duration, stats)?;
+        Ok(instance)
+    }
+
+    /// Whether `u` still holds instance `n` of an independent status (`n` 0: the plain row).
+    pub fn has_status_instance(&self, u: EntityHandle, status: &StatusDef, n: u32) -> bool {
+        if n == 0 { return self.has_status(u, status); }
+        self.world.has_buff(u, RStr::from_str(&format!("{}#{n}", self.runtime_id(status))))
     }
 
     fn apply_status_keyed(&mut self, to: EntityHandle, status: &StatusDef, id: String, duration: Fixed64, stats: &[(StatKey, i64)]) -> Res {
@@ -1000,6 +1010,13 @@ impl<'a, 'w> Cx<'a, 'w> {
     }
 
     /// The rank of passive `id` its marker on `u` carries (0: not learned on this life).
+    /// An item passive's marker ([`Cx::passive_marker`] made with its first copy) leaves with its
+    /// last copy: its events stop, its periodic clock ends at its next tick.
+    pub fn remove_passive_marker(&mut self, id: &str) {
+        let holder = self.caster;
+        self.world.remove_buff(holder, RStr::from_str(id));
+    }
+
     pub fn learned_rank(&self, u: EntityHandle, id: &str) -> u8 {
         self.world.get_buff_payload(u, RStr::from_str(id)).into_option()
             .and_then(|p| serde_json::from_str::<serde_json::Value>(p.as_str()).ok())

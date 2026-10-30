@@ -513,6 +513,7 @@ function Gen:expr(node, ctx)
     -- a status trigger: the stacks of its own status on its holder
     if base.k == "id" and base.name == "status" and #parts == 1 and parts[1] == "stacks" and not scope_find(ctx.scope, "status")
       and ctx.owner and ctx.owner.kind == "status" then
+      if ctx.owner.def.stacking == "independent" then self:block("status.stacks of an independent status"); return "Fixed64::ZERO", "err" end
       return string.format("cx.stacks(cx.self_unit, &super::ids::status::%s)", upper(ctx.owner.def.id)), "num"
     end
     -- an end trigger of a status: the duration it had left (the host's end event carries it)
@@ -1551,9 +1552,9 @@ function Gen:action(a, ctx, ind)
       self:block("status.stacking:" .. (type(s.stacking) == "table" and (s.stacking.mode or "stacks") or tostring(s.stacking)))
     end
     if independent then
-      -- an instance row `<runtime id>#<n>` (cx.apply_status_instance); its triggers and shared
-      -- states would look for the plain id, so those wait (line B: instance keys in the host)
-      if s.triggers and next(s.triggers) then self:block("status.stacking:independent with triggers") end
+      -- an instance row `<runtime id>#<n>` (cx.apply_status_instance); its triggers run as that
+      -- instance (host events carry `instance`, its on_created and periodic clock get `n`); shared
+      -- states would look for the plain id, so those wait
       if s.states and #s.states > 0 then self:block("status.stacking:independent with states") end
       if s.aura ~= nil then self:block("status.stacking:independent with aura") end
       if a.__aura then self:block("aura.status:independent") end
@@ -1577,12 +1578,24 @@ function Gen:action(a, ctx, ind)
       local body = line("{") .. line("    let to = " .. to .. ";") .. line("    let duration = " .. dur .. ";")
         -- the stats first: their reads take &mut cx
         .. line("    let stats: &[(StatKey, i64)] = " .. stats .. ";")
+      -- the new instance's start (on_created, periodic) runs as that instance, its source the caster
+      local start_fn = starts and string.format("super::%s::st_%s_start(cx, to)", so.parent.id, a.status)
+      if starts then self:need_module(so) end
+      local function started(indent)
+        return line(indent .. "let r = match r {") .. line(indent .. "    Ok(n) if n != 0 => {")
+          .. line(indent .. "        let prev = cx.event_instance;") .. line(indent .. "        cx.event_instance = n;")
+          .. line(indent .. "        let r = " .. start_fn .. ";") .. line(indent .. "        cx.event_instance = prev;")
+          .. line(indent .. "        r") .. line(indent .. "    }") .. line(indent .. "    Ok(_) => Ok(()),")
+          .. line(indent .. "    Err(e) => Err(e),") .. line(indent .. "};")
+      end
       if a.source ~= nil then
         -- `source` applies it (its `{caster}` id, its instance count), as apply_status_from
         return body .. line("    let source = " .. self:value(a.source, ctx, "unit") .. ";")
           .. line("    let caster = cx.caster;") .. line("    cx.caster = source;") .. line("    let r = " .. call .. ";")
+          .. (starts and started("    ") or line("    let r = r.map(|_| ());"))
           .. line("    cx.caster = caster;") .. line("    r?;") .. line("}")
       end
+      if starts then return body .. line("    let r = " .. call .. ";") .. started("    ") .. line("    r?;") .. line("}") end
       return body .. line("    " .. call .. "?;") .. line("}")
     end
     if slow or a.source ~= nil then
@@ -1652,6 +1665,7 @@ function Gen:action(a, ctx, ind)
   elseif op == "remove_status" then
     if not self.m.statuses[a.status] then self:block("action:remove_status without a declared status"); return "" end
     if self.m.statuses[a.status].def.stacking == "independent" then
+      if ctx.owner == self.m.statuses[a.status] then self:block("action:remove_status of its own independent status (this instance waits)"); return "" end
       -- line B: the earliest instance first (`limit` of them, else every one); only `limit` may join
       for _, k in ipairs({ "dispel", "only", "team_of_source", "except", "states" }) do
         if a[k] ~= nil then self:block("action:remove_status.status with " .. k); return "" end
@@ -2779,17 +2793,19 @@ local function emit_entry(m, o, opts, status_problems)
   end
   local filters = {}
   local passive_mask, passive_arms, passive_periodic, passive_created = 0, {}, nil, false
-  local item_equip = {}
+  local item_equip, item_mask, item_periodic = {}, 0, nil
   local function doc_id_of(_) return (m.doc_id or "doc"):lower() end
   for _, ev in ipairs(sorted_keys(passive.triggers)) do
     local tr = passive.triggers[ev]
     -- shorthand: a trigger written as its action list
     if tr[1] ~= nil then tr = { actions = tr } end
     -- an item's passive is made when a copy is gained and ends when it is lost (host item_equip:
-    -- AbilityScript::on_equip / on_unequip); nothing learns an item, so the triggers a learn
-    -- marker serves wait
+    -- AbilityScript::on_equip / on_unequip); its status events and periodic clock listen through a
+    -- marker made with the first copy and removed with the last. The host's own passive hooks
+    -- (on_attack_hit, on_ability_executed, on_respawn…) walk learned abilities only, so those wait
     local item = o.kind == "item"
-    if item and ev ~= "on_created" and ev ~= "on_removed" then g:block("passive_trigger:" .. ev .. " of an item (no learn marker)")
+    if item and ev ~= "on_created" and ev ~= "on_removed" and ev ~= "periodic" and not PASSIVE_EVENTS[ev] then
+      g:block("passive_trigger:" .. ev .. " of an item (no learn marker)")
     elseif not PASSIVE_TRIGGERS[ev] and not (item and ev == "on_removed") then g:block("passive_trigger:" .. ev)
     else
       for _, k in ipairs(sorted_keys(tr)) do
@@ -2806,19 +2822,24 @@ local function emit_entry(m, o, opts, status_problems)
         local interval = g:value(tr.interval, ctx, "num")
         -- `filter`: this tick's actions run only when it holds (the clock goes on)
         local cond = tr.filter ~= nil and g:value(tr.filter, ctx, "bool") or nil
-        local body = "    let rank = cx.learned_rank(cx.self_unit, ID);\n    if rank == 0 { return Ok(()); }\n    cx.rank = rank;\n"
+        local key = rust_str(tostring(doc_id_of(o)) .. ":" .. def.id .. ":periodic")
+        -- an item's clock: the marker gone, the chain ends and the next first copy starts one again
+        local stop = item and ("    if rank == 0 { let _ = cx.set_state_bool(cx.self_unit, " .. key .. ", false, false); return Ok(()); }\n")
+          or "    if rank == 0 { return Ok(()); }\n"
+        local body = "    let rank = cx.learned_rank(cx.self_unit, ID);\n" .. stop .. "    cx.rank = rank;\n"
           .. "    {\n        let interval = " .. interval .. ";\n        let owner = cx.self_unit;\n"
           .. string.format("        cx.schedule(owner, ID, %d, interval, args)?;\n    }\n", step)
           .. (cond and ("    if !(" .. cond .. ") { return Ok(()); }\n") or "")
           .. g:actions(tr.actions or {}, ctx, "    ")
         g:set_step(step, "passive periodic", body, true)
         local first = tr.first ~= nil and g:value(tr.first, ctx, "num") or interval
-        passive_periodic = "        let key = " .. rust_str(tostring(doc_id_of(o)) .. ":" .. def.id .. ":periodic") .. ";\n"
+        local start = "        let key = " .. key .. ";\n"
           .. "        if !cx.state_bool(caster, key, false) {\n"
           .. "            let _ = cx.set_state_bool(caster, key, true, false);\n"
           .. "            let first = { " .. first .. " };\n"
           .. string.format("            let _ = cx.schedule(caster, ID, %d, first, &[]);\n", step)
           .. "        }\n"
+        if item then item_periodic = start else passive_periodic = start end
       else
         local evt = PASSIVE_EVENTS[ev]
         local pre = ev == "on_take_damage_pre" or ev == "on_deal_damage_pre"
@@ -2827,8 +2848,11 @@ local function emit_entry(m, o, opts, status_problems)
         filters[ev] = filter
         local body = g:actions(tr.actions, ctx, "    ")
         fns[#fns + 1] = string.format("fn %s(cx: &mut Cx<'_, '_>) -> Res {\n    if !(%s) { return Ok(()); }\n%s    Ok(())\n}\n", ev, filter, body)
-        if item then
+        if item and (ev == "on_created" or ev == "on_removed") then
           item_equip[ev] = true
+        elseif item then
+          item_mask = item_mask + (item_mask & evt[1] == 0 and evt[1] or 0)
+          passive_arms[#passive_arms + 1] = { kind = evt[2], fn = ev, pre = pre }
         elseif ev == "on_created" then
           -- a learned passive is a permanent implicit status made at the first learn (v3.md §3)
           passive_created = true
@@ -2867,15 +2891,20 @@ local function emit_entry(m, o, opts, status_problems)
             local interval = g:value(tr.interval, ctx, "num")
             -- `filter`: this tick's actions run only when it holds (the clock goes on)
             local cond = tr.filter ~= nil and g:value(tr.filter, ctx, "bool") or nil
+            local inst = sd.stacking == "independent"
             local body = "    cx.caster = ability_kit::arg_as_unit(args, 0);\n"
-              .. "    if !cx.has_status(cx.self_unit, &super::ids::status::" .. upper(sd.id) .. ") { return Ok(()); }\n"
+              .. (inst and ("    cx.event_instance = u32::try_from(ability_kit::arg_as_num(args, 1).raw() >> 10).unwrap_or(0);\n"
+                .. "    if !cx.has_status_instance(cx.self_unit, &super::ids::status::" .. upper(sd.id) .. ", cx.event_instance) { return Ok(()); }\n")
+                or ("    if !cx.has_status(cx.self_unit, &super::ids::status::" .. upper(sd.id) .. ") { return Ok(()); }\n"))
               .. "    {\n        let interval = " .. interval .. ";\n        let owner = cx.self_unit;\n"
               .. string.format("        cx.schedule(owner, ID, %d, interval, args)?;\n    }\n", step)
               .. (cond and ("    if !(" .. cond .. ") { return Ok(()); }\n") or "")
               .. g:actions(tr.actions or {}, ctx, "    ")
             g:set_step(step, "`" .. sd.id .. "` periodic", body, true)
             local first = tr.first ~= nil and g:value(tr.first, ctx, "num") or interval
-            begin[#begin + 1] = "    {\n        let first = " .. first .. ";\n        let args = [ability_kit::arg_unit(cx.caster)];\n"
+            local args = inst and "[ability_kit::arg_unit(cx.caster), ability_kit::arg_num(Fixed64::from_i32(i32::try_from(cx.event_instance).unwrap_or(0)))]"
+              or "[ability_kit::arg_unit(cx.caster)]"
+            begin[#begin + 1] = "    {\n        let first = " .. first .. ";\n        let args = " .. args .. ";\n"
               .. "        let owner = cx.self_unit;\n" .. string.format("        cx.schedule(owner, ID, %d, first, &args)?;\n    }\n", step)
           else
             local filter, actions = trigger_parts(tr)
@@ -2999,13 +3028,28 @@ local function emit_entry(m, o, opts, status_problems)
   end
   -- an item's passive: on_created per copy gained, on_removed per copy lost (its stats are the
   -- shop catalog's, which the host applies)
-  if item_equip.on_created then
+  local marker = item_mask ~= 0 or item_periodic ~= nil
+  local copies = rust_str("__item_copies:" .. def.id)
+  if item_equip.on_created or marker then
+    local first = marker and ("        let caster = owner;\n"
+      .. "        let n = cx.state_num(caster, " .. copies .. ", Fixed64::ZERO) + Fixed64::ONE;\n"
+      .. "        let _ = cx.set_state_num(caster, " .. copies .. ", n, false);\n"
+      .. "        if n == Fixed64::ONE {\n"
+      .. string.format("            let _ = cx.passive_marker(ID, &[], %d);\n", item_mask)
+      .. (item_periodic and item_periodic:gsub("\n(.)", "\n    %1"):gsub("^", "    ") or "")
+      .. "        }\n") or ""
     impl[#impl + 1] = "\n    fn on_equip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {\n"
-      .. "        let mut cx = Cx::passive(world, owner, 1);\n        let _ = on_created(&mut cx);\n    }\n"
+      .. "        let mut cx = Cx::passive(world, owner, 1);\n" .. g:finish(first)
+      .. (item_equip.on_created and "        let _ = on_created(&mut cx);\n" or "") .. "    }\n"
   end
-  if item_equip.on_removed then
+  if item_equip.on_removed or marker then
+    local last = marker and ("        let caster = owner;\n"
+      .. "        let n = cx.state_num(caster, " .. copies .. ", Fixed64::ZERO) - Fixed64::ONE;\n"
+      .. "        let _ = cx.set_state_num(caster, " .. copies .. ", n.max(Fixed64::ZERO), false);\n"
+      .. "        if n <= Fixed64::ZERO { cx.remove_passive_marker(ID); }\n") or ""
     impl[#impl + 1] = "\n    fn on_unequip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {\n"
-      .. "        let mut cx = Cx::passive(world, owner, 1);\n        let _ = on_removed(&mut cx);\n    }\n"
+      .. "        let mut cx = Cx::passive(world, owner, 1);\n" .. last
+      .. (item_equip.on_removed and "        let _ = on_removed(&mut cx);\n" or "") .. "    }\n"
   end
   if #auras > 0 then
     local arms = {}
