@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E378 hero spotlight 的示範英雄在 UE 啟動期間自動攻擊敵方替身並打死它，示範開始時找不到敵人，敵方技能與被動都被跳過（2026-10-30，history-nobu M6 UE 呈現，工作線 C）
+- **現象**：稻葉一鐵（A18）的 spotlight 中，Q（執念壓迫）、W（打壓）與被動都記成 `spotlight_skipped`（等級 4、冷卻 0），只有自我施放的大招有呈現。server log 顯示 30 倍血量的敵方替身在 tick 5171 被稻葉一鐵打死，而 autopilot 的示範在 tick 20686 才開始。
+- **根因**：showcase 舞台只對 held 的 bot 替身下 Hold Position，示範者出生時沒有指令。UE 啟動加上 autopilot 準備要好幾分鐘，這段期間示範者會自動攻擊在攻擊範圍內的敵方替身；暴擊被動的英雄足以在示範開始前把它打死。替身重生後回到泉水，前端看不到，autopilot 找不到敵方英雄，所有對敵與被動示範都被跳過。之前跑過的英雄攻擊力較低，所以沒有發生。
+- **通用修正**：`moba_match` 在有 showcase 的局裡，讓每位英雄（示範者也一樣）出生時都先 Hold Position；示範者的第一個指令（施放、攻擊）會取代它，held bot 不下指令。`showcase_stage_levels_places_and_holds_seats_without_role_decisions` 改成檢查每個座位都在 Hold Position。
+- **避免**：示範或量測用的舞台，要在前端開始前就固定住所有單位的狀態，不要讓預設 AI 在等待期間改變場面。
+
 ## E376 recipe 的明確施放政策包含沒入座英雄的技能，加上推導政策超過 64 條上限，整局拒絕（2026-10-30，e187 遊戲模式 session；已放回 live）
 - **現象**：E371 之後重跑 14 位 M6 英雄第 1 組，18 局全部在開局就失敗：`bot ability policies exceed 64`。
 - **根因**：verify_m6_batch 的 recipe 把出貨計畫已有的 34 條政策（22 條明確＋出貨英雄的 12 條推導）當成明確政策再傳給 bot_auto_policies，新入座的 10 位英雄又推導出 32 條，合計 66 條，超過執行器（moba_match/bots/abilities.rs）的 64。前 34 條都是沒入座英雄的技能，什麼都不會放。

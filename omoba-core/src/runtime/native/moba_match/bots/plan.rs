@@ -494,8 +494,9 @@ mod tests {
             assert!(hero.skill_points >= 5, "a skill point per level gained");
             let at = match slot.player_id { 1 => [2300,2400], 2 => [2050,2400], _ => [2750,2400] };
             assert_eq!(positions.get(entity).unwrap().0, Vec2::new(Fixed64::from_i32(at[0]), Fixed64::from_i32(at[1])));
-            let held = slot.player_id != 1;
-            assert_eq!(commands.get(entity).and_then(|queue| queue.active), held.then_some(HeroCommand::HoldPosition));
+            // Every seat starts on Hold Position, the demonstrator too (it must not auto-attack a
+            // stand-in before its renderer starts the demonstration).
+            assert_eq!(commands.get(entity).and_then(|queue| queue.active), Some(HeroCommand::HoldPosition), "player {}", slot.player_id);
             hp.insert(slot.player_id, props.get(entity).unwrap().mhp);
         }
         let stats = omoba_template_ids::active_hero_stats(omoba_template_ids::hero_by_name("murakami_yoshikiyo").unwrap()).unwrap();

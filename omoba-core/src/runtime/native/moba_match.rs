@@ -1816,7 +1816,11 @@ impl MobaMatch {
             .build();
         finalize_new_life_item_stats(world, entity);
         let player_id = self.heroes[index].player_id;
-        if ShowcaseConfig::holds(&self.config, player_id) {
+        // A showcase stage starts every hero on Hold Position, the demonstrator too: while its
+        // renderer is still starting it must not auto-attack a stand-in to death before the
+        // demonstration (an orders-free crit hero killed the 30x enemy stand-in). Its first
+        // command replaces the hold; held bot seats issue none.
+        if self.config.showcase.is_some() {
             let _ = world.write_storage::<HeroCommandQueue>().insert(entity,
                 HeroCommandQueue { active: Some(HeroCommand::HoldPosition), queued: Vec::new() });
         }
