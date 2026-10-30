@@ -2,6 +2,8 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E376 （保留）recipe 的明確施放政策包含沒入座英雄的技能，加上推導政策超過 64 條上限，整局拒絕（2026-10-30）
+
 ## E375 （保留）conformance：died_at 少一個 tick，死亡前一步已結算的傷害被算成死後命中（2026-10-30）
 
 ## E374 （保留）敵方 replica 沒有 inventory，道具力量算進 attribute_hp 造成 observer mismatch（2026-10-30）
@@ -16,9 +18,27 @@
 - **通用修正**：bot_auto_policies 另外讀 v3_test_heroes 的 abilities 與 heroes（authored 已有的不覆蓋）。第 1 組的 recipe 由 0 條推導政策變成 32 條。
 - **避免**：讀英雄或技能的工具一律以合併後的內容為準（E363）；新來源加進內容時，搜尋所有只讀其中一個來源的地方。
 
-## E370 （保留）conformance：狀態造成的無敵（states = invulnerable）等它結束再打致命一擊（2026-10-30）
+## E370 conformance：狀態造成的無敵等它結束再打致命一擊；toggle 也等技能恢復可用（2026-10-30，conformance session）
 
-## E369 （保留）conformance：投射物自己的 include_magic_immune 也保留魔免單位（2026-10-30）
+- **現象**：
+  - C11 c11_unrivaled 的 c11t_haste/holder_dies 寫著「受到致命一擊仍活著」。
+  - C04 c04_withering_step 的 toggle_off：關閉後 c04e_dance 還在。
+- **根因**：
+  1. harness 只從 key 名稱判斷無敵（`contains("invulnerable")`），看不到 `states = invulnerable` 的狀態。C11W 在雷電彈跳期間掛著 c11_lightning_form，致命一擊打在這段期間會被擋下。
+  2. C04E 開啟時掛的 c04e_lock 會 set_ability_active(false)，lock 期間不能關閉。E362 只等冷卻，沒有等技能恢復可用。
+- **通用修正**：
+  - 無敵改用 rules::vocab::invulnerable 判斷（讀狀態），key 名稱照舊也算。holder_dies 在持有者無敵、且目標狀態還在時先等（最多 5 秒）。等待期間目標狀態結束，就回報 unsupported。
+  - toggle 步驟同時等冷卻結束、ability_slots::inactive 清除。120 秒內仍然 inactive，就回報 unsupported。
+- **結果**：103 個測試比對同一份 live，0 退步。C04 withering_step +4、C11 unrivaled +3 轉 pass。另外有 18 個 unsupported 換了原因（C22、C21、C11、B08），改寫成「等待期間狀態結束」。
+- 已放回。
+
+## E369 conformance：投射物自己的 include_magic_immune 也保留魔免單位（2026-10-30，conformance session）
+
+- **現象**：A12 a12_mystic_arrow 的 magic_immune 情境預期 a12f_shred 不會套到魔免單位上。但文件裡這發線性投射物寫了 `flags = { "include_magic_immune" }`，原作的線性投射物也會打魔免。
+- **根因**：E324 只讀 for_each 選取器的 flags，沒有讀 projectile 效果自己的 flags。
+- **通用修正**：projectile 的 args.flags 有 include_magic_immune 時，它命中時套上的狀態（路徑在投射物底下）也列為直接套用，不檢查魔免跳過。
+- **結果**：本輪的 live 還沒有 A12F 的 range 修正（E366），a12_mystic_arrow 仍在施放時被拒，所以這項還沒有觀察到效果。E366 放回後重比。0 退步。
+- 已放回。
 
 ## E368 M3' 的 stage-dll 從寫死的 scripts/target 取英雄 DLL，用自己 CARGO_TARGET_DIR／OM_RUST_RUN_BINARIES 建置的局在 stage 失敗（2026-10-30，history-nobu M6 UE 呈現，工作線 C）
 - **現象**：工作線 C 為 A 轉正式的 14 位英雄跑 UE spotlight（`OM_RUST_RUN_BINARIES=target/lineC-bins`）。build_ue_moba 已把 base_content 和每位英雄的 DLL 建到 lineC-bins，接著「stage current base_content.dll」失敗，訊息是 `source missing: scripts/target/debug/hero_c05.dll`，整局沒有開始。

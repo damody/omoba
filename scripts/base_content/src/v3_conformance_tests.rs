@@ -535,6 +535,12 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
 /// stand for the applier's `id:gen` and a rank, as the host's dispel reads them).
 fn holds(run: &Run, holder: specs::Entity, runtime_id: &str) -> bool { held(run, holder, runtime_id).is_some() }
 
+/// Invulnerable by any status's state or by a key named so (E370).
+fn invulnerable(run: &Run, unit: specs::Entity) -> bool {
+    let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
+    omoba_core::runtime::native::rules::vocab::invulnerable(&buffs, unit) || buffs.iter_for(unit).any(|(key, _)| key.contains("invulnerable"))
+}
+
 /// The remaining seconds of the holder's matching status entry.
 fn remaining(run: &Run, holder: specs::Entity, runtime_id: &str) -> Option<f64> { held(run, holder, runtime_id).map(|(_, entry)| real(entry.remaining)) }
 
@@ -1200,14 +1206,19 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         "observe" => return observe(&mut run, holder, &runtime_id, expectation),
         "holder_dies" => {
             let source = if holder == run.caster { run.enemy } else { run.caster };
+            // An invulnerable window the cast itself opens (C11W during its bolts; E370) is waited
+            // out while the status stays, so the lethal hit can land.
+            for _ in 0..ticks(5.0) {
+                if !invulnerable(&run, holder) || !holds(&run, holder, &runtime_id) { break; }
+                run.step(1);
+            }
+            if !holds(&run, holder, &runtime_id) { return Verdict::Unsupported(format!("{runtime_id} ended while the holder was invulnerable")); }
             run.kill(source, holder);
             run.step(3);
             run.kill_physical_too(source, holder);
             if !removed && !living(&run, holder) { return Verdict::Unsupported("kept status on a dead holder".into()); }
             // An invulnerable holder cannot die (B08D, as in the source): the case cannot happen.
-            let invulnerable = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>()
-                .iter_for(holder).any(|(key, _)| key.contains("invulnerable"));
-            if living(&run, holder) && invulnerable { return Verdict::Unsupported("an invulnerable holder cannot die".into()); }
+            if living(&run, holder) && invulnerable(&run, holder) { return Verdict::Unsupported("an invulnerable holder cannot die".into()); }
             if living(&run, holder) && deathless(&run, holder) { return Verdict::Unsupported("the holder's statuses cancel every hit: it cannot die".into()); }
             if living(&run, holder) {
                 let mut keys: Vec<String> = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>()
@@ -1332,7 +1343,11 @@ fn run(hero: &str, s: &Value) -> Verdict {
             "toggle" => {
                 last_target = "none".into();
                 let mut waited = 0;
-                while run.cooldown() > 0.0 && waited < ticks(120.0) { run.step(1); waited += 1; }
+                // ... and until the ability is active again (C04E's lock; E370)
+                let inactive = |run: &Run| omoba_core::runtime::native::ability_slots::inactive(
+                    &run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>(), run.caster, &run.entry);
+                while (run.cooldown() > 0.0 || inactive(&run)) && waited < ticks(120.0) { run.step(1); waited += 1; }
+                if inactive(&run) { return Err(format!("{} stays inactive for 120 s", run.entry)); }
                 run.cast("none", window, None).map(|_| ())
             }
             // Cast again (cooldown cleared, charges and mana refilled) until the casts have made
@@ -1504,8 +1519,7 @@ fn run(hero: &str, s: &Value) -> Verdict {
                 if living(&run, unit) && deathless(&run, unit) { return Err(format!("{UNOBSERVED}the unit's statuses cancel every hit: it cannot die")); }
                 // An invulnerable caster (B08D during its fang; E253) survives the lethal hit: the death
                 // the scenario asks for does not happen.
-                let invulnerable = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(unit).any(|(key, _)| key.contains("invulnerable"));
-                if living(&run, unit) && invulnerable { return Err(format!("{UNOBSERVED}the unit is invulnerable: it cannot die")); }
+                if living(&run, unit) && invulnerable(&run, unit) { return Err(format!("{UNOBSERVED}the unit is invulnerable: it cannot die")); }
                 // A kept (hero/permanent scope) status of a dead hero is put away until it respawns
                 // and counts down meanwhile (B 8a30384b; E367): it is back after the respawn with
                 // the time it was away taken off, or gone if it ran out.

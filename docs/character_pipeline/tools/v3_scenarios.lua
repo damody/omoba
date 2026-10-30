@@ -410,7 +410,9 @@ local function entry_scenarios(doc, def, entry_kind, out)
           -- skip is about the units the other selectors pick (E223, E324)
           local keeps = {}
           for _, e in ipairs(base_effects) do
-            local flags = e.op == "for_each" and e.args and e.args.select and e.args.select.flags
+            -- a for_each selector's flags, or a projectile's own (its hits; A12F; E369)
+            local flags = (e.op == "for_each" and e.args and e.args.select and e.args.select.flags)
+              or (e.op == "projectile" and e.args and e.args.flags)
             for _, flag in ipairs(type(flags) == "table" and flags or {}) do
               if flag == "include_magic_immune" then keeps[#keeps + 1] = e.path end
             end
