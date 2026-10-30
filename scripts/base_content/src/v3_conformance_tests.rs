@@ -28,7 +28,7 @@ use super::*;
 use serde_json::{json, Value};
 
 const ENEMY: &str = "training_luminary";
-const GIVEN: &[&str] = &["learned", "swapped_in", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line"];
+const GIVEN: &[&str] = &["learned", "swapped_in", "unit_ability", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line"];
 const WHEN: &[&str] = &["cast", "wait", "caster_dies", "target_dies", "owner_dies", "owner_respawns", "toggle", "cast_until_over_cap"];
 /// A document entry the ported hero does not have at all: a difference, not a harness gap.
 const MISSING: &str = "missing entry: ";
@@ -316,7 +316,9 @@ fn swap_in(world: &mut World, driver: &mut SimulationDriver, caster: specs::Enti
         let h = heroes.get_mut(caster).unwrap();
         h.level = 18;
         // The parent at this rank, or its highest below it (its level sets the sub's; A12T; E340).
-        let by_rank = (1..=rank).rev().find(|r| value(by, *r, "cooldown").is_some()).unwrap_or(1);
+        // At most its own max level (C14T has 3 and swaps C14E's r4 in; E351).
+        let top = omoba_template_ids::ability_by_name(by).and_then(omoba_template_ids::active_ability_const).map_or(rank, |a| a.levels.len().max(1));
+        let by_rank = (1..=rank.min(top)).rev().find(|r| value(by, *r, "cooldown").is_some()).unwrap_or(1);
         h.ability_levels.insert(by.to_owned(), by_rank as i32);
         h.ability_levels.insert(replaces.to_owned(), rank as i32);
         if let Some(pool) = h.mana_pool.as_mut() {
@@ -327,6 +329,8 @@ fn swap_in(world: &mut World, driver: &mut SimulationDriver, caster: specs::Enti
     };
     let kind = omoba_template_ids::ability_by_name(by).and_then(omoba_template_ids::active_ability_const).map(|c| c.target_type);
     if !matches!(kind, Some(omoba_template_ids::TargetTypeC::None)) { return Err(format!("{by} (swaps {entry} in) needs a target")); }
+    // A parent not generated yet swaps nothing in (E351).
+    if driver.scripts_mut().get_ability(by).is_none() { return Err(format!("no AbilityScript for {by}, which swaps {entry} in (not generated yet)")); }
     { let result = driver.step(world, []).unwrap(); project_tick(world, result); }
     let order = PlayerInput { action: Some(PlayerInputEnum::CastAbility(CastAbility { ability_index: slot, target_entity: None, target_pos: None })) };
     { let result = driver.step(world, [(1, order)]).unwrap(); project_tick(world, result); }
@@ -346,6 +350,10 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     if handler_mode() { use_handlers(&mut driver); }
     driver.step(&mut world, []).unwrap();
     let [caster, enemy] = hero_pair(&world);
+    // An ability of a unit the hero creates is not on the hero (E351).
+    if let Some(unit) = s["given"].as_array().and_then(|g| g.iter().find(|g| g["kind"] == "unit_ability")) {
+        return Err(format!("{entry} belongs to a unit the hero creates ({}), not to the hero", unit["unit"].as_str().unwrap_or("added by add_ability")));
+    }
     let swapped = s["given"].as_array().and_then(|g| g.iter().find(|g| g["kind"] == "swapped_in")).cloned();
     if let Some(swap) = &swapped { swap_in(&mut world, &mut driver, caster, &entry, rank, swap)?; }
     let slot = world.read_storage::<Hero>().get(caster).unwrap().abilities.iter().position(|id| *id == entry)
@@ -389,7 +397,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
                 if state != "magic_immune" { return Err(format!("unit state {state}")); }
                 immune = true;
             },
-            "toggled_on" | "charges" | "swapped_in" => {} // after the setup (run), or before it (swap_in)
+            "toggled_on" | "charges" | "swapped_in" | "unit_ability" => {} // after the setup (run), or before it (swap_in)
             // Nobody on the cast's line (a hook case, E245): the enemy hero stands well aside.
             "no_unit_in_line" => clear_line = true,
             other => return Err(format!("given {other}")),
@@ -1705,7 +1713,7 @@ fn expected_damage(s: &Value, entry: &str, rank: usize) -> Option<f64> {
 /// valid targets do not include such a unit (e.g. hero-only targets, whose resistance pool applies).
 /// The givens that learn the entry: `learned`, and `swapped_in` when a status swaps it in (E340).
 fn learning(s: &Value) -> Vec<Value> {
-    s["given"].as_array().map(|g| g.iter().filter(|g| g["kind"] == "learned" || g["kind"] == "swapped_in").cloned().collect()).unwrap_or_default()
+    s["given"].as_array().map(|g| g.iter().filter(|g| g["kind"] == "learned" || g["kind"] == "swapped_in" || g["kind"] == "unit_ability").cloned().collect()).unwrap_or_default()
 }
 
 fn cast_at_body(hero: &str, s: &Value) -> Option<(Run, specs::Entity, &'static str)> {

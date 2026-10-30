@@ -2,13 +2,33 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E353 （保留）replica 晚一個 tick 結算新買道具的 item passives（attribute_hp 不一致）（2026-10-30）
+
 ## E352 hero_stats 的傷害全是 0：英雄的攻擊與技能傷害不產生 DirectCombat 事實，平衡表把 0≥0 判成 DAMAGE HIGH（2026-10-30，e187 遊戲模式 session；已放回 live）
 - **現象**：m6item2 的平衡表每位英雄 damage/game 都是 0，又因為平均也是 0，每位都被標成 DAMAGE HIGH。除錯版 moba-headless 跑 60 秒：562 筆 DirectCombat 事實全是小兵打小兵，沒有一筆來源是英雄。
 - **根因**：E342 用 DirectCombat 事實統計傷害；但英雄的普攻與技能在規則層結算（rules/damage.rs `after_mitigation`），道具與腳本直接傷害在 `apply_checked_direct_damage`，兩者都不發 DirectCombat 事實（只有 damage_tick 的 DamageInstance 路徑會發）。報表也沒處理「平均為 0」。
 - **通用修正**：新增 `omoba-core runtime::native::damage_tally`：harness 插入 `DamageTally` 時，兩個結算點各記一列（記功來源、目標、實際扣掉的生命）；沒插入就不記，正式對局與重播不受影響（單元測試一項）。moba_headless 在 hero_stats 啟用時插入它，每 tick 取走，依英雄的每一條命（lives）歸屬；不再用 DirectCombat。verify_m6_batch 在平均 KDA 或平均傷害為 0 時不標高低。
 - **避免**：統計一個量之前，先確認資料來源涵蓋所有產生它的路徑；平均為 0 的比較不算數。
 
-## E351 （保留）conformance：父技能任何動作換入的子技能，與召喚單位自己的技能（2026-10-30）
+## E351 conformance：父技能任何動作換入的子技能，與召喚單位自己的技能（2026-10-30，conformance session）
+
+- **現象**：M6 第 2～9 批 66 位第一次實跑時有 290 個「missing entry: <hero> has no <entry>」fail。其中 144 個是 F 欄的技能（host 只有 5 欄）。其餘 136 個屬於兩種情況：
+  - sub 技能由父技能的 on_cast 換入，不是靠狀態的 on_created：A32 二之太刀、A13 替身、B24 碎、C14 龍形火息。
+  - hidden 技能屬於英雄召喚的單位：A28 鳳凰的天火、A36 地雷的引爆、B07 砲台的回血、B16 用 add_ability 加給分身的技能。
+- **根因**：
+  1. E340 只在狀態的 on_created 裡找 swap_abilities。
+  2. 情境把召喚單位的技能也當成英雄的技能來找。
+  3. 父技能還沒產生（沒有 AbilityScript）時，換入失敗被記成 missing entry。
+  4. 父技能學到情境的 rank 時沒有受它自己的最高等級限制：C14T 最高 3 級，它換入的 C14E 有 r4。
+- **通用修正**：
+  - 父技能的任何動作換入子技能，都會產生 swapped_in。狀態換入的優先。
+  - unit template 的 abilities、或 add_ability 加給英雄以外的單位的技能，產生 `unit_ability`。setup 回報 unsupported（「belongs to a unit the hero creates」）。
+  - swap_in 遇到沒有 script 的父技能時回報 unsupported。父技能的等級不超過它的 max level。
+- **結果**：全部 103 個測試比對同一份 live，沒有任何 pass 變成 fail 或 unsupported。fail 從 554 降到 418：
+  - C14 r4 等 16 個轉為 pass。
+  - A32、A28、A36、B16、B07 的 100 個，以及 A13、B24 的 16 個，轉為 unsupported。
+  - missing entry 只剩 F 欄 144 個（等 B 把 HERO_ABILITY_SLOTS 提高到 6），和 item_c06e 10 個（道具 entry，之後處理）。
+- 已放回。
 
 ## E350 point 引導 range 0 在 stage_ability_channel 被當成射程 0；釋放時被拒的施放沒有 CastTrace（2026-10-30，工作線 B）
 - **現象**：C05 c05_flash_thunder 的前搖看起來「不釋放」，conformance 只看到 WindupStarted。工作線 A 加 log 確認：tick 10 前搖有釋放並送出 SkillCast，但 pulse channel 的 staging 回報 OUT_OF_RANGE。這個拒絕沒有寫任何 outcome，也沒有 CastTrace。

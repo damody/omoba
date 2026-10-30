@@ -219,7 +219,17 @@ local function entry_scenarios(doc, def, entry_kind, out)
   -- A sub-ability that is not in the hero's list until its parent's status swaps it in (A07D2
   -- replaces A07D while A07T's status is up; E313): every case starts with that swap.
   local swapped
-  -- Any sub-ability a status swaps in (A12T's form swaps three; E340), the required one first.
+  -- Any sub-ability a status swaps in (A12T's form swaps three; E340), the required one first,
+  -- or one its parent swaps in from any other action (A32's second slash after the first; E351).
+  local function swaps_in(node)
+    if type(node) ~= "table" then return nil end
+    if node.op == "swap_abilities" and node.to == def.id then return node end
+    for _, child in pairs(node) do
+      local found = swaps_in(child)
+      if found then return found end
+    end
+    return nil
+  end
   if def.slot == "sub" and current_doc then
     local required = def.requires and def.requires.has_status
     for _, list in ipairs({ current_doc.abilities or {}, current_doc.items or {} }) do
@@ -235,12 +245,37 @@ local function entry_scenarios(doc, def, entry_kind, out)
         end
       end
     end
+    for _, list in ipairs({ current_doc.abilities or {}, current_doc.items or {} }) do
+      for _, owner in ipairs(list) do
+        local a = not swapped and owner.id ~= def.id and swaps_in(owner)
+        if a then swapped = { kind = "swapped_in", by = owner.id, replaces = a.from } end
+      end
+    end
+  end
+  -- An ability of a unit the hero creates (a unit template's list, add_ability on another unit):
+  -- not the hero's, so its cases need that unit (E351).
+  local unit_owned
+  if current_doc then
+    for _, t in ipairs(current_doc.unit_templates or {}) do
+      for _, id in ipairs(t.abilities or {}) do
+        if id == def.id and not unit_owned then unit_owned = { kind = "unit_ability", unit = t.id } end
+      end
+    end
+    local function adds(node)
+      if type(node) ~= "table" then return false end
+      if node.op == "add_ability" and node.ability == def.id and node.to ~= "caster" and node.to ~= "self" then return true end
+      for _, child in pairs(node) do if adds(child) then return true end end
+      return false
+    end
+    if not unit_owned and adds(current_doc) then unit_owned = { kind = "unit_ability" } end
   end
   for rank = 1, max_level do
     local learned = { kind = "learned", entry = def.id, rank = rank }
     -- facts after `learned`; nil entries (a fact that does not apply) are skipped
     local function given(extra)
-      local g = { learned, swapped }
+      local g = { learned }
+      if swapped then g[#g + 1] = swapped end
+      if unit_owned then g[#g + 1] = unit_owned end
       local n = 0
       for k in pairs(extra or {}) do if k > n then n = k end end
       for k = 1, n do if extra[k] then g[#g + 1] = extra[k] end end

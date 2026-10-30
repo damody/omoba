@@ -1236,6 +1236,12 @@
 - 2026-10-30 線 A：M6 全部 96 位裡，除了 B22 都已是 v3 測試英雄（test_only，各自的 `scripts/heroes/<package>` crate），conformance 自動比對；E338（unit_or_point）、E341（summons.lua 只能有一個多值欄位；v3_summons --check 真的執行）、E344（KV 數值取開頭的數字）、E345（出生 rank 依等級需求）；v3_summons 接上 acquisition_range、ai idle、projectile_speed。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
+## 2026-10-30（conformance：M6 第 2～9 批 66 位第一次實跑；E351）
+
+- live cde5ab49 之後跑全部 103 個測試：13675 通過、418 fail、15 (b)、12248 unsupported。
+- E351 已放回。父技能任何動作換入的子技能都產生 swapped_in；召喚單位的技能產生 unit_ability，回報 unsupported；父技能沒有 script 時回報 unsupported；父技能的等級不超過它的 max level。fail 554→418，0 退步。
+- 交 A／B：自己當目標時 team=enemy 的技能仍然造成傷害（A05、A08、A14、B32、C24）；第一次施放就 CAST_REJECTED（A27、A30、A31、C13、C23、C25、B36）；缺 charges（A17、C25）；缺 dispel class（C11、C06E）。完整清單在共用筆記。
+
 ## 2026-10-30（conformance：E340 施放判定、33066aef 後重比）
 
 - E340 已放回（harness）。狀態換入的子技能都會產生 swapped_in，狀態類路徑保留 swapped_in。trace 已記過這個 entry、這次卻沒有任何一列，或只有 Interrupted 時，判定為沒有落地。前搖還沒結束時，間接訊號不會結束觀察窗。欄位換成別的技能時回報 unsupported。比對 103 個測試，0 退步。

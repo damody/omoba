@@ -97,6 +97,7 @@ cargo test --release --manifest-path scripts/Cargo.toml -p base_content --lib --
 | C15 | tamako | 249 | 167 | 0 | 82 |
 | **合計** | | **2289** | **1563** | **15 (b)、0 (c)** | **711** |
 
+- **2026-10-30（M6 第 2～9 批實跑、E351）**：A 把 66 位加成 test_only（cde5ab49）後，103 個測試、26356 個情境：13675 通過、418 fail、15 (b)、12248 unsupported。E351 修正 136 個 missing entry 的推導錯誤，0 退步。剩下的 418 個：F 欄 144（host 5 欄上限，等 B）、item_c06e 10，其餘 257 個依 entry 分列在共用筆記 conformance-m6-batch2-9-first-run.md，交 A／B。
 - **2026-10-30（E340）**：harness 的施放判定與子技能換入改用通用規則。全部 103 個測試比對同一份 live，0 退步。A12 fail 153→36，剩下的是 a12_mystic_arrow 的 F 欄（host 只有 5 欄，等 B）。A26 3→0。C05 9→6，閃雷前搖永遠不釋放，交 A。C15 在 33066aef 後 0 fail。
 - **2026-10-30（E249、E251）**：10 位 2293 情境：1637 通過、15 (b)、8 (c)、633 unsupported。8 筆 (c) 是 A34W、B29 地裂的 basic 暈眩 basic 驅散不掉（控制列以 runtime id 命名，交給 B）。產生版與手寫 handler 逐筆 0 差異。A13（report-only）96 通過、16 fail、348 unsupported。
 - **2026-10-30（7 招換上 live、A13）**：10 位 2293 情境：1633 通過、15 (b)、0 (c)、645 unsupported。A02、B01、C17、B04 兩招、A07W、A34 三招、B29 地裂、C15 兩招都是產生的 Rust；換上前後逐筆 0 退步。A13 服部半藏（test_only，report-only）460 情境：96 通過、16 fail（替身術不在 loadout 12、a13r_debuff 沒有圖示 4）、348 unsupported；鎖鏈鐮 hook 12 個情境全部通過。
