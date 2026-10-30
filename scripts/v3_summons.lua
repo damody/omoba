@@ -197,7 +197,8 @@ function M.template_rows(doc, t)
   return #list == 0 and rows or {}, list
 end
 
--- Every hero document, in package order: { package, doc }.
+-- Every hero document, in package order, then every item document (docs/character_pipeline/items,
+-- in file order): { package, doc }.
 function M.documents(root)
   local lfs = require("lfs")
   local dir = root .. "/docs/character_pipeline/packages"
@@ -213,6 +214,17 @@ function M.documents(root)
     if type(doc) == "function" then doc = doc({}) end
     doc.__package = name
     docs[#docs + 1] = { package = name, doc = doc }
+  end
+  local items = root .. "/docs/character_pipeline/items"
+  local files = {}
+  for name in lfs.dir(items) do if name:match("%.lua$") then files[#files + 1] = name end end
+  table.sort(files)
+  for _, name in ipairs(files) do
+    local chunk = assert(loadfile(items .. "/" .. name, "t", safe_env()))
+    local doc = chunk()
+    if type(doc) == "function" then doc = doc({}) end
+    doc.__package = "items"
+    docs[#docs + 1] = { package = "items/" .. name, doc = doc }
   end
   return docs
 end
