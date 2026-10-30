@@ -8,6 +8,12 @@
 - **通用修正**：`moba_role_launch` 在 autopilot 座位（任何 `--autopilot` profile，含 spotlight）的 UE 參數加上 `-unattended`。這樣引擎會等最多 25 秒，只記錄 log，不跳對話框。真人座位不變。測試 `moba_role_launch_host_split_test` 檢查 autopilot 區塊有帶 `-unattended`。
 - **避免**：沒有人操作的程序，啟動時一定要帶 unattended 類參數，任何可能跳出對話框的地方都要先排除。log 停在等待外部服務時，先查引擎在那個等待點有沒有對話框。
 
+## E354 批次報告把合成途中短暫持有的主動零件（dark_boots）標成 NEVER USED（2026-10-30，e187 遊戲模式 session；已放回 live）
+- **現象**：m6item2、m6item3 都報 dark_boots「NEVER USED」（取得 24 次、使用 0 次）。它是 dark_boots_1 的零件，bot 的目標是 dark_boots_1，dark_boots 只在合成途中短暫持有。
+- **根因**：報告只看「有主動、有取得、沒使用」，沒有考慮該道具是否被合成進另一件已取得的道具。
+- **通用修正**：verify_m6_batch 判斷 NEVER USED 前，查道具目錄裡有沒有哪件已取得的道具以它為配方零件；有的話標成「unused, built into an upgrade」，不計入未取得／未使用的總數。m6item3 重出報告：dark_boots 改標，未取得／未使用由 4 件降為 3 件（mana_boots、mana_boots_1、napalm_bomb，沒有角色選到）。
+- **避免**：報告的「從沒用過」要排除有合理原因的情況（零件、只在合成途中出現），否則真正沒被用到的內容會被淹沒。
+
 ## E353 （保留）replica 晚一個 tick 結算新買道具的 item passives（attribute_hp 不一致）（2026-10-30）
 
 ## E352 hero_stats 的傷害全是 0：英雄的攻擊與技能傷害不產生 DirectCombat 事實，平衡表把 0≥0 判成 DAMAGE HIGH（2026-10-30，e187 遊戲模式 session；已放回 live）

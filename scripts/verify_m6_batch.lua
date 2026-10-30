@@ -285,7 +285,17 @@ md[#md + 1] = '| item | active | obtained | used | note |'
 md[#md + 1] = '|---|---|---|---|---|'
 for _, item in ipairs(shop_items) do
   local row = item_rows[item.id] or { obtained = 0, used = 0 }
-  local note = row.obtained == 0 and 'NEVER OBTAINED' or (item.active and row.used == 0) and 'NEVER USED' or ''
+  -- An unused active that only passed through on the way to an obtained item it builds into
+  -- (dark_boots -> dark_boots_1) was assembled, not ignored (E354).
+  local upgraded = false
+  for _, other in ipairs(shop_items) do
+    for _, part in ipairs(other.recipe or {}) do
+      if part == item.id and (item_rows[other.id] or {}).obtained then upgraded = true end
+    end
+  end
+  local note = row.obtained == 0 and 'NEVER OBTAINED'
+    or (item.active and row.used == 0) and (upgraded and 'unused, built into an upgrade' or 'NEVER USED') or ''
+  if note == 'unused, built into an upgrade' then unused_items = unused_items - 1 end
   if note ~= '' then unused_items = unused_items + 1 end
   summary.items[item.id] = { active = item.active ~= nil, obtained = row.obtained, used = row.used }
   md[#md + 1] = ('| %s | %s | %d | %d | %s |'):format(item.id, item.active and item.active.kind or '', row.obtained, row.used, note)
