@@ -1134,6 +1134,11 @@
 - 2026-10-30 線 A：C15 爆裂箭燒傷退步查明（E326：v3 unit_templates 不在內容召喚物表，create_unit 執行期失敗），產生器擋下這類模板（314→302）；新增 scripts/v3_summons.lua 讓 unit_templates 成為召喚物單一來源（目前 37 個模板都被召喚物模型缺口擋住：bounty、dummy、索敵距離、hp_regen、ai 種類、日夜視野…，清單已交 B）。接上 perform_attack、issue_order.force、道具 on_attack_hit、angle_between、farthest／ally_not_self、觸發裡的 ability.*（302→308）。E327：v3_test_heroes 的引導技能被寫成 instant（C05 閃雷 12 fail 的原因），重產待 B 支援射程 0 引導。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
+## 2026-10-30（conformance：A 6a19d48d 退回 12 招後重跑）
+
+- A 在 E326 讓產生器擋下 template 不在內容召喚物表的 create_unit，12 招退回未產生，其中包括 c15_burst_arrow 的燒傷退步。等 performance 鎖釋放後重跑，和上一次 0 差異，退回的招式都還沒有換上 live。
+- 待 A：C05T 等 3 招引導技的 test_only content 列（E327，等 B 支援射程 0 的引導）、A05 加進 v3_test_heroes。
+
 ## 2026-10-30（conformance：A c720ea1c 比對）
 
 - a23_falling_fire 產生：+20 通過、0 fail。a07_rouse 改用 apply_status_instance 後 A07 0 差異。其餘 0 差異。
