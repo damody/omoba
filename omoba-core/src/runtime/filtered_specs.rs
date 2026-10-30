@@ -1676,6 +1676,37 @@ fn apply_authoritative_movement_outcomes(
     Ok(())
 }
 
+/// CommittedAbilitySlots: the ability in each slot (0 = empty).
+fn decode_ability_slots(payload: &[u8]) -> Result<Vec<String>, ReplicaRuntimeError> {
+    if payload.len() % 2 != 0
+        || !(crate::runtime::LEGACY_HERO_ABILITY_SLOTS..=crate::runtime::HERO_ABILITY_SLOTS).contains(&(payload.len() / 2)) {
+        return Err(ReplicaRuntimeError::MalformedBaseline);
+    }
+    (0..payload.len() / 2).map(|slot| {
+        let raw = u16::from_le_bytes([payload[slot * 2], payload[slot * 2 + 1]]);
+        if raw == 0 { return Ok(String::new()); }
+        let id = omoba_template_ids::AbilityId(raw);
+        // An unknown id is a malformed fact, never a debug assertion (try_ability_id_str).
+        let name = omoba_template_ids::try_ability_id_str(id).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+        if name.is_empty() || omoba_template_ids::ability_by_name(name) != Some(id) { return Err(ReplicaRuntimeError::MalformedBaseline); }
+        Ok(name.to_owned())
+    }).collect()
+}
+
+/// A swap the authority made takes the slot here too, and the ability swapped in takes the
+/// swapped-out one's rank when it has none (ability_slots::swap). Adopting the same slots twice
+/// changes nothing.
+fn adopt_ability_slots(hero: &mut crate::runtime::Hero, names: Vec<String>) -> Result<(), ReplicaRuntimeError> {
+    if hero.abilities.len() > names.len() { return Err(ReplicaRuntimeError::MalformedBaseline); }
+    for (slot, name) in names.into_iter().enumerate().take(hero.abilities.len()) {
+        if hero.abilities[slot] == name { continue; }
+        let rank = hero.get_ability_level(&hero.abilities[slot]);
+        if !name.is_empty() && hero.get_ability_level(&name) <= 0 && rank > 0 { hero.ability_levels.insert(name.clone(), rank); }
+        hero.abilities[slot] = name;
+    }
+    Ok(())
+}
+
 fn apply_disclosed_events(
     world: &mut DisclosedReplicaWorld,
     injections: &StepInjections,
@@ -1720,6 +1751,13 @@ fn apply_disclosed_events(
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let mut hero:crate::runtime::Hero=serde_json::from_slice(bytes)
                 .map_err(|_|ReplicaRuntimeError::MalformedBaseline)?;
+            // The same tick's slots first (E407): the ranks are per slot as the authority ends the
+            // tick, so a swap this tick must not put the swapped-in ability's rank on the one it hid.
+            if let Some(slots_event)=injections.public_events.iter().find(|other|
+                other.event_kind==crate::runtime::FactKind::CommittedAbilitySlots as u32
+                    && other.subject.as_ref().map_or(0,|subject|subject.value)==id) {
+                adopt_ability_slots(&mut hero,decode_ability_slots(&slots_event.sanitized_payload)?)?;
+            }
             let slots=payload.len()/4;
             if hero.abilities.len()>slots {return Err(ReplicaRuntimeError::MalformedBaseline);}
             let ranks:Vec<i32>=(0..slots).map(|slot|
@@ -1743,34 +1781,13 @@ fn apply_disclosed_events(
         // A visible hero's slots (E401): a swap the authority made takes the slot here too, and the
         // ability swapped in takes the swapped-out one's rank when it has none (ability_slots::swap).
         if event.event_kind == crate::runtime::FactKind::CommittedAbilitySlots as u32 {
-            let payload = &event.sanitized_payload;
-            if payload.len() % 2 != 0
-                || !(crate::runtime::LEGACY_HERO_ABILITY_SLOTS..=crate::runtime::HERO_ABILITY_SLOTS).contains(&(payload.len() / 2)) {
-                return Err(ReplicaRuntimeError::MalformedBaseline);
-            }
-            let mut names = Vec::with_capacity(payload.len() / 2);
-            for slot in 0..payload.len() / 2 {
-                let raw = u16::from_le_bytes([payload[slot * 2], payload[slot * 2 + 1]]);
-                let name = if raw == 0 { String::new() } else {
-                    let id = omoba_template_ids::AbilityId(raw);
-                    let name = id.as_str();
-                    if name.is_empty() || omoba_template_ids::ability_by_name(name) != Some(id) { return Err(ReplicaRuntimeError::MalformedBaseline); }
-                    name.to_owned()
-                };
-                names.push(name);
-            }
+            let names = decode_ability_slots(&event.sanitized_payload)?;
             let id = event.subject.as_ref().map_or(0, |id| id.value);
             let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
             let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
-            if hero.abilities.len() > names.len() { return Err(ReplicaRuntimeError::MalformedBaseline); }
-            for (slot, name) in names.into_iter().enumerate().take(hero.abilities.len()) {
-                if hero.abilities[slot] == name { continue; }
-                let rank = hero.get_ability_level(&hero.abilities[slot]);
-                if !name.is_empty() && hero.get_ability_level(&name) <= 0 && rank > 0 { hero.ability_levels.insert(name.clone(), rank); }
-                hero.abilities[slot] = name;
-            }
+            adopt_ability_slots(&mut hero, names)?;
             *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);
         }
         // A visible hero's derived attributes: a replica without its inventory takes them as they
@@ -2428,6 +2445,23 @@ mod committed_actor_state_tests {
             assert!(apply_disclosed_events(&mut world,&bad).is_err());
             assert_eq!(world,before);
         }
+    }
+
+    #[test]
+    fn a_swap_and_its_ranks_in_one_tick_leave_the_hidden_ability_its_own_rank() {
+        // E407: the authority swaps lumen_bolt (rank 2) for lumen_touch (already rank 1) and the
+        // tick's facts come ranks (25) before slots (43). The slot's rank is lumen_touch's.
+        let mut world=world();
+        apply_disclosed_events(&mut world,&event(FactKind::CommittedAbilityRanks,
+            [2i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect())).unwrap();
+        let id=|name:&str|omoba_template_ids::ability_by_name(name).unwrap().raw();
+        let mut tick=event(FactKind::CommittedAbilityRanks,[1i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect());
+        tick.public_events.extend(event(FactKind::CommittedAbilitySlots,
+            [id("lumen_touch"),0,0,0].into_iter().flat_map(u16::to_le_bytes).collect()).public_events);
+        apply_disclosed_events(&mut world,&tick).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities,vec!["lumen_touch"]);
+        assert_eq!((hero.get_ability_level("lumen_touch"),hero.get_ability_level("lumen_bolt")),(1,2));
     }
 
     #[test]

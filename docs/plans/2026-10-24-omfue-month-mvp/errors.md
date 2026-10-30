@@ -22,7 +22,12 @@
 - **通用修正**：英雄的技能組補上「同一個 package、但不在技能組裡」的技能列（依列的順序，接在技能組之後），一樣經過 admissible 檢查；只能經由父技能施放的子技能提示是 `none`，仍然沒有政策。出貨計畫仍是 34 條；第 2 批多出 3 條，第 1 批多出 c14_fire_breath_dragon（A 的更新後它是 enemy_line）。E376 的入座過濾也用這份技能組，所以這些政策會保留。
 - **避免**：bot 政策與覆蓋檢查都要涵蓋英雄在對局中可能出現在槽位裡的所有技能，不只出生時的技能組。
 
-## E407 （保留）replica 在同一 tick 先套能力等級再套槽位：換出的技能被寫成換入技能的等級（2026-10-31）
+## E407 replica 在同一 tick 先套能力等級再套槽位：換出的技能被寫成換入技能的等級（2026-10-31，工作線 B）
+- **現象**：E401 之後重跑 split（target/e187/split396/run2），整局正常結束，但 replica_tick 24240 仍有一次非致命不一致（以 rebase 復原）：齋藤義龍變龍的期間，`c14_fire_breath` 權威端是 4，replica 是 2；`c14_fire_breath_dragon` 兩邊都是 2。
+- **根因**：一個 tick 的 fact 依 fact_kind 排序，`CommittedAbilityRanks`（25）排在 `CommittedAbilitySlots`（43）前面。換技能的那個 tick，replica 先把「槽位的等級」寫到槽位裡還沒換掉的舊技能，再套用槽位。結果被藏起來的技能拿到換入技能的等級，之後一直藏著，再也沒有 fact 修正它。
+- **通用修正**：replica 套等級前，若同一批事件裡有同一個英雄的槽位 fact，先套槽位，再依槽位寫等級。槽位的解析與套用抽成 `decode_ability_slots`／`adopt_ability_slots`，等級與槽位兩處共用；重複套用相同槽位不會改變任何東西。
+- **測試**：`a_swap_and_its_ranks_in_one_tick_leave_the_hidden_ability_its_own_rank`，以及既有的 `committed_ability_slots_follow_the_authoritys_swaps`。
+- **避免**：fact 之間有依賴時，不要假設套用順序；由依賴方主動先套它依賴的 fact，或把兩者放在同一個 fact。
 
 ## E406 沒有 chase_target 召喚物 AI 與會移動的 dummy：兀鷹、亡靈、行空魂無法實作（2026-10-31，工作線 B）
 - **現象**：A29T 石田三成的兀鷹、B10W 的亡靈、C16R 的行空魂，原作都用同一套 Exorcism 程式（A29_Ishida_Mitsunari.lua:126-404）：召喚物不攻擊，繞著主人或出生點找敵人、轉向飛過去，碰到就觸發技能效果再飛回。v3 寫成 `ai = "chase_target"`，host 沒有這種 AI；dummy 又一律要求 immobile，工作線 A 只好擋下這三招。
