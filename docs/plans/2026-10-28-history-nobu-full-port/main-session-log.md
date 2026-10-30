@@ -196,3 +196,11 @@
 - 2026-10-30 21:00 C 第 6 技能格放回（omfue c96b5da、13729f6b，ABI 42，預設鍵集中在 OmControlDefaultKeys）；決定按鍵設定檔加 schema 版本號，舊版自動遷移成屬性面板 K、第 6 格 C
 - 2026-10-30 21:22 C05 0 fail、C15 爆裂箭換上產生版（1ddfffc3）；A 開始把全招產生且 conformance 0 fail 的 test_only 英雄轉正式（hero_dlls），首批 22 位等 conformance 結果
 - 2026-10-30 21:27 A f2d8096a E356：玉子灼燒改回每段火焰一份，和原作一致；平衡偏強的原因是百箭恢復（E341），不是灼燒。13e92a17 E360：v3 列帶 charges、toggle 型別、F 欄。1ddfffc3：c15_burst_arrow 換上產生版（訂正 commit 訊息：C15 是 3 招產生，百箭仍是手寫）。下一步：0 fail 的 v3 英雄標 playable、加進 hero_dlls，可進比賽
+- 2026-10-30 21:46 A 5facff2e：M6 第一批 14 位 v3 英雄轉正式（全招產生、conformance 0 fail），可以進比賽；conformance a7719235（E359、E361、E362）
+- 2026-10-30 22:40 B no_source_bonuses 傷害旗標、observer 推導輸入日誌；conformance E367；gamemode 閒置，催它對 14 位轉正式英雄跑 verify_m6_batch
+- 2026-10-30 22:48 demo6 mismatch 根因：replica 看不到敵方道具而少算屬性加成；決定權威端揭露可見單位的最終衍生屬性、不揭露道具清單，交 B；gamemode E363 正式英雄表、E371 v3 英雄 bot 不施放修正待 land；conformance E367 A05 0 fail
+- 2026-10-30 23:45 C：14 位正式英雄的頭像、載入圖、技能圖示、cue 已接上，只有 3D 身體用共用人形（Tripo 每位 45 credits，待使用者同意）；E378 showcase 出生先 Hold Position；A E377 om_codegen 空技能欄 panic 修正中；c24_last_life 的 ally_engage 意圖 executor 沒有，交 B
+- 2026-10-30 23:55 conformance fail 418→220（a7719235 等，皆 0 退步）；C E378 showcase 出生 Hold Position（422acb68）；A 第三次重送 E377 批（影子過期導致 v3_test_heroes 不一致）
+- 2026-10-31 00:30 A 9d29384d（E365 文件層級狀態進技能區塊、E366 range 0 不限距離）、6abaf6ce（relative_to、reapply_if_removed、選取 building／英雄以外、no_source_bonuses、召喚物 mana 10→19 列、A32 F 坐第 6 欄）、omfue 6f9e723（E377 om_codegen 跳過空欄，待 C push）；涵蓋率 319→329/447（含影子中的 independent+states）。
+- 2026-10-31 00:05 C E379：B cddcb1af 的空技能欄讓 build_ue_moba HUD 同步失敗、所有 UE 建置被擋，已修；B E374 敵方衍生屬性改由權威揭露（060be56b）；conformance E372／E375（9362a5bc）0 退步
+- 2026-10-31 00:30 conformance 誤用 taskkill /IM cargo.exe 殺掉全機 cargo，已通知四條線檢查重跑；新增 D20 只停自己的程序；conformance：30 位英雄全招產生且 0 fail
