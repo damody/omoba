@@ -29,6 +29,9 @@ local function rust_target(d,root,...)
   if env and env~='' then return d.path.absolute(env,root) end
   return d.path.join(root,...)
 end
+-- The one answer for where the frontend builds, stages from and verifies against (E333):
+-- build_ue_bridge / build_ue_moba pass it as --target-dir, the stage and moba_stage_contract read it.
+function M.rust_target(root,...) return rust_target(deps_of(nil),root,...) end
 
 -- The current build outputs a stage copies: the header cbindgen wrote to HEADER_FILE, the
 -- bridge build and the debug base_content build (the parent build makes it right before).

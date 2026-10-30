@@ -14,8 +14,8 @@ local lua=b.lib('platform').lua_executable
 run('animation import prerequisite',lua,{p.join(root,'scripts/ensure_bpgu_animation_import.lua')})
 run('content codegen','cargo',{'run','--manifest-path',p.join(ue,'codegen/Cargo.toml'),'--','--content-root',p.join(root,'scripts/lua_data'),'--out',p.join(plugin,'Source/OmGenerated')})
 run('synchronize authored HUD labels',lua,{p.join(root,'scripts/sync_ue_hud_manifest_labels.lua')})
--- The stage reads omfue/bridge/target/debug: build there whatever CARGO_TARGET_DIR says (E333).
-run('Rust bridge','cargo',{'build','--manifest-path',p.join(ue,'bridge/Cargo.toml'),'--target-dir',p.join(ue,'bridge/target')})
+-- Built where the stage and its check read it (ue_bridge_stage.rust_target, E333).
+run('Rust bridge','cargo',{'build','--manifest-path',p.join(ue,'bridge/Cargo.toml'),'--target-dir',require('ue_bridge_stage').rust_target(root,'omfue','bridge','target')})
 local temp=p.join(ue,'Saved/BuildBridge/om_bridge.h');p.mkdir_p(p.parent(temp))
 run('C ABI header','cbindgen',{'--config',p.join(ue,'bridge/cbindgen.toml'),'--crate','om_bridge','--output',temp,p.join(ue,'bridge')})
 -- Header, import library, bridge and the current debug base_content (the parent build makes

@@ -12,11 +12,19 @@
 - **結果**：A23 的 4 個由 fail 轉 pass（17 下都是 $dot）。A34、B30 原本通過的 periodic 改由 trace 判定，仍然通過；其他 0 差異。同一次放回也把 M6 第 1 批 9 位（A01、B20、B26、C22、A12、A14、A26、B27、C03）用 E320 的方式接進 harness，共 2186 個情境，因為尚未進 content，全部記為 unsupported。
 - 已放回。
 
-## E333 前端建置沒指定 cargo 目標目錄，設了 CARGO_TARGET_DIR 就 stage 到舊的 bridge（2026-10-30，history-nobu M6 呈現檢查，工作線 C）
-- **現象**：E330 之後 split 會在建置鎖內跑 `build_ue_moba --build-only`。工作線 C 的 spotlight 佇列設了 `CARGO_TARGET_DIR`（自己的 Rust 目標目錄），四局都在 stage 檢查失敗：「staged bridge differs from current build: omfue/Plugins/OmRuntime/Binaries/Win64/om_bridge.dll」。
-- **根因**：`build_ue_bridge.lua` 的 bridge build 與 `build_ue_moba.lua` 的 script DLL build 都沒有指定目標目錄，cargo 依環境的 CARGO_TARGET_DIR 輸出；但 stage 與 `moba_stage_contract` 固定從 `omfue/bridge/target/debug`、`scripts/target/debug` 讀取。新建的 bridge 跑到別的目錄，stage 拿的是舊的那份，檢查就判定不一致。
-- **通用修正**：前端建置的這兩個 cargo build 明確加上 `--target-dir`（`omfue/bridge/target`、`scripts/target`），也就是 stage 讀取的位置，與呼叫端的 CARGO_TARGET_DIR 無關。`scripts/tests/frontend_target_dir_test.lua` 鎖住這個對應。
-- **避免**：建置之後會從固定路徑讀產物的流程，cargo 一定要明確指定輸出目錄，不能依賴呼叫端的環境變數。
+## E333 前端建置、stage 與 stage 檢查各自決定 Rust 目標目錄，設了 OM_RUST_RUN_BINARIES 就永遠判定不一致（2026-10-30，history-nobu M6 呈現檢查，工作線 C）
+- **現象**：E330 之後，split 會在建置鎖內跑 `build_ue_moba --build-only`。工作線 C 的 spotlight 佇列設了 `OM_RUST_RUN_BINARIES`（自己的 Rust 目標目錄），兩輪各四局都在 stage 檢查失敗：「staged bridge differs from current build: omfue/Plugins/OmRuntime/Binaries/Win64/om_bridge.dll」。佇列在 16:44 重排後，兩分鐘內四局全部結束，沒有留下任何鎖紀錄。
+- **根因**：三個地方各自決定目標目錄。
+  - cargo build 依呼叫端環境輸出。
+  - `ue_bridge_stage.sources` 依 `OM_RUST_RUN_BINARIES` 讀取（E125）。
+  - `moba_stage_contract.bindings` 寫死讀 `omfue/bridge/target/debug`、`scripts/target/debug`。
+  設了這個變數時，stage 從 session 的目錄複製，檢查卻拿 crate 自己的 target 比對，永遠不一致。第一版修正（讓 cargo 固定加 `--target-dir omfue/bridge/target`）只修到 build 這一邊：新 bridge 建到 crate 目錄，stage 仍複製 session 目錄裡的舊檔（`[om-bridge] unchanged`），檢查照樣失敗，診斷錯了。
+- **通用修正**：目標目錄只由 `ue_bridge_stage.rust_target(root, crate...)` 決定，有 `OM_RUST_RUN_BINARIES` 就用它，否則用 crate 自己的 target。以下三處都改用它：
+  - `build_ue_bridge` 的 bridge build 與 `build_ue_moba` 的 script DLL build（作為 `--target-dir`）。
+  - `ue_bridge_stage.sources`。
+  - `moba_stage_contract.bindings`。
+  `scripts/tests/frontend_target_dir_test.lua` 在有、沒有這個變數兩種情況下，分別檢查 stage 與檢查讀到同一份檔案。
+- **避免**：建置、複製、驗證同一份產物的流程，路徑要出自同一個函式，不能各自寫死，也不能各自讀環境變數。
 
 ## E332 verify_m6_batch 兩段建置之間有內容放回，script DLL 與 moba-headless 內容雜湊不同，9 局全失敗卻 exit 0（2026-10-30，e187 遊戲模式 session；已放回 live）
 - **現象**：m6gen3c（為了看 B 新增的 `interrupted:<原因>`）9 局全部在載入時 panic：「base_content.dll was built for other content (OM_CONTENT_CATALOG_DATA_HASH=5203…); this host has …0221…」。報告寫 0/3、0/3、0/3，批次仍以 exit 0 結束。

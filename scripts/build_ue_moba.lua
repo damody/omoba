@@ -189,9 +189,10 @@ if mode == 'full' and path.is_file(editor_exe) then
   run_restart('stop matching Unreal Editor before staging DLLs', 'stop')
 end
 
--- Staged from scripts/target/debug: build there whatever CARGO_TARGET_DIR says (E333).
+-- Built where the stage and its check read it (ue_bridge_stage.rust_target, E333).
 run_stage('build script DLLs (base_content and hero DLLs)', 'cargo', require('script_dlls').cargo_args({
-  'build', '--manifest-path', path.join(root, 'scripts', 'Cargo.toml'), '--target-dir', path.join(root, 'scripts', 'target'),
+  'build', '--manifest-path', path.join(root, 'scripts', 'Cargo.toml'),
+  '--target-dir', require('ue_bridge_stage').rust_target(root, 'scripts', 'target'),
 }, 'compiled-content-only'), root)
 
 run_stage('stage current base_content.dll', platform.lua_executable, {

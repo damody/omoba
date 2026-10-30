@@ -12,13 +12,14 @@ function M.bindings(root,project)
   project=project or (env and env~='' and path.absolute(env,root)) or path.join(root,'omfue')
   local plugin=path.join(project,'Plugins/OmRuntime/Binaries/Win64')
   return {
-    {role='bridge',built=path.join(root,'omfue/bridge/target/debug/om_bridge.dll'),
+    -- The same build directories the stage copied from (ue_bridge_stage.rust_target, E333).
+    {role='bridge',built=path.join(require('ue_bridge_stage').rust_target(root,'omfue','bridge','target'),'debug','om_bridge.dll'),
       copies={path.join(plugin,'om_bridge.dll')}},
     -- Only the copy the Unreal project loads (E319). The shared scripts/base_content.dll is
     -- still staged for dev runs and gen-docs, but other sessions copy their own builds over it
     -- (AGENTS.md gen-docs steps), and no launch reads it (E124); checking it failed whole UE
     -- launches whenever another session staged a release build during this build.
-    {role='base_content',built=path.join(root,'scripts/target/debug/base_content.dll'),
+    {role='base_content',built=path.join(require('ue_bridge_stage').rust_target(root,'scripts','target'),'debug','base_content.dll'),
       copies={path.join(plugin,'base_content.dll')}},
   }
 end
