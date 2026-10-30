@@ -169,3 +169,9 @@
 - 2026-10-30 14:46 A 2db1dabe M6 第 2 批 9 位加入 v3 測試英雄供 conformance；m6gen3 0 NEVER CAST；demo2 持鎖 609 秒略超上限，已請 gamemode 讓 role_ue 時限從取鎖起算
 - 2026-10-30 14:50 gamemode E322 UE 局時限從取 live_match 鎖起算（649c147c）；demo2 完整地圖 600 秒只倒 3 塔；決定 run_ue.bat 預設維持完整地圖（使用者入口），自動驗收用 quick recipe；C E321 負 key 狀態不顯示修正；B 7 項 host 變更 commit，下一步 create_illusion
 - 2026-10-30 15:05 線 A：產生器接上 is_visible_to、create_unit.overrides、event.instance、status.scope（hero／permanent）、獨立實例狀態的觸發；道具的狀態事件型被動改用裝備時建立 marker；307→314／447（a05_valiant_power、a23_falling_fire 等）
+- 2026-10-30 15:16 gamemode 60c07f9a 固定驗收 verify_ue_demo_finish.lua（1+9 quick，選角到結算，600 秒內，E323）；C f070f2a0 split 釋放鎖保證在時限內（E325）；conformance M6 第 2 批第一次實跑（E324）；B 道具被動攻擊迴圈
+- 2026-10-30 15:20 demo4 打到結算（430 秒，固定驗收通過）；C15 根因是 unit_templates 不在召喚物表（E326，涵蓋率 314→302 如實下修）；決定由 A 從 v3 產生 summons、由 B 做共用 dummy 單位型別；gamemode 下一步量效能基準；C 繼續逐英雄檢查 UE
+- 2026-10-30 15:36 B 3bbdbdf6 create_illusion；A 產生器 angle_between 等；gamemode 開效能比較 perfcmp（performance＋live_match 鎖）；C 已做完淺井、村上、稻姬的 UE 驗證局
+- 2026-10-30 15:46 perfcmp 持 live_match 超過 17 分鐘，已通知 gamemode；A 25359716 v3 unit_templates 成為召喚物單一來源，308／447
+- 2026-10-30 15:55 效能量測：M3' 版中位數 1.97 ms、HEAD 2.33 ms，同輪差距有正有負，在雜訊範圍內；最快一輪 1.86 對 1.99 ms（7%）待安靜時段複測；E328 measure_headless_perf.lua 每局取 live_match 鎖、600 秒上限（c4520191）
+- 2026-10-30 15:50 線 A：E326 C15 燒傷退步原因（v3 unit_templates 不在內容召喚物）＋ scripts/v3_summons.lua（37 模板全被召喚物模型缺口擋住，清單交 B）；接上 attack／force／道具 on_attack_hit，303→308；E327 v3_test_heroes 引導被寫成 instant，重產待 B 支援射程 0 引導
