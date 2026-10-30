@@ -630,6 +630,24 @@ fn settle_health_bonus(world: &mut World) {
     }
 }
 
+/// A copy of `of` (illusion.rs) starts with `of`'s max life, which holds `of`'s folded bonus: its
+/// own rows' bonus replaces it, recorded as already folded so `settle_health_bonus` adds nothing.
+fn refold_copied_health_bonus(world:&mut World,of:Entity,copy:Entity) {
+    if world.try_fetch::<AppliedHealthBonus>().is_none() { world.insert(AppliedHealthBonus::default()); }
+    let bonus=crate::runtime::ability_runtime::UnitStats::from_refs(&world.read_resource::<crate::runtime::BuffStore>(),false).max_hp_bonus(copy);
+    let mut applied=world.write_resource::<AppliedHealthBonus>();
+    let mut properties=world.write_storage::<CProperty>();
+    let Some(property)=properties.get_mut(copy) else {return};
+    let base=property.mhp-applied.0.get(&of).copied().unwrap_or(Fixed64::ZERO);
+    property.mhp=(base+bonus).max(Fixed64::from_raw(1));
+    property.hp=property.hp.min(property.mhp);
+    let total=property.mhp-base;
+    if total!=Fixed64::ZERO {applied.0.insert(copy,total);}
+    if let Some(unit)=world.write_storage::<Unit>().get_mut(copy) {
+        unit.max_hp=(property.mhp.raw()/1024) as i32;unit.current_hp=(property.hp.raw()/1024) as i32;
+    }
+}
+
 #[cfg(test)]
 #[test]
 fn every_hero_life_relearns_its_held_ranks_once() {
@@ -673,6 +691,31 @@ fn health_bonus_folds_into_max_hp_and_keeps_hp_within_it() {
     world.write_resource::<crate::runtime::BuffStore>().remove(unit, "bonus");
     settle_health_bonus(&mut world);
     assert_eq!(hp(&world), (Fixed64::from_i32(500), Fixed64::from_i32(500)), "removal restores the max and clamps nothing below it");
+}
+
+#[cfg(test)]
+#[test]
+fn a_copy_refolds_max_hp_from_its_own_rows_once() {
+    let mut world = World::new();
+    world.register::<CProperty>();
+    world.register::<Unit>();
+    world.insert(crate::runtime::BuffStore::default());
+    let s = Fixed64::from_i32;
+    let life = |hp: i32, mhp: i32| CProperty { hp: s(hp), mhp: s(mhp), msd: Fixed64::ZERO, def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO };
+    let of = world.create_entity().with(life(400, 500)).build();
+    let bonus = |amount: f64| serde_json::json!({ omb_script_abi::stat_keys::StatKey::HealthBonus.as_str(): amount });
+    let forever = crate::runtime::ability_runtime::buff_store::PERMANENT_BUFF_DURATION;
+    world.write_resource::<crate::runtime::BuffStore>().add(of, "bonus", forever, bonus(100.0));
+    world.write_resource::<crate::runtime::BuffStore>().add(of, super::attributes::KEY, forever, bonus(50.0));
+    settle_health_bonus(&mut world);
+    // The copy holds `of`'s life (550 / 650) and only the attribute row.
+    let copy = world.create_entity().with(life(550, 650)).build();
+    world.write_resource::<crate::runtime::BuffStore>().add(copy, super::attributes::KEY, forever, bonus(50.0));
+    refold_copied_health_bonus(&mut world, of, copy);
+    let hp = |world: &World| { let p = world.read_storage::<CProperty>().get(copy).unwrap().clone(); (p.hp, p.mhp) };
+    assert_eq!(hp(&world), (s(550), s(550)), "base 500 + its own 50");
+    settle_health_bonus(&mut world);
+    assert_eq!(hp(&world), (s(550), s(550)), "already folded");
 }
 
 /// The rank an auto-learned ability has at `hero_level`: every next rank whose
@@ -6414,6 +6457,11 @@ fn handle_add_buff(
     // v3 create_unit.overrides (unit_overrides): a one-shot envelope on a summon spawned this tick.
     if buff_id==super::unit_overrides::BUFF {
         super::unit_overrides::apply(world,target,&payload);
+        return Ok(());
+    }
+    // v3 create_illusion (illusion.rs): a one-shot envelope on an `illusion` summon spawned this tick.
+    if buff_id==super::illusion::BUFF {
+        if let Some(of)=super::illusion::apply(world,target,&payload) {refold_copied_health_bonus(world,of,target);}
         return Ok(());
     }
     // v3 `kill` (script_kill): a one-shot envelope, never stored.

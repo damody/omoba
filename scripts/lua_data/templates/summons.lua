@@ -43,6 +43,25 @@ return function(ctx)
       damage_per_owner_level = 10.0,
       owner_death = "expire",
     },
+    -- Append-only v3 create_illusion body (omoba-core illusion.rs): the envelope replaces every
+    -- number below with the copied unit's in the spawn batch, so they only bound the spawn itself.
+    {
+      id = "illusion",
+      ue = {native_only=true,native_visual=visual},
+      display_name = "幻象",
+      hp = 1.0,
+      damage = 0.0,
+      duration = 0.0,
+      move_speed = 300.0,
+      attack_range = 100.0,
+      attack_interval = 1.0,
+      armor = 0.0,
+      magic_resistance = 0.0,
+      collision_radius = 24.0,
+      vision_radius = 0.0,
+      follow_start_distance = 750.0,
+      follow_stop_distance = 350.0,
+    },
     -- @hero_author:authored-include (scripts/hero_author.lua build): authored summons appended last.
     (function()
       local out = {}

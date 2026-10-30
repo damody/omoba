@@ -517,6 +517,24 @@ impl Cx<'_, '_> {
         Ok(unit)
     }
 
+    /// v3 `create_illusion` (omoba-core illusion.rs): an `illusion` summon at `at` for `lifetime`
+    /// (`control` as [`Cx::create_unit_controlled`]) that becomes a copy of `of` right after its
+    /// spawn: its life (`hp`, None = `of`'s current), speed, defenses, attack and the stat rows of
+    /// its level and items; `statuses` also copies every status `of` holds with its remaining
+    /// time. `outgoing` / `incoming` are the damage it deals and takes per type (physical,
+    /// magical, pure) as fractions: -0.65 deals 35%, 2.0 takes 300%.
+    pub fn create_illusion(&mut self, of: EntityHandle, at: Vec2, lifetime: Fixed64, control: &str, hp: Option<Fixed64>,
+        statuses: bool, outgoing: [Fixed64; 3], incoming: [Fixed64; 3]) -> Result<EntityHandle, &'static str> {
+        use omoba_core::runtime::native::illusion::{payload, Scale, BUFF, TEMPLATE};
+        if hp.is_some_and(|hp| hp <= Fixed64::ZERO) { return Err("v3: create_illusion hp must be positive"); }
+        if !of.is_valid() { return Ok(EntityHandle::INVALID); }
+        let unit = self.create_unit_controlled(TEMPLATE, at, lifetime, control)?;
+        if !unit.is_valid() { return Ok(unit); }
+        let packet = payload(of.id, of.gen, hp, statuses, Scale(outgoing), Scale(incoming)).to_string();
+        self.world.add_stat_buff(unit, RStr::from_str(BUFF), Fixed64::ONE, RStr::from_str(&packet));
+        Ok(unit)
+    }
+
     /// v3 `aura` of a passive or a status of `ability` on `holder` (host omoba-core `aura`): every
     /// `aura::PERIOD` the host calls `on_aura(holder, aura, level, receivers)` with the living units
     /// within `radius` on `team` (`"ally"`, `"enemy"`, `"both"`; the holder only with

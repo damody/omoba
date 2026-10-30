@@ -16,6 +16,14 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-30 工作線 B：create_illusion（t43）
+
+- 新增 omoba-core `illusion.rs`：kit `cx.create_illusion(of, at, lifetime, control, hp, statuses, outgoing, incoming)` 產生 `illusion` 召喚物（summons.lua 新增、append-only），同批由一次性 envelope `__illusion_v1` 複製 `of` 的生命、速度、護甲魔抗、攻擊、碰撞、視野、朝向，以及等級與道具的 stat row（`__attributes`、`__item_passives`）；`statuses` 另外複製所有狀態與剩餘時間。
+- 幻象帶 `state::ILLUSION`（`is_illusion`）整個生命期，payload 是三種傷害類型的 outgoing／incoming 分數；rules::damage 減免前新增 `illusion::scale_damage`（1 + x，最低 0）。
+- 最大生命：`of` 的 mhp 已含它的 HealthBonus；`refold_copied_health_bonus` 改用幻象自己的 row 重算，並記為已 fold，`settle_health_bonus` 不會重複加。
+- 不支援：魔力、技能、道具主動／觸發（幻象沒有 inventory）。呈現（以英雄外觀顯示）留給 C 線。
+- 測試：illusion 兩項、`a_copy_refolds_max_hp_from_its_own_rows_once`；omoba-core 全套通過後 land。
+
 ## 2026-10-30（history-nobu 工作線 B：穿戴中的道具加入被動攻擊迴圈；已放回 live）
 
 - `ParallelWorldAdapter::source_passive_scripts`：學會的技能加上穿戴中的道具（每種道具一次，rank 1，script id 為 `item_script_id`）。on_attack_hit 與 on_attack_launch 的被動迴圈改用它。道具不檢查是否為 Passive；同一個 id 已是學會的技能時不重複呼叫。

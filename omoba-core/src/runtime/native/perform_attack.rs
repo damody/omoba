@@ -113,7 +113,7 @@ mod tests {
         let events = w.read_resource::<super::super::rules::attack::AttackEvents>().events.clone();
         assert!(events.iter().any(|e| matches!(e, super::super::rules::attack::AttackEvent::Hit { attacker: a, .. } if *a == attacker)));
         // fake: the attack triggers, no damage; no trigger_effects: no events.
-        let (mut w, attacker, target) = world();
+        let (mut w, attacker, _) = world();
         assert!(outcomes(&mut w, attacker, &payload(id, generation, flags(true, true))).is_empty());
         assert!(w.try_fetch::<super::super::rules::attack::AttackEvents>().is_some());
         let (mut w, attacker, _) = world();

@@ -90,7 +90,7 @@ pub fn admit(world: &World, packet: &Packet) -> bool {
 /// ② 減免前事件，依序執行。新的全域規則（例如原作的結界、幻象倍率）加在這裡。
 /// `status_damage_pre`：狀態的 on_deal_damage_pre／on_take_damage_pre（v3，產生的技能 Rust）可以改量或取消。
 pub const BEFORE_MITIGATION: &[fn(&World, &mut Packet)] = &[spell_amplification, outgoing_damage,
-    crate::runtime::native::scripting::damage_pre::status_damage_pre];
+    crate::runtime::native::scripting::damage_pre::status_damage_pre, crate::runtime::native::illusion::scale_damage];
 
 /// 法術增幅（E188）：帶 SPELL 的封包乘上來源的增幅。
 fn spell_amplification(world: &World, packet: &mut Packet) {
