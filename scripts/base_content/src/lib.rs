@@ -234,10 +234,13 @@ fn abilities() -> RVec<AbilityDefFFI> {
         // The metadata stays the catalog one the handler used; only the script changes.
         entry.script = generated.script;
     }
-    // A07's free rouse (the swap sub-ability, slot "sub") has no handler: only generated Rust.
-    v.push(hero_a07_impl::generated::a07_rouse_free::ffi());
+    for generated in GENERATED_ONLY { v.push(generated()); }
     v
 }
+
+/// Abilities with no handler and no registry row (sub-abilities, slot "sub"): only generated
+/// Rust, registered after the registry (A07's free rouse, the swap sub-ability).
+const GENERATED_ONLY: &[fn() -> AbilityDefFFI] = &[hero_a07_impl::generated::a07_rouse_free::ffi];
 
 #[sabi_extern_fn]
 fn dev_reload_runtime_lua_content(expected_hash: RStr<'_>) -> RuntimeLuaReloadResultFFI {
@@ -257,7 +260,10 @@ mod generated_registry_tests {
             .iter()
             .map(|definition| definition.script.ability_id().as_str().to_owned())
             .collect::<Vec<_>>();
-        assert_eq!(actual, EXPECTED_IDS);
+        let expected = EXPECTED_IDS.iter().map(|id| (*id).to_owned())
+            .chain(GENERATED_ONLY.iter().map(|generated| generated().script.ability_id().as_str().to_owned()))
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected);
         for (definition, expected_id) in definitions.iter().zip(EXPECTED_IDS) {
             let metadata: serde_json::Value =
                 serde_json::from_str(definition.def_json.as_str()).expect("ability metadata JSON");

@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E298 base_content 的 registry 測試從 1c655563 起一直失敗：多推了一個沒有 registry 列的產生技能（2026-10-30，工作線 A）
+
+- **現象**：`generated_registry_tests::lua_generated_registry_matches_exported_script_ids` 失敗。`abilities()` 的結果比 `hero_ability_ids.rs` 多一個 `a07_rouse_free`。
+- **根因**：A07 換上時，我直接在 `abilities()` 結尾 `v.push(a07_rouse_free)`。這個子技能沒有 handler，也沒有 registry 列，但測試要求兩邊一模一樣。land_to_live 只跑 cargo check，不跑這個測試，所以沒擋下來。
+- **通用修正**：`lib.rs` 新增 `GENERATED_ONLY` 表，列出「只有產生的 Rust、沒有 registry 列」的技能。`abilities()` 從這張表推入，測試的期望值改成 registry ids 加上這張表。以後這類子技能只要加進表裡。
+- **以後如何避免**：換上產生的技能後，跑 `cargo test -p base_content --lib generated_registry` 和該英雄的 `v3_conformance`，不能只靠 land 的 cargo check。
+
 ## E297 產生的 B06 第一武士施放全被退回：狀態 runtime_id 借用了 host 封包前綴（2026-10-30，工作線 A）
 
 - **現象**：在影子把 b06_first_warrior 換成產生的 Rust 後，conformance 每次施放都是 CAST_REJECTED，不扣法力，也不進冷卻；手寫 handler 正常。
