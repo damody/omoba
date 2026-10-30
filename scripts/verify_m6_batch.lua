@@ -121,6 +121,10 @@ local recipes = {
 
 -- 3. Build once (the script DLL set and moba-headless), like run_moba_headless_batch.lua.
 local env = compiled.environment({ OMB_HEADLESS_HERO_STATS = '1' })
+-- The script DLLs, moba-headless and their private copies come from one content state (E332):
+-- a landing between the two builds gave them different content hashes and every match panicked
+-- at load. The repo build lock keeps land_to_live and other builds out until the copies are made.
+local build_lock <close> = not options.report_only and require('build_lock').acquire(b.root, 'verify_m6_batch build') or nil
 if not options.no_build then
   for _, args in ipairs({
     require('script_dlls').cargo_args({ 'build', '--manifest-path', path.join(b.root, 'scripts', 'Cargo.toml') }, compiled.feature, { '--release' }),
@@ -141,6 +145,7 @@ if not options.report_only then
   end
   path.write(exe, path.read(path.join(b.root, 'omb', 'target', 'release', 'moba-headless.exe'), true), false, true)
 end
+if build_lock then build_lock:release() end
 
 -- 4. Matches, `--parallel` at a time; never during a performance measurement (target/locks/performance).
 local function wait_performance_lock()
@@ -269,3 +274,11 @@ end
 path.write(path.join(output, 'report.md'), table.concat(md, '\n') .. '\n', true)
 print(table.concat(md, '\n'))
 print(('report: %s (%d castable abilities never cast)'):format(path.join(output, 'report.md'), never))
+-- A batch where no match finished checked nothing (E332): fail, naming the first match's error.
+local finished = 0
+for _, row in ipairs(summary.recipes) do finished = finished + row.finished end
+if finished == 0 and #jobs > 0 then
+  local err = path.is_file(jobs[1].log .. '.err') and path.read(jobs[1].log .. '.err') or ''
+  io.stderr:write('no match finished; first match log: ' .. jobs[1].log .. '\n' .. err:sub(-1500) .. '\n')
+  os.exit(1)
+end

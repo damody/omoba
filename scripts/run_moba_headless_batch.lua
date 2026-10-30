@@ -32,6 +32,8 @@ local env=compiled.environment()
 local report=batch.execute(options,{
   prepare=function()
     require('export_moba_role_plan').export(options.recipe,recipe_file)
+    -- Both builds from one content state (E332): no landing between the script DLLs and moba-headless.
+    local build_lock <close> = require('build_lock').acquire(b.root,'run_moba_headless_batch build')
     for _,args in ipairs({
       require('script_dlls').cargo_args({'build','--manifest-path',path.join(b.root,'scripts','Cargo.toml')},
         compiled.feature,{'--release'}),

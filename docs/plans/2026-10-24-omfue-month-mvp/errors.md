@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E332 verify_m6_batch 兩段建置之間有內容放回，script DLL 與 moba-headless 內容雜湊不同，9 局全失敗卻 exit 0（2026-10-30，e187 遊戲模式 session；已放回 live）
+- **現象**：m6gen3c（為了看 B 新增的 `interrupted:<原因>`）9 局全部在載入時 panic：「base_content.dll was built for other content (OM_CONTENT_CATALOG_DATA_HASH=5203…); this host has …0221…」。報告寫 0/3、0/3、0/3，批次仍以 exit 0 結束。
+- **根因**：批次先建 script DLL、再建 moba-headless、再複製到私有 bin，三步都不持建置鎖；中間 land_to_live 放回了內容，兩個 binary 內嵌的內容雜湊不同。和 E301（UE 啟動）同類，headless 批次沒有跟著修。沒有任何一局完成也不算失敗。
+- **通用修正**：`verify_m6_batch` 從建置到複製進私有 bin 都持 repo 建置鎖（`build_lock`，to-be-closed，失敗也會放），複製完才放；沒有任何一局完成時 exit 1，並印出第一局的錯誤。`run_moba_headless_batch` 的兩段建置同樣改在建置鎖下進行。
+- **避免**：一次流程要互相一致的 binary（host 與 script DLL），在同一把建置鎖下建完並複製；批次「全部沒跑成」要以非 0 結束。
+
 ## E331 擊退拋物線高度沒進網路快照，實機拋物線永遠 0 公分（2026-10-30，history-nobu M6 呈現檢查，工作線 C）
 - **現象**：B29 村上義清的 spotlight 局中，地裂的跳躍有 forced_motion，UE 也記了 `OM_FORCED_ARC`，但最高點是 0 cm；v3 寫的跳躍高度是 200。
 - **根因**：forced_motion 的高度放在 buff payload（`__forced_motion_v1.height_raw`），但送給客戶端的狀態快照（BuffVisualSnapshot，BVS1／BVS2）只帶狀態 id 和剩餘時間，加上頻道狀態的總時長，任何 payload 都會被丟掉。UE 收到的 PayloadSummary 是空的，拋物線高度永遠 0。當初的擊退拋物線（工作線 C）只用直接餵 payload 的單元測試驗證，沒有經過實機的快照路徑。
