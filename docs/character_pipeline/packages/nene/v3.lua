@@ -11,7 +11,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "A15",
-      text = { zh_TW = { name = "寧寧" }, en = { name = "Nene" } },
+      text = { zh_TW = { name = "寧寧", title = "影月的女忍",
+        background = "忍者：竭印沉默並削弱目標的攻擊，月擊在範圍內連落月束暈眩敵人，影風車讓普攻在敵人之間彈跳；大招強化彈跳並吸血，迷蹤步隱形突襲。" }, en = { name = "Nene" } },
       auto_learn = { "a15_shadow_step" },
     },
     unit_state = {

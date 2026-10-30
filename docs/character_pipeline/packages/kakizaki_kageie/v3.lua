@@ -12,7 +12,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "B30",
-      text = { zh_TW = { name = "柿崎景家" }, en = { name = "Kakizaki Kageie" } },
+      text = { zh_TW = { name = "柿崎景家", title = "越後的先鋒猛將",
+        background = "突進型戰士：逆壓之盾把承受的傷害轉為生命並在盾結束時反擊周圍，碎魂劍削減護甲並持續傷害，閃擊瞬移到單位身邊追擊；大招斬出貫穿的煉獄劍氣，點燃整條路徑上的敵人。" }, en = { name = "Kakizaki Kageie" } },
     },
     abilities = {
       -------------------------------------------------------------------------

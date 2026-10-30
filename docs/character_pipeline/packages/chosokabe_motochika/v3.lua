@@ -10,7 +10,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "C20",
-      text = { zh_TW = { name = "長宗我部元親" }, en = { name = "Chosokabe Motochika" } },
+      text = { zh_TW = { name = "長宗我部元親", title = "四國的霸主",
+        background = "近戰轉遠程：炎之加護提高攻速移速並在受擊時灼燒周圍，鬼血之流大量回血，炎之舞以火環暈眩近身敵人；大招鬼若子改為遠程濺射攻擊，並大幅提高最大生命。" }, en = { name = "Chosokabe Motochika" } },
     },
     abilities = {
       -------------------------------------------------------------------------

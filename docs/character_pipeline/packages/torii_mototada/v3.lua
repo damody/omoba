@@ -10,7 +10,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "A16",
-      text = { zh_TW = { name = "鳥居元忠" }, en = { name = "Torii Mototada" } },
+      text = { zh_TW = { name = "鳥居元忠", title = "伏見城的血守",
+        background = "坦克：血腥之攫減速敵人並強化自身，血魄連結從敵人所受的傷害中吸取生命並減輕自身傷害，被動把承受的傷害化為周圍的純粹傷害；大招沿直線連續爆發血魂，大範圍暈眩。" }, en = { name = "Torii Mototada" } },
     },
     abilities = {
       -------------------------------------------------------------------------

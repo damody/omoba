@@ -9,7 +9,8 @@ return function(ctx)
   return {
     schema_version = 3, kind = "hero", id = "A26",
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
-    hero = { source_id = "A26", text = { zh_TW = { name = "濃姬" }, en = { name = "Nohime" } } },
+    hero = { source_id = "A26", text = { zh_TW = { name = "濃姬", title = "美濃的蝮之女",
+        background = "火器射手：連銃掃射周圍敵人，火藥踢擊暈眩並炸飛近身的敵人，二丁銃提高攻速並帶來暴擊；大招擲出炸彈大範圍暈眩，被動讓普攻定期射出小炸彈。" }, en = { name = "Nohime" } } },
     unit_state = {
       a26t_count = { type = "int", init = "0", reveal = "public", scope = "ability",
         note = "原作 A26T 的 ability.count：命中非建築目標的普攻次數" },

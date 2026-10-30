@@ -22,7 +22,8 @@ return function(ctx)
     },
     hero = {
       source_id = "B27",
-      text = { zh_TW = { name = "小島貞興" }, en = { name = "Kojima Sadaoki" } },
+      text = { zh_TW = { name = "小島貞興", title = "鬼小島",
+        background = "纏鬥型戰士：騎術大幅提高攻速與移速，剛力擊擲出追蹤斧暈眩目標並瞬移到它身旁，無畏衝鋒移除敵方狀態並獲得魔法免疫；大招震裂大地重創周圍敵人，並大幅降低自身所受傷害。" }, en = { name = "Kojima Sadaoki" } },
     },
     abilities = {
       -------------------------------------------------------------------------

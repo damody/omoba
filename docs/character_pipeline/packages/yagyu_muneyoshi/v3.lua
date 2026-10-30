@@ -9,7 +9,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "C24",
-      text = { zh_TW = { name = "柳生宗嚴" }, en = { name = "Yagyu Muneyoshi" } },
+      text = { zh_TW = { name = "柳生宗嚴", title = "柳生新陰流之祖",
+        background = "劍士：神取重創目標並幾乎定住它，同時減傷回血；浮舟躍入敵陣沉默落點周圍，全劍以連擊暈眩周圍敵人；大招傳送到任意距離的友方英雄身邊，雙方回血並強化攻擊。" }, en = { name = "Yagyu Muneyoshi" } },
     },
     unit_state = {
       c24r_hits = { type = "int", init = "0", reveal = "team", scope = "hero",

@@ -9,7 +9,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "C05",
-      text = { zh_TW = { name = "前田慶次" }, en = { name = "Maeda Keiji" } },
+      text = { zh_TW = { name = "前田慶次", title = "傾奇者的雷槍",
+        background = "突擊型戰士：松風提高移動與攻擊速度衝入戰場，雷舞向周圍敵人射出追蹤雷電，雷鳴豪槍的普攻拖慢目標；大招引導後以瞬雷閃落入敵陣，造成範圍傷害並暈眩。" }, en = { name = "Maeda Keiji" } },
     },
     abilities = {
       -------------------------------------------------------------------------

@@ -67061,6 +67061,7 @@ local data = {
     {
       abilities = { "c05_matsukaze", "c05_thunder_dance", "c05_thunder_spear", "c05_flash_thunder" },
       authored_package = "maeda_keiji",
+      background = "突擊型戰士：松風提高移動與攻擊速度衝入戰場，雷舞向周圍敵人射出追蹤雷電，雷鳴豪槍的普攻拖慢目標；大招引導後以瞬雷閃落入敵陣，造成範圍傷害並暈眩。",
       display_name = "前田慶次",
       id = "maeda_keiji",
       moba_loadout = {
@@ -67068,6 +67069,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:C05",
+      title = "傾奇者的雷槍",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "maeda_keiji",
@@ -67092,6 +67094,7 @@ local data = {
     {
       abilities = { "a18_obsessive_pressure", "a18_suppress", "a18_stubborn_tactics", "a18_by_force" },
       authored_package = "inaba_ittetsu",
+      background = "纏鬥型戰士：執念壓迫造成範圍傷害並依命中數量回血，打壓奪取敵方英雄的敏捷，頑強戰法帶來必定到來的暴擊與定時的魔法護盾；大招以自身暈眩為代價，暈眩周圍所有敵人。",
       display_name = "稻葉一鐵",
       id = "inaba_ittetsu",
       moba_loadout = {
@@ -67099,6 +67102,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A18",
+      title = "頑固一徹",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "inaba_ittetsu",
@@ -67106,6 +67110,7 @@ local data = {
     {
       abilities = { "b30_reverse_shield", "b30_soul_breaker", "b30_flash_strike", "b30_purgatory_slash" },
       authored_package = "kakizaki_kageie",
+      background = "突進型戰士：逆壓之盾把承受的傷害轉為生命並在盾結束時反擊周圍，碎魂劍削減護甲並持續傷害，閃擊瞬移到單位身邊追擊；大招斬出貫穿的煉獄劍氣，點燃整條路徑上的敵人。",
       display_name = "柿崎景家",
       id = "kakizaki_kageie",
       moba_loadout = {
@@ -67113,6 +67118,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B30",
+      title = "越後的先鋒猛將",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "kakizaki_kageie",
@@ -67120,6 +67126,7 @@ local data = {
     {
       abilities = { "a16_bloody_grasp", "a16_blood_link", "a16_blood_aura", "a16_dark_blood_decree" },
       authored_package = "torii_mototada",
+      background = "坦克：血腥之攫減速敵人並強化自身，血魄連結從敵人所受的傷害中吸取生命並減輕自身傷害，被動把承受的傷害化為周圍的純粹傷害；大招沿直線連續爆發血魂，大範圍暈眩。",
       display_name = "鳥居元忠",
       id = "torii_mototada",
       moba_loadout = {
@@ -67127,6 +67134,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A16",
+      title = "伏見城的血守",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "torii_mototada",
@@ -67168,6 +67176,7 @@ local data = {
     {
       abilities = { "a23_cursed_blood", "a23_soul_bind", "a23_falling_fire", "a23_yomi_flame" },
       authored_package = "ukita_hideie",
+      background = "施法者：惡血咒延遲爆發並範圍暈眩，靈魂鎖縛以結界拴住敵方英雄、距離越遠傷害越高，墜火引導火雨持續燃燒；大招以黃泉之焰沉默目標，並封鎖它的物品與被動技能。",
       display_name = "宇喜多秀家",
       id = "ukita_hideie",
       moba_loadout = {
@@ -67175,6 +67184,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A23",
+      title = "備前的鬼術師",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "ukita_hideie",
@@ -67182,6 +67192,7 @@ local data = {
     {
       abilities = { "a35_flame_raid", "a35_sealing_blaze", "a35_flame_swiftness", "a35_scorching_fire" },
       authored_package = "shima_sakon",
+      background = "刺客：焰襲化身怒焰衝過敵陣，熾焰封魔暈眩周圍敵人並封鎖它們的技能、物品與被動，被動提高敏捷；大招持續放出怒焰，傷害並燃燒周圍敵人的法力，打斷它們的動作。",
       display_name = "島左近",
       id = "shima_sakon",
       moba_loadout = {
@@ -67189,6 +67200,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A35",
+      title = "治部的鬼左近",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "shima_sakon",
@@ -67196,6 +67208,7 @@ local data = {
     {
       abilities = { "a01_tosho_gongen", "a01_heaven_net", "a01_thunder_blade", "a01_mikawa_valor", "a01_realm_momentum" },
       authored_package = "tokugawa_ieyasu",
+      background = "團隊支援：東照權現為周圍友軍回血並提高攻速，天羅地網大範圍定身，雷霆刃讓普攻帶雷；三河之勇提供護甲光環並可啟動群體回復與加速，天下之勢把承受的傷害轉為法力與生命。",
       display_name = "德川家康",
       id = "tokugawa_ieyasu",
       moba_loadout = {
@@ -67203,6 +67216,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A01",
+      title = "三河的天下人",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "tokugawa_ieyasu",
@@ -67295,6 +67309,7 @@ local data = {
     {
       abilities = { "a26_volley", "a26_powder_kick", "a26_twin_guns", "a26_scorching_bomb" },
       authored_package = "nohime",
+      background = "火器射手：連銃掃射周圍敵人，火藥踢擊暈眩並炸飛近身的敵人，二丁銃提高攻速並帶來暴擊；大招擲出炸彈大範圍暈眩，被動讓普攻定期射出小炸彈。",
       display_name = "濃姬",
       id = "nohime",
       moba_loadout = {
@@ -67302,6 +67317,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A26",
+      title = "美濃的蝮之女",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "nohime",
@@ -67309,6 +67325,7 @@ local data = {
     {
       abilities = { "b27_horsemanship", "b27_mighty_strike", "b27_fearless_charge", "b27_rending_blade" },
       authored_package = "kojima_sadaoki",
+      background = "纏鬥型戰士：騎術大幅提高攻速與移速，剛力擊擲出追蹤斧暈眩目標並瞬移到它身旁，無畏衝鋒移除敵方狀態並獲得魔法免疫；大招震裂大地重創周圍敵人，並大幅降低自身所受傷害。",
       display_name = "小島貞興",
       id = "kojima_sadaoki",
       moba_loadout = {
@@ -67316,6 +67333,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B27",
+      title = "鬼小島",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "kojima_sadaoki",
@@ -67408,6 +67426,7 @@ local data = {
     {
       abilities = { "c14_fire_curse", "c14_fire_breath", "c14_dragon_vein", "c14_dragon_form" },
       authored_package = "saito_yoshitatsu",
+      background = "近戰轉遠程：火靈詛咒沉默並減速一群敵人，火龍吐息術以扇形火焰灼燒被詛咒的敵人，被動強化攻擊與護甲；大招化身火龍，改為遠程濺射攻擊。",
       display_name = "齋藤義龍",
       id = "saito_yoshitatsu",
       moba_loadout = {
@@ -67415,6 +67434,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:C14",
+      title = "化龍的美濃之主",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "saito_yoshitatsu",
@@ -67422,6 +67442,7 @@ local data = {
     {
       abilities = { "c24_kamitori", "c24_ukifune", "c24_zenken", "c24_last_life" },
       authored_package = "yagyu_muneyoshi",
+      background = "劍士：神取重創目標並幾乎定住它，同時減傷回血；浮舟躍入敵陣沉默落點周圍，全劍以連擊暈眩周圍敵人；大招傳送到任意距離的友方英雄身邊，雙方回血並強化攻擊。",
       display_name = "柳生宗嚴",
       id = "yagyu_muneyoshi",
       moba_loadout = {
@@ -67429,6 +67450,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:C24",
+      title = "柳生新陰流之祖",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "yagyu_muneyoshi",
@@ -67487,6 +67509,7 @@ local data = {
     {
       abilities = { "c20_flame_aegis", "c20_demon_blood", "c20_flame_dance", "c20_demon_child" },
       authored_package = "chosokabe_motochika",
+      background = "近戰轉遠程：炎之加護提高攻速移速並在受擊時灼燒周圍，鬼血之流大量回血，炎之舞以火環暈眩近身敵人；大招鬼若子改為遠程濺射攻擊，並大幅提高最大生命。",
       display_name = "長宗我部元親",
       id = "chosokabe_motochika",
       moba_loadout = {
@@ -67494,6 +67517,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:C20",
+      title = "四國的霸主",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "chosokabe_motochika",
@@ -67926,6 +67950,7 @@ local data = {
     {
       abilities = { "b35_sword_essence", "b35_isshun", "b35_muto_dori", "b35_hiten" },
       authored_package = "kamiizumi_nobutsuna",
+      background = "劍士：劍之極意可疊加強化攻擊、護甲與回血，一瞬射出劍氣範圍傷害並減速，無刀取在被普攻時回血並反擊；大招穿刺到敵人身上，之後的普攻必定暴擊。",
       display_name = "上泉信綱",
       id = "kamiizumi_nobutsuna",
       moba_loadout = {
@@ -67933,6 +67958,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B35",
+      title = "新陰流的劍聖",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "kamiizumi_nobutsuna",
@@ -68008,6 +68034,7 @@ local data = {
     {
       abilities = { "a15_exhaust_seal", "a15_moon_strike", "a15_shadow_windmill", "a15_shadow_moon_assault", "a15_shadow_step" },
       authored_package = "nene",
+      background = "忍者：竭印沉默並削弱目標的攻擊，月擊在範圍內連落月束暈眩敵人，影風車讓普攻在敵人之間彈跳；大招強化彈跳並吸血，迷蹤步隱形突襲。",
       display_name = "寧寧",
       id = "nene",
       moba_loadout = {
@@ -68015,6 +68042,7 @@ local data = {
         skill_points = 0,
       },
       source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A15",
+      title = "影月的女忍",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "nene",

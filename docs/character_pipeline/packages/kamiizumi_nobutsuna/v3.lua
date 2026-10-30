@@ -10,7 +10,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "B35",
-      text = { zh_TW = { name = "上泉信綱" }, en = { name = "Kamiizumi Nobutsuna" } },
+      text = { zh_TW = { name = "上泉信綱", title = "新陰流的劍聖",
+        background = "劍士：劍之極意可疊加強化攻擊、護甲與回血，一瞬射出劍氣範圍傷害並減速，無刀取在被普攻時回血並反擊；大招穿刺到敵人身上，之後的普攻必定暴擊。" }, en = { name = "Kamiizumi Nobutsuna" } },
     },
     unit_state = {
       b35r_count = { type = "int", init = "0", reveal = "public", scope = "hero",

@@ -10,7 +10,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "A01",
-      text = { zh_TW = { name = "德川家康" }, en = { name = "Tokugawa Ieyasu" } },
+      text = { zh_TW = { name = "德川家康", title = "三河的天下人",
+        background = "團隊支援：東照權現為周圍友軍回血並提高攻速，天羅地網大範圍定身，雷霆刃讓普攻帶雷；三河之勇提供護甲光環並可啟動群體回復與加速，天下之勢把承受的傷害轉為法力與生命。" }, en = { name = "Tokugawa Ieyasu" } },
       auto_learn = { "a01_realm_momentum" },
     },
     abilities = {

@@ -9,7 +9,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "A23",
-      text = { zh_TW = { name = "宇喜多秀家" }, en = { name = "Ukita Hideie" } },
+      text = { zh_TW = { name = "宇喜多秀家", title = "備前的鬼術師",
+        background = "施法者：惡血咒延遲爆發並範圍暈眩，靈魂鎖縛以結界拴住敵方英雄、距離越遠傷害越高，墜火引導火雨持續燃燒；大招以黃泉之焰沉默目標，並封鎖它的物品與被動技能。" }, en = { name = "Ukita Hideie" } },
     },
     abilities = {
       -------------------------------------------------------------------------

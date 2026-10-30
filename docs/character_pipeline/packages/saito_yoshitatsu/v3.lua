@@ -15,7 +15,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "C14",
-      text = { zh_TW = { name = "齋藤義龍" }, en = { name = "Saito Yoshitatsu" } },
+      text = { zh_TW = { name = "齋藤義龍", title = "化龍的美濃之主",
+        background = "近戰轉遠程：火靈詛咒沉默並減速一群敵人，火龍吐息術以扇形火焰灼燒被詛咒的敵人，被動強化攻擊與護甲；大招化身火龍，改為遠程濺射攻擊。" }, en = { name = "Saito Yoshitatsu" } },
     },
     abilities = {
       -------------------------------------------------------------------------

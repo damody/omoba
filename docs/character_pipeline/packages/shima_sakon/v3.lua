@@ -24,7 +24,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "A35",
-      text = { zh_TW = { name = "島左近" }, en = { name = "Shima Sakon" } },
+      text = { zh_TW = { name = "島左近", title = "治部的鬼左近",
+        background = "刺客：焰襲化身怒焰衝過敵陣，熾焰封魔暈眩周圍敵人並封鎖它們的技能、物品與被動，被動提高敏捷；大招持續放出怒焰，傷害並燃燒周圍敵人的法力，打斷它們的動作。" }, en = { name = "Shima Sakon" } },
     },
     abilities = {
       -------------------------------------------------------------------------

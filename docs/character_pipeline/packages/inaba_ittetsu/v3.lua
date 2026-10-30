@@ -10,7 +10,8 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     hero = {
       source_id = "A18",
-      text = { zh_TW = { name = "稻葉一鐵" }, en = { name = "Inaba Ittetsu" } },
+      text = { zh_TW = { name = "稻葉一鐵", title = "頑固一徹",
+        background = "纏鬥型戰士：執念壓迫造成範圍傷害並依命中數量回血，打壓奪取敵方英雄的敏捷，頑強戰法帶來必定到來的暴擊與定時的魔法護盾；大招以自身暈眩為代價，暈眩周圍所有敵人。" }, en = { name = "Inaba Ittetsu" } },
     },
     abilities = {
       -------------------------------------------------------------------------
