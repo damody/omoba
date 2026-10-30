@@ -1738,6 +1738,11 @@ pub(crate) struct SummonEntry {
     /// Status and aura holder only (原作 dummy); see `SummonStats::dummy`.
     #[serde(default)]
     pub(crate) dummy: bool,
+    /// Killer's reward (`SummonStats::bounty_gold` / `bounty_xp`).
+    #[serde(default)]
+    pub(crate) bounty_gold: u32,
+    #[serde(default)]
+    pub(crate) bounty_xp: u32,
 }
 
 pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),String> {

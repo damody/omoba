@@ -518,6 +518,12 @@ pub struct SummonedUnit {
     /// (`summon_owner_cap`). Canonical entity id breaks ties.
     #[serde(default)]
     pub spawn_tick: u64,
+    /// Template bounty (gold, hero XP) for its killer (moba_match `summon_bounty`).
+    #[serde(default)]
+    pub bounty: (u32, u32),
+    /// The enemy player whose damage was lethal first; the bounty goes to it at the death.
+    #[serde(default)]
+    pub killer_player: Option<u32>,
 }
 
 /// Content opt-in follow policy and bounded public-terrain waypoint cache.
@@ -581,6 +587,8 @@ impl SummonedUnit {
             immobile: false,
             expire_with_owner: false,
             spawn_tick: 0,
+            bounty: (0, 0),
+            killer_player: None,
         }
     }
 

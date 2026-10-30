@@ -1752,6 +1752,8 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \towner_death: SummonOwnerDeath::{},\n\
              \tinvulnerable: {},\n\
              \tdummy: {},\n\
+             \tbounty_gold: {},\n\
+             \tbounty_xp: {},\n\
              }};\n",
             cname,
             fixed64_lit(e.hp),
@@ -1772,6 +1774,8 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             e.owner_death.rust_variant(),
             e.invulnerable,
             e.dummy,
+            e.bounty_gold,
+            e.bounty_xp,
         ));
     }
     out.push('\n');

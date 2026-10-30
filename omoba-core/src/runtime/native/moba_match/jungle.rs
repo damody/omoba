@@ -680,6 +680,7 @@ pub(crate) fn record_moba_jungle_damage(world: &World, source: Option<Entity>, t
     if state.phase != MobaMatchPhase::Playing || world.read_resource::<GamePause>().is_paused { return; }
     let credit=if lethal {jungle_credit::resolve(world,&state,source)}else{None};
     let attacker = source.filter(|entity|jungle_credit::living_target(world,&state.config.teams,&state.heroes,*entity));
+    if lethal { super::summon_bounty::lethal(world,&state,credit,target); }
     let Some(camp) = state.jungle_camps.iter_mut().find(|c| c.contains(target)) else { return; };
     if camp.invulnerable() { return; }
     if let Some(entity) = attacker {

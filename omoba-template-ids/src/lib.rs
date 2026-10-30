@@ -1410,6 +1410,9 @@ pub struct SummonStats {
     /// or orders, never selected, damaged or blocking (omoba-core summon spawn); every number
     /// above except `vision_radius` and `duration` is zero.
     pub dummy: bool,
+    /// Gold and hero XP its killer's player gets (原作 bounty), credited like a neutral kill.
+    pub bounty_gold: u32,
+    pub bounty_xp: u32,
 }
 
 /// Ability 類型 — `omoba_core::ability_meta::AbilityType` 的 const-friendly

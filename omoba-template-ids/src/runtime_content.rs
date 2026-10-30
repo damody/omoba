@@ -583,6 +583,8 @@ impl RuntimeContent {
                 },
                 invulnerable: entry.invulnerable,
                 dummy: entry.dummy,
+                bounty_gold: entry.bounty_gold,
+                bounty_xp: entry.bounty_xp,
             })))
         })?;
         let summon_display = build_indexed(&manifest.summons, "summon", |raw, entry| {

@@ -10,6 +10,7 @@ use specs::{Builder, Entity, World, WorldExt};
 use crate::comp::*;
 mod jungle;
 mod jungle_credit;
+mod summon_bounty;
 mod original_rewards;
 #[cfg(test)]
 mod projectile_credit_tests;
@@ -2791,6 +2792,7 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
     state.brush_attack_reveals.retain(|(source,_),_|*source!=entity_key(entity));
     for unit in state.units.values_mut() {unit.tower_focus.retire_target(entity);}
     jungle::death(world, &mut state, entity);
+    summon_bounty::death(world, &mut state, entity);
     tower_plating::retire(world,&state,entity);
     if let Some(unit) = state.units.remove(&entity_key(entity)) {
         state.assist_ledger.retire(crate::runtime::canonical_entity_id(entity));

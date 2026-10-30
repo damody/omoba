@@ -4436,6 +4436,7 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     summoned.immobile=stats.immobile;
     summoned.expire_with_owner=stats.owner_death==omoba_template_ids::SummonOwnerDeath::Expire;
     summoned.spawn_tick=world.read_resource::<Tick>().0;
+    summoned.bounty=(stats.bounty_gold,stats.bounty_xp);
     world.write_storage::<SummonedUnit>().insert(entity,summoned)?;
     if stats.invulnerable || stats.dummy {
         if let Some(mut state)=world.try_fetch_mut::<crate::runtime::MobaMatch>() {state.add_invulnerable_summon(&world.entities(),entity);}
