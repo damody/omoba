@@ -89,6 +89,24 @@
   - E286：split 在取得鎖後由父程序一次建好 authority、script DLL 與 client runtime，所有角色都帶 `--no-build`；不再需要鎖外預建或重試。
 - **限制**：只有 content buff 目錄裡有的狀態會送到 UE（目前 78 個）；英雄進 content 後就會自動帶進。
 
+## 2026-10-30 深夜（遊戲模式線：線 B 修正後重跑 nobu 營地與砍樹實機、商店測試通用化；E296）
+
+- **重跑 nobu UE 實機**（`target/e187/ue-nobu10`，線 B 39533181／E294 之後的新建置，`moba_nobu_jungle_check.lua`、伊達政宗 12 級，560 秒時限到自動收尾）：**replica mismatch 0**，計畫五步全部完成。
+
+| 時間 | 畫面 |
+|---|---|
+| 01:42 | 營地旁樹群圍著英雄（砍樹前） |
+| 砍樹後隨即 | 營地交戰、清空 |
+| 03:53 | 營地重生 |
+| 06:19 | 回到原處，樹群已被砍空，營地單位都在 |
+| 07:06 | 樹群重生 |
+
+  nobu UE 驗收到此齊全：兵線、塔、建築（ue-nobu4）；營地交戰、清空、重生、砍樹、樹仍空、樹重生且 mismatch 0（ue-nobu10）；結算畫面在 quick 地圖驗過。
+- 第一次重跑啟動前被拒：「authority content 與 renderer bridge 不一致」，UE 建置 bridge 後、建 authority 前有內容放回 live。重跑即通過；這是 E287 之外另一個建置期間的競態，尚未處理。
+- **商店測試通用化**（E296）：`owner_shop_ready_keeps_epoch_slots_and_catalog_only_buy_wire` 改成從道具目錄推導重複材料配方並逐一檢查，不再寫死數量與 catalog id。
+- 自己的 E294 和線 B 撞號，已改為 E297。
+- commit：461378d8（E296、E297 改號）、本次紀錄。
+
 ## 2026-10-30 夜（遊戲模式線：nobu 營地清空與重生入鏡、產生 Rust 英雄的 M6 驗收；E290、E297，已放回並 commit）
 
 - **營地清空與重生**（E290）：用既有 recipe 欄位 `showcase.start_level` 新增 `moba_nobu_jungle_check.lua`（nobu、開局 12 級），計畫打己方最弱營地。`target/e187/ue-nobu9`：01:30 打營地、01:39 清空、03:21 重生入鏡。途中修掉 Lua JSON 空物件來回變陣列（moba-config 拒絕 plan）。
