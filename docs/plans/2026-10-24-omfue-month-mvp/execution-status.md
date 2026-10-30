@@ -1323,6 +1323,12 @@
 - 2026-10-31 工作線 A：9d29384d（E365、E366）與 6abaf6ce：產生器 selector.relative_to、status.reapply_if_removed、damage flag no_source_bonuses、選取類別 building 與英雄以外（kit UnitTypes::Buildings／NonHero、Cx::of_types）；v3_summons 帶召喚物 mana／mana_regen；v3_test_heroes 空欄 ""（A32 的 F 在第 6 欄）；omfue 6f9e723 修 om_codegen 空欄 panic（E377）。影子 conformance A22、A11、C08、B18、A32 0 fail。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
+## 2026-10-31（conformance：E367～E375、含 94aadadf／6abaf6ce 的 live 全跑）
+
+- 放回並 commit：E367（a20ca8b4）、E369／E370（e0177c83）、E372／E375（9362a5bc），每次都 0 退步。
+- live（含 B 94aadadf、A 6abaf6ce）全跑：14350 通過、147 fail，0 個 pass 變差。全招產生且 0 fail 的 30 位已交 A，可轉正式；有 fail 的交 A／B（共用筆記 conformance-live2-2026-10-31.md）。
+- 等待中：B 的 E380（b13e_sleep 在施法者死亡時被移除）。
+
 ## 2026-10-30（conformance：E359、E361、E362；C15 爆裂箭產生版、C05 通過）
 
 - E359：per_source 狀態的份數等於範圍內的持有者數（鎖住 C15 灼燒份數）。E361：no_effects 以目前最大生命為準，拒絕施放的 detail 帶 script 錯誤文字。E362：需要狀態的技能先施放給狀態的那招；toggle 等冷卻結束才切換；on_death 連帶移除。0 退步，fail 418→220。
