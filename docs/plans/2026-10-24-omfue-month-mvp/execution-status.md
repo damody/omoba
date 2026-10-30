@@ -1088,6 +1088,12 @@
 - 2026-10-30 線 A：B29 整位換上產生的 Rust：`hero_dlls.lua` 加 murakami_yoshikiyo（hero_b29），base_content 以 dev-dependency 連入並刪除 `heroes/B29_murakami_yoshikiyo`；b06_first_warrior、b04_flame_trail_dash 加進 mapping。conformance：這三項 0 退步；影子跑 registry、B04／B06／B29 conformance 全過。
 - 還沒做：英雄 crate 放回 live（`scripts/heroes/*`、`scripts/Cargo.toml` members 與 `[workspace.dependencies]`、`.gitignore` 排除 `scripts/heroes/*/src/generated/`）——等 B 回覆 ability_kit 由誰放回與 `hero_a02` 路徑（兩次訊息，尚未回覆）；M5 其餘 27 招要的 kit 元件（projectile、delay／repeat、status.triggers、aura、set_state、slow_pct 等，見 codegen-coverage.md）。
 
+## 2026-10-30（conformance：C15 爆裂箭火焰 id 修正後重比）
+
+- live 的 c15e_fire_field 改成 c15_burst_arrow_fire:{caster} 後，手寫版有 20 個火焰地帶狀態情境由 pass 變 unsupported（手寫版用自己的封包，看不到新 id；燒傷正常）。
+- 產生版和新基準相比還有 24 個退步：c15e_burn 從沒套到目標，火焰地帶也觀察不到。維持手寫，細節交 A（fire_dummy 有沒有建出來、generic_dot 前綴是否衝突）。
+- A13 vanishing_step +75 通過（A 的改動）。其餘 9 位 0 差異。
+
 ## 2026-10-30（conformance：A 換上 B29 整位、第一勇士、炎之軌跡後的 live 基準；子技能換入 E313）
 
 - live 重跑和影子比對結果一致：B29 +28、B04 +20、B06 第一勇士 +21（修好 c185371b 後手寫版的退步），0 退步。
