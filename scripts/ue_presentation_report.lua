@@ -12,6 +12,7 @@
 -- next to it. "unresolved" (a cue id the UE catalog does not know) is always a defect.
 --
 --   tools\lua\lua.exe scripts\ue_presentation_report.lua --hero HERO_ID --log FILE [--log FILE ...] [--out FILE]
+--   tools\lua\lua.exe scripts\ue_presentation_report.lua --item ITEM_ID[,ITEM_ID...] --log FILE ... (item spotlight)
 --
 -- HERO_ID is the content hero id (honda_tadakatsu); its abilities come from target/site/source-catalog.json
 -- (gen_source_catalog) through the hero's nobu source id.
@@ -86,6 +87,28 @@ function M.expected(hero_id, catalog, icons, cast_cues, status_cues)
   return source_id, rows
 end
 
+-- catalog item ids -> rows like M.expected's: an item's cues come under its catalog id or its
+-- authority id (without the `item_` prefix), its statuses from the item's v3 statuses.
+function M.expected_items(item_ids, catalog, cast_cues, status_cues)
+  local by_id = {}
+  for _, item in ipairs(catalog.items or {}) do by_id[item.id] = item end
+  local rows = {}
+  for _, id in ipairs(item_ids) do
+    local item = assert(by_id[id], "item " .. id .. " is not in " .. M.CATALOG)
+    local row = { id = id, aliases = { id:gsub("^item_", "") }, cast_cues = {}, target_cues = {}, statuses = {}, passive = false }
+    for _, cue in ipairs((cast_cues.abilities or {})[id] or {}) do
+      local list = cue.at == "target" and row.target_cues or row.cast_cues
+      list[#list + 1] = cue.cue
+    end
+    for _, s in ipairs(item.v3 and item.v3.statuses or {}) do
+      local shared = s.runtime_id and not s.runtime_id:find("[:{]") and s.runtime_id or nil
+      if s.visibility ~= "hidden" then row.statuses[#row.statuses + 1] = { id = s.id, shared = shared, cue = status_cues.statuses[s.id] } end
+    end
+    rows[#rows + 1] = row
+  end
+  return rows
+end
+
 local function count_text(row)
   if not row then return "0" end
   local parts = {}
@@ -103,6 +126,10 @@ function M.render(hero_id, source_id, rows, seen)
   for _, r in ipairs(rows) do
     local cue_row = seen.cue[r.id]
     local target = seen.target[r.id] or 0
+    for _, alias in ipairs(r.aliases or {}) do
+      cue_row = cue_row or seen.cue[alias]
+      target = target + (seen.target[alias] or 0)
+    end
     local statuses = {}
     local status_total = 0
     for _, s in ipairs(r.statuses) do
@@ -137,23 +164,33 @@ function M.render(hero_id, source_id, rows, seen)
 end
 
 function M.main(args)
-  local hero, logs, out = nil, {}, nil
+  local hero, logs, out, items = nil, {}, nil, nil
   local i = 1
   while i <= #args do
     if args[i] == "--hero" then hero = args[i + 1]; i = i + 1
+    elseif args[i] == "--item" then
+      items = {}
+      for id in args[i + 1]:gmatch("[^,]+") do items[#items + 1] = id:find("^item_") and id or ("item_" .. id) end
+      i = i + 1
     elseif args[i] == "--log" then logs[#logs + 1] = args[i + 1]; i = i + 1
     elseif args[i] == "--out" then out = args[i + 1]; i = i + 1
     else error("unknown argument " .. args[i]) end
     i = i + 1
   end
-  assert(hero and #logs > 0, "usage: ue_presentation_report.lua --hero HERO_ID --log FILE [--log FILE ...] [--out FILE]")
+  assert((hero or items) and #logs > 0, "usage: ue_presentation_report.lua --hero HERO_ID|--item ITEM_ID[,...] --log FILE [--log FILE ...] [--out FILE]")
   local function read(p) local f = assert(io.open(p, "rb"), p); local s = f:read("a"); f:close(); return s end
   local function root(p) return b.root .. "/" .. p end
   local text = {}
   for _, p in ipairs(logs) do text[#text + 1] = read(p) end
   local seen = M.parse(table.concat(text, "\n"))
-  local source_id, rows = M.expected(hero, json.decode(read(root(M.CATALOG))), json.decode(read(root(M.ICONS))),
-    json.decode(read(root(M.CAST_CUES))), json.decode(read(root(M.STATUS_CUES))))
+  local source_id, rows
+  if items then
+    hero, source_id = "道具", table.concat(items, "、")
+    rows = M.expected_items(items, json.decode(read(root(M.CATALOG))), json.decode(read(root(M.CAST_CUES))), json.decode(read(root(M.STATUS_CUES))))
+  else
+    source_id, rows = M.expected(hero, json.decode(read(root(M.CATALOG))), json.decode(read(root(M.ICONS))),
+      json.decode(read(root(M.CAST_CUES))), json.decode(read(root(M.STATUS_CUES))))
+  end
   local md, defects = M.render(hero, source_id, rows, seen)
   if out then local f = assert(io.open(out, "wb")); f:write(md); f:close() else io.write(md) end
   for _, d in ipairs(defects) do print("DEFECT " .. d) end

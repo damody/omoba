@@ -478,6 +478,10 @@ pub struct ShowcaseConfig {
     /// demonstration fits one life.
     #[serde(default = "ShowcaseConfig::default_hold_hp_permille")]
     pub hold_hp_permille: u32,
+    /// Items a player starts with, by player id (an item spotlight demonstrates them). Placed as a
+    /// purchase would place them (catalog and inventory group rules), without spending gold.
+    #[serde(default)]
+    pub start_items: BTreeMap<u32, Vec<String>>,
 }
 
 impl ShowcaseConfig {
@@ -485,7 +489,8 @@ impl ShowcaseConfig {
     pub fn is_valid(&self, players: &BTreeSet<u32>) -> bool {
         (1..=25).contains(&self.start_level)
             && (1000..=100_000).contains(&self.hold_hp_permille)
-            && self.placements.keys().chain(self.hold_players.iter()).all(|id| players.contains(id))
+            && self.placements.keys().chain(self.hold_players.iter()).chain(self.start_items.keys()).all(|id| players.contains(id))
+            && self.start_items.values().all(|items| items.len() <= 6)
             && self.placements.values().all(|[x, y]| (0..=1_000_000).contains(x) && (0..=1_000_000).contains(y))
     }
     fn holds(config: &SingleLaneConfig, player_id: u32) -> bool {
@@ -1628,6 +1633,9 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
             }
         }
     }
+    if let Some(showcase) = state.config.showcase.clone() {
+        grant_showcase_items(world, &state, &showcase)?;
+    }
     state.setup_base_structures(world);
     jungle::setup(world, &mut state);
     super::ward_world::apply_configured_trinket_loadouts(&mut state)
@@ -1639,6 +1647,27 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
     world.insert(crate::runtime::shop_undo_wire::LockstepHashContract {
         version: crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
     });
+    Ok(())
+}
+
+/// The showcase's starting items, placed through the shop's own purchase rules with a scratch
+/// balance (the hero's gold is untouched); an unknown item or a full inventory refuses the stage.
+fn grant_showcase_items(world: &mut World, state: &MobaMatch, showcase: &ShowcaseConfig) -> Result<(), Error> {
+    use super::comp::ItemEffects;
+    let registry = world.read_resource::<crate::runtime::ItemRegistry>();
+    let mut inventories = world.write_storage::<Inventory>();
+    let mut effects = world.write_storage::<ItemEffects>();
+    for (player_id, items) in &showcase.start_items {
+        let entity = state.heroes.iter().find(|slot| slot.player_id == *player_id).and_then(|slot| slot.entity)
+            .ok_or_else(|| err_msg(format!("showcase items for player {player_id} without a hero")))?;
+        let inventory = inventories.get_mut(entity).ok_or_else(|| err_msg("showcase hero without an inventory"))?;
+        for item in items {
+            let mut scratch = Gold(i32::MAX);
+            super::shop::buy_item(&registry, inventory, &mut scratch, item)
+                .map_err(|error| err_msg(format!("showcase item {item} for player {player_id}: {error:?}")))?;
+        }
+        if let Some(effect) = effects.get_mut(entity) { effect.dirty = true; }
+    }
     Ok(())
 }
 

@@ -416,7 +416,7 @@ mod tests {
             player(6,2,"murakami_yoshikiyo",BotRole::Mid,true)];
         p.showcase = Some(ShowcaseConfig { start_level:6, minion_waves:false,
             placements:[(1,[2300,2400]),(2,[2050,2400]),(6,[2750,2400])].into(),
-            hold_players:[2,6].into(), hold_hp_permille:5000 });
+            hold_players:[2,6].into(), hold_hp_permille:5000, start_items:Default::default() });
         p
     }
     #[test]
@@ -502,6 +502,23 @@ mod tests {
         assert!(hp[&2] > Fixed64::from_i32(stats.base_hp * 4), "held seat hit points scaled by 5000 per mille: {:?}", hp[&2]);
     }
     #[test]
+    fn showcase_stage_starts_a_player_with_its_items_without_spending_gold() {
+        let mut p = showcase_plan();
+        p.showcase.as_mut().unwrap().start_items.insert(1,vec!["napalm_bomb".into(),"sake".into()]);
+        let (config,_) = p.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        setup_single_lane_match(&mut world, config).unwrap();
+        let hero = |id:u32| world.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).and_then(|slot|slot.entity).unwrap();
+        let (one,two) = (hero(1),hero(2));
+        let inventories = world.read_storage::<crate::comp::Inventory>();
+        let held = |entity| inventories.get(entity).unwrap().slots.iter().flatten().map(|item|item.item_id.clone()).collect::<Vec<_>>();
+        assert_eq!(held(one), vec!["napalm_bomb".to_string(),"sake".to_string()]);
+        assert!(held(two).is_empty(), "only the named player gets items");
+        let gold = world.read_storage::<crate::comp::Gold>();
+        assert_eq!(gold.get(one).unwrap().0, gold.get(two).unwrap().0, "no gold spent");
+    }
+    #[test]
     fn showcase_stage_rejects_human_holds_and_out_of_roster_or_range_values() {
         let reject = |p:RoleBotMatchPlan| assert!(p.compile(1,SimulationTickProfile::Production60Hz)
             .ok().and_then(|(config,_)| { let pool = crate::runtime::StateInitializer::create_thread_pool();
@@ -513,6 +530,9 @@ mod tests {
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_level = 0; reject(p);
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_level = 26; reject(p);
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().hold_hp_permille = 999; reject(p);
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_items.insert(9,vec!["sake".into()]); reject(p);
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_items.insert(1,vec!["no_such_item".into()]); reject(p);
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_items.insert(1,vec!["sake".into();7]); reject(p);
         let json = serde_json::to_value(showcase_plan()).unwrap();
         assert_eq!(serde_json::from_value::<RoleBotMatchPlan>(json.clone()).unwrap().showcase, showcase_plan().showcase);
         let mut unknown = json; unknown["showcase"]["camera"] = serde_json::json!(1);

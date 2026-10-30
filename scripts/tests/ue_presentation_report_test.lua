@@ -49,5 +49,12 @@ ok(md:find("h01e_mark：0", 1, true), "a per-caster runtime id is not a shared i
 ok(#defects == 2 and defects[1]:find("h01_ghost", 1, true) and defects[2]:find("h01_idle", 1, true), "unresolved cue and silent ability are defects")
 ok(md:find("擊退拋物線（全局）：1 次，最高 180 cm", 1, true), "arc summary")
 ok(md:find("`h01_passive` | 0 | 0（預期 0 個） | — | 被動，無 cue／狀態可檢查", 1, true), "a passive with nothing to show is not a defect")
+local items = M.expected_items({ "item_bomb" },
+  { items = { { id = "item_bomb", v3 = { statuses = { { id = "bomb_burn" }, { id = "bomb_secret", visibility = "hidden" } } } } } },
+  { abilities = {} }, { statuses = { bomb_burn = "burn_ring" } })
+ok(#items == 1 and items[1].aliases[1] == "bomb" and #items[1].statuses == 1, "an item row with its authority id and public statuses")
+local item_md = M.render("道具", "item_bomb", items, M.parse("OM_CUE ability=bomb cue=cast unit=3 art=style\nOM_BUFF buff=bomb_burn unit=9 route=status_cue"))
+ok(item_md:find("`item_bomb` | style 1", 1, true) and item_md:find("bomb_burn：status_cue 1", 1, true), "item cues found under the authority id")
+ok(not pcall(M.expected_items, { "item_none" }, { items = {} }, {}, { statuses = {} }), "unknown item refused")
 ok(not pcall(M.expected, "nobody", { abilities = {} }, { entries = {} }, {}, { statuses = {} }), "unknown hero refused")
 print("ue_presentation_report_test: " .. checks .. " checks passed")
