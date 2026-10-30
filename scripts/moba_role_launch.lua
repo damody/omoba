@@ -602,6 +602,10 @@ function M.prepare(options,process)
       OM_PLAYER_ID=id,OM_PLAYER_NAME=name,OM_STORY=report.story,
       OMB_LUA_CONTENT='0',OMB_LUA_HOT_RELOAD='0',OMB_LUA_CONTENT_ROOT='',OMB_STORY_DATA_DIR='',
       OM_PRESENTATION_ADDRESS=address,OMFX_PRESENTATION_ADDR=address,
+      -- A renderer cooks and packages nothing (E364): at startup TurnkeySupport otherwise runs UBT to
+      -- query platform SDKs, and UBT's machine-wide mutex queued it behind another session's build
+      -- for minutes inside the match's time box.
+      UE_SKIP_UBT_SDK_SETUP='1',
       -- M3': the run's whole script DLL set, not the plugin's lone base_content copy.
       OMB_SCRIPTS_DIR=scripts,
       OMB_PLAYER_ID=id,OMB_TEAM_ID=team,OMB_PLAYER_NAME=name},args={

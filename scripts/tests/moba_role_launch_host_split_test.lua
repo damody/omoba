@@ -30,6 +30,14 @@ for _,bad in ipairs({{'--autopilot','bad profile'},{'--server-only','--autopilot
   assert(not pcall(parse,bad),'accepted invalid autopilot option')
 end
 
+-- E364: a renderer skips the startup UBT SDK query (UBT's machine mutex queued it behind builds).
+do
+  local f=assert(io.open('scripts/moba_role_launch.lua','rb'));local text=f:read('a');f:close()
+  local ue=assert(text:find("local ue={cwd=path.join(b.root,'omfue'),env={",1,true))
+  local skip=assert(text:find("UE_SKIP_UBT_SDK_SETUP='1'",ue,true),'the renderer environment skips the UBT SDK setup')
+  assert(skip-ue<1000,'the switch belongs to the renderer environment')
+end
+
 -- E355: an autopilot renderer runs unattended (no engine prompt waits for a person).
 do
   local f=assert(io.open('scripts/moba_role_launch.lua','rb'));local text=f:read('a');f:close()

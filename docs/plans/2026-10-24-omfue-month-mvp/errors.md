@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E364 UE 啟動時 TurnkeySupport 跑 UBT 查 AutoSDK，碰上別人的 UBT 建置就排隊數分鐘，吃掉實機局時限（2026-10-30，history-nobu M6 UE 效能，工作線 C）
+- **現象**：工作線 C 的 1＋9 quick demo（`target/lineC-perf/demo5`）在 21:11 啟動 UE，log 停在「InternalLoadLibrary: TurnkeySupport」345 秒，21:17 才出現「UBT AutoSDK ReturnCode: 0」，接著才載入地圖。600 秒的時限只剩大約 1.5 分鐘能玩，frame time 只量到 11 個窗口。
+- **根因**：引擎啟動時，`TargetPlatformManagerModule` 在沒有設定 AutoSDK 的情況下，會啟動 UBT 查詢各平台的 SDK 狀態，並等它跑完（`NeedsToRunSetupPlatformsUBT`）。UBT 有一把整台機器共用的鎖；當時其他 session 正在跑 land_to_live 的 UBT 建置，這次查詢就排在後面等了好幾分鐘。實機局的 renderer 不 cook 也不打包，根本用不到這份 SDK 資訊。
+- **通用修正**：`moba_role_launch` 啟動 renderer 時，環境變數加上 `UE_SKIP_UBT_SDK_SETUP=1`，這是引擎本身提供、用來跳過這一步的開關。測試 `moba_role_launch_host_split_test` 會檢查 renderer 的環境變數裡有這個設定。
+- **避免**：只用來顯示畫面的遊戲程序，要關掉所有會去碰建置工具（UBT、Turnkey、DDC 服務）的啟動步驟；在機器上同時有建置在跑時，這些步驟的等待時間無法預估。
+
 ## E360 v3 測試英雄的技能列沒有 charges、toggle 記成 active、F 欄沒有座位（2026-10-30，工作線 A）
 
 - **現象**：conformance 第 2～9 批第一次實跑：a17_shrapnel、c25_raid 缺 charges；toggle 技能的 event.ability.is_toggle 一律是 false；F 欄技能（A12、B03、B11、B13、B16、C07 共 144 個情境）都是 missing entry。
