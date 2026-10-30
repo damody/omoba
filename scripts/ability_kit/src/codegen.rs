@@ -316,6 +316,13 @@ impl<'a, 'w> Cx<'a, 'w> {
         self.world.add_stat_buff(of, RStr::from_str(ally_cleanse::SELF_SLOW_BUFF), Fixed64::ONE, RStr::from_str(&packet));
         Ok(())
     }
+    /// v3 `remove_unit`: `to` leaves the world without dying (host script_kill silent: no bounty,
+    /// no death events). A hero cannot be removed.
+    pub fn remove_unit(&mut self, to: EntityHandle) -> Res {
+        if !self.exists(to) { return Ok(()); }
+        if self.is_hero(to) { return Err("v3: remove_unit of a hero"); }
+        self.kill(to, true)
+    }
     /// v3 `face`: `who` turns toward `at` (no turn when it stands there).
     pub fn face(&mut self, who: EntityHandle, at: Vec2) -> Res {
         if !who.is_valid() { return Ok(()); }

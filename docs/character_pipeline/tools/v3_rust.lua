@@ -920,6 +920,7 @@ local ACTION_FIELDS = {
   swap_positions = set({ "op", "a", "b" }),
   clear_slow_pool = set({ "op", "of" }),
   kill = set({ "op", "to", "silent" }),
+  remove_unit = set({ "op", "to" }),
   zone = set({ "op", "shape", "at", "radius", "duration", "interval", "first", "cue", "on_tick" }),
   spend_mana = set({ "op", "from", "amount", "ability" }),
   set_var = set({ "op", "var", "value", "on", "status" }),
@@ -1667,6 +1668,9 @@ function Gen:action(a, ctx, ind)
     local silent = a.silent == true and "true" or "false"
     if a.silent ~= nil and type(a.silent) ~= "boolean" then self:block("action:kill.silent of an expression"); return "" end
     return line("{") .. line("    let to = " .. self:value(a.to, ctx, "unit") .. ";") .. line("    cx.kill(to, " .. silent .. ")?;") .. line("}")
+  elseif op == "remove_unit" then
+    -- the unit leaves without dying (host script_kill silent): no bounty, no death events
+    return line("{") .. line("    let to = " .. self:value(a.to, ctx, "unit") .. ";") .. line("    cx.remove_unit(to)?;") .. line("}")
   elseif op == "clear_slow_pool" then
     return line("{") .. line("    let of = " .. self:value(a.of, ctx, "unit") .. ";") .. line("    cx.clear_slow_pool(of)?;") .. line("}")
   elseif op == "swap_positions" then
@@ -2600,7 +2604,7 @@ local function emit_entry(m, o, opts, status_problems)
   local passive = def.passive or {}
   local owner_triggers = {}
   for _, k in ipairs(sorted_keys(passive)) do
-    if k ~= "reveal" and k ~= "triggers" and k ~= "stats" and k ~= "notes" and k ~= "aura" then g:block("passive:" .. k) end
+    if k ~= "reveal" and k ~= "triggers" and k ~= "stats" and k ~= "notes" and k ~= "aura" and k ~= "visibility" then g:block("passive:" .. k) end
   end
   -- v3 aura: the host lists the receivers every pulse (on_aura); `auras` are the arms of on_aura
   local auras = {}
