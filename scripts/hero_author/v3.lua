@@ -25,8 +25,9 @@ local function modules(repo_root)
   return loaded[root]
 end
 
--- a direction is cast at a point like a vector (the same as generate.lua's TARGET_TYPE)
-local V3_TARGET_TYPE = { none = "none", unit = "unit", point = "point", direction = "point", vector = "point" }
+-- a direction is cast at a point like a vector (the same as generate.lua's TARGET_TYPE); unit_or_point
+-- too: v3_rust.lua lowers it as a point cast (`cx.target_point()`, a unit aims at its position, E338)
+local V3_TARGET_TYPE = { none = "none", unit = "unit", point = "point", direction = "point", vector = "point", unit_or_point = "point" }
 local CHANNEL_ANCHOR = { none = "self", point = "point", vector = "point", unit = "unit" }
 
 -- A v3 channel (`cast.channel_time`) as the host's pulse channel (omoba-content-model

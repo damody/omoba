@@ -37,11 +37,77 @@ local HEROES = {
   { package = "kojima_sadaoki" },
   { package = "shimazu_yoshihiro" },
   { package = "sakai_tadatsugu" },
+  -- M6 batches 2-9, the rest (line-conformance REPORT_ONLY)
+  { package = "kuroda_yoshitaka" },
+  { package = "niwa_nagahide" },
+  { package = "baba_nobufusa" },
+  { package = "saito_yoshitatsu" },
+  { package = "yagyu_muneyoshi" },
+  { package = "sengoku_hidehisa" },
+  { package = "takeda_shingen" },
+  { package = "izumo_no_okuni" },
+  { package = "chosokabe_motochika" },
+  { package = "chacha" },
+  { package = "ii_naomasa" },
+  { package = "maeno_nagayasu" },
+  { package = "takeda_katsuyori" },
+  { package = "fuma_kotaro" },
+  { package = "kirigakure_saizo" },
+  { package = "akechi_hidemitsu" },
+  { package = "kuki_yoshitaka" },
+  { package = "katakura_kagetsuna" },
+  { package = "sassa_narimasa" },
+  { package = "shibata_katsuie" },
+  { package = "honda_masanobu" },
+  { package = "saito_tomonobu" },
+  { package = "oda_nobunaga" },
+  { package = "koihime" },
+  { package = "mori_motonari" },
+  { package = "usami_sadamitsu" },
+  { package = "ryuzoji_takanobu" },
+  { package = "hirate_masahide" },
+  { package = "takigawa_kazumasu" },
+  { package = "ishida_mitsunari" },
+  { package = "miyoshi_nagayoshi" },
+  { package = "kashin_koji" },
+  { package = "kosokabe_chikayasu" },
+  { package = "tachibana_muneshige" },
+  { package = "kamiizumi_nobutsuna" },
+  { package = "honganji_kennyo" },
+  { package = "ishikawa_kazumasa" },
+  { package = "otomo_sorin" },
+  { package = "naoe_kanetsugu" },
+  { package = "nene" },
+  { package = "mori_ranmaru" },
+  { package = "uesugi_kenshin" },
+  { package = "kato_kiyomasa" },
+  { package = "sakakibara_yasumasa" },
+  { package = "miyamoto_musashi" },
+  { package = "yamamoto_kansuke" },
+  { package = "matsuhime" },
+  { package = "takenaka_shigeharu" },
+  { package = "momochi_sandayu" },
+  { package = "hachisuka_masakatsu" },
+  { package = "hashiba_hideyoshi" },
+  { package = "sanada_masayuki" },
+  { package = "kikuhime" },
+  { package = "ise_hime" },
+  { package = "matsunaga_hisahide" },
+  { package = "mogami_yoshihime" },
+  { package = "tachibana_dosetsu" },
+  { package = "saito_dosan" },
+  { package = "zuiryuin_nisshu" },
+  { package = "imagawa_yoshimoto" },
+  { package = "ashikaga_yoshiaki" },
+  { package = "mochizuki_chiyome" },
+  { package = "kato_danzo" },
+  { package = "kobayakawa_takakage" },
+  { package = "akiyama_nobutomo" },
+  { package = "ishikawa_goemon" },
 }
 
 -- v3 hero slots in the MOBA loadout order (Q W E R, then the D slot)
 local SLOT_INDEX = { Q = 1, W = 2, E = 3, R = 4, D = 5 }
-local TARGET_TYPE = { none = "none", unit = "unit", point = "point", vector = "point" }
 -- omoba-core AbilityLevelData fields; the levels carry them, not extras (hero_author/v3.lua RESERVED)
 local RESERVED = v3.RESERVED
 
@@ -67,13 +133,16 @@ local function build(entry)
   local compiled = v3.compile(".", doc)
   local abilities, slots, ranks = {}, {}, {}
   for _, ab in ipairs(doc.abilities) do
-    abilities[#abilities + 1] = ability_row(entry.package, ab, compiled)
+    local row = ability_row(entry.package, ab, compiled)
+    abilities[#abilities + 1] = row
     local idx = SLOT_INDEX[ab.slot]
     if idx then
       assert(not slots[idx], entry.package .. ": two abilities in slot " .. ab.slot)
       slots[idx] = ab.id
-      -- birth rank: auto-learned 1, ultimates 0 (learned at their hero level), basics 1
-      ranks[idx] = (has(doc.hero.auto_learn, ab.id) or not has(ab.tags, "ultimate")) and 1 or 0
+      -- birth rank: auto-learned 1, ultimates 0 (learned at their hero level), basics 1; 0 when
+      -- rank 1 needs a higher hero level (B15D at 8), as omoba-content-model validates (E345)
+      local later = (row.levels[1].required_hero_level or 1) > 1
+      ranks[idx] = not later and (has(doc.hero.auto_learn, ab.id) or not has(ab.tags, "ultimate")) and 1 or 0
     end
   end
   local list, loadout = {}, {}

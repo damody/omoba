@@ -1,0 +1,18 @@
+[package]
+name = "hero_c08"
+version = "0.1.0"
+edition = "2021"
+description = "hero_c08.dll: exports hero_c08_impl's manifest (M3')"
+
+[lib]
+name = "hero_c08"
+crate-type = ["cdylib"]
+
+[dependencies]
+abi_stable = "0.11"
+hero_c08_impl = { path = ".." }
+
+[features]
+default = []
+runtime-lua-content = ["hero_c08_impl/runtime-lua-content"]
+compiled-content-only = ["hero_c08_impl/compiled-content-only"]
