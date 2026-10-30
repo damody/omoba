@@ -1590,7 +1590,8 @@ function Gen:action(a, ctx, ind)
   elseif op == "knockback" then
     -- line B's knockback: `who` straight away from `from` over `duration` (stops at walls); a
     -- negative distance pulls toward `from`, `height` is the arc's peak (presentation only)
-    if a.distance == "0" or a.distance == 0 then self:block("action:knockback in place (distance 0)"); return "" end
+    -- distance 0 is a toss in place (host knockback_arc); without a height it would move nothing
+    if (a.distance == "0" or a.distance == 0) and a.height == nil then self:block("action:knockback in place (distance 0) without height"); return "" end
     local who = self:value(a.who, ctx, "unit")
     local from, from_ty = self:value(a.from, ctx)
     if from_ty ~= "unit" and from_ty ~= "point" then self:block("action:knockback.from of a " .. tostring(from_ty)); return "" end
