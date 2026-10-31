@@ -2,6 +2,34 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E551 authority 在 outcome 標記以外改變 hp 沒發 CommittedVitals：replica 小兵 hp 不同步（D21）（2026-11-01，工作線 B）
+
+- **現象**：
+  - E545 的 in-process observer 在 quick role plan 的 tick 3000 抓到第一個不一致：team 2 看到的 team 1 小兵（replica id 244），DISCLOSED_PROPERTY（0x464f4702）的 hp：authority 442.25（raw 452866），replica 434.0（raw 444416）。mhp 雙方都是 650。（E545 記錄寫 443.25／9.25，是換算錯誤；正確差值是 8.25。）
+  - 逐 tick 追蹤：tick 2986 雙方都是 434.0。tick 2987 authority 加了 8.25，正好是 mhp 650 的 13/1024，也就是範圍回復的比例。那一 tick 給 244 的 frame 只有一個 Buff 事件，沒有 CommittedVitals（kind 17）。replica 一直停在 434.0，直到下一次 checkpoint 才被抓到。
+- **根因**：
+  - replica 只透過 CommittedVitals 事件更新別隊單位的 hp。
+  - authority 只在 outcome batch 內「已知會改 hp 的 outcome」標記 vitals（Damage、Heal、ScriptHeal、`ally_area_restore::BUFF` 這個 buff id 等）。
+  - 改 hp 但不在標記清單裡的路徑都會漏發：
+    - 範圍回復用自己的 buff id、payload 帶 `ally_area_restore::KEY`。handler 認 payload，標記只認 buff id。這次的 8.25 就是這條。
+    - spell lifesteal 回復來源。
+    - recovery channel 的週期回復（`recovery_channel::finish_tick`）。
+  - 逐一補標記只會一直漏，所以不採用。
+- **通用修正**：
+  - game_processor 新增 `CommittedVitalsCache`，記錄每個單位最後一次 committed vitals 帶出的 (hp, mhp)。
+  - `emit_committed_actor_state` 發 vitals 時同步更新這份快取。
+  - `emit_changed_vitals`：authority 每個 MOBA tick 結尾，對所有 CProperty 比對快取，凡是與最後一次 committed 值不同的單位補發一筆 CommittedVitals，排序同 outcome 路徑。
+    - 第一次看到的單位只記錄，不發：它的揭露 baseline 已帶 hp。
+    - 已在本 tick 提交、之後沒變的單位不重複發。
+    - team replica 端不執行。
+  - `finish_moba_match_tick` 改為先跑原本的規則（`finish_moba_match_rules`），最後才呼叫 `emit_changed_vitals`。這樣 tick 內任何時點、任何路徑的 hp 變化都會在同一 tick 投影出去，原本的提前 return 也涵蓋在內。server（omb state/core）與 headless（simulation_driver）都走這個入口。
+- **開銷**：每 tick 多一次 CProperty join 與一份 BTreeMap 重建，與既有的 `emit_incoming_damage_observations` 同級。
+- **測試**：`game_processor::tests::the_end_of_a_tick_reports_hp_no_committed_path_reported`
+  - 直接改 hp（模擬漏標的回復），tick 結尾補發正確值。
+  - 第一次看到的單位不發。
+  - 已在本 tick 提交過的 vitals 不重複發。
+- **檔案**：`omoba-core/src/runtime/native/game_processor.rs`、`omoba-core/src/runtime/native/moba_match.rs`
+
 ## E550 headless creep facing 把 impulse（B25 修羅地獄的拉扯）推動的小兵當成朝向違規（2026-11-01，E187）
 - 現象：m6new12（C10、B25）的 creep facing violations 是 60，之前幾批都是 0。樣本幾乎都帶 `b25t_grip_count`，mode=walk，off 從 40° 到 180°（被往後拉）。也有不帶狀態的，因為拉扯觸發時會 remove_status。
 - 原因：B25 修羅地獄用 v3 `impulse`（E514，`Impulses` resource，不是 buff）推動小兵，位移不會轉身。facing 檢查只略過暈眩和 `forced_motion::BUFF`，沒有略過 impulse，所以 30 tick 視窗內的位移被當成小兵自己走。
@@ -9,7 +37,6 @@
   - omoba-core `Impulses::units()`：唯讀列出有 impulse 的單位。
   - moba_headless `CreepFacing` 每個 tick 記錄每隻小兵最後一次有 impulse 的 tick；視窗起點之後（recheck 時則是上一個 tick 之後）被推過的小兵，這次不檢查。
 - 避免：新增「不經移動系統的位移」（forced motion、impulse、之後的 knockback 等）時，headless 的朝向檢查要一起列入略過條件。
-
 ## E549 預載的 Niagara 系統在非 cook 執行時第一次啟用才編譯，造成卡頓（2026-11-01，工作線 C）
 - 現象：demo11（1+9 quick，D21 效能量測）t=129 s 有一個 133 ms 的幀，log 同時出現 `Compiling System NiagaraSystem /Game/Omoba/VFX/CueShapes/NS_shape_burst took 0.137 sec (time since issued)`。這個系統已在 E389 的 `OmPresentationPreload` 名單裡（Editor cue overrides）。
 - 原因：非 cook 執行（editor `-game`，所有實機局都是這種）載入 Niagara 系統時，script 編譯請求延到第一次啟用（`WaitForCompilationComplete_SkipPendingOnDemand` 註明「deferred from loading」），所以第一次播放時遊戲執行緒要等編譯。預載只解決了同步載入，沒有解決編譯。
@@ -24,6 +51,7 @@
   - 每局 report 的 `observer`（enabled 為 true 才算）在判斷 success 之前就彙總：局數、檢查的 tick 數、mismatch 數，以及第一筆（局、tick、team、schema、entity）。observer mismatch 會讓該局沒結束，仍計入 matches failed。
   - Acceptance：有彙總時列 `observer (headless …): mismatch N`；`--observer off` 時寫 `observer：<note>，本批關閉（--observer off）`；都沒有時照 E542 寫「headless 未涵蓋」。
 - 避免：驗收檢查新增預設開啟的比對時，批次工具要能關掉它並在 Acceptance 寫明，不能讓已知問題蓋掉其他驗收項。
+## E547 （保留）conformance 施法前提要屍體（b23_undead_pact include_dead not alive）時沒有準備屍體，施法被取消（2026-11-01）
 
 ## E546 no_attack 或近戰射程 0 的召喚物被 body_valid 拒絕（C16、A21）（2026-11-01，工作線 B）
 

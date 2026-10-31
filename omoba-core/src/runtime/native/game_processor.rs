@@ -3770,6 +3770,37 @@ pub(crate) fn emit_committed_vitals(world: &mut World, entities: impl IntoIterat
     emit_committed_actor_state(world, tick, vitals, BTreeMap::new(), BTreeMap::new());
 }
 
+/// The (hp, max hp) each body's last committed vitals carried (E551).
+#[derive(Default)]
+struct CommittedVitalsCache(BTreeMap<u64, (i64, i64)>);
+
+/// End of an authority MOBA tick (E551): committed vitals for every body whose HP or max HP
+/// differs from what its last committed vitals carried, so an HP change outside the outcome
+/// batch's marking (a restore under its own buff id, spell lifesteal, a recovery channel, ...)
+/// still reaches the team replicas this tick. A body seen for the first time is only recorded:
+/// its disclosure baseline carries its HP.
+pub(crate) fn emit_changed_vitals(world: &mut World) {
+    use specs::Join;
+    // A team replica imports the authority's vitals; it never reports its own.
+    if world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>().is_some() { return; }
+    if world.try_fetch::<CommittedVitalsCache>().is_none() { world.insert(CommittedVitalsCache::default()); }
+    let (next, changed): (BTreeMap<u64, (i64, i64)>, Vec<Entity>) = {
+        let entities = world.entities();
+        let properties = world.read_storage::<CProperty>();
+        let cache = world.read_resource::<CommittedVitalsCache>();
+        let mut changed = Vec::new();
+        let next = (&entities, &properties).join().map(|(entity, property)| {
+            let id = crate::runtime::canonical_entity_id(entity);
+            let vitals = (property.hp.raw(), property.mhp.raw());
+            if cache.0.get(&id).is_some_and(|last| *last != vitals) { changed.push(entity); }
+            (id, vitals)
+        }).collect();
+        (next, changed)
+    };
+    world.write_resource::<CommittedVitalsCache>().0 = next;
+    emit_committed_vitals(world, changed);
+}
+
 /// Serial outcome reduction order, separate from gameplay and script ABI state.
 #[derive(Default)]
 struct CommittedActorStateOrder { tick: u64, ordinal: u32 }
@@ -3808,6 +3839,12 @@ fn emit_committed_actor_state(world: &mut World, tick: u64,
                     recharge_raw: state.recharge.raw(), remaining_raw: state.remaining.raw(),
                 }));
             }
+        }
+    }
+    // What these vitals carry is committed: the end of the tick repeats none of them (E551).
+    if let Some(mut cache) = world.try_fetch_mut::<CommittedVitalsCache>() {
+        for (_, _, fact) in &facts {
+            if let ObservableFact::CommittedVitals { source, hp_raw, max_hp_raw } = fact { cache.0.insert(*source, (*hp_raw, *max_hp_raw)); }
         }
     }
     let mut order = world.write_resource::<CommittedActorStateOrder>();
@@ -6369,6 +6406,42 @@ mod tests {
                 origin: None,
             }] if *attacker == source && *victim == target
         ));
+    }
+    /// An HP change no committed path reported (here a direct write, as a restore under its own
+    /// buff id or spell lifesteal makes) is reported at the end of the tick; vitals the tick already
+    /// committed and unchanged bodies are not repeated (E551).
+    #[test]
+    fn the_end_of_a_tick_reports_hp_no_committed_path_reported() {
+        let mut world = World::new();
+        world.register::<CProperty>(); world.register::<Hero>();
+        world.insert(crate::runtime::ObservableFactBuffer::default());
+        world.insert(Tick(1));
+        let body = |hp: i32| CProperty { hp: Fixed64::from_i32(hp), mhp: Fixed64::from_i32(650),
+            msd: Fixed64::ZERO, def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO };
+        let creep = world.create_entity().with(body(434)).build();
+        let other = world.create_entity().with(body(650)).build();
+        let reported = |world: &mut World| -> Vec<(u64, i64)> {
+            world.read_resource::<crate::runtime::ObservableFactBuffer>().drain_ordered().unwrap().into_iter()
+                .filter_map(|fact| match fact.fact {
+                    crate::runtime::ObservableFact::CommittedVitals { source, hp_raw, .. } => Some((source, hp_raw)),
+                    _ => None,
+                }).collect()
+        };
+        // First sight: recorded, not reported (the baseline carries it).
+        emit_changed_vitals(&mut world);
+        assert!(reported(&mut world).is_empty());
+        // A heal outside the outcome batch's marking.
+        world.write_resource::<Tick>().0 = 2;
+        world.write_storage::<CProperty>().get_mut(creep).unwrap().hp = Fixed64::from_raw(452866);
+        emit_changed_vitals(&mut world);
+        assert_eq!(reported(&mut world), vec![(crate::runtime::canonical_entity_id(creep), 452866)]);
+        // Committed in the tick already: not repeated; an unchanged body stays silent.
+        world.write_resource::<Tick>().0 = 3;
+        world.write_storage::<CProperty>().get_mut(other).unwrap().hp = Fixed64::from_i32(600);
+        emit_committed_vitals(&mut world, [other]);
+        assert_eq!(reported(&mut world).len(), 1);
+        emit_changed_vitals(&mut world);
+        assert!(reported(&mut world).is_empty());
     }
 }
 

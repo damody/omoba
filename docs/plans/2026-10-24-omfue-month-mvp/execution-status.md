@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：tick 結尾補發 outcome 以外的 hp 變化（E551）
+
+- in-process observer 抓到的第一個不一致（小兵 hp 差 8.25）已修好。quick 局改到 tick 15240 才出現下一個不一致：英雄冷卻，另案追查。
 ## 2026-11-01 線 B：headless 內建 observer 比對（E545）
 
 - `inprocess_observer`：projector、team replica、與 server 相同的 checkpoint 比對；moba_headless `--observer on|off`（預設 on），不一致時以 `observer_mismatch` 結束，report 頂層有 `observer`。

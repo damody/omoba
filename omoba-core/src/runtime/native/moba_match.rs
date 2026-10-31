@@ -3058,6 +3058,12 @@ fn emit_committed_attack(world: &World, tick: u64, entity: Entity, attack: &TAtt
 }
 
 pub fn finish_moba_match_tick(world: &mut World) {
+    finish_moba_match_rules(world);
+    // Last, after every HP change of the tick (E551).
+    if world.try_fetch::<MobaMatch>().is_some() { super::game_processor::emit_changed_vitals(world); }
+}
+
+fn finish_moba_match_rules(world: &mut World) {
     super::recovery_channel::finish_tick(world);
     let tick = world.read_resource::<Tick>().0;
     if world.try_fetch::<MobaMatch>().is_some() {
