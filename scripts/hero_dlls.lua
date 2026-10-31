@@ -63,4 +63,11 @@ return {
   {hero='hirate_masahide',package='hero_a10',dir='heroes/hirate_masahide'},
   {hero='takeda_katsuyori',package='hero_b34',dir='heroes/takeda_katsuyori'},
   {hero='kuki_yoshitaka',package='hero_a20',dir='heroes/kuki_yoshitaka'},
+  -- M6 batch (2026-10-31): every ability generated, conformance 0 fail on live a9022d2d
+  {hero='ishikawa_kazumasa',package='hero_a03',dir='heroes/ishikawa_kazumasa'},
+  {hero='ishida_mitsunari',package='hero_a29',dir='heroes/ishida_mitsunari'},
+  {hero='niwa_nagahide',package='hero_a30',dir='heroes/niwa_nagahide'},
+  {hero='honda_masanobu',package='hero_a33',dir='heroes/honda_masanobu'},
+  {hero='takeda_shingen',package='hero_b31',dir='heroes/takeda_shingen'},
+  {hero='izumo_no_okuni',package='hero_c04',dir='heroes/izumo_no_okuni'},
 }
