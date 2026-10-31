@@ -2,6 +2,14 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E548 M6 batch 無法關閉 headless observer，已知 mismatch 會讓整批失敗，Acceptance 也不列 observer 結果（2026-11-01，E187）
+- 現象：E545 讓 moba_headless 預設 `--observer on`，第一次實跑就在 quick 局約 tick 3000 因小兵 hp 不一致而結束（B 修正中）。verify_m6_batch 無法傳 `--observer`，所以 B 修好前每局都會失敗，NEVER CAST、refused、facing 這些驗收也一起看不到；report 裡的 observer 結果也沒進 Acceptance。
+- 修正（共用層）：
+  - `verify_m6_batch.lua --observer on|off`（以及 `--observer-note TEXT`）：只有本批 source snapshot 的 moba_headless.rs 有 `"--observer"` 才傳，所以 E545 前後的 build 都能跑。
+  - 每局 report 的 `observer`（enabled 為 true 才算）在判斷 success 之前就彙總：局數、檢查的 tick 數、mismatch 數，以及第一筆（局、tick、team、schema、entity）。observer mismatch 會讓該局沒結束，仍計入 matches failed。
+  - Acceptance：有彙總時列 `observer (headless …): mismatch N`；`--observer off` 時寫 `observer：<note>，本批關閉（--observer off）`；都沒有時照 E542 寫「headless 未涵蓋」。
+- 避免：驗收檢查新增預設開啟的比對時，批次工具要能關掉它並在 Acceptance 寫明，不能讓已知問題蓋掉其他驗收項。
+
 ## E546 no_attack 或近戰射程 0 的召喚物被 body_valid 拒絕（C16、A21）（2026-11-01，工作線 B）
 
 - **現象**：

@@ -31,11 +31,15 @@ do
     elseif v == '--ue' then options.ue = true
     elseif v == '--split' then options.split = true
     elseif v == '--spotlight-observed' then options.spotlight_observed = arg[i + 1]; i = i + 1
+    elseif v == '--observer' then
+      options.observer = arg[i + 1]; i = i + 1
+      assert(options.observer == 'on' or options.observer == 'off', '--observer on|off')
+    elseif v == '--observer-note' then options.observer_note = arg[i + 1]; i = i + 1
     elseif v == '--item-coverage' then options.item_coverage = true
     elseif v == '--no-build' then options.no_build = true
     elseif v == '--report-only' then options.report_only = true; options.no_build = true
     elseif v == '--help' then
-      print('Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua --batch N [--group G] [--matches 6] [--parallel 6] [--ue] [--split] [--spotlight-observed a,b,...] [--item-coverage] [--output DIR] [--no-build] [--report-only]')
+      print('Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua --batch N [--group G] [--matches 6] [--parallel 6] [--ue] [--split] [--spotlight-observed a,b,...] [--observer on|off] [--observer-note TEXT] [--item-coverage] [--output DIR] [--no-build] [--report-only]')
       return
     else error('unknown argument ' .. v) end
     i = i + 1
@@ -197,6 +201,18 @@ local function wait_performance_lock()
   local lock = path.join(b.root, 'target', 'locks', 'performance')
   while path.exists(lock) do print('waiting: a performance measurement holds ' .. lock); time.sleep_ms(30000) end
 end
+-- The in-process observer (E545, moba_headless `--observer on|off`): passed only when asked and
+-- when the snapshot this batch built has the flag, so an older build is not handed an unknown
+-- argument; the Acceptance line says which it was.
+local observer_args = {}
+if options.observer then
+  local source = path.join(b.root, 'target', 'snapshots', 'verify_m6_batch', 'tree', 'omb', 'src', 'bin', 'moba_headless.rs')
+  local h = io.open(source, 'rb')
+  local text = h and h:read('a') or ''
+  if h then h:close() end
+  if text:find('"--observer"', 1, true) then observer_args = { '--observer', options.observer }
+  else options.observer_unsupported = true end
+end
 local jobs = {}
 for _, r in ipairs(recipes) do
   r.plan = path.join(output, r.name .. '.json')
@@ -216,7 +232,7 @@ while next_job <= #jobs or #running > 0 do
     wait_performance_lock()
     local job = jobs[next_job]; next_job = next_job + 1
     job.pid = process.spawn(exe, { '--role-plan', job.recipe.plan, '--profile', '60', '--seed', tostring(job.seed),
-      '--scripts-dir', bin, '--max-game-seconds', '1200', '--stall-game-seconds', '300', '--report', job.report },
+      '--scripts-dir', bin, '--max-game-seconds', '1200', '--stall-game-seconds', '300', '--report', job.report, table.unpack(observer_args) },
       { cwd = b.root, env = env, stdout = job.log, stderr = job.log .. '.err' })
     running[#running + 1] = job
   end
@@ -246,6 +262,18 @@ for _, r in ipairs(recipes) do
     if job.recipe == r then
       row.matches = row.matches + 1
       local ok, report = pcall(json.read, job.report)
+      -- Observer (E545): a mismatch ends the match unfinished, so it is read before `success`.
+      if ok and type(report.observer) == 'table' and report.observer.enabled then
+        local o = summary.observer or { matches = 0, mismatches = 0, checked_ticks = 0 }
+        summary.observer = o
+        o.matches = o.matches + 1
+        o.mismatches = o.mismatches + (report.observer.mismatches or 0)
+        o.checked_ticks = o.checked_ticks + (report.observer.checked_ticks or 0)
+        if not o.first and type(report.observer.first) == 'table' then
+          o.first = report.observer.first
+          o.first.match = ('%s-%02d'):format(r.name, job.seed)
+        end
+      end
       if ok and report.success then
         row.finished = row.finished + 1
         row.minutes[#row.minutes + 1] = report.game_seconds / 60
@@ -434,7 +462,15 @@ if summary.split then
     and ('- split (live, %s): observer mismatch %s; %s in %.0f s'):format(split.output, tostring(split.observer_mismatches),
       split.finished and 'finished' or 'NOT finished', split.duration_seconds or 0)
     or ('- split (live, %s): NO AUTHORITY LOG (exit %s): %s'):format(split.output, tostring(split.exit_code), split.error)
-else
+end
+if summary.observer then
+  local o, first = summary.observer, summary.observer.first
+  md[#md + 1] = ('- observer (headless, %d match(es), %d tick(s) checked): mismatch %d%s'):format(o.matches, o.checked_ticks,
+    o.mismatches, first and (' (first: %s tick %s team %s schema %s entity %s)'):format(first.match, tostring(first.tick),
+      tostring(first.team), tostring(first.schema), tostring(first.entity)) or '')
+elseif options.observer == 'off' and not options.observer_unsupported then
+  md[#md + 1] = ('- observer：%s本批關閉（--observer off）'):format(options.observer_note and (options.observer_note .. '，') or '')
+elseif not summary.split then
   -- The headless matches run no team replica or observer: say so, so a clean list above is not
   -- read as an observer pass. Until they do, the per-hero spotlight split runs (line C) cover it;
   -- --spotlight-observed names the heroes those runs checked.
