@@ -4,7 +4,18 @@
 
 ## E495 （保留）issue_order.queue 沒有 host 落點（C15 百箭）（2026-10-31）
 
-## E494 （保留）knockback 的 contact_radius／stop_on_contact／on_end 沒有 host 落點（A14）（2026-10-31）
+## E494 knockback 的 contact_radius／stop_on_contact／on_end 沒有 host 落點：A14 衝擊之槍只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 第五批第 17 項：a14_impact_spear 的 knockback 寫了 `stop_on_contact = true`、`contact_radius` 與 `on_end`（落點傷害、緩速、移除暈眩），host 的擊退只有固定距離、撞牆停下，產生器擋下。
+- **根因**：forced_motion 只會在旅程結束、撞牆、死亡或 buff 移除時結束，不會因為撞到單位而停下，結束時也沒有回呼腳本的機制。
+- **通用修正**：
+  - 封包多兩個選項（只限 knockback）：
+    - `contact_raw`：另一個存活、非建築的任何隊伍單位，位於被擊退者前方（移動方向）且兩者身體邊緣距離在此值內時，擊退結束。後方的單位（例如施法者）不算。
+    - `on_end`：scheduled_effect 樣板。擊退因任何原因結束時（距離走完、撞牆、撞到單位、死亡、buff 被移除），在來源身上排程一次 `on_scheduled(step)`，捕獲值後面附上被擊退者最後的位置。被較新的擊退取代時不觸發，因為 team replica 也會套用封包。
+  - 只有 authority 會推進擊退，所以也只有 authority 會排程。`ForcedMotions::hash_value` 帶上這兩個欄位（有值時才寫入）。
+  - kit 新增 `knockback_ended(who, from, distance, duration, stun, range, height, contact_radius, on_end)`；`knockback_arc` 改為呼叫它。
+- **回歸**：`forced_motion::tests::a_knockback_stops_on_contact_and_schedules_its_end_on_the_source`：前方有單位時停在接觸處，後方單位不擋；on_end 只在來源身上排程一次並附上落點；封包可以完整來回。
+- **檔案**：`omoba-core/src/runtime/native/forced_motion.rs`、`scripts/ability_kit/src/host_ext.rs`
 
 ## E493 （保留）burn_mana 的最大單 tick 扣魔被目標同 tick 的回魔脈衝抵掉（a21 r1 128.67 vs 130）（2026-10-31）
 

@@ -21,6 +21,13 @@
 //!   position (no move commands) but the victim can attack and cast;
 //! - `height_raw`: the arc's peak height (v3 `height`, 直江兼續、柳生宗嚴). The simulation is flat:
 //!   it only travels with the status buff for the presentation to draw the arc.
+//! - `contact_raw` (v3 `stop_on_contact` + `contact_radius`, 前田利家, E494): the motion also ends
+//!   when another living unit that is not a building, of any team, is ahead of the victim (in its
+//!   direction of travel) within this distance of their bodies' edges;
+//! - `on_end` (v3 `knockback.on_end`, E494): a scheduled_effect template due once on the source
+//!   when the motion ends for any reason (its travel done, a wall, a contact, the victim's death,
+//!   the buff's removal; a newer motion replaces it without its end), the victim's last position
+//!   appended to its captures. Only the authority steps motions, so only it schedules the end.
 //!
 //! Only the authority integrates motion (`step`, from the MobaMatch pre-step);
 //! every world sees the result as ordinary `PreStepMovement` facts, so team
@@ -89,8 +96,11 @@ impl Spec {
             None => None,
         };
         let options = Options::from_row(row)?;
-        if (options.origin.is_some() || !options.stun || options.height.is_some()) && Mode::parse(row.get("mode")?.as_str()?)? != Mode::Knockback { return None; }
-        if row.len() != 5 + usize::from(to.is_some()) + options.fields() { return None; }
+        let ends = row.contains_key("on_end");
+        if ends && on_end_of(payload).is_none() { return None; }
+        if (options.origin.is_some() || !options.stun || options.height.is_some() || options.contact.is_some() || ends)
+            && Mode::parse(row.get("mode")?.as_str()?)? != Mode::Knockback { return None; }
+        if row.len() != 5 + usize::from(to.is_some()) + options.fields() + usize::from(ends) { return None; }
         Self { source_id: u32::try_from(row.get("source_id")?.as_u64()?).ok()?,
             source_generation: u32::try_from(row.get("source_generation")?.as_u64()?).ok()?,
             mode: Mode::parse(row.get("mode")?.as_str()?)?,
@@ -103,6 +113,7 @@ impl Spec {
         if let Some(origin) = options.origin { payload[KEY]["origin"] = json!([origin.x.raw(), origin.y.raw()]); }
         if !options.stun { payload[KEY]["no_stun"] = json!(true); }
         if let Some(height) = options.height { payload[KEY]["height_raw"] = json!(height.raw()); }
+        if let Some(contact) = options.contact { payload[KEY]["contact_raw"] = json!(contact.raw()); }
         payload
     }
     pub fn source(&self) -> Entity { self.source_entity() }
@@ -116,12 +127,15 @@ pub struct Options {
     pub stun: bool,
     /// Peak height of the arc (presentation only), above zero.
     pub height: Option<Fixed64>,
+    /// Stops on a unit ahead within this edge distance (zero or more).
+    pub contact: Option<Fixed64>,
 }
 
 pub const MAX_HEIGHT: i32 = 2_000;
+pub const MAX_CONTACT: i32 = 1_000;
 
 impl Default for Options {
-    fn default() -> Self { Self { origin: None, stun: true, height: None } }
+    fn default() -> Self { Self { origin: None, stun: true, height: None, contact: None } }
 }
 
 impl Options {
@@ -146,12 +160,39 @@ impl Options {
             }
             None => None,
         };
-        Some(Self { origin, stun, height })
+        let contact = match row.get("contact_raw") {
+            Some(raw) => {
+                let contact = Fixed64::from_raw(raw.as_i64()?);
+                if contact < Fixed64::ZERO || contact > Fixed64::from_i32(MAX_CONTACT) { return None; }
+                Some(contact)
+            }
+            None => None,
+        };
+        Some(Self { origin, stun, height, contact })
     }
-    fn fields(self) -> usize { usize::from(self.origin.is_some()) + usize::from(!self.stun) + usize::from(self.height.is_some()) }
+    fn fields(self) -> usize {
+        usize::from(self.origin.is_some()) + usize::from(!self.stun) + usize::from(self.height.is_some()) + usize::from(self.contact.is_some())
+    }
     pub fn of(payload: &Value) -> Self {
         payload.get(KEY).and_then(Value::as_object).and_then(Self::from_row).unwrap_or_default()
     }
+}
+
+/// A knockback packet whose end schedules `template` once on the source (module docs, `on_end`);
+/// at most `MAX_ARGS - 1` authored captures.
+pub fn with_on_end(mut payload: Value, template: &super::scheduled_effect::Spec) -> Value {
+    payload[KEY]["on_end"] = template.payload()[super::scheduled_effect::KEY].clone();
+    payload
+}
+
+/// The on-end schedule template of a packet, if valid.
+pub fn on_end_of(payload: &Value) -> Option<super::scheduled_effect::Spec> {
+    use super::scheduled_effect as se;
+    let row = payload.get(KEY)?.as_object()?.get("on_end")?.clone();
+    let probe = row.as_object()?;
+    let id = format!("{}{}:{}:{}", se::PREFIX, probe.get("ability")?.as_str()?, probe.get("instance")?.as_u64()?, probe.get("step")?.as_u64()?);
+    let spec = se::Spec::from_buff(&id, &json!({ (se::KEY): row }))?;
+    (spec.args.len() < se::MAX_ARGS).then_some(spec)
 }
 
 pub fn valid_duration(duration: Fixed64) -> bool {
@@ -159,7 +200,7 @@ pub fn valid_duration(duration: Fixed64) -> bool {
 }
 
 /// One victim's motion, fixed at settlement.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Motion {
     pub source: Entity,
     pub mode: Mode,
@@ -169,6 +210,10 @@ pub struct Motion {
     pub time_left: Fixed64,
     /// A dash's exact endpoint: its last step lands here, free of direction rounding.
     pub to: Option<Vec2>,
+    /// Ends on a unit ahead within this edge distance ([`Options::contact`]).
+    pub contact: Option<Fixed64>,
+    /// Due once on the source when the motion ends ([`with_on_end`]).
+    pub on_end: Option<super::scheduled_effect::Spec>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -177,13 +222,18 @@ pub struct ForcedMotions(pub BTreeMap<Entity, Motion>);
 impl ForcedMotions {
     /// Canonical authority state for the lockstep desync hash.
     pub fn hash_value(&self) -> Value {
-        Value::Array(self.0.iter().map(|(entity, motion)| json!({
-            "entity": crate::runtime::canonical_entity_id(*entity),
-            "source": crate::runtime::canonical_entity_id(motion.source), "mode": motion.mode.as_str(),
-            "direction": [motion.direction.x.raw(), motion.direction.y.raw()],
-            "remaining": motion.remaining.raw(), "time_left": motion.time_left.raw(),
-            "to": motion.to.map(|to| [to.x.raw(), to.y.raw()]),
-        })).collect())
+        Value::Array(self.0.iter().map(|(entity, motion)| {
+            let mut row = json!({
+                "entity": crate::runtime::canonical_entity_id(*entity),
+                "source": crate::runtime::canonical_entity_id(motion.source), "mode": motion.mode.as_str(),
+                "direction": [motion.direction.x.raw(), motion.direction.y.raw()],
+                "remaining": motion.remaining.raw(), "time_left": motion.time_left.raw(),
+                "to": motion.to.map(|to| [to.x.raw(), to.y.raw()]),
+            });
+            if let Some(contact) = motion.contact { row["contact"] = json!(contact.raw()); }
+            if let Some(on_end) = &motion.on_end { row["on_end"] = on_end.payload(); }
+            row
+        }).collect())
     }
 }
 
@@ -263,7 +313,8 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, duration: Fixed64
     }
     world.write_resource::<ForcedMotions>().0.insert(target, Motion {
         source: spec.source_entity(), mode: spec.mode, direction, remaining, time_left: duration,
-        to: spec.to.filter(|_| spec.mode == Mode::Dash) });
+        to: spec.to.filter(|_| spec.mode == Mode::Dash), contact: options.contact, on_end: on_end_of(payload) });
+
     if spec.mode == Mode::Dash {
         if let Some(face) = world.write_storage::<super::comp::Facing>().get_mut(target) {
             face.0 = omoba_sim::trig::atan2(direction.y, direction.x);
@@ -290,6 +341,33 @@ fn wall_contact(from: Vec2, to: Vec2, radius: Fixed64, regions: &BlockedRegions)
     Some(at(low))
 }
 
+/// The motion's on_end, due on its source on the next dispatch with `at` appended.
+fn schedule_end(world: &mut World, motion: &Motion, at: Vec2) {
+    use super::scheduled_effect as se;
+    let Some(template) = &motion.on_end else { return };
+    let mut args = template.args.clone();
+    args.push(omb_script_abi::types::ScheduleArg { kind: se::ARG_POINT, num: Fixed64::ZERO,
+        unit: omb_script_abi::types::EntityHandle::INVALID, point: at });
+    let spec = se::Spec { args, ..template.clone() };
+    if world.try_fetch::<Vec<crate::comp::Outcome>>().is_none() { world.insert(Vec::<crate::comp::Outcome>::new()); }
+    world.write_resource::<Vec<crate::comp::Outcome>>().push(crate::comp::Outcome::AddBuff {
+        target: motion.source, buff_id: spec.buff_id(), duration: se::GRACE, payload: spec.payload() });
+}
+
+/// Another living unit that is not a building ahead of `victim` at `at` (moving along
+/// `direction`) within `contact` of their bodies' edges.
+fn touches(world: &World, victim: Entity, at: Vec2, direction: Vec2, contact: Fixed64) -> bool {
+    use specs::Join;
+    let reach = radius(world, victim) + contact;
+    let (entities, positions, properties, buildings) =
+        (world.entities(), world.read_storage::<Pos>(), world.read_storage::<CProperty>(), world.read_storage::<IsBuilding>());
+    (&entities, &positions, &properties, !&buildings).join().any(|(other, pos, property, ())| {
+        if other == victim || property.hp <= Fixed64::ZERO { return false; }
+        let gap = pos.0 - at;
+        gap.dot(direction) > Fixed64::ZERO && gap.length() <= reach + radius(world, other)
+    })
+}
+
 /// Advances every motion by this tick's `DeltaTime`, in canonical entity order,
 /// and publishes each new position as a `PreStepMovement` fact (facing kept).
 pub fn step(world: &mut World) {
@@ -297,7 +375,24 @@ pub fn step(world: &mut World) {
     let Some(mut rows) = world.try_fetch_mut::<ForcedMotions>().map(|mut rows| std::mem::take(&mut rows.0)) else { return; };
     if dt <= Fixed64::ZERO { world.write_resource::<ForcedMotions>().0 = rows; return; }
     let mut moved = Vec::new();
+    let mut ended = Vec::new();
     rows.retain(|entity, motion| {
+        let keep = advance(world, *entity, motion, dt, &mut moved);
+        if !keep && motion.on_end.is_some() {
+            let at = world.read_storage::<Pos>().get(*entity).map_or(Vec2::ZERO, |pos| pos.0);
+            ended.push((motion.clone(), at));
+        }
+        keep
+    });
+    world.write_resource::<ForcedMotions>().0 = rows;
+    for (motion, at) in ended { schedule_end(world, &motion, at); }
+    publish(world, moved);
+}
+
+/// One motion's step; false when it ends.
+fn advance(world: &World, entity: Entity, motion: &mut Motion, dt: Fixed64, moved: &mut Vec<(Entity, Vec2)>) -> bool {
+    {
+        let entity = &entity;
         if !movable(world, *entity) || !world.read_resource::<BuffStore>().has(*entity, BUFF) { return false; }
         let from = world.read_storage::<Pos>().get(*entity).expect("movable position").0;
         let last = motion.time_left <= dt;
@@ -314,9 +409,13 @@ pub fn step(world: &mut World) {
         }
         motion.remaining = motion.remaining - travel;
         motion.time_left = motion.time_left - dt;
-        wall.is_none() && !last && motion.remaining > Fixed64::ZERO
-    });
-    world.write_resource::<ForcedMotions>().0 = rows;
+        let contact = motion.contact.is_some_and(|contact| touches(world, *entity, end, motion.direction, contact));
+        wall.is_none() && !contact && !last && motion.remaining > Fixed64::ZERO
+    }
+}
+
+/// Each new position as a `PreStepMovement` fact (facing kept).
+fn publish(world: &World, moved: Vec<(Entity, Vec2)>) {
     let tick = world.read_resource::<Tick>().0;
     for (entity, pos) in moved {
         let source = crate::runtime::canonical_entity_id(entity);
@@ -385,7 +484,7 @@ mod tests {
         let spec = Spec { source_id: caster.id(), source_generation: caster.gen().id() as u32, mode: Mode::Knockback,
             distance: Fixed64::from_i32(400), cast_range: Fixed64::from_i32(10), to: None }.checked().unwrap();
         // 茶茶：pushed forward (+x) from a point one unit behind.
-        let options = Options { origin: Some(p(-1, 0)), stun: false, height: None };
+        let options = Options { origin: Some(p(-1, 0)), stun: false, height: None, contact: None };
         assert!(admitted(&world, caster, BUFF, Fixed64::ONE, &spec.payload(), Some(caster)).is_none(), "no origin: never on its source");
         assert!(apply(&mut world, caster, BUFF, Fixed64::ONE, &spec.payload_with(options)));
         {
@@ -394,6 +493,50 @@ mod tests {
         }
         for _ in 0..4 { step(&mut world); }
         assert_eq!(world.read_storage::<Pos>().get(caster).unwrap().0, p(400, 0));
+    }
+
+    /// E494: a knockback with a contact radius stops at the first unit ahead of it (not one
+    /// behind), and its on_end is due once on the source with the victim's last position.
+    #[test]
+    fn a_knockback_stops_on_contact_and_schedules_its_end_on_the_source() {
+        use super::super::scheduled_effect as se;
+        for blocker in [true, false] {
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+            world.insert(crate::runtime::ObservableFactBuffer::default());
+            world.insert(DeltaTime(Fixed64::from_raw(256)));
+            let body = |world: &mut World, at: Vec2| world.create_entity().with(Pos(at)).with(CollisionRadius(Fixed64::from_i32(20)))
+                .with(CProperty { hp: Fixed64::from_i32(100), mhp: Fixed64::from_i32(100), msd: Fixed64::ZERO,
+                    def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build();
+            // A self push from a point behind (the admission of a hostile victim is not under test).
+            let victim = body(&mut world, p(0, 0));
+            let caster = victim;
+            body(&mut world, p(-50, 0));
+            if blocker { body(&mut world, p(300, 0)); }
+            let spec = Spec { source_id: caster.id(), source_generation: caster.gen().id() as u32, mode: Mode::Knockback,
+                distance: Fixed64::from_i32(800), cast_range: Fixed64::from_i32(600), to: None }.checked().unwrap();
+            let template = se::Spec { ability: "a14_impact_spear".into(), level: 2, step: 3, instance: 9, args: Vec::new() };
+            let options = Options { origin: Some(p(-1, 0)), stun: false, height: None, contact: Some(Fixed64::from_i32(100)) };
+            let payload = with_on_end(spec.payload_with(options), &template);
+            assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &payload), Some(spec), "round trips");
+            assert_eq!(on_end_of(&payload), Some(template.clone()));
+            assert!(apply(&mut world, victim, BUFF, Fixed64::ONE, &payload));
+            for _ in 0..4 { step(&mut world); }
+            let at = world.read_storage::<Pos>().get(victim).unwrap().0;
+            if blocker {
+                // 200 units a step: stops at x = 200, within 100 of the blocker's edge (300 - 20 - 20 - 100 = 160).
+                assert_eq!(at, p(200, 0), "stopped by the unit ahead");
+            } else {
+                assert_eq!(at, p(800, 0), "the unit behind it does not stop it");
+            }
+            assert!(world.read_resource::<ForcedMotions>().0.is_empty());
+            let outcomes = world.read_resource::<Vec<crate::comp::Outcome>>();
+            let due: Vec<_> = outcomes.iter().filter_map(|o| match o {
+                crate::comp::Outcome::AddBuff { target, buff_id, payload, .. } if *target == caster => se::Spec::from_buff(buff_id, payload),
+                _ => None }).collect();
+            assert_eq!(due.len(), 1, "once: {due:?}");
+            assert_eq!((due[0].step, due[0].args.len()), (3, 1));
+            assert_eq!((due[0].args[0].kind, due[0].args[0].point), (se::ARG_POINT, at), "the end point appended");
+        }
     }
 
     #[test]
@@ -428,7 +571,8 @@ mod tests {
         assert_eq!(Spec::from_payload(BUFF, Fixed64::from_i32(MAX_DURATION + 1), &s.payload()), None);
         let mut extra = s.payload(); extra[KEY]["bonus"] = 1.into();
         assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &extra), None);
-        let options = Options { origin: Some(Vec2::new(Fixed64::from_i32(-1), Fixed64::ZERO)), stun: false, height: Some(Fixed64::from_i32(200)) };
+        let options = Options { origin: Some(Vec2::new(Fixed64::from_i32(-1), Fixed64::ZERO)), stun: false, height: Some(Fixed64::from_i32(200)),
+            contact: Some(Fixed64::from_i32(100)) };
         assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &s.payload_with(options)), Some(s));
         let mut low = s.payload_with(options); low[KEY]["height_raw"] = 0.into();
         assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &low), None, "a height is above zero");

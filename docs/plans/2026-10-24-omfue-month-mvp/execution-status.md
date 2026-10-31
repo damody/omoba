@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：knockback 的 stop_on_contact 與 on_end（E494）
+
+- kit `knockback_ended(.., contact_radius: Option, on_end: Option<(ability, step, captures)>)`：撞到前方單位就停；結束時在施法者身上排程 on_end，附上落點。
 ## 2026-10-31 線 B：issue_order follow（E489）
 
 - kit `order_follow(unit, target)`：召喚物持續跟隨目標（原作 MoveToNPC），直到新命令或目標死亡；英雄不接受。

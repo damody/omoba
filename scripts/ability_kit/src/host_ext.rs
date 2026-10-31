@@ -114,7 +114,18 @@ impl Cx<'_, '_> {
     /// simulation is flat). Zero is no arc.
     pub fn knockback_arc(&mut self, who: EntityHandle, from: Vec2, distance: Fixed64, duration: Fixed64, stun: bool, range: Fixed64,
         height: Fixed64) -> Res {
-        use omoba_core::runtime::native::forced_motion as motion;
+        self.knockback_ended(who, from, distance, duration, stun, range, height, None, None)
+    }
+
+    /// [`Cx::knockback_arc`] with v3 `stop_on_contact` + `contact_radius` (E494: it also stops
+    /// when another living unit that is not a building, of any team, is ahead of `who` within
+    /// that edge distance) and `on_end` (`(ability, step, captures)`: `on_scheduled(step)` of
+    /// `ability` once on the caster when the motion ends for any reason, with `who`'s last
+    /// position appended to the captures).
+    #[allow(clippy::too_many_arguments)]
+    pub fn knockback_ended(&mut self, who: EntityHandle, from: Vec2, distance: Fixed64, duration: Fixed64, stun: bool, range: Fixed64,
+        height: Fixed64, contact_radius: Option<Fixed64>, on_end: Option<(&str, u16, &[omb_script_abi::types::ScheduleArg])>) -> Res {
+        use omoba_core::runtime::native::{forced_motion as motion, scheduled_effect};
         if !who.is_valid() || (distance == Fixed64::ZERO && height <= Fixed64::ZERO) { return Ok(()); }
         // A pull toward `from` is a push away from its mirror image across `who`; a toss in place
         // (distance 0 with a height, 七本槍) travels one raw unit, so the host keeps its motion rules.
@@ -130,7 +141,14 @@ impl Cx<'_, '_> {
             distance: distance.min(Fixed64::from_i32(motion::MAX_DISTANCE)), cast_range: range.max(Fixed64::ONE).min(Fixed64::from_i32(10_000)), to: None }
             .checked().ok_or("v3: invalid knockback")?;
         let height = (height > Fixed64::ZERO).then(|| height.min(Fixed64::from_i32(motion::MAX_HEIGHT)));
-        let payload = spec.payload_with(motion::Options { origin: Some(from), stun, height });
+        let contact = contact_radius.map(|radius| radius.max(Fixed64::ZERO).min(Fixed64::from_i32(motion::MAX_CONTACT)));
+        let mut payload = spec.payload_with(motion::Options { origin: Some(from), stun, height, contact });
+        if let Some((ability, step, args)) = on_end {
+            let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
+            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec() }
+                .checked().filter(|spec| spec.args.len() < scheduled_effect::MAX_ARGS).ok_or("v3: invalid knockback on_end")?;
+            payload = motion::with_on_end(payload, &template);
+        }
         self.world.add_stat_buff(who, RStr::from_str(motion::BUFF), duration, RStr::from_str(&payload.to_string()));
         Ok(())
     }
