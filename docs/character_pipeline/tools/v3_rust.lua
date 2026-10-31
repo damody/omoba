@@ -1268,8 +1268,9 @@ local ACTION_FIELDS = {
   -- force: a script's order already is one for a hero (hero_command: no owner restriction or
   -- taunt refuses it, it clears the queue; line B); queue (after the current one) is not lowered
   issue_order = set({ "op", "who", "order", "target", "at", "force" }),
-  -- an instant hit of the attacker's own attack (line B perform_attack); `ignore_range` is a no-op
-  -- there, a projectile attack (no `instant`) and an effect multiplier other than 1 wait
+  -- the attacker's own attack (line B perform_attack): an instant hit, or without `instant` an attack
+  -- projectile (line B E486, its effects on arrival); `ignore_range` is a no-op there (a scripted
+  -- attack never checks range), an effect multiplier other than 1 waits
   attack = set({ "op", "attacker", "target", "use_orb", "trigger_effects", "fake", "effect_multiplier", "ignore_range", "instant", "cannot_miss" }),
   create_pickup = set({ "op", "at", "who", "cue", "killable", "on_pickup", "lifetime" }),
   heal = set({ "op", "to", "amount", "source" }),
@@ -2711,7 +2712,8 @@ function Gen:action(a, ctx, ind)
     return line("{") .. line("    let who = " .. who .. ";") .. line("    let at = " .. at .. ";")
       .. line("    cx.order(who, ability_kit::OrderKind::" .. kind .. ", at)?;") .. line("}")
   elseif op == "attack" then
-    if a.instant ~= true then self:block("action:attack without instant (a projectile attack)"); return "" end
+    -- a projectile attack lands its effects on arrival, so it carries them (the kit refuses one without)
+    if a.instant ~= true and a.trigger_effects ~= true then self:block("action:attack projectile without trigger_effects"); return "" end
     if a.effect_multiplier ~= nil and a.effect_multiplier ~= 1 and a.effect_multiplier ~= "1" then self:block("action:attack.effect_multiplier"); return "" end
     for _, k in ipairs({ "use_orb", "trigger_effects", "fake", "cannot_miss", "ignore_range" }) do
       if a[k] ~= nil and type(a[k]) ~= "boolean" then self:block("action:attack." .. k .. " of an expression"); return "" end
@@ -2720,7 +2722,7 @@ function Gen:action(a, ctx, ind)
     local attacker = self:value(a.attacker, ctx, "unit")
     local target = self:value(a.target, ctx, "unit")
     return line("{") .. line("    let attacker = " .. attacker .. ";") .. line("    let target = " .. target .. ";")
-      .. line(string.format("    cx.perform_attack(attacker, target, true, %s, %s, %s, %s, Fixed64::ONE)?;", flag("cannot_miss"), flag("fake"),
+      .. line(string.format("    cx.perform_attack(attacker, target, %s, %s, %s, %s, %s, Fixed64::ONE)?;", flag("instant"), flag("cannot_miss"), flag("fake"),
         flag("trigger_effects"), flag("use_orb"))) .. line("}")
   elseif op == "set_ability_active" or op == "swap_abilities" then
     local function id_of(v) return type(v) == "string" and v:match("^[%a_][%w_]*$") and v end
