@@ -589,6 +589,19 @@ impl Cx<'_, '_> {
         }
     }
 
+    /// v3 `remove_status` of its own independent status inside one of its triggers (E504): only
+    /// the instance whose trigger runs (`event_instance`, row `<runtime id>#<n>`) goes, with its
+    /// own slow and control rows (dispel::remove_status); the other instances keep running.
+    /// Nothing outside an instance's trigger (`event_instance` 0). Its vars are the generator's
+    /// keys `__sv:<status>#<n>:<var>`, which no later instance reuses (n only grows).
+    pub fn remove_this_instance(&mut self, from: EntityHandle, status: &crate::codegen::StatusDef) -> Res {
+        let instance = self.event_instance;
+        if !from.is_valid() || instance == 0 { return Ok(()); }
+        let id = format!("{}#{instance}", self.runtime_id(status));
+        self.world.remove_buff(from, RStr::from_str(&id));
+        Ok(())
+    }
+
     /// v3 `remove_status` of an independent status with `limit = 1`: the earliest instance goes
     /// (with the shared states only it held).
     pub fn remove_status_instance(&mut self, from: EntityHandle, status: &crate::codegen::StatusDef) -> Res {

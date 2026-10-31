@@ -2,6 +2,8 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E511 （保留）召喚物沒有不能攻擊的形式：c16e_ghost 只能擋下（2026-10-31）
+
 ## E510 creep_facing 對暈眩／被強制位移的小兵與疊在一起的小兵也檢查朝向（2026-10-31，e187 遊戲模式 session，B 分析；已放回 live）
 - **現象**：m6new5 是第一批 E491 版的 creep_facing，結果 13 筆 violation。分成兩類：
   - 6 筆目標距離只有 2～7；
@@ -41,7 +43,14 @@
   - 測試：25%、40%、50% 的 C 與 Dota 公布值差在 0.001 內，長期命中率與 p 差在 0.0005 內。
 - **檔案**：`scripts/ability_kit/src/prd.rs`、`scripts/ability_kit/src/lib.rs`
 
-## E504 （保留）獨立狀態移除自己這一個實例與實例變數沒有 host 落點（A06）（2026-10-31）
+## E504 獨立狀態移除自己這一個實例沒有 host 落點：A06 只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage M6 第 3 批：a06t_fury（獨立堆疊）在自己的 on_attack_hit／on_attack_miss 裡，次數到了就 `remove_status` 自己。產生器只能移除最早的實例，無法只移除觸發中的那一個；實例變數也需要以實例區分。
+- **根因**：kit 只有 `remove_status_instance`，移除最早的實例。
+- **通用修正**：
+  - kit 新增 `remove_this_instance(from, status)`：移除觸發中的實例（`event_instance`，row `<runtime id>#<n>`），連同它自己的 slow 與 control rows（dispel::remove_status）。其他實例照常運作；不在實例觸發中（event_instance 為 0）時不做事。
+  - 實例變數不需要 host 改動：產生器用 `__sv:<status>#<n>:<var>` 當 key。n 只會增加，新實例不會沿用舊 key。
+- **檔案**：`scripts/ability_kit/src/host_ext.rs`
 
 ## E503 召喚物攻擊只有物理傷害：unit_template attack.damage_type 沒有 host 落點（C16）（2026-10-31，工作線 B）
 

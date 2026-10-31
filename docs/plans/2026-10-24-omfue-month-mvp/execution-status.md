@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：移除觸發中的獨立狀態實例（E504）
+
+- kit `remove_this_instance(from, status)`；實例變數以 `__sv:<status>#<n>:<var>` 為 key（產生器）。
 ## 2026-10-31 線 B：chance 的 PRD 模式（E505）
 
 - kit `chance_prd(key, p, hero)`：C × N 遞增機率，失敗次數存在施法者的 unit var。
