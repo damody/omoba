@@ -6,7 +6,16 @@
 
 ## E501 （保留）modify_cooldown 的道具形式（item_tag／item）沒有 host 落點（C13、C18）（2026-10-31）
 
-## E500 （保留）create_unit.over_limit:reject 與 owner:caster_hero 沒有 host 落點（C13）（2026-10-31）
+## E500 create_unit.over_limit:reject 與 owner:caster_hero 沒有 host 落點：C13 龍捲風只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage M6 第 5 批：c13r_spawn 在龍捲風（召喚物）的 on_kill 裡 `create_unit { owner = "caster_hero", limit_per_owner = $max_winds, over_limit = "reject" }`。kit 只會以施法者為擁有者召喚，數量上限也只有「移除最舊」。
+- **根因**：kit 的 `create_unit` 固定用 `self.caster` 當 summoner；summon_owner_cap 的上限封包只會淘汰最早的。
+- **通用修正**：
+  - kit 新增 `create_unit_for(owner, ..)` 與 `create_unit_controlled_for(owner, ..)`，原本的 `create_unit` 改為以施法者呼叫它們。
+  - kit 新增 `limit_summons_of(owner, template, limit, reject)`：上限封包多一個 `reject` 欄位，有值時一定是 true（`summon_owner_cap::reject_payload`）。reject 保留最早的 `limit` 個，超出的新召喚物立刻離開（沒有死亡，也沒有賞金）。
+  - 不帶 reject 時仍然淘汰最舊的。
+- **回歸**：`summon_owner_cap::tests::a_reject_packet_keeps_the_earliest_summons_and_retires_the_new_ones`。
+- **檔案**：`omoba-core/src/runtime/native/summon_owner_cap.rs`、`scripts/ability_kit/src/codegen.rs`、`scripts/ability_kit/src/host_ext.rs`
 
 ## E499 召喚物的 template hp_regen 從未生效，且不接受負值：C15 箭矢只能擋下（2026-10-31，工作線 B）
 

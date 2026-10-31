@@ -672,8 +672,15 @@ impl Cx<'_, '_> {
     /// (its owner may order it, its AI acts); `"none"` also refuses every order of its owner for
     /// its whole life (host `command_restricted`, summon_orders), its AI still acting.
     pub fn create_unit_controlled(&mut self, template: &str, at: Vec2, lifetime: Fixed64, control: &str) -> Result<EntityHandle, &'static str> {
+        let caster = self.caster;
+        self.create_unit_controlled_for(caster, template, at, lifetime, control)
+    }
+
+    /// [`Cx::create_unit_controlled`] owned by `owner` ([`Cx::create_unit_for`], E500).
+    pub fn create_unit_controlled_for(&mut self, owner: EntityHandle, template: &str, at: Vec2, lifetime: Fixed64, control: &str)
+        -> Result<EntityHandle, &'static str> {
         use omoba_core::runtime::native::command_restriction::BUFF;
-        let unit = self.create_unit(template, at, lifetime)?;
+        let unit = self.create_unit_for(owner, template, at, lifetime)?;
         match control {
             "owner" | "ai" => {}
             "none" => if unit.is_valid() {

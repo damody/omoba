@@ -25,22 +25,30 @@ pub fn limit_payload(template: &str, limit: usize) -> serde_json::Value {
     serde_json::json!({ (LIMIT_KEY): { "template": template, "limit": limit } })
 }
 
-/// A well-formed packet: a template id and a limit in 1..=[`MAX_CAP`].
-pub fn limit_spec(buff_id: &str, payload: &serde_json::Value) -> Option<(String, usize)> {
+/// v3 `over_limit = "reject"` (E500): the packet keeps the earliest `limit` and retires the newest
+/// beyond it, so a spawn over the limit leaves at once (no death, no bounty).
+pub fn reject_payload(template: &str, limit: usize) -> serde_json::Value {
+    serde_json::json!({ (LIMIT_KEY): { "template": template, "limit": limit, "reject": true } })
+}
+
+/// A well-formed packet: a template id, a limit in 1..=[`MAX_CAP`], and whether the newest go
+/// (`reject`, only ever true when present).
+pub fn limit_spec(buff_id: &str, payload: &serde_json::Value) -> Option<(String, usize, bool)> {
     if buff_id != LIMIT_BUFF || payload.as_object()?.len() != 1 { return None; }
     let row = payload.get(LIMIT_KEY)?.as_object()?;
-    if row.len() != 2 { return None; }
+    let reject = match row.get("reject") { None => false, Some(serde_json::Value::Bool(true)) => true, Some(_) => return None };
+    if row.len() != 2 + usize::from(reject) { return None; }
     let template = row.get("template")?.as_str()?;
     let limit = usize::try_from(row.get("limit")?.as_u64()?).ok()?;
     (omoba_template_ids::summon_by_name(template).is_some() && (1..=MAX_CAP).contains(&limit))
-        .then(|| (template.to_owned(), limit))
+        .then(|| (template.to_owned(), limit, reject))
 }
 
 /// Settles a [`LIMIT_BUFF`] packet on `owner`; returns the summons it retired (the caller removes them).
 pub(crate) fn apply_limit(world: &mut World, owner: Entity, buff_id: &str, payload: &serde_json::Value) -> Vec<Entity> {
-    let Some((template, limit)) = limit_spec(buff_id, payload) else { return Vec::new() };
+    let Some((template, limit, reject)) = limit_spec(buff_id, payload) else { return Vec::new() };
     if !world.entities().is_alive(owner) { return Vec::new(); }
-    enforce(world, owner, &[template], limit)
+    if reject { enforce_newest(world, owner, &[template], limit) } else { enforce(world, owner, &[template], limit) }
 }
 
 /// Generated extras key of the summon effect's per-rank `owner_cap`.
@@ -80,7 +88,16 @@ fn live_in_spawn_order(world: &World, owner: Entity, units: &[String]) -> Vec<En
 pub(crate) fn enforce(world: &mut World, owner: Entity, units: &[String], cap: usize) -> Vec<Entity> {
     let live = live_in_spawn_order(world, owner, units);
     let excess = live.len().saturating_sub(cap);
-    let retired: Vec<Entity> = live.into_iter().take(excess).collect();
+    retire(world, live.into_iter().take(excess).collect())
+}
+
+/// [`enforce`] keeping the earliest `cap` instead: the newest beyond it go (E500, `reject`).
+pub(crate) fn enforce_newest(world: &mut World, owner: Entity, units: &[String], cap: usize) -> Vec<Entity> {
+    let live = live_in_spawn_order(world, owner, units);
+    retire(world, live.into_iter().skip(cap).collect())
+}
+
+fn retire(world: &mut World, retired: Vec<Entity>) -> Vec<Entity> {
     let mut summons = world.write_storage::<SummonedUnit>();
     retired.into_iter().filter(|entity| summons.get_mut(*entity).is_some_and(|summon| summon.expire_now())).collect()
 }
@@ -164,6 +181,22 @@ mod tests {
     }
 
     /// E418: the `__summon_limit` packet of a create_unit with `limit_per_owner`.
+    #[test]
+    fn a_reject_packet_keeps_the_earliest_summons_and_retires_the_new_ones() {
+        let mut w = world();
+        let owner = w.create_entity().with(CProperty { hp: Fixed64::ONE, mhp: Fixed64::ONE, msd: Fixed64::ZERO,
+            def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build();
+        let template = omoba_template_ids::summon_by_name("dummy").map(|_| "dummy").unwrap();
+        let first = summon(&mut w, owner, template, 1);
+        let second = summon(&mut w, owner, template, 2);
+        let late = summon(&mut w, owner, template, 3);
+        assert_eq!(limit_spec(LIMIT_BUFF, &reject_payload(template, 2)), Some((template.to_owned(), 2, true)));
+        let mut bad = reject_payload(template, 2); bad[LIMIT_KEY]["reject"] = false.into();
+        assert_eq!(limit_spec(LIMIT_BUFF, &bad), None, "reject is only ever true");
+        assert_eq!(apply_limit(&mut w, owner, LIMIT_BUFF, &reject_payload(template, 2)), vec![late], "the newest goes");
+        assert!(!expired(&w, first) && !expired(&w, second) && expired(&w, late));
+    }
+
     #[test]
     fn a_limit_packet_keeps_the_newest_summons_of_its_template() {
         let mut w = world();

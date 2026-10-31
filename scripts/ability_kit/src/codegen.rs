@@ -836,8 +836,15 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// `lifetime` 0 (no `lifetime` written) is a permanent summon until something kills it, as the
     /// host's summon settlement reads 0; at most an hour (summon_settlement lifetime bounds).
     pub fn create_unit(&mut self, template: &str, at: Vec2, lifetime: Fixed64) -> Result<EntityHandle, &'static str> {
+        let caster = self.caster;
+        self.create_unit_for(caster, template, at, lifetime)
+    }
+
+    /// [`Cx::create_unit`] owned by `owner` instead of the caster (v3 `create_unit.owner`, e.g.
+    /// `caster_hero` in a summon's trigger, E500): its team, owner order and summon limits.
+    pub fn create_unit_for(&mut self, owner: EntityHandle, template: &str, at: Vec2, lifetime: Fixed64) -> Result<EntityHandle, &'static str> {
         if lifetime < Fixed64::ZERO || lifetime > Fixed64::from_i32(3600) { return Err("v3: invalid unit lifetime"); }
-        let unit = self.world.spawn_summoned_unit(at, RStr::from_str(template), self.caster, lifetime);
+        let unit = self.world.spawn_summoned_unit(at, RStr::from_str(template), owner, lifetime);
         if !unit.is_valid() { return Err("v3: unit placement rejected"); }
         Ok(unit)
     }
@@ -846,11 +853,18 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// caster keeps at most `limit` live summons of `template`, the earliest beyond it leaving
     /// (omoba-core summon_owner_cap, E418).
     pub fn limit_summons(&mut self, template: &str, limit: Fixed64) -> Res {
+        let caster = self.caster;
+        self.limit_summons_of(caster, template, limit, false)
+    }
+
+    /// [`Cx::limit_summons`] for the summons of `owner`; `reject` (v3 `over_limit = "reject"`,
+    /// E500) keeps the earliest `limit` instead, so the new one beyond it leaves at once.
+    pub fn limit_summons_of(&mut self, owner: EntityHandle, template: &str, limit: Fixed64, reject: bool) -> Res {
         let limit = limit.raw() >> 10;
         let limit = usize::try_from(limit).ok().filter(|limit| (1..=summon_owner_cap::MAX_CAP).contains(limit))
             .ok_or("v3: invalid limit_per_owner")?;
-        self.world.add_stat_buff(self.caster, RStr::from_str(summon_owner_cap::LIMIT_BUFF), Fixed64::ONE,
-            RStr::from_str(&summon_owner_cap::limit_payload(template, limit).to_string()));
+        let payload = if reject { summon_owner_cap::reject_payload(template, limit) } else { summon_owner_cap::limit_payload(template, limit) };
+        self.world.add_stat_buff(owner, RStr::from_str(summon_owner_cap::LIMIT_BUFF), Fixed64::ONE, RStr::from_str(&payload.to_string()));
         Ok(())
     }
 
