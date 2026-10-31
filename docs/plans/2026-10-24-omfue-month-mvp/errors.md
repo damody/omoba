@@ -14,7 +14,17 @@
 
 ## E479 （保留）on_damage_pre 的 event.damage.is_attack 永遠為 false（2026-10-31）
 
-## E478 （保留）event.damage.raw 與 on_heal_received（B21）（2026-10-31）
+## E478 event.damage.raw 與 on_heal_received 沒有 host 落點：B21 只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 第五批第 9 項：B21 需要減免前的原始傷害（`event.damage.raw`）和「受到治療」觸發（`passive_trigger:on_heal_received`），host 兩者都沒有。
+- **根因**：
+  - 傷害事件 `DamageNote` 只記錄結算後的數值，減免前的物理、魔法、真實傷害沒有留下。
+  - `handle_heal` 只改 hp，沒有像傷害、耗魔那樣記錄狀態事件，所以狀態聽不到治療。
+- **通用修正**：
+  - `DamageNote` 新增 `raw`（減免前物理＋魔法＋真實），dispatch 在傷害事件期間提供給 `EVENT_ABILITY_ATTR` 的 `raw_damage`；kit 新增 `event_damage_raw()`。
+  - 新增狀態事件 `HEAL_RECEIVED = 19`、mask `ON_HEAL_RECEIVED = 1 << 16`。`handle_heal` 以實際回復量（受最大生命限制）呼叫 `status_event::note_heal`，只在有狀態在聽時記錄；回復量為 0 不送。治療來源目前不追蹤。
+- **回歸**：`script_hooks_tests::a_marked_status_hears_its_holders_heal`：缺 25 血時治療 40 只聽到一次、量不超過 25；滿血再治療不觸發。
+- **檔案**：`omoba-core/src/runtime/native/status_event.rs`、`game_processor.rs`、`scripting/dispatch.rs`、`scripting/parallel_world_adapter.rs`、`script_hooks_tests.rs`、`scripts/script-abi/src/ext.rs`、`scripts/ability_kit/src/host_ext.rs`
 
 ## E477 （保留）event.damage.raw 與 on_heal_received 沒有 host 落點，B21 只能擋下（2026-10-31）
 
