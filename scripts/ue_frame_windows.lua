@@ -23,9 +23,16 @@ local function seconds_of(line)
 end
 
 -- log text -> { windows = {{t, mean_ms, max_ms}}, spikes = {{t, frame_ms, work_ms, entities, top}},
---   events = {{t, kind}} } with t in seconds since the first timestamped line
+--   events = {{t, kind}}, markers = {{t, kind}} } with t in seconds since the first timestamped line.
+-- Markers are what else stalls a frame (D21): a screenshot the autopilot takes (harness cost, not
+-- the game's), an audio render thread stall and the stack dump it triggers on the game thread.
+M.MARKERS = {
+  { kind = "screenshot", needle = "Tracing Screenshot" },
+  { kind = "audio_stall", needle = "Stall in AudioRenderThread" },
+  { kind = "audio_stall", needle = "ThreadStackWalkAndDump" },
+}
 function M.parse(text)
-  local out = { windows = {}, spikes = {}, events = {} }
+  local out = { windows = {}, spikes = {}, events = {}, markers = {} }
   local origin
   for line in text:gmatch("[^\r\n]+") do
     local t = seconds_of(line)
@@ -49,6 +56,9 @@ function M.parse(text)
       for _, kind in ipairs({ "OM_CUE ", "OM_STATUS_CUE ", "OM_CAST_TARGET_CUES ", "OM_BUFF " }) do
         if line:find(kind, 1, true) then out.events[#out.events + 1] = { t = t, kind = kind:sub(1, -2) } end
       end
+      for _, marker in ipairs(M.MARKERS) do
+        if line:find(marker.needle, 1, true) then out.markers[#out.markers + 1] = { t = t, kind = marker.kind } end
+      end
     end
   end
   return out
@@ -65,6 +75,26 @@ end
 
 local function cue_total(counts)
   return (counts.OM_CUE or 0) + (counts.OM_STATUS_CUE or 0) + (counts.OM_CAST_TARGET_CUES or 0) + (counts.OM_BUFF or 0)
+end
+
+-- Every frame of at least HITCH_MS after the warm-up, with its cause: a marker within the frame
+-- (screenshot, audio_stall), the presentation work when it took at least half the frame, else
+-- other (outside the presentation: engine, GC, the machine).
+M.HITCH_MS = 100
+function M.hitches(parsed, warmup)
+  local list, counts = {}, {}
+  for _, s in ipairs(parsed.spikes) do
+    if s.t >= warmup and (s.frame_ms or 0) >= M.HITCH_MS then
+      local cause
+      for _, m in ipairs(parsed.markers or {}) do
+        if m.t <= s.t and m.t >= s.t - math.max(s.frame_ms / 1000, 0.1) - 0.05 then cause = m.kind end
+      end
+      if not cause then cause = (s.work_ms or 0) >= s.frame_ms * 0.5 and "presentation" or "other" end
+      list[#list + 1] = { t = s.t, frame_ms = s.frame_ms, work_ms = s.work_ms or 0, cause = cause, top = s.top }
+      counts[cause] = (counts[cause] or 0) + 1
+    end
+  end
+  return list, counts
 end
 
 -- parsed -> markdown summary, worst windows
@@ -111,7 +141,19 @@ function M.summary(parsed, top, warmup)
   for i = 1, math.min(5, #busy) do
     lines[#lines + 1] = ("- t=%.0f s: %d events, mean %.1f ms, max %.1f ms"):format(busy[i].t, busy[i].cues, busy[i].mean_ms, busy[i].max_ms)
   end
-  return table.concat(lines, "\n") .. "\n", worst
+  local hitches, causes = M.hitches(parsed, warmup)
+  local names = {}
+  for cause, n in pairs(causes) do names[#names + 1] = ("%s %d"):format(cause, n) end
+  table.sort(names)
+  lines[#lines + 1] = ""
+  lines[#lines + 1] = ("Hitches (frames of at least %d ms after the warm-up; frame_ms is capped at 400): %d%s"):format(
+    M.HITCH_MS, #hitches, #names > 0 and (" (" .. table.concat(names, ", ") .. ")") or "")
+  lines[#lines + 1] = ""
+  for _, h in ipairs(hitches) do
+    lines[#lines + 1] = ("- t=%.1f s: %.1f ms, work %.1f ms, %s%s"):format(h.t, h.frame_ms, h.work_ms, h.cause,
+      h.cause == "presentation" and h.top and (" (" .. h.top .. ")") or "")
+  end
+  return table.concat(lines, "\n") .. "\n", worst, hitches
 end
 
 function M.main(args)

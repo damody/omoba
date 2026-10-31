@@ -21,4 +21,22 @@ local md, worst = M.summary(parsed, 1, 30)
 assert(#worst == 1 and worst[1].max_ms == 400 and worst[1].cues == 2, "the worst window carries the events of its second")
 assert(md:find("ability_events:340.0", 1, true), "the spike's top phases are listed")
 assert(M.summary(parsed, 1, 1000):find("No OM_PERF", 1, true), "no window after the warm-up")
+-- D21: every hitch after the warm-up is counted with its cause.
+do
+  local text = table.concat({
+    "[2026.10.30-16.50.00:000][  0]LogInit: start",
+    '[2026.10.30-16.50.40:000][  1]LogOmWorldBridge: Display: OM_PERF_SPIKE {"frame_ms":20.0,"work_ms":5.0,"top":"a:5"}',
+    "[2026.10.30-16.50.41:700][  2]LogCore: Display: Tracing Screenshot \"autopilot-p1-shot-010-periodic\" taken",
+    '[2026.10.30-16.50.41:950][  2]LogOmWorldBridge: Display: OM_PERF_SPIKE {"frame_ms":290.0,"work_ms":8.0,"top":"a:8"}',
+    "[2026.10.30-16.50.50:000][  3]LogAudioMixer: Warning: Stall in AudioRenderThread Phase: 'x'",
+    "[2026.10.30-16.50.50:390][  3]LogAudioMixer: Warning: ***** ThreadStackWalkAndDump for ThreadId(1) ******",
+    '[2026.10.30-16.50.50:400][  3]LogOmWorldBridge: Display: OM_PERF_SPIKE {"frame_ms":400.0,"work_ms":5.0,"top":"a:5"}',
+    '[2026.10.30-16.50.55:000][  4]LogOmWorldBridge: Display: OM_PERF_SPIKE {"frame_ms":300.0,"work_ms":280.0,"top":"entities:270"}',
+    '[2026.10.30-16.51.00:000][  5]LogOmWorldBridge: Display: OM_PERF_SPIKE {"frame_ms":150.0,"work_ms":2.0,"top":"a:2"}',
+    '[2026.10.30-16.50.10:000][  0]LogOmWorldBridge: Display: OM_PERF_SPIKE {"frame_ms":400.0,"work_ms":2.0,"top":"a:2"}',
+  }, "\n")
+  local list, counts = M.hitches(M.parse(text), 30)
+  assert(#list == 4, "frames under 100 ms and in the warm-up are not hitches: " .. #list)
+  assert(counts.screenshot == 1 and counts.audio_stall == 1 and counts.presentation == 1 and counts.other == 1, "each hitch has its cause")
+end
 print("ue_frame_windows_test ok")
