@@ -52,7 +52,14 @@
 - 現象：E555（攻擊距離改成邊到邊）之後要對 89 位 READY 英雄各跑 1 局 quick 回歸。verify_m6_batch 每組固定跑 quick、quick_swap、teamfight 三種 recipe，`--matches 1` 也是每組 3 局，多出的兩局佔掉 live 佇列的時間。
 - 修正（共用層）：`--recipes quick,quick_swap,teamfight` 只保留列出的 recipe，依原本的順序。名稱不認得或清單為空時直接報錯；`--split` 需要 quick。
 - 避免：批次工具的工作量要能按驗收目的縮減（只跑 quick、只跑一局），不要為了一個指標跑整套。
-## E564 （保留）conformance 從沒驗證狀態的 on_take_damage／on_death／on_kill trigger（status step 一律 unsupported）（2026-11-01）
+## E564 conformance：conformance 從沒驗證狀態的 on_take_damage／on_death／on_kill trigger（status step 一律 unsupported）（2026-11-01，conformance session）
+- **現象**：89 位 READY 英雄裡，狀態的 on_take_damage、on_death、on_kill trigger 一次都沒有被驗證過（status step 一律判 unsupported）。這三個 hook 的 pass 數都是 0。
+- **根因**：harness 只支援狀態的 on_take_damage_pre、on_removed、on_created 和攻擊事件。
+- **通用修正**：
+  - 依事件製造情境：另一位英雄打持有者 100 物理、致命傷害打到持有者死、持有者殺掉身旁的敵方 creep。
+  - 再檢查 trigger 不帶條件的效果：傷害依 path 出現在 DamageTrace 並比對數值、狀態有套上或移除、召喚物有做出來、補血有發生。補血目標事先降到半血。
+  - 一個可觀察的效果都沒有時，判 unsupported。
+- **以後如何避免**：定期列出「從沒 pass 過的 hook」（shared notes 的 conformance-unexercised-hooks.md），優先補上。
 
 ## E563 kit 沒有 set_base_max_hp：B16 忍犬的基礎生命（2026-11-01，工作線 B）
 

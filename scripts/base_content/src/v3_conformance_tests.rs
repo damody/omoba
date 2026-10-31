@@ -1139,7 +1139,136 @@ fn status_trigger(run: &mut Run, holder: specs::Entity, step: &Value, expectatio
             }
             Verdict::PassNoted(notes.join("; "))
         }
+        // Damage taken, the holder's death, the holder's kill (E564): the event is made, then the
+        // trigger's plain effects are looked for.
+        Some(event @ ("on_take_damage" | "on_death" | "on_kill")) => {
+            let other = if holder == run.enemy { run.caster } else { run.enemy };
+            let before = EffectsSeen::of(run, holder, other, &effects);
+            let mut victim = None;
+            match event {
+                "on_take_damage" => {
+                    run.world.write_resource::<Vec<Outcome>>().push(Outcome::Damage { pos: omoba_sim::Vec2::ZERO, phys: Fixed64::from_i32(100),
+                        magi: Fixed64::ZERO, real: Fixed64::ZERO, source: other, target: holder, damage_profile: 0, predeclared: false });
+                    run.step(3);
+                }
+                "on_death" => {
+                    if deathless(run, holder) { return Verdict::Unsupported("on_death: the holder cannot die".into()); }
+                    run.kill_physical_too(other, holder);
+                    run.step(3);
+                    if living(run, holder) { return Verdict::Unsupported("on_death: the holder survived the lethal hits".into()); }
+                }
+                _ => {
+                    let team = run.world.read_storage::<Faction>().get(other).map(|f| f.team_id).unwrap_or(1);
+                    let at = run.world.read_storage::<Pos>().get(holder).map(|p| p.0).unwrap_or(omoba_sim::Vec2::ZERO);
+                    let body = spawn_body(&mut run.world, real(at.x) as i32 + 80, real(at.y) as i32, team, 50, None);
+                    run.world.write_storage::<omoba_core::Unit>().insert(body,
+                        omoba_core::Unit::new("v3_conformance_victim".into(), "v3_conformance_victim".into(), omoba_core::UnitType::Creep)).ok();
+                    run.step(1);
+                    run.kill(holder, body);
+                    run.step(3);
+                    if living(run, body) { return Verdict::Unsupported("on_kill: the holder's lethal hit did not kill".into()); }
+                    victim = Some(body);
+                }
+            }
+            before.compare(run, holder, other, victim, event, &effects)
+        }
         other => Verdict::Unsupported(format!("status event {other:?}")),
+    }
+}
+
+/// What a status trigger's plain effects (no conds) can be seen to leave (E564), taken before the
+/// event: the damage trace's length, life, statuses held and the units of each template.
+struct EffectsSeen { trace: usize, life: std::collections::BTreeMap<u32, f64>, held: std::collections::BTreeSet<(u32, String)>, made: std::collections::BTreeMap<String, usize> }
+
+impl EffectsSeen {
+    /// The unit an effect names: the holder, the status's caster, or the event's other unit.
+    fn unit(run: &Run, holder: specs::Entity, other: specs::Entity, victim: Option<specs::Entity>, name: &Value) -> Option<specs::Entity> {
+        match name.as_str()? {
+            "self" | "holder" => Some(holder),
+            "caster" => Some(run.caster),
+            "event.attacker" | "event.source" | "attacker" | "event.killer" => Some(other),
+            "event.target" | "event.victim" => victim,
+            _ => None,
+        }
+    }
+    fn plain(f: &Value) -> bool { f["conds"].as_array().is_none_or(|c| c.is_empty()) }
+    fn runtime(run: &Run, f: &Value) -> Option<String> {
+        let st = f["args"]["status"].as_str()?;
+        Some(status_runtime_id(&run.entry, st).unwrap_or_else(|| st.to_owned()))
+    }
+    fn count(run: &Run, template: &str) -> usize {
+        use specs::Join;
+        (&run.world.entities(), &run.world.read_storage::<ScriptUnitTag>()).join().filter(|(_, t)| of_template(&t.unit_id, template)).count()
+    }
+    fn of(run: &mut Run, holder: specs::Entity, other: specs::Entity, effects: &[&Value]) -> Self {
+        use omoba_core::runtime::native::damage_trace::DamageTrace;
+        // A heal's target at half life, so the heal shows (a full one is capped).
+        for f in effects.iter().filter(|f| Self::plain(f) && f["op"] == "heal") {
+            if let Some(unit) = Self::unit(run, holder, other, None, &f["args"]["to"]) {
+                if let Some(p) = run.world.write_storage::<CProperty>().get_mut(unit) { p.hp = p.mhp / Fixed64::from_i32(2); }
+            }
+        }
+        let mut seen = EffectsSeen { trace: run.world.read_resource::<DamageTrace>().0.len(), life: Default::default(), held: Default::default(), made: Default::default() };
+        for unit in [holder, run.caster, other] {
+            if let Some(p) = run.world.read_storage::<CProperty>().get(unit) { seen.life.insert(unit.id(), real(p.hp)); }
+        }
+        for f in effects.iter().filter(|f| Self::plain(f)) {
+            if let Some(id) = Self::runtime(run, f) {
+                for unit in [holder, run.caster, other] { if holds(run, unit, &id) { seen.held.insert((unit.id(), id.clone())); } }
+            }
+            if f["op"] == "create_unit" { if let Some(t) = f["args"]["template"].as_str() { seen.made.insert(t.to_owned(), Self::count(run, t)); } }
+        }
+        seen
+    }
+    fn compare(&self, run: &Run, holder: specs::Entity, other: specs::Entity, victim: Option<specs::Entity>, event: &str, effects: &[&Value]) -> Verdict {
+        use omoba_core::runtime::native::damage_trace::{DamageTrace, DamageTraceResult};
+        let (mut seen, mut missing) = (Vec::new(), Vec::new());
+        for f in effects.iter().filter(|f| Self::plain(f)) {
+            let op = f["op"].as_str().unwrap_or("");
+            let path = f["path"].as_str().unwrap_or("");
+            match op {
+                "damage" => {
+                    let rows: Vec<(f64, DamageTraceResult)> = run.world.read_resource::<DamageTrace>().0.iter().skip(self.trace)
+                        .filter(|r| same_path(&r.path, path)).map(|r| (real(r.before.0 + r.before.1 + r.before.2), r.result)).collect();
+                    match rows.first() {
+                        None => missing.push(format!("no hit of {path}")),
+                        Some((_, result)) if *result != DamageTraceResult::Applied => missing.push(format!("{path} was {result:?}")),
+                        Some((dealt, _)) => match expr(&f["args"]["amount"], &run.entry, run.rank) {
+                            Ok(amount) if (dealt - amount).abs() > (amount * 0.01).max(1.0) => missing.push(format!("{path} dealt {dealt:.1}, expected {amount}")),
+                            _ => seen.push(format!("{path} {dealt:.1}")),
+                        },
+                    }
+                }
+                "apply_status" | "remove_status" => {
+                    let target = if op == "apply_status" { &f["args"]["to"] } else { &f["args"]["from"] };
+                    let (Some(unit), Some(id)) = (Self::unit(run, holder, other, victim, target), Self::runtime(run, f)) else { continue };
+                    // A dead holder's statuses are cleared by the death itself.
+                    if event == "on_death" && unit == holder { continue; }
+                    if victim == Some(unit) { continue; }
+                    if op == "apply_status" {
+                        if holds(run, unit, &id) { seen.push(format!("{id} put on")) } else { missing.push(format!("{id} not put on")) }
+                    } else if self.held.contains(&(unit.id(), id.clone())) {
+                        if holds(run, unit, &id) { missing.push(format!("{id} not taken off")) } else { seen.push(format!("{id} taken off")) }
+                    }
+                }
+                "create_unit" => {
+                    let Some(t) = f["args"]["template"].as_str() else { continue };
+                    let was = self.made.get(t).copied().unwrap_or(0);
+                    if Self::count(run, t) > was { seen.push(format!("{t} made")) } else { missing.push(format!("no {t} made")) }
+                }
+                "heal" => {
+                    let Some(unit) = Self::unit(run, holder, other, victim, &f["args"]["to"]) else { continue };
+                    // The holder's own life also took the event's hit.
+                    if unit == holder && event != "on_kill" { continue; }
+                    let (Some(was), Some(now)) = (self.life.get(&unit.id()), run.world.read_storage::<CProperty>().get(unit).map(|p| real(p.hp))) else { continue };
+                    if now > was + 0.5 { seen.push(format!("healed {:.1}", now - was)) } else { missing.push("no heal on its target".to_owned()) }
+                }
+                _ => {}
+            }
+        }
+        if !missing.is_empty() { return Verdict::Fail(format!("{event}: {} (seen: {})", missing.join("; "), seen.join("; "))); }
+        if seen.is_empty() { return Verdict::Unsupported(format!("{event}: no plain effect it can observe")); }
+        Verdict::PassNoted(format!("{event}: {}", seen.join("; ")))
     }
 }
 
@@ -1170,6 +1299,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         ("holder_dies", _) | ("wait", _) | ("observe", _) => None,
         ("status_event", _) if step["event"] == "on_attack_hit" || step["event"] == "on_attack_windup" => None,
         ("status_event", _) if step["event"] == "on_take_damage_pre" || step["event"] == "on_removed" || step["event"] == "on_created" => None,
+        ("status_event", _) if step["event"] == "on_take_damage" || step["event"] == "on_death" || step["event"] == "on_kill" => None,
         _ => return Verdict::Unsupported(format!("status step {kind}")),
     };
     let expect = s["expect"].as_array().unwrap();
