@@ -1283,7 +1283,7 @@ local ACTION_FIELDS = {
   swap_abilities = set({ "op", "on", "from", "to", "duration", "cooldown_policy" }),
   -- force: a script's order already is one for a hero (hero_command: no owner restriction or
   -- taunt refuses it, it clears the queue; line B); queue (after the current one) is not lowered
-  issue_order = set({ "op", "who", "order", "target", "at", "force" }),
+  issue_order = set({ "op", "who", "order", "target", "at", "force", "queue" }),
   -- the attacker's own attack (line B perform_attack): an instant hit, or without `instant` an attack
   -- projectile (line B E486, its effects on arrival); `ignore_range` is a no-op there (a scripted
   -- attack never checks range), an effect multiplier other than 1 waits
@@ -2783,11 +2783,16 @@ function Gen:action(a, ctx, ind)
   elseif op == "issue_order" then
     -- as the owner's order (hero_command; a summon, illusion or dummy takes it too, line B E412); nothing is locked
     if a.force ~= nil and type(a.force) ~= "boolean" then self:block("action:issue_order.force of an expression"); return "" end
+    if a.queue ~= nil and type(a.queue) ~= "boolean" then self:block("action:issue_order.queue of an expression"); return "" end
     local who = self:value(a.who, ctx, "unit")
     if a.order == "attack" and a.target ~= nil and a.at == nil then
       local target = self:value(a.target, ctx, "unit")
-      return line("{") .. line("    let who = " .. who .. ";") .. line("    let target = " .. target .. ";") .. line("    cx.order_attack(who, target)?;") .. line("}")
+      -- queue: after the hero's current order (a summon without an ordered attack, follow or move
+      -- takes it at once; line B E495)
+      local call = a.queue == true and "cx.order_attack_queued(who, target)?;" or "cx.order_attack(who, target)?;"
+      return line("{") .. line("    let who = " .. who .. ";") .. line("    let target = " .. target .. ";") .. line("    " .. call) .. line("}")
     end
+    if a.queue == true then self:block("action:issue_order.queue of a " .. tostring(a.order) .. " order"); return "" end
     -- follow: a summon keeps walking to the target until a new order or its death (line B E489;
     -- a hero does not take it)
     if a.order == "follow" and a.target ~= nil and a.at == nil then
