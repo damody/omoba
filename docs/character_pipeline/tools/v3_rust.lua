@@ -1257,9 +1257,26 @@ local function emit_statuses(m, root)
 end
 
 -- (StatKey, raw) rows of a stats table -> Rust slice literal
+-- a stat row's `when` (line B E508 ability_kit::When); nil when it has no host form
+local WHEN_ATTR = { str = "Strength", agi = "Agility", int = "Intelligence" }
+local function when_code(w)
+  if type(w) ~= "string" then return nil end
+  w = w:gsub("^%s+", ""):gsub("%s+$", "")
+  if w == "game.is_night" then return "ability_kit::When::Night" end
+  if w == "not game.is_night" then return "ability_kit::When::Day" end
+  if w == "self.is_hero" then return "ability_kit::When::Hero" end
+  local a = w:match("^primary_is%(%s*self%s*,%s*(%a+)%s*%)$")
+  if a and WHEN_ATTR[a] then return "ability_kit::When::Primary(ability_kit::Attr::" .. WHEN_ATTR[a] .. ")" end
+  return nil
+end
+
+-- The stat rows of `stats`. A row with `when` makes the whole list a conditional one: when the
+-- caller takes it (self.when_ok) it is left in self.last_when as `&[(StatKey, raw, When)]`
+-- (unconditional rows When::Always); otherwise it is a blocker.
 function Gen:stat_rows(stats, ctx)
   local voc = self.opts.vocab
   local rows = {}
+  local triples, any_when = {}, false
   for _, name in ipairs(sorted_keys(stats)) do
     local v = stats[name]
     local entry, expr
@@ -1267,7 +1284,11 @@ function Gen:stat_rows(stats, ctx)
       if v.op == "set_absolute" then entry = voc.absolute[name]; expr = v.value
       elseif v.op == nil or v.op == "add" then entry = voc.stats[name]; expr = v.value
       else self:block("stat.op:" .. tostring(v.op)) end
-      if v.when ~= nil then self:block("stat.when") end
+      if v.when ~= nil then
+        any_when = true
+        if not when_code(v.when) then self:block("stat.when:" .. tostring(v.when)) end
+        if v.per_stack then self:block("stat.when with per_stack") end
+      end
       if v.per_stack and not self.per_rows then self:block("stat.per_stack") end
     else
       entry = voc.stats[name]; expr = v
@@ -1302,8 +1323,15 @@ function Gen:stat_rows(stats, ctx)
         self.per_rows[#self.per_rows + 1] = string.format("(StatKey::%s, %s)", entry.key, raw)
       else
         rows[#rows + 1] = string.format("(StatKey::%s, %s)", entry.key, raw)
+        local w = type(v) == "table" and v.when ~= nil and when_code(v.when) or "ability_kit::When::Always"
+        triples[#triples + 1] = string.format("(StatKey::%s, %s, %s)", entry.key, raw, w)
       end
     end
+  end
+  self.last_when = nil
+  if any_when then
+    if self.when_ok then self.last_when = "&[" .. table.concat(triples, ", ") .. "]"
+    else self:block("stat.when") end
   end
   return "&[" .. table.concat(rows, ", ") .. "]"
 end
@@ -1381,6 +1409,7 @@ local ACTION_FIELDS = {
   destroy_tree = set({ "op", "tree" }),
   regrow_trees = set({ "op" }),
   set_time_of_day = set({ "op", "mode", "duration" }),
+  impulse = set({ "op", "who", "direction", "speed", "decay", "duration" }),
   refund = set({ "op", "cooldown", "mana", "health" }),
   tether = false, -- shape-checked in Gen:tether
 }
@@ -3222,6 +3251,16 @@ function Gen:action(a, ctx, ind)
     if a.cooldown ~= true then self:block("action:refund without cooldown"); return "" end
     if not ctx.cast then self:block("action:refund outside the cast"); return "" end
     return line("cx.refund_cooldown();")
+  elseif op == "impulse" then
+    -- a velocity on `who` along `direction` (per physics frame), times `decay` each frame; impulses
+    -- add up and the unit still moves by itself (line B E514)
+    local who = self:value(a.who, ctx, "unit")
+    local dir = self:value(a.direction, ctx, "vec")
+    local dur = a.duration ~= nil and ("Some(" .. self:value(a.duration, ctx, "num") .. ")") or "None"
+    return line("{") .. line("    let who = " .. who .. ";") .. line("    let direction = " .. dir .. ";")
+      .. line("    let speed = " .. self:value(a.speed, ctx, "num") .. ";")
+      .. line("    let decay = " .. (a.decay ~= nil and self:value(a.decay, ctx, "num") or "Fixed64::ZERO") .. ";")
+      .. line("    cx.impulse(who, direction, speed, decay, " .. dur .. ")?;") .. line("}")
   elseif op == "set_time_of_day" then
     -- the map's temporary night for `duration`, or day at once (line B E453); a night without a
     -- duration lasts until day is set (line B E501)
@@ -3624,7 +3663,12 @@ local function emit_entry(m, o, opts, status_problems)
     end
   end
   local passive_stats
-  if passive.stats then passive_stats = g:stat_rows(passive.stats, { owner = o, scope = scope_child(nil) }) end
+  local passive_when
+  if passive.stats then
+    g.when_ok = true
+    passive_stats = g:stat_rows(passive.stats, { owner = o, scope = scope_child(nil) })
+    passive_when, g.when_ok, g.last_when = g.last_when, nil, nil
+  end
 
   -- status triggers: on_created / periodic run from the applying code (st_<id>_start); the rest
   -- come back through on_status_event (kind -> functions)
@@ -3826,7 +3870,10 @@ local function emit_entry(m, o, opts, status_problems)
 ]=]
   end
   local learn = {}
-  if passive_mask ~= 0 or passive_periodic then
+  if passive_when and (passive_mask ~= 0 or passive_periodic) then
+    learn[#learn + 1] = string.format("        let _ = cx.passive_marker_when(ID, %s, %d);\n", passive_when, passive_mask)
+  elseif passive_when then learn[#learn + 1] = "        let _ = cx.passive_stats_when(ID, " .. passive_when .. ");\n"
+  elseif passive_mask ~= 0 or passive_periodic then
     learn[#learn + 1] = string.format("        let _ = cx.passive_marker(ID, %s, %d);\n", passive_stats or "&[]", passive_mask)
   elseif passive_stats then learn[#learn + 1] = "        let _ = cx.passive_stats(ID, " .. passive_stats .. ");\n"
   elseif #owner_triggers > 0 then learn[#learn + 1] = "        let _ = cx.learn_marker(ID);\n" end
@@ -3942,7 +3989,8 @@ local function emit_entry(m, o, opts, status_problems)
     for i = 1, #g.steps do arms[#arms + 1] = string.format("            %d => step_%d(&mut cx, args.as_slice()),\n", i, i) end
     impl[#impl + 1] = "\n    fn on_scheduled(&self, owner: EntityHandle, at: Scheduled, args: RVec<ScheduleArg>, world: &mut GameWorldDyn<'_>) {\n"
       .. "        let mut cx = Cx::passive(world, owner, at.level);\n"
-      .. "        let _ = match at.step {\n" .. table.concat(arms) .. "            _ => Ok(()),\n        };\n    }\n"
+      .. "        let r = match at.step {\n" .. table.concat(arms) .. "            _ => Ok(()),\n        };\n"
+      .. "        if let Err(e) = r { cx.report_error(ID, \"on_scheduled\", e); }\n    }\n"
   end
   if filters.on_attack_hit then
     impl[#impl + 1] = [[
@@ -4004,7 +4052,12 @@ pub fn on_owner_respawn(owner: EntityHandle, world: &mut GameWorldDyn<'_>) {
     s[#s + 1] = "\npub fn ffi() -> AbilityDefFFI { ability_kit::ability_ffi(ID, " .. struct .. ") }\n"
       .. "#[allow(dead_code)]\npub fn ffi_opt() -> Option<AbilityDefFFI> { ability_kit::ability_ffi_opt(ID, " .. struct .. ") }\n"
   end
-  return table.concat(s), blockers, { owner_triggers = owner_triggers }, g
+  -- a hook's error reaches the host (line B E515 report_error; D's harness fails on it) instead of
+  -- being dropped; nothing runs when it succeeds
+  local src = table.concat(s):gsub("let _ = ([%a_][%w_]*)%(&mut cx%);", function(fn)
+    return "if let Err(e) = " .. fn .. "(&mut cx) { cx.report_error(ID, \"" .. fn .. "\", e); }"
+  end)
+  return src, blockers, { owner_triggers = owner_triggers }, g
 end
 
 -- routines a supported entry calls: one Rust fn each (owner values, typed params)
