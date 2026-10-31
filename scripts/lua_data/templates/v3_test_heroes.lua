@@ -68719,16 +68719,13 @@ local data = {
     {
       abilities = { "a36_shadow_step", "a36_spike_trap", "a36_bitter_brew", "a36_deadly_strike" },
       authored_package = "maeno_nagayasu",
-      background = "前野長康（schema v3 產生的 Rust；測試用）",
       display_name = "前野長康",
       id = "maeno_nagayasu",
       moba_loadout = {
         ranks = { 1, 1, 1, 0 },
         skill_points = 0,
       },
-      source_stats = "A36",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A36",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "maeno_nagayasu",

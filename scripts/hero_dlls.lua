@@ -105,4 +105,6 @@ return {
   {hero='kikuhime',package='hero_b11',dir='heroes/kikuhime'},
   -- M6 batch (2026-10-31): every ability generated (模板 passive.triggers 合成狀態); conformance 0 fail
   {hero='hachisuka_masakatsu',package='hero_a09',dir='heroes/hachisuka_masakatsu'},
+  -- M6 batch (2026-10-31): every ability generated (模板 abilities 以 grant_unit_ability 授予); conformance 0 fail
+  {hero='maeno_nagayasu',package='hero_a36',dir='heroes/maeno_nagayasu'},
 }

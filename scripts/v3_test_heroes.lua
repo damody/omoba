@@ -55,7 +55,7 @@ local HEROES = {
   { package = "chosokabe_motochika", playable = true },
   { package = "chacha", playable = true },
   { package = "ii_naomasa", playable = true },
-  { package = "maeno_nagayasu" },
+  { package = "maeno_nagayasu", playable = true },
   { package = "takeda_katsuyori", playable = true },
   { package = "fuma_kotaro", playable = true },
   { package = "kirigakure_saizo" },
