@@ -95,4 +95,7 @@ return {
   {hero='matsuhime',package='hero_c19',dir='heroes/matsuhime'},
   -- M6 batch (2026-10-31): every ability generated; conformance 0 fail (shadow, independent-instance vars)
   {hero='mori_motonari',package='hero_b05',dir='heroes/mori_motonari'},
+  -- M6 batch (2026-10-31): every ability generated; conformance 0 fail (C09 live a2f4a0fa; C16 shadow, no_attack)
+  {hero='tachibana_ginchiyo',package='hero_c09',dir='heroes/tachibana_ginchiyo'},
+  {hero='kashin_koji',package='hero_c16',dir='heroes/kashin_koji'},
 }

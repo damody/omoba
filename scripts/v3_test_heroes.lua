@@ -24,7 +24,7 @@ local HEROES = {
   { package = "hattori_hanzo" },
   -- M6 batch 2 (line-conformance REPORT_ONLY)
   { package = "maeda_keiji", playable = true },
-  { package = "tachibana_ginchiyo" },
+  { package = "tachibana_ginchiyo", playable = true },
   { package = "inaba_ittetsu", playable = true },
   { package = "kakizaki_kageie", playable = true },
   { package = "torii_mototada", playable = true },
@@ -75,7 +75,7 @@ local HEROES = {
   { package = "takigawa_kazumasu", playable = true },
   { package = "ishida_mitsunari", playable = true },
   { package = "miyoshi_nagayoshi", playable = true },
-  { package = "kashin_koji" },
+  { package = "kashin_koji", playable = true },
   { package = "kosokabe_chikayasu" },
   { package = "tachibana_muneshige", playable = true },
   { package = "kamiizumi_nobutsuna", playable = true },
