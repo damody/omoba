@@ -597,6 +597,15 @@ impl Cx<'_, '_> {
 
     /// v3 `landmark(team, kind)` (E534): the team's base for `base` / `fort`;
     /// `EntityHandle::INVALID` when there is none.
+    /// The team number of `unit` (`unit_attr::TEAM`, E538): what [`Cx::landmark`] takes.
+    pub fn team_id(&mut self, unit: EntityHandle) -> Fixed64 { self.unit_num(unit, omb_script_abi::ext::unit_attr::TEAM) }
+
+    /// [`Cx::landmark`] of `unit`'s team (v3 `landmark(team_of(u), kind)`).
+    pub fn landmark_of(&mut self, unit: EntityHandle, kind: &str) -> EntityHandle {
+        let team = self.team_id(unit);
+        self.landmark(team, kind)
+    }
+
     pub fn landmark(&mut self, team: Fixed64, kind: &str) -> EntityHandle {
         match self.read(op::LANDMARK, &[ExtArg::Num(team), ExtArg::Str(kind.into())]) {
             ExtValue::Unit(u) => u,

@@ -171,6 +171,9 @@ pub mod unit_attr {
     pub const CAST_RANGE_BONUS: &str = "cast_range_bonus";
     /// `Num`: the unit's collision radius (0 without one).
     pub const COLLISION_RADIUS: &str = "collision_radius";
+    /// `Num`: the unit's team number (its faction's team id, what [`super::op::LANDMARK`] takes;
+    /// E538); 0 without a faction.
+    pub const TEAM: &str = "team";
     /// `Num`: whole gold in the pool of the unit's player (one pool per player, FC-129～131: no
     /// reliable / unreliable split); 0 when the world keeps none for it (an enemy on a team replica).
     pub const GOLD: &str = "gold";

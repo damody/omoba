@@ -2,6 +2,15 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E538 kit 讀不到單位的隊伍編號：landmark(team_of(u), fort)（2026-11-01，工作線 B）
+
+- **現象**：工作線 A：文件寫的是 `landmark(team_of(self), fort)`，E534 的 kit `landmark(team, kind)` 需要隊伍編號，但 unit_attr 沒有隊伍，產生器組不出 team 參數。這也擋住了 A21 false_intel。
+- **通用修正**：
+  - unit_attr 新增 `TEAM`，回傳 Num：單位 faction 的 team_id，與 LANDMARK 讀取的值一致；沒有 faction 時為 0。
+  - kit 新增 `team_id(u)`，以及 `landmark_of(unit, kind)`。
+- **測試**：ability_kit 的 cargo check。
+- **檔案**：`scripts/script-abi/src/ext.rs`、`scripts/ability_kit/src/host_ext.rs`、`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`
+
 ## E537 UE 選取召喚物時沒有它自己的技能按鈕，召喚物技能無法施放（bridge ABI 43）（2026-11-01，工作線 C）
 - 現象：線 B 的 E529／E531 讓召喚物擁有自己的技能（A36 地刺的 a36_detonate），並把技能與冷卻公開成 `UnitAbilityState`（0x464f471c）。但 UE 沒有任何介面能看到或施放召喚物的技能。bridge 的 summon order 只收 operation 1／2，選取資料也沒有技能清單。
 - 修正（共用層，omfue 2f47119、3732e92，主 repo b2f127a5、7c4a5129；3732e92 和 7c4a5129 的 commit 訊息誤寫成 E532，正確編號是 E537）：

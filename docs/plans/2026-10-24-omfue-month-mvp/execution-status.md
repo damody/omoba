@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：unit_attr team（E538）
+
+- kit `team_id(u)`、`landmark_of(unit, kind)`：讓 `landmark(team_of(self), fort)` 可以產生（瑞龍院日秀、A21）。
 ## 2026-11-01 線 B：死亡單位的最後位置（E535）
 
 - 戰鬥死亡（Death／remove_uids）在刪除前也記錄位置與隊伍；C16 的 on_death 讀得到位置。順手移除 E534 帶進 live 的診斷行。

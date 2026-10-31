@@ -885,6 +885,8 @@ impl<'a> ParallelWorldAdapter<'a> {
                 UnitStats::from_refs(buffs(e),self.source_is_building(e)).final_armor(property.def_physic,e)-property.def_physic)),
             name::BASE_MAGIC_RESIST=>num(&|e|self.source_property(e).map(|property|property.def_magic)),
             name::BASE_ATTACK_RANGE=>num(&|e|self.source_attack(e).map(|attack|attack.range.v)),
+            // E538: the faction's team id (LANDMARK's team).
+            name::TEAM=>num(&|e|Some(self.source_faction(e).map_or(Fixed64::ZERO,|f|Fixed64::from_i32(f.team_id)))),
             name::COLLISION_RADIUS=>num(&|e|Some(self.cache.collision.get(e).map_or(Fixed64::ZERO,|r|r.0.max(Fixed64::ZERO)))),
             name::CAST_RANGE_BONUS=>num(&|e|Some(buffs(e).sum_add(e,omb_script_abi::stat_keys::StatKey::CastRangeBonus)
                 +buffs(e).sum_add(e,omb_script_abi::stat_keys::StatKey::CastRangeBonusStacking))),
