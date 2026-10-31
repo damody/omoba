@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：法球槽與 landmark（E534）
+
+- kit `orb_slot_claim`／`orb_slot_release`／`orb_slot_free`（B15 烈焰箭）；ext `LANDMARK`、kit `landmark(team, kind)`（瑞龍院日秀）。
 ## 2026-10-31 線 B：selector include_dead（E532）
 
 - ext `RETIRED_IN_RANGE`、kit `dead_in_circle`：找最近死亡單位的屍體（B23 生靈縛）。

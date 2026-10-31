@@ -2,6 +2,25 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E534 法球槽 orb_slot 與 landmark 沒有 host 支援（B15、A21、瑞龍院日秀）（2026-11-01，工作線 B）
+
+- **現象**：
+  - 工作線 A coverage B15／A21（今川義元）：烈焰箭用 `passive.orb_slot = { claim, overridable, release = status_end }` 與 `orb_slot_free(self, ability)` 表達原作共用的法球槽 nobuorb1，後觸發的法球道具會覆寫它。host 沒有法球槽。
+  - 瑞龍院日秀用 `landmark(team_of(self), fort)` 找自己隊伍的主堡，host 沒有 landmark 查詢。
+- **通用修正**：
+  - kit 新增 `orb_slot.rs`：英雄身上一筆隱藏 row `__orb_slot`，payload 是擁有者 id。
+    - `orb_slot_claim(unit, owner)`：一律覆寫擁有者。
+    - `orb_slot_release(unit, owner)`：只有槽仍屬於自己時才清空。
+    - `orb_slot_free(unit, owner)`：槽是空的或屬於自己時回傳 true。
+    - `orb_slot_owner(unit)`：讀出目前的擁有者。
+  - 法球道具的產生碼在觸發時也要 claim，才會出現原作的覆寫行為。
+  - 新增 ext op `LANDMARK = 21`，參數 `(team, kind)`：`base`／`fort` 回傳該隊的主堡（MobaMatch.bases），其他種類或主堡已摧毀時回傳 None。kit 新增 `landmark(team, kind)`。
+- **限制**：
+  - 同一個 run 內 claim 之後的讀取，要等 run commit 之後才看得到。
+  - landmark 目前只支援 base／fort；barracks、tower、fountain、shop、spawn 回傳 INVALID。
+- **測試**：ability_kit 與 omoba-core 的 cargo check。
+- **檔案**：`scripts/ability_kit/src/orb_slot.rs`、`scripts/ability_kit/src/lib.rs`、`scripts/ability_kit/src/host_ext.rs`、`scripts/script-abi/src/ext.rs`、`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`
+
 ## E533 split 在 live_match 鎖內重建（E399），建置時間算進持鎖，超過 10 分鐘（2026-10-31，工作線 C）
 - 現象：主 session 發現 takeda_shingen 的 spotlight split 從 23:37 持有 live_match 鎖，到 23:56 已持有 19 分鐘，超過 10 分鐘上限。局還沒開始，一直在建置。
 - 原因：第一次建置在取得 live_match 之前完成（E337，正確）。但取得鎖之後，E399 比對到等待期間 live 的英雄 DLL 集合變了（A 又轉正式了英雄），於是在持有 live_match 的情況下整個重建一次：等 build lock 414 s、build_ue_moba 357 s，接著又是 cargo。建置時間全部算進持鎖時間，擋住了其他 session 的局。

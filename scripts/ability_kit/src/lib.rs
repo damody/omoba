@@ -23,6 +23,8 @@ pub use when::{Attr, When};
 // v3 `chain` (E528).
 mod chain;
 pub use chain::ChainOrder;
+// v3 `passive.orb_slot` / `orb_slot_free` (E534).
+mod orb_slot;
 /// v3 `armor_multiplier(armor)`: the share of physical damage that lands through `armor` (the
 /// rule layer's one armor formula).
 pub use omoba_core::runtime::native::comp::damage::armor_multiplier;

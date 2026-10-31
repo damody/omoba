@@ -595,6 +595,15 @@ impl Cx<'_, '_> {
         match self.read(op::UNITS_IN_RANGE, &args) { ExtValue::Units(units) => units.into_vec(), _ => Vec::new() }
     }
 
+    /// v3 `landmark(team, kind)` (E534): the team's base for `base` / `fort`;
+    /// `EntityHandle::INVALID` when there is none.
+    pub fn landmark(&mut self, team: Fixed64, kind: &str) -> EntityHandle {
+        match self.read(op::LANDMARK, &[ExtArg::Num(team), ExtArg::Str(kind.into())]) {
+            ExtValue::Unit(u) => u,
+            _ => EntityHandle::INVALID,
+        }
+    }
+
     /// v3 selector flag `include_dead` (E532): the dead units within `radius` of `center` on
     /// `team` relative to the caster: heroes waiting to respawn and combat units removed within
     /// the last `within` seconds (their bodies), nearest first. Types and `where` are the

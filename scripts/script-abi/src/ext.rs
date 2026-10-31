@@ -95,6 +95,10 @@ pub mod op {
     /// `include_dead`: 原作 DOTA_UNIT_TARGET_FLAG_DEAD finds corpses). Their last position is
     /// `get_pos`.
     pub const RETIRED_IN_RANGE: u32 = 20;
+    /// `(Num team, Str kind)` -> `Unit`: the match landmark of `team` (E534, v3 `landmark`):
+    /// `"base"` / `"fort"` its base structure; `None` when the match has none (destroyed, or no
+    /// match) or for a kind the map does not keep as a unit.
+    pub const LANDMARK: u32 = 21;
 }
 
 /// Attribute names of [`op::EVENT_ABILITY_ATTR`].

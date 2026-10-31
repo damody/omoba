@@ -1157,6 +1157,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         match self.retired_source(ent) {Some(source)=>source.pos,None=>self.cache.pos.get(ent).map(|p|p.0)}
             // A removed unit: where it last stood (E526).
             .or_else(|| (!self.cache.entities.is_alive(ent)).then(|| self.cache.retired_positions.as_ref().and_then(|rows| rows.get(ent))).flatten())
+            .or_else(|| { if std::env::var_os("OM_DEBUG_GETPOS").is_some() { eprintln!("[getpos] none e={:?} alive={} pos={} retired_src={} rows={}", ent, self.cache.entities.is_alive(ent), self.cache.pos.get(ent).is_some(), self.retired_source(ent).is_some(), self.cache.retired_positions.as_ref().map_or(-1, |r| r.get(ent).map_or(0, |_| 1))); } None })
             .map_or(RNone, RSome)
     }
 
@@ -1949,6 +1950,15 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 let found = rows.units_in_range(omoba_sim::Vec2::new(center.x, center.y), *radius, now.saturating_sub(span));
                 ROk(V::Units(found.into_iter().filter(|(_, t)| team.is_none_or(|ally| (*t == mine) == ally))
                     .map(|(entity, _)| Self::entity_to_handle(entity)).collect()))
+            }
+            // E534: a team's match landmark (its base for base / fort).
+            (op::LANDMARK, [A::Num(team), A::Str(kind)]) => {
+                let team = u32::try_from(team.raw() >> 10).ok();
+                let found = self.cache.moba.as_ref().zip(team).and_then(|(state, team)| {
+                    let side = state.config.teams.iter().position(|t| *t == team)?;
+                    match kind.as_str() { "base" | "fort" => state.bases[side], _ => None }
+                }).filter(|e| self.cache.entities.is_alive(*e));
+                ROk(found.map_or(V::None, |e| V::Unit(Self::entity_to_handle(e))))
             }
             (op::CAST_RELEASED, []) => ROk(V::Bool(self.cast_released)),
             (op::IS_VISIBLE_TO, [A::Unit(x), A::Unit(u)]) => ROk(V::Bool(self.is_visible_to(*x, *u))),
