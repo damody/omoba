@@ -78,6 +78,9 @@ pub mod op {
     /// `status` holding these host state buffs (catalog `immune_to`: `tag:<tag>`, a status id or
     /// a v3 state; E445), so applying it does nothing.
     pub const STATUS_IMMUNE: u32 = 16;
+    /// `(Str "cooldown")` -> `None`: v3 `refund { cooldown = true }` in a cast: the cast's own
+    /// cooldown does not start (原作 EndCooldown right after the cast; E455). Its mana is spent.
+    pub const REFUND: u32 = 17;
 }
 
 /// Attribute names of [`op::EVENT_ABILITY_ATTR`].

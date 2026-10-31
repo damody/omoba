@@ -89,7 +89,16 @@
 - **通用修正**：這次施法的 trace 有 Accepted，而且沒有拒絕、沒有被中斷，就算接受。
 - **結果**（和 E440 第二版一起）：storm_move r1～r3、release_wave 轉為 pass。全跑 fail 86→82、pass +192，沒有退步。
 
-## E455 （保留）v3 refund { cooldown = true } 沒有 host 落點（2026-10-31）
+## E455 v3 refund { cooldown = true } 沒有 host 落點：a33_deepen_wounds、b16_beast_union 只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 回報 `refund { cooldown = true }` 沒有 host 能力，a33_deepen_wounds（對特殊單位無效並返還冷卻）、b16_beast_union 與 2 件道具只能擋下。A33 只差這一項。
+- **根因**：
+  - 施法自己的冷卻由 dispatch 在腳本效果之後才推出 `ScriptStartCooldown`。
+  - 腳本用 cooldown_end（hero_command）會先結算，冷卻接著又被啟動，所以無法返還。
+- **通用修正**：
+  - 新增 ext `REFUND`（script-abi op 17，參數 `"cooldown"`）：adapter 記下這次施法要返還冷卻，`start_cooldown` 不推出冷卻。discard_cast 會清掉這個旗標。
+  - ability_kit 新增 `refund_cooldown()`。法力照常扣除，其他 refund 形式會被拒。
+- **驗證**：新測試 `a_refunded_cast_starts_no_cooldown`；adapter 測試通過；ability_kit 編譯通過。
 
 ## E454 headless 統計沒有 INVALID_TARGET 的目標狀態，executor 查不出被拒原因（2026-10-31，e187 遊戲模式 session，B 要求；已放回 live）
 - **現象**：m6b3g4 的上杉謙信 b32_divine_slash 29／152、b32_war_god 20／98 是 INVALID_TARGET，但每局 json 只有次數，B 無法判斷是不是 executor 選錯目標。

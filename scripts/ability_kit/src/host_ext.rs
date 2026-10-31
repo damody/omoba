@@ -444,6 +444,10 @@ impl Cx<'_, '_> {
         if unit.is_valid() { let _ = self.read(op::END_CHANNEL, &[ExtArg::Unit(unit)]); }
     }
 
+    /// v3 `refund { cooldown = true }` in a cast: its own cooldown does not start (host ext
+    /// REFUND, E455). No other refund exists.
+    pub fn refund_cooldown(&mut self) { let _ = self.read(op::REFUND, &[ExtArg::Str("cooldown".into())]); }
+
     /// v3 `immune_to` (E445): a status on `to` refuses `status` (host ext STATUS_IMMUNE).
     pub fn status_immune(&mut self, to: EntityHandle, status: &crate::codegen::StatusDef) -> bool {
         let mut args = vec![ExtArg::Unit(to), ExtArg::Str(status.id.into())];
