@@ -2184,6 +2184,32 @@ pub fn sanitize_hidden_aoe_effect(
     }
 }
 
+/// The metadata a team bootstrap carries besides `build_team_bootstraps`' own (E553): the
+/// compiled map identity and the current blocked regions (public), and the team's summoner
+/// projection (team-private). Every bootstrap producer adds these, the server and the
+/// in-process observer alike; a replica started without them navigates and places summons
+/// with no terrain.
+pub fn attach_bootstrap_metadata(world: &World, starts: &mut BTreeMap<u32, TeamGameStart>) {
+    let blocked = crate::runtime::encode_public_blocked_regions(&world.read_resource::<crate::runtime::BlockedRegions>());
+    let state = world.try_fetch::<crate::runtime::MobaMatch>();
+    let map = state.as_ref().and_then(|state| state.config.map_id.as_deref())
+        .and_then(omoba_template_ids::moba_map_by_name).map(crate::runtime::moba_map_layout::encode);
+    for start in starts.values_mut() {
+        if let Some(map) = &map { start.public_metadata.push(map.clone()); }
+        start.public_metadata.push(crate::game_proto::DeterministicMetadata {
+            namespace: crate::runtime::PUBLIC_BLOCKED_REGIONS_NAMESPACE.into(),
+            key: crate::runtime::PUBLIC_BLOCKED_REGIONS_KEY.into(),
+            schema_version: 1,
+            value: blocked.clone(),
+        });
+        if let Some(state) = state.as_ref() {
+            if state.config.teams.contains(&start.team_id) {
+                start.team_private_metadata.push(crate::runtime::summoner_projection_metadata(state, start.team_id));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod ability_cue_projection_tests {
     use super::*;

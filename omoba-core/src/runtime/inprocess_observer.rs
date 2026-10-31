@@ -93,7 +93,9 @@ impl InProcessObserver {
     /// tick (`next_tick` is the tick the replicas start at).
     pub fn start(world: &mut World, next_tick: u64, seed: u64, interval: u64, tick_rate_hz: u32) -> Result<Self, String> {
         let allow = crate::runtime::secure_replica_component_allowlist();
-        let starts = world.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(next_tick, tick_rate_hz, seed);
+        let mut starts = world.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(next_tick, tick_rate_hz, seed);
+        // The server's bootstrap metadata too: without it the replicas have no terrain (E553).
+        crate::runtime::attach_bootstrap_metadata(world, &mut starts);
         let mut teams = Vec::new();
         for (team, start) in starts {
             let replica = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start, allow.clone(),
@@ -181,5 +183,21 @@ mod tests {
         assert_eq!(first_divergence(7, 2, &authority, &replica),
             ObserverDivergence { tick: 7, team: 2, entity: 3, schema: 0x464f471b, authority: true, replica: false,
                 authority_bytes: vec![1, 1], replica_bytes: Vec::new(), subject: "None".into() });
+    }
+
+    /// The observer's team bootstraps carry the authority's terrain like the server's do; a
+    /// replica started without it placed summons the authority refused (E553).
+    #[test]
+    fn team_bootstraps_carry_the_authority_terrain() {
+        let mut world = World::new();
+        let region = crate::runtime::BlockedRegion { name: "north_island".into(), points: vec![
+            vek::Vec2::new(0.0, 0.0), vek::Vec2::new(100.0, 0.0), vek::Vec2::new(100.0, 100.0), vek::Vec2::new(0.0, 100.0)] };
+        world.insert(crate::runtime::BlockedRegions(vec![region]));
+        let mut starts = std::collections::BTreeMap::from([(2, crate::game_proto::TeamGameStart { team_id: 2, ..Default::default() })]);
+        crate::runtime::attach_bootstrap_metadata(&world, &mut starts);
+        let carried: Vec<_> = starts[&2].public_metadata.iter().filter(|metadata|
+            metadata.namespace == crate::runtime::PUBLIC_BLOCKED_REGIONS_NAMESPACE && metadata.key == crate::runtime::PUBLIC_BLOCKED_REGIONS_KEY).collect();
+        assert_eq!(carried.len(), 1);
+        assert_eq!(carried[0].value, crate::runtime::encode_public_blocked_regions(&world.read_resource::<crate::runtime::BlockedRegions>()));
     }
 }

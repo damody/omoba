@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：in-process observer 的 bootstrap 補上 server 的 map、阻擋區與召喚師 metadata（E553）
+
+- tick 15240 的 c23_malice_wall 冷卻不一致，原因是 observer 的 replica 沒有地形；不是遊戲本身的 bug。
 ## 2026-11-01 線 B：tick 結尾補發 outcome 以外的 hp 變化（E551）
 
 - in-process observer 抓到的第一個不一致（小兵 hp 差 8.25）已修好。quick 局改到 tick 15240 才出現下一個不一致：英雄冷卻，另案追查。

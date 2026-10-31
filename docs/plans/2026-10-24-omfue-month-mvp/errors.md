@@ -2,11 +2,27 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E553 in-process observer 的 team bootstrap 少了 server 補上的 map、阻擋區與召喚師 metadata（2026-11-01，工作線 B）
+
+- **現象**：
+  - E551 修好後，quick role plan 跑到 tick 15240 時 observer 又報不一致：team 2 自己的英雄 c23，Hero 元件（0x464f4705）中 replica 多了 `c23_malice_wall` 的冷卻。
+  - 逐 tick 追蹤：bot 玩家 6 在 tick 15181 施放 c23_malice_wall（點目標）。tick 15202 前搖結束，replica 端 14 段牆全部放置成功並開始冷卻；authority 端第一段就放不下，腳本回傳 `v3: unit placement rejected`，所以沒有冷卻。bot 之後每 24 tick 重試，authority 每次都拒絕。
+  - 雙方的請求點、錨點與同隊佔位清單都相同。唯一差別是 `BlockedRegions`：authority 有 14 個地形區（north_island、south_island、jungle_wall_*），replica 是空的。
+- **根因**：
+  - 這是 E545 observer 的缺漏，不是遊戲本身的 bug。
+  - `TeamProjectionRuntime::build_team_bootstraps` 只產出投影本身的內容。真正的 server（omb `state/core.rs`）在它之後還會補三樣：map identity 與目前阻擋區兩筆 public metadata，以及每隊的召喚師 projection（team-private）。
+  - in-process observer 直接用 `build_team_bootstraps` 的結果 bootstrap replica，replica 因此沒有地形。地形外的召喚物放置與尋路都會和 authority 不同；只要放置結果不同，就會在冷卻、mana 或召喚物上顯現。
+- **通用修正**：
+  - omoba-core 新增 `attach_bootstrap_metadata(world, &mut starts)`，內容與 server 補的完全相同：map identity、目前 `BlockedRegions` 的 canonical bytes、該隊的 `summoner_projection_metadata`。
+  - in-process observer 改用它，bootstrap 與 server 的 observer、玩家 replica 吃同一份資料。
+  - 後續：omb server 那段可以改呼叫同一個 helper，讓產生 bootstrap metadata 的程式碼只剩一處（omb 歸工作線 E，另外通知）。
+- **測試**：`inprocess_observer::team_bootstraps_carry_the_authority_terrain`：team bootstrap 必須帶 authority 目前的阻擋區（canonical bytes 相同）。
+- **檔案**：`omoba-core/src/runtime/team_projector.rs`、`omoba-core/src/runtime/inprocess_observer.rs`
+
 ## E552 M6 batch 的 Performance 段沒有單列 headless observer 的耗時（2026-11-01，E187）
 - 現象：E545 的 in-process observer 每局約多花 12.7–17 s（quick），但 verify_m6_batch 的 Performance 段只有 tick 分佈和 run wall time，observer 的成本混在 run wall 裡看不出來，和 observer off 的批次也無法比較。
 - 修正（共用層）：每局把 `report.observer.wall_ms`（enabled 時）記在該局的 performance 上；Performance 段每個 recipe 列 `observer wall s (median of N): X of Y run wall s`。
 - 避免：驗收工具新增的檢查本身有成本時，要在效能段單獨列出，效能量測（E521）一律 `--observer off`。
-
 ## E551 authority 在 outcome 標記以外改變 hp 沒發 CommittedVitals：replica 小兵 hp 不同步（D21）（2026-11-01，工作線 B）
 
 - **現象**：
