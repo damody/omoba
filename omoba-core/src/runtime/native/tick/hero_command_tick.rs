@@ -866,6 +866,13 @@ pub(crate) fn static_step_toward(from: SimVec2, target: SimVec2, budget: Fixed64
 pub(crate) fn static_advance_route(route: &[SimVec2], cursor: &mut usize,
     from: SimVec2, budget: Fixed64, radius: Fixed64, regions: &BlockedRegions) -> SimVec2 {
     if budget <= Fixed64::ZERO { return from; }
+    // A unit that left its route (a lane creep chasing past a corner) resumes ahead, never walks
+    // back to a waypoint it has passed: it has passed one once it is beyond it along the leg that
+    // led there and ahead of it along the next leg (E469). On the route this never cuts a corner.
+    while *cursor >= 1 && *cursor + 1 < route.len() && {
+        let (corner, back, ahead) = (route[*cursor], route[*cursor - 1], route[*cursor + 1]);
+        (from - corner).dot(corner - back) >= Fixed64::ZERO && (from - corner).dot(ahead - corner) > Fixed64::ZERO
+    } { *cursor += 1; }
     let Some(&target) = route.get(*cursor).or_else(|| route.last()) else { return from; };
     // Looking only at this tick's tiny proposed step would alternate between
     // detouring and walking back toward the wall. Keep the full waypoint query.
@@ -1434,5 +1441,30 @@ mod acquisition_consumer {
             observation.active,
             Some(HeroCommand::AttackMove { .. })
         ));
+    }
+}
+
+#[cfg(test)]
+mod route_resume_tests {
+    use super::*;
+
+    fn p(x: i32, y: i32) -> SimVec2 { SimVec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y)) }
+
+    /// E469：追擊越過轉角的小兵回到路線時往前走，不倒退走回已經過的 waypoint；在路線上不切角。
+    #[test]
+    fn a_creep_past_a_corner_resumes_ahead_and_never_cuts_one_on_the_route() {
+        let regions = BlockedRegions::default();
+        let route = [p(0, 0), p(0, 100), p(100, 100)];
+        let (budget, radius) = (Fixed64::from_i32(5), Fixed64::from_i32(20));
+        let mut cursor = 1;
+        let next = static_advance_route(&route, &mut cursor, p(30, 100), budget, radius, &regions);
+        assert_eq!((cursor, next), (2, p(35, 100)), "past the corner: on toward the next waypoint");
+        let mut cursor = 1;
+        let next = static_advance_route(&route, &mut cursor, p(0, 50), budget, radius, &regions);
+        assert_eq!((cursor, next), (1, p(0, 55)), "on the route: still to the corner");
+        let mut cursor = 1;
+        let next = static_advance_route(&route, &mut cursor, p(1, 90), budget, radius, &regions);
+        assert_eq!(cursor, 1, "just before the corner: no shortcut");
+        assert!(next.y > Fixed64::from_i32(90) && next.x < Fixed64::from_i32(1));
     }
 }

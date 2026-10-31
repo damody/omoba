@@ -2,7 +2,32 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E469 （保留）小兵追擊越過轉角後倒退走回已經過的 waypoint，facing 驗收出現倒退與轉角違規（2026-10-31）
+## E472 （保留）bot 不知道技能 requires.has_status 的前置狀態，b36_footsteps 4095/4241 次施放被拒（2026-10-31）
+
+## E471 （保留）creep_facing 以 30 tick 平均位移當預期方向，轉角立即轉向被誤判（2026-10-31）
+
+## E470 （保留）逐級學習時光環在較低等級就對其他單位套上狀態，之後只刷新（b31r_burn on_created 停在 r2）（2026-10-31）
+
+## E469 小兵追擊越過轉角後倒退走回已經過的 waypoint，facing 驗收出現倒退與轉角違規（2026-10-31，工作線 B）
+
+- **現象**：
+  - 工作線 E 的 E461 creep_facing 驗收：m6new1 在 297k 次檢查中有 3871 次違規（1.3%），驗收標準是 0。
+  - 違規主要有兩類：
+    - 四個出生角附近的小兵仍朝 45°／225°，但位移方向是 8°／82°；
+    - 少數小兵倒退走，偏差 135～180°。
+- **調查**（在 three_lane_quick_training 地圖上逐 tick 追蹤 authority 端）：
+  - 每個 tick 的 facing 都等於該 tick 的位移方向，`face_toward` 本身沒有錯。
+  - **倒退**：例如 e73 在 tick 1708～1729 從 (120,3822) 以 190° 走回轉角 (0,3800)，再以 45° 前進。小兵追擊目標時已越過轉角，但路線游標仍停在轉角那個 waypoint，恢復走路線時就倒退走回去。這是行為錯誤，facing 只是如實反映了它。
+  - **轉角**：小兵沿 x=0 往上走（90°），到角落後轉成 45°。30 tick 窗口內的平均位移約 82°，而當下的 facing 45° 是正確的，屬於驗收窗口的假違規。
+- **通用修正**：
+  - `static_advance_route` 恢復走路線前，先跳過已經走過的 waypoint。判斷條件是：沿入射段方向已越過它（內積 ≥ 0），且在出射段前方（內積 > 0）。
+  - 在路線上行走時不會切角，出生後的第一個 waypoint（cursor 0）也不會被跳過。
+- **回歸**：`hero_command_tick::route_resume_tests::a_creep_past_a_corner_resumes_ahead_and_never_cuts_one_on_the_route`
+  - 越過轉角的小兵改朝下一個 waypoint 前進；
+  - 在路線上仍走向轉角；
+  - 接近轉角時不走捷徑。
+- **轉角假違規**：已請工作線 E 把 probe 改成以最近一個 tick 的位移比對。這部分不改模擬，因為每個 tick 的 facing 本來就正確。
+- **檔案**：`omoba-core/src/runtime/native/tick/hero_command_tick.rs`
 
 ## E468 bot_auto_policies 的 approach_enemy_point 不認 reach_key，射程 0 的縮地（b13_shukuchi）沒有策略（2026-10-31，e187 遊戲模式 session；已放回 live）
 - **現象**：m6new1（新英雄批次）百地三太夫的 b13_shukuchi bot 輸入 0、NEVER CAST；B 的 E438 已經讓 executor 支援 `reach_key`，派生 hint 也帶著 `reach_key = blink_range`。
