@@ -11277,6 +11277,7 @@ local data = {
         { cast_time = 0, cooldown = 1.2, mana_cost = 100.0, range = 0 },
       },
       max_level = 3,
+      requires_status = "a12t_form",
       target_type = "point",
       targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
@@ -30421,6 +30422,7 @@ local data = {
       },
       max_level = 1,
       pierces_magic_immunity = true,
+      requires_status = "a27t_oni",
       target_type = "unit",
       ue = { native_only = true },
       unit_target = "enemy",
@@ -44819,6 +44821,7 @@ local data = {
         { cast_time = 0, cooldown = 1.0, mana_cost = 25.0, range = 0 },
       },
       max_level = 1,
+      requires_status = "b36w_mark",
       target_type = "none",
       ue = { native_only = true },
       v3 = {

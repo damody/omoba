@@ -145,6 +145,8 @@ function M.ability_row(package, ab, compiled, opts)
     -- channel runs no execute; line B E414)
     targets_heroes_only = target.type == "unit" and type(target.types) == "table" and #target.types == 1
       and target.types[1] == "hero" or nil,
+    -- `requires.has_status`: the status the caster must hold; a bot casts only then (line B E472)
+    requires_status = type(ab.requires) == "table" and type(ab.requires.has_status) == "string" and ab.requires.has_status or nil,
     cast_type = channel and "channeled" or "instant",
     channel = channel,
     charges = charges,
