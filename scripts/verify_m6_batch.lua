@@ -239,7 +239,7 @@ local item_rows = {}
 -- Balance (E342): per hero over every seat, and per item over the seats that obtained it.
 local hero_rows, holder_rows = {}, {}
 for _, r in ipairs(recipes) do
-  local row = { name = r.name, matches = 0, finished = 0, group_wins = 0, minutes = {}, failures = {} }
+  local row = { name = r.name, matches = 0, finished = 0, group_wins = 0, minutes = {}, failures = {}, perf = {} }
   for _, job in ipairs(jobs) do
     if job.recipe == r then
       row.matches = row.matches + 1
@@ -248,6 +248,11 @@ for _, r in ipairs(recipes) do
         row.finished = row.finished + 1
         row.minutes[#row.minutes + 1] = report.game_seconds / 60
         if report.winner_team == r.group_team then row.group_wins = row.group_wins + 1 end
+        -- Tick cost (E512, moba_headless performance).
+        if report.performance then
+          report.performance.match = ('%s-%02d'):format(r.name, job.seed)
+          row.perf[#row.perf + 1] = report.performance
+        end
         -- Creep facing from the simulation data (E461, moba_headless creep_facing): accepted at 0.
         if report.creep_facing then
           local f = summary.creep_facing or { walk_checks = 0, attack_checks = 0, violations = 0, samples = {} }
@@ -363,6 +368,7 @@ end
 md[#md + 1] = '| hero | ability | kind | bot inputs | casts | trace | damage/game | hero dmg/game | cancelled | note |'
 md[#md + 1] = '|---|---|---|---|---|---|---|---|---|---|'
 local never = 0
+local refused = { settlement = 0, invalid_target = 0 }
 for _, a in ipairs(summary.abilities) do
   local results = {}
   for result, n in pairs(a.results) do results[#results + 1] = result .. ' ' .. n end
@@ -373,10 +379,57 @@ for _, a in ipairs(summary.abilities) do
   local note = castable and casts == 0 and 'NEVER CAST'
     or castable and (a.results.accepted or 0) == 0 and 'NO TRACE' or ''
   if note == 'NEVER CAST' then never = never + 1 end
+  for result, n in pairs(a.results) do
+    if result:find('^settlement_refused') then refused.settlement = refused.settlement + n end
+    if result == 'rejected:INVALID_TARGET' then refused.invalid_target = refused.invalid_target + n end
+  end
   local games = math.max(hero_games[a.hero] or 1, 1)
   md[#md + 1] = ('| %s | %s | %s | %d | %d | %s | %s | %s | %s | %s |'):format(a.hero, a.ability, a.kind, a.inputs, casts,
     table.concat(results, ', '), a.damage and ('%.0f'):format(a.damage / games) or '',
     a.hero_damage and ('%.0f'):format(a.hero_damage / games) or '', a.cancelled and tostring(a.cancelled) or '', note)
+end
+-- Acceptance (D21, E512): correct and complete function and performance, not balance.
+local failed_matches, total_matches = 0, 0
+for _, row in ipairs(summary.recipes) do failed_matches = failed_matches + #row.failures; total_matches = total_matches + row.matches end
+summary.acceptance = { never_cast = never, settlement_refused = refused.settlement, invalid_target = refused.invalid_target,
+  failed_matches = failed_matches, creep_facing_violations = summary.creep_facing and summary.creep_facing.violations or nil }
+md[#md + 1] = ''
+md[#md + 1] = '## Acceptance'
+md[#md + 1] = ''
+md[#md + 1] = ('- NEVER CAST: %d'):format(never)
+md[#md + 1] = ('- casts refused: settlement %d, INVALID_TARGET %d'):format(refused.settlement, refused.invalid_target)
+md[#md + 1] = ('- matches failed (error, divergence or panic): %d of %d'):format(failed_matches, total_matches)
+md[#md + 1] = ('- creep facing violations: %s'):format(summary.creep_facing and summary.creep_facing.violations or 'not measured')
+-- Performance (E512): per recipe the median p50 and p99 tick, the worst tick, ticks over the 1/hz
+-- budget and the median run wall time; then the slowest ticks of the batch with their heaviest parts.
+md[#md + 1] = ''
+md[#md + 1] = '## Performance'
+md[#md + 1] = ''
+md[#md + 1] = '| recipe | matches | p50 ms | p99 ms (median) | p99 ms (worst) | max ms | over budget | run wall s (median) |'
+md[#md + 1] = '|---|---|---|---|---|---|---|---|'
+local slowest = {}
+for _, row in ipairs(summary.recipes) do
+  local p50, p99, wall, worst, max_ms, over, ticks = {}, {}, {}, 0, 0, 0, 0
+  for _, perf in ipairs(row.perf) do
+    p50[#p50 + 1] = perf.p50_ms; p99[#p99 + 1] = perf.p99_ms; wall[#wall + 1] = perf.run_wall_seconds
+    worst = math.max(worst, perf.p99_ms); max_ms = math.max(max_ms, perf.max_ms)
+    over = over + perf.over_budget; ticks = ticks + perf.ticks
+    for _, tick in ipairs(perf.slowest or {}) do tick.match = perf.match; tick.budget_ms = perf.budget_ms; slowest[#slowest + 1] = tick end
+  end
+  if #row.perf > 0 then
+    md[#md + 1] = ('| %s | %d | %.2f | %.2f | %.2f | %.2f | %d of %d | %.1f |'):format(row.name, #row.perf, median(p50), median(p99),
+      worst, max_ms, over, ticks, median(wall))
+  end
+end
+table.sort(slowest, function(x, y) return x.ms > y.ms end)
+if #slowest > 0 then
+  md[#md + 1] = ''
+  md[#md + 1] = ('Slowest ticks (budget %.2f ms):'):format(slowest[1].budget_ms)
+  for i = 1, math.min(10, #slowest) do
+    local t, parts = slowest[i], {}
+    for _, part in ipairs(t.parts or {}) do parts[#parts + 1] = ('%s %.2f'):format(part.name, part.ms) end
+    md[#md + 1] = ('- %s tick %d: %.2f ms — %s'):format(t.match, t.tick, t.ms, table.concat(parts, ', '))
+  end
 end
 -- Shop items (E336): every item the shop sells, obtained (bought or assembled) and used over all
 -- seats; an item never obtained, or an active item obtained but never used, is flagged.

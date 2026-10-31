@@ -2,7 +2,16 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E512 （保留）headless 報告只有每 tick 平均時間：沒有 p50／p99、超出預算的 tick 與造成的 system（2026-10-31）
+## E512 headless 報告只有每 tick 平均時間：沒有 p50／p99、超出預算的 tick 與造成的 system（2026-10-31，e187 遊戲模式 session，使用者 D21：功能正確、完整、效能；已放回 live）
+- **現象**：D21 把驗收改成功能與效能，但 moba_headless 只有 step_wall_ms_mean，而且混了重播的 tick；batch 報告沒有效能，也沒有一份功能驗收的總表。
+- **通用修正**：
+  - moba_headless 加 `TickPerf`，只量對局本身（不含重播）每個 tick 的 wall time，也就是 driver step 加 visibility wave。
+    - 報告 `performance` 欄位：p50／p90／p99／max、超過 1/hz 預算的 tick 數、run wall 秒數。
+    - 最慢 10 個 tick 附上該 tick 最重的 4 個部分，來源是 TickProfile.system_stats 與 script_dispatch／process_outcomes 計數器的差值。
+  - verify_m6_batch 報告加兩節：
+    - `## Acceptance`：NEVER CAST 數、施放被拒（settlement／INVALID_TARGET）、失敗的對局、小兵 facing violation。
+    - `## Performance`：每個 recipe 的 p50／p99 中位數、最差 p99、max、超出預算的 tick、wall 中位數，以及整批最慢的 tick 與它的 system。
+- **避免**：驗收標準改變時，報告同時提供對應的總表，不要只保留平均值。
 
 ## E511 （保留）召喚物沒有不能攻擊的形式：c16e_ghost 只能擋下（2026-10-31）
 
