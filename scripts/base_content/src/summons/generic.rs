@@ -11,12 +11,15 @@
 use omb_script_abi::prelude::*;
 use omoba_template_ids::SummonAi;
 
+#[derive(Clone)]
 pub struct Generic {
     pub unit_id: RString,
     pub acquisition: Fixed64,
     pub ai: SummonAi,
     pub immobile: bool,
     pub projectile_speed: Fixed64,
+    /// Its attack's damage type (E503).
+    pub damage_type: omoba_template_ids::SummonDamageType,
 }
 
 impl Generic {
@@ -25,7 +28,7 @@ impl Generic {
         let stats = omoba_template_ids::summon_by_name(name).and_then(omoba_template_ids::active_summon_stats)?;
         // A chase summon (E406) is flown by the host (omoba-core summon_chase).
         (!stats.dummy && stats.chase.is_none()).then(|| Generic { unit_id: name.into(), acquisition: stats.acquisition_range, ai: stats.ai,
-            immobile: stats.immobile, projectile_speed: stats.projectile_speed })
+            immobile: stats.immobile, projectile_speed: stats.projectile_speed, damage_type: stats.attack_damage_type })
     }
 }
 
@@ -53,7 +56,11 @@ impl UnitScript for Generic {
             w.emit_attack_phase_fx(e, Target::Entity(target), 0, backswing_ms.min(u32::MAX as u64) as u32);
             w.spawn_projectile_ex(ProjectileSpec {
                 from: pos, owner: e, path: PathSpec::AttackHoming { target }, speed: self.projectile_speed,
-                damage: w.get_tower_atk(e), damage_profile: DamageProfile::NORMAL,
+                damage: w.get_tower_atk(e), damage_profile: match self.damage_type {
+                    omoba_template_ids::SummonDamageType::Physical => DamageProfile::NORMAL,
+                    omoba_template_ids::SummonDamageType::Magical => DamageProfile::ENERGY,
+                    omoba_template_ids::SummonDamageType::Pure => DamageProfile::TRUE,
+                },
                 hit_radius: Fixed64::ZERO, splash_radius: Fixed64::ZERO, slow_factor: Fixed64::ZERO,
                 slow_duration: Fixed64::ZERO, stun_duration: Fixed64::ZERO, kind_id: 0,
             });
@@ -109,9 +116,19 @@ mod tests {
             Fixed64::from_i32(30), Fixed64::ONE, Fixed64::from_i32(200), Fixed64::from_i32(900))).unwrap();
         let enemy = body(&mut world, p(150), 2);
         let guard = Generic { unit_id: "test_guard".into(), acquisition: Fixed64::from_i32(600), ai: SummonAi::Guard,
-            immobile: false, projectile_speed: Fixed64::from_i32(1500) };
+            immobile: false, projectile_speed: Fixed64::from_i32(1500), damage_type: omoba_template_ids::SummonDamageType::Physical };
         let rows = tick(&world, &guard, summon);
         assert!(rows.iter().any(|o| matches!(o, Outcome::ScriptProjectile { .. })), "in range: attacks {rows:?}");
+        // E503: the attack's damage is of the template's type.
+        for (kind, phys, magi, real) in [(omoba_template_ids::SummonDamageType::Physical, true, false, false),
+            (omoba_template_ids::SummonDamageType::Magical, false, true, false), (omoba_template_ids::SummonDamageType::Pure, false, false, true)] {
+            let typed = Generic { damage_type: kind, ..guard.clone() };
+            world.write_storage::<omoba_core::TAttack>().get_mut(summon).unwrap().asd_count = Fixed64::from_i32(5);
+            let rows = tick(&world, &typed, summon);
+            assert!(rows.iter().any(|o| matches!(o, Outcome::ScriptProjectile { damage_phys, damage_magi, damage_real, .. }
+                if (*damage_phys > Fixed64::ZERO, *damage_magi > Fixed64::ZERO, *damage_real > Fixed64::ZERO) == (phys, magi, real))),
+                "{kind:?}: {rows:?}");
+        }
         world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = p(500);
         let rows = tick(&world, &guard, summon);
         assert!(rows.iter().any(|o| matches!(o, Outcome::ScriptSetPos { .. })), "within acquisition: closes {rows:?}");

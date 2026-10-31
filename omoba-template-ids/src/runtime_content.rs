@@ -603,6 +603,11 @@ impl RuntimeContent {
                     crate::lua_content::SummonAiEntry::Idle|crate::lua_content::SummonAiEntry::ChaseTarget=>crate::SummonAi::Idle,
                 },
                 projectile_speed: fixed64(if entry.projectile_speed > 0.0 { entry.projectile_speed } else { 900.0 }),
+                attack_damage_type: match entry.attack_damage_type {
+                    crate::lua_content::SummonDamageTypeEntry::Physical=>crate::SummonDamageType::Physical,
+                    crate::lua_content::SummonDamageTypeEntry::Magical=>crate::SummonDamageType::Magical,
+                    crate::lua_content::SummonDamageTypeEntry::Pure=>crate::SummonDamageType::Pure,
+                },
                 hp_regen: fixed64(entry.hp_regen),
                 night_vision_bonus: fixed64(if entry.night_vision_radius > 0.0 { entry.night_vision_radius - entry.vision_radius } else { 0.0 }),
                 turn_speed: fixed64(entry.turn_speed()),

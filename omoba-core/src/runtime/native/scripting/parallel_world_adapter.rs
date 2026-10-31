@@ -1432,9 +1432,11 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             tpos,
             radius: spec.splash_radius,
             msd: spec.speed,
-            damage_phys: attack_damage,
-            damage_magi: Fixed64::ZERO,
-            damage_real: Fixed64::ZERO,
+            // An attack's damage goes to its type (a summon's attack.damage_type, E503); other
+            // projectiles keep their physical amount under any profile, as before.
+            damage_phys: if basic_attack && ((profile.bits() & AbiDamageProfile::ENERGY.bits() != 0) || (profile.bits() & AbiDamageProfile::TRUE.bits() != 0)) { Fixed64::ZERO } else { attack_damage },
+            damage_magi: if basic_attack && (profile.bits() & AbiDamageProfile::ENERGY.bits() != 0) { attack_damage } else { Fixed64::ZERO },
+            damage_real: if basic_attack && (profile.bits() & AbiDamageProfile::TRUE.bits() != 0) && !(profile.bits() & AbiDamageProfile::ENERGY.bits() != 0) { attack_damage } else { Fixed64::ZERO },
             damage_profile: profile.bits(),
             slow_factor: if missed {Fixed64::ZERO}else{spec.slow_factor},
             slow_duration: if missed {Fixed64::ZERO}else{spec.slow_duration},

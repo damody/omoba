@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：召喚物攻擊傷害類型（E503）
+
+- 召喚物 template `attack_damage_type`（physical／magical／pure），普攻依此帶物理、魔法或真實傷害。
 ## 2026-10-31 線 B：道具冷卻與不帶 duration 的夜晚（E501）
 
 - kit `item_cooldown_start(unit, item, seconds)`（持有該道具的每一格冷卻設為 seconds）；`set_time_of_day(true, 0)` 夜晚持續到改回白天（最長一小時）。

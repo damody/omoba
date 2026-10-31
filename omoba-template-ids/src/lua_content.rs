@@ -1690,6 +1690,21 @@ impl SummonAiEntry {
     }
 }
 
+/// v3 unit_template `attack.damage_type` (E503).
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all="snake_case")]
+pub(crate) enum SummonDamageTypeEntry {
+    #[default]
+    Physical,
+    Magical,
+    Pure,
+}
+impl SummonDamageTypeEntry {
+    pub(crate) fn rust_variant(self)->&'static str {
+        match self {Self::Physical=>"Physical",Self::Magical=>"Magical",Self::Pure=>"Pure"}
+    }
+}
+
 /// What happens to a summon when its owner dies or retires (G-3).
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, Default, PartialEq, Eq)]
 #[serde(rename_all="snake_case")]
@@ -1777,6 +1792,9 @@ pub(crate) struct SummonEntry {
     /// Its attack projectile's speed; 0 = the default 900.
     #[serde(default)]
     pub(crate) projectile_speed: f32,
+    /// Its attack's damage type (E503); physical when absent.
+    #[serde(default)]
+    pub(crate) attack_damage_type: SummonDamageTypeEntry,
     /// Health regenerated per second.
     #[serde(default)]
     pub(crate) hp_regen: f32,

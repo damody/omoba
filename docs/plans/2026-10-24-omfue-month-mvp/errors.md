@@ -2,6 +2,10 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E510 （保留）creep_facing 對暈眩／被強制位移的小兵與疊在一起的小兵也檢查朝向（2026-10-31）
+
+## E509 （保留）持續施法技能的施法交易拒收狀態：結算拒絕整個施法（a11、b09、c07）（2026-10-31）
+
 ## E508 （保留）stat 的 when 條件沒有 host 落點：夜晚、主屬性、英雄限定的數值只能擋下（2026-10-31）
 
 ## E507 split 快照建置後 stage 了 live 新增、快照沒建的英雄 DLL（2026-10-31，工作線 C）
@@ -20,7 +24,19 @@
 
 ## E504 （保留）獨立狀態移除自己這一個實例與實例變數沒有 host 落點（A06）（2026-10-31）
 
-## E503 （保留）召喚物攻擊只有物理傷害：unit_template attack.damage_type 沒有 host 落點（C16）（2026-10-31）
+## E503 召喚物攻擊只有物理傷害：unit_template attack.damage_type 沒有 host 落點（C16）（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage M6 第 6 批：c16 的召喚物 `attack.damage_type = "pure"`，v3_summons 擋下，因為 host 的召喚物攻擊一律是物理傷害。
+- **根因**：
+  - SummonStats 沒有攻擊傷害類型。
+  - summons::generic 一律用 `DamageProfile::NORMAL` 發出攻擊投射物。
+  - adapter 的 `spawn_projectile_ex` 不論 profile，都把攻擊傷害放進物理欄位。
+- **通用修正**：
+  - 召喚物 template 新增 `attack_damage_type`（physical | magical | pure；沒寫就是 physical）。lua_content、build.rs、runtime_content 一併輸出 `SummonStats::attack_damage_type`（`SummonDamageType`）。
+  - generic 依類型使用 NORMAL／ENERGY／TRUE。
+  - adapter 只在普攻（AttackHoming）時，依 profile 把傷害放進魔法或真實欄位。其他投射物維持原本的物理量，現有內容不受影響（所有普攻投射物都是 NORMAL）。
+- **回歸**：`summons::generic` 測試：三種類型各自只帶對應欄位的傷害。
+- **檔案**：`omoba-template-ids/src/{lua_content.rs,lib.rs,runtime_content.rs}`、`omoba-template-ids/build.rs`、`scripts/base_content/src/summons/generic.rs`、`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`
 
 ## E502 （保留）v3 conformance 施法者先閃現到面前再打周圍的技能（c12 空間裂縫），目標沒放在落點，判沒有傷害（2026-10-31）
 

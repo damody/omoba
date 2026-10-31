@@ -1423,6 +1423,8 @@ pub struct SummonStats {
     pub ai: SummonAi,
     /// Attack projectile speed (900 when the template gives none).
     pub projectile_speed: Fixed64,
+    /// Its attack's damage type (v3 unit_template `attack.damage_type`, E503).
+    pub attack_damage_type: SummonDamageType,
     /// Health regenerated per second.
     pub hp_regen: Fixed64,
     /// Night sight minus day sight (0 when the template gives one sight).
@@ -1445,6 +1447,11 @@ pub struct SummonStats {
     /// every other summon.
     pub chase: Option<&'static SummonChaseConst>,
 }
+
+/// A summon's attack damage type (E503): physical (armor), magical (magic resistance) or pure.
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum SummonDamageType { #[default] Physical, Magical, Pure }
 
 /// The data of a chase summon (v3 unit_template `chase`, 原作 Exorcism; omoba-core summon_chase).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
