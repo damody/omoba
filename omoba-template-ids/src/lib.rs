@@ -1428,6 +1428,8 @@ pub struct SummonStats {
     /// It never attacks (v3 unit_template `no_attack`, 原作 AttackCapabilities NO_ATTACK, E511): no
     /// target of its own and no attack order, while it still moves, follows and takes orders.
     pub no_attack: bool,
+    /// v3 unit_template tag `ward` (E530): scripts' `has_tag(u, ward)` holds for it.
+    pub ward: bool,
     /// Health regenerated per second.
     pub hp_regen: Fixed64,
     /// Night sight minus day sight (0 when the template gives one sight).

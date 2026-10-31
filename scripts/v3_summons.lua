@@ -209,7 +209,8 @@ local function dummy_rows(doc, t, value)
   end
   if t.ai ~= nil and t.ai ~= "none" and t.ai ~= "chase_target" then no("ai:" .. tostring(t.ai) .. " on a dummy") end
   -- tag building: a building unit like a tower (line B E428): immobile, no chase
-  for _, tag in ipairs(t.tags or {}) do if tag ~= "dummy" and tag ~= "summon" and tag ~= "building" then no("tag:" .. tag) end end
+  -- tag ward: the host's has_tag(u, ward) (line B E530)
+  for _, tag in ipairs(t.tags or {}) do if tag ~= "dummy" and tag ~= "summon" and tag ~= "building" and tag ~= "ward" then no("tag:" .. tag) end end
   local building = has(t.tags, "building")
   if t.owner_death ~= nil and t.owner_death ~= "persist" and t.owner_death ~= "expire" then no("owner_death:" .. tostring(t.owner_death)) end
   local p = t.passive or {}
@@ -308,7 +309,7 @@ function M.template_rows(doc, t)
   -- passive.states: the creating code puts them on the unit as a status (v3_rust <template>_passive)
   for _, k in ipairs(sorted(p)) do if k ~= "reveal" and k ~= "states" then no("passive." .. k) end end
   if p.reveal ~= nil and p.reveal ~= "public" then no("passive.reveal:" .. tostring(p.reveal)) end
-  for _, tag in ipairs(t.tags or {}) do if tag ~= "summon" then no("tag:" .. tag) end end
+  for _, tag in ipairs(t.tags or {}) do if tag ~= "summon" and tag ~= "ward" then no("tag:" .. tag) end end
   local rows = {}
   for rank = 1, ranks do
     local function num(ref, what)
@@ -321,6 +322,7 @@ function M.template_rows(doc, t)
       display_name = t.text and t.text.zh_TW and t.text.zh_TW.name or t.id }
     row.attack_damage_type = damage_type
     row.no_attack = no_attack or nil
+    row.ward = has(t.tags, "ward") or nil
     row.hp = num(stats.hp, "stats.hp")
     if row.hp == nil then no("stats.hp missing") end
     row.armor = num(stats.armor, "stats.armor") or 0

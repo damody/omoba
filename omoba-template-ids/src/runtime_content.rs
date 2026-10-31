@@ -609,6 +609,7 @@ impl RuntimeContent {
                     crate::lua_content::SummonDamageTypeEntry::Pure=>crate::SummonDamageType::Pure,
                 },
                 no_attack: entry.no_attack,
+                ward: entry.ward,
                 hp_regen: fixed64(entry.hp_regen),
                 night_vision_bonus: fixed64(if entry.night_vision_radius > 0.0 { entry.night_vision_radius - entry.vision_radius } else { 0.0 }),
                 turn_speed: fixed64(entry.turn_speed()),

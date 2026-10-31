@@ -885,6 +885,8 @@ impl<'a> ParallelWorldAdapter<'a> {
                 "dummy"=>self.source_unit(e).is_some_and(|unit|matches!(unit.unit_type,UnitType::TrainingDummy)),
                 "summon"=>self.is_summon(e) || self.cache.summoned.as_ref().is_some_and(|summoned|summoned.get(e).is_some()),
                 "neutral"=>self.cache.faction.get(e).is_some_and(|f|f.faction_id==FactionType::HostileNeutral),
+                // v3 tag ward (E530): a summon whose template is tagged ward
+                "ward"=>self.cache.summoned.as_ref().and_then(|summoned|summoned.get(e)).is_some_and(|s|s.ward),
                 _=>false,
             })),
             _=>return None,

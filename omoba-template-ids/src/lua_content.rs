@@ -1798,6 +1798,9 @@ pub(crate) struct SummonEntry {
     /// It never attacks (E511).
     #[serde(default)]
     pub(crate) no_attack: bool,
+    /// v3 tag `ward` (E530).
+    #[serde(default)]
+    pub(crate) ward: bool,
     /// Health regenerated per second.
     #[serde(default)]
     pub(crate) hp_regen: f32,

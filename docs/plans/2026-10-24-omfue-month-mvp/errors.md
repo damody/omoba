@@ -2,6 +2,24 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E532 （保留）selector include_dead 找不到屍體（B23 生靈縛）（2026-10-31）
+
+## E531 （保留）召喚物技能與冷卻沒有公開給 client（E529 的 UE 按鈕）（2026-10-31）
+
+## E530 召喚物模板 tag ward 被擋（B17）（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage B17（霧隱才藏）：死亡守衛 `b17w_ward` 帶 `tags = { "summon", "ward" }`。v3_summons 只接受 summon／dummy／building 三種 tag，這個模板因此沒有 summon row，create_unit 被擋。host 的 `has_tag(u, ward)` 也一律回傳 false。
+- **通用修正**：
+  - v3_summons：dummy 與一般召喚物都接受 tag `ward`，row 寫入 `ward = true`。
+  - template ids：`SummonEntry.ward` → `SummonStats.ward`。
+  - `SummonedUnit.ward` 在生成時寫入。
+  - adapter 的 ext tag `tag:ward`：只有模板帶 ward 的召喚物回傳 true。
+- **測試**：omoba-template-ids 測試，以及 omoba-core 編譯檢查；`b17w_ward` row 已產生。
+- **檔案**：
+  - `scripts/v3_summons.lua`、`scripts/lua_data/templates/v3_summons.lua`
+  - `omoba-template-ids/src/{lua_content,lib,runtime_content}.rs`、`omoba-template-ids/build.rs`
+  - `omoba-core/src/runtime/native/comp/unit.rs`、`game_processor.rs`、`scripting/parallel_world_adapter.rs`
+
 ## E529 召喚物沒有自己的技能：unit_template abilities（A36）（2026-10-31，工作線 B）
 
 - **現象**：工作線 A coverage A36（前野長康）：地刺陷阱 `a36e_mine` 的模板帶 `abilities = { "a36_detonate" }`，原作由玩家選取地雷後施放引爆。host 只認英雄的 `Hero::abilities`，非英雄單位：

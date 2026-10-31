@@ -514,6 +514,9 @@ pub struct SummonedUnit {
     /// Its template never attacks (E511): owner attack orders are refused.
     #[serde(default)]
     pub no_attack: bool,
+    /// Its template is tagged `ward` (E530).
+    #[serde(default)]
+    pub ward: bool,
     /// G-3 owner policy: removed once the exact owner life is dead or retired.
     #[serde(default)]
     pub expire_with_owner: bool,
@@ -589,6 +592,7 @@ impl SummonedUnit {
             navigation: SummonNavigation::default(),
             immobile: false,
             no_attack: false,
+            ward: false,
             expire_with_owner: false,
             spawn_tick: 0,
             bounty: (0, 0),
