@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E549 預載的 Niagara 系統在非 cook 執行時第一次啟用才編譯，造成卡頓（2026-11-01，工作線 C）
+- 現象：demo11（1+9 quick，D21 效能量測）t=129 s 有一個 133 ms 的幀，log 同時出現 `Compiling System NiagaraSystem /Game/Omoba/VFX/CueShapes/NS_shape_burst took 0.137 sec (time since issued)`。這個系統已在 E389 的 `OmPresentationPreload` 名單裡（Editor cue overrides）。
+- 原因：非 cook 執行（editor `-game`，所有實機局都是這種）載入 Niagara 系統時，script 編譯請求延到第一次啟用（`WaitForCompilationComplete_SkipPendingOnDemand` 註明「deferred from loading」），所以第一次播放時遊戲執行緒要等編譯。預載只解決了同步載入，沒有解決編譯。
+- 修正（共用層，`OmPresentationPreload.cpp`）：預載完成的回呼裡，對每個已載入的 `UNiagaraSystem` 呼叫 `PollForCompilationComplete(true)`。這個呼叫不會阻塞，只把延後的編譯請求送出，讓它在背景編譯；第一次啟用時已經編好。`OM_PRESENTATION_PRELOAD done` 多印 `compiling=N`。只在 `WITH_EDITORONLY_DATA` 編入，cook 版本不受影響。
+- 待驗證：下一輪 1+9 局的 log 沒有 `Compiling System`，也沒有對應的卡頓。
+- 避免：預載資產時，非 cook 執行要一併觸發需要即時編譯的資源（Niagara、材質）。
+
 ## E548 M6 batch 無法關閉 headless observer，已知 mismatch 會讓整批失敗，Acceptance 也不列 observer 結果（2026-11-01，E187）
 - 現象：E545 讓 moba_headless 預設 `--observer on`，第一次實跑就在 quick 局約 tick 3000 因小兵 hp 不一致而結束（B 修正中）。verify_m6_batch 無法傳 `--observer`，所以 B 修好前每局都會失敗，NEVER CAST、refused、facing 這些驗收也一起看不到；report 裡的 observer 結果也沒進 Acceptance。
 - 修正（共用層）：

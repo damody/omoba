@@ -34,3 +34,30 @@
 | Niagara 系統即時編譯 | 3 | 1 |
 
 剩下的 100～400 ms 卡頓，當下 presentation 的工作都只有 0～3 ms，時間不在 omfue 的 actor tick 裡（量測期間機器上同時有其他 session 的建置與實機局）。cue、狀態 cue、目標 cue 的數量與 frame time 沒有關聯，不需要 cue 上限、池化或 LOD。
+
+## D21：≥100 ms 卡頓逐一歸因（demo11，2026-11-01）
+
+`ue_frame_windows.lua` 列出暖機後每一個 ≥100 ms 的幀並標出原因（68bb09f4）：
+
+- `screenshot`：該幀之內有 autopilot 截圖。
+- `audio_stall`：音訊執行緒停頓，以及它觸發的 stack dump。
+- `presentation`：presentation 工作佔該幀一半以上。
+- `other`：以上皆非。
+
+`target/lineC-perf/demo11` 和 demo9 設定相同，跑在 E524（截圖改在背景編碼）與 B 的 E541（target state／UnitAbilityState 逐步更新）之後。整局打完，observer 不一致 0 次（demo10 曾因 0x464f471b 被中止，原因見 E541）。比賽約 5 分鐘就結束，所以視窗比 demo9 少。
+
+| | demo9 | demo11 |
+|---|---|---|
+| 熱身後的視窗 | 491 | 306 |
+| 平均 frame interval 中位數／p95 | 16.8／21.3 ms | 16.9／20.9 ms |
+| 每秒最大值的 p95 | 71.2 ms | 57.4 ms |
+| ≥100 ms 卡頓 | 15 | 8 |
+| 其中截圖 | 8 | 2（都在 t≈60 s 開局那一串，之後 11 張定時截圖都沒有造成卡頓） |
+| 其中 presentation | 0 | 2（t=57、59 s，開局第一批單位生成，`entities` 800 ms） |
+| 其中音訊停頓 | 1 | 0 |
+| 其中 other | 6 | 4 |
+
+demo11 的 4 個 other：
+
+- **t=129 s，133 ms**：log 有 `Compiling System NiagaraSystem /Game/Omoba/VFX/CueShapes/NS_shape_burst took 0.137 sec`。非 cook 執行（editor `-game`）時，Niagara 系統即使已預載，script 編譯也會延到第一次啟用才在遊戲執行緒等待。修正（E549）是預載完成後對每個 Niagara 系統呼叫 `PollForCompilationComplete(true)`，把延後的編譯請求送出，在背景編譯。cook 版本沒有這個問題。
+- **t=67、83、347 s**：當下 presentation 工作 4～13 ms，前一幀也沒有大工作。t=347 s 剛好在計分板開著的時候，前一幀最後的事件是一個光環 ring。log 沒有 GC、串流或音訊紀錄，目前無法歸因。下一輪要加開 GC／hitch 的引擎 log 再查。
