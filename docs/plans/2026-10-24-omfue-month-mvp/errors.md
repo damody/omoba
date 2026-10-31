@@ -17,7 +17,29 @@
 - **測試**：`a_body_without_an_attack_or_with_melee_range_zero_spawns`。
 - **檔案**：`omoba-core/src/runtime/native/dummy_unit.rs`
 
-## E545 （保留）headless 沒有 observer 比對：批次抓不到 replica 不同步（D21）（2026-11-01）
+## E545 headless 沒有 observer 比對：批次抓不到 replica 不同步（D21）（2026-11-01，工作線 B）
+
+- **現象**：
+  - C 的 demo10 實機局被 `observer-mismatch-after-rebase` 結束（E541）。gamemode 每天跑上百局 headless 都沒抓到，因為 moba_headless 沒有 team replica，也沒有 observer 比對。
+  - D21 把 observer mismatch 列為功能驗收的硬指標。
+- **通用修正**（調度決定 (b)，in-process 版）：
+  - omoba-core 新增 `runtime::inprocess_observer`（feature kcp）：
+    - `project_tick`：與 server 相同的 committed projection，依序為 facts、visibility wave B、team projection。
+    - `accepted_inputs`：比照 server 的 `CanonicalAcceptedInput`。行動者是玩家的英雄；action 經 `sanitize_accepted_action`，目標經 `resolve_accepted_target`；解析不出來的輸入照 server 的做法丟掉。
+    - `InProcessObserver`：每隊一個 `SelectiveReplicaRuntime` 加 `SpecsDisclosedWorldStepper`，從 authority 第一個投影 tick 開始 bootstrap，之後每 tick 套用該隊的 frame。
+    - 比對方式與 server 的 observer 相同：frame 自帶 `post_step.hash_checkpoint` 時，拿它和 `post_repair_hash` 比。
+    - 不一致時用 `expected_checkpoint_bytes` 找出第一個不同的 (replica entity, schema)，附上雙方 bytes 與 replica 的 render 列。
+  - moba_headless：
+    - 新增 `--observer on|off`，預設 on；off 只用於效能量測。
+    - run 與 replay 都走同一條 `step_tick` 投影路徑。
+    - 不一致就照 server 的做法結束該局：failure 的 kind 是 `observer_mismatch`，訊息帶 team、tick、entity 與 schema。
+    - report 頂層加 `observer`：`{ enabled, mismatches, checked_ticks, first, wall_ms }`。
+- **第一個抓到的問題**：quick role plan 在 tick 3000，team 2 看到的一個 team 1 小兵，DISCLOSED_PROPERTY（0x464f4702）的 hp：authority 443.25、replica 434.0，replica 少 9.25。另案追查。
+- **開銷**：quick 局到 tick 3000 共做了 24 次 checkpoint 比對，observer 耗時約 12.7 s，平均每 tick 約 4 ms。step_wall_ms_mean 5.3 ms 包含投影。
+- **測試**：`inprocess_observer::a_component_the_replica_misses_is_caught`（故意讓 replica 少一個元件，確認會被點名）；moba_headless 的 bin 測試；實機 headless quick 局確實抓到上面那個不一致。
+- **檔案**：
+  - `omoba-core/src/runtime/inprocess_observer.rs`、`omoba-core/src/runtime/mod.rs`
+  - `omb/src/bin/moba_headless.rs`（omb submodule，由工作線 E 負責 commit 與 bump）
 
 ## E544 spotlight 報告沒有 observer 驗證結果，無法當 observer 過渡涵蓋（2026-11-01，工作線 C）
 - 需求：headless observer 還沒做好之前，gamemode 要在批次 Acceptance 段自動列出「spotlight split 已涵蓋 observer 的英雄」，當作過渡涵蓋。但 spotlight 報告（`target/spotlight/<hero>/spotlight.json`）沒有記錄 authority 的 observer 驗證結果。demo10 的 `observer-mismatch-after-rebase`（schema 0x464f471b）就是從 server log 手動找出來的。

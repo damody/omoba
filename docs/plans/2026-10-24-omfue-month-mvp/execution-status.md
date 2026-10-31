@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：headless 內建 observer 比對（E545）
+
+- `inprocess_observer`：projector、team replica、與 server 相同的 checkpoint 比對；moba_headless `--observer on|off`（預設 on），不一致時以 `observer_mismatch` 結束，report 頂層有 `observer`。
 ## 2026-11-01 線 B：body_valid 接受 no_attack 與近戰射程 0（E546）
 
 - C16 鬼影、A21 鐵扇不再被生成檢查拒絕。

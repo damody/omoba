@@ -26,6 +26,9 @@ pub mod filtered_specs;
 pub mod native;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod observer_validation;
+// Headless observer (E545): projector, team replica and comparison in one process.
+#[cfg(feature = "kcp")]
+pub mod inprocess_observer;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod production_guards;
 #[cfg(not(target_arch = "wasm32"))]
