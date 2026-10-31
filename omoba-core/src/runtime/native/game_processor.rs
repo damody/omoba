@@ -3167,10 +3167,13 @@ pub fn process_outcomes(
     // sit between them); handle_damage takes it from `rules::damage::DamageCredit`.
     let mut damage_credit: Option<Entity> = None;
     let mut credit_set = false;
+    // An instant attack's damage: the packet right after its InstantAttack (E475).
+    let mut instant_hit: Option<(Entity, Entity)> = None;
     let mut next_ordinal = 0usize;
     while let Some(outcome) = pending.pop_front() {
         // A tag only belongs to the outcome right after it.
         let tag_now = damage_tag.take();
+        let instant_now = instant_hit.take();
         let credit_now = damage_credit.take();
         if credit_now.is_some() || credit_set {
             world.insert(super::rules::damage::DamageCredit(credit_now));
@@ -3473,18 +3476,13 @@ pub fn process_outcomes(
                 target,
                 damage_profile,
                 predeclared,
-            } => handle_damage(
-                world,
-                &mut next_outcomes,
-                pos,
-                phys,
-                magi,
-                real,
-                source,
-                target,
-                damage_profile,
-                predeclared,
-            )?,
+            } => {
+                let attack = instant_now == Some((source, target));
+                if attack { world.insert(super::rules::damage::AttackPacket); }
+                let result = handle_damage(world, &mut next_outcomes, pos, phys, magi, real, source, target, damage_profile, predeclared);
+                if attack { world.remove::<super::rules::damage::AttackPacket>(); }
+                result?
+            }
             Outcome::ProjectileDamage { origin, pos, phys, magi, real, source, target,
                 damage_profile, predeclared } => {
                 if origin.source==source && (origin.normal_attack||origin.script_attack)
@@ -3502,8 +3500,10 @@ pub fn process_outcomes(
             }
             Outcome::AttackJudged { attacker, target, projectile, hit, source_missed } =>
                 super::rules::attack::judged(world, attacker, target, projectile, hit, source_missed),
-            Outcome::InstantAttack { attacker, target, critical, missed, evaded } =>
-                super::rules::attack::instant(world, attacker, target, critical, missed, evaded),
+            Outcome::InstantAttack { attacker, target, critical, missed, evaded } => {
+                super::rules::attack::instant(world, attacker, target, critical, missed, evaded);
+                if !missed && !evaded { instant_hit = Some((attacker, target)); }
+            }
             Outcome::ProjectileHit {
                 source,
                 target,
@@ -7024,6 +7024,9 @@ fn handle_damage(
     let hp_removal = damage_profile & omb_script_abi::types::DamageProfile::HP_REMOVAL.bits() != 0;
     let original_profile = damage_profile;
     let spell = damage_profile & omb_script_abi::types::DamageProfile::SPELL.bits() != 0;
+    // A basic attack's damage (v3 event.damage.is_attack, E475): instant, or a projectile attack's.
+    let attack = world.has_value::<pipeline::AttackPacket>() || world.try_fetch::<ProjectileImpactOrigin>()
+        .is_some_and(|impact| impact.0.source == source && (impact.0.normal_attack || impact.0.script_attack) && !impact.0.attack_missed);
     if !pipeline::admit(world, &packet) {
         return Ok(());
     }
@@ -7214,7 +7217,8 @@ fn handle_damage(
             super::status_event::note_damage(world, super::status_event::DamageNote { source, target,
                 amount: (applied.hp_before - applied.hp_after).max(Fixed64::ZERO),
                 damage_kind: super::status_event::damage_kind(mitigated.by_type, original_profile)
-                    | if applied.died { omb_script_abi::types::StatusEvent::LETHAL } else { 0 }, killer });
+                    | if applied.died { omb_script_abi::types::StatusEvent::LETHAL } else { 0 }
+                    | if attack { omb_script_abi::types::StatusEvent::ATTACK } else { 0 }, killer });
         }
     }
     // ⑤ Lethal: tower kills, TD bounty and the Death that commits after the batch.

@@ -47,6 +47,11 @@ pub struct Packet {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DamageCredit(pub Option<Entity>);
 
+/// Present while `handle_damage` settles an instant basic attack's damage packet (E475): the
+/// packet right after its `InstantAttack`, from that attacker to that target.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AttackPacket;
+
 impl Packet {
     pub fn new(source: Entity, target: Entity, physical: Fixed64, magical: Fixed64, pure: Fixed64, profile: u32) -> Self {
         Self { source, credit: source, target, physical, magical, pure, profile }

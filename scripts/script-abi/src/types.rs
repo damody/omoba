@@ -150,11 +150,15 @@ impl StatusEvent {
     /// `damage_kind` bit of a landed hit (on_take_damage / on_deal_damage / on_kill): it killed
     /// its target (v3 `event.damage.lethal`, E452).
     pub const LETHAL: u8 = 0x20;
+    /// `damage_kind` bit of a landed hit: it was a basic attack's damage, instant or by projectile
+    /// (v3 `event.damage.is_attack`, E475).
+    pub const ATTACK: u8 = 0x40;
     /// The damage type part of `damage_kind`.
     pub const DAMAGE_TYPE_MASK: u8 = 0x0f;
     pub const fn damage_type(&self) -> u8 { self.damage_kind & Self::DAMAGE_TYPE_MASK }
     pub const fn is_reflection(&self) -> bool { self.damage_kind & Self::REFLECTION != 0 }
     pub const fn is_lethal(&self) -> bool { self.damage_kind & Self::LETHAL != 0 }
+    pub const fn is_attack(&self) -> bool { self.damage_kind & Self::ATTACK != 0 }
 }
 
 pub const DAMAGE_PROFILE_ABI_VERSION: u16 = 1;

@@ -154,6 +154,24 @@ fn a_marked_status_hears_its_holders_damage() {
         _ => None }).collect();
     assert_eq!(damage, vec![(Fixed64::from_i32(40), 2), (Fixed64::from_i32(40), 2 | StatusEvent::REFLECTION)],
         "the hp each hit took, the second marked as a reflection");
+    // E475: the packet right after an instant attack, from that attacker to that target, is an
+    // attack's damage; the same packet without it is not.
+    let heard = calls.lock().unwrap().len();
+    for attacked in [true, false] {
+        let mut batch = world.write_resource::<Vec<crate::comp::Outcome>>();
+        if attacked {
+            batch.push(crate::comp::Outcome::InstantAttack { attacker: hero, target: hero, critical: None, missed: false, evaded: false });
+        }
+        batch.push(crate::comp::Outcome::Damage { pos: omoba_sim::Vec2::ZERO, phys: Fixed64::ZERO, magi: Fixed64::ZERO,
+            real: Fixed64::from_i32(80), source: hero, target: hero, damage_profile: pure.bits(), predeclared: false });
+        drop(batch);
+        driver.step(&mut world, []).unwrap();
+    }
+    driver.step(&mut world, []).unwrap();
+    let attacks: Vec<_> = calls.lock().unwrap()[heard..].iter().filter_map(|c| match c {
+        Call::Status { kind, damage_kind, .. } if *kind == crate::runtime::native::status_event::TAKE_DAMAGE => Some(*damage_kind & StatusEvent::ATTACK != 0),
+        _ => None }).collect();
+    assert_eq!(attacks, vec![true, false], "only the attack's packet is marked");
     // E452: a hit that kills is marked lethal; the hp it took is what was left.
     world.write_storage::<crate::runtime::native::comp::CProperty>().get_mut(hero).unwrap().hp = Fixed64::from_i32(30);
     world.write_resource::<Vec<crate::comp::Outcome>>().push(crate::comp::Outcome::RawDamage {

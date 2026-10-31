@@ -4,7 +4,19 @@
 
 ## E476 （保留）creep_facing 攻擊樣本沒有目標資訊，距離 0 的目標以 atan2(0,0) 算成 0°（2026-10-31）
 
-## E475 （保留）event.damage.is_attack 沒有 host 落點：傷害事件分不出普攻，C13、B17 只能擋下（2026-10-31）
+## E475 event.damage.is_attack 沒有 host 落點：傷害事件分不出普攻，C13、B17 只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 第五批第 10 項：`event.damage.is_attack` 沒有 host 落點，C13 與 B17 只能擋下。
+- **根因**：
+  - 近戰普攻由 damage_tick 先送 `InstantAttack` 再送一般的 `Damage`；投射物普攻的普攻資訊只在 `ProjectileImpactOrigin` 上。
+  - `handle_damage` 記錄傷害事件時沒有這個資訊，所以 on_take_damage、on_deal_damage、on_kill 分不出普攻。
+- **通用修正**：
+  - `StatusEvent::ATTACK = 0x40`（damage_kind 位元），script-abi 新增 `is_attack()`。
+  - process_outcomes 在 `InstantAttack` 命中（沒有 miss 或 evade）後，只讓緊接在後、同一組攻擊者與目標的那筆傷害算普攻。做法與 damage tag 只屬於下一個封包相同，結算期間以 `rules::damage::AttackPacket` 標記。
+  - 投射物普攻：在 `ProjectileImpactOrigin` 下結算，條件是來源相符、為 normal_attack 或 script_attack，且沒有 miss。
+  - 記錄傷害事件時一併帶上 ATTACK 位元。
+- **回歸**：`script_hooks_tests::a_marked_status_hears_its_holders_damage` 新增檢查：緊接 InstantAttack 的傷害帶 ATTACK，同樣的傷害單獨送出時不帶。
+- **檔案**：`omoba-core/src/runtime/native/game_processor.rs`、`rules/damage.rs`、`script_hooks_tests.rs`、`scripts/script-abi/src/types.rs`
 
 ## E474 bot_auto_policies 沒有 nearest_tree 意圖，樹木目標技能（B22）沒有策略（2026-10-31，e187 遊戲模式 session；已放回 live）
 - **現象**：m6new1／m6new2 的太原雪齋 b22_force_of_nature、b22_wood_spirit 都是 NEVER CAST；派生 hint 是 `kind = none`（tree target），executor 也沒有樹木目標的意圖。

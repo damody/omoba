@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：event.damage.is_attack（E475）
+
+- 傷害事件 damage_kind 新增 ATTACK（0x40）：近戰普攻（緊接 InstantAttack 的封包）與投射物普攻；script-abi `StatusEvent::is_attack()`。
 ## 2026-10-31 線 B：bot 以樹為目標的意圖（E473）
 
 - `nearest_tree { enemy_radius }`：施放在施法距離內最近的立著的樹；B22 兩招可由 hint 接上。
