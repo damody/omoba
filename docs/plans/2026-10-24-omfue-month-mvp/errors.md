@@ -2,6 +2,22 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E433 （保留）bot 一直施放被 set_ability_active 停用的技能（2026-10-31）
+
+## E432 （保留）no_effects 把施法前就在目標身上的狀態（B31R 光環灼燒）算成被拒施法的效果（2026-10-31）
+
+## E431 process_outcomes 期間推進 Outcome 資源的效果在批次結尾被清掉：a05 sakai 不會死（2026-10-31，工作線 B）
+
+- **現象**：工作線 E 的 m6b2 sakai 16 局 12/0/35，E421 之後不變。致死傷害被取消，但沒有回血、沒有 a05d_feign、冷卻一直是 0；E421 的拒絕 log 也沒出現。
+- **根因**：
+  - `process_outcomes` 開頭把 `Vec<Outcome>` 全部取出。結算期間，status 傷害 hook（damage_pre）把被接受的效果推回這個資源；`handle_add_buff` 的 summon limit（E418）推 `EntityRemoved` 也一樣。
+  - 批次結尾 `clear()` 後才 append `next_outcomes`，這些效果全被丟掉，只有 hook 的取消 edit 留下。
+  - a05_loyal_secret 因此每次都取消致死傷害，冷卻從未開始。
+- **通用修正**：批次結尾保留結算期間推進資源的 outcome，接在批次自己的 follow-up 之後，由下一批結算。
+- **驗證**：新測試 `a_limit_packet_in_an_outcome_batch_removes_its_retired_summon`；omoba-core 全部 lib 測試通過。
+
+## E430 （保留）conformance setup：出生等級的 on_learn 狀態在等級寫回 0 後留著（B31R 光環燒敵人）（2026-10-31）
+
 ## E429 spotlight 的替身被最大生命百分比傷害打死後，示範直接跳過（仙石秀久 沸血靈光）（2026-10-31，history-nobu M6 UE 呈現，工作線 C）
 - 現象：sengoku_hidehisa 的 spotlight 跳過焰心鼓動（`spotlight_skipped`，等級 4、冷卻 0），之後的折磨也沒有示範。
 - 原因：沸血靈光每秒對 900 內的敵人造成最大生命 3% 的純粹傷害。替身的 `hold_hp_permille`（30 倍生命）對最大生命百分比傷害沒有用，替身在學技能時就被燒死（server tick 4441）。autopilot 找不到活著的敵方英雄，8 秒後就跳過這招。

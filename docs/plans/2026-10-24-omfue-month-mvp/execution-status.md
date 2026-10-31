@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：批次期間推進的 outcome 不再被清掉（E431）
+
+- `process_outcomes` 結尾保留結算期間推進 `Vec<Outcome>` 的效果（傷害 hook、summon limit 的移除），由下一批結算。修 a05 sakai 不死。
 ## 2026-10-31 線 B：建築召喚物（E428）
 
 - unit_template `building`（immobile）：authority 生成時加 `IsBuilding`，replica 依模板推得同樣結果。給 b22、b24。

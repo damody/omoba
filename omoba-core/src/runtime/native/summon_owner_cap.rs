@@ -182,6 +182,26 @@ mod tests {
         assert_eq!(apply_limit(&mut w, owner, LIMIT_BUFF, &limit_payload("saika_gunner", 1)), vec![middle]);
     }
 
+    /// E431: the removals a limit packet pushes while the outcome batch settles it survive the
+    /// batch, and the next batch removes the retired summon.
+    #[test]
+    fn a_limit_packet_in_an_outcome_batch_removes_its_retired_summon() {
+        use crate::runtime::{process_outcomes, RuntimeEventVecSink, StateInitializer, TowerTemplateRegistry};
+        use crate::comp::Outcome;
+        let mut w = StateInitializer::setup_campaign_ecs_world(&StateInitializer::create_thread_pool());
+        w.insert(TowerTemplateRegistry::default());
+        let owner = w.create_entity().build();
+        let oldest = summon(&mut w, owner, "saika_gunner", 1);
+        let newest = summon(&mut w, owner, "saika_gunner", 2);
+        w.write_resource::<Vec<Outcome>>().push(Outcome::AddBuff { target: owner, buff_id: LIMIT_BUFF.into(),
+            duration: Fixed64::ONE, payload: limit_payload("saika_gunner", 1) });
+        process_outcomes(&mut w, &mut RuntimeEventVecSink::default()).unwrap();
+        assert!(w.read_resource::<Vec<Outcome>>().iter().any(|o| matches!(o, Outcome::EntityRemoved { entity } if *entity == oldest)));
+        process_outcomes(&mut w, &mut RuntimeEventVecSink::default()).unwrap();
+        w.maintain();
+        assert!(!w.is_alive(oldest) && w.is_alive(newest));
+    }
+
     #[test]
     fn content_cap_reads_whole_positive_rank_values_only() {
         assert_eq!(cap_at("no_such_ability", 1), None);

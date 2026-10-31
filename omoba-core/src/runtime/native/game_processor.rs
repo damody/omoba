@@ -3733,10 +3733,14 @@ pub fn process_outcomes(
     super::owner_control::settle_batch(world);
 
     let _ = world.delete_entities(&remove_uids[..]);
-    world.write_resource::<Vec<Outcome>>().clear();
-    world
-        .write_resource::<Vec<Outcome>>()
-        .append(&mut next_outcomes);
+    // The batch took every queued outcome at its start, so what the resource holds now was pushed
+    // while it settled (status damage hooks, a summon limit's removals): the next batch settles
+    // it after the batch's own follow-ups (E431).
+    let mut pushed = std::mem::take(&mut *world.write_resource::<Vec<Outcome>>());
+    let mut queued = world.write_resource::<Vec<Outcome>>();
+    queued.append(&mut next_outcomes);
+    queued.append(&mut pushed);
+    drop(queued);
     drop(outcomes_span);
 
     Ok(())
