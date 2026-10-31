@@ -203,6 +203,8 @@ local STATUS_TRIGGERS = {
   -- an enemy (or anyone) ordered an attack or a cast at the holder (line B E465): event.issuer the
   -- orderer, event.order.ability the ordered ability (none for an attack order)
   on_order_targeted = { 32768, { 18 } },
+  -- the holder's attack missed (line B E496): event.target its target; missed at launch or evaded
+  on_attack_miss = { 131072, { 20 } },
   -- applied again while it holds: the applying code runs it after the apply (no host event)
   on_refreshed = { 0 },
 }
@@ -671,6 +673,13 @@ function Gen:expr(node, ctx)
     end
     local obj, ot = self:expr(node.obj, ctx)
     if ot == "err" then return obj, "err" end
+    if ot == "slot_ref" then
+      local reads = { level = { "cx.ability_level(u, &id)", "num", "Fixed64::ZERO" }, is_ready = { "cx.ability_ready(u, &id)", "bool", "false" },
+        is_passive = { "cx.ability_is_passive(u, &id)", "bool", "false" }, is_toggle = { "cx.ability_is_toggle(u, &id)", "bool", "false" } }
+      local r = reads[node.name]
+      if not r then self:block("attr:" .. node.name .. " of ability_in_slot"); return "Fixed64::ZERO", "err" end
+      return string.format("{ let (u, a) = (%s.0, %s.1.clone()); match a { Some(id) => %s, None => %s } }", obj, obj, r[1], r[3]), r[2]
+    end
     if ot == "ability_ref" then
       local u, id = obj:match("^(.*)%z([%w_]+)$")
       local reads = { cooldown_remaining = { "cx.ability_cooldown(u, %s)", "num" }, is_ready = { "cx.ability_ready(u, %s)", "bool" },
@@ -913,6 +922,7 @@ function Gen:call(node, ctx)
     if t == "err" then return "false", "bool" end
     -- the order's ability: a cast order (damage_kind 1), not an attack order (0; line B E465)
     if t == "event_ability" and ctx.event == "order_targeted" then return "(cx.event_damage_kind == 1)", "bool" end
+    if t == "slot_ref" then return "(" .. u .. ").1.is_some()", "bool" end
     if t ~= "unit" then self:block("fn:exists of a " .. t); return "false", "bool" end
     return cx_call("cx.exists(%s)", u), "bool"
   elseif fn == "has_state" then
@@ -970,6 +980,15 @@ function Gen:call(node, ctx)
     -- a direction kept as a point (a state var or a let of a direction) is the same Vec2
     if (dt ~= "vec" and dt ~= "point") or nt ~= "num" then self:block("fn:offset types") end
     return string.format("ability_kit::offset(%s, %s, %s)", self:point(p, pt), d, n), "point"
+  elseif fn == "ability_in_slot" then
+    -- the unit's ability in slot Q W E R D F (its ability list index 0..5, line B E497): kept with
+    -- the unit as (unit, Option<id>); exists(), level, is_ready, is_passive, is_toggle read it
+    local u, ut = arg(1)
+    local sl = args[2]
+    local idx = sl and sl.k == "id" and ({ Q = 0, W = 1, E = 2, R = 3, D = 4, F = 5 })[sl.name]
+    if ut == "err" then return "", "err" end
+    if ut ~= "unit" or not idx then self:block("fn:ability_in_slot"); return "", "err" end
+    return cx_call("{ let u = %s; (u, cx.ability_in_slot(u, " .. idx .. ")) }", u), "slot_ref"
   elseif fn == "ability_of" then
     -- read through its attributes (`ability_of(caster, a34_frost_bolt).cooldown_remaining`)
     local u, ut = arg(1)
@@ -2438,8 +2457,17 @@ function Gen:action(a, ctx, ind)
     if a.control ~= nil and a.control ~= "ai" and a.control ~= "owner" and a.control ~= "none" then
       self:block("action:create_unit.control:" .. tostring(a.control))
     end
-    local make = (a.control == nil or a.control == "ai") and ("cx.create_unit(" .. template .. ", at, lifetime)?")
-      or ("cx.create_unit_controlled(" .. template .. ", at, lifetime, " .. rust_str(a.control) .. ")?")
+    -- owner: another unit (caster_hero …) owns the new unit (line B E500); the caster otherwise
+    local owner_code
+    if a.owner ~= nil and a.owner ~= "caster" and not (a.owner == "self" and self.entry) then owner_code = self:value(a.owner, ctx, "unit") end
+    local make
+    if owner_code then
+      make = (a.control == nil or a.control == "ai") and ("cx.create_unit_for(owner, " .. template .. ", at, lifetime)?")
+        or ("cx.create_unit_controlled_for(owner, " .. template .. ", at, lifetime, " .. rust_str(a.control) .. ")?")
+    else
+      make = (a.control == nil or a.control == "ai") and ("cx.create_unit(" .. template .. ", at, lifetime)?")
+        or ("cx.create_unit_controlled(" .. template .. ", at, lifetime, " .. rust_str(a.control) .. ")?")
+    end
     if a.facing ~= nil then
       -- the new unit turns to `facing` (host: the cast's own summon may be turned, line B)
       local f, ft = self:value(a.facing, ctx)
@@ -2496,7 +2524,11 @@ function Gen:action(a, ctx, ind)
     -- limit_summons, line B E418; any path: a cast, a delay, a periodic)
     if a.limit_per_owner ~= nil or a.over_limit ~= nil then
       if a.limit_per_owner == nil then self:block("action:create_unit.over_limit without limit_per_owner")
-      elseif a.over_limit ~= "remove_oldest" then self:block("action:create_unit.over_limit:" .. tostring(a.over_limit))
+      elseif a.over_limit ~= nil and a.over_limit ~= "remove_oldest" and a.over_limit ~= "reject" then self:block("action:create_unit.over_limit:" .. tostring(a.over_limit))
+      elseif a.over_limit == "reject" or owner_code then
+        -- reject: the earliest `limit` stay and a new one over it leaves at once (line B E500)
+        make = "{ let u = " .. make .. "; let limit = " .. self:value(a.limit_per_owner, ctx, "num") .. "; cx.limit_summons_of("
+          .. (owner_code and "owner" or "cx.caster") .. ", " .. template .. ", limit, " .. tostring(a.over_limit == "reject") .. ")?; u }"
       else
         make = "{ let u = " .. make .. "; let limit = " .. self:value(a.limit_per_owner, ctx, "num") .. "; cx.limit_summons("
           .. template .. ", limit)?; u }"
@@ -2504,11 +2536,12 @@ function Gen:action(a, ctx, ind)
     end
     -- the host summons for the caster, on its team
     local mine = function(v) return v == nil or v == "caster" or (v == "self" and self.entry) end
-    if not mine(a.owner) then self:block("action:create_unit.owner:" .. tostring(a.owner)) end
+    if not mine(a.owner) and not owner_code then self:block("action:create_unit.owner:" .. tostring(a.owner)) end
     if not mine(a.team) then self:block("action:create_unit.team:" .. tostring(a.team)) end
     local at = self:value(a.at, ctx, "point")
     local life = a.lifetime ~= nil and self:value(a.lifetime, ctx, "num") or "Fixed64::ZERO"
     local s = line("{")
+    if owner_code then s = s .. line("    let owner = " .. owner_code .. ";") end
     if a.count ~= nil then
       s = s .. line("    let count = " .. self:value(a.count, ctx, "num") .. ";")
         .. line('    if count != Fixed64::ONE { return Err("v3: create_unit makes one unit at a time"); }')
@@ -2693,6 +2726,15 @@ function Gen:action(a, ctx, ind)
     -- the ability: a literal id of this document, or `ability` (this one)
     local ab = a.ability
     local abcode
+    -- an ability_in_slot binding: its own full cooldown at its holder's level (line B E497)
+    if op == "modify_cooldown" and type(ab) == "string" and ab:match("^[%a_][%w_]*$") and scope_find(ctx.scope, ab) then
+      local code, ty = self:value(ab, ctx)
+      if ty == "slot_ref" then
+        if (a.mode or "start") ~= "start" or a.amount ~= nil then self:block("action:modify_cooldown of a slot ability (start without amount only)"); return "" end
+        return line("{") .. line("    let (u, a) = (" .. code .. ".0, " .. code .. ".1.clone());")
+          .. line("    if let Some(id) = a { cx.cooldown_start_own(u, &id)?; }") .. line("}")
+      end
+    end
     if ab == nil or ab == "ability" then abcode = "ID"
     elseif type(ab) == "string" and ab:match("^[%w_]+$") and self.m.abilities[ab] then abcode = rust_str(ab)
     else self:block("action:" .. op .. ".ability:" .. tostring(ab)); return "" end
@@ -3144,12 +3186,12 @@ local ENTRY_EVENTS = set({ "on_cast", "on_toggle_on", "on_toggle_off", "on_learn
 local PASSIVE_TRIGGERS = { on_attack_hit = true, on_ability_executed = true, on_respawn = true, on_attack_windup = true, on_created = true,
   on_take_damage = true, on_deal_damage = true, on_attacked_hit = true, on_attacked = true, periodic = true,
   on_take_damage_pre = true, on_deal_damage_pre = true, on_kill = true, on_attack_launch = true, on_heal_received = true,
-  on_order_targeted = true }
+  on_order_targeted = true, on_attack_miss = true }
 -- passive trigger -> status_event mask bit and host kind (the learner's marker listens)
 local PASSIVE_EVENTS = { on_take_damage = { 8, 5 }, on_deal_damage = { 16, 6 }, on_attacked_hit = { 4, 4 }, on_attacked = { 4, 4 },
   on_attack_windup = { 256, 10 }, on_kill = { 512, 11 }, on_attack_launch = { 1024, 12 },
   on_take_damage_pre = { 32, 7 }, on_deal_damage_pre = { 64, 8 }, on_heal_received = { 65536, 19 },
-  on_order_targeted = { 32768, 18 } }
+  on_order_targeted = { 32768, 18 }, on_attack_miss = { 131072, 20 } }
 
 -- the module of an entry the generator does not lower yet: casting it fails with the forms
 local STUB = [[/// Not generated yet: %s
@@ -3769,6 +3811,7 @@ local function emit_entry(m, o, opts, status_problems)
       [17] = "cx.event_amount = event.amount;",
       [19] = "cx.event_amount = event.amount;",
       [18] = "cx.event_attacker = event.other; cx.event_damage_kind = event.damage_kind;",
+      [20] = "cx.event_target = event.other; cx.target = Target::Entity(event.other); cx.event_damage_kind = event.damage_kind;",
       [15] = "cx.event_target = event.other; cx.target = Target::Entity(event.other);",
     }
     local arms, pre_arms = {}, {}
