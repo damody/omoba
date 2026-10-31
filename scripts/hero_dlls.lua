@@ -77,4 +77,7 @@ return {
   {hero='sanada_masayuki',package='hero_b09',dir='heroes/sanada_masayuki'},
   {hero='baba_nobufusa',package='hero_b21',dir='heroes/baba_nobufusa'},
   {hero='kato_kiyomasa',package='hero_c23',dir='heroes/kato_kiyomasa'},
+  -- M6 batch (2026-10-31): follow, on_refreshed, knockback on_end and rank-up re-put generated; conformance 0 fail (shadow)
+  {hero='takenaka_shigeharu',package='hero_a04',dir='heroes/takenaka_shigeharu'},
+  {hero='maeda_toshiie',package='hero_a14',dir='heroes/maeda_toshiie'},
 }
