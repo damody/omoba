@@ -567,6 +567,62 @@ impl Cx<'_, '_> {
         let _ = self.world.ext(op::SCRIPT_ERROR, RSlice::from_slice(&args));
     }
 
+    /// The item id in `unit`'s inventory slot `slot` (0..5), E561.
+    pub fn item_in_slot(&mut self, unit: EntityHandle, slot: u8) -> Option<String> {
+        match self.read(op::ITEM_IN_SLOT, &[ExtArg::Unit(unit), ExtArg::Num(Fixed64::from_i32(i32::from(slot)))]) {
+            ExtValue::Str(id) => Some(id.into()), _ => None,
+        }
+    }
+
+    /// v3 `pick_item { from, where, order }` (E561): one item of `from`'s inventory that `keep`
+    /// accepts (`it` is the item id), the first / last / a random one in slot order; `None` when
+    /// none does. The backpack has no slots here, so `slots` other than the inventory find none.
+    pub fn pick_item(&mut self, from: EntityHandle, order: PickOrder, mut keep: impl FnMut(&mut Self, &str) -> bool) -> Option<PickedItem> {
+        use omoba_core::runtime::INVENTORY_SLOTS;
+        if !from.is_valid() { return None; }
+        let mut rows = Vec::new();
+        for slot in 0..INVENTORY_SLOTS as u8 {
+            if let Some(item) = self.item_in_slot(from, slot) {
+                if keep(self, &item) { rows.push(PickedItem { owner: from, slot, item }); }
+            }
+        }
+        match order {
+            PickOrder::First => rows.into_iter().next(),
+            PickOrder::Last => rows.pop(),
+            PickOrder::Random if rows.is_empty() => None,
+            PickOrder::Random => {
+                let index = (self.random_int(Fixed64::ZERO, Fixed64::from_i32(rows.len() as i32 - 1)).raw() >> 10) as usize;
+                Some(rows.swap_remove(index.min(rows.len() - 1)))
+            }
+        }
+    }
+
+    /// v3 `give_item { to, item }` (E561): a new instance in `to`'s first free inventory slot
+    /// (nothing when it is full; a catalog item only). `charges` and `vars` are not kept: an
+    /// instance here holds its id and cooldown.
+    pub fn give_item(&mut self, to: EntityHandle, item: &str) -> Res {
+        use omoba_core::runtime::native::item_grant;
+        if !to.is_valid() { return Ok(()); }
+        self.world.add_stat_buff(to, RStr::from_str(item_grant::BUFF), Fixed64::ONE, RStr::from_str(&item_grant::give_payload(item).to_string()));
+        Ok(())
+    }
+
+    /// v3 `remove_item { from, item }` (E561) by id: the first slot holding it.
+    pub fn remove_item(&mut self, from: EntityHandle, item: &str) -> Res {
+        use omoba_core::runtime::native::item_grant;
+        if !from.is_valid() { return Ok(()); }
+        self.world.add_stat_buff(from, RStr::from_str(item_grant::BUFF), Fixed64::ONE, RStr::from_str(&item_grant::remove_item_payload(item).to_string()));
+        Ok(())
+    }
+
+    /// v3 `remove_item { from, item = picked }` (E561): the slot a [`Cx::pick_item`] found.
+    pub fn remove_picked_item(&mut self, picked: &PickedItem) -> Res {
+        use omoba_core::runtime::native::item_grant;
+        self.world.add_stat_buff(picked.owner, RStr::from_str(item_grant::BUFF), Fixed64::ONE,
+            RStr::from_str(&item_grant::remove_slot_payload(usize::from(picked.slot)).to_string()));
+        Ok(())
+    }
+
     pub fn ability_in_slot(&mut self, unit: EntityHandle, slot: u8) -> Option<String> {
         match self.read(op::ABILITY_IN_SLOT, &[ExtArg::Unit(unit), ExtArg::Num(Fixed64::from_i32(i32::from(slot)))]) {
             ExtValue::Str(id) => Some(id.into()), _ => None,
@@ -889,6 +945,14 @@ impl Cx<'_, '_> {
         match self.read(op::GAME_ATTR, &[ExtArg::Str(game_attr::DT.into())]) { ExtValue::Num(n) => n, _ => Fixed64::ZERO }
     }
 }
+
+/// v3 `pick_item.order` (E561).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PickOrder { First, Last, Random }
+
+/// An item [`Cx::pick_item`] found: its owner, inventory slot and id (v3 `it.name`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PickedItem { pub owner: EntityHandle, pub slot: u8, pub item: String }
 
 /// v3 damage flags beyond [`Dmg`], for [`Cx::damage_ex_at`].
 #[derive(Clone, Copy, Debug, Default)]

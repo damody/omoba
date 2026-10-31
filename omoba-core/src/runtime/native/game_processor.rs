@@ -6794,6 +6794,11 @@ fn handle_add_buff(
         }
         return Ok(());
     }
+    // v3 give_item / remove_item (E561): an inventory change, never a stored row.
+    if payload.get(super::item_grant::KEY).is_some() || buff_id==super::item_grant::BUFF {
+        super::item_grant::apply(world,target,&buff_id,&payload);
+        return Ok(());
+    }
     if payload.get(super::ally_area_restore::KEY).is_some() || buff_id==super::ally_area_restore::BUFF {
         if let Some(spec)=super::ally_area_restore::admitted(world,target,&buff_id,duration,&payload,None) {
             if spec.direct {super::ally_area_restore::apply_direct(world,&spec);}

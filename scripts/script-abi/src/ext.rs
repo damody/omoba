@@ -99,6 +99,9 @@ pub mod op {
     /// `"base"` / `"fort"` its base structure; `None` when the match has none (destroyed, or no
     /// match) or for a kind the map does not keep as a unit.
     pub const LANDMARK: u32 = 21;
+    /// `(Unit, Num slot)` -> `Str` | `None`: the item id in inventory slot `slot` (0..5) of
+    /// `unit` (E561, v3 `pick_item`); `None` for an empty slot or a unit without an inventory.
+    pub const ITEM_IN_SLOT: u32 = 22;
 }
 
 /// Attribute names of [`op::EVENT_ABILITY_ATTR`].

@@ -2,6 +2,23 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E561 kit 沒有 give_item／pick_item／remove_item：B07、C06、C18 卡住（2026-11-01，工作線 B）
+
+- **現象**：A 回報 B07（足利義昭）、C06、C18 卡在 kit 沒有道具操作：`give_item`、`pick_item`、`remove_item`。ABI 沒有任何讓腳本改 inventory 的管道。
+- **修正**：
+  - host 新增 `native::item_grant`：腳本送 `add_stat_buff(unit, "__item_grant", 1, payload)`，host 改 inventory，不存列。
+    - give：放進第一個空格；滿了就不給。
+    - remove：可依道具 id（第一個符合的格子），或依格子。
+    - 只接受道具 catalog 裡的 id，因為 committed economy 只帶 catalog id。
+  - 改動後標記 `ItemEffects.dirty`，道具屬性由 item_tick 重算。owner team 透過每 tick 的 committed economy 看到新的 inventory，與購買走同一條路。同時關閉 owner 的商店 undo，因為已購買的道具可能不在背包裡了。
+  - ext op `ITEM_IN_SLOT = 22`：`(Unit, Num slot) -> Str | None`。
+  - kit：`item_in_slot`、`pick_item(from, PickOrder::{First,Last,Random}, keep)`（回傳 `PickedItem { owner, slot, item }`）、`give_item(to, item)`、`remove_item(from, item)`、`remove_picked_item(&picked)`。
+- **尚未支援**：
+  - 道具實例只有 id 與冷卻，所以 `give_item` 的 `charges`、`vars`，以及 `item_name` 型別的 state 都還沒有。
+  - 背包（backpack）沒有格子，`slots` 只有 inventory。
+- **測試**：`item_grant::tests::a_script_gives_removes_and_never_invents_an_item`：給予、滿格不收、依格子與依 id 移除、未知 id 與格式錯誤的列一律不動；屬性標髒。
+- **檔案**：`omoba-core/src/runtime/native/item_grant.rs`（新）、`omoba-core/src/runtime/native.rs`、`omoba-core/src/runtime/native/game_processor.rs`、`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`、`scripts/script-abi/src/ext.rs`、`scripts/ability_kit/src/host_ext.rs`
+
 ## E560 kit 沒有 add_ability／remove_ability：B16 忍犬生成時要加技能（2026-11-01，工作線 B）
 
 - **現象**：A 回報 B16（忍犬「月月」生成時 add_ability 四個 hidden 技能）與 C08（偷技能放到 F 槽、移除舊的）卡在 kit 沒有 `add_ability`／`remove_ability`。

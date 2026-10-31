@@ -38,6 +38,7 @@ pub mod ally_area_buff;
 pub mod damage_immunity;
 pub mod spell_guard;
 pub mod ally_area_restore;
+pub mod item_grant;
 pub mod item_modifiers;
 pub mod aura_emitter;
 pub mod aura;
