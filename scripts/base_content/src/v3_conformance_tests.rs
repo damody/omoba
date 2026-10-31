@@ -28,7 +28,7 @@ use super::*;
 use serde_json::{json, Value};
 
 const ENEMY: &str = "training_luminary";
-const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "leveled_by", "unit_ability", "target_status", "ally_target_lower", "ally_unit_at_point", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line"];
+const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "leveled_by", "unit_ability", "target_status", "ally_target_lower", "ally_unit_at_point", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line", "target_ahead"];
 const WHEN: &[&str] = &["cast", "wait", "caster_dies", "target_dies", "owner_dies", "owner_respawns", "toggle", "cast_until_over_cap"];
 /// A document entry the ported hero does not have at all: a difference, not a harness gap.
 const MISSING: &str = "missing entry: ";
@@ -431,7 +431,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let origin = omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(isolated_skill_origin_y()));
     let mut mana: Option<(bool, f64)> = None;
     let (mut immune, mut dead, mut hidden, mut invisible) = (false, false, false, false);
-    let mut clear_line = false;
+    let (mut clear_line, mut face_ahead) = (false, false);
     // What the entry's on_phase_start needs (E457): a status on the target, an ally target lower
     // than the caster, an allied unit at the point.
     let (mut target_statuses, mut ally_lower, mut ally_at_point) = (Vec::<String>::new(), false, false);
@@ -455,6 +455,8 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
             "mana_exactly" => mana = Some((true, expr(&given["amount"], &entry, rank)?)),
             // Out of range: the hero has to approach before the cast point starts.
             "distance" => distance = expr(&given["more_than"], &entry, rank)? + 150.0,
+            // Where the cast blinks its caster (E502): that far along its facing, +X.
+            "target_ahead" => { distance = expr(&given["distance"], &entry, rank)?; face_ahead = true; }
             "caster_state" => for state in given["states"].as_array().into_iter().flatten() {
                 if state != "invisible" { return Err(format!("caster state {state}")); }
                 invisible = true;
@@ -483,6 +485,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = at;
     if clear_line { world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = origin + omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(1500)); }
     for unit in [caster, enemy] { set_hold(&mut world, unit); disarm_attack(&mut world, unit); }
+    if face_ahead { world.write_storage::<omoba_core::Facing>().insert(caster, omoba_core::Facing(omoba_sim::Angle::ZERO)).unwrap(); }
     let caster_team = world.read_storage::<Faction>().get(caster).unwrap().team_id;
     // An entry whose passive stats the scenario reads is learned rank by rank through the
     // player's upgrade order (E227): its handler applies each rank as it is learned, which
@@ -2027,6 +2030,15 @@ fn learning(s: &Value) -> Vec<Value> {
     s["given"].as_array().map(|g| g.iter().filter(|g| ["learned", "swapped_in", "required_status", "leveled_by", "unit_ability"].iter().any(|k| g["kind"] == *k)).cloned().collect()).unwrap_or_default()
 }
 
+/// Where the cast blinks its caster (target_ahead; E502): the caster faces +X and the distance
+/// along it is returned.
+fn blink_ahead(run: &mut Run, s: &Value, entry: &str, rank: usize) -> Option<f64> {
+    let ahead = s["given"].as_array()?.iter().find(|g| g["kind"] == "target_ahead")?;
+    let distance = expr(&ahead["distance"], entry, rank).ok()?;
+    run.world.write_storage::<omoba_core::Facing>().insert(run.caster, omoba_core::Facing(omoba_sim::Angle::ZERO)).ok()?;
+    Some(distance)
+}
+
 fn cast_at_body(hero: &str, s: &Value) -> Option<(Run, specs::Entity, &'static str)> {
     let (entry, rank) = (s["entry"].as_str()?.to_owned(), s["rank"].as_u64()? as usize);
     let target_unit = s["given"].as_array()?.iter().find(|g| g["kind"] == "target_unit");
@@ -2040,7 +2052,7 @@ fn cast_at_body(hero: &str, s: &Value) -> Option<(Run, specs::Entity, &'static s
     let kind = omoba_template_ids::ability_by_name(&entry).and_then(omoba_template_ids::active_ability_const).map(|c| c.target_type)?;
     let target = match kind { omoba_template_ids::TargetTypeC::Unit => "unit", omoba_template_ids::TargetTypeC::Point => "point", _ => "none" };
     let range = value(&entry, rank, "cast_range").filter(|r| *r > 0.0).unwrap_or(300.0);
-    let distance = if target == "none" { 150.0 } else { (range * 0.5).clamp(60.0, 400.0) };
+    let distance = blink_ahead(&mut run, s, &entry, rank).unwrap_or(if target == "none" { 150.0 } else { (range * 0.5).clamp(60.0, 400.0) });
     let enemy_team = run.world.read_storage::<Faction>().get(run.enemy)?.team_id;
     let body = spawn_body(&mut run.world, distance as i32, isolated_skill_origin_y(), enemy_team, 100_000, None);
     // The caster's team sees it, as the authority's admission requires of a named target.
@@ -2100,7 +2112,7 @@ fn check_damage_on_hero(hero: &str, s: &Value) -> Option<Result<String, String>>
     let kind = omoba_template_ids::ability_by_name(&entry).and_then(omoba_template_ids::active_ability_const).map(|c| c.target_type)?;
     let target = match kind { omoba_template_ids::TargetTypeC::Unit => "unit", omoba_template_ids::TargetTypeC::Point => "point", _ => "none" };
     let range = value(&entry, rank, "cast_range").filter(|r| *r > 0.0).unwrap_or(300.0);
-    let distance = if target == "none" { 150.0 } else { (range * 0.5).clamp(60.0, 400.0) };
+    let distance = blink_ahead(&mut run, s, &entry, rank).unwrap_or(if target == "none" { 150.0 } else { (range * 0.5).clamp(60.0, 400.0) });
     let enemy = run.enemy;
     let at = omoba_sim::Vec2::new(Fixed64::from_i32(distance as i32), Fixed64::from_i32(isolated_skill_origin_y()));
     if let Some(pos) = run.world.write_storage::<Pos>().get_mut(enemy) { pos.0 = at; }

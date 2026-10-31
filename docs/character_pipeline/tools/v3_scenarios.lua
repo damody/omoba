@@ -352,6 +352,12 @@ local function entry_scenarios(doc, def, entry_kind, out)
         if radius and a.cond:find("== 0$") then phase_needs[#phase_needs + 1] = { kind = "ally_unit_at_point", radius = radius } end
       end
     end
+    -- A cast that blinks its caster ahead first (C12E; E502): its target stands where it lands.
+    local on_cast = type(def.events) == "table" and def.events.on_cast or nil
+    for _, a in ipairs(type(on_cast) == "table" and on_cast or {}) do
+      local ahead = a.op == "teleport" and a.who == "caster" and type(a.to) == "string" and a.to:match("^offset%(caster, caster%.forward, (.+)%)$")
+      if ahead and ahead:sub(1, 1) ~= "-" then phase_needs[#phase_needs + 1] = { kind = "target_ahead", distance = ahead }; break end
+    end
   end
   -- An ability of a unit the hero creates (a unit template's list, add_ability on another unit):
   -- not the hero's, so its cases need that unit (E351).

@@ -66,7 +66,14 @@
 - **回歸**：`summons::generic` 測試：三種類型各自只帶對應欄位的傷害。
 - **檔案**：`omoba-template-ids/src/{lua_content.rs,lib.rs,runtime_content.rs}`、`omoba-template-ids/build.rs`、`scripts/base_content/src/summons/generic.rs`、`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`
 
-## E502 （保留）v3 conformance 施法者先閃現到面前再打周圍的技能（c12 空間裂縫），目標沒放在落點，判沒有傷害（2026-10-31）
+## E502 conformance：v3 conformance 施法者先閃現到面前再打周圍的技能（c12 空間裂縫），目標沒放在落點，判沒有傷害（2026-10-31，conformance session）
+- **現象**：c12_space_rift r1–r4 normal 判「no damage within 3.0s」；caster_dies_after_cast 判 unsupported（c12e_shield 沒套上）。
+- **根因**：C12E 先把施法者 teleport 到 `offset(caster, caster.forward, $blink_range)`（600），再打落點 250 內的敵人。harness 把目標放在施法者前方 150，閃現後目標不在範圍內。
+- **通用修正**：
+  - 情境產生器：on_cast 頂層有 caster 的 teleport 到 `offset(caster, caster.forward, X)`（X 非負）時，加 target_ahead given。
+  - harness：有這個 given 時，施法者面向 +X，目標放在 X 處。setup、cast_at_body、check_damage_on_hero 共用 blink_ahead。
+  - 後退閃現（kato_danzo 的 `-$move_distance`）不套用。
+- **以後如何避免**：目標位置要從文件的施法流程推，不能一律用固定距離。
 
 ## E501 modify_cooldown 的道具形式與不帶 duration 的夜晚沒有 host 落點：C13、C18、C10 只能擋下（2026-10-31，工作線 B）
 
