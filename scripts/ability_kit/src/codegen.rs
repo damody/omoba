@@ -130,6 +130,14 @@ pub struct TargetSpec {
 pub enum TeamRule { Enemy, Ally, Both }
 
 /// The context of one generated program run.
+/// A row's time-of-day stats (E508): the `__when_v1` row and its top-level stats for now.
+fn put_when_row(payload: &mut serde_json::Map<String, serde_json::Value>, row: Option<(serde_json::Value, bool)>) {
+    use omoba_core::runtime::native::rules::world::{resolve_when, WHEN_KEY};
+    let Some((row, night)) = row else { return };
+    payload.insert(WHEN_KEY.into(), row);
+    resolve_when(payload, night);
+}
+
 pub struct Cx<'a, 'w> {
     pub world: &'a mut GameWorldDyn<'w>,
     pub caster: EntityHandle,
@@ -159,6 +167,9 @@ pub struct Cx<'a, 'w> {
     pub damage_edit: DamageEdit,
     /// The stack count `put_stacks` is writing into the status payload.
     stack_count: Option<i64>,
+    /// The time-of-day stats (v3 stat `when`, E508) the next status or passive row carries, with
+    /// whether it is night now (when.rs).
+    pub(crate) when_row: Option<(serde_json::Value, bool)>,
     /// `cancel_cast` in `on_phase_start`: the cast does not go on.
     pub cancelled: bool,
 }
@@ -234,7 +245,7 @@ impl<'a, 'w> Cx<'a, 'w> {
         Self { world, caster, self_unit: caster, target, rank, event_target: EntityHandle::INVALID,
             event_attacker: EntityHandle::INVALID, event_skill: None, cast_range: None, written: Default::default(), applied: Default::default(),
             event_amount: Fixed64::ZERO, event_damage_kind: 0, event_instance: 0, damage_edit: DamageEdit::KEEP,
-            stack_count: None, cancelled: false }
+            stack_count: None, when_row: None, cancelled: false }
     }
 
     /// The context of a cast: the target checks of the IR interpreter (rank, caster alive, target
@@ -696,6 +707,7 @@ impl<'a, 'w> Cx<'a, 'w> {
         let mut payload = serde_json::Map::new();
         for (key, raw) in stats.iter().chain(status.state_payload) { payload.insert(key.as_str().into(), (*raw).into()); }
         if let Some(n) = self.stack_count { payload.insert(STACKS_KEY.into(), n.into()); }
+        put_when_row(&mut payload, self.when_row.take());
         if !status.family.is_empty() {
             use omoba_core::runtime::native::ability_runtime::buff_store::AGGREGATION_FAMILY_KEY;
             payload.insert(AGGREGATION_FAMILY_KEY.into(), status.family.into());
@@ -1161,6 +1173,7 @@ impl<'a, 'w> Cx<'a, 'w> {
     pub fn passive_marker(&mut self, id: &str, stats: &[(StatKey, i64)], mask: u32) -> Res {
         let mut payload = serde_json::Map::new();
         for (key, raw) in stats { payload.insert(key.as_str().into(), (*raw).into()); }
+        put_when_row(&mut payload, self.when_row.take());
         payload.insert("level".into(), self.rank.into());
         // A learned passive: v3 `break` turns its stats and events off (omoba-core BuffStore::stat_rows).
         payload.insert("__passive".into(), true.into());
@@ -1195,6 +1208,7 @@ impl<'a, 'w> Cx<'a, 'w> {
     pub fn passive_stats(&mut self, id: &str, stats: &[(StatKey, i64)]) -> Res {
         let mut payload = serde_json::Map::new();
         for (key, raw) in stats { payload.insert(key.as_str().into(), (*raw).into()); }
+        put_when_row(&mut payload, self.when_row.take());
         payload.insert("level".into(), self.rank.into());
         self.world.add_stat_buff(self.caster, RStr::from_str(id), Self::FOREVER, RStr::from_str(&serde_json::Value::Object(payload).to_string()));
         Ok(())
