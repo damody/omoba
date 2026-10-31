@@ -2,6 +2,17 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E442 spotlight 的單位目標施法被輸入層拒絕（射程外、目標移動）卻算成已示範（2026-10-31，工作線 C）
+- 現象：重跑佇列（2026-10-31）裡，C24 柳生宗嚴的神取與 A22 仙石秀久的焰心鼓動都沒有呈現，autopilot 卻把它們算成已示範（`casts` 有算），沒有重試。trace 是 `not_submitted`：input layer submitted nothing，伺服器沒有收到施法。
+- 原因：
+  - C24：UE log 是 `OM_CAST ... error=Owned ability target is out of range`。輸入層（`OmWorldBridgeActor` 的 owned command）在本地就拒絕射程外的單位目標。E409 以為「單位目標照樣下指令，伺服器會先走進射程」，這個前提不成立：射程 200 的神取對 240 外的替身永遠送不出去。
+  - A22：替身被沸血靈光燒死，E429 等它復活。施法時替身還在走回舞台；autopilot 按下 W 後保持瞄準 0.6 秒才確認，確認點的是按下時的螢幕位置，替身已經走開，`OM_CAST_REJECT ... Cast confirm was rejected`。
+  - 兩者共通：輸入層在本地拒絕的示範只走到 `EndIntent` 的 `not_submitted`，沒有像伺服器拒絕那樣設 `SpotlightRefusedIntent`，所以 spotlight 不會重試。
+- 修正（omfue `OmAutoPilot`，共用層，不分英雄）：
+  - 單位目標在射程外時，先對替身方向下移動指令（`spotlight_approach`），走進射程後才施放；取代 E409 的射程外照樣下指令。
+  - `ArmAndConfirm` 記住瞄準的單位；保持瞄準期間與確認時，都改點那個單位目前的位置（友方單位目標也一樣）。
+  - 輸入層沒有送出的 `spotlight_slot*` 示範，與伺服器拒絕一樣記為 refused，期限內重試。
+
 ## E441 （保留）batch 固定平行數不看系統可用 commit：與其他 session 的建置同時跑時 commit 用光，lua-host 以 0xC000012D 結束（2026-10-31）
 
 ## E440 （保留）conformance：由另一招設定等級的子技能（c07_storm_move）沒有先施放那一招（2026-10-31）
