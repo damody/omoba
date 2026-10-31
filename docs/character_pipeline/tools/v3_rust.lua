@@ -113,6 +113,25 @@ local function model(doc, compiled)
   for _, a in ipairs(doc.abilities or {}) do declare(a.unit_state) end
   for _, it in ipairs(doc.items or {}) do declare(it.unit_state) end
   for _, s in ipairs(doc.statuses or {}) do statuses[s.id] = add(s, "status", shared) end
+  -- a document-level status a unit template carries is applied by the cast that creates the
+  -- template (create_unit), so that ability is its host: the status_event marker names it and its
+  -- on_status_event serves the status's triggers (line B, fifth batch item 9)
+  local function creates(t, found)
+    if type(t) ~= "table" then return end
+    if t.op == "create_unit" and type(t.template) == "string" then found[t.template] = true end
+    for _, v in pairs(t) do creates(v, found) end
+  end
+  for _, a in ipairs(doc.abilities or {}) do
+    local found = {}
+    creates(a.events, found); creates(a.passive, found); creates(a.statuses, found)
+    for tid in pairs(found) do
+      local u = templates[tid]
+      for _, sid in ipairs(u and u.def.statuses or {}) do
+        local so = type(sid) == "string" and statuses[sid]
+        if so and so.parent == shared and not so.host then so.host = abilities[a.id] end
+      end
+    end
+  end
   -- compiled value rows (raw per rank) by owner id
   local rows = {}
   local function take(id, list) if list then rows[id] = rows[id] or {}; for _, r in ipairs(list) do rows[id][r.name] = r end end end
@@ -126,7 +145,7 @@ local function model(doc, compiled)
   end
   for id, ov in pairs(compiled.owner_values or {}) do take(id, ov.values) end
   return { owners = owners, statuses = statuses, abilities = abilities, templates = templates, entries = entries,
-    rows = rows, routines = doc.routines or {}, vars = vars, doc_id = doc.id }
+    rows = rows, routines = doc.routines or {}, vars = vars, doc_id = doc.id, doc_statuses = doc.statuses or {} }
 end
 
 -- docs/character_pipeline/schema/v3-shared-registry.lua (names shared between documents)
@@ -1115,6 +1134,13 @@ local function emit_statuses(m, root)
         if not trigger_kind(name) then p[#p + 1] = "status_trigger:" .. name end
       end
       local o = m.statuses[id].parent
+      -- a document-level status: its host (the ability creating the template that carries it);
+      -- the applying code's on_created / periodic / aura / reapply live with the parent, so only
+      -- the evented triggers move
+      local evented_only = true
+      for name in pairs(triggers_of(s) or {}) do if name == "on_created" or name == "periodic" then evented_only = false end end
+      if s.aura or s.reapply_if_removed == true then evented_only = false end
+      if o and o.kind ~= "ability" and o.kind ~= "item" and m.statuses[id].host and evented_only then o = m.statuses[id].host end
       if not o or (o.kind ~= "ability" and o.kind ~= "item") then p[#p + 1] = "status.triggers on a document-level status"
       else owner = o.id end
     end
@@ -3332,7 +3358,12 @@ local function emit_entry(m, o, opts, status_problems)
   -- status triggers: on_created / periodic run from the applying code (st_<id>_start); the rest
   -- come back through on_status_event (kind -> functions)
   local status_arms = {}
-  for _, sd in ipairs(def.statuses or {}) do
+  local hosted = {}
+  for _, sd in ipairs(def.statuses or {}) do hosted[#hosted + 1] = sd end
+  for _, sd in ipairs(m.doc_statuses or {}) do
+    if m.statuses[sd.id].host == o then hosted[#hosted + 1] = sd end
+  end
+  for _, sd in ipairs(hosted) do
     local so = m.statuses[sd.id]
     if (triggers_of(sd) or sd.aura or sd.reapply_if_removed == true) and not (sd.runtime_id or ""):match("^attack_orb:") then
       local begin = {}
