@@ -484,24 +484,33 @@ end
 -- a status var's unit var on the holder, and its expression type
 local VAR_TYPES = { fixed = "num", int = "num", bool = "bool", unit = "unit", point = "point" }
 -- Rust that reads / writes a status var of `ty` on `holder` (a point is two num vars `:x` / `:y`)
+-- a key with "\2" is one instance's of an independent status: the firing instance's number there
+-- (cx.event_instance; `__sv:<status>:<n>:<var>`: a state key takes only [a-z0-9_:], unit_var.rs)
+local function key_lit(key)
+  local a, b = key:match("^(.-)\2(.*)$")
+  if a then return string.format('&format!("%s{}%s", cx.event_instance)', a, b) end
+  return rust_str(key)
+end
 local function var_read(ty, holder, key, init)
-  if ty == "unit" then return string.format("cx.state_unit(%s, %s)", holder, rust_str(key)) end
+  if ty == "unit" then return string.format("cx.state_unit(%s, %s)", holder, key_lit(key)) end
   if ty == "point" then
     return string.format("{ let i: Vec2 = %s; Vec2::new(cx.state_num(%s, %s, i.x), cx.state_num(%s, %s, i.y)) }",
-      init, holder, rust_str(key .. ":x"), holder, rust_str(key .. ":y"))
+      init, holder, key_lit(key .. ":x"), holder, key_lit(key .. ":y"))
   end
-  return string.format("cx.state_%s(%s, %s, %s)", ty, holder, rust_str(key), init)
+  return string.format("cx.state_%s(%s, %s, %s)", ty, holder, key_lit(key), init)
 end
 local function var_write(ty, holder, key, value)
-  if ty == "unit" then return string.format("cx.set_state_unit(%s, %s, %s, false)?;", holder, rust_str(key), value) end
+  if ty == "unit" then return string.format("cx.set_state_unit(%s, %s, %s, false)?;", holder, key_lit(key), value) end
   if ty == "point" then
     return string.format("{ let v: Vec2 = %s; cx.set_state_num(%s, %s, v.x, false)?; cx.set_state_num(%s, %s, v.y, false)?; }",
-      value, holder, rust_str(key .. ":x"), holder, rust_str(key .. ":y"))
+      value, holder, key_lit(key .. ":x"), holder, key_lit(key .. ":y"))
   end
-  return string.format("cx.set_state_%s(%s, %s, %s, false)?;", ty, holder, rust_str(key), value)
+  return string.format("cx.set_state_%s(%s, %s, %s, false)?;", ty, holder, key_lit(key), value)
 end
 local function var_zero(ty) return ty == "bool" and "false" or ty == "point" and "Vec2::ZERO" or "Fixed64::ZERO" end
 local function status_var_key(status_id, var) return "__sv:" .. status_id .. ":" .. var end
+-- the firing instance's var of an independent status (its own triggers only)
+local function instance_var_key(status_id, var) return "__sv:" .. status_id .. ":\2:" .. var end
 local UNIT_ATTRS = {
   attack = { "num", "cx.attack(%s)" }, hp = { "num", "cx.hp(%s)" }, max_hp = { "num", "cx.max_hp(%s)" },
   mana = { "num", "cx.mana(%s)" }, is_building = { "bool", "cx.is_building(%s)" }, is_hero = { "bool", "cx.is_hero(%s)" },
@@ -651,8 +660,8 @@ function Gen:expr(node, ctx)
       local v = so and so.kind == "status" and so.def.vars and so.def.vars[parts[1]]
       local ty = v and VAR_TYPES[v.type]
       if not ty then self:block("token:vars (" .. parts[1] .. " outside its status)"); return "Fixed64::ZERO", "err" end
-      if so.def.stacking == "independent" then self:block("status.vars of an independent status"); return "Fixed64::ZERO", "err" end
       local key = status_var_key(so.def.id, parts[1])
+      if so.def.stacking == "independent" then key = instance_var_key(so.def.id, parts[1]) end
       local init = ty ~= "unit" and (v.init ~= nil and self:value(v.init, ctx, ty) or var_zero(ty)) or nil
       return var_read(ty, "cx.self_unit", key, init), ty
     end
@@ -1340,7 +1349,7 @@ local ACTION_FIELDS = {
   cancel_delay = set({ "op", "id" }),
   ["repeat"] = set({ "op", "count", "interval", "first", "while", "stop_when", "as", "actions" }),
   modify_damage = set({ "op", "multiplier", "set", "cancel" }),
-  chance = set({ "op", "p", "actions", "otherwise", "pity_after", "counter", "counter_var" }),
+  chance = set({ "op", "p", "actions", "otherwise", "pity_after", "counter", "counter_var", "mode" }),
   give_gold = set({ "op", "to", "amount", "reliable", "show" }),
   take_gold = set({ "op", "from", "amount" }),
   burn_mana = set({ "op", "to", "amount", "source" }),
@@ -1854,6 +1863,10 @@ function Gen:action(a, ctx, ind)
     return code
   end
   local vso = a.op == "apply_status" and not a.__vars and a.status and self.m.statuses[a.status]
+  if vso and vso.def.stacking == "independent" and a.vars ~= nil then
+    -- a new instance's vars start at their init (its triggers read them by its number)
+    self:block("action:apply_status.vars on an independent status"); return ""
+  end
   if vso and vso.def.vars and next(vso.def.vars) and vso.def.stacking ~= "independent" then
     -- a newly created status starts its vars at their init (apply_status `vars` overrides them)
     local inner = {}
@@ -2053,7 +2066,11 @@ function Gen:action(a, ctx, ind)
   elseif op == "remove_status" then
     if not self.m.statuses[a.status] then self:block("action:remove_status without a declared status"); return "" end
     if self.m.statuses[a.status].def.stacking == "independent" then
-      if ctx.owner == self.m.statuses[a.status] then self:block("action:remove_status of its own independent status (this instance waits)"); return "" end
+      if ctx.owner == self.m.statuses[a.status] then
+        -- its own trigger: the firing instance goes (line B E504 remove_this_instance)
+        if a.from ~= "self" or a.limit ~= nil then self:block("action:remove_status of its own independent status (not this instance)"); return "" end
+        return line("{") .. line("    let from = cx.self_unit;") .. line("    cx.remove_this_instance(from, &super::ids::status::" .. upper(a.status) .. ")?;") .. line("}")
+      end
       -- line B: the earliest instance first (`limit` of them, else every one); only `limit` may join
       for _, k in ipairs({ "dispel", "only", "team_of_source", "except", "states" }) do
         if a[k] ~= nil then self:block("action:remove_status.status with " .. k); return "" end
@@ -2920,10 +2937,15 @@ function Gen:action(a, ctx, ind)
     local v = so and so.def.vars and so.def.vars[a.var]
     local ty = v and VAR_TYPES[v.type]
     if not ty then self:block("action:set_var (" .. tostring(a.var) .. " not a var of its status)"); return "" end
-    if so.def.stacking == "independent" then self:block("status.vars of an independent status"); return "" end
+    local key = status_var_key(so.def.id, a.var)
+    if so.def.stacking == "independent" then
+      -- only the firing instance's own, on its holder
+      if so ~= ctx.owner or (a.on ~= nil and a.on ~= "self") then self:block("status.vars of an independent status (outside its own trigger)"); return "" end
+      key = instance_var_key(so.def.id, a.var)
+    end
     local on = a.on ~= nil and self:value(a.on, ctx, "unit") or "cx.self_unit"
     local value = self:value(a.value, ctx, ty)
-    local call = var_write(ty, "on", status_var_key(so.def.id, a.var), "value")
+    local call = var_write(ty, "on", key, "value")
     return line("{") .. line("    let on = " .. on .. ";") .. line("    let value = " .. value .. ";") .. line("    " .. call) .. line("}")
   elseif op == "order_attack" then
     local who = self:value(a.who, ctx, "unit")
@@ -2978,12 +3000,22 @@ function Gen:action(a, ctx, ind)
     if a.kind ~= nil and a.kind ~= "tracking" then self:block("action:dodge_projectiles.kind:" .. tostring(a.kind)) end
     return line("cx.dodge_projectiles()?;")
   elseif op == "chance" then
-    -- independent rolls (prd is another field: blocked by the field check); pity counts misses in a
-    -- unit var of the caster: `counter` names its range, `counter_var` a declared int state
+    -- independent rolls, or mode prd (pseudo-random: the caster's misses since its last hit under
+    -- the `counter` range raise the next chance, line B E505); pity counts misses in a unit var of
+    -- the caster: `counter` names its range, `counter_var` a declared int state
     local p = self:value(a.p, ctx, "num")
     local pity = ""
     local roll = "cx.chance(p)"
-    if a.pity_after ~= nil then
+    if a.mode ~= nil and a.mode ~= "independent" and a.mode ~= "prd" then self:block("action:chance.mode:" .. tostring(a.mode)); return "" end
+    if a.mode == "prd" then
+      if a.pity_after ~= nil or a.counter_var ~= nil then self:block("action:chance mode prd with pity_after or counter_var"); return "" end
+      local owner = self.entry and self.entry.def.id or self.trace_owner or "?"
+      local ranges = { ability = owner, hero = "hero", item_name = owner, status = (ctx.owner and ctx.owner.kind == "status" and ctx.owner.def.id) or owner }
+      local range = ranges[a.counter or "ability"]
+      if not range then self:block("action:chance.counter:" .. tostring(a.counter)); return "" end
+      pity = line("    let hit = cx.chance_prd(" .. rust_str("__prd:" .. range) .. ", p, " .. tostring(a.counter == "hero") .. ")?;")
+      roll = "hit"
+    elseif a.pity_after ~= nil then
       local key, hero
       if a.counter_var ~= nil then
         local v = self.m.vars[a.counter_var]
