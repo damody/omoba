@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：stat when 的時段列（E508，host）
+
+- `__when_v1` 列：base／night／day，夜晚開始或結束時由 `sync_when_rows` 改寫頂層數值；英雄、主屬性條件由 kit 套上時判斷。
 ## 2026-10-31 線 B：持續施法技能的施法可以套狀態（E509）
 
 - cast_settlement：帶 ScriptAbilityChannel 的施法像一般施法一樣放行狀態、傷害與移動；魔力與冷卻仍只限施法者；道具回復 channel 不變。

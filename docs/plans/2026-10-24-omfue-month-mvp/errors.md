@@ -2,6 +2,17 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E515 獨立實例變數的 state key 用了 #，被 unit_var 拒絕（2026-10-31，工作線 A）
+
+- **現象**：B05 b05_chain_lightning 在影子 conformance 有 12 個 fail，施放被拒（CAST_REJECTED: v3: invalid state variable）。A06 同一套寫法卻是 0 fail：它的 set_var 在觸發裡失敗，錯誤被觸發吞掉，conformance 沒有量到計數。
+- **原因**：產生器用 `__sv:<status>#<n>:<var>` 當獨立實例的變數 key（照 line B E504 的說明），但 omoba-core unit_var::valid_key 只接受 [a-z0-9_:]。
+- **修正**：instance_var_key 改成 `__sv:<status>:<n>:<var>`（數字段與一般 var 名稱不會撞）；a06／gattr 兩批補丁在放回 live 前一起改。
+- **預防**：產生器新造的 state key 一律對照 unit_var::valid_key 的字元集；觸發裡的 `?` 錯誤會被吞，conformance 只看到結果沒變，新增 key 形式時要看一個會失敗就被拒的路徑（施放、apply）確認。
+
+## E514 （保留）沒有可疊加、會衰減的速度衝量：impulse 只能擋下（B25）（2026-10-31）
+
+## E513 （保留）headless 沒有每個階段與 system 的耗時：找不出 server tick 熱點（2026-10-31）
+
 ## E512 headless 報告只有每 tick 平均時間：沒有 p50／p99、超出預算的 tick 與造成的 system（2026-10-31，e187 遊戲模式 session，使用者 D21：功能正確、完整、效能；已放回 live）
 - **現象**：D21 把驗收改成功能與效能，但 moba_headless 只有 step_wall_ms_mean，而且混了重播的 tick；batch 報告沒有效能，也沒有一份功能驗收的總表。
 - **通用修正**：
@@ -36,7 +47,17 @@
 - **測試**：`ability_channel_casts_carry_statuses_on_any_unit_but_only_their_own_resources`；既有的 recovery channel 測試不變。
 - **檔案**：`omoba-core/src/runtime/native/cast_settlement.rs`
 
-## E508 （保留）stat 的 when 條件沒有 host 落點：夜晚、主屬性、英雄限定的數值只能擋下（2026-10-31）
+## E508 stat 的 when 條件沒有 host 落點：夜晚、主屬性、英雄限定的數值只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage stat.when（C10 與另外 6 項）：狀態數值（batch_I0／I3 magic_resist_pool `when = self.is_hero`）、道具被動數值（batch_I1 `when = primary_is(self, ...)`）與技能被動數值（C10 `when = game.is_night`）只能當成無條件，或擋下。
+- **根因**：stat row 只有 `(StatKey, raw)`，BuffStore 聚合時沒有條件；時段會在比賽中變化，套上時算好的值不會跟著改。
+- **通用修正（host 部分）**：
+  - `rules::world::WHEN_KEY`（`__when_v1`）：kit 把有時段條件的列標上 `{ base, night, day, at }`。無條件的數值在 base，夜晚／白天才成立的在 night／day；頂層數值是 base 加上現在成立的那一半，不成立那一半的 key 留在頂層為 0。
+  - `resolve_when(payload, night)` 算出頂層並記下 `at`；kit 套上時用目前的 `game.is_night` 先算好。
+  - `sync_when_rows(world, now)`：moba_match 每個進行中的 tick 呼叫（step 中 MobaMatch 不在 world 裡，所以由呼叫端給比賽時間）。只改寫 `at` 與現在不同的列；新增的 `BuffStore::rewrite_payload` 保留持續時間與時鐘，並維護 key 索引。
+  - 英雄限定與主屬性在列存在期間不會變，由 kit 在套上時判斷（kit 部分在 E501 放回後接上）。
+- **測試**：`when_rows_follow_the_night`。
+- **檔案**：`omoba-core/src/runtime/native/rules/world.rs`、`omoba-core/src/runtime/native/ability_runtime/buff_store.rs`、`omoba-core/src/runtime/native/moba_match.rs`
 
 ## E507 split 快照建置後 stage 了 live 新增、快照沒建的英雄 DLL（2026-10-31，工作線 C）
 - 現象：工作線 C 的 mogami_yoshihime spotlight split 在 cargo 全部建完後失敗：`dev_run_freshness.lua:8: source missing: target\lineC-bins\release\hero_a04.dll`。

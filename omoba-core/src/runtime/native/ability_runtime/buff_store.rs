@@ -429,6 +429,18 @@ impl BuffStore {
             .and_then(|entity_buffs| entity_buffs.get(buff_id))
     }
 
+    /// Replaces the payload of an existing row in place (its duration and clocks stay), keeping
+    /// the key index; false without the row (v3 stat `when`, rules::world::sync_when_rows, E508).
+    pub fn rewrite_payload(&mut self, entity: Entity, buff_id: &str, payload: Value) -> bool {
+        let Some(entry) = self.buffs.get_mut(&entity).and_then(|rows| rows.get_mut(buff_id)) else { return false };
+        let old_keys: Vec<String> = Self::payload_keys(&entry.payload).map(String::from).collect();
+        entry.payload = payload;
+        let new_keys: Vec<String> = Self::payload_keys(&entry.payload).map(String::from).collect();
+        for k in &old_keys { if !new_keys.contains(k) { self.index_dec(entity, k); } }
+        for k in &new_keys { if !old_keys.contains(k) { self.index_inc(entity, k); } }
+        true
+    }
+
     pub fn has_any(&self, entity: Entity) -> bool {
         self.buffs
             .get(&entity)

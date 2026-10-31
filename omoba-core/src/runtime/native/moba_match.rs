@@ -2328,6 +2328,8 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
         let elapsed = state.elapsed;
         super::tree_cut::tick(world, &mut state.trees, map, elapsed);
     }
+    // v3 stat `when` on the time of day (E508): rows follow a night that started or ended.
+    super::rules::world::sync_when_rows(world, state.elapsed);
     // Summons that block pathing appear and leave as public terrain, before any movement (E426).
     super::unit_blockers::tick(world);
     // Ground pickups spawn, expire and are taken before any movement (E243).

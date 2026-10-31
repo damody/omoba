@@ -67,6 +67,49 @@ pub fn settle_time_of_day(world: &mut World, buff_id: &str, payload: &serde_json
     true
 }
 
+/// v3 stat `when = game.is_night` / `not game.is_night`（E508）：kit 把這種狀態列標上 [`WHEN_KEY`]，
+/// 無條件的數值放在 `base`，只在夜晚／白天成立的放在 `night`／`day`；列的頂層數值是 base 加上
+/// 現在成立的那一半（`at`）。kit 套上時就算好；夜晚開始或結束時由 [`sync_when_rows`] 改寫。
+pub const WHEN_KEY: &str = "__when_v1";
+
+/// 依 `night` 算出 `payload` 頂層的數值並記下 `at`；沒有 [`WHEN_KEY`] 或格式不對時不動，回傳 false。
+pub fn resolve_when(payload: &mut serde_json::Map<String, serde_json::Value>, night: bool) -> bool {
+    let Some(row) = payload.get(WHEN_KEY).and_then(serde_json::Value::as_object) else { return false };
+    let half = |name: &str| row.get(name).and_then(serde_json::Value::as_object).cloned().unwrap_or_default();
+    let (base, active, other) = if night { (half("base"), half("night"), half("day")) } else { (half("base"), half("day"), half("night")) };
+    let mut totals: Vec<(String, i64)> = Vec::new();
+    for key in base.keys().chain(active.keys()).chain(other.keys()) {
+        if totals.iter().any(|(k, _)| k == key) { continue; }
+        let raw = |half: &serde_json::Map<String, serde_json::Value>| half.get(key).and_then(serde_json::Value::as_i64).unwrap_or(0);
+        totals.push((key.clone(), raw(&base).saturating_add(raw(&active))));
+    }
+    for (key, raw) in totals { payload.insert(key, raw.into()); }
+    if let Some(row) = payload.get_mut(WHEN_KEY).and_then(serde_json::Value::as_object_mut) {
+        row.insert("at".into(), (if night { "night" } else { "day" }).into());
+    }
+    true
+}
+
+/// 夜晚開始或結束後，把 `at` 與現在不同的 [`WHEN_KEY`] 列改寫成現在的數值（比賽時間 `now`；
+/// moba_match 每個進行中的 tick 呼叫，此時 MobaMatch 不在 world 裡，所以由呼叫端給時間）。
+pub fn sync_when_rows(world: &World, now: Fixed64) {
+    let night = world.try_fetch::<TemporaryNight>().and_then(|night| night.until).is_some_and(|until| now < until);
+    let Some(mut buffs) = world.try_fetch_mut::<BuffStore>() else { return };
+    let at = if night { "night" } else { "day" };
+    let mut holders: Vec<Entity> = buffs.entities_with_key(WHEN_KEY).collect();
+    holders.sort_by_key(|entity| (entity.id(), entity.gen().id()));
+    for entity in holders {
+        let stale: Vec<(String, serde_json::Value)> = buffs.iter_for(entity)
+            .filter(|(_, entry)| entry.payload.get(WHEN_KEY).and_then(|row| row.get("at")).and_then(serde_json::Value::as_str) != Some(at))
+            .filter(|(_, entry)| entry.payload.get(WHEN_KEY).is_some())
+            .map(|(id, entry)| (id.to_owned(), entry.payload.clone())).collect();
+        for (id, payload) in stale {
+            let serde_json::Value::Object(mut payload) = payload else { continue };
+            if resolve_when(&mut payload, night) { buffs.rewrite_payload(entity, &id, serde_json::Value::Object(payload)); }
+        }
+    }
+}
+
 /// Replica 每一步開始：採用這一步公開的夜晚剩餘時間（[`NIGHT_METRIC_ID`]，每個 tick 都送，白天 0），
 /// 讓 `game.is_night` 在每一端都一樣（E453）。沒有這個指標時不動。
 pub fn apply_disclosed(world: &mut World, payloads: &[&[u8]]) {
@@ -134,6 +177,36 @@ mod tests {
         assert!(is_night(&replica), "no fact, no change");
         apply_disclosed(&mut replica, &[hud(0).as_slice()]);
         assert!(!is_night(&replica));
+    }
+
+    /// E508：when 列在夜晚開始與結束時改寫頂層數值，不成立那一半的 key 留在頂層為 0。
+    #[test]
+    fn when_rows_follow_the_night() {
+        use omb_script_abi::stat_keys::StatKey;
+        let mut world = World::new();
+        let unit = world.create_entity().build();
+        let raw = |n: i32| i64::from(n) * 1024;
+        let mut payload = serde_json::json!({ (WHEN_KEY): { "base": { "physical_armor_bonus": raw(2) },
+            "night": { "physical_armor_bonus": raw(3), "preattack_bonus_damage": raw(10) }, "day": { "move_speed_bonus": raw(20) } } })
+            .as_object().unwrap().clone();
+        assert!(resolve_when(&mut payload, false));
+        let mut buffs = BuffStore::new();
+        buffs.add(unit, "dusk", Fixed64::from_i32(60), serde_json::Value::Object(payload));
+        world.insert(buffs);
+        let stat = |world: &World, key: StatKey| world.read_resource::<BuffStore>().sum_add(unit, key);
+        assert_eq!((stat(&world, StatKey::PhysicalArmorBonus), stat(&world, StatKey::PreattackBonusDamage), stat(&world, StatKey::MoveSpeedBonus)),
+            (Fixed64::from_i32(2), Fixed64::ZERO, Fixed64::from_i32(20)), "day as applied");
+        world.insert(TemporaryNight { until: Some(Fixed64::from_i32(10)) });
+        sync_when_rows(&world, Fixed64::from_i32(1));
+        assert_eq!((stat(&world, StatKey::PhysicalArmorBonus), stat(&world, StatKey::PreattackBonusDamage), stat(&world, StatKey::MoveSpeedBonus)),
+            (Fixed64::from_i32(5), Fixed64::from_i32(10), Fixed64::ZERO), "night");
+        assert!(world.read_resource::<BuffStore>().get(unit, "dusk").unwrap().remaining == Fixed64::from_i32(60), "duration kept");
+        sync_when_rows(&world, Fixed64::from_i32(10));
+        assert_eq!(stat(&world, StatKey::PhysicalArmorBonus), Fixed64::from_i32(2), "the night ran out");
+        assert_eq!(stat(&world, StatKey::MoveSpeedBonus), Fixed64::from_i32(20));
+        let rewritten = world.read_resource::<BuffStore>().get(unit, "dusk").unwrap().payload.clone();
+        sync_when_rows(&world, Fixed64::from_i32(11));
+        assert_eq!(world.read_resource::<BuffStore>().get(unit, "dusk").unwrap().payload, rewritten, "nothing changed, nothing rewritten");
     }
 
     /// E453：施法送出的 time_of_day 封包由 process_outcomes 結算成夜晚，不留在 BuffStore。
