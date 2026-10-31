@@ -1250,7 +1250,7 @@ local ACTION_FIELDS = {
   order_attack = set({ "op", "who", "target" }),
   random_pick = set({ "op", "options", "as" }),
   modify_attack = set({ "op", "crit_multiplier", "cannot_miss", "is_orb" }),
-  knockback = set({ "op", "who", "from", "distance", "duration", "stun", "height" }),
+  knockback = set({ "op", "who", "from", "distance", "duration", "stun", "height", "stop_on_contact", "contact_radius", "on_end" }),
   cancel_cast = set({ "op", "reason" }),
   face = set({ "op", "who", "toward" }),
   leap = set({ "op", "who", "to", "duration", "height" }),
@@ -2096,6 +2096,35 @@ function Gen:action(a, ctx, ind)
     local from, from_ty = self:value(a.from, ctx)
     if from_ty ~= "unit" and from_ty ~= "point" then self:block("action:knockback.from of a " .. tostring(from_ty)); return "" end
     local stun = a.stun == nil and "true" or (type(a.stun) == "boolean" and tostring(a.stun) or self:value(a.stun, ctx, "bool"))
+    if a.stop_on_contact ~= nil or a.on_end ~= nil then
+      -- line B E494: stop at the first living non-building unit ahead within contact_radius; on_end
+      -- runs once on the caster for any end, `at` / `here` where the pushed unit stopped
+      if a.stop_on_contact ~= nil and type(a.stop_on_contact) ~= "boolean" then self:block("action:knockback.stop_on_contact of an expression"); return "" end
+      if a.stop_on_contact == true and a.contact_radius == nil then self:block("action:knockback.stop_on_contact without contact_radius"); return "" end
+      local contact = a.stop_on_contact == true and ("Some(" .. self:value(a.contact_radius, ctx, "num") .. ")") or "None"
+      local on_end, args_line = "None", ""
+      if a.on_end and #a.on_end > 0 then
+        local sc = step_scope(ctx, 0)
+        sc.names.at = { name = "at", ty = "point", marker = "ability_kit::arg_as_point(args, \1END\1)", used = true }
+        sc.names.here = sc.names.at
+        local step = self:reserve_step()
+        local body = self:actions(a.on_end, { owner = ctx.owner, scope = sc, event = false }, "    ")
+        local eargs = self:capture_args(sc)
+        if #eargs + 1 > 8 then self:block("knockback.on_end: more than 7 captured values") end
+        body = body:gsub("\1END\1", tostring(#eargs))
+        self:set_step(step, "`knockback` on_end", body, true)
+        args_line = line("    let end_args = [" .. table.concat(eargs, ", ") .. "];")
+        on_end = string.format("Some((ID, %d, &end_args[..]))", step)
+      end
+      return line("{") .. line("    let who = " .. who .. ";")
+        .. line("    let from = " .. (from_ty == "unit" and ("{ let u = " .. from .. "; cx.pos(u)? }") or from) .. ";")
+        .. line("    let distance = " .. self:value(a.distance, ctx, "num") .. ";")
+        .. line("    let duration = " .. self:value(a.duration, ctx, "num") .. ";")
+        .. line("    let height = " .. (a.height ~= nil and self:value(a.height, ctx, "num") or "Fixed64::ZERO") .. ";")
+        .. line("    let contact = " .. contact .. ";") .. args_line
+        .. line("    cx.knockback_ended(who, from, distance, duration, " .. stun .. ", Fixed64::from_i32(10_000), height, contact, " .. on_end .. ")?;")
+        .. line("}")
+    end
     return line("{") .. line("    let who = " .. who .. ";")
       .. line("    let from = " .. (from_ty == "unit" and ("{ let u = " .. from .. "; cx.pos(u)? }") or from) .. ";")
       .. line("    let distance = " .. self:value(a.distance, ctx, "num") .. ";")
@@ -3311,6 +3340,20 @@ local function emit_entry(m, o, opts, status_problems)
     if not toggle_status then g:block("toggle: on_toggle_on must put a status on the caster") end
   end
   if events.on_learn then program("on_learn_first", events.on_learn, false) end
+  -- a permanent status on_learn puts on the learner, with stats: a rank up puts it again at the
+  -- new rank (its stacks kept), as the source's modifier reads its level live (D a14t_aspd_stack)
+  local rerank = {}
+  for _, a in ipairs(events.on_learn or {}) do
+    local so = a.op == "apply_status" and a.to == "caster" and m.statuses[a.status]
+    local sd = so and so.def
+    if sd and sd.stats and (sd.duration == nil or sd.duration == "infinite") and sd.stacking ~= "independent" then
+      local again = type(sd.stacking) == "table"
+        and { op = "set_stacks", status = a.status, to = "caster", count = "stacks(caster, " .. a.status .. ")" }
+        or { op = "apply_status", status = a.status, to = "caster" }
+      rerank[#rerank + 1] = { op = "if", cond = "has_status(caster, " .. a.status .. ")", actions = { again } }
+    end
+  end
+  if #rerank > 0 then program("on_learn_rerank", rerank, false) end
   if events.on_upgrade then program("on_upgrade", events.on_upgrade, false) end
   local passive = def.passive or {}
   local owner_triggers = {}
@@ -3608,6 +3651,7 @@ local function emit_entry(m, o, opts, status_problems)
   if passive_periodic then learn[#learn + 1] = passive_periodic end
   if passive_aura then learn[#learn + 1] = passive_aura end
   if events.on_learn then learn[#learn + 1] = "        if new_level == 1 { let _ = on_learn_first(&mut cx); }\n" end
+  if #rerank > 0 then learn[#learn + 1] = "        if new_level > 1 { let _ = on_learn_rerank(&mut cx); }\n" end
   -- the passive's implicit status is made: its on_created, once
   if passive_created then learn[#learn + 1] = "        if new_level == 1 { let _ = on_created(&mut cx); }\n" end
   -- on_upgrade: every rank, the first included (v3.md §12.4)
