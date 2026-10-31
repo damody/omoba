@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：issue_order.queue（E495）
+
+- kit `order_attack_queued(unit, target)`：英雄把攻擊排在目前與已排的命令之後；閒置的召喚物直接攻擊，有命令的召喚物忽略。
 ## 2026-10-31 線 B：knockback 的 stop_on_contact 與 on_end（E494）
 
 - kit `knockback_ended(.., contact_radius: Option, on_end: Option<(ability, step, captures)>)`：撞到前方單位就停；結束時在施法者身上排程 on_end，附上落點。

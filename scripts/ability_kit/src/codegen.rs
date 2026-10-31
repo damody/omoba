@@ -968,6 +968,12 @@ impl<'a, 'w> Cx<'a, 'w> {
         if !target.is_valid() { return Ok(()); }
         self.hero_command(unit, hero_command::Command::OrderFollow { target: (target.id, target.gen as i32) })
     }
+    /// `issue_order attack` with `queue` (E495): a hero attacks `target` after what it is doing
+    /// and what is queued; a summon without an order of its own attacks it now.
+    pub fn order_attack_queued(&mut self, unit: EntityHandle, target: EntityHandle) -> Res {
+        if !target.is_valid() { return Ok(()); }
+        self.hero_command(unit, hero_command::Command::OrderAttackQueued { target: (target.id, target.gen as i32) })
+    }
     /// `order_attack`: `unit` (a hero) attacks `target` as if its owner ordered it; not locked.
     pub fn order_attack(&mut self, unit: EntityHandle, target: EntityHandle) -> Res {
         if !target.is_valid() { return Ok(()); }

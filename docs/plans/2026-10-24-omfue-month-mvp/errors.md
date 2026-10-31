@@ -2,7 +2,25 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E495 （保留）issue_order.queue 沒有 host 落點（C15 百箭）（2026-10-31）
+## E499 （保留）召喚物的 template hp_regen 從未生效，且不接受負值（C15 箭矢）（2026-10-31）
+
+## E498 （保留）v3 conformance 放在施法點的友方單位沒有 class，count_in_radius 的 creep 算不到（c19 突襲 CAST_REJECTED）（2026-10-31）
+
+## E497 （保留）ability_in_slot 與綁定技能的 modify_cooldown 沒有 host 落點（C25）（2026-10-31）
+
+## E496 （保留）status_trigger:on_attack_miss 沒有 host 落點（A06）（2026-10-31）
+
+## E495 issue_order.queue 沒有 host 落點：C15 百箭只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage M5 第 2 項：c15_hundred_arrows 讓每支箭與玉子 `issue_order { order = "attack", queue = true }`，host 只有會打斷目前動作的攻擊命令，產生器擋下（M5 已上架英雄的最後一招之一）。
+- **根因**：hero_command 的攻擊命令一律清掉命令佇列並打斷攻擊，沒有「排在後面」的形式。
+- **通用修正**：
+  - `hero_command::Command::OrderAttackQueued { target }`（op `order_attack_queued`）。
+  - 英雄：把攻擊附加到 HeroCommandQueue 最後（`append`，上限照舊），不打斷目前的動作。
+  - 召喚物沒有佇列：沒有 ordered attack、follow 或 move 時，當成一般攻擊命令；有的話就忽略，套用失敗。
+  - kit 新增 `order_attack_queued(unit, target)`。
+- **回歸**：`summon_tick` 測試 `a_summon_takes_issued_attack_move_and_stop_orders`：閒置召喚物收到排隊攻擊會攻擊；正在移動的召喚物保留原本的移動。
+- **檔案**：`omoba-core/src/runtime/native/hero_command.rs`、`tick/summon_tick.rs`、`scripts/ability_kit/src/codegen.rs`
 
 ## E494 knockback 的 contact_radius／stop_on_contact／on_end 沒有 host 落點：A14 衝擊之槍只能擋下（2026-10-31，工作線 B）
 

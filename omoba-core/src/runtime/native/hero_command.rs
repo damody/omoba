@@ -33,6 +33,11 @@ pub enum Command {
     /// v3 `issue_order follow` (原作 MoveToNPC, E489): a summon walks to `target` and keeps
     /// following it until another order replaces this one or the target dies. Heroes do not take it.
     OrderFollow { target: (u32, i32) },
+    /// v3 `issue_order attack` with `queue` (原作 a queued order, E495): a hero attacks `target`
+    /// after what it is doing and what is queued (nothing is interrupted); a summon, which keeps no
+    /// queue, takes it as an attack order when it has no ordered attack, follow or move, and
+    /// ignores it otherwise.
+    OrderAttackQueued { target: (u32, i32) },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +71,8 @@ impl Command {
             Command::Order { kind, at: (x, y) } => json!({ "op": kind.name(), "ability": "", "raw": pack(*x, *y) }),
             Command::OrderFollow { target: (id, gen) } =>
                 json!({ "op": "order_follow", "ability": "", "raw": ((i64::from(*id)) << 32) | i64::from(*gen as u32) }),
+            Command::OrderAttackQueued { target: (id, gen) } =>
+                json!({ "op": "order_attack_queued", "ability": "", "raw": ((i64::from(*id)) << 32) | i64::from(*gen as u32) }),
         };
         json!({ (KEY): row })
     }
@@ -89,18 +96,23 @@ impl Command {
                 if matches!(kind, OrderKind::Stop | OrderKind::Hold) && raw != 0 { return None; }
                 return Some(Command::Order { kind, at });
             }
-            op @ ("order_attack" | "order_follow") if raw >= 0 && ability.is_empty() => {
+            op @ ("order_attack" | "order_follow" | "order_attack_queued") if raw >= 0 && ability.is_empty() => {
                 let gen = (raw & 0xffff_ffff) as u32 as i32;
                 if gen <= 0 { return None; }
                 let target = ((raw >> 32) as u32, gen);
-                return Some(if op == "order_attack" { Command::OrderAttack { target } } else { Command::OrderFollow { target } });
+                return Some(match op {
+                    "order_attack" => Command::OrderAttack { target },
+                    "order_follow" => Command::OrderFollow { target },
+                    _ => Command::OrderAttackQueued { target },
+                });
             }
             _ => return None,
         };
         match &cmd {
             Command::CooldownStart { ability, .. } | Command::CooldownReduce { ability, .. } | Command::CooldownEnd { ability }
             | Command::Level { ability, .. } => ability_ok(ability).then_some(cmd),
-            Command::Health { .. } | Command::OrderAttack { .. } | Command::Order { .. } | Command::OrderFollow { .. } => Some(cmd),
+            Command::Health { .. } | Command::OrderAttack { .. } | Command::Order { .. } | Command::OrderFollow { .. }
+            | Command::OrderAttackQueued { .. } => Some(cmd),
         }
     }
 }
@@ -157,7 +169,25 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, payload: &Value) 
             if leader.gen().id() != gen || !world.entities().is_alive(leader) || leader == target { return false; }
             summon_order(world, target, SummonOrder::Follow(leader))
         }
+        Command::OrderAttackQueued { target: (id, gen) } => order_attack_queued(world, target, id, gen),
     }
+}
+
+/// [`Command::OrderAttackQueued`]: appended to a hero's queue; a summon without an order of its
+/// own attacks now.
+fn order_attack_queued(world: &mut World, unit: Entity, id: u32, gen: i32) -> bool {
+    use super::comp::{HeroCommand, HeroCommandQueue, MoveTarget};
+    let attackee = world.entities().entity(id);
+    if attackee.gen().id() != gen || !world.entities().is_alive(attackee) || attackee == unit { return false; }
+    if world.read_storage::<super::comp::Hero>().get(unit).is_none() {
+        let busy = world.read_storage::<OrderedAttack>().get(unit).is_some()
+            || world.read_storage::<OrderedFollow>().get(unit).is_some()
+            || world.read_storage::<MoveTarget>().get(unit).is_some();
+        return !busy && order_attack(world, unit, id, gen);
+    }
+    let mut queues = world.write_storage::<HeroCommandQueue>();
+    let Some(queue) = queues.get_mut(unit) else { return false };
+    queue.append(HeroCommand::AttackTarget { target: attackee, chase_origin: None })
 }
 
 /// A summon's ordered attack (E412; summons, illusions and dummies take `issue_order` too):

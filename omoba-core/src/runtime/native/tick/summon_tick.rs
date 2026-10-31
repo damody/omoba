@@ -251,6 +251,14 @@ mod tests {
             "it follows the leader as it moves");
         issue(&mut world,Command::Order {kind:OrderKind::Stop,at:(0,0)});
         assert!(world.read_storage::<hero_command::OrderedFollow>().get(unit).is_none() && world.read_storage::<MoveTarget>().get(unit).is_none());
+        // E495: a queued attack is an attack order for an idle summon, and ignored by a busy one.
+        let queued=Command::OrderAttackQueued {target:(leader.id(),leader.gen().id())};
+        issue(&mut world,queued.clone());
+        assert_eq!(world.read_storage::<hero_command::OrderedAttack>().get(unit).map(|o|o.0),Some(leader));
+        issue(&mut world,Command::Order {kind:OrderKind::Move,at:(0,0)});
+        assert!(!hero_command::apply(&mut world,unit,hero_command::BUFF,&queued.payload()),"a moving summon keeps its move");
+        assert!(world.read_storage::<hero_command::OrderedAttack>().get(unit).is_none());
+        issue(&mut world,Command::Order {kind:OrderKind::Stop,at:(0,0)});
         // An immobile summon takes no move.
         world.write_storage::<SummonedUnit>().get_mut(unit).unwrap().immobile=true;
         assert!(!hero_command::apply(&mut world,unit,hero_command::BUFF,&Command::Order {kind:OrderKind::Move,at:(0,0)}.payload()));
