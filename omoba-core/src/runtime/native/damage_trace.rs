@@ -116,4 +116,38 @@ mod tests {
         ]);
         assert!(world.read_resource::<DamageTrace>().0.iter().all(|row| row.ability == "probe" && row.source == a && row.target == b));
     }
+
+    /// 決定性（E458）：同一批 outcome，開統計（DamageTrace＋夾在中間的 tag）與不開時，
+    /// 生命值、狀態、比賽 digest 與 fact 的排序鍵都相同；tag 只能觀察，不能影響模擬。
+    #[test]
+    fn stats_on_and_off_settle_the_same_batch_alike() {
+        let run = |traced: bool| {
+            let (mut world, mut driver, a, b) = world();
+            if !traced { world.remove::<DamageTrace>(); }
+            driver.step(&mut world, []).unwrap();
+            let _ = world.read_resource::<crate::runtime::ObservableFactBuffer>().drain_ordered().unwrap();
+            let mut batch = Vec::new();
+            for (index, (source, target)) in [(a, b), (b, a), (a, b)].into_iter().enumerate() {
+                if traced { batch.push(Outcome::ScriptDamageTag { ability: "probe".into(), path: format!("events.on_cast[{index}]") }); }
+                batch.push(Outcome::ScriptDamageCredit { credit: source });
+                if traced { batch.push(Outcome::ScriptDamageTag { ability: "probe".into(), path: format!("events.on_hit[{index}]") }); }
+                batch.push(Outcome::RawDamage { pos: omoba_sim::Vec2::ZERO, phys: Fixed64::from_i32(20), magi: Fixed64::from_i32(30),
+                    real: Fixed64::ZERO, source, target, damage_profile: DamageProfile::NORMAL.bits(), origin: None });
+                batch.push(Outcome::AddBuff { target, buff_id: format!("e458_probe_{index}"), duration: Fixed64::from_i32(3),
+                    payload: serde_json::json!({}) });
+            }
+            world.write_resource::<Vec<Outcome>>().extend(batch);
+            let mut events = crate::runtime::native::events::RuntimeEventVecSink::default();
+            crate::runtime::native::game_processor::process_outcomes(&mut world, &mut events).unwrap();
+            let hp = [a, b].map(|unit| world.read_storage::<crate::runtime::comp::CProperty>().get(unit).unwrap().hp.raw());
+            let buffs = [a, b].map(|unit| (0..3).map(|index| world.read_resource::<crate::runtime::BuffStore>()
+                .has(unit, &format!("e458_probe_{index}"))).collect::<Vec<_>>());
+            let facts: Vec<_> = world.read_resource::<crate::runtime::ObservableFactBuffer>().drain_ordered().unwrap()
+                .into_iter().map(|fact| (fact.key, fact.fact)).collect();
+            (hp, buffs, facts, crate::runtime::single_lane_replay_digest(&world))
+        };
+        let traced = run(true);
+        assert!(!traced.2.is_empty(), "the batch publishes facts");
+        assert_eq!(traced, run(false));
+    }
 }

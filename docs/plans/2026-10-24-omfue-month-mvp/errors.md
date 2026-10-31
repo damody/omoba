@@ -2,6 +2,8 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E461 （保留）小兵面向只能靠截圖肉眼判斷，headless 與 split 都沒有資料層檢查（2026-10-31）
+
 ## E460 bot 對魔免、不可選取的單位施放單位技能，被拒成 INVALID_TARGET（2026-10-31，工作線 B）
 
 - **現象**：工作線 E 用 E454 的 INVALID_TARGET 取樣發現，bot 會對敵方魔免單位、不可選取的單位，以及（hero-only 技能）非英雄單位施放單位技能，dispatch 拒絕後只浪費決策。
@@ -27,7 +29,25 @@
 - 修正（共用層）：`load_v3_package` 遇到 bot kind 為 `none` 的主動技能時不放進 slots，改列在 `unshown`（slot、id、原因）；其他技能保留原本的格子編號。沒寫 kind 或 kind 不在瞄準表的仍然斷言失敗。`record_hero_spotlight_test` 以 B22 驗證（W、D 列為 unshown，Q、E、R 在 0、2、3 格）。
 - 避免：spotlight 沒有樹木目標的示範能力；報告會把這些技能列為未示範。若要示範，需要在自動駕駛加「最近的樹」目標，而不是逐英雄特例。
 
-## E458 （保留）統計開啟後 damage tag 占用 fact 序號與召喚交易上限，tag 可影響模擬（2026-10-31）
+## E458 統計開啟後 damage tag 占用 fact 序號與召喚交易上限，tag 可影響模擬（2026-10-31，工作線 B）
+
+- **現象**：
+  - 工作線 E（E446 後續）發現，開啟 hero stats（DamageTrace）後，腳本送出的 `ScriptDamageTag` 會改變模擬結果。
+  - 同 seed 的 quick_swap 局在 09:44 的建置於 tick 1077 分歧。
+- **調查**：
+  - 用私有 headless probe，在同一程序內 lockstep 跑一份不帶追蹤的世界，逐 tick 比對位置、生命、冷卻、mana、等級與 BuffStore。
+  - 09:44 的建置可以重現分歧；11:18 的樹不再分歧。把 E439 改回舊條件也不會重現，所以 E439 不是成因。
+  - tag 仍留有兩條會依統計開關而改變結果的路徑：
+    - **fact 序號**：`process_outcomes` 給每個 outcome（包含 tag）分配一個 `next_ordinal`。fact 的 `local_ordinal` 與 critical fact 都依它編號，所以統計開或關時，replica 投影收到的 fact 排序鍵不同。
+    - **召喚交易上限**：`cast_settlement::admission` 的 `effects.len()>512` 把 tag 算進召喚交易的效果數。效果數接近上限時，開統計的施法會被拒絕，不開的會通過。
+- **通用修正**：
+  - tag 不再占用 fact 序號。
+  - 召喚交易的 512 上限只計算 tag 以外的效果。
+  - 從此 trace 與 tag 只是觀察，不會改變任何排序或准入。
+- **回歸**：
+  - 新增 `damage_trace::tests::stats_on_and_off_settle_the_same_batch_alike`。同一批 outcome（credit、damage、狀態交錯，開統計時夾入 tag）在統計開和關時結算，雙方英雄的生命值、狀態、`single_lane_replay_digest` 與 fact 的排序鍵、內容都必須相同。
+  - 修正前，tag 會讓之後 fact 的 `local_ordinal` 位移，這個比較就會不同。
+- **檔案**：`omoba-core/src/runtime/native/game_processor.rs`、`omoba-core/src/runtime/native/cast_settlement.rs`、`omoba-core/src/runtime/native/damage_trace.rs`
 
 ## E457 （保留）conformance：on_phase_start 取消施法所需的世界條件（目標狀態、友方血量較低、地點附近友軍）沒有先建立（2026-10-31）
 

@@ -22,7 +22,9 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
     let summons=effects.iter().any(|e|matches!(e,Outcome::SpawnSummoned {..}));
     let channels=effects.iter().filter(|effect|matches!(effect,Outcome::ScriptRecoveryChannel {..}|Outcome::ScriptAbilityChannel {..})).count();
     if channels>1 || (channels>0&&summons){return Err("channel_with_summons");}
-    if skill.is_empty() || (summons&&effects.len()>512) || cue_count>16 || rank>u8::MAX as u32
+    // Trace tags are observation only: the summon cap counts the effects alike with stats on or off.
+    let counted=effects.iter().filter(|effect|!matches!(effect,Outcome::ScriptDamageTag {..})).count();
+    if skill.is_empty() || (summons&&counted>512) || cue_count>16 || rank>u8::MAX as u32
         || !world.entities().is_alive(caster)
         || world.read_storage::<CProperty>().get(caster).is_none_or(|p|p.hp<=Fixed64::ZERO)
         || world.read_resource::<GamePause>().is_paused

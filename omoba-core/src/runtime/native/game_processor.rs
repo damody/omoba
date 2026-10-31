@@ -3176,8 +3176,9 @@ pub fn process_outcomes(
             world.insert(super::rules::damage::DamageCredit(credit_now));
             credit_set = credit_now.is_some();
         }
+        // A trace tag is no fact: facts number alike with stats on or off.
         let outcome_ordinal = next_ordinal;
-        next_ordinal += 1;
+        if !matches!(outcome, Outcome::ScriptDamageTag {..}) {next_ordinal += 1;}
         let (outcome, projectile_origin) = match outcome {
             Outcome::ProjectileContext {origin, outcome} => {
                 let source = match &*outcome {
