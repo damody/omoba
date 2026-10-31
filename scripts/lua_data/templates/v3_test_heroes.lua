@@ -67646,6 +67646,36 @@ local data = {
         max_level = 4,
         schema = "3.3",
         source_id = "C06E",
+        statuses = {
+          {
+            dispel = "basic",
+            id = "c06e_trap_root",
+            reveal = "public",
+            text = {
+              en = {
+                body = "Rooted for {root_time} seconds: cannot move.",
+                name = "Thief's Gift Root",
+                pieces = {
+                  { text = "Rooted for " },
+                  { owner = "item_c06e", value = "root_time" },
+                  { text = " seconds: cannot move." },
+                },
+                rendered = "Rooted for 2.5 seconds: cannot move.",
+              },
+              zh_TW = {
+                body = "定身 {root_time} 秒，無法移動。",
+                name = "大盜的贈禮定身",
+                pieces = {
+                  { text = "定身 " },
+                  { owner = "item_c06e", value = "root_time" },
+                  { text = " 秒，無法移動。" },
+                },
+                rendered = "定身 2.5 秒，無法移動。",
+              },
+            },
+            visibility = "debuff",
+          },
+        },
         text = {
           en = {
             body = "Cast on an enemy hero: Goemon gains {money} gold and the target loses the same amount (Goemon is paid even if the target cannot afford it). A random item other than {@item_c06e} in the target's first six slots is destroyed and replaced with {@item_c06e}; using it restores the original item (as a fresh copy) but deals {trap_damage} magic damage and roots the user. With {@c06t_mark}, the target also takes {mark_damage} pure damage.",

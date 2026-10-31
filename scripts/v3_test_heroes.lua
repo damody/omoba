@@ -184,6 +184,27 @@ local function build(entry)
       ranks[idx] = not later and (has(doc.hero.auto_learn, ab.id) or not has(ab.tags, "ultimate")) and 1 or 0
     end
   end
+  -- an item the document defines (not a shop item: C06 item_c06e) has no catalog row of its own,
+  -- so the ability that gives it (give_item) carries its statuses in its v3 block: the host's
+  -- dispel classes, tags and immunities come from there (omoba-core dispel.rs)
+  local function gives(t, id)
+    if type(t) ~= "table" then return false end
+    if t.op == "give_item" and t.item == id then return true end
+    for _, v in pairs(t) do if gives(v, id) then return true end end
+    return false
+  end
+  for _, it in ipairs(doc.items or {}) do
+    local block = (compiled.items or {})[it.id]
+    for i, ab in ipairs(doc.abilities) do
+      if block and block.statuses and gives(ab, it.id) then
+        local v3b = abilities[i].v3
+        local have = {}
+        for _, st in ipairs(v3b.statuses or {}) do have[st.id] = true end
+        v3b.statuses = v3b.statuses or {}
+        for _, st in ipairs(block.statuses) do if not have[st.id] then v3b.statuses[#v3b.statuses + 1] = st end end
+      end
+    end
+  end
   -- the host's slots 1..6 (Q W E R D F, line B f04f942d): an empty slot below the highest filled
   -- one is "" with rank 0 (an F without a D, line B cddcb1af); the row never ends in one
   local top = 0
