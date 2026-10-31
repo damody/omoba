@@ -1352,6 +1352,7 @@ local ACTION_FIELDS = {
   set_ability_level = set({ "op", "of", "ability", "level" }),
   end_channel = set({ "op", "interrupted" }),
   set_health = set({ "op", "to", "value" }),
+  modify_base_stat = set({ "op", "to", "stat", "amount" }),
   order_attack = set({ "op", "who", "target" }),
   random_pick = set({ "op", "options", "as" }),
   modify_attack = set({ "op", "crit_multiplier", "cannot_miss", "is_orb" }),
@@ -2649,14 +2650,17 @@ function Gen:action(a, ctx, ind)
     end
     return s .. line("    " .. make .. ";") .. line("}")
   elseif op == "reveal" then
-    if a.teams ~= "own" and a.teams ~= "all" then self:block("action:reveal.teams:" .. tostring(a.teams)) end
+    if a.teams ~= "own" and a.teams ~= "all" and a.teams ~= "enemy" then self:block("action:reveal.teams:" .. tostring(a.teams)) end
     local at = self:value(a.at, ctx, "point")
     local radius = self:value(a.radius, ctx, "num")
     local dur = self:value(a.duration, ctx, "num")
     local follow = a.follow ~= nil and ("Some(" .. self:value(a.follow, ctx, "unit") .. ")") or "None"
     return line("{") .. line("    let at = " .. at .. ";") .. line("    let radius = " .. radius .. ";")
       .. line("    let duration = " .. dur .. ";") .. line("    let follow = " .. follow .. ";")
-      .. (a.ignore_terrain == nil and line(string.format("    cx.reveal(at, radius, duration, %s, follow)?;", a.teams == "all" and "true" or "false"))
+      -- line B's reveal_teams (E527): "enemy" shows the caster's area to every other team
+      .. (a.teams == "enemy" and line(string.format("    cx.reveal_teams(at, radius, duration, \"enemy\", follow, %s)?;",
+          a.ignore_terrain == nil and "false" or type(a.ignore_terrain) == "boolean" and tostring(a.ignore_terrain) or self:value(a.ignore_terrain, ctx, "bool")))
+        or a.ignore_terrain == nil and line(string.format("    cx.reveal(at, radius, duration, %s, follow)?;", a.teams == "all" and "true" or "false"))
         -- line B's reveal_ex: trees and cliffs do not block this sight (brush still does)
         or line(string.format("    cx.reveal_ex(at, radius, duration, %s, follow, %s)?;", a.teams == "all" and "true" or "false",
           type(a.ignore_terrain) == "boolean" and tostring(a.ignore_terrain) or self:value(a.ignore_terrain, ctx, "bool")))) .. line("}")
@@ -3028,6 +3032,14 @@ function Gen:action(a, ctx, ind)
     local who = self:value(a.who, ctx, "unit")
     local target = self:value(a.target, ctx, "unit")
     return line("{") .. line("    let who = " .. who .. ";") .. line("    let target = " .. target .. ";") .. line("    cx.order_attack(who, target)?;") .. line("}")
+  elseif op == "modify_base_stat" then
+    -- line B's modify_base_stat (E523, 原作 ModifyAgility): the white attribute, rounded by the host
+    local stat = WHEN_ATTR[a.stat]
+    if not stat then self:block("action:modify_base_stat.stat:" .. tostring(a.stat)); return "" end
+    local to = self:value(a.to, ctx, "unit")
+    local amount = self:value(a.amount, ctx, "num")
+    return line("{") .. line("    let to = " .. to .. ";") .. line("    let amount = " .. amount .. ";")
+      .. line("    cx.modify_base_stat(to, ability_kit::Attr::" .. stat .. ", amount)?;") .. line("}")
   elseif op == "set_health" then
     local to = self:value(a.to, ctx, "unit")
     local value = self:value(a.value, ctx, "num")
