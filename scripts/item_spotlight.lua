@@ -46,6 +46,8 @@ M.AIM = {
   self_engage = { team = "self", target = "none" },
   self_area = { team = "self", target = "none" },
   self_recovery = { team = "self", target = "none" },
+  -- A tree-target cast (B22 自然之力): shown on the tree stage (record_hero_spotlight.TREE_RECIPE).
+  nearest_tree = { team = "tree", target = "point" },
 }
 
 local function first_line(text)

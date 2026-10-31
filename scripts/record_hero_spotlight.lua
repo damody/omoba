@@ -18,6 +18,13 @@ local M={}
 M.HEROES={'saika_magoichi','date_masamune','omatsu','oichi','inahime','asai_nagamasa','murakami_yoshikiyo','tamako'}
 M.SLOT_OF_ACTION={Q=0,W=1,E=2,R=3,extra1=4,extra2=5}
 M.RECIPE='scripts/lua_data/moba_hero_spotlight.lua'
+-- A hero with a tree-target ability is shown on the nobu map, which has trees (D21: every ability
+-- is demonstrated).
+M.TREE_RECIPE='scripts/lua_data/moba_hero_spotlight_trees.lua'
+function M.recipe_for(package)
+  for _,slot in ipairs(package.slots) do if slot.team=='tree' then return M.TREE_RECIPE end end
+  return M.RECIPE
+end
 M.DEFAULT_FFMPEG='target/tools/ffmpeg/ffmpeg.exe'
 -- A spotlight run owns its authority port: never the shared split default (57061), so a
 -- recording can neither collide with nor join another session's live match.
@@ -294,7 +301,7 @@ function M.record(options,hero,index)
   local script=path.join(out,'spotlight-script.json')
   json.write(script,M.script(package),true)
   local run_root=path.join(out,'run-'..os.date('%Y%m%d-%H%M%S'))
-  local args={'--recipe',M.RECIPE,'--hero','1='..hero,'--autopilot','spotlight','--spotlight-script',script,
+  local args={'--recipe',M.recipe_for(package),'--hero','1='..hero,'--autopilot','spotlight','--spotlight-script',script,
     '--resolution','1920x1080','--max-seconds',tostring(options.max_seconds),'--port',tostring(M.run_port(options,index or 1)),'--output',run_root,'--ue-root',options.ue_root}
   if options.no_build then args[#args+1]='--no-build' end
   split.run(split.options(args))

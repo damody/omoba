@@ -71,12 +71,14 @@ local kazumasu=spotlight.load_package(b.root,'takigawa_kazumasu')
 assert(kazumasu.slots[#kazumasu.slots].slot==5 and kazumasu.slots[#kazumasu.slots].id=='a32_soul_blade','F keeps the sixth slot')
 for _,slot in ipairs(kazumasu.slots) do assert(slot.slot~=4,'the empty D slot shows nothing') end
 
--- Actives the bot cannot aim (bot kind "none": B22's two tree targets, W and D) are listed, not
--- shown, and the hero's other slots still are.
+-- Tree-target abilities (bot kind nearest_tree: B22 W and D) aim at a tree and are shown on the
+-- tree stage, the nobu map (D21: every ability is demonstrated); a hero without one keeps the
+-- live-check stage.
 local sessai=spotlight.load_package(b.root,'taigen_sessai')
-assert(#sessai.unshown==2 and sessai.unshown[1].id=='b22_force_of_nature' and sessai.unshown[2].id=='b22_wood_spirit','the tree targets are unshown')
-for _,slot in ipairs(sessai.slots) do assert(slot.slot~=1 and slot.slot~=4) end
-assert(#sessai.slots==3 and sessai.slots[3].slot==3,'Q, E and R are shown in their own slots')
+assert(#sessai.unshown==0 and #sessai.slots==5,'every B22 slot is shown')
+assert(sessai.slots[2].id=='b22_force_of_nature' and sessai.slots[2].team=='tree' and sessai.slots[5].team=='tree','W and D aim at a tree')
+assert(spotlight.recipe_for(sessai)==spotlight.TREE_RECIPE,'B22 is shown on the tree stage')
+assert(spotlight.recipe_for(spotlight.load_package(b.root,'saika_magoichi'))==spotlight.RECIPE,'other heroes keep the base stage')
 
 local saika=spotlight.load_package(b.root,'saika_magoichi')
 assert(saika.hero_name=='雜賀孫市' and saika.slots[1].name=='狙擊模式' and saika.slots[2].team=='ally' and saika.slots[3].kind=='passive')
