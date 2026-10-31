@@ -140,4 +140,34 @@ do
   assert(set:find('base_content.dll',1,true) and set:find('items.dll',1,true),'the set names the script DLLs')
   assert(split.script_set()==set,'reading it again gives the same set')
 end
+-- E487: the repo build lock covers the frontend build and the source snapshot only; cargo reads
+-- the snapshot after the lock is released, its outputs in the launch's target directories.
+do
+  local events,held={},{}
+  local function guard(name)
+    return setmetatable({release=function() if held[name] then held[name]=nil;events[#events+1]='release '..name end end,
+      env=function() return {OM_BUILD_LOCK_TOKEN='T'} end},{__close=function(self) self.release() end})
+  end
+  local deps={snapshot='D:/T/split-src',jobs=function() return 3 end,log=function() end,clock=function() return 0 end,
+    target_of=function(crate) return 'D:/targets/'..crate end,
+    lock={acquire=function(_,label,o) local name=o.name or 'build';held[name]=true;events[#events+1]='acquire '..name;return guard(name) end},
+    mirror=function(root,to) assert(held.build,'the snapshot is taken under the build lock');events[#events+1]='mirror '..to;return 0 end,
+    run=function(command,env)
+      local text=table.concat(command.args,' '):gsub('\\','/')
+      if command.locked then assert(held.build and env.OM_BUILD_LOCK_TOKEN=='T','the frontend builds live, under the lock')
+      elseif command.exe=='cargo' then
+        assert(not held.build,'cargo runs after the build lock is released')
+        assert(held[split.snapshot_lock_name("D:/T/split-src")],'cargo runs under the snapshot lock')
+        assert(text:find('D:/T/split-src',1,true),'cargo reads the snapshot: '..text)
+        assert(env.CARGO_TARGET_DIR=='D:/targets/'..command.crate and env.CARGO_BUILD_JOBS=='3')
+      end
+      events[#events+1]=command.locked and 'frontend' or command.exe; return {exit_code=0}
+    end}
+  split.build_all({ue_root='D:/UE5.8'},deps)
+  local order=table.concat(events,',')
+  assert(order:find('^acquire split_src%-d_t_split_src,acquire build,frontend,mirror D:/T/split%-src,release build,cargo'),order)
+  assert(order:find('release split_src%-d_t_split_src$'),'the snapshot lock is released last: '..order)
+  assert(split.snapshot_root('D:/omoba',function() return 'D:\\omoba\\target\\lineC-bins' end):gsub('\\','/'):find('lineC%-bins/split%-src$'))
+  assert(split.snapshot_root('D:/omoba',function() return nil end):gsub('\\','/')=='D:/omoba/target/split-src')
+end
 print('split local topology: options, seats and per-role arguments passed')

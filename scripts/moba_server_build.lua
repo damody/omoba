@@ -10,21 +10,23 @@ local function profile(options)
   return value
 end
 -- The script DLL set: base_content and every hero DLL (script_dlls.lua), for profile SELECTED.
-function M.script_dll_command(selected)
-  return {exe='cargo',args=require('script_dlls').cargo_args({'build','--manifest-path',
-    path.join(b.root,'scripts/Cargo.toml')},'compiled-content-only',selected=='release' and {'--release'} or nil)}
+-- SOURCE_ROOT (default the repo) is where the manifests are read: a split builds from its source
+-- snapshot (E487). `crate` names the workspace whose target directory the outputs belong to.
+function M.script_dll_command(selected,source_root)
+  return {exe='cargo',crate='scripts',args=require('script_dlls').cargo_args({'build','--manifest-path',
+    path.join(source_root or b.root,'scripts/Cargo.toml')},'compiled-content-only',selected=='release' and {'--release'} or nil)}
 end
 function M.commands(options)
   local selected=profile(options)
   local commands={}
   local function build(manifest,package_name,binary)
-    local args={'build','--manifest-path',path.join(b.root,manifest),'-p',package_name,
+    local args={'build','--manifest-path',path.join(options.root or b.root,manifest),'-p',package_name,
       '--features','compiled-content-only'}
     if binary then args[#args+1]='--bin';args[#args+1]=binary end
     if selected=='release' then args[#args+1]='--release' end
-    commands[#commands+1]={exe='cargo',args=args}
+    commands[#commands+1]={exe='cargo',crate=manifest:match('^([^/]+)/'),args=args}
   end
-  commands[#commands+1]=M.script_dll_command(selected)
+  commands[#commands+1]=M.script_dll_command(selected,options.root)
   build('omb/Cargo.toml','omobab','moba-config')
   build('omb/Cargo.toml','omobab','omobab')
   commands[#commands+1]={exe=platform.lua_executable,args={

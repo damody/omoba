@@ -2,6 +2,30 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E487 split 整段建置（UE、全部 hero DLL、omobab、runtime）都佔著 repo build lock，一局佔鎖 22 分鐘擋住所有 land（2026-10-31，工作線 C）
+- 現象：m72 的 split 在 16:15 拿到 repo build lock，到 16:37 才開始啟動，佔鎖約 22 分鐘；最近幾局的建置都要 11～14 分鐘，這段時間整台機器的 land_to_live 都排隊等鎖。
+- 拆解（依 `target/lineC-bins/release` 產物時間）：
+  - 16:15:00～16:19:49：build_ue_moba（codegen、bridge、base_content stage、UBT），約 5 分鐘。
+  - 16:19:49～16:30:15：base_content 和約 50 個 hero DLL，約 10.5 分鐘。release 設定是 thin LTO、codegen-units=1；可用 commit 26 GB 時，E443 給 7 個工作。
+  - 16:30:15～16:33:52：omobab，約 3.5 分鐘。
+  - 16:33:52～16:36:51：client runtime 和 fixture，約 3 分鐘。
+  - 不是在等記憶體：`parallel_jobs` 只計算平行數，不等待。也不是多餘的重建：15:00～16:15 之間的 land 改了 omoba-core、script-abi、ability_kit，每次都讓全部 hero DLL 和 omobab 重編。
+- 原因：E301 為了讓 bridge 和 authority 用同一份內容建置，split 在整段建置期間都持有 repo build lock，包括只讀來源的 cargo 階段（約 17 分鐘）。
+- 修正（共用層）：
+  - `run_moba_split_local.build_all` 只在 build lock 下做兩件事：前端建置（build_ue_moba），以及把 Rust／Lua 來源（`land_to_live.TREE`，跳過 target）鏡像到快照。快照放在 run 的 target 目錄旁：`<OM_RUST_RUN_BINARIES>/split-src`，沒設時是 `target/split-src`。
+  - 鏡像完立刻釋放 build lock，之後的 cargo 從快照的 manifest 建置。`CARGO_TARGET_DIR` 設為 `run_artifacts.rust_target` 指的目錄，所以產物仍在 launch 讀取的位置。
+  - 快照與前端建置在同一把鎖下取得，binary 仍是同一份內容的 hash。dep-info 列的是快照的檔案，E190 照常檢查。
+  - 每個快照目錄另有一把鎖（`build_lock` 新增 `name`，`split_src-<路徑>`），先於 build lock 取得，避免兩局 split 同時改寫同一份快照。
+  - `moba_server_build.commands({root})` 和 `script_dll_command(profile, root)` 可以指定讀取 manifest 的位置。
+  - 每一步都印出 `[split-build] … N s`。
+  - 量測：增量鏡像 1.7 秒；第一次完整鏡像 47～78 秒（3505 個檔案）。三個 workspace 的 `cargo metadata` 從快照都能解析。
+  - `run_moba_split_local_test` 驗證順序：快照鎖 → build lock → 前端 → 鏡像 → 釋放 build lock → cargo（讀快照、target 正確）→ 釋放快照鎖。
+- 避免：只讀來源的長時間建置不要持有 repo build lock，改從鎖內取得的快照建置。
+- 沒有涵蓋：
+  - run_moba_role_ue 自己的建置路徑仍在 build lock 下。
+  - 第一次從快照建置時，路徑改變，會整個重編一次。
+  - 前端的 UBT 和 bridge（約 5 分鐘）仍在鎖內。
+
 ## E484 verify_m6_batch 的 quick_swap 換邊時也換了對手：小於 10 人的 group 在 quick 與 quick_swap 面對不同的出貨英雄（2026-10-31，e187 遊戲模式 session，主 session 要求對照；已放回 live）
 - **現象**：新英雄三批（m6new1／2／3）的勝率都是 17%（3/18），數字一致得可疑。
 - **對照**：m6ctl1 用相同 recipe 與 seed，換成已驗證的五位老英雄（koihime、sakuma、uesugi、usami、kuroda），結果 10/18。各 recipe：

@@ -33,7 +33,9 @@ function M.acquire(root, label, deps)
   local wait_ms = deps.wait_ms or M.WAIT_MS
   local locks = path.join(root, 'target', 'locks')
   path.mkdir_p(locks)
-  local dir = path.join(locks, 'build_ue_moba')
+  -- deps.name: another lock with the same queueing and takeover (a split's source snapshot, E487).
+  local name = deps.name or 'build_ue_moba'
+  local dir = path.join(locks, name)
   local owner = path.join(dir, 'owner.txt')
   local started = time.monotonic_ms()
   local announced = false
@@ -46,7 +48,7 @@ function M.acquire(root, label, deps)
   -- E462: waiters queue first come, first served. Polling mkdir alone let whoever polled first after
   -- a release win, so one land waited 85 minutes while later builds took the lock. A waiter takes
   -- a ticket and tries the lock only when no live earlier ticket remains.
-  local queue = path.join(locks, M.QUEUE)
+  local queue = path.join(locks, deps.name and name .. '.queue' or M.QUEUE)
   local holder, ticket
   local function take_ticket()
     if ticket then return end
@@ -86,7 +88,7 @@ function M.acquire(root, label, deps)
       lfs.rmdir(dir)
     else
       if not announced then
-        log('[build-lock] another build_ue_moba is running (' .. (text:match('^[^\n]*') or 'unknown holder') .. '); waiting')
+        log('[build-lock] another ' .. name .. ' holder is running (' .. (text:match('^[^\n]*') or 'unknown holder') .. '); waiting')
         announced = true
       end
       if time.monotonic_ms() - started >= wait_ms then

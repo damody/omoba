@@ -157,14 +157,16 @@ end
 -- role on --no-build nothing rebuilt it, so content landed since the last frontend build gave the
 -- renderer bridge another content hash than the authority and every launch was refused. A shadow
 -- project (OM_UE_RUN_BINARIES, staged by stage_ue_shadow) or a packaged game is not built here.
-function M.build_commands(options,ue_shadow)
+-- SOURCE_ROOT (default the repo) is where the cargo manifests are read (the source snapshot, E487);
+-- the frontend build (`locked`) always builds live, under the repo build lock.
+function M.build_commands(options,ue_shadow,source_root)
   options=options or {}
   local commands={}
   if not options.packaged_game and not ue_shadow then
-    commands[1]={exe=platform.lua_executable,args={path.join(b.root,'scripts','build_ue_moba.lua'),'--build-only','--ue-root',options.ue_root or 'D:/UE5.8'}}
+    commands[1]={exe=platform.lua_executable,locked=true,args={path.join(b.root,'scripts','build_ue_moba.lua'),'--build-only','--ue-root',options.ue_root or 'D:/UE5.8'}}
   end
-  for _,command in ipairs(require('moba_server_build').commands({profile='release'})) do commands[#commands+1]=command end
-  commands[#commands+1]={exe='cargo',args={'build','--manifest-path',path.join(b.root,'omoba-client-runtime','Cargo.toml'),
+  for _,command in ipairs(require('moba_server_build').commands({profile='release',root=source_root})) do commands[#commands+1]=command end
+  commands[#commands+1]={exe='cargo',crate='omoba-client-runtime',args={'build','--manifest-path',path.join(source_root or b.root,'omoba-client-runtime','Cargo.toml'),
     '--features','compiled-content-only','--release'}}
   return commands
 end
@@ -203,23 +205,76 @@ end
 -- environment). Runs before the live lock is taken (E337): the frontend build (codegen, UBT) can
 -- take minutes, and inside the lock it used up the whole --max-seconds before the match started.
 -- Returns the moment the sources were built as of, for OMOBA_SOURCES_AS_OF (E202).
+-- E487: the repo build lock is held only for the frontend build and a mirror of the Rust/Lua
+-- sources (land_to_live.TREE) into a snapshot beside the run's target directory; the cargo builds
+-- (every hero DLL, omobab, the client runtime: 17 of a split's 22 minutes after a shared crate
+-- changed) then read the snapshot with the lock released, so lands go on meanwhile. The snapshot
+-- is taken under the same lock as the frontend build, so the binaries still carry one content
+-- hash, and the dep-info of each binary names the snapshot's files (E190 checks those). One
+-- snapshot lock per snapshot directory keeps two splits from rewriting it under each other.
 M.BUILD_WAIT_S=1800
 M.CARGO_JOB_COMMIT_BYTES=5*1024*1024*1024//2
-function M.build_all(options)
-  -- The wait for another build is bounded like the wait for the machine (E346): a build that
-  -- holds the lock longer fails this run with the holder named instead of queueing for hours.
-  local build_lock <close> = require('build_lock').acquire(b.root,'run_moba_split_local build phase',
-    {wait_ms=(options.wait_live_lock or M.BUILD_WAIT_S)*1000})
-  local as_of=os.time()
-  local build_env=build_lock:env()
-  for _,command in ipairs(M.build_commands(options,os.getenv('OM_UE_RUN_BINARIES'))) do
-    -- Cargo jobs by the commit left when each build starts (E443): the default 24 rustc at a split's
-    -- start took 12 GB beside other sessions' builds.
-    build_env.CARGO_BUILD_JOBS=tostring(require('memory_admission').parallel_jobs(M.CARGO_JOB_COMMIT_BYTES,24))
-    local result=process.run(command.exe,command.args,{cwd=b.root,check=false,env=build_env})
+M.SNAPSHOT='split-src'
+-- The snapshot directory: inside OM_RUST_RUN_BINARIES when the run has its own target, else target/.
+function M.snapshot_root(root,getenv)
+  local own=(getenv or os.getenv)('OM_RUST_RUN_BINARIES')
+  return path.join(own and own~='' and path.absolute(own,root) or path.join(root,'target'),M.SNAPSHOT)
+end
+function M.snapshot_lock_name(snapshot)
+  return 'split_src-'..(snapshot:lower():gsub('[^%w]+','_'))
+end
+function M.mirror_sources(root,snapshot)
+  local land,shadow=require('land_to_live'),require('stage_ue_shadow')
+  local copied=0
+  for _,entry in ipairs(land.TREE) do
+    local from,to=path.join(root,entry),path.join(snapshot,entry)
+    if path.is_directory(from) then copied=copied+shadow.mirror(from,to,{root=root},land.SKIP)
+    elseif path.is_file(from) then
+      local bytes=path.read(from,true)
+      if not path.is_file(to) or path.read(to,true)~=bytes then path.write(to,bytes,true,true);copied=copied+1 end
+    end
+  end
+  return copied
+end
+function M.build_all(options,deps)
+  deps=deps or {}
+  local locks=deps.lock or require('build_lock')
+  local run=deps.run or function(command,env) return process.run(command.exe,command.args,{cwd=b.root,check=false,env=env}) end
+  local mirror=deps.mirror or M.mirror_sources
+  local jobs=deps.jobs or function() return require('memory_admission').parallel_jobs(M.CARGO_JOB_COMMIT_BYTES,24) end
+  local log=deps.log or print
+  local clock=deps.clock or time.monotonic_ms
+  local target_of=deps.target_of or function(crate) return require('run_artifacts').rust_target(b.root,crate) end
+  local snapshot=deps.snapshot or M.snapshot_root(b.root)
+  local function step(command,env)
+    local started=clock()
+    -- Cargo jobs by the commit left when each build starts (E443).
+    env.CARGO_BUILD_JOBS=tostring(jobs())
+    local result=run(command,env)
+    log(('[split-build] %s %s: %d s'):format(command.exe:match('[^/\\]+$') or command.exe,
+      command.crate or (command.args[1] or ''):match('[^/\\]+$') or '',(clock()-started)//1000))
     if result.exit_code~=0 then
       io.stderr:write(result.stderr or '')
       error('split build failed: '..command.exe..' '..table.concat(command.args,' '),0)
+    end
+  end
+  -- The wait for another build is bounded like the wait for the machine (E346): a build that
+  -- holds the lock longer fails this run with the holder named instead of queueing for hours.
+  local wait={wait_ms=(options.wait_live_lock or M.BUILD_WAIT_S)*1000}
+  local snapshot_lock <close> = locks.acquire(b.root,'run_moba_split_local cargo from '..snapshot,
+    {wait_ms=wait.wait_ms,name=M.snapshot_lock_name(snapshot)})
+  local build_lock <close> = locks.acquire(b.root,'run_moba_split_local build phase',wait)
+  local as_of=os.time()
+  local commands=M.build_commands(options,os.getenv('OM_UE_RUN_BINARIES'),snapshot)
+  for _,command in ipairs(commands) do if command.locked then step(command,build_lock:env()) end end
+  local started=clock()
+  local copied=mirror(b.root,snapshot)
+  log(('[split-build] source snapshot %s: %d file(s) in %d s; build lock released'):format(snapshot,copied,(clock()-started)//1000))
+  if build_lock.release then build_lock:release() end
+  for _,command in ipairs(commands) do
+    if not command.locked then
+      -- Outputs go where the launch reads them (run_artifacts.rust_target), not under the snapshot.
+      step(command,command.crate and {CARGO_TARGET_DIR=target_of(command.crate)} or {})
     end
   end
   return as_of
