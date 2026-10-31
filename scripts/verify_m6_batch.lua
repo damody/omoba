@@ -223,6 +223,7 @@ local in_group = {}
 for _, hero in ipairs(group) do in_group[hero] = true end
 local summary = { batch = options.batch, group = options.group, heroes = group, not_playable = missing, recipes = {}, abilities = {} }
 local ability_rows = {}
+local hero_games = {}
 local item_rows = {}
 -- Balance (E342): per hero over every seat, and per item over the seats that obtained it.
 local hero_rows, holder_rows = {}, {}
@@ -266,6 +267,17 @@ for _, r in ipairs(recipes) do
                 a.inputs, a.accepted = a.inputs + cast.inputs, a.accepted + cast.accepted
                 for result, n in pairs(cast.results or {}) do a.results[result] = (a.results[result] or 0) + n end
               end
+            end
+            -- Script damage by ability (E436, moba_headless DamageTrace; summons and copies count
+            -- for their summoner): a status or summon damaging under its ability's name gets a row.
+            hero_games[hero.hero] = (hero_games[hero.hero] or 0) + 1
+            for ability, dealt in pairs(hero.ability_damage or {}) do
+              local key = hero.hero .. '|' .. ability
+              local a = ability_rows[key] or { hero = hero.hero, ability = ability, slot = 99, inputs = 0, accepted = 0, results = {} }
+              ability_rows[key] = a
+              a.damage = (a.damage or 0) + (dealt.damage or 0)
+              a.hero_damage = (a.hero_damage or 0) + (dealt.hero_damage or 0)
+              a.cancelled = (a.cancelled or 0) + (dealt.cancelled or 0)
             end
           end
         end
@@ -314,8 +326,10 @@ md[#md + 1] = ''
 -- (E316: B08 無盡牙 left Ability facts but no trace row and was reported as never cast; such a
 -- row is now NO TRACE, an anomaly to hand over, not a never-cast); `bot inputs` counts every
 -- cast order the bots sent, repeats included.
-md[#md + 1] = '| hero | ability | kind | bot inputs | casts | trace | note |'
-md[#md + 1] = '|---|---|---|---|---|---|---|'
+-- `damage/game` and `hero dmg/game` are the ability's tagged script damage (E436) per game the
+-- hero played; `cancelled` counts its packets refused (invulnerable, removed target, rules).
+md[#md + 1] = '| hero | ability | kind | bot inputs | casts | trace | damage/game | hero dmg/game | cancelled | note |'
+md[#md + 1] = '|---|---|---|---|---|---|---|---|---|---|'
 local never = 0
 for _, a in ipairs(summary.abilities) do
   local results = {}
@@ -327,7 +341,10 @@ for _, a in ipairs(summary.abilities) do
   local note = castable and casts == 0 and 'NEVER CAST'
     or castable and (a.results.accepted or 0) == 0 and 'NO TRACE' or ''
   if note == 'NEVER CAST' then never = never + 1 end
-  md[#md + 1] = ('| %s | %s | %s | %d | %d | %s | %s |'):format(a.hero, a.ability, a.kind, a.inputs, casts, table.concat(results, ', '), note)
+  local games = math.max(hero_games[a.hero] or 1, 1)
+  md[#md + 1] = ('| %s | %s | %s | %d | %d | %s | %s | %s | %s | %s |'):format(a.hero, a.ability, a.kind, a.inputs, casts,
+    table.concat(results, ', '), a.damage and ('%.0f'):format(a.damage / games) or '',
+    a.hero_damage and ('%.0f'):format(a.hero_damage / games) or '', a.cancelled and tostring(a.cancelled) or '', note)
 end
 -- Shop items (E336): every item the shop sells, obtained (bought or assembled) and used over all
 -- seats; an item never obtained, or an active item obtained but never used, is flagged.
