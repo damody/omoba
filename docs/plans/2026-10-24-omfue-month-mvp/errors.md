@@ -2,6 +2,17 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E533 split 在 live_match 鎖內重建（E399），建置時間算進持鎖，超過 10 分鐘（2026-10-31，工作線 C）
+- 現象：主 session 發現 takeda_shingen 的 spotlight split 從 23:37 持有 live_match 鎖，到 23:56 已持有 19 分鐘，超過 10 分鐘上限。局還沒開始，一直在建置。
+- 原因：第一次建置在取得 live_match 之前完成（E337，正確）。但取得鎖之後，E399 比對到等待期間 live 的英雄 DLL 集合變了（A 又轉正式了英雄），於是在持有 live_match 的情況下整個重建一次：等 build lock 414 s、build_ue_moba 357 s，接著又是 cargo。建置時間全部算進持鎖時間，擋住了其他 session 的局。
+- 修正（共用層）：
+  - 刪掉 `run_moba_split_local.run` 裡 E399 的重建。live_match 鎖之內不再有任何建置。
+  - E516 之後，各角色都啟動快照建出的集合。等待期間 live 多出的英雄不在這局裡，也不會讓這局失敗，所以不需要重建。
+  - `run_moba_split_local_test` 改為檢查：唯一的 `build_all` 在 live_match 取得之前，鎖之後沒有任何建置。
+  - 當下的處理：只停掉自己佇列啟動的 takeda_shingen 程序樹（taskkill /PID 184692 /T，含其 cargo 與 lua-host 子程序）。鎖檔照規則保留，由下一局當過期鎖接手。
+- 回答：live_match 不是在 split 建置之前取得的。第一次建置一直在鎖外，只有 E399 的重建在鎖內，現在已經刪除。
+- 避免：持有機器鎖期間只做啟動和比賽，所有建置都在取鎖之前完成。
+
 ## E532 selector include_dead 找不到屍體（B23）（2026-10-31，工作線 B）
 
 - **現象**：工作線 A coverage B23（伊勢姬）：施法時要找範圍內一具屍體（`flags = { "include_dead" }`，`where = "not alive(it)"`），再於屍體位置生成鬼影。原作是 DOTA_UNIT_TARGET_FLAG_DEAD 找到的屍體。kit 的 `units_in_circle` 只回傳活著的單位；小兵死亡後實體馬上被移除，任何選擇器都找不到。

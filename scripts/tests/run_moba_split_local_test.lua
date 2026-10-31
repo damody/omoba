@@ -126,16 +126,14 @@ do
   assert(build<lock,'the build happens before the live lock is taken')
   assert(not text:find('while building',run,true),'no build step inside the time box')
 end
--- E399: a script DLL set that changed during the wait for the machine is built again, once, before
--- the time box starts; the set is read afresh each time.
+-- E533 (replaces the E399 rebuild): nothing is built after the live lock is taken; the roles
+-- launch the snapshot's set (E516). The set is read afresh each time.
 do
   local f=assert(io.open('scripts/run_moba_split_local.lua','rb'));local text=f:read('a');f:close()
   local run=assert(text:find('function M.run(options)',1,true))
   local lock=assert(text:find("machine_lock').acquire",run,true))
-  local again=assert(text:find('M.script_set()~=built_set',lock,true),'the set is compared after the live lock')
-  local rebuild=assert(text:find('M.build_all(options)',again,true))
-  local box=assert(text:find('M.box_deadlines(',run,true))
-  assert(rebuild<box,'the second build happens before the time box starts')
+  local build=assert(text:find('M.build_all(options)',run,true))
+  assert(build<lock and not text:find('M.build_all(options)',lock,true),'the only build is before the live lock')
   local set=split.script_set()
   assert(set:find('base_content.dll',1,true) and set:find('items.dll',1,true),'the set names the script DLLs')
   assert(split.script_set()==set,'reading it again gives the same set')
@@ -203,7 +201,6 @@ do
     assert(not table.concat(command.args,' '):find('--set-root',1,true),'a repo build stages the repo set')
   end
   local text=assert(io.open('scripts/run_moba_split_local.lua','rb')):read('a')
-  assert(text:find('built_set=sources_as_of and M.script_set(M.snapshot_root(b.root))',1,true),'the built set is the snapshot set')
   -- E516: the roles read the built set through the environment, a hero landed while they start
   -- does not change what they launch.
   local spawn=assert(text:find('child_env.OMOBA_SOURCES_AS_OF',1,true))

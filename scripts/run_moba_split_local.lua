@@ -308,9 +308,9 @@ end
 function M.run(options)
   -- Built before waiting for the machine (E337); without a build, the sources as of the match start.
   local sources_as_of=not options.no_build and M.build_all(options) or nil
-  -- E507: the set built is the snapshot's (E487); a hero made playable while cargo ran from the
-  -- snapshot is in the repo's set only, and the comparison below builds once more.
-  local built_set=sources_as_of and M.script_set(M.snapshot_root(b.root))
+  -- E533: no build happens under the live lock. Every role launches the set the snapshot built
+  -- (E516), so a hero made playable while this run waits for the machine is not in this match
+  -- and does not break it (the E399 rebuild held the machine for a whole build).
   local root=options.output and path.absolute(options.output,b.root) or nil
   if not root then
     local parent=path.mkdir_p(path.join(b.root,'target','split-runs'))
@@ -328,12 +328,6 @@ function M.run(options)
     wait_seconds=options.wait_live_lock or 0})
   if not acquired then lfs.rmdir(root);error(lock,0) end -- the refused run leaves no directory behind
   local held <close> = lock
-  -- E399: a hero made playable while this run waited for the machine adds a script DLL its build
-  -- does not have, and the launch refuses it. Built once more, before the time box starts.
-  if built_set and M.script_set()~=built_set then
-    io.stderr:write('[split] the script DLL set changed while waiting for the machine; building again\n')
-    sources_as_of=M.build_all(options)
-  end
   -- E343: taken after the live lock and released with it, so the measurement holds it only for
   -- this match; a short wait for another measurement to end counts toward the box.
   local measured <close> = options.performance_lock and M.acquire_performance(root,options) or nil
