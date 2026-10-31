@@ -69284,16 +69284,13 @@ local data = {
     {
       abilities = { "a09_treant_summon", "a09_lignify", "a09_forest_pulse", "a09_deep_tentacles" },
       authored_package = "hachisuka_masakatsu",
-      background = "蜂須賀政勝（schema v3 產生的 Rust；測試用）",
       display_name = "蜂須賀政勝",
       id = "hachisuka_masakatsu",
       moba_loadout = {
         ranks = { 1, 1, 1, 0 },
         skill_points = 0,
       },
-      source_stats = "A09",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A09",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "hachisuka_masakatsu",

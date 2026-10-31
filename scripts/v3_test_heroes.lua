@@ -93,7 +93,7 @@ local HEROES = {
   { package = "matsuhime", playable = true },
   { package = "takenaka_shigeharu", playable = true },
   { package = "momochi_sandayu", playable = true },
-  { package = "hachisuka_masakatsu" },
+  { package = "hachisuka_masakatsu", playable = true },
   { package = "hashiba_hideyoshi" },
   { package = "sanada_masayuki", playable = true },
   { package = "kikuhime", playable = true },

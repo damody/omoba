@@ -103,4 +103,6 @@ return {
   {hero='honganji_kennyo',package='hero_b25',dir='heroes/honganji_kennyo'},
   -- M6 batch (2026-10-31): every ability generated (modify_base_stat E523); conformance 0 fail
   {hero='kikuhime',package='hero_b11',dir='heroes/kikuhime'},
+  -- M6 batch (2026-10-31): every ability generated (模板 passive.triggers 合成狀態); conformance 0 fail
+  {hero='hachisuka_masakatsu',package='hero_a09',dir='heroes/hachisuka_masakatsu'},
 }
