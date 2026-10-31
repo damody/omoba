@@ -3244,10 +3244,12 @@ function Gen:action(a, ctx, ind)
       .. line("    let duration = ability_kit::div(ability_kit::distance(cx.pos(cx.caster)?, to), speed)?;")
       .. line("    cx.dash_to(to, duration)?;") .. line("}")
   elseif op == "dodge_projectiles" then
-    if a.of ~= "caster" and not (a.of == "self" and self.entry) then self:block("action:dodge_projectiles.of:" .. tostring(a.of)); return "" end
+    -- another unit of the caster's side (its illusion, a summon it holds: line B E557)
+    local of_code = (a.of ~= nil and a.of ~= "caster" and not (a.of == "self" and self.entry)) and self:value(a.of, ctx, "unit") or nil
     -- the host dodges every team's tracking flights (line B), so `enemy` and `any` are the same
     if a.from_team ~= nil and a.from_team ~= "enemy" and a.from_team ~= "any" then self:block("action:dodge_projectiles.from_team:" .. tostring(a.from_team)) end
     if a.kind ~= nil and a.kind ~= "tracking" then self:block("action:dodge_projectiles.kind:" .. tostring(a.kind)) end
+    if of_code then return line("{") .. line("    let of = " .. of_code .. ";") .. line("    cx.dodge_projectiles_of(of)?;") .. line("}") end
     return line("cx.dodge_projectiles()?;")
   elseif op == "chance" then
     -- independent rolls, or mode prd (pseudo-random: the caster's misses since its last hit under
