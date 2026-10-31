@@ -2,6 +2,10 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E441 （保留）batch 固定平行數不看系統可用 commit：與其他 session 的建置同時跑時 commit 用光，lua-host 以 0xC000012D 結束（2026-10-31）
+
+## E440 （保留）conformance：由另一招設定等級的子技能（c07_storm_move）沒有先施放那一招（2026-10-31）
+
 ## E439 召喚交易拒絕 ScriptDamageTag 與施放在友方單位上的一般狀態：b24_earth_prison 施放被拒（2026-10-31，工作線 B）
 
 - **現象**：工作線 A 回報 b24_earth_prison 在 E426／E428 之後能產生，但施放被 cast_settlement::admission 拒絕。被拒的是 ScriptDamageTag（51 次）與 AddBuff（4 次）。
@@ -14,7 +18,14 @@
   - 新增 `vocab::is_state_buff`。
 - **驗證**：更新 `summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_between_siblings`：狀態可以夾在 spawn 之間、友方的 catalog 狀態／來源列／狀態 buff 放行、友方的 hero_command 仍拒、追蹤標記放行。cast_settlement、vocab、summon 測試通過。
 
-## E438 （保留）approach_enemy_point 只能用施法距離，沒有施法距離的 point 位移技能無法使用（2026-10-31）
+## E438 approach_enemy_point 只能用施法距離，沒有施法距離的 point 位移技能無法使用：b13_shukuchi 從不施放（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 回報 b13_shukuchi 是每一級施法距離都是 0 的 point 技能，實際距離由 teleport 的 max_distance（blink_range 800）決定。approach_enemy_point 要求「每一級 range > min_distance」，所以這種技能無法使用；它又不造成傷害，也不適合 leap_enemy_point。
+- **根因**：ApproachEnemyPoint 只用施法距離當可達距離。
+- **通用修正**：
+  - ApproachEnemyPoint 新增選填 `reach_key`（serde 預設 None）。有值時，從 def.extras 取每一級的值當可達距離，做法和 LeapEnemyPoint 相同。
+  - 驗證改為「每一級 reach > min_distance 且 ≤ 10000」，不再要求施法距離。
+- **驗證**：新測試 `an_approach_without_cast_range_reaches_its_compiled_reach_e438`（真實 b13_shukuchi：沒有 reach_key 被拒；700 施放、900 與 200 不施放；JSON 有無 reach_key 都能解析）；bots 測試通過。
 
 ## E437 status 事件等沒有施法 mana 帳本的 hook 對英雄 restore_mana 不會生效：b32_divine_formation 不回魔（2026-10-31，工作線 B）
 

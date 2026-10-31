@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：approach_enemy_point 的 reach_key（E438）
+
+- bot intent approach_enemy_point 可選填 `reach_key`（每一級的 extras），給沒有施法距離的純位移 point 技能（b13_shukuchi）。
 ## 2026-10-31 線 B：召喚交易放行一般狀態與追蹤標記（E439）
 
 - 召喚交易中，對施法者以外單位的一般 catalog 狀態（含 state buff、`__ctl` 列）和 ScriptDamageTag 可以出現在任何位置。給 b24_earth_prison。

@@ -32,8 +32,10 @@ pub enum BotAbilityIntent {
     EnemyCone {min_targets:u16},
     /// Actual compiled nonmoving capsule geometry, over disclosed observations.
     EnemyLine {min_targets:u16},
-    /// Author explicitly opts a point skill into closing on disclosed enemies.
-    ApproachEnemyPoint {min_distance:u32},
+    /// Author explicitly opts a point skill into closing on disclosed enemies, farther than
+    /// `min_distance` and within its cast range, or within its compiled `reach_key` extra for a
+    /// pure move with no cast range (E438, e.g. B13 縮地: teleport max_distance).
+    ApproachEnemyPoint {min_distance:u32,#[serde(default,skip_serializing_if="Option::is_none")] reach_key:Option<String>},
     /// A toggle (E263, e.g. A02W 蠍毒箭): switched on while a disclosed enemy hero is within
     /// `threat_radius` and off when none is. `on_status` is the owner's own status the toggle's
     /// on-switch applies (the generated program's own on/off test), read from the owner only.
@@ -194,9 +196,16 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
             BotAbilityIntent::AllyHealOrCleanse {below_hp_per_mille} if def.target_type==TargetTypeC::Unit
                 && def.cleanses_allies && (1..=1000).contains(below_hp_per_mille)
                 && def.levels.iter().all(|rank|rank.range>Fixed64::ZERO&&rank.range<=Fixed64::from_i32(10_000))=>{},
-            BotAbilityIntent::ApproachEnemyPoint {min_distance} if def.target_type==TargetTypeC::Point
+            BotAbilityIntent::ApproachEnemyPoint {min_distance,reach_key:None} if def.target_type==TargetTypeC::Point
                 && (1..=10_000).contains(min_distance)
                 && def.levels.iter().all(|level|level.range>Fixed64::from_i32(*min_distance as i32))=>{},
+            BotAbilityIntent::ApproachEnemyPoint {min_distance,reach_key:Some(reach_key)} if def.target_type==TargetTypeC::Point
+                && (1..=10_000).contains(min_distance)=>{
+                let Some((_,reach))=def.extras.iter().find(|(name,_)|*name==reach_key) else {return Err("bot approach reach_key requires compiled reach extras");};
+                if reach.len()!=def.levels.len() || reach.iter().any(|r|*r<=Fixed64::from_i32(*min_distance as i32) || *r>Fixed64::from_i32(10_000)) {
+                    return Err("bot approach reach must exceed min_distance per rank, bounded");
+                }
+            },
             BotAbilityIntent::ToggleEngage {threat_radius,on_status} if def.target_type==TargetTypeC::None
                 && def.ability_type==AbilityTypeC::Toggle && (1..=10_000).contains(threat_radius)
                 && !on_status.is_empty() && on_status.len()<=128=>{},
@@ -493,11 +502,15 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
                     .min_by_key(|unit|priority(unit)) else {continue;};
                 Some(unit.canonical_id as u32)
             }
-            BotAbilityIntent::ApproachEnemyPoint {min_distance}=>{
+            BotAbilityIntent::ApproachEnemyPoint {min_distance,reach_key}=>{
                 let minimum=Fixed64::from_i32(*min_distance as i32);
+                let reach=match reach_key {
+                    Some(key)=>{let Some(reach)=def.extras.iter().find(|(name,_)|*name==key).and_then(|(_,values)|values.get(rank).copied()) else {continue;}; reach}
+                    None=>level.range,
+                };
                 let Some(unit)=seen.iter().filter(enemy)
                     .filter(|unit|{let distance=(unit.position-own).length_squared();
-                        distance>minimum*minimum && distance<=level.range*level.range})
+                        distance>minimum*minimum && distance<=reach*reach})
                     // Relocation requires a clear swept segment, not a route
                     // around the obstacle. Do not inspect hidden dynamic units.
                     .filter(|unit|relocation_clear(unit.position))
@@ -686,7 +699,7 @@ mod tests {
             1,Vec2::ZERO,&hp,seen,policies,Some(7),|_,_|None,|_,_|None);
         for (ability,intent,slot) in [
             ("lumen_bolt",BotAbilityIntent::EnemyUnit,0),
-            ("vanguard_resolve",BotAbilityIntent::ApproachEnemyPoint {min_distance:100},1),
+            ("vanguard_resolve",BotAbilityIntent::ApproachEnemyPoint {min_distance:100,reach_key:None},1),
             ("ranger_volley",BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1},2),
         ] {
             let policy=BotAbilityPolicy {ability:ability.into(),intent};
@@ -775,7 +788,7 @@ mod tests {
         let enemy=SeenUnit {position:Vec2::new(Fixed64::from_i32(350),Fixed64::ZERO),..enemy};
         let neutral=SeenUnit {position:Vec2::new(Fixed64::from_i32(320),Fixed64::ZERO),..neutral};
         for policy in [
-            BotAbilityPolicy {ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300}},
+            BotAbilityPolicy {ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}},
             BotAbilityPolicy {ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}},
         ] {
             let cast=choose_cast_with_resources(&point_hero,BotRole::Jungle,1,Vec2::ZERO,&hp,
@@ -967,7 +980,7 @@ mod tests {
             team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
         let far=SeenUnit {canonical_id:8,position:Vec2::new(Fixed64::ZERO,Fixed64::from_i32(400)),..near};
         let dash=BotAbilityPolicy {ability:"vanguard_resolve".into(),
-            intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300}};
+            intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}};
         let policies=[dash.clone(),heal()];
         let choose=|seen:&[SeenUnit],policies:&[BotAbilityPolicy],clear:fn(Vec2)->bool|
             choose_cast_with_attack_priority(&hero,BotRole::Top,1,Vec2::ZERO,&health,seen,policies,
@@ -1026,6 +1039,31 @@ mod tests {
         let tremor=BotAbilityPolicy {ability:"b29_earth_tremor".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"area_radius".into(),min_targets:1}};
         assert!(validate_policies(&[tremor.clone()]).is_ok());
         assert_eq!(choose(&[at(900)],&tremor).expect("within the cast range").ability_index,3);
+    }
+
+    /// E438: B13 縮地 has no cast range; its approach reaches the teleport's blink_range (800).
+    #[test]
+    fn an_approach_without_cast_range_reaches_its_compiled_reach_e438() {
+        let mut hero=Hero::new("momochi_sandayu".into(),"momochi_sandayu".into(),"momochi_sandayu".into());
+        hero.abilities=vec!["b13_shukuchi".into()];
+        hero.ability_levels.insert("b13_shukuchi".into(),1);
+        let approach=|reach_key:Option<&str>|BotAbilityPolicy {ability:"b13_shukuchi".into(),
+            intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:reach_key.map(str::to_owned)}};
+        assert!(validate_policies(&[approach(None)]).is_err(),"range 0 never exceeds min_distance");
+        assert!(validate_policies(&[approach(Some("missing"))]).is_err());
+        let reach=approach(Some("blink_range"));
+        assert!(validate_policies(&[reach.clone()]).is_ok());
+        let parsed:BotAbilityIntent=serde_json::from_value(serde_json::json!({"kind":"approach_enemy_point","min_distance":300,"reach_key":"blink_range"})).unwrap();
+        assert!(matches!(parsed,BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:Some(ref key)} if key=="blink_range"));
+        let plain:BotAbilityIntent=serde_json::from_value(serde_json::json!({"kind":"approach_enemy_point","min_distance":300})).unwrap();
+        assert!(matches!(plain,BotAbilityIntent::ApproachEnemyPoint {reach_key:None,..}));
+        let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
+        let at=|x:i32|SeenUnit {canonical_id:(1<<32)|77,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
+            team:2,kind:1,owner_player_id:6,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO};
+        let choose=|x:i32|choose_cast(&hero,BotRole::Top,1,Vec2::ZERO,&health,&[at(x)],&[reach.clone()]);
+        assert_eq!(choose(700).expect("within the blink range").target_pos.unwrap().x,Fixed64::from_i32(700).raw() as i32);
+        assert!(choose(900).is_none(),"beyond the blink range");
+        assert!(choose(200).is_none(),"within min_distance");
     }
 
     /// E398: a lane-unit area waits for a wave and for no enemy hero nearby; a hero in it is enough.
@@ -1103,10 +1141,10 @@ mod tests {
         hero.abilities=vec!["lumen_bolt".into(),"vanguard_resolve".into()];
         hero.ability_levels.insert("vanguard_resolve".into(),1);
         let policy=BotAbilityPolicy {ability:"vanguard_resolve".into(),
-            intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300}};
+            intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}};
         assert!(validate_policies(&[policy.clone()]).is_ok());
         for min_distance in [0,450,10_001] {
-            let bad=BotAbilityPolicy {intent:BotAbilityIntent::ApproachEnemyPoint {min_distance},..policy.clone()};
+            let bad=BotAbilityPolicy {intent:BotAbilityIntent::ApproachEnemyPoint {min_distance,reach_key:None},..policy.clone()};
             assert!(validate_policies(&[bad]).is_err());
         }
         let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
