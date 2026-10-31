@@ -163,6 +163,8 @@ pub struct ParallelWorldAdapter<'a> {
     projectile_hit_generation: Option<u8>,
     /// The ability an `on_ability_executed` status event is for (ext EVENT_ABILITY_ATTR).
     pub(crate) event_ability: Option<EventAbility>,
+    /// A landed hit's total before mitigation in a damage status event (event_ability_attr::RAW_DAMAGE, E478).
+    pub(crate) event_raw_damage: Fixed64,
     projectile_origin: Option<ProjectileOrigin>,
     projectile_source_buffs: Option<BuffStore>,
     projectile_team_key: Option<String>,
@@ -600,6 +602,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             allocation_requested: false,
             reserved_entities: Vec::new(),
             event_ability: None,
+            event_raw_damage: Fixed64::ZERO,
         }
     }
 
@@ -1855,6 +1858,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             }
             (op::EVENT_ABILITY_ATTR, [A::Str(attr)]) => {
                 use omb_script_abi::ext::event_ability_attr as name;
+                if attr.as_str() == name::RAW_DAMAGE { return ROk(V::Num(self.event_raw_damage)); }
                 match (&self.event_ability, attr.as_str()) {
                     (None, name::ID | name::CAST_POINT | name::IS_TOGGLE | name::POINT | name::CAST_RANGE) => ROk(V::None),
                     (Some(ability), name::CAST_RANGE) => ROk(V::Num(ability.cast_range)),

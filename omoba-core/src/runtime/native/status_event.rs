@@ -62,6 +62,9 @@ pub const MANA_SPENT: u8 = 17;
 /// eventfororder): `other` is the unit ordered, `damage_kind` 0 an attack order, 1 a cast; a cast's
 /// ability is `event.order.ability` (EVENT_ABILITY_ATTR, E465).
 pub const ORDER_TARGETED: u8 = 18;
+/// The holder was healed (v3 `on_heal_received`, 原作 OnHealthGained): `amount` is the health it
+/// gained; the healer is not tracked (`other` invalid, E478).
+pub const HEAL_RECEIVED: u8 = 19;
 
 /// `Spec.mask` bits: which events the status listens to.
 pub const ON_END: u32 = 1 << 0;
@@ -80,9 +83,10 @@ pub const ON_BROKEN: u32 = 1 << 12;
 pub const ON_MOVED: u32 = 1 << 13;
 pub const ON_MANA_SPENT: u32 = 1 << 14;
 pub const ON_ORDER_TARGETED: u32 = 1 << 15;
+pub const ON_HEAL_RECEIVED: u32 = 1 << 16;
 pub const ALL: u32 = ON_END | ON_ATTACK_HIT | ON_ATTACKED | ON_TAKE_DAMAGE | ON_DEAL_DAMAGE | ON_TAKE_DAMAGE_PRE | ON_DEAL_DAMAGE_PRE
     | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL | ON_ATTACK_LAUNCH | ON_ABSORB | ON_BROKEN | ON_MOVED | ON_MANA_SPENT
-    | ON_ORDER_TARGETED;
+    | ON_ORDER_TARGETED | ON_HEAL_RECEIVED;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
@@ -136,6 +140,7 @@ impl Spec {
             MOVED => ON_MOVED,
             MANA_SPENT => ON_MANA_SPENT,
             ORDER_TARGETED => ON_ORDER_TARGETED,
+            HEAL_RECEIVED => ON_HEAL_RECEIVED,
             _ => 0,
         };
         self.mask & bit != 0
@@ -161,7 +166,25 @@ pub fn listening(buffs: &crate::runtime::BuffStore, holder: specs::Entity, kind:
 /// the packet's credit when the hit was lethal (on_kill).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DamageNote { pub source: specs::Entity, pub target: specs::Entity, pub amount: Fixed64, pub damage_kind: u8,
-    pub killer: Option<specs::Entity> }
+    pub killer: Option<specs::Entity>,
+    /// The packet's total before the target's mitigation (v3 `event.damage.raw`, E478).
+    pub raw: Fixed64 }
+
+/// The heals since status events last ran: the healed unit and the health it gained (E478).
+#[derive(Clone, Debug, Default)]
+pub struct HealNotes(pub Vec<(specs::Entity, Fixed64)>);
+
+/// A heal that `target` gained `amount` health from, noted only when a status of it listens.
+pub fn note_heal(world: &mut specs::World, target: specs::Entity, amount: Fixed64) {
+    use specs::WorldExt;
+    if amount <= Fixed64::ZERO || !world.try_fetch::<crate::runtime::BuffStore>().is_some_and(|buffs| listening(&buffs, target, HEAL_RECEIVED)) { return; }
+    if world.try_fetch::<HealNotes>().is_none() { world.insert(HealNotes::default()); }
+    world.write_resource::<HealNotes>().0.push((target, amount));
+}
+
+pub fn take_heal_notes(world: &mut specs::World) -> Vec<(specs::Entity, Fixed64)> {
+    world.try_fetch_mut::<HealNotes>().map(|mut notes| std::mem::take(&mut notes.0)).unwrap_or_default()
+}
 
 /// The landed hits since status events last ran.
 #[derive(Clone, Debug, Default)]
@@ -333,7 +356,8 @@ mod tests {
         assert!(!s.listens(ABSORB) && spec(ON_ABSORB).listens(ABSORB) && spec(ON_BROKEN).listens(BROKEN));
         assert!(!s.listens(MOVED) && spec(ON_MOVED).listens(MOVED));
         assert!(!s.listens(ORDER_TARGETED) && spec(ON_ORDER_TARGETED).listens(ORDER_TARGETED), "E465");
-        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 16);
+        assert!(!s.listens(HEAL_RECEIVED) && spec(ON_HEAL_RECEIVED).listens(HEAL_RECEIVED), "E478");
+        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 17);
         assert_eq!(Spec::from_payload(&bad), None, "unknown event bits");
         let mut bad = payload.clone(); bad[KEY]["status"] = json!("B16T");
         assert_eq!(Spec::from_payload(&bad), None, "status ids are v3 ids");

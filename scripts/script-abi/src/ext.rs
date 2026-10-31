@@ -96,6 +96,9 @@ pub mod event_ability_attr {
     pub const POINT: &str = "point";
     /// `Num`: its cast range at the rank the caster holds (0 for an item); E465.
     pub const CAST_RANGE: &str = "cast_range";
+    /// `Num`: in a damage status event (on_take_damage / on_deal_damage / on_kill), the hit's total
+    /// before the target's mitigation (v3 `event.damage.raw`); 0 elsewhere. E478.
+    pub const RAW_DAMAGE: &str = "raw_damage";
 }
 
 /// Attribute names of [`op::UNIT_ATTR`] and what they return.

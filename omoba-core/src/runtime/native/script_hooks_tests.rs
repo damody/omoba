@@ -318,3 +318,27 @@ fn a_marked_status_hears_the_order_that_targets_its_holder() {
         Call::Status { holder, status, kind, other, damage_kind, .. } if *kind == se::ORDER_TARGETED => Some((*holder, status.clone(), *other, *damage_kind)), _ => None }).collect();
     assert_eq!(heard, vec![(hero.id(), "probe_eye".to_owned(), enemy.id(), 1), (hero.id(), "probe_eye".to_owned(), enemy.id(), 0)]);
 }
+
+/// E478: a status listening to on_heal_received hears its holder's heal, with the health gained
+/// (capped at the maximum); a heal at full health gains nothing and is not heard.
+#[test]
+fn a_marked_status_hears_its_holders_heal() {
+    use crate::runtime::native::status_event as se;
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (mut world, mut driver, hero, id) = driven(calls.clone());
+    driver.step(&mut world, []).unwrap();
+    let marker = se::Spec { ability: id.clone(), level: 1, status: "probe_mend".into(), source: EntityHandle { id: hero.id(), gen: hero.gen().id() as u32 }, mask: se::ON_HEAL_RECEIVED };
+    world.write_resource::<BuffStore>().add(hero, "probe_mend", Fixed64::from_i32(5), serde_json::json!({ (se::KEY): marker.row() }));
+    let mhp = world.read_storage::<crate::runtime::native::comp::CProperty>().get(hero).unwrap().mhp;
+    world.write_storage::<crate::runtime::native::comp::CProperty>().get_mut(hero).unwrap().hp = mhp - Fixed64::from_i32(25);
+    for _ in 0..2 {
+        world.write_resource::<Vec<crate::comp::Outcome>>().push(crate::comp::Outcome::Heal { pos: omoba_sim::Vec2::ZERO, target: hero, amount: Fixed64::from_i32(40) });
+        driver.step(&mut world, []).unwrap();
+    }
+    driver.step(&mut world, []).unwrap();
+    let heard: Vec<_> = calls.lock().unwrap().iter().filter_map(|c| match c {
+        Call::Status { holder, kind, amount, .. } if *kind == se::HEAL_RECEIVED => Some((*holder, *amount)), _ => None }).collect();
+    assert_eq!(heard.len(), 1, "the heal at full health gains nothing: {heard:?}");
+    assert_eq!(heard[0].0, hero.id());
+    assert!(heard[0].1 > Fixed64::ZERO && heard[0].1 <= Fixed64::from_i32(25), "at most the missing health: {heard:?}");
+}

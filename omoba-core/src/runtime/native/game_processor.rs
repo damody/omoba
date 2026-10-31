@@ -7218,7 +7218,7 @@ fn handle_damage(
                 amount: (applied.hp_before - applied.hp_after).max(Fixed64::ZERO),
                 damage_kind: super::status_event::damage_kind(mitigated.by_type, original_profile)
                     | if applied.died { omb_script_abi::types::StatusEvent::LETHAL } else { 0 }
-                    | if attack { omb_script_abi::types::StatusEvent::ATTACK } else { 0 }, killer });
+                    | if attack { omb_script_abi::types::StatusEvent::ATTACK } else { 0 }, killer, raw: phys + magi + real });
         }
     }
     // ⑤ Lethal: tower kills, TD bounty and the Death that commits after the batch.
@@ -7238,10 +7238,16 @@ fn handle_damage(
 
 fn handle_heal(world: &mut World, target: Entity, amount: Fixed64) -> Result<(), failure::Error> {
     let amount=received_healing(world,target,amount);
-    let mut properties = world.write_storage::<CProperty>();
-    if let Some(target_props) = properties.get_mut(target) {
-        target_props.hp=healed_hp(target_props.hp,target_props.mhp,amount);
-    }
+    let gained = {
+        let mut properties = world.write_storage::<CProperty>();
+        properties.get_mut(target).map_or(Fixed64::ZERO, |target_props| {
+            let before = target_props.hp;
+            target_props.hp=healed_hp(target_props.hp,target_props.mhp,amount);
+            target_props.hp - before
+        })
+    };
+    // v3 on_heal_received (E478): the health it gained.
+    super::status_event::note_heal(world, target, gained);
     Ok(())
 }
 

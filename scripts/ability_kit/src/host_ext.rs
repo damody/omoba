@@ -392,6 +392,14 @@ impl Cx<'_, '_> {
         }
     }
 
+    /// v3 `event.damage.raw` in a damage trigger (host ext EVENT_ABILITY_ATTR `raw_damage`,
+    /// E478): the hit's total before the target's mitigation; 0 outside one.
+    pub fn event_damage_raw(&mut self) -> Fixed64 {
+        match self.read(op::EVENT_ABILITY_ATTR, &[ExtArg::Str(omb_script_abi::ext::event_ability_attr::RAW_DAMAGE.into())]) {
+            ExtValue::Num(amount) => amount, _ => Fixed64::ZERO,
+        }
+    }
+
     /// v3 `event.order.ability.cast_range` in an `on_order_targeted` trigger (host ext
     /// EVENT_ABILITY_ATTR `cast_range`, E465): the ordered ability's cast range at the orderer's
     /// rank; 0 for an attack order or outside one.

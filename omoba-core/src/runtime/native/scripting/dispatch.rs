@@ -1033,16 +1033,19 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     let absorbs = se::take_absorb_notes(world);
     let moves = se::take_moves(world);
     let orders = super::super::order_targets::take(world);
+    let heals = se::take_heal_notes(world);
     if combat.is_empty() && executed.is_empty() && ended.is_empty() && attacks.is_empty() && damage.is_empty() && absorbs.is_empty()
-        && moves.is_empty() && orders.is_empty() {
+        && moves.is_empty() && orders.is_empty() && heals.is_empty() {
         return;
     }
     // The abilities an event names: the executed ones, then the ones cast orders name (E465).
     let mut executed = executed.to_vec();
     let damage_kind = |k: &DamageKind| match k { DamageKind::Physical => 0u8, DamageKind::Magical => 1, DamageKind::Pure => 2 };
     // The last field: the executed ability (an index into `executed`) of an ABILITY_EXECUTED call.
-    let mut calls: Vec<(Entity, String, se::Spec, u8, Option<Entity>, Fixed64, u8, Option<usize>)> = Vec::new();
+    // The very last: a landed hit's total before mitigation (v3 event.damage.raw, E478), else zero.
+    let mut calls: Vec<(Entity, String, se::Spec, u8, Option<Entity>, Fixed64, u8, Option<usize>, Fixed64)> = Vec::new();
     let executing = std::cell::Cell::new(None::<usize>);
+    let raw_damage = std::cell::Cell::new(Fixed64::ZERO);
     {
         let buffs = world.read_resource::<crate::runtime::BuffStore>();
         let mut on_holder = |holder: Entity, kind: u8, other: Option<Entity>, amount: Fixed64, dk: u8| {
@@ -1051,7 +1054,7 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
                 .filter_map(|(id, b)| se::Spec::from_payload(&b.payload).map(|s| (id.to_owned(), s)))
                 .filter(|(_, s)| s.listens(kind)).collect();
             rows.sort_by(|a, b| a.0.cmp(&b.0));
-            for (id, s) in rows { calls.push((holder, id, s, kind, other, amount, dk, executing.get())); }
+            for (id, s) in rows { calls.push((holder, id, s, kind, other, amount, dk, executing.get(), raw_damage.get())); }
         };
         for event in combat {
             match event {
@@ -1083,10 +1086,14 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
             }
         }
         for note in &damage {
+            raw_damage.set(note.raw);
             on_holder(note.target, se::TAKE_DAMAGE, Some(note.source), note.amount, note.damage_kind);
             on_holder(note.source, se::DEAL_DAMAGE, Some(note.target), note.amount, note.damage_kind);
             if let Some(killer) = note.killer { on_holder(killer, se::KILL, Some(note.target), note.amount, note.damage_kind); }
+            raw_damage.set(Fixed64::ZERO);
         }
+        // v3 on_heal_received (E478): the health the holder gained.
+        for (holder, amount) in &heals { on_holder(*holder, se::HEAL_RECEIVED, None, *amount, 0); }
         // v3 on_moved (E424): `event.distance` is how far the holder moved.
         for (holder, distance) in &moves { on_holder(*holder, se::MOVED, None, *distance, 0); }
         // v3 on_order_targeted (E465): the target of an accepted order hears it, `event.issuer` the
@@ -1105,14 +1112,14 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     for note in absorbs {
         for (kind, happened) in [(se::ABSORB, true), (se::BROKEN, note.broken)] {
             if happened && note.spec.listens(kind) {
-                calls.push((note.holder, note.row.clone(), note.spec.clone(), kind, Some(note.source), note.amount, 0, None));
+                calls.push((note.holder, note.row.clone(), note.spec.clone(), kind, Some(note.source), note.amount, 0, None, Fixed64::ZERO));
             }
         }
     }
     // an end carries the duration the status had left (`status.remaining` of an end trigger)
     for (holder, id, payload, kind, remaining) in ended {
         if let Some(s) = se::Spec::from_payload(&payload).filter(|s| s.listens(kind)) {
-            calls.push((holder, id, s, kind, None, remaining, 0, None));
+            calls.push((holder, id, s, kind, None, remaining, 0, None, Fixed64::ZERO));
         }
     }
     if calls.is_empty() {
@@ -1120,13 +1127,14 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     }
     let cache = ParallelAdapterCache::new(&*world, rng_seed);
     let mut accepted = Vec::new();
-    for (ordinal, (holder, row, spec, kind, other, amount, dk, executed_index)) in calls.into_iter().enumerate() {
+    for (ordinal, (holder, row, spec, kind, other, amount, dk, executed_index, raw)) in calls.into_iter().enumerate() {
         let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
         let handle = ParallelWorldAdapter::entity_to_handle(holder);
         let other = other.map_or(EntityHandle::INVALID, ParallelWorldAdapter::entity_to_handle);
         let event = spec.event(&row, kind, other, amount, dk);
         let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, holder, ordinal_base + ordinal as u64);
         adapter.event_ability = executed_index.map(|index| executed_ability(&cache, registry, &executed[index].0, &executed[index].1, executed[index].2));
+        adapter.event_raw_damage = raw;
         let mut world_dyn = world_dyn_of(&mut adapter);
         let result = catch_unwind(AssertUnwindSafe(|| script.on_status_event(handle, RStr::from_str(&spec.status), event, &mut world_dyn)));
         drop(world_dyn);

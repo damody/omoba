@@ -2,6 +2,22 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E484 （保留）verify_m6_batch 的 quick_swap 換邊時也換了對手：小於 10 人的 group 在 quick 與 quick_swap 面對不同的出貨英雄（2026-10-31）
+
+## E483 （保留）技能被動持續套給施法者自己的狀態（a01t_armor）expires 判 fail（2026-10-31）
+
+## E482 （保留）把傷害夾到生命下限的狀態（a36r_brew）沒有被認成不死，holder_dies 判 fail（2026-10-31）
+
+## E481 （保留）英雄技能 give_item 給其他單位的道具（item_c06e）被當成英雄自己的道具而判 fail（2026-10-31）
+
+## E480 （保留）status_kept 把死後自然到期的短狀態（c23e_phased 0.1 秒）判成被死亡移除（2026-10-31）
+
+## E479 （保留）on_damage_pre 的 event.damage.is_attack 永遠為 false（2026-10-31）
+
+## E478 （保留）event.damage.raw 與 on_heal_received（B21）（2026-10-31）
+
+## E477 （保留）event.damage.raw 與 on_heal_received 沒有 host 落點，B21 只能擋下（2026-10-31）
+
 ## E476 creep_facing 攻擊樣本沒有目標資訊，距離 0 的目標以 atan2(0,0) 算成 0°（2026-10-31，e187 遊戲模式 session，B 要求；已放回 live）
 - **現象**：m6new3 剩 81 筆 violation，全都是攻擊；很多樣本的 expected 剛好是 0°，看不出目標是什麼。
 - **通用修正**：
