@@ -69444,16 +69444,13 @@ local data = {
     {
       abilities = { "b15_tokai_giant", "b15_flame_arrow", "b15_giant_hide", "b15_bluff", "b15_multishot" },
       authored_package = "imagawa_yoshimoto",
-      background = "今川義元（schema v3 產生的 Rust；測試用）",
       display_name = "今川義元",
       id = "imagawa_yoshimoto",
       moba_loadout = {
         ranks = { 1, 1, 1, 0, 0 },
         skill_points = 0,
       },
-      source_stats = "B15",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B15",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "imagawa_yoshimoto",

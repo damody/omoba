@@ -109,4 +109,6 @@ return {
   {hero='maeno_nagayasu',package='hero_a36',dir='heroes/maeno_nagayasu'},
   -- M6 batch (2026-10-31): every ability generated (chain 每道彈跳各自命中表); conformance 0 fail
   {hero='matsunaga_hisahide',package='hero_b28',dir='heroes/matsunaga_hisahide'},
+  -- M6 batch (2026-10-31): every ability generated (法球槽 orb_slot（E534）); conformance 0 fail
+  {hero='imagawa_yoshimoto',package='hero_b15',dir='heroes/imagawa_yoshimoto'},
 }
