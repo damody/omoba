@@ -21530,7 +21530,7 @@ local data = {
       unit_target = "enemy",
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "self_engage", note = "channel without a recovery or area rule", source = "derived", threat_radius = 900 },
+        bot = { kind = "enemy_hero", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -36000,7 +36000,7 @@ local data = {
       target_type = "point",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "approach_enemy_point", min_distance = 300, source = "derived" },
+        bot = { kind = "approach_enemy_point", min_distance = 300, reach_key = "max_range", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -36281,6 +36281,7 @@ local data = {
         echo_radius = { 133.333333, 133.333333, 133.333333, 133.333333 },
         per_sec = { 6.0, 7.0, 8.0, 9.0 },
         right_angle = { 90.0, 90.0, 90.0, 90.0 },
+        shape_width = { 400.0, 400.0, 400.0, 400.0 },
         speed = { 1200.0, 1200.0, 1200.0, 1200.0 },
         splash_radius = { 200.0, 200.0, 200.0, 200.0 },
         two_thirds = { 0.66666666666666663, 0.66666666666666663, 0.66666666666666663, 0.66666666666666663 },
@@ -36297,9 +36298,10 @@ local data = {
       },
       max_level = 4,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_line", min_targets = 1, note = "point skill without an area: aimed at the nearest enemy", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "collision_radius", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -55022,7 +55024,7 @@ local data = {
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
-        bot = { kind = "self_engage", note = "channel without a recovery or area rule", source = "derived", threat_radius = 900 },
+        bot = { kind = "enemy_unit", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -57433,7 +57435,7 @@ local data = {
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
-        bot = { kind = "self_engage", note = "channel without a recovery or area rule", source = "derived", threat_radius = 900 },
+        bot = { kind = "enemy_unit", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -58973,7 +58975,7 @@ local data = {
       targets_tree = true,
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "none", reason = "tree target", source = "derived" },
+        bot = { enemy_radius = 900, kind = "nearest_tree", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -59354,7 +59356,7 @@ local data = {
       targets_tree = true,
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "none", reason = "tree target", source = "derived" },
+        bot = { enemy_radius = 0, kind = "nearest_tree", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -59774,7 +59776,7 @@ local data = {
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
-        bot = { kind = "self_engage", note = "channel without a recovery or area rule", source = "derived", threat_radius = 900 },
+        bot = { kind = "enemy_unit", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -60598,7 +60600,7 @@ local data = {
       ue = { native_only = true },
       unit_target = "enemy",
       v3 = {
-        bot = { kind = "self_engage", note = "channel without a recovery or area rule", source = "derived", threat_radius = 900 },
+        bot = { kind = "enemy_unit", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },

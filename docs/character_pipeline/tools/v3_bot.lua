@@ -18,6 +18,9 @@ M.KINDS = {
   enemy_cone = { params = { min_targets = "count" } },
   enemy_line = { params = { min_targets = "count" } },
   approach_enemy_point = { params = { min_distance = "radius", reach_key = "value" } },
+  -- E473 (line B): the nearest standing tree in cast range; enemy_radius > 0 also wants a
+  -- revealed enemy hero within it
+  nearest_tree = { params = { enemy_radius = "radius0" } },
   self_heal = { params = { below_hp_per_mille = "per_mille" } },
   self_area = { params = { radius_key = "value", min_targets = "count" } },
   self_engage = { params = { threat_radius = "radius" } },
@@ -66,46 +69,63 @@ end
 
 -- a move toward the enemy; with no cast range its reach is the move's own cap (reach_key, E438)
 local function approach(target, def, f)
-  local reach = unranged(target, def) and f.reach or nil
+  local reach = unranged(target, def) and (f.reach or f.clamp) or nil
   return { kind = "approach_enemy_point", min_distance = M.DEFAULTS.approach, reach_key = reach }
 end
 
 -- every action and selector of a program tree, into the document's routines it calls (once each)
-local function walk(t, on_action, on_selector, doc, seen, owner)
+-- `args`: the routine's parameters bound to the calling action's arguments (a routine is walked
+-- once, through the first call that reaches it)
+local function walk(t, on_action, on_selector, doc, seen, owner, args)
   if type(t) ~= "table" then return end
-  if type(t.op) == "string" then on_action(t, owner) end
+  if type(t.op) == "string" then on_action(t, owner, args) end
   if type(t.shape) == "string" then on_selector(t) end
   if t.op == "call" and type(t.routine) == "string" and doc and doc.routines and doc.routines[t.routine] then
     seen = seen or {}
     if not seen[t.routine] then
       seen[t.routine] = true
       local r = doc.routines[t.routine]
-      walk(r.actions, on_action, on_selector, doc, seen, r.owner or owner)
+      local bound = {}
+      for k, v in pairs(t.args or {}) do
+        bound[k] = (type(v) == "string" and args and args[v:match("^%s*([%a_][%w_]*)%s*$") or ""]) or v
+      end
+      walk(r.actions, on_action, on_selector, doc, seen, r.owner or owner, bound)
     end
   end
-  for _, k in ipairs(sorted_keys(t)) do walk(t[k], on_action, on_selector, doc, seen, owner) end
+  for _, k in ipairs(sorted_keys(t)) do walk(t[k], on_action, on_selector, doc, seen, owner, args) end
 end
 
 -- facts about one castable's behavior
 function M.facts(def, castable, doc)
   local f = { heal_self = false, heal_target = false, cleanse = false, mana = nil, damage = false,
     summon = false, move = false, selectors = {}, lines = {}, enemy_status = false }
-  local function action(a, owner)
+  local function action(a, owner, args)
+    -- a routine parameter (a bare name) stands for the value its caller passed
+    local function arg_value(v)
+      local name = type(v) == "string" and v:match("^%s*([%a_][%w_]*)%s*$")
+      return (name and args and args[name]) or v
+    end
     if a.op == "heal" then
       if a.to == "caster" or a.to == "self" then f.heal_self = true else f.heal_target = true end
     elseif a.op == "restore_mana" and (a.to == "caster" or a.to == "self") then f.mana = value_name(a.amount)
     elseif a.op == "remove_status" then f.cleanse = true
     elseif a.op == "damage" then f.damage = true
-    elseif a.op == "create_unit" or a.op == "create_illusion" then f.summon = true
+    elseif a.op == "create_unit" or a.op == "create_illusion" then
+      f.summon = true
+      if a.op == "create_illusion" then f.damage = f.damage or false end
+      if type(a.template) == "string" then f.creates = f.creates or {}; f.creates[#f.creates + 1] = a.template end
     elseif a.op == "dash" or a.op == "leap" or a.op == "blink" or a.op == "teleport" then
       f.move = true
       -- how far the move goes at most (b13_shukuchi's teleport max_distance): the reach of a
       -- point skill with no cast range (line B E438)
       f.reach = f.reach or value_name(a.max_distance)
     elseif a.op == "apply_status" and a.to ~= "caster" and a.to ~= "self" then f.enemy_status = true
+    elseif a.op == "let" and type(a.value) == "string" then
+      -- the clamp idiom: a destination at most `$x` from the caster is the move's reach
+      f.clamp = f.clamp or a.value:match("distance%(%s*caster%s*,%s*point%s*%)%s*>%s*%$([%a_][%w_]*)")
     -- a linear projectile sweeps a line as wide as its largest radius on both sides
     elseif a.op == "projectile" and a.kind == "linear" then
-      f.lines[#f.lines + 1] = { value = a.end_radius or a.radius, owner = owner }
+      f.lines[#f.lines + 1] = { value = arg_value(a.end_radius or a.radius), owner = owner }
     end
   end
   -- the cast's own selectors decide the aim; status triggers (on-hit cleaves, auras) only add facts
@@ -155,7 +175,7 @@ function M.derive(def, kind_of_entry, doc)
     end
     return { kind = "toggle_engage", threat_radius = D.threat, on_status = on_status }
   end
-  if cast.channel_time then
+  if cast.channel_time and target.type ~= "unit" then
     -- E281: a channel aimed at a point hits the area there (the bot waits for the channel)
     local channel_area = (target.type == "point") and value_name(target.aoe_radius)
     if channel_area and not f.heal_self then
@@ -172,8 +192,18 @@ function M.derive(def, kind_of_entry, doc)
   local t = target.type or "none"
   local team = target.team or "enemy"
   local hero_only = type(target.types) == "table" and #target.types == 1 and target.types[1] == "hero"
-  -- a tree target: no bot finds trees yet
-  if t == "tree" then return { kind = "none", reason = "tree target" } end
+  -- a tree target: the nearest standing tree in cast range (line B E473); a summon or a hit
+  -- waits for a revealed enemy hero near it, anything else (vision) casts on any tree
+  if t == "tree" then
+    -- a summon that fights (a template with an attack) also waits for an enemy; a dummy (vision) does not
+    local fights = f.damage
+    for _, a in ipairs(f.creates or {}) do
+      for _, tpl in ipairs(doc and doc.unit_templates or {}) do
+        if tpl.id == a and type(tpl.attack) == "table" and tpl.attack.kind ~= nil and tpl.attack.kind ~= "none" then fights = true end
+      end
+    end
+    return { kind = "nearest_tree", enemy_radius = fights and D.engage or 0 }
+  end
   if t == "unit" then
     if team == "enemy" or team == "both" then
       if team == "both" and (f.heal_target or f.cleanse) and not f.damage then
@@ -252,11 +282,13 @@ function M.check(bot, find_value)
       elseif math.type(v) ~= "integer" then problems[#problems + 1] = "bot." .. k .. " 必須是整數"
       elseif p == "per_mille" and (v < 0 or v > 1000) then problems[#problems + 1] = "bot." .. k .. " 必須在 0～1000"
       elseif p == "radius" and (v < 1 or v > 10000) then problems[#problems + 1] = "bot." .. k .. " 必須在 1～10000"
+      elseif p == "radius0" and (v < 0 or v > 10000) then problems[#problems + 1] = "bot." .. k .. " 必須在 0～10000"
       elseif p == "count" and (v < 1 or v > 128) then problems[#problems + 1] = "bot." .. k .. " 必須在 1～128" end
     end
   end
   for k in pairs(spec.params) do
-    if bot[k] == nil and not (bot.kind == "self_recovery" and k == "below_hp_per_mille") then
+    if bot[k] == nil and not (bot.kind == "self_recovery" and k == "below_hp_per_mille")
+      and not (bot.kind == "approach_enemy_point" and k == "reach_key") then
       problems[#problems + 1] = "bot 缺少 " .. bot.kind .. " 的參數 " .. k
     end
   end
