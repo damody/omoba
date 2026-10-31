@@ -615,7 +615,8 @@ function Gen:expr(node, ctx)
       if not ctx.ended then self:block("attr:status.remaining outside an end trigger"); return "Fixed64::ZERO", "err" end
       return "cx.event_amount", "num"
     end
-    if base.k == "id" and (base.name == "state" or base.name == "vars") and not scope_find(ctx.scope, base.name) then
+    -- `state.x.attr` / `vars.x.attr`: the var (above) and then its attribute, like any unit
+    if base.k == "id" and (base.name == "state" or base.name == "vars") and #parts == 1 and not scope_find(ctx.scope, base.name) then
       self:block("token:" .. base.name); return "Fixed64::ZERO", "err"
     end
     local obj, ot = self:expr(node.obj, ctx)
@@ -714,6 +715,19 @@ function Gen:expr(node, ctx)
     if op == "==" or op == "~=" then
       if lt ~= rt or lt:match("^sym") or lt == "event" or lt == "event_ability" then self:block("expr: " .. op .. " of " .. lt .. " and " .. rt) end
       return string.format("(%s %s %s)", l, op == "==" and "==" or "!=", r), "bool"
+    end
+    -- vectors (Vec2): a point moved by an offset, the offset between points, an offset scaled
+    local spatial = { point = true, vec = true }
+    if spatial[lt] or spatial[rt] then
+      local ty
+      if op == "+" and spatial[lt] and spatial[rt] and not (lt == "point" and rt == "point") then
+        ty = (lt == "point" or rt == "point") and "point" or "vec"
+      elseif op == "-" and spatial[lt] and rt == "vec" then ty = lt
+      elseif op == "-" and lt == "point" and rt == "point" then ty = "vec"
+      elseif op == "*" and lt == "vec" and rt == "num" then ty = "vec"
+      elseif op == "*" and lt == "num" and rt == "vec" then return string.format("(%s * %s)", r, l), "vec" end
+      if not ty then self:block("expr: " .. op .. " of " .. lt .. " and " .. rt); return "Fixed64::ZERO", "err" end
+      return string.format("(%s %s %s)", l, op, r), ty
     end
     if lt ~= "num" or rt ~= "num" then self:block("expr: " .. op .. " of " .. lt .. " and " .. rt); return "Fixed64::ZERO", "err" end
     if op == "<" or op == "<=" or op == ">" or op == ">=" then return string.format("(%s %s %s)", l, op, r), "bool" end

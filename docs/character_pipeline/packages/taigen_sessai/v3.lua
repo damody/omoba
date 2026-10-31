@@ -452,6 +452,7 @@ return function(ctx)
         } },
       { id = "b22e_treant", source_id = "B22E_treant",
         values = {
+          hp = { 1500, unit = "hp", source = "kv:StatusHealth（施放時由 B22E 的 overrides 依英雄等級覆寫）" },
           hp_regen = { 10, unit = "per_s", source = "kv:StatusHealthRegen" },
           armor = { 20, unit = "armor", source = "kv:ArmorPhysical" },
           magic_resist = { 0, unit = "pct", source = "kv:MagicalResistance" },
@@ -469,7 +470,7 @@ return function(ctx)
           vision_night = { 1000, unit = "dist", source = "kv:VisionNighttimeRange" },
         },
         text = { zh_TW = { name = "樹人" }, en = { name = "Treant" } },
-        stats = { hp_regen = "$hp_regen", armor = "$armor", magic_resist = "$magic_resist", move_speed = "$move_speed" },
+        stats = { hp = "$hp", hp_regen = "$hp_regen", armor = "$armor", magic_resist = "$magic_resist", move_speed = "$move_speed" },
         attack = { kind = "ranged", range = "$attack_range", interval = "$attack_interval", damage = "$attack_min",
           damage_max = "$attack_max", projectile_speed = "$projectile_speed", damage_type = "physical",
           attack_point = "$attack_point" },
@@ -477,7 +478,7 @@ return function(ctx)
         vision = { day = "$vision_day", night = "$vision_night" },
         acquisition_range = "$acquisition_range", turn_rate = "$turn_rate", owner_death = "persist",
         ai = "owner_controlled", tags = { "summon" },
-        notes = "生命不列在模板：KV StatusHealth 1500 一律被 B22E 的 overrides 覆寫。",
+        notes = "模板生命取 KV StatusHealth 1500；B22E 施放時一律以 overrides 覆寫。",
         provenance = { "npc/npc_units_custom_load.txt:315-371" } },
       { id = "b22t_spirit", source_id = "B22E_treant2",
         values = {

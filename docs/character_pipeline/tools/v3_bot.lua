@@ -17,7 +17,7 @@ M.KINDS = {
   enemy_point = { params = { radius_key = "value", min_targets = "count" } },
   enemy_cone = { params = { min_targets = "count" } },
   enemy_line = { params = { min_targets = "count" } },
-  approach_enemy_point = { params = { min_distance = "radius" } },
+  approach_enemy_point = { params = { min_distance = "radius", reach_key = "value" } },
   self_heal = { params = { below_hp_per_mille = "per_mille" } },
   self_area = { params = { radius_key = "value", min_targets = "count" } },
   self_engage = { params = { threat_radius = "radius" } },
@@ -64,6 +64,12 @@ local function unranged(target, def)
   return true
 end
 
+-- a move toward the enemy; with no cast range its reach is the move's own cap (reach_key, E438)
+local function approach(target, def, f)
+  local reach = unranged(target, def) and f.reach or nil
+  return { kind = "approach_enemy_point", min_distance = M.DEFAULTS.approach, reach_key = reach }
+end
+
 -- every action and selector of a program tree, into the document's routines it calls (once each)
 local function walk(t, on_action, on_selector, doc, seen, owner)
   if type(t) ~= "table" then return end
@@ -91,7 +97,11 @@ function M.facts(def, castable, doc)
     elseif a.op == "remove_status" then f.cleanse = true
     elseif a.op == "damage" then f.damage = true
     elseif a.op == "create_unit" or a.op == "create_illusion" then f.summon = true
-    elseif a.op == "dash" or a.op == "leap" or a.op == "blink" or a.op == "teleport" then f.move = true
+    elseif a.op == "dash" or a.op == "leap" or a.op == "blink" or a.op == "teleport" then
+      f.move = true
+      -- how far the move goes at most (b13_shukuchi's teleport max_distance): the reach of a
+      -- point skill with no cast range (line B E438)
+      f.reach = f.reach or value_name(a.max_distance)
     elseif a.op == "apply_status" and a.to ~= "caster" and a.to ~= "self" then f.enemy_status = true
     -- a linear projectile sweeps a line as wide as its largest radius on both sides
     elseif a.op == "projectile" and a.kind == "linear" then
@@ -178,7 +188,7 @@ function M.derive(def, kind_of_entry, doc)
   end
   -- unit_or_point: the row's target is a point (hero_author/v3.lua), so the bot aims at one
   if t == "point" or t == "direction" or t == "vector" or t == "unit_or_point" then
-    if f.move and not f.damage then return { kind = "approach_enemy_point", min_distance = D.approach } end
+    if f.move and not f.damage then return approach(target, def, f) end
     local area = value_name(target.aoe_radius)
     -- no cast range (range 0, E366): anywhere on the map
     if area then return { kind = unranged(target, def) and "global_enemy_point" or "enemy_point", radius_key = area, min_targets = D.min_targets } end
@@ -195,7 +205,7 @@ function M.derive(def, kind_of_entry, doc)
       if s.shape == "circle" and r then return { kind = unranged(target, def) and "global_enemy_point" or "enemy_point", radius_key = r, min_targets = D.min_targets } end
     end
     if f.summon then return { kind = "summon_near_enemy", threat_radius = D.threat } end
-    if f.move then return { kind = "approach_enemy_point", min_distance = D.approach } end
+    if f.move then return approach(target, def, f) end
     -- a point skill whose only reach is a linear projectile: the line it sweeps
     -- line_width_owner: the entry whose values the width is (a routine another entry owns)
     for _, l in ipairs(f.lines) do

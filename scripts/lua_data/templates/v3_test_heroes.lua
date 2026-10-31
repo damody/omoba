@@ -46400,7 +46400,7 @@ local data = {
       target_type = "point",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "approach_enemy_point", min_distance = 300, source = "derived" },
+        bot = { kind = "approach_enemy_point", min_distance = 300, reach_key = "max_blink_range", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -52581,7 +52581,7 @@ local data = {
       target_type = "point",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "approach_enemy_point", min_distance = 300, source = "derived" },
+        bot = { kind = "approach_enemy_point", min_distance = 300, reach_key = "blink_range", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
