@@ -8,7 +8,7 @@ use specs::{Entity, World, WorldExt};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OrderKind { Attack, Cast }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OrderTargeted {
     pub tick: u64,
     /// The unit the order names.
@@ -16,6 +16,8 @@ pub struct OrderTargeted {
     /// The unit that received the order.
     pub orderer: Entity,
     pub kind: OrderKind,
+    /// The ability a cast order names (v3 `event.order.ability`); none for an attack.
+    pub ability: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -26,13 +28,13 @@ fn now(world: &World) -> u64 {
 }
 
 /// Records an accepted order on `target` (an order on oneself is not targeting).
-pub fn record(world: &mut World, orderer: Entity, target: Entity, kind: OrderKind) {
+pub fn record(world: &mut World, orderer: Entity, target: Entity, kind: OrderKind, ability: Option<&str>) {
     if orderer == target { return; }
     let tick = now(world);
     if world.try_fetch::<OrderTargets>().is_none() { world.insert(OrderTargets::default()); }
     let mut rows = world.write_resource::<OrderTargets>();
     rows.0.retain(|row| row.tick >= tick);
-    rows.0.push(OrderTargeted { tick, target, orderer, kind });
+    rows.0.push(OrderTargeted { tick, target, orderer, kind, ability: ability.map(str::to_owned) });
 }
 
 /// Takes the recorded rows, in the order the orders were accepted.
@@ -50,11 +52,11 @@ mod tests {
         let mut world = World::new();
         world.insert(crate::comp::Tick(5));
         let (a, b) = (world.create_entity().build(), world.create_entity().build());
-        record(&mut world, a, b, OrderKind::Attack);
-        record(&mut world, a, a, OrderKind::Cast);
+        record(&mut world, a, b, OrderKind::Attack, None);
+        record(&mut world, a, a, OrderKind::Cast, Some("x"));
         world.insert(crate::comp::Tick(6));
-        record(&mut world, b, a, OrderKind::Cast);
-        assert_eq!(take(&world), vec![OrderTargeted { tick: 6, target: a, orderer: b, kind: OrderKind::Cast }]);
+        record(&mut world, b, a, OrderKind::Cast, Some("x"));
+        assert_eq!(take(&world), vec![OrderTargeted { tick: 6, target: a, orderer: b, kind: OrderKind::Cast, ability: Some("x".into()) }]);
         assert!(take(&world).is_empty());
     }
 }

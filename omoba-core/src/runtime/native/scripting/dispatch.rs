@@ -996,12 +996,14 @@ fn executed_ability(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry,
     -> super::parallel_world_adapter::EventAbility {
     let def = (!id.starts_with(super::event::ITEM_SKILL_PREFIX)).then(|| registry.get_ability(id)).flatten().map(|(def, _)| def);
     let rank = cache.hero.get(*caster).map_or(0, |hero| hero.get_ability_level(id).clamp(0, i32::from(u8::MAX)) as u8);
-    let cast_point = def.and_then(|def| def.get_level_data(rank.max(1))).map(|level| level.cast_time)
-        .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
-        .map_or(Fixed64::ZERO, |seconds| Fixed64::from_raw((f64::from(seconds) * 1024.0).round() as i64));
+    let level = def.and_then(|def| def.get_level_data(rank.max(1)));
+    let fixed = |value: f32| Some(value).filter(|value| value.is_finite() && *value >= 0.0 && *value <= 1_000_000.0)
+        .map_or(Fixed64::ZERO, |value| Fixed64::from_raw((f64::from(value) * 1024.0).round() as i64));
+    let cast_point = level.map_or(Fixed64::ZERO, |level| fixed(level.cast_time));
+    let cast_range = level.map_or(Fixed64::ZERO, |level| fixed(level.range));
     let toggle = def.is_some_and(|def| def.ability_type == AbilityType::Toggle);
     let point = point.or_else(|| cache.pos.get(*caster).map(|p| p.0)).unwrap_or(Vec2::ZERO);
-    super::parallel_world_adapter::EventAbility { id: id.to_owned(), cast_point, toggle, point }
+    super::parallel_world_adapter::EventAbility { id: id.to_owned(), cast_point, toggle, point, cast_range }
 }
 
 /// An effect-only hook's outcomes (equip, aura, channel start/pulse/end, delayed effect, schedule,
@@ -1030,10 +1032,13 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     let damage = se::take_damage_notes(world);
     let absorbs = se::take_absorb_notes(world);
     let moves = se::take_moves(world);
+    let orders = super::super::order_targets::take(world);
     if combat.is_empty() && executed.is_empty() && ended.is_empty() && attacks.is_empty() && damage.is_empty() && absorbs.is_empty()
-        && moves.is_empty() {
+        && moves.is_empty() && orders.is_empty() {
         return;
     }
+    // The abilities an event names: the executed ones, then the ones cast orders name (E465).
+    let mut executed = executed.to_vec();
     let damage_kind = |k: &DamageKind| match k { DamageKind::Physical => 0u8, DamageKind::Magical => 1, DamageKind::Pure => 2 };
     // The last field: the executed ability (an index into `executed`) of an ABILITY_EXECUTED call.
     let mut calls: Vec<(Entity, String, se::Spec, u8, Option<Entity>, Fixed64, u8, Option<usize>)> = Vec::new();
@@ -1084,6 +1089,17 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
         }
         // v3 on_moved (E424): `event.distance` is how far the holder moved.
         for (holder, distance) in &moves { on_holder(*holder, se::MOVED, None, *distance, 0); }
+        // v3 on_order_targeted (E465): the target of an accepted order hears it, `event.issuer` the
+        // unit ordered; a cast order carries its ability.
+        for order in &orders {
+            let cast = order.kind == super::super::order_targets::OrderKind::Cast;
+            if let Some(ability) = order.ability.as_ref().filter(|_| cast) {
+                executed.push((order.orderer, ability.clone(), None));
+                executing.set(Some(executed.len() - 1));
+            }
+            on_holder(order.target, se::ORDER_TARGETED, Some(order.orderer), Fixed64::ZERO, u8::from(cast));
+            executing.set(None);
+        }
     }
     // A status's own absorbs (E393): each absorb, then its breaking, before the broken row's end.
     for note in absorbs {

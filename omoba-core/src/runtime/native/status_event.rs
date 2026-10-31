@@ -58,6 +58,10 @@ pub const MOVED: u8 = 16;
 /// The holder spent mana on an ability or item (v3 `on_mana_spent`, 原作 OnSpentMana); `amount`
 /// is the mana spent (E449).
 pub const MANA_SPENT: u8 = 17;
+/// The holder was made the target of an accepted order (v3 `on_order_targeted`, 原作
+/// eventfororder): `other` is the unit ordered, `damage_kind` 0 an attack order, 1 a cast; a cast's
+/// ability is `event.order.ability` (EVENT_ABILITY_ATTR, E465).
+pub const ORDER_TARGETED: u8 = 18;
 
 /// `Spec.mask` bits: which events the status listens to.
 pub const ON_END: u32 = 1 << 0;
@@ -75,8 +79,10 @@ pub const ON_ABSORB: u32 = 1 << 11;
 pub const ON_BROKEN: u32 = 1 << 12;
 pub const ON_MOVED: u32 = 1 << 13;
 pub const ON_MANA_SPENT: u32 = 1 << 14;
+pub const ON_ORDER_TARGETED: u32 = 1 << 15;
 pub const ALL: u32 = ON_END | ON_ATTACK_HIT | ON_ATTACKED | ON_TAKE_DAMAGE | ON_DEAL_DAMAGE | ON_TAKE_DAMAGE_PRE | ON_DEAL_DAMAGE_PRE
-    | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL | ON_ATTACK_LAUNCH | ON_ABSORB | ON_BROKEN | ON_MOVED | ON_MANA_SPENT;
+    | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL | ON_ATTACK_LAUNCH | ON_ABSORB | ON_BROKEN | ON_MOVED | ON_MANA_SPENT
+    | ON_ORDER_TARGETED;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
@@ -129,6 +135,7 @@ impl Spec {
             BROKEN => ON_BROKEN,
             MOVED => ON_MOVED,
             MANA_SPENT => ON_MANA_SPENT,
+            ORDER_TARGETED => ON_ORDER_TARGETED,
             _ => 0,
         };
         self.mask & bit != 0
@@ -325,7 +332,8 @@ mod tests {
         assert!(!s.listens(KILL) && spec(ON_KILL).listens(KILL));
         assert!(!s.listens(ABSORB) && spec(ON_ABSORB).listens(ABSORB) && spec(ON_BROKEN).listens(BROKEN));
         assert!(!s.listens(MOVED) && spec(ON_MOVED).listens(MOVED));
-        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 15);
+        assert!(!s.listens(ORDER_TARGETED) && spec(ON_ORDER_TARGETED).listens(ORDER_TARGETED), "E465");
+        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 16);
         assert_eq!(Spec::from_payload(&bad), None, "unknown event bits");
         let mut bad = payload.clone(); bad[KEY]["status"] = json!("B16T");
         assert_eq!(Spec::from_payload(&bad), None, "status ids are v3 ids");

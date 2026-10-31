@@ -392,6 +392,15 @@ impl Cx<'_, '_> {
         }
     }
 
+    /// v3 `event.order.ability.cast_range` in an `on_order_targeted` trigger (host ext
+    /// EVENT_ABILITY_ATTR `cast_range`, E465): the ordered ability's cast range at the orderer's
+    /// rank; 0 for an attack order or outside one.
+    pub fn event_ability_cast_range(&mut self) -> Fixed64 {
+        match self.read(op::EVENT_ABILITY_ATTR, &[ExtArg::Str(omb_script_abi::ext::event_ability_attr::CAST_RANGE.into())]) {
+            ExtValue::Num(range) => range, _ => Fixed64::ZERO,
+        }
+    }
+
     /// v3 `event.point` in an `on_ability_executed` status trigger (host ext EVENT_ABILITY_ATTR
     /// `point`): a point cast's point (the cursor), a unit cast's target position, otherwise the
     /// caster's position; None outside one.

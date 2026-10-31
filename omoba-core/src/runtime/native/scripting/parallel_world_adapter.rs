@@ -187,6 +187,8 @@ pub(crate) struct EventAbility {
     pub toggle: bool,
     /// Where it was cast (event_ability_attr::POINT).
     pub point: Vec2,
+    /// Its cast range at the caster's rank (event_ability_attr::CAST_RANGE).
+    pub cast_range: Fixed64,
 }
 
 impl Drop for ParallelWorldAdapter<'_> {
@@ -1854,7 +1856,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             (op::EVENT_ABILITY_ATTR, [A::Str(attr)]) => {
                 use omb_script_abi::ext::event_ability_attr as name;
                 match (&self.event_ability, attr.as_str()) {
-                    (None, name::ID | name::CAST_POINT | name::IS_TOGGLE | name::POINT) => ROk(V::None),
+                    (None, name::ID | name::CAST_POINT | name::IS_TOGGLE | name::POINT | name::CAST_RANGE) => ROk(V::None),
+                    (Some(ability), name::CAST_RANGE) => ROk(V::Num(ability.cast_range)),
                     (Some(ability), name::POINT) => ROk(V::Point(ability.point)),
                     (Some(ability), name::ID) => ROk(V::Str(ability.id.as_str().into())),
                     (Some(ability), name::CAST_POINT) => ROk(V::Num(ability.cast_point)),

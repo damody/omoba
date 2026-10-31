@@ -346,7 +346,7 @@ pub fn drain_pending_moves(world: &mut World) {
                 match validate_attack_target(world, hero, target_entity_id, req.owner_pid) {
                     Ok(target) => {
                         // v3 on_order_targeted (order_targets.rs).
-                        super::order_targets::record(world, hero, target, super::order_targets::OrderKind::Attack);
+                        super::order_targets::record(world, hero, target, super::order_targets::OrderKind::Attack, None);
                         HeroCommand::AttackTarget { target, chase_origin: None }
                     }
                     Err(e) => {
@@ -1009,7 +1009,7 @@ fn admit_ability_cast(
     interrupt_attack_for_accepted_command(world, caster);
     if let SkillTarget::Entity(target) = &target {
         // v3 on_order_targeted (order_targets.rs).
-        super::order_targets::record(world, caster, *target, super::order_targets::OrderKind::Cast);
+        super::order_targets::record(world, caster, *target, super::order_targets::OrderKind::Cast, Some(&ability_id));
     }
 
     world

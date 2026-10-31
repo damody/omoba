@@ -2,6 +2,8 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E469 （保留）小兵追擊越過轉角後倒退走回已經過的 waypoint，facing 驗收出現倒退與轉角違規（2026-10-31）
+
 ## E468 bot_auto_policies 的 approach_enemy_point 不認 reach_key，射程 0 的縮地（b13_shukuchi）沒有策略（2026-10-31，e187 遊戲模式 session；已放回 live）
 - **現象**：m6new1（新英雄批次）百地三太夫的 b13_shukuchi bot 輸入 0、NEVER CAST；B 的 E438 已經讓 executor 支援 `reach_key`，派生 hint 也帶著 `reach_key = blink_range`。
 - **根因**：bot_auto_policies 的 approach_enemy_point 只抄 `min_distance`，而且一律要求每級施法距離大於 min_distance；縮地施法距離 0，所以被 admissible 擋下。
@@ -10,11 +12,38 @@
   - 每個值大於 min_distance，且不超過 10000。
 - **避免**：executor 新增 intent 參數時，同步更新派生策略的參數表與編譯檢查。
 
-## E467 （保留）conformance 的 expected_damage 遇到 repeat／delay／tether 就不判定（A19W 爆炸、B19W 第一下都沒驗過）（2026-10-31）
+## E467 conformance：expected_damage 遇到 repeat／delay／tether 裡的傷害就整個不判定（2026-10-31，conformance session，工作線 E 的 e187）
+- **現象**：A19W fire_stratagem 的爆炸、B19W water_dragon 的第一下，conformance 從來沒有比對過傷害。normal 情境的 detail 是空的。
+- **根因**：只要有任何一筆傷害在 repeat／delay／tether 裡，expected_damage 就回傳 None。
+- **通用修正**：第一下只算施法第一個 tick 會落下的傷害。
+  - `first` 為 0 的 repeat 會在當下跑第一輪，算進去。
+  - delay、tether、晚一點才開始的 repeat 都不算。
+  - 對施法者自己單位的迴圈（for_each 的 select.team 是 ally 或 self，例如 B23W 每隻幽靈各觸發一次衝擊）也不算。第一版漏了這一項，B23 的 4 個 normal 因此轉為 fail。
+- **結果**：A19W、B19W、B14 等技能的第一下傷害開始被比對，而且符合文件。另外量了一次施法的總傷害：A19W r4 是 2 次爆炸 × 300 加上 5 次餘火 × 40，B19W 對同一目標只打一次，都和文件一致。A19T 同一個 pulse 內多次 apply 會讓 on_created 重複觸發，已交給工作線 A（E466）。
 
 ## E466 （保留）同一個 tick 內多次套用同一狀態，每次都當成新建而重跑 on_created（2026-10-31）
 
-## E465 （保留）on_order_targeted 沒有派送：order_targets 記錄了卻沒有人讀，b06_mind_eye 只能擋下（2026-10-31）
+## E465 on_order_targeted 沒有派送：order_targets 記錄了卻沒有人讀，b06_mind_eye 只能擋下（2026-10-31，工作線 B）
+
+- **現象**：
+  - 工作線 A 第五批第 5 項：`passive_trigger:on_order_targeted` 沒有 host 落點，B06 b06_mind_eye 只能擋下。
+  - 它的 filter 需要 `event.issuer`、`event.order.ability` 與 `event.order.ability.cast_range`。
+- **根因**：
+  - `order_targets.rs` 已在攻擊與施法指令被接受時記錄被指定的目標，但沒有任何派送讀取這些列。
+  - status_event 也沒有對應的事件種類。
+- **通用修正**：
+  - status_event 新增 `ORDER_TARGETED = 18`／`ON_ORDER_TARGETED = 1 << 15`。
+  - `OrderTargeted` 記下施法指令的技能 id；game_processor 的攻擊與施法兩個記錄點都會傳入。
+  - `dispatch_status_events` 取出這些列，讓目標身上有標記的狀態或 passive 收到事件：
+    - `other` 是被下令的單位（`event.issuer`）；
+    - `damage_kind` 是指令種類，0 為攻擊、1 為施法；
+    - 施法指令另帶技能（`event.order.ability`）。
+  - `EVENT_ABILITY_ATTR` 新增 `cast_range`，取 orderer 目前等級的施法距離。
+  - ability_kit 新增 `event_ability_cast_range()`。
+- **回歸**：
+  - `script_hooks_tests::a_marked_status_hears_the_order_that_targets_its_holder`：施法與攻擊指令依序送達，事件帶有 orderer 與指令種類。
+  - `status_event` 新增遮罩測試。
+- **檔案**：`order_targets.rs`、`status_event.rs`、`scripting/dispatch.rs`、`scripting/parallel_world_adapter.rs`、`game_processor.rs`、`script_hooks_tests.rs`、`scripts/script-abi/src/ext.rs`、`scripts/ability_kit/src/host_ext.rs`
 
 ## E464 沒有 status.forced_move 的 host 落點：a11_evil_gaze、a21_false_intel 只能擋下（2026-10-31，工作線 B）
 

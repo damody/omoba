@@ -94,6 +94,8 @@ pub mod event_ability_attr {
     /// `Point`: where it was cast: a point-target cast's point (the cursor), a unit-target
     /// cast's target position when it executed, otherwise (no target, an item) the caster's.
     pub const POINT: &str = "point";
+    /// `Num`: its cast range at the rank the caster holds (0 for an item); E465.
+    pub const CAST_RANGE: &str = "cast_range";
 }
 
 /// Attribute names of [`op::UNIT_ATTR`] and what they return.

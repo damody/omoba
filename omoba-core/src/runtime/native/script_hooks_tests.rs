@@ -280,3 +280,23 @@ fn a_marked_status_hears_its_holders_mana_spend() {
         Call::Status { holder, status, kind, amount, .. } if *kind == se::MANA_SPENT => Some((*holder, status.clone(), *amount)), _ => None }).collect();
     assert_eq!(heard, vec![(hero.id(), "probe_drain".to_owned(), Fixed64::from_i32(75))]);
 }
+
+/// E465: a status listening to on_order_targeted hears an accepted order naming its holder, with
+/// the unit ordered as `other` and the order kind (0 attack, 1 cast) as `damage_kind`.
+#[test]
+fn a_marked_status_hears_the_order_that_targets_its_holder() {
+    use crate::runtime::native::status_event as se;
+    use specs::Builder;
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (mut world, mut driver, hero, id) = driven(calls.clone());
+    driver.step(&mut world, []).unwrap();
+    let marker = se::Spec { ability: id.clone(), level: 1, status: "probe_eye".into(), source: EntityHandle { id: hero.id(), gen: hero.gen().id() as u32 }, mask: se::ON_ORDER_TARGETED };
+    world.write_resource::<BuffStore>().add(hero, "probe_eye", Fixed64::from_i32(5), serde_json::json!({ (se::KEY): marker.row() }));
+    let enemy = world.create_entity().build();
+    crate::runtime::native::order_targets::record(&mut world, enemy, hero, crate::runtime::native::order_targets::OrderKind::Cast, Some(&id));
+    crate::runtime::native::order_targets::record(&mut world, enemy, hero, crate::runtime::native::order_targets::OrderKind::Attack, None);
+    driver.step(&mut world, []).unwrap();
+    let heard: Vec<_> = calls.lock().unwrap().iter().filter_map(|c| match c {
+        Call::Status { holder, status, kind, other, damage_kind, .. } if *kind == se::ORDER_TARGETED => Some((*holder, status.clone(), *other, *damage_kind)), _ => None }).collect();
+    assert_eq!(heard, vec![(hero.id(), "probe_eye".to_owned(), enemy.id(), 1), (hero.id(), "probe_eye".to_owned(), enemy.id(), 0)]);
+}
