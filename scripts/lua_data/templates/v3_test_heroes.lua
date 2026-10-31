@@ -68916,16 +68916,13 @@ local data = {
     {
       abilities = { "b05_chain_lightning", "b05_heavenly_thunder", "b05_three_arrows", "b05_holy_light_burst" },
       authored_package = "mori_motonari",
-      background = "毛利元就（schema v3 產生的 Rust；測試用）",
       display_name = "毛利元就",
       id = "mori_motonari",
       moba_loadout = {
         ranks = { 1, 1, 1, 0 },
         skill_points = 0,
       },
-      source_stats = "B05",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B05",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "mori_motonari",

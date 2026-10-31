@@ -93,4 +93,6 @@ return {
   {hero='shimazu_yoshihiro',package='hero_c03',dir='heroes/shimazu_yoshihiro'},
   {hero='otomo_sorin',package='hero_c12',dir='heroes/otomo_sorin'},
   {hero='matsuhime',package='hero_c19',dir='heroes/matsuhime'},
+  -- M6 batch (2026-10-31): every ability generated; conformance 0 fail (shadow, independent-instance vars)
+  {hero='mori_motonari',package='hero_b05',dir='heroes/mori_motonari'},
 }
