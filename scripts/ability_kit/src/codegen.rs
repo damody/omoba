@@ -871,8 +871,11 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// v3 `set_time_of_day { mode = "night", duration }` (the whole map is night for `duration`
     /// seconds, overlaps keeping the later end) or `mode = "day"` (the night ends now); a one-shot
     /// packet on the caster (omoba-core rules::world, E453).
+    /// A night without a duration (`Fixed64::ZERO`, E501; 原作 SetTimeOfDay to a fixed point of
+    /// the clock) lasts until a day call, at most an hour: this game has no day cycle to end it.
     pub fn set_time_of_day(&mut self, night: bool, duration: Fixed64) -> Res {
         use omoba_core::runtime::native::rules::world::{time_of_day_payload, TIME_OF_DAY_BUFF};
+        let duration = if night && duration == Fixed64::ZERO { Fixed64::from_i32(3600) } else { duration };
         if night && (duration <= Fixed64::ZERO || duration > Fixed64::from_i32(3600)) { return Err("v3: set_time_of_day duration out of range"); }
         self.world.add_stat_buff(self.caster, RStr::from_str(TIME_OF_DAY_BUFF), Fixed64::ONE,
             RStr::from_str(&time_of_day_payload(night, if night { duration } else { Fixed64::ZERO }).to_string()));
@@ -952,6 +955,12 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// `modify_cooldown { mode = start | set }`.
     pub fn cooldown_start(&mut self, unit: EntityHandle, ability: &str, seconds: Fixed64) -> Res {
         self.hero_command(unit, hero_command::Command::CooldownStart { ability: ability.to_owned(), seconds: seconds.max(Fixed64::ZERO) })
+    }
+    /// v3 `modify_cooldown { item | item_tag, mode = "start", amount }` (E501): every slot of
+    /// `unit`'s inventory holding `item` (a catalog id or a v3 item id) cools down for exactly
+    /// `seconds`. An `item_tag` is the generator's list of the tagged items, one call each.
+    pub fn item_cooldown_start(&mut self, unit: EntityHandle, item: &str, seconds: Fixed64) -> Res {
+        self.hero_command(unit, hero_command::Command::ItemCooldownStart { item: item.to_owned(), seconds: seconds.max(Fixed64::ZERO) })
     }
     /// `modify_cooldown { mode = reduce }`.
     pub fn cooldown_reduce(&mut self, unit: EntityHandle, ability: &str, seconds: Fixed64) -> Res {

@@ -2,6 +2,8 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E508 （保留）stat 的 when 條件沒有 host 落點：夜晚、主屬性、英雄限定的數值只能擋下（2026-10-31）
+
 ## E507 split 快照建置後 stage 了 live 新增、快照沒建的英雄 DLL（2026-10-31，工作線 C）
 - 現象：工作線 C 的 mogami_yoshihime spotlight split 在 cargo 全部建完後失敗：`dev_run_freshness.lua:8: source missing: target\lineC-bins\release\hero_a04.dll`。
 - 原因：E487 之後 cargo 從 build lock 內取得的快照建置，但建置後的 `stage-dll` 和 E399 的 DLL 集合比對都讀 live 的 `scripts/hero_dlls.lua`。快照之後、cargo 期間 b5670cac 把 A04、A14 加進 hero_dlls，live 的集合多出快照沒建的 hero_a04，stage 時找不到 DLL。
@@ -12,9 +14,30 @@
   - `run_moba_split_local_test` 驗證：快照集合從快照的 hero_dlls 讀；stage-dll 帶 `--set-root`，repo 建置不帶；`built_set` 讀快照。
 - 避免：從快照建置時，建置後用到的任何來源清單也要讀同一份快照。
 
+## E506 （保留）狀態事件沒有魔力帳本：orb 的每擊魔力花不掉（2026-10-31）
+
+## E505 （保留）chance.mode prd 沒有 host 落點（A17）（2026-10-31）
+
+## E504 （保留）獨立狀態移除自己這一個實例與實例變數沒有 host 落點（A06）（2026-10-31）
+
+## E503 （保留）召喚物攻擊只有物理傷害：unit_template attack.damage_type 沒有 host 落點（C16）（2026-10-31）
+
 ## E502 （保留）v3 conformance 施法者先閃現到面前再打周圍的技能（c12 空間裂縫），目標沒放在落點，判沒有傷害（2026-10-31）
 
-## E501 （保留）modify_cooldown 的道具形式（item_tag／item）沒有 host 落點（C13、C18）（2026-10-31）
+## E501 modify_cooldown 的道具形式與不帶 duration 的夜晚沒有 host 落點：C13、C18、C10 只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage M6 第 5、6 批：
+  - c13t 每跳以 `modify_cooldown { item_tag = "blink", mode = "start", amount }` 鎖住閃現道具；C18 也有 `modify_cooldown.item`。
+  - c10 以不帶 duration 的 `set_time_of_day { mode = "night" }` 改成夜晚，延遲後再改回白天。
+- **根因**：
+  - hero_command 只能改技能冷卻，道具冷卻只有道具使用本身會設定。
+  - kit 的 set_time_of_day 夜晚必須帶 duration。
+- **通用修正**：
+  - `hero_command::Command::ItemCooldownStart { item, seconds }`（op `item_cooldown_start`）：背包中每一格持有該道具（catalog id 或 v3 道具 id）的，冷卻都設成剛好 seconds；原本冷卻更長的會被縮短，與原作 StartCooldown 相同。
+  - kit 新增 `item_cooldown_start(unit, item, seconds)`。item_tag 由產生器依道具文件展開成道具 id，每個 id 各呼叫一次（catalog 不帶道具 tag）。
+  - kit `set_time_of_day(true, 0)`：不帶 duration 的夜晚持續到下一次改成白天，最長一小時。本遊戲沒有日夜循環能結束它。
+- **回歸**：`hero_command::tests::an_item_cooldown_start_sets_every_slot_holding_the_item`。
+- **檔案**：`omoba-core/src/runtime/native/hero_command.rs`、`scripts/ability_kit/src/codegen.rs`
 
 ## E500 create_unit.over_limit:reject 與 owner:caster_hero 沒有 host 落點：C13 龍捲風只能擋下（2026-10-31，工作線 B）
 

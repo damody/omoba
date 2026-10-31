@@ -22,6 +22,10 @@ pub enum Command {
     CooldownStart { ability: String, seconds: Fixed64 },
     CooldownReduce { ability: String, seconds: Fixed64 },
     CooldownEnd { ability: String },
+    /// v3 `modify_cooldown { item | item_tag, mode = "start", amount }` (E501): every inventory
+    /// slot holding `item` (its catalog id or its v3 id) cools down for exactly `seconds`, even one
+    /// cooling down longer (原作 StartCooldown).
+    ItemCooldownStart { item: String, seconds: Fixed64 },
     Level { ability: String, level: i32 },
     Health { value: Fixed64 },
     /// v3 `order_attack`: the hero's current command becomes attacking `target` (`(id, generation)`),
@@ -63,6 +67,7 @@ impl Command {
             Command::CooldownStart { ability, seconds } => json!({ "op": "cooldown_start", "ability": ability, "raw": seconds.raw() }),
             Command::CooldownReduce { ability, seconds } => json!({ "op": "cooldown_reduce", "ability": ability, "raw": seconds.raw() }),
             Command::CooldownEnd { ability } => json!({ "op": "cooldown_end", "ability": ability, "raw": 0 }),
+            Command::ItemCooldownStart { item, seconds } => json!({ "op": "item_cooldown_start", "ability": item, "raw": seconds.raw() }),
             Command::Level { ability, level } => json!({ "op": "level", "ability": ability, "raw": level }),
             Command::Health { value } => json!({ "op": "health", "ability": "", "raw": value.raw() }),
             // the target packed into `raw`: id in the high 32 bits, generation in the low 32
@@ -87,6 +92,7 @@ impl Command {
             "cooldown_start" if (0..=limit).contains(&raw) => Command::CooldownStart { ability, seconds: Fixed64::from_raw(raw) },
             "cooldown_reduce" if (0..=limit).contains(&raw) => Command::CooldownReduce { ability, seconds: Fixed64::from_raw(raw) },
             "cooldown_end" if raw == 0 => Command::CooldownEnd { ability },
+            "item_cooldown_start" if (0..=limit).contains(&raw) => Command::ItemCooldownStart { item: ability, seconds: Fixed64::from_raw(raw) },
             "level" if (0..=100).contains(&raw) => Command::Level { ability, level: raw as i32 },
             "health" if (0..=limit).contains(&raw) && ability.is_empty() => return Some(Command::Health { value: Fixed64::from_raw(raw) }),
             op @ ("order_stop" | "order_hold" | "order_move" | "order_attack_move") if ability.is_empty() => {
@@ -110,7 +116,7 @@ impl Command {
         };
         match &cmd {
             Command::CooldownStart { ability, .. } | Command::CooldownReduce { ability, .. } | Command::CooldownEnd { ability }
-            | Command::Level { ability, .. } => ability_ok(ability).then_some(cmd),
+            | Command::Level { ability, .. } | Command::ItemCooldownStart { item: ability, .. } => ability_ok(ability).then_some(cmd),
             Command::Health { .. } | Command::OrderAttack { .. } | Command::Order { .. } | Command::OrderFollow { .. }
             | Command::OrderAttackQueued { .. } => Some(cmd),
         }
@@ -162,6 +168,7 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, payload: &Value) 
         Command::CooldownStart { ability, seconds } => with_hero_ability(world, target, &ability, |h| h.set_cooldown(&ability, seconds)),
         Command::CooldownEnd { ability } => with_hero_ability(world, target, &ability, |h| h.start_cooldown(&ability, Fixed64::ZERO)),
         Command::CooldownReduce { ability, seconds } => with_hero_ability(world, target, &ability, |h| { h.reduce_cooldown(&ability, seconds); }),
+        Command::ItemCooldownStart { item, seconds } => item_cooldown_start(world, target, &item, seconds),
         Command::OrderAttack { target: (id, gen) } => order_attack(world, target, id, gen),
         Command::Order { kind, at } => order(world, target, kind, at),
         Command::OrderFollow { target: (id, gen) } => {
@@ -285,6 +292,20 @@ fn order_attack(world: &mut World, unit: Entity, id: u32, gen: i32) -> bool {
     true
 }
 
+/// [`Command::ItemCooldownStart`]: true when the unit holds the item.
+fn item_cooldown_start(world: &mut World, unit: Entity, item: &str, seconds: Fixed64) -> bool {
+    let mut inventories = world.write_storage::<super::comp::Inventory>();
+    let Some(inventory) = inventories.get_mut(unit) else { return false };
+    let mut held = false;
+    for instance in inventory.slots.iter_mut().flatten() {
+        if instance.item_id == item || super::game_processor::item_script_id(&instance.item_id) == Some(item) {
+            instance.cooldown_remaining = seconds.to_f32_for_render();
+            held = true;
+        }
+    }
+    held
+}
+
 fn with_hero_ability(world: &mut World, target: Entity, ability: &str, f: impl FnOnce(&mut super::comp::Hero)) -> bool {
     let mut heroes = world.write_storage::<super::comp::Hero>();
     let Some(hero) = heroes.get_mut(target) else { return false };
@@ -296,6 +317,28 @@ fn with_hero_ability(world: &mut World, target: Entity, ability: &str, f: impl F
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// E501: an item cooldown start sets every slot holding the item to exactly that time (a
+    /// longer one shortens), others untouched; a unit without it takes nothing.
+    #[test]
+    fn an_item_cooldown_start_sets_every_slot_holding_the_item() {
+        use specs::Builder;
+        use super::super::comp::{Inventory, ItemInstance};
+        let mut world = World::new();
+        world.register::<Inventory>();
+        let mut inventory = Inventory::default();
+        inventory.slots[0] = Some(ItemInstance { item_id: "katana".into(), cooldown_remaining: 5.0 });
+        inventory.slots[1] = Some(ItemInstance { item_id: "katana".into(), cooldown_remaining: 0.0 });
+        inventory.slots[2] = Some(ItemInstance { item_id: "spear".into(), cooldown_remaining: 2.0 });
+        let hero = world.create_entity().with(inventory).build();
+        let other = world.create_entity().with(Inventory::default()).build();
+        let command = Command::ItemCooldownStart { item: "katana".into(), seconds: Fixed64::from_raw(307) };
+        assert_eq!(Command::from_payload(BUFF, &command.payload()), Some(command.clone()));
+        assert!(apply(&mut world, hero, BUFF, &command.payload()));
+        assert!(!apply(&mut world, other, BUFF, &command.payload()), "not held");
+        let cooldowns: Vec<f32> = world.read_storage::<Inventory>().get(hero).unwrap().slots.iter().flatten().map(|i| i.cooldown_remaining).collect();
+        assert!((cooldowns[0] - 0.3).abs() < 0.001 && (cooldowns[1] - 0.3).abs() < 0.001 && cooldowns[2] == 2.0, "{cooldowns:?}");
+    }
 
     #[test]
     fn payload_round_trips_strictly() {
