@@ -2,6 +2,17 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E560 kit 沒有 add_ability／remove_ability：B16 忍犬生成時要加技能（2026-11-01，工作線 B）
+
+- **現象**：A 回報 B16（忍犬「月月」生成時 add_ability 四個 hidden 技能）與 C08（偷技能放到 F 槽、移除舊的）卡在 kit 沒有 `add_ability`／`remove_ability`。
+- **修正**（非英雄單位）：
+  - kit `Cx::add_ability(to, ability, level)`：非英雄單位走 E529 的 unit ability 列，等級至少 1，和 `grant_unit_ability` 相同。
+  - kit `Cx::remove_ability(from, ability)`：移除該能力列與它正在跑的冷卻列。E541 的逐步事件會把 UnitAbilityState 的移除傳到 replica。
+  - 英雄目前回傳錯誤（host 會記錄）：C08 要改英雄的技能欄（`slot`、`cast_point`、`as`），英雄技能清單在 tick 中變動，需要另外的複製管道，之後另案處理。
+  - 在施法交易裡，`remove_ability` 只能作用於 caster 或本次生成的單位，與其他 remove_buff 規則相同。
+- **測試**：kit 沒有 host 替身；land 的 codegen、cargo check 與 DLL manifest 檢查通過。B16 接上後由 D 的 conformance 驗證。
+- **檔案**：`scripts/ability_kit/src/host_ext.rs`
+
 ## E559 headless 的 in-process observer replica 從共用 scripts/*.dll 載入，鎖住其他 session 要 stage 的 DLL（2026-11-01，E187）
 - 現象：工作線 C 的 rerun4 有 25 位英雄 stage-dll 失敗（Permission denied）。被鎖的是共用的 `scripts\base_content.dll` 和 `scripts\hero_*.dll`，持有者是 verify_m6_batch 的 moba-headless（PID 45832，m6new14）。這個程序的模組清單裡全都是 `D:\omoba\scripts\*.dll`，雖然它的 `--scripts-dir` 指向的是批次自己的 `bin/`。
 - 原因：authority 從 `--scripts-dir` 載入，沒有問題。但 E545 的 in-process observer 經 `FilteredReplica::from_start` 建立 team replica，replica 讀的是 `OMB_SCRIPTS_DIR`，沒設定時退回 `./scripts`；批次的 cwd 是 repo 根目錄，所以載入並鎖住共用的那份（E124 以來 server 和 runtime 都避開了這個問題）。

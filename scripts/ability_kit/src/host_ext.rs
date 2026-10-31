@@ -710,6 +710,25 @@ impl Cx<'_, '_> {
         Ok(())
     }
 
+    /// v3 `add_ability { to, ability, level }` (E560) on a non-hero unit: it holds `ability` at
+    /// `level` (at least 1), as [`Cx::grant_unit_ability`] (B16's dog). A hero's slots
+    /// (`slot`, `cast_point`: C08's stolen F) are not supported yet: an error the host records.
+    pub fn add_ability(&mut self, to: EntityHandle, ability: &str, level: Fixed64) -> Res {
+        if to.is_valid() && self.is_hero(to) { return Err("v3: add_ability on a hero is not supported"); }
+        self.grant_unit_ability(to, ability, level)
+    }
+
+    /// v3 `remove_ability { from, ability }` (E560) on a non-hero unit: the ability and its
+    /// running cooldown go. A hero's slots are not supported yet (an error, as add_ability).
+    pub fn remove_ability(&mut self, from: EntityHandle, ability: &str) -> Res {
+        use omoba_core::runtime::native::unit_abilities;
+        if !from.is_valid() { return Ok(()); }
+        if self.is_hero(from) { return Err("v3: remove_ability on a hero is not supported"); }
+        self.world.remove_buff(from, RStr::from_str(&unit_abilities::row_id(ability)));
+        self.world.remove_buff(from, RStr::from_str(&format!("{}{ability}", unit_abilities::COOLDOWN_PREFIX)));
+        Ok(())
+    }
+
     /// [`Cx::reveal_ex`] for v3 `reveal.teams` (E527): `"own"`, `"all"` or `"enemy"` (every team but
     /// the caster's: the caster shown to its enemies).
     pub fn reveal_teams(&mut self, at: Vec2, radius: Fixed64, duration: Fixed64, teams: &str, follow: Option<EntityHandle>,

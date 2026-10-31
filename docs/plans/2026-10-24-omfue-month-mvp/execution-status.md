@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：kit add_ability／remove_ability（非英雄，E560）
+
+- B16 忍犬可接；C08 英雄技能欄另案。
 ## 2026-11-01 線 B：dodge_projectiles.of（E557）
 
 - 可替同隊單位（幻象、隊友）閃避投射物，B16、A13 需要。
