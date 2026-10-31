@@ -2,6 +2,17 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E542 M6 batch 沒有實機 split 局，observer mismatch 這類只在 server＋replica 出現的問題抓不到（2026-11-01，E187）
+- 現象：工作線 C 的 demo10 跑約 63 秒就被 `observer-mismatch-after-rebase` 中止（E541），但 verify_m6_batch 的 headless 批次全部通過。Acceptance 段只列 NEVER CAST、拒絕、失敗局與小兵朝向，看起來像全部通過。
+- 原因：headless 的 moba_headless 只跑 authority，沒有 team replica 和 observer 比對。observer mismatch 只會在 split 拓撲（omb server＋transport＋runtime）出現，批次本來就量不到。
+- 修正（共用層）：
+  - `verify_m6_batch.lua --split`：headless 局跑完後，用 quick recipe 產生 `split.lua`（玩家 1、6 改成 autopilot 人類），以 `run_moba_split_local.lua --autopilot lane_v0 --max-seconds 600 --wait-live-lock 1800` 跑一局實機 split（遵守機器鎖、10 分鐘上限）。
+  - 用 `match_summary.summary` 讀 authority log，寫進 `report.json` 的 `split`（exit code、是否結束、時長、observer mismatch 數）。Acceptance 加一行 `split (live …): observer mismatch N`；讀不到 log 時寫 `NO AUTHORITY LOG` 和原因。
+  - 沒加 `--split` 時，Acceptance 明寫 `observer：headless 未涵蓋；spotlight split 涵蓋 <英雄>`。英雄清單用 `--spotlight-observed a,b,...` 帶入（工作線 C 的逐英雄 spotlight split）；沒帶時寫「未提供」。
+  - `--split` 只是選項、不預設開：每批多佔 10 分鐘 live_match 鎖會擋住 spotlight。正式做法是 moba_headless 在同一個 process 內接上 projector、replica 和 observer（B），完成後 Acceptance 直接列 headless 的 mismatch 數。
+- 避免：驗收清單沒量到的項目要寫「未涵蓋」，不能留空，免得被當成通過。
+
+
 ## E544 spotlight 報告沒有 observer 驗證結果，無法當 observer 過渡涵蓋（2026-11-01，工作線 C）
 - 需求：headless observer 還沒做好之前，gamemode 要在批次 Acceptance 段自動列出「spotlight split 已涵蓋 observer 的英雄」，當作過渡涵蓋。但 spotlight 報告（`target/spotlight/<hero>/spotlight.json`）沒有記錄 authority 的 observer 驗證結果。demo10 的 `observer-mismatch-after-rebase`（schema 0x464f471b）就是從 server log 手動找出來的。
 - 修正（共用層，`scripts/record_hero_spotlight.lua`）：
