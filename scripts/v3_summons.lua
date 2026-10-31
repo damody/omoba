@@ -330,12 +330,13 @@ function M.template_rows(doc, t)
     row.attack_range = num(attack.range, "attack.range")
     row.attack_interval = num(attack.interval, "attack.interval")
     if attack.kind and attack.kind ~= "none" and (not row.attack_range or not row.attack_interval) then no("attack range or interval missing") end
-    -- the animation point as the share of the attack interval before the hit (attack_timing)
+    -- the animation point as the share of the attack interval before the hit (attack_timing); 0 is
+    -- a hit at once (the host requires only windup + backswing = 1000, line B C15 note)
     if attack.attack_point ~= nil and row.attack_interval and row.attack_interval > 0 then
       local ap = num(attack.attack_point, "attack.attack_point")
       if ap then
         local windup = math.floor(ap / row.attack_interval * 1000 + 0.5)
-        if windup <= 0 or windup >= 1000 then no("attack.attack_point outside the interval")
+        if windup < 0 or windup >= 1000 then no("attack.attack_point outside the interval")
         else row.attack_timing = { windup = windup, backswing = 1000 - windup } end
       end
     end
