@@ -156,6 +156,9 @@ pub mod unit_attr {
     pub const IS_RANGED: &str = "is_ranged";
     /// `Unit`: the summoner of a summon; `None` otherwise.
     pub const OWNER: &str = "owner";
+    /// `Unit`: the hero behind a unit (v3 `x.hero`, E575): a hero itself; a summon or an
+    /// illusion its summoner's hero, up the summon chain; `None` for other units.
+    pub const HERO: &str = "hero";
     /// `Str`: the hero a unit shows: a hero's own id, an illusion's copied unit (omoba-core
     /// illusion `look`); `None` for other units. Hero selections that include illusions (Dota's
     /// HERO type, v3 `include_illusions`) read it.

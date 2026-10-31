@@ -882,6 +882,14 @@ impl<'a> ParallelWorldAdapter<'a> {
             name::IS_RANGED=>V::Bool(entity.is_some_and(|e|self.source_attack(e).is_some()
                 && super::super::rules::attack::is_ranged(buffs(e),e,true))),
             name::OWNER=>handle(entity.and_then(|e|self.cache.summoned.as_ref()?.get(e).map(|summon|summon.summoner))),
+            name::HERO=>handle(entity.and_then(|mut e|{
+                // a bounded walk: a summon chain is short and never a cycle, but a script cannot loop the host
+                for _ in 0..8 {
+                    if self.cache.hero.get(e).is_some() { return Some(e); }
+                    e=self.cache.summoned.as_ref()?.get(e)?.summoner;
+                }
+                None
+            })),
             name::LOOK=>match entity.and_then(|e|self.cache.hero.get(e).map(|hero|hero.id.clone())
                 .or_else(||crate::runtime::native::illusion::look(self.source_buffs(e),e).map(str::to_owned))) {
                 Some(id)=>V::Str(id.as_str().into()),None=>V::None,
@@ -2373,6 +2381,8 @@ mod tests {
         assert_eq!(unit(h,name::ATTACK_EFFECT_MULTIPLIER),n(1));
         assert_eq!(unit(s,name::ATTACK_DAMAGE),n(0),"no attack");
         assert_eq!(unit(h,name::OWNER),Ok(V::None));
+        assert_eq!((unit(h,name::HERO),unit(s,name::HERO),unit(c,name::HERO)),(Ok(V::Unit(h)),Ok(V::Unit(h)),Ok(V::None)),
+            "E575: a hero itself, its illusion its hero, a camp nobody");
         assert_eq!(unit(h,name::PROJECTILE_SPEED),n(900));
         assert_eq!(unit(h,name::AVG_ATTACK),n(42),"30 base + 12 bonus, no critical");
         assert_eq!(unit(h,name::BONUS_ARMOR),n(3));

@@ -2,7 +2,15 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E575 （保留）unit attr hero：單位背後的英雄（C06）（2026-11-01）
+## E575 unit attr hero：單位背後的英雄（C06）（2026-11-01，工作線 B）
+
+- **現象**：石川五右衛門（C06）的「殺人越貨」用 `give_gold to = "self.hero"`，T 的錢袋用 `on_pickup` 的 `it.hero`，都要讀「這個單位背後的英雄」。host 的 unit attr 沒有 `hero`，產生器無法編譯。
+- **修正**：
+  - ext `unit_attr::HERO = "hero"`：英雄回傳自己；召喚物與分身沿著召喚鏈取召喚者的英雄，最多走 8 層；其他單位回傳 None。
+  - 分身沒有 Hero 元件，是召喚物，所以分身擊殺時錢給本體。
+  - kit 用既有的 `cx.unit_ref(u, unit_attr::HERO)` 讀取。
+- **測試**：`parallel_world_adapter` 的 unit attr 測試：英雄回傳自己，分身回傳英雄，野怪營地回傳 None。
+- **檔案**：`scripts/script-abi/src/ext.rs`、`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`
 
 ## E574 （保留）showcase 舞台拒絕負座標的 placement（nobu 地圖樹木舞台）（2026-11-01）
 
