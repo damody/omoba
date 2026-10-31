@@ -51,4 +51,7 @@ return {
   -- M6 fourth batch (2026-10-31): every ability generated, conformance 0 fail on live d47398f0
   {hero='miyoshi_nagayoshi',package='hero_b10',dir='heroes/miyoshi_nagayoshi'},
   {hero='momochi_sandayu',package='hero_b13',dir='heroes/momochi_sandayu'},
+  -- M6 fifth batch (2026-10-31): every ability generated, conformance 0 fail
+  {hero='saito_tomonobu',package='hero_b03',dir='heroes/saito_tomonobu'},
+  {hero='naoe_kanetsugu',package='hero_b36',dir='heroes/naoe_kanetsugu'},
 }

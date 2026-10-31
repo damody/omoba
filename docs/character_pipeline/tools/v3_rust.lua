@@ -2150,15 +2150,20 @@ function Gen:action(a, ctx, ind)
     local types = SELECT_TYPES[types_key(s.types)]
     if not types then self:block("selector.types:" .. types_key(s.types)); types = "All" end
     local mi, inv, hid, ill = false, false, false, false
+    local skip = {}
     for _, f in ipairs(s.flags or {}) do
       if f == "include_magic_immune" then mi = true elseif f == "include_invulnerable" then inv = true
       -- include_hidden: Select.include_hidden (ability_kit hidden_excluded: no hidden state in the host yet)
       elseif f == "include_hidden" then hid = true
       -- include_illusions: Select.include_illusions (a hero selection also takes illusions)
       elseif f == "include_illusions" then ill = true
+      -- exclude_illusions / exclude_invisible: such a unit is skipped (before `where` and `limit`)
+      elseif f == "exclude_illusions" then skip[#skip + 1] = "IS_ILLUSION"
+      elseif f == "exclude_invisible" then skip[#skip + 1] = "IS_INVISIBLE"
       -- visible_only: enemies_in_circle already takes the caster team's disclosed units
       elseif f ~= "include_untargetable" and f ~= "visible_only" then self:block("selector.flag:" .. f) end
     end
+    if ill and table.concat(skip, ","):find("IS_ILLUSION", 1, true) then self:block("selector.flag: include_illusions with exclude_illusions") end
     if s.order ~= nil and s.order ~= "id" and s.order ~= "nearest" and s.order ~= "farthest" and s.order ~= "random" then self:block("selector.order:" .. tostring(s.order)) end
     if s.exclude ~= nil and s.team == "ally_not_self" then self:block("selector.exclude with team ally_not_self") end
     local exclude = s.exclude ~= nil and self:value(s.exclude, ctx, "unit")
@@ -2189,6 +2194,9 @@ function Gen:action(a, ctx, ind)
         .. line("    let mut taken = 0usize;")) or "")
       .. line("    for " .. it .. " in units {")
       .. (exclude and line("        if " .. it .. " == excluded { continue; }") or "")
+    for _, flag in ipairs(skip) do
+      str = str .. line("        if cx.unit_flag(" .. it .. ", ability_kit::unit_attr::" .. flag .. ") { continue; }")
+    end
     if s.where then
       -- the selector's `where` names the candidate `it`
       local wscope = scope_child(ctx.scope)
