@@ -28,7 +28,7 @@ use super::*;
 use serde_json::{json, Value};
 
 const ENEMY: &str = "training_luminary";
-const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "leveled_by", "unit_ability", "target_status", "ally_target_lower", "ally_unit_at_point", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line", "target_ahead"];
+const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "leveled_by", "unit_ability", "target_status", "ally_target_lower", "ally_unit_at_point", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line", "target_ahead", "corpse_near_caster"];
 const WHEN: &[&str] = &["cast", "wait", "caster_dies", "target_dies", "owner_dies", "owner_respawns", "toggle", "cast_until_over_cap"];
 /// A document entry the ported hero does not have at all: a difference, not a harness gap.
 const MISSING: &str = "missing entry: ";
@@ -445,7 +445,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let origin = omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(isolated_skill_origin_y()));
     let mut mana: Option<(bool, f64)> = None;
     let (mut immune, mut dead, mut hidden, mut invisible) = (false, false, false, false);
-    let (mut clear_line, mut face_ahead) = (false, false);
+    let (mut clear_line, mut face_ahead, mut corpse) = (false, false, false);
     // What the entry's on_phase_start needs (E457): a status on the target, an ally target lower
     // than the caster, an allied unit at the point.
     let (mut target_statuses, mut ally_lower, mut ally_at_point) = (Vec::<String>::new(), false, false);
@@ -486,6 +486,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
             "target_status" => target_statuses.push(given["runtime_id"].as_str().unwrap_or("").to_owned()),
             "ally_target_lower" => ally_lower = true,
             "ally_unit_at_point" => ally_at_point = true,
+            "corpse_near_caster" => corpse = true,
             other => return Err(format!("given {other}")),
         }
     }
@@ -674,6 +675,24 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
         if target == caster { return Err("dead self target".into()); }
         run.kill(caster, target);
         run.step(3);
+    }
+    // A corpse beside the caster (E547): an enemy creep killed there just before the cast.
+    if corpse {
+        // the mana the givens set comes back after the steps (insufficient_mana)
+        let pool = run.hero(|h| h.mana_pool.clone());
+        let enemy_team = run.world.read_storage::<Faction>().get(run.enemy).map(|f| f.team_id).unwrap_or(1);
+        let body = spawn_body(&mut run.world, 0, isolated_skill_origin_y() - 120, enemy_team, 100, None);
+        run.world.write_storage::<omoba_core::Creep>().insert(body, omoba_core::Creep {
+            name: "v3_conformance_corpse".into(), label: None, path: String::new(), pidx: 0, path_remaining_distance: Fixed64::ZERO,
+            block_tower: None, status: omoba_core::CreepStatus::Stop, td_layer: None,
+        }).map_err(|e| format!("{e:?}"))?;
+        // a combat unit, as the host keeps for dead selectors (E532)
+        run.world.write_storage::<omoba_core::Unit>().insert(body,
+            omoba_core::Unit::new("v3_conformance_corpse".into(), "v3_conformance_corpse".into(), omoba_core::UnitType::Creep)).map_err(|e| format!("{e:?}"))?;
+        run.step(1);
+        run.kill(caster, body);
+        run.step(3);
+        if let Some(h) = run.world.write_storage::<Hero>().get_mut(run.caster) { h.mana_pool = pool; }
     }
     run.target_hp = run.world.read_storage::<CProperty>().get(target).map(|p| p.hp).unwrap_or(Fixed64::ZERO);
     Ok(run)

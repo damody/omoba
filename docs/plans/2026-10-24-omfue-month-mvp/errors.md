@@ -51,7 +51,13 @@
   - 每局 report 的 `observer`（enabled 為 true 才算）在判斷 success 之前就彙總：局數、檢查的 tick 數、mismatch 數，以及第一筆（局、tick、team、schema、entity）。observer mismatch 會讓該局沒結束，仍計入 matches failed。
   - Acceptance：有彙總時列 `observer (headless …): mismatch N`；`--observer off` 時寫 `observer：<note>，本批關閉（--observer off）`；都沒有時照 E542 寫「headless 未涵蓋」。
 - 避免：驗收檢查新增預設開啟的比對時，批次工具要能關掉它並在 Acceptance 寫明，不能讓已知問題蓋掉其他驗收項。
-## E547 （保留）conformance 施法前提要屍體（b23_undead_pact include_dead not alive）時沒有準備屍體，施法被取消（2026-11-01）
+## E547 conformance：conformance 施法前提要屍體（b23_undead_pact include_dead not alive）時沒有準備屍體，施法被取消（2026-11-01，conformance session）
+- **現象**：b23_undead_pact r1–r4 normal／cooldown 判 CAST_REJECTED。
+- **根因**：B23D 的 on_phase_start 用 include_dead 在 $radius 內找 `not alive(it)` 的屍體，找不到就 cancel_cast（文件寫明「必須在自身範圍內有屍體」）；情境裡沒有屍體。
+- **通用修正**：
+  - 情境產生器：on_phase_start 的 for_each 帶 include_dead 且 where = "not alive(it)"，並在旗標為 false 時 cancel 的，加 corpse_near_caster given。
+  - harness：施法前在施法者旁生一個敵方 creep（Creep 和 Unit component，host 才會把它記成屍體，E532），殺掉後等 3 tick；mana 復原成 given 設定的值，insufficient_mana 才不會被回魔打亂。
+- **以後如何避免**：文件裡 cancel_cast 的前提都要由情境準備出來；準備時走過的 tick 不能改到 given 設定的狀態。
 
 ## E546 no_attack 或近戰射程 0 的召喚物被 body_valid 拒絕（C16、A21）（2026-11-01，工作線 B）
 

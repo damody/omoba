@@ -337,9 +337,18 @@ local function entry_scenarios(doc, def, entry_kind, out)
       for _, child in ipairs(node.actions or {}) do if cancels(child) then return true end end
       return false
     end
-    local flagged = {}
+    local flagged, corpse = {}, {}
+    local function has_flag_in(list, flag)
+      for _, f in ipairs(type(list) == "table" and list or {}) do if f == flag then return true end end
+      return false
+    end
     for _, a in ipairs(type(actions) == "table" and actions or {}) do
-      if a.op == "for_each" and type(a.select) == "table" and a.select.team == "enemy" and type(a.select.where) == "string" then
+      -- a corpse within the radius (B23D; E547)
+      if a.op == "for_each" and type(a.select) == "table" and a.select.where == "not alive(it)" and has_flag_in(a.select.flags, "include_dead") then
+        for _, act in ipairs(a.actions or {}) do
+          if act.op == "set_state" and act.value == "true" then corpse[act.var] = a.select.radius end
+        end
+      elseif a.op == "for_each" and type(a.select) == "table" and a.select.team == "enemy" and type(a.select.where) == "string" then
         local status = a.select.where:match("^has_status%(it, ([%w_]+)%)$")
         for _, act in ipairs(a.actions or {}) do
           if status and act.op == "set_state" and act.value == "true" then flagged[act.var] = status end
@@ -347,6 +356,7 @@ local function entry_scenarios(doc, def, entry_kind, out)
       elseif a.op == "if" and type(a.cond) == "string" and cancels(a) then
         local var = a.cond:match("^not state%.([%w_]+)$")
         if var and flagged[var] then phase_needs[#phase_needs + 1] = { kind = "target_status", runtime_id = status_runtime(flagged[var]) } end
+        if var and corpse[var] then phase_needs[#phase_needs + 1] = { kind = "corpse_near_caster", radius = corpse[var] } end
         if a.cond:find("target.hp_pct >= caster.hp_pct", 1, true) then phase_needs[#phase_needs + 1] = { kind = "ally_target_lower" } end
         local radius = a.cond:match("^count_in_radius%(point, ([^,]+), team_of%(caster%)")
         if radius and a.cond:find("== 0$") then phase_needs[#phase_needs + 1] = { kind = "ally_unit_at_point", radius = radius } end
