@@ -1,4 +1,4 @@
-//! v3 `create_unit { overrides = { hp, attack_damage, attack_damage_max, move_speed } }`: a
+//! v3 `create_unit { overrides = { hp, attack_damage, attack_damage_max, move_speed, armor } }`: a
 //! one-shot envelope (never stored) on a summon the cast spawns, settled right after the spawn
 //! in the same batch. The template's values are replaced; later modifiers apply on top as usual.
 //! The engine attack deals one amount, so a `attack_damage`..`attack_damage_max` range (the
@@ -9,7 +9,7 @@ use specs::{Entity, World, WorldExt};
 use super::comp::{CProperty, SummonedUnit, TAttack, Tick, Unit, Vf32};
 
 pub const BUFF: &str = "__unit_overrides_v1";
-const KEYS: [&str; 4] = ["hp", "attack_damage", "attack_damage_max", "move_speed"];
+const KEYS: [&str; 5] = ["hp", "attack_damage", "attack_damage_max", "move_speed", "armor"];
 const LIMIT: i64 = 1_000_000 * 1024;
 
 /// The envelope payload: raw Fixed64 per given key (absent = the template's value).
@@ -36,6 +36,14 @@ pub fn apply(world: &mut World, target: Entity, payload: &Value) -> bool {
     let (Ok(hp), Ok(low), Ok(high), Ok(speed)) = (read(row, "hp"), read(row, "attack_damage"), read(row, "attack_damage_max"), read(row, "move_speed"))
         else { return false };
     if hp.is_some_and(|hp| hp <= Fixed64::ZERO) { return false; }
+    // armor may be negative (E573)
+    let armor = match row.get("armor") {
+        None => None,
+        Some(value) => match value.as_i64().filter(|raw| (-LIMIT..=LIMIT).contains(raw)) {
+            Some(raw) => Some(Fixed64::from_raw(raw)),
+            None => return false,
+        },
+    };
     let tick = world.read_resource::<Tick>().0;
     if !world.entities().is_alive(target)
         || world.read_storage::<SummonedUnit>().get(target).is_none_or(|summon| summon.spawn_tick != tick) {
@@ -50,6 +58,7 @@ pub fn apply(world: &mut World, target: Entity, payload: &Value) -> bool {
     if let Some(props) = world.write_storage::<CProperty>().get_mut(target) {
         if let Some(hp) = hp { props.hp = hp; props.mhp = hp; }
         if let Some(speed) = speed { props.msd = speed; }
+        if let Some(armor) = armor { props.def_physic = armor; }
     }
     if let (Some(damage), Some(attack)) = (damage, world.write_storage::<TAttack>().get_mut(target)) {
         attack.atk_physic = Vf32::new(damage);
@@ -58,6 +67,7 @@ pub fn apply(world: &mut World, target: Entity, payload: &Value) -> bool {
         if let Some(hp) = hp { unit.max_hp = (hp.raw() / 1024) as i32; unit.current_hp = unit.max_hp; }
         if let Some(damage) = damage { unit.base_damage = (damage.raw() / 1024) as i32; }
         if let Some(speed) = speed { unit.move_speed = speed; }
+        if let Some(armor) = armor { unit.base_armor = armor; }
     }
     true
 }
@@ -94,8 +104,12 @@ mod tests {
         assert_eq!(world.read_storage::<TAttack>().get(fresh).unwrap().atk_physic.bv, s(40));
         assert_eq!(world.read_storage::<CProperty>().get(fresh).unwrap().msd, s(522));
         // Closed: unknown keys, a reversed range, zero hp, an older summon, a non-summon.
-        assert!(payload(&[("armor", s(1))]).is_none() && payload(&[]).is_none());
-        assert!(!apply(&mut world, fresh, &json!({ "armor": 1024 })));
+        // E573: armor too, negative allowed.
+        assert!(apply(&mut world, fresh, &payload(&[("armor", s(-3))]).unwrap()));
+        assert_eq!(world.read_storage::<CProperty>().get(fresh).unwrap().def_physic, s(-3));
+        assert!(payload(&[("mana", s(1))]).is_none() && payload(&[]).is_none());
+        assert!(!apply(&mut world, fresh, &json!({ "mana": 1024 })));
+        assert!(!apply(&mut world, fresh, &json!({ "armor": "1" })));
         assert!(!apply(&mut world, fresh, &payload(&[("attack_damage", s(30)), ("attack_damage_max", s(20))]).unwrap()));
         assert!(!apply(&mut world, fresh, &payload(&[("hp", Fixed64::ZERO)]).unwrap()));
         let old = summon(&mut world, 3);

@@ -2,7 +2,26 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E573 （保留）create_unit.overrides 不收 armor（B07）（2026-11-01）
+## E575 （保留）unit attr hero：單位背後的英雄（C06）（2026-11-01）
+
+## E574 （保留）showcase 舞台拒絕負座標的 placement（nobu 地圖樹木舞台）（2026-11-01）
+
+## E573 create_unit.overrides 不收 armor（B07）（2026-11-01，工作線 B）
+
+- **現象**：足利義昭（B07）的 E 部署國崩隊時，用 `overrides.armor = "$armor_base + caster.level * $armor_per_level"` 覆寫模板護甲，但 `unit_overrides` 只收 hp、attack_damage、attack_damage_max、move_speed，產生器無法輸出。
+- **修正**：
+  - `unit_overrides` 的 KEYS 加入 `armor`。
+  - 值寫入 `CProperty.def_physic` 與 `Unit.base_armor`。
+  - 護甲可以是負數，範圍 ±1e6，其他鍵仍不能是負數。
+  - kit 的 `unit_overrides` 照列傳遞，不需要改。
+- **測試**：`unit_overrides::tests::overrides_replace_the_template_values_of_a_summon_spawned_this_tick`：
+  - armor -3 會寫入 def_physic。
+  - 未知鍵（mana）被拒。
+  - 型別錯誤的 armor 被拒。
+- **未做**：
+  - B07 把英雄道具複製給國崩隊需要召喚物持有 Inventory。host 只有英雄有 Inventory，replica 的 CommittedEconomy 也只套用在已有 gold、inventory、effects 基線的實體上，召喚物直接放背包會讓 replica 回報 MalformedBaseline。要另外設計召喚物的 economy 投影，留作缺口。
+  - 模板的 `inventory_locked`、`item_cast_blacklist` 在 host 本來就成立：道具指令只作用在玩家的英雄上。
+- **檔案**：`omoba-core/src/runtime/native/unit_overrides.rs`
 
 ## E572 （保留）conformance 從沒驗證被動的 on_take_damage／on_death／on_kill trigger（when event 一律 unsupported）（2026-11-01）
 

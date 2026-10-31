@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：create_unit.overrides 收 armor（E573）
+
+- B07 國崩隊的護甲隨等級覆寫。
 ## 2026-11-01 線 B：道具實例變數與道具移除自己（E571）
 
 - C06 的陷阱道具可以帶著偷換時的傷害與原道具名稱。
