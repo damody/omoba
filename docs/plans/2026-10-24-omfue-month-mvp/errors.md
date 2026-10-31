@@ -2,6 +2,8 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E512 （保留）headless 報告只有每 tick 平均時間：沒有 p50／p99、超出預算的 tick 與造成的 system（2026-10-31）
+
 ## E511 （保留）召喚物沒有不能攻擊的形式：c16e_ghost 只能擋下（2026-10-31）
 
 ## E510 creep_facing 對暈眩／被強制位移的小兵與疊在一起的小兵也檢查朝向（2026-10-31，e187 遊戲模式 session，B 分析；已放回 live）
@@ -17,7 +19,13 @@
   - 樣本附上小兵的狀態鍵。
 - **避免**：朝向檢查只比對單位自己能控制朝向的時刻。
 
-## E509 （保留）持續施法技能的施法交易拒收狀態：結算拒絕整個施法（a11、b09、c07）（2026-10-31）
+## E509 持續施法技能的施法交易拒收狀態：結算拒絕整個施法（2026-10-31，工作線 B）
+
+- **現象**：e187 m6new5：a11_evil_gaze（齋藤道三）531 次只有 391 次成立，b09_mind_burst 470 次只有 95 次，c07_thunder_shackle 179 次只有 23 次；其餘都是 `settlement_refused:AddBuff`。這幾個都是 A 剛改成 enemy_unit 的單位目標持續施法，施法時對目標與自己套狀態（a11：目標的 mesmerize 與強制移動、雙方的智力增減）。
+- **根因**：`cast_settlement::admission` 的最後一層白名單只在「沒有召喚且沒有 channel」時放行一般效果。帶 `ScriptAbilityChannel` 的施法只剩施法者自己的魔力、冷卻、朝向，對目標或施法者的 AddBuff 都會被拒，整個施法交易作廢。這條限制是給召喚陣型與道具回復 channel 用的，持續施法技能本身沒有理由受限。
+- **通用修正**：帶 `ScriptAbilityChannel` 的施法（v3 持續施法技能）可以像一般施法一樣對任何單位套狀態、造成傷害、移動；魔力（set／gained／spent／unit delta）與冷卻仍只走下方 caster-only 規則。`ScriptRecoveryChannel`（道具回復）不變，仍只接受自己的資源效果。
+- **測試**：`ability_channel_casts_carry_statuses_on_any_unit_but_only_their_own_resources`；既有的 recovery channel 測試不變。
+- **檔案**：`omoba-core/src/runtime/native/cast_settlement.rs`
 
 ## E508 （保留）stat 的 when 條件沒有 host 落點：夜晚、主屬性、英雄限定的數值只能擋下（2026-10-31）
 

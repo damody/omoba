@@ -22,6 +22,7 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
     let summons=effects.iter().any(|e|matches!(e,Outcome::SpawnSummoned {..}));
     let channels=effects.iter().filter(|effect|matches!(effect,Outcome::ScriptRecoveryChannel {..}|Outcome::ScriptAbilityChannel {..})).count();
     if channels>1 || (channels>0&&summons){return Err("channel_with_summons");}
+    let ability_channel=effects.iter().any(|effect|matches!(effect,Outcome::ScriptAbilityChannel {..}));
     // Trace tags are observation only: the summon cap counts the effects alike with stats on or off.
     let counted=effects.iter().filter(|effect|!matches!(effect,Outcome::ScriptDamageTag {..})).count();
     if skill.is_empty() || (summons&&counted>512) || cue_count>16 || rank>u8::MAX as u32
@@ -158,6 +159,11 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
         // G-2: exactly the cast's own ability, at most once (count checked above).
         Outcome::ScriptConsumeCharge {entity,ability_id}=>*entity==caster&&ability_id==skill,
         _ if !summons&&channels==0=>true,
+        // A v3 channel ability (E509, 原作 A11E 邪眼): its cast puts statuses, damage and motion on
+        // any unit like any cast; only its caster's mana and cooldown keep the caster-only rules
+        // below. A recovery channel (an item's) carries its own resource effects only.
+        _ if ability_channel && !matches!(effect,Outcome::ScriptSetMana {..}|Outcome::ScriptManaGained {..}
+            |Outcome::ScriptUnitManaDelta {..}|Outcome::ScriptManaSpent {..}|Outcome::ScriptStartCooldown {..})=>true,
         // A formation may update its caster's resources/facing, but cannot
         // insert arbitrary terrain/life mutations between planned siblings.
         Outcome::ScriptSetMana {entity,..}|Outcome::ScriptManaGained {entity,..}|Outcome::ScriptUnitManaDelta {entity,..}
@@ -253,6 +259,30 @@ fn recovery_channel_transaction_admits_only_its_exact_live_owner_and_resource_ef
     assert!(!accepts(&[Outcome::ScriptHeal {target:hero,amount:Fixed64::ONE},channel.clone()]));
     assert!(!accepts(&[Outcome::ScriptRecoveryChannel {caster:hero,owner:8,amount:Fixed64::ONE,duration:Fixed64::ONE,interval:Fixed64::ONE}]));
     world.write_resource::<GamePause>().is_paused=true;assert!(!accepts(&[channel]));
+}
+
+/// E509: a channel ability's cast carries statuses on its target and its caster; another
+/// unit's mana or another ability's cooldown stays out.
+#[cfg(test)]
+#[test]
+fn ability_channel_casts_carry_statuses_on_any_unit_but_only_their_own_resources() {
+    use super::super::ability_channel::{Anchor, Spec};
+    use omoba_content_model::ChannelAnchor;
+    let (mut world,hero)=crate::runtime::native::moba_match::stop_command_world();
+    world.register::<Faction>();
+    world.insert(BuffStore::default());
+    world.insert(crate::runtime::native::moba_match::stop_command_match(hero,crate::runtime::MobaMatchPhase::Playing));
+    let faction=world.read_storage::<Faction>().get(hero).cloned();
+    let expected=world.read_storage::<Hero>().get(hero).and_then(|hero|hero.mana_pool.clone());
+    let enemy=world.create_entity().with(Faction::new(FactionType::Enemy,faction.as_ref().map_or(1,|f|f.team_id)+1)).build();
+    let spec=Spec {anchor:ChannelAnchor::SelfOrigin,interval:Fixed64::from_raw(512),pulses:4,radius:Some(Fixed64::from_i32(300)),range:Fixed64::ZERO};
+    let channel=Outcome::ScriptAbilityChannel {caster:hero,owner:7,skill_id:"fixture_channel".into(),level:1,spec,anchor:Anchor::Origin};
+    let accepts=|effects:&[Outcome]|admit(&world,hero,"fixture_channel",0,faction.as_ref(),Some(7),expected.as_ref(),effects,0);
+    let status=|target:Entity|Outcome::AddBuff {target,buff_id:"stun".into(),duration:Fixed64::ONE,payload:serde_json::Value::Null};
+    assert!(accepts(&[channel.clone()]));
+    assert!(accepts(&[status(enemy),channel.clone(),status(hero)]), "statuses on the target and the caster");
+    assert!(!accepts(&[channel.clone(),Outcome::ScriptManaGained {entity:enemy,amount:Fixed64::ONE}]), "another unit's mana");
+    assert!(!accepts(&[channel,Outcome::ScriptStartCooldown {entity:hero,ability_id:"other".into(),duration:Fixed64::ONE}]), "another ability's cooldown");
 }
 
 /// A buff row an `apply_status` of a catalog status writes: the status row itself, a host state
