@@ -69278,16 +69278,13 @@ local data = {
     {
       abilities = { "b12_reality_slide", "b12_floating_life", "b12_scheming_offense", "b12_mad_heart" },
       authored_package = "yamamoto_kansuke",
-      background = "山本勘助（schema v3 產生的 Rust；測試用）",
       display_name = "山本勘助",
       id = "yamamoto_kansuke",
       moba_loadout = {
         ranks = { 1, 1, 1, 0 },
         skill_points = 0,
       },
-      source_stats = "B12",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B12",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "yamamoto_kansuke",

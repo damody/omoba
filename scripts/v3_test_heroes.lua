@@ -89,7 +89,7 @@ local HEROES = {
   { package = "kato_kiyomasa" },
   { package = "sakakibara_yasumasa" },
   { package = "miyamoto_musashi", playable = true },
-  { package = "yamamoto_kansuke" },
+  { package = "yamamoto_kansuke", playable = true },
   { package = "matsuhime" },
   { package = "takenaka_shigeharu" },
   { package = "momochi_sandayu", playable = true },

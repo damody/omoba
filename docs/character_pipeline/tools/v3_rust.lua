@@ -163,9 +163,12 @@ local STATUS_TRIGGERS = {
   -- the holder moved (walked, pushed or teleported) since the last status events: event.distance
   -- is the straight distance (line B E424)
   on_moved = { 8192, { 16 } },
+  -- the holder spent mana (a cast's cost; line B E449): event.amount is how much
+  on_mana_spent = { 16384, { 17 } },
 }
 -- a status's triggers with its absorb shield's on_absorb / on_broken among them
 local merged_triggers = setmetatable({}, { __mode = "k" })
+local function team_call(n) return type(n) == "table" and n.k == "call" and (n.fn == "team_of" or n.fn == "enemy_team") and #(n.args or {}) == 1 end
 local function triggers_of(def)
   local ab = type(def.absorb) == "table" and def.absorb or nil
   if not ab or (ab.on_absorb == nil and ab.on_broken == nil) then return def.triggers end
@@ -479,6 +482,8 @@ do
     is_illusion = { "bool", "unit_flag", "IS_ILLUSION" }, is_invulnerable = { "bool", "unit_flag", "IS_INVULNERABLE" },
     is_invisible = { "bool", "unit_flag", "IS_INVISIBLE" }, is_creep = { "bool", "unit_flag", "IS_CREEP" },
     is_ranged = { "bool", "unit_flag", "IS_RANGED" },
+    -- neutral creeps and neutral units (line B E447)
+    is_neutral = { "bool", "unit_flag", "IS_NEUTRAL" },
     owner = { "unit", "unit_ref", "OWNER" }, attack_target = { "unit", "unit_ref", "ATTACK_TARGET" },
     -- the player's single gold pool (a summon reads its owner's; line-gamemode E243)
     gold = { "num", "unit_num", "GOLD" },
@@ -646,6 +651,11 @@ function Gen:expr(node, ctx)
       if node.name == "distance" then return "cx.event_amount", "num" end
       self:block("event:" .. node.name .. " of a status on_moved"); return "Fixed64::ZERO", "err"
     end
+    -- a status's on_mana_spent tells only how much (line B E449)
+    if ot == "event" and ctx.event == "mana_spent" then
+      if node.name == "amount" then return "cx.event_amount", "num" end
+      self:block("event:" .. node.name .. " of a status on_mana_spent"); return "Fixed64::ZERO", "err"
+    end
     -- a status's on_ability_executed tells only the skill (line B 94d609ce)
     if ot == "event" and ctx.event == "ability_executed" then
       if node.name == "ability" then return "", "event_ability" end
@@ -682,7 +692,10 @@ function Gen:expr(node, ctx)
       elseif node.name == "is_physical" then return "((cx.event_damage_kind & 0x0f) == 0)", "bool"
       elseif node.name == "is_magical" then return "((cx.event_damage_kind & 0x0f) == 1)", "bool"
       elseif node.name == "is_pure" then return "((cx.event_damage_kind & 0x0f) == 2)", "bool"
-      elseif node.name == "is_reflection" then return "((cx.event_damage_kind & 0x10) != 0)", "bool" end
+      elseif node.name == "is_reflection" then return "((cx.event_damage_kind & 0x10) != 0)", "bool"
+      -- it killed (StatusEvent::LETHAL, line B E452); before it lands: it would (final >= hp)
+      elseif node.name == "lethal" and ctx.pre then return "(cx.event_amount >= cx.hp(cx.self_unit))", "bool"
+      elseif node.name == "lethal" then return "((cx.event_damage_kind & 0x20) != 0)", "bool" end
       self:block("event.damage." .. node.name); return "Fixed64::ZERO", "err"
     end
     if ot == "unit" then
@@ -702,6 +715,21 @@ function Gen:expr(node, ctx)
     end
     if t ~= "bool" then self:block("expr: not of a " .. t) end
     return "(!" .. e .. ")", "bool"
+  elseif k == "bin" and (node.op == "==" or node.op == "~=") and team_call(node.l) and team_call(node.r) then
+    -- team_of(a) == team_of(b): allies; team_of(a) == enemy_team(b): a is on b's opposing player
+    -- team (an enemy that is not neutral)
+    local l, r = node.l, node.r
+    if l.fn == "enemy_team" and r.fn == "team_of" then l, r = r, l end
+    local a, at = self:expr(l.args[1], ctx)
+    local b, bt = self:expr(r.args[1], ctx)
+    if at == "err" or bt == "err" then return "false", "err" end
+    if at ~= "unit" or bt ~= "unit" then self:block("fn:team_of of a non-unit"); return "false", "err" end
+    local code
+    if l.fn == "team_of" and r.fn == "team_of" then code = string.format("cx.is_ally(%s, %s)", a, b)
+    elseif l.fn == "team_of" and r.fn == "enemy_team" then
+      code = string.format("{ let a = %s; let b = %s; cx.is_enemy(a, b) && !cx.unit_flag(a, ability_kit::unit_attr::IS_NEUTRAL) }", a, b)
+    else self:block("expr: enemy_team compared with enemy_team"); return "false", "err" end
+    return node.op == "==" and ("(" .. code .. ")") or ("(!" .. code .. ")"), "bool"
   elseif k == "bin" then
     local l, lt = self:expr(node.l, ctx)
     local r, rt = self:expr(node.r, ctx)
@@ -3300,7 +3328,7 @@ local function emit_entry(m, o, opts, status_problems)
             local evented = t[2] ~= nil and name ~= "on_removed" and name ~= "on_expired" and name ~= "on_death" and not executed
             local pre = name == "on_take_damage_pre" or name == "on_deal_damage_pre"
             local ended = name == "on_removed" or name == "on_expired" or name == "on_death"
-            local ctx = { owner = so, scope = scope_child(nil), event = executed and "ability_executed" or (name == "on_moved" and "moved") or evented, pre = pre, ended = ended,
+            local ctx = { owner = so, scope = scope_child(nil), event = executed and "ability_executed" or (name == "on_moved" and "moved") or (name == "on_mana_spent" and "mana_spent") or evented, pre = pre, ended = ended,
               windup = name == "on_attack_windup" }
             -- an absorb event names this hit's absorbed share `absorbed` (v3.md §4)
             if name == "on_absorb" or name == "on_broken" then
@@ -3486,6 +3514,7 @@ local function emit_entry(m, o, opts, status_problems)
       [13] = "cx.event_attacker = event.other; cx.event_amount = event.amount;",
       [14] = "cx.event_attacker = event.other; cx.event_amount = event.amount;",
       [16] = "cx.event_amount = event.amount;",
+      [17] = "cx.event_amount = event.amount;",
       [15] = "cx.event_target = event.other; cx.target = Target::Entity(event.other);",
     }
     local arms, pre_arms = {}, {}
