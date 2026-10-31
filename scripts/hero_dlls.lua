@@ -70,4 +70,11 @@ return {
   {hero='honda_masanobu',package='hero_a33',dir='heroes/honda_masanobu'},
   {hero='takeda_shingen',package='hero_b31',dir='heroes/takeda_shingen'},
   {hero='izumo_no_okuni',package='hero_c04',dir='heroes/izumo_no_okuni'},
+  -- M6 batch (2026-10-31): every ability generated, conformance 0 fail (full480 70526876; A11 A27 shadow)
+  {hero='saito_dosan',package='hero_a11',dir='heroes/saito_dosan'},
+  {hero='shibata_katsuie',package='hero_a27',dir='heroes/shibata_katsuie'},
+  {hero='fuma_kotaro',package='hero_b02',dir='heroes/fuma_kotaro'},
+  {hero='sanada_masayuki',package='hero_b09',dir='heroes/sanada_masayuki'},
+  {hero='baba_nobufusa',package='hero_b21',dir='heroes/baba_nobufusa'},
+  {hero='kato_kiyomasa',package='hero_c23',dir='heroes/kato_kiyomasa'},
 }
