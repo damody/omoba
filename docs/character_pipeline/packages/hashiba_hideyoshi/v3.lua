@@ -44,8 +44,7 @@ return function(ctx)
         statuses = {
           { id = "a28w_hex", text = { zh_TW = { name = "青蛙", body = "變成青蛙：無法攻擊、施法與使用道具，閃避與格擋失效。" }, en = { name = "Frog", body = "Turned into a frog: cannot attack, cast or use items; evasion and damage block are disabled." } }, duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "debuff",
             reveal = "public", tags = { "cleanse_protected" }, cue = "a28w_frog_model",
-            states = { "disarm", "mute", "silence", "evade_disabled" },
-            stats = { physical_block_chance = { op = "set_absolute", value = "0" } },
+            states = { "disarm", "mute", "silence", "evade_disabled", "block_disabled" },
             notes = "原作 modifier_voodoo_lua（Lua）：IsPurgable 回傳 true；MODEL_CHANGE 青蛙、MOVESPEED_BASE_OVERRIDE 50、DISARMED、MUTED、EVADE_DISABLED、BLOCK_DISABLED、SILENCED。" },
           { id = "a28w_slow", text = { zh_TW = { name = "邪法緩速", body = "移動速度降低 {slow}。" }, en = { name = "Evil Art Slow", body = "Movement speed reduced by {slow}." } }, duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "debuff",
             reveal = "public", tags = { "cleanse_protected" },
@@ -71,7 +70,7 @@ return function(ctx)
           { policy = "as_source", ref = "vscripts/heroes/modifier_voodoo_lua.lua:41-43",
             text = "MOVESPEED_BASE_OVERRIDE 50 與 modifier_A28W 的 -100% 同時套上、同時間、同樣可驅散，最終移速由引擎最低移速決定，基礎值覆寫沒有可觀察的差異，所以不寫成 stat；最低移速屬規則層。" },
           { policy = "as_source", ref = "vscripts/heroes/modifier_voodoo_lua.lua:46-55",
-            text = "BLOCK_DISABLED 以 physical_block_chance 設為零表達；原作沒有 MODIFIER_STATE_HEXED，所以不用 hex 旗標，逐項列出繳械、禁用道具、沉默、閃避失效。" },
+            text = "BLOCK_DISABLED 以狀態旗標 block_disabled 表達（host 格擋歸零）；原作沒有 MODIFIER_STATE_HEXED，所以不用 hex 旗標，逐項列出繳械、禁用道具、沉默、閃避失效、格擋失效。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A28_Hashiba_Hideyoshi.lua:9-17",
             text = "FindUnitsInRadius 旗標 0：排除魔免單位，包含隱形與迷霧中的敵人；原作說明寫「目標敵人以及周圍其他敵人」，實際是地點範圍。" },
           { policy = "note", ref = "vscripts/heroes/modifier_voodoo_lua.lua:15-38",

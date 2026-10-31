@@ -946,6 +946,14 @@ function Gen:call(node, ctx)
     if t == "err" then return "EntityHandle::INVALID", "err" end
     if t ~= "unit" then self:block("fn:owner_of of a " .. t); return "EntityHandle::INVALID", "err" end
     return string.format("{ let u = %s; cx.unit_ref(u, ability_kit::unit_attr::OWNER) }", u), "unit"
+  elseif fn == "orb_slot_free" then
+    -- the unit's orb slot is empty or this ability's (line B E534); `ability` is this ability
+    local u, t = arg(1)
+    if t == "err" then return "false", "bool" end
+    if t ~= "unit" then self:block("fn:orb_slot_free of a " .. t); return "false", "bool" end
+    local an = args[2]
+    if not (an and an.k == "id" and an.name == "ability") then self:block("fn:orb_slot_free of another ability"); return "false", "bool" end
+    return cx_call("cx.orb_slot_free(%s, ID)", u), "bool"
   elseif fn == "is_template" then
     local u, t = arg(1)
     local name = name_arg(2)
@@ -1363,6 +1371,8 @@ local ACTION_FIELDS = {
   chain = set({ "op", "from", "first", "jumps", "radius", "interval", "team", "types", "flags", "where", "allow_repeat", "order", "actions", "cue", "as" }),
   -- chain's internal candidate gathering (the for_each it lowers to)
   __chain_cand = set({ "op", "of" }),
+  -- passive.orb_slot's claim / release (the toggle's entries)
+  __orb = set({ "op", "mode" }),
   apply_status = set({ "op", "status", "to", "duration", "source", "stacks", "vars" }),
   -- exclude_source_tags, source_is, source_ability, min_duration, min_remaining: the host does not
   -- judge status sources or durations yet (line B), so they stay blocked
@@ -1437,7 +1447,7 @@ local ACTION_FIELDS = {
   refund = set({ "op", "cooldown", "mana", "health" }),
   tether = false, -- shape-checked in Gen:tether
 }
-local SELECTOR_FIELDS = set({ "from", "radius", "shape", "team", "types", "flags", "where", "notes", "limit", "order", "exclude", "relative_to" })
+local SELECTOR_FIELDS = set({ "from", "radius", "shape", "team", "types", "flags", "where", "notes", "limit", "order", "exclude", "relative_to", "dead_within" })
 local SELECT_TYPES = { [""] = "All", all = "All", hero = "Heroes", ["creep+hero+neutral+summon"] = "NonBuilding",
   -- every unit class, buildings included / every non-building class (couriers and wards are units too)
   ["building+creep+hero+neutral+summon"] = "All", ["courier+creep+hero+neutral+summon+ward"] = "NonBuilding",
@@ -2509,9 +2519,13 @@ function Gen:action(a, ctx, ind)
     if not types and (tk == "creep+neutral+summon" or tk == "boss+creep+neutral+summon") then types, no_heroes = "NonBuilding", true end
     if not types then self:block("selector.types:" .. tk); types = "All" end
     local mi, inv, hid, ill = false, false, false, false
+    local dead = false
     local skip = {}
     for _, f in ipairs(s.flags or {}) do
       if f == "include_magic_immune" then mi = true elseif f == "include_invulnerable" then inv = true
+      -- include_dead: the bodies too (line B E532 dead_in_circle); how long a body stays is the
+      -- document's `dead_within` (the host has no default)
+      elseif f == "include_dead" then dead = true
       -- include_hidden: Select.include_hidden (ability_kit hidden_excluded: no hidden state in the host yet)
       elseif f == "include_hidden" then hid = true
       -- include_illusions: Select.include_illusions (a hero selection also takes illusions)
@@ -2538,14 +2552,19 @@ function Gen:action(a, ctx, ind)
     -- relative_to: the point nearest / farthest is measured from (default: `from`)
     if s.relative_to ~= nil and not nearest then self:block("selector.relative_to without order nearest/farthest") end
     local origin = s.relative_to ~= nil and nearest and self:value(s.relative_to, ctx, "point") or nil
+    if dead and s.dead_within == nil then self:block("selector.flag:include_dead without dead_within") end
+    if s.dead_within ~= nil and not dead then self:block("selector.dead_within without include_dead") end
+    local within = dead and s.dead_within ~= nil and self:value(s.dead_within, ctx, "num") or nil
     local str = line("{") .. line("    let center = " .. from .. ";") .. line("    let radius = " .. radius .. ";")
       .. (exclude and line("    let excluded = " .. exclude .. ";") or "")
+      .. (within and line("    let within = " .. within .. ";") or "")
       .. (origin and line("    let origin = " .. origin .. ";") or "")
       .. (team_kind
         and line(string.format("    let %sunits = cx.units_in_circle(center, radius, %s, Select { types: UnitTypes::%s, include_magic_immune: %s, include_invulnerable: %s, include_hidden: %s, include_illusions: %s });",
-          (nearest or random) and "mut " or "", rust_str(team_kind), types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false", ill and "true" or "false"))
+          (nearest or random or within) and "mut " or "", rust_str(team_kind), types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false", ill and "true" or "false"))
         or line(string.format("    let %sunits = cx.enemies_in_circle(center, radius, Select { types: UnitTypes::%s, include_magic_immune: %s, include_invulnerable: %s, include_hidden: %s, include_illusions: %s });",
-          (nearest or random) and "mut " or "", types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false", ill and "true" or "false")))
+          (nearest or random or within) and "mut " or "", types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false", ill and "true" or "false")))
+      .. (within and line("    units.extend(cx.dead_in_circle(center, radius, " .. rust_str(team_kind or "enemy") .. ", within));") or "")
       .. (nearest and line("    cx.nearest_first(&mut units, " .. (origin and "origin" or "center") .. ");") or "")
       .. (farthest and line("    units.reverse();") or "")
       .. (random and line("    cx.shuffle(&mut units);") or "")
@@ -2811,6 +2830,8 @@ function Gen:action(a, ctx, ind)
     local lets, names = {}, {}
     for i, code in ipairs(args) do lets[#lets + 1] = line("    let a" .. i .. " = " .. code .. ";"); names[#names + 1] = "a" .. i end
     return line("{") .. table.concat(lets) .. line("    super::routines::" .. a.routine .. "(cx, " .. table.concat(names, ", ") .. ")?;") .. line("}")
+  elseif op == "__orb" then
+    return line("cx.orb_slot_" .. (a.mode == "claim" and "claim" or "release") .. "(cx.caster, ID)?;")
   elseif op == "__chain_cand" then
     return line("cand.push(" .. self:value(a.of, ctx, "unit") .. ");")
   elseif op == "chain" then
@@ -3692,9 +3713,21 @@ local function emit_entry(m, o, opts, status_problems)
   end
   if events.on_channel_end then program("on_channel_end", events.on_channel_end, "channel_end") end
   local toggle_status
+  -- passive.orb_slot (line B E534): a toggle that claims the orb slot when it turns on (over an
+  -- item's claim) and frees it, if still its own, when it turns off (the status it put ends)
+  local orb = (def.passive or {}).orb_slot
+  if orb ~= nil and (type(orb) ~= "table" or not events.on_toggle_on or orb.claim ~= true
+    or (orb.release ~= nil and orb.release ~= "status_end")) then
+    g:block("passive:orb_slot (only a toggle that claims and releases at status_end)"); orb = nil
+  end
   if events.on_toggle_on then
-    program("on_toggle_on", events.on_toggle_on, false)
-    program("on_toggle_off", events.on_toggle_off or {}, false)
+    local on_list, off_list = events.on_toggle_on, events.on_toggle_off or {}
+    if orb then
+      on_list = { { op = "__orb", mode = "claim" }, table.unpack(on_list) }
+      off_list = { table.unpack(off_list) }; off_list[#off_list + 1] = { op = "__orb", mode = "release" }
+    end
+    program("on_toggle_on", on_list, false)
+    program("on_toggle_off", off_list, false)
     for _, a in ipairs(events.on_toggle_on) do
       if a.op == "apply_status" and a.to == "caster" then toggle_status = a.status break end
     end
@@ -3719,7 +3752,7 @@ local function emit_entry(m, o, opts, status_problems)
   local passive = def.passive or {}
   local owner_triggers = {}
   for _, k in ipairs(sorted_keys(passive)) do
-    if k ~= "reveal" and k ~= "triggers" and k ~= "stats" and k ~= "notes" and k ~= "aura" and k ~= "visibility" then g:block("passive:" .. k) end
+    if k ~= "reveal" and k ~= "triggers" and k ~= "stats" and k ~= "notes" and k ~= "aura" and k ~= "visibility" and k ~= "orb_slot" then g:block("passive:" .. k) end
   end
   -- v3 aura: the host lists the receivers every pulse (on_aura); `auras` are the arms of on_aura
   local auras = {}

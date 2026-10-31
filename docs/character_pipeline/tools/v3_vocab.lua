@@ -413,7 +413,7 @@ V.STRUCTURAL_NUMBERS = { [0] = true, [1] = true, [-1] = true }
 ---------------------------------------------------------------------------
 V.SELECTOR_FIELDS = set({ "from", "shape", "radius", "inner", "outer", "angle", "length", "width", "to",
   "team", "types", "exclude_types", "flags", "where", "order", "prefer", "limit", "post_filter", "visible_to",
-  "exclude", "relative_to", "notes", "take_while" })
+  "exclude", "relative_to", "notes", "take_while", "dead_within" })
 V.SHAPES = {
   circle = { "radius" }, ring = { "inner", "outer" }, cone = { "angle", "length" }, line = { "length", "width" },
   rect = { "length", "width" }, global = {}, unit = {}, segment = { "to", "width" },

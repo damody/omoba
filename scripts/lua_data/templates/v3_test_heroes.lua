@@ -50883,7 +50883,7 @@ local data = {
       target_type = "point",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "approach_enemy_point", min_distance = 300, source = "derived" },
+        bot = { kind = "global_enemy_point", min_targets = 1, radius_key = "ally_radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },

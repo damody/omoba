@@ -70,6 +70,12 @@ end
 -- a move toward the enemy; with no cast range its reach is the move's own cap (reach_key, E438)
 local function approach(target, def, f)
   local reach = unranged(target, def) and (f.reach or f.clamp) or nil
+  -- no cast range and no cap: a move anywhere on the map. It lands where the cast's own check
+  -- counts units around the point (c19_surprise_raid: allies within $ally_radius), aimed at the
+  -- revealed enemy heroes (the executor's global_enemy_point)
+  if unranged(target, def) and not reach and f.point_radius then
+    return { kind = "global_enemy_point", radius_key = f.point_radius, min_targets = M.DEFAULTS.min_targets }
+  end
   return { kind = "approach_enemy_point", min_distance = M.DEFAULTS.approach, reach_key = reach }
 end
 
@@ -132,6 +138,13 @@ function M.facts(def, castable, doc)
   local function selector(s) f.selectors[#f.selectors + 1] = s end
   walk(castable.events, action, selector, doc)
   for _, s in ipairs(def.statuses or {}) do walk(s.triggers, action, function() end, doc) end
+  -- a radius the cast checks around its target point (count_in_radius(point, $x, ...))
+  local function scan(t)
+    if f.point_radius then return end
+    if type(t) == "string" then f.point_radius = t:match("count_in_radius%(%s*point%s*,%s*%$([%a_][%w_]*)")
+    elseif type(t) == "table" then for _, k in ipairs(sorted_keys(t)) do scan(t[k]) end end
+  end
+  scan(castable.events)
   return f
 end
 

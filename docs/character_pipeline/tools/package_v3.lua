@@ -543,7 +543,7 @@ function M.validate_doc(doc, opts)
     local req = V.SHAPES[shape]
     if not req then err(path .. ".shape", "不認得的形狀 `" .. tostring(shape) .. "`"); req = {} end
     for _, k in ipairs(req) do if s[k] == nil then err(path .. "." .. k, shape .. " 需要 " .. k) end end
-    for _, k in ipairs({ "radius", "inner", "outer", "angle", "length", "width", "limit" }) do
+    for _, k in ipairs({ "radius", "inner", "outer", "angle", "length", "width", "limit", "dead_within" }) do
       if s[k] ~= nil then check_expr(s[k], "num", ctx, path .. "." .. k) end
     end
     if s.to ~= nil then check_expr(s.to, "any", ctx, path .. ".to") end
