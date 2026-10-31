@@ -39,6 +39,8 @@ pub(super) struct ActiveItemObservation<'a> {
     pub silenced: bool,
     pub attack_windup: bool,
     pub attack_range: omoba_sim::Fixed64,
+    /// Own disclosed CollisionRadius; attack reach is edge to edge (E555).
+    pub own_radius: omoba_sim::Fixed64,
 }
 
 // ItemUse replaces the current order. Emergency defense may interrupt an
@@ -86,7 +88,7 @@ pub(super) fn choose_active(role: BotRole, builds: &[BotItemBuild], registry: &I
     let attack_radius=observation.attack_range.min(Fixed64::from_i32(policy.combat_radius as i32));
     let attack_opportunity=attack_radius>Fixed64::ZERO && seen.iter().any(|u|
         matches!(u.kind,1|2|3) && u.team!=team && u.hp_raw>0
-        && (u.position-own).length_squared()<=attack_radius*attack_radius);
+        && crate::runtime::combat_controls::within_attack_reach(own,u.position,attack_radius,observation.own_radius,u.radius));
     inventory.items().filter_map(|(slot,item)| {
         if !item.cooldown_remaining.is_finite() || item.cooldown_remaining!=0.0 {return None;}
         let config=registry.get(&item.item_id)?;
@@ -342,10 +344,10 @@ mod tests {
         let low=health(20);
         fn observation(health:&CProperty)->ActiveItemObservation<'_> {
             ActiveItemObservation {health,mana:None,shield_raw:0,next_attack_bonus_raw:0,reduction_active:false,
-                sprint_active:false,immobilized:false,silenced:false,attack_windup:false,attack_range:Fixed64::from_i32(500)}
+                sprint_active:false,immobilized:false,silenced:false,attack_windup:false,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO}
         }
         let unit=|id:u64,x:i32,team:u32,kind:u8,hp:i64|SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
-            team,kind,owner_player_id:0,hp_raw:hp,max_hp_raw:1000,threat:Fixed64::ZERO};
+            team,kind,owner_player_id:0,hp_raw:hp,max_hp_raw:1000,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let policy=BotActiveItemPolicy {combat_radius:700,defend_below_hp_per_mille:500,restore_below_mana_per_mille:0,channel_below_hp_per_mille:0};
         let holding=|id:&str|{
             // Recipe items are assembled through the planner, component by component.
@@ -418,12 +420,12 @@ mod tests {
         for id in ["moba_recovery_charm","moba_recovery_charm"] {buy_item(&registry,&mut inventory,&mut Gold(2000),id).unwrap();}
         let health=CProperty{hp:Fixed64::from_i32(40),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
         let boundary=CProperty{hp:Fixed64::from_i32(60),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
-        let mut observation=ActiveItemObservation{health:&health,mana:None,shield_raw:0,next_attack_bonus_raw:0,reduction_active:false,sprint_active:false,immobilized:false,silenced:false,attack_windup:false,attack_range:Fixed64::from_i32(500)};
+        let mut observation=ActiveItemObservation{health:&health,mana:None,shield_raw:0,next_attack_bonus_raw:0,reduction_active:false,sprint_active:false,immobilized:false,silenced:false,attack_windup:false,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO};
         let mut builds=build(&["moba_recovery_charm"]);builds[0].active_use=Some(BotActiveItemPolicy{combat_radius:700,defend_below_hp_per_mille:500,restore_below_mana_per_mille:0,channel_below_hp_per_mille:0});
         let choose=|builds:&[BotItemBuild],registry:&ItemRegistry,inventory:&Inventory,observation:&ActiveItemObservation<'_>,seen:&[super::super::SeenUnit]|choose_active(BotRole::Carry,builds,registry,inventory,Vec2::ZERO,1,seen,observation);
         assert!(choose(&builds,&registry,&inventory,&observation,&[]).is_none());builds[0].active_use.as_mut().unwrap().channel_below_hp_per_mille=600;
         let before=serde_json::to_value(&inventory).unwrap();assert_eq!(choose(&builds,&registry,&inventory,&observation,&[]),Some(0));assert_eq!(serde_json::to_value(&inventory).unwrap(),before);
-        let enemy=super::super::SeenUnit{canonical_id:2,position:Vec2::new(Fixed64::from_i32(700),Fixed64::ZERO),team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO};
+        let enemy=super::super::SeenUnit{canonical_id:2,position:Vec2::new(Fixed64::from_i32(700),Fixed64::ZERO),team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         assert!(choose(&builds,&registry,&inventory,&observation,&[enemy]).is_none());
         for unit in [super::super::SeenUnit{position:Vec2::new(Fixed64::from_raw(700*1024+1),Fixed64::ZERO),..enemy},super::super::SeenUnit{team:1,..enemy},super::super::SeenUnit{team:0,..enemy},super::super::SeenUnit{hp_raw:0,..enemy}] {assert_eq!(choose(&builds,&registry,&inventory,&observation,&[unit]),Some(0));}
         observation.silenced=true;assert!(choose(&builds,&registry,&inventory,&observation,&[]).is_none());observation.silenced=false;
@@ -447,10 +449,10 @@ mod tests {
             msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
         let mana=ManaPool::new(Fixed64::from_i32(10),Fixed64::from_i32(100)).unwrap();
         let enemy=super::super::SeenUnit {canonical_id:2,position:Vec2::ZERO,team:2,kind:1,
-            owner_player_id:2,hp_raw:1024,max_hp_raw:1024,threat:Fixed64::ZERO};
+            owner_player_id:2,hp_raw:1024,max_hp_raw:1024,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let mut observation=ActiveItemObservation {health:&health,mana:Some(&mana),shield_raw:0,
             next_attack_bonus_raw:0,reduction_active:false,sprint_active:false,immobilized:false,silenced:false,
-            attack_windup:false,attack_range:Fixed64::from_i32(500)};
+            attack_windup:false,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO};
         for id in ["moba_guard_charm","moba_stride_charm","moba_mana_charm","moba_ward_charm","moba_strike_charm"] {
             let mut builds=build(&[id]);
             let mut inventory=Inventory::new();
@@ -492,7 +494,7 @@ mod tests {
             msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
         let mana=ManaPool::new(Fixed64::from_i32(10),Fixed64::from_i32(100)).unwrap();
         let enemy=super::super::SeenUnit {canonical_id:2,position:Vec2::ZERO,team:2,kind:1,
-            owner_player_id:2,hp_raw:1024,max_hp_raw:1024,threat:Fixed64::ZERO};
+            owner_player_id:2,hp_raw:1024,max_hp_raw:1024,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         for ids in [vec!["moba_mana_charm","moba_guard_charm","moba_ward_charm","moba_stride_charm"],
             vec!["moba_stride_charm","moba_ward_charm","moba_guard_charm","moba_mana_charm"]] {
             let mut builds=build(&ids);
@@ -503,7 +505,7 @@ mod tests {
             let before=serde_json::to_value(&inventory).unwrap();
             let mut observation=ActiveItemObservation {health:&health,mana:Some(&mana),shield_raw:0,
                 next_attack_bonus_raw:0,reduction_active:false,sprint_active:false,immobilized:false,silenced:false,
-                attack_windup:true,attack_range:Fixed64::from_i32(500)};
+                attack_windup:true,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO};
             let choose=|obs:&ActiveItemObservation<'_>,seen:&[super::super::SeenUnit]| {
                 choose_active(BotRole::Carry,&builds,&registry,&inventory,Vec2::ZERO,1,seen,obs)
                     .map(|slot|inventory.slots[slot].as_ref().unwrap().item_id.as_str())
@@ -589,7 +591,7 @@ mod tests {
         assert!(may_recall(BotRole::Carry,&builds,&Gold(950),own,home,1,&[]));
         assert!(!may_recall(BotRole::Carry,&builds,&Gold(949),own,home,1,&[]));
         assert!(!may_recall(BotRole::Carry,&builds,&Gold(950),home,home,1,&[]));
-        let enemy=super::super::SeenUnit {canonical_id:2,position:own,team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO};
+        let enemy=super::super::SeenUnit {canonical_id:2,position:own,team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         assert!(!may_recall(BotRole::Carry,&builds,&Gold(950),own,home,1,&[enemy]));
         assert!(may_recall(BotRole::Carry,&builds,&Gold(950),own,home,1,&[super::super::SeenUnit {team:0,kind:3,..enemy}]),"idle neutral is not an enemy team threat");
         assert!(may_recall(BotRole::Carry,&builds,&Gold(950),own,home,1,&[super::super::SeenUnit {hp_raw:0,..enemy}]));

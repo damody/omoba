@@ -1,7 +1,7 @@
 use crate::comp::*;
-use crate::runtime::combat_controls::{within_raw_range, AcquisitionIntent};
+use crate::runtime::combat_controls::{within_attack_reach, AcquisitionIntent};
 use crate::runtime::native::combat_acquisition::{
-    acquire, AcquisitionRequest, CombatAcquisitionView, DisclosureContext,
+    acquire, body_radius, AcquisitionRequest, CombatAcquisitionView, DisclosureContext,
 };
 use crate::tick::attack_phase::{
     advance_attack_phase, attack_phase_durations, fixed_secs_to_ms, start_attack_windup, AttackPhaseStep,
@@ -26,6 +26,7 @@ pub struct HeroRead<'a> {
     master_seed: Read<'a, MasterSeed>,
     tick: Read<'a, Tick>,
     pos: ReadStorage<'a, Pos>,
+    radii: ReadStorage<'a, CollisionRadius>,
     searcher: Read<'a, Searcher>,
     factions: ReadStorage<'a, Faction>,
     owners: ReadStorage<'a, PlayerOwner>,
@@ -226,7 +227,8 @@ impl<'a> System<'a> for Sys {
                                 _ => match match_state.filter(|state| state.config.game_rules.is_some()).zip(tr.retaliation.as_deref())
                                     .and_then(|(state, hits)| super::super::retaliation::attacker(hits, e, state.elapsed))
                                     .filter(|attacker| tr.pos.get(*attacker)
-                                        .is_some_and(|at| within_raw_range(pos.0, at.0, attack_range))) {
+                                        .is_some_and(|at| within_attack_reach(pos.0, at.0, attack_range,
+                                            body_radius(&tr.radii, e), body_radius(&tr.radii, *attacker)))) {
                                     Some(attacker) => (AcquisitionIntent::AttackTarget, None, Some(attacker)),
                                     None => (AcquisitionIntent::Idle, None, None),
                                 },
@@ -234,6 +236,7 @@ impl<'a> System<'a> for Sys {
                             let view = CombatAcquisitionView {
                                 entities: &tr.entities,
                                 positions: &tr.pos,
+                                radii: &tr.radii,
                                 health: &tr.propertys,
                                 factions: &tr.factions,
                                 owners: &tr.owners,

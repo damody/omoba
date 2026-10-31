@@ -701,7 +701,7 @@ mod tests {
         let decide=|hero:&Hero,hp:&CProperty,seen:&[SeenUnit],cost:Option<Fixed64>|choose_cast_with_attack_priority(hero,BotRole::Mid,1,Vec2::ZERO,hp,seen,&[policy.clone()],None,true,true,|_,_|cost,|_,_|None,|_|false);
         let cost=Some(Fixed64::from_i32(90));let cast=decide(&hero,&hp,&[],cost).unwrap();
         assert_eq!((cast.ability_index,cast.target_entity,cast.target_pos),(1,None,None));
-        let enemy=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(1000),Fixed64::ZERO),team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO};
+        let enemy=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(1000),Fixed64::ZERO),team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         assert!(decide(&hero,&hp,&[enemy],cost).is_none(),"inclusive authored threat boundary");
         let far=SeenUnit {position:Vec2::new(Fixed64::from_raw(1000*1024+1),Fixed64::ZERO),..enemy};
         assert_eq!(decide(&hero,&hp,&[far],cost).unwrap(),cast);
@@ -724,7 +724,7 @@ mod tests {
         for ability in hero.abilities.clone() {hero.ability_levels.insert(ability,1);}
         let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let enemy=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(400),Fixed64::ZERO),
-            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let close=SeenUnit {canonical_id:8,position:Vec2::new(Fixed64::from_i32(50),Fixed64::ZERO),..enemy};
         let cast=|seen:&[SeenUnit],policies:&[BotAbilityPolicy]|choose_cast_with_resources(&hero,BotRole::Support,
             1,Vec2::ZERO,&hp,seen,policies,Some(7),|_,_|None,|_,_|None);
@@ -756,7 +756,7 @@ mod tests {
         let policy=BotAbilityPolicy {ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHealOrCleanse {below_hp_per_mille:600}};
         assert!(validate_policies(&[policy.clone()]).is_ok());
         let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
-        let ally=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),team:1,kind:1,owner_player_id:3,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+        let ally=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),team:1,kind:1,owner_player_id:3,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let injured=SeenUnit {canonical_id:8,hp_raw:20,..ally};let second=SeenUnit {canonical_id:9,..ally};
         let decide=|seen:&[SeenUnit],observed:&[(u64,u8)]|choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,seen,&[policy.clone()],None,true,true,|_,_|None,|_,_|None,|_|panic!("nonmovement"),|id|observed.iter().find(|(key,_)|*key==id).map(|(_,p)|*p),&|_|false,&|_|0,&|_,_|None);
         assert!(decide(&[ally],&[]).is_none());
@@ -780,7 +780,7 @@ mod tests {
         let policy=BotAbilityPolicy {ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHeal {below_hp_per_mille:600}};
         assert!(validate_policies(&[policy.clone()]).is_ok());
         let ally=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),
-            team:1,kind:1,owner_player_id:3,hp_raw:30,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:1,kind:1,owner_player_id:3,hp_raw:30,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let lower=SeenUnit {canonical_id:8,hp_raw:40,max_hp_raw:200,..ally};
         let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let decide=|seen:&[SeenUnit]|choose_cast(&hero,BotRole::Support,1,Vec2::ZERO,&hp,seen,&[policy.clone()]);
@@ -805,7 +805,7 @@ mod tests {
         let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let tree=Vec2::new(Fixed64::from_i32(120),Fixed64::from_i32(40));
         let enemy=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO),
-            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let decide=|enemy_radius:u32,seen:&[SeenUnit],trees:&dyn Fn(Vec2,Fixed64)->Option<Vec2>|choose_cast_with_control_observation(&hero,BotRole::Mid,1,Vec2::ZERO,&hp,seen,
             &[BotAbilityPolicy {ability:ability.into(),intent:BotAbilityIntent::NearestTree {enemy_radius}}],None,false,false,
             |_,_|None,|_,_|None,|_|true,|_|None,&|_|false,&|_|0,trees).map(|cast|cast.target_pos);
@@ -827,7 +827,7 @@ mod tests {
         hero.abilities=vec!["vanguard_strike".into()];hero.ability_levels.insert("vanguard_strike".into(),1);
         let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let near=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO),
-            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let far=SeenUnit {canonical_id:8,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),..near};
         let policy=BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit};
         let decide=|states:&dyn Fn(u64)->u8|choose_cast_with_control_observation(&hero,BotRole::Mid,1,Vec2::ZERO,&hp,&[near,far],
@@ -846,9 +846,9 @@ mod tests {
         hero.abilities=vec!["vanguard_strike".into()];hero.ability_levels.insert("vanguard_strike".into(),1);
         let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let enemy=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),
-            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let neutral=SeenUnit {canonical_id:8,position:Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO),
-            team:0,kind:3,owner_player_id:0,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:0,kind:3,owner_player_id:0,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let policy=BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit};
         let decide=|seen:&[SeenUnit],assist|choose_cast_with_resources(&hero,BotRole::Jungle,1,Vec2::ZERO,
             &hp,seen,&[policy.clone()],assist,|_,_|None,|_,_|None);
@@ -885,7 +885,7 @@ mod tests {
         hero.abilities=vec!["vanguard_strike".into()];hero.ability_levels.insert("vanguard_strike".into(),1);
         let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let enemy_hero=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),
-            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let creep=SeenUnit {canonical_id:9,kind:2,owner_player_id:0,position:Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO),..enemy_hero};
         let policy=BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyHero};
         assert!(validate_policies(&[policy.clone()]).is_ok());
@@ -985,7 +985,7 @@ mod tests {
         let mut health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         health.hp=Fixed64::from_i32(20);
         let unit=SeenUnit {canonical_id:(1<<32)|77,position:Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO),
-            team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let policies=[damage(),heal()];
         let decide=|hero:&Hero,multiplier:Fixed64|choose_cast_with_mana_budget(
             hero,BotRole::Mid,1,Vec2::ZERO,&health,&[unit],&policies,|id,rank| {
@@ -1055,7 +1055,7 @@ mod tests {
         let mut health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         health.hp=Fixed64::from_i32(10);
         let near=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(350),Fixed64::ZERO),
-            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let far=SeenUnit {canonical_id:8,position:Vec2::new(Fixed64::ZERO,Fixed64::from_i32(400)),..near};
         let dash=BotAbilityPolicy {ability:"vanguard_resolve".into(),
             intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}};
@@ -1083,7 +1083,7 @@ mod tests {
         assert!(validate_policies(&[policy.clone()]).is_ok());
         let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let enemy=SeenUnit {canonical_id:(1<<32)|77,position:Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO),
-            team:2,kind:1,owner_player_id:6,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind:1,owner_player_id:6,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let cast=choose_cast(&hero,BotRole::Top,1,Vec2::ZERO,&health,&[enemy],&[policy]).expect("the fifth slot casts");
         assert_eq!(cast.ability_index,4);
     }
@@ -1106,7 +1106,7 @@ mod tests {
         }
         let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let at=|x:i32|SeenUnit {canonical_id:(1<<32)|77,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
-            team:2,kind:1,owner_player_id:6,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind:1,owner_player_id:6,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let choose=|seen:&[SeenUnit],policy:&BotAbilityPolicy|choose_cast(&hero,BotRole::Top,1,Vec2::ZERO,&health,seen,&[policy.clone()]);
         let cast=choose(&[at(280)],&leap).expect("an enemy within the leap reach");
         assert_eq!(cast.ability_index,1);
@@ -1137,7 +1137,7 @@ mod tests {
         assert!(matches!(plain,BotAbilityIntent::ApproachEnemyPoint {reach_key:None,..}));
         let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let at=|x:i32|SeenUnit {canonical_id:(1<<32)|77,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
-            team:2,kind:1,owner_player_id:6,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind:1,owner_player_id:6,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let choose=|x:i32|choose_cast(&hero,BotRole::Top,1,Vec2::ZERO,&health,&[at(x)],&[reach.clone()]);
         assert_eq!(choose(700).expect("within the blink range").target_pos.unwrap().x,Fixed64::from_i32(700).raw() as i32);
         assert!(choose(900).is_none(),"beyond the blink range");
@@ -1148,7 +1148,7 @@ mod tests {
     #[test]
     fn areas_are_kept_for_heroes_unless_a_wave_stands_alone_e398() {
         let unit=|id:u64,x:i32,kind:u8|SeenUnit {canonical_id:(1<<32)|id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
-            team:2,kind,owner_player_id:id as u32,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind,owner_player_id:id as u32,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let mut hero=Hero::new("murakami_yoshikiyo".into(),"murakami_yoshikiyo".into(),"murakami_yoshikiyo".into());
         hero.abilities=vec!["b29_ground_slam".into(),"b29_quake_axe".into(),"b29_morale_boost".into(),"b29_earth_tremor".into()];
@@ -1170,7 +1170,7 @@ mod tests {
     #[test]
     fn any_distance_ultimates_aim_at_disclosed_heroes_e387() {
         let unit=|id:u64,x:i32,team:u32,kind:u8,hp:i64|SeenUnit {canonical_id:(1<<32)|id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
-            team,kind,owner_player_id:id as u32,hp_raw:hp,max_hp_raw:100,threat:Fixed64::ZERO};
+            team,kind,owner_player_id:id as u32,hp_raw:hp,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let mut keiji=Hero::new("maeda_keiji".into(),"maeda_keiji".into(),"maeda_keiji".into());
         keiji.abilities=vec!["c05_flash_thunder".into()];
@@ -1201,7 +1201,7 @@ mod tests {
     #[test]
     fn a_range_zero_line_reaches_its_distance_extra_e409() {
         let unit=|id:u64,x:i32|SeenUnit {canonical_id:(1<<32)|id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
-            team:2,kind:1,owner_player_id:id as u32,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind:1,owner_player_id:id as u32,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let mut yoshitsugu=Hero::new("otani_yoshitsugu".into(),"otani_yoshitsugu".into(),"otani_yoshitsugu".into());
         yoshitsugu.abilities=vec!["a12_mystic_arrow".into()];
@@ -1232,7 +1232,7 @@ mod tests {
         }
         let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let enemy=SeenUnit {canonical_id:(1<<32)|77,position:Vec2::new(Fixed64::from_i32(350),Fixed64::ZERO),
-            team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let choose=|hero:&Hero,seen:&[SeenUnit]|choose_cast(hero,BotRole::Top,1,Vec2::ZERO,&health,seen,&[policy.clone()]);
         let cast=choose(&hero,&[enemy]).unwrap();
         assert_eq!(cast.ability_index,1);assert_eq!(cast.target_entity,None);
@@ -1266,7 +1266,7 @@ mod tests {
         let mut policies=vec![BotAbilityPolicy {ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:2}}];
         assert!(validate_policies(&policies).is_ok());
         let units=[(3,820,2),(2,600,2),(1,600,1),(4,950,2)].map(|(id,x,team)|SeenUnit {
-            canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),team,kind:1,owner_player_id:id as u32,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO});
+            canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),team,kind:1,owner_player_id:id as u32,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO});
         let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let cast=choose_cast(&hero,BotRole::Carry,1,Vec2::ZERO,&health,&units,&policies).unwrap();
         assert_eq!(cast.target_entity,None);assert_eq!(cast.target_pos.unwrap().x,Fixed64::from_i32(600).raw() as i32);
@@ -1284,7 +1284,7 @@ mod tests {
         hero.ability_levels.insert("lumen_touch".into(),1);hero.ability_levels.insert("lumen_bolt".into(),1);
         let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let unit=SeenUnit {canonical_id:(1<<32)|77,position:Vec2::new(Fixed64::from_i32(590),Fixed64::ZERO),
-            team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let cast=choose_cast(&hero,BotRole::Mid,1,Vec2::ZERO,&health,&[unit],&[damage()]).unwrap();
         assert_eq!(cast.ability_index,1);assert_eq!(cast.target_entity,Some(77));
         hero.ability_levels.insert("lumen_bolt".into(),0);
@@ -1311,7 +1311,7 @@ mod tests {
         for ability in hero.abilities.clone() {hero.ability_levels.insert(ability,1);}
         let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let unit=|id:u64,x:i32,kind:u8|SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
-            team:2,kind,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let choose=|seen:&[SeenUnit],policies:&[BotAbilityPolicy]|choose_cast(&hero,BotRole::Top,1,Vec2::ZERO,&health,seen,policies);
         assert!(choose(&[unit(7,300,2)],&[area.clone()]).is_none(),"one target is below min_targets");
         // Creeps alone need a wave (E398): three inside 525, not two.
@@ -1341,7 +1341,7 @@ mod tests {
             let phantom=BotAbilityPolicy {ability:"c02_phantom_move".into(),intent:BotAbilityIntent::SummonNearEnemy {threat_radius:900}};
             assert!(validate_policies(&[phantom.clone()]).is_ok());
             let near=SeenUnit {canonical_id:(1<<32)|9,position:Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO),team:2,kind:1,
-                owner_player_id:9,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+                owner_player_id:9,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
             let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
             let cast=choose_cast(&kojiro,BotRole::Top,1,Vec2::ZERO,&health,&[near.clone()],&[phantom.clone()]).expect("a threat near");
             assert!(cast.target_pos.is_none() && cast.target_entity.is_none());
@@ -1354,7 +1354,7 @@ mod tests {
         let range=omoba_template_ids::ability_by_name("b01_saika_corps").and_then(omoba_template_ids::active_ability_const).unwrap().levels[0].range;
         let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let unit=|id:u64,x:i32,kind:u8|SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
-            team:2,kind,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let choose=|seen:&[SeenUnit]|choose_cast(&hero,BotRole::Carry,1,Vec2::ZERO,&health,seen,&[summon.clone()]);
         assert!(choose(&[]).is_none());
         assert!(choose(&[unit(7,901,1)]).is_none(),"no threat within 900");
@@ -1380,7 +1380,7 @@ mod tests {
         hero.ability_levels.insert("a02_venom_arrow".into(),1);
         let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let unit=|id:u64,x:i32,kind:u8|SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
-            team:2,kind,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+            team:2,kind,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let decide=|seen:&[SeenUnit],on:bool|choose_cast_with_control_observation(&hero,BotRole::Carry,1,Vec2::ZERO,&health,seen,
             &[toggle.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,
             &|status:&str|on && status=="attack_orb:a02_venom_arrow",&|_|0,&|_,_|None).map(|cast|cast.ability_index);

@@ -73,7 +73,9 @@ impl<'a> System<'a> for Sys {
             if summon.is_expired() || summon.immobile {ended.push(entity);continue;}
             let base=data.attacks.get(entity).map_or(Fixed64::ZERO,|attack|attack.range.v);
             let range=crate::runtime::UnitStats::from_refs(&data.buffs,false).final_attack_range(base,entity);
-            if (goal-at).length()>range {let _=data.move_targets.insert(entity,MoveTarget(goal));}
+            // Stops at the edge-to-edge attack reach (E555).
+            let radius=|e|data.collision.get(e).map_or(Fixed64::ZERO,|r|r.0);
+            if !crate::runtime::combat_controls::within_attack_reach(at,goal,range,radius(entity),radius(target)) {let _=data.move_targets.insert(entity,MoveTarget(goal));}
             else {data.move_targets.remove(entity);}
         }
         for entity in ended {data.ordered.remove(entity);data.move_targets.remove(entity);}
@@ -225,7 +227,8 @@ mod tests {
         for _ in 0..200 {dispatcher.dispatch(&world);}
         let at=world.read_storage::<Pos>().get(unit).unwrap().0;
         let gap=(omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(600))-at).length();
-        assert!(gap<=Fixed64::from_i32(100) && gap>=Fixed64::from_i32(90),"stands in attack range: {gap:?}");
+        // Range 100 past the summon's 10-unit body; the enemy has none (E555).
+        assert!(gap<=Fixed64::from_i32(110) && gap>=Fixed64::from_i32(100),"stands in attack range: {gap:?}");
         assert!(world.read_storage::<SummonedUnit>().get(unit).unwrap().navigation.auto_target.is_none(),"the follow rules wait");
         world.write_storage::<CProperty>().get_mut(enemy).unwrap().hp=Fixed64::ZERO;
         dispatcher.dispatch(&world);

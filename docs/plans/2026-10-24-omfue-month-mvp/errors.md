@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E564 （保留）conformance 從沒驗證狀態的 on_take_damage／on_death／on_kill trigger（status step 一律 unsupported）（2026-11-01）
+
+## E563 （保留）kit 沒有 set_base_max_hp：B16 忍犬基礎生命（2026-11-01）
+
+## E562 （保留）attack.effect_multiplier 只支援 1：A13 隱斬的必中攻擊法球效果要減半（2026-11-01）
+
 ## E561 kit 沒有 give_item／pick_item／remove_item：B07、C06、C18 卡住（2026-11-01，工作線 B）
 
 - **現象**：A 回報 B07（足利義昭）、C06、C18 卡在 kit 沒有道具操作：`give_item`、`pick_item`、`remove_item`。ABI 沒有任何讓腳本改 inventory 的管道。
@@ -64,7 +70,38 @@
 - **測試**：`dummy_unit::tests::a_body_without_an_attack_or_with_melee_range_zero_spawns` 補上：鬼影與間隔 0 的身體攻擊速度為 0（不會除以零），間隔 2 秒為 0.5；另以 live 重跑 `v3_conformance::c16_`。
 - **檔案**：`omoba-core/src/runtime/native/dummy_unit.rs`、`omoba-core/src/runtime/native/game_processor.rs`
 
-## E555 （保留）攻擊距離是圓心到圓心：近戰射程 0 打不到、與原作邊到邊不同（2026-11-01）
+## E555 攻擊距離量的是圓心到圓心：近戰射程 0 打不到，也與原作的邊到邊不同（2026-11-01，工作線 B）
+
+- **現象**：
+  - 所有攻擊射程判定都量圓心到圓心，沒有一處計入碰撞半徑。涵蓋英雄、小兵、塔、野怪、召喚物、bot、bot 道具與腳本普攻投射物。
+  - 結果一：射程 0 的近戰身體（E546 讓 A21 鐵扇能生成）貼身也打不到。
+  - 結果二：所有單位都要比原作多走半個身體才出手，原作的攻擊射程量的是 hull 邊緣之間。
+  - 調度決定：一律改成邊到邊，全部經由同一個 helper。
+- **通用修正**：
+  - `combat_controls::attack_reach(range, ra, rt) = range + ra + rt`（負值當 0，飽和加法）與 `within_attack_reach(from, to, range, ra, rt)`（等於算在內）。
+  - `AttackCandidate.radius`、`AttackQuery.source_radius`：每個候選依自己的 reach 判定。射程 0 是合法的近戰；只有負射程無效。
+  - 半徑一律讀 `CollisionRadius`，沒有這個元件時為 0。這個元件會揭露給 team replica，所以 authority 與 replica 算出相同的 reach。
+  - 改動位置：
+    - 英雄：`hero_tick` 的反擊、`hero_command_tick` 的自動交戰、已在範圍內、追擊停步，以及方向模式、攻擊移動（經 `acquire`）。
+    - 追擊 leash 改成 reach 的一半，避免射程 0 時一步就放棄。
+    - `combat_acquisition` 的粗篩半徑改為 reach 加上 `MAX_COLLISION_RADIUS`，絕不漏掉精確判定會接受的目標；守衛判定也改用 reach。
+    - 召喚物下令攻擊的停步、TD 塔、lane 小兵與塔：攻城旗標、出手或走近；塔的 aggro 改為圓心距 ≤ aggro，或已在 reach 內。
+    - 野怪營地、bot（揭露的 CollisionRadius）、bot 道具時機、腳本普攻投射物的射程檢查。
+  - 仍是圓心到圓心：所有施法距離（依指示不改）、腳本自帶半徑的查詢、小兵 700 aggro 半徑本身、bot 的塔警戒與威脅半徑。
+- **施法距離是否也要對齊**：原作的施法距離同樣量 hull 邊緣，但這次依指示不動。施法距離大多較長，差半個身體影響小；要改時可直接沿用 `attack_reach` 的形式，在 `cast_approach::in_range`、`ability_channel::within_range`、dispatch 點施法與 bot 施法判定加上雙方半徑。
+- **測試**：
+  - `combat_controls`：射程 0 貼身命中、遠 1 raw 不中；遠程攻擊邊界（軸向與 3-4-5 斜向）；半徑為 0 時回到圓心距、負值視為 0。
+  - `combat_acquisition`：射程 0 的近戰英雄在接觸距離會出手（閒置與直接下令），遠 1 raw 時改為追擊，到接觸距離停步；遠程 reach 計入兩個身體，粗篩保留大型目標。
+  - 既有測試因 reach 外擴而調整的固定值：raw 邊界、cursor 取目標、召喚物攻擊移動的距離區間；射程 0 從 InvalidRange 改為合法近戰。
+  - omoba-core 全部 lib 測試通過，headless quick 局實跑（observer on）。
+- **檔案**：
+  - `omoba-core/src/runtime/combat_controls.rs`
+  - `native/combat_acquisition.rs`
+  - `native/tick/{hero_tick,hero_command_tick,summon_tick,tower_tick}.rs`
+  - `native/moba_match.rs`
+  - `native/moba_match/{jungle,bots}.rs`
+  - `native/moba_match/bots/{items,abilities,cone_tests,sustain}.rs`
+  - `native/scripting/parallel_world_adapter.rs`
 
 ## E554 ScriptErrorRow 記的是 caster：狀態、被動與召喚物觸發報錯時指錯單位（2026-11-01，工作線 B）
 

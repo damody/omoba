@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use failure::{err_msg, Error};
 use omoba_sim::{Fixed64, Vec2};
+use crate::runtime::combat_controls::within_attack_reach;
 use specs::{Builder, Entity, World, WorldExt};
 
 use crate::comp::*;
@@ -2368,6 +2369,9 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
     let properties = world.read_storage::<CProperty>();
     let regions = world.read_resource::<BlockedRegions>();
     let bodies = world.read_storage::<Unit>();
+    // Attack reach is edge to edge (E555); a body without CollisionRadius is zero.
+    let radii = world.has_value::<specs::storage::MaskedStorage<CollisionRadius>>().then(|| world.read_storage::<CollisionRadius>());
+    let lane_radius = |entity: Entity| radii.as_ref().and_then(|radii| radii.get(entity)).map_or(Fixed64::ZERO, |radius| radius.0.max(Fixed64::ZERO));
     let visibility = world.try_fetch::<crate::runtime::TeamVisibilityRuntime>();
     let mut movement = Vec::new();
     // (creep, its position, the target it is attacking): attack direction is its front.
@@ -2401,7 +2405,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
         let aggro = if unit.role.is_tower() {range} else {range.max(Fixed64::from_i32(700))};
         let sieging=unit.role==LaneRole::Creep && unit.target.and_then(|target|state.units.get(&entity_key(target)))
             .is_some_and(|target| target.role.is_tower() && properties.get(target.entity).is_some_and(|p|p.hp>Fixed64::ZERO) && positions.get(target.entity)
-                .is_some_and(|pos|(pos.0-source_pos).length_squared()<=range*range));
+                .is_some_and(|pos|within_attack_reach(source_pos,pos.0,range,lane_radius(unit.entity),lane_radius(target.entity))));
         let target = units
             .iter()
             .filter(|other| other.team != unit.team)
@@ -2425,7 +2429,9 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
                     .get(other.entity)
                     .map(|p| (other, p.0, (p.0 - source_pos).length_squared()))
             })
-            .filter(|(_, _, distance)| *distance <= aggro * aggro)
+            // Aggro stays centre to centre; a tower's aggro is its attack range, so it also admits its edge reach (E555).
+            .filter(|(other, at, distance)| *distance <= aggro * aggro
+                || within_attack_reach(source_pos, *at, range, lane_radius(unit.entity), lane_radius(other.entity)))
             .min_by_key(|(other, _, distance)| {
                 let protects = state.protects_champion(unit, source_pos, other, sieging);
                 (
@@ -2451,8 +2457,9 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
             tracked.tower_focus.reconcile(target.filter(|(target,_,_)|target.role==LaneRole::Hero)
                 .map(|(target,_,_)|target.entity),state.elapsed,state.config.tower_focus_rules);
         }
-        if let Some((target, target_pos, distance)) = target {
-            if distance <= range * range {
+        if let Some((target, target_pos, _distance)) = target {
+            // Edge-to-edge attack reach (E555); short of it the creep keeps walking in.
+            if within_attack_reach(source_pos, target_pos, range, lane_radius(unit.entity), lane_radius(target.entity)) {
                 if unit.role==LaneRole::Creep {attack_faces.push((unit.entity,source_pos,target_pos));}
                 if tracked.attack_remaining <= Fixed64::ZERO && !(unit.role==LaneRole::Creep && buffs.is_disarmed(unit.entity)) {
                     let base=Fixed64::from_i32(bodies.get(unit.entity).map_or(
@@ -2506,6 +2513,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
     drop(positions);
     drop(regions);
     drop(bodies);
+    drop(radii);
     drop(visibility);
     drop(buffs);
     for entity in npc_attack_commits {world.write_resource::<crate::runtime::BuffStore>().consume_next_attack_bonus(entity);}

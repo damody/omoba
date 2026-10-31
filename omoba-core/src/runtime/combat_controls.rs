@@ -304,6 +304,8 @@ pub struct CandidateLegality {
 pub struct AttackCandidate {
     pub key: CanonicalEntityKey,
     pub position: Vec2,
+    /// Body collision radius; zero for a body without one (E555).
+    pub radius: Fixed64,
     pub legality: CandidateLegality,
 }
 
@@ -315,7 +317,10 @@ pub struct AttackQuery<'a> {
     /// Required for cursor attack-move acquisition. Idle always ranks from the
     /// hero; direct `AttackTarget` ignores this point.
     pub command_point: Option<Vec2>,
+    /// Attack range past both bodies' edges. Zero is melee contact; negative is refused.
     pub range: Fixed64,
+    /// Source body collision radius (E555).
+    pub source_radius: Fixed64,
     pub intent: AcquisitionIntent,
     pub explicit_target: Option<AttackCandidate>,
     pub candidates: &'a [AttackCandidate],
@@ -376,6 +381,29 @@ pub fn within_raw_range(from: Vec2, to: Vec2, range: Fixed64) -> bool {
     positive_range_square(range).is_ok_and(|range_sq| raw_squared_distance(from, to) <= range_sq)
 }
 
+/// Centre distance at which an attack of `range` reaches edge to edge (E555).
+/// Negative inputs count as zero; the sum saturates.
+pub fn attack_reach(range: Fixed64, attacker_radius: Fixed64, target_radius: Fixed64) -> Fixed64 {
+    let part = |value: Fixed64| value.raw().max(0);
+    Fixed64::from_raw(
+        part(range)
+            .saturating_add(part(attacker_radius))
+            .saturating_add(part(target_radius)),
+    )
+}
+
+/// Edge-to-edge attack test (E555). Equality is inside, so a range-0 melee
+/// attack reaches a body in contact. Zero radii are the centre-to-centre test.
+pub fn within_attack_reach(
+    from: Vec2,
+    to: Vec2,
+    range: Fixed64,
+    attacker_radius: Fixed64,
+    target_radius: Fixed64,
+) -> bool {
+    within_raw_range(from, to, attack_reach(range, attacker_radius, target_radius))
+}
+
 fn axis_square(left: i64, right: i64) -> u128 {
     let magnitude = (i128::from(left) - i128::from(right)).unsigned_abs();
     magnitude * magnitude
@@ -394,7 +422,7 @@ fn positive_range_square(range: Fixed64) -> Result<RawSquaredDistance, CombatCon
 }
 
 fn same_facts(left: &AttackCandidate, right: &AttackCandidate) -> bool {
-    left.position == right.position && left.legality == right.legality
+    left.position == right.position && left.radius == right.radius && left.legality == right.legality
 }
 
 fn index_rows(
@@ -413,12 +441,26 @@ fn index_rows(
     Ok(indexed)
 }
 
-fn gameplay_legal(candidate: &AttackCandidate, source: Vec2, range_sq: RawSquaredDistance) -> bool {
+/// Source half of the per-candidate reach (E555).
+#[derive(Clone, Copy)]
+struct SourceReach {
+    position: Vec2,
+    range: Fixed64,
+    radius: Fixed64,
+}
+
+fn gameplay_legal(candidate: &AttackCandidate, source: SourceReach) -> bool {
     is_live_generation(candidate.key.generation)
         && candidate.legality.alive
         && candidate.legality.hostile
         && candidate.legality.currently_disclosed
-        && raw_squared_distance(source, candidate.position) <= range_sq
+        && within_attack_reach(
+            source.position,
+            candidate.position,
+            source.range,
+            source.radius,
+            candidate.radius,
+        )
 }
 
 /// Chooses at most one target.
@@ -447,7 +489,15 @@ pub fn select_attack_target_with_policy(
     if !is_live_generation(query.source.generation) {
         return Err(CombatControlError::InvalidIdentity);
     }
-    let range_sq = positive_range_square(query.range)?;
+    // Range 0 is melee contact (E555); only a negative range is refused.
+    if query.range.raw() < 0 {
+        return Err(CombatControlError::InvalidRange);
+    }
+    let reach = SourceReach {
+        position: query.source_position,
+        range: query.range,
+        radius: query.source_radius,
+    };
     let indexed = index_rows(query.candidates)?;
     if let Some(explicit) = query.explicit_target {
         if let Some(existing) = indexed.get(&explicit.key) {
@@ -459,7 +509,7 @@ pub fn select_attack_target_with_policy(
 
     match query.intent {
         AcquisitionIntent::Idle if !policy.acquires(query.intent) => Ok(None),
-        AcquisitionIntent::AttackTarget => select_explicit(policy, query, range_sq),
+        AcquisitionIntent::AttackTarget => select_explicit(policy, query, reach),
         AcquisitionIntent::Idle | AcquisitionIntent::AttackMove => {
             let rank_origin = match (query.intent, policy.acquisition) {
                 (AcquisitionIntent::AttackMove, AttackAcquisition::Cursor) => {
@@ -467,12 +517,7 @@ pub fn select_attack_target_with_policy(
                 }
                 _ => query.source_position,
             };
-            Ok(rank_pool(
-                indexed.values(),
-                query.source_position,
-                rank_origin,
-                range_sq,
-            ))
+            Ok(rank_pool(indexed.values(), reach, rank_origin))
         }
     }
 }
@@ -480,14 +525,14 @@ pub fn select_attack_target_with_policy(
 fn select_explicit(
     policy: CombatPolicy,
     query: &AttackQuery<'_>,
-    range_sq: RawSquaredDistance,
+    reach: SourceReach,
 ) -> Result<Option<RankedTarget>, CombatControlError> {
     let explicit = query.explicit_target.ok_or(CombatControlError::InvalidIdentity)?;
     if !is_live_generation(explicit.key.generation) {
         return Err(CombatControlError::InvalidIdentity);
     }
     if !policy.allows_direct(explicit.legality.hero)
-        || !gameplay_legal(&explicit, query.source_position, range_sq)
+        || !gameplay_legal(&explicit, reach)
     {
         return Ok(None);
     }
@@ -502,16 +547,15 @@ fn select_explicit(
 
 fn rank_pool<'a>(
     rows: impl Iterator<Item = &'a AttackCandidate>,
-    source_position: Vec2,
+    reach: SourceReach,
     rank_origin: Vec2,
-    range_sq: RawSquaredDistance,
 ) -> Option<RankedTarget> {
     let mut best: Option<RankedTarget> = None;
     for candidate in rows {
-        if !gameplay_legal(candidate, source_position, range_sq) {
+        if !gameplay_legal(candidate, reach) {
             continue;
         }
-        let source_distance = raw_squared_distance(source_position, candidate.position);
+        let source_distance = raw_squared_distance(reach.position, candidate.position);
         let rank_distance = raw_squared_distance(rank_origin, candidate.position);
         let challenger = RankedTarget {
             key: candidate.key,
@@ -562,6 +606,7 @@ mod tests {
         AttackCandidate {
             key: key(id, generation),
             position: pos(x, y),
+            radius: Fixed64::ZERO,
             legality,
         }
     }
@@ -596,6 +641,7 @@ mod tests {
             source_position: pos(0, 0),
             command_point,
             range: Fixed64::from_raw(range),
+            source_radius: Fixed64::ZERO,
             intent,
             explicit_target,
             candidates,
@@ -784,16 +830,19 @@ mod tests {
         let older = AttackCandidate {
             key: key(5, 2),
             position: shared,
+            radius: Fixed64::ZERO,
             legality: bits(true, true, true, false),
         };
         let newer = AttackCandidate {
             key: key(5, 4),
             position: shared,
+            radius: Fixed64::ZERO,
             legality: bits(true, true, true, true),
         };
         let lower_id = AttackCandidate {
             key: key(1, 9),
             position: shared,
+            radius: Fixed64::ZERO,
             legality: bits(true, true, true, false),
         };
         let preferences = preferences(AttackAcquisition::Hero, true, false);
@@ -926,13 +975,14 @@ mod tests {
         let candidate = hostile_at(3, 0, true);
         let preferences = preferences(AttackAcquisition::Hero, true, false);
         let pool = [candidate];
-        for range in [0, -1] {
-            let query = ask(AcquisitionIntent::AttackMove, None, range, None, &pool);
-            assert_eq!(
-                select_attack_target(&preferences, &query),
-                Err(CombatControlError::InvalidRange)
-            );
-        }
+        let query = ask(AcquisitionIntent::AttackMove, None, -1, None, &pool);
+        assert_eq!(
+            select_attack_target(&preferences, &query),
+            Err(CombatControlError::InvalidRange)
+        );
+        // Range 0 is melee contact (E555): accepted, and with zero radii it reaches nothing.
+        let query = ask(AcquisitionIntent::AttackMove, None, 0, None, &pool);
+        assert_eq!(select_attack_target(&preferences, &query), Ok(None));
         assert_eq!(stored, snapshot);
     }
 
@@ -958,11 +1008,13 @@ mod tests {
         let at_source = AttackCandidate {
             key: key(1, 1),
             position: corner,
+            radius: Fixed64::ZERO,
             legality: bits(true, true, true, true),
         };
         let one_step = AttackCandidate {
             key: key(2, 1),
             position: pos(i64::MIN + 1, i64::MIN),
+            radius: Fixed64::ZERO,
             legality: bits(true, true, true, false),
         };
         let hero = preferences(AttackAcquisition::Hero, true, false);
@@ -1143,6 +1195,94 @@ mod tests {
         assert_eq!(
             select_attack_target(&preferences, &missing),
             Err(CombatControlError::InvalidIdentity)
+        );
+    }
+
+    fn sized(id: u32, x: i64, radius: i64) -> AttackCandidate {
+        AttackCandidate {
+            radius: Fixed64::from_raw(radius),
+            ..hostile_at(id, x, false)
+        }
+    }
+
+    fn sized_ask<'a>(range: i64, source_radius: i64, pool: &'a [AttackCandidate]) -> AttackQuery<'a> {
+        AttackQuery {
+            source_radius: Fixed64::from_raw(source_radius),
+            ..ask(AcquisitionIntent::AttackMove, None, range, None, pool)
+        }
+    }
+
+    #[test]
+    fn range_zero_melee_reaches_a_body_in_contact_and_not_one_raw_unit_farther() {
+        // E555: ra 16 + rt 20 = contact at 36.
+        let (ra, rt) = (Fixed64::from_raw(16), Fixed64::from_raw(20));
+        assert_eq!(attack_reach(Fixed64::ZERO, ra, rt), Fixed64::from_raw(36));
+        assert!(within_attack_reach(pos(0, 0), pos(36, 0), Fixed64::ZERO, ra, rt));
+        assert!(!within_attack_reach(pos(0, 0), pos(37, 0), Fixed64::ZERO, ra, rt));
+        let preferences = preferences(AttackAcquisition::Hero, true, false);
+        let contact = [sized(2, 36, 20)];
+        assert_eq!(chosen(&preferences, &sized_ask(0, 16, &contact)).unwrap(), Some(key(2, 1)));
+        let apart = [sized(2, 37, 20)];
+        assert_eq!(chosen(&preferences, &sized_ask(0, 16, &apart)).unwrap(), None);
+        let explicit = sized(3, 36, 20);
+        let directed = AttackQuery {
+            source_radius: Fixed64::from_raw(16),
+            ..ask(AcquisitionIntent::AttackTarget, None, 0, Some(explicit), &[])
+        };
+        assert_eq!(chosen(&preferences, &directed).unwrap(), Some(key(3, 1)));
+    }
+
+    #[test]
+    fn ranged_attack_reaches_the_far_edge_boundary_exactly() {
+        // R 100 + ra 16 + rt 20 = 136, on an axis and on a 3-4-5 diagonal.
+        let (range, ra, rt) = (Fixed64::from_raw(100), Fixed64::from_raw(16), Fixed64::from_raw(20));
+        assert!(within_attack_reach(pos(0, 0), pos(136, 0), range, ra, rt));
+        assert!(!within_attack_reach(pos(0, 0), pos(137, 0), range, ra, rt));
+        let (range, ra, rt) = (Fixed64::from_raw(3), Fixed64::from_raw(1), Fixed64::from_raw(1));
+        assert!(within_attack_reach(pos(0, 0), pos(3, 4), range, ra, rt));
+        assert!(!within_attack_reach(pos(0, 0), pos(3, 5), range, ra, rt));
+        let preferences = preferences(AttackAcquisition::Hero, true, false);
+        let edge = [sized(4, 136, 20)];
+        assert_eq!(chosen(&preferences, &sized_ask(100, 16, &edge)).unwrap(), Some(key(4, 1)));
+        let past = [sized(4, 137, 20)];
+        assert_eq!(chosen(&preferences, &sized_ask(100, 16, &past)).unwrap(), None);
+        // A bigger body is reached from farther away; the nearer small one still ranks first.
+        let mixed = [sized(5, 140, 40), sized(6, 110, 0)];
+        assert_eq!(chosen(&preferences, &sized_ask(100, 16, &mixed)).unwrap(), Some(key(6, 1)));
+        let only_big = [sized(5, 140, 40), sized(6, 117, 0)];
+        assert_eq!(chosen(&preferences, &sized_ask(100, 16, &only_big)).unwrap(), Some(key(5, 1)));
+    }
+
+    #[test]
+    fn zero_radii_reduce_to_centre_to_centre_and_negatives_count_as_zero() {
+        for range in [1_i64, 5, 100, 16_777_217] {
+            let range = Fixed64::from_raw(range);
+            for x in [range.raw() - 1, range.raw(), range.raw() + 1] {
+                assert_eq!(
+                    within_attack_reach(pos(0, 0), pos(x, 0), range, Fixed64::ZERO, Fixed64::ZERO),
+                    within_raw_range(pos(0, 0), pos(x, 0), range)
+                );
+            }
+        }
+        assert_eq!(attack_reach(Fixed64::ZERO, Fixed64::ZERO, Fixed64::ZERO), Fixed64::ZERO);
+        assert!(!within_attack_reach(pos(0, 0), pos(0, 0), Fixed64::ZERO, Fixed64::ZERO, Fixed64::ZERO));
+        assert_eq!(
+            attack_reach(Fixed64::from_raw(-5), Fixed64::from_raw(-3), Fixed64::from_raw(7)),
+            Fixed64::from_raw(7)
+        );
+        assert_eq!(
+            attack_reach(Fixed64::from_raw(i64::MAX), Fixed64::from_raw(1), Fixed64::from_raw(1)),
+            Fixed64::from_raw(i64::MAX)
+        );
+        let preferences = preferences(AttackAcquisition::Hero, true, false);
+        let pool = [sized(2, 5, 0)];
+        assert_eq!(chosen(&preferences, &sized_ask(5, 0, &pool)).unwrap(), Some(key(2, 1)));
+        assert_eq!(chosen(&preferences, &sized_ask(4, 0, &pool)).unwrap(), None);
+        // Same identity and position with a different radius is a conflicting row.
+        let conflict = [sized(2, 5, 0), sized(2, 5, 1)];
+        assert_eq!(
+            select_attack_target(&preferences, &sized_ask(5, 0, &conflict)),
+            Err(CombatControlError::ConflictingDuplicate)
         );
     }
 

@@ -816,7 +816,11 @@ pub(super) fn tick(world: &mut World, state: &mut MobaMatch, dt: Fixed64) {
         let Some(destination) = destination else { continue; };
         let attack_line_clear = || world.try_fetch::<crate::runtime::VisionOccluderSet>().is_none_or(|walls|
             walls.line_of_sight(origin,destination)==crate::runtime::LosResult::Clear);
-        if !returning && (destination-origin).length_squared() <= range*range && attack_line_clear() {
+        // Edge-to-edge attack reach (E555).
+        let in_reach=target.is_some_and(|(victim,_)|crate::runtime::combat_controls::within_attack_reach(origin,destination,range,
+            crate::runtime::native::combat_acquisition::world_body_radius(world,entity),
+            crate::runtime::native::combat_acquisition::world_body_radius(world,victim)));
+        if !returning && in_reach && attack_line_clear() {
             // Attacking: its front is the target (same rule as lane creeps).
             if let Some(ticks)=super::face_toward(world,entity,origin,destination) {emit_camp_pose(world,entity,origin,Some(ticks));}
             if body.attack_remaining == Fixed64::ZERO {

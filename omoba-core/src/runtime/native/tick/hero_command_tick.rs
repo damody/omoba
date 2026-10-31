@@ -1,5 +1,5 @@
 use crate::comp::*;
-use crate::runtime::combat_controls::{within_raw_range, AcquisitionIntent};
+use crate::runtime::combat_controls::AcquisitionIntent;
 use crate::runtime::native::combat_acquisition::{
     acquire, assess_direct_target, AcquisitionRequest, CombatAcquisitionView, DirectStatus,
     DisclosureContext,
@@ -87,6 +87,7 @@ impl<'a> System<'a> for Sys {
             let acquisition = CombatAcquisitionView {
                 entities: &data.entities,
                 positions: &data.pos,
+                radii: &data.radii,
                 health: &data.properties,
                 factions: &data.factions,
                 owners: &data.owners,
@@ -245,11 +246,12 @@ fn auto_engage(
     let attacker = data.retaliation.as_deref()
         .and_then(|hits| super::super::retaliation::attacker(hits, entity, state.elapsed))
         .filter(|attacker| matches!(assess_direct_target(acquisition, entity, *attacker),
-            Some(DirectStatus::Legal { position }) if within_raw_range(pos, position, acquisition_range)));
+            Some(DirectStatus::Legal { position }) if acquisition.reaches(entity, pos, *attacker, position, acquisition_range)));
     let target = attacker.or_else(|| acquire(acquisition, AcquisitionRequest { source: entity, intent: AcquisitionIntent::Idle,
         command_point: None, range: acquisition_range, explicit_target: None }));
     if let Some(target) = target {
-        let in_range = data.pos.get(target).is_some_and(|at| within_raw_range(pos, at.0, attack_range));
+        // Edge to edge, the same reach hero_tick attacks with (E555).
+        let in_range = data.pos.get(target).is_some_and(|at| acquisition.reaches(entity, pos, target, at.0, attack_range));
         if !in_range { queue.active = Some(HeroCommand::AttackTarget { target, chase_origin: None }); }
     }
     queue
@@ -437,11 +439,14 @@ fn resolve_attack_target_command(
         return Some(AttackTargetStep::Hold);
     }
     let attack_range = effective_attack_range(data, entity)?;
-    if within_raw_range(pos, target_pos, attack_range) {
+    // Approach stops at the same edge-to-edge reach the attack starts at (E555).
+    if acquisition.reaches(entity, pos, target, target_pos, attack_range) {
         return Some(AttackTargetStep::Hold);
     }
     let origin = chase_origin.unwrap_or(pos);
-    let leash = attack_range * Fixed64::from_raw(512);
+    // Half the reach, so a range-0 melee body still chases (E555).
+    let reach = crate::runtime::combat_controls::attack_reach(attack_range, acquisition.radius(entity), acquisition.radius(target));
+    let leash = reach * Fixed64::from_raw(512);
     if (pos - origin).length() > leash {
         return None;
     }

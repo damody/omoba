@@ -139,6 +139,8 @@ pub struct ParallelAdapterCache<'a> {
     dt: Fixed64,
     /// Each attacker's current attack (unit attributes `attack_damage` / `attack_effect_multiplier`).
     attacks: Option<Read<'a, super::super::rules::attack::AttackRecords>>,
+    /// This tick's scripted attack multipliers (E562).
+    scripted_multipliers: Option<Read<'a, super::super::rules::attack::ScriptedAttackMultipliers>>,
 }
 
 impl<'a> ParallelAdapterCache<'a> {
@@ -210,6 +212,7 @@ impl<'a> ParallelAdapterCache<'a> {
             night: super::super::rules::world::is_night(world),
             dt: world.try_fetch::<super::super::comp::DeltaTime>().map_or(Fixed64::ZERO, |dt| dt.0),
             attacks: world.try_fetch::<super::super::rules::attack::AttackRecords>().map(Into::into),
+            scripted_multipliers: world.try_fetch::<super::super::rules::attack::ScriptedAttackMultipliers>().map(Into::into),
         }
     }
 }
@@ -896,7 +899,8 @@ impl<'a> ParallelWorldAdapter<'a> {
             // The unit's own pool, else the pool of a unit its player owns that has one (a summon's hero).
             name::ATTACK_DAMAGE=>num(&|e|self.cache.attacks.as_ref()?.0.get(&e).filter(|record|record.launched)
                 .map(|record|record.launch_physical*record.critical.unwrap_or(Fixed64::ONE))),
-            name::ATTACK_EFFECT_MULTIPLIER=>num(&|e|self.cache.attacks.as_ref()?.0.get(&e).map(|record|record.effect_multiplier)),
+            name::ATTACK_EFFECT_MULTIPLIER=>num(&|e|self.cache.scripted_multipliers.as_ref().and_then(|rows|rows.of(e,self.cache.tick.0))
+                .or_else(||self.cache.attacks.as_ref()?.0.get(&e).map(|record|record.effect_multiplier))),
             name::GOLD=>num(&|e|{
                 let pools=self.cache.gold.as_ref()?;
                 pools.get(e).map(|pool|pool.0).or_else(||{
@@ -963,12 +967,15 @@ impl<'a> ParallelWorldAdapter<'a> {
             && self.cache.cprop.get(target).is_some_and(|p|p.hp>Fixed64::ZERO)).then_some(target)
     }
 
-    fn summon_target_allowed(&self,source:Entity,target:Entity,center:Vec2,radius:Fixed64)->bool {
+    /// `attack_reach`: `radius` is the source's attack range, measured edge to edge
+    /// (E555; range 0 is melee contact). Otherwise it is a script query radius, centre to centre.
+    fn summon_target_allowed(&self,source:Entity,target:Entity,center:Vec2,radius:Fixed64,attack_reach:bool)->bool {
         use crate::runtime::native::combat_acquisition::DisclosureContext;
         // An already committed projectile is independent of its source's later
         // death/stun. Ordinary summon acquisition keeps all source admission.
         let committed=self.projectile_origin.as_ref().is_some_and(|origin|origin.source==source);
-        if radius<=Fixed64::ZERO || source==target
+        let no_reach=if attack_reach {radius<Fixed64::ZERO || self.source_attack(source).is_none()} else {radius<=Fixed64::ZERO};
+        if no_reach || source==target
             || (!committed && (!self.cache.entities.is_alive(source) || self.cache.buffs.is_disarmed(source)
                 || !self.cache.cprop.get(source).is_some_and(|h|h.hp>Fixed64::ZERO)))
             || !self.cache.entities.is_alive(target)
@@ -976,7 +983,11 @@ impl<'a> ParallelWorldAdapter<'a> {
         let Some((faction,other))=self.source_faction(source).zip(self.cache.faction.get(target)) else {return false;};
         let Some(position)=self.cache.pos.get(target).map(|p|p.0) else {return false;};
         let disclosure=DisclosureContext::resolve(self.cache.filtered,self.cache.moba.is_some(),self.cache.visibility.as_deref());
-        if !faction.is_hostile_to(other) || position.distance_squared(center)>radius*radius
+        let radius_of=|e|self.cache.collision.get(e).map_or(Fixed64::ZERO,|r|r.0);
+        let outside=if attack_reach {
+            !crate::runtime::combat_controls::within_attack_reach(center,position,radius,radius_of(source),radius_of(target))
+        } else {position.distance_squared(center)>radius*radius};
+        if !faction.is_hostile_to(other) || outside
             || !disclosure.allows(Some(faction),crate::runtime::selective::CanonicalEntityKey {
                 id:target.id(),generation:target.gen().id() as u32}) {return false;}
         let attackable=if let Some(state)=self.cache.moba.as_deref() {
@@ -1225,7 +1236,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         };
         if self.is_summon(of_ent) {
             let mut found:Vec<_>=(&self.cache.entities,&self.cache.pos).join()
-                .filter(|(e,_)|self.summon_target_allowed(of_ent,*e,center,radius))
+                .filter(|(e,_)|self.summon_target_allowed(of_ent,*e,center,radius,false))
                 .map(|(e,p)|(p.0.distance_squared(center).raw(),e)).collect();
             found.sort_by_key(|(d,e)|(*d,e.id(),e.gen().id()));
             return found.into_iter().map(|(_,e)|Self::entity_to_handle(e)).collect::<Vec<_>>().into();
@@ -1494,7 +1505,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 let Some(target_ent) = Self::handle_to_entity(target) else {
                     return EntityHandle::INVALID;
                 };
-                if basic_attack && !self.summon_target_allowed(owner_ent,target_ent,from,self.get_tower_range(spec.owner)) {
+                if basic_attack && !self.summon_target_allowed(owner_ent,target_ent,from,self.get_tower_range(spec.owner),true) {
                     return EntityHandle::INVALID;
                 }
                 let tp = self.cache.pos.get(target_ent).map(|p| p.0).unwrap_or(from);
@@ -1665,7 +1676,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         if self.is_summon(of_ent) {
             let focus=self.summon_focus_target(of_ent);
             return (&self.cache.entities,&self.cache.pos,&self.cache.faction,&self.cache.cprop).join()
-                .filter(|(e,_,_,_)|self.summon_target_allowed(of_ent,*e,center,radius))
+                .filter(|(e,_,_,_)|self.summon_target_allowed(of_ent,*e,center,radius,false))
                 .min_by_key(|(e,p,_,_)|(Some(*e)!=focus,p.0.distance_squared(center).raw(),e.id(),e.gen().id()))
                 .map(|(e,_,_,_)|RSome(Self::entity_to_handle(e))).unwrap_or(RNone);
         }
