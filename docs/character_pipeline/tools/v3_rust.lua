@@ -946,6 +946,17 @@ function Gen:call(node, ctx)
     if t == "err" then return "EntityHandle::INVALID", "err" end
     if t ~= "unit" then self:block("fn:owner_of of a " .. t); return "EntityHandle::INVALID", "err" end
     return string.format("{ let u = %s; cx.unit_ref(u, ability_kit::unit_attr::OWNER) }", u), "unit"
+  elseif fn == "landmark" then
+    -- a team's landmark (line B E538): `landmark(team_of(u), fort|base)` is u's own team's
+    local tm, kind = args[1], name_arg(2)
+    if not (tm and tm.k == "call" and tm.fn == "team_of" and #(tm.args or {}) == 1) then
+      self:block("fn:landmark of a team other than team_of(unit)"); return "EntityHandle::INVALID", "err"
+    end
+    if kind ~= "fort" and kind ~= "base" then self:block("fn:landmark:" .. tostring(kind)); return "EntityHandle::INVALID", "err" end
+    local u, ut = self:expr(tm.args[1], ctx)
+    if ut == "err" then return "EntityHandle::INVALID", "err" end
+    if ut ~= "unit" then self:block("fn:team_of of a " .. ut); return "EntityHandle::INVALID", "err" end
+    return cx_call("cx.landmark_of(%s, " .. rust_str(kind) .. ")", u), "unit"
   elseif fn == "orb_slot_free" then
     -- the unit's orb slot is empty or this ability's (line B E534); `ability` is this ability
     local u, t = arg(1)
@@ -1896,12 +1907,14 @@ function Gen:action(a, ctx, ind)
       at = var_read("point", "to", status_var_key(fso.def.id, vname), "cx.pos(to)?")
     else
       local sctx = { owner = fso, scope = ctx.scope, event = ctx.event, pre = ctx.pre, cast = ctx.cast, ended = ctx.ended, windup = ctx.windup }
-      at = self:value(fm.toward, sctx, "point")
+      -- `self` in the status is its holder: read with cx.self_unit = to (restored on either outcome)
+      at = "{ let prev = cx.self_unit; cx.self_unit = to; let at = (|cx: &mut Cx<'_, '_>| -> Result<Vec2, &'static str> { Ok("
+        .. self:value(fm.toward, sctx, "point") .. ") })(cx); cx.self_unit = prev; at? }"
     end
     local closing = code:match("^(.*)\n[ \t]*}%s*$")
     if not closing or not code:find("let duration = ", 1, true) then self:block("status.forced_move on this apply form"); return code end
     local st = "&super::ids::status::" .. upper(a.status)
-    return closing .. "\n" .. ind .. "    cx.force_move(to, " .. st .. ", " .. at .. ", duration)?;\n" .. ind .. "}\n"
+    return closing .. "\n" .. ind .. "    let toward = " .. at .. ";\n" .. ind .. "    cx.force_move(to, " .. st .. ", toward, duration)?;\n" .. ind .. "}\n"
   end
   local rso = a.op == "apply_status" and not a.__replace and not a.__aura and a.status and self.m.statuses[a.status]
   if rso and rso.def.stacking == "replace" then
@@ -2523,8 +2536,8 @@ function Gen:action(a, ctx, ind)
     local skip = {}
     for _, f in ipairs(s.flags or {}) do
       if f == "include_magic_immune" then mi = true elseif f == "include_invulnerable" then inv = true
-      -- include_dead: the bodies too (line B E532 dead_in_circle); how long a body stays is the
-      -- document's `dead_within` (the host has no default)
+      -- include_dead: the bodies too (line B E532 dead_in_circle); a body stays the document's
+      -- `dead_within`, else the engine's corpse time (E539)
       elseif f == "include_dead" then dead = true
       -- include_hidden: Select.include_hidden (ability_kit hidden_excluded: no hidden state in the host yet)
       elseif f == "include_hidden" then hid = true
@@ -2552,9 +2565,8 @@ function Gen:action(a, ctx, ind)
     -- relative_to: the point nearest / farthest is measured from (default: `from`)
     if s.relative_to ~= nil and not nearest then self:block("selector.relative_to without order nearest/farthest") end
     local origin = s.relative_to ~= nil and nearest and self:value(s.relative_to, ctx, "point") or nil
-    if dead and s.dead_within == nil then self:block("selector.flag:include_dead without dead_within") end
     if s.dead_within ~= nil and not dead then self:block("selector.dead_within without include_dead") end
-    local within = dead and s.dead_within ~= nil and self:value(s.dead_within, ctx, "num") or nil
+    local within = dead and (s.dead_within ~= nil and ("Some(" .. self:value(s.dead_within, ctx, "num") .. ")") or "None") or nil
     local str = line("{") .. line("    let center = " .. from .. ";") .. line("    let radius = " .. radius .. ";")
       .. (exclude and line("    let excluded = " .. exclude .. ";") or "")
       .. (within and line("    let within = " .. within .. ";") or "")
