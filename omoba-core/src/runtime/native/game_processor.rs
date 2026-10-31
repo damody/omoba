@@ -7025,8 +7025,7 @@ fn handle_damage(
     let original_profile = damage_profile;
     let spell = damage_profile & omb_script_abi::types::DamageProfile::SPELL.bits() != 0;
     // A basic attack's damage (v3 event.damage.is_attack, E475): instant, or a projectile attack's.
-    let attack = world.has_value::<pipeline::AttackPacket>() || world.try_fetch::<ProjectileImpactOrigin>()
-        .is_some_and(|impact| impact.0.source == source && (impact.0.normal_attack || impact.0.script_attack) && !impact.0.attack_missed);
+    let attack = pipeline::is_attack(world, source);
     if !pipeline::admit(world, &packet) {
         return Ok(());
     }

@@ -52,6 +52,14 @@ pub struct DamageCredit(pub Option<Entity>);
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AttackPacket;
 
+/// Whether the packet being settled from `source` is a basic attack's (v3 `event.damage.is_attack`,
+/// E475): an instant attack's ([`AttackPacket`]), or a projectile attack's that did not miss.
+/// Both `handle_damage`'s note and the pre-mitigation hooks read it (E479).
+pub fn is_attack(world: &World, source: Entity) -> bool {
+    world.has_value::<AttackPacket>() || world.try_fetch::<crate::comp::ProjectileImpactOrigin>()
+        .is_some_and(|impact| impact.0.source == source && (impact.0.normal_attack || impact.0.script_attack) && !impact.0.attack_missed)
+}
+
 impl Packet {
     pub fn new(source: Entity, target: Entity, physical: Fixed64, magical: Fixed64, pure: Fixed64, profile: u32) -> Self {
         Self { source, credit: source, target, physical, magical, pure, profile }

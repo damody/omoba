@@ -101,6 +101,8 @@ pub fn status_damage_pre(world: &World, packet: &mut Packet) {
     let seed = world.try_fetch::<crate::comp::MasterSeed>().map_or(0, |s| s.0);
     let tick = world.try_fetch::<crate::comp::Tick>().map_or(0, |t| t.0);
     let handle = |e: specs::Entity| ParallelWorldAdapter::entity_to_handle(e);
+    // v3 event.damage.is_attack in on_deal_damage_pre／on_take_damage_pre too (E479).
+    let attack = if crate::runtime::native::rules::damage::is_attack(world, packet.source) { omb_script_abi::types::StatusEvent::ATTACK } else { 0 };
     let mut accepted = Vec::new();
     {
         let cache = ParallelAdapterCache::new(world, seed);
@@ -108,7 +110,7 @@ pub fn status_damage_pre(world: &World, packet: &mut Packet) {
             if total(packet) <= Fixed64::ZERO { break; }
             let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
             let other = if kind == se::DEAL_DAMAGE_PRE { packet.target } else { packet.source };
-            let damage_kind = se::damage_kind([packet.physical, packet.magical, packet.pure], packet.profile);
+            let damage_kind = se::damage_kind([packet.physical, packet.magical, packet.pure], packet.profile) | attack;
             let event = spec.event(&row, kind, handle(other), total(packet), damage_kind);
             let random_ordinal = (tick << 20) ^ (u64::from(packet.target.id()) << 8) ^ ordinal as u64;
             let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, holder, random_ordinal);

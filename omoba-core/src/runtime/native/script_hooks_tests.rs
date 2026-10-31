@@ -16,7 +16,7 @@ enum Call {
     Scheduled { owner: u32, step: u16, level: u8, args: Vec<ScheduleArg> },
     Status { holder: u32, status: String, kind: u8, other: u32, amount: Fixed64, damage_kind: u8 },
     ReadVar(Option<String>),
-    DamagePre { holder: u32, kind: u8, amount: Fixed64 },
+    DamagePre { holder: u32, kind: u8, amount: Fixed64, damage_kind: u8 },
 }
 
 #[derive(Clone)]
@@ -51,7 +51,7 @@ impl omb_script_abi::ability::AbilityScript for Probe {
     }
     /// Halves what the marked holder takes.
     fn on_damage_pre(&self, holder: EntityHandle, _: RStr<'_>, event: StatusEvent, _: &mut GameWorldDyn<'_>) -> DamageEdit {
-        self.calls.lock().unwrap().push(Call::DamagePre { holder: holder.id, kind: event.kind, amount: event.amount });
+        self.calls.lock().unwrap().push(Call::DamagePre { holder: holder.id, kind: event.kind, amount: event.amount, damage_kind: event.damage_kind });
         DamageEdit { mode: DamageEdit::MULTIPLY, value: Fixed64::from_raw(512) }
     }
     fn on_status_event(&self, holder: EntityHandle, status: RStr<'_>, event: StatusEvent, _: &mut GameWorldDyn<'_>) {
@@ -172,6 +172,10 @@ fn a_marked_status_hears_its_holders_damage() {
         Call::Status { kind, damage_kind, .. } if *kind == crate::runtime::native::status_event::TAKE_DAMAGE => Some(*damage_kind & StatusEvent::ATTACK != 0),
         _ => None }).collect();
     assert_eq!(attacks, vec![true, false], "only the attack's packet is marked");
+    // E479: the pre-mitigation hooks see the same flag.
+    let pre: Vec<_> = calls.lock().unwrap()[heard..].iter().filter_map(|c| match c {
+        Call::DamagePre { damage_kind, .. } => Some(*damage_kind & StatusEvent::ATTACK != 0), _ => None }).collect();
+    assert_eq!(pre, vec![true, false], "on_take_damage_pre reads is_attack too");
     // E452: a hit that kills is marked lethal; the hp it took is what was left.
     world.write_storage::<crate::runtime::native::comp::CProperty>().get_mut(hero).unwrap().hp = Fixed64::from_i32(30);
     world.write_resource::<Vec<crate::comp::Outcome>>().push(crate::comp::Outcome::RawDamage {
@@ -201,7 +205,7 @@ fn a_marked_status_halves_the_damage_before_it_lands() {
     driver.step(&mut world, []).unwrap();
     let lost = before - hp(&world);
     let pre: Vec<_> = calls.lock().unwrap().iter().filter_map(|c| match c {
-        Call::DamagePre { holder, kind, amount } => Some((*holder, *kind, *amount)), _ => None }).collect();
+        Call::DamagePre { holder, kind, amount, .. } => Some((*holder, *kind, *amount)), _ => None }).collect();
     assert_eq!(pre, vec![(hero.id(), crate::runtime::native::status_event::TAKE_DAMAGE_PRE, Fixed64::from_i32(100))]);
     assert!(lost >= Fixed64::from_i32(49) && lost <= Fixed64::from_i32(51), "half lands (regen aside): lost {lost:?}");
 }

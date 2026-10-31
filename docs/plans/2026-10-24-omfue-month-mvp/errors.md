@@ -26,6 +26,10 @@
   - 第一次從快照建置時，路徑改變，會整個重編一次。
   - 前端的 UBT 和 bridge（約 5 分鐘）仍在鎖內。
 
+## E486 （保留）action:attack 不帶 instant（投射物攻擊）沒有 host 落點（A31）（2026-10-31）
+
+## E485 （保留）mana_spent 要求回魔不小於成本時仍須 >0；pierce_magic_immune 的施法狀態仍被要求跳過魔免（2026-10-31）
+
 ## E484 verify_m6_batch 的 quick_swap 換邊時也換了對手：小於 10 人的 group 在 quick 與 quick_swap 面對不同的出貨英雄（2026-10-31，e187 遊戲模式 session，主 session 要求對照；已放回 live）
 - **現象**：新英雄三批（m6new1／2／3）的勝率都是 17%（3/18），數字一致得可疑。
 - **對照**：m6ctl1 用相同 recipe 與 seed，換成已驗證的五位老英雄（koihime、sakuma、uesugi、usami、kuroda），結果 10/18。各 recipe：
@@ -48,7 +52,14 @@
 
 ## E480 （保留）status_kept 把死後自然到期的短狀態（c23e_phased 0.1 秒）判成被死亡移除（2026-10-31）
 
-## E479 （保留）on_damage_pre 的 event.damage.is_attack 永遠為 false（2026-10-31）
+## E479 on_damage_pre 的 event.damage.is_attack 永遠為 false：C13、kirigakure_saizo 的對建築普攻規則不生效（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 回報：E475 的 is_attack 已接進 codegen，但目前兩個用處都在 on_deal_damage_pre（C13 對建築傷害乘 building_pct、kirigakure_saizo 取消對建築的普攻），pre 讀到的永遠是 false。
+- **根因**：E475 只在 `handle_damage` 記錄傷害事件時算出普攻旗標；`damage_pre::status_damage_pre` 用 `se::damage_kind` 組 damage_kind，沒有帶 ATTACK。
+- **通用修正**：把判定抽成 `rules::damage::is_attack(world, source)`（`AttackPacket`，或來源相符、沒有 miss 的投射物普攻），`handle_damage` 與減免前 hook 共用同一個判定。
+- **回歸**：`script_hooks_tests::a_marked_status_hears_its_holders_damage` 檢查 on_take_damage_pre 也只在普攻封包看到 ATTACK。
+- **避免**：同一個事件屬性在 pre 與 post 兩條路徑都要提供時，判定只寫一份。
+- **檔案**：`omoba-core/src/runtime/native/rules/damage.rs`、`scripting/damage_pre.rs`、`game_processor.rs`、`script_hooks_tests.rs`
 
 ## E478 event.damage.raw 與 on_heal_received 沒有 host 落點：B21 只能擋下（2026-10-31，工作線 B）
 
