@@ -2,6 +2,14 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E550 headless creep facing 把 impulse（B25 修羅地獄的拉扯）推動的小兵當成朝向違規（2026-11-01，E187）
+- 現象：m6new12（C10、B25）的 creep facing violations 是 60，之前幾批都是 0。樣本幾乎都帶 `b25t_grip_count`，mode=walk，off 從 40° 到 180°（被往後拉）。也有不帶狀態的，因為拉扯觸發時會 remove_status。
+- 原因：B25 修羅地獄用 v3 `impulse`（E514，`Impulses` resource，不是 buff）推動小兵，位移不會轉身。facing 檢查只略過暈眩和 `forced_motion::BUFF`，沒有略過 impulse，所以 30 tick 視窗內的位移被當成小兵自己走。
+- 修正（共用層）：
+  - omoba-core `Impulses::units()`：唯讀列出有 impulse 的單位。
+  - moba_headless `CreepFacing` 每個 tick 記錄每隻小兵最後一次有 impulse 的 tick；視窗起點之後（recheck 時則是上一個 tick 之後）被推過的小兵，這次不檢查。
+- 避免：新增「不經移動系統的位移」（forced motion、impulse、之後的 knockback 等）時，headless 的朝向檢查要一起列入略過條件。
+
 ## E549 預載的 Niagara 系統在非 cook 執行時第一次啟用才編譯，造成卡頓（2026-11-01，工作線 C）
 - 現象：demo11（1+9 quick，D21 效能量測）t=129 s 有一個 133 ms 的幀，log 同時出現 `Compiling System NiagaraSystem /Game/Omoba/VFX/CueShapes/NS_shape_burst took 0.137 sec (time since issued)`。這個系統已在 E389 的 `OmPresentationPreload` 名單裡（Editor cue overrides）。
 - 原因：非 cook 執行（editor `-game`，所有實機局都是這種）載入 Niagara 系統時，script 編譯請求延到第一次啟用（`WaitForCompilationComplete_SkipPendingOnDemand` 註明「deferred from loading」），所以第一次播放時遊戲執行緒要等編譯。預載只解決了同步載入，沒有解決編譯。

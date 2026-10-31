@@ -78,6 +78,8 @@ impl Impulses {
                 row.left.map(Fixed64::raw)])).collect::<Vec<_>>()])).collect())
     }
     pub fn is_empty(&self) -> bool { self.0.is_empty() }
+    /// The units with a live impulse (read-only, for the headless creep facing check, E550).
+    pub fn units(&self) -> impl Iterator<Item = Entity> + '_ { self.0.keys().copied() }
 }
 
 fn movable(world: &World, entity: Entity) -> bool {
