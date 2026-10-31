@@ -81,6 +81,10 @@ pub mod op {
     /// `(Str "cooldown")` -> `None`: v3 `refund { cooldown = true }` in a cast: the cast's own
     /// cooldown does not start (原作 EndCooldown right after the cast; E455). Its mana is spent.
     pub const REFUND: u32 = 17;
+    /// `(Unit, Num slot)` -> `Str` | `None`: v3 `ability_in_slot(unit, slot)` (E497): the id of
+    /// the ability at index `slot` (0, 1, 2, ...) of the hero's ability list; `None` for a unit
+    /// that is not a hero, or an empty slot.
+    pub const ABILITY_IN_SLOT: u32 = 18;
 }
 
 /// Attribute names of [`op::EVENT_ABILITY_ATTR`].
@@ -180,6 +184,12 @@ pub mod ability_attr {
     pub const COOLDOWN_REMAINING: &str = "cooldown_remaining";
     /// `Bool`: learned, off cooldown and (a charge ability) holding a charge.
     pub const IS_READY: &str = "is_ready";
+    /// `Num`: its full cooldown in seconds at the level the unit holds (0 when not learned; E497).
+    pub const COOLDOWN: &str = "cooldown";
+    /// `Bool`: a passive ability (catalog `ability_type`).
+    pub const IS_PASSIVE: &str = "is_passive";
+    /// `Bool`: a toggle ability (catalog `ability_type`).
+    pub const IS_TOGGLE: &str = "is_toggle";
 }
 
 /// Attribute names of [`op::GAME_ATTR`].

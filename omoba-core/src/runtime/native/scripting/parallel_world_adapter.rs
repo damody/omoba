@@ -1877,11 +1877,25 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 use omb_script_abi::ext::ability_attr as name;
                 let hero = Self::handle_to_entity(*unit).and_then(|entity| self.cache.hero.get(entity));
                 let ability = ability.as_str();
+                let def = omoba_template_ids::ability_by_name(ability).and_then(omoba_template_ids::ability_const);
+                let level = hero.map_or(0, |hero| hero.get_ability_level(ability).max(0));
                 match attr.as_str() {
                     name::COOLDOWN_REMAINING => ROk(V::Num(hero.map_or(Fixed64::ZERO, |hero| hero.get_cooldown(ability)))),
                     name::IS_READY => ROk(V::Bool(hero.is_some_and(|hero| hero.get_ability_level(ability) > 0 && hero.cast_ready(ability)))),
+                    // E497: its full cooldown at the level held, and its kind.
+                    name::COOLDOWN => ROk(V::Num(full_cooldown(ability, level))),
+                    name::IS_PASSIVE => ROk(V::Bool(def.is_some_and(|def| def.ability_type == omoba_template_ids::AbilityTypeC::Passive))),
+                    name::IS_TOGGLE => ROk(V::Bool(def.is_some_and(|def| def.ability_type == omoba_template_ids::AbilityTypeC::Toggle))),
                     _ => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown ability attribute {attr}"))),
                 }
+            }
+            (op::ABILITY_IN_SLOT, [A::Unit(unit), A::Num(slot)]) => {
+                let hero = Self::handle_to_entity(*unit).and_then(|entity| self.cache.hero.get(entity));
+                let slot = usize::try_from(slot.raw() >> 10).ok().filter(|_| *slot >= Fixed64::ZERO);
+                ROk(match hero.zip(slot).and_then(|(hero, slot)| hero.abilities.get(slot)) {
+                    Some(id) => V::Str(id.as_str().into()),
+                    None => V::None,
+                })
             }
             (op::GAME_ATTR, [A::Str(attr)]) => {
                 use omb_script_abi::ext::game_attr as name;
@@ -2081,6 +2095,14 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     }
 }
 
+/// An ability's full cooldown at `level` from the catalog (the last rank's above its ranks; 0 when
+/// not learned or unknown; E497).
+fn full_cooldown(ability: &str, level: i32) -> Fixed64 {
+    let Some(def) = omoba_template_ids::ability_by_name(ability).and_then(omoba_template_ids::ability_const) else { return Fixed64::ZERO };
+    let Some(index) = usize::try_from(level).ok().and_then(|level| level.checked_sub(1)) else { return Fixed64::ZERO };
+    def.levels.get(index.min(def.levels.len().saturating_sub(1))).map_or(Fixed64::ZERO, |row| row.cooldown)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2137,7 +2159,7 @@ mod tests {
         hero.strength=20;hero.level=3;hero.level_growth.strength_per_level=Fixed64::from_i32(2);
         hero.mana_pool=Some(crate::runtime::ability_runtime::ManaPool::new(Fixed64::from_i32(50),Fixed64::from_i32(300)).unwrap());
         hero.ability_levels.insert("a02_q".into(),2);hero.start_cooldown("a02_w",Fixed64::from_i32(4));
-        hero.ability_levels.insert("a02_w".into(),1);
+        hero.ability_levels.insert("a02_w".into(),1);hero.abilities=vec!["a02_q".into(),"a02_w".into(),"a02_e".into()];
         let me=world.create_entity().with(Pos(Vec2::ZERO)).with(Faction::new(FactionType::Player,1)).with(hero).with(TAttack::new(Fixed64::from_i32(30),Fixed64::ONE,Fixed64::from_i32(500),Fixed64::from_i32(900)))
             .with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::from_i32(25)}).build();
         let summon=world.create_entity().with(SummonedUnit::new_fixed(me,Some(Fixed64::from_i32(30)))).build();
@@ -2202,6 +2224,13 @@ mod tests {
         assert_eq!(ability("a02_w",ability_attr::IS_READY),Ok(V::Bool(false)),"cooling down");
         assert_eq!(ability("a02_e",ability_attr::IS_READY),Ok(V::Bool(false)),"not learned");
         assert_eq!(ability("a02_w",ability_attr::COOLDOWN_REMAINING),n(4));
+        // E497: kind and full cooldown at the level held (none when not learned).
+        assert_eq!(ability("a02_e",ability_attr::COOLDOWN),n(0),"not learned");
+        assert_eq!((full_cooldown("a27_war_banner",2),full_cooldown("a27_war_banner",9),full_cooldown("a27_war_banner",0)),
+            (Fixed64::from_i32(30),Fixed64::from_i32(30),Fixed64::ZERO),"its catalog cooldown at the level, the last rank above it");
+        assert_eq!((ability("a02_q",ability_attr::IS_PASSIVE),ability("a02_q",ability_attr::IS_TOGGLE)),(Ok(V::Bool(false)),Ok(V::Bool(false))));
+        let mut slot=|u:EntityHandle,k:i32|adapter.ext(op::ABILITY_IN_SLOT,RSlice::from_slice(&[A::Unit(u),A::Num(Fixed64::from_i32(k))])).into_result();
+        assert_eq!((slot(h,0),slot(h,99),slot(c,0)),(Ok(V::Str("a02_q".into())),Ok(V::None),Ok(V::None)));
         // An illusion reads the ranks it copied (v3 copy.abilities).
         let rank=|adapter:&mut ParallelWorldAdapter<'_>,u:EntityHandle,a:&str|adapter.ext(op::ABILITY_LEVEL,
             RSlice::from_slice(&[A::Unit(u),A::Str(a.into())])).into_result();

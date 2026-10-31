@@ -2,11 +2,22 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E500 （保留）create_unit.over_limit:reject 與 owner:caster_hero 沒有 host 落點（C13）（2026-10-31）
+
 ## E499 （保留）召喚物的 template hp_regen 從未生效，且不接受負值（C15 箭矢）（2026-10-31）
 
 ## E498 （保留）v3 conformance 放在施法點的友方單位沒有 class，count_in_radius 的 creep 算不到（c19 突襲 CAST_REJECTED）（2026-10-31）
 
-## E497 （保留）ability_in_slot 與綁定技能的 modify_cooldown 沒有 host 落點（C25）（2026-10-31）
+## E497 ability_in_slot 與綁定技能的 modify_cooldown 沒有 host 落點：C25 混沌之箭只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage M6 第 3 批：c25 讓目標 Q／W／E 中已學、冷卻完畢、非被動、非開關的一招進入冷卻（`ability_in_slot(target, Q)` 綁成 sq／sw／se，再 `modify_cooldown { ability = sq, mode = "start" }`），host 沒有「某格的技能」，也沒有「其他單位技能自己的冷卻」。
+- **根因**：ext 只能用技能 id 讀冷卻剩餘與是否就緒；拿不到英雄技能欄位的內容、技能種類，也拿不到某等級的完整冷卻。
+- **通用修正**：
+  - ext op `ABILITY_IN_SLOT = 18`：`(Unit, Num slot)`，回傳英雄技能列表第 slot 格的 id；不是英雄或空格時回傳 None。
+  - `ability_attr` 新增 `cooldown`（持有等級的完整冷卻，取自 catalog，超過最高級時取最後一級；沒學是 0）、`is_passive`、`is_toggle`（依 catalog 的 ability_type）。
+  - kit 新增 `ability_in_slot(unit, slot)`、`ability_is_passive`、`ability_is_toggle`、`cooldown_start_own(unit, ability)`（以該技能自己的冷卻開始冷卻，原作 StartCooldown(GetCooldown)；沒學就什麼都不做）。等級沿用 `ability_level`。
+- **回歸**：`parallel_world_adapter` 測試 `ext_reads_unit_ability_and_game_attributes`：格位、空格與非英雄；catalog 冷卻依等級，超過最高級取最後一級，沒學是 0；技能種類。
+- **檔案**：`scripts/script-abi/src/ext.rs`、`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`、`scripts/ability_kit/src/host_ext.rs`
 
 ## E496 status_trigger:on_attack_miss 沒有 host 落點：A06 赤備之怒只能擋下（2026-10-31，工作線 B）
 

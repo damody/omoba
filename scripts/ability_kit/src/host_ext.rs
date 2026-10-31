@@ -519,6 +519,38 @@ impl Cx<'_, '_> {
         matches!(self.read(op::UNIT_ABILITY_ATTR, &args), ExtValue::Bool(true))
     }
 
+    /// v3 `ability_in_slot(unit, slot)` (E497): the id of the ability at index `slot` (0, 1, 2, ...)
+    /// of the hero `unit`'s ability list; None for a unit that is not a hero or an empty slot.
+    pub fn ability_in_slot(&mut self, unit: EntityHandle, slot: u8) -> Option<String> {
+        match self.read(op::ABILITY_IN_SLOT, &[ExtArg::Unit(unit), ExtArg::Num(Fixed64::from_i32(i32::from(slot)))]) {
+            ExtValue::Str(id) => Some(id.into()), _ => None,
+        }
+    }
+
+    fn ability_num(&mut self, unit: EntityHandle, ability: &str, attr: &str) -> Fixed64 {
+        let args = [ExtArg::Unit(unit), ExtArg::Str(ability.into()), ExtArg::Str(attr.into())];
+        match self.read(op::UNIT_ABILITY_ATTR, &args) { ExtValue::Num(n) => n, _ => Fixed64::ZERO }
+    }
+
+    fn ability_flag(&mut self, unit: EntityHandle, ability: &str, attr: &str) -> bool {
+        let args = [ExtArg::Unit(unit), ExtArg::Str(ability.into()), ExtArg::Str(attr.into())];
+        matches!(self.read(op::UNIT_ABILITY_ATTR, &args), ExtValue::Bool(true))
+    }
+
+    /// v3 `ability.is_passive` (E497).
+    pub fn ability_is_passive(&mut self, unit: EntityHandle, ability: &str) -> bool { self.ability_flag(unit, ability, ability_attr::IS_PASSIVE) }
+    /// v3 `ability.is_toggle` (E497).
+    pub fn ability_is_toggle(&mut self, unit: EntityHandle, ability: &str) -> bool { self.ability_flag(unit, ability, ability_attr::IS_TOGGLE) }
+
+    /// v3 `modify_cooldown { ability = <an ability of another unit>, mode = "start" }` without an
+    /// amount (E497): `unit`'s `ability` starts its own full cooldown at the level it holds (原作
+    /// StartCooldown(GetCooldown)); nothing when it is not learned.
+    pub fn cooldown_start_own(&mut self, unit: EntityHandle, ability: &str) -> Res {
+        let seconds = self.ability_num(unit, ability, ability_attr::COOLDOWN);
+        if seconds <= Fixed64::ZERO { return Ok(()); }
+        self.cooldown_start(unit, ability, seconds)
+    }
+
     /// Units within `radius` of `center` on `team` (`"ally"` / `"enemy"` / `"both"`) relative to
     /// `of`, nearest first; the caller's selector filters types, dead units and the rest.
     pub fn units_in_range(&mut self, center: Vec2, radius: Fixed64, of: EntityHandle, team: &str) -> Vec<EntityHandle> {
