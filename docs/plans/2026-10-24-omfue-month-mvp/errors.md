@@ -2,7 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E476 （保留）creep_facing 攻擊樣本沒有目標資訊，距離 0 的目標以 atan2(0,0) 算成 0°（2026-10-31）
+## E476 creep_facing 攻擊樣本沒有目標資訊，距離 0 的目標以 atan2(0,0) 算成 0°（2026-10-31，e187 遊戲模式 session，B 要求；已放回 live）
+- **現象**：m6new3 剩 81 筆 violation，全都是攻擊；很多樣本的 expected 剛好是 0°，看不出目標是什麼。
+- **通用修正**：
+  - 攻擊樣本加上 `target {entity, self, kind（hero／structure／summon／creep／other）, x, y, distance}`。
+  - 目標距離小於 1 時不檢查，也不計入 attack_checks，因為 atan2(0,0) 會把方向算成 0°。
+- **避免**：方向檢查遇到零向量要跳過；違規樣本要附上能定位原因的對象資訊。
 
 ## E475 event.damage.is_attack 沒有 host 落點：傷害事件分不出普攻，C13、B17 只能擋下（2026-10-31，工作線 B）
 
