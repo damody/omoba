@@ -2,7 +2,20 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E544 （保留）spotlight 報告沒有 observer 驗證結果，無法當 observer 過渡涵蓋（2026-11-01）
+## E544 spotlight 報告沒有 observer 驗證結果，無法當 observer 過渡涵蓋（2026-11-01，工作線 C）
+- 需求：headless observer 還沒做好之前，gamemode 要在批次 Acceptance 段自動列出「spotlight split 已涵蓋 observer 的英雄」，當作過渡涵蓋。但 spotlight 報告（`target/spotlight/<hero>/spotlight.json`）沒有記錄 authority 的 observer 驗證結果。demo10 的 `observer-mismatch-after-rebase`（schema 0x464f471b）就是從 server log 手動找出來的。
+- 修正（共用層，`scripts/record_hero_spotlight.lua`）：
+  - 新增 `observer(run_root)`，結果 `{checked, mismatch, first}`：
+    - checked：server log 有 `"metric":"observer_step"` 就是 true。
+    - mismatch：`observer mismatch` 行數。
+    - first：第一筆不一致的 schema。沒有不一致、但角色失敗時，改填 errors.md 的原因。
+  - `encode` 寫出的 spotlight.json 帶 `observer` 欄位。
+  - 新增 `--observer-only --run RUN`（`write_observer`）：保留既有報告內容，只寫入或更新 observer 欄位。沒有編碼影片的 split 局也有報告。工作線 C 的佇列每局之後都會呼叫。
+  - `record_hero_spotlight_test` 測三種情況：驗證過且沒有不一致、有兩筆不一致、角色失敗。
+- 實測：
+  - demo10：checked=true，mismatch=6，first=0x464f471b。
+  - honda_masanobu 的 spotlight 局：checked=true，mismatch=0。
+- 避免：驗證結果要寫進機器可讀的報告，不要只留在 log。
 
 ## E543 （保留）conformance 數召喚物時沒有認分等級模板的 unit_id（a28_phoenix_r{rank}），create_unit 判 0 made（2026-11-01）
 

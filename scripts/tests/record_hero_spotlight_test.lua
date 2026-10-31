@@ -145,4 +145,28 @@ do
   path.write(path.join(root,'p1','autopilot-p1.jsonl'),'{"event":"spotlight_finished","reason":"complete"}\n',true)
   assert(not spotlight.renderer_never_recorded(root))
 end
+-- E544: the observer field records what the authority's observer validation saw in the run.
+do
+  local lfs,path=require('lfs'),b.lib('path')
+  local run=path.join(b.root,'target','spotlight-observer-test-'..os.time())
+  path.mkdir_p(path.join(run,'server'));path.mkdir_p(path.join(run,'p1'))
+  local function write(file,text) path.write(path.join(run,file),text,true) end
+  write('server/server.stdout.log','x OM_PERF {"v":1,"component":"server","metric":"observer_step"}\n')
+  local clean=spotlight.observer(run)
+  assert(clean.checked and clean.mismatch==0 and clean.first==nil,'a validated run without a mismatch')
+  write('server/server.stdout.log','x OM_PERF {"metric":"observer_step"}\n[ERROR] - observer mismatch team=2 replica_tick=2640: [entity=1 schema=0x464f471b expected=a observed=absent]\n'..
+    '[ERROR] - observer mismatch team=1 replica_tick=2880: [entity=171 schema=0x464f471b expected=absent observed=a]\n')
+  local bad=spotlight.observer(run)
+  assert(bad.checked and bad.mismatch==2 and bad.first=='0x464f471b','mismatches are counted, the first schema named')
+  write('server/server.stdout.log','')
+  write('p1/errors.md','# Role launch error\n\nruntime-p1 exited during match\n')
+  local failed=spotlight.observer(run)
+  assert(not failed.checked and failed.mismatch==0 and failed.first=='runtime-p1 exited during match','a failed run names its reason')
+  local out=path.join(b.root,'target','spotlight-observer-test-out-'..os.time())
+  local report=spotlight.write_observer(out,'saika_magoichi',run)
+  assert(report.observer.first=='runtime-p1 exited during match' and path.is_file(path.join(out,'saika_magoichi','spotlight.json')))
+  for _,p in ipairs({'server/server.stdout.log','p1/errors.md'}) do os.remove(path.join(run,p)) end
+  lfs.rmdir(path.join(run,'server'));lfs.rmdir(path.join(run,'p1'));lfs.rmdir(run)
+  os.remove(path.join(out,'saika_magoichi','spotlight.json'));lfs.rmdir(path.join(out,'saika_magoichi'));lfs.rmdir(out)
+end
 print('record_hero_spotlight_test ok')

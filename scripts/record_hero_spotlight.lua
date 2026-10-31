@@ -39,6 +39,7 @@ function M.options(args)
     if key=='--all' then options.all=true
     elseif key=='--no-build' then options.no_build=true
     elseif key=='--encode-only' then options.encode_only=true
+    elseif key=='--observer-only' then options.observer_only=true
     elseif key=='--hero' then
       i=i+1
       local hero=assert(args[i],'--hero requires a hero id')
@@ -249,6 +250,52 @@ function M.ffmpeg(options)
   return exe
 end
 
+-- What the authority's observer validation saw in one split run (E544): every client replica is
+-- checked against the authority each checkpoint (omobab state::core "observer mismatch" lines).
+-- {checked, mismatch = count of mismatch lines, first = the first divergent schema, or the
+-- failure reason a role left (errors.md) when the run failed without a mismatch line}.
+-- checked is true once the server logged an observer step for the match.
+function M.observer(run_root)
+  local result={checked=false,mismatch=0}
+  for _,name in ipairs({'server.stdout.log','server.stderr.log'}) do
+    local file=path.join(run_root,'server',name)
+    if path.is_file(file) then
+      for line in path.read(file):gmatch('[^\r\n]+') do
+        if line:find('"metric":"observer_step"',1,true) then result.checked=true end
+        if line:find('observer mismatch',1,true) then
+          result.mismatch=result.mismatch+1
+          result.first=result.first or line:match('schema=(0x%x+)') or 'observer mismatch'
+        end
+      end
+    end
+  end
+  if not result.first then
+    for _,role in ipairs({'server','p1'}) do
+      local file=path.join(run_root,role,'errors.md')
+      if path.is_file(file) then
+        for line in path.read(file):gmatch('[^\r\n]+') do
+          if not line:match('^#') and line:match('%S') then result.first=line;break end
+        end
+      end
+      if result.first then break end
+    end
+  end
+  return result
+end
+
+-- Writes the observer field of OUTPUT/<hero>/spotlight.json for RUN_ROOT, keeping the rest of
+-- an existing report (a split run without an encoded video still gets one).
+function M.write_observer(output,hero,run_root)
+  local out=path.absolute(path.join(output,hero),b.root)
+  path.mkdir_p(out)
+  local file=path.join(out,'spotlight.json')
+  local report=path.is_file(file) and json.decode(path.read(file)) or {schema_version=1,hero=hero}
+  report.run=run_root
+  report.observer=M.observer(run_root)
+  json.write(file,report,true)
+  return report
+end
+
 -- Encode one recorded run: mp4 (H.264, yuv420p, constant 30 fps), keyframe PNGs and a report.
 function M.encode(options,hero,run_root)
   local ffmpeg=M.ffmpeg(options)
@@ -279,7 +326,7 @@ function M.encode(options,hero,run_root)
   end
   local report={schema_version=1,hero=hero,video=video,keyframes=shots,run=run_root,frames=#frames,
     duration_seconds=frames[#frames].t-frames[1].t,reason=finished.reason,casts=finished.casts,skipped=finished.skipped,
-    dropped=finished.dropped}
+    dropped=finished.dropped,observer=M.observer(run_root)}
   json.write(path.join(out,'spotlight.json'),report,true)
   return report
 end
@@ -359,10 +406,16 @@ if arg and arg[0] and arg[0]:match('record_hero_spotlight%.lua$') then
   if arg[1]=='--help' then
     print('Usage: tools/lua/lua.exe scripts/record_hero_spotlight.lua (--hero HERO [--hero HERO...] | --all) [--output target/spotlight] [--ffmpeg PATH] [--no-build] [--max-seconds 300]')
     print('       tools/lua/lua.exe scripts/record_hero_spotlight.lua --hero HERO --encode-only --run RUN_DIRECTORY')
+    print('       tools/lua/lua.exe scripts/record_hero_spotlight.lua --hero HERO --observer-only --run RUN_DIRECTORY [--output target/spotlight]')
     print('Heroes: '..table.concat(M.HEROES,', '))
     return
   end
   local options=M.options(arg)
+  if options.observer_only then
+    local report=M.write_observer(options.output,options.heroes[1],path.absolute(assert(options.run,'--observer-only requires --run'),b.root))
+    print(('spotlight %s observer: checked=%s mismatch=%d first=%s'):format(report.hero,tostring(report.observer.checked),report.observer.mismatch,tostring(report.observer.first)))
+    return
+  end
   M.ffmpeg(options) -- fail before a ten-minute run when the encoder is missing
   if options.encode_only then
     local report=M.encode(options,options.heroes[1],path.absolute(options.run,b.root))
