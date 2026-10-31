@@ -85,4 +85,6 @@ return {
   -- M6 batch (2026-10-31): item_tag and prd chance generated; conformance 0 fail (shadow)
   {hero='ryuzoji_takanobu',package='hero_c13',dir='heroes/ryuzoji_takanobu'},
   {hero='sassa_narimasa',package='hero_a17',dir='heroes/sassa_narimasa'},
+  -- M6 batch (2026-10-31): independent instance vars and remove_this_instance generated; conformance 0 fail (shadow)
+  {hero='ii_naomasa',package='hero_a06',dir='heroes/ii_naomasa'},
 }

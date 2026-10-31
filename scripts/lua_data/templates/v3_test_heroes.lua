@@ -68714,16 +68714,13 @@ local data = {
     {
       abilities = { "a06_red_power", "a06_red_meteor", "a06_red_flame_flow", "a06_red_fury", "a06_flame_of_anger" },
       authored_package = "ii_naomasa",
-      background = "井伊直政（schema v3 產生的 Rust；測試用）",
       display_name = "井伊直政",
       id = "ii_naomasa",
       moba_loadout = {
         ranks = { 1, 1, 1, 0, 1 },
         skill_points = 0,
       },
-      source_stats = "A06",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A06",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "ii_naomasa",
