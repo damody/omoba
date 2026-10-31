@@ -946,6 +946,16 @@ function Gen:call(node, ctx)
     if t == "err" then return "EntityHandle::INVALID", "err" end
     if t ~= "unit" then self:block("fn:owner_of of a " .. t); return "EntityHandle::INVALID", "err" end
     return string.format("{ let u = %s; cx.unit_ref(u, ability_kit::unit_attr::OWNER) }", u), "unit"
+  elseif fn == "has_item" then
+    -- a catalog item in one of the unit's inventory slots (kit item_in_slot, line B E561; the
+    -- host inventory has 6)
+    local u, t = arg(1)
+    local name = name_arg(2)
+    if t == "err" or not name then return "false", "bool" end
+    if t ~= "unit" then self:block("fn:has_item of a " .. t); return "false", "bool" end
+    self.item_names = self.item_names or C.item_names(((self.opts.root or "."):gsub("\\", "/")) .. "/docs/character_pipeline/items")
+    if not self.item_names[name] then self:block("fn:has_item of " .. name .. " (no such item)"); return "false", "bool" end
+    return "{ let u = " .. u .. "; (0..6u8).any(|slot| cx.item_in_slot(u, slot).as_deref() == Some(" .. rust_str(name) .. ")) }", "bool"
   elseif fn == "landmark" then
     -- a team's landmark (line B E538): `landmark(team_of(u), fort|base)` is u's own team's
     local tm, kind = args[1], name_arg(2)
@@ -1387,6 +1397,8 @@ local ACTION_FIELDS = {
   -- a non-hero unit gains / loses an ability of this document (line B E560); a hero's slots
   -- (slot, cast_point, as: C08's stolen ability) wait for the hero version
   add_ability = set({ "op", "to", "ability", "level" }),
+  -- a non-hero unit's base maximum health (line B E563); bonuses kept, health capped
+  set_base_max_hp = set({ "op", "to", "value" }),
   remove_ability = set({ "op", "from", "ability" }),
   apply_status = set({ "op", "status", "to", "duration", "source", "stacks", "vars" }),
   -- exclude_source_tags, source_is, source_ability, min_duration, min_remaining: the host does not
@@ -2846,6 +2858,9 @@ function Gen:action(a, ctx, ind)
     local lets, names = {}, {}
     for i, code in ipairs(args) do lets[#lets + 1] = line("    let a" .. i .. " = " .. code .. ";"); names[#names + 1] = "a" .. i end
     return line("{") .. table.concat(lets) .. line("    super::routines::" .. a.routine .. "(cx, " .. table.concat(names, ", ") .. ")?;") .. line("}")
+  elseif op == "set_base_max_hp" then
+    return line("{") .. line("    let to = " .. self:value(a.to, ctx, "unit") .. ";") .. line("    let value = " .. self:value(a.value, ctx, "num") .. ";")
+      .. line("    cx.set_base_max_hp(to, value)?;") .. line("}")
   elseif op == "add_ability" or op == "remove_ability" then
     local id = a.ability
     if type(id) ~= "string" or not id:match("^[%a_][%w_]*$") or not self.m.abilities[id] then
@@ -3159,7 +3174,12 @@ function Gen:action(a, ctx, ind)
   elseif op == "attack" then
     -- a projectile attack lands its effects on arrival, so it carries them (the kit refuses one without)
     if a.instant ~= true and a.trigger_effects ~= true then self:block("action:attack projectile without trigger_effects"); return "" end
-    if a.effect_multiplier ~= nil and a.effect_multiplier ~= 1 and a.effect_multiplier ~= "1" then self:block("action:attack.effect_multiplier"); return "" end
+    -- effect_multiplier (line B E562): an instant attack's orb and on-hit effects scaled (0..10)
+    local mult = "Fixed64::ONE"
+    if a.effect_multiplier ~= nil and a.effect_multiplier ~= 1 and a.effect_multiplier ~= "1" then
+      if a.instant ~= true then self:block("action:attack.effect_multiplier on a projectile attack"); return "" end
+      mult = self:value(a.effect_multiplier, ctx, "num")
+    end
     for _, k in ipairs({ "use_orb", "trigger_effects", "fake", "cannot_miss", "ignore_range" }) do
       if a[k] ~= nil and type(a[k]) ~= "boolean" then self:block("action:attack." .. k .. " of an expression"); return "" end
     end
@@ -3167,7 +3187,8 @@ function Gen:action(a, ctx, ind)
     local attacker = self:value(a.attacker, ctx, "unit")
     local target = self:value(a.target, ctx, "unit")
     return line("{") .. line("    let attacker = " .. attacker .. ";") .. line("    let target = " .. target .. ";")
-      .. line(string.format("    cx.perform_attack(attacker, target, %s, %s, %s, %s, %s, Fixed64::ONE)?;", flag("instant"), flag("cannot_miss"), flag("fake"),
+      .. line("    let effect_multiplier = " .. mult .. ";")
+      .. line(string.format("    cx.perform_attack(attacker, target, %s, %s, %s, %s, %s, effect_multiplier)?;", flag("instant"), flag("cannot_miss"), flag("fake"),
         flag("trigger_effects"), flag("use_orb"))) .. line("}")
   elseif op == "set_ability_active" or op == "swap_abilities" then
     local function id_of(v) return type(v) == "string" and v:match("^[%a_][%w_]*$") and v end
