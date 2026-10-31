@@ -287,7 +287,11 @@ function M.template_rows(doc, t)
   local attack = t.attack
   if not attack or attack.kind == "none" then no("no attack (the dummy unit type, line B)") attack = {} end
   if attack.kind and attack.kind ~= "melee" and attack.kind ~= "ranged" and attack.kind ~= "none" then no("attack.kind:" .. tostring(attack.kind)) end
-  if attack.damage_type and attack.damage_type ~= "physical" then no("attack.damage_type:" .. tostring(attack.damage_type)) end
+  -- the summon's attack deals this type (host attack_damage_type, line B E503; physical by default)
+  if attack.damage_type ~= nil and attack.damage_type ~= "physical" and attack.damage_type ~= "magical" and attack.damage_type ~= "pure" then
+    no("attack.damage_type:" .. tostring(attack.damage_type))
+  end
+  local damage_type = attack.damage_type ~= "physical" and attack.damage_type or nil
   for _, k in ipairs(sorted(attack)) do
     if k ~= "kind" and k ~= "range" and k ~= "interval" and k ~= "damage" and k ~= "damage_max" and k ~= "damage_type"
       and k ~= "attack_point" and k ~= "projectile_speed" then no("attack." .. k) end
@@ -312,6 +316,7 @@ function M.template_rows(doc, t)
     end
     local row = { id = ranks > 1 and (t.id .. "_r" .. rank) or t.id, authored_package = doc.__package,
       display_name = t.text and t.text.zh_TW and t.text.zh_TW.name or t.id }
+    row.attack_damage_type = damage_type
     row.hp = num(stats.hp, "stats.hp")
     if row.hp == nil then no("stats.hp missing") end
     row.armor = num(stats.armor, "stats.armor") or 0
