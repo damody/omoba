@@ -52,7 +52,11 @@
 - **回歸**：`forced_motion::tests::a_knockback_stops_on_contact_and_schedules_its_end_on_the_source`：前方有單位時停在接觸處，後方單位不擋；on_end 只在來源身上排程一次並附上落點；封包可以完整來回。
 - **檔案**：`omoba-core/src/runtime/native/forced_motion.rs`、`scripts/ability_kit/src/host_ext.rs`
 
-## E493 （保留）burn_mana 的最大單 tick 扣魔被目標同 tick 的回魔脈衝抵掉（a21 r1 128.67 vs 130）（2026-10-31）
+## E493 conformance：burn_mana 的最大單 tick 扣魔被目標同 tick 的回魔脈衝抵掉（a21 r1 128.67 vs 130）（2026-10-31，conformance session）
+- **現象**：a21_mana_steal r1 的 burn_mana 量到 128.67，文件是 130；r2 起也都少 1.33，只是落在容差內。
+- **根因**：一開始以為是目標的回魔脈衝，逐 tick 印出來才發現不是：目標每 tick 回 0.083。真正原因是 `run.cast()` 本身會走 16 個 tick（前搖加餘量），第一個樣本的落差 `full - now` 把這 16 個 tick 的回魔也算進去了。
+- **通用修正**：記下 cast() 走過的 tick 數，用施法後目標穩定的每 tick 回魔，補回這段時間的回魔；原本的單 tick 判定仍先檢查。
+- **以後如何避免**：量「單 tick 變化」時，第一個樣本若跨了多個 tick，要扣掉這段時間的自然變化。也不要用剛好落在容差內的數字當成修好；這次第一版的修正只量到 0.17 的「脈衝」，是靠容差才過的，已經換掉。
 
 ## E492 spotlight 閃現後替身或原點超出畫面邊界，回位、走近、被動攻擊的點擊全被拒（c02 汰選斬擊未示範）（2026-10-31，工作線 C）
 - 現象：第二輪重跑的 C02 明智秀滿 spotlight，W 幻影移動之後，回位（`spotlight_return`）、走近（`spotlight_approach`）和被動攻擊的點擊都是 `not_submitted`（`target is outside the visible world area`），最後兩格被略過，汰選斬擊（R）沒有示範（`target/lineC-pres14/akechi_hidemitsu-run`）。

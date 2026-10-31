@@ -1951,16 +1951,28 @@ fn check_mana_burn(hero: &str, s: &Value) -> Option<Result<String, String>> {
     let cast_point = value(&entry, rank, "cast_point").unwrap_or(0.0);
     let mut previous = full;
     let mut drop: f64 = 0.0;
+    let before = run.world.read_resource::<Tick>().0;
     let Ok(cast) = run.cast("unit", cast_point + 1.0, None) else { return None };
     if !cast.accepted { return None; }
+    // The first sample spans every tick run.cast() stepped through (E493).
+    let spanned = run.world.read_resource::<Tick>().0.saturating_sub(before);
+    let first = full - mana(&run)?;
+    let mut rise: f64 = 0.0;
     for _ in 0..=ticks(cast_point + 2.0) {
         let now = mana(&run)?;
         drop = drop.max(previous - now);
+        rise = now - previous;
         previous = now;
         run.step(1);
     }
-    if (drop - expected).abs() <= (expected * 0.01).max(1.0) { Some(Ok(format!("burned {drop:.1}"))) }
-    else { Some(Err(format!("largest one-tick mana drop of the target {drop:.2}, expected {expected}"))) }
+    let tolerance = (expected * 0.01).max(1.0);
+    if (drop - expected).abs() <= tolerance { return Some(Ok(format!("burned {drop:.1}"))); }
+    // The target's own regeneration over those ticks (its steady per-tick rise at the end).
+    let regen = rise.max(0.0) * spanned as f64;
+    if spanned > 1 && (first + regen - expected).abs() <= tolerance {
+        return Some(Ok(format!("burned {:.1} ({first:.2} over the cast's {spanned} ticks and {regen:.2} of regeneration)", first + regen)));
+    }
+    Some(Err(format!("largest one-tick mana drop of the target {drop:.2}, expected {expected} ({first:.2} over the cast's {spanned} ticks, regeneration {:.3} per tick)", rise.max(0.0))))
 }
 
 /// Conditions that hold for the enemy hero an attack hits.
