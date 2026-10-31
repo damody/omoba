@@ -148,25 +148,39 @@ do
     return setmetatable({release=function() if held[name] then held[name]=nil;events[#events+1]='release '..name end end,
       env=function() return {OM_BUILD_LOCK_TOKEN='T'} end},{__close=function(self) self.release() end})
   end
-  local deps={snapshot='D:/T/split-src',jobs=function() return 3 end,log=function() end,clock=function() return 0 end,
+  -- E522: the snapshot is a real tree here, the cargo commands are made from its hero_dlls.lua.
+  local snap=(os.getenv('TEMP'):gsub('\\','/'))..'/om_e522_'..os.time()
+  local lfs=require('lfs')
+  local deps={snapshot=snap,jobs=function() return 3 end,log=function() end,clock=function() return 0 end,
     target_of=function(crate) return 'D:/targets/'..crate end,
     lock={acquire=function(_,label,o) local name=o.name or 'build';held[name]=true;events[#events+1]='acquire '..name;return guard(name) end},
-    mirror=function(root,to) assert(held.build,'the snapshot is taken under the build lock');events[#events+1]='mirror '..to;return 0 end,
+    mirror=function(root,to)
+      assert(held.build,'the snapshot is taken under the build lock')
+      lfs.mkdir(to);lfs.mkdir(to..'/scripts')
+      local out=assert(io.open(to..'/scripts/hero_dlls.lua','wb'))
+      out:write("return {{hero='oichi',package='hero_c17',dir='heroes/oichi'}}\n");out:close()
+      events[#events+1]='mirror';return 0
+    end,
     run=function(command,env)
       local text=table.concat(command.args,' '):gsub('\\','/')
       if command.locked then assert(held.build and env.OM_BUILD_LOCK_TOKEN=='T','the frontend builds live, under the lock')
       elseif command.exe=='cargo' then
         assert(not held.build,'cargo runs after the build lock is released')
-        assert(held[split.snapshot_lock_name("D:/T/split-src")],'cargo runs under the snapshot lock')
-        assert(text:find('D:/T/split-src',1,true),'cargo reads the snapshot: '..text)
+        assert(held[split.snapshot_lock_name(snap)],'cargo runs under the snapshot lock')
+        assert(text:find(snap,1,true),'cargo reads the snapshot: '..text)
+        if command.crate=='scripts' then
+          assert(text:find('-p hero_c17',1,true) and not text:find('-p hero_a02',1,true),'cargo builds the snapshot set: '..text)
+        end
         assert(env.CARGO_TARGET_DIR=='D:/targets/'..command.crate and env.CARGO_BUILD_JOBS=='3')
       end
       events[#events+1]=command.locked and 'frontend' or command.exe; return {exit_code=0}
     end}
   split.build_all({ue_root='D:/UE5.8'},deps)
   local order=table.concat(events,',')
-  assert(order:find('^acquire split_src%-d_t_split_src,acquire build,frontend,mirror D:/T/split%-src,release build,cargo'),order)
-  assert(order:find('release split_src%-d_t_split_src$'),'the snapshot lock is released last: '..order)
+  local name=split.snapshot_lock_name(snap):gsub('%p','%%%0')
+  assert(order:find('^acquire '..name..',acquire build,frontend,mirror,release build,cargo'),order)
+  assert(order:find('release '..name..'$'),'the snapshot lock is released last: '..order)
+  os.remove(snap..'/scripts/hero_dlls.lua');lfs.rmdir(snap..'/scripts');lfs.rmdir(snap)
   assert(split.snapshot_root('D:/omoba',function() return 'D:\\omoba\\target\\lineC-bins' end):gsub('\\','/'):find('lineC%-bins/split%-src$'))
   assert(split.snapshot_root('D:/omoba',function() return nil end):gsub('\\','/')=='D:/omoba/target/split-src')
 end

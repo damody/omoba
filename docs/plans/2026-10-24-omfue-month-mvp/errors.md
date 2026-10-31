@@ -2,6 +2,15 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E522 split 重建時 cargo 的英雄套件清單在快照之前取得，比快照舊（2026-10-31，工作線 C）
+- 現象：工作線 C 的 okuma_tomohide spotlight split 在 E399 的第二次建置失敗：`dev_run_freshness.lua:8: source missing: target\lineC-bins\release\hero_b05.dll`。
+- 原因：`build_all` 在等 build lock 之前就產生全部建置指令，cargo 的 `-p` 英雄套件清單也在這時決定。快照則是取得 build lock、前端建置之後才鏡像。等鎖的 220 秒內 b2195a2a 讓 B05 轉正式，快照的 hero_dlls 有 hero_b05，cargo 的清單沒有。E507 之後 stage-dll 讀快照的集合，所以找不到 DLL。
+- 修正（共用層）：
+  - `script_dlls.cargo_packages(args, root)` 和 `cargo_args(prefix, feature, suffix, root)` 可指定來源樹。`moba_server_build.script_dll_command` 用讀 manifest 的那棵樹的集合。
+  - `run_moba_split_local.build_all` 在 build lock 下只取前端（locked）指令；鏡像完成後，才用快照重新產生 cargo 指令。建的、stage 的、角色啟動的（E516）都是同一份快照集合。
+  - `run_moba_split_local_test` 的鏡像寫出只有 hero_c17 的快照 hero_dlls，檢查 cargo 建置的是快照集合。
+- 避免：從快照建置時，任何由來源推導的清單（套件、DLL、檔案）都在快照之後、從快照產生。
+
 ## E520 headless 效能報告的最慢 tick 看不到 driver 的序列階段（2026-10-31，e187 遊戲模式 session，配合 B 的 E513；已放回 live）
 - **現象**：m6acc1 最慢的 tick 是 120～193 ms，但 system_stats 只解釋了 20～60 ms，其餘的時間落在 specs system 之外。
 - **通用修正**：

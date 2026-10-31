@@ -24,10 +24,10 @@ function M.modules(root)
 end
 
 -- cargo arguments selecting every package of the set: '-p', 'base_content', '-p', 'hero_a02', ...
--- appended to ARGS (a new table when nil).
-function M.cargo_packages(args)
+-- appended to ARGS (a new table when nil). ROOT as for M.modules.
+function M.cargo_packages(args,root)
   args=args or {}
-  for _,module in ipairs(M.modules()) do args[#args+1]='-p';args[#args+1]=module.module end
+  for _,module in ipairs(M.modules(root)) do args[#args+1]='-p';args[#args+1]=module.module end
   return args
 end
 
@@ -39,14 +39,15 @@ function M.set_text(rows)
 end
 
 -- PREFIX (a cargo argument list) followed by every package of the set, FEATURE (optional)
--- enabled on each as package/feature, then SUFFIX. Returns a new table.
-function M.cargo_args(prefix,feature,suffix)
+-- enabled on each as package/feature, then SUFFIX. Returns a new table. ROOT as for M.modules:
+-- the set of the tree the manifest is read from (E522).
+function M.cargo_args(prefix,feature,suffix,root)
   local args={}
   for _,value in ipairs(prefix or {}) do args[#args+1]=value end
-  M.cargo_packages(args)
+  M.cargo_packages(args,root)
   if feature then
     local features={}
-    for _,module in ipairs(M.modules()) do features[#features+1]=module.module..'/'..feature end
+    for _,module in ipairs(M.modules(root)) do features[#features+1]=module.module..'/'..feature end
     args[#args+1]='--features';args[#args+1]=table.concat(features,',')
   end
   for _,value in ipairs(suffix or {}) do args[#args+1]=value end

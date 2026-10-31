@@ -265,12 +265,17 @@ function M.build_all(options,deps)
     {wait_ms=wait.wait_ms,name=M.snapshot_lock_name(snapshot)})
   local build_lock <close> = locks.acquire(b.root,'run_moba_split_local build phase',wait)
   local as_of=os.time()
-  local commands=M.build_commands(options,os.getenv('OM_UE_RUN_BINARIES'),snapshot)
+  -- Only the frontend (locked) commands are taken from this list; the rest are made after the snapshot.
+  local commands=M.build_commands(options,os.getenv('OM_UE_RUN_BINARIES'))
   for _,command in ipairs(commands) do if command.locked then step(command,build_lock:env()) end end
   local started=clock()
   local copied=mirror(b.root,snapshot)
   log(('[split-build] source snapshot %s: %d file(s) in %d s; build lock released'):format(snapshot,copied,(clock()-started)//1000))
   if build_lock.release then build_lock:release() end
+  -- E522: the cargo commands are made from the snapshot just taken, so the hero packages they
+  -- build are the snapshot's set; one made before the build lock was waited for missed a hero
+  -- landed meanwhile, and stage-dll (the snapshot's set) found its DLL missing.
+  commands=M.build_commands(options,os.getenv('OM_UE_RUN_BINARIES'),snapshot)
   for _,command in ipairs(commands) do
     if not command.locked then
       -- Outputs go where the launch reads them (run_artifacts.rust_target), not under the snapshot.

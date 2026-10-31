@@ -14,7 +14,7 @@ end
 -- snapshot (E487). `crate` names the workspace whose target directory the outputs belong to.
 function M.script_dll_command(selected,source_root)
   return {exe='cargo',crate='scripts',args=require('script_dlls').cargo_args({'build','--manifest-path',
-    path.join(source_root or b.root,'scripts/Cargo.toml')},'compiled-content-only',selected=='release' and {'--release'} or nil)}
+    path.join(source_root or b.root,'scripts/Cargo.toml')},'compiled-content-only',selected=='release' and {'--release'} or nil,source_root)}
 end
 function M.commands(options)
   local selected=profile(options)
