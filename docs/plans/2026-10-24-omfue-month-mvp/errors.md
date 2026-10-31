@@ -2,6 +2,31 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E462 build 鎖沒有排隊順序，先等的 land 輪詢 85 分鐘一直輸給後來的建置（2026-10-31，工作線 B）
+
+- **現象**：
+  - 工作線 B 的 E455 land 從 11:17 開始等 `target/locks/build_ue_moba`，到 12:44 仍在等。
+  - 期間 B 自己之後才排的 4 個 land（E458、E460、診斷、E453）以及多個 split 建置都拿到了鎖。
+- **調查**：
+  - 等待中的程序沒有卡住。12:44 被 TaskStop 時，TEMP 留下的最後一個 lua-host 請求是一般輪詢的 `sleep 5000`（`omoba-lua-host-1793421863-836951-1`），所以它一直在輪詢，只是每次都沒搶到。
+- **根因**：
+  - `build_lock.acquire` 只每 5 秒嘗試一次 `mkdir`，沒有排隊順序。
+  - 鎖釋放後由最先輪詢到的程序拿走；輪詢相位不利的 waiter，在持有者頻繁交接（split 建置、連續 land）時可能一直輸。
+- **通用修正**：
+  - FIFO 排隊：waiter 在 `target/locks/build_ue_moba.queue/` 取得 ticket（檔名依時間排序，內容是程序的 pid 與 creation token）。
+  - 只有前面沒有仍在執行的 ticket 時才嘗試 `mkdir`。
+  - 程序已結束的 ticket 由後面的 waiter 移除。
+  - 取得鎖或等待逾時都會離開佇列。
+  - 持有者 token 的 join、已結束與過期持有者的接手行為不變。
+  - 解析 ticket 時容許 CRLF，因為 `path.write` 在 Windows 寫出的是 CRLF。
+- **回歸**：`scripts/tests/build_lock_test.lua` 新增 4 項檢查（17 項全過）：
+  - 鎖空著時，仍會等前面仍在執行的 waiter；
+  - 放棄等待的 waiter 會離開佇列；
+  - 已結束 waiter 的 ticket 不會擋住後面的人；
+  - 取得鎖後佇列是空的。
+- **注意**：已經在執行、仍載入舊版 build_lock 的程序不會排隊，直到它們結束為止。
+- **檔案**：`scripts/build_lock.lua`、`scripts/tests/build_lock_test.lua`
+
 ## E461 小兵面向只能靠截圖肉眼判斷，headless 與 split 都沒有資料層檢查（2026-10-31，e187 遊戲模式 session，主 session 要求；已放回 live）
 - **現象**：使用者要求檢查小兵面向。split396（8:58 自然結束）的 facing 截圖只跟著受控英雄：p1 004／011、p6 004／011 畫面裡沒有小兵；p1 014、019 有我方小兵列隊，但看不出方向。
 - **通用修正**：moba_headless 統計模式加 `CreepFacing`：每 30 tick 對每隻活著的小兵檢查一次，條件如下，超過 30° 記 violation 並取最多 10 筆樣本。

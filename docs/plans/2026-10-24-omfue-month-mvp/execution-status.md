@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：build 鎖改為 FIFO 排隊（E462）
+
+- 等待者依 ticket 先來先得，已結束的 ticket 會被清除；先前一個 land 輪詢 85 分鐘都輸給後來的建置。
 ## 2026-10-31 線 B：set_time_of_day（E453）
 
 - ability_kit `set_time_of_day(night, duration)`：一次性世界封包，開始暫時夜晚或結束夜晚；replica 採用公開的夜晚剩餘時間。

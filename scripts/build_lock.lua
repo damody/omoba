@@ -17,6 +17,7 @@ M.TOKEN_ENV = 'OM_BUILD_LOCK_TOKEN'
 M.STALE_MS = 3 * 3600 * 1000
 M.WAIT_MS = 3 * 3600 * 1000
 M.POLL_MS = 5000
+M.QUEUE = 'build_ue_moba.queue'
 
 -- Returns a to-be-closed guard: `local lock <close> = build_lock.acquire(...)`.
 -- The lock is a directory (mkdir is atomic); owner.txt describes the holder.
@@ -42,10 +43,24 @@ function M.acquire(root, label, deps)
   if inherited and inherited ~= '' and path.is_file(owner) and path.read(owner):match('\n[^\n]*\n%d+\n([^\n]+)') == inherited then
     return setmetatable({token = inherited, joined = true}, {__index = guard_methods, __close = function() end})
   end
+  -- E462: waiters queue first come, first served. Polling mkdir alone let whoever polled first after
+  -- a release win, so one land waited 85 minutes while later builds took the lock. A waiter takes
+  -- a ticket and tries the lock only when no live earlier ticket remains.
+  local queue = path.join(locks, M.QUEUE)
+  local holder, ticket
+  local function take_ticket()
+    if ticket then return end
+    holder = holder or caller()
+    path.mkdir_p(queue)
+    ticket = path.join(queue, ('%012d-%09d-%09d.txt'):format(os.time(), time.monotonic_ms() % 1000000000, math.random(0, 999999999)))
+    path.write(ticket, ('%s\n%d\n%s\n'):format(label, holder.pid, tostring(holder.creation_token)), true)
+  end
+  local function leave_queue() if ticket then os.remove(ticket); ticket = nil end end
   while true do
-    if lfs.mkdir(dir) then
+    if M.first_in_line(queue, ticket, process, lfs) and lfs.mkdir(dir) then
+      leave_queue()
       local token = ('%d-%d-%d'):format(os.time(), time.monotonic_ms(), math.random(0, 999999999))
-      local holder = caller()
+      holder = holder or caller()
       path.write(owner, ('%s\n%s\n%d\n%s\n%d\n%s\n%s\n'):format(label, time.utc_timestamp(), os.time(), token,
         holder.pid, tostring(holder.creation_token), holder.path or holder.executable or ''), true)
       if announced then log(('[build-lock] acquired after %d s'):format((time.monotonic_ms() - started) // 1000)) end
@@ -59,6 +74,7 @@ function M.acquire(root, label, deps)
       guard_methods.release = release
       return setmetatable({token = token}, {__index = guard_methods, __close = release})
     end
+    take_ticket()
     local text = path.is_file(owner) and path.read(owner) or ''
     local held_since = tonumber(text:match('\n[^\n]*\n(%d+)'))
     local holder_gone = M.holder_gone(text, process)
@@ -73,11 +89,35 @@ function M.acquire(root, label, deps)
         log('[build-lock] another build_ue_moba is running (' .. (text:match('^[^\n]*') or 'unknown holder') .. '); waiting')
         announced = true
       end
-      assert(time.monotonic_ms() - started < wait_ms, 'timed out waiting for build lock ' .. dir
-        .. ' (held by ' .. (text:match('^[^\n]*') or '?') .. ')')
+      if time.monotonic_ms() - started >= wait_ms then
+        leave_queue()
+        error('timed out waiting for build lock ' .. dir .. ' (held by ' .. (text:match('^[^\n]*') or '?') .. ')')
+      end
       time.sleep_ms(M.POLL_MS)
     end
   end
+end
+
+-- Whether `ticket` (nil: a newcomer without one) may try the lock: no live ticket queued before it.
+-- A ticket whose process has exited (killed while waiting) is removed.
+function M.first_in_line(queue, ticket, process, lfs)
+  local attributes = lfs.attributes(queue)
+  if not attributes or attributes.mode ~= 'directory' then return true end
+  local names = {}
+  for name in lfs.dir(queue) do if name:match('%.txt$') then names[#names + 1] = name end end
+  table.sort(names)
+  local own = ticket and ticket:match('[^/\\]+$')
+  for _, name in ipairs(names) do
+    if name == own then return true end
+    local file = queue .. '/' .. name
+    local handle = io.open(file, 'rb')
+    local text = handle and handle:read('a') or ''
+    if handle then handle:close() end
+    local pid, token = text:match('^[^\r\n]*\r?\n(%d+)\r?\n(%d+)')
+    if pid and process.inspect_owned(math.tointeger(tonumber(pid)), token) then return false end
+    os.remove(file)
+  end
+  return true
 end
 
 -- owner.txt text -> the holder's pid when it names a process that no longer runs, else nil

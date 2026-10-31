@@ -88,4 +88,27 @@ do
   os.remove(path.join(lock_dir, 'owner.txt'))
   lfs.rmdir(lock_dir)
 end
-print('build lock: 13 checks passed')
+-- E462: first come, first served. A free lock is not taken past a live earlier waiter's ticket;
+-- an exited waiter's ticket is dropped; a waiter that gives up or acquires leaves the queue.
+do
+  local me = require('tools.lua.lib.host').call('caller_owned', {})
+  local queue = path.join(root, 'target', 'locks', lock.QUEUE)
+  path.mkdir_p(queue)
+  local earlier = path.join(queue, ('%012d-000000000-000000000.txt'):format(os.time() - 10))
+  path.write(earlier, ('earlier\n%d\n%s\n'):format(me.pid, me.creation_token), true)
+  local saved_poll = lock.POLL_MS
+  lock.POLL_MS = 10
+  local jumped = pcall(lock.acquire, root, 'later', {log = deps.log, wait_ms = 50})
+  assert(not jumped and not path.is_directory(lock_dir), 'a free lock waits for the live earlier waiter')
+  local left = {}
+  for name in lfs.dir(queue) do if name:match('%.txt$') then left[#left + 1] = name end end
+  assert(#left == 1 and path.is_file(earlier), 'the waiter that gave up left the queue')
+  path.write(earlier, ('earlier\n%d\n1\n'):format(me.pid), true)
+  do
+    local held <close> = lock.acquire(root, 'after-exited-waiter', {log = deps.log, wait_ms = 50})
+    assert(path.read(path.join(lock_dir, 'owner.txt')):match('^after%-exited%-waiter\n'), 'an exited waiter does not hold the line')
+  end
+  lock.POLL_MS = saved_poll
+  for name in lfs.dir(queue) do assert(not name:match('%.txt$'), 'the queue is empty after the acquire') end
+end
+print('build lock: 17 checks passed')
