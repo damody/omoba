@@ -2,6 +2,26 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E464 （保留）沒有 status.forced_move 的 host 落點：a11_evil_gaze、a21_false_intel 只能擋下（2026-10-31）
+
+## E463 獨立實例的狀態沒有緩速列，slow_pct 的 independent 狀態只能擋下（2026-10-31，工作線 B）
+
+- **現象**：
+  - 工作線 A 第五批第 1 項：`status.stacking = "independent"` 搭配 `slow_pct` 沒有 host 落點，只能擋下。
+  - 受影響的技能是 A29 a29_withering_aura、B34 b34_tenmoku_howl、A20 a20_water_burst，共 3 招。
+  - 原因是產生端的 `apply_status_instance` 不帶緩速。
+- **根因**：
+  - 帶緩速的狀態只有 `apply_status_slowed`，它的伴隨列 `<runtime id>:slow` 是整個狀態共用一列。
+  - 獨立實例 `<runtime id>#<n>` 沒有自己的緩速列。
+  - 另外，host 的 `remove_status` 不會移除 `:slow` 伴隨列，狀態被提早移除時緩速會留到原本的時間結束。
+- **通用修正**：
+  - ability_kit 新增 `apply_status_instance_slowed(to, status, duration, stats, slow)`：每個實例有自己的 `<runtime id>#<n>:slow` 緩速列，持續時間同實例，屬於同一個 generic_ability_slow family（照原作規則取最強，套用緩速抗性）。
+  - `dispel::remove_status_with` 移除狀態或實例時，一併移除它的 `:slow` 列。
+- **回歸**：`dispel::tests` 的實例移除測試新增檢查：
+  - 移除一個實例只帶走它自己的緩速列；
+  - 移除狀態會帶走它的緩速列。
+- **檔案**：`scripts/ability_kit/src/codegen.rs`、`omoba-core/src/runtime/native/dispel.rs`
+
 ## E462 build 鎖沒有排隊順序，先等的 land 輪詢 85 分鐘一直輸給後來的建置（2026-10-31，工作線 B）
 
 - **現象**：
@@ -81,7 +101,13 @@
   - 修正前，tag 會讓之後 fact 的 `local_ordinal` 位移，這個比較就會不同。
 - **檔案**：`omoba-core/src/runtime/native/game_processor.rs`、`omoba-core/src/runtime/native/cast_settlement.rs`、`omoba-core/src/runtime/native/damage_trace.rs`
 
-## E457 （保留）conformance：on_phase_start 取消施法所需的世界條件（目標狀態、友方血量較低、地點附近友軍）沒有先建立（2026-10-31）
+## E457 conformance：on_phase_start 取消施法所需的世界條件沒有先建立（2026-10-31，conformance session，工作線 B 查出）
+- **現象**：c25_falling_sakura 9 個、c23_gift_of_death normal/ally 3 個、c19_surprise_raid 2 個判 CAST_REJECTED。工作線 B 對照文件後確認是設計上的前置條件：c25 需要範圍內有帶 c25e_dot 的敵人；c23 的友方目標 hp% 必須低於施法者；c19 的目標點附近要有友方小兵、召喚物或建築。
+- **通用修正**：v3_scenarios 讀 on_phase_start 的取消條件，產生對應的 given，每個情境都套用。
+  - for_each 以 `has_status(it, X)` 標記敵人，`not state.flag` 時取消 → `target_status`：目標先帶上 X。
+  - `target.hp_pct >= caster.hp_pct` 時取消 → `ally_target_lower`：友方目標保持在 30% 生命，每次施法都重設。
+  - `count_in_radius(point, r, team_of(caster), …) == 0` 時取消 → `ally_unit_at_point`：在目標附近放一個友方單位。
+- **結果**：c25、c23 ally 轉為 pass。全跑 fail 82→73、pass +258，沒有退步。c19 仍然被拒，另外查。b23d 需要屍體，沒有涵蓋。
 
 ## E456 conformance：cast() 只靠冷卻、法力、狀態判斷施法是否被接受（2026-10-31，conformance session）
 - **現象**：c07_storm_move、b26_release_wave 的 normal 判「cast 1 was not accepted」，但 CastTrace 記錄的是 Accepted。這兩招沒有成本、沒有冷卻，也不在施法者身上套狀態。

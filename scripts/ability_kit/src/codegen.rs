@@ -542,11 +542,30 @@ impl<'a, 'w> Cx<'a, 'w> {
         if let Some(slow) = slow.filter(|s| *s > Fixed64::ZERO) {
             if !to.is_valid() { return Ok(()); }
             let id = format!("{}:slow", self.runtime_id(status));
-            let duration = if duration == Self::FOREVER { Fixed64::from_raw(i64::from(i32::MAX)) } else { duration };
-            let payload = serde_json::json!({ "move_speed_bonus": -slow.min(Fixed64::ONE).raw(), "__aggregation_family": "generic_ability_slow" });
-            self.world.add_stat_buff(to, RStr::from_str(&id), duration, RStr::from_str(&payload.to_string()));
+            self.add_slow_row(to, &id, duration, slow);
         }
         Ok(())
+    }
+
+    /// `apply_status_instance` whose stats include `slow_pct`: the instance's own slow row
+    /// `<runtime id>#<n>:slow` (the same family as [`Cx::apply_status_slowed`]) lasting as long as the
+    /// instance; the host removes it with its instance.
+    pub fn apply_status_instance_slowed(&mut self, to: EntityHandle, status: &StatusDef, duration: Fixed64, stats: &[(StatKey, i64)],
+        slow: Option<Fixed64>) -> Result<u32, &'static str> {
+        let instance = self.apply_status_instance(to, status, duration, stats)?;
+        if let Some(slow) = slow.filter(|s| *s > Fixed64::ZERO) {
+            if to.is_valid() && instance > 0 {
+                let id = format!("{}#{instance}:slow", self.runtime_id(status));
+                self.add_slow_row(to, &id, duration, slow);
+            }
+        }
+        Ok(instance)
+    }
+
+    fn add_slow_row(&mut self, to: EntityHandle, id: &str, duration: Fixed64, slow: Fixed64) {
+        let duration = if duration == Self::FOREVER { Fixed64::from_raw(i64::from(i32::MAX)) } else { duration };
+        let payload = serde_json::json!({ "move_speed_bonus": -slow.min(Fixed64::ONE).raw(), "__aggregation_family": "generic_ability_slow" });
+        self.world.add_stat_buff(to, RStr::from_str(id), duration, RStr::from_str(&payload.to_string()));
     }
 
     /// The stack count of `status` on `u` (a status without counted stacks counts 1; none: 0).

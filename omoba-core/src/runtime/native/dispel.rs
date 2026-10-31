@@ -272,7 +272,8 @@ pub fn remove_status(world: &World, entity: Entity, id: &str) {
 /// The control-source row is named by the runtime id or by the v3 status id (the catalog maps a
 /// runtime id back to its status).
 pub fn remove_status_with(registry: &Registry, world: &World, entity: Entity, id: &str) {
-    let mut doomed = vec![id.to_owned()];
+    // Its slow row (`<id>:slow`, ability_kit apply_status_slowed; an instance's `<id>#<n>:slow`) goes with it.
+    let mut doomed = vec![id.to_owned(), format!("{id}:slow")];
     // An independent instance (`…#<n>`) takes its own row only.
     let instance = omoba_template_ids::instance_number(id).map_or_else(String::new, |n| format!("#{n}"));
     let rows: Vec<String> = std::iter::once(id.to_owned()).chain(registry.status_ids(id).into_iter().map(|status| format!("{status}{instance}")))
@@ -738,6 +739,25 @@ mod tests {
         }
         remove_status_with(&guards, &world, hero, "c_guard:7:0#2");
         assert!(!world.read_resource::<BuffStore>().has(hero, "disarm"), "the last instance's disarm went with it");
+        // E463: a status's slow row (ability_kit apply_status_slowed / an instance's own) goes with it.
+        {
+            let mut buffs = world.write_resource::<BuffStore>();
+            let slow = json!({"move_speed_bonus": -256, "__aggregation_family": "generic_ability_slow"});
+            for n in [1, 2] {
+                buffs.add(hero, &format!("c_guard:7:0#{n}"), Fixed64::from_i32(3), json!({}));
+                buffs.add(hero, &format!("c_guard:7:0#{n}:slow"), Fixed64::from_i32(3), slow.clone());
+            }
+            buffs.add(hero, "c_guard:7:0", Fixed64::from_i32(3), json!({}));
+            buffs.add(hero, "c_guard:7:0:slow", Fixed64::from_i32(3), slow);
+        }
+        remove_status_with(&guards, &world, hero, "c_guard:7:0#1");
+        {
+            let buffs = world.read_resource::<BuffStore>();
+            assert!(!buffs.has(hero, "c_guard:7:0#1:slow") && buffs.has(hero, "c_guard:7:0#2:slow") && buffs.has(hero, "c_guard:7:0:slow"),
+                "an instance takes its own slow row only");
+        }
+        remove_status_with(&guards, &world, hero, "c_guard:7:0");
+        assert!(!world.read_resource::<BuffStore>().has(hero, "c_guard:7:0:slow"), "the status takes its slow row");
         // A handler's stun with no source row: a basic dispel leaves it (the strictest class).
         world.write_resource::<BuffStore>().add(hero, "stun", Fixed64::from_i32(3), json!({}));
         assert_eq!(dispel_with(&registry, &world, hero, Strength::Basic, Purge::Debuffs), 0);
