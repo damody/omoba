@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E559 headless 的 in-process observer replica 從共用 scripts/*.dll 載入，鎖住其他 session 要 stage 的 DLL（2026-11-01，E187）
+- 現象：工作線 C 的 rerun4 有 25 位英雄 stage-dll 失敗（Permission denied）。被鎖的是共用的 `scripts\base_content.dll` 和 `scripts\hero_*.dll`，持有者是 verify_m6_batch 的 moba-headless（PID 45832，m6new14）。這個程序的模組清單裡全都是 `D:\omoba\scripts\*.dll`，雖然它的 `--scripts-dir` 指向的是批次自己的 `bin/`。
+- 原因：authority 從 `--scripts-dir` 載入，沒有問題。但 E545 的 in-process observer 經 `FilteredReplica::from_start` 建立 team replica，replica 讀的是 `OMB_SCRIPTS_DIR`，沒設定時退回 `./scripts`；批次的 cwd 是 repo 根目錄，所以載入並鎖住共用的那份（E124 以來 server 和 runtime 都避開了這個問題）。
+- 修正（共用層）：moba_headless 啟動時把 `OMB_SCRIPTS_DIR` 設成自己 `--scripts-dir` 的絕對路徑。replica 和 authority 載入同一份，也就是這一局自己的副本；所有 headless 呼叫端（verify_m6_batch、效能量測）都一起生效。工作線 C 的 E558 讓 stage-dll 跳過被鎖的檔案，這是另一側的防護。
+- 避免：在同一個 process 內新建 world 或 replica 時，載入路徑要和 authority 一致。依賴 `OMB_SCRIPTS_DIR` 的預設值 `./scripts` 就等於使用共用 staging，會跟其他 session 互鎖。
+
 ## E558 共用 scripts/*.dll 被其他程序鎖住時，split 建置的 stage-dll 整個失敗（2026-11-01，工作線 C）
 - 現象：工作線 C 的 rerun4 spotlight 佇列從 kato_kiyomasa 起，25 位英雄和 2 個道具全部建置失敗：`dev_run_freshness.lua:7 ... D:\omoba\scripts\base_content.dll: Permission denied`，失敗點在 split 的 stage-dll 與 build_ue_moba 的「stage current base_content.dll」。
 - 原因：遊戲模式 session 的 moba-headless（PID 45832，`target/e187/m6new14`，04:32 起執行，比賽上限 1200 秒）載入了共用的 `scripts/*.dll`（base_content 和 hero_*），檔案被鎖住。E124 之後每次 launch 都用自己的副本，split 也不讀共用副本，但建置流程仍會寫入共用的 `scripts/*.dll`，寫入失敗就讓整次建置中止。
