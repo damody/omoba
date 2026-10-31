@@ -14,7 +14,7 @@ pub use codegen::*;
 
 // Host components work line B adds (M5): more `impl Cx` methods, same glob export.
 mod host_ext;
-pub use host_ext::{DmgExtra, StatusFilter};
+pub use host_ext::{DmgExtra, PickOrder, PickedItem, StatusFilter};
 // v3 `chance { mode = "prd" }` (E505).
 mod prd;
 // v3 stat `when` (E508).

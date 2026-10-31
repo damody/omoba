@@ -2,6 +2,16 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E566 kit 讀不到道具剩餘冷卻、PickOrder／PickedItem 沒有匯出（2026-11-01，工作線 B）
+
+- **現象**：A 接 E561 時，產生碼寫不出 `ability_kit::PickOrder::First`，因為 lib.rs 沒有 re-export；C18 要讀 `it.cooldown_remaining`（例如 `is_item(it, item_flash_ring) and it.cooldown_remaining <= 0`），kit 沒有對應的方法。
+- **修正**：
+  - lib.rs 匯出 `PickOrder`、`PickedItem`。
+  - ext op `ITEM_COOLDOWN = 23`：`(Unit, Num slot) -> Num`，回傳該格道具剩餘的冷卻秒數。
+  - kit 新增 `item_slot_cooldown(unit, slot)`，以及 `item_cooldown_remaining(unit, item)`（第一個持有該道具的格子；沒有這個道具時為 0）。
+- **測試**：land 的 codegen、cargo check 與 DLL manifest 檢查通過；C18 接上後由 conformance 驗證。
+- **檔案**：`scripts/ability_kit/src/{lib,host_ext}.rs`、`scripts/script-abi/src/ext.rs`、`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`
+
 ## E565 verify_m6_batch 不能只跑指定 recipe，全英雄回歸每組都要多跑兩倍局數（2026-11-01，E187）
 - 現象：E555（攻擊距離改成邊到邊）之後要對 89 位 READY 英雄各跑 1 局 quick 回歸。verify_m6_batch 每組固定跑 quick、quick_swap、teamfight 三種 recipe，`--matches 1` 也是每組 3 局，多出的兩局佔掉 live 佇列的時間。
 - 修正（共用層）：`--recipes quick,quick_swap,teamfight` 只保留列出的 recipe，依原本的順序。名稱不認得或清單為空時直接報錯；`--split` 需要 quick。

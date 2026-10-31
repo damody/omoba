@@ -2051,6 +2051,15 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                     None => V::None,
                 })
             }
+            (op::ITEM_COOLDOWN, [A::Unit(unit), A::Num(slot)]) => {
+                let inventory = Self::handle_to_entity(*unit)
+                    .and_then(|entity| self.cache.inventories.as_ref().and_then(|rows| rows.get(entity)));
+                let slot = usize::try_from(slot.raw() >> 10).ok().filter(|_| *slot >= Fixed64::ZERO);
+                ROk(match inventory.zip(slot).and_then(|(inventory, slot)| inventory.slots.get(slot)?.as_ref()) {
+                    Some(item) => V::Num(Fixed64::from_raw((f64::from(item.cooldown_remaining.max(0.0)) * 1024.0).round() as i64)),
+                    None => V::None,
+                })
+            }
             (op::GAME_ATTR, [A::Str(attr)]) => {
                 use omb_script_abi::ext::game_attr as name;
                 match attr.as_str() {

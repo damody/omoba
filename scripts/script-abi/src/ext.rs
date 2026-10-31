@@ -102,6 +102,9 @@ pub mod op {
     /// `(Unit, Num slot)` -> `Str` | `None`: the item id in inventory slot `slot` (0..5) of
     /// `unit` (E561, v3 `pick_item`); `None` for an empty slot or a unit without an inventory.
     pub const ITEM_IN_SLOT: u32 = 22;
+    /// `(Unit, Num slot)` -> `Num`: the cooldown seconds left on the item in inventory slot
+    /// `slot` of `unit` (E566, v3 `it.cooldown_remaining`); `None` for an empty slot.
+    pub const ITEM_COOLDOWN: u32 = 23;
 }
 
 /// Attribute names of [`op::EVENT_ABILITY_ATTR`].

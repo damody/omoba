@@ -586,6 +586,23 @@ impl Cx<'_, '_> {
         }
     }
 
+    /// v3 `it.cooldown_remaining` (E566): seconds left on the item in `unit`'s slot `slot`; 0 for
+    /// an empty slot.
+    pub fn item_slot_cooldown(&mut self, unit: EntityHandle, slot: u8) -> Fixed64 {
+        match self.read(op::ITEM_COOLDOWN, &[ExtArg::Unit(unit), ExtArg::Num(Fixed64::from_i32(i32::from(slot)))]) {
+            ExtValue::Num(n) => n, _ => Fixed64::ZERO,
+        }
+    }
+
+    /// The cooldown seconds left on the first `item` in `unit`'s inventory (E566); 0 without one.
+    pub fn item_cooldown_remaining(&mut self, unit: EntityHandle, item: &str) -> Fixed64 {
+        use omoba_core::runtime::INVENTORY_SLOTS;
+        for slot in 0..INVENTORY_SLOTS as u8 {
+            if self.item_in_slot(unit, slot).as_deref() == Some(item) { return self.item_slot_cooldown(unit, slot); }
+        }
+        Fixed64::ZERO
+    }
+
     /// v3 `pick_item { from, where, order }` (E561): one item of `from`'s inventory that `keep`
     /// accepts (`it` is the item id), the first / last / a random one in slot order; `None` when
     /// none does. The backpack has no slots here, so `slots` other than the inventory find none.
