@@ -129,6 +129,9 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
             && super::super::ability_channel::can_start(world,caster,*owner,*spec,*anchor),
         Outcome::SpawnSummoned {owner,..}=>*owner==caster,
         Outcome::AddBuff {target,..} if spawned.contains(target)=>true,
+        // A replace-stacking status on a summon this cast spawns removes before it applies (E444,
+        // 原作 B33T 蜘蛛); a fresh unit holds nothing the plan relied on.
+        Outcome::ScriptRemoveBuff {target,..} if spawned.contains(target)=>true,
         // v3 create_unit.facing: a summon this cast spawns faces where the script says.
         Outcome::ScriptSetFacing {entity,..} if spawned.contains(entity)=>true,
         // The caster's own statuses, orders and schedules (each host row checked above) and its
@@ -210,6 +213,9 @@ fn summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_betwe
     assert!(!accepts(&[spawn(first),assign(victim),spawn(second)]),"a buff on another unit between siblings");
     let tag=Outcome::ScriptDamageTag {ability:"fixture".into(),path:"events.on_cast[1]".into()};
     assert!(accepts(&[spawn(first),tag.clone(),spawn(second),tag]),"trace tags change nothing (E439)");
+    let remove=|target|Outcome::ScriptRemoveBuff {target,buff_id:"fixture_status".into()};
+    assert!(accepts(&[spawn(first),remove(first),assign(first),spawn(second)]),"a replace on this cast's summon (E444)");
+    assert!(!accepts(&[spawn(first),remove(victim),spawn(second)]),"never another unit's statuses");
     let face=|entity|Outcome::ScriptSetFacing {entity,facing:omoba_sim::Angle::ZERO};
     assert!(accepts(&[spawn(first),face(first),spawn(second)]),"a summon of this cast faces its way");
     assert!(!accepts(&[spawn(first),face(victim)]),"never another unit's facing");

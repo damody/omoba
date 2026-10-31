@@ -2,6 +2,15 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E445 （保留）狀態的 immune_to 沒有 host 落點，持有者仍會被套上帶指定 tag 的狀態（2026-10-31）
+
+## E444 召喚交易拒絕對本次召喚物的 ScriptRemoveBuff：b33_spider_attack 施放被拒（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 回報 b33_spider_attack 被 cast_settlement::admission 拒絕，被拒的是 ScriptRemoveBuff（影子 69 次），也是 B33 轉正式前最後的 12 個 fail。
+- **根因**：on_cast 先 create_unit 產生蜘蛛，再對蜘蛛 apply_status b33t_spider。這個狀態 stacking = "replace"，產生碼先 remove_status 再 apply，所以對本次召喚物發出 ScriptRemoveBuff。召喚交易只放行 target == 施法者的 ScriptRemoveBuff。
+- **通用修正**：比照 AddBuff，放行 target 是本次施放產生的單位的 ScriptRemoveBuff。剛產生的單位沒有配置計畫依賴的狀態。
+- **驗證**：`summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_between_siblings` 新增：對本次召喚物的移除放行、對其他單位的移除仍拒；cast_settlement 測試通過。
+
 ## E443 UBT 依可用實體記憶體開 16 個 cl.exe，用光整台機器的 commit（2026-10-31，工作線 C）
 - 現象：2026-10-31 09:35 前後，多個 session 的 lua-host 呼叫以 0xC000012D（STATUS_COMMITMENT_LIMIT）結束，batch 和 split 跟著中斷。實體記憶體當時還有空，用完的是 commit（上限 68.7 GB）。
 - 量測：每秒取樣系統 commit 與佔用最多的程序（`target/lineC-mem/commit-1.log`）。

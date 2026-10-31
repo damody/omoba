@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：召喚交易放行對本次召喚物的移除（E444）
+
+- 召喚交易放行 target 是本次召喚物的 ScriptRemoveBuff（replace 狀態先移除再套用）。給 b33_spider_attack。
 ## 2026-10-31 線 B：approach_enemy_point 的 reach_key（E438）
 
 - bot intent approach_enemy_point 可選填 `reach_key`（每一級的 extras），給沒有施法距離的純位移 point 技能（b13_shukuchi）。
