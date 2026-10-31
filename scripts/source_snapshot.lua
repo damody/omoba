@@ -191,6 +191,10 @@ function M.build_headless(root, name, options, deps)
     tree = M.capture(root, name, deps)
     local environment = compiled.environment(options.env)
     environment.CARGO_TARGET_DIR = target
+    -- The build starts only while its measured peak commit is free (E441, memory_admission.lua).
+    local admission = require('memory_admission')
+    admission.new(admission.BUILD_COMMIT_BYTES, { margin = admission.BUILD_MARGIN, status = deps and deps.memory_status,
+      log = d.log }):wait(d.sleep_ms)
     for _, args in ipairs({
       script_dlls.cargo_args({ 'build', '--manifest-path', d.path.join(tree, 'scripts', 'Cargo.toml') }, compiled.feature, { '--release' }),
       { 'build', '--manifest-path', d.path.join(tree, 'omb', 'Cargo.toml'), '-p', 'omobab', '--bin', 'moba-headless',
