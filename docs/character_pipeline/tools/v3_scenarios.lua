@@ -314,6 +314,45 @@ local function entry_scenarios(doc, def, entry_kind, out)
       end
     end
   end
+  -- What on_phase_start cancels the cast without (E457): the world each case starts with.
+  --   a for_each that flags an enemy with a status (`where = has_status(it, X)`), then cancels
+  --     when no flag: the target holds X (C25T's bleeding enemy);
+  --   `target.hp_pct >= caster.hp_pct` cancels: an ally target stands lower than the caster (C23T);
+  --   `count_in_radius(point, r, team_of(caster), …) == 0` cancels: an allied unit stands at the
+  --     point (C19T).
+  local phase_needs = {}
+  do
+    local actions = type(def.events) == "table" and def.events.on_phase_start or nil
+    local function status_runtime(id)
+      for _, list in ipairs({ current_doc and current_doc.abilities or {}, current_doc and current_doc.items or {} }) do
+        for _, owner in ipairs(list) do
+          for _, st in ipairs(owner.statuses or {}) do if st.id == id then return runtime_key(st) end end
+        end
+      end
+      return id
+    end
+    local function cancels(node)
+      if type(node) ~= "table" then return false end
+      if node.op == "cancel_cast" then return true end
+      for _, child in ipairs(node.actions or {}) do if cancels(child) then return true end end
+      return false
+    end
+    local flagged = {}
+    for _, a in ipairs(type(actions) == "table" and actions or {}) do
+      if a.op == "for_each" and type(a.select) == "table" and a.select.team == "enemy" and type(a.select.where) == "string" then
+        local status = a.select.where:match("^has_status%(it, ([%w_]+)%)$")
+        for _, act in ipairs(a.actions or {}) do
+          if status and act.op == "set_state" and act.value == "true" then flagged[act.var] = status end
+        end
+      elseif a.op == "if" and type(a.cond) == "string" and cancels(a) then
+        local var = a.cond:match("^not state%.([%w_]+)$")
+        if var and flagged[var] then phase_needs[#phase_needs + 1] = { kind = "target_status", runtime_id = status_runtime(flagged[var]) } end
+        if a.cond:find("target.hp_pct >= caster.hp_pct", 1, true) then phase_needs[#phase_needs + 1] = { kind = "ally_target_lower" } end
+        local radius = a.cond:match("^count_in_radius%(point, ([^,]+), team_of%(caster%)")
+        if radius and a.cond:find("== 0$") then phase_needs[#phase_needs + 1] = { kind = "ally_unit_at_point", radius = radius } end
+      end
+    end
+  end
   -- An ability of a unit the hero creates (a unit template's list, add_ability on another unit):
   -- not the hero's, so its cases need that unit (E351).
   local unit_owned
@@ -338,6 +377,7 @@ local function entry_scenarios(doc, def, entry_kind, out)
       local g = { learned }
       if swapped then g[#g + 1] = swapped end
       if unit_owned then g[#g + 1] = unit_owned end
+      for _, need in ipairs(phase_needs) do g[#g + 1] = need end
       local n = 0
       for k in pairs(extra or {}) do if k > n then n = k end end
       for k = 1, n do if extra[k] then g[#g + 1] = extra[k] end end

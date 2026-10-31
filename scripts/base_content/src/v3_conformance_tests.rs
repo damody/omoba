@@ -28,7 +28,7 @@ use super::*;
 use serde_json::{json, Value};
 
 const ENEMY: &str = "training_luminary";
-const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "leveled_by", "unit_ability", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line"];
+const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "leveled_by", "unit_ability", "target_status", "ally_target_lower", "ally_unit_at_point", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line"];
 const WHEN: &[&str] = &["cast", "wait", "caster_dies", "target_dies", "owner_dies", "owner_respawns", "toggle", "cast_until_over_cap"];
 /// A document entry the ported hero does not have at all: a difference, not a harness gap.
 const MISSING: &str = "missing entry: ";
@@ -161,6 +161,8 @@ struct Run {
     entry: String, rank: usize, slot: u32, target_hp: Fixed64, casts: Vec<CastResult>,
     /// The tick the last cast started and the statuses its target held then (no_effects; E432).
     target_held: (u64, Vec<String>),
+    /// An ally target kept below the caster's life (C23T's gift needs it; E457).
+    low_ally: bool,
     /// The caster as last seen: a caster that died stays readable (its cast was not admitted).
     last: Hero,
     /// Where the target stood (a dead target keeps being aimed at by id and position).
@@ -270,7 +272,9 @@ impl Run {
             if let Some(pos) = self.world.write_storage::<Pos>().get_mut(self.target) { pos.0 = self.target_at; }
         }
         if self.world.entities().is_alive(self.target) && !self.target_killed {
-            if let Some(p) = self.world.write_storage::<CProperty>().get_mut(self.target) { p.hp = p.mhp; }
+            if let Some(p) = self.world.write_storage::<CProperty>().get_mut(self.target) {
+                p.hp = if self.low_ally { p.mhp * Fixed64::from_i32(3) / Fixed64::from_i32(10) } else { p.mhp };
+            }
             self.target_hp = self.world.read_storage::<CProperty>().get(self.target).map(|p| p.hp).unwrap_or(self.target_hp);
         }
         let held: Vec<String> = self.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(self.target).map(|(key, _)| key.to_owned()).collect();
@@ -419,6 +423,9 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let mut mana: Option<(bool, f64)> = None;
     let (mut immune, mut dead, mut hidden, mut invisible) = (false, false, false, false);
     let mut clear_line = false;
+    // What the entry's on_phase_start needs (E457): a status on the target, an ally target lower
+    // than the caster, an allied unit at the point.
+    let (mut target_statuses, mut ally_lower, mut ally_at_point) = (Vec::<String>::new(), false, false);
     for given in s["given"].as_array().unwrap() {
         match given["kind"].as_str().unwrap() {
             "learned" => {}
@@ -451,6 +458,9 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
             "toggled_on" | "charges" | "swapped_in" | "required_status" | "leveled_by" | "unit_ability" => {} // after the setup (run), or before it (swap_in)
             // Nobody on the cast's line (a hook case, E245): the enemy hero stands well aside.
             "no_unit_in_line" => clear_line = true,
+            "target_status" => target_statuses.push(given["runtime_id"].as_str().unwrap_or("").to_owned()),
+            "ally_target_lower" => ally_lower = true,
+            "ally_unit_at_point" => ally_at_point = true,
             other => return Err(format!("given {other}")),
         }
     }
@@ -539,6 +549,17 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
             for key in keys { omoba_core::runtime::native::dispel::remove_status(&world, unit, &key); }
         }
     }
+    // The world the entry's on_phase_start needs (E457).
+    for id in target_statuses.iter().filter(|id| !id.is_empty() && !id.contains('{')) {
+        world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(target, id, Fixed64::from_i32(600), json!({}));
+    }
+    // An ally target stands at 30% life; every cast puts it back there, not at full (low_ally).
+    let target_team = world.read_storage::<Faction>().get(target).map(|f| f.team_id);
+    let low_ally = ally_lower && target != caster && target_team == Some(caster_team);
+    if ally_at_point {
+        let near = world.read_storage::<Pos>().get(target).map(|p| p.0).unwrap_or(at);
+        spawn_body(&mut world, real(near.x) as i32, real(near.y) as i32 + 40, caster_team, 800, None);
+    }
     // A sturdy enemy hero: a scenario's later casts must find it alive (a level 18 burst kills
     // an ordinary one inside one tick). Max-HP buffs fold into its life on the next settle.
     world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(enemy, "v3_conformance_sturdy",
@@ -561,7 +582,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let last = world.read_storage::<Hero>().get(caster).unwrap().clone();
     let target_at = world.read_storage::<Pos>().get(target).map(|pos| pos.0).unwrap_or(at);
     let keep = swapped.as_ref().and_then(|g| g["by"].as_str()).map(str::to_owned);
-    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), target_held: (0, Vec::new()), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim: clear_line.then_some(at), keep };
+    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), target_held: (0, Vec::new()), low_ally, last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim: clear_line.then_some(at), keep };
     // Let auto-learn settle the ranks set above (it learns passives at their hero level).
     run.step(2);
     if passive {
