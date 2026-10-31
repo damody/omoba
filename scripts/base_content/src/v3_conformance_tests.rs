@@ -1568,7 +1568,7 @@ fn run(hero: &str, s: &Value) -> Verdict {
                 let made = |run: &Run| -> Vec<specs::Entity> {
                     use specs::Join;
                     let (entities, tags) = (run.world.entities(), run.world.read_storage::<ScriptUnitTag>());
-                    let mut units: Vec<specs::Entity> = (&entities, &tags).join().filter(|(_, t)| t.unit_id == template).map(|(e, _)| e).collect();
+                    let mut units: Vec<specs::Entity> = (&entities, &tags).join().filter(|(_, t)| of_template(&t.unit_id, &template)).map(|(e, _)| e).collect();
                     units.sort_by_key(|e| e.id());
                     units
                 };
@@ -2475,6 +2475,13 @@ fn check_move(hero: &str, s: &Value) -> Option<Result<String, String>> {
     if off <= reach { Some(Ok(format!("moved to within {off:.0}"))) } else { Some(Err(format!("caster ends {off:.0} from where it was sent (allowed {reach:.0})"))) }
 }
 
+/// A unit made from `template`: its id, or `<template>_r<rank>` for a template graded by rank
+/// (E326: a28_phoenix_r2; E543).
+fn of_template(unit_id: &str, template: &str) -> bool {
+    unit_id == template || unit_id.strip_prefix(template).and_then(|rest| rest.strip_prefix("_r"))
+        .is_some_and(|rank| !rank.is_empty() && rank.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// `create_unit` (E229): within the cast point and 1 s, the cast makes the document's count of
 /// units of the template (no more than its per-owner limit), owned by the caster, that last the
 /// document's lifetime.
@@ -2491,7 +2498,7 @@ fn check_summons(hero: &str, s: &Value) -> Option<Result<String, String>> {
     let made = |run: &Run| -> Vec<specs::Entity> {
         use specs::Join;
         let (entities, tags) = (run.world.entities(), run.world.read_storage::<ScriptUnitTag>());
-        (&entities, &tags).join().filter(|(_, tag)| tag.unit_id == template).map(|(e, _)| e).collect()
+        (&entities, &tags).join().filter(|(_, tag)| of_template(&tag.unit_id, &template)).map(|(e, _)| e).collect()
     };
     let before = made(&run);
     let cast_point = value(&entry, rank, "cast_point").unwrap_or(0.0);

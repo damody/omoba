@@ -34,7 +34,11 @@
   - honda_masanobu 的 spotlight 局：checked=true，mismatch=0。
 - 避免：驗證結果要寫進機器可讀的報告，不要只留在 log。
 
-## E543 （保留）conformance 數召喚物時沒有認分等級模板的 unit_id（a28_phoenix_r{rank}），create_unit 判 0 made（2026-11-01）
+## E543 conformance：conformance 數召喚物時沒有認分等級模板的 unit_id（a28_phoenix_r{rank}），create_unit 判 0 made（2026-11-01，conformance session）
+- **現象**：a28_phoenix_summon r1–r3 normal 判「create_unit: 0 a28_phoenix made, expected 1」。
+- **根因**：a28_phoenix 的 max_level 是 3，是分等級的模板（E326），生成碼產生的 unit_id 是 `a28_phoenix_r{rank}`。check_summons 和 cast_until_over_cap 卻用 unit_id 與模板名完全相等來比對（A 查出）。
+- **通用修正**：新增 of_template：unit_id 等於模板名，或是 `<模板>_r<數字>`，都算這個模板的單位；兩處比對都改用它。
+- **以後如何避免**：比對執行期 id 時，要考慮產生器對模板 id 做的變形（分等級、實例編號）。
 
 ## E542 M6 batch 沒有實機 split 局，observer mismatch 這類只在 server＋replica 出現的問題抓不到（2026-11-01，E187）
 - 現象：工作線 C 的 demo10 跑約 63 秒就被 `observer-mismatch-after-rebase` 中止（E541），但 verify_m6_batch 的 headless 批次全部通過。Acceptance 段只列 NEVER CAST、拒絕、失敗局與小兵朝向，看起來像全部通過。
