@@ -65,6 +65,10 @@ pub const ORDER_TARGETED: u8 = 18;
 /// The holder was healed (v3 `on_heal_received`, 原作 OnHealthGained): `amount` is the health it
 /// gained; the healer is not tracked (`other` invalid, E478).
 pub const HEAL_RECEIVED: u8 = 19;
+/// The holder's attack missed `other` (v3 `on_attack_miss`, rules::attack AttackEvent::Miss, E496):
+/// `damage_kind` 0 when the holder missed at launch (blind, accuracy), 1 when the target evaded
+/// or was attack-immune on arrival.
+pub const ATTACK_MISS: u8 = 20;
 
 /// `Spec.mask` bits: which events the status listens to.
 pub const ON_END: u32 = 1 << 0;
@@ -84,9 +88,10 @@ pub const ON_MOVED: u32 = 1 << 13;
 pub const ON_MANA_SPENT: u32 = 1 << 14;
 pub const ON_ORDER_TARGETED: u32 = 1 << 15;
 pub const ON_HEAL_RECEIVED: u32 = 1 << 16;
+pub const ON_ATTACK_MISS: u32 = 1 << 17;
 pub const ALL: u32 = ON_END | ON_ATTACK_HIT | ON_ATTACKED | ON_TAKE_DAMAGE | ON_DEAL_DAMAGE | ON_TAKE_DAMAGE_PRE | ON_DEAL_DAMAGE_PRE
     | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL | ON_ATTACK_LAUNCH | ON_ABSORB | ON_BROKEN | ON_MOVED | ON_MANA_SPENT
-    | ON_ORDER_TARGETED | ON_HEAL_RECEIVED;
+    | ON_ORDER_TARGETED | ON_HEAL_RECEIVED | ON_ATTACK_MISS;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
@@ -141,6 +146,7 @@ impl Spec {
             MANA_SPENT => ON_MANA_SPENT,
             ORDER_TARGETED => ON_ORDER_TARGETED,
             HEAL_RECEIVED => ON_HEAL_RECEIVED,
+            ATTACK_MISS => ON_ATTACK_MISS,
             _ => 0,
         };
         self.mask & bit != 0
@@ -279,6 +285,8 @@ pub enum AttackSeen {
     Launch { attacker: specs::Entity, target: specs::Entity },
     /// The attack hit (ATTACK_HIT for the attacker, ATTACKED for the target).
     Hit { attacker: specs::Entity, target: specs::Entity },
+    /// The attack missed (ATTACK_MISS for the attacker); `evaded` when the target avoided it.
+    Miss { attacker: specs::Entity, target: specs::Entity, evaded: bool },
 }
 
 /// The windups and hits not delivered yet, in order; advances the cursor.
@@ -294,6 +302,8 @@ pub fn take_attack_events(world: &mut specs::World) -> Vec<AttackSeen> {
         AttackEvent::Windup { attacker, target, .. } => Some(AttackSeen::Windup { attacker: *attacker, target: *target }),
         AttackEvent::Launch { attacker, target, .. } => Some(AttackSeen::Launch { attacker: *attacker, target: *target }),
         AttackEvent::Hit { attacker, target, .. } => Some(AttackSeen::Hit { attacker: *attacker, target: *target }),
+        AttackEvent::Miss { attacker, target, reason, .. } => Some(AttackSeen::Miss { attacker: *attacker, target: *target,
+            evaded: *reason == super::rules::attack::MissReason::Evaded }),
         _ => None }).collect();
     *cursor = WindupCursor { tick, seen: list.len() };
     out
@@ -357,7 +367,7 @@ mod tests {
         assert!(!s.listens(MOVED) && spec(ON_MOVED).listens(MOVED));
         assert!(!s.listens(ORDER_TARGETED) && spec(ON_ORDER_TARGETED).listens(ORDER_TARGETED), "E465");
         assert!(!s.listens(HEAL_RECEIVED) && spec(ON_HEAL_RECEIVED).listens(HEAL_RECEIVED), "E478");
-        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 17);
+        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 18);
         assert_eq!(Spec::from_payload(&bad), None, "unknown event bits");
         let mut bad = payload.clone(); bad[KEY]["status"] = json!("B16T");
         assert_eq!(Spec::from_payload(&bad), None, "status ids are v3 ids");

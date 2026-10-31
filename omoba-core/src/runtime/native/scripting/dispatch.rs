@@ -1083,6 +1083,8 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
                     on_holder(attacker, se::ATTACK_HIT, Some(target), Fixed64::ZERO, 0);
                     on_holder(target, se::ATTACKED, Some(attacker), Fixed64::ZERO, 0);
                 }
+                se::AttackSeen::Miss { attacker, target, evaded } =>
+                    on_holder(attacker, se::ATTACK_MISS, Some(target), Fixed64::ZERO, u8::from(evaded)),
             }
         }
         for note in &damage {

@@ -303,6 +303,26 @@ fn a_marked_status_hears_its_holders_mana_spend() {
     assert_eq!(heard, vec![(hero.id(), "probe_drain".to_owned(), Fixed64::from_i32(75))]);
 }
 
+/// E496: a status listening to on_attack_miss hears its holder's missed attacks (0: missed at
+/// launch, 1: evaded), not its hits.
+#[test]
+fn a_marked_status_hears_its_holders_attack_miss() {
+    use crate::runtime::native::status_event as se;
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (mut world, mut driver, hero, id) = driven(calls.clone());
+    driver.step(&mut world, []).unwrap();
+    let marker = se::Spec { ability: id.clone(), level: 1, status: "probe_fury".into(), source: EntityHandle { id: hero.id(), gen: hero.gen().id() as u32 }, mask: se::ON_ATTACK_MISS };
+    world.write_resource::<BuffStore>().add(hero, "probe_fury", Fixed64::from_i32(5), serde_json::json!({ (se::KEY): marker.row() }));
+    for (missed, evaded) in [(true, false), (false, true), (false, false)] {
+        world.write_resource::<Vec<crate::comp::Outcome>>().push(crate::comp::Outcome::InstantAttack { attacker: hero, target: hero, critical: None, missed, evaded });
+        driver.step(&mut world, []).unwrap();
+    }
+    driver.step(&mut world, []).unwrap();
+    let heard: Vec<_> = calls.lock().unwrap().iter().filter_map(|c| match c {
+        Call::Status { holder, kind, damage_kind, .. } if *kind == se::ATTACK_MISS => Some((*holder, *damage_kind)), _ => None }).collect();
+    assert_eq!(heard, vec![(hero.id(), 0), (hero.id(), 1)], "the two misses, not the hit");
+}
+
 /// E465: a status listening to on_order_targeted hears an accepted order naming its holder, with
 /// the unit ordered as `other` and the order kind (0 attack, 1 cast) as `damage_kind`.
 #[test]

@@ -8,7 +8,13 @@
 
 ## E497 （保留）ability_in_slot 與綁定技能的 modify_cooldown 沒有 host 落點（C25）（2026-10-31）
 
-## E496 （保留）status_trigger:on_attack_miss 沒有 host 落點（A06）（2026-10-31）
+## E496 status_trigger:on_attack_miss 沒有 host 落點：A06 赤備之怒只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage M6 第 3 批：a06t_fury 的 `on_attack_miss` 要累計攻擊次數，host 的狀態事件沒有「攻擊落空」。
+- **根因**：rules::attack 會發出 `AttackEvent::Miss`（失手或閃避），但 status_event 的 `take_attack_events` 只轉送前搖、發出與命中。
+- **通用修正**：新增狀態事件 `ATTACK_MISS = 20`、mask `ON_ATTACK_MISS = 1 << 17`。攻擊者聽到，`other` 是目標，`damage_kind` 為 0 表示發出時失手（致盲、命中率），1 表示抵達時被閃避或目標攻擊免疫。瞬發、投射物與腳本攻擊都適用。
+- **回歸**：`script_hooks_tests::a_marked_status_hears_its_holders_attack_miss`：失手與閃避各聽到一次（0／1），命中不觸發。
+- **檔案**：`omoba-core/src/runtime/native/status_event.rs`、`scripting/dispatch.rs`、`script_hooks_tests.rs`
 
 ## E495 issue_order.queue 沒有 host 落點：C15 百箭只能擋下（2026-10-31，工作線 B）
 
