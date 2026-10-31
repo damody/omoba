@@ -2,9 +2,15 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E434 （保留）批次快照鎖不記持有者：被停止的批次留下的鎖擋住後面的批次 3 小時（2026-10-31）
+
 ## E433 （保留）bot 一直施放被 set_ability_active 停用的技能（2026-10-31）
 
-## E432 （保留）no_effects 把施法前就在目標身上的狀態（B31R 光環灼燒）算成被拒施法的效果（2026-10-31）
+## E432 conformance：no_effects 把施法前就在目標身上的狀態算成被拒施法的效果（2026-10-31，conformance session）
+- **現象**：b31_raging_fire r1～r4 的 insufficient_mana 判 fail，原因是「target hp 100550 → 100400」。施法確實被拒絕，但學會的 B31R 自己的光環一直對敵人套 b31r_burn，所以敵人照樣受到灼燒。
+- **根因**：no_effects 只比較施法前後的生命。
+- **通用修正**：施法開始時記下 tick，以及目標身上當時已有的狀態。生命下降時，如果這之後打到目標的每一筆 DamageTrace，path 都是 `statuses.<施法前就有的狀態>.…`，而且總量等於下降的生命，就不算施法的效果。
+- **結果**：B31 raging_fire 4 個轉為 pass，全跑沒有退步。
 
 ## E431 process_outcomes 期間推進 Outcome 資源的效果在批次結尾被清掉：a05 sakai 不會死（2026-10-31，工作線 B）
 
@@ -16,7 +22,11 @@
 - **通用修正**：批次結尾保留結算期間推進資源的 outcome，接在批次自己的 follow-up 之後，由下一批結算。
 - **驗證**：新測試 `a_limit_packet_in_an_outcome_batch_removes_its_retired_summon`；omoba-core 全部 lib 測試通過。
 
-## E430 （保留）conformance setup：出生等級的 on_learn 狀態在等級寫回 0 後留著（B31R 光環燒敵人）（2026-10-31）
+## E430 conformance setup：出生等級的 on_learn 狀態，在等級寫回 0 之後還留著（2026-10-31，conformance session，工作線 A 查出）
+- **現象**：E425 之後，b31_swift_wind／still_forest／immovable_mountain 的 insufficient_mana 共 12 個轉為 fail：b31_raging_fire 是 0 級，敵人卻每 15 tick 受到一次 b31r_burn。
+- **根因**：setup 第一次 driver.step 時，會依出生等級（heroes.lua 的 `{ 1, 1, 1, 1 }`）對每個技能跑一次 on_learn(1)，各技能的光環狀態與發射器因此都套上了。之後 setup 把其他技能的等級寫回 0，但已經套上的狀態不會移除。以前直接寫入等級時也有這些殘留，只是 E425 的 1.5 秒等待讓灼燒有時間跑起來，才被看到。
+- **通用修正**：等級寫回 0 的技能（包括逐級重學的 entry 本身），它宣告的狀態（runtime id）與光環發射器（`__aura:<ability>:…`）從所有單位上移除（dispel::remove_status）。
+- **結果**：B31 的 fail 從 21 降到 10。剩下的是 aura 升級後 level 停在 1 的真問題，已交給工作線 A（b31w_aura、b31e_aura、b05r_armor）。
 
 ## E429 spotlight 的替身被最大生命百分比傷害打死後，示範直接跳過（仙石秀久 沸血靈光）（2026-10-31，history-nobu M6 UE 呈現，工作線 C）
 - 現象：sengoku_hidehisa 的 spotlight 跳過焰心鼓動（`spotlight_skipped`，等級 4、冷卻 0），之後的折磨也沒有示範。
@@ -53,7 +63,11 @@
   - 樹的重建保留 blocker（`keep`）；`cut_set_of` 忽略它們；中途加入的地形檢查以正規方式重組後比對。
 - **驗證**：`unit_blockers` 測試涵蓋 pack/unpack、compose/current 往返、擋路、authority 揭露與 replica 一致、樹的讀取不受影響；tree_cut、moba_map_layout、filtered_specs 與 template-ids 測試通過。
 
-## E425 （保留）conformance：帶 passive 區塊的主動技直接寫入等級，光環停在 r1（b05_three_arrows 的 b05r_armor）（2026-10-31）
+## E425 conformance：帶 passive 區塊的主動技，等級是直接寫入的（2026-10-31，conformance session，工作線 A 查出）
+- **現象**：b05_three_arrows 的 b05r_armor 在 r2～r4 都讀到 armor 1。
+- **根因**：E404 只對 ability_type 為 Passive 的 entry 逐級學習。b05_three_arrows 是主動技，但帶有 passive.aura，光環發射器在 on_learn／on_upgrade 時用當下的等級 emit，直接寫入等級就跳過了這一步。
+- **通用修正**：v3 區塊有非空 `passive` 的 entry（從 V3_CATALOG_JSON 讀，並快取）也照升級順序逐級學習。
+- **結果**：全跑 fail 從 163 降到 139（和 E420、E422 一起）。新暴露的 B31 殘留光環見 E430。B05、B31 的光環在升級後 level 仍停在 1，是真問題，已交給工作線 A。
 
 ## E424 沒有 status 的 on_moved 觸發：a03_pacing_gu、b23_undead_pact、c12_homing_lock 無法產生（2026-10-31，工作線 B）
 - **現象**：工作線 A 回報 status trigger `on_moved`（event.distance）沒有 host 事件，a03_pacing_gu（累計移動距離後受到傷害）、b23_undead_pact、c12_homing_lock（離宗麟太遠時解除標記）只能擋下。
@@ -73,7 +87,11 @@
 - **測試**：`status_resistance_shortens_controls_slows_and_dots_and_slow_resistance_weakens_slows` 新增：StatKey 的字串就是 resist 讀的鍵。script-abi 的 StatKey 測試（長度、編號連續）也一起更新。
 - **避免**：host 已經有的規則鍵，要同時登錄為 StatKey 與 v3 vocab，否則產生器用不到。
 
-## E422 （保留）check_heal 把施法者同一個 tick 的自然回復算進 heal（C16W 多 3.26）（2026-10-31）
+## E422 conformance：check_heal 把施法者同一個 tick 的自然回復算進 heal（2026-10-31，conformance session）
+- **現象**：c16_soul_sever r1、r2 判 fail，原因是「largest one-tick rise 153.26, expected 150」（r2 是 273.26 vs 270）。
+- **根因**：自然回復是一次一次整筆加上去的，其中一筆正好落在 heal 的那個 tick。
+- **通用修正**：施法前先觀察 1 秒，記下不施法時最大的一筆自然回復。單 tick 的上升扣掉這一筆之後等於文件值，也算通過；通過訊息會註明自然回復的量。
+- **結果**：C16 的 2 個 fail 轉為 pass。
 
 ## E421 damage hook 的效果被丟掉時 edit 仍套用：a05_loyal_secret 取消致命傷卻沒有回血、假死與冷卻，A05 永遠不死（2026-10-31，工作線 B）
 - **現象**：gamemode 回報酒井忠次（A05）永遠不會死（12/0/35）。a05_loyal_secret 的 on_take_damage_pre 會：取消傷害 → set_health → set_mana → 移除敵方狀態 → 套用假死 a05d_feign → 開始 270 秒冷卻，filter 是 `ability_ready`。log 顯示「damage hook ... tried to charge or spawn」。
@@ -83,7 +101,10 @@
 - **後續**：產生碼的這些動作都走封包（hero_command、`__mana_set`、dispel purge），照理都是允許的；究竟是哪個 outcome 被拒，要看重跑後的 log。到時再修正那個動作，讓假死能成立。
 - **避免**：一個 hook 的結果（效果與回傳值）必須一起套用或一起丟棄，不能只丟一半。
 
-## E420 （保留）FC-024 沒有 conformance 測試：A05D 假死後冷卻是否啟動沒人驗（e187 批次中酒井不會死）（2026-10-31）
+## E420 conformance：FC-024（A05D 忠之極意）沒有測試（2026-10-31，conformance session，工作線 E 的 e187）
+- **現象**：批次中酒井忠次 28 局 0 次死亡。a05_loyal_secret 的 quirk 情境只回報「FC-024 is fixed but has no test here yet」。
+- **修正**：新增 fix_candidates::fc024_a05d_cheats_death_once_per_cooldown。從一半生命開始，第一下致死傷害之後，A05 要活著、帶 a05d_feign、冷卻約 270 秒。假死結束後的第二下要致死。
+- **結果**：測試立刻抓到問題：cancel 生效了，但回血、假死、冷卻都沒有進來，所以每一下致死傷害都被取消。根因在 host：hook 被接受的效果在批次結尾被 clear 掉，見工作線 B 的 E431（7de21e59）。放入 E431 之後要重跑。
 
 ## E419 bot 的 summon_near_enemy 只接受 point 技能：不需目標的召喚（c02_phantom_move、b18_earth_claw）從不施放（2026-10-31，工作線 B）
 - **現象**：M6 第三批（target/e187/m6b3g1）中，c02_phantom_move、b18_earth_claw 這兩招 target none 的召喚技能，hint 是 summon_near_enemy，但從不施放。
@@ -118,7 +139,7 @@
 ## E415 conformance：periodic 情境固定要求 3 個 interval 內打 2 下，沒有看狀態本身的 duration（2026-10-31，conformance session）
 - **現象**：a29e_grip r1～r3、b33e_web r1～r2、c07e_bind r1 都判 fail，原因是「1 hits / 0 hits within 3 s」。a09w_poison r1～r4 也判 fail，原因是「no hit 60 ticks after the first」。工作線 B 用 dump 核對過：a29e_grip 的 duration 是 1／1.4／1.8／2 秒，interval 0.99 秒，r1～r3 各打 1 下、r4 打 2 下，和原作一致（E385：interval 四捨五入到 tick，在到期那個 tick 到的那一下不會打）。
 - **根因**：check_periodic 不知道狀態能持續多久，一律要求至少 2 下，每一下都要剛好隔一個 interval。a09w_poison 是 independent，每份持續 2 秒、interval 1 秒，每份只打 1 下，所以不同份數之間的命中不會剛好隔一個 interval。
-- **通用修正**：情境的 status_event 帶上該狀態套用時的 duration（`a.duration or s.duration`）。harness 依 host 的 tick 規則算出一份狀態能打幾下：`(round(duration×60) − 1) / round(interval×60)`。
+- **通用修正**：情境的 status_event 帶上該狀態套用時的 duration（`a.duration or s.duration`）。如果 duration 是動作自己算出來的（B28E 的 stun_time 依距離計算），就改用狀態實際套上時拿到的時長。harness 依 host 的 tick 規則算出一份狀態能打幾下：`(round(duration×60) − 1) / round(interval×60)`。
   - 能打 0 下時，必須完全沒有命中。
   - 其他情況要求 min(該數, 2) 下。
   - 間隔只檢查第一份狀態自己的那幾下。

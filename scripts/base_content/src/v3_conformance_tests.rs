@@ -159,6 +159,8 @@ enum Verdict { Pass, Fail(String), Unsupported(String), PassNoted(String) }
 struct Run {
     world: World, driver: SimulationDriver, caster: specs::Entity, enemy: specs::Entity, target: specs::Entity,
     entry: String, rank: usize, slot: u32, target_hp: Fixed64, casts: Vec<CastResult>,
+    /// The tick the last cast started and the statuses its target held then (no_effects; E432).
+    target_held: (u64, Vec<String>),
     /// The caster as last seen: a caster that died stays readable (its cast was not admitted).
     last: Hero,
     /// Where the target stood (a dead target keeps being aimed at by id and position).
@@ -271,6 +273,8 @@ impl Run {
             if let Some(p) = self.world.write_storage::<CProperty>().get_mut(self.target) { p.hp = p.mhp; }
             self.target_hp = self.world.read_storage::<CProperty>().get(self.target).map(|p| p.hp).unwrap_or(self.target_hp);
         }
+        let held: Vec<String> = self.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(self.target).map(|(key, _)| key.to_owned()).collect();
+        self.target_held = (self.world.read_resource::<Tick>().0, held);
         self.sustain = !self.casts.is_empty();
         // Inactive before this scenario cast it at all (deactivated on learn, enabled by another
         // ability's state; B13D's shukuchi; E372): nothing here makes it castable. One this
@@ -457,9 +461,11 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     // writing the level would skip.
     // Any passive entry, not only a passive_stats case (E404): its aura emitter is emitted
     // again at each level (A22R's weaken read rank 1 when the level was written at once).
+    // And an active entry with a passive block (E425): B05's three arrows carries B05R's aura.
     let passive = s["expect"].as_array().into_iter().flatten().any(|e| e["kind"] == "passive_stats")
         || omoba_template_ids::ability_by_name(&entry).and_then(omoba_template_ids::active_ability_const)
-            .is_some_and(|a| a.ability_type == omoba_template_ids::AbilityTypeC::Passive);
+            .is_some_and(|a| a.ability_type == omoba_template_ids::AbilityTypeC::Passive)
+        || has_passive_block(&entry);
     let target = match team.as_str() {
         "self" => caster,
         // An ally hero (E256): the match has two heroes, so the other one joins the caster's team.
@@ -484,6 +490,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
             spawn_body(&mut world, distance as i32, isolated_skill_origin_y() + 40, enemy_team, 800, None)
         }
     };
+    let mut unlearned: Vec<String> = Vec::new();
     {
         let mut heroes = world.write_storage::<Hero>();
         let h = heroes.get_mut(caster).unwrap();
@@ -496,6 +503,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
         for id in &ids {
             if Some(id.as_str()) == parent { continue; }
             h.ability_levels.insert(id.clone(), if *id == entry && !passive { rank as i32 } else { 0 });
+            if *id != entry || passive { unlearned.push(id.clone()); }
         }
         // No points for auto-learn to spend before the passive is learned below.
         if passive { h.skill_points = 0; }
@@ -506,6 +514,20 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
             let current = match mana { Some((true, amount)) => fixed(amount.max(0.0)), _ => maximum };
             *pool = omoba_core::runtime::ability_runtime::ManaPool::new(current, maximum).map_err(|e| format!("{e:?}"))?;
         } else if mana.is_some() { return Err("hero has no mana pool".into()); }
+    }
+    // The first step learned the spawn ranks and  ran their on_learn (E430): the statuses of an
+    // ability written back to 0 go (B31R's aura kept burning the enemy), on every unit.
+    let ids: Vec<String> = unlearned.iter().flat_map(|id| entry_runtime_ids(id)).collect();
+    if !unlearned.is_empty() {
+        let units: Vec<specs::Entity> = { use specs::Join; world.entities().join().collect() };
+        for unit in units {
+            let keys: Vec<String> = world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(unit)
+                .filter(|(key, _)| ids.iter().any(|id| omoba_core::runtime::native::dispel::runtime_id_matches(id, key))
+                    // and its aura emitters (`__aura:<ability>:…`)
+                    || unlearned.iter().any(|ability| key.starts_with(&format!("__aura:{ability}:"))))
+                .map(|(key, _)| key.to_owned()).collect();
+            for key in keys { omoba_core::runtime::native::dispel::remove_status(&world, unit, &key); }
+        }
     }
     // A sturdy enemy hero: a scenario's later casts must find it alive (a level 18 burst kills
     // an ordinary one inside one tick). Max-HP buffs fold into its life on the next settle.
@@ -529,7 +551,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let last = world.read_storage::<Hero>().get(caster).unwrap().clone();
     let target_at = world.read_storage::<Pos>().get(target).map(|pos| pos.0).unwrap_or(at);
     let keep = swapped.as_ref().and_then(|g| g["by"].as_str()).map(str::to_owned);
-    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim: clear_line.then_some(at), keep };
+    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), target_held: (0, Vec::new()), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim: clear_line.then_some(at), keep };
     // Let auto-learn settle the ranks set above (it learns passives at their hero level).
     run.step(2);
     if passive {
@@ -668,6 +690,7 @@ fn check_fixed_quirk(s: &Value) -> Option<Verdict> {
     let test: fn() = match fc {
         "005" => fix_candidates::fc005_b08_casts_keep_other_shields,
         "025" => fix_candidates::fc025_a07w_cancels_lethal_non_physical_damage,
+        "024" => fix_candidates::fc024_a05d_cheats_death_once_per_cooldown,
         "046" => fix_candidates::fc046_a07r_crits_after_misses_in_a_row,
         "008" => fix_candidates::fc008_b04t_extra_shots_keep_the_launch_aim,
         "078" => fix_candidates::fc078_a02w_does_nothing_on_buildings,
@@ -1567,7 +1590,19 @@ fn run(hero: &str, s: &Value) -> Verdict {
                 // Still at its full life is untouched: the caster as its own target can have its
                 // maximum shrink in the window (attributes settling), which lowers life with it (E361).
                 let (hp, full) = run.world.read_storage::<CProperty>().get(run.target).map(|p| (p.hp, p.hp >= p.mhp)).unwrap_or((Fixed64::ZERO, false));
-                if run.target_killed || hp >= run.target_hp || full { Ok(()) }
+                let untouched = run.target_killed || hp >= run.target_hp || full;
+                // Every hit since the cast traced to a status the target held before it (a learned
+                // aura's burn, B31R; E432) is not the cast's.
+                use omoba_core::runtime::native::damage_trace::DamageTrace;
+                let (from, held) = &run.target_held;
+                let rows: Vec<(String, f64)> = run.world.read_resource::<DamageTrace>().0.iter().filter(|r| r.target == run.target && r.tick > *from)
+                    .map(|r| { let (a, b, c) = r.after.unwrap_or(r.before); (r.path.clone(), real(a + b + c)) }).collect();
+                let before_cast = |path: &str| path.strip_prefix("statuses.").and_then(|rest| rest.split('.').next())
+                    .is_some_and(|status| held.iter().any(|key| omoba_core::runtime::native::dispel::runtime_id_matches(status, key)
+                        || omoba_core::runtime::native::dispel::runtime_id_matches(&format!("{status}:{{caster}}"), key)));
+                let lost = real(run.target_hp) - real(hp);
+                let traced: f64 = rows.iter().map(|(_, amount)| amount).sum();
+                if untouched || (!rows.is_empty() && rows.iter().all(|(path, _)| before_cast(path)) && (traced - lost).abs() <= 1.0) { Ok(()) }
                 else { Err(format!("target hp {:.1} -> {:.1}", real(run.target_hp), real(hp))) }
             }
             // Only an admitted cast breaks invisibility; what is read is the invisibility the caster
@@ -2113,6 +2148,17 @@ fn status_runtime_id(entry: &str, status: &str) -> Option<String> {
     found["runtime_id"].as_str().or_else(|| found["id"].as_str()).map(str::to_owned)
 }
 
+/// The entry's v3 block has a non-empty `passive` (aura, stats or triggers; `V3_CATALOG_JSON`).
+fn has_passive_block(entry: &str) -> bool {
+    static WITH: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    WITH.get_or_init(|| {
+        let doc: Value = serde_json::from_str(omoba_template_ids::V3_CATALOG_JSON).unwrap_or_default();
+        doc["abilities"].as_array().into_iter().flatten()
+            .filter(|a| a["v3"]["passive"].as_object().is_some_and(|p| !p.is_empty()))
+            .filter_map(|a| a["id"].as_str().map(str::to_owned)).collect()
+    }).iter().any(|id| id == entry)
+}
+
 /// The runtime ids of every status the entry's v3 block declares (`V3_CATALOG_JSON`).
 fn entry_runtime_ids(entry: &str) -> Vec<String> {
     let doc: Value = serde_json::from_str(omoba_template_ids::V3_CATALOG_JSON).unwrap_or_default();
@@ -2153,7 +2199,16 @@ fn check_heal(hero: &str, s: &Value) -> Option<Result<String, String>> {
     let (_, max) = life(&run)?;
     if max < expected * 2.0 { return None; }
     if let Some(p) = run.world.write_storage::<CProperty>().get_mut(run.caster) { p.hp = p.mhp / Fixed64::from_i32(2); }
+    // The caster's own regeneration lands in whole pulses (E422): the largest one it gets in a
+    // second without casting may fall into the heal's tick too.
     let mut previous = life(&run)?;
+    let mut regen: f64 = 0.0;
+    for _ in 0..ticks(1.0) {
+        run.step(1);
+        let now = life(&run)?;
+        regen = regen.max((now.0 - previous.0) - (now.1 - previous.1).max(0.0));
+        previous = now;
+    }
     let cast_point = value(&entry, rank, "cast_point").unwrap_or(0.0);
     let Ok(cast) = run.cast(target, cast_point + 1.0, None) else { return None };
     if !cast.accepted { return None; }
@@ -2165,8 +2220,10 @@ fn check_heal(hero: &str, s: &Value) -> Option<Result<String, String>> {
         previous = now;
         run.step(1);
     }
-    if (rise - expected).abs() <= (expected * 0.01).max(2.0) { Some(Ok(format!("heal {rise:.1}"))) }
-    else { Some(Err(format!("largest one-tick rise {rise:.2}, expected {expected}"))) }
+    let tolerance = (expected * 0.01).max(2.0);
+    if (rise - expected).abs() <= tolerance { Some(Ok(format!("heal {rise:.1}"))) }
+    else if regen > 0.0 && (rise - regen - expected).abs() <= tolerance { Some(Ok(format!("heal {:.1} (and a regeneration pulse of {regen:.2})", rise - regen))) }
+    else { Some(Err(format!("largest one-tick rise {rise:.2}, expected {expected} (regeneration pulses up to {regen:.2})"))) }
 }
 
 /// `dash`/`teleport`/`leap` of the caster to the cast point or to the target (E220, E229): the caster ends
@@ -2298,7 +2355,7 @@ fn check_periodic(hero: &str, s: &Value) -> Option<Verdict> {
     // while the status lasts: one due on the tick it expires does not run (B; E385). So an instance
     // hits (duration - 1 tick) / interval times (duration 1 and interval 0.99: once; 1 and 1: never).
     let period = ((interval * 60.0).round() as i64).max(1);
-    let lasts = expr(&s["when"][0]["duration"], &entry, rank).ok().map(|d| (((d * 60.0).round() as i64) - 1).max(0) / period);
+    let mut lasts = expr(&s["when"][0]["duration"], &entry, rank).ok().map(|d| (((d * 60.0).round() as i64) - 1).max(0) / period);
     let (mut run, body, target) = cast_at_body(hero, s)?;
     let cast_point = value(&entry, rank, "cast_point").unwrap_or(0.0);
     let Ok(cast) = run.cast(target, cast_point + 1.0, None) else { return None };
@@ -2308,6 +2365,11 @@ fn check_periodic(hero: &str, s: &Value) -> Option<Verdict> {
         if waited > ticks(3.0) { return Some(Verdict::Unsupported(format!("{runtime_id} not observed on the body"))); }
         run.step(1);
         waited += 1;
+    }
+    // A duration the applying action computes (B28E's stun_time, from the distance): the one the
+    // status got when it landed (E415).
+    if lasts.is_none() && s["when"][0]["duration"].as_str().is_some_and(|d| d != "infinite") {
+        lasts = held(&run, body, &runtime_id).map(|(_, e)| (((real(e.remaining) * 60.0).round() as i64) - 1).max(0) / period);
     }
     let hp = |run: &Run| run.world.read_storage::<CProperty>().get(body).map(|p| real(p.hp));
     let mut previous = hp(&run)?;
@@ -2508,6 +2570,36 @@ mod fix_candidates {
             phys: Fixed64::from_i32(phys), magi: Fixed64::from_i32(magi), real: Fixed64::from_i32(pure),
             source, target: victim, damage_profile: 0, predeclared: false });
         run.step(3);
+    }
+
+    /// FC-024: A05D cancels a lethal hit and feigns death, then starts its own cooldown; a second
+    /// lethal hit within that cooldown kills (e187: in batches Sakai never died; E420).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc024_a05d_cheats_death_once_per_cooldown() {
+        let mut run = learned("sakai_tadatsugu", "a05_loyal_secret", 1, true);
+        let (caster, enemy) = (run.caster, run.enemy);
+        let cooldown = value("a05_loyal_secret", 1, "cooldown").unwrap();
+        let feign = value("a05_loyal_secret", 1, "feign_duration").unwrap();
+        assert!(run.cooldown() <= 0.0, "a05_loyal_secret cools down before any hit ({:.2} s)", run.cooldown());
+        // From half life: a cheat restores it to full, a hit that never lands leaves it at half.
+        if let Some(p) = run.world.write_storage::<CProperty>().get_mut(caster) { p.hp = p.mhp / Fixed64::from_i32(2); }
+        hit(&mut run, enemy, caster, 0, 0, 1_000_000);
+        assert!(living(&run, caster), "the first lethal hit killed A05 with a05_loyal_secret ready");
+        let holding = |run: &Run| {
+            let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
+            let keys: Vec<String> = buffs.iter_for(run.caster).map(|(key, _)| key.to_owned()).collect();
+            let hp = run.world.read_storage::<CProperty>().get(run.caster).map(|p| real(p.hp));
+            format!("hp {hp:?}, cooldown {:.2} s, holding {}", run.cooldown(), keys.join(", "))
+        };
+        assert!(holds(&run, caster, "a05d_feign"), "the first lethal hit did not put a05d_feign on A05 ({})", holding(&run));
+        let started = run.cooldown();
+        assert!((started - cooldown).abs() <= 0.5, "a05_loyal_secret's cooldown after the cheat is {started:.2} s, expected {cooldown}");
+        run.step(ticks(feign + 0.5));
+        assert!(!holds(&run, caster, "a05d_feign"), "a05d_feign still on A05 {} s after the cheat", feign + 0.5);
+        hit(&mut run, enemy, caster, 0, 0, 1_000_000);
+        assert!(!living(&run, caster), "a second lethal hit {:.1} s into the {cooldown} s cooldown did not kill A05 (cooldown left {:.2} s)",
+            feign + 0.5, run.cooldown());
     }
 
     /// FC-025: A07W cancels an enemy's non-physical damage before it lands, a lethal hit included;
