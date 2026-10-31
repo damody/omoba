@@ -567,7 +567,12 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let low_ally = ally_lower && target != caster && target_team == Some(caster_team);
     if ally_at_point {
         let near = world.read_storage::<Pos>().get(target).map(|p| p.0).unwrap_or(at);
-        spawn_body(&mut world, real(near.x) as i32, real(near.y) as i32 + 40, caster_team, 800, None);
+        let ally = spawn_body(&mut world, real(near.x) as i32, real(near.y) as i32 + 40, caster_team, 800, None);
+        // An allied creep standing there (E498): a bare body is of no class `count_in_radius` takes.
+        world.write_storage::<omoba_core::Creep>().insert(ally, omoba_core::Creep {
+            name: "v3_conformance_ally".into(), label: None, path: String::new(), pidx: 0, path_remaining_distance: Fixed64::ZERO,
+            block_tower: None, status: omoba_core::CreepStatus::Stop, td_layer: None,
+        }).unwrap();
     }
     // A sturdy enemy hero: a scenario's later casts must find it alive (a level 18 burst kills
     // an ordinary one inside one tick). Max-HP buffs fold into its life on the next settle.

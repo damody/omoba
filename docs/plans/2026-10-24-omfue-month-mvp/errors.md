@@ -80,7 +80,11 @@
 - **回歸**：`regen_tick::tests::a_summon_regenerates_and_a_degeneration_kills_it`、`unit_stats` 測試：減療不會把負回血減半。
 - **檔案**：`omoba-core/src/runtime/native/tick/regen_tick.rs`、`ability_runtime/unit_stats.rs`、`omoba-template-ids/src/lua_content.rs`
 
-## E498 （保留）v3 conformance 放在施法點的友方單位沒有 class，count_in_radius 的 creep 算不到（c19 突襲 CAST_REJECTED）（2026-10-31）
+## E498 conformance：v3 conformance 放在施法點的友方單位沒有 class，count_in_radius 的 creep 算不到（c19 突襲 CAST_REJECTED）（2026-10-31，conformance session）
+- **現象**：c19_surprise_raid 的 normal、cooldown 判 CAST_REJECTED；invisible_caster 判 unsupported。
+- **根因**：C19D 的 on_phase_start 在目標點 300 內沒有友方 creep、summon 或建築時取消施法。E457 已在點旁放了友方單位，但那只是 spawn_body 的裸身體，沒有任何 class；count_in_radius 的 `creep` 讀 Creep component，所以算到 0。
+- **通用修正**：ally_unit_at_point 放的友方單位加上 Creep component（path 空、status Stop，不會走路）。
+- **以後如何避免**：測試放的單位要符合條件指定的 class，不能只有位置和陣營。
 
 ## E497 ability_in_slot 與綁定技能的 modify_cooldown 沒有 host 落點：C25 混沌之箭只能擋下（2026-10-31，工作線 B）
 
