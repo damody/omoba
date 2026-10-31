@@ -20,6 +20,7 @@ pub mod cooldown_cap;
 pub mod hit_stack;
 pub mod tether;
 pub mod forced_motion;
+pub mod impulse;
 pub mod reveal_zone;
 pub mod pickup;
 pub mod tree_cut;

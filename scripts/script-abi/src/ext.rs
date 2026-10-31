@@ -85,6 +85,10 @@ pub mod op {
     /// the ability at index `slot` (0, 1, 2, ...) of the hero's ability list; `None` for a unit
     /// that is not a hero, or an empty slot.
     pub const ABILITY_IN_SLOT: u32 = 18;
+    /// `(Unit holder, Str ability, Str hook, Str message)` -> `None`: a generated hook's `Err`
+    /// (E517), which the hook's dispatch would otherwise drop. The host logs it and records it
+    /// in its script error log when it keeps one (conformance fails the scenario).
+    pub const SCRIPT_ERROR: u32 = 19;
 }
 
 /// Attribute names of [`op::EVENT_ABILITY_ATTR`].

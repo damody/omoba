@@ -329,7 +329,7 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, duration: Fixed64
 }
 
 /// First blocked point of `from -> to` for a body of `radius`; Q16 bisection.
-fn wall_contact(from: Vec2, to: Vec2, radius: Fixed64, regions: &BlockedRegions) -> Option<Vec2> {
+pub(crate) fn wall_contact(from: Vec2, to: Vec2, radius: Fixed64, regions: &BlockedRegions) -> Option<Vec2> {
     let blocked = |end: Vec2| super::tick::hero_move_tick::path_hits_regions(from, end, radius, regions);
     if !blocked(to) { return None; }
     let at = |t: i64| Vec2::new(
@@ -415,7 +415,7 @@ fn advance(world: &World, entity: Entity, motion: &mut Motion, dt: Fixed64, move
 }
 
 /// Each new position as a `PreStepMovement` fact (facing kept).
-fn publish(world: &World, moved: Vec<(Entity, Vec2)>) {
+pub(crate) fn publish(world: &World, moved: Vec<(Entity, Vec2)>) {
     let tick = world.read_resource::<Tick>().0;
     for (entity, pos) in moved {
         let source = crate::runtime::canonical_entity_id(entity);

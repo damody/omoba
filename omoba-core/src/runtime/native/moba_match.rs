@@ -2548,6 +2548,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
     world.insert(state);
     // After NPC movement: a displaced unit is rooted, so only this writes its position.
     super::forced_motion::step(world);
+    super::impulse::step(world);
     super::reveal_zone::step(world);
     for (attacker,victim) in brush_attacks {record_brush_attack_reveal(world,attacker,victim);}
     // Positions the team replicas also hold now; approach-to-cast reads them (E210).
@@ -3784,6 +3785,12 @@ pub fn single_lane_replay_digest(world: &World) -> String {
     if let Some(rows) = world.try_fetch::<super::forced_motion::ForcedMotions>() {
         if !rows.0.is_empty() {
             hash.update(b"|forced-motions:");
+            hash_json(&mut hash, &rows.hash_value());
+        }
+    }
+    if let Some(rows) = world.try_fetch::<super::impulse::Impulses>() {
+        if !rows.is_empty() {
+            hash.update(b"|impulses:");
             hash_json(&mut hash, &rows.hash_value());
         }
     }

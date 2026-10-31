@@ -17,6 +17,27 @@ use crate::runtime::ability_runtime::{BuffStore, UnitStats};
 
 use super::tag::ScriptUnitTag;
 
+/// One generated hook's `Err` (ext SCRIPT_ERROR, E517).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScriptErrorRow { pub tick: u64, pub entity: (u32, u32), pub ability: String, pub hook: String, pub message: String }
+
+/// The hook errors since the last [`ScriptErrorLog::take`], when the world keeps this resource
+/// (a conformance harness inserts it); a diagnostic, never a simulation input.
+#[derive(Default)]
+pub struct ScriptErrorLog { rows: std::sync::Mutex<Vec<ScriptErrorRow>> }
+
+impl ScriptErrorLog {
+    /// The rows so far in tick then entity order (hooks may run in parallel), emptying the log.
+    pub fn take(&self) -> Vec<ScriptErrorRow> {
+        let mut rows = self.rows.lock().map(|mut rows| std::mem::take(&mut *rows)).unwrap_or_default();
+        rows.sort_by(|a, b| (a.tick, a.entity).cmp(&(b.tick, b.entity)));
+        rows
+    }
+    fn push(&self, row: ScriptErrorRow) {
+        if let Ok(mut rows) = self.rows.lock() { if rows.len() < 4096 { rows.push(row); } }
+    }
+}
+
 pub struct ParallelAdapterCache<'a> {
     team_keys:HashMap<i32,String>,
     pub entities: Entities<'a>,
@@ -27,6 +48,7 @@ pub struct ParallelAdapterCache<'a> {
     unit_tags: Option<ReadStorage<'a, UnitTags>>,
     commands: Option<ReadStorage<'a, HeroCommandQueue>>,
     summon_host_movement: Option<Read<'a, super::super::tick::summon_tick::HostMovement>>,
+    script_errors: Option<Read<'a, ScriptErrorLog>>,
     pub facing: ReadStorage<'a, Facing>,
     pub cprop: ReadStorage<'a, CProperty>,
     pub unit: ReadStorage<'a, Unit>,
@@ -102,6 +124,7 @@ impl<'a> ParallelAdapterCache<'a> {
             commands: world.has_value::<specs::storage::MaskedStorage<HeroCommandQueue>>()
                 .then(||world.read_storage::<HeroCommandQueue>()),
             summon_host_movement: world.try_fetch::<super::super::tick::summon_tick::HostMovement>().map(Into::into),
+            script_errors: world.try_fetch::<ScriptErrorLog>().map(Into::into),
             facing: world.read_storage::<Facing>(),
             cprop: world.read_storage::<CProperty>(),
             unit: world.read_storage::<Unit>(),
@@ -1909,6 +1932,15 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                     _ => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown ability attribute {attr}"))),
                 }
             }
+            (op::SCRIPT_ERROR, [A::Unit(holder), A::Str(ability), A::Str(hook), A::Str(message)]) => {
+                log::warn!("[scripting] {} {} on {}:{}: {}", ability.as_str(), hook.as_str(), holder.id, holder.gen, message.as_str());
+                if let Some(log) = &self.cache.script_errors {
+                    let clip = |text: &str| text.chars().take(512).collect::<String>();
+                    log.push(ScriptErrorRow { tick: self.cache.tick.0, entity: (holder.id, holder.gen), ability: clip(ability.as_str()),
+                        hook: clip(hook.as_str()), message: clip(message.as_str()) });
+                }
+                ROk(V::None)
+            }
             (op::ABILITY_IN_SLOT, [A::Unit(unit), A::Num(slot)]) => {
                 let hero = Self::handle_to_entity(*unit).and_then(|entity| self.cache.hero.get(entity));
                 let slot = usize::try_from(slot.raw() >> 10).ok().filter(|_| *slot >= Fixed64::ZERO);
@@ -3103,6 +3135,28 @@ mod tests {
         adapter.discard_cast();
         adapter.start_cooldown(entity, "test".into(), Fixed64::from_i32(5));
         assert!(matches!(adapter.finish().as_slice(), [Outcome::ScriptStartCooldown { .. }]));
+    }
+
+    /// E517: a hook error is recorded when the world keeps the log, in tick then entity order.
+    #[test]
+    fn a_script_error_is_recorded_in_the_log_the_world_keeps() {
+        use omb_script_abi::ext::{op, ExtArg as A};
+        let mut world = world_for_adapter_tests();
+        let unit = world.create_entity().build();
+        let handle = ParallelWorldAdapter::entity_to_handle(unit);
+        let report = |world: &World| {
+            let cache = ParallelAdapterCache::new(world, 1);
+            let mut adapter = ParallelWorldAdapter::new(&cache, unit);
+            adapter.ext(op::SCRIPT_ERROR, abi_stable::std_types::RSlice::from_slice(&[A::Unit(handle), A::Str("a06_fury".into()), A::Str("on_attack_hit".into()),
+                A::Str("v3: invalid state".into())])).into_result().map(|_| ())
+        };
+        assert!(report(&world).is_ok(), "no log: only a warning");
+        world.insert(ScriptErrorLog::default());
+        assert!(report(&world).is_ok());
+        let rows = world.read_resource::<ScriptErrorLog>().take();
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].ability.as_str(), rows[0].hook.as_str(), rows[0].message.as_str()), ("a06_fury", "on_attack_hit", "v3: invalid state"));
+        assert!(world.read_resource::<ScriptErrorLog>().take().is_empty(), "taken");
     }
 
     #[test]

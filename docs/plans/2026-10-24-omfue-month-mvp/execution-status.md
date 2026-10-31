@@ -16,6 +16,11 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：tick 階段耗時、impulse、hook 錯誤紀錄（E513、E514、E517）
+
+- `SimulationDriver::phase_report`／`last_step_phases`：step 各階段與各 system 的耗時。
+- `impulse`：可疊加、每個物理幀衰減的速度衝量（B25）。
+- ext `SCRIPT_ERROR` 與 `ScriptErrorLog`：生成碼 hook 的 Err 不再被丟掉。
 ## 2026-10-31 線 B：stat when 的 kit 介面（E508，kit）
 
 - `apply_status_when`／`passive_stats_when`／`passive_marker_when`，stat row 帶 `When::{Always, Night, Day, Primary(Attr), Hero}`；`primary_is(u, attr)`。

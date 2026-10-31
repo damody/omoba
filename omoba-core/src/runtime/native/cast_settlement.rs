@@ -70,6 +70,8 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
             && super::super::mana_drain::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return Err("effect:mana_drain");}
         if (payload.get(super::super::forced_motion::KEY).is_some() || buff_id==super::super::forced_motion::BUFF)
             && super::super::forced_motion::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return Err("effect:forced_motion");}
+        if (payload.get(super::super::impulse::KEY).is_some() || buff_id==super::super::impulse::BUFF)
+            && super::super::impulse::admitted(world,*target,buff_id,payload).is_none(){return Err("effect:impulse");}
         if (payload.get(super::super::blink_landing::KEY).is_some() || buff_id==super::super::blink_landing::BUFF)
             && super::super::blink_landing::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return Err("effect:blink_landing");}
         if (payload.get(super::super::delayed_effect::KEY).is_some() || buff_id.starts_with(super::super::delayed_effect::PREFIX))

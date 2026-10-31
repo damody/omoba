@@ -2,6 +2,20 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E518 （保留）creep_facing 把 lane step 之後同一 tick 的英雄位移（閃現、衝刺）算成小兵沒轉向（2026-10-31）
+
+## E517 生成碼 hook 的 Err 被 let _ 丟掉：conformance 看不到腳本錯誤（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 處理 E515 時發現：生成碼的 trigger hook 用 `let _ = hook(&mut cx)` 呼叫，Err 被丟掉（A06 的 set_state 每擊都失敗），conformance 看不到。
+- **根因**：hook 沒有回報錯誤的管道。
+- **通用修正**：工作線 A 讓生成碼在 Err 時呼叫 report_error；工作線 D 在每個情境結束時讀 ScriptErrorLog，有錯就判 fail。
+- **host 部分（工作線 B）**：
+  - ext op `SCRIPT_ERROR = 19`，參數 `(Unit holder, Str ability, Str hook, Str message)`。
+  - kit `cx.report_error(ability, hook, message)`，只在 hook 回傳 Err 時呼叫；成功的路徑沒有額外成本。
+  - host 一律 `log::warn!`。world 有 `ScriptErrorLog` resource 時（conformance harness 放進去），也會記下 `ScriptErrorRow { tick, entity, ability, hook, message }`；`take()` 依 tick 與 entity 排序後清空。這是診斷資料，不是模擬輸入。
+  - 測試：`a_script_error_is_recorded_in_the_log_the_world_keeps`。
+  - 檔案：`scripts/script-abi/src/ext.rs`、`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`、`scripts/ability_kit/src/host_ext.rs`。
+
 ## E516 split 啟動中英雄轉正式，角色 launch 讀 live 英雄 DLL 集合，找不到快照沒建的 DLL（2026-10-31，工作線 C）
 - 現象：工作線 C 的 yamamoto_kansuke spotlight split 建置完成、server 已啟動，但 client p1 啟動失敗：`run_artifacts.lua:172: missing hero_c13.dll beside ...\server\artifacts\scripts\base_content.dll`。
 - 原因：E507 讓 build 和 E399 的比對都讀快照的英雄 DLL 集合，但各角色（server、client、UE）啟動時，`run_artifacts` 仍用 `script_dlls.modules()` 讀 live 的 hero_dlls。E399 的比對通過之後，server 和 client 啟動之間，b6633e02 把 C13、A17 轉正式。client 啟動時看到的集合多了快照沒建的 hero_c13。
@@ -18,9 +32,30 @@
 - **修正**：instance_var_key 改成 `__sv:<status>:<n>:<var>`（數字段與一般 var 名稱不會撞）；a06／gattr 兩批補丁在放回 live 前一起改。
 - **預防**：產生器新造的 state key 一律對照 unit_var::valid_key 的字元集；觸發裡的 `?` 錯誤會被吞，conformance 只看到結果沒變，新增 key 形式時要看一個會失敗就被拒的路徑（施放、apply）確認。
 
-## E514 （保留）沒有可疊加、會衰減的速度衝量：impulse 只能擋下（B25）（2026-10-31）
+## E514 沒有可疊加、會衰減的速度衝量：impulse 只能擋下（B25）（2026-10-31，工作線 B）
 
-## E513 （保留）headless 沒有每個階段與 system 的耗時：找不出 server tick 熱點（2026-10-31）
+- **現象**：工作線 A coverage B25（本願寺顯如 Fiend's Grip）：v3.2 `impulse { who, direction, speed, decay, duration }` 沒有 host 落點。原作用 Physics 函式庫的 AddPhysicsVelocity(dir*30)：速度每個物理幀乘 0.95，多次衝量互相疊加，單位仍可以自己移動。
+- **根因**：host 只有 forced_motion（固定距離與時間、會控住單位）。
+- **通用修正**：
+  - `omoba-core impulse`：一次性的 AddBuff 封包（`__impulse`），結算進 `Impulses` resource。
+  - 每個物理幀（1/30 秒，以整數算出該 tick 到期的幀數）：單位移動所有衝量速度的總和，每個速度乘上自己的 `decay`。
+  - 低於 `MIN_SPEED` 或 `duration` 用完就結束；遇牆停在牆前；建築與死亡單位不受影響；每個單位最多 64 個。
+  - moba_match 在 forced_motion 之後推進，狀態計入 replay hash；施法交易的 admission 會檢查封包。
+  - kit `impulse(who, direction, speed, decay, duration)`，speed 單位是每個物理幀。
+- **測試**：`impulse_packets_round_trip_and_buildings_take_none`、`impulses_decay_per_frame_and_add_up`。
+- **檔案**：`omoba-core/src/runtime/native/impulse.rs`（新）、`native.rs`、`forced_motion.rs`、`game_processor.rs`、`cast_settlement.rs`、`moba_match.rs`、`scripts/ability_kit/src/host_ext.rs`
+
+## E513 headless 沒有每個階段與 system 的耗時：找不出 server tick 熱點（2026-10-31，工作線 B）
+
+- **現象**：D21 要找 10 英雄、20000 tick 對局中 server tick 最耗時的部分。headless 報告只有每 tick 平均（`step_wall_ms_mean`）；TickProfile.system_stats 只涵蓋平行的 specs system，看不到序列的 match step、結算、script dispatch 各花多少。
+- **根因**：`SimulationDriver::step` 的各階段沒有計時。
+- **通用修正**：
+  - `SimulationDriver` 為 step 的 8 個階段（`PHASES`：match_begin、systems、drains、outcomes_systems、towers_scripts、outcomes_scripts、match_finish、facts）累計牆鐘時間。只量時間，不是模擬輸入。
+  - `phase_report(&world)` 給每個階段的平均 ms，以及 TickProfile 記錄的每個 system 平均 ms（由大到小）。
+  - `last_step_phases()` 給最近一步各階段的 ns，供 E512 最慢 tick 的拆解使用。
+  - moba_headless 報告的 `tick_profile` 由 E 接上（E512）。
+- **第一次量測**（teamfight 10 英雄、24711 tick）：systems 4.72 ms（hero_command 1.63、nearby 0.81、hero 0.46），towers_scripts（script dispatch）3.66 ms，其他階段都在 0.35 ms 以下。
+- **檔案**：`omoba-core/src/runtime/native/simulation_driver.rs`
 
 ## E512 headless 報告只有每 tick 平均時間：沒有 p50／p99、超出預算的 tick 與造成的 system（2026-10-31，e187 遊戲模式 session，使用者 D21：功能正確、完整、效能；已放回 live）
 - **現象**：D21 把驗收改成功能與效能，但 moba_headless 只有 step_wall_ms_mean，而且混了重播的 tick；batch 報告沒有效能，也沒有一份功能驗收的總表。

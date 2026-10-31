@@ -153,6 +153,21 @@ impl Cx<'_, '_> {
         Ok(())
     }
 
+    /// v3 `impulse { who, direction, speed, decay, duration }` (E514, omoba-core `impulse`): adds a
+    /// velocity of `speed` units per physics frame (1/30 s) along `direction` to `who`, kept
+    /// `decay` of each frame (0.95: 原作 Physics friction); several add up, and `who` still moves by
+    /// itself. A zero direction adds nothing.
+    pub fn impulse(&mut self, who: EntityHandle, direction: Vec2, speed: Fixed64, decay: Fixed64, duration: Option<Fixed64>) -> Res {
+        use omoba_core::runtime::native::impulse;
+        let length = direction.length();
+        if !who.is_valid() || length <= Fixed64::ZERO || speed == Fixed64::ZERO { return Ok(()); }
+        let speed = speed.max(Fixed64::from_i32(-impulse::MAX_SPEED)).min(Fixed64::from_i32(impulse::MAX_SPEED));
+        let velocity = Vec2::new(direction.x * speed / length, direction.y * speed / length);
+        let spec = impulse::Spec { velocity, decay, duration }.checked().ok_or("v3: invalid impulse")?;
+        self.world.add_stat_buff(who, RStr::from_str(impulse::BUFF), Fixed64::ONE, RStr::from_str(&spec.payload().to_string()));
+        Ok(())
+    }
+
     /// v3 `teleport` with `find_clear_space`: the caster lands at `preferred` if it can stand
     /// there, otherwise at the nearest walkable point the same distance from `anchor` (host
     /// `blink_landing`), and faces `anchor`. `range` bounds the caster–anchor distance.
@@ -521,6 +536,13 @@ impl Cx<'_, '_> {
 
     /// v3 `ability_in_slot(unit, slot)` (E497): the id of the ability at index `slot` (0, 1, 2, ...)
     /// of the hero `unit`'s ability list; None for a unit that is not a hero or an empty slot.
+    /// A generated hook's `Err` (E517): the host logs it and records it for conformance instead of
+    /// the dispatch dropping it. The caster is the holder.
+    pub fn report_error(&mut self, ability: &str, hook: &str, error: &str) {
+        let args = [ExtArg::Unit(self.caster), ExtArg::Str(ability.into()), ExtArg::Str(hook.into()), ExtArg::Str(error.into())];
+        let _ = self.world.ext(op::SCRIPT_ERROR, RSlice::from_slice(&args));
+    }
+
     pub fn ability_in_slot(&mut self, unit: EntityHandle, slot: u8) -> Option<String> {
         match self.read(op::ABILITY_IN_SLOT, &[ExtArg::Unit(unit), ExtArg::Num(Fixed64::from_i32(i32::from(slot)))]) {
             ExtValue::Str(id) => Some(id.into()), _ => None,
