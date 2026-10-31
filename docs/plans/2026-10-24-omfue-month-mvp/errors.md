@@ -6,7 +6,16 @@
 
 ## E492 （保留）spotlight 閃現後替身或原點超出畫面邊界，回位、走近、被動攻擊的點擊全被拒（c02 汰選斬擊未示範）（2026-10-31）
 
-## E491 （保留）creep_facing 的攻擊預期用最後一次攻擊紀錄的目標，小兵已換目標仍被算成沒轉向（2026-10-31）
+## E491 creep_facing 的攻擊預期用最後一次攻擊紀錄的目標，小兵已換目標仍被算成沒轉向（2026-10-31，e187 遊戲模式 session，B 分析；已放回 live）
+- **現象**：m6fix1 加上 E476 的目標資訊後，剩 28 筆 violation，其中 22 筆的目標是英雄。常見的情形是幾隻小兵在同一個 tick 有相同的 facing，目標英雄在 500～624 外。
+- **根因**：probe 用 AttackRecord 的 target，也就是最後一次攻擊的對象，並用它目前的位置。小兵每個 tick 都會重選目標：保護友方英雄結束後，會改打最近的小兵並轉向它。B 在 nobu 地圖只放小兵和塔跑 20000 tick，4480 次檢查，0 violation。
+- **通用修正**：
+  - omoba-core MobaMatch 加唯讀的 `lane_attack(world, entity)`（當下 lane 目標，射程照 lane step 的算法）與 `lane_role(entity)`。
+  - 攻擊模式改成比對當下目標，只有目標活著且在射程內才檢查；在射程外是追擊，算走路。
+  - 距離小於雙方 CollisionRadius 總和時不檢查。
+  - 樣本保留 `last_attack` 方便對照。
+  - 沒有 Tower 元件的 lane 建築（基地）標成 structure。
+- **避免**：拿「最近一次事件」的對象當成「現在」的狀態之前，先確認系統是不是每個 tick 都會重新決定。
 
 ## E490 （保留）showcase start_items 限制原始清單 ≤ 6，含合成道具元件的道具 spotlight（m71b、m73）被拒（2026-10-31）
 

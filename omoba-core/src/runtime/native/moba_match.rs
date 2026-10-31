@@ -836,6 +836,25 @@ pub struct MobaMatch {
 }
 
 impl MobaMatch {
+    /// A lane unit's current attack target and its attack range, as the lane step decides them
+    /// (moba_headless creep facing probe, E491).
+    pub fn lane_attack(&self, world: &World, entity: Entity) -> Option<(Entity, Fixed64)> {
+        let unit = self.units.get(&entity_key(entity))?;
+        let target = unit.target?;
+        let base = world.read_storage::<Unit>().get(entity).map(|body| body.attack_range)
+            .unwrap_or_else(|| Fixed64::from_i32(if unit.role.is_tower() {650} else {140}));
+        let buffs = world.read_resource::<crate::runtime::BuffStore>();
+        let range = if unit.role == LaneRole::Creep {
+            crate::runtime::UnitStats::from_refs(&buffs, false).final_attack_range(base, entity)
+        } else {base};
+        Some((target, range))
+    }
+
+    /// A lane unit's role (creep, tower, base…), for diagnostics.
+    pub fn lane_role(&self, entity: Entity) -> Option<LaneRole> {
+        self.units.get(&entity_key(entity)).map(|unit| unit.role)
+    }
+
     fn protects_champion(&self, unit: &LaneUnit, source_pos: Vec2, other: &LaneUnit, sieging: bool) -> bool {
         if sieging {return false;}
         let attacker=entity_key(other.entity);
