@@ -781,6 +781,8 @@ impl<'a> ParallelWorldAdapter<'a> {
             name::IS_INVULNERABLE=>V::Bool(has(state::INVULNERABLE)),
             name::IS_INVISIBLE=>V::Bool(entity.is_some_and(|e|buffs(e).stealth_level(e)>0)),
             name::IS_CREEP=>V::Bool(entity.is_some_and(|e|self.cache.creep.get(e).is_some())),
+            name::IS_NEUTRAL=>V::Bool(entity.and_then(|e|self.cache.faction.get(e)).is_some_and(|faction|
+                matches!(faction.faction_id,FactionType::Neutral|FactionType::HostileNeutral))),
             name::IS_RANGED=>V::Bool(entity.is_some_and(|e|self.source_attack(e).is_some()
                 && super::super::rules::attack::is_ranged(buffs(e),e,true))),
             name::OWNER=>handle(entity.and_then(|e|self.cache.summoned.as_ref()?.get(e).map(|summon|summon.summoner))),
@@ -2156,6 +2158,7 @@ mod tests {
         assert_eq!(unit(h,name::MAX_MANA),n(300));
         assert_eq!(unit(s,name::IS_ILLUSION),Ok(V::Bool(true)));
         assert_eq!(unit(h,name::IS_ILLUSION),Ok(V::Bool(false)));
+        assert_eq!((unit(c,name::IS_NEUTRAL),unit(h,name::IS_NEUTRAL)),(Ok(V::Bool(true)),Ok(V::Bool(false))),"E447: the camp has no team");
         assert_eq!(unit(h,name::IS_CHANNELING),Ok(V::Bool(true)));
         assert_eq!(unit(h,name::IS_RANGED),Ok(V::Bool(true)));
         assert_eq!(unit(s,name::IS_RANGED),Ok(V::Bool(false)),"no attack");

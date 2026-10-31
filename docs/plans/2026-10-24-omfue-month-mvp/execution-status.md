@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：unit_attr is_neutral（E447）
+
+- ext UNIT_ATTR 新增 `is_neutral`（野怪與非戰鬥中立）。給 b12_reality_slide。
 ## 2026-10-31 線 B：狀態的 immune_to（E445）
 
 - catalog 狀態的 `immune_to`（`tag:<tag>`／狀態 id／v3 state）：ability_kit 套用狀態前問 host（ext STATUS_IMMUNE），被拒時整個狀態不套。給 b22_purify。

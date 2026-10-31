@@ -2,6 +2,27 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E454 （保留）headless 統計沒有 INVALID_TARGET 的目標狀態，executor 查不出被拒原因（2026-10-31）
+
+## E453 （保留）沒有 set_time_of_day 的 host 落點，replica 也不採用公開的夜晚（2026-10-31）
+
+## E452 （保留）post-damage 事件沒有 event.damage.lethal（2026-10-31）
+
+## E451 （保留）狀態的 periodic 與事件沿用套上時的等級，升級後仍是舊數值（2026-10-31）
+
+## E450 （保留）狀態 trigger 裡沒寫 source 的 damage 由持有者造成，而不是施加者（2026-10-31）
+
+## E449 （保留）status trigger on_mana_spent 沒有 host 事件（2026-10-31）
+
+## E448 （保留）catalog 狀態列沒有 tags／immune_to／remove_on，主機依 tag 的查詢全部落空（2026-10-31）
+
+## E447 v3 沒有辦法判斷中立單位（is_neutral）：b12_reality_slide 只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 回報 b12_reality_slide 要表達「排除中立」（`team_of(it) == team_of(caster) or team_of(it) == enemy_team(caster)`），但 is_ally／is_enemy 組不出來：野怪對每一隊都算 enemy。
+- **根因**：ext UNIT_ATTR 沒有中立的屬性。
+- **通用修正**：新增 unit_attr `is_neutral`：faction 是 `HostileNeutral`（野怪）或 `Neutral`（非戰鬥中立）時為真。
+- **驗證**：adapter 的 unit_attr 測試新增野怪為真、英雄為假；adapter 測試通過。
+
 ## E446 （保留）moba_headless 重播世界少了統計資源，DamageTrace 讓腳本多送標記，quick_swap 重播全部分歧（2026-10-31）
 
 ## E445 狀態的 immune_to 沒有 host 落點，持有者仍會被套上帶指定 tag 的狀態：b22_purify 只能擋下（2026-10-31，工作線 B）
@@ -53,7 +74,10 @@
 - **後續（已放回 live）**：快照 cargo 建置也依可用 commit 准入。量到 m6b2g8 的 release 快照建置峰值 private 14,042 MB（26 個 rustc／cargo）；`memory_admission` 加 BUILD_COMMIT_BYTES＝16 GB、BUILD_MARGIN＝1（估計值就是峰值）與 `gate:wait(sleep_ms)`（每 15 秒再問一次），`source_snapshot.build_headless` 在 cargo 之前等到可用 commit 夠為止。測試增為 10 項。
 - **避免**：平行數依當下可用資源決定，不寫死；錯誤訊息裡的 Windows 結束碼一律用十六進位 NTSTATUS 解讀。
 
-## E440 （保留）conformance：由另一招設定等級的子技能（c07_storm_move）沒有先施放那一招（2026-10-31）
+## E440 conformance：只在另一招作用期間有等級的子技能，沒有先施放那一招（2026-10-31，conformance session，工作線 A 查出）
+- **現象**：c07_storm_move r1～r3 normal 判 fail（cast 1 was not accepted）。它是 learnable = false 的子技能，只有 c07_raijin_wrath 的雷雲存在時，才會被 set_ability_level 設成主技能的等級，雷雲到期時設回 0。
+- **通用修正**：情境新增 `leveled_by` 前置條件：learnable = false，而且另一招既會把它設成非 0 等級、也會把它設回 0，每個情境就先施放那一招，等到它的等級大於 0 才開始。只在 on_upgrade 讓等級跟著主技能走的子技能（`ability.level + 1`，例如 b02_vanishing_step、a24_blood_shield）不套用：第一版沒有這個限制，造成 236 個 pass 轉 unsupported，全跑時抓到後才縮小。
+- **結果**：前置條件已能成立（雷雲施放之後，storm_move 取得等級）。不過 storm_move 和 b26_release_wave 仍然不被接受，原因另外查。
 
 ## E439 召喚交易拒絕 ScriptDamageTag 與施放在友方單位上的一般狀態：b24_earth_prison 施放被拒（2026-10-31，工作線 B）
 
@@ -95,7 +119,10 @@
 - **通用修正**：moba_headless 在 hero_stats 模式記住每個 SummonedUnit 的召喚者，傷害的來源是這些單位時算給召喚者的玩家；同時插入 DamageTrace，依（玩家、ability）加總套用後的傷害、對英雄的部分、被取消與因來源死亡而略過的封包數，寫進 hero_stats 的 `ability_damage`。verify_m6_batch 的技能表加三欄：每局傷害、每局對英雄傷害、取消數；有傷害但不在技能組裡的 ability（狀態、召喚物）也會有一列。
 - **避免**：用來判斷「技能沒打到」的統計，要先確認它涵蓋所有出手者（召喚物、分身），並分到技能層級，才能交給別人當證據。
 
-## E435 （保留）conformance 的傷害檢查只打 creep body，英雄目標的傷害沒有驗過（e187：B32 每局只對英雄 1.1k）（2026-10-31）
+## E435 conformance：傷害檢查只打 creep body，沒有驗過英雄目標的傷害（2026-10-31，conformance session，工作線 E 的 e187）
+- **現象**：批次中 B32 每局只對英雄打出 1.1k 傷害，但 conformance 的傷害檢查（check_damage）只對沒有防禦的 creep body 施放，從來沒有對英雄打過。
+- **通用修正**：新增 check_damage_on_hero。目標類型包含英雄的技能，或沒有指定目標單位的點／範圍技，會對敵方英雄（sturdy、可見）再施放一次，視窗是 cast_point + 1 秒。比對文件傷害路徑的第一筆 DamageTrace（抗性之前），必須等於文件值。沒有 tag 的手寫 handler 看不出來源，不判定。
+- **結果**：b32_divine_slash 對英雄打出 100～400、c02_mirage_strike 打出 200～500，都符合文件。所以批次中的偏低不是傷害沒有落到英雄身上。
 
 ## E434 批次快照鎖不記持有者：被停止的批次留下的鎖擋住後面的批次 3 小時（2026-10-31，e187 遊戲模式 session；已放回 live）
 - **現象**：lua-host 被 Defender 隔離時，停止了一個剛取得快照鎖的 verify_m6_batch；重跑的第 3 批在 `[snapshot] another batch uses ... waiting` 等了 30 多分鐘，鎖目錄 target/snapshots/verify_m6_batch/lock 沒有任何程序持有。
@@ -173,6 +200,7 @@
 - **現象**：b05_three_arrows 的 b05r_armor 在 r2～r4 都讀到 armor 1。
 - **根因**：E404 只對 ability_type 為 Passive 的 entry 逐級學習。b05_three_arrows 是主動技，但帶有 passive.aura，光環發射器在 on_learn／on_upgrade 時用當下的等級 emit，直接寫入等級就跳過了這一步。
 - **通用修正**：v3 區塊有非空 `passive` 的 entry（從 V3_CATALOG_JSON 讀，並快取）也照升級順序逐級學習。
+- **第二版**：V3_CATALOG_JSON 是 tooltip 用的精簡模型，沒有 passive 和 events，所以第一版其實沒有生效（工作線 A 用 SkillLearn 的 log 查出）。改成由 v3_scenarios.lua 讀完整文件，在情境上標 `learn_by_upgrade`，條件是 passive 非空，或者有 events.on_upgrade／on_learn；setup 和三個 learned_only 路徑都讀這個標記。逐級學習時會跑 step，英雄 settle 會把法力補滿（117 個 insufficient_mana 被接受），所以學完後要再套一次 given 的法力。
 - **結果**：全跑 fail 從 163 降到 139（和 E420、E422 一起）。新暴露的 B31 殘留光環見 E430。B05、B31 的光環在升級後 level 仍停在 1，是真問題，已交給工作線 A。
 
 ## E424 沒有 status 的 on_moved 觸發：a03_pacing_gu、b23_undead_pact、c12_homing_lock 無法產生（2026-10-31，工作線 B）

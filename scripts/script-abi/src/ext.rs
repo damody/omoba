@@ -113,6 +113,9 @@ pub mod unit_attr {
     pub const IS_INVISIBLE: &str = "is_invisible";
     /// `Bool`: a lane or neutral creep.
     pub const IS_CREEP: &str = "is_creep";
+    /// `Bool`: on no team: a jungle camp or a non-combatant neutral (faction `HostileNeutral` /
+    /// `Neutral`); v3 `is_enemy` counts the jungle as an enemy, this tells it apart (E447).
+    pub const IS_NEUTRAL: &str = "is_neutral";
     /// `Bool`: attacks at range (states `melee_attack` / `ranged_attack` override).
     pub const IS_RANGED: &str = "is_ranged";
     /// `Unit`: the summoner of a summon; `None` otherwise.
