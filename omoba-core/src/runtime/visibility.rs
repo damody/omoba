@@ -1432,6 +1432,10 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             disclose_json!(facings, DISCLOSED_FACING_COMPONENT_SCHEMA_ID);
             disclose_json!(turn_speeds, DISCLOSED_TURN_SPEED_COMPONENT_SCHEMA_ID);
             if let Some(unit_manas) = &unit_manas { disclose_json!(unit_manas, crate::runtime::native::unit_mana::SCHEMA_ID); }
+            // A non-hero's own abilities (E531), from its BuffStore rows.
+            if let Some(shown) = buffs.as_ref().and_then(|buffs| crate::runtime::native::unit_abilities::state(buffs, entity)) {
+                disclosed.push((crate::runtime::native::unit_abilities::SCHEMA_ID, canonical_disclosed_json(&shown)));
+            }
             disclose_json!(
                 collision_radii,
                 DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID

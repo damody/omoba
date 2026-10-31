@@ -800,6 +800,7 @@ impl StateInitializer {
         ecs.register::<FacingBroadcast>();
         ecs.register::<TurnSpeed>();
         ecs.register::<crate::runtime::native::unit_mana::UnitMana>();
+        ecs.register::<crate::runtime::native::unit_abilities::UnitAbilityState>();
         ecs.register::<ReplicationScope>();
         ecs.register::<VisionSource>();
         ecs.register::<PlacedWard>();

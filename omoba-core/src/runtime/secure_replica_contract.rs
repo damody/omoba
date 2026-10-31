@@ -101,6 +101,7 @@ pub fn secure_replica_component_allowlist() -> BTreeSet<u32> {
         crate::runtime::DISCLOSED_FACING_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_TURN_SPEED_COMPONENT_SCHEMA_ID,
         crate::runtime::native::unit_mana::SCHEMA_ID,
+        crate::runtime::native::unit_abilities::SCHEMA_ID,
         crate::runtime::DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_INVENTORY_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_TOWER_COMPONENT_SCHEMA_ID,

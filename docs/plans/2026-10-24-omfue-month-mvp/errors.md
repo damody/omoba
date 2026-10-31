@@ -4,7 +4,15 @@
 
 ## E532 （保留）selector include_dead 找不到屍體（B23 生靈縛）（2026-10-31）
 
-## E531 （保留）召喚物技能與冷卻沒有公開給 client（E529 的 UE 按鈕）（2026-10-31）
+## E531 召喚物的技能與冷卻沒有公開給 client（2026-10-31，工作線 B）
+
+- **現象**：E529 把召喚物的技能與冷卻存成 BuffStore row `__unit_ability:*`／`__unit_ability_cd:*`。buff_visual_state 只公開 catalog 裡的 buff，所以 client 與 UE 拿不到召喚物的技能清單和剩餘冷卻，工作線 C 做不出召喚物的技能按鈕。
+- **通用修正**：
+  - `unit_abilities::UnitAbilityState`：JSON component，`SCHEMA_ID = 0x464f471c`，內容是 `{ abilities: [{ ability, level, cooldown_raw }] }`，依 ability id 排序。cooldown_raw 是剩餘冷卻的 Fixed64 raw，0 表示可施放。
+  - visibility 揭露單位時，從 BuffStore 建出這個 component；凡是看得到該單位的一方都看得到，與英雄技能欄相同。沒有技能的單位不帶。
+  - replica：filtered_specs 的 restore 與 export 都有這個 component（世界有註冊時才處理）；初始化時註冊；secure_replica_contract 的 schema 清單也已加入。
+- **測試**：unit_abilities 新增 state 斷言；另跑 secure_replica_contract、filtered_specs、visibility 測試。
+- **檔案**：`omoba-core/src/runtime/native/unit_abilities.rs`、`visibility.rs`、`filtered_specs.rs`、`secure_replica_contract.rs`、`native/initialization.rs`
 
 ## E530 召喚物模板 tag ward 被擋（B17）（2026-10-31，工作線 B）
 

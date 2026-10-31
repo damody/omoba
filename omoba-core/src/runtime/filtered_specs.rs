@@ -801,6 +801,9 @@ impl SpecsDisclosedWorldStepper {
             TurnSpeed
         );
         restore_json_component!(crate::runtime::native::unit_mana::SCHEMA_ID, crate::runtime::native::unit_mana::UnitMana);
+        if crate::runtime::native::unit_abilities::registered(&self.filtered.world) {
+            restore_json_component!(crate::runtime::native::unit_abilities::SCHEMA_ID, crate::runtime::native::unit_abilities::UnitAbilityState);
+        }
         restore_json_component!(
             crate::runtime::DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID,
             CollisionRadius
@@ -887,6 +890,8 @@ impl SpecsDisclosedWorldStepper {
             .read_storage::<crate::runtime::TurnSpeed>();
         let unit_manas = crate::runtime::native::unit_mana::registered(&self.filtered.world)
             .then(|| self.filtered.world.read_storage::<crate::runtime::native::unit_mana::UnitMana>());
+        let unit_abilities = crate::runtime::native::unit_abilities::registered(&self.filtered.world)
+            .then(|| self.filtered.world.read_storage::<crate::runtime::native::unit_abilities::UnitAbilityState>());
         let collision_radii = self
             .filtered
             .world
@@ -955,6 +960,7 @@ impl SpecsDisclosedWorldStepper {
                 crate::runtime::DISCLOSED_TURN_SPEED_COMPONENT_SCHEMA_ID
             );
             if let Some(unit_manas) = &unit_manas { export_json_component!(unit_manas, crate::runtime::native::unit_mana::SCHEMA_ID); }
+            if let Some(unit_abilities) = &unit_abilities { export_json_component!(unit_abilities, crate::runtime::native::unit_abilities::SCHEMA_ID); }
             export_json_component!(
                 collision_radii,
                 crate::runtime::DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID
