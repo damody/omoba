@@ -116,15 +116,21 @@ local function model(doc, compiled)
   -- a summon template's passive.states (not a dummy: the shared dummy body has them): a hidden,
   -- permanent, undispellable status `<template>_passive` the creating code puts on the new unit
   -- with the template's statuses (line B: every state has a host vocab entry)
+  local synthesized = {}
   for _, u in ipairs(doc.unit_templates or {}) do
     local p = u.passive or {}
     local dummy = false
     for _, tag in ipairs(u.tags or {}) do if tag == "dummy" then dummy = true end end
-    if not dummy and type(p.states) == "table" and #p.states > 0 then
+    -- passive.triggers ride on the same status (its periodic / on_* triggers run on any unit, line
+    -- B); `$name` reads the template's values, and the cast that creates the template hosts it
+    local states = type(p.states) == "table" and #p.states > 0
+    local triggers = type(p.triggers) == "table" and next(p.triggers) ~= nil
+    if not dummy and (states or triggers) then
       local sd = { id = u.id .. "_passive", duration = "infinite", stacking = "keep", dispel = "none",
-        visibility = "hidden", reveal = "public", states = p.states }
-      statuses[sd.id] = add(sd, "status", shared)
+        visibility = "hidden", reveal = "public", states = states and p.states or nil, triggers = triggers and p.triggers or nil }
+      statuses[sd.id] = add(sd, "status", triggers and templates[u.id] or shared)
       templates[u.id].passive_status = sd.id
+      if triggers then synthesized[#synthesized + 1] = sd end
     end
   end
   -- a document-level status a unit template carries is applied by the cast that creates the
@@ -144,6 +150,8 @@ local function model(doc, compiled)
         local so = type(sid) == "string" and statuses[sid]
         if so and so.parent == shared and not so.host then so.host = abilities[a.id] end
       end
+      local ps = u and u.passive_status and statuses[u.passive_status]
+      if ps and ps.def.triggers and not ps.host then ps.host = abilities[a.id] end
     end
   end
   -- compiled value rows (raw per rank) by owner id
@@ -159,7 +167,9 @@ local function model(doc, compiled)
   end
   for id, ov in pairs(compiled.owner_values or {}) do take(id, ov.values) end
   return { owners = owners, statuses = statuses, abilities = abilities, templates = templates, entries = entries,
-    rows = rows, routines = doc.routines or {}, vars = vars, doc_id = doc.id, doc_statuses = doc.statuses or {} }
+    rows = rows, routines = doc.routines or {}, vars = vars, doc_id = doc.id,
+    doc_statuses = (function() local all = {}; for _, s in ipairs(doc.statuses or {}) do all[#all + 1] = s end
+      for _, s in ipairs(synthesized) do all[#all + 1] = s end; return all end)() }
 end
 
 -- docs/character_pipeline/schema/v3-shared-registry.lua (names shared between documents)
@@ -380,8 +390,15 @@ function Gen:hoist_ranks(text)
   return table.concat(out) .. text:sub(prev)
 end
 -- A status's start function lives in its parent entry's module: that module must be generated.
+-- the module holding a status's applying code (st_<id>_start): its parent ability, or for a
+-- template's synthesized passive status the ability creating the template (its host)
+local function home_of(so)
+  if so.host and so.parent.kind == "template" then return so.host end
+  return so.parent
+end
+
 function Gen:need_module(so)
-  local parent = so and so.parent
+  local parent = so and home_of(so)
   if parent and (parent.kind == "ability" or parent.kind == "item") and not (self.entry and self.entry.def.id == parent.id) then
     self.modules_needed = self.modules_needed or {}
     self.modules_needed[parent.id] = so.def.id
@@ -1220,6 +1237,9 @@ local function emit_statuses(m, root)
       for name in pairs(triggers_of(s) or {}) do if name == "on_created" or name == "periodic" then evented_only = false end end
       if s.aura or s.reapply_if_removed == true then evented_only = false end
       if o and o.kind ~= "ability" and o.kind ~= "item" and m.statuses[id].host and evented_only then o = m.statuses[id].host end
+      -- a template's synthesized passive status: only the cast creating the template applies it,
+      -- so all of its triggers live with that cast's ability
+      if o and o.kind == "template" and m.statuses[id].host then o = m.statuses[id].host end
       if not o or (o.kind ~= "ability" and o.kind ~= "item") then p[#p + 1] = "status.triggers on a document-level status"
       else owner = o.id end
     end
@@ -1340,6 +1360,9 @@ end
 -- actions
 ---------------------------------------------------------------------------
 local ACTION_FIELDS = {
+  chain = set({ "op", "from", "first", "jumps", "radius", "interval", "team", "types", "flags", "where", "allow_repeat", "order", "actions", "cue", "as" }),
+  -- chain's internal candidate gathering (the for_each it lowers to)
+  __chain_cand = set({ "op", "of" }),
   apply_status = set({ "op", "status", "to", "duration", "source", "stacks", "vars" }),
   -- exclude_source_tags, source_is, source_ability, min_duration, min_remaining: the host does not
   -- judge status sources or durations yet (line B), so they stay blocked
@@ -1685,7 +1708,7 @@ function Gen:counted_status(a, ctx, line)
       keep and "if existed { None } else { Some(duration) }" or "Some(duration)", flat, per, slow and ("Some(" .. slow .. ")") or "None"))
   if starts then
     self:need_module(so)
-    out = out .. line(string.format("    if !existed && cx.has_status(to, %s) { super::%s::st_%s_start(cx, to)?; }", S, so.parent.id, a.status))
+    out = out .. line(string.format("    if !existed && cx.has_status(to, %s) { super::%s::st_%s_start(cx, to)?; }", S, home_of(so).id, a.status))
   end
   return out .. line("}")
 end
@@ -1773,6 +1796,23 @@ local function routine_needs_entry(m, name, seen)
   end
   walk((m.routines[name] or {}).actions)
   needs_cache[m][name] = found
+  return found
+end
+
+-- Does a routine (or one it calls) edit the damage being taken (modify_damage)? Called from a
+-- damage-pre trigger it is laid out in the caller, whose ctx.pre it needs (Cx.damage_edit).
+local function routine_edits_damage(m, name, seen)
+  seen = seen or {}
+  if seen[name] then return false end
+  seen[name] = true
+  local found = false
+  local function walk(node)
+    if found or type(node) ~= "table" then return end
+    if node.op == "modify_damage" then found = true; return end
+    if node.op == "call" and m.routines[node.routine] and routine_edits_damage(m, node.routine, seen) then found = true; return end
+    for _, v in pairs(node) do walk(v) end
+  end
+  walk((m.routines[name] or {}).actions)
   return found
 end
 
@@ -2046,7 +2086,7 @@ function Gen:action(a, ctx, ind)
         .. line("    let stats: &[(StatKey, i64)] = " .. stats .. ";")
         .. (slow and line("    let slow = Some(" .. slow .. ");") or "")
       -- the new instance's start (on_created, periodic) runs as that instance, its source the caster
-      local start_fn = starts and string.format("super::%s::st_%s_start(cx, to)", so.parent.id, a.status)
+      local start_fn = starts and string.format("super::%s::st_%s_start(cx, to)", home_of(so).id, a.status)
       if starts then self:need_module(so) end
       local function started(indent)
         return line(indent .. "let r = match r {") .. line(indent .. "    Ok(n) if n != 0 => {")
@@ -2074,12 +2114,12 @@ function Gen:action(a, ctx, ind)
         self:need_module(so)
         s2 = s2 .. line("    let existed = { let c = cx.caster; cx.caster = source; let e = cx.has_status(to, &super::ids::status::" .. upper(a.status) .. "); cx.caster = c; e };") .. line(call)
           .. line("    if !existed {") .. line("        let caster = cx.caster;") .. line("        cx.caster = source;")
-          .. line(string.format("        let r = super::%s::st_%s_start(cx, to);", so.parent.id, a.status))
+          .. line(string.format("        let r = super::%s::st_%s_start(cx, to);", home_of(so).id, a.status))
           .. line("        cx.caster = caster;") .. line("        r?;") .. line("    }")
         -- a refreshed aura status emits its aura again at this rank (an upgrade's level, D B31W)
         if s.aura then
           s2 = s2 .. line("    else {") .. line("        let caster = cx.caster;") .. line("        cx.caster = source;")
-            .. line(string.format("        let r = super::%s::st_%s_reaura(cx, to);", so.parent.id, a.status))
+            .. line(string.format("        let r = super::%s::st_%s_reaura(cx, to);", home_of(so).id, a.status))
             .. line("        cx.caster = caster;") .. line("        r?;") .. line("    }")
         end
       else
@@ -2092,8 +2132,8 @@ function Gen:action(a, ctx, ind)
       return line("{") .. line("    let to = " .. to .. ";") .. line("    let duration = " .. dur .. ";")
         .. line("    let existed = cx.has_status(to, &super::ids::status::" .. upper(a.status) .. ");")
         .. line("    cx.apply_status(to, &super::ids::status::" .. upper(a.status) .. ", duration, " .. stats .. ")?;")
-        .. line(string.format("    if !existed { super::%s::st_%s_start(cx, to)?; }", so.parent.id, a.status)
-          .. (s.aura and string.format(" else { super::%s::st_%s_reaura(cx, to)?; }", so.parent.id, a.status) or "")) .. line("}")
+        .. line(string.format("    if !existed { super::%s::st_%s_start(cx, to)?; }", home_of(so).id, a.status)
+          .. (s.aura and string.format(" else { super::%s::st_%s_reaura(cx, to)?; }", home_of(so).id, a.status) or "")) .. line("}")
     end
     if s.stacking == "keep" and not a.__aura then
       return line("{") .. line("    let to = " .. to .. ";") .. line("    let duration = " .. dur .. ";")
@@ -2574,14 +2614,41 @@ function Gen:action(a, ctx, ind)
       -- are read before the unit exists, in key order)
       local lets, rows = {}, {}
       for _, k in ipairs(sorted_keys(a.overrides)) do
-        if not CREATE_OVERRIDES[k] then self:block("action:create_unit.overrides." .. tostring(k))
+        if k == "ability_level" then -- the granted abilities' level (below)
+        elseif not CREATE_OVERRIDES[k] then self:block("action:create_unit.overrides." .. tostring(k))
         else
           local name = "ov_" .. k
           lets[#lets + 1] = "let " .. name .. " = " .. self:value(a.overrides[k], ctx, "num") .. "; "
           rows[#rows + 1] = "(" .. rust_str(k) .. ", " .. name .. ")"
         end
       end
-      make = "{ " .. table.concat(lets) .. "let u = " .. make .. "; cx.unit_overrides(u, &[" .. table.concat(rows, ", ") .. "])?; u }"
+      if #rows > 0 then
+        make = "{ " .. table.concat(lets) .. "let u = " .. make .. "; cx.unit_overrides(u, &[" .. table.concat(rows, ", ") .. "])?; u }"
+      end
+    end
+    -- the template's `abilities` (line B E529): the new unit holds them, its owner casts them by a
+    -- summon cast order. Level: overrides.ability_level, else the rank of the ability its
+    -- level_link names (this cast's own rank when that is the creating ability), else 1.
+    local granted = t and t.def.abilities or {}
+    if #granted > 0 then
+      local lv_all = a.overrides and a.overrides.ability_level ~= nil and self:value(a.overrides.ability_level, ctx, "num") or nil
+      local s = "{ let u = " .. make .. "; "
+      if lv_all then s = s .. "let lv = " .. lv_all .. "; " end
+      for _, aid in ipairs(granted) do
+        local ad = type(aid) == "string" and self.m.abilities[aid]
+        if not ad then self:block("unit_template abilities: " .. tostring(aid) .. " not declared")
+        else
+          local lv = lv_all and "lv"
+          if not lv then
+            local link = ad.def.level_link
+            if link == nil then lv = "Fixed64::ONE"
+            elseif ctx.owner and link == ctx.owner.id then lv = "Fixed64::from_i32(i32::from(cx.rank))"
+            else lv = "Fixed64::from_i32(i32::from(cx.rank_of(cx.caster, " .. rust_str(link) .. ")))" end
+          end
+          s = s .. "cx.grant_unit_ability(u, " .. rust_str(aid) .. ", " .. lv .. ")?; "
+        end
+      end
+      make = s .. "u }"
     end
     -- the template's `statuses` go on the new unit as it appears, applied by this cast like an
     -- `apply_status` to it (v3_summons rows carry no statuses)
@@ -2667,8 +2734,9 @@ function Gen:action(a, ctx, ind)
   elseif op == "call" then
     local r = self.m.routines[a.routine]
     if not r then self:block("routine:" .. tostring(a.routine) .. " not declared"); return "" end
-    if self.entry and routine_needs_entry(self.m, a.routine) then
-      if routine_recursive(self.m, a.routine) then
+    local pre_inline = ctx.pre and routine_edits_damage(self.m, a.routine)
+    if pre_inline or (self.entry and routine_needs_entry(self.m, a.routine)) then
+      if not pre_inline and routine_recursive(self.m, a.routine) then
         -- a routine that calls itself again (a bouncing bolt): one function of this entry's module,
         -- generated once; its steps are this entry's, and the call inside it calls it again
         local fname = "inl_" .. a.routine
@@ -2743,6 +2811,66 @@ function Gen:action(a, ctx, ind)
     local lets, names = {}, {}
     for i, code in ipairs(args) do lets[#lets + 1] = line("    let a" .. i .. " = " .. code .. ";"); names[#names + 1] = "a" .. i end
     return line("{") .. table.concat(lets) .. line("    super::routines::" .. a.routine .. "(cx, " .. table.concat(names, ", ") .. ")?;") .. line("}")
+  elseif op == "__chain_cand" then
+    return line("cand.push(" .. self:value(a.of, ctx, "unit") .. ");")
+  elseif op == "chain" then
+    -- line B's kit chain (E528): every bolt has its own hit table (a token). One scheduled step per
+    -- hit: arguments token, jump (the first target is 1), the unit hit before (the first target
+    -- itself for jump 1), the point the bolt comes from; then the captures. Jump 1 runs now.
+    if not self.entry then self:block("action:chain in a routine"); return "" end
+    if a.team == "any" then self:block("action:chain.team:any") end
+    local order = ({ nearest = "Nearest", random = "Random", id = "Id" })[a.order or "id"]
+    if not order then self:block("action:chain.order:" .. tostring(a.order)); order = "Id" end
+    local sc = step_scope(ctx, 4)
+    local function bound(name, ty)
+      local v = self:bind(sc, name, ty); sc.names[name].used = true; return v
+    end
+    local token, jump = bound("chain_token_", "num"), bound("jump", "num")
+    local prev, src = bound("chain_prev_", "unit"), bound("chain_src_", "point")
+    local sctx = { owner = ctx.owner, scope = sc, event = false }
+    local step = self:reserve_step()
+    local function sline(x) return "    " .. x .. "\n" end
+    local b = sline("let " .. token .. " = ability_kit::arg_as_num(args, 0);")
+      .. sline("let " .. jump .. " = ability_kit::arg_as_num(args, 1);")
+      .. sline("let " .. prev .. " = ability_kit::arg_as_unit(args, 2);")
+      .. sline("let " .. src .. " = ability_kit::arg_as_point(args, 3);")
+    -- the next target: the candidates around the unit hit before, by the selector, then the kit
+    -- picks one this bolt has not hit (allow_repeat: any but the one it comes from)
+    local pick = self:action({ op = "for_each", as = "it", select = { from = "chain_prev_", shape = "circle", radius = a.radius,
+      team = a.team, types = a.types, flags = a.flags, where = a.where }, actions = { { op = "__chain_cand", of = "it" } } }, sctx, "        ")
+    local body_scope = scope_child(sc)
+    local it = self:bind(body_scope, a.as or "it", "unit")
+    body_scope.names[a.as or "it"].used = true
+    local bctx = { owner = ctx.owner, scope = body_scope, event = false }
+    local jumps = self:value(a.jumps, sctx, "num")
+    local interval = a.interval ~= nil and self:value(a.interval, sctx, "num") or "Fixed64::ZERO"
+    b = b .. sline("let " .. it .. " = if " .. jump .. " == Fixed64::ONE { " .. prev .. " } else {")
+      .. sline("    let mut cand: Vec<EntityHandle> = Vec::new();") .. pick
+      .. sline(string.format("    match cx.chain_next(%s, %s, cand, ability_kit::ChainOrder::%s, %s) { Some(u) => u, None => return Ok(()) }",
+        token, prev, order, a.allow_repeat == true and "true" or "false"))
+      .. sline("};")
+      .. sline("let jumps = " .. jumps .. ";") .. sline("let interval = " .. interval .. ";")
+      -- the hit table outlives every remaining jump
+      .. sline("cx.chain_mark(" .. token .. ", " .. it .. ", (jumps + Fixed64::from_i32(2)) * interval + Fixed64::ONE)?;")
+    -- the next jump first (the body may end the cast), with this hit's captures
+    local after = self:actions(a.actions, bctx, "    ")
+    local cue = a.cue ~= nil and self:action({ op = "cue", id = a.cue, at = "chain_src_", to = a.as or "it" }, bctx, "    ") or ""
+    b = b .. sline("if " .. jump .. " <= jumps {") .. sline("    let mut next = args.to_vec();")
+      .. sline("    next[1] = ability_kit::arg_num(" .. jump .. " + Fixed64::ONE);")
+      .. sline("    next[2] = ability_kit::arg_unit(" .. it .. ");")
+      .. sline("    next[3] = ability_kit::arg_point(cx.pos(" .. it .. ")?);")
+      .. sline("    let owner = cx.caster;")
+      .. sline(string.format("    cx.schedule(owner, ID, %d, interval, &next)?;", step)) .. sline("}")
+      .. cue .. after
+    local args = self:capture_args(sc)
+    self:set_step(step, "`chain`", b, true)
+    local first = self:value(a.first, ctx, "unit")
+    local from = self:value(a.from, ctx, "point")
+    return line("{") .. line("    let first = " .. first .. ";") .. line("    let from = " .. from .. ";")
+      .. line("    let token = cx.chain_token();")
+      .. line("    let args = [ability_kit::arg_num(token), ability_kit::arg_num(Fixed64::ONE), ability_kit::arg_unit(first), ability_kit::arg_point(from)"
+        .. (#args > 0 and ", " or "") .. table.concat(args, ", ") .. "];")
+      .. line(string.format("    step_%d(cx, &args)?;", step)) .. line("}")
   elseif op == "delay" then
     if not self.entry then self:block("action:delay in a routine"); return "" end
     -- `capture` only names what is captured anyway: every name the body reads is
@@ -3332,12 +3460,12 @@ local ENTRY_EVENTS = set({ "on_cast", "on_toggle_on", "on_toggle_off", "on_learn
 local PASSIVE_TRIGGERS = { on_attack_hit = true, on_ability_executed = true, on_respawn = true, on_attack_windup = true, on_created = true,
   on_take_damage = true, on_deal_damage = true, on_attacked_hit = true, on_attacked = true, periodic = true,
   on_take_damage_pre = true, on_deal_damage_pre = true, on_kill = true, on_attack_launch = true, on_heal_received = true,
-  on_order_targeted = true, on_attack_miss = true }
+  on_order_targeted = true, on_attack_miss = true, on_moved = true }
 -- passive trigger -> status_event mask bit and host kind (the learner's marker listens)
 local PASSIVE_EVENTS = { on_take_damage = { 8, 5 }, on_deal_damage = { 16, 6 }, on_attacked_hit = { 4, 4 }, on_attacked = { 4, 4 },
   on_attack_windup = { 256, 10 }, on_kill = { 512, 11 }, on_attack_launch = { 1024, 12 },
   on_take_damage_pre = { 32, 7 }, on_deal_damage_pre = { 64, 8 }, on_heal_received = { 65536, 19 },
-  on_order_targeted = { 32768, 18 }, on_attack_miss = { 131072, 20 } }
+  on_order_targeted = { 32768, 18 }, on_attack_miss = { 131072, 20 }, on_moved = { 8192, 16 } }
 
 -- the module of an entry the generator does not lower yet: casting it fails with the forms
 local STUB = [[/// Not generated yet: %s
@@ -3654,7 +3782,7 @@ local function emit_entry(m, o, opts, status_problems)
       else
         local evt = PASSIVE_EVENTS[ev]
         local pre = ev == "on_take_damage_pre" or ev == "on_deal_damage_pre"
-        local ctx = { owner = o, scope = scope_child(nil), event = ev == "on_ability_executed" and "owner_cast" or (ev == "on_heal_received" and "heal_received") or (ev == "on_order_targeted" and "order_targeted") or ev ~= "on_created", pre = pre, windup = ev == "on_attack_windup" }
+        local ctx = { owner = o, scope = scope_child(nil), event = ev == "on_ability_executed" and "owner_cast" or (ev == "on_heal_received" and "heal_received") or (ev == "on_order_targeted" and "order_targeted") or (ev == "on_moved" and "moved") or ev ~= "on_created", pre = pre, windup = ev == "on_attack_windup" }
         local filter = tr.filter and g:value(tr.filter, ctx, "bool") or "true"
         filters[ev] = filter
         local body = g:actions(tr.actions, ctx, "    ")

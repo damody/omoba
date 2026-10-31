@@ -193,7 +193,9 @@ local function dummy_rows(doc, t, value)
   local function no(what) problems[#problems + 1] = what end
   local known = { id = true, source_id = true, values = true, text = true, notes = true, provenance = true, quirks = true,
     max_level = true, attack = true, vision = true, owner_death = true, ai = true, tags = true, passive = true, stats = true,
-    statuses = true, flying = true, bounty = true }
+    statuses = true, flying = true, bounty = true,
+    -- abilities the creating code grants the unit (kit grant_unit_ability, line B E529)
+    abilities = true }
   -- a chase_target dummy moves by its chase table and acquires within acquisition_range (E406)
   if t.ai == "chase_target" then known.chase = true; known.acquisition_range = true end
   -- a pathing blocker (line B E426): immobile, its square's half side its collision radius
@@ -209,8 +211,7 @@ local function dummy_rows(doc, t, value)
   end
   if t.ai ~= nil and t.ai ~= "none" and t.ai ~= "chase_target" then no("ai:" .. tostring(t.ai) .. " on a dummy") end
   -- tag building: a building unit like a tower (line B E428): immobile, no chase
-  -- tag ward: the host's has_tag(u, ward) (line B E530)
-  for _, tag in ipairs(t.tags or {}) do if tag ~= "dummy" and tag ~= "summon" and tag ~= "building" and tag ~= "ward" then no("tag:" .. tag) end end
+  for _, tag in ipairs(t.tags or {}) do if tag ~= "dummy" and tag ~= "summon" and tag ~= "building" then no("tag:" .. tag) end end
   local building = has(t.tags, "building")
   if t.owner_death ~= nil and t.owner_death ~= "persist" and t.owner_death ~= "expire" then no("owner_death:" .. tostring(t.owner_death)) end
   local p = t.passive or {}
@@ -278,7 +279,8 @@ function M.template_rows(doc, t)
   if (not t.attack or t.attack.kind == "none") and (t.ai == "none" or t.ai == "chase_target" or has(t.tags, "dummy")) then return dummy_rows(doc, t, value) end
   local known = { id = true, source_id = true, values = true, text = true, notes = true, provenance = true, quirks = true,
     max_level = true, stats = true, attack = true, bounty = true, vision = true, collision_radius = true,
-    acquisition_range = true, owner_death = true, ai = true, tags = true, passive = true, statuses = true, turn_rate = true, flying = true }
+    acquisition_range = true, owner_death = true, ai = true, tags = true, passive = true, statuses = true, turn_rate = true, flying = true,
+    abilities = true }
   for _, k in ipairs(sorted(t)) do if not known[k] then no(k) end end
   local sp = statuses_problem(t); if sp then no(sp) end
   local stats = t.stats or {}
@@ -306,10 +308,11 @@ function M.template_rows(doc, t)
   if t.ai ~= "guard" and t.ai ~= "owner_controlled" and t.ai ~= "idle" then no("ai:" .. tostring(t.ai)) end
   if t.owner_death ~= nil and t.owner_death ~= "persist" and t.owner_death ~= "expire" then no("owner_death:" .. tostring(t.owner_death)) end
   local p = t.passive or {}
-  -- passive.states: the creating code puts them on the unit as a status (v3_rust <template>_passive)
-  for _, k in ipairs(sorted(p)) do if k ~= "reveal" and k ~= "states" then no("passive." .. k) end end
+  -- passive.states and passive.triggers: the creating code puts them on the unit as a status
+  -- (v3_rust <template>_passive)
+  for _, k in ipairs(sorted(p)) do if k ~= "reveal" and k ~= "states" and k ~= "triggers" then no("passive." .. k) end end
   if p.reveal ~= nil and p.reveal ~= "public" then no("passive.reveal:" .. tostring(p.reveal)) end
-  for _, tag in ipairs(t.tags or {}) do if tag ~= "summon" and tag ~= "ward" then no("tag:" .. tag) end end
+  for _, tag in ipairs(t.tags or {}) do if tag ~= "summon" then no("tag:" .. tag) end end
   local rows = {}
   for rank = 1, ranks do
     local function num(ref, what)
@@ -322,7 +325,6 @@ function M.template_rows(doc, t)
       display_name = t.text and t.text.zh_TW and t.text.zh_TW.name or t.id }
     row.attack_damage_type = damage_type
     row.no_attack = no_attack or nil
-    row.ward = has(t.tags, "ward") or nil
     row.hp = num(stats.hp, "stats.hp")
     if row.hp == nil then no("stats.hp missing") end
     row.armor = num(stats.armor, "stats.armor") or 0
