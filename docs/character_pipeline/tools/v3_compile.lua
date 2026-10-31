@@ -18,21 +18,42 @@ local M = {}
 
 -- Item names of every item document in `dir` ({ [item id] = text }), for {@item_x} placeholders
 -- that name an item of another document (v3.md §12.10).
-function M.item_names(dir)
+-- every item of the item documents in `dir` (docs/character_pipeline/items), in file order
+local function items_in(dir)
   local ok, lfs = pcall(require, "lfs")
-  local names = {}
-  if not ok or lfs.attributes(dir, "mode") ~= "directory" then return names end
-  for file in lfs.dir(dir) do
-    if file:match("%.lua$") then
-      local chunk = loadfile(dir .. "/" .. file, "t", { pairs = pairs, ipairs = ipairs, string = string, table = table, math = math, utf8 = utf8 })
-      local okc, v = pcall(chunk or error)
-      if okc and type(v) == "function" then okc, v = pcall(v, {}) end
-      if okc and type(v) == "table" then
-        for _, item in ipairs(v.items or {}) do if item.id and item.text then names[item.id] = item.text end end
-      end
+  local list = {}
+  if not ok or lfs.attributes(dir, "mode") ~= "directory" then return list end
+  local files = {}
+  for file in lfs.dir(dir) do if file:match("%.lua$") then files[#files + 1] = file end end
+  table.sort(files)
+  for _, file in ipairs(files) do
+    local chunk = loadfile(dir .. "/" .. file, "t", { pairs = pairs, ipairs = ipairs, string = string, table = table, math = math, utf8 = utf8 })
+    local okc, v = pcall(chunk or error)
+    if okc and type(v) == "function" then okc, v = pcall(v, {}) end
+    if okc and type(v) == "table" then
+      for _, item in ipairs(v.items or {}) do if item.id then list[#list + 1] = item end end
     end
   end
+  return list
+end
+
+function M.item_names(dir)
+  local names = {}
+  for _, item in ipairs(items_in(dir)) do if item.text then names[item.id] = item.text end end
   return names
+end
+
+-- tag -> the ids of the items carrying it, sorted (modify_cooldown.item_tag); an item the port
+-- leaves out (coverage deferred) is not in the game, so it is not listed
+function M.item_tags(dir)
+  local tags = {}
+  for _, item in ipairs(items_in(dir)) do
+    if item.coverage ~= "deferred" then
+      for _, tag in ipairs(item.tags or {}) do tags[tag] = tags[tag] or {}; table.insert(tags[tag], item.id) end
+    end
+  end
+  for _, ids in pairs(tags) do table.sort(ids) end
+  return tags
 end
 
 M.SCALE = 1024

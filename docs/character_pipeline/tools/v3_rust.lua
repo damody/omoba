@@ -1294,7 +1294,7 @@ local ACTION_FIELDS = {
   teleport = set({ "op", "who", "to", "find_clear_space", "max_distance" }),
   add_stacks = set({ "op", "to", "status", "count", "max", "refresh" }),
   set_stacks = set({ "op", "to", "status", "count" }),
-  modify_cooldown = set({ "op", "of", "ability", "mode", "amount" }),
+  modify_cooldown = set({ "op", "of", "ability", "mode", "amount", "item_tag" }),
   set_ability_level = set({ "op", "of", "ability", "level" }),
   end_channel = set({ "op", "interrupted" }),
   set_health = set({ "op", "to", "value" }),
@@ -2722,6 +2722,18 @@ function Gen:action(a, ctx, ind)
       out = out .. line(string.format("    step_%d(cx, &args)?;", step))
     end
     return out .. line("}")
+  elseif op == "modify_cooldown" and a.item_tag ~= nil then
+    -- every item carrying the tag (the item documents, expanded here): each slot holding one of
+    -- them gets exactly `amount` of cooldown (line B E501 item_cooldown_start)
+    if a.ability ~= nil then self:block("action:modify_cooldown with both ability and item_tag"); return "" end
+    if (a.mode or "start") ~= "start" or a.amount == nil then self:block("action:modify_cooldown.item_tag (start with an amount only)"); return "" end
+    self.item_tags = self.item_tags or C.item_tags(((self.opts.root or "."):gsub("\\", "/")) .. "/docs/character_pipeline/items")
+    local ids = self.item_tags[a.item_tag]
+    if type(a.item_tag) ~= "string" or not ids or #ids == 0 then self:block("action:modify_cooldown.item_tag:" .. tostring(a.item_tag) .. " (no item carries it)"); return "" end
+    local out = line("{") .. line("    let of = " .. self:value(a.of or "self", ctx, "unit") .. ";")
+      .. line("    let amount = " .. self:value(a.amount, ctx, "num") .. ";")
+    for _, id in ipairs(ids) do out = out .. line("    cx.item_cooldown_start(of, " .. rust_str(id) .. ", amount)?;") end
+    return out .. line("}")
   elseif op == "modify_cooldown" or op == "set_ability_level" then
     -- the ability: a literal id of this document, or `ability` (this one)
     local ab = a.ability
@@ -3131,14 +3143,17 @@ function Gen:action(a, ctx, ind)
     if not ctx.cast then self:block("action:refund outside the cast"); return "" end
     return line("cx.refund_cooldown();")
   elseif op == "set_time_of_day" then
-    -- the map's temporary night for `duration`, or day at once (line B E453); a night without
-    -- a duration (a clock set to a fixed time of day) has no host form
+    -- the map's temporary night for `duration`, or day at once (line B E453); a night without a
+    -- duration lasts until day is set (line B E501)
     if a.mode == "day" then
       if a.duration ~= nil then self:block("action:set_time_of_day day with a duration") end
       return line("cx.set_time_of_day(false, Fixed64::ZERO)?;")
     elseif a.mode == "night" and a.duration ~= nil then
       return line("{") .. line("    let duration = " .. self:value(a.duration, ctx, "num") .. ";")
         .. line("    cx.set_time_of_day(true, duration)?;") .. line("}")
+    elseif a.mode == "night" then
+      -- night until something sets day again (the host caps it at an hour, line B E501)
+      return line("cx.set_time_of_day(true, Fixed64::ZERO)?;")
     end
     self:block("action:set_time_of_day " .. tostring(a.mode) .. " without a duration"); return ""
   end
