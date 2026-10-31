@@ -2,6 +2,19 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E443 UBT 依可用實體記憶體開 16 個 cl.exe，用光整台機器的 commit（2026-10-31，工作線 C）
+- 現象：2026-10-31 09:35 前後，多個 session 的 lua-host 呼叫以 0xC000012D（STATUS_COMMITMENT_LIMIT）結束，batch 和 split 跟著中斷。實體記憶體當時還有空，用完的是 commit（上限 68.7 GB）。
+- 量測：每秒取樣系統 commit 與佔用最多的程序（`target/lineC-mem/commit-1.log`）。
+  - 09:47：一個 land_to_live 的 shadow UBT 開 5 個 cl.exe，每個約 2.7 GB，commit 到 57.8 GB。
+  - 09:55:03～09:55:25：另一個 land_to_live 的 cargo 階段先有 25 個 rustc（約 30 GB），接著 hero DLL 的 manifest 測試同時連結 23 個 link.exe（約 25 GB）。commit 到 70.2／71.0 GB，系統當場擴大分頁檔。
+  - 一局 split 的 server、runtime、UE 不是尖峰的來源；gamemode（E441）也量到一局 headless 最多約 40 MB。
+- 原因：cargo 預設每個核心一個工作（24）；UBT 依可用實體記憶體以每個動作 1.5 GB 估算（這台是 16 個）。兩者都不看 commit，而這個專案每個 cl 約 2.7 GB，rustc 加 link 約 1.3 GB。幾個 session 同時建置時，commit 就被用光。
+- 修正（共用層）：
+  - `memory_admission.parallel_jobs(per_job, max)`：以 lua-host `memory_status`（E441）取得可用 commit，扣掉 8 GB 保留量後算出平行數，至少 1。
+  - UBT：`ue_engine_bootstrap.commit_parallel_actions()`（每個動作 3 GB，最多 16）。`build_ue_moba` 的本機編譯和 `stage_ue_shadow --build`（land_to_live 的 UBT 階段）都帶 `-MaxParallelActions`，除非呼叫端自己指定。
+  - cargo：land_to_live 的 codegen 與 cargo 階段設 `CARGO_BUILD_JOBS`（每個工作 2.5 GB，最多 24），並在 log 印出平行數。
+  - 還沒涵蓋：omfue/restart 的 Rust 建置路徑，以及各 session 自己直接下的 cargo 指令。
+
 ## E442 spotlight 的單位目標施法被輸入層拒絕（射程外、目標移動）卻算成已示範（2026-10-31，工作線 C）
 - 現象：重跑佇列（2026-10-31）裡，C24 柳生宗嚴的神取與 A22 仙石秀久的焰心鼓動都沒有呈現，autopilot 卻把它們算成已示範（`casts` 有算），沒有重試。trace 是 `not_submitted`：input layer submitted nothing，伺服器沒有收到施法。
 - 原因：

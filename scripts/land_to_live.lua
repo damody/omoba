@@ -43,6 +43,7 @@ M.TREE={'rust-toolchain.toml','omoba-core','omoba-content-model','omoba-template
   'docs/character_pipeline'}
 M.SKIP={target=true,['.git']=true,log=true}
 M.CHECKS={'codegen','cargo','ubt'}
+M.CARGO_JOB_COMMIT_BYTES=5*1024*1024*1024//2
 
 local function deps_of(deps)
   deps=deps or {}
@@ -51,7 +52,7 @@ local function deps_of(deps)
     process=deps.process or b.lib('process'),platform=deps.platform or b.lib('platform'),
     hash=deps.sha256 or b.lib('hash').sha256,json=deps.json or b.lib('json'),log=deps.log or print,
     lock=deps.lock or require('build_lock'),shadow=deps.shadow or require('stage_ue_shadow'),
-    ue_root=deps.ue_root}
+    ue_root=deps.ue_root,cargo_jobs=deps.cargo_jobs}
   return d
 end
 
@@ -304,7 +305,10 @@ end
 function M.check(plan,need,d)
   local work=d.path.join(d.root,'target','land')
   local tree=d.path.join(work,'tree')
-  local env={CARGO_TARGET_DIR=d.path.join(work,'cargo-target')}
+  -- Cargo jobs by the commit left (E443): a rustc or link.exe here commits about 1.3 GB, 2.5 with headroom.
+  local jobs=d.cargo_jobs and d.cargo_jobs() or require('memory_admission').parallel_jobs(M.CARGO_JOB_COMMIT_BYTES,24)
+  d.log(('[land] cargo runs %d parallel jobs'):format(jobs))
+  local env={CARGO_TARGET_DIR=d.path.join(work,'cargo-target'),CARGO_BUILD_JOBS=tostring(jobs)}
   for _,entry in ipairs(M.TREE) do
     local from=d.path.join(d.root,entry)
     if d.path.is_directory(from) then d.shadow.mirror(from,d.path.join(tree,entry),{root=d.root},M.SKIP)

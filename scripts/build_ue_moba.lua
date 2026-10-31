@@ -236,7 +236,8 @@ if build_executor == 'local' then
     print(('[moba-ue] PCH prefetch: %d files, %d bytes, %d over-budget skips; not an integrity check'):format(result.files,result.bytes,result.skipped))
   end
   local local_build_args = engine_bootstrap.ordinary_build_args{
-    project=path.join(omfue,'om.uproject'), parallel=max_parallel_actions, disable_action_cache=disable_action_cache,
+    project=path.join(omfue,'om.uproject'), parallel=max_parallel_actions or engine_bootstrap.commit_parallel_actions(),
+    disable_action_cache=disable_action_cache,
     compiler_version=compiler_version}
   -- UE5.8 always uses the UBA local executor; NoUBA disables detours, not
   -- its action cache. This explicit per-run option isolates cache stalls.

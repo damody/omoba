@@ -45,4 +45,16 @@ function Gate:admit(running)
   return false
 end
 
+
+-- Builds (E443): cargo and UBT start one compiler or linker per core whatever the commit left, and a
+-- land_to_live's cargo stage (25 rustc, then 23 link.exe of the hero DLL tests) took the machine to
+-- 70.2 of 71.0 GB at 09:55. A build runs as many parallel jobs as fit in the commit available now,
+-- each at PER_JOB bytes, over BUILD_RESERVE_BYTES kept for everything else: at least 1, at most MAX.
+M.BUILD_RESERVE_BYTES = 8 * 1024 * 1024 * 1024
+function M.parallel_jobs(per_job, max, status)
+  status = status or require('tools.lua.lib.host').call('memory_status', {})
+  local available = assert(math.tointeger(status.available_commit_bytes), 'memory_status without available commit')
+  return math.max(1, math.min(max, (available - M.BUILD_RESERVE_BYTES) // per_job))
+end
+
 return M

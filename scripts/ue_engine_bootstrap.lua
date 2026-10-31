@@ -17,6 +17,16 @@ function M.compiler_version(value)
     '--compiler-version requires Latest, Preview or a numeric MSVC version')
   return value
 end
+-- Parallel compile actions by available commit (E443). UBT sizes its actions from free physical
+-- memory at 1.5 GB each (16 on this machine), but one cl.exe on this project's unity files commits
+-- about 2.7 GB, so the machine runs out of commit long before RAM and other sessions' processes end
+-- with 0xC000012D (STATUS_COMMITMENT_LIMIT). An ordinary build caps its actions by the commit left
+-- when it starts (memory_admission.parallel_jobs over lua-host memory_status, E441).
+M.COMMIT_PER_ACTION = 3 * 1024 * 1024 * 1024
+M.MAX_COMMIT_ACTIONS = 16
+function M.commit_parallel_actions(status)
+  return require('memory_admission').parallel_jobs(M.COMMIT_PER_ACTION, M.MAX_COMMIT_ACTIONS, status)
+end
 function M.parallel_actions(value)
   assert(type(value)=='string' and value:match('^%d+$'), '--max-parallel-actions requires an integer from 1 to 64')
   local count=tonumber(value)

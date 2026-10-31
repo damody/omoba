@@ -39,7 +39,7 @@ local function deps_of(deps)
   local b=require('_bootstrap')
   return {root=deps.root or b.root,path=deps.path or b.lib('path'),lfs=deps.lfs or require('lfs'),
     process=deps.process or b.lib('process'),platform=deps.platform or b.lib('platform'),
-    log=deps.log or print,stage=deps.stage or require('ue_bridge_stage')}
+    log=deps.log or print,stage=deps.stage or require('ue_bridge_stage'),parallel_actions=deps.parallel_actions}
 end
 
 local function entries(lfs,dir)
@@ -257,9 +257,12 @@ function M.build(project,ue_root,deps)
   local d=deps_of(deps)
   local build=d.path.join(ue_root,'Engine','Build','BatchFiles','Build.bat')
   assert(d.path.is_file(build),'missing Unreal build script: '..build)
-  return run(d,'UBT OmGameEditor (shadow)',build,{'OmGameEditor','Win64','Development',
-    '-Project='..d.path.join(project,'om.uproject'),'-WaitMutex','-NoHotReloadFromIDE','-NoEngineChanges'},project,
-    require('ue_engine_bootstrap').build_env())
+  local engine_bootstrap=require('ue_engine_bootstrap')
+  -- Actions capped by the commit left now, not UBT's physical-memory guess (E443).
+  local parallel=d.parallel_actions and d.parallel_actions() or engine_bootstrap.commit_parallel_actions()
+  return run(d,'UBT OmGameEditor (shadow), '..parallel..' parallel actions',build,{'OmGameEditor','Win64','Development',
+    '-Project='..d.path.join(project,'om.uproject'),'-WaitMutex','-NoHotReloadFromIDE','-NoEngineChanges',
+    '-MaxParallelActions='..parallel},project,engine_bootstrap.build_env())
 end
 
 function M.main(argv,deps)
