@@ -2,7 +2,18 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E437 （保留）status 事件等沒有施法 mana 帳本的 hook 對英雄 restore_mana 不會生效（2026-10-31）
+## E437 status 事件等沒有施法 mana 帳本的 hook 對英雄 restore_mana 不會生效：b32_divine_formation 不回魔（2026-10-31，工作線 B）
+
+- **現象**：b32_divine_formation「受到傷害時回復 40 法力」從來沒有回復法力，也沒有任何錯誤或 log。
+- **根因**：
+  - `ParallelWorldAdapter::restore_mana` 對英雄只在施法的 mana transaction（帳本）內生效。
+  - status 事件、aura、damage hook 都沒有帳本，restore 被靜默略過。
+  - 這些批次本來就不收 `ScriptManaGained`（`pulse_outcome_allowed`），所以不能直接開帳本。
+- **通用修正**：
+  - 沒有帳本時，英雄的 restore 改送一次性的相對 mana set（`mana_burn` SET，value = 看到的法力 + amount，expected = 看到的法力）。
+  - host 在序列結算時套用 +amount，並截在上限。這和 v3 set_mana 從 hook 生效的路徑相同。
+  - 不觸發回魔事件；原作 B32R 用 SetMana，本來也不觸發。
+- **驗證**：新測試 `a_restore_outside_a_cast_is_a_relative_mana_set_on_a_hero`（中間花掉的法力保留、截在上限）；omoba-core 的 adapter、mana、dispatch 測試通過（影子的產生碼和 ability_kit 版本不一致，base_content 測試在影子無法編譯，放回時由 live 的 cargo check 驗證）。
 
 ## E436 批次傷害統計不算分身與召喚物、也沒有分技能：秀滿的傷害被低估，謙信的技能傷害看不出來（2026-10-31，e187 遊戲模式 session，B 建議；已放回 live）
 - **現象**：第 3 批明智秀滿（C02，靠分身作戰）每局對英雄傷害只有 2.1k，上杉謙信每局只有 1.1k；回報給 B 後，B 要具體證據，但報表只有每位英雄的總量，看不出是哪個技能、是否被取消。

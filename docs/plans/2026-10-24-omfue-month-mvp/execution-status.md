@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：hook 裡的英雄 restore_mana（E437）
+
+- 沒有施法帳本時，英雄的 restore_mana 改送相對 mana set，由 host 序列結算並截在上限。給 b32_divine_formation 等 status 事件。
 ## 2026-10-31 線 B：bot 不施放被停用的技能（E433）
 
 - bot 選技能前去掉擁有者以 `set_ability_active(false)` 停用的技能（a05_counter_stance 重新啟用前）。

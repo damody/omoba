@@ -1761,7 +1761,17 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             }
             return;
         }
-        if !self.mana_transaction {return;}
+        if !self.mana_transaction {
+            // No cast mana ledger (a status event, aura or damage hook): a one-shot relative mana
+            // set the host settles serially, clamped to the pool, as v3 set_mana (E437).
+            use crate::runtime::native::mana_burn::{SetSpec, SET_BUFF};
+            let Some(entity)=Self::handle_to_entity(e) else {return;};
+            let Some(seen)=self.cache.hero.get(entity).and_then(|hero|hero.mana_pool.as_ref()).map(|pool|pool.current()) else {return;};
+            if amount<=Fixed64::ZERO {return;}
+            let Some(spec)=SetSpec::checked(seen+amount).and_then(|spec|spec.relative_to(seen)) else {return;};
+            self.outcomes.push(Outcome::AddBuff {target:entity,buff_id:SET_BUFF.into(),duration:Fixed64::ONE,payload:spec.payload()});
+            return;
+        }
         let Some(entity)=self.managed_mana_entity(e) else {return;};
         let mut pool=self.mana_views.get(&entity).cloned()
             .unwrap_or_else(||self.cache.hero.get(entity).unwrap().mana_pool.clone().unwrap());
@@ -2978,6 +2988,33 @@ mod tests {
         assert!(
             matches!(outcomes[2], Outcome::ScriptSetAsdCount { entity: e, asd_count } if e == entity && asd_count == Fixed64::from_raw(321))
         );
+    }
+
+    /// E437: outside a cast's mana ledger a hero's restore is a relative mana set the host settles.
+    #[test]
+    fn a_restore_outside_a_cast_is_a_relative_mana_set_on_a_hero() {
+        use crate::runtime::ability_runtime::ManaPool;
+        use crate::runtime::native::mana_burn::{apply_set, SET_BUFF};
+        let mut world = world_for_adapter_tests();
+        let mut hero = Hero::default();
+        hero.mana_pool = Some(ManaPool::new(Fixed64::from_i32(50), Fixed64::from_i32(100)).unwrap());
+        let entity = world.create_entity().with(hero).build();
+        let handle = ParallelWorldAdapter::entity_to_handle(entity);
+        let outcomes = {
+            let cache = ParallelAdapterCache::new(&world, 123);
+            let mut adapter = ParallelWorldAdapter::new(&cache, entity);
+            adapter.restore_mana(handle, Fixed64::from_i32(30));
+            adapter.restore_mana(handle, Fixed64::ZERO);
+            adapter.finish()
+        };
+        assert_eq!(outcomes.len(), 1);
+        let Outcome::AddBuff { target, buff_id, duration, payload } = &outcomes[0] else { panic!("{outcomes:?}") };
+        assert_eq!((*target, buff_id.as_str()), (entity, SET_BUFF));
+        // The mana spent in between is kept: +30 on what the hero has at settlement, capped at the pool.
+        world.write_storage::<Hero>().get_mut(entity).unwrap().mana_pool.as_mut().unwrap().drain(Fixed64::from_i32(20)).unwrap();
+        assert_eq!(apply_set(&mut world, entity, buff_id, *duration, payload), Some(Fixed64::from_i32(60)));
+        assert_eq!(apply_set(&mut world, entity, buff_id, *duration, payload), Some(Fixed64::from_i32(90)));
+        assert_eq!(apply_set(&mut world, entity, buff_id, *duration, payload), Some(Fixed64::from_i32(100)));
     }
 
     #[test]
