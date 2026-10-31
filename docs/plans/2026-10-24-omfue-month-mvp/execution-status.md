@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：狀態事件可以花英雄的魔力（E506）
+
+- 狀態事件的 adapter 沒有帳本時，花魔力改成相對魔力設定封包（同 E437）；orb 的每擊花費（c09w_orb）會實際扣掉。
 ## 2026-10-31 線 B：stat when 的時段列（E508，host）
 
 - `__when_v1` 列：base／night／day，夜晚開始或結束時由 `sync_when_rows` 改寫頂層數值；英雄、主屬性條件由 kit 套上時判斷。

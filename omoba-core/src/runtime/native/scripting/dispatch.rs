@@ -1137,6 +1137,7 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
         let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, holder, ordinal_base + ordinal as u64);
         adapter.event_ability = executed_index.map(|index| executed_ability(&cache, registry, &executed[index].0, &executed[index].1, executed[index].2));
         adapter.event_raw_damage = raw;
+        adapter.relative_mana = true;
         let mut world_dyn = world_dyn_of(&mut adapter);
         let result = catch_unwind(AssertUnwindSafe(|| script.on_status_event(handle, RStr::from_str(&spec.status), event, &mut world_dyn)));
         drop(world_dyn);

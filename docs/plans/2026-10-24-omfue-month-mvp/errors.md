@@ -69,7 +69,15 @@
   - `run_moba_split_local_test` 驗證：快照集合從快照的 hero_dlls 讀；stage-dll 帶 `--set-root`，repo 建置不帶；`built_set` 讀快照。
 - 避免：從快照建置時，建置後用到的任何來源清單也要讀同一份快照。
 
-## E506 （保留）狀態事件沒有魔力帳本：orb 的每擊魔力花不掉（2026-10-31）
+## E506 狀態事件沒有魔力帳本：orb 的每擊魔力花不掉（2026-10-31，工作線 B）
+
+- **現象**：工作線 D conformance：c09_frost_thorn（A 剛生成）的 c09w_orb，在 on_attack_windup 裡 `spend_mana(self, 6)` 後 `modify_attack(is_orb)`。施法者開著 orb 普攻 5 秒，on_attack_hit 派發了 6 次，魔力卻完全沒降（r1–r4 共 4 個 fail）。
+- **根因**：windup 有派發。問題在 `dispatch_status_events` 給的 adapter 沒有施法的魔力帳本（`mana_transaction` 為 false），`ParallelWorldAdapter::spend_mana` 遇到英雄就直接回 false；kit 的 `spend_mana` 不管回傳值，所以沒有扣魔力，也沒有錯誤。
+- **通用修正**：
+  - adapter 新增 `relative_mana` 旗標，只有 `dispatch_status_events` 會打開；平行的 on_tick 快照照舊不能花魔力。
+  - 旗標打開且沒有帳本時，英雄花魔力改成一次性的相對設定封包（`mana_burn::SET_BUFF`，expected 是這個 hook 看到的魔力），和 E437 `restore_mana` 走同一條路。host 依序結算，中間付掉的其他花費會保留；同一個 hook 連續花費會疊加，魔力不夠時照常拒絕。
+- **測試**：`mana_script_transaction_checks_amount_life_identity_capacity_and_rollback` 加上狀態事件花費：30 成功、再 30 失敗（只剩 20）、5 成功；死亡單位拒絕；輸出兩個相對設定封包（20/50、15/20）。
+- **檔案**：`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`、`omoba-core/src/runtime/native/scripting/dispatch.rs`
 
 ## E505 chance 的 mode = "prd" 沒有 host 落點：A17 只能擋下（2026-10-31，工作線 B）
 

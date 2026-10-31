@@ -165,6 +165,9 @@ pub struct ParallelWorldAdapter<'a> {
     pub(crate) event_ability: Option<EventAbility>,
     /// A landed hit's total before mitigation in a damage status event (event_ability_attr::RAW_DAMAGE, E478).
     pub(crate) event_raw_damage: Fixed64,
+    /// A serial effect hook without a cast mana ledger (a status event) may spend a hero's mana
+    /// as a one-shot relative set the host settles in order (E506; an orb's cost per attack).
+    pub(crate) relative_mana: bool,
     projectile_origin: Option<ProjectileOrigin>,
     projectile_source_buffs: Option<BuffStore>,
     projectile_team_key: Option<String>,
@@ -603,6 +606,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             reserved_entities: Vec::new(),
             event_ability: None,
             event_raw_damage: Fixed64::ZERO,
+            relative_mana: false,
         }
     }
 
@@ -1753,6 +1757,20 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         }
         let Some(hero)=self.cache.hero.get(entity) else {return false;};
         if hero.mana_pool.is_none() {return amount>=Fixed64::ZERO;}
+        if !self.mana_transaction && self.relative_mana && self.managed_mana_entity(e).is_some() && ability_id.len()<=256 {
+            // No ledger (E506): the spend is the relative set `seen - amount` against the mana this
+            // hook saw (mana_burn SET_BUFF, as restore_mana, E437), so a cost paid in between stays.
+            use crate::runtime::native::mana_burn::{SetSpec, SET_BUFF};
+            let mut pool=self.mana_views.get(&entity).cloned().unwrap_or_else(||hero.mana_pool.clone().unwrap());
+            let seen=pool.current();
+            if pool.spend(amount).is_err() {return false;}
+            if amount>Fixed64::ZERO {
+                let Some(spec)=SetSpec::checked(pool.current()).and_then(|spec|spec.relative_to(seen)) else {return false;};
+                self.mana_views.insert(entity,pool);
+                self.outcomes.push(Outcome::AddBuff {target:entity,buff_id:SET_BUFF.into(),duration:Fixed64::ONE,payload:spec.payload()});
+            }
+            return true;
+        }
         if !self.mana_transaction || self.managed_mana_entity(e).is_none()
             || ability_id.len()>256 {return false;}
         let mut pool=self.mana_views.get(&entity).cloned().unwrap_or_else(||hero.mana_pool.clone().unwrap());
@@ -3126,6 +3144,21 @@ mod tests {
         let cache=ParallelAdapterCache::new(&world,123);
         let mut adapter=ParallelWorldAdapter::new(&cache,entity);
         assert!(!adapter.spend_mana(handle,Fixed64::ONE,"extra".into()),"parallel snapshot cannot admit a spend");
+        // E506: a status event spends as relative sets against what it saw, each after the last.
+        let mut effect=ParallelWorldAdapter::new(&cache,entity);
+        effect.relative_mana=true;
+        assert!(effect.spend_mana(handle,Fixed64::from_i32(30),"orb".into()));
+        assert!(!effect.spend_mana(handle,Fixed64::from_i32(30),"orb".into()),"only 20 left");
+        assert!(effect.spend_mana(handle,Fixed64::from_i32(5),"orb".into()));
+        assert_eq!(effect.current_mana(handle),Fixed64::from_i32(15));
+        assert!(!effect.spend_mana(ParallelWorldAdapter::entity_to_handle(dead),Fixed64::ONE,"orb".into()));
+        let set=|value:i32,seen:i32| crate::runtime::native::mana_burn::SetSpec::checked(Fixed64::from_i32(value)).unwrap()
+            .relative_to(Fixed64::from_i32(seen)).unwrap().payload();
+        let sets:Vec<_>=effect.finish().into_iter().map(|o| match o {
+            Outcome::AddBuff {target,buff_id,payload,..} if target==entity && buff_id==crate::runtime::native::mana_burn::SET_BUFF => payload,
+            other => panic!("only relative sets: {other:?}"),
+        }).collect();
+        assert_eq!(sets,vec![set(20,50),set(15,20)]);
         adapter.begin_mana_transaction(&HashMap::new());
         assert!(!adapter.spend_mana(handle,Fixed64::from_raw(-1),"extra".into()));
         assert!(!adapter.spend_mana(EntityHandle {gen:handle.gen+1,..handle},Fixed64::ONE,"extra".into()));
