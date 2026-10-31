@@ -98,4 +98,7 @@ return {
   -- M6 batch (2026-10-31): every ability generated; conformance 0 fail (C09 live a2f4a0fa; C16 shadow, no_attack)
   {hero='tachibana_ginchiyo',package='hero_c09',dir='heroes/tachibana_ginchiyo'},
   {hero='kashin_koji',package='hero_c16',dir='heroes/kashin_koji'},
+  -- M6 batch (2026-10-31): every ability generated; stat.when and impulse generated; conformance 0 fail (shadow)
+  {hero='kosokabe_chikayasu',package='hero_c10',dir='heroes/kosokabe_chikayasu'},
+  {hero='honganji_kennyo',package='hero_b25',dir='heroes/honganji_kennyo'},
 }
