@@ -127,23 +127,46 @@ end
 
 -- One user of a snapshot at a time: two batches with the same snapshot name would overwrite each
 -- other's sources and binaries. A directory lock (mkdir is atomic) held from capture to copy.
+-- E434: owner.txt names the holding Lua process (pid and creation token, the lua-host
+-- caller_owned identity, as build_lock E346). A waiter takes over at once when that process is
+-- gone: a batch stopped mid-build left the lock for the whole stale window and the next batch
+-- waited hours. A lock with no owner.txt (written right after mkdir) older than
+-- LOCK_UNOWNED_SECONDS was left by a holder that died in between, or by the earlier version; a
+-- lock older than LOCK_STALE_SECONDS is taken over in any case.
 M.LOCK_WAIT_SECONDS = 3 * 3600
 M.LOCK_STALE_SECONDS = 3 * 3600
-local function lock(d, base)
+M.LOCK_UNOWNED_SECONDS = 60
+function M.lock(d, base)
   local dir = d.path.join(base, 'lock')
-  local started = os.time()
+  local owner = d.path.join(dir, 'owner.txt')
+  local now = d.now or os.time
+  local started = now()
   local announced = false
   while not d.lfs.mkdir(dir) do
     local since = d.lfs.attributes(dir, 'modification')
-    if since and os.time() - since > M.LOCK_STALE_SECONDS then
-      d.lfs.rmdir(dir) -- a crashed holder: the holder never keeps it past one build
+    local text = d.path.is_file(owner) and d.path.read(owner) or nil
+    local pid, token = (text or ''):match('^(%d+)\n(%d+)\n')
+    local gone
+    if pid then
+      if not d.process.inspect_owned(math.tointeger(tonumber(pid)), token) then gone = 'its process ' .. pid .. ' has exited' end
+    elseif since and now() - since > M.LOCK_UNOWNED_SECONDS then
+      gone = 'it names no holder'
+    end
+    if not gone and since and now() - since > M.LOCK_STALE_SECONDS then gone = 'it is older than the stale limit' end
+    if gone then
+      d.log('[snapshot] taking over the lock of ' .. base .. ': ' .. gone)
+      os.remove(owner)
+      d.lfs.rmdir(dir)
     else
-      assert(os.time() - started < M.LOCK_WAIT_SECONDS, 'timed out waiting for snapshot lock ' .. dir)
-      if not announced then d.log('[snapshot] another batch uses ' .. base .. '; waiting'); announced = true end
+      assert(now() - started < M.LOCK_WAIT_SECONDS, 'timed out waiting for snapshot lock ' .. dir)
+      if not announced then d.log('[snapshot] another batch uses ' .. base .. ' (process ' .. tostring(pid) .. '); waiting'); announced = true end
       d.sleep_ms(5000)
     end
   end
-  return setmetatable({}, { __close = function() d.lfs.rmdir(dir) end })
+  local holder = d.caller()
+  d.path.write(owner, ('%d\n%s\n%s\n'):format(holder.pid, tostring(holder.creation_token),
+    tostring(holder.path or holder.executable or '')), true)
+  return setmetatable({}, { __close = function() os.remove(owner); d.lfs.rmdir(dir) end })
 end
 
 -- Captures NAME and builds the script DLL set and moba-headless (release, compiled content) from
@@ -160,7 +183,8 @@ function M.build_headless(root, name, options, deps)
   local script_dlls = require('script_dlls')
   local base = d.path.join(root, 'target', 'snapshots', name)
   d.path.mkdir_p(base)
-  local held <close> = lock(d, base)
+  d.caller = (deps and deps.caller) or function() return require('tools.lua.lib.host').call('caller_owned', {}) end
+  local held <close> = M.lock(d, base)
   local tree = d.path.join(base, 'tree')
   local target = d.path.join(base, 'cargo-target')
   if not options.no_build then

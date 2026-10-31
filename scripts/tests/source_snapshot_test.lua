@@ -52,6 +52,44 @@ snapshot.capture(root, 'unit', { entries = deps.entries, log = deps.log, lfs = r
 check(got('crate/src/lib.rs') == 'v3' and got('crate/src/deep2.rs') == 'new', 'a change during the pass is captured')
 check(table.concat(logs, '\n'):find('live changed during pass 1', 1, true), 'the retry is reported')
 
+-- E434: the snapshot lock names its holder; a waiter takes over from a holder that is gone, or
+-- from a lock that names none after the grace time, and waits for a live one.
+do
+  local base = path.join(root, 'target', 'snapshots', 'locked')
+  path.mkdir_p(base)
+  local clock, slept = 1000, 0
+  local alive = {}
+  local ld = { path = path, lfs = lfs, log = deps.log, now = function() return clock end,
+    sleep_ms = function(ms) slept = slept + ms; clock = clock + ms // 1000 end,
+    process = { inspect_owned = function(pid, token) return alive[pid .. ':' .. tostring(token)] end },
+    caller = function() return { pid = 41, creation_token = 7, executable = 'lua.exe' } end }
+  do
+    local held <close> = snapshot.lock(ld, base)
+    check(path.read(path.join(base, 'lock', 'owner.txt')):match('^41\n7\n'), 'the holder is recorded')
+  end
+  check(not path.is_directory(path.join(base, 'lock')), 'closing releases the lock')
+  -- a holder that is gone: taken over at once
+  lfs.mkdir(path.join(base, 'lock')); path.write(path.join(base, 'lock', 'owner.txt'), '99\n5\nlua.exe\n', true)
+  slept = 0
+  do local held <close> = snapshot.lock(ld, base) end
+  check(slept == 0 and table.concat(logs, '\n'):find('process 99 has exited', 1, true), 'a gone holder is taken over at once')
+  -- a live holder: the waiter waits until it is gone
+  lfs.mkdir(path.join(base, 'lock')); path.write(path.join(base, 'lock', 'owner.txt'), '98\n6\nlua.exe\n', true)
+  alive['98:6'] = { pid = 98 }
+  slept = 0
+  local real_sleep = ld.sleep_ms
+  ld.sleep_ms = function(ms) real_sleep(ms); if slept >= 15000 then alive['98:6'] = nil end end
+  do local held <close> = snapshot.lock(ld, base) end
+  check(slept >= 15000, 'a live holder is waited for')
+  ld.sleep_ms = real_sleep
+  -- no owner.txt: waited for during the grace time, then taken over
+  lfs.mkdir(path.join(base, 'lock'))
+  clock = (lfs.attributes(path.join(base, 'lock'), 'modification')) + snapshot.LOCK_UNOWNED_SECONDS + 1
+  slept = 0
+  do local held <close> = snapshot.lock(ld, base) end
+  check(table.concat(logs, '\n'):find('it names no holder', 1, true), 'a lock naming no holder is taken over after the grace time')
+end
+
 local function rm(target)
   local a = lfs.symlinkattributes(target)
   if not a then return end
