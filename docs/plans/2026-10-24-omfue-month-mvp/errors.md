@@ -3,6 +3,17 @@
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
 ## E519 conformance：conformance 看不到 trigger 吞掉的 Err：harness 讀 ScriptErrorLog（E517 的 harness 端）（2026-10-31，conformance session）
+## E524 autopilot 截圖在遊戲執行緒編碼 PNG，每張造成 250–290 ms 卡頓（2026-10-31，工作線 C）
+- 現象：D21 量 UE frame time。E389 基準 demo9（1+9 quick，600 s）在暖機後有 15 次 ≥100 ms 卡頓，其中 8 次是 autopilot 的定時截圖：`Tracing Screenshot "autopilot-p1-shot-NNN-periodic"` 之後那一幀 250–290 ms，presentation 工作只有 0.5–8 ms。
+- 原因：`FOmAutoPilot::MaybeScreenshot` 用 `FScreenshotRequest::RequestScreenshot(File, true, false)`。引擎在 `UGameViewportClient::ProcessScreenShots` 讀回畫面後，在遊戲執行緒上用 `ProcessScreenshotData` 把 1920×1080 編碼成 PNG 並寫檔。
+- 修正（共用層）：
+  - 截圖請求等待期間，autopilot 綁 `UGameViewportClient::OnScreenshotCaptured`。引擎綁了這個 delegate 就只交出像素，不在遊戲執行緒編碼。
+  - autopilot 把像素交給 thread pool，用 `FImageUtils::PNGCompressImageArray` 編碼後寫到原本的檔名。解構時等還在寫的檔案。
+  - 引擎同一時間只有一個截圖請求，所以等待中的檔名最多一個，新請求取代舊的。拍完就解除綁定，不影響其他截圖。
+  - 每張截圖印出 `OM_AUTOPILOT_SHOT captured WxH FILE`。`ue_frame_windows` 把它也當截圖標記，剩下的讀回成本仍歸到 screenshot。
+- 避免：在遊戲中做的證據擷取（截圖、錄影）都要在背景執行緒編碼。量 frame time 時，要把 harness 自己的成本分開列。
+- 待驗證：demo10 和 demo9 比較截圖幀的 frame time。
+
 - **現象**：A06 的 a06t_fury 每擊 set_state 都失敗（vars key 含不允許的 `#`，E515），conformance 仍判 0 fail。
 - **根因**：trigger hook 經 ABI 回傳 ()，生成碼用 `let _ =` 丟掉 Err；harness 只看效果，沒檢查到的效果失敗就看不到。
 - **通用修正**：

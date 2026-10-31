@@ -28,6 +28,7 @@ end
 -- the game's), an audio render thread stall and the stack dump it triggers on the game thread.
 M.MARKERS = {
   { kind = "screenshot", needle = "Tracing Screenshot" },
+  { kind = "screenshot", needle = "OM_AUTOPILOT_SHOT captured" },
   { kind = "audio_stall", needle = "Stall in AudioRenderThread" },
   { kind = "audio_stall", needle = "ThreadStackWalkAndDump" },
 }
