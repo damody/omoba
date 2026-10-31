@@ -251,6 +251,7 @@ for _, r in ipairs(recipes) do
         -- Tick cost (E512, moba_headless performance).
         if report.performance then
           report.performance.match = ('%s-%02d'):format(r.name, job.seed)
+          report.performance.stages = report.tick_profile and report.tick_profile.phases_ms_mean
           row.perf[#row.perf + 1] = report.performance
         end
         -- Creep facing from the simulation data (E461, moba_headless creep_facing): accepted at 0.
@@ -419,6 +420,25 @@ for _, row in ipairs(summary.recipes) do
   if #row.perf > 0 then
     md[#md + 1] = ('| %s | %d | %.2f | %.2f | %.2f | %.2f | %d of %d | %.1f |'):format(row.name, #row.perf, median(p50), median(p99),
       worst, max_ms, over, ticks, median(wall))
+  end
+end
+-- The driver's serial stages (E513, E520): mean ms per tick over the recipe's matches.
+md[#md + 1] = ''
+for _, row in ipairs(summary.recipes) do
+  local sums, n = {}, 0
+  for _, perf in ipairs(row.perf) do
+    if perf.stages then
+      n = n + 1
+      for stage, ms in pairs(perf.stages) do sums[stage] = (sums[stage] or 0) + ms end
+    end
+  end
+  if n > 0 then
+    local stages = {}
+    for stage, sum in pairs(sums) do stages[#stages + 1] = { stage, sum / n } end
+    table.sort(stages, function(x, y) return x[2] > y[2] end)
+    local parts = {}
+    for _, stage in ipairs(stages) do parts[#parts + 1] = ('%s %.2f'):format(stage[1], stage[2]) end
+    md[#md + 1] = ('- %s stages, mean ms/tick: %s'):format(row.name, table.concat(parts, ', '))
   end
 end
 table.sort(slowest, function(x, y) return x.ms > y.ms end)

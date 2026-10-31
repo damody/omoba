@@ -2,6 +2,15 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E520 headless 效能報告的最慢 tick 看不到 driver 的序列階段（2026-10-31，e187 遊戲模式 session，配合 B 的 E513；已放回 live）
+- **現象**：m6acc1 最慢的 tick 是 120～193 ms，但 system_stats 只解釋了 20～60 ms，其餘的時間落在 specs system 之外。
+- **通用修正**：
+  - 每個 tick 都把 B 的 `SimulationDriver::last_step_phases()` 傳給 TickPerf，最慢 tick 的組成同時列出 system 與 `stage:<名稱>`（最多 6 項）。
+  - 對局報告加上 `tick_profile`，內容是 `driver.phase_report(&world)`：各階段與各 system 每 tick 的平均 ms。json! 已經到 macro 的遞迴上限，所以在建好之後再加。
+  - verify_m6_batch 的 Performance 一節列出每個 recipe 各階段每 tick 的平均 ms。
+- **避免**：效能分解要能加總回整個 tick；分解不出來的部分本身就是線索。
+
+
 ## E518 creep_facing 把 lane step 之後同一 tick 的英雄位移（閃現、衝刺）算成小兵沒轉向（2026-10-31，e187 遊戲模式 session，B 分析；已放回 live）
 - **現象**：m6acc1 剩 4 筆 violation。
   - 兩筆在 teamfight tick 6570：英雄在 32～33 外、小兵正背後，差 180°。
