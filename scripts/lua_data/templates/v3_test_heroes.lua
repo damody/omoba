@@ -78,6 +78,7 @@ local data = {
             dispel = "basic",
             id = "a13d_invisible",
             reveal = "public",
+            tags = { "invisible", "engine_invisible" },
             text = {
               en = {
                 body = "Invisible for {duration} seconds; attacking or using an ability or item reveals him.",
@@ -923,6 +924,7 @@ local data = {
             dispel = "basic",
             id = "a13t_shadow",
             reveal = "public",
+            tags = { "invisible" },
             text = {
               en = {
                 body = "Invisible, spell immune, disarmed, unable to use items and free of unit collision; +{attack_speed} attack speed and {evasion} evasion, but deals {outgoing_cut:abs} less damage. Lost at once on leaving the smoke.",
@@ -1775,7 +1777,13 @@ local data = {
         schema = "3.3",
         source_id = "C09W",
         statuses = {
-          { dispel = "basic", id = "c09w_orb", reveal = "public", visibility = "hidden" },
+          {
+            dispel = "basic",
+            id = "c09w_orb",
+            remove_on = { "death" },
+            reveal = "public",
+            visibility = "hidden",
+          },
           {
             dispel = "basic",
             id = "c09w_slow",
@@ -2776,6 +2784,7 @@ local data = {
           {
             dispel = "none",
             id = "a18r_shield",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -3101,6 +3110,7 @@ local data = {
           {
             dispel = "basic",
             id = "b30w_shield",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -3265,6 +3275,7 @@ local data = {
             dispel = "basic",
             id = "b30e_debuff",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "{armor_cut} less armor, {slow} less movement speed and {attack_slow} less attack speed; takes {damage} magic damage every {interval} seconds.",
@@ -3885,6 +3896,7 @@ local data = {
             dispel = "basic",
             id = "a16w_weaken",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow} and attack speed reduced by {attack_slow} for {duration} seconds.",
@@ -4228,7 +4240,13 @@ local data = {
         schema = "3.3",
         source_id = "A16R",
         statuses = {
-          { dispel = "none", id = "a16r_reflect", reveal = "public", visibility = "hidden" },
+          {
+            dispel = "none",
+            id = "a16r_reflect",
+            remove_on = { "death" },
+            reveal = "public",
+            visibility = "hidden",
+          },
         },
         text = {
           en = {
@@ -4707,6 +4725,7 @@ local data = {
             dispel = "basic",
             id = "a24w_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow} for {slow_time} seconds.",
@@ -5998,6 +6017,7 @@ local data = {
           {
             dispel = "none",
             id = "c01r_charge",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -8385,6 +8405,7 @@ local data = {
           {
             dispel = "basic",
             id = "a01t_rally_aura",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -9074,6 +9095,7 @@ local data = {
             dispel = "basic",
             id = "b20t_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow} for {slow_time} seconds.",
@@ -10076,6 +10098,7 @@ local data = {
           {
             dispel = "basic",
             id = "c22w_vanish",
+            remove_on = { "channel_end" },
             reveal = "public",
             text = {
               en = {
@@ -11094,6 +11117,7 @@ local data = {
             dispel = "basic",
             id = "a12r_mark",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow}.",
@@ -11444,6 +11468,7 @@ local data = {
           {
             dispel = "none",
             id = "a12t_form",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -12000,6 +12025,7 @@ local data = {
             dispel = "basic",
             id = "a12r_t_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow} for {slow_duration} seconds.",
@@ -12214,6 +12240,7 @@ local data = {
             dispel = "basic",
             id = "a14w_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed slowed by {slow} for {slow_duration} seconds.",
@@ -13949,6 +13976,7 @@ local data = {
             dispel = "basic",
             id = "b27t_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow} and attack speed reduced by {attack_slow}.",
@@ -14305,6 +14333,7 @@ local data = {
             dispel = "basic",
             id = "c03e_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow} and attack speed reduced by {attack_slow}.",
@@ -15793,6 +15822,7 @@ local data = {
             dispel = "basic",
             id = "a19e_burn",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Armor reduced by {armor_cut} and movement speed slowed by {slow}; takes {damage} magic damage about every second for {duration} seconds.",
@@ -17494,6 +17524,7 @@ local data = {
           {
             dispel = "basic",
             id = "b21t_bonus",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -17743,6 +17774,7 @@ local data = {
             dispel = "basic",
             id = "c14w_curse",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Silenced and movement speed reduced by {slow}; keeps burning when hit by {@c14_fire_breath}.",
@@ -18289,6 +18321,7 @@ local data = {
           {
             dispel = "basic",
             id = "c14t_form",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -18358,6 +18391,7 @@ local data = {
             dispel = "basic",
             id = "c14t_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed and attack speed reduced by {slow}.",
@@ -21105,6 +21139,7 @@ local data = {
           {
             dispel = "basic",
             id = "c04e_dance",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -21512,6 +21547,7 @@ local data = {
             dispel = "strong",
             id = "c04t_stun",
             reveal = "public",
+            tags = { "cleanse_protected" },
             text = {
               en = {
                 body = "Stunned and takes {damage} magic damage every {tick} seconds until Okuni stops channeling. Not reduced by status resistance.",
@@ -22106,6 +22142,7 @@ local data = {
           {
             dispel = "basic",
             id = "c20t_demon",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -22472,6 +22509,7 @@ local data = {
             dispel = "none",
             id = "c25e_dot",
             reveal = "public",
+            tags = { "c25e_mark" },
             text = {
               en = {
                 body = "Takes {dot} physical damage per stack every {tick} seconds; each new hit adds a stack and refreshes the duration. Cannot be dispelled.",
@@ -22500,7 +22538,13 @@ local data = {
             },
             visibility = "debuff",
           },
-          { dispel = "none", id = "c25e_view", reveal = "public", visibility = "hidden" },
+          {
+            dispel = "none",
+            id = "c25e_view",
+            reveal = "public",
+            tags = { "c25e_mark" },
+            visibility = "hidden",
+          },
         },
         text = {
           en = {
@@ -22640,6 +22684,7 @@ local data = {
             dispel = "none",
             id = "c25r_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow}. Cannot be dispelled.",
@@ -23202,6 +23247,7 @@ local data = {
           {
             dispel = "basic",
             id = "a06r_charge",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -23694,6 +23740,7 @@ local data = {
             dispel = "none",
             id = "a36w_invisible",
             reveal = "public",
+            tags = { "invisible", "engine_invisible" },
             text = {
               en = {
                 body = "Invisible; landing an attack or using an ability or item reveals him.",
@@ -23829,6 +23876,7 @@ local data = {
             dispel = "none",
             id = "a36e_detector",
             reveal = "public",
+            tags = { "invisible" },
             text = {
               en = {
                 body = "An invisible mine; explodes when an enemy hero comes within {trigger_radius}.",
@@ -23858,6 +23906,7 @@ local data = {
             dispel = "basic",
             id = "a36e_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow} and attack speed reduced by {attack_slow}.",
@@ -24553,6 +24602,7 @@ local data = {
             dispel = "basic",
             id = "b34e_spikes",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Near the spikes: movement speed reduced by {slow}; takes {damage} magic damage every second.",
@@ -24888,6 +24938,7 @@ local data = {
             dispel = "basic",
             id = "b34t_slow_instance",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Each instance reduces movement speed by {slow} and attack speed by {attack_slow}; repeated hits stack, each instance timing out on its own.",
@@ -25068,6 +25119,7 @@ local data = {
             dispel = "basic",
             id = "b02d_invisible",
             reveal = "public",
+            tags = { "invisible", "engine_invisible" },
             text = {
               en = {
                 body = "Invisible; launching an attack or using an ability or item reveals him.",
@@ -26012,6 +26064,7 @@ local data = {
             dispel = "basic",
             id = "b17w_invisible",
             reveal = "public",
+            tags = { "invisible", "engine_invisible" },
             text = {
               en = {
                 body = "Invisible; revealed when it detects an enemy.",
@@ -26333,6 +26386,7 @@ local data = {
             dispel = "basic",
             id = "b17e_venom",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {passive_slow}.",
@@ -26361,6 +26415,7 @@ local data = {
             dispel = "basic",
             id = "b17e_poison",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {dot_slow}; takes {dot_damage} magic damage every {dot_tick} seconds.",
@@ -26740,6 +26795,7 @@ local data = {
             dispel = "basic",
             id = "b17t_invisible",
             reveal = "public",
+            tags = { "invisible", "engine_invisible" },
             text = {
               en = {
                 body = "Invisible; revealed by launching an attack, or by using an ability or item after the free uses run out.",
@@ -27232,6 +27288,7 @@ local data = {
           {
             dispel = "none",
             id = "c02r_recharge",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -27650,12 +27707,26 @@ local data = {
             },
             visibility = "buff",
           },
-          { dispel = "none", id = "a20w_self", reveal = "public", visibility = "hidden" },
-          { dispel = "basic", id = "a20w_transparent", reveal = "public", visibility = "hidden" },
+          {
+            dispel = "none",
+            id = "a20w_self",
+            remove_on = { "death" },
+            reveal = "public",
+            visibility = "hidden",
+          },
+          {
+            dispel = "basic",
+            id = "a20w_transparent",
+            remove_on = { "death" },
+            reveal = "public",
+            visibility = "hidden",
+          },
           {
             dispel = "basic",
             id = "a20w_invisible",
+            remove_on = { "attack", "cast", "death" },
             reveal = "public",
+            tags = { "invisible", "engine_invisible" },
             text = {
               en = {
                 body = "Invisible within the waters; broken by attacking, casting or leaving the waters.",
@@ -27843,6 +27914,7 @@ local data = {
             dispel = "basic",
             id = "a20e_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed slowed by {slow} for {slow_duration} seconds; if still slowed after {stun_delay} seconds, the unit is stunned for {stun} seconds.",
@@ -28249,6 +28321,7 @@ local data = {
           {
             dispel = "basic",
             id = "a20t_form",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -28285,6 +28358,7 @@ local data = {
           {
             dispel = "none",
             id = "a20t_model",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -28682,6 +28756,7 @@ local data = {
             dispel = "basic",
             id = "b14e_silence",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Silenced; movement speed reduced by {slow} and attack speed reduced by {attack_slow}.",
@@ -28959,6 +29034,7 @@ local data = {
           {
             dispel = "none",
             id = "b14t_power",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -28991,7 +29067,9 @@ local data = {
           {
             dispel = "none",
             id = "b14t2_shadow",
+            remove_on = { "death" },
             reveal = "public",
+            tags = { "invisible" },
             text = {
               en = {
                 body = "Invisible at night with no unit collision and low attack priority; landing an attack or using an ability or item reveals him.",
@@ -29159,6 +29237,7 @@ local data = {
             dispel = "basic",
             id = "a17w_shock_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {first_slow} for {first_slow_time} seconds.",
@@ -29191,6 +29270,7 @@ local data = {
             dispel = "basic",
             id = "a17w_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow} for {slow_time} seconds; refreshed while staying in the shrapnel area.",
@@ -29707,6 +29787,7 @@ local data = {
             dispel = "basic",
             id = "a17t_cannon",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "+{vision_bonus} vision, +{attack_range_bonus} attack range and +{attack_bonus} base attack damage, but {attack_slow} less attack speed and {move_slow} less movement speed; landed attacks deal {splash} of their damage as physical damage to other non-building enemies within {splash_radius} of the target. Lasts until toggled off.",
@@ -31847,6 +31928,7 @@ local data = {
           {
             dispel = "basic",
             id = "b03t_judgment",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -33486,7 +33568,13 @@ local data = {
         statuses = {
           { dispel = "none", id = "b18t_phased", reveal = "public", visibility = "hidden" },
           { dispel = "none", id = "b18t_invulnerable", reveal = "public", visibility = "hidden" },
-          { dispel = "none", id = "b18t_reveal", reveal = "public", visibility = "hidden" },
+          {
+            dispel = "none",
+            id = "b18t_reveal",
+            reveal = "public",
+            tags = { "true_sight" },
+            visibility = "hidden",
+          },
           {
             dispel = "basic",
             id = "b18t_claw_ai",
@@ -33875,6 +33963,7 @@ local data = {
             dispel = "basic",
             id = "b05e_wrath",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Attack speed reduced by {attack_slow}; takes more damage from {@b05_chain_lightning} and is stunned when hit by {@b05_three_arrows}.",
@@ -36577,6 +36666,7 @@ local data = {
             dispel = "none",
             id = "a10t_quake",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Inside the tremor: movement speed reduced by {slow}; buildings take {building_damage} magic damage every {quake_tick} seconds. Removed on leaving the area or when the channel ends.",
@@ -37274,6 +37364,7 @@ local data = {
             dispel = "none",
             id = "a32r_void",
             reveal = "public",
+            tags = { "isvoid", "a32r_void" },
             text = {
               en = {
                 body = "Immune to physical damage and unable to attack; movement speed reduced by {slow} and other damage taken increased by {damage_increase}.",
@@ -37432,6 +37523,7 @@ local data = {
           {
             dispel = "basic",
             id = "a32f_soul_blade",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -37563,6 +37655,7 @@ local data = {
             dispel = "basic",
             id = "a32t_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow}.",
@@ -37790,6 +37883,7 @@ local data = {
             dispel = "basic",
             id = "a29w_poison",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Poisoned: movement speed reduced by {slow}, attack speed reduced by {attack_slow}, and {dot_damage} magic damage every {dot_interval} seconds.",
@@ -38194,6 +38288,7 @@ local data = {
             dispel = "basic",
             id = "a29r_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Each instance reduces movement speed by {slow}; stacks.",
@@ -38373,6 +38468,7 @@ local data = {
           {
             dispel = "none",
             id = "a29t_exorcism",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -38667,6 +38763,7 @@ local data = {
           {
             dispel = "none",
             id = "b10w_exorcism",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -38695,6 +38792,7 @@ local data = {
             id = "b10w_slow",
             reveal = "public",
             runtime_id = "b10w_slow:{caster}",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Each stack reduces movement speed by {slow_step}, up to {slow_max}; further hits do not extend it.",
@@ -39551,6 +39649,7 @@ local data = {
             dispel = "basic",
             id = "c16e_curse",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow} and takes {dot_damage} magic damage every {dot_interval} seconds; dying spawns a {@c16e_ghost}.",
@@ -39587,7 +39686,13 @@ local data = {
             },
             visibility = "debuff",
           },
-          { dispel = "none", id = "c16e_ghost_state", reveal = "public", visibility = "hidden" },
+          {
+            dispel = "none",
+            id = "c16e_ghost_state",
+            reveal = "public",
+            tags = { "engine_invisible" },
+            visibility = "hidden",
+          },
         },
         text = {
           en = {
@@ -39777,6 +39882,7 @@ local data = {
           {
             dispel = "none",
             id = "c16r_exorcism",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -40375,6 +40481,7 @@ local data = {
             dispel = "basic",
             id = "c10w_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow}.",
@@ -40853,6 +40960,7 @@ local data = {
             dispel = "basic",
             id = "c10t_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow}.",
@@ -42012,6 +42120,7 @@ local data = {
             dispel = "basic",
             id = "b35e_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow}.",
@@ -43265,6 +43374,7 @@ local data = {
           {
             dispel = "basic",
             id = "a03e_spider",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -43723,6 +43833,7 @@ local data = {
           {
             dispel = "basic",
             id = "c12d_mark",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -44184,7 +44295,9 @@ local data = {
           {
             dispel = "basic",
             id = "c12r_invis",
+            remove_on = { "attack", "cast" },
             reveal = "public",
+            tags = { "invisible", "engine_invisible" },
             text = {
               en = {
                 body = "Invisible to enemies; attacking or casting ends it early.",
@@ -44540,6 +44653,7 @@ local data = {
             dispel = "basic",
             id = "b36w_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow}.",
@@ -45308,6 +45422,7 @@ local data = {
             dispel = "basic",
             id = "a15d_invisible",
             reveal = "public",
+            tags = { "invisible", "engine_invisible" },
             text = {
               en = {
                 body = "Invisible for {invis_duration} seconds; attacking or using an ability or item reveals her.",
@@ -47358,6 +47473,7 @@ local data = {
             dispel = "basic",
             id = "b32d_mark",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Silenced, deals {nerf} less damage, loses {nerf} movement speed and {attack_slow} attack speed, takes {damage} magic damage every {interval} seconds and gives vision to Kenshin's team.",
@@ -48882,6 +48998,7 @@ local data = {
           {
             dispel = "none",
             id = "a08t_guard",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -50015,6 +50132,7 @@ local data = {
             dispel = "none",
             id = "b12r_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow}.",
@@ -50527,6 +50645,7 @@ local data = {
             dispel = "basic",
             id = "c19r_poison",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow} and attack speed by {attack_slow}; takes {dot_damage} magic damage every {dot_interval} seconds.",
@@ -51688,6 +51807,7 @@ local data = {
             dispel = "basic",
             id = "a04d_frost",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow} and attack speed reduced by {attack_slow} for {duration} seconds.",
@@ -51830,6 +51950,7 @@ local data = {
             dispel = "none",
             id = "a04t_frost",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow} and attack speed reduced by {attack_slow}; takes {dot_damage} magic damage every {dot_interval} seconds. Lasts {slow_duration} seconds.",
@@ -52217,6 +52338,7 @@ local data = {
             dispel = "basic",
             id = "b13e_sleep",
             reveal = "public",
+            tags = { "b13e_sleep" },
             text = {
               en = {
                 body = "Asleep: cannot act and enemies prefer other targets. Taking damage wakes it up and stuns it for {wake_stun} seconds.",
@@ -52471,8 +52593,22 @@ local data = {
         schema = "3.3",
         source_id = "B13D",
         statuses = {
-          { dispel = "basic", id = "b13d_burrow", reveal = "public", visibility = "hidden" },
-          { dispel = "none", id = "b13d_crater", reveal = "public", visibility = "hidden" },
+          {
+            dispel = "basic",
+            id = "b13d_burrow",
+            remove_on = { "death" },
+            reveal = "public",
+            tags = { "invisible" },
+            visibility = "hidden",
+          },
+          {
+            dispel = "none",
+            id = "b13d_crater",
+            remove_on = { "death" },
+            reveal = "public",
+            tags = { "invisible" },
+            visibility = "hidden",
+          },
         },
         text = {
           en = {
@@ -52706,6 +52842,7 @@ local data = {
             dispel = "none",
             id = "b13t_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {move_slow:abs} and attack speed reduced by {attack_slow:abs}; this slow cannot be dispelled.",
@@ -53485,6 +53622,7 @@ local data = {
             dispel = "none",
             id = "a09t_tentacle",
             reveal = "public",
+            tags = { "a09t_tentacle" },
             text = {
               en = {
                 body = "Tentacle: cannot move and is spell immune; hits on non-buildings deal an extra {hit_damage} magic damage and add a poison stack, while hits on buildings deal only {building_pct} of it. Ends when the tentacle disappears.",
@@ -53768,6 +53906,7 @@ local data = {
             dispel = "basic",
             id = "a28w_hex",
             reveal = "public",
+            tags = { "cleanse_protected" },
             text = {
               en = {
                 body = "Turned into a frog: cannot attack, cast or use items; evasion and damage block are disabled.",
@@ -53792,6 +53931,7 @@ local data = {
             dispel = "basic",
             id = "a28w_slow",
             reveal = "public",
+            tags = { "cleanse_protected" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow}.",
@@ -54129,6 +54269,7 @@ local data = {
             dispel = "basic",
             id = "a28r_slow",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Stuck in the swamp; movement speed reduced by {slow}.",
@@ -55060,6 +55201,7 @@ local data = {
           {
             dispel = "none",
             id = "b09r_shield",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -56558,6 +56700,7 @@ local data = {
             dispel = "basic",
             id = "b23e_shock",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Movement speed reduced by {slow}. Further hits do not extend it.",
@@ -57305,6 +57448,7 @@ local data = {
             dispel = "basic",
             id = "b28e_stun",
             reveal = "public",
+            tags = { "cleanse_protected" },
             text = {
               en = {
                 body = "Stunned by a fire chain, taking {damage} magic damage every {tick} seconds; {share} of the damage Hisahide takes is dealt to this unit as pure damage. Ends when Hisahide's channel ends.",
@@ -57338,7 +57482,13 @@ local data = {
             visibility = "debuff",
           },
           { dispel = "none", id = "b28e_bond", reveal = "public", visibility = "hidden" },
-          { dispel = "basic", id = "b28e_guard", reveal = "public", visibility = "hidden" },
+          {
+            dispel = "basic",
+            id = "b28e_guard",
+            reveal = "public",
+            tags = { "cleanse_protected" },
+            visibility = "hidden",
+          },
         },
         text = {
           en = {
@@ -57979,7 +58129,13 @@ local data = {
             },
             visibility = "debuff",
           },
-          { dispel = "basic", id = "b33w_slow", reveal = "public", visibility = "hidden" },
+          {
+            dispel = "basic",
+            id = "b33w_slow",
+            reveal = "public",
+            tags = { "slow" },
+            visibility = "hidden",
+          },
         },
         text = {
           en = {
@@ -58460,6 +58616,7 @@ local data = {
             dispel = "basic",
             id = "b33t_spiderlings",
             reveal = "public",
+            tags = { "slow" },
             text = {
               en = {
                 body = "Entangled by a poison spider: takes {damage} magic damage per second, with movement speed reduced by {slow}, attack speed by {attack_slow} health regeneration by {regen_reduction} and healing received by {heal_cut}. The spider reapplies it at once if removed.",
@@ -58646,6 +58803,821 @@ local data = {
     },
     {
       ability_type = "active",
+      authored_package = "taigen_sessai",
+      cast_type = "instant",
+      description = "在目標地點半徑 250 的圓周上等距立起 16 塊屏障岩石，持續 2/2.5/3/3.5 秒，圍成一道把單位困在裡面或擋在外面的石牆。岩石魔法免疫，但可以被普攻打碎，敵方打碎一塊可得賞金。立起岩石時，附近的英雄與一般單位短暫失去碰撞體積，不會卡在岩石上。",
+      display_name = "自然屏障",
+      extras = {
+        cast_point = { 0.35, 0.35, 0.35, 0.35 },
+        cast_range = { 750.0, 750.0, 750.0, 750.0 },
+        duration = { 2.0, 2.5, 3.0, 3.5 },
+        maxrock = { 16.0, 16.0, 16.0, 16.0 },
+        phase_pad = { 300.0, 300.0, 300.0, 300.0 },
+        phase_time = { 0.1, 0.1, 0.1, 0.1 },
+        radius = { 250.0, 250.0, 250.0, 250.0 },
+      },
+      id = "b22_natural_barrier",
+      levels = {
+        { cast_time = 0.35, cooldown = 20.0, mana_cost = 120.0, range = 750.0 },
+        { cast_time = 0.35, cooldown = 18.0, mana_cost = 140.0, range = 750.0 },
+        { cast_time = 0.35, cooldown = 16.0, mana_cost = 160.0, range = 750.0 },
+        { cast_time = 0.35, cooldown = 14.0, mana_cost = 180.0, range = 750.0 },
+      },
+      max_level = 4,
+      target_type = "point",
+      ue = { native_only = true },
+      v3 = {
+        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
+        coverage = "expressible",
+        info = {
+          { field = "cast_range", value = "cast_range" },
+          { field = "aoe_radius", value = "radius" },
+          { field = "cast_point", value = "cast_point" },
+          { field = "mana_cost", value = "mana_cost" },
+          { field = "cooldown", value = "cooldown" },
+        },
+        kind = "ability",
+        max_level = 4,
+        schema = "3.3",
+        source_id = "B22W",
+        statuses = {
+          { dispel = "none", id = "b22w_rock_immune", reveal = "public", visibility = "hidden" },
+          { dispel = "none", id = "b22w_phased", reveal = "public", visibility = "hidden" },
+        },
+        text = {
+          en = {
+            body = "Raises {maxrock} evenly spaced rocks ({@b22w_rock}) on a circle of radius {radius} around the target point for {duration} seconds, forming a wall that traps units inside or keeps them out. The rocks are spell immune but can be destroyed by attacks; enemies earn a bounty for each one they destroy. As the rocks rise, nearby heroes and units briefly lose collision so they do not get stuck on them.",
+            name = "Natural Barrier",
+            pieces = {
+              { text = "Raises " },
+              { value = "maxrock" },
+              { text = " evenly spaced rocks (" },
+              { name_of = "b22w_rock", text = "Barrier Rock" },
+              { text = ") on a circle of radius " },
+              { value = "radius" },
+              { text = " around the target point for " },
+              { value = "duration" },
+              {
+                text = " seconds, forming a wall that traps units inside or keeps them out. The rocks are spell immune but can be destroyed by attacks; enemies earn a bounty for each one they destroy. As the rocks rise, nearby heroes and units briefly lose collision so they do not get stuck on them.",
+              },
+            },
+            rendered = "Raises 16 evenly spaced rocks (Barrier Rock) on a circle of radius 250 around the target point for 2/2.5/3/3.5 seconds, forming a wall that traps units inside or keeps them out. The rocks are spell immune but can be destroyed by attacks; enemies earn a bounty for each one they destroy. As the rocks rise, nearby heroes and units briefly lose collision so they do not get stuck on them.",
+          },
+          zh_TW = {
+            body = "在目標地點半徑 {radius} 的圓周上等距立起 {maxrock} 塊{@b22w_rock}，持續 {duration} 秒，圍成一道把單位困在裡面或擋在外面的石牆。岩石魔法免疫，但可以被普攻打碎，敵方打碎一塊可得賞金。立起岩石時，附近的英雄與一般單位短暫失去碰撞體積，不會卡在岩石上。",
+            name = "自然屏障",
+            pieces = {
+              { text = "在目標地點半徑 " },
+              { value = "radius" },
+              { text = " 的圓周上等距立起 " },
+              { value = "maxrock" },
+              { text = " 塊" },
+              { name_of = "b22w_rock", text = "屏障岩石" },
+              { text = "，持續 " },
+              { value = "duration" },
+              {
+                text = " 秒，圍成一道把單位困在裡面或擋在外面的石牆。岩石魔法免疫，但可以被普攻打碎，敵方打碎一塊可得賞金。立起岩石時，附近的英雄與一般單位短暫失去碰撞體積，不會卡在岩石上。",
+              },
+            },
+            rendered = "在目標地點半徑 250 的圓周上等距立起 16 塊屏障岩石，持續 2/2.5/3/3.5 秒，圍成一道把單位困在裡面或擋在外面的石牆。岩石魔法免疫，但可以被普攻打碎，敵方打碎一塊可得賞金。立起岩石時，附近的英雄與一般單位短暫失去碰撞體積，不會卡在岩石上。",
+          },
+        },
+        values = {
+          {
+            name = "cast_point",
+            ranks = { "0.35", "0.35", "0.35", "0.35" },
+            raw = { 358, 358, 358, 358 },
+            unit = "s",
+          },
+          {
+            name = "cast_range",
+            ranks = { "750", "750", "750", "750" },
+            raw = { 768000, 768000, 768000, 768000 },
+            unit = "dist",
+          },
+          {
+            name = "cooldown",
+            ranks = { "20", "18", "16", "14" },
+            raw = { 20480, 18432, 16384, 14336 },
+            unit = "s",
+          },
+          {
+            name = "duration",
+            ranks = { "2", "2.5", "3", "3.5" },
+            raw = { 2048, 2560, 3072, 3584 },
+            unit = "s",
+          },
+          {
+            name = "mana_cost",
+            ranks = { "120", "140", "160", "180" },
+            raw = { 122880, 143360, 163840, 184320 },
+            unit = "mana",
+          },
+          {
+            name = "maxrock",
+            ranks = { "16", "16", "16", "16" },
+            raw = { 16384, 16384, 16384, 16384 },
+            unit = "count",
+          },
+          {
+            hidden = true,
+            name = "phase_pad",
+            ranks = { "300", "300", "300", "300" },
+            raw = { 307200, 307200, 307200, 307200 },
+            unit = "dist",
+          },
+          {
+            hidden = true,
+            name = "phase_time",
+            ranks = { "0.1", "0.1", "0.1", "0.1" },
+            raw = { 102, 102, 102, 102 },
+            unit = "s",
+          },
+          {
+            name = "radius",
+            ranks = { "250", "250", "250", "250" },
+            raw = { 256000, 256000, 256000, 256000 },
+            unit = "dist",
+          },
+        },
+      },
+    },
+    {
+      ability_type = "active",
+      authored_package = "taigen_sessai",
+      cast_type = "instant",
+      description = "砍倒目標樹木，在原地召喚一隻可操控的樹人，存在 260 秒，數量沒有上限。樹人生命為 900 加上雪齋英雄等級乘以 100（最多 2000），攻擊力為基礎值加上英雄等級乘以 5。剛召喚的 3 秒內可飛越地形，且沒有碰撞體積。",
+      display_name = "自然之力",
+      extras = {
+        atk_buff = { 5.0, 5.0, 5.0, 5.0 },
+        base_hp = { 900.0, 900.0, 900.0, 900.0 },
+        cast_point = { 0.35, 0.35, 0.35, 0.35 },
+        cast_range = { 300.0, 300.0, 300.0, 300.0 },
+        duration = { 260.0, 260.0, 260.0, 260.0 },
+        fly_time = { 3.0, 3.0, 3.0, 3.0 },
+        hp_buff = { 100.0, 100.0, 100.0, 100.0 },
+        hp_cap = { 2000.0, 2000.0, 2000.0, 2000.0 },
+      },
+      id = "b22_force_of_nature",
+      levels = {
+        { cast_time = 0.35, cooldown = 40.0, mana_cost = 120.0, range = 300.0 },
+        { cast_time = 0.35, cooldown = 35.0, mana_cost = 140.0, range = 300.0 },
+        { cast_time = 0.35, cooldown = 30.0, mana_cost = 160.0, range = 300.0 },
+        { cast_time = 0.35, cooldown = 25.0, mana_cost = 180.0, range = 300.0 },
+      },
+      max_level = 4,
+      target_type = "point",
+      targets_tree = true,
+      ue = { native_only = true },
+      v3 = {
+        bot = { kind = "none", reason = "tree target", source = "derived" },
+        coverage = "expressible",
+        info = {
+          { field = "cast_range", value = "cast_range" },
+          { field = "cast_point", value = "cast_point" },
+          { field = "mana_cost", value = "mana_cost" },
+          { field = "cooldown", value = "cooldown" },
+        },
+        kind = "ability",
+        max_level = 4,
+        schema = "3.3",
+        source_id = "B22E",
+        statuses = {
+          {
+            dispel = "basic",
+            id = "b22e_fly",
+            reveal = "public",
+            text = {
+              en = {
+                body = "Freshly summoned: flies over terrain for {fly_time} seconds.",
+                name = "Flying",
+                pieces = {
+                  { text = "Freshly summoned: flies over terrain for " },
+                  { owner = "b22_force_of_nature", value = "fly_time" },
+                  { text = " seconds." },
+                },
+                rendered = "Freshly summoned: flies over terrain for 3 seconds.",
+              },
+              zh_TW = {
+                body = "剛被召喚：可飛越地形，持續 {fly_time} 秒。",
+                name = "飛行",
+                pieces = {
+                  { text = "剛被召喚：可飛越地形，持續 " },
+                  { owner = "b22_force_of_nature", value = "fly_time" },
+                  { text = " 秒。" },
+                },
+                rendered = "剛被召喚：可飛越地形，持續 3 秒。",
+              },
+            },
+            visibility = "buff",
+          },
+          { dispel = "none", id = "b22e_phased", reveal = "public", visibility = "hidden" },
+        },
+        text = {
+          en = {
+            body = "Fells the target tree and summons a controllable {@b22e_treant} in its place for {duration} seconds, with no limit on how many can exist. The treant has {base_hp} health plus {hp_buff} per hero level of Sessai (up to {hp_cap}), and its base attack damage plus {atk_buff} per hero level. For the first {fly_time} seconds it flies over terrain and has no collision.",
+            name = "Force of Nature",
+            pieces = {
+              { text = "Fells the target tree and summons a controllable " },
+              { name_of = "b22e_treant", text = "Treant" },
+              { text = " in its place for " },
+              { value = "duration" },
+              { text = " seconds, with no limit on how many can exist. The treant has " },
+              { value = "base_hp" },
+              { text = " health plus " },
+              { value = "hp_buff" },
+              { text = " per hero level of Sessai (up to " },
+              { value = "hp_cap" },
+              { text = "), and its base attack damage plus " },
+              { value = "atk_buff" },
+              { text = " per hero level. For the first " },
+              { value = "fly_time" },
+              { text = " seconds it flies over terrain and has no collision." },
+            },
+            rendered = "Fells the target tree and summons a controllable Treant in its place for 260 seconds, with no limit on how many can exist. The treant has 900 health plus 100 per hero level of Sessai (up to 2000), and its base attack damage plus 5 per hero level. For the first 3 seconds it flies over terrain and has no collision.",
+          },
+          zh_TW = {
+            body = "砍倒目標樹木，在原地召喚一隻可操控的{@b22e_treant}，存在 {duration} 秒，數量沒有上限。樹人生命為 {base_hp} 加上雪齋英雄等級乘以 {hp_buff}（最多 {hp_cap}），攻擊力為基礎值加上英雄等級乘以 {atk_buff}。剛召喚的 {fly_time} 秒內可飛越地形，且沒有碰撞體積。",
+            name = "自然之力",
+            pieces = {
+              { text = "砍倒目標樹木，在原地召喚一隻可操控的" },
+              { name_of = "b22e_treant", text = "樹人" },
+              { text = "，存在 " },
+              { value = "duration" },
+              { text = " 秒，數量沒有上限。樹人生命為 " },
+              { value = "base_hp" },
+              { text = " 加上雪齋英雄等級乘以 " },
+              { value = "hp_buff" },
+              { text = "（最多 " },
+              { value = "hp_cap" },
+              { text = "），攻擊力為基礎值加上英雄等級乘以 " },
+              { value = "atk_buff" },
+              { text = "。剛召喚的 " },
+              { value = "fly_time" },
+              { text = " 秒內可飛越地形，且沒有碰撞體積。" },
+            },
+            rendered = "砍倒目標樹木，在原地召喚一隻可操控的樹人，存在 260 秒，數量沒有上限。樹人生命為 900 加上雪齋英雄等級乘以 100（最多 2000），攻擊力為基礎值加上英雄等級乘以 5。剛召喚的 3 秒內可飛越地形，且沒有碰撞體積。",
+          },
+        },
+        values = {
+          {
+            name = "atk_buff",
+            ranks = { "5", "5", "5", "5" },
+            raw = { 5120, 5120, 5120, 5120 },
+            unit = "dmg",
+          },
+          {
+            name = "base_hp",
+            ranks = { "900", "900", "900", "900" },
+            raw = { 921600, 921600, 921600, 921600 },
+            unit = "hp",
+          },
+          {
+            name = "cast_point",
+            ranks = { "0.35", "0.35", "0.35", "0.35" },
+            raw = { 358, 358, 358, 358 },
+            unit = "s",
+          },
+          {
+            name = "cast_range",
+            ranks = { "300", "300", "300", "300" },
+            raw = { 307200, 307200, 307200, 307200 },
+            unit = "dist",
+          },
+          {
+            name = "cooldown",
+            ranks = { "40", "35", "30", "25" },
+            raw = { 40960, 35840, 30720, 25600 },
+            unit = "s",
+          },
+          {
+            name = "duration",
+            ranks = { "260", "260", "260", "260" },
+            raw = { 266240, 266240, 266240, 266240 },
+            unit = "s",
+          },
+          {
+            name = "fly_time",
+            ranks = { "3", "3", "3", "3" },
+            raw = { 3072, 3072, 3072, 3072 },
+            unit = "s",
+          },
+          {
+            name = "hp_buff",
+            ranks = { "100", "100", "100", "100" },
+            raw = { 102400, 102400, 102400, 102400 },
+            unit = "hp",
+          },
+          {
+            name = "hp_cap",
+            ranks = { "2000", "2000", "2000", "2000" },
+            raw = { 2048000, 2048000, 2048000, 2048000 },
+            unit = "hp",
+          },
+          {
+            name = "mana_cost",
+            ranks = { "120", "140", "160", "180" },
+            raw = { 122880, 143360, 163840, 184320 },
+            unit = "mana",
+          },
+        },
+      },
+    },
+    {
+      ability_type = "active",
+      authored_package = "taigen_sessai",
+      cast_type = "instant",
+      description = "對友方單位施放時，移除目標身上所有由敵方施加的狀態。對敵方施放時，若目標是分身就直接消滅；否則移除目標的覺悟酒魔免，使其 10 秒內無法再獲得覺悟酒的魔免，接著造成 200/300/400/500 魔法傷害，並緩速 100/200/300/400%，持續 0.8 秒。",
+      display_name = "淨化",
+      extras = {
+        cast_point = { 0.25, 0.25, 0.25, 0.25 },
+        cast_range = { 800.0, 800.0, 800.0, 800.0 },
+        damage = { 200.0, 300.0, 400.0, 500.0 },
+        mark_time = { 0.8, 0.8, 0.8, 0.8 },
+        move_slow = { -100.0, -200.0, -300.0, -400.0 },
+        slow_time = { 0.8, 0.8, 0.8, 0.8 },
+        wine_block = { 10.0, 10.0, 10.0, 10.0 },
+      },
+      id = "b22_purify",
+      levels = {
+        { cast_time = 0.25, cooldown = 40.0, mana_cost = 150.0, range = 800.0 },
+        { cast_time = 0.25, cooldown = 35.0, mana_cost = 200.0, range = 800.0 },
+        { cast_time = 0.25, cooldown = 30.0, mana_cost = 250.0, range = 800.0 },
+        { cast_time = 0.25, cooldown = 25.0, mana_cost = 300.0, range = 800.0 },
+      },
+      max_level = 4,
+      pierces_magic_immunity = true,
+      target_type = "unit",
+      ue = { native_only = true },
+      v3 = {
+        ability_flags = { "pierce_magic_immune" },
+        bot = { kind = "enemy_unit", source = "derived" },
+        coverage = "expressible",
+        info = {
+          { field = "cast_range", value = "cast_range" },
+          { field = "cast_point", value = "cast_point" },
+          { field = "mana_cost", value = "mana_cost" },
+          { field = "cooldown", value = "cooldown" },
+        },
+        kind = "ability",
+        max_level = 4,
+        schema = "3.3",
+        source_id = "B22R",
+        statuses = {
+          {
+            dispel = "basic",
+            id = "b22r_mark",
+            reveal = "public",
+            text = {
+              en = {
+                body = "Bathed in the light of {@b22_purify}; visual only, with no actual effect.",
+                name = "Purify",
+                pieces = {
+                  { text = "Bathed in the light of " },
+                  { name_of = "b22_purify", text = "Purify" },
+                  { text = "; visual only, with no actual effect." },
+                },
+                rendered = "Bathed in the light of Purify; visual only, with no actual effect.",
+              },
+              zh_TW = {
+                body = "被{@b22_purify}的光芒籠罩；只有特效，沒有實際效果。",
+                name = "淨化",
+                pieces = {
+                  { text = "被" },
+                  { name_of = "b22_purify", text = "淨化" },
+                  { text = "的光芒籠罩；只有特效，沒有實際效果。" },
+                },
+                rendered = "被淨化的光芒籠罩；只有特效，沒有實際效果。",
+              },
+            },
+            visibility = "buff",
+          },
+          {
+            dispel = "basic",
+            id = "b22r_slow",
+            reveal = "public",
+            text = {
+              en = {
+                body = "Movement speed reduced by {move_slow:abs} for {slow_time} seconds.",
+                name = "Purify Slow",
+                pieces = {
+                  { text = "Movement speed reduced by " },
+                  { format = "abs", owner = "b22_purify", value = "move_slow" },
+                  { text = " for " },
+                  { owner = "b22_purify", value = "slow_time" },
+                  { text = " seconds." },
+                },
+                rendered = "Movement speed reduced by 100/200/300/400% for 0.8 seconds.",
+              },
+              zh_TW = {
+                body = "移動速度降低 {move_slow:abs}，持續 {slow_time} 秒。",
+                name = "淨化緩速",
+                pieces = {
+                  { text = "移動速度降低 " },
+                  { format = "abs", owner = "b22_purify", value = "move_slow" },
+                  { text = "，持續 " },
+                  { owner = "b22_purify", value = "slow_time" },
+                  { text = " 秒。" },
+                },
+                rendered = "移動速度降低 100/200/300/400%，持續 0.8 秒。",
+              },
+            },
+            visibility = "debuff",
+          },
+          {
+            dispel = "none",
+            id = "b22r_wine_block",
+            immune_to = { "tag:perceive_wine" },
+            reveal = "public",
+            tags = { "blocks_perceive_wine" },
+            visibility = "hidden",
+          },
+        },
+        text = {
+          en = {
+            body = "Cast on an ally: removes every status applied by enemies from the target. Cast on an enemy: an illusion is destroyed outright; otherwise the target loses its Resolve Sake spell immunity and cannot regain it from Resolve Sake for {wine_block} seconds, then takes {damage} magic damage and is slowed by {move_slow:abs} for {slow_time} seconds.",
+            name = "Purify",
+            pieces = {
+              { text = "Cast on an ally: removes every status applied by enemies from the target. Cast on an enemy: an illusion is destroyed outright; otherwise the target loses its Resolve Sake spell immunity and cannot regain it from Resolve Sake for " },
+              { value = "wine_block" },
+              { text = " seconds, then takes " },
+              { value = "damage" },
+              { text = " magic damage and is slowed by " },
+              { format = "abs", value = "move_slow" },
+              { text = " for " },
+              { value = "slow_time" },
+              { text = " seconds." },
+            },
+            rendered = "Cast on an ally: removes every status applied by enemies from the target. Cast on an enemy: an illusion is destroyed outright; otherwise the target loses its Resolve Sake spell immunity and cannot regain it from Resolve Sake for 10 seconds, then takes 200/300/400/500 magic damage and is slowed by 100/200/300/400% for 0.8 seconds.",
+          },
+          zh_TW = {
+            body = "對友方單位施放時，移除目標身上所有由敵方施加的狀態。對敵方施放時，若目標是分身就直接消滅；否則移除目標的覺悟酒魔免，使其 {wine_block} 秒內無法再獲得覺悟酒的魔免，接著造成 {damage} 魔法傷害，並緩速 {move_slow:abs}，持續 {slow_time} 秒。",
+            name = "淨化",
+            pieces = {
+              { text = "對友方單位施放時，移除目標身上所有由敵方施加的狀態。對敵方施放時，若目標是分身就直接消滅；否則移除目標的覺悟酒魔免，使其 " },
+              { value = "wine_block" },
+              { text = " 秒內無法再獲得覺悟酒的魔免，接著造成 " },
+              { value = "damage" },
+              { text = " 魔法傷害，並緩速 " },
+              { format = "abs", value = "move_slow" },
+              { text = "，持續 " },
+              { value = "slow_time" },
+              { text = " 秒。" },
+            },
+            rendered = "對友方單位施放時，移除目標身上所有由敵方施加的狀態。對敵方施放時，若目標是分身就直接消滅；否則移除目標的覺悟酒魔免，使其 10 秒內無法再獲得覺悟酒的魔免，接著造成 200/300/400/500 魔法傷害，並緩速 100/200/300/400%，持續 0.8 秒。",
+          },
+        },
+        values = {
+          {
+            name = "cast_point",
+            ranks = { "0.25", "0.25", "0.25", "0.25" },
+            raw = { 256, 256, 256, 256 },
+            unit = "s",
+          },
+          {
+            name = "cast_range",
+            ranks = { "800", "800", "800", "800" },
+            raw = { 819200, 819200, 819200, 819200 },
+            unit = "dist",
+          },
+          {
+            name = "cooldown",
+            ranks = { "40", "35", "30", "25" },
+            raw = { 40960, 35840, 30720, 25600 },
+            unit = "s",
+          },
+          {
+            damage_type = "magical",
+            name = "damage",
+            ranks = { "200", "300", "400", "500" },
+            raw = { 204800, 307200, 409600, 512000 },
+            unit = "dmg",
+          },
+          {
+            name = "mana_cost",
+            ranks = { "150", "200", "250", "300" },
+            raw = { 153600, 204800, 256000, 307200 },
+            unit = "mana",
+          },
+          {
+            hidden = true,
+            name = "mark_time",
+            ranks = { "0.8", "0.8", "0.8", "0.8" },
+            raw = { 819, 819, 819, 819 },
+            unit = "s",
+          },
+          {
+            name = "move_slow",
+            ranks = { "-100", "-200", "-300", "-400" },
+            raw = { -102400, -204800, -307200, -409600 },
+            unit = "pct",
+          },
+          {
+            name = "slow_time",
+            ranks = { "0.8", "0.8", "0.8", "0.8" },
+            raw = { 819, 819, 819, 819 },
+            unit = "s",
+          },
+          {
+            name = "wine_block",
+            ranks = { "10", "10", "10", "10" },
+            raw = { 10240, 10240, 10240, 10240 },
+            unit = "s",
+          },
+        },
+      },
+    },
+    {
+      ability_type = "active",
+      authored_package = "taigen_sessai",
+      cast_type = "instant",
+      description = "喚醒目標樹木：只要那棵樹還在，就持續提供樹周圍 900 的視野，並讓 1200 內的敵人無法隱形。樹被砍倒時效果結束。",
+      display_name = "木靈展勢",
+      extras = {
+        cast_point = { 3.0 },
+        cast_range = { 100.0 },
+        radius = { 900.0 },
+        reveal_interval = { 1.0 },
+        truesight_interval = { 0.25 },
+        truesight_radius = { 1200.0 },
+        truesight_time = { 0.5 },
+      },
+      id = "b22_wood_spirit",
+      levels = {
+        { cast_time = 3.0, cooldown = 60.0, mana_cost = 120.0, range = 100.0 },
+      },
+      max_level = 1,
+      target_type = "point",
+      targets_tree = true,
+      ue = { native_only = true },
+      v3 = {
+        bot = { kind = "none", reason = "tree target", source = "derived" },
+        coverage = "expressible",
+        info = {
+          { field = "cast_range", value = "cast_range" },
+          { field = "cast_point", value = "cast_point" },
+          { field = "mana_cost", value = "mana_cost" },
+          { field = "cooldown", value = "cooldown" },
+        },
+        kind = "ability",
+        max_level = 1,
+        schema = "3.3",
+        source_id = "B22D",
+        statuses = {
+          { dispel = "none", id = "b22d_dummy_body", reveal = "public", visibility = "hidden" },
+          { dispel = "none", id = "b22d_watch", reveal = "public", visibility = "hidden" },
+          { dispel = "none", id = "b22d_truesight", reveal = "public", visibility = "hidden" },
+        },
+        text = {
+          en = {
+            body = "Awakens the target tree: as long as it stands, it grants vision within {radius} of it and reveals invisible enemies within {truesight_radius}. The effect ends when the tree is cut down.",
+            name = "Wood Spirit Awakening",
+            pieces = {
+              { text = "Awakens the target tree: as long as it stands, it grants vision within " },
+              { value = "radius" },
+              { text = " of it and reveals invisible enemies within " },
+              { value = "truesight_radius" },
+              { text = ". The effect ends when the tree is cut down." },
+            },
+            rendered = "Awakens the target tree: as long as it stands, it grants vision within 900 of it and reveals invisible enemies within 1200. The effect ends when the tree is cut down.",
+          },
+          zh_TW = {
+            body = "喚醒目標樹木：只要那棵樹還在，就持續提供樹周圍 {radius} 的視野，並讓 {truesight_radius} 內的敵人無法隱形。樹被砍倒時效果結束。",
+            name = "木靈展勢",
+            pieces = {
+              { text = "喚醒目標樹木：只要那棵樹還在，就持續提供樹周圍 " },
+              { value = "radius" },
+              { text = " 的視野，並讓 " },
+              { value = "truesight_radius" },
+              { text = " 內的敵人無法隱形。樹被砍倒時效果結束。" },
+            },
+            rendered = "喚醒目標樹木：只要那棵樹還在，就持續提供樹周圍 900 的視野，並讓 1200 內的敵人無法隱形。樹被砍倒時效果結束。",
+          },
+        },
+        values = {
+          {
+            name = "cast_point",
+            ranks = { "3" },
+            raw = { 3072 },
+            unit = "s",
+          },
+          {
+            name = "cast_range",
+            ranks = { "100" },
+            raw = { 102400 },
+            unit = "dist",
+          },
+          {
+            name = "cooldown",
+            ranks = { "60" },
+            raw = { 61440 },
+            unit = "s",
+          },
+          {
+            name = "mana_cost",
+            ranks = { "120" },
+            raw = { 122880 },
+            unit = "mana",
+          },
+          {
+            name = "radius",
+            ranks = { "900" },
+            raw = { 921600 },
+            unit = "dist",
+          },
+          {
+            hidden = true,
+            name = "reveal_interval",
+            ranks = { "1" },
+            raw = { 1024 },
+            unit = "s",
+          },
+          {
+            hidden = true,
+            name = "truesight_interval",
+            ranks = { "0.25" },
+            raw = { 256 },
+            unit = "s",
+          },
+          {
+            name = "truesight_radius",
+            ranks = { "1200" },
+            raw = { 1228800 },
+            unit = "dist",
+          },
+          {
+            hidden = true,
+            name = "truesight_time",
+            ranks = { "0.5" },
+            raw = { 512 },
+            unit = "s",
+          },
+        },
+      },
+    },
+    {
+      ability_type = "ultimate",
+      authored_package = "taigen_sessai",
+      cast_type = "instant",
+      description = "讓全地圖的樹木重生，並在目標地點召喚自然之怒靈體，雙方都能看見該區域。3 秒後若靈體仍然存活，對其周圍 1000 內的敵方英雄與一般單位造成 900/1300/1700 純粹傷害。靈體魔法免疫，並會不斷清除身上的所有狀態，敵人只能用普攻把它打掉來阻止大招。",
+      display_name = "自然之怒",
+      extras = {
+        barrier_interval = { 0.01, 0.01, 0.01 },
+        cast_point = { 0.25, 0.25, 0.25 },
+        cast_range = { 800.0, 800.0, 800.0 },
+        damage = { 900.0, 1300.0, 1700.0 },
+        delay = { 3.0, 3.0, 3.0 },
+        radius = { 1000.0, 1000.0, 1000.0 },
+        required_level = { 6.0, 12.0, 18.0 },
+        reveal_duration = { 3.0, 3.0, 3.0 },
+        reveal_radius = { 1000.0, 1000.0, 1000.0 },
+        spirit_lifetime = { 3.2, 3.2, 3.2 },
+      },
+      id = "b22_wrath_of_nature",
+      levels = {
+        { cast_time = 0.25, cooldown = 110.0, mana_cost = 300.0, range = 800.0, required_hero_level = 6 },
+        { cast_time = 0.25, cooldown = 100.0, mana_cost = 300.0, range = 800.0, required_hero_level = 12 },
+        { cast_time = 0.25, cooldown = 90.0, mana_cost = 300.0, range = 800.0, required_hero_level = 18 },
+      },
+      max_level = 3,
+      target_type = "point",
+      ue = { native_only = true },
+      v3 = {
+        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
+        coverage = "expressible",
+        info = {
+          { field = "cast_range", value = "cast_range" },
+          { field = "aoe_radius", value = "radius" },
+          { field = "cast_point", value = "cast_point" },
+          { field = "mana_cost", value = "mana_cost" },
+          { field = "cooldown", value = "cooldown" },
+          { field = "required_level", value = "required_level" },
+        },
+        kind = "ability",
+        max_level = 3,
+        schema = "3.3",
+        source_id = "B22T",
+        statuses = {
+          { dispel = "none", id = "b22t_spirit_immune", reveal = "public", visibility = "hidden" },
+          { dispel = "none", id = "b22t_barrier", reveal = "public", visibility = "hidden" },
+        },
+        text = {
+          en = {
+            body = "Regrows every tree on the map and summons a {@b22t_spirit} at the target point, revealing the area to both teams. After {delay} seconds, if the spirit is still alive, enemy heroes and units within {radius} of it take {damage} pure damage. The spirit is spell immune and keeps removing every status on itself, so enemies can only stop the ultimate by destroying it with attacks.",
+            name = "Wrath of Nature",
+            pieces = {
+              { text = "Regrows every tree on the map and summons a " },
+              { name_of = "b22t_spirit", text = "Wrath Spirit" },
+              { text = " at the target point, revealing the area to both teams. After " },
+              { value = "delay" },
+              { text = " seconds, if the spirit is still alive, enemy heroes and units within " },
+              { value = "radius" },
+              { text = " of it take " },
+              { value = "damage" },
+              { text = " pure damage. The spirit is spell immune and keeps removing every status on itself, so enemies can only stop the ultimate by destroying it with attacks." },
+            },
+            rendered = "Regrows every tree on the map and summons a Wrath Spirit at the target point, revealing the area to both teams. After 3 seconds, if the spirit is still alive, enemy heroes and units within 1000 of it take 900/1300/1700 pure damage. The spirit is spell immune and keeps removing every status on itself, so enemies can only stop the ultimate by destroying it with attacks.",
+          },
+          zh_TW = {
+            body = "讓全地圖的樹木重生，並在目標地點召喚{@b22t_spirit}，雙方都能看見該區域。{delay} 秒後若靈體仍然存活，對其周圍 {radius} 內的敵方英雄與一般單位造成 {damage} 純粹傷害。靈體魔法免疫，並會不斷清除身上的所有狀態，敵人只能用普攻把它打掉來阻止大招。",
+            name = "自然之怒",
+            pieces = {
+              { text = "讓全地圖的樹木重生，並在目標地點召喚" },
+              { name_of = "b22t_spirit", text = "自然之怒靈體" },
+              { text = "，雙方都能看見該區域。" },
+              { value = "delay" },
+              { text = " 秒後若靈體仍然存活，對其周圍 " },
+              { value = "radius" },
+              { text = " 內的敵方英雄與一般單位造成 " },
+              { value = "damage" },
+              { text = " 純粹傷害。靈體魔法免疫，並會不斷清除身上的所有狀態，敵人只能用普攻把它打掉來阻止大招。" },
+            },
+            rendered = "讓全地圖的樹木重生，並在目標地點召喚自然之怒靈體，雙方都能看見該區域。3 秒後若靈體仍然存活，對其周圍 1000 內的敵方英雄與一般單位造成 900/1300/1700 純粹傷害。靈體魔法免疫，並會不斷清除身上的所有狀態，敵人只能用普攻把它打掉來阻止大招。",
+          },
+        },
+        values = {
+          {
+            hidden = true,
+            name = "barrier_interval",
+            ranks = { "0.01", "0.01", "0.01" },
+            raw = { 10, 10, 10 },
+            unit = "s",
+          },
+          {
+            name = "cast_point",
+            ranks = { "0.25", "0.25", "0.25" },
+            raw = { 256, 256, 256 },
+            unit = "s",
+          },
+          {
+            name = "cast_range",
+            ranks = { "800", "800", "800" },
+            raw = { 819200, 819200, 819200 },
+            unit = "dist",
+          },
+          {
+            name = "cooldown",
+            ranks = { "110", "100", "90" },
+            raw = { 112640, 102400, 92160 },
+            unit = "s",
+          },
+          {
+            damage_type = "pure",
+            name = "damage",
+            ranks = { "900", "1300", "1700" },
+            raw = { 921600, 1331200, 1740800 },
+            unit = "dmg",
+          },
+          {
+            name = "delay",
+            ranks = { "3", "3", "3" },
+            raw = { 3072, 3072, 3072 },
+            unit = "s",
+          },
+          {
+            name = "mana_cost",
+            ranks = { "300", "300", "300" },
+            raw = { 307200, 307200, 307200 },
+            unit = "mana",
+          },
+          {
+            name = "radius",
+            ranks = { "1000", "1000", "1000" },
+            raw = { 1024000, 1024000, 1024000 },
+            unit = "dist",
+          },
+          {
+            name = "required_level",
+            ranks = { "6", "12", "18" },
+            raw = { 6144, 12288, 18432 },
+            unit = "level",
+          },
+          {
+            hidden = true,
+            name = "reveal_duration",
+            ranks = { "3", "3", "3" },
+            raw = { 3072, 3072, 3072 },
+            unit = "s",
+          },
+          {
+            hidden = true,
+            name = "reveal_radius",
+            ranks = { "1000", "1000", "1000" },
+            raw = { 1024000, 1024000, 1024000 },
+            unit = "dist",
+          },
+          {
+            hidden = true,
+            name = "spirit_lifetime",
+            ranks = { "3.2", "3.2", "3.2" },
+            raw = { 3277, 3277, 3277 },
+            unit = "s",
+          },
+        },
+      },
+    },
+    {
+      ability_type = "active",
       authored_package = "tachibana_dosetsu",
       cast_type = "instant",
       description = "在目標地點召喚雷區，持續 10 秒；每 0.95 秒對 350 範圍內的敵人造成 40/80/120/160 魔法傷害。",
@@ -58817,6 +59789,7 @@ local data = {
             dispel = "basic",
             id = "c07e_bind",
             reveal = "public",
+            tags = { "cleanse_protected" },
             text = {
               en = {
                 body = "Stunned and takes {damage} magic damage every {tick} seconds; ends when Dosetsu stops channeling or the link breaks.",
@@ -58845,7 +59818,13 @@ local data = {
             },
             visibility = "debuff",
           },
-          { dispel = "basic", id = "c07e_link", reveal = "public", visibility = "hidden" },
+          {
+            dispel = "basic",
+            id = "c07e_link",
+            reveal = "public",
+            tags = { "cleanse_protected" },
+            visibility = "hidden",
+          },
         },
         text = {
           en = {
@@ -59363,6 +60342,7 @@ local data = {
           {
             dispel = "basic",
             id = "c07d_shield",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -59986,6 +60966,7 @@ local data = {
           {
             dispel = "none",
             id = "a11t_aura",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -60322,7 +61303,13 @@ local data = {
         schema = "3.3",
         source_id = "A21W",
         statuses = {
-          { dispel = "basic", id = "a21w_orb", reveal = "public", visibility = "hidden" },
+          {
+            dispel = "basic",
+            id = "a21w_orb",
+            remove_on = { "death" },
+            reveal = "public",
+            visibility = "hidden",
+          },
         },
         text = {
           en = {
@@ -61181,6 +62168,7 @@ local data = {
           {
             dispel = "basic",
             id = "b15e_orb",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -63616,7 +64604,13 @@ local data = {
             },
             visibility = "debuff",
           },
-          { dispel = "basic", id = "b16mmf_invis", reveal = "public", visibility = "hidden" },
+          {
+            dispel = "basic",
+            id = "b16mmf_invis",
+            reveal = "public",
+            tags = { "invisible", "engine_invisible" },
+            visibility = "hidden",
+          },
         },
         text = {
           en = {
@@ -63722,6 +64716,7 @@ local data = {
             dispel = "basic",
             id = "c08d_invisible",
             reveal = "public",
+            tags = { "invisible", "engine_invisible" },
             text = {
               en = {
                 body = "Invisible for {duration} seconds; revealed by attacking or using an ability or item.",
@@ -64494,6 +65489,7 @@ local data = {
             dispel = "strong",
             id = "c08t_devoured",
             reveal = "public",
+            tags = { "cleanse_protected", "c08t_bleeding" },
             text = {
               en = {
                 body = "Swallowed by Danzo: stunned, blinded, loses vision and moves with him, taking {damage} magic damage every {tick} seconds. Not reduced by status resistance.",
@@ -64527,6 +65523,7 @@ local data = {
           {
             dispel = "none",
             id = "c08t_steal_stack",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -65882,7 +66879,13 @@ local data = {
             },
             visibility = "debuff",
           },
-          { dispel = "none", id = "b24e_taunt", reveal = "public", visibility = "hidden" },
+          {
+            dispel = "none",
+            id = "b24e_taunt",
+            remove_on = { "owner_death" },
+            reveal = "public",
+            visibility = "hidden",
+          },
           {
             dispel = "basic",
             id = "b24e_strength",
@@ -66766,6 +67769,7 @@ local data = {
           {
             dispel = "basic",
             id = "c06r_shield",
+            remove_on = { "death" },
             reveal = "public",
             text = {
               en = {
@@ -68453,6 +69457,20 @@ local data = {
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "mogami_yoshihime",
+    },
+    {
+      abilities = { "b22_natural_barrier", "b22_force_of_nature", "b22_purify", "b22_wrath_of_nature", "b22_wood_spirit" },
+      authored_package = "taigen_sessai",
+      display_name = "太原雪齋",
+      id = "taigen_sessai",
+      moba_loadout = {
+        ranks = { 1, 1, 1, 0, 1 },
+        skill_points = 0,
+      },
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B22",
+      turn_speed = 720.0,
+      ue = { native_only = true },
+      v3_crate = "taigen_sessai",
     },
     {
       abilities = { "c07_heaven_thunder", "c07_thunder_shackle", "c07_thunderbolt", "c07_raijin_wrath", "c07_magic_shield", "c07_storm_move" },

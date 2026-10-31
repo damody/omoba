@@ -738,10 +738,10 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// `damage { source }`: another unit deals it (credit and spell amplification are that unit's).
     pub fn damage_from(&mut self, source: EntityHandle, to: EntityHandle, amount: Fixed64, kind: DamageKind, flags: Dmg) -> Res {
         if !source.is_valid() { return Ok(()); }
-        let me = self.self_unit;
-        self.self_unit = source;
+        let me = self.caster;
+        self.caster = source;
         let r = self.damage(to, amount, kind, flags);
-        self.self_unit = me;
+        self.caster = me;
         r
     }
 
@@ -769,14 +769,16 @@ impl<'a, 'w> Cx<'a, 'w> {
         center + Vec2::new(omoba_sim::trig::cos(a), omoba_sim::trig::sin(a)) * d
     }
 
-    /// `damage` with the caster (`self`) as the source.
+    /// `damage` dealt by `cx.caster`: the caster of a cast, the learner of a passive, the applier
+    /// of a status in its triggers (v3.md §4, the source's KV `Damage` / `ApplyDamage` attacker;
+    /// E450: not the status holder).
     pub fn damage(&mut self, to: EntityHandle, amount: Fixed64, kind: DamageKind, flags: Dmg) -> Res {
         if !to.is_valid() || amount <= Fixed64::ZERO || amount > Fixed64::from_i32(1_000_000) { return Ok(()); }
         let mut profile = DamageProfile::NORMAL;
         if flags.require_source_alive { profile = profile.union(DamageProfile::REQUIRE_SOURCE_ALIVE); }
         // The source dealt it with an inflictor: spell amplification scales it (v3.md §5.1).
         if !flags.require_source_alive && !flags.no_amplify { profile = profile.union(DamageProfile::SPELL); }
-        self.world.deal_damage(to, amount, kind, profile, RSome(self.self_unit));
+        self.world.deal_damage(to, amount, kind, profile, RSome(self.caster));
         Ok(())
     }
 

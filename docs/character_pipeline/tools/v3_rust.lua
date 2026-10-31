@@ -1030,7 +1030,9 @@ end
 ---------------------------------------------------------------------------
 local STATUS_FIELDS = set({ "id", "runtime_id", "duration", "stacking", "dispel", "visibility", "reveal", "cue", "remove_on",
   "stats", "per_source", "states", "tags", "triggers", "text", "notes", "values", "vars", "absorb", "status_resistance", "aura",
-  "unique_group", "unique_rule", "scope", "reapply_if_removed" })
+  "unique_group", "unique_rule", "scope", "reapply_if_removed",
+  -- immune_to: the host refuses the matching statuses from the catalog (line B E445, E448)
+  "immune_to" })
 
 -- The StatusDef constant of every status; problems per status (states the host does not hold).
 local function emit_statuses(m, root)
@@ -3266,7 +3268,9 @@ local function emit_entry(m, o, opts, status_problems)
             -- `filter`: this tick's actions run only when it holds (the clock goes on)
             local cond = tr.filter ~= nil and g:value(tr.filter, ctx, "bool") or nil
             local inst = sd.stacking == "independent"
-            local body = "    cx.caster = ability_kit::arg_as_unit(args, 0);\n"
+            -- the applier's current rank of this entry: a think reads the ability's level when it
+            -- ticks (the source's %value), not the rank it was applied at (D: B31R's burn, E451)
+            local body = "    cx.caster = ability_kit::arg_as_unit(args, 0);\n    cx.rank = cx.rank_of(cx.caster, ID);\n"
               .. (inst and ("    cx.event_instance = u32::try_from(ability_kit::arg_as_num(args, 1).raw() >> 10).unwrap_or(0);\n"
                 .. "    if !cx.has_status_instance(cx.self_unit, &super::ids::status::" .. upper(sd.id) .. ", cx.event_instance) { return Ok(()); }\n")
                 or ("    if !cx.has_status(cx.self_unit, &super::ids::status::" .. upper(sd.id) .. ") { return Ok(()); }\n"
@@ -3497,6 +3501,8 @@ local function emit_entry(m, o, opts, status_problems)
       impl[#impl + 1] = "\n    fn on_status_event(&self, holder: EntityHandle, status: RStr<'_>, event: StatusEvent, world: &mut GameWorldDyn<'_>) {\n"
         .. "        let mut cx = Cx::passive(world, holder, event.level.max(1));\n"
         .. "        cx.caster = event.source;\n"
+        -- the applier's current rank, as a periodic tick reads it (E451)
+        .. "        cx.rank = cx.rank_of(cx.caster, ID);\n"
         .. "        cx.event_instance = event.instance;\n"
         .. "        match (status.as_str(), event.kind) {\n" .. table.concat(arms) .. "            _ => {}\n        }\n    }\n"
     end
@@ -3504,6 +3510,8 @@ local function emit_entry(m, o, opts, status_problems)
       impl[#impl + 1] = "\n    fn on_damage_pre(&self, holder: EntityHandle, status: RStr<'_>, event: StatusEvent, world: &mut GameWorldDyn<'_>) -> DamageEdit {\n"
         .. "        let mut cx = Cx::passive(world, holder, event.level.max(1));\n"
         .. "        cx.caster = event.source;\n"
+        -- the applier's current rank, as a periodic tick reads it (E451)
+        .. "        cx.rank = cx.rank_of(cx.caster, ID);\n"
         .. "        cx.event_instance = event.instance;\n"
         .. "        match (status.as_str(), event.kind) {\n" .. table.concat(pre_arms) .. "            _ => {}\n        }\n        cx.damage_edit\n    }\n"
     end

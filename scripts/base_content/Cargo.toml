@@ -120,6 +120,7 @@ hero_b11_impl = { path = "../heroes/kikuhime" }
 hero_b23_impl = { path = "../heroes/ise_hime" }
 hero_b28_impl = { path = "../heroes/matsunaga_hisahide" }
 hero_b33_impl = { path = "../heroes/mogami_yoshihime" }
+hero_b22_impl = { path = "../heroes/taigen_sessai" }
 hero_c07_impl = { path = "../heroes/tachibana_dosetsu" }
 hero_a11_impl = { path = "../heroes/saito_dosan" }
 hero_a21_impl = { path = "../heroes/zuiryuin_nisshu" }

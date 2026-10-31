@@ -470,6 +470,10 @@ function M.compile(doc, opts)
       end
       -- dispel: the class the host's dispel reads (E214)
       local row = { id = s.id, visibility = s.visibility, dispel = s.dispel, reveal = s.reveal, runtime_id = s.runtime_id, values = vrows }
+      -- tags / immune_to / remove_on: the host's dispel registry reads them from the catalog (E448)
+      for _, k in ipairs({ "tags", "immune_to", "remove_on" }) do
+        if type(s[k]) == "table" and #s[k] > 0 then row[k] = { table.unpack(s[k]) } end
+      end
       local stext = text_of(so)
       if stext then row.text = stext end
       st[#st + 1] = row

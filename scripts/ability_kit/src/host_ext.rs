@@ -193,10 +193,10 @@ impl Cx<'_, '_> {
     pub fn damage_reflect_from_at(&mut self, ability: &str, path: &str, source: EntityHandle, to: EntityHandle, amount: Fixed64,
         kind: DamageKind, flags: Dmg, extra: DmgExtra) -> Res {
         if !source.is_valid() { return Ok(()); }
-        let me = self.self_unit;
-        self.self_unit = source;
+        let me = self.caster;
+        self.caster = source;
         let r = self.damage_flagged_at(ability, path, to, amount, kind, flags, extra, true);
-        self.self_unit = me;
+        self.caster = me;
         r
     }
 
@@ -220,7 +220,8 @@ impl Cx<'_, '_> {
             let args = [ExtArg::Str(ability.into()), ExtArg::Str(path.into())];
             let _ = self.world.ext(op::DAMAGE_TAG, RSlice::from_slice(&args));
         }
-        self.world.deal_damage(to, amount, kind, profile, abi_stable::std_types::RSome(self.self_unit));
+        // the attacker is cx.caster (Cx::damage, E450)
+        self.world.deal_damage(to, amount, kind, profile, abi_stable::std_types::RSome(self.caster));
         Ok(())
     }
 
@@ -229,10 +230,10 @@ impl Cx<'_, '_> {
     pub fn damage_ex_from_at(&mut self, ability: &str, path: &str, source: EntityHandle, to: EntityHandle, amount: Fixed64,
         kind: DamageKind, flags: Dmg, extra: DmgExtra) -> Res {
         if !source.is_valid() { return Ok(()); }
-        let me = self.self_unit;
-        self.self_unit = source;
+        let me = self.caster;
+        self.caster = source;
         let r = self.damage_ex_at(ability, path, to, amount, kind, flags, extra);
-        self.self_unit = me;
+        self.caster = me;
         r
     }
 
@@ -260,10 +261,10 @@ impl Cx<'_, '_> {
     pub fn damage_from_at(&mut self, ability: &str, path: &str, source: EntityHandle, to: EntityHandle, amount: Fixed64,
         kind: DamageKind, flags: Dmg) -> Res {
         if !source.is_valid() { return Ok(()); }
-        let me = self.self_unit;
-        self.self_unit = source;
+        let me = self.caster;
+        self.caster = source;
         let r = self.damage_at(ability, path, to, amount, kind, flags);
-        self.self_unit = me;
+        self.caster = me;
         r
     }
 

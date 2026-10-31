@@ -169,6 +169,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
         v.extend(hero_b23_impl::units());
         v.extend(hero_b28_impl::units());
         v.extend(hero_b33_impl::units());
+        v.extend(hero_b22_impl::units());
         v.extend(hero_c07_impl::units());
         v.extend(hero_a11_impl::units());
         v.extend(hero_a21_impl::units());
@@ -267,6 +268,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
         v.extend(hero_b23_impl::abilities());
         v.extend(hero_b28_impl::abilities());
         v.extend(hero_b33_impl::abilities());
+        v.extend(hero_b22_impl::abilities());
         v.extend(hero_c07_impl::abilities());
         v.extend(hero_a11_impl::abilities());
         v.extend(hero_a21_impl::abilities());

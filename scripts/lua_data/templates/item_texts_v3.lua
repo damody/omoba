@@ -287,12 +287,19 @@ local data = {
       { stat = "attack_speed", value = "attack_speed" },
     },
     statuses = {
-      { dispel = "none", id = "dark_boots_unique_ms", reveal = "public", visibility = "hidden" },
+      {
+        dispel = "none",
+        id = "dark_boots_unique_ms",
+        remove_on = { "unequip" },
+        reveal = "public",
+        visibility = "hidden",
+      },
       {
         dispel = "basic",
         id = "dark_boots_immune",
         reveal = "public",
         runtime_id = "magic_immune",
+        tags = { "perceive_wine" },
         text = {
           en = {
             body = "Spell immune: takes no magic damage.",
@@ -416,12 +423,19 @@ local data = {
       { stat = "attack_speed", value = "attack_speed" },
     },
     statuses = {
-      { dispel = "none", id = "dark_boots_1_unique_ms", reveal = "public", visibility = "hidden" },
+      {
+        dispel = "none",
+        id = "dark_boots_1_unique_ms",
+        remove_on = { "unequip" },
+        reveal = "public",
+        visibility = "hidden",
+      },
       {
         dispel = "basic",
         id = "dark_boots_1_immune",
         reveal = "public",
         runtime_id = "magic_immune",
+        tags = { "perceive_wine" },
         text = {
           en = {
             body = "Spell immune: takes no magic damage.",
@@ -1364,13 +1378,26 @@ local data = {
       { stat = "int", value = "intellect" },
     },
     statuses = {
-      { dispel = "none", id = "mana_boots_unique_ms", reveal = "public", visibility = "hidden" },
-      { dispel = "none", id = "mana_boots_unique", reveal = "public", visibility = "hidden" },
+      {
+        dispel = "none",
+        id = "mana_boots_unique_ms",
+        remove_on = { "unequip" },
+        reveal = "public",
+        visibility = "hidden",
+      },
+      {
+        dispel = "none",
+        id = "mana_boots_unique",
+        remove_on = { "unequip" },
+        reveal = "public",
+        visibility = "hidden",
+      },
       {
         dispel = "basic",
         id = "mana_boots_immune",
         reveal = "public",
         runtime_id = "magic_immune",
+        tags = { "perceive_wine" },
         text = {
           en = {
             body = "Spell immune: takes no magic damage.",
@@ -1508,13 +1535,26 @@ local data = {
       { stat = "int", value = "intellect" },
     },
     statuses = {
-      { dispel = "none", id = "mana_boots_1_unique_ms", reveal = "public", visibility = "hidden" },
-      { dispel = "none", id = "mana_boots_1_unique", reveal = "public", visibility = "hidden" },
+      {
+        dispel = "none",
+        id = "mana_boots_1_unique_ms",
+        remove_on = { "unequip" },
+        reveal = "public",
+        visibility = "hidden",
+      },
+      {
+        dispel = "none",
+        id = "mana_boots_1_unique",
+        remove_on = { "unequip" },
+        reveal = "public",
+        visibility = "hidden",
+      },
       {
         dispel = "basic",
         id = "mana_boots_1_immune",
         reveal = "public",
         runtime_id = "magic_immune",
+        tags = { "perceive_wine" },
         text = {
           en = {
             body = "Spell immune: takes no magic damage.",
@@ -1875,6 +1915,7 @@ local data = {
         id = "perceive_wine_immune",
         reveal = "public",
         runtime_id = "magic_immune",
+        tags = { "perceive_wine" },
         text = {
           en = {
             body = "Spell immune: takes no magic damage.",
@@ -1953,7 +1994,13 @@ local data = {
     schema = "3.3",
     source_id = "item_pleated_skirt",
     statuses = {
-      { dispel = "none", id = "pleated_skirt_unique_ms", reveal = "public", visibility = "hidden" },
+      {
+        dispel = "none",
+        id = "pleated_skirt_unique_ms",
+        remove_on = { "unequip" },
+        reveal = "public",
+        visibility = "hidden",
+      },
     },
     text = {
       en = {
@@ -2160,7 +2207,14 @@ local data = {
         },
         visibility = "buff",
       },
-      { dispel = "basic", id = "red_spear_fire_attack", reveal = "public", runtime_id = "modifier_fire_attack", visibility = "hidden" },
+      {
+        dispel = "basic",
+        id = "red_spear_fire_attack",
+        reveal = "public",
+        runtime_id = "modifier_fire_attack",
+        tags = { "fire_attack" },
+        visibility = "hidden",
+      },
     },
     text = {
       en = {
@@ -2801,6 +2855,7 @@ local data = {
         id = "spell_book_slow",
         reveal = "public",
         runtime_id = "generic_slow:spell_book:{caster}",
+        tags = { "slow" },
         text = {
           en = {
             body = "Movement speed reduced by {slow}.",

@@ -55,4 +55,5 @@ return {
   {hero='saito_tomonobu',package='hero_b03',dir='heroes/saito_tomonobu'},
   {hero='naoe_kanetsugu',package='hero_b36',dir='heroes/naoe_kanetsugu'},
   {hero='mogami_yoshihime',package='hero_b33',dir='heroes/mogami_yoshihime'},
+  {hero='taigen_sessai',package='hero_b22',dir='heroes/taigen_sessai'},
 }

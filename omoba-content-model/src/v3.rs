@@ -114,6 +114,16 @@ pub struct V3Status {
     /// The BuffStore id the current runtime uses (v3.3); `{caster}` stands for the caster's "id:gen".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_id: Option<String>,
+    /// The status's v3 `tags`: what `has_status_tag`, `remove_status { tags }` and
+    /// `immune_to = { "tag:<tag>" }` match in the host's dispel registry (E448).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    /// v3 `immune_to`: `tag:<tag>`, a status id or a v3 state its holder refuses (E445, E448).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub immune_to: Vec<String>,
+    /// v3 `remove_on` (`owner_death`, ...): when the host removes it besides its duration (E448).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remove_on: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub values: Vec<V3Value>,
     #[serde(default)]

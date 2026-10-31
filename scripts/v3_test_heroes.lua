@@ -100,6 +100,7 @@ local HEROES = {
   { package = "ise_hime" },
   { package = "matsunaga_hisahide" },
   { package = "mogami_yoshihime", playable = true },
+  { package = "taigen_sessai", playable = true },
   { package = "tachibana_dosetsu" },
   { package = "saito_dosan" },
   { package = "zuiryuin_nisshu" },
