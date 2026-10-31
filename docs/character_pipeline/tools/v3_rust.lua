@@ -200,6 +200,9 @@ local STATUS_TRIGGERS = {
   on_mana_spent = { 16384, { 17 } },
   -- the holder gained health from a heal (line B E478): event.amount is what it gained (capped)
   on_heal_received = { 65536, { 19 } },
+  -- an enemy (or anyone) ordered an attack or a cast at the holder (line B E465): event.issuer the
+  -- orderer, event.order.ability the ordered ability (none for an attack order)
+  on_order_targeted = { 32768, { 18 } },
   -- applied again while it holds: the applying code runs it after the apply (no host event)
   on_refreshed = { 0 },
 }
@@ -681,6 +684,9 @@ function Gen:expr(node, ctx)
       if node.name == "is_item" then return "cx.event_is_any_item()", "bool" end
       -- the cast point at the caster's rank (0 for an item): the host tells it to a status trigger
       if node.name == "cast_point" and ctx.event == "ability_executed" then return "cx.event_ability_cast_point()", "num" end
+      -- the ordered ability at the orderer's rank (line B E465)
+      if node.name == "cast_point" and ctx.event == "order_targeted" then return "cx.event_ability_cast_point()", "num" end
+      if node.name == "cast_range" and ctx.event == "order_targeted" then return "cx.event_ability_cast_range()", "num" end
       self:block("attr:" .. node.name .. " of an ability"); return "Fixed64::ZERO", "err"
     end
     if ot == "event" and (ctx.event == "channel_tick" or ctx.event == "channel_end") then
@@ -697,6 +703,16 @@ function Gen:expr(node, ctx)
     if ot == "event" and (ctx.event == "mana_spent" or ctx.event == "heal_received") then
       if node.name == "amount" then return "cx.event_amount", "num" end
       self:block("event:" .. node.name .. " of a status on_" .. ctx.event); return "Fixed64::ZERO", "err"
+    end
+    -- on_order_targeted: who ordered, and the order's ability (line B E465)
+    if ot == "event" and ctx.event == "order_targeted" then
+      if node.name == "issuer" then return "cx.event_attacker", "unit" end
+      if node.name == "order" then return "", "event_order" end
+      self:block("event:" .. node.name .. " of on_order_targeted"); return "EntityHandle::INVALID", "unit"
+    end
+    if ot == "event_order" then
+      if node.name == "ability" then return "", "event_ability" end
+      self:block("event.order." .. node.name); return "Fixed64::ZERO", "err"
     end
     -- a status's on_ability_executed tells only the skill (line B 94d609ce)
     if ot == "event" and ctx.event == "ability_executed" then
@@ -895,6 +911,8 @@ function Gen:call(node, ctx)
   elseif fn == "exists" then
     local u, t = arg(1)
     if t == "err" then return "false", "bool" end
+    -- the order's ability: a cast order (damage_kind 1), not an attack order (0; line B E465)
+    if t == "event_ability" and ctx.event == "order_targeted" then return "(cx.event_damage_kind == 1)", "bool" end
     if t ~= "unit" then self:block("fn:exists of a " .. t); return "false", "bool" end
     return cx_call("cx.exists(%s)", u), "bool"
   elseif fn == "has_state" then
@@ -3125,11 +3143,13 @@ local ENTRY_EVENTS = set({ "on_cast", "on_toggle_on", "on_toggle_off", "on_learn
   "on_channel_tick", "on_channel_end" })
 local PASSIVE_TRIGGERS = { on_attack_hit = true, on_ability_executed = true, on_respawn = true, on_attack_windup = true, on_created = true,
   on_take_damage = true, on_deal_damage = true, on_attacked_hit = true, on_attacked = true, periodic = true,
-  on_take_damage_pre = true, on_deal_damage_pre = true, on_kill = true, on_attack_launch = true, on_heal_received = true }
+  on_take_damage_pre = true, on_deal_damage_pre = true, on_kill = true, on_attack_launch = true, on_heal_received = true,
+  on_order_targeted = true }
 -- passive trigger -> status_event mask bit and host kind (the learner's marker listens)
 local PASSIVE_EVENTS = { on_take_damage = { 8, 5 }, on_deal_damage = { 16, 6 }, on_attacked_hit = { 4, 4 }, on_attacked = { 4, 4 },
   on_attack_windup = { 256, 10 }, on_kill = { 512, 11 }, on_attack_launch = { 1024, 12 },
-  on_take_damage_pre = { 32, 7 }, on_deal_damage_pre = { 64, 8 }, on_heal_received = { 65536, 19 } }
+  on_take_damage_pre = { 32, 7 }, on_deal_damage_pre = { 64, 8 }, on_heal_received = { 65536, 19 },
+  on_order_targeted = { 32768, 18 } }
 
 -- the module of an entry the generator does not lower yet: casting it fails with the forms
 local STUB = [[/// Not generated yet: %s
@@ -3446,7 +3466,7 @@ local function emit_entry(m, o, opts, status_problems)
       else
         local evt = PASSIVE_EVENTS[ev]
         local pre = ev == "on_take_damage_pre" or ev == "on_deal_damage_pre"
-        local ctx = { owner = o, scope = scope_child(nil), event = ev == "on_ability_executed" and "owner_cast" or (ev == "on_heal_received" and "heal_received") or ev ~= "on_created", pre = pre, windup = ev == "on_attack_windup" }
+        local ctx = { owner = o, scope = scope_child(nil), event = ev == "on_ability_executed" and "owner_cast" or (ev == "on_heal_received" and "heal_received") or (ev == "on_order_targeted" and "order_targeted") or ev ~= "on_created", pre = pre, windup = ev == "on_attack_windup" }
         local filter = tr.filter and g:value(tr.filter, ctx, "bool") or "true"
         filters[ev] = filter
         local body = g:actions(tr.actions, ctx, "    ")
@@ -3552,7 +3572,7 @@ local function emit_entry(m, o, opts, status_problems)
             local evented = t[2] ~= nil and name ~= "on_removed" and name ~= "on_expired" and name ~= "on_death" and not executed
             local pre = name == "on_take_damage_pre" or name == "on_deal_damage_pre"
             local ended = name == "on_removed" or name == "on_expired" or name == "on_death"
-            local ctx = { owner = so, scope = scope_child(nil), event = executed and "ability_executed" or (name == "on_moved" and "moved") or (name == "on_mana_spent" and "mana_spent") or (name == "on_heal_received" and "heal_received") or evented, pre = pre, ended = ended,
+            local ctx = { owner = so, scope = scope_child(nil), event = executed and "ability_executed" or (name == "on_moved" and "moved") or (name == "on_mana_spent" and "mana_spent") or (name == "on_heal_received" and "heal_received") or (name == "on_order_targeted" and "order_targeted") or evented, pre = pre, ended = ended,
               windup = name == "on_attack_windup" }
             -- an absorb event names this hit's absorbed share `absorbed` (v3.md §4)
             if name == "on_absorb" or name == "on_broken" then
@@ -3748,6 +3768,7 @@ local function emit_entry(m, o, opts, status_problems)
       [16] = "cx.event_amount = event.amount;",
       [17] = "cx.event_amount = event.amount;",
       [19] = "cx.event_amount = event.amount;",
+      [18] = "cx.event_attacker = event.other; cx.event_damage_kind = event.damage_kind;",
       [15] = "cx.event_target = event.other; cx.target = Target::Entity(event.other);",
     }
     local arms, pre_arms = {}, {}
