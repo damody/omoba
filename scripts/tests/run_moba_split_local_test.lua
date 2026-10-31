@@ -170,4 +170,26 @@ do
   assert(split.snapshot_root('D:/omoba',function() return 'D:\\omoba\\target\\lineC-bins' end):gsub('\\','/'):find('lineC%-bins/split%-src$'))
   assert(split.snapshot_root('D:/omoba',function() return nil end):gsub('\\','/')=='D:/omoba/target/split-src')
 end
+-- E507: a build from the source snapshot stages and compares the snapshot's script DLL set, so a
+-- hero made playable while cargo ran from the snapshot is not staged before it is built.
+do
+  local tree=(os.getenv('TEMP'):gsub('\\','/'))..'/om_e504_'..os.time()
+  require('lfs').mkdir(tree);require('lfs').mkdir(tree..'/scripts')
+  local f=assert(io.open(tree..'/scripts/hero_dlls.lua','wb'))
+  f:write("return {{hero='inahime',package='hero_a02',dir='heroes/inahime'}}\n");f:close()
+  local set=split.script_set(tree)
+  assert(set=='base_content.dll,hero_a02.dll,items.dll','the snapshot set is read from its hero_dlls.lua: '..set)
+  assert(split.script_set()~=set,'the repo set is read without a root')
+  local stage
+  for _,command in ipairs(require('moba_server_build').commands({profile='release',root=tree})) do
+    if table.concat(command.args,' '):find('stage-dll',1,true) then stage=table.concat(command.args,' ') end
+  end
+  assert(stage and stage:find('--set-root '..tree,1,true),'stage-dll stages the set of the tree it built: '..tostring(stage))
+  for _,command in ipairs(require('moba_server_build').commands({profile='release'})) do
+    assert(not table.concat(command.args,' '):find('--set-root',1,true),'a repo build stages the repo set')
+  end
+  local text=assert(io.open('scripts/run_moba_split_local.lua','rb')):read('a')
+  assert(text:find('built_set=sources_as_of and M.script_set(M.snapshot_root(b.root))',1,true),'the built set is the snapshot set')
+  os.remove(tree..'/scripts/hero_dlls.lua');require('lfs').rmdir(tree..'/scripts');require('lfs').rmdir(tree)
+end
 print('split local topology: options, seats and per-role arguments passed')

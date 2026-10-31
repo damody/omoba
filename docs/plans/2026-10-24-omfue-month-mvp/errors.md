@@ -2,6 +2,16 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E507 split 快照建置後 stage 了 live 新增、快照沒建的英雄 DLL（2026-10-31，工作線 C）
+- 現象：工作線 C 的 mogami_yoshihime spotlight split 在 cargo 全部建完後失敗：`dev_run_freshness.lua:8: source missing: target\lineC-bins\release\hero_a04.dll`。
+- 原因：E487 之後 cargo 從 build lock 內取得的快照建置，但建置後的 `stage-dll` 和 E399 的 DLL 集合比對都讀 live 的 `scripts/hero_dlls.lua`。快照之後、cargo 期間 b5670cac 把 A04、A14 加進 hero_dlls，live 的集合多出快照沒建的 hero_a04，stage 時找不到 DLL。
+- 修正（共用層）：
+  - `script_dlls.modules(root)` 可指定來源樹，讀該樹的 `scripts/hero_dlls.lua`。
+  - `moba_server_build.commands({root})` 的 stage-dll 帶 `--set-root <root>`，`dev_run_freshness` 只 stage 快照建的集合。
+  - `run_moba_split_local.run` 的 `built_set` 改讀快照的集合。live 多了英雄時，E399 的比對在 live lock 後、time box 前重建一次（快照會含新英雄）。
+  - `run_moba_split_local_test` 驗證：快照集合從快照的 hero_dlls 讀；stage-dll 帶 `--set-root`，repo 建置不帶；`built_set` 讀快照。
+- 避免：從快照建置時，建置後用到的任何來源清單也要讀同一份快照。
+
 ## E502 （保留）v3 conformance 施法者先閃現到面前再打周圍的技能（c12 空間裂縫），目標沒放在落點，判沒有傷害（2026-10-31）
 
 ## E501 （保留）modify_cooldown 的道具形式（item_tag／item）沒有 host 落點（C13、C18）（2026-10-31）

@@ -7,10 +7,13 @@ local M={}
 
 -- {{module=..., file=..., hero=...?}, ...}: base_content first, then hero_dlls.lua order (the
 -- host loads them in this order; abilities register in it).
-function M.modules()
+-- ROOT (optional) reads the set of that source tree's scripts/hero_dlls.lua instead of this
+-- repo's: a split builds from its source snapshot (E487), and what it stages is what it built (E507).
+function M.modules(root)
   -- items.dll (M7): the shop items' generated scripts (kind = item); no hero
   local modules={{module='base_content',file='base_content.dll'},{module='items',file='items.dll'}}
-  for _,row in ipairs(require('hero_dlls')) do
+  local heroes=root and dofile((root:gsub('[/\\]$',''))..'/scripts/hero_dlls.lua') or require('hero_dlls')
+  for _,row in ipairs(heroes) do
     modules[#modules+1]={module=row.package,file=row.package..'.dll',hero=row.hero}
   end
   return modules

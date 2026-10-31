@@ -29,8 +29,10 @@ function M.commands(options)
   commands[#commands+1]=M.script_dll_command(selected,options.root)
   build('omb/Cargo.toml','omobab','moba-config')
   build('omb/Cargo.toml','omobab','omobab')
-  commands[#commands+1]={exe=platform.lua_executable,args={
-    path.join(b.root,'scripts/dev_run_freshness.lua'),'--action','stage-dll','--profile',selected}}
+  -- The set staged is the set built: the source tree's hero_dlls.lua (E507).
+  local stage={path.join(b.root,'scripts/dev_run_freshness.lua'),'--action','stage-dll','--profile',selected}
+  if options.root then stage[#stage+1]='--set-root';stage[#stage+1]=options.root end
+  commands[#commands+1]={exe=platform.lua_executable,args=stage}
   return commands
 end
 function M.build(options,process)

@@ -290,11 +290,12 @@ function M.acquire_performance(root,options)
 end
 
 -- The script DLL set as the sources list it now (base_content, items, every playable hero's DLL),
--- read afresh: hero_dlls.lua changes when a hero is made playable (E399).
-function M.script_set()
+-- read afresh: hero_dlls.lua changes when a hero is made playable (E399). ROOT (optional) reads
+-- a source snapshot's set: a build reads the set of the snapshot it built from (E507).
+function M.script_set(root)
   package.loaded['hero_dlls']=nil
   local files={}
-  for _,module in ipairs(require('script_dlls').modules()) do files[#files+1]=module.file end
+  for _,module in ipairs(require('script_dlls').modules(root)) do files[#files+1]=module.file end
   table.sort(files)
   return table.concat(files,',')
 end
@@ -302,7 +303,9 @@ end
 function M.run(options)
   -- Built before waiting for the machine (E337); without a build, the sources as of the match start.
   local sources_as_of=not options.no_build and M.build_all(options) or nil
-  local built_set=sources_as_of and M.script_set()
+  -- E507: the set built is the snapshot's (E487); a hero made playable while cargo ran from the
+  -- snapshot is in the repo's set only, and the comparison below builds once more.
+  local built_set=sources_as_of and M.script_set(M.snapshot_root(b.root))
   local root=options.output and path.absolute(options.output,b.root) or nil
   if not root then
     local parent=path.mkdir_p(path.join(b.root,'target','split-runs'))
