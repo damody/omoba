@@ -552,9 +552,10 @@ impl Cx<'_, '_> {
     /// v3 `ability_in_slot(unit, slot)` (E497): the id of the ability at index `slot` (0, 1, 2, ...)
     /// of the hero `unit`'s ability list; None for a unit that is not a hero or an empty slot.
     /// A generated hook's `Err` (E517): the host logs it and records it for conformance instead of
-    /// the dispatch dropping it. The caster is the holder.
+    /// the dispatch dropping it. The row names `self`, the unit the hook ran for (a status's or
+    /// passive's holder, a summon in its trigger), not its caster (E554).
     pub fn report_error(&mut self, ability: &str, hook: &str, error: &str) {
-        let args = [ExtArg::Unit(self.caster), ExtArg::Str(ability.into()), ExtArg::Str(hook.into()), ExtArg::Str(error.into())];
+        let args = [ExtArg::Unit(self.self_unit),ExtArg::Str(ability.into()), ExtArg::Str(hook.into()), ExtArg::Str(error.into())];
         let _ = self.world.ext(op::SCRIPT_ERROR, RSlice::from_slice(&args));
     }
 

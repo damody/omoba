@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：ScriptErrorRow 改記 self_unit（E554）
+
+- 狀態、被動、召喚物 trigger 的報錯改記持有者，不再一律記 caster（D 的建議）。
 ## 2026-11-01 線 B：in-process observer 的 bootstrap 補上 server 的 map、阻擋區與召喚師 metadata（E553）
 
 - tick 15240 的 c23_malice_wall 冷卻不一致，原因是 observer 的 replica 沒有地形；不是遊戲本身的 bug。

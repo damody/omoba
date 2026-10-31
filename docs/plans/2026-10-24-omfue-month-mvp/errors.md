@@ -2,6 +2,18 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E554 ScriptErrorRow 記的是 caster：狀態、被動與召喚物觸發報錯時指錯單位（2026-11-01，工作線 B）
+
+- **現象**：
+  - D 追 E526 的 17 筆位置錯誤時發現，ScriptErrorRow（與 host 的 warn log）記的 entity 一律是 caster。
+  - 狀態或被動的 hook、召喚物 trigger 出錯時，真正出錯的是持有者或召喚物本身（Cx 的 `self_unit`）。記成 caster 會讓人去查錯單位。E526 的「死掉的英雄」就是這樣誤導的。
+- **修正**：kit 的 `Cx::report_error` 改傳 `self_unit`，也就是 hook 是替哪個單位執行的。
+  - 施法的 hook：`self_unit` 等於 caster，結果不變。
+  - 狀態、被動、召喚物 trigger：改記持有者或召喚物。
+  - host 端 ext op 與 ScriptErrorRow 結構都不變。
+- **測試**：kit 沒有 host 替身可以直接驗證 ext 呼叫的參數，這項只靠 land 的 codegen、cargo check 與 script DLL manifest 檢查；D 的 conformance 重跑時，錯誤列會帶持有者。
+- **檔案**：`scripts/ability_kit/src/host_ext.rs`
+
 ## E553 in-process observer 的 team bootstrap 少了 server 補上的 map、阻擋區與召喚師 metadata（2026-11-01，工作線 B）
 
 - **現象**：
