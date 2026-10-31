@@ -2,6 +2,28 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E537 UE 選取召喚物時沒有它自己的技能按鈕，召喚物技能無法施放（bridge ABI 43）（2026-11-01，工作線 C）
+- 現象：線 B 的 E529／E531 讓召喚物擁有自己的技能（A36 地刺的 a36_detonate），並把技能與冷卻公開成 `UnitAbilityState`（0x464f471c）。但 UE 沒有任何介面能看到或施放召喚物的技能。bridge 的 summon order 只收 operation 1／2，選取資料也沒有技能清單。
+- 修正（共用層，omfue 2f47119、3732e92，主 repo b2f127a5、7c4a5129；3732e92 和 7c4a5129 的 commit 訊息誤寫成 E532，正確編號是 E537）：
+  - bridge：operation 3 用 `ability_catalog_id` 指定技能，目標為無或地點，呼叫 `client_cast_from_references`。
+  - bridge ABI 42→43：`OmFrameHeader` 末端新增 `unit_abilities`（`OmUnitAbility`：entity、ability_catalog_id、level、cooldown_remaining_s）。`driver.rs` 解出每個公開單位的 UnitAbilityState，catalog 沒有的技能名丟掉。`om_bridge.h` 與 layout 測試同步更新。
+  - UE：
+    - `FOmSelectedUnitStatePayload.Abilities` 帶入選取的非英雄單位的技能。
+    - `OmSummonInput` 支援 operation 3。
+    - 新增熱鍵 `SummonAbility1..4`：預設 Alt+D、Alt+F，3、4 不綁；鍵盤移動模式下全部不綁；舊設定檔的鍵已被占用時保留玩家綁定並發出遷移警告。
+    - 選取己方召喚物時，command bar 顯示最多 4 個技能按鈕，含圖示、名稱、熱鍵、等級與冷卻。
+    - 無目標技能按下就施放；地點技能先瞄準再左鍵施放。
+  - 測試：
+    - bridge Rust 全套 158 通過。
+    - UE `Om.Runtime.SummonControls.*`（含新的 AbilityButtons）通過。
+    - 既有的 `ControlProfile.MinimapPreferences` 失敗：測試預期設定檔版本 9，實際是 10，與這次改動無關。
+- 沒有涵蓋：
+  - 實機驗證：要等 A36 轉正式。
+  - 地點技能的範圍預覽。
+  - 以單位為目標的召喚物技能：介面顯示為不可施放。
+  - spotlight 還不會示範召喚物技能。
+- 避免：伺服器新增玩家可操作的能力時，UE 的選取資料、輸入與介面要一起規劃。
+
 ## E534 法球槽 orb_slot 與 landmark 沒有 host 支援（B15、A21、瑞龍院日秀）（2026-11-01，工作線 B）
 
 - **現象**：
