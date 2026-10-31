@@ -2,6 +2,21 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E578 （保留）英雄技能格 add_ability／remove_ability（C08 偷技能到 F 格）（2026-11-01）
+
+## E577 （保留）status state blind：被吞的目標不提供視野（C08）（2026-11-01）
+
+## E576 selector shape segment（C08 鉤鏈）（2026-11-01，工作線 B）
+
+- **現象**：加藤段藏（C08）的 R 每一跳用 `select = { shape = "segment", from, to, width }` 找鉤頭這一段經過的第一個單位。產生器的 selector 只支援 circle，shape segment 被擋。
+- **修正**：kit 新增三個函式：
+  - `Cx::segment_bounds(from, to, width) -> (center, radius)`：粗篩用的圓。圓心是中點，半徑 = 半長 + 半寬 + `MAX_COLLISION_RADIUS`，涵蓋所有身體碰得到這一段的單位。
+  - `Cx::within_segment(u, from, to, width)`：精篩，單位中心到線段的距離 ≤ 半寬 + 單位的碰撞半徑。用邊緣距離，與 E555 的攻擊距離一致。
+  - `segment_distance(p, a, b)`：點到線段的距離。
+  - 產生器的做法：用 bounds 做一般的 circle 選取，再以 `within_segment` 過濾；`order`、`limit`、`where` 照常。
+- **測試**：`codegen::segment_tests::segment_distance_and_bounds`：線段旁的點取垂直距離，超過端點取到端點的距離，線段退化成點時取到該點的距離；bounds 圓涵蓋整段加寬後的範圍。
+- **檔案**：`scripts/ability_kit/src/codegen.rs`
+
 ## E575 unit attr hero：單位背後的英雄（C06）（2026-11-01，工作線 B）
 
 - **現象**：石川五右衛門（C06）的「殺人越貨」用 `give_gold to = "self.hero"`，T 的錢袋用 `on_pickup` 的 `it.hero`，都要讀「這個單位背後的英雄」。host 的 unit attr 沒有 `hero`，產生器無法編譯。

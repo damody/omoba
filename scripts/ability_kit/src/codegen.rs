@@ -534,6 +534,25 @@ impl<'a, 'w> Cx<'a, 'w> {
     pub fn nearest_first(&self, units: &mut [EntityHandle], center: Vec2) {
         units.sort_by_key(|e| self.pos(*e).map(|p| distance(center, p).raw()).unwrap_or(i64::MAX));
     }
+
+    /// Selector `shape = "segment"` (E576): the circle a circle selection of the segment
+    /// `from`..`to` of width `width` takes before [`Cx::within_segment`] filters it; it holds
+    /// every unit whose body reaches the segment.
+    pub fn segment_bounds(from: Vec2, to: Vec2, width: Fixed64) -> (Vec2, Fixed64) {
+        let half = Fixed64::from_raw(512);
+        let center = Vec2::new((from.x + to.x) * half, (from.y + to.y) * half);
+        let margin = Fixed64::from_i32(omoba_core::runtime::native::comp::phys::MAX_COLLISION_RADIUS as i32);
+        (center, distance(from, to) * half + width.max(Fixed64::ZERO) * half + margin)
+    }
+
+    /// Whether `u`'s body reaches the segment `from`..`to` of width `width`: its centre within
+    /// half the width plus its collision radius of the segment (edges, like attack reach E555).
+    pub fn within_segment(&mut self, u: EntityHandle, from: Vec2, to: Vec2, width: Fixed64) -> bool {
+        use omb_script_abi::ext::unit_attr::COLLISION_RADIUS;
+        let Ok(p) = self.pos(u) else { return false };
+        let reach = width.max(Fixed64::ZERO) * Fixed64::from_raw(512) + self.unit_num(u, COLLISION_RADIUS);
+        segment_distance(p, from, to) <= reach
+    }
     /// Selector `order = "random"`: the units in a random order (the host's deterministic
     /// random stream, so every replica draws the same order).
     pub fn shuffle(&mut self, units: &mut [EntityHandle]) {
@@ -1322,6 +1341,15 @@ pub fn lerp_point(a: Vec2, b: Vec2, t: Fixed64) -> Vec2 { a + (b - a) * t }
 /// `distance(a, b)`.
 pub fn distance(a: Vec2, b: Vec2) -> Fixed64 { (b - a).length() }
 
+/// The distance from `p` to the segment `a`..`b` (to `a` when the segment is a point).
+pub fn segment_distance(p: Vec2, a: Vec2, b: Vec2) -> Fixed64 {
+    let ab = b - a;
+    let len2 = ab.length_squared();
+    if len2 <= Fixed64::ZERO { return distance(p, a); }
+    let t = ((p - a).dot(ab) / len2).max(Fixed64::ZERO).min(Fixed64::ONE);
+    distance(p, Vec2::new(a.x + ab.x * t, a.y + ab.y * t))
+}
+
 // `floor(x)`, `ceil(x)` (toward -inf / +inf), `abs(x)`, `clamp(x, lo, hi)`.
 /// `rotate(v, degrees)`: `v` turned counter-clockwise.
 pub fn rotate(v: Vec2, degrees: Fixed64) -> Vec2 {
@@ -1509,6 +1537,26 @@ fn payload_source(payload: &str) -> Option<EntityHandle> {
     let value: serde_json::Value = serde_json::from_str(payload).ok()?;
     let part = |key: &str| value.get(key).and_then(serde_json::Value::as_u64).and_then(|n| u32::try_from(n).ok());
     Some(EntityHandle { id: part("source_entity_id")?, gen: part("source_entity_gen")? }).filter(EntityHandle::is_valid)
+}
+
+#[cfg(test)]
+mod segment_tests {
+    use super::*;
+
+    /// A point beside the segment is its perpendicular distance away; past an end, the distance
+    /// to that end; the bounds circle holds the whole widened segment.
+    #[test]
+    fn segment_distance_and_bounds() {
+        let s = Fixed64::from_i32;
+        let (a, b) = (Vec2::new(s(0), s(0)), Vec2::new(s(400), s(0)));
+        assert_eq!(segment_distance(Vec2::new(s(200), s(30)), a, b), s(30));
+        assert_eq!(segment_distance(Vec2::new(s(-30), s(40)), a, b), s(50));
+        assert_eq!(segment_distance(Vec2::new(s(430), s(-40)), a, b), s(50));
+        assert_eq!(segment_distance(Vec2::new(s(3), s(4)), a, a), s(5), "a point segment");
+        let (center, radius) = Cx::segment_bounds(a, b, s(100));
+        assert_eq!(center, Vec2::new(s(200), s(0)));
+        assert!(radius >= s(250), "half the length plus half the width, and a body's margin");
+    }
 }
 
 #[cfg(test)]
