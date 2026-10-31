@@ -776,7 +776,9 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 &|status|buffs.as_ref().is_some_and(|store|store.has(entity,status)
                     || store.iter_for(entity).any(|(key,entry)|entry.remaining>Fixed64::ZERO
                         && crate::runtime::native::dispel::registry().statuses_of(key).contains(&status))),
-                &|identity|disclosed_target_states(&visibility,team,identity))
+                &|identity|disclosed_target_states(&visibility,team,identity),
+                // Public map state: the standing trees (tree_cut, E473).
+                &|from,reach|crate::runtime::native::tree_cut::standing_tree_near(&regions,from,reach))
             };
             if let Some(cast) = cast {
                 if let Some(id)=cast.target_entity {

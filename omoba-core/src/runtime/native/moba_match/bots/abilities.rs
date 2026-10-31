@@ -16,6 +16,10 @@ pub enum BotAbilityIntent {
     /// DOTA_UNIT_TARGET_HERO only, e.g. C17W; E170).
     EnemyHero,
     EnemyPoint {radius_key:String,min_targets:u16},
+    /// A tree-targeted ability (v3 `target.type = "tree"`, E403; B22 樹人召喚／樹覺醒, E473): the
+    /// standing tree nearest the bot within cast range. With `enemy_radius` > 0, only while a
+    /// disclosed enemy hero is within that radius of the bot. Trees are public map state.
+    NearestTree {#[serde(default)] enemy_radius:u32},
     /// A point area with no cast range that leaps toward its aim (E281, e.g. B29W 震地斧): the
     /// compiled `reach_key` extra (the package's targeting reach) is how far it reaches; aimed at
     /// the disclosed enemy within that reach whose `radius_key` area covers the most enemies.
@@ -191,6 +195,8 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
                 if def.target_type==TargetTypeC::None && (1..=1000).contains(below_hp_per_mille)
                     && (1..=10_000).contains(threat_radius)=>{},
             BotAbilityIntent::EnemyUnit|BotAbilityIntent::EnemyHero if def.target_type==TargetTypeC::Unit => {},
+            BotAbilityIntent::NearestTree {enemy_radius} if def.targets_tree && def.target_type==TargetTypeC::Point
+                && *enemy_radius<=10_000 && def.levels.iter().all(|rank|rank.range>Fixed64::ZERO&&rank.range<=Fixed64::from_i32(10_000))=>{},
             BotAbilityIntent::AllyHeal {below_hp_per_mille} if def.target_type==TargetTypeC::Unit
                 && (1..=1000).contains(below_hp_per_mille)=>{},
             BotAbilityIntent::AllyHealOrCleanse {below_hp_per_mille} if def.target_type==TargetTypeC::Unit
@@ -322,14 +328,15 @@ pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,
     cost:impl Fn(&str,u8)->Option<Fixed64>,
     regen:impl Fn(&str,Fixed64)->Option<(Fixed64,Fixed64)>,
     relocation_clear:impl Fn(Vec2)->bool) -> Option<CastAbility> {
-    choose_cast_with_control_observation(hero,role,team,own,health,seen,policies,focus,defer_offense,immobilized,cost,regen,relocation_clear,|_|None,&|_|false,&|_|0)
+    choose_cast_with_control_observation(hero,role,team,own,health,seen,policies,focus,defer_offense,immobilized,cost,regen,relocation_clear,|_|None,&|_|false,&|_|0,&|_,_|None)
 }
 
 pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:u32,own:Vec2,health:&CProperty,
     seen:&[SeenUnit],policies:&[BotAbilityPolicy],focus:Option<u64>,defer_offense:bool,immobilized:bool,
     cost:impl Fn(&str,u8)->Option<Fixed64>,regen:impl Fn(&str,Fixed64)->Option<(Fixed64,Fixed64)>,
     relocation_clear:impl Fn(Vec2)->bool,control_priority:impl Fn(u64)->Option<u8>,
-    own_status:&dyn Fn(&str)->bool,target_states:&dyn Fn(u64)->u8) -> Option<CastAbility> {
+    own_status:&dyn Fn(&str)->bool,target_states:&dyn Fn(u64)->u8,
+    tree_near:&dyn Fn(Vec2,Fixed64)->Option<Vec2>) -> Option<CastAbility> {
     let enemy=|unit:&&SeenUnit|unit.hp_raw>0 && unit.team!=team
         && if role==BotRole::Jungle {unit.kind==3
             || (unit.kind==1 && unit.team!=0 && Some(unit.canonical_id)==focus)}
@@ -507,6 +514,15 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
                 if !seen.iter().filter(enemy).any(|unit|unit.kind==1
                     && omoba_sim::terrain::point_in_swept_circle(unit.position,own,own,radius)) {continue;}
                 None
+            }
+            BotAbilityIntent::NearestTree {enemy_radius}=>{
+                if !def.targets_tree || level.range<=Fixed64::ZERO {continue;}
+                let radius=Fixed64::from_i32(*enemy_radius as i32);
+                if *enemy_radius>0 && !seen.iter().filter(enemy).any(|unit|unit.kind==1
+                    && (unit.position-own).length_squared()<=radius*radius) {continue;}
+                let Some(tree)=tree_near(own,level.range) else {continue;};
+                let (Ok(x),Ok(y))=(i32::try_from(tree.x.raw()),i32::try_from(tree.y.raw())) else {continue;};
+                target_pos=Some(crate::runtime::Vec2I {x,y});None
             }
             BotAbilityIntent::EnemyUnit|BotAbilityIntent::EnemyHero => {
                 if level.range<=Fixed64::ZERO {continue;}
@@ -742,7 +758,7 @@ mod tests {
         let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let ally=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),team:1,kind:1,owner_player_id:3,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
         let injured=SeenUnit {canonical_id:8,hp_raw:20,..ally};let second=SeenUnit {canonical_id:9,..ally};
-        let decide=|seen:&[SeenUnit],observed:&[(u64,u8)]|choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,seen,&[policy.clone()],None,true,true,|_,_|None,|_,_|None,|_|panic!("nonmovement"),|id|observed.iter().find(|(key,_)|*key==id).map(|(_,p)|*p),&|_|false,&|_|0);
+        let decide=|seen:&[SeenUnit],observed:&[(u64,u8)]|choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,seen,&[policy.clone()],None,true,true,|_,_|None,|_,_|None,|_|panic!("nonmovement"),|id|observed.iter().find(|(key,_)|*key==id).map(|(_,p)|*p),&|_|false,&|_|0,&|_,_|None);
         assert!(decide(&[ally],&[]).is_none());
         assert_eq!(decide(&[injured,ally],&[(7,1)]).unwrap().target_entity,Some(7));
         assert_eq!(decide(&[ally,injured],&[(7,1)]).unwrap().target_entity,Some(7));
@@ -750,7 +766,7 @@ mod tests {
         assert_eq!(decide(&[second,ally],&[(7,1),(9,1)]).unwrap().target_entity,Some(7));
         assert_eq!(decide(&[injured],&[]).unwrap().target_entity,Some(8));
         for invalid in [SeenUnit {team:2,..ally},SeenUnit {kind:2,..ally},SeenUnit {hp_raw:0,..ally},SeenUnit {position:Vec2::new(Fixed64::from_i32(601),Fixed64::ZERO),..ally}] {
-            let result=choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,&[invalid],&[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|panic!("invalid candidate must not query public status"),&|_|false,&|_|0);assert!(result.is_none());}
+            let result=choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,&[invalid],&[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|panic!("invalid candidate must not query public status"),&|_|false,&|_|0,&|_,_|None);assert!(result.is_none());}
         assert!(decide(&[],&[(7,1)]).is_none());assert!(decide(&[ally],&[(7,0),(9,1)]).is_none());assert!(decide(&[ally],&[(7,255)]).is_none());
         for value in [0,1001]{let mut bad=policy.clone();bad.intent=BotAbilityIntent::AllyHealOrCleanse{below_hp_per_mille:value};assert!(validate_policies(&[bad]).is_err());}
         for ability in ["lumen_bolt","vanguard_strike","lumen_touch"]{let mut bad=policy.clone();bad.ability=ability.into();assert!(validate_policies(&[bad]).is_err());}
@@ -777,6 +793,32 @@ mod tests {
         }
         assert!(decide(&[]).is_none());
     }
+    /// E473：以樹為目標的技能施放在施法距離內最近的立著的樹；設定 enemy_radius 時要附近有敵方英雄；
+    /// 沒有樹就不施放。
+    #[test]
+    fn a_tree_ability_aims_at_the_nearest_standing_tree_in_range() {
+        let ability = "b22_force_of_nature";
+        let def = omoba_template_ids::ability_by_name(ability).and_then(omoba_template_ids::active_ability_const).expect("tree ability");
+        assert!(def.targets_tree);
+        let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
+        hero.abilities=vec![ability.into()];hero.ability_levels.insert(ability.into(),1);
+        let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
+        let tree=Vec2::new(Fixed64::from_i32(120),Fixed64::from_i32(40));
+        let enemy=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO),
+            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+        let decide=|enemy_radius:u32,seen:&[SeenUnit],trees:&dyn Fn(Vec2,Fixed64)->Option<Vec2>|choose_cast_with_control_observation(&hero,BotRole::Mid,1,Vec2::ZERO,&hp,seen,
+            &[BotAbilityPolicy {ability:ability.into(),intent:BotAbilityIntent::NearestTree {enemy_radius}}],None,false,false,
+            |_,_|None,|_,_|None,|_|true,|_|None,&|_|false,&|_|0,trees).map(|cast|cast.target_pos);
+        let reach=def.levels[0].range;
+        let near=|from:Vec2,within:Fixed64|(from==Vec2::ZERO && within==reach).then_some(tree);
+        let at=Some(crate::runtime::Vec2I {x:tree.x.raw() as i32,y:tree.y.raw() as i32});
+        assert_eq!(decide(0,&[],&near),Some(at),"the nearest standing tree within the cast range");
+        assert_eq!(decide(0,&[],&|_,_|None),None,"no tree, no cast");
+        assert_eq!(decide(500,&[],&near),None,"no enemy hero about");
+        assert_eq!(decide(500,&[enemy],&near),Some(at),"an enemy hero within the radius");
+        assert!(validate_policies(&[BotAbilityPolicy {ability:ability.into(),intent:BotAbilityIntent::NearestTree {enemy_radius:0}}]).is_ok());
+        assert!(validate_policies(&[BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::NearestTree {enemy_radius:0}}]).is_err());
+    }
     /// E460：authority 會拒絕的單位技能目標（敵方魔免、不可選取）從公開的目標狀態排除，
     /// 改選下一個合法目標；友方魔免不受影響。
     #[test]
@@ -789,7 +831,7 @@ mod tests {
         let far=SeenUnit {canonical_id:8,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),..near};
         let policy=BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit};
         let decide=|states:&dyn Fn(u64)->u8|choose_cast_with_control_observation(&hero,BotRole::Mid,1,Vec2::ZERO,&hp,&[near,far],
-            &[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,&|_|false,states).map(|cast|cast.target_entity);
+            &[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,&|_|false,states,&|_,_|None).map(|cast|cast.target_entity);
         assert_eq!(decide(&|_|0),Some(Some(7)),"the nearest without states");
         for refused in [crate::runtime::TARGET_STATE_MAGIC_IMMUNE,crate::runtime::TARGET_STATE_UNSELECTABLE] {
             assert_eq!(decide(&|id|if id==7 {refused} else {0}),Some(Some(8)),"states {refused}: the next legal target");
@@ -1336,7 +1378,7 @@ mod tests {
             team:2,kind,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
         let decide=|seen:&[SeenUnit],on:bool|choose_cast_with_control_observation(&hero,BotRole::Carry,1,Vec2::ZERO,&health,seen,
             &[toggle.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,
-            &|status:&str|on && status=="attack_orb:a02_venom_arrow",&|_|0).map(|cast|cast.ability_index);
+            &|status:&str|on && status=="attack_orb:a02_venom_arrow",&|_|0,&|_,_|None).map(|cast|cast.ability_index);
         assert_eq!(decide(&[unit(7,800,1)],false),Some(0),"off with an enemy hero near: switch on");
         assert_eq!(decide(&[unit(7,800,1)],true),None,"already on");
         assert_eq!(decide(&[],true),Some(0),"on with no threat: switch off");

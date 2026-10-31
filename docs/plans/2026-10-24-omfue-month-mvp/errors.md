@@ -2,6 +2,23 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E473 bot 沒有以樹為目標的意圖，B22 兩招以樹為目標的技能從未施放（2026-10-31，工作線 B）
+
+- **現象**：工作線 C 回報 B22（太原雪齋）的 b22_force_of_nature（砍樹召喚樹人）與 b22_wood_spirit（喚醒樹木）的 bot kind 是 none，從未施放。
+- **根因**：bot 意圖沒有以樹為目標的種類。以樹為目標的技能（E403，`targets_tree`，點目標且必須落在一棵立著的樹上）無法用任何意圖施放。
+- **通用修正**：
+  - 新增 bot 意圖 `nearest_tree { enemy_radius }`：施放在 bot 施法距離內最近的立著的樹上。
+  - 這棵樹由 `tree_cut::standing_tree_near` 從目前的 BlockedRegions 找出；樹是公開的地圖狀態，replica 也會採用。
+  - `enemy_radius` 大於 0 時，只在半徑內有已揭露的敵方英雄時施放。
+  - validate 要求技能是 `targets_tree` 的點目標技能，且每一級的施法距離都在 (0, 10000] 之間。
+  - executor 以新參數 `tree_near` 查樹。
+- **回歸**：`bots::abilities::tests::a_tree_ability_aims_at_the_nearest_standing_tree_in_range`
+  - 有樹時施放在最近的樹上，沒有樹就不施放；
+  - 設定 enemy_radius 時需要附近有敵方英雄；
+  - 不是 targets_tree 的技能無法通過 validate。
+- **待接**：A 的 hint 與 bot_auto_policies 需要輸出 `kind = "nearest_tree"`。
+- **檔案**：`omoba-core/src/runtime/native/moba_match/bots.rs`、`bots/abilities.rs`
+
 ## E472 bot 不知道技能 requires.has_status 的前置狀態，b36_footsteps 4095/4241 次施放被拒（2026-10-31，工作線 B）
 
 - **現象**：
@@ -26,7 +43,20 @@
 - **通用修正**：CreepFacing 每 tick 保留每隻小兵的位置，walk 的預期方向改成上一個 tick 的位移；是否在走路仍由 30 tick 窗口判斷（≥ 20），門檻仍是 30°。位移為 0 的 tick 不檢查。
 - **避免**：拿資料檢查朝向時，比較同一時刻的量；窗口平均只用來判斷狀態。
 
-## E470 （保留）逐級學習時光環在較低等級就對其他單位套上狀態，之後只刷新（b31r_burn on_created 停在 r2）（2026-10-31）
+## E470 conformance：逐級學習與 expires 情境的三個誤判（2026-10-31，conformance session，工作線 A 查出）
+- **現象**：
+  - b31_raging_fire r3／r4 的 b31r_burn on_created 打出 r2 的值。
+  - a33e_ghost_walk expires 判「still on the holder」。
+  - a29r_drain expires 判「still on the holder」。
+- **根因**：
+  - 逐級學習（E425）時，光環在較低等級就對敵人套上狀態，之後只刷新，on_created 停在那個等級。學習期間的傷害也留在 trace 裡。
+  - expires 的等待迴圈最多只等 60 秒，但 a33e_ghost_walk 的時長是 120 秒。
+  - 持有者一直站在光環裡，a29r_drain 每次 pulse 都被刷新。
+- **通用修正**：
+  - 學完最後一級後，把這個技能在施法者以外單位上的狀態移除、清掉 DamageTrace，讓光環用最終等級重新套上。
+  - 到期迴圈至少等文件時長 + 2 秒。
+  - 持有者不是施法者時，等待前先把它移到遠處（離開光環和區域）。
+- **結果**：全跑和 full467 相比 fail 77→58、pass +111，沒有退步。b31r_burn r1～r4 是 30／50／70／90。
 
 ## E469 小兵追擊越過轉角後倒退走回已經過的 waypoint，facing 驗收出現倒退與轉角違規（2026-10-31，工作線 B）
 
