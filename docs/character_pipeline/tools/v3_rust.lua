@@ -2739,6 +2739,12 @@ function Gen:action(a, ctx, ind)
       local target = self:value(a.target, ctx, "unit")
       return line("{") .. line("    let who = " .. who .. ";") .. line("    let target = " .. target .. ";") .. line("    cx.order_attack(who, target)?;") .. line("}")
     end
+    -- follow: a summon keeps walking to the target until a new order or its death (line B E489;
+    -- a hero does not take it)
+    if a.order == "follow" and a.target ~= nil and a.at == nil then
+      local target = self:value(a.target, ctx, "unit")
+      return line("{") .. line("    let who = " .. who .. ";") .. line("    let target = " .. target .. ";") .. line("    cx.order_follow(who, target)?;") .. line("}")
+    end
     local kinds = { stop = "Stop", hold = "Hold", move = "Move", attack_move = "AttackMove" }
     local kind = kinds[a.order]
     if not kind or a.target ~= nil then self:block("action:issue_order.order:" .. tostring(a.order)); return "" end
