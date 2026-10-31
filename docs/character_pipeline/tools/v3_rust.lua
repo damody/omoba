@@ -1069,7 +1069,9 @@ local STATUS_FIELDS = set({ "id", "runtime_id", "duration", "stacking", "dispel"
   "stats", "per_source", "states", "tags", "triggers", "text", "notes", "values", "vars", "absorb", "status_resistance", "aura",
   "unique_group", "unique_rule", "scope", "reapply_if_removed",
   -- immune_to: the host refuses the matching statuses from the catalog (line B E445, E448)
-  "immune_to" })
+  "immune_to",
+  -- forced_move: its apply_status also calls cx.force_move (line B E464)
+  "forced_move" })
 
 -- The StatusDef constant of every status; problems per status (states the host does not hold).
 local function emit_statuses(m, root)
@@ -1653,6 +1655,37 @@ local function routine_recursive(m, name)
 end
 
 function Gen:action(a, ctx, ind)
+  local fso = a.op == "apply_status" and not a.__fmove and a.status and self.m.statuses[a.status]
+  if fso and fso.def.forced_move ~= nil then
+    -- forced_move (line B E464): once the status (and its vars) is on the holder, the holder is
+    -- ordered toward the point for the status's time and its orders are refused (every lock)
+    local fm = fso.def.forced_move
+    for _, k in ipairs(sorted_keys(type(fm) == "table" and fm or {})) do
+      if k ~= "toward" and k ~= "locks" then self:block("status.forced_move." .. k) end
+    end
+    if type(fm) ~= "table" or type(fm.toward) ~= "string" then self:block("status.forced_move without toward"); return "" end
+    if fso.def.stacking == "independent" then self:block("status.forced_move on an independent status"); return "" end
+    local inner = {}
+    for key, v in pairs(a) do inner[key] = v end
+    inner.__fmove = true
+    local code = self:action(inner, ctx, ind)
+    if code == "" then return code end
+    -- `vars.x`: the holder's var, read after the apply set it; anything else in the status's scope
+    local at
+    local vname = fm.toward:match("^%s*vars%.([%a_][%w_]*)%s*$")
+    if vname then
+      local v = (fso.def.vars or {})[vname]
+      if not v or v.type ~= "point" then self:block("status.forced_move.toward:" .. fm.toward); return "" end
+      at = var_read("point", "to", status_var_key(fso.def.id, vname), "cx.pos(to)?")
+    else
+      local sctx = { owner = fso, scope = ctx.scope, event = ctx.event, pre = ctx.pre, cast = ctx.cast, ended = ctx.ended, windup = ctx.windup }
+      at = self:value(fm.toward, sctx, "point")
+    end
+    local closing = code:match("^(.*)\n[ \t]*}%s*$")
+    if not closing or not code:find("let duration = ", 1, true) then self:block("status.forced_move on this apply form"); return code end
+    local st = "&super::ids::status::" .. upper(a.status)
+    return closing .. "\n" .. ind .. "    cx.force_move(to, " .. st .. ", " .. at .. ", duration)?;\n" .. ind .. "}\n"
+  end
   local rso = a.op == "apply_status" and not a.__replace and not a.__aura and a.status and self.m.statuses[a.status]
   if rso and rso.def.stacking == "replace" then
     -- `replace`: the old instance ends (its removal events) and a new one starts (on_created,
@@ -1769,7 +1802,7 @@ function Gen:action(a, ctx, ind)
   local allowed = ACTION_FIELDS[op]
   if allowed == nil then self:block("action:" .. tostring(op)); return "" end
   if allowed then
-    for _, k in ipairs(sorted_keys(a)) do if not allowed[k] and k ~= "notes" and k ~= "__taunt" and k ~= "__vars" and k ~= "__absorb" and k ~= "__replace" and k ~= "__dur" and k ~= "__aura" then self:block("action:" .. op .. "." .. k) end end
+    for _, k in ipairs(sorted_keys(a)) do if not allowed[k] and k ~= "notes" and k ~= "__taunt" and k ~= "__vars" and k ~= "__absorb" and k ~= "__replace" and k ~= "__dur" and k ~= "__aura" and k ~= "__fmove" then self:block("action:" .. op .. "." .. k) end end
   end
   local I = ind
   local function line(s) return I .. s .. "\n" end
