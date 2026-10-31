@@ -213,7 +213,8 @@ local function dummy_rows(doc, t, value)
   local building = has(t.tags, "building")
   if t.owner_death ~= nil and t.owner_death ~= "persist" and t.owner_death ~= "expire" then no("owner_death:" .. tostring(t.owner_death)) end
   local p = t.passive or {}
-  for _, k in ipairs(sorted(p)) do if k ~= "reveal" and k ~= "states" then no("passive." .. k .. " on a dummy") end end
+  -- passive.aura: the creating ability's code emits it on the new unit (v3_rust create_unit)
+  for _, k in ipairs(sorted(p)) do if k ~= "reveal" and k ~= "states" and k ~= "aura" then no("passive." .. k .. " on a dummy") end end
   if p.reveal ~= nil and p.reveal ~= "public" then no("passive.reveal:" .. tostring(p.reveal)) end
   for _, st in ipairs(p.states or {}) do if not DUMMY_STATES[st] then no("passive.states:" .. st .. " on a dummy") end end
   local rows = {}

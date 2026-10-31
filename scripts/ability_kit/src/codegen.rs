@@ -145,6 +145,10 @@ pub struct Cx<'a, 'w> {
     /// State variables this run wrote (`None` = cleared): the host applies writes after the run,
     /// so later reads of the same run see them here. Dropped with the run; the DLL keeps nothing.
     written: std::collections::BTreeMap<(u32, u32, String), Option<VarValue>>,
+    /// Status rows this run put on (`true`) or took off (`false`): the host applies them after the
+    /// run, so a later `has_status` of the same run sees them (four fire points reaching one unit
+    /// in one pulse create its burn once, E466).
+    applied: std::collections::BTreeMap<(u32, u32, String), bool>,
     /// `event.damage.final` and its kind (0 physical, 1 magical, 2 pure) in a damage trigger.
     pub event_amount: Fixed64,
     pub event_damage_kind: u8,
@@ -228,7 +232,7 @@ const ITEM_SKILL_PREFIX: &str = "item:";
 impl<'a, 'w> Cx<'a, 'w> {
     pub fn new(world: &'a mut GameWorldDyn<'w>, caster: EntityHandle, target: Target, rank: u8) -> Self {
         Self { world, caster, self_unit: caster, target, rank, event_target: EntityHandle::INVALID,
-            event_attacker: EntityHandle::INVALID, event_skill: None, cast_range: None, written: Default::default(),
+            event_attacker: EntityHandle::INVALID, event_skill: None, cast_range: None, written: Default::default(), applied: Default::default(),
             event_amount: Fixed64::ZERO, event_damage_kind: 0, event_instance: 0, damage_edit: DamageEdit::KEEP,
             stack_count: None, cancelled: false }
     }
@@ -449,7 +453,9 @@ impl<'a, 'w> Cx<'a, 'w> {
     }
 
     pub fn has_status(&self, u: EntityHandle, status: &StatusDef) -> bool {
-        self.world.has_buff(u, RStr::from_str(&self.runtime_id(status)))
+        let id = self.runtime_id(status);
+        if let Some(on) = self.applied.get(&(u.id, u.gen, id.clone())) { return *on; }
+        self.world.has_buff(u, RStr::from_str(&id))
     }
 
     // ---- the triggering ability (`event.ability`) ------------------------------------------------
@@ -680,6 +686,7 @@ impl<'a, 'w> Cx<'a, 'w> {
     fn apply_status_keyed(&mut self, to: EntityHandle, status: &StatusDef, id: String, duration: Fixed64, stats: &[(StatKey, i64)]) -> Res {
         // v3 `immune_to` on the holder (E445): none of the status's rows go on.
         if self.status_immune(to, status) { return Ok(()); }
+        self.applied.insert((to.id, to.gen, id.clone()), true);
         // An attack orb (`attack_orb:<ability>`): the host attack orb settles its hits (content `attack_orb`).
         if let Some(ability) = id.strip_prefix("attack_orb:") {
             let duration = if duration == Self::FOREVER { Fixed64::from_raw(i64::from(i32::MAX)) } else { duration };
@@ -746,6 +753,7 @@ impl<'a, 'w> Cx<'a, 'w> {
     pub fn remove_status(&mut self, from: EntityHandle, status: &StatusDef) -> Res {
         if !from.is_valid() { return Ok(()); }
         let id = self.runtime_id(status);
+        self.applied.insert((from.id, from.gen, id.clone()), false);
         self.world.remove_buff(from, RStr::from_str(&id));
         // the slow row of a status with slow_pct (apply_status_slowed) and its forced move (force_move)
         for row in [format!("{id}:slow"), omoba_core::runtime::native::forced_move::row(&id)] {

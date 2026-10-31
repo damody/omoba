@@ -1260,6 +1260,7 @@ local ACTION_FIELDS = {
   destroy_tree = set({ "op", "tree" }),
   regrow_trees = set({ "op" }),
   set_time_of_day = set({ "op", "mode", "duration" }),
+  refund = set({ "op", "cooldown", "mana", "health" }),
   tether = false, -- shape-checked in Gen:tether
 }
 local SELECTOR_FIELDS = set({ "from", "radius", "shape", "team", "types", "flags", "where", "notes", "limit", "order", "exclude", "relative_to" })
@@ -2299,6 +2300,17 @@ function Gen:action(a, ctx, ind)
       end
       make = "{ let " .. var .. " = " .. make .. ";\n" .. self:actions(list, sub, I .. "    ") .. I .. "    " .. var .. " }"
     end
+    -- a dummy template's passive aura: emitted on the new unit by this entry (its on_aura arm
+    -- `<template id>`; v3_summons leaves it to the creating code), for as long as the unit lives
+    local ta = t and t.def.passive and t.def.passive.aura
+    if ta then
+      if not self.entry then self:block("action:create_unit of a template with an aura in a routine")
+      else
+        local emit = self:aura_emit(ta, { owner = t, scope = scope_child(nil), event = false }, a.template, "u", "None", "false")
+        make = "{ let u = " .. make .. "; " .. emit .. "?; u }"
+        self.template_auras = self.template_auras or {}; self.template_auras[a.template] = t
+      end
+    end
     -- limit_per_owner with over_limit remove_oldest: after the spawn, the caster's live summons
     -- of this template beyond the limit leave, earliest first, when the batch settles (kit
     -- limit_summons, line B E418; any path: a cast, a delay, a periodic)
@@ -2877,6 +2889,13 @@ function Gen:action(a, ctx, ind)
   elseif op == "regrow_trees" then
     -- every fallen tree of the map stands again at the next tick (line B E403)
     return line("cx.regrow_trees()?;")
+  elseif op == "refund" then
+    -- `cooldown = true` in the cast itself: its own cooldown does not start; the mana stays
+    -- spent (line B E455). A refund of mana or health has no host form.
+    if a.mana or a.health then self:block("action:refund of mana or health"); return "" end
+    if a.cooldown ~= true then self:block("action:refund without cooldown"); return "" end
+    if not ctx.cast then self:block("action:refund outside the cast"); return "" end
+    return line("cx.refund_cooldown();")
   elseif op == "set_time_of_day" then
     -- the map's temporary night for `duration`, or day at once (line B E453); a night without
     -- a duration (a clock set to a fixed time of day) has no host form
@@ -3362,7 +3381,9 @@ local function emit_entry(m, o, opts, status_problems)
       end
       if #begin > 0 then
         fns[#fns + 1] = string.format("/// `%s` starts on a unit: on_created, then the periodic schedule.\n#[allow(dead_code)]\npub(crate) fn st_%s_start(cx: &mut Cx<'_, '_>, holder: EntityHandle) -> Res {\n"
-          .. "    let prev = cx.self_unit;\n    cx.self_unit = holder;\n    let r = st_%s_begin(cx);\n    cx.self_unit = prev;\n    r\n}\n\n#[allow(dead_code)]\nfn st_%s_begin(cx: &mut Cx<'_, '_>) -> Res {\n%s    Ok(())\n}\n",
+          -- the applier's current rank, as its periodic and events read it (E451)
+          .. "    let prev = cx.self_unit;\n    cx.self_unit = holder;\n    let prev_rank = cx.rank;\n    cx.rank = cx.rank_of(cx.caster, ID);\n"
+          .. "    let r = st_%s_begin(cx);\n    cx.rank = prev_rank;\n    cx.self_unit = prev;\n    r\n}\n\n#[allow(dead_code)]\nfn st_%s_begin(cx: &mut Cx<'_, '_>) -> Res {\n%s    Ok(())\n}\n",
           sd.id, sd.id, sd.id, sd.id, table.concat(begin))
       end
     end
@@ -3376,6 +3397,11 @@ local function emit_entry(m, o, opts, status_problems)
     local body = g:actions(to.def.chase.on_reach, { owner = to, scope = scope_child(nil), event = false }, "    ")
     fns[#fns + 1] = string.format("pub(crate) fn %s(cx: &mut Cx<'_, '_>) -> Res {\n%s    Ok(())\n}\n", fname, body)
     status_arms[#status_arms + 1] = { status = tid, kind = 15, fn = fname }
+  end
+  -- the auras of the dummy templates this entry creates (create_unit): one arm each
+  for _, tid in ipairs(sorted_keys(g.template_auras or {})) do
+    local to = g.template_auras[tid]
+    auras[#auras + 1] = g:aura_arm(tid, to.def.passive.aura, to)
   end
   -- the AbilityScript
   for _, a in ipairs(auras) do fns[#fns + 1] = a.fn end

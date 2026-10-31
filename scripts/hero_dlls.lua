@@ -60,4 +60,5 @@ return {
   {hero='okuma_tomohide',package='hero_b26',dir='heroes/okuma_tomohide'},
   {hero='tachibana_dosetsu',package='hero_c07',dir='heroes/tachibana_dosetsu'},
   {hero='katakura_kagetsuna',package='hero_b14',dir='heroes/katakura_kagetsuna'},
+  {hero='hirate_masahide',package='hero_a10',dir='heroes/hirate_masahide'},
 }

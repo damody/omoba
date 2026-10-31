@@ -76,6 +76,7 @@ local rows = {
     target_priority = "nearest",
     vision_radius = 500,
   },
+  { authored_package = "hirate_masahide", display_name = "震盪中心", dummy = true, id = "a10t_quake_center", immobile = true, owner_death = "persist", vision_radius = 0 },
   {
     acquisition_range = 600,
     armor = 6,
@@ -434,6 +435,7 @@ local rows = {
     target_priority = "nearest",
     vision_radius = 1400,
   },
+  { armor = 0, authored_package = "items", bounty_gold = 25, display_name = "療癒圖騰", dummy = true, hp = 300, hp_regen = 1, id = "healing_totem", immobile = true, magic_resistance = 100, owner_death = "persist", vision_radius = 1400 },
   {
     armor = 0,
     attack_interval = 1.58,
@@ -454,6 +456,7 @@ local rows = {
     target_priority = "nearest",
     vision_radius = 1400,
   },
+  { authored_package = "items", display_name = "風陣", dummy = true, id = "hurricane_field", immobile = true, owner_death = "persist", vision_radius = 0 },
   {
     armor = 0,
     attack_interval = 1.58,

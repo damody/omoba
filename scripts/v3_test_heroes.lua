@@ -71,7 +71,7 @@ local HEROES = {
   { package = "mori_motonari" },
   { package = "usami_sadamitsu", playable = true },
   { package = "ryuzoji_takanobu" },
-  { package = "hirate_masahide" },
+  { package = "hirate_masahide", playable = true },
   { package = "takigawa_kazumasu", playable = true },
   { package = "ishida_mitsunari" },
   { package = "miyoshi_nagayoshi", playable = true },
