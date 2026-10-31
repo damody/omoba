@@ -85,6 +85,7 @@ pub fn secure_replica_component_allowlist() -> BTreeSet<u32> {
         crate::runtime::DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_INCOMING_DAMAGE_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID,
+        crate::runtime::DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_WARD_BODY_COMPONENT_SCHEMA_ID,

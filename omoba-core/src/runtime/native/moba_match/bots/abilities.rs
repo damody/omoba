@@ -322,14 +322,14 @@ pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,
     cost:impl Fn(&str,u8)->Option<Fixed64>,
     regen:impl Fn(&str,Fixed64)->Option<(Fixed64,Fixed64)>,
     relocation_clear:impl Fn(Vec2)->bool) -> Option<CastAbility> {
-    choose_cast_with_control_observation(hero,role,team,own,health,seen,policies,focus,defer_offense,immobilized,cost,regen,relocation_clear,|_|None,&|_|false)
+    choose_cast_with_control_observation(hero,role,team,own,health,seen,policies,focus,defer_offense,immobilized,cost,regen,relocation_clear,|_|None,&|_|false,&|_|0)
 }
 
 pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:u32,own:Vec2,health:&CProperty,
     seen:&[SeenUnit],policies:&[BotAbilityPolicy],focus:Option<u64>,defer_offense:bool,immobilized:bool,
     cost:impl Fn(&str,u8)->Option<Fixed64>,regen:impl Fn(&str,Fixed64)->Option<(Fixed64,Fixed64)>,
     relocation_clear:impl Fn(Vec2)->bool,control_priority:impl Fn(u64)->Option<u8>,
-    own_status:&dyn Fn(&str)->bool) -> Option<CastAbility> {
+    own_status:&dyn Fn(&str)->bool,target_states:&dyn Fn(u64)->u8) -> Option<CastAbility> {
     let enemy=|unit:&&SeenUnit|unit.hp_raw>0 && unit.team!=team
         && if role==BotRole::Jungle {unit.kind==3
             || (unit.kind==1 && unit.team!=0 && Some(unit.canonical_id)==focus)}
@@ -360,6 +360,19 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
         let rank=(owner_rank-1) as usize;
         let Some(def)=omoba_template_ids::ability_by_name(&policy.ability).and_then(omoba_template_ids::active_ability_const) else {continue;};
         let Some(level)=def.levels.get(rank) else {continue;};
+        // A unit cast the authority refuses (dispatch, E460) is never aimed: the target's public
+        // states rule out a hostile magic-immune or any unselectable unit, a hero-only ability anything but a hero.
+        let aimable:Vec<SeenUnit>;
+        let seen:&[SeenUnit]=if def.target_type==TargetTypeC::Unit {
+            let pierces=crate::runtime::native::magic_immunity::ability_pierces(&policy.ability);
+            aimable=seen.iter().filter(|unit|{
+                let states=target_states(unit.canonical_id);
+                !(states&crate::runtime::TARGET_STATE_MAGIC_IMMUNE!=0 && !pierces && unit.team!=team)
+                    && states&crate::runtime::TARGET_STATE_UNSELECTABLE==0
+                    && !(def.targets_heroes_only && unit.kind!=1)
+            }).copied().collect();
+            &aimable
+        } else {seen};
         if matches!(policy.intent,BotAbilityIntent::SelfChannelRecovery {..})
             && (hero.mana_pool.is_none() || def.cast_type!=CastTypeC::Channeled || def.recovery_channel.is_none()) {continue;}
         let required_cost=if let Some(pool)=&hero.mana_pool {
@@ -727,7 +740,7 @@ mod tests {
         let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let ally=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),team:1,kind:1,owner_player_id:3,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
         let injured=SeenUnit {canonical_id:8,hp_raw:20,..ally};let second=SeenUnit {canonical_id:9,..ally};
-        let decide=|seen:&[SeenUnit],observed:&[(u64,u8)]|choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,seen,&[policy.clone()],None,true,true,|_,_|None,|_,_|None,|_|panic!("nonmovement"),|id|observed.iter().find(|(key,_)|*key==id).map(|(_,p)|*p),&|_|false);
+        let decide=|seen:&[SeenUnit],observed:&[(u64,u8)]|choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,seen,&[policy.clone()],None,true,true,|_,_|None,|_,_|None,|_|panic!("nonmovement"),|id|observed.iter().find(|(key,_)|*key==id).map(|(_,p)|*p),&|_|false,&|_|0);
         assert!(decide(&[ally],&[]).is_none());
         assert_eq!(decide(&[injured,ally],&[(7,1)]).unwrap().target_entity,Some(7));
         assert_eq!(decide(&[ally,injured],&[(7,1)]).unwrap().target_entity,Some(7));
@@ -735,7 +748,7 @@ mod tests {
         assert_eq!(decide(&[second,ally],&[(7,1),(9,1)]).unwrap().target_entity,Some(7));
         assert_eq!(decide(&[injured],&[]).unwrap().target_entity,Some(8));
         for invalid in [SeenUnit {team:2,..ally},SeenUnit {kind:2,..ally},SeenUnit {hp_raw:0,..ally},SeenUnit {position:Vec2::new(Fixed64::from_i32(601),Fixed64::ZERO),..ally}] {
-            let result=choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,&[invalid],&[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|panic!("invalid candidate must not query public status"),&|_|false);assert!(result.is_none());}
+            let result=choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,&[invalid],&[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|panic!("invalid candidate must not query public status"),&|_|false,&|_|0);assert!(result.is_none());}
         assert!(decide(&[],&[(7,1)]).is_none());assert!(decide(&[ally],&[(7,0),(9,1)]).is_none());assert!(decide(&[ally],&[(7,255)]).is_none());
         for value in [0,1001]{let mut bad=policy.clone();bad.intent=BotAbilityIntent::AllyHealOrCleanse{below_hp_per_mille:value};assert!(validate_policies(&[bad]).is_err());}
         for ability in ["lumen_bolt","vanguard_strike","lumen_touch"]{let mut bad=policy.clone();bad.ability=ability.into();assert!(validate_policies(&[bad]).is_err());}
@@ -761,6 +774,27 @@ mod tests {
             assert!(decide(&[invalid]).is_none());
         }
         assert!(decide(&[]).is_none());
+    }
+    /// E460：authority 會拒絕的單位技能目標（敵方魔免、不可選取）從公開的目標狀態排除，
+    /// 改選下一個合法目標；友方魔免不受影響。
+    #[test]
+    fn a_unit_cast_skips_targets_whose_public_states_the_authority_refuses() {
+        let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
+        hero.abilities=vec!["vanguard_strike".into()];hero.ability_levels.insert("vanguard_strike".into(),1);
+        let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
+        let near=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO),
+            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
+        let far=SeenUnit {canonical_id:8,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),..near};
+        let policy=BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit};
+        let decide=|states:&dyn Fn(u64)->u8|choose_cast_with_control_observation(&hero,BotRole::Mid,1,Vec2::ZERO,&hp,&[near,far],
+            &[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,&|_|false,states).map(|cast|cast.target_entity);
+        assert_eq!(decide(&|_|0),Some(Some(7)),"the nearest without states");
+        for refused in [crate::runtime::TARGET_STATE_MAGIC_IMMUNE,crate::runtime::TARGET_STATE_UNSELECTABLE] {
+            assert_eq!(decide(&|id|if id==7 {refused} else {0}),Some(Some(8)),"states {refused}: the next legal target");
+            assert_eq!(decide(&|_|refused),None,"no legal target, no cast");
+        }
+        assert_eq!(decide(&|id|if id==7 {crate::runtime::TARGET_STATE_INVULNERABLE} else {0}),Some(Some(7)),
+            "the authority admits a unit cast at an invulnerable unit");
     }
     #[test]
     fn jungle_assist_skills_share_focus_but_never_accept_hidden_or_friendly_targets() {
@@ -1300,7 +1334,7 @@ mod tests {
             team:2,kind,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
         let decide=|seen:&[SeenUnit],on:bool|choose_cast_with_control_observation(&hero,BotRole::Carry,1,Vec2::ZERO,&health,seen,
             &[toggle.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,
-            &|status:&str|on && status=="attack_orb:a02_venom_arrow").map(|cast|cast.ability_index);
+            &|status:&str|on && status=="attack_orb:a02_venom_arrow",&|_|0).map(|cast|cast.ability_index);
         assert_eq!(decide(&[unit(7,800,1)],false),Some(0),"off with an enemy hero near: switch on");
         assert_eq!(decide(&[unit(7,800,1)],true),None,"already on");
         assert_eq!(decide(&[],true),Some(0),"on with no threat: switch off");

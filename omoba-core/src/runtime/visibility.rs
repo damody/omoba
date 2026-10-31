@@ -54,6 +54,29 @@ pub const DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID: u32 = 0x464f4719;
 
 pub fn encode_disclosed_enemy_sight(seen: bool) -> Vec<u8> { vec![1, u8::from(seen)] }
 
+/// Version 1, then the unit's public targeting states (E460): every team that sees the unit sees
+/// them (原作 magic immunity, unselectable and invulnerable all show on the unit), so a bot does not
+/// aim a unit cast the authority refuses. Absent when the unit has none of them.
+pub const DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID: u32 = 0x464f471b;
+pub const TARGET_STATE_MAGIC_IMMUNE: u8 = 1;
+pub const TARGET_STATE_UNSELECTABLE: u8 = 2;
+pub const TARGET_STATE_INVULNERABLE: u8 = 4;
+
+pub fn encode_disclosed_target_state(states: u8) -> Option<Vec<u8>> { (1..=7).contains(&states).then(|| vec![1, states]) }
+
+pub fn decode_disclosed_target_state(bytes: &[u8]) -> Option<u8> {
+    match bytes { [1, states] if (1..=7).contains(states) => Some(*states), _ => None }
+}
+
+/// The unit's targeting states from the authority's BuffStore (dispatch's own predicates).
+pub fn target_states(buffs: &crate::runtime::BuffStore, entity: specs::Entity) -> u8 {
+    let mut states = 0;
+    if crate::runtime::native::magic_immunity::is_magic_immune(buffs, entity) { states |= TARGET_STATE_MAGIC_IMMUNE; }
+    if crate::runtime::native::rules::vocab::unselectable(buffs, entity) { states |= TARGET_STATE_UNSELECTABLE; }
+    if crate::runtime::native::rules::vocab::invulnerable(buffs, entity) { states |= TARGET_STATE_INVULNERABLE; }
+    states
+}
+
 pub fn decode_disclosed_enemy_sight(bytes: &[u8]) -> Option<bool> {
     match bytes { [1, 0] => Some(false), [1, 1] => Some(true), _ => None }
 }
@@ -1349,6 +1372,9 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                     };
                     if let Some(bytes) = encode_disclosed_combat_relation(relation) {
                         disclosed.push((DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID, bytes));
+                    }
+                    if let Some(bytes) = buffs.as_ref().and_then(|store| encode_disclosed_target_state(target_states(store, entity))) {
+                        disclosed.push((DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID, bytes));
                     }
                 }
             }

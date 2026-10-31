@@ -2,11 +2,40 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E460 bot 對魔免、不可選取的單位施放單位技能，被拒成 INVALID_TARGET（2026-10-31，工作線 B）
+
+- **現象**：工作線 E 用 E454 的 INVALID_TARGET 取樣發現，bot 會對敵方魔免單位、不可選取的單位，以及（hero-only 技能）非英雄單位施放單位技能，dispatch 拒絕後只浪費決策。
+- **根因**：
+  - bot 只讀公開的 baseline，`SeenUnit` 沒有任何目標狀態。
+  - 魔免不一定是公開圖示，不可選取這類 state 也沒有圖示，所以 bot 無法套用 dispatch 的 `magic_immunity::admits_target`、`vocab::unselectable` 與 `targets_heroes_only`。
+- **通用修正**：
+  - 新增公開元件 `DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID`（0x464f471b，`[1, states]`），內容是魔免、不可選取、無敵三個旗標，以 dispatch 用的同一組 predicate 從 BuffStore 計算。
+    - 原作這些狀態在單位身上看得到，所以每個看得到該單位的隊伍都收到它；沒有任何狀態時不送。
+    - 已加入 secure replica allow-list。
+  - bot 的 `choose_cast_with_control_observation` 新增 `target_states` 查詢，由 `disclosed_target_states` 只讀本隊目前揭露的 baseline。
+  - 目標型別為 Unit 的技能在選目標前排除以下單位：
+    - 敵方魔免單位（技能穿透魔免時除外）；
+    - 不可選取的單位；
+    - hero-only 技能的非英雄單位。
+  - 無敵不排除，因為 dispatch 也接受。
+- **回歸**：`bots::abilities::tests::a_unit_cast_skips_targets_whose_public_states_the_authority_refuses`。
+- **檔案**：`omoba-core/src/runtime/visibility.rs`、`omoba-core/src/runtime/secure_replica_contract.rs`、`omoba-core/src/runtime/native/moba_match/bots.rs`、`omoba-core/src/runtime/native/moba_match/bots/abilities.rs`
+
 ## E459 hero spotlight 遇到 bot 無法瞄準的技能（樹木目標）整位英雄中止（2026-10-31，工作線 C）
 - 現象：line A 把 B22 太原雪齋轉正式（16a34749）後，產生 spotlight 腳本時 `record_hero_spotlight.load_v3_package` 在 `b22_force_of_nature` 斷言失敗（「has no bot kind the spotlight can aim (none)」），整位英雄連能示範的 Q、E、R 都沒有腳本。
 - 原因：B22 的 W（自然之力）和 D（木靈）以樹木為目標，v3_compile 給的 bot kind 是 `none`（bot 本身也不施放）。spotlight 把「沒有可瞄準的 kind」一律當成錯誤，不區分內容明確宣告不能瞄準的技能和漏寫的 kind。
 - 修正（共用層）：`load_v3_package` 遇到 bot kind 為 `none` 的主動技能時不放進 slots，改列在 `unshown`（slot、id、原因）；其他技能保留原本的格子編號。沒寫 kind 或 kind 不在瞄準表的仍然斷言失敗。`record_hero_spotlight_test` 以 B22 驗證（W、D 列為 unshown，Q、E、R 在 0、2、3 格）。
 - 避免：spotlight 沒有樹木目標的示範能力；報告會把這些技能列為未示範。若要示範，需要在自動駕駛加「最近的樹」目標，而不是逐英雄特例。
+
+## E458 （保留）統計開啟後 damage tag 占用 fact 序號與召喚交易上限，tag 可影響模擬（2026-10-31）
+
+## E457 （保留）conformance：on_phase_start 取消施法所需的世界條件（目標狀態、友方血量較低、地點附近友軍）沒有先建立（2026-10-31）
+
+## E456 conformance：cast() 只靠冷卻、法力、狀態判斷施法是否被接受（2026-10-31，conformance session）
+- **現象**：c07_storm_move、b26_release_wave 的 normal 判「cast 1 was not accepted」，但 CastTrace 記錄的是 Accepted。這兩招沒有成本、沒有冷卻，也不在施法者身上套狀態。
+- **根因**：cast() 只用三個間接跡象判斷接受：冷卻上升、法力減少、技能狀態出現在施法者身上。trace 的 Accepted 只用來「不要推翻」，不能讓判斷成立。
+- **通用修正**：這次施法的 trace 有 Accepted，而且沒有拒絕、沒有被中斷，就算接受。
+- **結果**（和 E440 第二版一起）：storm_move r1～r3、release_wave 轉為 pass。全跑 fail 86→82、pass +192，沒有退步。
 
 ## E455 （保留）v3 refund { cooldown = true } 沒有 host 落點（2026-10-31）
 
@@ -28,9 +57,17 @@
   - 傷害結算時，打死目標（`applied.died`）的那一下，在 on_take_damage／on_deal_damage／on_kill 的 damage_kind 帶上這個位元。新增 `StatusEvent::is_lethal`。
 - **驗證**：`a_marked_status_hears_its_holders_damage` 新增：生命 30 時受到致死一擊，事件 amount 30、damage_kind 帶 LETHAL；script_hooks、status_event 測試通過。
 
-## E451 （保留）狀態的 periodic 與事件沿用套上時的等級，升級後仍是舊數值（2026-10-31）
+## E451 狀態的 periodic 與事件沿用套上時的等級，升級後仍是舊數值（2026-10-31，工作線 A）
+- **現象**：D 的 full438：b31r_burn 在 r2／r3 每跳 30，文件是 50／70。光環每次 pulse 都 refresh 灼燒狀態，所以從 r1 起它一直存在，periodic 的排程一直帶著 r1。
+- **根因**：狀態的 periodic step 與 on_status_event 用的是排程或套用時記下的等級（Scheduled.level／StatusEvent.level）。原作 datadriven modifier 的 `%dmg` 在每次 think 當下才讀技能等級。
+- **通用修正**：v3_rust 在狀態 periodic step 與 on_status_event 設定 cx.caster 之後，加上 `cx.rank = cx.rank_of(cx.caster, ID)`：施加者目前在這個技能的等級（沒學過時退回原本的等級）。
+- **避免**：持續存在、會被 refresh 的狀態不能把等級凍在第一次套上時；conformance 的狀態數值要在「先學 r1、再升級」的順序下驗證。
 
-## E450 （保留）狀態 trigger 裡沒寫 source 的 damage 由持有者造成，而不是施加者（2026-10-31）
+## E450 狀態 trigger 裡沒寫 source 的 damage 由持有者造成，而不是施加者（2026-10-31，工作線 A）
+- **現象**：e187 M6 第三批：上杉謙信的 b32_divine_flash 施放 131 次、傷害 0。宮本、佐佐木、明智秀滿的 b32_divine_flash 傷害等於他們自己的英雄傷害：被暈的敵人在打自己。沒有擊殺歸屬，法術增幅、outgoing_damage_pct、require_source_alive 也都讀到受害者。
+- **根因**：ability_kit 的 `Cx::damage`／`damage_flagged_at` 以 `cx.self_unit` 當攻擊者。施法時它等於施法者，但在狀態 trigger 裡 self_unit 是持有者。v3.md §4：狀態 trigger 裡的 caster／source 是施加者，原作 KV `Damage` 與 ApplyDamage 的 attacker 也是施法者。
+- **通用修正**：預設攻擊者改為 `cx.caster`（施法者、被動的學習者、狀態的施加者）。`damage_from`／`*_from_at` 改成暫時替換 cx.caster。影子 B32、A19、C21、B08、B22 conformance 0 fail，ability_kit 單元測試通過。
+- **避免**：「行為的主體」（self）和「效果的來源」（caster）是兩件事；kit 的預設來源一律對齊 v3.md 的 caster 語意，不要用 self_unit 代替。
 
 ## E449 status trigger on_mana_spent 沒有 host 事件：a29_withering_aura 只能擋下（2026-10-31，工作線 B）
 
@@ -41,7 +78,11 @@
   - `dispatch_status_events` 把當 tick 的 SpentMana（cost > 0）交給持有者身上聽這個事件的狀態。
 - **驗證**：新測試 `a_marked_status_hears_its_holders_mana_spend`（實際 driver：花 75 法力，聽 on_mana_spent 的狀態收到一次，amount 75）；status_event 的 listens 測試；status_event、script_hooks、dispatch 測試通過。
 
-## E448 （保留）catalog 狀態列沒有 tags／immune_to／remove_on，主機依 tag 的查詢全部落空（2026-10-31）
+## E448 catalog 狀態列沒有 tags／immune_to／remove_on，主機依 tag 的查詢全部落空（2026-10-31，工作線 A）
+- **現象**：B 的 E445 讓 dispel registry 從 V3_CATALOG_JSON 讀狀態的 immune_to 與 tags。但 catalog 的狀態列只有 id／visibility／dispel／reveal／runtime_id／values：V3Status 是 deny_unknown_fields，v3_compile 也只輸出這幾欄。`has_status_tag`、`remove_status { tags }`、`immune_to = tag:` 與 remove_on owner_death 的 registry 一直是空的。
+- **根因**：狀態的 tags 等欄位在 v3 文件與產生器裡都有，但輸出到 content model 時被漏掉，沒有測試檢查 catalog 欄位是否完整。
+- **通用修正**：V3Status 加 `tags`、`immune_to`、`remove_on`（空就不序列化），v3_compile 照文件輸出；v3_rust 接受 immune_to（主機依 catalog 擋）。重新產生 v3_test_heroes 與 item_texts_v3／item_shop_v3。authored_heroes.lua 要等 hero_author build 重建才會帶上。
+- **避免**：主機要從 catalog 讀某個欄位時，先確認 content model 有這個欄位，並在 catalog 裡實際看到值。
 
 ## E447 v3 沒有辦法判斷中立單位（is_neutral）：b12_reality_slide 只能擋下（2026-10-31，工作線 B）
 
@@ -110,6 +151,7 @@
 - **現象**：c07_storm_move r1～r3 normal 判 fail（cast 1 was not accepted）。它是 learnable = false 的子技能，只有 c07_raijin_wrath 的雷雲存在時，才會被 set_ability_level 設成主技能的等級，雷雲到期時設回 0。
 - **通用修正**：情境新增 `leveled_by` 前置條件：learnable = false，而且另一招既會把它設成非 0 等級、也會把它設回 0，每個情境就先施放那一招，等到它的等級大於 0 才開始。只在 on_upgrade 讓等級跟著主技能走的子技能（`ability.level + 1`，例如 b02_vanishing_step、a24_blood_shield）不套用：第一版沒有這個限制，造成 236 個 pass 轉 unsupported，全跑時抓到後才縮小。
 - **結果**：前置條件已能成立（雷雲施放之後，storm_move 取得等級）。不過 storm_move 和 b26_release_wave 仍然不被接受，原因另外查。
+- **第二版**：出生等級本來就給了子技能 1 級，所以「等級大於 0」一開始就成立，主技能根本還沒生效。現在施放主技能之前，會先把子技能的等級設為 0。仍然不被接受的部分是 E456。
 
 ## E439 召喚交易拒絕 ScriptDamageTag 與施放在友方單位上的一般狀態：b24_earth_prison 施放被拒（2026-10-31，工作線 B）
 

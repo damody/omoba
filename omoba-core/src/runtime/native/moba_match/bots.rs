@@ -178,6 +178,15 @@ fn disclosed_control_priority(runtime:&TeamVisibilityRuntime,team:u32,identity:u
     public_control_priority(components.get(&crate::runtime::buff_visual_state::SCHEMA_ID)?)
 }
 
+/// A disclosed unit's public targeting states (E460); none when it shows none or is not disclosed.
+fn disclosed_target_states(runtime:&TeamVisibilityRuntime,team:u32,identity:u64)->u8 {
+    if !runtime.teams.get(&team).is_some_and(|state|state.index.current.contains(&identity)) {return 0;}
+    runtime.latest_disclosed_baseline_by_canonical.get(&identity).and_then(|bytes|decode_disclosed_components(bytes))
+        .and_then(|components|components.get(&crate::runtime::DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID)
+            .and_then(|bytes|crate::runtime::decode_disclosed_target_state(bytes)))
+        .unwrap_or(0)
+}
+
 /// Bot assignment and explicit equipment are the opt-in. Read owner slots only;
 /// never infer the operation from a spell name or write its cooldown locally.
 fn choose_summoner_control_cleanse(player:u32,loadout:&crate::runtime::summoner_runtime::SummonerLoadout,
@@ -763,7 +772,8 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                         own.position,point,radius,&regions)
                 },|identity|disclosed_control_priority(&visibility,team,identity),
                 // The owner's own statuses only (a toggle's on-marker, E263).
-                &|status|buffs.as_ref().is_some_and(|store|store.has(entity,status)))
+                &|status|buffs.as_ref().is_some_and(|store|store.has(entity,status)),
+                &|identity|disclosed_target_states(&visibility,team,identity))
             };
             if let Some(cast) = cast {
                 if let Some(id)=cast.target_entity {

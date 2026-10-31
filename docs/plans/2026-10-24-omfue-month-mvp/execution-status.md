@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：bot 不對 authority 會拒絕的目標施放單位技能（E460）
+
+- 新的公開目標狀態元件（魔免／不可選取／無敵）；bot 的單位技能排除敵方魔免（除非穿透）、不可選取，hero-only 技能只選英雄。
 ## 2026-10-31 線 B：event.damage.lethal（E452）
 
 - damage 事件的 `damage_kind` 新增旗標 `StatusEvent::LETHAL = 0x20`（打死目標的那一下）。給 b26_kozuke_valor。
