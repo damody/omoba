@@ -69292,16 +69292,13 @@ local data = {
     {
       abilities = { "a28_evil_art", "a28_creation", "a28_binding_swamp", "a28_phoenix_summon" },
       authored_package = "hashiba_hideyoshi",
-      background = "羽柴秀吉（schema v3 產生的 Rust；測試用）",
       display_name = "羽柴秀吉",
       id = "hashiba_hideyoshi",
       moba_loadout = {
         ranks = { 1, 1, 1, 0 },
         skill_points = 0,
       },
-      source_stats = "A28",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A28",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "hashiba_hideyoshi",

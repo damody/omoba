@@ -115,4 +115,6 @@ return {
   {hero='sakakibara_yasumasa',package='hero_a08',dir='heroes/sakakibara_yasumasa'},
   -- M6 batch (2026-10-31): every ability generated (法球槽與 landmark_of（E534、E538）；珍珠圓盤近戰射程 0（E546）); conformance 0 fail
   {hero='zuiryuin_nisshu',package='hero_a21',dir='heroes/zuiryuin_nisshu'},
+  -- M6 batch (2026-10-31): every ability generated (模板 abilities、青蛙 block_disabled；harness _r 名稱比對修正（E543）); conformance 0 fail
+  {hero='hashiba_hideyoshi',package='hero_a28',dir='heroes/hashiba_hideyoshi'},
 }
