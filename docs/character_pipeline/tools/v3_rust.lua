@@ -186,6 +186,8 @@ local STATUS_TRIGGERS = {
   on_mana_spent = { 16384, { 17 } },
   -- the holder gained health from a heal (line B E478): event.amount is what it gained (capped)
   on_heal_received = { 65536, { 19 } },
+  -- applied again while it holds: the applying code runs it after the apply (no host event)
+  on_refreshed = { 0 },
 }
 -- a status's triggers with its absorb shield's on_absorb / on_broken among them
 local merged_triggers = setmetatable({}, { __mode = "k" })
@@ -1247,7 +1249,7 @@ local ACTION_FIELDS = {
   set_health = set({ "op", "to", "value" }),
   order_attack = set({ "op", "who", "target" }),
   random_pick = set({ "op", "options", "as" }),
-  modify_attack = set({ "op", "crit_multiplier" }),
+  modify_attack = set({ "op", "crit_multiplier", "cannot_miss", "is_orb" }),
   knockback = set({ "op", "who", "from", "distance", "duration", "stun", "height" }),
   cancel_cast = set({ "op", "reason" }),
   face = set({ "op", "who", "toward" }),
@@ -1686,6 +1688,33 @@ local function routine_recursive(m, name)
 end
 
 function Gen:action(a, ctx, ind)
+  local refso = a.op == "apply_status" and not a.__refr and a.status and self.m.statuses[a.status]
+  if refso and (triggers_of(refso.def) or {}).on_refreshed ~= nil then
+    -- on_refreshed: it was on `to` before this apply, so after it the status's on_refreshed runs
+    -- with the holder as self (st_<id>_on_refreshed in its owner's module)
+    if refso.def.stacking == "independent" then self:block("status.triggers.on_refreshed on an independent status"); return "" end
+    local inner = {}
+    for key, v in pairs(a) do inner[key] = v end
+    inner.__refr = true
+    local code = self:action(inner, ctx, ind)
+    if code == "" then return code end
+    local st = "&super::ids::status::" .. upper(a.status)
+    local done = false
+    code = code:gsub("([ \t]*)(let to = [^\n]-;)(\r?\n)", function(ws, stmt, eol)
+      if done then return nil end
+      done = true
+      return ws .. stmt .. eol .. ws .. "let refreshed = cx.has_status(to, " .. st .. ");" .. eol
+    end, 1)
+    local closing = code:match("^(.*)\n[ \t]*}%s*$")
+    if not done or not closing then self:block("status.triggers.on_refreshed on this apply form"); return code end
+    self:need_module(refso)
+    local owner_mod = (refso.host and refso.parent.kind ~= "ability" and refso.parent.kind ~= "item") and refso.host.id or refso.parent.id
+    local pad = ind .. "    "
+    return closing .. "\n" .. pad .. "if refreshed {\n"
+      .. pad .. "    let prev = cx.self_unit;\n" .. pad .. "    cx.self_unit = to;\n"
+      .. pad .. "    let r = super::" .. owner_mod .. "::st_" .. a.status .. "_on_refreshed(cx);\n"
+      .. pad .. "    cx.self_unit = prev;\n" .. pad .. "    r?;\n" .. pad .. "}\n" .. ind .. "}\n"
+  end
   local fso = a.op == "apply_status" and not a.__fmove and a.status and self.m.statuses[a.status]
   if fso and fso.def.forced_move ~= nil then
     -- forced_move (line B E464): once the status (and its vars) is on the holder, the holder is
@@ -1833,7 +1862,7 @@ function Gen:action(a, ctx, ind)
   local allowed = ACTION_FIELDS[op]
   if allowed == nil then self:block("action:" .. tostring(op)); return "" end
   if allowed then
-    for _, k in ipairs(sorted_keys(a)) do if not allowed[k] and k ~= "notes" and k ~= "__taunt" and k ~= "__vars" and k ~= "__absorb" and k ~= "__replace" and k ~= "__dur" and k ~= "__aura" and k ~= "__fmove" then self:block("action:" .. op .. "." .. k) end end
+    for _, k in ipairs(sorted_keys(a)) do if not allowed[k] and k ~= "notes" and k ~= "__taunt" and k ~= "__vars" and k ~= "__absorb" and k ~= "__replace" and k ~= "__dur" and k ~= "__aura" and k ~= "__fmove" and k ~= "__refr" then self:block("action:" .. op .. "." .. k) end end
   end
   local I = ind
   local function line(s) return I .. s .. "\n" end
@@ -2181,9 +2210,18 @@ function Gen:action(a, ctx, ind)
     -- line B's modify_attack_crit: the attack in its windup crits (the larger of the rolled and
     -- this multiplier); the holder is the attacker
     if not ctx.windup then self:block("action:modify_attack outside on_attack_windup"); return "" end
-    if a.crit_multiplier == nil then self:block("action:modify_attack without crit_multiplier"); return "" end
-    return line("{") .. line("    let multiplier = " .. self:value(a.crit_multiplier, ctx, "num") .. ";")
-      .. line("    let attacker = cx.self_unit;") .. line("    cx.modify_attack_crit(attacker, multiplier)?;") .. line("}")
+    for _, k in ipairs({ "cannot_miss", "is_orb" }) do
+      if a[k] ~= nil and type(a[k]) ~= "boolean" then self:block("action:modify_attack." .. k .. " of an expression"); return "" end
+    end
+    if a.crit_multiplier == nil and a.cannot_miss ~= true and a.is_orb ~= true then self:block("action:modify_attack without a change"); return "" end
+    if a.cannot_miss ~= true and a.is_orb ~= true then
+      return line("{") .. line("    let multiplier = " .. self:value(a.crit_multiplier, ctx, "num") .. ";")
+        .. line("    let attacker = cx.self_unit;") .. line("    cx.modify_attack_crit(attacker, multiplier)?;") .. line("}")
+    end
+    -- cannot_miss: no miss at launch, no evasion on arrival; is_orb: the attack is an orb's (line B E488)
+    local crit = a.crit_multiplier ~= nil and ("Some(" .. self:value(a.crit_multiplier, ctx, "num") .. ")") or "None"
+    return line("{") .. line("    let multiplier = " .. crit .. ";") .. line("    let attacker = cx.self_unit;")
+      .. line(string.format("    cx.modify_attack(attacker, multiplier, %s, %s)?;", tostring(a.cannot_miss == true), tostring(a.is_orb == true))) .. line("}")
   elseif op == "random_pick" then
     local opts = a.options or {}
     if #opts == 0 then self:block("action:random_pick without options"); return "" end
@@ -3453,7 +3491,7 @@ local function emit_entry(m, o, opts, status_problems)
               cond and ("    if !(" .. cond .. ") { return Ok(()); }\n") or "", g:actions(actions, ctx, "    "))
             if name == "on_created" then begin[#begin + 1] = "    " .. fname .. "(cx)?;\n"
             else
-              for _, kind in ipairs(t[2]) do
+              for _, kind in ipairs(t[2] or {}) do
                 status_arms[#status_arms + 1] = { status = sd.id, kind = kind, fn = fname }
               end
             end
@@ -3692,8 +3730,8 @@ local function emit_entry(m, o, opts, status_problems)
   if #owner_triggers > 0 then
     s[#s + 1] = [[
 
-/// Learned: the learn marker (or the passive stats buff) is on the owner. Rank 1: the world API
-/// has no rank read (the IR interpreter's on_owner_cast).
+/// Learned: the learn marker (or the passive stats buff) is on the owner. Its triggers run at the
+/// owner's learned rank of this ability (cx.rank_of).
 fn learned(world: &GameWorldDyn<'_>, owner: EntityHandle) -> bool { world.has_buff(owner, RStr::from_str(ID)) }
 ]]
     for _, ev in ipairs(owner_triggers) do
@@ -3703,6 +3741,7 @@ fn learned(world: &GameWorldDyn<'_>, owner: EntityHandle) -> bool { world.has_bu
 pub fn on_owner_cast(owner: EntityHandle, skill: &str, target: Target, world: &mut GameWorldDyn<'_>) {
     if !learned(world, owner) { return; }
     let mut cx = Cx::passive(world, owner, 1);
+    cx.rank = cx.rank_of(owner, ID);
     cx.event_skill = Some(skill);
     // event.target / event.point: the cast's own target
     if let Target::Entity(e) = &target { cx.event_target = *e; }
@@ -3716,6 +3755,7 @@ pub fn on_owner_cast(owner: EntityHandle, skill: &str, target: Target, world: &m
 pub fn on_owner_respawn(owner: EntityHandle, world: &mut GameWorldDyn<'_>) {
     if !learned(world, owner) { return; }
     let mut cx = Cx::passive(world, owner, 1);
+    cx.rank = cx.rank_of(owner, ID);
     let _ = on_respawn(&mut cx);
 }
 ]]
