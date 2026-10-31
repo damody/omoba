@@ -31,8 +31,11 @@ pub struct RetiredPositions {
 }
 
 impl RetiredPositions {
-    /// One minute at 60 Hz.
-    pub const KEEP_TICKS: u64 = 3_600;
+    /// How long the engine keeps a removed unit's body (its position, and its team for dead
+    /// selectors): one minute. A dead selector without its own `dead_within` uses this (E539).
+    pub const KEEP_SECONDS: i32 = 60;
+    /// [`RetiredPositions::KEEP_SECONDS`] at 60 Hz.
+    pub const KEEP_TICKS: u64 = Self::KEEP_SECONDS as u64 * 60;
     pub const MAX: usize = 4_096;
 
     pub fn record(&mut self, entity: Entity, at: Vec2, tick: u64) {

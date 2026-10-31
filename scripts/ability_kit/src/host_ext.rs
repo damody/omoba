@@ -616,8 +616,12 @@ impl Cx<'_, '_> {
     /// v3 selector flag `include_dead` (E532): the dead units within `radius` of `center` on
     /// `team` relative to the caster: heroes waiting to respawn and combat units removed within
     /// the last `within` seconds (their bodies), nearest first. Types and `where` are the
-    /// caller's; a removed unit's type is no longer known, only its team.
-    pub fn dead_in_circle(&mut self, center: Vec2, radius: Fixed64, team: &str, within: Fixed64) -> Vec<EntityHandle> {
+    /// caller's; a removed unit's type is no longer known, only its team. `within` is the
+    /// selector's `dead_within`; without one it defaults to the engine's body time
+    /// ([`corpse_seconds`], E539: 原作 finds bodies by GetHealth() == 0, the engine decides how long
+    /// they stay).
+    pub fn dead_in_circle(&mut self, center: Vec2, radius: Fixed64, team: &str, within: Option<Fixed64>) -> Vec<EntityHandle> {
+        let within = corpse_seconds(within);
         let caster = self.caster;
         let mut units: Vec<EntityHandle> = self.units_in_range(center, radius, caster, team).into_iter()
             .filter(|e| !self.alive(*e)).collect();
@@ -932,9 +936,27 @@ impl Cx<'_, '_> {
     }
 }
 
+/// How long a dead selector looks back (E539): the selector's `dead_within`, else the engine's
+/// body time, which is the same constant that keeps a removed unit's position
+/// (omoba-core `RetiredPositions::KEEP_SECONDS`).
+pub fn corpse_seconds(within: Option<Fixed64>) -> Fixed64 {
+    use omoba_core::runtime::native::scripting::parallel_world_adapter::RetiredPositions;
+    within.unwrap_or(Fixed64::from_i32(RetiredPositions::KEEP_SECONDS))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// E539: a dead selector without `dead_within` looks back as long as the engine keeps bodies,
+    /// the one constant RetiredPositions uses; its own value wins.
+    #[test]
+    fn a_dead_selector_defaults_to_the_engine_body_time() {
+        use omoba_core::runtime::native::scripting::parallel_world_adapter::RetiredPositions;
+        assert_eq!(corpse_seconds(None), Fixed64::from_i32(RetiredPositions::KEEP_SECONDS));
+        assert_eq!(RetiredPositions::KEEP_TICKS, RetiredPositions::KEEP_SECONDS as u64 * 60);
+        assert_eq!(corpse_seconds(Some(Fixed64::from_i32(3))), Fixed64::from_i32(3));
+    }
 
     #[test]
     fn gold_amounts_drop_the_fraction() {

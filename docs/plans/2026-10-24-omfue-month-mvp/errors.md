@@ -2,6 +2,15 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E539 selector dead_within 沒寫時沒有預設（B23）（2026-11-01，工作線 B）
+
+- **現象**：依調度指示（D19）。E532 的 `dead_in_circle(center, radius, team, within)` 規定一定要給 within，也就是屍體保留多久。B23 原作只用 `GetHealth() == 0` 找屍體，屍體留多久是 Dota 引擎決定的，不是內容數值。依 D13，文件不該為此編一個數字。
+- **通用修正**：
+  - `RetiredPositions::KEEP_SECONDS = 60` 是引擎保留屍體的時間，`KEEP_TICKS` 由它推出，整個專案只此一處。
+  - kit `dead_in_circle(..., within: Option<Fixed64>)`：沒給 `dead_within` 時用 `corpse_seconds(None)`，也就是 KEEP_SECONDS。
+- **測試**：ability_kit `a_dead_selector_defaults_to_the_engine_body_time`。
+- **檔案**：`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`、`scripts/ability_kit/src/host_ext.rs`
+
 ## E538 kit 讀不到單位的隊伍編號：landmark(team_of(u), fort)（2026-11-01，工作線 B）
 
 - **現象**：工作線 A：文件寫的是 `landmark(team_of(self), fort)`，E534 的 kit `landmark(team, kind)` 需要隊伍編號，但 unit_attr 沒有隊伍，產生器組不出 team 參數。這也擋住了 A21 false_intel。
