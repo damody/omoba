@@ -23,7 +23,12 @@ use super::tag::ScriptUnitTag;
 /// gone reads it here. Rows older than [`RetiredPositions::KEEP_TICKS`] go, and at most
 /// [`RetiredPositions::MAX`] are kept (the oldest go first).
 #[derive(Default)]
-pub struct RetiredPositions { rows: std::collections::BTreeMap<Entity, (Vec2, u64)> }
+pub struct RetiredPositions {
+    rows: std::collections::BTreeMap<Entity, (Vec2, u64)>,
+    /// The team of a removed combat unit (hero, creep, neutral, summon...; E532): what a dead
+    /// selector (`include_dead`) finds. Dummies, buildings and effects have none.
+    teams: std::collections::BTreeMap<Entity, i32>,
+}
 
 impl RetiredPositions {
     /// One minute at 60 Hz.
@@ -38,8 +43,26 @@ impl RetiredPositions {
             }
         }
         self.rows.insert(entity, (at, tick));
+        let rows = &self.rows;
+        self.teams.retain(|e, _| rows.contains_key(e));
+    }
+    /// [`RetiredPositions::record`] of a combat unit of `team` (E532).
+    pub fn record_unit(&mut self, entity: Entity, at: Vec2, tick: u64, team: i32) {
+        self.record(entity, at, tick);
+        self.teams.insert(entity, team);
     }
     pub fn get(&self, entity: Entity) -> Option<Vec2> { self.rows.get(&entity).map(|(at, _)| *at) }
+    /// Combat units removed at `since` or later within `radius` of `center`, with their team,
+    /// nearest first (then entity id).
+    pub fn units_in_range(&self, center: Vec2, radius: Fixed64, since: u64) -> Vec<(Entity, i32)> {
+        let r2 = radius * radius;
+        let mut found: Vec<_> = self.teams.iter().filter_map(|(entity, team)| {
+            let (at, when) = self.rows.get(entity)?;
+            (*when >= since && at.distance_squared(center) <= r2).then(|| (at.distance_squared(center).raw(), entity.id(), *entity, *team))
+        }).collect();
+        found.sort_by_key(|(distance, id, _, _)| (*distance, *id));
+        found.into_iter().map(|(_, _, entity, team)| (entity, team)).collect()
+    }
 }
 
 /// One generated hook's `Err` (ext SCRIPT_ERROR, E517).
@@ -1913,6 +1936,20 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 found.sort_by_key(|(distance, id, _)| (*distance, *id));
                 ROk(V::Units(found.into_iter().map(|(_, _, entity)| Self::entity_to_handle(entity)).collect()))
             }
+            // E532: combat units removed within the last `within` seconds, for `include_dead`.
+            (op::RETIRED_IN_RANGE, [A::Point(center), A::Num(radius), A::Unit(of), A::Str(team), A::Num(within)]) => {
+                let Some(team) = (match team.as_str() { "ally" => Some(Some(true)), "enemy" => Some(Some(false)), "both" => Some(None), _ => None })
+                    else { return RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown team {team}"))) };
+                let Some(mine) = Self::handle_to_entity(*of).and_then(|of| self.source_faction(of)).map(|f| f.team_id)
+                    else { return ROk(V::Units(abi_stable::std_types::RVec::new())) };
+                let (Some(rows), true) = (self.cache.retired_positions.as_ref(), *radius >= Fixed64::ZERO && *within >= Fixed64::ZERO)
+                    else { return ROk(V::Units(abi_stable::std_types::RVec::new())) };
+                let now = self.cache.tick.0 as u64;
+                let span = u64::try_from((*within * Fixed64::from_i32(60)).raw() >> 10).unwrap_or(0);
+                let found = rows.units_in_range(omoba_sim::Vec2::new(center.x, center.y), *radius, now.saturating_sub(span));
+                ROk(V::Units(found.into_iter().filter(|(_, t)| team.is_none_or(|ally| (*t == mine) == ally))
+                    .map(|(entity, _)| Self::entity_to_handle(entity)).collect()))
+            }
             (op::CAST_RELEASED, []) => ROk(V::Bool(self.cast_released)),
             (op::IS_VISIBLE_TO, [A::Unit(x), A::Unit(u)]) => ROk(V::Bool(self.is_visible_to(*x, *u))),
             (op::REFUND, [A::Str(what)]) if what.as_str() == "cooldown" => { self.refund_cooldown = true; ROk(V::None) }
@@ -3187,6 +3224,15 @@ mod tests {
         rows.record(unit, at, 10);
         rows.record(later, at, 10 + RetiredPositions::KEEP_TICKS + 1);
         assert_eq!(rows.get(unit), None, "an old row goes");
+        // E532: a removed combat unit is found by place, time and team.
+        let mut rows = RetiredPositions::default();
+        let (creep, effect) = (world.entities().create(), world.entities().create());
+        rows.record_unit(creep, at, 100, 2);
+        rows.record(effect, at, 100);
+        assert_eq!(rows.units_in_range(at, Fixed64::from_i32(10), 90), vec![(creep, 2)]);
+        assert!(rows.units_in_range(at, Fixed64::from_i32(10), 101).is_empty(), "too long ago");
+        let far = Vec2::new(Fixed64::from_i32(900), Fixed64::ZERO);
+        assert!(rows.units_in_range(far, Fixed64::from_i32(10), 90).is_empty(), "too far");
     }
 
     /// E517: a hook error is recorded when the world keeps the log, in tick then entity order.

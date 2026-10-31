@@ -595,6 +595,21 @@ impl Cx<'_, '_> {
         match self.read(op::UNITS_IN_RANGE, &args) { ExtValue::Units(units) => units.into_vec(), _ => Vec::new() }
     }
 
+    /// v3 selector flag `include_dead` (E532): the dead units within `radius` of `center` on
+    /// `team` relative to the caster: heroes waiting to respawn and combat units removed within
+    /// the last `within` seconds (their bodies), nearest first. Types and `where` are the
+    /// caller's; a removed unit's type is no longer known, only its team.
+    pub fn dead_in_circle(&mut self, center: Vec2, radius: Fixed64, team: &str, within: Fixed64) -> Vec<EntityHandle> {
+        let caster = self.caster;
+        let mut units: Vec<EntityHandle> = self.units_in_range(center, radius, caster, team).into_iter()
+            .filter(|e| !self.alive(*e)).collect();
+        let args = [ExtArg::Point(center), ExtArg::Num(radius), ExtArg::Unit(caster), ExtArg::Str(team.into()), ExtArg::Num(within)];
+        if let ExtValue::Units(gone) = self.read(op::RETIRED_IN_RANGE, &args) { units.extend(gone.into_vec()); }
+        let mut seen = std::collections::BTreeSet::new();
+        units.retain(|u| seen.insert((u.id, u.gen)));
+        units
+    }
+
     /// The units a v3 selector with `team = "ally"` (the caster's team, the caster included) or
     /// `"both"` walks within `radius` of `center`, filtered like [`Cx::enemies_in_circle`]: types,
     /// alive, invulnerable; magic immunity only excludes enemies. In entity id order.

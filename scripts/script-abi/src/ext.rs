@@ -89,6 +89,12 @@ pub mod op {
     /// (E517), which the hook's dispatch would otherwise drop. The host logs it and records it
     /// in its script error log when it keeps one (conformance fails the scenario).
     pub const SCRIPT_ERROR: u32 = 19;
+    /// `(Point center, Num radius, Unit of, Str team, Num within)` -> `Units`: combat units removed
+    /// (dead) within the last `within` seconds within `radius` of `center` on `team` (`"ally"` /
+    /// `"enemy"` / `"both"`) relative to `of`, nearest first (E532, v3 selector flag
+    /// `include_dead`: 原作 DOTA_UNIT_TARGET_FLAG_DEAD finds corpses). Their last position is
+    /// `get_pos`.
+    pub const RETIRED_IN_RANGE: u32 = 20;
 }
 
 /// Attribute names of [`op::EVENT_ABILITY_ATTR`].

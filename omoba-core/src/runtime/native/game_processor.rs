@@ -3708,7 +3708,15 @@ pub fn process_outcomes(
                     if world.try_fetch::<super::scripting::parallel_world_adapter::RetiredPositions>().is_none() {
                         world.insert(super::scripting::parallel_world_adapter::RetiredPositions::default());
                     }
-                    world.write_resource::<super::scripting::parallel_world_adapter::RetiredPositions>().record(entity, at, tick);
+                    // A combat unit keeps its team for dead selectors (E532).
+                    let team = {
+                        let units = world.read_storage::<Unit>();
+                        let combat = units.get(entity).is_some_and(|u| !matches!(u.unit_type, UnitType::TrainingDummy))
+                            && world.read_storage::<IsBuilding>().get(entity).is_none();
+                        combat.then(|| world.read_storage::<Faction>().get(entity).map(|f| f.team_id)).flatten()
+                    };
+                    let mut rows = world.write_resource::<super::scripting::parallel_world_adapter::RetiredPositions>();
+                    match team { Some(team) => rows.record_unit(entity, at, tick, team), None => rows.record(entity, at, tick) }
                 }
                 world.write_resource::<BuffStore>().remove_all_for(entity);
                 world

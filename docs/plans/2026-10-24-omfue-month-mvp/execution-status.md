@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：selector include_dead（E532）
+
+- ext `RETIRED_IN_RANGE`、kit `dead_in_circle`：找最近死亡單位的屍體（B23 生靈縛）。
 ## 2026-10-31 線 B：召喚物技能公開給 client（E531）
 
 - `UnitAbilityState`（schema 0x464f471c）：召喚物的技能、等級與剩餘冷卻，看得到該單位的一方都看得到，給 UE 召喚物技能按鈕使用。

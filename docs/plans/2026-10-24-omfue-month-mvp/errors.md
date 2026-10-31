@@ -2,7 +2,18 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E532 （保留）selector include_dead 找不到屍體（B23 生靈縛）（2026-10-31）
+## E532 selector include_dead 找不到屍體（B23）（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage B23（伊勢姬）：施法時要找範圍內一具屍體（`flags = { "include_dead" }`，`where = "not alive(it)"`），再於屍體位置生成鬼影。原作是 DOTA_UNIT_TARGET_FLAG_DEAD 找到的屍體。kit 的 `units_in_circle` 只回傳活著的單位；小兵死亡後實體馬上被移除，任何選擇器都找不到。
+- **通用修正**：
+  - `RetiredPositions` 在記錄位置之外，也記下被移除戰鬥單位的隊伍（`record_unit`）。戰鬥單位指英雄、小兵、中立與召喚物，不含假人和建築；EntityRemoved 時寫入。查詢用 `units_in_range(center, radius, since)`，依距離、再依 entity id 排序。
+  - 新增 ext op `RETIRED_IN_RANGE = 20`：參數 `(center, radius, of, team, within)`，回傳最近 `within` 秒內被移除、在範圍內、屬於指定隊伍的戰鬥單位。
+  - kit `dead_in_circle(center, radius, team, within)`：回傳等待重生的英雄，加上 `within` 秒內被移除的單位（屍體）。屍體的位置用 `get_pos` 讀取（E526）。
+- **限制**：
+  - 被移除的單位不再保留類型，types 過濾只能靠呼叫端的 `where`。
+  - `within`（屍體保留多久）由文件的數值提供，host 沒有自訂預設值。
+- **測試**：`a_removed_units_last_position_stays_readable` 新增依位置、時間與隊伍查找屍體的斷言。
+- **檔案**：`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`、`game_processor.rs`、`scripts/script-abi/src/ext.rs`、`scripts/ability_kit/src/host_ext.rs`
 
 ## E531 召喚物的技能與冷卻沒有公開給 client（2026-10-31，工作線 B）
 
