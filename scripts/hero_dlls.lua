@@ -59,4 +59,5 @@ return {
   {hero='yamamoto_kansuke',package='hero_b12',dir='heroes/yamamoto_kansuke'},
   {hero='okuma_tomohide',package='hero_b26',dir='heroes/okuma_tomohide'},
   {hero='tachibana_dosetsu',package='hero_c07',dir='heroes/tachibana_dosetsu'},
+  {hero='katakura_kagetsuna',package='hero_b14',dir='heroes/katakura_kagetsuna'},
 }

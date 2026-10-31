@@ -61,7 +61,7 @@ local HEROES = {
   { package = "kirigakure_saizo" },
   { package = "akechi_hidemitsu", playable = true },
   { package = "kuki_yoshitaka" },
-  { package = "katakura_kagetsuna" },
+  { package = "katakura_kagetsuna", playable = true },
   { package = "sassa_narimasa" },
   { package = "shibata_katsuie" },
   { package = "honda_masanobu" },

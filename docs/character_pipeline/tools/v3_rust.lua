@@ -1259,6 +1259,7 @@ local ACTION_FIELDS = {
   destroy_trees = set({ "op", "at", "radius" }),
   destroy_tree = set({ "op", "tree" }),
   regrow_trees = set({ "op" }),
+  set_time_of_day = set({ "op", "mode", "duration" }),
   tether = false, -- shape-checked in Gen:tether
 }
 local SELECTOR_FIELDS = set({ "from", "radius", "shape", "team", "types", "flags", "where", "notes", "limit", "order", "exclude", "relative_to" })
@@ -2876,6 +2877,17 @@ function Gen:action(a, ctx, ind)
   elseif op == "regrow_trees" then
     -- every fallen tree of the map stands again at the next tick (line B E403)
     return line("cx.regrow_trees()?;")
+  elseif op == "set_time_of_day" then
+    -- the map's temporary night for `duration`, or day at once (line B E453); a night without
+    -- a duration (a clock set to a fixed time of day) has no host form
+    if a.mode == "day" then
+      if a.duration ~= nil then self:block("action:set_time_of_day day with a duration") end
+      return line("cx.set_time_of_day(false, Fixed64::ZERO)?;")
+    elseif a.mode == "night" and a.duration ~= nil then
+      return line("{") .. line("    let duration = " .. self:value(a.duration, ctx, "num") .. ";")
+        .. line("    cx.set_time_of_day(true, duration)?;") .. line("}")
+    end
+    self:block("action:set_time_of_day " .. tostring(a.mode) .. " without a duration"); return ""
   end
   return ""
 end

@@ -68815,16 +68815,13 @@ local data = {
     {
       abilities = { "b14_iai_slash", "b14_shadow_tactics", "b14_attendant_insight", "b14_shadow_cut", "b14_temporary_night" },
       authored_package = "katakura_kagetsuna",
-      background = "片倉景綱（schema v3 產生的 Rust；測試用）",
       display_name = "片倉景綱",
       id = "katakura_kagetsuna",
       moba_loadout = {
         ranks = { 1, 1, 1, 0, 1 },
         skill_points = 0,
       },
-      source_stats = "B14",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B14",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "katakura_kagetsuna",
