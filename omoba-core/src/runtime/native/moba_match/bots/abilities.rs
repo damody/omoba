@@ -360,6 +360,8 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
         let rank=(owner_rank-1) as usize;
         let Some(def)=omoba_template_ids::ability_by_name(&policy.ability).and_then(omoba_template_ids::active_ability_const) else {continue;};
         let Some(level)=def.levels.get(rank) else {continue;};
+        // v3 requires.has_status (E472): without the status its own hero must hold, the cast is refused.
+        if def.requires_status.is_some_and(|status|!own_status(status)) {continue;}
         // A unit cast the authority refuses (dispatch, E460) is never aimed: the target's public
         // states rule out a hostile magic-immune or any unselectable unit, a hero-only ability anything but a hero.
         let aimable:Vec<SeenUnit>;

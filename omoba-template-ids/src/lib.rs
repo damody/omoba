@@ -1600,6 +1600,8 @@ pub struct AbilityConst {
     pub targets_tree: bool,
     /// A unit ability only a hero may be aimed at (v3 `target.types = { "hero" }`, E414).
     pub targets_heroes_only: bool,
+    /// v3 `requires.has_status` (E472): the v3 status its caster must hold.
+    pub requires_status: Option<&'static str>,
     /// Learned automatically at each rank's `required_hero_level`, never with a skill point.
     pub auto_learn: bool,
     pub ability_type: AbilityTypeC,

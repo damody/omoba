@@ -1943,6 +1943,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
              \tpierces_magic_immunity: {},\n\
              \ttargets_tree: {},\n\
              \ttargets_heroes_only: {},\n\
+             \trequires_status: {},\n\
              \tauto_learn: {},\n\
              \tability_type: AbilityTypeC::{},\n\
              \tcast_type: CastTypeC::{},\n\
@@ -1968,6 +1969,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
             e.pierces_magic_immunity,
             e.targets_tree,
             e.targets_heroes_only,
+            e.requires_status.as_ref().map_or("None".to_owned(), |status| format!("Some(\"{}\")", escape_str_literal(status))),
             e.auto_learn,
             ability_type_to_variant(&e.ability_type),
             cast_type_to_variant(&e.cast_type),

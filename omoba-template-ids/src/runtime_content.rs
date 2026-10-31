@@ -348,6 +348,9 @@ impl RuntimeContent {
                 if runtime.targets_heroes_only!=compiled.targets_heroes_only {
                     return Err("MOBA hero-only targeting differs from compiled content; rebuild all peers".into());
                 }
+                if runtime.requires_status!=compiled.requires_status {
+                    return Err("MOBA cast status requirement differs from compiled content; rebuild all peers".into());
+                }
                 if runtime.recovery_channel!=compiled.recovery_channel
                     || (runtime.recovery_channel.is_some() && (runtime.cast_type!=compiled.cast_type || runtime.target_type!=compiled.target_type)) {
                     return Err("MOBA recovery channel execution differs from compiled content; rebuild all peers".into());
@@ -1497,6 +1500,7 @@ fn ability_const_from_entry(entry: &AbilityEntry) -> Result<AbilityConst, String
         pierces_magic_immunity: entry.pierces_magic_immunity,
         targets_tree: entry.targets_tree,
         targets_heroes_only: entry.targets_heroes_only,
+        requires_status: entry.requires_status.clone().map(leak_str),
         auto_learn: entry.auto_learn,
         ability_type: ability_type(&entry.ability_type)?,
         cast_type: cast_type(&entry.cast_type)?,

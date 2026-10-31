@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：bot 依 requires_status 決定是否施放（E472）
+
+- AbilityConst `requires_status`（v3 requires.has_status）：bot 自己英雄沒有該狀態就不施放；template 由 A 輸出。
 ## 2026-10-31 線 B：小兵不再倒退走回已經過的 waypoint（E469）
 
 - static_advance_route 恢復路線前先跳過已越過的 waypoint；轉角的窗口假違規由 E 的 probe 改為以最近一個 tick 的位移比對。

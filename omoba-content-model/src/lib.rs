@@ -97,6 +97,11 @@ pub struct AbilityDefinition {
     /// `execute`, so the generated target check never sees it).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub targets_heroes_only: bool,
+    /// v3 `requires = { has_status = <id> }` (E472): the v3 status the caster must hold for the
+    /// cast to go through (the generated precondition refuses it otherwise). The bot reads it from
+    /// its own hero only, so it does not cast without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requires_status: Option<String>,
     /// Owner cast hook (G-4): while learned, every committed cast of another
     /// non-ultimate ability of the same hero shortens the remaining cooldowns
     /// of the hero's other non-ultimate abilities. Host-owned, so team replicas

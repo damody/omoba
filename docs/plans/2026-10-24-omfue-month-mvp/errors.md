@@ -2,7 +2,23 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E472 （保留）bot 不知道技能 requires.has_status 的前置狀態，b36_footsteps 4095/4241 次施放被拒（2026-10-31）
+## E472 bot 不知道技能 requires.has_status 的前置狀態，b36_footsteps 4095/4241 次施放被拒（2026-10-31，工作線 B）
+
+- **現象**：
+  - 工作線 E 的 m6new1 中，b36_footsteps（直江兼續）bot 送出 4241 次施放，其中 4095 次是 `script_error:CAST_REJECTED`。
+  - 它的 `requires = { has_status = "b36w_mark" }`，但 derived hint 是 self_engage，bot 沒有印記也照樣施放。
+- **根因**：
+  - `requires.has_status` 由 v3_rust 編進技能程式（`if !cx.has_status(...) { return Err(...) }`）。
+  - host 的 compiled content 沒有這個資訊，bot 和 dispatch 都看不到。
+- **通用修正**：
+  - `omoba_content_model` 的技能條目新增選填欄位 `requires_status`（v3 狀態 id），template-ids 的 `AbilityConst` 也加上 `requires_status`。
+    - build.rs 與 runtime_content 都會輸出這個欄位。
+    - runtime 與 compiled 不一致時拒絕啟動，和其他施法旗標相同。
+  - bot 的 `choose_cast_with_control_observation`：技能有 `requires_status` 時，用自己英雄的狀態檢查，沒有就不施放。
+    - `own_status` 接受 v3 狀態 id，透過 dispel registry 的 `statuses_of` 比對 BuffStore 列，任何 runtime id 都能認得。
+    - 只讀自己英雄的狀態，不涉及揭露。
+- **待接**：工作線 A 會在 hero_author 把 `requires.has_status` 輸出成 template 的 `requires_status`。目前只支援單一 has_status。
+- **檔案**：`omoba-content-model/src/lib.rs`、`omoba-template-ids/src/lib.rs`、`omoba-template-ids/build.rs`、`omoba-template-ids/src/runtime_content.rs`、`omoba-core/src/runtime/native/moba_match/bots.rs`、`bots/abilities.rs`
 
 ## E471 creep_facing 以 30 tick 平均位移當預期方向，轉角立即轉向被誤判（2026-10-31，e187 遊戲模式 session，B 查證；已放回 live）
 - **現象**：m6new1 的 E461 第一批數字是 3871 筆 violation，其中最多的一類在四個出生角：facing 45°／225°，預期 8°／82°，差 ±37°。
