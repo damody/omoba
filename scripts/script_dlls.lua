@@ -9,7 +9,11 @@ local M={}
 -- host loads them in this order; abilities register in it).
 -- ROOT (optional) reads the set of that source tree's scripts/hero_dlls.lua instead of this
 -- repo's: a split builds from its source snapshot (E487), and what it stages is what it built (E507).
+-- Without ROOT, OM_SCRIPT_SET_ROOT (set by a split for its roles) names that tree: every role of
+-- the match launches the set that was built, even when a hero is made playable meanwhile (E516).
+M.SET_ROOT_ENV='OM_SCRIPT_SET_ROOT'
 function M.modules(root)
+  if not root then local env=os.getenv(M.SET_ROOT_ENV);if env and env~='' then root=env end end
   -- items.dll (M7): the shop items' generated scripts (kind = item); no hero
   local modules={{module='base_content',file='base_content.dll'},{module='items',file='items.dll'}}
   local heroes=root and dofile((root:gsub('[/\\]$',''))..'/scripts/hero_dlls.lua') or require('hero_dlls')

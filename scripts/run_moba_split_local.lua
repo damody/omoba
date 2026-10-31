@@ -339,6 +339,9 @@ function M.run(options)
   -- Every role of this match is checked against the sources as they were now (E202).
   local child_env=lock:env()
   child_env.OMOBA_SOURCES_AS_OF=tostring(sources_as_of or os.time())
+  -- E516: the roles launch the script DLL set this run built (the snapshot's), not the repo's
+  -- as it is when each role starts.
+  if sources_as_of then child_env[require('script_dlls').SET_ROOT_ENV]=M.snapshot_root(b.root) end
   local children={}
   local function spawn(label,args)
     local log=path.join(root,label..'.log')

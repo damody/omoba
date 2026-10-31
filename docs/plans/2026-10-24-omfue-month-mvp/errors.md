@@ -2,6 +2,15 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E516 split 啟動中英雄轉正式，角色 launch 讀 live 英雄 DLL 集合，找不到快照沒建的 DLL（2026-10-31，工作線 C）
+- 現象：工作線 C 的 yamamoto_kansuke spotlight split 建置完成、server 已啟動，但 client p1 啟動失敗：`run_artifacts.lua:172: missing hero_c13.dll beside ...\server\artifacts\scripts\base_content.dll`。
+- 原因：E507 讓 build 和 E399 的比對都讀快照的英雄 DLL 集合，但各角色（server、client、UE）啟動時，`run_artifacts` 仍用 `script_dlls.modules()` 讀 live 的 hero_dlls。E399 的比對通過之後，server 和 client 啟動之間，b6633e02 把 C13、A17 轉正式。client 啟動時看到的集合多了快照沒建的 hero_c13。
+- 修正（共用層）：
+  - `script_dlls.modules()` 沒指定 root 時，讀環境變數 `OM_SCRIPT_SET_ROOT` 指定的來源樹。
+  - `run_moba_split_local.run` 有建置時，把快照路徑設給所有子程序（server、client、UE 都繼承）。整局從建置到啟動都用同一份集合，live 之後再多英雄也不影響這局。
+  - `run_moba_split_local_test` 檢查角色環境帶快照集合，以及 `modules()` 讀這個環境變數。
+- 避免：同一局的每個角色都要讀同一份來源快照，不要在啟動時重新讀 live。
+
 ## E515 獨立實例變數的 state key 用了 #，被 unit_var 拒絕（2026-10-31，工作線 A）
 
 - **現象**：B05 b05_chain_lightning 在影子 conformance 有 12 個 fail，施放被拒（CAST_REJECTED: v3: invalid state variable）。A06 同一套寫法卻是 0 fail：它的 set_var 在觸發裡失敗，錯誤被觸發吞掉，conformance 沒有量到計數。

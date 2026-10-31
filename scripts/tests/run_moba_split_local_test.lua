@@ -190,6 +190,12 @@ do
   end
   local text=assert(io.open('scripts/run_moba_split_local.lua','rb')):read('a')
   assert(text:find('built_set=sources_as_of and M.script_set(M.snapshot_root(b.root))',1,true),'the built set is the snapshot set')
+  -- E516: the roles read the built set through the environment, a hero landed while they start
+  -- does not change what they launch.
+  local spawn=assert(text:find('child_env.OMOBA_SOURCES_AS_OF',1,true))
+  assert(text:find("child_env[require('script_dlls').SET_ROOT_ENV]=M.snapshot_root(b.root)",spawn,true),'the roles get the snapshot set')
+  local dlls=assert(io.open('scripts/script_dlls.lua','rb')):read('a')
+  assert(dlls:find('os.getenv(M.SET_ROOT_ENV)',1,true),'script_dlls.modules reads the set root from the environment')
   os.remove(tree..'/scripts/hero_dlls.lua');require('lfs').rmdir(tree..'/scripts');require('lfs').rmdir(tree)
 end
 print('split local topology: options, seats and per-role arguments passed')
