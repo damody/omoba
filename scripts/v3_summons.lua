@@ -280,7 +280,10 @@ function M.template_rows(doc, t)
   local known = { id = true, source_id = true, values = true, text = true, notes = true, provenance = true, quirks = true,
     max_level = true, stats = true, attack = true, bounty = true, vision = true, collision_radius = true,
     acquisition_range = true, owner_death = true, ai = true, tags = true, passive = true, statuses = true, turn_rate = true, flying = true,
-    abilities = true }
+    abilities = true,
+    -- declarations the host already keeps: item orders go to the player's hero only, so a summon
+    -- is never ordered to move, give or use an item (line B)
+    inventory_locked = true, item_cast_blacklist = true }
   for _, k in ipairs(sorted(t)) do if not known[k] then no(k) end end
   local sp = statuses_problem(t); if sp then no(sp) end
   local stats = t.stats or {}

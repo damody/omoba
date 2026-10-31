@@ -662,6 +662,18 @@ function Gen:expr(node, ctx)
       local v = self.m.vars[parts[1]]
       if not v then self:block("state:" .. parts[1] .. " not declared"); return "Fixed64::ZERO", "err" end
       local holder = self:expr({ k = "id", name = "self" }, ctx)
+      if v.def.scope == "item_instance" then
+        -- the casting item instance's var (line B E571): its slot's key on the caster; an
+        -- item_name var is a number the host turns back into the item's id
+        if not (self.entry and self.entry.kind == "item") then self:block("state:" .. parts[1] .. " (item_instance) outside its item"); return "Fixed64::ZERO", "err" end
+        local num = v.def.type == "int" or v.def.type == "fixed"
+        if not num and v.def.type ~= "item_name" then self:block("state type:" .. tostring(v.def.type) .. " (item_instance)"); return "Fixed64::ZERO", "err" end
+        local init = num and v.def.init ~= nil and self:value(v.def.init, ctx, "num") or "Fixed64::ZERO"
+        local raw = string.format("{ let h = %s; match cx.item_instance_key(%s) { Some(k) => cx.state_num(h, &k, %s), None => %s } }",
+          holder, rust_str(v.key), init, init)
+        if num then return raw, "num" end
+        return "{ let n = " .. raw .. "; cx.item_name_of(n).map(|s| s.to_owned()).unwrap_or_default() }", "item_name"
+      end
       local ty = ({ int = "num", fixed = "num", bool = "bool", unit = "unit", point = "point", vec = "vec" })[v.def.type]
       if not ty then self:block("state type:" .. tostring(v.def.type)); return "Fixed64::ZERO", "err" end
       if ty == "unit" then return string.format("cx.state_unit(%s, %s)", holder, rust_str(v.key)), "unit" end
@@ -956,6 +968,14 @@ function Gen:call(node, ctx)
     if t == "err" then return "EntityHandle::INVALID", "err" end
     if t ~= "unit" then self:block("fn:owner_of of a " .. t); return "EntityHandle::INVALID", "err" end
     return string.format("{ let u = %s; cx.unit_ref(u, ability_kit::unit_attr::OWNER) }", u), "unit"
+  elseif fn == "status_source" then
+    -- who applied the unit's status (line B E570; INVALID without it)
+    local u, t = arg(1)
+    local st = name_arg(2)
+    if t == "err" or not st then return "EntityHandle::INVALID", "err" end
+    if t ~= "unit" then self:block("fn:status_source of a " .. t); return "EntityHandle::INVALID", "err" end
+    if not self.m.statuses[st] then self:block("status:" .. st .. " not declared"); return "EntityHandle::INVALID", "err" end
+    return "{ let u = " .. u .. "; cx.status_source(u, &super::ids::status::" .. upper(st) .. ") }", "unit"
   elseif fn == "has_item" then
     -- a catalog item in one of the unit's inventory slots (kit item_in_slot, line B E561; the
     -- host inventory has 6)
@@ -1429,7 +1449,7 @@ local ACTION_FIELDS = {
   -- inventory items (line B E561/E569; ids are the documents' item ids): a picked item is an
   -- `item` binding (Option<PickedItem>), `it` in pick_item.where the candidate (&PickedItem)
   pick_item = set({ "op", "from", "slots", "order", "where", "as" }),
-  give_item = set({ "op", "to", "item" }),
+  give_item = set({ "op", "to", "item", "vars" }),
   remove_item = set({ "op", "from", "item" }),
   set_ability_level = set({ "op", "of", "ability", "level" }),
   end_channel = set({ "op", "interrupted" }),
@@ -2638,7 +2658,8 @@ function Gen:action(a, ctx, ind)
     str = str .. self:actions(a.actions, { owner = ctx.owner, scope = body_scope, event = ctx.event, pre = ctx.pre, cast = ctx.cast, ended = ctx.ended, windup = ctx.windup }, I .. "        ")
     return str .. line("    }") .. line("}")
   elseif op == "create_unit" then
-    local CREATE_OVERRIDES = { hp = true, attack_damage = true, attack_damage_max = true, move_speed = true }
+    -- armor: line B E573 (may be negative; base armor)
+    local CREATE_OVERRIDES = { hp = true, attack_damage = true, attack_damage_max = true, move_speed = true, armor = true }
     local t = self.m.templates[a.template]
     -- the host spawns content summons only (summon_by_name): a v3 template is one through
     -- scripts/v3_summons.lua, a ranked one (`max_level` > 1) `<id>_r<rank>` at this cast's rank (E326)
@@ -2780,6 +2801,8 @@ function Gen:action(a, ctx, ind)
     s = s .. line("    let at = " .. at .. ";") .. line("    let lifetime = " .. life .. ";")
     if a.as then
       local marker = self:bind(ctx.scope, a.as, "unit")
+      -- a created summon: give_item to it waits for the host (summons hold no inventory, line B)
+      ctx.scope.names[a.as].created = true
       -- the binding lives after the block: hoist it
       return line("let " .. marker .. " = {") .. s:gsub("^" .. I:gsub("%p", "%%%0") .. "{\n", "")
         .. line("    " .. make) .. line("};")
@@ -3050,16 +3073,43 @@ function Gen:action(a, ctx, ind)
     return line("let " .. marker .. " = { let from = " .. from .. "; cx.pick_item(from, ability_kit::PickOrder::" .. order
       .. ", |cx, " .. it .. ": &ability_kit::PickedItem| { let _ = &cx; " .. keep .. " }) };")
   elseif op == "give_item" or op == "remove_item" then
-    local unit = self:value(op == "give_item" and a.to or a.from, ctx, "unit")
+    local holder = op == "give_item" and a.to or a.from
+    local hb = type(holder) == "string" and holder:match("^[%a_][%w_]*$") and self:lookup(ctx, holder)
+    if hb and hb.created then self:block("action:" .. op .. " on a created unit (host: summons hold no inventory)"); return "" end
+    local unit = self:value(holder, ctx, "unit")
     local code, ty = self:value(a.item, ctx)
     local lit = type(ty) == "string" and ty:match("^sym:(.+)$")
     self.item_names = self.item_names or C.item_names(((self.opts.root or "."):gsub("\\", "/")) .. "/docs/character_pipeline/items")
     local head = line("{") .. line("    let unit = " .. unit .. ";")
+    -- the item's own instance in its own on_cast (line B E571: that slot only)
+    if op == "remove_item" and a.item == "ability" then
+      if not (self.entry and self.entry.kind == "item") then self:block("action:remove_item of ability outside an item"); return "" end
+      return head .. line("    cx.remove_own_item(unit)?;") .. line("}")
+    end
+    -- give_item.vars: the new instance's item_instance state (line B E571)
+    local vars = ""
+    if op == "give_item" and a.vars ~= nil then
+      local rows = {}
+      for _, k in ipairs(sorted_keys(a.vars)) do
+        local v = self.m.vars[k]
+        if not v or v.def.scope ~= "item_instance" then self:block("action:give_item.vars." .. k .. " (an item_instance state)"); return "" end
+        local val
+        if v.def.type == "item_name" then
+          val = "ability_kit::VarValue::Num({ let s: String = (" .. self:value(a.vars[k], ctx, "item_name") .. ").clone(); cx.item_name_number(&s) })"
+        elseif v.def.type == "int" or v.def.type == "fixed" then val = "ability_kit::VarValue::Num(" .. self:value(a.vars[k], ctx, "num") .. ")"
+        else self:block("action:give_item.vars." .. k .. " of type " .. tostring(v.def.type)); return "" end
+        head = head .. line("    let v_" .. #rows .. " = " .. val .. ";")
+        rows[#rows + 1] = "(" .. rust_str(v.key) .. ", v_" .. #rows .. ")"
+      end
+      vars = table.concat(rows, ", ")
+    end
+    local function give(id) return vars ~= "" and ("cx.give_item_with(unit, " .. id .. ", &[" .. vars .. "])?;") or ("cx.give_item(unit, " .. id .. ")?;") end
     if lit then
       if not self.item_names[lit] and not (self.m.abilities[lit] and self.m.abilities[lit].kind == "item") then self:block("action:" .. op .. " of " .. lit .. " (no such item)"); return "" end
+      if op == "give_item" then return head .. line("    " .. give(rust_str(lit))) .. line("}") end
       return head .. line("    cx." .. op .. "(unit, " .. rust_str(lit) .. ")?;") .. line("}")
     end
-    if op == "give_item" and ty == "item_name" then return head .. line("    let id: String = " .. code .. ";") .. line("    cx.give_item(unit, &id)?;") .. line("}") end
+    if op == "give_item" and ty == "item_name" then return head .. line("    let id: String = (" .. code .. ").clone();") .. line("    " .. give("&id")) .. line("}") end
     if op == "remove_item" and ty == "item" then
       -- the slot the pick found (its holder is the pick's `from`)
       return head .. line("    let _ = unit;") .. line("    if let Some(p) = (" .. code .. ").as_ref() { cx.remove_picked_item(p)?; }") .. line("}")
