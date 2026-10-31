@@ -2,7 +2,19 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E484 （保留）verify_m6_batch 的 quick_swap 換邊時也換了對手：小於 10 人的 group 在 quick 與 quick_swap 面對不同的出貨英雄（2026-10-31）
+## E484 verify_m6_batch 的 quick_swap 換邊時也換了對手：小於 10 人的 group 在 quick 與 quick_swap 面對不同的出貨英雄（2026-10-31，e187 遊戲模式 session，主 session 要求對照；已放回 live）
+- **現象**：新英雄三批（m6new1／2／3）的勝率都是 17%（3/18），數字一致得可疑。
+- **對照**：m6ctl1 用相同 recipe 與 seed，換成已驗證的五位老英雄（koihime、sakuma、uesugi、usami、kuroda），結果 10/18。各 recipe：
+  - quick：4/6
+  - quick_swap：6/6
+  - teamfight：0/6
+- **根因**：group 不滿 10 人時，沒有坐人的位子保留出貨英雄。
+  - quick 與 teamfight：group 在隊伍 1，對手是出貨隊伍 2（honda、sanada、tamako、inahime、omatsu，偏強；teamfight 6/6 都贏）。
+  - quick_swap：group 換到隊伍 2，對手變成出貨隊伍 1（murakami、date、saika、oichi、asai，偏弱；在對照裡全是 0%）。
+  - 結果 batch 勝率混入了對手強弱，不只是換邊。
+- **通用修正**：swap 的 recipe 先讓出貨英雄依 role 交換隊伍，再坐入 group。三個 recipe 因此面對同一組對手，quick_swap 只是換邊；group 坐滿 10 人時沒有影響。
+- **結論**：在 quick_swap，同樣面對弱隊，新英雄只贏 1～2/6，對照組 6/6，所以新英雄本身也偏弱，繼續逐招追查。
+- **避免**：對照實驗只改一個變因；換邊不能連對手一起換。
 
 ## E483 （保留）技能被動持續套給施法者自己的狀態（a01t_armor）expires 判 fail（2026-10-31）
 

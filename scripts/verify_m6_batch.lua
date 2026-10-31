@@ -145,6 +145,13 @@ local root = %q
 local plan = assert(loadfile(root .. '/scripts/lua_data/moba_role_match.lua'))()
 plan.map_id = 'three_lane_quick_training'
 local seating, swap, teamfight = {%s, %s}, %s, %s
+-- The swap mirrors sides, not opponents (E484): the shipped heroes trade teams by role too, so a
+-- group of fewer than ten meets the same opponents on either side.
+if swap then
+  local shipped = {}
+  for _, player in ipairs(plan.players) do shipped[player.team_id .. ':' .. player.role] = player.hero end
+  for _, player in ipairs(plan.players) do player.hero = shipped[(3 - player.team_id) .. ':' .. player.role] or player.hero end
+end
 for order, team in ipairs(swap and {2, 1} or {1, 2}) do
   for _, player in ipairs(plan.players) do
     if player.team_id == team and seating[order][player.role] then player.hero = seating[order][player.role] end
