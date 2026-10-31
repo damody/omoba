@@ -113,6 +113,20 @@ local function model(doc, compiled)
   for _, a in ipairs(doc.abilities or {}) do declare(a.unit_state) end
   for _, it in ipairs(doc.items or {}) do declare(it.unit_state) end
   for _, s in ipairs(doc.statuses or {}) do statuses[s.id] = add(s, "status", shared) end
+  -- a summon template's passive.states (not a dummy: the shared dummy body has them): a hidden,
+  -- permanent, undispellable status `<template>_passive` the creating code puts on the new unit
+  -- with the template's statuses (line B: every state has a host vocab entry)
+  for _, u in ipairs(doc.unit_templates or {}) do
+    local p = u.passive or {}
+    local dummy = false
+    for _, tag in ipairs(u.tags or {}) do if tag == "dummy" then dummy = true end end
+    if not dummy and type(p.states) == "table" and #p.states > 0 then
+      local sd = { id = u.id .. "_passive", duration = "infinite", stacking = "keep", dispel = "none",
+        visibility = "hidden", reveal = "public", states = p.states }
+      statuses[sd.id] = add(sd, "status", shared)
+      templates[u.id].passive_status = sd.id
+    end
+  end
   -- a document-level status a unit template carries is applied by the cast that creates the
   -- template (create_unit), so that ability is its host: the status_event marker names it and its
   -- on_status_event serves the status's triggers (line B, fifth batch item 9)
@@ -2431,6 +2445,12 @@ function Gen:action(a, ctx, ind)
     -- the template's `statuses` go on the new unit as it appears, applied by this cast like an
     -- `apply_status` to it (v3_summons rows carry no statuses)
     local statuses = t and t.def.statuses or {}
+    if t and t.passive_status then
+      local all = {}
+      for _, sid in ipairs(statuses) do all[#all + 1] = sid end
+      all[#all + 1] = t.passive_status
+      statuses = all
+    end
     if #statuses > 0 then
       local scope = scope_child(ctx.scope)
       local sub = setmetatable({ scope = scope }, { __index = ctx })

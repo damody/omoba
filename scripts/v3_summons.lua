@@ -231,6 +231,8 @@ local function dummy_rows(doc, t, value)
     vision_into(row, t.vision or {}, num, no)
     row.hp = num(stats.hp, "stats.hp")
     row.hp_regen = num(stats.hp_regen, "stats.hp_regen")
+    -- the host takes 0..10000 (omoba-template-ids lua_content: a losing regen waits)
+    if row.hp_regen and (row.hp_regen < 0 or row.hp_regen > 10000) then no("stats.hp_regen " .. row.hp_regen .. " outside 0..10000") end
     row.armor = num(stats.armor, "stats.armor")
     row.magic_resistance = num(stats.magic_resist, "stats.magic_resist")
     mana_into(row, stats, num, no)
@@ -296,7 +298,8 @@ function M.template_rows(doc, t)
   if t.ai ~= "guard" and t.ai ~= "owner_controlled" and t.ai ~= "idle" then no("ai:" .. tostring(t.ai)) end
   if t.owner_death ~= nil and t.owner_death ~= "persist" and t.owner_death ~= "expire" then no("owner_death:" .. tostring(t.owner_death)) end
   local p = t.passive or {}
-  for _, k in ipairs(sorted(p)) do if k ~= "reveal" then no("passive." .. k) end end
+  -- passive.states: the creating code puts them on the unit as a status (v3_rust <template>_passive)
+  for _, k in ipairs(sorted(p)) do if k ~= "reveal" and k ~= "states" then no("passive." .. k) end end
   if p.reveal ~= nil and p.reveal ~= "public" then no("passive.reveal:" .. tostring(p.reveal)) end
   for _, tag in ipairs(t.tags or {}) do if tag ~= "summon" then no("tag:" .. tag) end end
   local rows = {}
@@ -314,6 +317,8 @@ function M.template_rows(doc, t)
     row.armor = num(stats.armor, "stats.armor") or 0
     row.magic_resistance = num(stats.magic_resist, "stats.magic_resist") or 0
     row.hp_regen = num(stats.hp_regen, "stats.hp_regen")
+    -- the host takes 0..10000 (omoba-template-ids lua_content: a losing regen waits)
+    if row.hp_regen and (row.hp_regen < 0 or row.hp_regen > 10000) then no("stats.hp_regen " .. row.hp_regen .. " outside 0..10000") end
     row.move_speed = num(stats.move_speed, "stats.move_speed")
     if row.move_speed == nil then no("stats.move_speed missing") end
     mana_into(row, stats, num, no)
