@@ -732,6 +732,8 @@ mod tests {
         assert_eq!(sight_radius(base, Some(&buffs), unit, false), Fixed64::ZERO, "never below zero");
         assert_eq!(sight_radius(Fixed64::ZERO, Some(&buffs), unit, true), Fixed64::ZERO, "no sight stays none");
         assert_eq!(sight_radius(base, None, unit, true), base);
+        buffs.add(unit, crate::runtime::native::rules::vocab::state::BLIND, Fixed64::ONE, serde_json::json!({}));
+        assert_eq!(sight_radius(base, Some(&buffs), unit, true), Fixed64::ZERO, "E577: blind sees nothing");
     }
 
     fn source(team: u32, radius: i32) -> CommittedVisionSource {
@@ -1256,6 +1258,8 @@ impl TeamVisibilityRuntime {
 pub fn sight_radius(base: Fixed64, buffs: Option<&crate::runtime::BuffStore>, entity: specs::Entity, night: bool) -> Fixed64 {
     use omb_script_abi::stat_keys::StatKey;
     let Some(buffs) = buffs.filter(|_| base > Fixed64::ZERO) else { return base };
+    // v3 state `blind` (E577): no sight of its own
+    if buffs.has(entity, crate::runtime::native::rules::vocab::state::BLIND) { return Fixed64::ZERO; }
     let bonus = if night {
         buffs.sum_add(entity, StatKey::BonusNightVision) + buffs.sum_add(entity, StatKey::BonusNightVisionUnique)
     } else {

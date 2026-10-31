@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：state blind（E577）
+
+- 被吞的目標失去視野。
 ## 2026-11-01 線 B：selector segment（E576）
 
 - C08 的鉤鏈可以選出線段上的單位。

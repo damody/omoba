@@ -4,7 +4,14 @@
 
 ## E578 （保留）英雄技能格 add_ability／remove_ability（C08 偷技能到 F 格）（2026-11-01）
 
-## E577 （保留）status state blind：被吞的目標不提供視野（C08）（2026-11-01）
+## E577 status state blind：被吞的目標不提供視野（C08）（2026-11-01，工作線 B）
+
+- **現象**：加藤段藏（C08）的 T 讓被吞的目標帶 `states = { "stun", "blind", ... }`，原作是 MODIFIER_STATE_BLIND。host 的 STATE_EFFECTS 沒有 `blind`，產生器無法輸出。
+- **修正**：
+  - `rules::vocab::state::BLIND`，並加入 STATE_EFFECTS（`StateEffect::Buff("blind")`），產生器讀 vocab.rs 後自動支援。
+  - `visibility::sight_radius`：帶 `blind` 的單位自己的視野半徑為 0。它是 committed 視野來源唯一計算半徑的地方，所以 fog、team view 與 ECS 端的判斷一致。隊友的視野照常。
+- **測試**：`visibility::tests::day_and_night_sight_bonuses_change_a_source_radius`：加上 blind 後視野為 0。
+- **檔案**：`omoba-core/src/runtime/native/rules/vocab.rs`、`omoba-core/src/runtime/visibility.rs`
 
 ## E576 selector shape segment（C08 鉤鏈）（2026-11-01，工作線 B）
 

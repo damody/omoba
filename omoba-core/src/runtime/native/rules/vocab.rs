@@ -118,6 +118,9 @@ pub mod state {
     /// 原作 MODIFIER_STATE_LOW_ATTACK_PRIORITY：自動普攻在攻擊範圍內還有別的目標時不選它
     /// （combat_acquisition::acquire；明確指定的攻擊照常）。
     pub const LOW_ATTACK_PRIORITY: &str = "low_attack_priority";
+    /// 原作 MODIFIER_STATE_BLIND（E577）：單位看不見任何東西，自己的視野半徑為 0
+    /// （visibility::sight_radius；隊友的視野照常）。
+    pub const BLIND: &str = "blind";
     /// 原作 MODIFIER_STATE_UNSELECTABLE：不能被普攻選為目標，也不能被當成單位技能的目標
     /// （combat_acquisition::read_candidate、dispatch 的施法檢查；範圍效果照常選到）。
     pub const UNSELECTABLE: &str = "unselectable";
@@ -190,6 +193,7 @@ const STATE_EFFECTS: &[(&str, StateEffect)] = &[
     ("attack_immune", StateEffect::Buff("attack_immune")),
     ("attack_slow_immune", StateEffect::Buff("attack_slow_immune")),
     ("low_attack_priority", StateEffect::Buff("low_attack_priority")),
+    ("blind", StateEffect::Buff("blind")),
     ("unselectable", StateEffect::Buff("unselectable")),
     ("no_healthbar", StateEffect::Buff("no_healthbar")),
     ("not_on_minimap", StateEffect::Buff("not_on_minimap")),
