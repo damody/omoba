@@ -21,7 +21,7 @@ local serialize = require("hero_source.serialize")
 local OUT = "scripts/lua_data/templates/v3_test_heroes.lua"
 -- package: docs/character_pipeline/packages/<package>/v3.lua and scripts/heroes/<package>
 local HEROES = {
-  { package = "hattori_hanzo" },
+  { package = "hattori_hanzo", playable = true },
   -- M6 batch 2 (line-conformance REPORT_ONLY)
   { package = "maeda_keiji", playable = true },
   { package = "tachibana_ginchiyo", playable = true },

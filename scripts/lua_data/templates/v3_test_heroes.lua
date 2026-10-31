@@ -68244,16 +68244,13 @@ local data = {
     {
       abilities = { "a13_shadow_illusion", "a13_chain_sickle", "a13_iga_ninjutsu", "a13_shadow_slash", "a13_vanishing_step" },
       authored_package = "hattori_hanzo",
-      background = "服部半藏（schema v3 產生的 Rust；測試用）",
       display_name = "服部半藏",
       id = "hattori_hanzo",
       moba_loadout = {
         ranks = { 1, 1, 1, 0, 1 },
         skill_points = 0,
       },
-      source_stats = "A13",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A13",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "hattori_hanzo",

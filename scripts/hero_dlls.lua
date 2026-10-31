@@ -119,4 +119,6 @@ return {
   {hero='hashiba_hideyoshi',package='hero_a28',dir='heroes/hashiba_hideyoshi'},
   -- M6 batch (2026-10-31): every ability generated (include_dead 用引擎屍體保留時間（E539）、on_moved 被動；harness 屍體前提（E547）); conformance 0 fail
   {hero='ise_hime',package='hero_b23',dir='heroes/ise_hime'},
+  -- M6 batch (2026-10-31): every ability generated (attack.effect_multiplier（E562）、dodge_projectiles.of（E557）); conformance 0 fail
+  {hero='hattori_hanzo',package='hero_a13',dir='heroes/hattori_hanzo'},
 }
