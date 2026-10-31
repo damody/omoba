@@ -24,6 +24,23 @@
   - spotlight 還不會示範召喚物技能。
 - 避免：伺服器新增玩家可操作的能力時，UE 的選取資料、輸入與介面要一起規劃。
 
+## E536 （保留）conformance heal 檢查把同 tick 其他來源的最大生命下降算進去（a08 失去 a08_indomitable 的力量 -100，heal 多算 100）（2026-11-01）
+
+## E535 死亡單位的位置沒有記錄：Death 不經過 EntityRemoved（C16、B23、A14、A28）（2026-11-01，工作線 B）
+
+- **現象**：
+  - 工作線 D 回報，E526 之後 c16_／b23_／a14_／a28_ 仍有 17 筆 `v3: unit without a position`。
+  - 以 C16 為例：咒影的 on_death hook `st_c16e_curse_on_death` 讀死亡 holder 的位置，結果是 None。
+  - 在 shadow 的 get_pos 加診斷後看到：`alive=false pos=false rows=-1`。也就是說 RetiredPositions 根本不存在：戰鬥死亡（`Outcome::Death`）的單位是在 batch 結尾以 `delete_entities(remove_uids)` 刪除，不經過 EntityRemoved，E526 的記錄點從來沒有執行到。
+  - D 推測英雄死亡後實體仍然存在，經診斷確認並非如此：dispatch 時實體已被刪除。
+- **通用修正**：
+  - game_processor 新增 `retire_position(world, entity)`。
+  - 兩條移除路徑都在刪除前呼叫它：EntityRemoved，以及 batch 結尾刪除 remove_uids（死亡與漏怪）之前。
+  - 戰鬥單位同時記下隊伍，供 E532 的 include_dead 使用。
+- **附帶**：E534（b1024578）不小心把診斷用的 `OM_DEBUG_GETPOS` eprintln 帶進 live；本次一併移除。它只在設了該環境變數時才會輸出。
+- **測試**：base_content `v3_conformance::c16_`（release），確認 C16.json 裡已經沒有 `unit without a position`。
+- **檔案**：`omoba-core/src/runtime/native/game_processor.rs`、`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`
+
 ## E534 法球槽 orb_slot 與 landmark 沒有 host 支援（B15、A21、瑞龍院日秀）（2026-11-01，工作線 B）
 
 - **現象**：

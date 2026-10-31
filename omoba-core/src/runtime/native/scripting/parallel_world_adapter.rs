@@ -1157,7 +1157,6 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         match self.retired_source(ent) {Some(source)=>source.pos,None=>self.cache.pos.get(ent).map(|p|p.0)}
             // A removed unit: where it last stood (E526).
             .or_else(|| (!self.cache.entities.is_alive(ent)).then(|| self.cache.retired_positions.as_ref().and_then(|rows| rows.get(ent))).flatten())
-            .or_else(|| { if std::env::var_os("OM_DEBUG_GETPOS").is_some() { eprintln!("[getpos] none e={:?} alive={} pos={} retired_src={} rows={}", ent, self.cache.entities.is_alive(ent), self.cache.pos.get(ent).is_some(), self.retired_source(ent).is_some(), self.cache.retired_positions.as_ref().map_or(-1, |r| r.get(ent).map_or(0, |_| 1))); } None })
             .map_or(RNone, RSome)
     }
 

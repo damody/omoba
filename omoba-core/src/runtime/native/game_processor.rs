@@ -3702,22 +3702,7 @@ pub fn process_outcomes(
             }
             Outcome::EntityRemoved { entity } => {
                 // Its last position stays readable to later hooks (E526).
-                let last = world.read_storage::<Pos>().get(entity).map(|p| p.0);
-                if let Some(at) = last {
-                    let tick = world.read_resource::<Tick>().0;
-                    if world.try_fetch::<super::scripting::parallel_world_adapter::RetiredPositions>().is_none() {
-                        world.insert(super::scripting::parallel_world_adapter::RetiredPositions::default());
-                    }
-                    // A combat unit keeps its team for dead selectors (E532).
-                    let team = {
-                        let units = world.read_storage::<Unit>();
-                        let combat = units.get(entity).is_some_and(|u| !matches!(u.unit_type, UnitType::TrainingDummy))
-                            && world.read_storage::<IsBuilding>().get(entity).is_none();
-                        combat.then(|| world.read_storage::<Faction>().get(entity).map(|f| f.team_id)).flatten()
-                    };
-                    let mut rows = world.write_resource::<super::scripting::parallel_world_adapter::RetiredPositions>();
-                    match team { Some(team) => rows.record_unit(entity, at, tick, team), None => rows.record(entity, at, tick) }
-                }
+                retire_position(world, entity);
                 world.write_resource::<BuffStore>().remove_all_for(entity);
                 world
                     .write_resource::<RemovedEntitiesQueue>()
@@ -3759,6 +3744,9 @@ pub fn process_outcomes(
     emit_committed_actor_state(world, projection_tick, committed_vitals, committed_cooldowns, committed_charges);
     super::owner_control::settle_batch(world);
 
+    // The dead (Outcome::Death) and leaked go here, not through EntityRemoved: their last
+    // position stays readable to their death hooks too (E535).
+    for entity in &remove_uids { retire_position(world, *entity); }
     let _ = world.delete_entities(&remove_uids[..]);
     // The batch took every queued outcome at its start, so what the resource holds now was pushed
     // while it settled (status damage hooks, a summon limit's removals): the next batch settles
@@ -4043,6 +4031,23 @@ fn merge_damage_outcomes(raw: Vec<Outcome>) -> Vec<Outcome> {
         aggregated.push(outcome);
     }
     aggregated
+}
+
+/// Keep where `entity` stood before it is deleted (E526): scripts' `get_pos` of the gone unit
+/// reads it, and a combat unit keeps its team for dead selectors (E532).
+fn retire_position(world: &mut World, entity: Entity) {
+    use super::scripting::parallel_world_adapter::RetiredPositions;
+    let Some(at) = world.read_storage::<Pos>().get(entity).map(|p| p.0) else { return };
+    let tick = world.read_resource::<Tick>().0;
+    if world.try_fetch::<RetiredPositions>().is_none() { world.insert(RetiredPositions::default()); }
+    let team = {
+        let units = world.read_storage::<Unit>();
+        let combat = units.get(entity).is_some_and(|u| !matches!(u.unit_type, UnitType::TrainingDummy))
+            && world.read_storage::<IsBuilding>().get(entity).is_none();
+        combat.then(|| world.read_storage::<Faction>().get(entity).map(|f| f.team_id)).flatten()
+    };
+    let mut rows = world.write_resource::<RetiredPositions>();
+    match team { Some(team) => rows.record_unit(entity, at, tick, team), None => rows.record(entity, at, tick) }
 }
 
 fn handle_death(
