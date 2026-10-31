@@ -625,6 +625,7 @@ function Gen:expr(node, ctx)
       end
       local id = self.entry and self.entry.kind == "ability" and self.entry.def.id
       if parts[1] == "is_ready" and id then return string.format("cx.ability_ready(cx.caster, %s)", rust_str(id)), "bool" end
+      if parts[1] == "cooldown_remaining" and id then return string.format("cx.ability_cooldown(cx.caster, %s)", rust_str(id)), "num" end
       -- this rank's mana cost (`cost.mana`, GetManaCost)
       if parts[1] == "mana_cost" and id and self.entry.def.cost and self.entry.def.cost.mana ~= nil then
         return self:value(self.entry.def.cost.mana, { owner = self.entry, scope = scope_child(nil), event = false }, "num"), "num"
@@ -780,6 +781,15 @@ function Gen:expr(node, ctx)
     end
     if ot == "unit" then
       local a = UNIT_ATTRS[node.name]
+      -- `is_<state>ed` (is_silenced, is_stunned, is_rooted): the host holds the state's buff
+      local st = node.name:match("^is_(.+)$")
+      if not a and st then
+        local states = self.opts.vocab and self.opts.vocab.states or {}
+        for _, cand in ipairs({ st, (st:gsub("ed$", "")), (st:gsub("d$", "")), (st:gsub("ned$", "")) }) do
+          local e = states[cand]
+          if e and e.buff then a = { "bool", "cx.has_buff(%s, " .. rust_str(e.buff) .. ")" }; break end
+        end
+      end
       if a then
         if obj:match("^[%w_%.]+$") then return (a[2]:gsub("%%s", function() return obj end)), a[1] end
         return "{ let ua_ = " .. obj .. "; " .. (a[2]:gsub("%%s", function() return "ua_" end)) .. " }", a[1]
@@ -1011,6 +1021,13 @@ function Gen:call(node, ctx)
     if ut == "err" then return "Fixed64::ZERO", "err" end
     if ut ~= "unit" or not (ab and ab.k == "id" and not scope_find(ctx.scope, ab.name)) then self:block("fn:ability_level"); return "Fixed64::ZERO", "err" end
     return string.format("{ let u = %s; cx.ability_level(u, %s) }", u, rust_str(ab.name)), "num"
+  elseif fn == "ability_ready" then
+    -- the unit holds the ability learned and off cooldown (line B ability_ready)
+    local u, ut = arg(1)
+    local ab = args[2]
+    if ut == "err" then return "false", "err" end
+    if ut ~= "unit" or not (ab and ab.k == "id" and not scope_find(ctx.scope, ab.name)) then self:block("fn:ability_ready"); return "false", "err" end
+    return string.format("{ let u = %s; cx.ability_ready(u, %s) }", u, rust_str(ab.name)), "bool"
   elseif fn == "status_remaining" then
     local u, ut = arg(1)
     local sname = name_arg(2)
@@ -1864,8 +1881,34 @@ function Gen:action(a, ctx, ind)
   end
   local vso = a.op == "apply_status" and not a.__vars and a.status and self.m.statuses[a.status]
   if vso and vso.def.stacking == "independent" and a.vars ~= nil then
-    -- a new instance's vars start at their init (its triggers read them by its number)
-    self:block("action:apply_status.vars on an independent status"); return ""
+    -- the new instance's own vars (`__sv:<id>#<n>:<var>`, n the number the apply returns; line B
+    -- E504), written before its start runs; the others start at their init
+    local inner = {}
+    for key, v in pairs(a) do inner[key] = v end
+    inner.__vars = true
+    inner.vars = nil
+    local code = self:action(inner, ctx, ind)
+    if code == "" then return code end
+    local inits = {}
+    for _, name in ipairs(sorted_keys(a.vars)) do
+      local v = vso.def.vars and vso.def.vars[name]
+      local ty = v and VAR_TYPES[v.type]
+      if not ty then self:block("action:apply_status.vars:" .. name); return "" end
+      inits[#inits + 1] = var_write(ty, "to", instance_var_key(vso.def.id, name), self:value(a.vars[name], ctx, ty))
+    end
+    local set = "if let Ok(n) = &r { let n = *n; if n != 0 { let prev = cx.event_instance; cx.event_instance = n; "
+      .. table.concat(inits, " ") .. " cx.event_instance = prev; } }"
+    local done
+    code, done = code:gsub("([ \t]*)(let r = cx%.apply_status_instance[^\n]-;)(\r?\n)", function(ws, stmt, eol)
+      return ws .. stmt .. eol .. ws .. set .. eol
+    end, 1)
+    if done == 0 then
+      code, done = code:gsub("([ \t]*)(cx%.apply_status_instance[^\n]-)%?;(\r?\n)", function(ws, call, eol)
+        return ws .. "let r = " .. call .. ";" .. eol .. ws .. set .. eol .. ws .. "r?;" .. eol
+      end, 1)
+    end
+    if done == 0 then self:block("action:apply_status.vars on this independent apply form"); return "" end
+    return code
   end
   if vso and vso.def.vars and next(vso.def.vars) and vso.def.stacking ~= "independent" then
     -- a newly created status starts its vars at their init (apply_status `vars` overrides them)
@@ -2390,7 +2433,11 @@ function Gen:action(a, ctx, ind)
     if (s.shape or "circle") ~= "circle" and not global then self:block("selector.shape:" .. s.shape) end
     if s.team ~= "enemy" and not team_kind then self:block("selector.team:" .. tostring(s.team)) end
     local types = SELECT_TYPES[types_key(s.types)]
-    if not types then self:block("selector.types:" .. types_key(s.types)); types = "All" end
+    -- every non-building class but heroes (a boss is a neutral unit): non-buildings, heroes skipped
+    local no_heroes = false
+    local tk = types_key(s.types)
+    if not types and (tk == "creep+neutral+summon" or tk == "boss+creep+neutral+summon") then types, no_heroes = "NonBuilding", true end
+    if not types then self:block("selector.types:" .. tk); types = "All" end
     local mi, inv, hid, ill = false, false, false, false
     local skip = {}
     for _, f in ipairs(s.flags or {}) do
@@ -2439,6 +2486,7 @@ function Gen:action(a, ctx, ind)
     for _, flag in ipairs(skip) do
       str = str .. line("        if cx.unit_flag(" .. it .. ", ability_kit::unit_attr::" .. flag .. ") { continue; }")
     end
+    if no_heroes then str = str .. line("        if cx.is_hero(" .. it .. ") { continue; }") end
     if s.where then
       -- the selector's `where` names the candidate `it`
       local wscope = scope_child(ctx.scope)
