@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：no_attack 召喚物生成不再除以零（E556）
+
+- E546 後 C16 鬼影生成 panic，已修，C16 conformance 通過。
 ## 2026-11-01 線 B：ScriptErrorRow 改記 self_unit（E554）
 
 - 狀態、被動、召喚物 trigger 的報錯改記持有者，不再一律記 caster（D 的建議）。

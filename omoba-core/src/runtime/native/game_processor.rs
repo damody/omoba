@@ -4523,7 +4523,7 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     unit.max_hp=(stats.hp.raw()/1024) as i32;unit.current_hp=unit.max_hp;
     unit.base_damage=(stats.damage.raw()/1024) as i32;unit.base_armor=stats.armor;
     unit.magic_resistance=stats.magic_resistance;unit.attack_range=stats.attack_range;
-    unit.move_speed=stats.move_speed;unit.attack_speed=if stats.dummy {Fixed64::ZERO} else {Fixed64::ONE/stats.attack_interval};
+    unit.move_speed=stats.move_speed;unit.attack_speed=super::dummy_unit::attack_speed(stats);
     unit.spawn_position=(pos.x.to_f32_for_render(),pos.y.to_f32_for_render());
     unit.exp_reward=0;unit.gold_reward=0;unit.bounty_type=BountyType::None;
     let facing=world.read_storage::<Facing>().get(owner).copied().unwrap_or(Facing(omoba_sim::Angle::ZERO));

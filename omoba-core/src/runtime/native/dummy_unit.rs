@@ -25,6 +25,12 @@ pub fn body_valid(stats: &omoba_template_ids::SummonStats) -> bool {
         && (stats.no_attack || (stats.attack_interval > Fixed64::ZERO && stats.attack_range >= Fixed64::ZERO)))
 }
 
+/// Attacks per second of a summoned body: none for a dummy or a body without an attack interval
+/// (a `no_attack` body may have none, E556).
+pub fn attack_speed(stats: &omoba_template_ids::SummonStats) -> Fixed64 {
+    if stats.dummy || stats.attack_interval <= Fixed64::ZERO { Fixed64::ZERO } else { Fixed64::ONE / stats.attack_interval }
+}
+
 /// The dummy's states for `lifetime` (zero = until it is removed): [`BREAKABLE_STATES`] when it
 /// has life, else [`STATES`].
 pub fn hold_states(buffs: &mut BuffStore, entity: Entity, lifetime: Fixed64, breakable: bool) {
@@ -62,6 +68,11 @@ mod tests {
         assert!(body_valid(&melee), "melee range 0");
         melee.attack_interval = Fixed64::ZERO;
         assert!(!body_valid(&melee), "an attack needs an interval");
+        // The ghost has no interval: no attack speed, never a division by zero (E556).
+        assert_eq!(attack_speed(ghost), Fixed64::ZERO);
+        assert_eq!(attack_speed(&melee), Fixed64::ZERO);
+        melee.attack_interval = Fixed64::from_i32(2);
+        assert_eq!(attack_speed(&melee), Fixed64::from_raw(512));
     }
     use specs::{Builder, World, WorldExt};
 

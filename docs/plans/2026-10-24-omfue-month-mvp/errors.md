@@ -7,13 +7,26 @@
 - 原因：authority 從 `--scripts-dir` 載入，沒有問題。但 E545 的 in-process observer 經 `FilteredReplica::from_start` 建立 team replica，replica 讀的是 `OMB_SCRIPTS_DIR`，沒設定時退回 `./scripts`；批次的 cwd 是 repo 根目錄，所以載入並鎖住共用的那份（E124 以來 server 和 runtime 都避開了這個問題）。
 - 修正（共用層）：moba_headless 啟動時把 `OMB_SCRIPTS_DIR` 設成自己 `--scripts-dir` 的絕對路徑。replica 和 authority 載入同一份，也就是這一局自己的副本；所有 headless 呼叫端（verify_m6_batch、效能量測）都一起生效。工作線 C 的 E558 讓 stage-dll 跳過被鎖的檔案，這是另一側的防護。
 - 避免：在同一個 process 內新建 world 或 replica 時，載入路徑要和 authority 一致。依賴 `OMB_SCRIPTS_DIR` 的預設值 `./scripts` 就等於使用共用 staging，會跟其他 session 互鎖。
-
 ## E558 共用 scripts/*.dll 被其他程序鎖住時，split 建置的 stage-dll 整個失敗（2026-11-01，工作線 C）
 - 現象：工作線 C 的 rerun4 spotlight 佇列從 kato_kiyomasa 起，25 位英雄和 2 個道具全部建置失敗：`dev_run_freshness.lua:7 ... D:\omoba\scripts\base_content.dll: Permission denied`，失敗點在 split 的 stage-dll 與 build_ue_moba 的「stage current base_content.dll」。
 - 原因：遊戲模式 session 的 moba-headless（PID 45832，`target/e187/m6new14`，04:32 起執行，比賽上限 1200 秒）載入了共用的 `scripts/*.dll`（base_content 和 hero_*），檔案被鎖住。E124 之後每次 launch 都用自己的副本，split 也不讀共用副本，但建置流程仍會寫入共用的 `scripts/*.dll`，寫入失敗就讓整次建置中止。
 - 修正（共用層，`scripts/dev_run_freshness.lua` stage）：複製因 `Permission denied` 失敗時，印出 `skipped: <file> is in use by another process; launches use their own copy (E124)` 並繼續；其他錯誤照舊失敗。實測：PID 45832 持有 43 個 DLL 時，stage-dll 跳過那 43 個、其餘照常 stage，最後以 0 結束。`dev_run_freshness_target_test` 有檢查這段。
 - 沒有處理：別人的 moba-headless 沒有停（不是本工作線的程序，D20）。共用 `scripts/*.dll` 這段期間會停在舊版，只有舊的 `run_ue.lua` 會讀它。
 - 避免：已經不是 launch 輸入的共用檔案，寫入失敗不能讓建置失敗。
+
+## E557 （保留）kit 的 dodge_projectiles 只能對自己：B16、A13 要對其他單位（dodge_projectiles.of）（2026-11-01）
+
+## E556 no_attack 且攻擊間隔 0 的召喚物生成時除以零：E546 之後整個 C16 測試 panic（2026-11-01，工作線 B）
+
+- **現象**：D 回報 E546（d69d9fa3）之後 `v3_conformance::c16_` 整個 panic：`attempt to divide by zero`（omoba-sim fixed.rs:117）。backtrace 停在 `handle_summoned_spawn`（`begin_ability_channel` 是內聯後的相鄰 frame）。
+- **根因**：
+  - E546 讓 `no_attack` 的身體（C16 鬼影，攻擊間隔 0）通過 `body_valid`。
+  - `commit_summoned_spawn` 填 `Unit.attack_speed` 時直接算 `Fixed64::ONE / stats.attack_interval`，只排除了 dummy，沒有排除間隔為 0 的情況，所以除以零。
+- **修正**：`dummy_unit::attack_speed(stats)`：dummy 或沒有攻擊間隔（間隔 ≤ 0）的身體，攻擊速度是 0，其他照舊 `1 / interval`。生成時改用它，不再自己計算。
+- **測試**：`dummy_unit::tests::a_body_without_an_attack_or_with_melee_range_zero_spawns` 補上：鬼影與間隔 0 的身體攻擊速度為 0（不會除以零），間隔 2 秒為 0.5；另以 live 重跑 `v3_conformance::c16_`。
+- **檔案**：`omoba-core/src/runtime/native/dummy_unit.rs`、`omoba-core/src/runtime/native/game_processor.rs`
+
+## E555 （保留）攻擊距離是圓心到圓心：近戰射程 0 打不到、與原作邊到邊不同（2026-11-01）
 
 ## E554 ScriptErrorRow 記的是 caster：狀態、被動與召喚物觸發報錯時指錯單位（2026-11-01，工作線 B）
 
