@@ -2,6 +2,20 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E439 召喚交易拒絕 ScriptDamageTag 與施放在友方單位上的一般狀態：b24_earth_prison 施放被拒（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 回報 b24_earth_prison 在 E426／E428 之後能產生，但施放被 cast_settlement::admission 拒絕。被拒的是 ScriptDamageTag（51 次）與 AddBuff（4 次）。
+- **根因**：召喚交易的允許清單：
+  - 沒有放行 ScriptDamageTag。它只是 conformance 的追蹤標記，對世界沒有任何效果。
+  - 在 spawn 之前或之間，只允許對施法者、本次召喚物、或他隊單位加 buff。原作 B24T 先對環內友方套 b24t_phase（no_unit_collision），再建立岩石。
+- **通用修正**：
+  - ScriptDamageTag 一律放行。
+  - 配置計畫只讀地形與友方位置。一般 catalog 狀態寫出的列（狀態本身、它的 host 狀態 buff、`__ctl:` 來源列）不會移動任何單位，所以對施法者以外的單位可以出現在 spawn 之間的任何位置；這些列仍各自經過上面的 host 檢查。host 指令（hero_command、召喚目標等）照舊不放行。
+  - 新增 `vocab::is_state_buff`。
+- **驗證**：更新 `summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_between_siblings`：狀態可以夾在 spawn 之間、友方的 catalog 狀態／來源列／狀態 buff 放行、友方的 hero_command 仍拒、追蹤標記放行。cast_settlement、vocab、summon 測試通過。
+
+## E438 （保留）approach_enemy_point 只能用施法距離，沒有施法距離的 point 位移技能無法使用（2026-10-31）
+
 ## E437 status 事件等沒有施法 mana 帳本的 hook 對英雄 restore_mana 不會生效：b32_divine_formation 不回魔（2026-10-31，工作線 B）
 
 - **現象**：b32_divine_formation「受到傷害時回復 40 法力」從來沒有回復法力，也沒有任何錯誤或 log。

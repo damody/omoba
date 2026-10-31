@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：召喚交易放行一般狀態與追蹤標記（E439）
+
+- 召喚交易中，對施法者以外單位的一般 catalog 狀態（含 state buff、`__ctl` 列）和 ScriptDamageTag 可以出現在任何位置。給 b24_earth_prison。
 ## 2026-10-31 線 B：hook 裡的英雄 restore_mana（E437）
 
 - 沒有施法帳本時，英雄的 restore_mana 改送相對 mana set，由 host 序列結算並截在上限。給 b32_divine_formation 等 status 事件。

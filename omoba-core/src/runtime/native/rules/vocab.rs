@@ -219,6 +219,11 @@ pub fn state(name: &str) -> Option<StateEffect> {
     STATE_EFFECTS.iter().find(|(vocab, _)| *vocab == name).map(|(_, effect)| *effect)
 }
 
+/// 是否為某個 v3 狀態旗標的 host 狀態 buff（[`StateEffect::Buff`] 的 key）。
+pub fn is_state_buff(key: &str) -> bool {
+    STATE_EFFECTS.iter().any(|(_, effect)| matches!(effect, StateEffect::Buff(buff) if *buff == key))
+}
+
 /// `set_absolute` stat 的執行期落點；不認得回傳 None。
 pub fn absolute_stat(name: &str) -> Option<(StatKey, Unit)> {
     ABSOLUTE_STATS.iter().find(|(vocab, _, _)| *vocab == name).map(|(_, key, unit)| (*key, *unit))

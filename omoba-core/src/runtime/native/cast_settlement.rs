@@ -144,6 +144,12 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
         // its illusion may appear, E416).
         Outcome::AddBuff {target,..}|Outcome::RawDamage {target,..}|Outcome::Damage {target,..}|Outcome::ScriptDirectDamage {target,..}
             if summons && channels==0 && outside_plan(target)=>true,
+        // A plain status on another unit (its catalog row, host state buffs and control-source
+        // row; each checked above) moves nobody, and the plan reads positions only: anywhere among
+        // the spawns (原作 B24T phases the allies in the ring before the rocks rise, E439).
+        Outcome::AddBuff {target,buff_id,..} if summons && channels==0 && *target!=caster && plain_status(buff_id)=>true,
+        // Conformance trace metadata for the next damage packet; it changes nothing (damage_trace).
+        Outcome::ScriptDamageTag {..}=>true,
         // G-2: exactly the cast's own ability, at most once (count checked above).
         Outcome::ScriptConsumeCharge {entity,ability_id}=>*entity==caster&&ability_id==skill,
         _ if !summons&&channels==0=>true,
@@ -185,7 +191,8 @@ fn summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_betwe
     let player=world.read_storage::<PlayerOwner>().get(hero).map(|owner|owner.player_id);
     let accepts=|effects:&[Outcome]|admit(&world,hero,"fixture",0,faction.as_ref(),player,expected.as_ref(),effects,0);
     assert!(accepts(&[spawn(first),assign(first),spawn(second),assign(second),stun.clone()]),"own setup and a trailing stun");
-    assert!(!accepts(&[spawn(first),stun.clone(),spawn(second)]),"a control between planned siblings");
+    // E439: a plain status (here a host control) moves nobody: it may come between siblings.
+    assert!(accepts(&[spawn(first),stun.clone(),spawn(second)]),"a status between planned siblings");
     {
         // E416: a unit of another team is outside the placement plan, so it may be hit anywhere.
         let on=|target|Outcome::AddBuff {target,buff_id:"stun".into(),duration:Fixed64::ONE,payload:serde_json::Value::Null};
@@ -193,9 +200,16 @@ fn summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_betwe
             assert!(accepts(&[on(enemy),spawn(first),on(enemy),spawn(second)]),"an enemy before and between the spawns");
             assert!(accepts(&[Outcome::ScriptDirectDamage {target:enemy,amount:Fixed64::ONE},spawn(first)]));
         }
-        assert!(!accepts(&[on(ally),spawn(first),spawn(second)]),"an ally's occupancy is in the plan");
+        assert!(accepts(&[on(ally),spawn(first),spawn(second)]),"a status leaves an ally where it stands (E439)");
+        let feign=|buff_id:&str|Outcome::AddBuff {target:ally,buff_id:buff_id.into(),duration:Fixed64::ONE,payload:serde_json::json!({})};
+        assert!(accepts(&[feign("a05d_feign"),feign("__ctl:a05d_feign"),feign("no_unit_collision"),spawn(first)]),"a catalog status, its source row and states");
+        let order=super::super::hero_command::Command::Order {kind:super::super::hero_command::OrderKind::Stop,at:(0,0)};
+        let command=Outcome::AddBuff {target:ally,buff_id:super::super::hero_command::BUFF.into(),duration:Fixed64::ONE,payload:order.payload()};
+        assert!(!accepts(&[command,spawn(first)]),"a host command on an ally is not a status");
     }
     assert!(!accepts(&[spawn(first),assign(victim),spawn(second)]),"a buff on another unit between siblings");
+    let tag=Outcome::ScriptDamageTag {ability:"fixture".into(),path:"events.on_cast[1]".into()};
+    assert!(accepts(&[spawn(first),tag.clone(),spawn(second),tag]),"trace tags change nothing (E439)");
     let face=|entity|Outcome::ScriptSetFacing {entity,facing:omoba_sim::Angle::ZERO};
     assert!(accepts(&[spawn(first),face(first),spawn(second)]),"a summon of this cast faces its way");
     assert!(!accepts(&[spawn(first),face(victim)]),"never another unit's facing");
@@ -231,6 +245,17 @@ fn recovery_channel_transaction_admits_only_its_exact_live_owner_and_resource_ef
     assert!(!accepts(&[Outcome::ScriptHeal {target:hero,amount:Fixed64::ONE},channel.clone()]));
     assert!(!accepts(&[Outcome::ScriptRecoveryChannel {caster:hero,owner:8,amount:Fixed64::ONE,duration:Fixed64::ONE,interval:Fixed64::ONE}]));
     world.write_resource::<GamePause>().is_paused=true;assert!(!accepts(&[channel]));
+}
+
+/// A buff row an `apply_status` of a catalog status writes: the status row itself, a host state
+/// buff its states hold, or its control-source row (`__ctl:<status>`).
+fn plain_status(buff_id:&str)->bool {
+    use super::super::dispel::{registry,CONTROL_SOURCE_PREFIX};
+    let registry=registry();
+    let known=|key:&str|!registry.statuses_of(key).is_empty()
+        || registry.status(omoba_template_ids::instance_base(key)).is_some();
+    known(buff_id) || super::super::rules::vocab::is_state_buff(buff_id)
+        || buff_id.strip_prefix(CONTROL_SOURCE_PREFIX).is_some_and(known)
 }
 
 fn mana_admitted(world:&World,changes:&[crate::comp::ManaSettlementChange],notifications:&[crate::comp::ManaSettlementNotification])->bool {
