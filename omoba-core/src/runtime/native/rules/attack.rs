@@ -286,6 +286,12 @@ pub fn scripted(world: &mut World, attacker: Entity, target: Entity, critical: b
     emit(world, event);
 }
 
+/// 投射物形式的腳本攻擊（v3 `attack` 不帶 instant，perform_attack，E486）發出：只觸發發出事件，
+/// 判定在投射物抵達時（[`judged`]）。不碰普攻紀錄。
+pub fn scripted_launch(world: &mut World, attacker: Entity, target: Entity, critical: bool, missed: bool) {
+    emit(world, AttackEvent::Launch { attacker, seq: 0, target, critical, missed });
+}
+
 /// 取消：前搖被取消時這次攻擊作廢（紀錄移除）；後搖取消時攻擊已經發出，紀錄保留。
 pub fn canceled(world: &mut World, attacker: Entity, seq: u32, phase: AttackCancelPhase) {
     if phase == AttackCancelPhase::Windup {

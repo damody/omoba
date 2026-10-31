@@ -26,7 +26,18 @@
   - 第一次從快照建置時，路徑改變，會整個重編一次。
   - 前端的 UBT 和 bridge（約 5 分鐘）仍在鎖內。
 
-## E486 （保留）action:attack 不帶 instant（投射物攻擊）沒有 host 落點（A31）（2026-10-31）
+## E486 action:attack 不帶 instant（投射物攻擊）沒有 host 落點：A31 五月雨只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 第五批第 10 項：`attack` 不帶 `instant`（原作 PerformAttack 的投射物形式）沒有 host 落點，kit 直接拒絕，a31_samidare 的「隨機一名改為一次必中、帶攻擊效果的普攻」產生不出來。
+- **根因**：perform_attack 只做瞬發：當下判定命中、立刻結算傷害。投射物形式若共用普攻的攻擊紀錄，會打亂進行中的普攻，所以當初直接拒絕。
+- **通用修正**：
+  - 封包多一個 `instant` 欄位（舊 kit 的五欄封包仍視為瞬發）。
+  - 不是瞬發時，以攻擊者的投射物速度（沒有則 900）發出一支攻擊投射物。發出時擲失手與爆擊，觸發 on_attack_launch（`rules::attack::scripted_launch`，不碰普攻紀錄）。
+  - 投射物抵達時，跟一般遠程普攻一樣判定目標閃避與攻擊免疫、觸發 on_attack_hit 或 miss，傷害帶 is_attack、爆擊與吸血。
+  - `cannot_miss` 的投射物記在 `perform_attack::CannotMissAttacks`（納入 state hash），抵達時不擲閃避。`use_orb` 在發出時付費（`attack_orb::scripted_launch`），跟一般普攻相同。
+  - 投射物形式必須帶 `trigger_effects`，kit 會拒絕不帶的情況。
+- **回歸**：`perform_attack::tests::a_scripted_projectile_attack_launches_now_and_is_judged_when_it_arrives`、舊五欄封包仍是瞬發。
+- **檔案**：`omoba-core/src/runtime/native/perform_attack.rs`、`tick/projectile_tick.rs`、`moba_match.rs`、`attack_orb.rs`、`rules/attack.rs`、`scripts/ability_kit/src/host_ext.rs`
 
 ## E485 （保留）mana_spent 要求回魔不小於成本時仍須 >0；pierce_magic_immune 的施法狀態仍被要求跳過魔免（2026-10-31）
 

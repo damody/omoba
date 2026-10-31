@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：投射物形式的 action:attack（E486）
+
+- `cx.perform_attack(.., instant=false, ..)` 發出攻擊投射物：發出時觸發 on_attack_launch，抵達時判定閃避並觸發 on_attack_hit；`cannot_miss` 抵達時不擲閃避，`use_orb` 在發出時付費。必須帶 trigger_effects。
 ## 2026-10-31 線 B：on_damage_pre 也帶 is_attack（E479）
 
 - `rules::damage::is_attack` 供 handle_damage 與 on_deal_damage_pre／on_take_damage_pre 共用；pre 的 damage_kind 帶 ATTACK（0x40）。

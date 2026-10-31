@@ -591,10 +591,10 @@ impl Cx<'_, '_> {
     pub fn perform_attack(&mut self, attacker: EntityHandle, target: EntityHandle, instant: bool, cannot_miss: bool, fake: bool,
         trigger_effects: bool, use_orb: bool, effect_multiplier: Fixed64) -> Res {
         use omoba_core::runtime::native::perform_attack::{payload, Flags, BUFF};
-        if !instant { return Err("v3: attack without instant (a projectile attack) is not supported"); }
+        if !instant && !trigger_effects { return Err("v3: attack without instant needs trigger_effects (a projectile attack is an attack)"); }
         if effect_multiplier != Fixed64::ONE { return Err("v3: attack.effect_multiplier other than 1 is not supported"); }
         if !attacker.is_valid() || !target.is_valid() { return Ok(()); }
-        let packet = payload(target.id, target.gen, Flags { cannot_miss, fake, trigger_effects, use_orb }).to_string();
+        let packet = payload(target.id, target.gen, Flags { instant, cannot_miss, fake, trigger_effects, use_orb }).to_string();
         self.world.add_stat_buff(attacker, RStr::from_str(BUFF), Fixed64::ONE, RStr::from_str(&packet));
         Ok(())
     }

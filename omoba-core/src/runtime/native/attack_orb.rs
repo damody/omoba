@@ -166,6 +166,14 @@ pub fn scripted_hit(world: &mut World, source: Entity, target: Entity) -> Option
     match charge(world, source, Some(target)) { Started::Paid(hit) => Some(hit), Started::Ordinary => None }
 }
 
+/// A scripted projectile attack (perform_attack `use_orb` without `instant`, E486): the orb pays
+/// at launch as an ordinary attack without a recorded start does; a non-evaded arrival applies it.
+pub fn scripted_launch(world: &mut World, source: Entity, target: Entity, projectile: Entity) {
+    let Started::Paid(hit) = charge(world, source, Some(target)) else { return };
+    if world.try_fetch::<OrbAttacks>().is_none() { world.insert(OrbAttacks::default()); }
+    world.write_resource::<OrbAttacks>().0.insert(projectile, hit);
+}
+
 /// On-hit payload for a non-evaded empowered hit, attributed to `source`.
 pub fn hit_outcomes(hit: &OrbHit, source: Entity, target: Entity, pos: omoba_sim::Vec2) -> Vec<Outcome> {
     let amount = Fixed64::from_raw(hit.amount_raw);

@@ -3744,6 +3744,13 @@ pub fn single_lane_replay_digest(world: &World) -> String {
                 (entity_key(*entity), hit)).collect::<Vec<_>>()).expect("orb JSON"));
         }
     }
+    if let Some(rows) = world.try_fetch::<super::perform_attack::CannotMissAttacks>() {
+        if !rows.0.is_empty() {
+            hash.update(b"|cannot-miss-attacks:");
+            hash_json(&mut hash, &serde_json::to_value(rows.0.iter().map(|entity| entity_key(*entity)).collect::<Vec<_>>())
+                .expect("cannot-miss JSON"));
+        }
+    }
     if let Some(rows) = world.try_fetch::<super::ability_projectile::AbilityProjectiles>() {
         if !rows.0.is_empty() {
             hash.update(b"|ability-projectiles:");

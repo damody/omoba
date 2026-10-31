@@ -21,6 +21,7 @@ pub struct ProjectileRead<'a> {
     owners: ReadStorage<'a, PlayerOwner>,
     origins: Option<Read<'a, ProjectileOrigins>>,
     orbs: Option<Read<'a, crate::runtime::native::attack_orb::OrbAttacks>>,
+    cannot_miss: Option<Read<'a, crate::runtime::native::perform_attack::CannotMissAttacks>>,
 }
 
 #[derive(SystemData)]
@@ -191,8 +192,10 @@ impl<'a> System<'a> for Sys {
                             let target_key=crate::runtime::native::rules::chance::roll_key(target,
                                 tr.heroes.get(target).and(tr.owners.get(target)).map(|owner|owner.player_id));
                             // An attack on an attack-immune target misses (rules::vocab::ATTACK_IMMUNE).
+                            // A scripted attack that cannot miss rolls no evasion (perform_attack, E486).
+                            let sure=tr.cannot_miss.as_ref().is_some_and(|rows|rows.0.contains(&e));
                             let evaded=missed||(normal&&(crate::runtime::native::rules::vocab::attack_immune(&tr.buffs,target)
-                                ||super::super::attack_accuracy::target_evades(tr.master_seed.0,tr.tick.0 as u32,target_key,
+                                ||!sure&&super::super::attack_accuracy::target_evades(tr.master_seed.0,tr.tick.0 as u32,target_key,
                                 crate::runtime::UnitStats::from_refs(&tr.buffs,false).evasion_against(proj.owner,target))));
                             // The ordinary attack's judgement event (rules::attack).
                             if normal || missed {
