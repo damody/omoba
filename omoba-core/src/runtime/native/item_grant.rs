@@ -26,8 +26,18 @@ pub fn give_payload(item: &str) -> Value { json!({ (KEY): { "give": item } }) }
 pub fn remove_item_payload(item: &str) -> Value { json!({ (KEY): { "remove": item } }) }
 pub fn remove_slot_payload(slot: usize) -> Value { json!({ (KEY): { "remove_slot": slot } }) }
 
-/// A catalog item (the committed economy carries catalog ids only).
-fn catalog_item(id: &str) -> bool { omoba_template_ids::MOBA_ITEM_CATALOG.iter().any(|item| item.id == id) }
+/// The catalog id of an item named by its catalog id or by its v3 source id (`item_flash_ring`,
+/// the catalog row's `source_ref` tail; E569). The committed economy carries catalog ids only.
+pub fn catalog_id(id: &str) -> Option<&'static str> {
+    omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == id
+        || item.source_ref.and_then(|r| r.rsplit_once(':')).is_some_and(|(_, source)| source == id)).map(|item| item.id)
+}
+
+/// The v3 source id of a catalog item (E569); the catalog id itself when it has none.
+pub fn source_id(catalog: &str) -> Option<&'static str> {
+    let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == catalog)?;
+    Some(item.source_ref.and_then(|r| r.rsplit_once(':')).map_or(item.id, |(_, source)| source))
+}
 
 pub fn decode(buff_id: &str, payload: &Value) -> Option<Request> {
     if buff_id != BUFF || payload.as_object()?.len() != 1 { return None; }
@@ -35,8 +45,8 @@ pub fn decode(buff_id: &str, payload: &Value) -> Option<Request> {
     if row.len() != 1 { return None; }
     let (key, value) = row.iter().next()?;
     match key.as_str() {
-        "give" => value.as_str().filter(|id| catalog_item(id)).map(|id| Request::Give(id.to_owned())),
-        "remove" => value.as_str().filter(|id| catalog_item(id)).map(|id| Request::RemoveItem(id.to_owned())),
+        "give" => value.as_str().and_then(catalog_id).map(|id| Request::Give(id.to_owned())),
+        "remove" => value.as_str().and_then(catalog_id).map(|id| Request::RemoveItem(id.to_owned())),
         "remove_slot" => value.as_u64().and_then(|slot| usize::try_from(slot).ok()).filter(|slot| *slot < INVENTORY_SLOTS)
             .map(Request::RemoveSlot),
         _ => None,
@@ -94,5 +104,12 @@ mod tests {
         assert!(apply(&mut world, unit, BUFF, &remove_item_payload(item)));
         assert_eq!(world.read_storage::<Inventory>().get(unit).unwrap().find_item(item), Some(1));
         assert!(!apply(&mut world, unit, BUFF, &remove_slot_payload(INVENTORY_SLOTS)), "no such slot");
+        // E569: a v3 source id names the same catalog item, and maps back.
+        if let Some(row) = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|row| row.source_ref.is_some()) {
+            let source = source_id(row.id).unwrap();
+            assert_eq!((catalog_id(source), catalog_id(row.id)), (Some(row.id), Some(row.id)));
+            assert!(apply(&mut world, unit, BUFF, &give_payload(source)) || world.read_storage::<Inventory>().get(unit).unwrap().first_free_slot().is_none());
+        }
+        assert_eq!(catalog_id("no_such_item"), None);
     }
 }

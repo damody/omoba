@@ -2,6 +2,21 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E569 kit 道具 API 用的 id 與文件不同，pick_item 的 where 也拿不到格子（2026-11-01，工作線 B）
+
+- **現象**：A 接 E561 時發現：inventory 與 give 的檢查用的是 catalog id（例如 `moba_sword`），v3 文件寫的是 source id（`item_flash_ring`，也就是 catalog 列 `source_ref` 冒號後的那段）；而且 `pick_item` 的 keep 只拿到道具 id，讀不到 `it.slot`（B07）與冷卻（C18）。
+- **修正**：
+  - `item_grant::catalog_id(id)` 接受 catalog id 或 source id，`source_id(catalog)` 反向換算；give／remove 兩種 id 都收。
+  - kit 的 `item_in_slot`、`pick_item` 與 `item_cooldown_remaining` 一律回傳、比對文件 id。
+  - `pick_item` 的 keep 改為 `FnMut(&mut Self, &PickedItem) -> bool`。
+  - 不在 catalog 裡的道具（例如目前的 item_flash_ring）不可能出現在 inventory，要先補 catalog 內容。
+- **測試**：`item_grant` 測試補上：source id 與 catalog id 指向同一道具並可反查，source id 可用於 give；未知 id 為 None。
+- **檔案**：`omoba-core/src/runtime/native/item_grant.rs`、`scripts/ability_kit/src/host_ext.rs`
+
+## E568 （保留）conformance 技能前提要另一招做出的東西（b16 的月 state.b16_moon）時沒有先施放那一招（2026-11-01）
+
+## E567 （保留）authority 放棄施法時不送冷卻修正：replica 預測的冷卻留著（a09_lignify、c23）（2026-11-01）
+
 ## E566 kit 讀不到道具剩餘冷卻、PickOrder／PickedItem 沒有匯出（2026-11-01，工作線 B）
 
 - **現象**：A 接 E561 時，產生碼寫不出 `ability_kit::PickOrder::First`，因為 lib.rs 沒有 re-export；C18 要讀 `it.cooldown_remaining`（例如 `is_item(it, item_flash_ring) and it.cooldown_remaining <= 0`），kit 沒有對應的方法。

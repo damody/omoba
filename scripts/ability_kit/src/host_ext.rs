@@ -579,10 +579,11 @@ impl Cx<'_, '_> {
         let _ = self.world.ext(op::SCRIPT_ERROR, RSlice::from_slice(&args));
     }
 
-    /// The item id in `unit`'s inventory slot `slot` (0..5), E561.
+    /// The v3 id (`item_flash_ring`, E569) of the item in `unit`'s inventory slot `slot` (0..5), E561.
     pub fn item_in_slot(&mut self, unit: EntityHandle, slot: u8) -> Option<String> {
+        use omoba_core::runtime::native::item_grant;
         match self.read(op::ITEM_IN_SLOT, &[ExtArg::Unit(unit), ExtArg::Num(Fixed64::from_i32(i32::from(slot)))]) {
-            ExtValue::Str(id) => Some(id.into()), _ => None,
+            ExtValue::Str(id) => Some(item_grant::source_id(id.as_str()).map_or_else(|| id.into(), str::to_owned)), _ => None,
         }
     }
 
@@ -604,15 +605,17 @@ impl Cx<'_, '_> {
     }
 
     /// v3 `pick_item { from, where, order }` (E561): one item of `from`'s inventory that `keep`
-    /// accepts (`it` is the item id), the first / last / a random one in slot order; `None` when
-    /// none does. The backpack has no slots here, so `slots` other than the inventory find none.
-    pub fn pick_item(&mut self, from: EntityHandle, order: PickOrder, mut keep: impl FnMut(&mut Self, &str) -> bool) -> Option<PickedItem> {
+    /// accepts (`it`: its owner, slot and v3 id, E569), the first / last / a random one in slot
+    /// order; `None` when none does. The backpack has no slots here, so `slots` other than the
+    /// inventory find none.
+    pub fn pick_item(&mut self, from: EntityHandle, order: PickOrder, mut keep: impl FnMut(&mut Self, &PickedItem) -> bool) -> Option<PickedItem> {
         use omoba_core::runtime::INVENTORY_SLOTS;
         if !from.is_valid() { return None; }
         let mut rows = Vec::new();
         for slot in 0..INVENTORY_SLOTS as u8 {
             if let Some(item) = self.item_in_slot(from, slot) {
-                if keep(self, &item) { rows.push(PickedItem { owner: from, slot, item }); }
+                let picked = PickedItem { owner: from, slot, item };
+                if keep(self, &picked) { rows.push(picked); }
             }
         }
         match order {

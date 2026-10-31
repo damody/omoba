@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：道具 API 改用文件 id（E569）
+
+- pick_item 的 keep 拿得到格子與擁有者。
 ## 2026-11-01 線 B：道具冷卻讀取與 PickOrder 匯出（E566）
 
 - A 接 E561、C18 用。
