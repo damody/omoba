@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：kit chain 命中表（E528）
+
+- kit `chain_token`／`chain_mark`／`chain_hit`／`chain_next`：每道彈跳各自的命中表（B28 鬼謀．蛇火）。
 ## 2026-10-31 線 B：基礎三圍、持續施法拒絕原因、移除單位位置、reveal 給敵隊（E523、E525、E526、E527）
 
 - kit `modify_base_stat(to, Attr, amount)`：改英雄白字屬性（B11）。

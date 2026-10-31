@@ -2,6 +2,18 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E528 chain 沒有每道彈跳各自的命中表（B28）（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage B28（松永久秀）鬼謀．蛇火：`chain` 每隔 interval 跳向還沒被這道蛇火打過的最近敵人。命中表要跨好幾個 scheduled step 保存，但 schedule args 最多 8 個。unit var 每個單位最多 64 筆，12 道蛇火的命中表放在施法者身上會超過。
+- **通用修正**：kit 新增 `chain.rs`。
+  - `chain_token()`：從 host RNG 取一個正整數 token，放在 schedule args 裡往下傳。
+  - `chain_mark(token, unit, life)`：在被打到的單位上加一筆隱藏 row `__chainhit:<token>`，壽命是蛇火還能跳的時間。row 會自然過期，dispel 不會動 `__` row。
+  - `chain_hit(token, unit)`：判斷這道蛇火是否已打過該單位。
+  - `chain_next(token, from, candidates, ChainOrder::{Nearest,Random,Id}, allow_repeat)`：從選擇器的候選單位中，排除 from 與已打過的單位，再挑出下一個目標。
+- **限制**：同一個 run 內寫入的 mark，要等 run commit 之後才讀得到。這道蛇火之後的跳躍都來自後面的 scheduled step，所以不受影響。
+- **測試**：只跑過 ability_kit 的 cargo check；codegen 接上之後再由 conformance 驗證。
+- **檔案**：`scripts/ability_kit/src/chain.rs`、`scripts/ability_kit/src/lib.rs`
+
 ## E527 reveal 只能給自己或全部隊伍：teams = enemy 只能擋下（B23）（2026-10-31，工作線 B）
 
 - **現象**：工作線 A coverage B23（伊勢姬）與瑞龍院日秀：`reveal { teams = "enemy" }` 把施法者暴露給敵方，原作是對另一隊 AddFOWViewer。host 的 reveal_zone 只接受施法者的隊伍或 `"all"`。

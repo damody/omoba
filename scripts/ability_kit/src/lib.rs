@@ -20,6 +20,9 @@ mod prd;
 // v3 stat `when` (E508).
 mod when;
 pub use when::{Attr, When};
+// v3 `chain` (E528).
+mod chain;
+pub use chain::ChainOrder;
 /// v3 `armor_multiplier(armor)`: the share of physical damage that lands through `armor` (the
 /// rule layer's one armor formula).
 pub use omoba_core::runtime::native::comp::damage::armor_multiplier;
