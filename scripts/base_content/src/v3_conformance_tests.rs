@@ -1929,15 +1929,27 @@ const DAMAGE_CONDS: &[&str] = &["projectile.on_hit", "not target.is_magic_immune
 /// delay or tether around it (E213).
 fn expected_damage(s: &Value, entry: &str, rank: usize) -> Option<f64> {
     let effects = s["expect"].as_array()?.iter().find(|e| e["kind"] == "effects")?["effects"].as_array()?;
-    let around: Vec<&str> = effects.iter().filter(|e| ["repeat", "delay", "tether"].contains(&e["op"].as_str().unwrap_or("")))
-        .filter_map(|e| e["path"].as_str()).collect();
+    // What lands in the cast's first tick (E467): a repeat whose first round is at 0 runs it then;
+    // a delay, a tether or a repeat that starts later lands afterwards and is not this first hit.
+    let around: Vec<(&str, bool)> = effects.iter().filter(|e| ["repeat", "delay", "tether"].contains(&e["op"].as_str().unwrap_or("")))
+        .filter_map(|e| {
+            let at_once = e["op"] == "repeat" && expr(&e["args"]["first"], entry, rank).is_ok_and(|first| first <= 0.0);
+            e["path"].as_str().map(|path| (path, at_once))
+        }).collect();
     let mut total = 0.0;
     let mut any = false;
     for e in effects.iter().filter(|e| e["op"] == "damage") {
         let to = e["args"]["to"].as_str().unwrap_or("");
         if to != "target" && to != "it" { continue; }
         let path = e["path"].as_str().unwrap_or("");
-        if around.iter().any(|outer| path.starts_with(outer) && path.len() > outer.len()) { return None; }
+        let inside: Vec<bool> = around.iter().filter(|(outer, _)| path.starts_with(outer) && path.len() > outer.len()).map(|(_, at_once)| *at_once).collect();
+        if !inside.iter().all(|at_once| *at_once) { continue; }
+        // Nor a hit inside a loop over the caster's own units (B23W's shock runs once per ghost of
+        // the caster; with none there is none).
+        let over_own = effects.iter().filter(|o| o["op"] == "for_each")
+            .filter(|o| o["path"].as_str().is_some_and(|outer| path.starts_with(outer) && path.len() > outer.len()))
+            .any(|o| matches!(o["args"]["select"]["team"].as_str(), Some("ally" | "self")));
+        if over_own { continue; }
         if e["conds"].as_array().into_iter().flatten().any(|c| !DAMAGE_CONDS.contains(&c.as_str().unwrap_or(""))) { return None; }
         total += expr(&e["args"]["amount"], entry, rank).ok()?;
         any = true;
