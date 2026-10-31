@@ -196,10 +196,15 @@ local function entry_scenarios(doc, def, entry_kind, out)
   local target = castable and castable.target or {}
   local cost = castable and castable.cost or {}
   local cast = castable and castable.cast or {}
+  -- An entry whose rank shows only when it is learned rank by rank (E425): a passive block, or an
+  -- on_upgrade / on_learn that puts its aura on again at each level (B05R, B31W).
+  local by_upgrade = (type(def.passive) == "table" and next(def.passive) ~= nil)
+    or (type(def.events) == "table" and (def.events.on_upgrade ~= nil or def.events.on_learn ~= nil))
   local function push(rank, case, s)
     s.id = def.id .. "/r" .. rank .. "/" .. case .. (s.suffix and ("/" .. s.suffix) or "")
     s.suffix = nil
     s.entry, s.rank, s.case = def.id, rank, case
+    if by_upgrade then s.learn_by_upgrade = true end
     s.refs = ref_list(collect_refs({ s.given, s.when, s.expect }))
     out[#out + 1] = s
   end
@@ -289,6 +294,23 @@ local function entry_scenarios(doc, def, entry_kind, out)
             swapped = { kind = "required_status", by = owner.id, status = runtime_key(st) }
           end
         end
+      end
+    end
+  end
+  -- An entry another ability gives a level only for a while (it sets the level and sets it back
+  -- to 0: C07T's cloud makes C07T2 castable while it lasts; E440): every case starts by casting
+  -- that ability. A level kept in step with the owner's rank (on_upgrade `ability.level + 1`)
+  -- is the scenario's rank already.
+  if not swapped and def.learnable == false and current_doc then
+    local function levels(node, zero)
+      if type(node) ~= "table" then return false end
+      if node.op == "set_ability_level" and node.ability == def.id and (tostring(node.level) == "0") == zero then return true end
+      for _, child in pairs(node) do if levels(child, zero) then return true end end
+      return false
+    end
+    for _, owner in ipairs(current_doc.abilities or {}) do
+      if owner.id ~= def.id and not swapped and levels(owner.events, false) and levels(owner.events, true) then
+        swapped = { kind = "leveled_by", by = owner.id }
       end
     end
   end

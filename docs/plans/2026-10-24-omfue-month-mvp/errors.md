@@ -2,7 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E454 （保留）headless 統計沒有 INVALID_TARGET 的目標狀態，executor 查不出被拒原因（2026-10-31）
+## E455 （保留）v3 refund { cooldown = true } 沒有 host 落點（2026-10-31）
+
+## E454 headless 統計沒有 INVALID_TARGET 的目標狀態，executor 查不出被拒原因（2026-10-31，e187 遊戲模式 session，B 要求；已放回 live）
+- **現象**：m6b3g4 的上杉謙信 b32_divine_slash 29／152、b32_war_god 20／98 是 INVALID_TARGET，但每局 json 只有次數，B 無法判斷是不是 executor 選錯目標。
+- **通用修正**：hero_stats 每位英雄加 `invalid_targets[ability]`，每個 (player, ability) 最多 5 筆：被拒那個 tick、該技能最後一次施法輸入的目標 index，以及目標的 alive、hp、hero、hostile、距離、施法者隊伍的 sighted、magic_immune_blocks、unselectable、invulnerable 與身上狀態鍵。
+- **避免**：統計報告列出拒絕原因時，同時保留足以重現的樣本。
 
 ## E453 （保留）沒有 set_time_of_day 的 host 落點，replica 也不採用公開的夜晚（2026-10-31）
 
@@ -23,7 +28,12 @@
 - **通用修正**：新增 unit_attr `is_neutral`：faction 是 `HostileNeutral`（野怪）或 `Neutral`（非戰鬥中立）時為真。
 - **驗證**：adapter 的 unit_attr 測試新增野怪為真、英雄為假；adapter 測試通過。
 
-## E446 （保留）moba_headless 重播世界少了統計資源，DamageTrace 讓腳本多送標記，quick_swap 重播全部分歧（2026-10-31）
+## E446 moba_headless 重播世界少了統計資源，DamageTrace 讓腳本多送標記，quick_swap 重播全部分歧（2026-10-31，e187 遊戲模式 session；已放回 live）
+- **現象**：M6 batch 3（m6b3g4）與 batch 2（m6b2g8、m6b2g7）的 quick_swap 6/6 全部 `replay diverged at tick 1077`（b2g7 是 1067），quick 與 teamfight 正常。同一份 role plan、seed 1：`OMB_HEADLESS_HERO_STATS=1` 失敗，不設時 PASS（22534 tick，重播一致）。
+- **根因**：E436 在對局世界放了 DamageTrace，產生的技能碼看到 `DAMAGE_TRACE_ENABLED` 就在每個傷害封包前多送 `ScriptDamageTag`；重播用 `make_world` 重建世界時沒有放這些統計資源，兩邊跑的 outcome 序列不同。
+- **通用修正**：`insert_stat_traces`（CastTrace、DamageTally、DamageTrace）同時套在對局世界與兩個重播世界（熱交換重播與一般重播），重播每 tick `clear_stat_traces` 清空，不累積。
+- **後續**：追蹤標記本身仍會改變模擬（開統計與不開統計的對局在 tick 1077 已不同）；確切機制未查出，已回報主 session 作為決定性問題。
+- **避免**：重播一律用與錄製時相同的世界設定；測試用的追蹤資源不能只放在一邊。
 
 ## E445 狀態的 immune_to 沒有 host 落點，持有者仍會被套上帶指定 tag 的狀態：b22_purify 只能擋下（2026-10-31，工作線 B）
 
