@@ -74,6 +74,10 @@ pub mod op {
     /// `(Point p)` -> `Bool`: v3 `tree_alive(tree)`: a standing tree's collision square holds `p`
     /// (a tree target is that tree's centre; E403).
     pub const TREE_ALIVE: u32 = 15;
+    /// `(Unit u, Str status, Str state…)` -> `Bool`: a live status on `u` is immune to v3 status
+    /// `status` holding these host state buffs (catalog `immune_to`: `tag:<tag>`, a status id or
+    /// a v3 state; E445), so applying it does nothing.
+    pub const STATUS_IMMUNE: u32 = 16;
 }
 
 /// Attribute names of [`op::EVENT_ABILITY_ATTR`].

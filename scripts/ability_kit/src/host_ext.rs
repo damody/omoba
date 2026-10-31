@@ -443,6 +443,13 @@ impl Cx<'_, '_> {
         if unit.is_valid() { let _ = self.read(op::END_CHANNEL, &[ExtArg::Unit(unit)]); }
     }
 
+    /// v3 `immune_to` (E445): a status on `to` refuses `status` (host ext STATUS_IMMUNE).
+    pub fn status_immune(&mut self, to: EntityHandle, status: &crate::codegen::StatusDef) -> bool {
+        let mut args = vec![ExtArg::Unit(to), ExtArg::Str(status.id.into())];
+        args.extend(status.state_buffs.iter().map(|state| ExtArg::Str((*state).into())));
+        matches!(self.read(op::STATUS_IMMUNE, &args), ExtValue::Bool(true))
+    }
+
     /// v3 `tree_alive(tree)`: the tree at `at` (a tree target, its centre) still stands (E403).
     pub fn tree_alive(&mut self, at: omb_script_abi::types::Vec2) -> bool {
         matches!(self.read(op::TREE_ALIVE, &[ExtArg::Point(at)]), ExtValue::Bool(true))

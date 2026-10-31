@@ -2,7 +2,17 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E445 （保留）狀態的 immune_to 沒有 host 落點，持有者仍會被套上帶指定 tag 的狀態（2026-10-31）
+## E446 （保留）moba_headless 重播世界少了統計資源，DamageTrace 讓腳本多送標記，quick_swap 重播全部分歧（2026-10-31）
+
+## E445 狀態的 immune_to 沒有 host 落點，持有者仍會被套上帶指定 tag 的狀態：b22_purify 只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 回報 v3 狀態欄位 `immune_to = { "tag:perceive_wine" }`（v3.md:228、499）沒有 host 能力。b22_purify 是 B22 轉正式前的最後一招，只能擋下。持有這個狀態時，帶該 tag 的狀態（覺悟酒、item_kotennmyohiragumo、大劍之毒等跨文件狀態）仍然套得上來。
+- **根因**：dispel registry 只讀 catalog 狀態的 dispel 類別、tags 與 remove_on，沒有讀 immune_to；套用狀態時也沒有准入檢查。
+- **通用修正**：
+  - `dispel::Registry` 從 catalog 狀態列讀 `immune_to`。項目可以是 `tag:<tag>`、狀態 id，或 v3 state（例如 `stun`）。
+  - `Registry::immune(buffs, unit, status, states)`：持有者身上有任何存活狀態宣告的項目符合時為真，不含狀態自己。
+  - 新增 ext `STATUS_IMMUNE`（script-abi op 16）。ability_kit 的 `apply_status_keyed` 先問 host：被拒時狀態本身、state buff、`__ctl` 來源列都不寫，任何 DLL 或道具套用的狀態都一樣。
+- **驗證**：新測試 `a_holder_immune_to_a_tag_id_or_state_refuses_those_statuses`；dispel、adapter 測試通過；ability_kit、script-abi 編譯通過。
 
 ## E444 召喚交易拒絕對本次召喚物的 ScriptRemoveBuff：b33_spider_attack 施放被拒（2026-10-31，工作線 B）
 

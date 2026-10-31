@@ -1829,6 +1829,12 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             }
             (op::CAST_RELEASED, []) => ROk(V::Bool(self.cast_released)),
             (op::IS_VISIBLE_TO, [A::Unit(x), A::Unit(u)]) => ROk(V::Bool(self.is_visible_to(*x, *u))),
+            (op::STATUS_IMMUNE, [A::Unit(unit), A::Str(status), states @ ..]) => {
+                let mut held = Vec::with_capacity(states.len());
+                for state in states { let A::Str(state) = state else { return RErr("STATUS_IMMUNE: states are strings".into()) }; held.push(state.as_str()); }
+                ROk(V::Bool(Self::handle_to_entity(*unit).is_some_and(|entity|
+                    super::super::dispel::registry().immune(self.source_buffs(entity), entity, status.as_str(), &held))))
+            }
             (op::TREE_ALIVE, [A::Point(p)]) => ROk(V::Bool(super::super::tree_cut::standing_tree_near(&self.cache.blocked,
                 omoba_sim::Vec2::new(p.x, p.y), Fixed64::ZERO).is_some())),
             (op::STATUS_INSTANCES, [A::Unit(unit), A::Str(runtime_id)]) => {

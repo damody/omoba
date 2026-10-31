@@ -659,6 +659,8 @@ impl<'a, 'w> Cx<'a, 'w> {
     }
 
     fn apply_status_keyed(&mut self, to: EntityHandle, status: &StatusDef, id: String, duration: Fixed64, stats: &[(StatKey, i64)]) -> Res {
+        // v3 `immune_to` on the holder (E445): none of the status's rows go on.
+        if self.status_immune(to, status) { return Ok(()); }
         // An attack orb (`attack_orb:<ability>`): the host attack orb settles its hits (content `attack_orb`).
         if let Some(ability) = id.strip_prefix("attack_orb:") {
             let duration = if duration == Self::FOREVER { Fixed64::from_raw(i64::from(i32::MAX)) } else { duration };

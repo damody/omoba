@@ -60,7 +60,9 @@ pub struct Registry { exact: HashMap<String, Rule>, patterns: Vec<(String, Rule)
     /// v3 status id -> its `tags` (remove_status `tags` / `exclude_tags`).
     tags_of: HashMap<String, Vec<String>>,
     /// v3 status ids with `remove_on = { "owner_death" }`.
-    owner_death: std::collections::HashSet<String> }
+    owner_death: std::collections::HashSet<String>,
+    /// v3 status id -> its `immune_to` entries (`tag:<tag>`, a status id or a v3 state; E445).
+    immune_of: HashMap<String, Vec<String>> }
 
 /// A status that holds a shared host control (`stun`, `root`, `silence`: one BuffStore key for
 /// every status) also leaves a row `__ctl:<status id>` with payload `{"states": [...]}` for the
@@ -105,9 +107,14 @@ impl Registry {
         let mut status_of: Vec<(String, String)> = Vec::new();
         let mut tags_of: HashMap<String, Vec<String>> = HashMap::new();
         let mut owner_death = std::collections::HashSet::new();
+        let mut immune_of: HashMap<String, Vec<String>> = HashMap::new();
         for list in ["abilities", "items"] {
             for entry in doc[list].as_array().into_iter().flatten() {
                 for status in entry["v3"]["statuses"].as_array().into_iter().flatten() {
+                    if let (Some(id), Some(list)) = (status["id"].as_str(), status["immune_to"].as_array()) {
+                        let list: Vec<String> = list.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                        if !list.is_empty() { immune_of.insert(id.to_owned(), list); }
+                    }
                     let Some(class) = status["dispel"].as_str().and_then(Class::parse) else { continue };
                     let side = side_of(&status["visibility"]);
                     if let (Some(id), Some(on)) = (status["id"].as_str(), status["remove_on"].as_array()) {
@@ -131,7 +138,7 @@ impl Registry {
                 }
             }
         }
-        let mut registry = Registry { by_status, status_of, tags_of, owner_death, ..Registry::default() };
+        let mut registry = Registry { by_status, status_of, tags_of, owner_death, immune_of, ..Registry::default() };
         for (key, rule) in rules {
             if is_pattern(&key) { registry.patterns.push((key, rule)); } else { registry.exact.insert(key, rule); }
         }
@@ -173,6 +180,22 @@ impl Registry {
 
     /// The v3 status ids a BuffStore key (or a control-source row's status) belongs to.
     pub fn statuses_of(&self, key: &str) -> Vec<&str> { self.status_ids(key) }
+
+    /// v3 `immune_to` (E445): a live status on `entity` refuses v3 status `status`, which holds
+    /// the host state buffs `states`: by one of its catalog tags (`tag:<tag>`), by its id, or by
+    /// a v3 state it holds (`stun`). The applier then applies nothing of it.
+    pub fn immune(&self, buffs: &super::BuffStore, entity: specs::Entity, status: &str, states: &[&str]) -> bool {
+        if self.immune_of.is_empty() { return false; }
+        let tags = self.tags_of.get(status);
+        buffs.iter_for(entity).filter(|(_, entry)| entry.remaining > omoba_sim::Fixed64::ZERO)
+            .flat_map(|(key, _)| self.status_ids(key)).filter(|holder| *holder != status)
+            .filter_map(|holder| self.immune_of.get(holder)).flatten()
+            .any(|entry| match entry.strip_prefix("tag:") {
+                Some(tag) => tags.is_some_and(|tags| tags.iter().any(|t| t == tag)),
+                None => entry == status || matches!(super::rules::vocab::state(entry),
+                    Some(super::rules::vocab::StateEffect::Buff(buff)) if states.contains(&buff)),
+            })
+    }
 
     /// The catalog tags of the status a BuffStore key (or a control-source row's status) belongs to.
     pub fn status_tags(&self, key: &str) -> Vec<&str> { self.tags(key) }
@@ -576,6 +599,28 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// E445: v3 `immune_to` refuses statuses by tag, by id or by a state they hold.
+    #[test]
+    fn a_holder_immune_to_a_tag_id_or_state_refuses_those_statuses() {
+        let doc = json!({"abilities": [{"v3": {"statuses": [
+            {"id": "x_purify", "runtime_id": "x_purify", "dispel": "basic", "visibility": "buff",
+                "immune_to": ["tag:perceive_wine", "x_named", "stun"]},
+            {"id": "x_wine", "runtime_id": "x_wine:{caster}", "dispel": "basic", "visibility": "buff", "tags": ["perceive_wine"]},
+            {"id": "x_named", "runtime_id": "x_named", "dispel": "basic", "visibility": "debuff"},
+            {"id": "x_plain", "runtime_id": "x_plain", "dispel": "basic", "visibility": "debuff"}]}}]});
+        let registry = Registry::from_catalog(&doc);
+        let mut world = World::new();
+        let hero = world.create_entity().build();
+        let mut buffs = BuffStore::new();
+        let refuses = |buffs: &BuffStore, status: &str, states: &[&str]| registry.immune(buffs, hero, status, states);
+        assert!(!refuses(&buffs, "x_wine", &[]), "nothing held, nothing refused");
+        buffs.add(hero, "x_purify", Fixed64::from_i32(5), json!({}));
+        assert!(refuses(&buffs, "x_wine", &[]) && refuses(&buffs, "x_named", &[]) && refuses(&buffs, "x_plain", &["stun"]));
+        assert!(!refuses(&buffs, "x_plain", &[]) && !refuses(&buffs, "x_plain", &["root"]));
+        assert!(!refuses(&buffs, "x_purify", &[]), "never itself");
+        assert!(!Registry::from_catalog(&json!({})).immune(&buffs, hero, "x_wine", &[]));
     }
 
     #[test]
