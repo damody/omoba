@@ -4220,6 +4220,8 @@ fn handle_projectile(
     // The attack's record (rules::attack): its critical was rolled when the windup started.
     let attack_seq = world.read_storage::<TAttack>().get(source_entity).map(|attack| attack.attack_seq);
     let windup_critical = attack_seq.and_then(|seq| super::rules::attack::launch_critical(world, source_entity, seq));
+    // modify_attack cannot_miss in its windup (E488): no miss now, no evasion when it arrives.
+    let sure = attack_seq.is_some_and(|seq| super::rules::attack::launch_cannot_miss(world, source_entity, seq));
     let launch_physical;
 
     let (msd, target_pos, atk_phys, stun_duration_roll, visual_count, missed, critical) = {
@@ -4244,8 +4246,8 @@ fn handle_projectile(
 
         let accuracy_bonus = buff_store.sum_add(source_entity, StatKey::AccuracyBonus);
         let accuracy = (Fixed64::ONE + accuracy_bonus).clamp(Fixed64::ZERO, Fixed64::ONE);
-        let mut missed=super::attack_accuracy::source_misses(master_seed,tick,roll_key,stats.miss_chance(source_entity));
-        if accuracy < Fixed64::ONE {
+        let mut missed=!sure&&super::attack_accuracy::source_misses(master_seed,tick,roll_key,stats.miss_chance(source_entity));
+        if !sure && accuracy < Fixed64::ONE {
             let roll = Fixed64::from_raw(
                 (crate::runtime::tick_random_u64(
                     master_seed,
@@ -4405,6 +4407,7 @@ fn handle_projectile(
         // launch without a recorded start), even a missed one; only a later
         // non-evaded hit applies the orb.
         if atk_phys>Fixed64::ZERO {super::attack_orb::on_launch(world,source_entity,target_entity,projectile);}
+        if sure {super::perform_attack::mark_cannot_miss(world,projectile);}
         // Hero attack launch hook (source datadriven OnAttack): the hero
         // UnitScript `on_attack_start` runs with the attack target.
         if world.has_value::<specs::storage::MaskedStorage<Hero>>() && world.read_storage::<Hero>().get(source_entity).is_some() {

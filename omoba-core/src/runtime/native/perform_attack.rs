@@ -130,17 +130,21 @@ fn launch(world: &mut World, attacker: Entity, target: Entity, target_pos: omoba
         if world.try_fetch::<ProjectileOrigins>().is_none() { world.insert(ProjectileOrigins::default()); }
         world.write_resource::<ProjectileOrigins>().0.insert(projectile, origin);
     }
-    if flags.cannot_miss {
-        if world.try_fetch::<CannotMissAttacks>().is_none() { world.insert(CannotMissAttacks::default()); }
-        let kept: std::collections::BTreeSet<Entity> = {
-            let (entities, projectiles) = (world.entities(), world.read_storage::<Projectile>());
-            world.read_resource::<CannotMissAttacks>().0.iter().copied()
-                .filter(|entity| entities.is_alive(*entity) && projectiles.get(*entity).is_some()).collect()
-        };
-        world.write_resource::<CannotMissAttacks>().0 = kept;
-        world.write_resource::<CannotMissAttacks>().0.insert(projectile);
-    }
+    if flags.cannot_miss { mark_cannot_miss(world, projectile); }
     if flags.use_orb { super::attack_orb::scripted_launch(world, attacker, target, projectile); }
+}
+
+/// An attack projectile whose arrival rolls no evasion: this scripted attack's, or an ordinary
+/// attack's that modify_attack made sure (E488). Rows of projectiles that are gone are dropped.
+pub(crate) fn mark_cannot_miss(world: &mut World, projectile: Entity) {
+    if world.try_fetch::<CannotMissAttacks>().is_none() { world.insert(CannotMissAttacks::default()); }
+    let kept: std::collections::BTreeSet<Entity> = {
+        let (entities, projectiles) = (world.entities(), world.read_storage::<Projectile>());
+        world.read_resource::<CannotMissAttacks>().0.iter().copied()
+            .filter(|entity| entities.is_alive(*entity) && projectiles.get(*entity).is_some()).collect()
+    };
+    world.write_resource::<CannotMissAttacks>().0 = kept;
+    world.write_resource::<CannotMissAttacks>().0.insert(projectile);
 }
 
 #[cfg(test)]

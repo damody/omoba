@@ -2157,7 +2157,7 @@ mod tests {
         // The hero's attack left with 40 physical and a 2x critical.
         world.insert(crate::runtime::native::rules::attack::AttackRecords([(me,crate::runtime::native::rules::attack::AttackRecord {
             seq:1,target:None,windup_tick:0,critical:Some(Fixed64::from_i32(2)),launched:true,missed:false,
-            launch_physical:Fixed64::from_i32(40),procs_attack_effects:true,effect_multiplier:Fixed64::ONE})].into_iter().collect()));
+            launch_physical:Fixed64::from_i32(40),procs_attack_effects:true,effect_multiplier:Fixed64::ONE,cannot_miss:false,is_orb:false})].into_iter().collect()));
         let cache=ParallelAdapterCache::new(&world,1);let mut adapter=ParallelWorldAdapter::new(&cache,me);
         let (h,s)=(ParallelWorldAdapter::entity_to_handle(me),ParallelWorldAdapter::entity_to_handle(summon));
         let c=ParallelWorldAdapter::entity_to_handle(camp);

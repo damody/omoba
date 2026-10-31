@@ -574,12 +574,20 @@ impl Cx<'_, '_> {
     }
 
     /// v3 `modify_attack { crit_multiplier }` in `on_attack_windup`: `attacker`'s attack in windup
-    /// crits with at least this multiplier. Other modify_attack fields are not supported.
+    /// crits with at least this multiplier.
     pub fn modify_attack_crit(&mut self, attacker: EntityHandle, crit_multiplier: Fixed64) -> Res {
-        use omoba_core::runtime::native::rules::attack::{modify_payload, MODIFY_BUFF};
-        if !attacker.is_valid() || crit_multiplier <= Fixed64::ONE { return Ok(()); }
-        let multiplier = crit_multiplier.min(Fixed64::from_i32(100));
-        self.world.add_stat_buff(attacker, RStr::from_str(MODIFY_BUFF), Fixed64::ONE, RStr::from_str(&modify_payload(multiplier).to_string()));
+        self.modify_attack(attacker, Some(crit_multiplier), false, false)
+    }
+
+    /// v3 `modify_attack { crit_multiplier?, cannot_miss, is_orb }` in `on_attack_windup` (E488):
+    /// `attacker`'s attack in windup crits with at least the multiplier (None or 1 or less: as
+    /// rolled), cannot miss (no miss at launch, no evasion on arrival), is an orb attack.
+    pub fn modify_attack(&mut self, attacker: EntityHandle, crit_multiplier: Option<Fixed64>, cannot_miss: bool, is_orb: bool) -> Res {
+        use omoba_core::runtime::native::rules::attack::{modify_payload_with, Modify, MODIFY_BUFF};
+        let crit_multiplier = crit_multiplier.filter(|multiplier| *multiplier > Fixed64::ONE).map(|multiplier| multiplier.min(Fixed64::from_i32(100)));
+        if !attacker.is_valid() || (crit_multiplier.is_none() && !cannot_miss && !is_orb) { return Ok(()); }
+        let packet = modify_payload_with(Modify { crit_multiplier, cannot_miss, is_orb }).to_string();
+        self.world.add_stat_buff(attacker, RStr::from_str(MODIFY_BUFF), Fixed64::ONE, RStr::from_str(&packet));
         Ok(())
     }
 

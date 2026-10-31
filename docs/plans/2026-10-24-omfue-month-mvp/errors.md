@@ -2,6 +2,28 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E493 （保留）burn_mana 的最大單 tick 扣魔被目標同 tick 的回魔脈衝抵掉（a21 r1 128.67 vs 130）（2026-10-31）
+
+## E492 （保留）spotlight 閃現後替身或原點超出畫面邊界，回位、走近、被動攻擊的點擊全被拒（c02 汰選斬擊未示範）（2026-10-31）
+
+## E491 （保留）creep_facing 的攻擊預期用最後一次攻擊紀錄的目標，小兵已換目標仍被算成沒轉向（2026-10-31）
+
+## E490 （保留）showcase start_items 限制原始清單 ≤ 6，含合成道具元件的道具 spotlight（m71b、m73）被拒（2026-10-31）
+
+## E489 （保留）issue_order follow 沒有 host 落點（A04 式神拉回）（2026-10-31）
+
+## E488 modify_attack 只支援 crit_multiplier：cannot_miss（C03）與 is_orb（C09）沒有 host 落點（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 第五批第 13 項：c03_thunder_wrath 在 on_attack_windup 寫 `modify_attack { cannot_miss = true }`、c09_frost_thorn 寫 `modify_attack { is_orb = true }`，都沒有 crit_multiplier，kit 只有 `modify_attack_crit`，兩招只能擋下。
+- **根因**：modify_attack 封包只帶爆擊倍率，攻擊紀錄沒有必中與法球的欄位；普攻發出時一律擲失手，抵達時一律擲閃避。
+- **通用修正**：
+  - 封包改成 `rules::attack::Modify { crit_multiplier: Option, cannot_miss, is_orb }`，至少要有一項；格式不對（空的、未知欄位、false 旗標）由 cast settlement 拒絕。
+  - `AttackRecord` 新增 `cannot_miss`、`is_orb`。
+  - 普攻發出時，若這一次攻擊被設為必中（`launch_cannot_miss`），就不擲失手與命中率，投射物記進 `perform_attack::CannotMissAttacks`（E486），抵達時不擲閃避。攻擊免疫仍然打不中。
+  - kit 新增 `modify_attack(attacker, crit_multiplier: Option, cannot_miss, is_orb)`，`modify_attack_crit` 改為呼叫它。
+- **回歸**：`rules::attack` 測試：只帶旗標的封包保留已擲出的爆擊並標記必中與法球，發出後失效；空封包、未知欄位、false 旗標視為格式不對。
+- **檔案**：`omoba-core/src/runtime/native/rules/attack.rs`、`game_processor.rs`、`perform_attack.rs`、`scripting/parallel_world_adapter.rs`、`scripts/ability_kit/src/host_ext.rs`
+
 ## E487 split 整段建置（UE、全部 hero DLL、omobab、runtime）都佔著 repo build lock，一局佔鎖 22 分鐘擋住所有 land（2026-10-31，工作線 C）
 - 現象：m72 的 split 在 16:15 拿到 repo build lock，到 16:37 才開始啟動，佔鎖約 22 分鐘；最近幾局的建置都要 11～14 分鐘，這段時間整台機器的 land_to_live 都排隊等鎖。
 - 拆解（依 `target/lineC-bins/release` 產物時間）：

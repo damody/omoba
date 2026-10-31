@@ -56,6 +56,10 @@ pub struct AttackRecord {
     /// 是否觸發攻擊特效，以及觸發的倍率。普攻是 (true, 1)；以技能觸發的攻擊由資料宣告（M3）。
     pub procs_attack_effects: bool,
     pub effect_multiplier: Fixed64,
+    /// v3 `modify_attack { cannot_miss }`（E488）：發出時不擲失手，抵達時不擲閃避。
+    pub cannot_miss: bool,
+    /// v3 `modify_attack { is_orb }`（E488）：這一次攻擊是法球攻擊（`event.attack.is_orb`）。
+    pub is_orb: bool,
 }
 
 /// 每個攻擊者目前（或最近一次）的攻擊；新的前搖取代舊紀錄。
@@ -181,7 +185,8 @@ pub fn windup(world: &mut World, attacker: Entity, seq: u32, target: Option<Enti
         roll_critical(&sources, seed, now as u32, key, attacker, counters.as_deref_mut())
     };
     records(world).0.insert(attacker, AttackRecord { seq, target, windup_tick: now, critical, launched: false,
-        missed: false, launch_physical: Fixed64::ZERO, procs_attack_effects: true, effect_multiplier: Fixed64::ONE });
+        missed: false, launch_physical: Fixed64::ZERO, procs_attack_effects: true, effect_multiplier: Fixed64::ONE,
+        cannot_miss: false, is_orb: false });
     emit(world, AttackEvent::Windup { attacker, seq, target, critical: critical.is_some() });
 }
 
@@ -198,30 +203,64 @@ const CRIT_OP: u16 = 1;
 /// 第二個以後的爆擊來源：op 0x100 + 序號，不和既有的 op（0、1、2、20、21）重疊。
 const CRIT_OP_EXTRA: u16 = 0x100;
 
-/// v3 `modify_attack { crit_multiplier }`（`on_attack_windup` 裡）：這一次還沒發出的攻擊必定爆擊，倍率取
-/// 已擲出的與這個值較大者。一次性的 AddBuff 封包，不儲存。
+/// v3 `modify_attack`（`on_attack_windup` 裡）改這一次還沒發出的攻擊。一次性的 AddBuff 封包，不儲存。
+/// - `crit_multiplier`：必定爆擊，倍率取已擲出的與這個值較大者。
+/// - `cannot_miss`（E488）：發出時不擲失手，抵達時不擲閃避（攻擊免疫仍然打不中）。
+/// - `is_orb`（E488）：標記為法球攻擊。
 pub const MODIFY_KEY: &str = "__attack_modify_v1";
 pub const MODIFY_BUFF: &str = "__attack_modify";
 
+/// What one modify_attack packet changes; at least one of them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Modify { pub crit_multiplier: Option<Fixed64>, pub cannot_miss: bool, pub is_orb: bool }
+
 pub fn modify_payload(crit_multiplier: Fixed64) -> Value {
-    serde_json::json!({ (MODIFY_KEY): { "crit_multiplier_raw": crit_multiplier.raw() } })
+    modify_payload_with(Modify { crit_multiplier: Some(crit_multiplier), ..Modify::default() })
 }
 
-/// The crit multiplier a well-formed packet carries (> 1, at most 100).
-pub fn modify_spec(buff_id: &str, duration: Fixed64, payload: &Value) -> Option<Fixed64> {
+pub fn modify_payload_with(modify: Modify) -> Value {
+    let mut row = serde_json::Map::new();
+    if let Some(multiplier) = modify.crit_multiplier { row.insert("crit_multiplier_raw".into(), multiplier.raw().into()); }
+    if modify.cannot_miss { row.insert("cannot_miss".into(), true.into()); }
+    if modify.is_orb { row.insert("is_orb".into(), true.into()); }
+    serde_json::json!({ (MODIFY_KEY): row })
+}
+
+/// What a well-formed packet changes: a crit multiplier above 1 and at most 100, the flags true
+/// when present; nothing else, and not nothing.
+pub fn modify_spec(buff_id: &str, duration: Fixed64, payload: &Value) -> Option<Modify> {
     if buff_id != MODIFY_BUFF || duration != Fixed64::ONE || payload.as_object()?.len() != 1 { return None; }
     let row = payload.get(MODIFY_KEY)?.as_object()?;
-    let multiplier = Fixed64::from_raw(row.get("crit_multiplier_raw")?.as_i64()?);
-    (row.len() == 1 && multiplier > Fixed64::ONE && multiplier <= Fixed64::from_i32(100)).then_some(multiplier)
+    if row.is_empty() || row.keys().any(|key| !matches!(key.as_str(), "crit_multiplier_raw" | "cannot_miss" | "is_orb")) { return None; }
+    let crit_multiplier = match row.get("crit_multiplier_raw") {
+        None => None,
+        Some(raw) => {
+            let multiplier = Fixed64::from_raw(raw.as_i64()?);
+            if multiplier <= Fixed64::ONE || multiplier > Fixed64::from_i32(100) { return None; }
+            Some(multiplier)
+        }
+    };
+    let flag = |key: &str| row.get(key).map_or(Some(false), |value| value.as_bool().filter(|set| *set));
+    Some(Modify { crit_multiplier, cannot_miss: flag("cannot_miss")?, is_orb: flag("is_orb")? })
 }
 
 /// Applies the packet to the attacker's attack in windup; false when there is none.
 pub fn modify_attack(world: &mut World, attacker: Entity, buff_id: &str, duration: Fixed64, payload: &Value) -> bool {
-    let Some(multiplier) = modify_spec(buff_id, duration, payload) else { return false };
+    let Some(modify) = modify_spec(buff_id, duration, payload) else { return false };
     let Some(mut records) = world.try_fetch_mut::<AttackRecords>() else { return false };
     let Some(record) = records.0.get_mut(&attacker).filter(|record| !record.launched) else { return false };
-    record.critical = Some(record.critical.map_or(multiplier, |current| current.max(multiplier)));
+    if let Some(multiplier) = modify.crit_multiplier {
+        record.critical = Some(record.critical.map_or(multiplier, |current| current.max(multiplier)));
+    }
+    record.cannot_miss |= modify.cannot_miss;
+    record.is_orb |= modify.is_orb;
     true
+}
+
+/// 這一次攻擊（`seq`，還沒發出）被 modify_attack 設成必中（E488）。
+pub fn launch_cannot_miss(world: &World, attacker: Entity, seq: u32) -> bool {
+    world.try_fetch::<AttackRecords>().is_some_and(|records| records.0.get(&attacker)
+        .is_some_and(|record| record.seq == seq && !record.launched && record.cannot_miss))
 }
 
 /// 發出時要用的爆擊：這一次攻擊（`seq`）有前搖紀錄就用紀錄的結果；沒有紀錄（例如前搖在別的路徑
@@ -263,7 +302,8 @@ pub fn instant(world: &mut World, attacker: Entity, target: Entity, critical: Op
         let mut records = records(world);
         let seq = records.0.get(&attacker).map_or(1, |record| record.seq.wrapping_add(1));
         records.0.insert(attacker, AttackRecord { seq, target: Some(target), windup_tick: now, critical, launched: true,
-            missed, launch_physical: Fixed64::ZERO, procs_attack_effects: true, effect_multiplier: Fixed64::ONE });
+            missed, launch_physical: Fixed64::ZERO, procs_attack_effects: true, effect_multiplier: Fixed64::ONE,
+            cannot_miss: false, is_orb: false });
         seq
     };
     emit(world, AttackEvent::Windup { attacker, seq, target: Some(target), critical: critical.is_some() });
@@ -352,10 +392,28 @@ mod tests {
         assert_eq!(launch_critical(&w, attacker, 1), None, "launched once");
         // modify_attack after the launch changes nothing.
         assert!(!modify_attack(&mut w, attacker, MODIFY_BUFF, Fixed64::ONE, &modify_payload(Fixed64::from_i32(4))));
+        // E488: a packet without a crit multiplier; nothing, unknown keys and false flags are malformed.
+        let sure = modify_payload_with(Modify { cannot_miss: true, is_orb: true, ..Modify::default() });
+        assert_eq!(modify_spec(MODIFY_BUFF, Fixed64::ONE, &sure), Some(Modify { crit_multiplier: None, cannot_miss: true, is_orb: true }));
+        for bad in [serde_json::json!({ (MODIFY_KEY): {} }), serde_json::json!({ (MODIFY_KEY): { "cannot_miss": false } }),
+            serde_json::json!({ (MODIFY_KEY): { "is_orb": true, "other": 1 } })] {
+            assert_eq!(modify_spec(MODIFY_BUFF, Fixed64::ONE, &bad), None, "{bad}");
+        }
         let events = w.read_resource::<AttackEvents>();
         assert_eq!(events.tick, 30);
         assert_eq!(events.events, vec![AttackEvent::Launch { attacker, seq: 1, target, critical: true, missed: false }],
             "only the current tick's events");
+        drop(events);
+        // A cannot_miss packet in the next windup keeps the rolled crit and marks the attack sure.
+        windup(&mut w, attacker, 2, Some(target));
+        let rolled = launch_critical(&w, attacker, 2);
+        assert!(!launch_cannot_miss(&w, attacker, 2));
+        assert!(modify_attack(&mut w, attacker, MODIFY_BUFF, Fixed64::ONE, &sure));
+        assert!(launch_cannot_miss(&w, attacker, 2) && !launch_cannot_miss(&w, attacker, 1));
+        assert_eq!(launch_critical(&w, attacker, 2), rolled, "no crit multiplier, the roll stays");
+        assert!(w.read_resource::<AttackRecords>().0[&attacker].is_orb);
+        launch(&mut w, attacker, 2, target, Fixed64::from_i32(50), false, false);
+        assert!(!launch_cannot_miss(&w, attacker, 2), "launched");
     }
 
     #[test]
