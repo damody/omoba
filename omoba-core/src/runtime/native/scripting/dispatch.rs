@@ -2057,7 +2057,7 @@ fn dispatch_one(
             });
         }
 
-        ScriptEvent::ItemCast { owner, item_id, target, .. } => {
+        ScriptEvent::ItemCast { owner, item_id, target, slot, .. } => {
             // items.dll (M7): the item's generated effect, rank 1, as the owner's cast
             let Some((def, script)) = super::super::game_processor::item_script_id(&item_id)
                 .and_then(|script| registry.get_ability(script)) else { return };
@@ -2070,9 +2070,11 @@ fn dispatch_one(
                 SkillTarget::None => Target::None,
             };
             let handle = ParallelWorldAdapter::entity_to_handle(owner);
+            adapter.set_event_item_slot(Some(slot));
             let mut world_dyn = world_dyn_of(adapter);
             let r = catch_unwind(AssertUnwindSafe(|| script.execute(handle, target_abi, 1, (&*level_json).into(), &mut world_dyn)));
             drop(world_dyn);
+            adapter.set_event_item_slot(None);
             match r {
                 Ok(abi_stable::std_types::RResult::ROk(())) => adapter.mark_cast_succeeded(),
                 Ok(abi_stable::std_types::RResult::RErr(error)) => log::warn!("[scripting] item '{}' execute returned error: {}", item_id, error),

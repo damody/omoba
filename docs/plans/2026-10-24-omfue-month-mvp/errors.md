@@ -2,9 +2,33 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E573 （保留）create_unit.overrides 不收 armor（B07）（2026-11-01）
+
 ## E572 （保留）conformance 從沒驗證被動的 on_take_damage／on_death／on_kill trigger（when event 一律 unsupported）（2026-11-01）
 
-## E571 （保留）give_item 不保留 vars：道具實例變數、item_name 狀態、道具移除自己（C06）（2026-11-01）
+## E571 give_item 不保留 vars：道具實例變數、item_name 狀態、道具移除自己（C06）（2026-11-01，工作線 B）
+
+- **現象**：石川五右衛門（C06）的 E 把目標的道具換成陷阱 `item_c06e`，並用 `give_item.vars` 寫入實例變數：`c06e_damage` 與被換掉的道具名稱 `c06e_swapped`（型別 `item_name`）。陷阱自己的 `on_cast` 讀這兩個變數，再 `remove_item item = ability` 移除自己。原本 kit 的 give 不保留 vars，道具施放時也不知道自己在哪一格，產生器無法編譯。
+- **修正**：
+  - **實例變數**：存成持有者的 unit var `item:<slot>:<var>`，跟其他 unit var 一樣會複製到 replica 並納入 hash。
+    - item_grant 的 give 請求可以帶 `vars`（`give_with_vars_payload`）。host 選好格子後寫入這些列。
+    - 同一格之後的 give 或移除會先清掉舊列；道具格不會移動。
+    - 列標記為 `hero`，持有者死亡時跟道具一起保留。
+    - 每一格最多 10 個變數。key 不合法時整筆 give 不生效。
+  - **ext `EVENT_ITEM_SLOT`（24）**：主動道具的 `on_cast` 執行時，dispatch 透過 `ItemCast.slot` 告訴 adapter 目前施放的道具在哪一格；其他呼叫回傳 None。
+  - **kit 新增**：
+    - `give_item_with(to, item, vars)`。
+    - `event_item_slot()`。
+    - `item_instance_key(var)`：給 `state`／`set_state` 用的 key。
+    - `remove_own_item(from)`：移除施放中的那一個實例，不是同名的第一個。
+    - `item_name_number`／`item_name_of`：`item_name` 存成數字，值是 catalog 列位置 + 1，0 表示沒有。
+  - charges 仍不保留（host 的道具實例沒有充能）。
+- **測試**：`item_grant::tests::a_given_instance_keeps_its_vars_in_its_slot`：
+  - give 帶 vars 後，該格可以讀到這些列。
+  - 移除，或之後不帶 vars 的 give，會清掉該格的列。
+  - item_name 數字可以來回轉換。
+  - key 不合法時整筆 give 被拒。
+- **檔案**：`scripts/script-abi/src/ext.rs`、`omoba-core/src/runtime/native/{item_grant.rs,scripting/parallel_world_adapter.rs,scripting/dispatch.rs}`、`scripts/ability_kit/src/host_ext.rs`
 
 ## E570 kit 缺 status_source：讀 status 的施加者（C18）（2026-11-01，工作線 B）
 

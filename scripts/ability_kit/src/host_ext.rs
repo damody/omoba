@@ -630,13 +630,60 @@ impl Cx<'_, '_> {
     }
 
     /// v3 `give_item { to, item }` (E561): a new instance in `to`'s first free inventory slot
-    /// (nothing when it is full; a catalog item only). `charges` and `vars` are not kept: an
-    /// instance here holds its id and cooldown.
+    /// (nothing when it is full; a catalog item only). `charges` is not kept: an instance here
+    /// holds its id, cooldown and vars ([`Cx::give_item_with`]).
     pub fn give_item(&mut self, to: EntityHandle, item: &str) -> Res {
         use omoba_core::runtime::native::item_grant;
         if !to.is_valid() { return Ok(()); }
         self.world.add_stat_buff(to, RStr::from_str(item_grant::BUFF), Fixed64::ONE, RStr::from_str(&item_grant::give_payload(item).to_string()));
         Ok(())
+    }
+
+    /// v3 `give_item { to, item, vars }` (E571): the new instance starts with these vars, its
+    /// `scope = "item_instance"` state (an `item_name` value as [`Cx::item_name_number`]). A var
+    /// that is not a valid state key refuses the give.
+    pub fn give_item_with(&mut self, to: EntityHandle, item: &str, vars: &[(&str, crate::codegen::VarValue)]) -> Res {
+        use omoba_core::runtime::native::item_grant;
+        if !to.is_valid() { return Ok(()); }
+        if vars.is_empty() { return self.give_item(to, item); }
+        self.world.add_stat_buff(to, RStr::from_str(item_grant::BUFF), Fixed64::ONE,
+            RStr::from_str(&item_grant::give_with_vars_payload(item, vars).to_string()));
+        Ok(())
+    }
+
+    /// The inventory slot of the item whose cast runs now (E571); `None` outside an active
+    /// item's `on_cast`.
+    pub fn event_item_slot(&mut self) -> Option<u8> {
+        match self.read(op::EVENT_ITEM_SLOT, &[]) {
+            ExtValue::Num(n) => u8::try_from(n.raw() >> 10).ok(), _ => None,
+        }
+    }
+
+    /// The state key of this item instance's v3 var (`state.<var>` with `scope = "item_instance"`,
+    /// E571) on the caster, for `state` / `set_state`; `None` outside an item cast.
+    pub fn item_instance_key(&mut self, var: &str) -> Option<String> {
+        use omoba_core::runtime::native::item_grant;
+        self.event_item_slot().map(|slot| item_grant::instance_var_key(usize::from(slot), var))
+    }
+
+    /// v3 `remove_item { from, item = ability }` inside an item's own `on_cast` (E571): that
+    /// instance leaves its slot (not another of the same item). Nothing outside an item cast.
+    pub fn remove_own_item(&mut self, from: EntityHandle) -> Res {
+        use omoba_core::runtime::native::item_grant;
+        let Some(slot) = self.event_item_slot() else { return Ok(()) };
+        if !from.is_valid() { return Ok(()); }
+        self.world.add_stat_buff(from, RStr::from_str(item_grant::BUFF), Fixed64::ONE,
+            RStr::from_str(&item_grant::remove_slot_payload(usize::from(slot)).to_string()));
+        Ok(())
+    }
+
+    /// A v3 `item_name` value as a state number (E571): 0 for an unknown item.
+    pub fn item_name_number(&self, item: &str) -> Fixed64 {
+        omoba_core::runtime::native::item_grant::item_name_number(item)
+    }
+    /// The item (v3 source id) an `item_name` state number names.
+    pub fn item_name_of(&self, number: Fixed64) -> Option<&'static str> {
+        omoba_core::runtime::native::item_grant::item_name_of(number)
     }
 
     /// v3 `remove_item { from, item }` (E561) by id: the first slot holding it.

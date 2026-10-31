@@ -105,6 +105,10 @@ pub mod op {
     /// `(Unit, Num slot)` -> `Num`: the cooldown seconds left on the item in inventory slot
     /// `slot` of `unit` (E566, v3 `it.cooldown_remaining`); `None` for an empty slot.
     pub const ITEM_COOLDOWN: u32 = 23;
+    /// `()` -> `Num` | `None`: the inventory slot (0..5) of the item whose cast runs now (an
+    /// active item's `on_cast`; E571: its instance vars, `remove_item item = ability`); `None` in
+    /// any other call.
+    pub const EVENT_ITEM_SLOT: u32 = 24;
 }
 
 /// Attribute names of [`op::EVENT_ABILITY_ATTR`].

@@ -232,6 +232,8 @@ pub struct ParallelWorldAdapter<'a> {
     script_error: Option<String>,
     /// The cast running now was released from a windup (ext CAST_RELEASED).
     cast_released: bool,
+    /// The inventory slot of the item whose cast runs now (ext EVENT_ITEM_SLOT, E571).
+    event_item_slot: Option<u32>,
     hook_panicked: bool,
     mana_transaction: bool,
     mana_views: HashMap<Entity, crate::runtime::ability_runtime::ManaPool>,
@@ -667,6 +669,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             cast_rejection: None,
             script_error: None,
             cast_released: false,
+            event_item_slot: None,
             hook_panicked: false,
             mana_transaction: false,
             mana_views: HashMap::new(),
@@ -712,6 +715,8 @@ impl<'a> ParallelWorldAdapter<'a> {
     pub(crate) fn note_script_error(&mut self, error: String) { self.script_error = Some(error); }
     /// The cast about to run was released from a windup (ext CAST_RELEASED).
     pub(crate) fn set_cast_released(&mut self, released: bool) { self.cast_released = released; }
+    /// The item cast about to run is the one in this inventory slot (ext EVENT_ITEM_SLOT).
+    pub(crate) fn set_event_item_slot(&mut self, slot: Option<u32>) { self.event_item_slot = slot; }
     pub(crate) fn take_script_error(&mut self) -> Option<String> { self.script_error.take() }
 
     pub(crate) fn stage_recovery_channel(&mut self,caster:Entity,spec:super::super::recovery_channel::Spec)->bool {
@@ -1976,6 +1981,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 ROk(found.map_or(V::None, |e| V::Unit(Self::entity_to_handle(e))))
             }
             (op::CAST_RELEASED, []) => ROk(V::Bool(self.cast_released)),
+            (op::EVENT_ITEM_SLOT, []) => ROk(self.event_item_slot.and_then(|slot| i32::try_from(slot).ok())
+                .map_or(V::None, |slot| V::Num(Fixed64::from_i32(slot)))),
             (op::IS_VISIBLE_TO, [A::Unit(x), A::Unit(u)]) => ROk(V::Bool(self.is_visible_to(*x, *u))),
             (op::REFUND, [A::Str(what)]) if what.as_str() == "cooldown" => { self.refund_cooldown = true; ROk(V::None) }
             (op::STATUS_IMMUNE, [A::Unit(unit), A::Str(status), states @ ..]) => {
