@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：召喚物 template 回血與負回血（E499）
+
+- regen_tick 處理召喚物（template hp_regen 從現在起生效）；負的回血是持續損血，召喚物減到 0 就死亡；驗證範圍 -10000..10000。
 ## 2026-10-31 線 B：ability_in_slot 與技能自己的冷卻（E497）
 
 - kit `ability_in_slot`、`ability_is_passive`／`ability_is_toggle`、`cooldown_start_own`；ext `ABILITY_IN_SLOT`、ability_attr `cooldown`／`is_passive`／`is_toggle`。

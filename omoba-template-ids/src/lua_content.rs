@@ -1872,7 +1872,9 @@ pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),Stri
             || (entry.chase.is_some() && entry.immobile) {
             return Err(format!("summon {} has ai chase_target without a valid chase table, or a chase table without it",entry.id));
         }
-        if [entry.hp_regen,entry.night_vision_radius].iter().any(|value|!value.is_finite()||!(0.0..=10_000.0).contains(value)) {
+        // A negative hp_regen is a degeneration (原作 StatusHealthRegen -1 on c15t_arrow, E499).
+        if !entry.hp_regen.is_finite() || !(-10_000.0..=10_000.0).contains(&entry.hp_regen)
+            || !entry.night_vision_radius.is_finite() || !(0.0..=10_000.0).contains(&entry.night_vision_radius) {
             return Err(format!("summon {} has an invalid hp_regen or night_vision_radius",entry.id));
         }
         if !entry.turn_rate.is_finite() || !(0.0..=10.0).contains(&entry.turn_rate) {

@@ -21,6 +21,7 @@ pub struct RegenTickData<'a> {
     cpropertys: WriteStorage<'a, CProperty>,
     creeps: ReadStorage<'a, Creep>,
     heroes: ReadStorage<'a, Hero>,
+    summons: ReadStorage<'a, SummonedUnit>,
     positions: ReadStorage<'a, Pos>,
     outcomes: Write<'a, Vec<Outcome>>,
 }
@@ -67,6 +68,7 @@ impl<'a> System<'a> for Sys {
         let cp_storage = &data.cpropertys;
         let creeps = &data.creeps;
         let heroes = &data.heroes;
+        let summons = &data.summons;
         let is_buildings = &data.is_buildings;
         let buffs: &BuffStore = &data.buffs;
 
@@ -76,10 +78,11 @@ impl<'a> System<'a> for Sys {
             if cp.hp <= omoba_sim::Fixed64::ZERO {
                 return None;
             }
-            // creep / hero 之外的 entity（例：純塔）不算 regen
+            // creep / hero / 召喚物之外的 entity（例：純塔）不算 regen；召喚物的 template
+            // hp_regen 是 dummy_unit::BASE_ROW（E499，之前漏掉了）
             let is_creep = creeps.get(e).is_some();
             let is_hero = heroes.get(e).is_some();
-            if !is_creep && !is_hero {
+            if !is_creep && !is_hero && summons.get(e).is_none() {
                 return None;
             }
             let stats = UnitStats::from_refs(buffs, is_buildings.get(e).is_some());
@@ -117,12 +120,60 @@ impl<'a> System<'a> for Sys {
         sorted.sort_by_key(|(e, _, _)| (e.id(), e.gen().id()));
         for (e, new_hp, _mhp) in &sorted {
             let Some(cp) = data.cpropertys.get_mut(*e) else { continue };
+            let pos = data.positions.get(*e).map_or(omoba_sim::Vec2::ZERO, |p| p.0);
             if data.heroes.get(*e).is_none() && *new_hp > cp.hp {
-                let pos = data.positions.get(*e).map_or(omoba_sim::Vec2::ZERO, |p| p.0);
                 data.outcomes.push(Outcome::Heal { pos, target: *e, amount: *new_hp - cp.hp });
             } else {
                 cp.hp = *new_hp;
+                // A degeneration that empties a summon kills it (E499); no one is credited.
+                if *new_hp <= omoba_sim::Fixed64::ZERO && data.summons.get(*e).is_some() {
+                    data.outcomes.push(Outcome::Death { pos, ent: *e });
+                }
             }
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use omoba_sim::Fixed64;
+    use specs::{Builder, WorldExt};
+
+    /// E499: a summon's template regen (dummy_unit::BASE_ROW) runs: a positive one heals it
+    /// through a Heal outcome, a degeneration lowers it and kills it at zero.
+    #[test]
+    fn a_summon_regenerates_and_a_degeneration_kills_it() {
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        let owner = world.create_entity().build();
+        let body = |world: &mut specs::World, hp: i32, regen: i32| {
+            let unit = world.create_entity().with(SummonedUnit::new_fixed(owner, None)).with(Pos(omoba_sim::Vec2::ZERO))
+                .with(CProperty { hp: Fixed64::from_i32(hp), mhp: Fixed64::from_i32(10), msd: Fixed64::ZERO,
+                    def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build();
+            let mut stats = *omoba_template_ids::summon_by_name("dummy").and_then(omoba_template_ids::active_summon_stats).unwrap();
+            stats.hp_regen = Fixed64::from_i32(regen);
+            crate::runtime::native::dummy_unit::hold_base_stats(&mut world.write_resource::<BuffStore>(), unit, &stats);
+            unit
+        };
+        let (healing, fading) = (body(&mut world, 5, 2), body(&mut world, 3, -1));
+        let mut builder = specs::DispatcherBuilder::new();
+        crate::comp::dispatch::<Sys>(&mut builder, &[]);
+        let mut dispatcher = builder.build();
+        dispatcher.setup(&mut world);
+        // One regen step of 15 ticks of 1/15 s: one second.
+        world.write_resource::<DeltaTime>().0 = Fixed64::from_raw(1024 / 15 + 1);
+        for round in 1..=4u64 {
+            world.write_resource::<Tick>().0 = round * REGEN_TICKS;
+            world.write_resource::<Vec<Outcome>>().clear();
+            dispatcher.dispatch(&world);
+            let outcomes: Vec<Outcome> = world.read_resource::<Vec<Outcome>>().iter().cloned().collect();
+            if round == 1 {
+                assert!(outcomes.iter().any(|o| matches!(o, Outcome::Heal { target, .. } if *target == healing)), "{outcomes:?}");
+            }
+            let dead = outcomes.iter().any(|o| matches!(o, Outcome::Death { ent, .. } if *ent == fading));
+            assert_eq!(dead, round == 3, "round {round}: {outcomes:?}");
+            if dead { break; }
+        }
+        assert_eq!(world.read_storage::<CProperty>().get(fading).unwrap().hp, Fixed64::ZERO);
     }
 }

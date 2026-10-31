@@ -454,8 +454,10 @@ impl<'a> UnitStats<'a> {
         let pct = self.buffs.sum_add(e, StatKey::HealthRegenPercentage);
         let amp = Fixed64::ONE + self.buffs.sum_add(e, StatKey::HpRegenAmplifyPercentage);
         let v = (base + bonus) * (Fixed64::ONE + pct) * amp;
+        // A negative total is a degeneration (原作 negative StatusHealthRegen, E499): not a heal,
+        // so healing amplification and reduction do not touch it.
         if v < Fixed64::ZERO {
-            Fixed64::ZERO
+            v
         } else {
             self.received_healing(v,e)
         }
@@ -807,6 +809,8 @@ mod tests {
         assert_eq!(UnitStats::from_refs(&buffs,false).hp_regen(Fixed64::from_i32(10),e),Fixed64::from_i32(10));
         buffs.remove(e,"amplify");assert_eq!(f(&buffs),Fixed64::from_i32(50));
         assert_eq!(UnitStats::from_refs(&buffs,false).hp_regen(Fixed64::from_i32(10),e),Fixed64::from_i32(5));
+        // E499: a degeneration is not a heal: the cut does not halve it.
+        assert_eq!(UnitStats::from_refs(&buffs,false).hp_regen(Fixed64::from_i32(-10),e),Fixed64::from_i32(-10));
         for value in [json!(-1),json!(4097),json!("bad"),json!(true)] {
             buffs.add(e,"invalid",Fixed64::ONE,json!({"heal_received_multiplier":value}));assert_eq!(f(&buffs),Fixed64::ZERO);
         }

@@ -2,9 +2,25 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E502 （保留）v3 conformance 施法者先閃現到面前再打周圍的技能（c12 空間裂縫），目標沒放在落點，判沒有傷害（2026-10-31）
+
+## E501 （保留）modify_cooldown 的道具形式（item_tag／item）沒有 host 落點（C13、C18）（2026-10-31）
+
 ## E500 （保留）create_unit.over_limit:reject 與 owner:caster_hero 沒有 host 落點（C13）（2026-10-31）
 
-## E499 （保留）召喚物的 template hp_regen 從未生效，且不接受負值（C15 箭矢）（2026-10-31）
+## E499 召喚物的 template hp_regen 從未生效，且不接受負值：C15 箭矢只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A：c15t_arrow 的 `stats.hp_regen = -1`（原作 StatusHealthRegen -1）被 omoba-template-ids 的內容驗證擋下（只接受 0..10000）。檢查時又發現另一個問題：召喚物的 template hp_regen（`dummy_unit::BASE_ROW`）根本沒有作用。
+- **根因**：
+  - regen_tick 只處理 creep 與英雄，召喚物雖然有 BASE_ROW，卻從來不會回血。
+  - `UnitStats::hp_regen` 把負的總和夾到 0；驗證器也不接受負值。
+- **通用修正**：
+  - regen_tick 也處理 `SummonedUnit`。
+  - 負的回血總和視為持續損血：不算治療，治療增幅與減療都不影響。減到 0 的召喚物發出 `Outcome::Death`，不算任何人的擊殺。
+  - 召喚物的 hp_regen 驗證範圍改為 -10000..10000。
+  - 現有內容中沒有其他負回血；正的召喚物 template 回血從現在起開始生效。
+- **回歸**：`regen_tick::tests::a_summon_regenerates_and_a_degeneration_kills_it`、`unit_stats` 測試：減療不會把負回血減半。
+- **檔案**：`omoba-core/src/runtime/native/tick/regen_tick.rs`、`ability_runtime/unit_stats.rs`、`omoba-template-ids/src/lua_content.rs`
 
 ## E498 （保留）v3 conformance 放在施法點的友方單位沒有 class，count_in_radius 的 creep 算不到（c19 突襲 CAST_REJECTED）（2026-10-31）
 
