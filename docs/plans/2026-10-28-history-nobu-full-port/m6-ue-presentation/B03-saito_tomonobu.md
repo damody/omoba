@@ -13,4 +13,4 @@
 
 - 實機：`target/lineC-pres14/saito_tomonobu-run`（spotlight，2026-10-31，第一輪），錄到 1165 幀、掉 0 幀，下了 6 次指令，略過 0 格。
 - 6 招中 4 招有呈現，2 招被動沒有 cue 或狀態可檢查。
-- 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。選角稱號「」。
+- 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。

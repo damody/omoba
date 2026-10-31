@@ -11,4 +11,4 @@
 
 - 實機：`target/lineC-pres14/niwa_nagahide-run`（spotlight，2026-10-31，第一輪），錄到 792 幀、掉 0 幀，下了 4 次指令，略過 0 格。
 - 4 招中 4 招有呈現。
-- 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。選角稱號「」。
+- 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。

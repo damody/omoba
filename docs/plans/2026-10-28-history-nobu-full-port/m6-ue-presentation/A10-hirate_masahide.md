@@ -13,4 +13,4 @@
 - 實機：`target/lineC-pres14/hirate_masahide-run`（spotlight，2026-10-31，第一輪），錄到 984 幀、掉 0 幀，下了 5 次指令，略過 0 格。
 - 震央光環：大地震動（R）的 a10t_quake 狀態套在替身身上（unit 12，route=status_cue），播出 a10t_move_slow 狀態 cue。
 - 5 招中 5 招有呈現。
-- 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。選角稱號「」。
+- 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。

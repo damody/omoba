@@ -13,4 +13,4 @@
 - 實機：`target/lineC-pres14/naoe_kanetsugu-run`（spotlight，2026-10-31，第一輪），錄到 976 幀、掉 0 幀，下了 5 次指令，略過 0 格。
 - 足跡（D）判定「本局沒有呈現」是因為原作沒有 cue 或狀態：它只是瞬移回直江印的位置（teleport），呈現就是英雄位置改變。這局 5 格都有下指令（casts 5、略過 0）。
 - 5 招中 4 招有呈現。
-- 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。選角稱號「」。
+- 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。
