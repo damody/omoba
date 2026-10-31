@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E558 共用 scripts/*.dll 被其他程序鎖住時，split 建置的 stage-dll 整個失敗（2026-11-01，工作線 C）
+- 現象：工作線 C 的 rerun4 spotlight 佇列從 kato_kiyomasa 起，25 位英雄和 2 個道具全部建置失敗：`dev_run_freshness.lua:7 ... D:\omoba\scripts\base_content.dll: Permission denied`，失敗點在 split 的 stage-dll 與 build_ue_moba 的「stage current base_content.dll」。
+- 原因：遊戲模式 session 的 moba-headless（PID 45832，`target/e187/m6new14`，04:32 起執行，比賽上限 1200 秒）載入了共用的 `scripts/*.dll`（base_content 和 hero_*），檔案被鎖住。E124 之後每次 launch 都用自己的副本，split 也不讀共用副本，但建置流程仍會寫入共用的 `scripts/*.dll`，寫入失敗就讓整次建置中止。
+- 修正（共用層，`scripts/dev_run_freshness.lua` stage）：複製因 `Permission denied` 失敗時，印出 `skipped: <file> is in use by another process; launches use their own copy (E124)` 並繼續；其他錯誤照舊失敗。實測：PID 45832 持有 43 個 DLL 時，stage-dll 跳過那 43 個、其餘照常 stage，最後以 0 結束。`dev_run_freshness_target_test` 有檢查這段。
+- 沒有處理：別人的 moba-headless 沒有停（不是本工作線的程序，D20）。共用 `scripts/*.dll` 這段期間會停在舊版，只有舊的 `run_ue.lua` 會讀它。
+- 避免：已經不是 launch 輸入的共用檔案，寫入失敗不能讓建置失敗。
+
 ## E554 ScriptErrorRow 記的是 caster：狀態、被動與召喚物觸發報錯時指錯單位（2026-11-01，工作線 B）
 
 - **現象**：
