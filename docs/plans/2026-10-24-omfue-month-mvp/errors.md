@@ -42,7 +42,15 @@
   - spotlight 還不會示範召喚物技能。
 - 避免：伺服器新增玩家可操作的能力時，UE 的選取資料、輸入與介面要一起規劃。
 
-## E536 （保留）conformance heal 檢查把同 tick 其他來源的最大生命下降算進去（a08 失去 a08_indomitable 的力量 -100，heal 多算 100）（2026-11-01）
+## E536 conformance：conformance heal 檢查把同 tick 其他來源的最大生命下降算進去（a08 失去 a08_indomitable 的力量 -100，heal 多算 100）（2026-11-01，conformance session）
+- **現象**：a08_steadfast_general r1–r3 normal 判「heal: largest one-tick rise 400, expected 300」（r2 600／500、r3 800／700），每級都多 100。
+- **根因**：
+  - setup 把 entry 以外的技能寫回 0 級時，只移除它們宣告的狀態和 aura emitter，沒有移除技能自己的 passive_stats 列（key 就是技能 id）。a08_indomitable 的力量 +4（最大生命 +100）因此留著，host 在施法時才依 0 級把它拿掉。
+  - check_heal 扣掉的是同 tick 最大生命的淨變化（vigor +300，加上力量消失 -100，淨 +200），所以 heal 被算成多 100。
+- **通用修正**：
+  - 寫回 0 級的技能，連同 key 等於技能 id 的 passive 列一起移除。
+  - check_heal 只扣各狀態 health_bonus 的增加量（host 會把提高的最大生命加到生命上）；沒有狀態帶 health_bonus 時，才用最大生命本身的上升。
+- **以後如何避免**：測試狀態要和技能等級一致；量回復量時只扣真的會加到生命上的部分。
 
 ## E535 死亡單位的位置沒有記錄：Death 不經過 EntityRemoved（C16、B23、A14、A28）（2026-11-01，工作線 B）
 

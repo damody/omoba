@@ -572,7 +572,9 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
             let keys: Vec<String> = world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(unit)
                 .filter(|(key, _)| ids.iter().any(|id| omoba_core::runtime::native::dispel::runtime_id_matches(id, key))
                     // and its aura emitters (`__aura:<ability>:…`)
-                    || unlearned.iter().any(|ability| key.starts_with(&format!("__aura:{ability}:"))))
+                    || unlearned.iter().any(|ability| key.starts_with(&format!("__aura:{ability}:")))
+                    // and its own passive row (passive_stats under its id; a08_indomitable, E536)
+                    || unlearned.iter().any(|ability| key == ability))
                 .map(|(key, _)| key.to_owned()).collect();
             for key in keys { omoba_core::runtime::native::dispel::remove_status(&world, unit, &key); }
         }
@@ -2406,12 +2408,23 @@ fn check_heal(hero: &str, s: &Value) -> Option<Result<String, String>> {
         previous = now;
     }
     let cast_point = value(&entry, rank, "cast_point").unwrap_or(0.0);
+    // Each status's health_bonus (E536): a raise of the maximum is what the host adds to life.
+    let bonuses = |run: &Run| -> std::collections::BTreeMap<String, f64> {
+        run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(run.caster)
+            .map(|(key, buff)| (key.to_owned(), buff.payload.get("health_bonus").and_then(Value::as_f64).unwrap_or(0.0) / 1024.0)).collect()
+    };
+    let mut held = bonuses(&run);
     let Ok(cast) = run.cast(target, cast_point + 1.0, None) else { return None };
     if !cast.accepted { return None; }
     let mut rise: f64 = 0.0;
     for tick in 0..=ticks(3.0) {
         let now = life(&run)?;
-        let gained = (now.0 - previous.0) - (now.1 - previous.1).max(0.0);
+        // Raised: the statuses' gains, or the maximum's own rise when no status names one.
+        let now_held = bonuses(&run);
+        let raised: f64 = now_held.iter().map(|(key, v)| (v - held.get(key).copied().unwrap_or(0.0)).max(0.0)).sum();
+        let raised = if raised > 0.0 { raised } else { (now.1 - previous.1).max(0.0) };
+        held = now_held;
+        let gained = (now.0 - previous.0) - raised;
         if tick > 0 || gained > 0.0 { rise = rise.max(gained); }
         previous = now;
         run.step(1);
