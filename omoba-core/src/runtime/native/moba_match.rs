@@ -3068,7 +3068,10 @@ fn emit_committed_attack(world: &World, tick: u64, entity: Entity, attack: &TAtt
 pub fn finish_moba_match_tick(world: &mut World) {
     finish_moba_match_rules(world);
     // Last, after every HP change of the tick (E551).
-    if world.try_fetch::<MobaMatch>().is_some() { super::game_processor::emit_changed_vitals(world); }
+    if world.try_fetch::<MobaMatch>().is_some() {
+        super::game_processor::emit_changed_vitals(world);
+        super::game_processor::emit_failed_cast_cooldowns(world);
+    }
 }
 
 fn finish_moba_match_rules(world: &mut World) {

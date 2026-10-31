@@ -15,7 +15,28 @@
 
 ## E568 （保留）conformance 技能前提要另一招做出的東西（b16 的月 state.b16_moon）時沒有先施放那一招（2026-11-01）
 
-## E567 （保留）authority 放棄施法時不送冷卻修正：replica 預測的冷卻留著（a09_lignify、c23）（2026-11-01）
+## E567 authority 放棄施法時不送冷卻修正：replica 預測的冷卻一直留著（2026-11-01，工作線 B）
+
+- **現象**：
+  - E 的 m6new14 `teamfight-05`（seed 5，04:32 的 build，已含 E553）在 tick 2160 出現 observer 不一致：team 1 自己的英雄蜂須賀政勝（entity 133）的 Hero 元件中，replica 多了 `a09_lignify` 的冷卻（約 20 tick 前開始），authority 沒有。
+  - 與 E553 的 c23_malice_wall 是同一類：team replica 預測自己英雄的施法成功並開始冷卻，authority 卻沒有放出這招（前搖中斷、放出時被拒、或結算被拒），之後也沒有送出任何修正。
+- **根因**：
+  - 舊的 E 執行檔可以穩定重現，但那份 snapshot 的原始碼已被之後的批次覆蓋，無法用同一版加 probe 找出 authority 是在哪一步放棄的。
+  - 用 live 最新程式（含 E555）跑同一局則整局通過，但 E555 改變了戰局，不能算已修好。
+  - 共同的結構缺口：施法失敗時 authority 自己沒有任何狀態變化，replica 卻已經預測並開始冷卻；委託投影只會送出 authority 有變化的東西，所以這筆冷卻永遠不會被撤回。只要雙方對施法的判定有一點差異（例如 E553 的地形），就會留下不一致。
+- **通用修正**：
+  - `AbilityWindups` 記錄本 tick「沒有產生效果就結束」的施法 `(tick, caster, ability)`，涵蓋四個失敗點：
+    - 前搖中斷（`advance` 的 interrupt reason）。
+    - 被新指令取消（`cancel_because`）。
+    - 放出時腳本失敗（dispatch 放出結果為 false）。
+    - 序列結算拒絕（`cast_settlement::reject`，改為帶上 skill id，沒有前搖的施法也能記到）。
+  - `finish_moba_match_tick` 結尾的 `emit_failed_cast_cooldowns`：authority 對這些施法者的該技能欄位送出 CommittedCooldown（照 authority 目前的剩餘值，通常是 0），有充能的技能也送出 CommittedCharge。replica 的 `commit_cooldown(0)` 會移除它自己預測的冷卻。同一施法同一 tick 只送一次；team replica 端不執行。
+  - 根因層面：只要之後再出現這類不一致，這層保護也會讓 replica 在同一 tick 收斂。真正的判定差異仍應逐案找出（c23 是 E553 的地形）。
+- **測試**：
+  - `game_processor::tests::a_failed_cast_commits_the_casters_cooldown_at_the_end_of_the_tick`：失敗的施法送出該欄位的冷卻提交（剩餘 0），同一筆不重複；較舊 tick 的列不送。
+  - 施法前搖與結算相關的 38 個測試通過。
+  - teamfight seed 5 用影子（live + E567）重跑：PASS，tick 18436，observer 不一致 0。
+- **檔案**：`omoba-core/src/runtime/native/{cast_windup,cast_settlement,game_processor,moba_match}.rs`、`omoba-core/src/runtime/native/scripting/dispatch.rs`
 
 ## E566 kit 讀不到道具剩餘冷卻、PickOrder／PickedItem 沒有匯出（2026-11-01，工作線 B）
 

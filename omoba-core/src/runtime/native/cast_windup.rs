@@ -59,7 +59,9 @@ pub(crate) struct Windup {
     pub anchored:bool,
 }
 #[derive(Default)]
-pub(crate) struct AbilityWindups(pub BTreeMap<Entity,Windup>,pub BTreeMap<Entity,CastView>);
+/// The windups, their cast views, and (E567) the casts that ended unreleased or failed this tick:
+/// `(tick, caster, ability)`, rows of older ticks dropped as new ones come.
+pub(crate) struct AbilityWindups(pub BTreeMap<Entity,Windup>,pub BTreeMap<Entity,CastView>,pub Vec<(u64,Entity,String)>);
 
 #[derive(Clone,Debug)]
 pub(crate) struct CastView {
@@ -174,9 +176,11 @@ fn cancel_because(world:&World,entity:Entity,reason:&'static str) {
     if let (Some(registry),Some(mut queue))=(world.try_fetch::<super::ability_runtime::AbilityRegistry>(),world.try_fetch_mut::<super::scripting::ScriptEventQueue>()) {
         queue.discard_channels_of(entity,&registry);
     }
+    let tick=world.try_fetch::<Tick>().map_or(0,|tick|tick.0);
     if let Some(mut pending)=world.try_fetch_mut::<AbilityWindups>() {
         if let Some(cast)=pending.0.remove(&entity) {
             pending.result(entity,false);
+            pending.failed(tick,entity);
             super::cast_trace::interrupted(world,[(entity,cast.skill_id,reason)]);
         }
     }
@@ -188,6 +192,18 @@ impl AbilityWindups {
         self.1.insert(caster,CastView {skill_id:cast.skill_id.clone(),state:1,
             remaining:cast.remaining,total:cast.remaining,instance});
         self.0.insert(caster,cast);
+    }
+    /// The caster's current cast ended without its effect (E567): unreleased, refused when it
+    /// released, or refused by the serial settlement. The authority commits the caster's cooldown
+    /// of it at the end of the tick, so a team replica that predicted it drops its own.
+    pub fn failed(&mut self,tick:u64,caster:Entity) {
+        let Some(ability)=self.1.get(&caster).map(|view|view.skill_id.clone()) else {return;};
+        self.failed_ability(tick,caster,ability);
+    }
+    /// [`AbilityWindups::failed`] of a named ability (a cast without a windup has no view).
+    pub fn failed_ability(&mut self,tick:u64,caster:Entity,ability:String) {
+        self.2.retain(|(at,..)|*at==tick);
+        if !self.2.iter().any(|(_,c,a)|*c==caster&&*a==ability) {self.2.push((tick,caster,ability));}
     }
     pub fn result(&mut self,caster:Entity,success:bool) {
         if let Some(view)=self.1.get_mut(&caster) {view.state=if success {3}else{2};view.remaining=Fixed64::ZERO;}
@@ -222,6 +238,7 @@ impl AbilityWindups {
             ready.push(ScriptEvent::SkillCast {caster:*caster,skill_id:cast.skill_id.clone(),target:cast.target.clone()});
             false
         });
+        for (caster,_,_) in &ended {self.failed(tick,*caster);}
         super::cast_trace::interrupted(world,ended);
         ready
     }

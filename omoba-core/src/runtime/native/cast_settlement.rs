@@ -391,9 +391,14 @@ impl PlannedSummon {
     }
 }
 
-pub(super) fn reject(world:&World,caster:Entity,effects:&[Outcome]) {
+pub(super) fn reject(world:&World,caster:Entity,skill:&str,effects:&[Outcome]) {
     release_spawns(world,effects);
-    if let Some(mut casts)=world.try_fetch_mut::<super::super::cast_windup::AbilityWindups>() {casts.result(caster,false);}
+    let tick=world.try_fetch::<Tick>().map_or(0,|tick|tick.0);
+    if let Some(mut casts)=world.try_fetch_mut::<super::super::cast_windup::AbilityWindups>() {
+        casts.result(caster,false);
+        // E567: the replica that predicted it drops the cooldown it started.
+        casts.failed_ability(tick,caster,skill.to_owned());
+    }
 }
 
 /// The summons a refused transaction reserved go back (placement ledger, uncommitted entity).

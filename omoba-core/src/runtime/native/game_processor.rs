@@ -3412,7 +3412,7 @@ pub fn process_outcomes(
                     if let Some(mut journal)=world.try_fetch_mut::<super::command_outcome::OwnerCommandOutcomes>() {
                         journal.reject_cast_if(caster,&skill_id,super::command_outcome::CAST_REJECTED,authoritative);
                     }
-                    cast_settlement::reject(world,caster,&outcomes);
+                    cast_settlement::reject(world,caster,&skill_id,&outcomes);
                 }
             }
             Outcome::ScriptCastCommitted {caster,cues} => {cast_settlement::publish(world,caster,cues);}
@@ -3799,6 +3799,33 @@ pub(crate) fn emit_changed_vitals(world: &mut World) {
     };
     world.write_resource::<CommittedVitalsCache>().0 = next;
     emit_committed_vitals(world, changed);
+}
+
+/// End of an authority MOBA tick (E567): the cooldown (and charges) of every hero cast this tick
+/// that ended without its effect — unreleased, refused when it released, or refused by the serial
+/// settlement — committed as it stands. A team replica that predicted the cast (its view admitted
+/// what the authority refused) started a cooldown the authority never did; this drops it.
+pub(crate) fn emit_failed_cast_cooldowns(world: &mut World) {
+    if world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>().is_some() { return; }
+    let tick = world.try_fetch::<Tick>().map(|tick| tick.0).unwrap_or(0);
+    let rows: Vec<(Entity, String)> = match world.try_fetch_mut::<super::cast_windup::AbilityWindups>() {
+        Some(mut windups) => std::mem::take(&mut windups.2).into_iter()
+            .filter(|(at, ..)| *at == tick).map(|(_, caster, ability)| (caster, ability)).collect(),
+        None => return,
+    };
+    if rows.is_empty() { return; }
+    let (mut cooldowns, mut charges) = (BTreeMap::new(), BTreeMap::new());
+    {
+        let heroes = world.read_storage::<Hero>();
+        for (caster, ability) in rows {
+            let Some(hero) = heroes.get(caster) else { continue };
+            let Some(slot) = hero.abilities.iter().position(|id| *id == ability) else { continue };
+            let key = (crate::runtime::canonical_entity_id(caster), slot as u32);
+            if hero.ability_charges.contains_key(&ability) { charges.insert(key, (caster, ability.clone())); }
+            cooldowns.insert(key, (caster, ability));
+        }
+    }
+    emit_committed_actor_state(world, tick, BTreeMap::new(), cooldowns, charges);
 }
 
 /// Serial outcome reduction order, separate from gameplay and script ABI state.
@@ -6407,6 +6434,34 @@ mod tests {
             }] if *attacker == source && *victim == target
         ));
     }
+    /// A hero cast that ended without its effect this tick commits the caster's cooldown of it as
+    /// it stands (none: zero remaining), once; an older tick's row commits nothing (E567).
+    #[test]
+    fn a_failed_cast_commits_the_casters_cooldown_at_the_end_of_the_tick() {
+        let mut world = World::new();
+        world.register::<Hero>(); world.register::<CProperty>();
+        world.insert(crate::runtime::ObservableFactBuffer::default());
+        world.insert(Tick(7));
+        let mut hero = Hero::default();
+        hero.abilities = vec!["a09_q".into(), "a09_lignify".into()];
+        let caster = world.create_entity().with(hero).build();
+        let mut windups = super::super::cast_windup::AbilityWindups::default();
+        windups.failed_ability(7, caster, "a09_lignify".into());
+        windups.failed_ability(7, caster, "a09_lignify".into());
+        world.insert(windups);
+        emit_failed_cast_cooldowns(&mut world);
+        let cooldowns: Vec<_> = world.read_resource::<crate::runtime::ObservableFactBuffer>().drain_ordered().unwrap().into_iter()
+            .filter_map(|fact| match fact.fact {
+                crate::runtime::ObservableFact::CommittedCooldown { source, slot, remaining_raw } => Some((source, slot, remaining_raw)),
+                _ => None,
+            }).collect();
+        assert_eq!(cooldowns, vec![(crate::runtime::canonical_entity_id(caster), 1, 0)]);
+        world.write_resource::<super::super::cast_windup::AbilityWindups>().failed_ability(6, caster, "a09_lignify".into());
+        world.write_resource::<Tick>().0 = 8;
+        emit_failed_cast_cooldowns(&mut world);
+        assert!(world.read_resource::<crate::runtime::ObservableFactBuffer>().drain_ordered().unwrap().is_empty());
+    }
+
     /// An HP change no committed path reported (here a direct write, as a restore under its own
     /// buff id or spell lifesteal makes) is reported at the end of the tick; vitals the tick already
     /// committed and unchanged bodies are not repeated (E551).

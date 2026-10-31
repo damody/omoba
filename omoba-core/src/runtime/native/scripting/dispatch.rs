@@ -401,7 +401,10 @@ fn dispatch_scripts(
             };
             adapter.set_cast_released(releasing && is_cast);
             dispatch_one(&mut adapter, registry, ev, cast_level, cooldown, rng_seed, &mut visual_events);
-            if releasing {windups.result(invocation_entity,adapter.cast_succeeded());}
+            if releasing {
+                windups.result(invocation_entity,adapter.cast_succeeded());
+                if !adapter.cast_succeeded() {windups.failed(trace_tick,invocation_entity);}
+            }
             // SkillCast is provisional until the actual handler succeeds.
             // This gate applies to legacy casts too, not only managed Mana.
             // Keep earlier events in the batch; never publish a rejected cast.
