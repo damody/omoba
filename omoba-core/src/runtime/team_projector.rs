@@ -203,6 +203,9 @@ pub struct TeamViewProjector {
     point_view: Option<std::sync::Arc<crate::runtime::visibility::WaveBReadView>>,
     /// This frame's runtime facts per replica id, already in the team form (runtime_fact_state).
     runtime_facts: BTreeMap<u64, Vec<u8>>,
+    /// Replica ids whose step-changing component (target state, unit abilities) the last step
+    /// sent, per event kind: the step it goes away sends one empty event (E541).
+    shown_step_components: BTreeMap<u32, BTreeSet<u64>>,
     prepared_mode: Option<AuthoritativeModePresentation>,
     /// M3' ② script DLLs the authority swapped before this tick (dev hot reload).
     pending_script_swaps: Vec<crate::game_proto::ScriptModuleSwap>,
@@ -762,6 +765,7 @@ impl TeamViewProjector {
             pending_fog_event: None,
             point_view: None,
             runtime_facts: BTreeMap::new(),
+            shown_step_components: BTreeMap::new(),
             prepared_mode: None,
             pending_script_swaps: Vec::new(),
             combat_preferences: None,
@@ -1502,6 +1506,19 @@ impl TeamViewProjector {
             if !self.hash_entities.contains_key(&id) { continue; }
             public_events.push(TeamPublicEvent { event_kind: crate::runtime::runtime_fact_state::EVENT_KIND,
                 subject: Some(ProtoReplicaEntityId { value: id }), sanitized_payload: bytes.clone(), stable_sub_index: 0 });
+        }
+        // Components that change within a disclosed life (E541): this step's bytes while present,
+        // one empty event when gone, so the replica never keeps a stale copy from its baseline.
+        for (kind, schema) in [(crate::runtime::FactKind::TargetState, crate::runtime::DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID),
+            (crate::runtime::FactKind::UnitAbilities, crate::runtime::native::unit_abilities::SCHEMA_ID)] {
+            let shown = self.shown_step_components.entry(kind as u32).or_default();
+            let mut now = BTreeSet::new();
+            for (&id, (_, _, components)) in &self.hash_entities {
+                let payload = match components.get(&schema) { Some(bytes) => { now.insert(id); bytes.clone() }, None if shown.contains(&id) => Vec::new(), None => continue };
+                public_events.push(TeamPublicEvent { event_kind: kind as u32, subject: Some(ProtoReplicaEntityId { value: id }),
+                    sanitized_payload: payload, stable_sub_index: 0 });
+            }
+            *shown = now;
         }
         for (&id, (_, _, components)) in &self.hash_entities {
             if let Some(range)=components.get(&crate::runtime::attack_visual_state::RANGE_SCHEMA_ID){

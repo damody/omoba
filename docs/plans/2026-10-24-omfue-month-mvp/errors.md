@@ -2,6 +2,38 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E544 （保留）spotlight 報告沒有 observer 驗證結果，無法當 observer 過渡涵蓋（2026-11-01）
+
+## E543 （保留）conformance 數召喚物時沒有認分等級模板的 unit_id（a28_phoenix_r{rank}），create_unit 判 0 made（2026-11-01）
+
+## E542 M6 batch 沒有實機 split 局，observer mismatch 這類只在 server＋replica 出現的問題抓不到（2026-11-01，E187）
+- 現象：工作線 C 的 demo10 跑約 63 秒就被 `observer-mismatch-after-rebase` 中止（E541），但 verify_m6_batch 的 headless 批次全部通過。Acceptance 段只列 NEVER CAST、拒絕、失敗局與小兵朝向，看起來像全部通過。
+- 原因：headless 的 moba_headless 只跑 authority，沒有 team replica 和 observer 比對。observer mismatch 只會在 split 拓撲（omb server＋transport＋runtime）出現，批次本來就量不到。
+- 修正（共用層）：
+  - `verify_m6_batch.lua --split`：headless 局跑完後，用 quick recipe 產生 `split.lua`（玩家 1、6 改成 autopilot 人類），以 `run_moba_split_local.lua --autopilot lane_v0 --max-seconds 600 --wait-live-lock 1800` 跑一局實機 split（遵守機器鎖、10 分鐘上限）。
+  - 用 `match_summary.summary` 讀 authority log，寫進 `report.json` 的 `split`（exit code、是否結束、時長、observer mismatch 數）。Acceptance 加一行 `split (live …): observer mismatch N`；讀不到 log 時寫 `NO AUTHORITY LOG` 和原因。
+  - 沒加 `--split` 時，Acceptance 明寫 `observer：headless 未涵蓋；spotlight split 涵蓋 <英雄>`。英雄清單用 `--spotlight-observed a,b,...` 帶入（工作線 C 的逐英雄 spotlight split）；沒帶時寫「未提供」。
+  - `--split` 只是選項、不預設開：每批多佔 10 分鐘 live_match 鎖會擋住 spotlight。正式做法是 moba_headless 在同一個 process 內接上 projector、replica 和 observer（B），完成後 Acceptance 直接列 headless 的 mismatch 數。
+- 避免：驗收清單沒量到的項目要寫「未涵蓋」，不能留空，免得被當成通過。
+
+## E541 replica 的 target state／UnitAbilityState 只在 baseline 收到，之後不再更新（demo10 observer mismatch）（2026-11-01，工作線 B）
+
+- **現象**：工作線 C 的 demo10（1+9 快速局）跑到約 63 秒時，被 server 以 `observer-mismatch-after-rebase` 結束（last_safe_sequence=3839）。
+  - 從 tick 2640 起，同一位英雄（canonical 0x10000000b）的 schema 0x464f471b 出現在兩隊：authority 有、replica 沒有。
+  - 到了 2880 反過來，3600、3840 又各出現一次。
+- **原因**：
+  - 0x464f471b 是 E460 的 target state 元件，記錄魔免、不可選取、無敵三個 bit。
+  - visibility 揭露單位時，會從 BuffStore 算出這個元件，但 replica 只有在 baseline 才收到它，之後沒有任何逐步的 fact 或 event 去更新。
+  - 英雄在揭露期間獲得或失去魔免、無敵（例如般若湯）時，authority 的值已經改變，replica 仍保留 baseline 的舊值，checkpoint 比對因此不一致。
+  - E531 的 UnitAbilityState 也有同樣的缺口：冷卻每步都會變。
+- **通用修正**：
+  - 新增 FactKind `TargetState = 44`、`UnitAbilities = 45`，兩者都只作為 event 使用。
+  - team_projector 每一步、對每個已揭露的實體送出目前的元件 bytes。元件消失時送一次空 payload；`shown_step_components` 記錄上一步送過哪些實體。
+  - filtered_specs：驗證 payload 後替換元件；收到空 payload 就移除；格式不對時回 MalformedBaseline，而且世界不會被改動。
+- **為什麼 headless 沒抓到**：moba_headless 沒有 team replica，也沒有 observer 比對；只有 omb server 加 transport 的實機局會檢查。已提醒工作線 E 在批次中固定放 split 局。
+- **測試**：filtered_specs `target_state_and_unit_abilities_follow_the_step_events`（獲得、失去、格式錯誤）；另跑 filtered_specs、team_projector、observer、secure_replica，共 67 個測試。
+- **檔案**：`omoba-core/src/runtime/stable_fact.rs`、`omoba-core/src/runtime/team_projector.rs`、`omoba-core/src/runtime/filtered_specs.rs`
+
 ## E540 split 的角色異常結束時仍以 0 結束，失敗被吞掉（2026-11-01，工作線 C）
 - 現象：工作線 C 的 demo10（1+9 quick 效能局）被伺服器以 `observer-mismatch-after-rebase` 中止，`p1/errors.md` 記下 `runtime-p1 exited during match`。但 `run_moba_split_local.lua` 仍以 0 結束，呼叫端（佇列、量測腳本）都當作成功。
 - 原因：split 的監看迴圈發現任何角色結束時，只印出 `<label> ended; retiring the rest of this split run` 就 return。這和比賽正常結束走的是同一條路，失敗被吞掉。

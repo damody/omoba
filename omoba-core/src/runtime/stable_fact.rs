@@ -85,6 +85,12 @@ pub enum FactKind {
     /// A visible hero's ability in each slot (a swap_abilities changes them on the authority,
     /// whose scripts an opposing replica does not run; E401).
     CommittedAbilitySlots = 43,
+    /// A disclosed unit's target state bits (magic immune, unselectable, invulnerable; E460) this
+    /// step; an empty payload once it has none (EVENT ONLY, team_projector; E541).
+    TargetState = 44,
+    /// A disclosed non-hero's unit abilities and cooldowns (unit_abilities, E531) this step; an
+    /// empty payload once it has none (EVENT ONLY, team_projector; E541).
+    UnitAbilities = 45,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]

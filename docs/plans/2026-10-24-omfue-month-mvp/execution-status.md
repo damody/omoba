@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：replica 逐步收到 target state 與召喚物技能（E541）
+
+- FactKind TargetState／UnitAbilities：projector 每步送出，消失時送空 payload；修好 demo10 的 observer-mismatch-after-rebase。
 ## 2026-11-01 線 B：dead_within 預設為引擎屍體時間（E539）
 
 - `dead_in_circle` 的 within 改成選填；沒寫時用 `RetiredPositions::KEEP_SECONDS`（B23）。

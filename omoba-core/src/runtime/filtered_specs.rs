@@ -1566,6 +1566,25 @@ fn apply_committed_economy_and_equipment(
     injections: &StepInjections,
 ) -> Result<(), ReplicaRuntimeError> {
     for event in &injections.public_events {
+        // E541: the step's target state / unit abilities, or none (an empty payload).
+        let step_schema = if event.event_kind == crate::runtime::FactKind::TargetState as u32 {
+            Some(crate::runtime::DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID)
+        } else if event.event_kind == crate::runtime::FactKind::UnitAbilities as u32 {
+            Some(crate::runtime::native::unit_abilities::SCHEMA_ID)
+        } else { None };
+        if let Some(schema) = step_schema {
+            let valid = event.sanitized_payload.is_empty() || if schema == crate::runtime::DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID {
+                crate::runtime::visibility::decode_disclosed_target_state(&event.sanitized_payload).is_some()
+            } else {
+                serde_json::from_slice::<crate::runtime::native::unit_abilities::UnitAbilityState>(&event.sanitized_payload).is_ok()
+            };
+            if !valid { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            if event.sanitized_payload.is_empty() { entity.components.remove(&schema); }
+            else { entity.components.insert(schema, event.sanitized_payload.clone()); }
+            continue;
+        }
         if event.event_kind==crate::runtime::FactKind::DisclosedCombatRelation as u32 {
             crate::runtime::decode_disclosed_combat_relation(&event.sanitized_payload)
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
@@ -2339,6 +2358,30 @@ mod committed_actor_state_tests {
         assert!(apply_disclosed_events(&mut world, &event(FactKind::AttackVisual, idle.clone())).is_err());
         world.entities.clear();
         assert!(apply_disclosed_events(&mut world, &event(FactKind::AttackVisual, idle)).is_err());
+    }
+
+    /// E541 (demo10 observer-mismatch-after-rebase): a target state gained or lost within a
+    /// disclosed life reaches the replica in the step's event; an empty payload removes it.
+    #[test]
+    fn target_state_and_unit_abilities_follow_the_step_events() {
+        use crate::runtime::{DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID as TARGET, encode_disclosed_target_state};
+        use crate::runtime::native::unit_abilities::{SCHEMA_ID as ABILITIES, UnitAbilityRow, UnitAbilityState};
+        let mut world = world();
+        let immune = encode_disclosed_target_state(crate::runtime::TARGET_STATE_MAGIC_IMMUNE).unwrap();
+        apply_disclosed_events(&mut world, &event(FactKind::TargetState, immune.clone())).unwrap();
+        assert_eq!(world.entities[&1].components.get(&TARGET), Some(&immune), "gained");
+        apply_disclosed_events(&mut world, &event(FactKind::TargetState, Vec::new())).unwrap();
+        assert!(!world.entities[&1].components.contains_key(&TARGET), "lost");
+        let before = world.clone();
+        assert!(apply_disclosed_events(&mut world, &event(FactKind::TargetState, vec![1, 9])).is_err());
+        assert_eq!(world, before);
+        let shown = UnitAbilityState { abilities: vec![UnitAbilityRow { ability: "a36_detonate".into(), level: 1, cooldown_raw: 2048 }] };
+        let bytes = crate::runtime::visibility::canonical_disclosed_json(&shown);
+        apply_disclosed_events(&mut world, &event(FactKind::UnitAbilities, bytes.clone())).unwrap();
+        assert_eq!(world.entities[&1].components.get(&ABILITIES), Some(&bytes));
+        assert!(apply_disclosed_events(&mut world, &event(FactKind::UnitAbilities, b"{".to_vec())).is_err());
+        apply_disclosed_events(&mut world, &event(FactKind::UnitAbilities, Vec::new())).unwrap();
+        assert!(!world.entities[&1].components.contains_key(&ABILITIES));
     }
 
     #[test]
