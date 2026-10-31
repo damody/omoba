@@ -69494,16 +69494,13 @@ local data = {
     {
       abilities = { "c18_lone_rider", "c18_twin_chariot", "c18_three_blades", "c18_four_cannons", "c18_chain_stratagem" },
       authored_package = "kobayakawa_takakage",
-      background = "小早川隆景（schema v3 產生的 Rust；測試用）",
       display_name = "小早川隆景",
       id = "kobayakawa_takakage",
       moba_loadout = {
         ranks = { 1, 1, 1, 0, 1 },
         skill_points = 0,
       },
-      source_stats = "C18",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:C18",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "kobayakawa_takakage",

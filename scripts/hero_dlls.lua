@@ -121,4 +121,6 @@ return {
   {hero='ise_hime',package='hero_b23',dir='heroes/ise_hime'},
   -- M6 batch (2026-10-31): every ability generated (attack.effect_multiplier（E562）、dodge_projectiles.of（E557）); conformance 0 fail
   {hero='hattori_hanzo',package='hero_a13',dir='heroes/hattori_hanzo'},
+  -- M6 batch (2026-10-31): every ability generated (status_source（E570）、pick_item 與 modify_cooldown.item（E561、E566、E569）); conformance 0 fail
+  {hero='kobayakawa_takakage',package='hero_c18',dir='heroes/kobayakawa_takakage'},
 }
