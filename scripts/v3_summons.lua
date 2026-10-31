@@ -285,7 +285,10 @@ function M.template_rows(doc, t)
     if k ~= "hp" and k ~= "hp_regen" and k ~= "armor" and k ~= "magic_resist" and k ~= "move_speed" and k ~= "mana" and k ~= "mana_regen" then no("stats." .. k) end
   end
   local attack = t.attack
-  if not attack or attack.kind == "none" then no("no attack (the dummy unit type, line B)") attack = {} end
+  -- no attack at all (NO_ATTACK): a summon that moves and is controlled but never attacks (host
+  -- no_attack, line B E511); it has no attack damage
+  local no_attack = not attack or attack.kind == "none"
+  if no_attack then attack = {} end
   if attack.kind and attack.kind ~= "melee" and attack.kind ~= "ranged" and attack.kind ~= "none" then no("attack.kind:" .. tostring(attack.kind)) end
   -- the summon's attack deals this type (host attack_damage_type, line B E503; physical by default)
   if attack.damage_type ~= nil and attack.damage_type ~= "physical" and attack.damage_type ~= "magical" and attack.damage_type ~= "pure" then
@@ -317,6 +320,7 @@ function M.template_rows(doc, t)
     local row = { id = ranks > 1 and (t.id .. "_r" .. rank) or t.id, authored_package = doc.__package,
       display_name = t.text and t.text.zh_TW and t.text.zh_TW.name or t.id }
     row.attack_damage_type = damage_type
+    row.no_attack = no_attack or nil
     row.hp = num(stats.hp, "stats.hp")
     if row.hp == nil then no("stats.hp missing") end
     row.armor = num(stats.armor, "stats.armor") or 0
