@@ -2,7 +2,14 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E461 （保留）小兵面向只能靠截圖肉眼判斷，headless 與 split 都沒有資料層檢查（2026-10-31）
+## E461 小兵面向只能靠截圖肉眼判斷，headless 與 split 都沒有資料層檢查（2026-10-31，e187 遊戲模式 session，主 session 要求；已放回 live）
+- **現象**：使用者要求檢查小兵面向。split396（8:58 自然結束）的 facing 截圖只跟著受控英雄：p1 004／011、p6 004／011 畫面裡沒有小兵；p1 014、019 有我方小兵列隊，但看不出方向。
+- **通用修正**：moba_headless 統計模式加 `CreepFacing`：每 30 tick 對每隻活著的小兵檢查一次，條件如下，超過 30° 記 violation 並取最多 10 筆樣本。
+  - 自上次取樣後移動 ≥ 20：Facing 要對準位移方向。
+  - 站著且這段期間有攻擊前搖：Facing 要對準 AttackRecords 的目標。
+  - 報告輸出 `creep_facing {walk_checks, attack_checks, violations, samples}`；verify_m6_batch 加總後印一行 `Creep facing (E461)`，驗收以 0 violation 為準。
+- **後續**：split 的 server 端尚未加同樣的檢查；資料層通過後，再請 C 讓 autopilot 在畫面裡有小兵時補拍 facing 截圖。
+- **避免**：使用者要求的驗收項目要有資料層檢查，截圖只當作輔助。
 
 ## E460 bot 對魔免、不可選取的單位施放單位技能，被拒成 INVALID_TARGET（2026-10-31，工作線 B）
 

@@ -241,6 +241,17 @@ for _, r in ipairs(recipes) do
         row.finished = row.finished + 1
         row.minutes[#row.minutes + 1] = report.game_seconds / 60
         if report.winner_team == r.group_team then row.group_wins = row.group_wins + 1 end
+        -- Creep facing from the simulation data (E461, moba_headless creep_facing): accepted at 0.
+        if report.creep_facing then
+          local f = summary.creep_facing or { walk_checks = 0, attack_checks = 0, violations = 0, samples = {} }
+          summary.creep_facing = f
+          f.walk_checks = f.walk_checks + report.creep_facing.walk_checks
+          f.attack_checks = f.attack_checks + report.creep_facing.attack_checks
+          f.violations = f.violations + report.creep_facing.violations
+          for _, sample in ipairs(report.creep_facing.samples or {}) do
+            if #f.samples < 10 then sample.match = ('%s-%02d'):format(r.name, job.seed); f.samples[#f.samples + 1] = sample end
+          end
+        end
         for _, hero in ipairs(report.hero_stats or {}) do
           local won = hero.team ~= nil and hero.team == report.winner_team
           local h = hero_rows[hero.hero] or { games = 0, wins = 0, kills = 0, deaths = 0, assists = 0, damage = 0, hero_damage = 0 }
@@ -326,6 +337,16 @@ for _, row in ipairs(summary.recipes) do
     row.median_minutes, table.concat(row.failures, ' '))
 end
 md[#md + 1] = ''
+local facing = summary.creep_facing
+if facing then
+  md[#md + 1] = ('Creep facing (E461): %d violation(s) over %d walking and %d attacking checks%s'):format(facing.violations,
+    facing.walk_checks, facing.attack_checks, facing.violations == 0 and '.' or ' — FACING WRONG:')
+  for _, s in ipairs(facing.samples) do
+    md[#md + 1] = ('- %s tick %d %s #%d %s: facing %d°, expected %d° (off %d°) at (%d, %d)'):format(s.match, s.tick, s.creep,
+      s.entity, s.mode, s.facing, s.expected, s.off, s.x, s.y)
+  end
+  md[#md + 1] = ''
+end
 -- `casts` is the larger of the cast trace's accepted count and the authority's Ability facts
 -- (E316: B08 無盡牙 left Ability facts but no trace row and was reported as never cast; such a
 -- row is now NO TRACE, an anomaly to hand over, not a never-cast); `bot inputs` counts every
