@@ -15,6 +15,8 @@ pub use codegen::*;
 // Host components work line B adds (M5): more `impl Cx` methods, same glob export.
 mod host_ext;
 pub use host_ext::{DmgExtra, StatusFilter};
+// v3 `chance { mode = "prd" }` (E505).
+mod prd;
 /// v3 `armor_multiplier(armor)`: the share of physical damage that lands through `armor` (the
 /// rule layer's one armor formula).
 pub use omoba_core::runtime::native::comp::damage::armor_multiplier;

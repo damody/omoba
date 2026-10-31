@@ -20,7 +20,15 @@
 
 ## E506 （保留）狀態事件沒有魔力帳本：orb 的每擊魔力花不掉（2026-10-31）
 
-## E505 （保留）chance.mode prd 沒有 host 落點（A17）（2026-10-31）
+## E505 chance 的 mode = "prd" 沒有 host 落點：A17 只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage A17：v3 `chance { mode = "prd" }`（原作 PseudoRandom）只能當一般機率，或直接擋下。
+- **根因**：kit 只有獨立擲骰的 `chance(p)`，沒有 PRD 遞增機率，也沒有記錄失敗次數的地方。
+- **通用修正**：
+  - kit 新增 `chance_prd(key, p, hero)`（`scripts/ability_kit/src/prd.rs`）。第 N 次嘗試的機率是 `C × N`，常數 C 由名目機率 p 二分求出，長期命中率等於 p，全程整數運算（2^30 定點），每個世界擲出的結果相同。
+  - 距上次命中的嘗試次數存在施法者的 unit var `key`（產生器用 `__prd:<range>`），命中時歸零；`hero` 決定英雄死亡後是否保留。
+  - 測試：25%、40%、50% 的 C 與 Dota 公布值差在 0.001 內，長期命中率與 p 差在 0.0005 內。
+- **檔案**：`scripts/ability_kit/src/prd.rs`、`scripts/ability_kit/src/lib.rs`
 
 ## E504 （保留）獨立狀態移除自己這一個實例與實例變數沒有 host 落點（A06）（2026-10-31）
 
