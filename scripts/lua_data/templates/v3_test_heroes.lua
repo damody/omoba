@@ -68443,16 +68443,13 @@ local data = {
     {
       abilities = { "b33_corrosive_arrow", "b33_spider_web", "b33_voodoo_power", "b33_spider_attack" },
       authored_package = "mogami_yoshihime",
-      background = "最上義姬（schema v3 產生的 Rust；測試用）",
       display_name = "最上義姬",
       id = "mogami_yoshihime",
       moba_loadout = {
         ranks = { 1, 1, 1, 0 },
         skill_points = 0,
       },
-      source_stats = "B33",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B33",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "mogami_yoshihime",

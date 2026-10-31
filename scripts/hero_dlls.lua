@@ -54,4 +54,5 @@ return {
   -- M6 fifth batch (2026-10-31): every ability generated, conformance 0 fail
   {hero='saito_tomonobu',package='hero_b03',dir='heroes/saito_tomonobu'},
   {hero='naoe_kanetsugu',package='hero_b36',dir='heroes/naoe_kanetsugu'},
+  {hero='mogami_yoshihime',package='hero_b33',dir='heroes/mogami_yoshihime'},
 }
