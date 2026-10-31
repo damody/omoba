@@ -101,4 +101,6 @@ return {
   -- M6 batch (2026-10-31): every ability generated; stat.when and impulse generated; conformance 0 fail (shadow)
   {hero='kosokabe_chikayasu',package='hero_c10',dir='heroes/kosokabe_chikayasu'},
   {hero='honganji_kennyo',package='hero_b25',dir='heroes/honganji_kennyo'},
+  -- M6 batch (2026-10-31): every ability generated (modify_base_stat E523); conformance 0 fail
+  {hero='kikuhime',package='hero_b11',dir='heroes/kikuhime'},
 }

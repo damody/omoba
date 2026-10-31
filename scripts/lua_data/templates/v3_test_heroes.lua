@@ -69332,16 +69332,13 @@ local data = {
     {
       abilities = { "b11_cherry_rain", "b11_breath_control", "b11_interception", "b11_crow_strike", "b11_inherited_blood", "b11_crow_raid" },
       authored_package = "kikuhime",
-      background = "菊姬（schema v3 產生的 Rust；測試用）",
       display_name = "菊姬",
       id = "kikuhime",
       moba_loadout = {
         ranks = { 1, 1, 1, 0, 1, 1 },
         skill_points = 0,
       },
-      source_stats = "B11",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B11",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "kikuhime",
