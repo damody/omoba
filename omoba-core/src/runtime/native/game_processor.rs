@@ -6794,6 +6794,11 @@ fn handle_add_buff(
         }
         return Ok(());
     }
+    // v3 set_base_max_hp (E563): a non-hero body's base maximum, never a stored row.
+    if buff_id==super::base_max_hp::BUFF {
+        super::base_max_hp::apply(world,target,&payload);
+        return Ok(());
+    }
     // v3 give_item / remove_item (E561): an inventory change, never a stored row.
     if payload.get(super::item_grant::KEY).is_some() || buff_id==super::item_grant::BUFF {
         super::item_grant::apply(world,target,&buff_id,&payload);

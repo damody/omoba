@@ -6,12 +6,33 @@
 - 現象：E555（攻擊距離改成邊到邊）之後要對 89 位 READY 英雄各跑 1 局 quick 回歸。verify_m6_batch 每組固定跑 quick、quick_swap、teamfight 三種 recipe，`--matches 1` 也是每組 3 局，多出的兩局佔掉 live 佇列的時間。
 - 修正（共用層）：`--recipes quick,quick_swap,teamfight` 只保留列出的 recipe，依原本的順序。名稱不認得或清單為空時直接報錯；`--split` 需要 quick。
 - 避免：批次工具的工作量要能按驗收目的縮減（只跑 quick、只跑一局），不要為了一個指標跑整套。
-
 ## E564 （保留）conformance 從沒驗證狀態的 on_take_damage／on_death／on_kill trigger（status step 一律 unsupported）（2026-11-01）
 
-## E563 （保留）kit 沒有 set_base_max_hp：B16 忍犬基礎生命（2026-11-01）
+## E563 kit 沒有 set_base_max_hp：B16 忍犬的基礎生命（2026-11-01，工作線 B）
 
-## E562 （保留）attack.effect_multiplier 只支援 1：A13 隱斬的必中攻擊法球效果要減半（2026-11-01）
+- **現象**：A 回報 B16 只剩 `set_base_max_hp`（`b16_beast_union` 與 routine `b16_adjust`；原作 SetBaseMaxHealth 改忍犬的基礎生命）。
+- **修正**：
+  - host 新增 `native::base_max_hp`：一次性信封，不存列，只作用於非英雄單位。
+    - 新的最大生命 = `value` +（舊最大生命 − 舊基礎），modifier 加上的部分保留在上面；基礎值取自 `Unit.max_hp`，沒有 Unit 列時就以 `value` 為最大值。
+    - 目前生命保留，超過新上限時截到上限。原作也保留生命，腳本另外用 set_health 設定。
+    - 新的 vitals 由 E551 在 tick 結尾投影出去。
+    - 英雄的最大生命來自屬性與道具，不處理。
+  - kit `Cx::set_base_max_hp(to, value)`：作用在英雄上或 value ≤ 0 時回 Err。
+- **測試**：`base_max_hp::tests::the_base_moves_modifiers_stay_on_top_and_health_is_capped`。
+- **檔案**：`omoba-core/src/runtime/native/base_max_hp.rs`（新）、`omoba-core/src/runtime/native.rs`、`omoba-core/src/runtime/native/game_processor.rs`、`scripts/ability_kit/src/host_ext.rs`
+
+## E562 attack.effect_multiplier 只支援 1：A13 隱斬的必中攻擊要讓法球效果減半（2026-11-01，工作線 B）
+
+- **現象**：A 回報 A13 只剩這一項。`a13_shadow_slash` 的 `attack { use_orb, trigger_effects, cannot_miss, instant, effect_multiplier = $orb_scale }`，原作是 `caster.orb = 0.5`，讓道具法球效果減半，只影響這一擊。kit 的 `perform_attack` 遇到倍率不是 1 就回 Err。
+- **根因**：腳本攻擊沒有自己的攻擊紀錄。觸發器讀 `event.attack.effect_multiplier`（unit attr `attack_effect_multiplier`）時，拿到的是攻擊者普攻的 AttackRecord，所以沒有地方可以放這一擊的倍率。
+- **修正**：
+  - rules::attack 新增 `ScriptedAttackMultipliers { tick, rows }`：`scripted()` 記下這次腳本攻擊的倍率，只在當 tick 有效。
+  - host 讀 `attack_effect_multiplier` 時，該攻擊者本 tick 若有腳本攻擊，就以那一筆為準，其餘照普攻紀錄。
+  - `perform_attack`：payload 可帶 `effect_multiplier`（raw，0～10），只限 instant 攻擊；投射物攻擊的觸發器在抵達時才執行，不帶倍率，帶了就拒絕。`use_orb` 的法球傷害量也乘上倍率。
+  - kit `perform_attack` 接受任意倍率（instant、0～10），其餘回 Err。
+  - 倍率是比例：`$orb_scale` 是 50（pct），請傳 0.5。
+- **測試**：`perform_attack::tests::a_scaled_scripted_attack_carries_its_effect_multiplier_for_the_tick`：倍率 0.5 的攻擊在當 tick 讀得到、下一 tick 讀不到、別的單位讀不到；倍率 1 的 payload 與舊格式相同；投射物攻擊或倍率 11 被拒。
+- **檔案**：`omoba-core/src/runtime/native/perform_attack.rs`、`omoba-core/src/runtime/native/rules/attack.rs`、`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`、`scripts/ability_kit/src/host_ext.rs`
 
 ## E561 kit 沒有 give_item／pick_item／remove_item：B07、C06、C18 卡住（2026-11-01，工作線 B）
 

@@ -66,6 +66,27 @@ pub struct AttackRecord {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AttackRecords(pub BTreeMap<Entity, AttackRecord>);
 
+/// The effect multiplier of each attacker's scripted attack in tick `tick` (E562, v3
+/// `attack.effect_multiplier`, 原作 caster.orb): `event.attack.effect_multiplier` reads it for the
+/// rest of that tick instead of the ordinary attack's record, so only that attack's triggers see it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ScriptedAttackMultipliers { pub tick: u64, pub rows: BTreeMap<Entity, Fixed64> }
+
+impl ScriptedAttackMultipliers {
+    /// The attacker's scripted multiplier in `tick`, if it made a scripted attack then.
+    pub fn of(&self, attacker: Entity, tick: u64) -> Option<Fixed64> {
+        (self.tick == tick).then(|| self.rows.get(&attacker).copied()).flatten()
+    }
+}
+
+fn note_scripted_multiplier(world: &mut World, attacker: Entity, multiplier: Fixed64) {
+    let tick = world.try_fetch::<crate::runtime::Tick>().map_or(0, |tick| tick.0);
+    if world.try_fetch::<ScriptedAttackMultipliers>().is_none() { world.insert(ScriptedAttackMultipliers::default()); }
+    let mut rows = world.write_resource::<ScriptedAttackMultipliers>();
+    if rows.tick != tick { rows.tick = tick; rows.rows.clear(); }
+    rows.rows.insert(attacker, multiplier);
+}
+
 /// 未命中的原因。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MissReason {
@@ -317,7 +338,8 @@ pub fn instant(world: &mut World, attacker: Entity, target: Entity, critical: Op
 
 /// 腳本的立即攻擊（v3 `attack`，perform_attack）：發出與判定，觸發 on_attack_launch／on_attack_hit／
 /// on_attacked。不建立紀錄、不動攻擊者正在進行的普攻（它的紀錄與序號照舊），所以序號是 0。
-pub fn scripted(world: &mut World, attacker: Entity, target: Entity, critical: bool, missed: bool, evaded: bool) {
+pub fn scripted(world: &mut World, attacker: Entity, target: Entity, critical: bool, missed: bool, evaded: bool, effect_multiplier: Fixed64) {
+    note_scripted_multiplier(world, attacker, effect_multiplier);
     emit(world, AttackEvent::Launch { attacker, seq: 0, target, critical, missed });
     let event = if missed || evaded {
         AttackEvent::Miss { attacker, target, projectile: None,

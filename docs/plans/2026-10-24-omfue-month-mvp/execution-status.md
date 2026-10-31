@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：attack.effect_multiplier（E562）與 set_base_max_hp（E563）
+
+- A13、B16 的最後兩項 host 能力；live 全部 1515 個 lib 測試通過。
 ## 2026-11-01 線 B：攻擊距離改成邊到邊（E555）
 
 - 射程加雙方碰撞半徑，經同一個 attack_reach；quick 局 239 s、observer 0 不一致。

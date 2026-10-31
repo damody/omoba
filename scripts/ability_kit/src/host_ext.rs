@@ -155,6 +155,18 @@ impl Cx<'_, '_> {
 
     /// v3 `modify_base_stat { to, stat, amount }` (E523, 原作 ModifyAgility): `to`'s base (white)
     /// attribute changes by `amount`, rounded to whole points; a unit that is not a hero is unchanged.
+    /// v3 `set_base_max_hp { to, value }` (E563, 原作 SetBaseMaxHealth) on a non-hero unit: its base
+    /// max HP becomes `value`, modifiers stay on top, current HP is kept (capped). A hero's comes
+    /// from its attributes: an error.
+    pub fn set_base_max_hp(&mut self, to: EntityHandle, value: Fixed64) -> Res {
+        use omoba_core::runtime::native::base_max_hp;
+        if !to.is_valid() { return Ok(()); }
+        if self.is_hero(to) { return Err("v3: set_base_max_hp on a hero is not supported"); }
+        if value <= Fixed64::ZERO { return Err("v3: set_base_max_hp needs a positive value"); }
+        self.world.add_stat_buff(to, RStr::from_str(base_max_hp::BUFF), Fixed64::ONE, RStr::from_str(&base_max_hp::payload(value).to_string()));
+        Ok(())
+    }
+
     pub fn modify_base_stat(&mut self, to: EntityHandle, stat: crate::Attr, amount: Fixed64) -> Res {
         use omoba_core::runtime::native::{attributes, comp::AttributeType};
         let stat = match stat {
@@ -846,11 +858,14 @@ impl Cx<'_, '_> {
     #[allow(clippy::too_many_arguments)]
     pub fn perform_attack(&mut self, attacker: EntityHandle, target: EntityHandle, instant: bool, cannot_miss: bool, fake: bool,
         trigger_effects: bool, use_orb: bool, effect_multiplier: Fixed64) -> Res {
-        use omoba_core::runtime::native::perform_attack::{payload, Flags, BUFF};
+        use omoba_core::runtime::native::perform_attack::{payload_scaled, Flags, BUFF};
         if !instant && !trigger_effects { return Err("v3: attack without instant needs trigger_effects (a projectile attack is an attack)"); }
-        if effect_multiplier != Fixed64::ONE { return Err("v3: attack.effect_multiplier other than 1 is not supported"); }
+        // E562: an instant attack carries it (its triggers and orb); a projectile attack keeps 1.
+        if effect_multiplier != Fixed64::ONE && (!instant || effect_multiplier < Fixed64::ZERO || effect_multiplier > Fixed64::from_i32(10)) {
+            return Err("v3: attack.effect_multiplier needs an instant attack and 0..10");
+        }
         if !attacker.is_valid() || !target.is_valid() { return Ok(()); }
-        let packet = payload(target.id, target.gen, Flags { instant, cannot_miss, fake, trigger_effects, use_orb }).to_string();
+        let packet = payload_scaled(target.id, target.gen, Flags { instant, cannot_miss, fake, trigger_effects, use_orb }, effect_multiplier).to_string();
         self.world.add_stat_buff(attacker, RStr::from_str(BUFF), Fixed64::ONE, RStr::from_str(&packet));
         Ok(())
     }

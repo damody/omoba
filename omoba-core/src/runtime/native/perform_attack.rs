@@ -8,7 +8,9 @@
 //!   attack-immune target is always missed.
 //! - `trigger_effects`: the hit is an attack to the status triggers (`on_attack_launch`,
 //!   `on_attack_hit`, `on_attacked`; rules::attack events), at the ordinary effect multiplier.
-//!   An `effect_multiplier` other than 1 is not supported (the kit refuses it).
+//!   An instant attack may carry an `effect_multiplier` (E562): its triggers read it as
+//!   `event.attack.effect_multiplier` (rules::attack ScriptedAttackMultipliers) and its orb bonus
+//!   scales by it; a projectile attack keeps 1.
 //! - not `instant` (E486): the attack launches an attack projectile at the attacker's projectile
 //!   speed instead. The miss and the critical are rolled at launch (`on_attack_launch` fires
 //!   then), the target's evasion and attack immunity when it arrives (`on_attack_hit` or a miss
@@ -41,15 +43,32 @@ pub fn payload(target_id: u32, target_generation: u32, flags: Flags) -> Value {
 #[derive(Clone, Debug, Default)]
 pub struct CannotMissAttacks(pub std::collections::BTreeSet<Entity>);
 
+/// The payload with an effect multiplier other than 1 (E562; instant attacks only, 0..=10).
+pub fn payload_scaled(target_id: u32, target_generation: u32, flags: Flags, effect_multiplier: Fixed64) -> Value {
+    let mut payload = payload(target_id, target_generation, flags);
+    if effect_multiplier != Fixed64::ONE { payload["effect_multiplier"] = json!(effect_multiplier.raw()); }
+    payload
+}
+
+/// The envelope's effect multiplier: 1 without the key.
+fn effect_multiplier_of(payload: &Value) -> Option<Fixed64> {
+    let Some(raw) = payload.get("effect_multiplier") else { return Some(Fixed64::ONE) };
+    let value = Fixed64::from_raw(raw.as_i64()?);
+    (value >= Fixed64::ZERO && value <= Fixed64::from_i32(10)).then_some(value)
+}
+
 fn parse(world: &World, payload: &Value) -> Option<(Entity, Flags)> {
-    // Five keys: a kit from before E486, always instant.
-    let row = payload.as_object().filter(|row| row.len() == 5 || row.len() == 6)?;
+    // Five keys: a kit from before E486, always instant; a seventh: the effect multiplier (E562).
+    let scaled = usize::from(payload.get("effect_multiplier").is_some());
+    let row = payload.as_object().filter(|row| row.len() == 5 + scaled || row.len() == 6 + scaled)?;
     let target = row.get("target")?.as_array().filter(|pair| pair.len() == 2)?;
     let (id, generation) = (u32::try_from(target[0].as_u64()?).ok()?, u32::try_from(target[1].as_u64()?).ok()?);
     let entity = world.entities().entity(id);
     if entity.gen().id() as u32 != generation || !world.entities().is_alive(entity) { return None; }
     let flag = |key: &str| row.get(key).and_then(Value::as_bool);
-    let instant = if row.len() == 5 { true } else { flag("instant")? };
+    let instant = if row.len() == 5 + scaled { true } else { flag("instant")? };
+    // A projectile attack's triggers run when it arrives: no multiplier there.
+    if scaled == 1 && !instant { return None; }
     Some((entity, Flags { instant, cannot_miss: flag("cannot_miss")?, fake: flag("fake")?, trigger_effects: flag("trigger_effects")?,
         use_orb: flag("use_orb")? }))
 }
@@ -58,6 +77,7 @@ fn parse(world: &World, payload: &Value) -> Option<(Entity, Flags)> {
 /// unit). The attack events it records feed this tick's status triggers.
 pub fn outcomes(world: &mut World, attacker: Entity, payload: &Value) -> Vec<Outcome> {
     let Some((target, flags)) = parse(world, payload) else { return Vec::new() };
+    let Some(effect_multiplier) = effect_multiplier_of(payload) else { return Vec::new() };
     let living = |entity| world.read_storage::<CProperty>().get(entity).is_some_and(|p| p.hp > Fixed64::ZERO);
     if target == attacker || !world.entities().is_alive(attacker) || !living(attacker) || !living(target) { return Vec::new(); }
     let Some(base) = world.read_storage::<TAttack>().get(attacker).map(|attack| attack.atk_physic.v) else { return Vec::new() };
@@ -84,7 +104,7 @@ pub fn outcomes(world: &mut World, attacker: Entity, payload: &Value) -> Vec<Out
         return Vec::new();
     }
     let hit = !missed && !evaded;
-    if flags.trigger_effects { super::rules::attack::scripted(world, attacker, target, critical.is_some(), missed, evaded); }
+    if flags.trigger_effects { super::rules::attack::scripted(world, attacker, target, critical.is_some(), missed, evaded, effect_multiplier); }
     let mut out = Vec::new();
     if hit && !flags.fake {
         let amount = critical.map_or(physical, |times| physical * times);
@@ -94,7 +114,9 @@ pub fn outcomes(world: &mut World, attacker: Entity, payload: &Value) -> Vec<Out
         }
     }
     if flags.use_orb && hit {
-        if let Some(orb) = super::attack_orb::scripted_hit(world, attacker, target) {
+        if let Some(mut orb) = super::attack_orb::scripted_hit(world, attacker, target) {
+            // The orb's bonus scales with the attack's effect multiplier (E562).
+            orb.amount_raw = (i128::from(orb.amount_raw) * i128::from(effect_multiplier.raw()) / 1024) as i64;
             out.extend(super::attack_orb::hit_outcomes(&orb, attacker, target, target_pos));
         }
     }
@@ -165,6 +187,23 @@ mod tests {
     }
     fn flags(fake: bool, trigger_effects: bool) -> Flags { Flags { instant: true, cannot_miss: true, fake, trigger_effects, use_orb: false } }
     fn handle(e: Entity) -> (u32, u32) { (e.id(), e.gen().id() as u32) }
+
+    /// E562: an instant attack's effect multiplier is what its triggers read this tick; a
+    /// projectile attack or an out-of-range multiplier is refused.
+    #[test]
+    fn a_scaled_scripted_attack_carries_its_effect_multiplier_for_the_tick() {
+        use super::super::rules::attack::ScriptedAttackMultipliers;
+        let (mut w, attacker, target) = world();
+        let (id, generation) = handle(target);
+        let half = Fixed64::from_raw(512);
+        assert_eq!(outcomes(&mut w, attacker, &payload_scaled(id, generation, flags(false, true), half)).len(), 1);
+        let rows = (*w.read_resource::<ScriptedAttackMultipliers>()).clone();
+        assert_eq!((rows.of(attacker, 3), rows.of(attacker, 4), rows.of(target, 3)), (Some(half), None, None));
+        assert_eq!(payload_scaled(id, generation, flags(false, true), Fixed64::ONE), payload(id, generation, flags(false, true)));
+        let projectile = Flags { instant: false, ..flags(false, true) };
+        assert!(outcomes(&mut w, attacker, &payload_scaled(id, generation, projectile, half)).is_empty());
+        assert!(outcomes(&mut w, attacker, &payload_scaled(id, generation, flags(false, true), Fixed64::from_i32(11))).is_empty());
+    }
 
     #[test]
     fn a_scripted_attack_hits_now_with_the_attackers_attack_and_feeds_the_attack_triggers() {
