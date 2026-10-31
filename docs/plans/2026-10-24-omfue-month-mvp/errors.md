@@ -39,7 +39,11 @@
 - **回歸**：`perform_attack::tests::a_scripted_projectile_attack_launches_now_and_is_judged_when_it_arrives`、舊五欄封包仍是瞬發。
 - **檔案**：`omoba-core/src/runtime/native/perform_attack.rs`、`tick/projectile_tick.rs`、`moba_match.rs`、`attack_orb.rs`、`rules/attack.rs`、`scripts/ability_kit/src/host_ext.rs`
 
-## E485 （保留）mana_spent 要求回魔不小於成本時仍須 >0；pierce_magic_immune 的施法狀態仍被要求跳過魔免（2026-10-31）
+## E485 conformance：mana_spent 要求回魔不小於成本時仍須 >0；pierce_magic_immune 的施法狀態仍被要求跳過魔免（2026-10-31，conformance session）
+- **現象**：a21、b09 的 mana_spent 判 fail（實際淨花費 0）；b02 的 selectors_skip_magic_immune 判它的 root／stun 落在魔免單位上。
+- **根因**：A21 的偷魔、B09 把友軍（含施法者）魔力補滿，同一個 tick 內回的魔不小於成本，原始碼裡淨花費本來就是 0；檢查卻要求 > 0。B02 帶 pierce_magic_immune，它套的所有狀態都會落在魔免單位上，只有傷害被過濾。
+- **通用修正**：mana_spent 在回魔不小於成本時接受淨 0；情境產生器在施法帶 pierce_magic_immune 時，把所有狀態列為直接套用。另外 check_ability_executed 把施法者設在 40% HP（原本剛好 50%，`self.hp_pct < $low_hp` 這種嚴格條件不成立，b20_tenacity）。
+- **以後如何避免**：預期值要從施法本身的旗標與同 tick 的效果推，不要假設「花了魔就一定看得到扣魔」；門檻條件的測試值不要落在邊界上。
 
 ## E484 verify_m6_batch 的 quick_swap 換邊時也換了對手：小於 10 人的 group 在 quick 與 quick_swap 面對不同的出貨英雄（2026-10-31，e187 遊戲模式 session，主 session 要求對照；已放回 live）
 - **現象**：新英雄三批（m6new1／2／3）的勝率都是 17%（3/18），數字一致得可疑。
@@ -55,13 +59,29 @@
 - **結論**：在 quick_swap，同樣面對弱隊，新英雄只贏 1～2/6，對照組 6/6，所以新英雄本身也偏弱，繼續逐招追查。
 - **避免**：對照實驗只改一個變因；換邊不能連對手一起換。
 
-## E483 （保留）技能被動持續套給施法者自己的狀態（a01t_armor）expires 判 fail（2026-10-31）
+## E483 conformance：技能被動持續套給施法者自己的狀態（a01t_armor）expires 判 fail（2026-10-31，conformance session）
+- **現象**：a01t_armor 的 expires 情境判「still on the holder」。
+- **根因**：A01T 的 periodic 被動每次 pulse 都把 a01t_armor 套給周圍友軍，施法者自己也在內；只要被動在，狀態在施法者身上就不會到期。
+- **通用修正**：情境的 expires 等待步驟標記 from_passive（來源路徑以 passive 開頭）。持有者是施法者、狀態仍在時，回報 Unsupported（被動持續套用），不判 fail。
+- **以後如何避免**：判斷「會不會到期」前，先看有沒有持續的來源會再套上它。
 
-## E482 （保留）把傷害夾到生命下限的狀態（a36r_brew）沒有被認成不死，holder_dies 判 fail（2026-10-31）
+## E482 conformance：把傷害夾到生命下限的狀態（a36r_brew）沒有被認成不死，holder_dies 判 fail（2026-10-31，conformance session）
+- **現象**：a36r_brew 的 holder_dies／caster_dies 判 fail。
+- **根因**：a36r_brew 在 on_take_damage_pre 用 `set` 把每一擊夾到「讓 self.hp 留在 hp_hold 以上」（FC-029），持有者照設計不會死；不死判定只認得取消非物理傷害的那一種（E237）。
+- **通用修正**：deathless_statuses 也把「on_take_damage_pre 的 modify_damage，args.set 含 `self.hp -`」認成不死。
+- **以後如何避免**：不死判定依「效果讓生命無法歸零」的形狀來認，不只認特定欄位。
 
-## E481 （保留）英雄技能 give_item 給其他單位的道具（item_c06e）被當成英雄自己的道具而判 fail（2026-10-31）
+## E481 conformance：英雄技能 give_item 給其他單位的道具（item_c06e）被當成英雄自己的道具而判 fail（2026-10-31，conformance session）
+- **現象**：item_c06e 的情境判「has no item_c06e」。
+- **根因**：C06T 用 give_item 把陷阱道具放進目標的欄位，道具不在英雄身上；情境卻把它當英雄自己的道具。
+- **通用修正**：情境產生器的 adds() 把 give_item 給施法者以外單位的道具，與 add_ability 給其他單位的技能（E351）一樣處理成 unit_ability。
+- **以後如何避免**：英雄內容會「交給別人」的東西（技能、道具、召喚物）都要先查歸屬單位再出情境。
 
-## E480 （保留）status_kept 把死後自然到期的短狀態（c23e_phased 0.1 秒）判成被死亡移除（2026-10-31）
+## E480 conformance：status_kept 把死後自然到期的短狀態（c23e_phased 0.1 秒）判成被死亡移除（2026-10-31，conformance session）
+- **現象**：c23e_phased、c23t 的 stun（r1 0.1 秒）的 status_kept 判「was removed」。
+- **根因**：狀態本身很短，死亡後的檢查點它已自然到期；檢查把「不在了」一律當成被死亡移除。
+- **通用修正**：status_kept 不在時，若死亡當下剩餘時間不大於死後經過的時間（含 1 tick），回報 UNOBSERVED（自然到期），不判 fail。
+- **以後如何避免**：檢查「死亡後保留」時，要排除狀態自己的時長已經走完的情況。
 
 ## E479 on_damage_pre 的 event.damage.is_attack 永遠為 false：C13、kirigakure_saizo 的對建築普攻規則不生效（2026-10-31，工作線 B）
 

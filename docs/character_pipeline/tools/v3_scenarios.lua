@@ -365,6 +365,8 @@ local function entry_scenarios(doc, def, entry_kind, out)
     local function adds(node)
       if type(node) ~= "table" then return false end
       if node.op == "add_ability" and node.ability == def.id and node.to ~= "caster" and node.to ~= "self" then return true end
+      -- and an item given to another unit (C06T's trap item; E481)
+      if node.op == "give_item" and node.item == def.id and node.to ~= "caster" and node.to ~= "self" then return true end
       for _, child in pairs(node) do if adds(child) then return true end end
       return false
     end
@@ -515,7 +517,8 @@ local function entry_scenarios(doc, def, entry_kind, out)
           local direct = {}
           for _, a in ipairs(applied) do
             local key = a.status and runtime_key(a.status)
-            if key and (a.to == "target" or kept(a.path)) then direct[#direct + 1] = key end
+            -- a cast that pierces magic immunity reaches them with every status (B02; E485)
+            if key and (a.to == "target" or kept(a.path) or has_flag(castable, "pierce_magic_immune")) then direct[#direct + 1] = key end
           end
           o[#o + 1] = { kind = "selectors_skip_magic_immune", unless_flag = "include_magic_immune", direct = direct,
             rule = "v3.md §4.1 選取預設排除魔免" }
@@ -721,8 +724,10 @@ local function entry_scenarios(doc, def, entry_kind, out)
         -- The applying action's own duration wins over the status's default (C21R; E391).
         local lasts = a.duration or s.duration
         if lasts and lasts ~= "infinite" then
+          -- from_passive (E483): the entry's passive applies it again and again.
           push(rank, "normal", { suffix = s.id .. "/expires", given = given({ on_unit(s, a) }),
-            when = { { kind = "wait", seconds = lasts } }, expect = { { kind = "status_removed", status = s.id } } })
+            when = { { kind = "wait", seconds = lasts, from_passive = type(a.path) == "string" and a.path:find("^passive") ~= nil or nil } },
+            expect = { { kind = "status_removed", status = s.id } } })
         end
         push(rank, "visibility", { suffix = s.id, given = given({ on_unit(s, a) }),
           when = { { kind = "observe", from = "both_teams" } },

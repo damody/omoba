@@ -163,6 +163,8 @@ struct Run {
     target_held: (u64, Vec<String>),
     /// An ally target kept below the caster's life (C23T's gift needs it; E457).
     low_ally: bool,
+    /// Statuses the target holds before every cast (C25T needs a bleeding enemy; E457).
+    phase_statuses: Vec<String>,
     /// The caster as last seen: a caster that died stays readable (its cast was not admitted).
     last: Hero,
     /// Where the target stood (a dead target keeps being aimed at by id and position).
@@ -276,6 +278,13 @@ impl Run {
                 p.hp = if self.low_ally { p.mhp * Fixed64::from_i32(3) / Fixed64::from_i32(10) } else { p.mhp };
             }
             self.target_hp = self.world.read_storage::<CProperty>().get(self.target).map(|p| p.hp).unwrap_or(self.target_hp);
+        }
+        if !self.target_killed && self.world.entities().is_alive(self.target) {
+            for id in self.phase_statuses.clone() {
+                if !holds(self, self.target, &id) {
+                    self.world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(self.target, &id, Fixed64::from_i32(600), json!({}));
+                }
+            }
         }
         let held: Vec<String> = self.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(self.target).map(|(key, _)| key.to_owned()).collect();
         self.target_held = (self.world.read_resource::<Tick>().0, held);
@@ -582,7 +591,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let last = world.read_storage::<Hero>().get(caster).unwrap().clone();
     let target_at = world.read_storage::<Pos>().get(target).map(|pos| pos.0).unwrap_or(at);
     let keep = swapped.as_ref().and_then(|g| g["by"].as_str()).map(str::to_owned);
-    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), target_held: (0, Vec::new()), low_ally, last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim: clear_line.then_some(at), keep };
+    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), target_held: (0, Vec::new()), low_ally, phase_statuses: target_statuses.iter().filter(|id| !id.is_empty() && !id.contains('{')).cloned().collect(), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim: clear_line.then_some(at), keep };
     // Let auto-learn settle the ranks set above (it learns passives at their hero level).
     run.step(2);
     if passive {
@@ -722,8 +731,11 @@ fn deathless_statuses(scenarios: &[Value]) -> Vec<String> {
     let mut out = Vec::new();
     for s in scenarios.iter().filter(|s| s["when"][0]["event"] == "on_take_damage_pre") {
         let cancels = s["expect"].as_array().into_iter().flatten().flat_map(|e| e["effects"].as_array().cloned().unwrap_or_default())
-            .any(|f| f["op"] == "modify_damage" && f["args"]["cancel"] == true && f["phase"] == "on_take_damage_pre"
-                && f["conds"].as_array().into_iter().flatten().any(|c| c.as_str().is_some_and(|c| c.contains("not event.damage.is_physical"))));
+            .any(|f| f["op"] == "modify_damage" && f["phase"] == "on_take_damage_pre" && (
+                (f["args"]["cancel"] == true
+                    && f["conds"].as_array().into_iter().flatten().any(|c| c.as_str().is_some_and(|c| c.contains("not event.damage.is_physical"))))
+                // or clamps the hit to a life floor (E482): `set` to what leaves `self.hp` above it
+                || f["args"]["set"].as_str().is_some_and(|set| set.contains("self.hp -"))));
         let Some(id) = s["given"].as_array().into_iter().flatten().find(|g| g["kind"] == "status_on_unit").and_then(|g| g["runtime_id"].as_str()) else { continue };
         if cancels && !out.iter().any(|known: &String| known == id) { out.push(id.to_owned()); }
     }
@@ -832,10 +844,11 @@ fn check_ability_executed(hero: &str, s: &Value) -> Option<Verdict> {
         }
     }
     if heal == 0.0 && mana == 0.0 && refunds.is_empty() { return Some(Verdict::Unsupported("nothing on_ability_executed changes that is read here".into())); }
-    // Half life and mana, the other abilities cooling down for 30 s.
+    // 40% life (below a "life under 50%" condition, B20R's; E485) and half mana, the other
+    // abilities cooling down for 30 s.
     {
         let mut props = run.world.write_storage::<CProperty>();
-        if let Some(p) = props.get_mut(caster) { p.hp = p.mhp / Fixed64::from_i32(2); }
+        if let Some(p) = props.get_mut(caster) { p.hp = p.mhp * Fixed64::from_i32(2) / Fixed64::from_i32(5); }
     }
     {
         let mut heroes = run.world.write_storage::<Hero>();
@@ -1400,6 +1413,10 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
             }
             // At least the document's duration (A33E's ghost walk lasts 120 s; E470).
             for _ in 0..ticks((seconds + 2.0).max(60.0)) { if !holds(&run, holder, &runtime_id) || !living(&run, holder) { break; } run.step(1); }
+            // Still there because the entry's own passive gives it to its caster again and again (A01T; E483).
+            if holder == run.caster && step["from_passive"] == true && living(&run, holder) && holds(&run, holder, &runtime_id) {
+                return Verdict::Unsupported(format!("the entry's passive keeps giving {runtime_id} to its caster"));
+            }
         }
     }
     let present = living(&run, holder) && holds(&run, holder, &runtime_id);
@@ -1638,7 +1655,8 @@ fn run(hero: &str, s: &Value) -> Verdict {
                 // the spend can be that much lower; "any" (or an amount the harness cannot work out) allows any regain.
                 let regain = match e["regain"].as_str() { None => 0.0, Some("any") => amount, Some(_) => expr(&e["regain"], &entry, rank).unwrap_or(amount) };
                 // Regeneration during the cast window is tolerated (a few mana), overspending is not.
-                if cast.mana_spent <= amount + 0.5 && cast.mana_spent >= amount - regain - 6.0 && (regain == 0.0 || cast.mana_spent > 0.0) { Ok(()) }
+                // A regain of the whole cost or more (A21's steal, B09's refill to max; E485) nets to 0.
+                if cast.mana_spent <= amount + 0.5 && cast.mana_spent >= amount - regain - 6.0 && (regain == 0.0 || regain >= amount || cast.mana_spent > 0.0) { Ok(()) }
                 else { Err(format!("mana spent {:.2}, expected {amount}", cast.mana_spent)) }
             }
             "cooldown_started" => {
@@ -1727,6 +1745,11 @@ fn run(hero: &str, s: &Value) -> Verdict {
                     };
                 }
                 let now = living(&run, unit) && holds(&run, unit, id);
+                // Gone because it ran out (E480): less left at the death than has passed since.
+                let since = run.died_at.map_or(0.0, |died| run.world.read_resource::<Tick>().0.saturating_sub(died) as f64 / 60.0);
+                if kind == "status_kept" && !now && left.is_some_and(|left| left <= since + 1.0 / 60.0) {
+                    return Err(format!("{UNOBSERVED}{id} had {:.2}s left at the death and {since:.2}s have passed: it ran out by itself", left.unwrap_or(0.0)));
+                }
                 match (kind == "status_removed", now) {
                     (true, false) | (false, true) => Ok(()),
                     (true, true) => Err(format!("{id} still on the unit")),
