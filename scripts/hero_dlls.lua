@@ -117,4 +117,6 @@ return {
   {hero='zuiryuin_nisshu',package='hero_a21',dir='heroes/zuiryuin_nisshu'},
   -- M6 batch (2026-10-31): every ability generated (模板 abilities、青蛙 block_disabled；harness _r 名稱比對修正（E543）); conformance 0 fail
   {hero='hashiba_hideyoshi',package='hero_a28',dir='heroes/hashiba_hideyoshi'},
+  -- M6 batch (2026-10-31): every ability generated (include_dead 用引擎屍體保留時間（E539）、on_moved 被動；harness 屍體前提（E547）); conformance 0 fail
+  {hero='ise_hime',package='hero_b23',dir='heroes/ise_hime'},
 }
