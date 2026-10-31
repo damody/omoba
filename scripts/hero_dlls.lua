@@ -113,4 +113,6 @@ return {
   {hero='imagawa_yoshimoto',package='hero_b15',dir='heroes/imagawa_yoshimoto'},
   -- M6 batch (2026-10-31): every ability generated (受傷前 routine 在呼叫端展開；heal 檢查 E536 修正後全數通過); conformance 0 fail
   {hero='sakakibara_yasumasa',package='hero_a08',dir='heroes/sakakibara_yasumasa'},
+  -- M6 batch (2026-10-31): every ability generated (法球槽與 landmark_of（E534、E538）；珍珠圓盤近戰射程 0（E546）); conformance 0 fail
+  {hero='zuiryuin_nisshu',package='hero_a21',dir='heroes/zuiryuin_nisshu'},
 }

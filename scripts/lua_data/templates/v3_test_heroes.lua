@@ -69424,16 +69424,13 @@ local data = {
     {
       abilities = { "a21_half_blade", "a21_energy_press", "a21_pearl_disc", "a21_false_intel", "a21_mana_steal" },
       authored_package = "zuiryuin_nisshu",
-      background = "瑞龍院日秀（schema v3 產生的 Rust；測試用）",
       display_name = "瑞龍院日秀",
       id = "zuiryuin_nisshu",
       moba_loadout = {
         ranks = { 1, 1, 1, 0, 1 },
         skill_points = 0,
       },
-      source_stats = "A21",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A21",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "zuiryuin_nisshu",
