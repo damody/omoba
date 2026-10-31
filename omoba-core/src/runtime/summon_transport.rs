@@ -1,11 +1,21 @@
 //! Opaque client references, authority lives and redacted ACKs are disjoint.
 use crate::game_proto::{OwnedSummonOrder,SecureReplicaTarget,SummonCommandInput,TeamAcceptedInput,Vec2I};
 pub const ACTION_KIND:u32=29;
-fn shape(operation:u32,point:Option<&Vec2I>)->Result<(),&'static str> {
+fn in_map(p:&Vec2I)->bool {
+    i64::from(p.x).unsigned_abs()<=omoba_sim::terrain::MAX_GEOMETRY_RAW as u64
+        && i64::from(p.y).unsigned_abs()<=omoba_sim::terrain::MAX_GEOMETRY_RAW as u64
+}
+/// A cast's ability id (E529): what unit_abilities admits.
+fn ability_shape(ability:&str)->bool {
+    !ability.is_empty() && ability.len()<=64 && ability.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'_')
+}
+fn shape_of(operation:u32,point:Option<&Vec2I>,ability:&str)->Result<(),&'static str> {
     match (operation,point) {
-        (1,Some(p)) if i64::from(p.x).unsigned_abs()<=omoba_sim::terrain::MAX_GEOMETRY_RAW as u64
-            && i64::from(p.y).unsigned_abs()<=omoba_sim::terrain::MAX_GEOMETRY_RAW as u64=>Ok(()),
-        (2,None)=>Ok(()),_=>Err("SUMMON_SHAPE"),
+        (1,Some(p)) if in_map(p) && ability.is_empty()=>Ok(()),
+        (2,None) if ability.is_empty()=>Ok(()),
+        (3,None) if ability_shape(ability)=>Ok(()),
+        (3,Some(p)) if in_map(p) && ability_shape(ability)=>Ok(()),
+        _=>Err("SUMMON_SHAPE"),
     }
 }
 fn reference(value:Option<&SecureReplicaTarget>)->Result<super::SecureTargetReference,&'static str> {
@@ -16,15 +26,20 @@ fn reference(value:Option<&SecureReplicaTarget>)->Result<super::SecureTargetRefe
     if result.replica_id==0 || result.view_epoch==0 || result.disclosure_epoch==0 {return Err("SUMMON_REFERENCE");}Ok(result)
 }
 pub fn validate_client(value:&SummonCommandInput)->Result<(),&'static str> {
-    shape(value.operation,value.point.as_ref())?;
+    shape_of(value.operation,value.point.as_ref(),&value.ability)?;
     let owner=reference(value.owner.as_ref())?;let summon=reference(value.summon.as_ref())?;
     if owner.replica_id==summon.replica_id || owner.view_epoch!=summon.view_epoch {return Err("SUMMON_REFERENCE");}Ok(())
 }
 pub fn client_from_references(owner:SecureReplicaTarget,summon:SecureReplicaTarget,operation:u32,point:Option<Vec2I>)->Result<SummonCommandInput,&'static str> {
-    let value=SummonCommandInput {owner:Some(owner),summon:Some(summon),operation,point};validate_client(&value)?;Ok(value)
+    let value=SummonCommandInput {owner:Some(owner),summon:Some(summon),operation,point,ability:String::new()};validate_client(&value)?;Ok(value)
+}
+/// A cast order (operation 3, E529): the summon casts its unit ability `ability`, at `point` for a
+/// point-target one.
+pub fn client_cast_from_references(owner:SecureReplicaTarget,summon:SecureReplicaTarget,ability:&str,point:Option<Vec2I>)->Result<SummonCommandInput,&'static str> {
+    let value=SummonCommandInput {owner:Some(owner),summon:Some(summon),operation:3,point,ability:ability.to_owned()};validate_client(&value)?;Ok(value)
 }
 pub fn validate_authority(value:&OwnedSummonOrder)->Result<(u64,u64),&'static str> {
-    shape(value.operation,value.point.as_ref())?;
+    shape_of(value.operation,value.point.as_ref(),&value.ability)?;
     if value.owner_generation==0 || value.owner_generation>i32::MAX as u32
         || value.summon_generation==0 || value.summon_generation>i32::MAX as u32 {return Err("SUMMON_LIFE");}
     let owner=(u64::from(value.owner_generation)<<32)|u64::from(value.owner_entity);
@@ -39,7 +54,8 @@ pub fn seal_client(value:&SummonCommandInput,snapshot:&super::SecureInputValidat
     let owner=snapshot.validate_actor_and_resolve(team,tick,owner).map_err(|_|"SUMMON_REFERENCE")?;
     let summon=snapshot.validate_actor_and_resolve(team,tick,summon).map_err(|_|"SUMMON_REFERENCE")?;
     let result=OwnedSummonOrder {owner_entity:owner as u32,owner_generation:(owner>>32)as u32,
-        summon_entity:summon as u32,summon_generation:(summon>>32)as u32,operation:value.operation,point:value.point};
+        summon_entity:summon as u32,summon_generation:(summon>>32)as u32,operation:value.operation,point:value.point,
+        ability:value.ability.clone()};
     validate_authority(&result)?;Ok(result)
 }
 pub fn redact(value:&mut OwnedSummonOrder)->Result<(),&'static str> {
@@ -52,7 +68,7 @@ pub fn validate_projected_ack(value:&TeamAcceptedInput)->Result<(),&'static str>
     if owner==0 || summon==0 || owner==summon {return Err("SUMMON_ACK");}
     let input=crate::game_proto::PlayerInput::decode(value.sanitized_payload.as_slice()).map_err(|_|"SUMMON_ACK")?;
     let Some(crate::game_proto::player_input::Action::OwnedSummonOrder(order))=input.action else {return Err("SUMMON_ACK");};
-    shape(order.operation,order.point.as_ref())?;
+    shape_of(order.operation,order.point.as_ref(),&order.ability)?;
     if order.owner_entity!=0 || order.owner_generation!=0 || order.summon_entity!=0 || order.summon_generation!=0 {return Err("SUMMON_ACK");}Ok(())
 }
 pub fn reject_kind_alias(value:&TeamAcceptedInput)->Result<(),&'static str> {
@@ -83,7 +99,12 @@ mod tests {
             SummonCommandInput{point:None,..good.clone()},SummonCommandInput{owner:None,..good.clone()},
             SummonCommandInput{summon:Some(reference(9)),..good.clone()},
             SummonCommandInput{point:Some(Vec2I{x:i32::MAX,y:0}),..good.clone()}] {assert!(validate_client(&bad).is_err());}
-        validate_client(&SummonCommandInput{operation:2,point:None,..good}).unwrap();
+        validate_client(&SummonCommandInput{operation:2,point:None,..good.clone()}).unwrap();
+        // E529: a cast names an ability; a move or release names none.
+        let cast=client_cast_from_references(reference(9),reference(12),"a36_detonate",None).unwrap();
+        validate_client(&SummonCommandInput{point:Some(Vec2I{x:100,y:0}),..cast.clone()}).unwrap();
+        for bad in [SummonCommandInput{ability:String::new(),..cast.clone()},SummonCommandInput{ability:"a:b".into(),..cast.clone()},
+            SummonCommandInput{ability:"x".into(),..good}] {assert!(validate_client(&bad).is_err());}
     }
     #[test]
     fn summon_ui_renderer_contract_keeps_both_opaque_lives_and_rejects_bad_shape() {
@@ -149,7 +170,7 @@ mod tests {
             VisibilityTransition::Reveal{canonical_id:owner,effective_tick:1,baseline:baseline(1)},
             VisibilityTransition::Reveal{canonical_id:summon,effective_tick:1,baseline:baseline(4)}],&[],&graph,vec![]).unwrap().frame;
         assert!(matches!(replica.apply_frame(first,&mut stepper).unwrap(),FrameApplyResult::Applied{..}));
-        let mut order=OwnedSummonOrder{owner_entity:7,owner_generation:2,summon_entity:8,summon_generation:3,operation:1,point:Some(Vec2I{x:500*1024,y:0})};redact(&mut order).unwrap();
+        let mut order=OwnedSummonOrder{owner_entity:7,owner_generation:2,summon_entity:8,summon_generation:3,operation:1,point:Some(Vec2I{x:500*1024,y:0}),ability:String::new()};redact(&mut order).unwrap();
         projector.refresh_expected_visible_components(2,&visible,&BTreeMap::from([(owner,baseline(1)),(summon,baseline(4))]));
         let second=projector.build_frame_with_inputs(2,2,&visible,vec![],&[],&graph,vec![CanonicalAcceptedInput::from_authoritative_acceptance(
             1,7,91,ACTION_KIND,owner,Some(summon),PlayerInput{action:Some(Action::OwnedSummonOrder(order))}.encode_to_vec())]).unwrap().frame;

@@ -4,20 +4,25 @@ use omoba_sim::{Fixed64,Vec2};
 use super::comp::*;
 use super::{BuffStore,MobaMatch,MobaMatchPhase};
 
-#[derive(Clone,Copy,Debug,PartialEq)]
-pub(crate) enum Order {MoveTo(Vec2),Release}
+#[derive(Clone,Debug,PartialEq)]
+pub(crate) enum Order {MoveTo(Vec2),Release,
+    /// The summon casts one of its unit abilities (E529, unit_abilities), at a point or with none.
+    Cast {ability:String,point:Option<Vec2>}}
 fn supported(pos:Vec2)->bool {
     pos.x.raw().unsigned_abs()<=omoba_sim::terrain::MAX_GEOMETRY_RAW as u64
         && pos.y.raw().unsigned_abs()<=omoba_sim::terrain::MAX_GEOMETRY_RAW as u64
 }
 pub(crate) fn decode(order:&crate::game_proto::OwnedSummonOrder)->Result<Order,&'static str> {
     if order.owner_generation==0 || order.summon_generation==0 {return Err("missing_generation");}
+    let at=|point:&crate::game_proto::Vec2I|{
+        let pos=Vec2::new(Fixed64::from_raw(i64::from(point.x)),Fixed64::from_raw(i64::from(point.y)));
+        if supported(pos){Ok(pos)}else{Err("unsupported_point")}
+    };
+    let named=!order.ability.is_empty();
     match (order.operation,order.point.as_ref()) {
-        (1,Some(point))=>{
-            let pos=Vec2::new(Fixed64::from_raw(i64::from(point.x)),Fixed64::from_raw(i64::from(point.y)));
-            if supported(pos){Ok(Order::MoveTo(pos))}else{Err("unsupported_point")}
-        }
-        (2,None)=>Ok(Order::Release),
+        (1,Some(point)) if !named=>Ok(Order::MoveTo(at(point)?)),
+        (2,None) if !named=>Ok(Order::Release),
+        (3,point) if named && order.ability.len()<=64=>Ok(Order::Cast {ability:order.ability.clone(),point:point.map(at).transpose()?}),
         _=>Err("invalid_operation_or_point_shape"),
     }
 }
@@ -62,11 +67,21 @@ pub(crate) fn apply(world:&mut World,player:u32,owner:Entity,message:&crate::gam
             return Err("unreachable_destination");
         }
     }
+    // A cast (E529): only an ability the summon holds; cast admission (scripting dispatch) then
+    // judges its rank, cooldown, controls and target like any cast. Its movement goes on.
+    if let Order::Cast {ability,point}=&order {
+        if super::unit_abilities::level(&world.read_resource::<BuffStore>(),entity,ability).is_none() {return Err("not_held");}
+        let target=match point {Some(p)=>crate::runtime::scripting::SkillTarget::Point {x:p.x,y:p.y},None=>crate::runtime::scripting::SkillTarget::None};
+        world.write_resource::<crate::runtime::scripting::ScriptEventQueue>()
+            .push(crate::runtime::scripting::ScriptEvent::SkillCast {caster:entity,skill_id:ability.clone(),target});
+        return Ok(());
+    }
     // All rejection checks precede mutation. Never touch the owner's queues,
     // casts, attack or recovery; only this exact summon receives the order.
     match order {
         Order::MoveTo(target)=>{world.write_storage::<MoveTarget>().insert(entity,MoveTarget(target)).map_err(|_|"stale_storage")?;}
         Order::Release=>{world.write_storage::<MoveTarget>().remove(entity);}
+        Order::Cast {..}=>unreachable!("a cast returned above"),
     }
     {let mut summons=world.write_storage::<SummonedUnit>();let navigation=&mut summons.get_mut(entity).expect("validated summon").navigation;
         navigation.auto_target=None;navigation.destination=None;navigation.waypoint=None;navigation.replan_in=Fixed64::ZERO;}
@@ -79,7 +94,7 @@ mod tests {
     use super::*;
     #[test]
     fn owned_summon_order_shape_is_closed_and_presence_generation_bound() {
-        let mut wire=crate::game_proto::OwnedSummonOrder {owner_entity:0,owner_generation:1,summon_entity:1,summon_generation:1,operation:1,point:Some(crate::game_proto::Vec2I{x:1024,y:-2048})};
+        let mut wire=crate::game_proto::OwnedSummonOrder {owner_entity:0,owner_generation:1,summon_entity:1,summon_generation:1,operation:1,point:Some(crate::game_proto::Vec2I{x:1024,y:-2048}),ability:String::new()};
         {use prost::Message;let input=crate::game_proto::PlayerInput {action:Some(crate::game_proto::player_input::Action::OwnedSummonOrder(wire.clone()))};
             assert_eq!(crate::game_proto::PlayerInput::decode(input.encode_to_vec().as_slice()).unwrap(),input);}
         assert_eq!(decode(&wire),Ok(Order::MoveTo(Vec2::new(Fixed64::ONE,Fixed64::from_i32(-2)))));
@@ -88,5 +103,12 @@ mod tests {
         wire.operation=1;assert!(decode(&wire).is_err());wire.point=Some(Default::default());
         wire.owner_generation=0;assert!(decode(&wire).is_err());wire.owner_generation=1;wire.summon_generation=0;assert!(decode(&wire).is_err());
         wire.summon_generation=1;wire.point=Some(crate::game_proto::Vec2I{x:i32::MAX,y:0});assert!(decode(&wire).is_err());
+        // E529: operation 3 casts a named ability, with or without a point.
+        wire.operation=3;wire.point=None;assert!(decode(&wire).is_err(),"a cast names its ability");
+        wire.ability="a36_detonate".into();
+        assert_eq!(decode(&wire),Ok(Order::Cast {ability:"a36_detonate".into(),point:None}));
+        wire.point=Some(crate::game_proto::Vec2I{x:1024,y:0});
+        assert_eq!(decode(&wire),Ok(Order::Cast {ability:"a36_detonate".into(),point:Some(Vec2::new(Fixed64::ONE,Fixed64::ZERO))}));
+        wire.operation=1;assert!(decode(&wire).is_err(),"a move names no ability");
     }
 }

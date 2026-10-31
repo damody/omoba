@@ -2,6 +2,41 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E529 召喚物沒有自己的技能：unit_template abilities（A36）（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage A36（前野長康）：地刺陷阱 `a36e_mine` 的模板帶 `abilities = { "a36_detonate" }`，原作由玩家選取地雷後施放引爆。host 只認英雄的 `Hero::abilities`，非英雄單位：
+  - 沒有技能清單；
+  - 沒有冷卻；
+  - owner 也無法對召喚物下施法命令。
+- **通用修正**：
+  - 新模組 `unit_abilities`：
+    - 非英雄單位每個技能一筆永久 row `__unit_ability:<id>`，payload 是等級 1..100，每個單位最多 16 個。
+    - 冷卻是 row `__unit_ability_cd:<id>`，壽命等於冷卻時間。
+    - AddBuff 寫入時用 `admits` 驗證格式與數量。
+  - 施法判定（scripting dispatch）：非英雄 caster 以 row 的等級施放；冷卻中拒絕，回傳 ON_COOLDOWN。施放成功後，原有的 ScriptStartCooldown 在 caster 不是英雄時寫入冷卻 row。
+  - proto：`OwnedSummonOrder.ability = 7`、`SummonCommandInput.ability = 5`。
+    - operation 3 = Cast：必須帶 ability；point 可省略，只有點目標技能要帶。
+    - operation 1、2 不得帶 ability。
+    - transport 的 `shape_of` 檢查 client 與 authority 兩端。
+  - transport 新增 `client_cast_from_references(owner, summon, ability, point)`；`client_from_references` 簽名不變。
+  - `summon_orders::apply`：Cast 只接受召喚物持有的技能，推入 `ScriptEvent::SkillCast { caster: 召喚物 }`；等級、冷卻、控制與目標交給一般施法判定。
+  - kit `grant_unit_ability(unit, ability, level)`：create_unit 的產生碼用來給新單位技能，英雄則不受影響。
+- **尚未做**：
+  - 單位目標的召喚物施法（需要 SecureReplicaTarget 目標參照）；
+  - UE bridge 的 `OmSummonCommand` ABI 與按鈕（工作線 C）；
+  - codegen 在 create_unit 時呼叫 grant_unit_ability（工作線 A）。
+- **測試**：
+  - unit_abilities：等級、冷卻 row，以及只有持有的技能會冷卻；
+  - summon_orders：operation 3 的 decode；
+  - summon_transport：cast 的 shape；
+  - renderer_protocol 與 omb kcp 的 literal 補上新欄位。
+- **檔案**：
+  - `omoba-core/src/runtime/native/unit_abilities.rs`、`native.rs`、`game_processor.rs`、`scripting/dispatch.rs`、`summon_orders.rs`
+  - `omoba-core/src/runtime/summon_transport.rs`、`renderer_protocol.rs`、`generated/game.rs`
+  - `proto/game.proto`
+  - `scripts/ability_kit/src/host_ext.rs`
+  - `omb/src/transport/kcp_transport.rs`（測試）
+
 ## E528 chain 沒有每道彈跳各自的命中表（B28）（2026-10-31，工作線 B）
 
 - **現象**：工作線 A coverage B28（松永久秀）鬼謀．蛇火：`chain` 每隔 interval 跳向還沒被這道蛇火打過的最近敵人。命中表要跨好幾個 scheduled step 保存，但 schedule args 最多 8 個。unit var 每個單位最多 64 筆，12 道蛇火的命中表放在施法者身上會超過。

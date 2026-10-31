@@ -403,7 +403,9 @@ message AttackTarget {
 }
 
 // Distinct from hero movement. References bind the current owner and summon
-// generations; operation 1=MoveTo(point required), 2=Release(point forbidden).
+// generations; operation 1=MoveTo(point required), 2=Release(point forbidden),
+// 3=Cast(ability required: one the summon holds as a unit ability; point for a
+// point-target ability, else forbidden). `ability` is empty for 1 and 2.
 message OwnedSummonOrder {
   uint32 owner_entity = 1;
   uint32 owner_generation = 2;
@@ -411,6 +413,7 @@ message OwnedSummonOrder {
   uint32 summon_generation = 4;
   uint32 operation = 5;
   Vec2I point = 6;
+  string ability = 7;
 }
 
 // Client-only opaque references. The authenticated edge converts this into
@@ -420,6 +423,7 @@ message SummonCommandInput {
   SecureReplicaTarget summon = 2;
   uint32 operation = 3;
   Vec2I point = 4;
+  string ability = 5;
 }
 
 message AttackMove {

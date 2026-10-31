@@ -651,6 +651,19 @@ impl Cx<'_, '_> {
 
     /// v3 `reveal` with `ignore_terrain = true` (flying sight: trees and cliffs do not block it);
     /// otherwise the same as `Cx::reveal`.
+    /// v3 unit_template `abilities` (E529): non-hero `unit` holds `ability` at `level` (its owner
+    /// casts it through a summon cast order; omoba-core unit_abilities). A hero is left alone: its
+    /// abilities are its slots.
+    pub fn grant_unit_ability(&mut self, unit: EntityHandle, ability: &str, level: Fixed64) -> Res {
+        use omoba_core::runtime::native::unit_abilities;
+        if !unit.is_valid() || self.is_hero(unit) { return Ok(()); }
+        let level = u8::try_from((crate::floor(level).raw() >> 10).clamp(1, i64::from(unit_abilities::MAX_LEVEL))).unwrap_or(1);
+        let payload = unit_abilities::payload(ability, level).ok_or("v3: invalid unit ability")?;
+        self.world.add_stat_buff(unit, RStr::from_str(&unit_abilities::row_id(ability)), Self::FOREVER,
+            RStr::from_str(&payload.to_string()));
+        Ok(())
+    }
+
     /// [`Cx::reveal_ex`] for v3 `reveal.teams` (E527): `"own"`, `"all"` or `"enemy"` (every team but
     /// the caster's: the caster shown to its enemies).
     pub fn reveal_teams(&mut self, at: Vec2, radius: Fixed64, duration: Fixed64, teams: &str, follow: Option<EntityHandle>,

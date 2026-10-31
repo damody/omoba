@@ -3251,6 +3251,9 @@ pub fn process_outcomes(
                 }
                 continue;
             },
+            // A unit ability row (E529): a valid rank and room on the unit, else dropped.
+            Outcome::AddBuff {target,buff_id,payload,..} if buff_id.starts_with(super::unit_abilities::PREFIX)
+                && !super::unit_abilities::admits(&world.read_resource::<BuffStore>(),target,&buff_id,&payload)=>continue,
             Outcome::AddBuff {target,buff_id,duration,payload} if payload.get(super::ability_runtime::damage_zone::KEY).is_some()=>{
                 if !zone_pulse_settlement::admit_zone(world,target,&buff_id,duration,&payload){continue;}
                 Outcome::AddBuff {target,buff_id,duration,payload}
@@ -4856,7 +4859,10 @@ fn handle_script_start_cooldown(
 ) {
     if let Some(hero) = world.write_storage::<Hero>().get_mut(entity) {
         hero.start_cooldown(&ability_id, duration);
+        return;
     }
+    // A non-hero's unit ability (E529).
+    super::unit_abilities::start_cooldown(&mut world.write_resource::<BuffStore>(), entity, &ability_id, duration);
 }
 
 #[cfg(test)]

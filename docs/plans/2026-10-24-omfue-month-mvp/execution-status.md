@@ -16,6 +16,10 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：召喚物自己的技能與施法命令（E529）
+
+- `unit_abilities`：非英雄單位的技能清單與冷卻；kit `grant_unit_ability`。
+- proto OwnedSummonOrder／SummonCommandInput 加入 `ability`，operation 3 = 召喚物施法（A36 引爆）。
 ## 2026-10-31 線 B：kit chain 命中表（E528）
 
 - kit `chain_token`／`chain_mark`／`chain_hit`／`chain_next`：每道彈跳各自的命中表（B28 鬼謀．蛇火）。

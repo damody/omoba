@@ -550,8 +550,10 @@ pub struct AttackTarget {
     pub queued: bool,
 }
 /// Distinct from hero movement. References bind the current owner and summon
-/// generations; operation 1=MoveTo(point required), 2=Release(point forbidden).
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+/// generations; operation 1=MoveTo(point required), 2=Release(point forbidden),
+/// 3=Cast(ability required: one the summon holds as a unit ability; point for a
+/// point-target ability, else forbidden). `ability` is empty for 1 and 2.
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OwnedSummonOrder {
     #[prost(uint32, tag = "1")]
     pub owner_entity: u32,
@@ -565,10 +567,12 @@ pub struct OwnedSummonOrder {
     pub operation: u32,
     #[prost(message, optional, tag = "6")]
     pub point: ::core::option::Option<Vec2I>,
+    #[prost(string, tag = "7")]
+    pub ability: ::prost::alloc::string::String,
 }
 /// Client-only opaque references. The authenticated edge converts this into
 /// OwnedSummonOrder; canonical lives never occur in this payload or an ACK.
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SummonCommandInput {
     #[prost(message, optional, tag = "1")]
     pub owner: ::core::option::Option<SecureReplicaTarget>,
@@ -578,6 +582,8 @@ pub struct SummonCommandInput {
     pub operation: u32,
     #[prost(message, optional, tag = "4")]
     pub point: ::core::option::Option<Vec2I>,
+    #[prost(string, tag = "5")]
+    pub ability: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct AttackMove {
@@ -1088,6 +1094,11 @@ pub struct JoinRequest {
     /// latest one; any other value is refused, so nobody can claim a held hero.
     #[prost(bytes = "vec", tag = "22")]
     pub resume_token: ::prost::alloc::vec::Vec<u8>,
+    /// M3': SHA-256 of the script DLL set the client loaded (omoba-core scripting::loader
+    /// script_modules_hash). A player must match the authority's set; empty only when the
+    /// authority loaded no DLL either.
+    #[prost(string, tag = "23")]
+    pub script_modules_hash: ::prost::alloc::string::String,
 }
 /// Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
 /// initial SimSnapshot to bootstrap the client.
@@ -1631,6 +1642,22 @@ pub struct TeamTickFrame {
     pub authoritative_mode: ::core::option::Option<AuthoritativeModePresentation>,
     #[prost(message, optional, tag = "15")]
     pub combat_preferences: ::core::option::Option<CombatPreferencesProjection>,
+    /// M3' ② dev hot reload only (authority started with OMB_SCRIPT_HOT_DIR): script DLLs the
+    /// authority swapped before stepping this frame's tick. A replica swaps the same files
+    /// (same machine, absolute path, digest checked) before stepping this frame. Empty otherwise.
+    #[prost(message, repeated, tag = "16")]
+    pub script_module_swaps: ::prost::alloc::vec::Vec<ScriptModuleSwap>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ScriptModuleSwap {
+    #[prost(string, tag = "1")]
+    pub module: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub file: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub sha256: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "4")]
+    pub generation: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct TeamReplayRequest {

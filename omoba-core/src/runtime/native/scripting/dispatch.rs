@@ -279,7 +279,12 @@ fn dispatch_scripts(
                         reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);
                     }
                     let hero = cast_heroes.get(caster).or_else(|| cache.hero.get(*caster));
-                    let raw = hero.map(|hero| hero.get_ability_level(skill_id));
+                    // A non-hero casts its unit abilities at their rank (unit_abilities, E529).
+                    let raw = hero.map(|hero| hero.get_ability_level(skill_id))
+                        .or_else(|| super::super::unit_abilities::level(&cache.buffs, *caster, skill_id).map(i32::from));
+                    if hero.is_none() && super::super::unit_abilities::on_cooldown(&cache.buffs, *caster, skill_id) {
+                        reject_cast!(cast_outcomes,ev,releasing,code::ON_COOLDOWN);
+                    }
                     let require_learned = enforce_learned_ranks || hero.is_some_and(|hero| hero.mana_pool.is_some());
                     let definition = registry.get_ability(skill_id).map(|(definition, _)| definition);
                     match resolve_cast_rank(raw, definition, require_learned) {
