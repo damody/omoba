@@ -98,7 +98,7 @@ local HEROES = {
   { package = "sanada_masayuki", playable = true },
   { package = "kikuhime", playable = true },
   { package = "ise_hime" },
-  { package = "matsunaga_hisahide" },
+  { package = "matsunaga_hisahide", playable = true },
   { package = "mogami_yoshihime", playable = true },
   { package = "taigen_sessai", playable = true },
   { package = "tachibana_dosetsu", playable = true },

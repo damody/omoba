@@ -69357,16 +69357,13 @@ local data = {
     {
       abilities = { "b28_phoenix_flame", "b28_flame_shackle", "b28_fire_stream", "b28_serpent_fire" },
       authored_package = "matsunaga_hisahide",
-      background = "松永久秀（schema v3 產生的 Rust；測試用）",
       display_name = "松永久秀",
       id = "matsunaga_hisahide",
       moba_loadout = {
         ranks = { 1, 1, 1, 0 },
         skill_points = 0,
       },
-      source_stats = "B28",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B28",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "matsunaga_hisahide",

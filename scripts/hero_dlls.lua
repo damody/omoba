@@ -107,4 +107,6 @@ return {
   {hero='hachisuka_masakatsu',package='hero_a09',dir='heroes/hachisuka_masakatsu'},
   -- M6 batch (2026-10-31): every ability generated (模板 abilities 以 grant_unit_ability 授予); conformance 0 fail
   {hero='maeno_nagayasu',package='hero_a36',dir='heroes/maeno_nagayasu'},
+  -- M6 batch (2026-10-31): every ability generated (chain 每道彈跳各自命中表); conformance 0 fail
+  {hero='matsunaga_hisahide',package='hero_b28',dir='heroes/matsunaga_hisahide'},
 }
