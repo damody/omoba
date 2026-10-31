@@ -196,6 +196,8 @@ local function dummy_rows(doc, t, value)
     statuses = true, flying = true, bounty = true }
   -- a chase_target dummy moves by its chase table and acquires within acquisition_range (E406)
   if t.ai == "chase_target" then known.chase = true; known.acquisition_range = true end
+  -- a pathing blocker (line B E426): immobile, its square's half side its collision radius
+  if t.blocks_pathing ~= nil then known.blocks_pathing = true; known.collision_radius = true end
   for _, k in ipairs(sorted(t)) do if not known[k] then no(k .. " on a dummy") end end
   if t.ai == "chase_target" and type(t.chase) ~= "table" then no("ai chase_target without a chase table") end
   local sp = statuses_problem(t); if sp then no(sp) end
@@ -206,7 +208,9 @@ local function dummy_rows(doc, t, value)
       and k ~= "move_speed" then no("stats." .. k .. " on a dummy") end
   end
   if t.ai ~= nil and t.ai ~= "none" and t.ai ~= "chase_target" then no("ai:" .. tostring(t.ai) .. " on a dummy") end
-  for _, tag in ipairs(t.tags or {}) do if tag ~= "dummy" and tag ~= "summon" then no("tag:" .. tag) end end
+  -- tag building: a building unit like a tower (line B E428): immobile, no chase
+  for _, tag in ipairs(t.tags or {}) do if tag ~= "dummy" and tag ~= "summon" and tag ~= "building" then no("tag:" .. tag) end end
+  local building = has(t.tags, "building")
   if t.owner_death ~= nil and t.owner_death ~= "persist" and t.owner_death ~= "expire" then no("owner_death:" .. tostring(t.owner_death)) end
   local p = t.passive or {}
   for _, k in ipairs(sorted(p)) do if k ~= "reveal" and k ~= "states" then no("passive." .. k .. " on a dummy") end end
@@ -234,6 +238,19 @@ local function dummy_rows(doc, t, value)
     if ms and (ms < 0 or ms > HOST_RANGE_MAX) then no("stats.move_speed " .. ms .. " outside 0.." .. HOST_RANGE_MAX)
     elseif ms and ms > 0 then row.move_speed, row.immobile = ms, nil end
     if t.flying ~= nil and type(t.flying) ~= "boolean" then no("flying of a " .. type(t.flying)) elseif t.flying then row.flying = true end
+    if t.blocks_pathing ~= nil then
+      if t.blocks_pathing ~= true then no("blocks_pathing of " .. tostring(t.blocks_pathing))
+      elseif not row.immobile or t.ai == "chase_target" then no("blocks_pathing on a dummy that moves")
+      else
+        local cr = num(t.collision_radius, "collision_radius")
+        if cr == nil then no("blocks_pathing without collision_radius")
+        elseif cr < 1 or cr > 512 then no("collision_radius " .. cr .. " outside 1..512 of a pathing blocker")
+        else row.blocks_pathing, row.collision_radius = true, cr end
+      end
+    end
+    if building then
+      if not row.immobile or t.ai == "chase_target" then no("tag:building on a dummy that moves") else row.building = true end
+    end
     if t.ai == "chase_target" and type(t.chase) == "table" then
       row.immobile, row.ai = nil, "chase_target"
       row.chase = chase_row(doc, t, num, no)

@@ -1071,6 +1071,11 @@ local function emit_statuses(m, root)
       if type(s.unique_group) ~= "string" then p[#p + 1] = "status.unique_group of an expression"
       else family = "unique_group:" .. s.unique_group end
     end
+    -- heal_reduction_pct: the host's healing_reduction family (heal_received_multiplier, the
+    -- strongest cut of every source, as the source's HealFilter takes the smallest factor)
+    if s.stats and s.stats.heal_reduction_pct ~= nil then
+      if family ~= "" then p[#p + 1] = "status.unique_group with heal_reduction_pct" else family = "healing_reduction" end
+    end
     if s.unique_rule ~= nil and s.unique_rule ~= "max" then p[#p + 1] = "status.unique_rule:" .. tostring(s.unique_rule) end
     -- scope: "unit" (the default) ends with the unit; hero / permanent outlive the hero's death
     -- (StatusDef.scope, host status_scope); others (match, item_instance…) wait
@@ -1110,6 +1115,11 @@ function Gen:stat_rows(stats, ctx)
       -- a slow per stack of a counted status (B10W): the slow row is that times the stacks
       if self.last_slow_per then self:block("stat:slow_pct twice") end
       self.last_slow_per = self:value(expr, ctx, "num")
+    elseif name == "heal_reduction_pct" then
+      -- received healing times 1 - pct; its status joins the healing_reduction family (ids)
+      if type(v) == "table" then self:block("stat:heal_reduction_pct of a table")
+      elseif not self.slow_ok then self:block("stat:heal_reduction_pct outside a status")
+      else rows[#rows + 1] = "(StatKey::HealReceivedMultiplier, (Fixed64::ONE - (" .. self:value(expr, ctx, "num") .. ")).raw())" end
     elseif not entry then self:block("stat:" .. name)
     elseif expr ~= nil then
       local raw
@@ -1779,6 +1789,12 @@ function Gen:action(a, ctx, ind)
           .. line("    if !existed {") .. line("        let caster = cx.caster;") .. line("        cx.caster = source;")
           .. line(string.format("        let r = super::%s::st_%s_start(cx, to);", so.parent.id, a.status))
           .. line("        cx.caster = caster;") .. line("        r?;") .. line("    }")
+        -- a refreshed aura status emits its aura again at this rank (an upgrade's level, D B31W)
+        if s.aura then
+          s2 = s2 .. line("    else {") .. line("        let caster = cx.caster;") .. line("        cx.caster = source;")
+            .. line(string.format("        let r = super::%s::st_%s_reaura(cx, to);", so.parent.id, a.status))
+            .. line("        cx.caster = caster;") .. line("        r?;") .. line("    }")
+        end
       else
         s2 = s2 .. line(call)
       end
@@ -1789,7 +1805,8 @@ function Gen:action(a, ctx, ind)
       return line("{") .. line("    let to = " .. to .. ";") .. line("    let duration = " .. dur .. ";")
         .. line("    let existed = cx.has_status(to, &super::ids::status::" .. upper(a.status) .. ");")
         .. line("    cx.apply_status(to, &super::ids::status::" .. upper(a.status) .. ", duration, " .. stats .. ")?;")
-        .. line(string.format("    if !existed { super::%s::st_%s_start(cx, to)?; }", so.parent.id, a.status)) .. line("}")
+        .. line(string.format("    if !existed { super::%s::st_%s_start(cx, to)?; }", so.parent.id, a.status)
+          .. (s.aura and string.format(" else { super::%s::st_%s_reaura(cx, to)?; }", so.parent.id, a.status) or "")) .. line("}")
     end
     if s.stacking == "keep" and not a.__aura then
       return line("{") .. line("    let to = " .. to .. ";") .. line("    let duration = " .. dur .. ";")
@@ -3191,8 +3208,12 @@ local function emit_entry(m, o, opts, status_problems)
       if sd.aura then
         -- cx.self_unit holds the status; cx.caster applied it
         local ctx = { owner = so, scope = scope_child(nil), event = false }
-        begin[#begin + 1] = "    " .. g:aura_emit(sd.aura, ctx, sd.id, "cx.self_unit", "Some(&super::ids::status::" .. upper(sd.id) .. ")", "false") .. "?;\n"
+        local emit = g:aura_emit(sd.aura, ctx, sd.id, "cx.self_unit", "Some(&super::ids::status::" .. upper(sd.id) .. ")", "false")
+        begin[#begin + 1] = "    " .. emit .. "?;\n"
         auras[#auras + 1] = g:aura_arm(sd.id, sd.aura, so)
+        -- reapplied while it holds (refresh): its emitter again, at the applier's rank now
+        fns[#fns + 1] = string.format("/// `%s` reapplied: its aura again at this rank.\n#[allow(dead_code)]\npub(crate) fn st_%s_reaura(cx: &mut Cx<'_, '_>, holder: EntityHandle) -> Res {\n"
+          .. "    let prev = cx.self_unit;\n    cx.self_unit = holder;\n    let r = %s;\n    cx.self_unit = prev;\n    r\n}\n", sd.id, sd.id, emit)
       end
       if sd.reapply_if_removed == true then
         -- removed or dispelled before it ran out (status_event REMOVED; expiry and death are
