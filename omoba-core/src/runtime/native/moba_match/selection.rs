@@ -467,8 +467,9 @@ mod tests {
                 omoba_template_ids::hero_by_name(&hero.hero).unwrap().raw(),
                 hero.catalog_id
             );
-            for ability in hero.abilities {
-                assert!(omoba_template_ids::ability_by_name(&ability).is_some());
+            // "" keeps an empty slot below the highest filled one (rank 0).
+            for ability in hero.abilities.iter().filter(|ability| !ability.is_empty()) {
+                assert!(omoba_template_ids::ability_by_name(ability).is_some(), "{ability}");
             }
         }
     }

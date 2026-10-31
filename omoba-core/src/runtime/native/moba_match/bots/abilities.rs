@@ -1208,9 +1208,14 @@ mod tests {
         yoshitsugu.ability_levels.insert("a12_mystic_arrow".into(),1);
         let arrow=BotAbilityPolicy {ability:"a12_mystic_arrow".into(),intent:BotAbilityIntent::EnemyLine {min_targets:1}};
         assert_eq!(validate_policies(&[arrow.clone()]),Ok(()));
-        let cast=choose_cast(&yoshitsugu,BotRole::Top,1,Vec2::ZERO,&health,&[unit(5,1500)],&[arrow.clone()]).expect("a hero in reach");
+        // The arrow is cast in the 刑部 form only (content requires_status a12t_form, E472).
+        let form=|status:&str|status=="a12t_form";
+        let choose=|seen:&[SeenUnit],own_status:&dyn Fn(&str)->bool|choose_cast_with_control_observation(&yoshitsugu,BotRole::Top,1,Vec2::ZERO,
+            &health,seen,std::slice::from_ref(&arrow),None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,own_status,&|_|0,&|_,_|None);
+        let cast=choose(&[unit(5,1500)],&form).expect("a hero in reach");
         assert_eq!(cast.target_pos.unwrap().x,Fixed64::from_i32(1500).raw() as i32,"aimed at the hero");
-        assert!(choose_cast(&yoshitsugu,BotRole::Top,1,Vec2::ZERO,&health,&[unit(5,4000)],&[arrow]).is_none(),"beyond the distance");
+        assert!(choose(&[unit(5,4000)],&form).is_none(),"beyond the distance");
+        assert!(choose(&[unit(5,1500)],&|_|false).is_none(),"not in the form");
     }
 
     #[test]
