@@ -87,4 +87,10 @@ return {
   {hero='sassa_narimasa',package='hero_a17',dir='heroes/sassa_narimasa'},
   -- M6 batch (2026-10-31): independent instance vars and remove_this_instance generated; conformance 0 fail (shadow)
   {hero='ii_naomasa',package='hero_a06',dir='heroes/ii_naomasa'},
+  -- M6 batch (2026-10-31): every ability generated; conformance 0 fail (live 27b3faf2)
+  {hero='mori_ranmaru',package='hero_a31',dir='heroes/mori_ranmaru'},
+  {hero='yamagata_masakage',package='hero_b20',dir='heroes/yamagata_masakage'},
+  {hero='shimazu_yoshihiro',package='hero_c03',dir='heroes/shimazu_yoshihiro'},
+  {hero='otomo_sorin',package='hero_c12',dir='heroes/otomo_sorin'},
+  {hero='matsuhime',package='hero_c19',dir='heroes/matsuhime'},
 }
