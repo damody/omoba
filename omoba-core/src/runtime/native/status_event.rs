@@ -55,6 +55,9 @@ pub const CHASE_REACH: u8 = 15;
 /// being pushed or teleported alike); `amount` is the straight distance between the two positions
 /// (E424).
 pub const MOVED: u8 = 16;
+/// The holder spent mana on an ability or item (v3 `on_mana_spent`, 原作 OnSpentMana); `amount`
+/// is the mana spent (E449).
+pub const MANA_SPENT: u8 = 17;
 
 /// `Spec.mask` bits: which events the status listens to.
 pub const ON_END: u32 = 1 << 0;
@@ -71,8 +74,9 @@ pub const ON_ATTACK_LAUNCH: u32 = 1 << 10;
 pub const ON_ABSORB: u32 = 1 << 11;
 pub const ON_BROKEN: u32 = 1 << 12;
 pub const ON_MOVED: u32 = 1 << 13;
+pub const ON_MANA_SPENT: u32 = 1 << 14;
 pub const ALL: u32 = ON_END | ON_ATTACK_HIT | ON_ATTACKED | ON_TAKE_DAMAGE | ON_DEAL_DAMAGE | ON_TAKE_DAMAGE_PRE | ON_DEAL_DAMAGE_PRE
-    | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL | ON_ATTACK_LAUNCH | ON_ABSORB | ON_BROKEN | ON_MOVED;
+    | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL | ON_ATTACK_LAUNCH | ON_ABSORB | ON_BROKEN | ON_MOVED | ON_MANA_SPENT;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
@@ -124,6 +128,7 @@ impl Spec {
             ABSORB => ON_ABSORB,
             BROKEN => ON_BROKEN,
             MOVED => ON_MOVED,
+            MANA_SPENT => ON_MANA_SPENT,
             _ => 0,
         };
         self.mask & bit != 0
@@ -315,11 +320,12 @@ mod tests {
         assert_eq!(Spec::from_payload(&payload), Some(s.clone()));
         assert!(s.listens(EXPIRED) && s.listens(CLEARED) && s.listens(TAKE_DAMAGE) && !s.listens(ATTACK_HIT));
         assert!(!s.listens(ABILITY_EXECUTED) && spec(ON_ABILITY_EXECUTED).listens(ABILITY_EXECUTED));
+        assert!(!s.listens(MANA_SPENT) && spec(ON_MANA_SPENT).listens(MANA_SPENT) && !spec(ON_MANA_SPENT).listens(MOVED), "E449");
         assert!(!s.listens(ATTACK_START) && spec(ON_ATTACK_START).listens(ATTACK_START));
         assert!(!s.listens(KILL) && spec(ON_KILL).listens(KILL));
         assert!(!s.listens(ABSORB) && spec(ON_ABSORB).listens(ABSORB) && spec(ON_BROKEN).listens(BROKEN));
         assert!(!s.listens(MOVED) && spec(ON_MOVED).listens(MOVED));
-        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 14);
+        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 15);
         assert_eq!(Spec::from_payload(&bad), None, "unknown event bits");
         let mut bad = payload.clone(); bad[KEY]["status"] = json!("B16T");
         assert_eq!(Spec::from_payload(&bad), None, "status ids are v3 ids");

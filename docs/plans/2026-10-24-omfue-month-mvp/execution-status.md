@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：event.damage.lethal（E452）
+
+- damage 事件的 `damage_kind` 新增旗標 `StatusEvent::LETHAL = 0x20`（打死目標的那一下）。給 b26_kozuke_valor。
+## 2026-10-31 線 B：status 的 on_mana_spent（E449）
+
+- status_event `MANA_SPENT = 17`（`ON_MANA_SPENT = 1 << 14`），amount 是花掉的法力。給 a29_withering_aura。
 ## 2026-10-31 線 B：unit_attr is_neutral（E447）
 
 - ext UNIT_ATTR 新增 `is_neutral`（野怪與非戰鬥中立）。給 b12_reality_slide。

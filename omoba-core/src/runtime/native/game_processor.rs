@@ -7199,7 +7199,8 @@ fn handle_damage(
         if listens {
             super::status_event::note_damage(world, super::status_event::DamageNote { source, target,
                 amount: (applied.hp_before - applied.hp_after).max(Fixed64::ZERO),
-                damage_kind: super::status_event::damage_kind(mitigated.by_type, original_profile), killer });
+                damage_kind: super::status_event::damage_kind(mitigated.by_type, original_profile)
+                    | if applied.died { omb_script_abi::types::StatusEvent::LETHAL } else { 0 }, killer });
         }
     }
     // ⑤ Lethal: tower kills, TD bounty and the Death that commits after the batch.

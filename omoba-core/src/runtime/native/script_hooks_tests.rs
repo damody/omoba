@@ -154,6 +154,16 @@ fn a_marked_status_hears_its_holders_damage() {
         _ => None }).collect();
     assert_eq!(damage, vec![(Fixed64::from_i32(40), 2), (Fixed64::from_i32(40), 2 | StatusEvent::REFLECTION)],
         "the hp each hit took, the second marked as a reflection");
+    // E452: a hit that kills is marked lethal; the hp it took is what was left.
+    world.write_storage::<crate::runtime::native::comp::CProperty>().get_mut(hero).unwrap().hp = Fixed64::from_i32(30);
+    world.write_resource::<Vec<crate::comp::Outcome>>().push(crate::comp::Outcome::RawDamage {
+        pos: omoba_sim::Vec2::ZERO, phys: Fixed64::ZERO, magi: Fixed64::ZERO, real: Fixed64::from_i32(80),
+        source: hero, target: hero, damage_profile: pure.bits(), origin: None });
+    for _ in 0..2 { driver.step(&mut world, []).unwrap(); }
+    let last = calls.lock().unwrap().iter().rev().find_map(|c| match c {
+        Call::Status { kind, amount, damage_kind, .. } if *kind == crate::runtime::native::status_event::TAKE_DAMAGE => Some((*amount, *damage_kind)),
+        _ => None });
+    assert_eq!(last, Some((Fixed64::from_i32(30), 2 | StatusEvent::LETHAL)));
 }
 
 #[test]
@@ -252,4 +262,21 @@ fn a_released_windup_follows_the_range_judged_when_it_began() {
     world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = at + omoba_sim::Vec2::new(Fixed64::from_i32(2_000), Fixed64::ZERO);
     for _ in 0..30 { driver.step(&mut world, []).unwrap(); }
     assert_eq!(executed(&calls), 1, "the release follows the range judged when the windup began");
+}
+
+/// E449: a status listening to on_mana_spent hears its holder's spend, with the amount.
+#[test]
+fn a_marked_status_hears_its_holders_mana_spend() {
+    use crate::runtime::native::status_event as se;
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (mut world, mut driver, hero, id) = driven(calls.clone());
+    driver.step(&mut world, []).unwrap();
+    let marker = se::Spec { ability: id.clone(), level: 1, status: "probe_drain".into(), source: EntityHandle { id: hero.id(), gen: hero.gen().id() as u32 }, mask: se::ON_MANA_SPENT };
+    world.write_resource::<BuffStore>().add(hero, "probe_drain", Fixed64::from_i32(5), serde_json::json!({ (se::KEY): marker.row() }));
+    world.write_resource::<Vec<crate::comp::Outcome>>().push(crate::comp::Outcome::ScriptManaSpent {
+        entity: hero, amount: Fixed64::from_i32(75), ability_id: id.clone() });
+    for _ in 0..2 { driver.step(&mut world, []).unwrap(); }
+    let heard: Vec<_> = calls.lock().unwrap().iter().filter_map(|c| match c {
+        Call::Status { holder, status, kind, amount, .. } if *kind == se::MANA_SPENT => Some((*holder, status.clone(), *amount)), _ => None }).collect();
+    assert_eq!(heard, vec![(hero.id(), "probe_drain".to_owned(), Fixed64::from_i32(75))]);
 }

@@ -11,13 +11,29 @@
 
 ## E453 （保留）沒有 set_time_of_day 的 host 落點，replica 也不採用公開的夜晚（2026-10-31）
 
-## E452 （保留）post-damage 事件沒有 event.damage.lethal（2026-10-31）
+## E452 post-damage 事件沒有 event.damage.lethal：b26_kozuke_valor 只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 回報 b26_kozuke_valor 的 on_take_damage 需要 `event.damage.lethal`（致死的傷害不回復），B26 只差這一項。
+- **根因**：
+  - status 事件沒有帶「這一下打死了目標」。
+  - script dispatch 讀的是 tick 開頭的生命（E194），產生碼無法從 self.hp 推出。
+- **通用修正**：
+  - `StatusEvent::LETHAL = 0x20` 是 `damage_kind` 的旗標位，和 REFLECTION 一樣，不改 ABI 版面。
+  - 傷害結算時，打死目標（`applied.died`）的那一下，在 on_take_damage／on_deal_damage／on_kill 的 damage_kind 帶上這個位元。新增 `StatusEvent::is_lethal`。
+- **驗證**：`a_marked_status_hears_its_holders_damage` 新增：生命 30 時受到致死一擊，事件 amount 30、damage_kind 帶 LETHAL；script_hooks、status_event 測試通過。
 
 ## E451 （保留）狀態的 periodic 與事件沿用套上時的等級，升級後仍是舊數值（2026-10-31）
 
 ## E450 （保留）狀態 trigger 裡沒寫 source 的 damage 由持有者造成，而不是施加者（2026-10-31）
 
-## E449 （保留）status trigger on_mana_spent 沒有 host 事件（2026-10-31）
+## E449 status trigger on_mana_spent 沒有 host 事件：a29_withering_aura 只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 回報 a29_withering_aura 的狀態 trigger `on_mana_spent`（原作 OnSpentMana：持有者花法力時被燒魔並緩速）沒有 host 事件，A29 只差這一項就能整位產生。
+- **根因**：host 已經把 `Outcome::ScriptManaSpent` 轉成 `ScriptEvent::SpentMana`，但 status 事件只收攻擊、傷害、施法與結束相關的事件。
+- **通用修正**：
+  - status_event 新增 `MANA_SPENT = 17`（mask `ON_MANA_SPENT = 1 << 14`），amount 是花掉的法力。
+  - `dispatch_status_events` 把當 tick 的 SpentMana（cost > 0）交給持有者身上聽這個事件的狀態。
+- **驗證**：新測試 `a_marked_status_hears_its_holders_mana_spend`（實際 driver：花 75 法力，聽 on_mana_spent 的狀態收到一次，amount 75）；status_event 的 listens 測試；status_event、script_hooks、dispatch 測試通過。
 
 ## E448 （保留）catalog 狀態列沒有 tags／immune_to／remove_on，主機依 tag 的查詢全部落空（2026-10-31）
 

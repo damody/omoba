@@ -174,7 +174,7 @@ fn dispatch_scripts(
     }).collect();
     // status_event: the holder-side combat events of this tick, resolved after the event hooks.
     let status_combat: Vec<ScriptEvent> = events.iter().filter(|event| matches!(event,
-        ScriptEvent::AttackHit {..} | ScriptEvent::Damage {..})).cloned().collect();
+        ScriptEvent::AttackHit {..} | ScriptEvent::Damage {..} | ScriptEvent::SpentMana {..})).cloned().collect();
     // status_event ABILITY_EXECUTED: the units whose cast succeeded or who used an item, in order.
     // With where it was cast (None: the caster's position when the event runs).
     let mut status_executed: Vec<(Entity, String, Option<Vec2>)> = events.iter().filter_map(|event| match event {
@@ -1058,6 +1058,7 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
                     on_holder(*victim, se::TAKE_DAMAGE, *attacker, *amount, damage_kind(kind));
                     if let Some(attacker) = attacker { on_holder(*attacker, se::DEAL_DAMAGE, Some(*victim), *amount, damage_kind(kind)); }
                 }
+                ScriptEvent::SpentMana { caster, cost, .. } if *cost > Fixed64::ZERO => on_holder(*caster, se::MANA_SPENT, None, *cost, 0),
                 _ => {}
             }
         }
