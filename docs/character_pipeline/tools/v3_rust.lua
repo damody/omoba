@@ -1384,6 +1384,10 @@ local ACTION_FIELDS = {
   __chain_cand = set({ "op", "of" }),
   -- passive.orb_slot's claim / release (the toggle's entries)
   __orb = set({ "op", "mode" }),
+  -- a non-hero unit gains / loses an ability of this document (line B E560); a hero's slots
+  -- (slot, cast_point, as: C08's stolen ability) wait for the hero version
+  add_ability = set({ "op", "to", "ability", "level" }),
+  remove_ability = set({ "op", "from", "ability" }),
   apply_status = set({ "op", "status", "to", "duration", "source", "stacks", "vars" }),
   -- exclude_source_tags, source_is, source_ability, min_duration, min_remaining: the host does not
   -- judge status sources or durations yet (line B), so they stay blocked
@@ -2842,6 +2846,18 @@ function Gen:action(a, ctx, ind)
     local lets, names = {}, {}
     for i, code in ipairs(args) do lets[#lets + 1] = line("    let a" .. i .. " = " .. code .. ";"); names[#names + 1] = "a" .. i end
     return line("{") .. table.concat(lets) .. line("    super::routines::" .. a.routine .. "(cx, " .. table.concat(names, ", ") .. ")?;") .. line("}")
+  elseif op == "add_ability" or op == "remove_ability" then
+    local id = a.ability
+    if type(id) ~= "string" or not id:match("^[%a_][%w_]*$") or not self.m.abilities[id] then
+      self:block("action:" .. op .. " of " .. tostring(id) .. " (an ability id of this document)"); return ""
+    end
+    if op == "remove_ability" then
+      return line("{") .. line("    let from = " .. self:value(a.from, ctx, "unit") .. ";")
+        .. line("    cx.remove_ability(from, " .. rust_str(id) .. ")?;") .. line("}")
+    end
+    local level = a.level ~= nil and self:value(a.level, ctx, "num") or "Fixed64::ONE"
+    return line("{") .. line("    let to = " .. self:value(a.to, ctx, "unit") .. ";") .. line("    let level = " .. level .. ";")
+      .. line("    cx.add_ability(to, " .. rust_str(id) .. ", level)?;") .. line("}")
   elseif op == "__orb" then
     return line("cx.orb_slot_" .. (a.mode == "claim" and "claim" or "release") .. "(cx.caster, ID)?;")
   elseif op == "__chain_cand" then
