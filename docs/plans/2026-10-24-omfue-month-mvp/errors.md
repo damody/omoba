@@ -14,7 +14,17 @@
 - 沒有處理：別人的 moba-headless 沒有停（不是本工作線的程序，D20）。共用 `scripts/*.dll` 這段期間會停在舊版，只有舊的 `run_ue.lua` 會讀它。
 - 避免：已經不是 launch 輸入的共用檔案，寫入失敗不能讓建置失敗。
 
-## E557 （保留）kit 的 dodge_projectiles 只能對自己：B16、A13 要對其他單位（dodge_projectiles.of）（2026-11-01）
+## E557 kit 的 dodge_projectiles 只能對自己：B16、A13 要替其他單位閃避（2026-11-01，工作線 B）
+
+- **現象**：A 回報 B16 與 A13（替幻象）需要 v3 `dodge_projectiles.of`，對其他單位執行閃避。kit 只有對 caster 自己的 `dodge_projectiles()`，host 的 `dodge_admitted` 也只接受「buff 目標 = 發送者本人」。
+- **修正**：
+  - host：`dodge_admitted` 改成 payload 只記發送者，閃避對象是 buff 的目標。兩者都要存活，而且目標要與發送者同隊（發送者本人、幻象、隊友）；cast 交易裡仍要求發送者就是 caster。敵方替你閃避會被拒絕。
+  - kit：新增 `Cx::dodge_projectiles_of(unit)`；`dodge_projectiles()` 改為 `dodge_projectiles_of(caster)`。
+- **測試**：`ability_projectile_tests::dodge_retires_only_dodgeable_homing_flights_on_the_dodger_without_damage` 改寫：
+  - 敵方替 dodger 送出的請求被拒。
+  - 隊友替另一隊友送出的請求，會讓該隊友身上可閃避的追蹤投射物消失。
+  - 原本斷言「其他單位的請求一律拒絕」是舊語意，已依 E557 更新。
+- **檔案**：`omoba-core/src/runtime/native/ability_projectile.rs`、`omoba-core/src/runtime/native/ability_projectile_tests.rs`、`scripts/ability_kit/src/host_ext.rs`
 
 ## E556 no_attack 且攻擊間隔 0 的召喚物生成時除以零：E546 之後整個 C16 測試 panic（2026-11-01，工作線 B）
 

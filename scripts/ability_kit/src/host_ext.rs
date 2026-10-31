@@ -197,9 +197,17 @@ impl Cx<'_, '_> {
     /// v3 `dodge_projectiles`: retires every dodgeable homing ability projectile and every
     /// attack projectile tracking the caster, without settling them.
     pub fn dodge_projectiles(&mut self) -> Res {
+        let caster = self.caster;
+        self.dodge_projectiles_of(caster)
+    }
+
+    /// v3 `dodge_projectiles { of = unit }` (E557): the same for `unit`, the caster or a unit of
+    /// its side (its illusion); the host refuses any other.
+    pub fn dodge_projectiles_of(&mut self, unit: EntityHandle) -> Res {
         use omoba_core::runtime::native::ability_projectile as projectile;
+        if !unit.is_valid() { return Ok(()); }
         let payload = projectile::dodge_payload(self.caster.id, self.caster.gen);
-        self.world.add_stat_buff(self.caster, RStr::from_str(projectile::DODGE_BUFF), Fixed64::ONE, RStr::from_str(&payload.to_string()));
+        self.world.add_stat_buff(unit, RStr::from_str(projectile::DODGE_BUFF), Fixed64::ONE, RStr::from_str(&payload.to_string()));
         Ok(())
     }
 }

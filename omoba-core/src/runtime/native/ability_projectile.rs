@@ -392,10 +392,10 @@ pub fn vision_of(payload: &Value) -> Option<Fixed64> {
     (radius > Fixed64::ZERO && radius <= Fixed64::from_i32(super::reveal_zone::MAX_RADIUS)).then_some(radius)
 }
 
-/// Dodge request: a script sends its own caster
-/// `add_stat_buff(caster, DODGE_BUFF, duration, dodge_payload(caster))`; the host
-/// retires every dodgeable homing ability projectile and every normal-attack
-/// projectile currently tracking the caster, without settling them. Never stored.
+/// Dodge request: a script sends `add_stat_buff(unit, DODGE_BUFF, duration, dodge_payload(caster))`
+/// for its caster or a unit of the caster's side; the host retires every dodgeable homing
+/// ability projectile and every normal-attack projectile currently tracking that unit, without
+/// settling them. Never stored.
 pub const DODGE_KEY: &str = "__projectile_dodge_v1";
 pub const DODGE_BUFF: &str = "__projectile_dodge";
 
@@ -403,7 +403,9 @@ pub fn dodge_payload(source_id: u32, source_generation: u32) -> Value {
     json!({ (DODGE_KEY): { "source_id": source_id, "source_generation": source_generation } })
 }
 
-/// The unit a dodge request is for: exactly the live sender itself.
+/// The unit a dodge request is for: the buff's target, a live unit of the live sender's team —
+/// the sender itself (`dodge_projectiles`) or another unit of its side, e.g. its illusion
+/// (`dodge_projectiles.of`, E557). The payload names the sender.
 pub fn dodge_admitted(world: &World, target: Entity, buff_id: &str, payload: &Value, expected_source: Option<Entity>) -> Option<Entity> {
     if buff_id != DODGE_BUFF || payload.as_object()?.len() != 1 { return None; }
     let row = payload.get(DODGE_KEY)?.as_object()?;
@@ -411,9 +413,12 @@ pub fn dodge_admitted(world: &World, target: Entity, buff_id: &str, payload: &Va
     let id = u32::try_from(row.get("source_id")?.as_u64()?).ok()?;
     let generation = u32::try_from(row.get("source_generation")?.as_u64()?).ok()?;
     let source = world.entities().entity(id);
-    (generation > 0 && source.gen().id() as u32 == generation && source == target && world.entities().is_alive(source)
-        && expected_source.is_none_or(|expected| expected == source)
-        && world.read_storage::<CProperty>().get(source).is_some_and(|p| p.hp > Fixed64::ZERO)).then_some(source)
+    let live = |unit: Entity| world.entities().is_alive(unit)
+        && world.read_storage::<CProperty>().get(unit).is_some_and(|p| p.hp > Fixed64::ZERO);
+    let factions = world.read_storage::<Faction>();
+    let same_side = source == target || factions.get(source).zip(factions.get(target)).is_some_and(|(a, b)| a.team_id == b.team_id);
+    (generation > 0 && source.gen().id() as u32 == generation && live(source) && live(target) && same_side
+        && expected_source.is_none_or(|expected| expected == source)).then_some(target)
 }
 
 /// Serial dodge. Returns the retired projectiles' Death outcomes in canonical order.

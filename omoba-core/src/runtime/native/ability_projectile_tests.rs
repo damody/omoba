@@ -494,16 +494,21 @@ fn dodge_retires_only_dodgeable_homing_flights_on_the_dodger_without_damage() {
     cast(&mut w, caster, &line);
     fly(&mut w, 60, 10, &[]);
     assert_eq!(live(&w), 4);
-    // Another unit's dodge request is refused; the dodger's own retires one flight.
+    // An enemy's dodge request for the dodger is refused (the sender's side only, E557).
+    w.write_resource::<Vec<Outcome>>().push(Outcome::AddBuff { target: dodger, buff_id: DODGE_BUFF.into(), duration: Fixed64::ONE,
+        payload: dodge_payload(caster.id(), caster.gen().id() as u32) });
+    settle(&mut w);
+    assert_eq!(live(&w), 4);
+    // `dodge_projectiles.of`: the dodger dodges for an ally, whose dodgeable flight retires.
     w.write_resource::<Vec<Outcome>>().push(Outcome::AddBuff { target: other, buff_id: DODGE_BUFF.into(), duration: Fixed64::ONE,
         payload: dodge_payload(dodger.id(), dodger.gen().id() as u32) });
     settle(&mut w);
-    assert_eq!(live(&w), 4);
-    request_dodge(&mut w, dodger);
     assert_eq!(live(&w), 3);
+    request_dodge(&mut w, dodger);
+    assert_eq!(live(&w), 2);
     fly(&mut w, 60, 120, &[]);
-    // The non-dodgeable bolt and the line still hit the dodger; the dodged one never does.
-    assert_eq!((hp(&w, dodger), hp(&w, other)), (800, 900));
+    // The non-dodgeable bolt and the line still hit the dodger; the dodged ones never do.
+    assert_eq!((hp(&w, dodger), hp(&w, other)), (800, 1000));
     assert_eq!(live(&w), 0);
     // Canonical rows: homing only, present only when true.
     assert!(!dodgeable_of(&with_dodgeable(line.payload())));
