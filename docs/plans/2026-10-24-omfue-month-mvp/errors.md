@@ -4,7 +4,12 @@
 
 ## E493 （保留）burn_mana 的最大單 tick 扣魔被目標同 tick 的回魔脈衝抵掉（a21 r1 128.67 vs 130）（2026-10-31）
 
-## E492 （保留）spotlight 閃現後替身或原點超出畫面邊界，回位、走近、被動攻擊的點擊全被拒（c02 汰選斬擊未示範）（2026-10-31）
+## E492 spotlight 閃現後替身或原點超出畫面邊界，回位、走近、被動攻擊的點擊全被拒（c02 汰選斬擊未示範）（2026-10-31，工作線 C）
+- 現象：第二輪重跑的 C02 明智秀滿 spotlight，W 幻影移動之後，回位（`spotlight_return`）、走近（`spotlight_approach`）和被動攻擊的點擊都是 `not_submitted`（`target is outside the visible world area`），最後兩格被略過，汰選斬擊（R）沒有示範（`target/lineC-pres14/akechi_hidemitsu-run`）。
+- 原因：幻影移動把英雄傳送到離舞台很遠的地方。鏡頭跟著英雄，替身和原點落在 BackendToDesktop 保留的畫面安全邊界（左右 7%）之外。spotlight 對世界的點擊直接用 ClickWorld，目標不在畫面內就放棄。lane autopilot 遇到同樣的情況會先往目標走到可見點（FarthestVisibleToward、NearestVisibleWorldPoint），spotlight 沒有這一步。
+- 修正（共用層，omfue 2659ea1）：新增 `FOmAutoPilot::ClickWorldToward(From, Target, Intent)`。目標在畫面內就直接點目標；不在畫面內就點往目標方向最遠的可見點；沒有可見點時按 CameraFocusSelf 把鏡頭拉回英雄。回位、單位目標走近、被動示範（替身在畫面外時先走近）都改用它。land_to_live 的 codegen 和 UBT 都通過。
+- 避免：autopilot 的世界點擊目標都可能在畫面外，一律先走到可見點，不要只靠鏡頭跟隨。
+- 待確認：C02 重跑。
 
 ## E491 creep_facing 的攻擊預期用最後一次攻擊紀錄的目標，小兵已換目標仍被算成沒轉向（2026-10-31，e187 遊戲模式 session，B 分析；已放回 live）
 - **現象**：m6fix1 加上 E476 的目標資訊後，剩 28 筆 violation，其中 22 筆的目標是英雄。常見的情形是幾隻小兵在同一個 tick 有相同的 facing，目標英雄在 500～624 外。
