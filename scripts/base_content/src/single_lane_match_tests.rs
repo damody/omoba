@@ -3447,7 +3447,7 @@ fn dash_bot_public_terrain_60hz_skips_blocked_cast_for_recovery_then_relocates()
     w.write_resource::<BlockedRegions>().0.push(isolated_skill_region("bot-dash-fixture",100.0,120.0,100.0));
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Top,lane:0,escort_player_id:None}],
         think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),ability_policies:vec![
-            BotAbilityPolicy {ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300}},
+            BotAbilityPolicy {ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}},
             BotAbilityPolicy {ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
         ]};
     run_committed_visibility_wave_b(&mut w,driver.tick(),0);
@@ -3499,7 +3499,7 @@ fn dash_effect_root_60hz_rejects_without_cost_then_bot_recovers_and_relocates() 
         if source==canonical_entity_id(caster))),"failed movement emits no successful cast cue");
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Top,lane:0,escort_player_id:None}],
         think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),ability_policies:vec![
-            BotAbilityPolicy {ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300}},
+            BotAbilityPolicy {ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}},
             BotAbilityPolicy {ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
         ]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
@@ -3551,7 +3551,7 @@ fn dash_effect_formal_60hz_rejects_wall_and_range_then_bot_relocates() {
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Top,lane:0,escort_player_id:None}],
         think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
         ability_policies:vec![BotAbilityPolicy {ability:"vanguard_resolve".into(),
-            intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300}}]};
+            intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}}]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(c)) if c.ability_index==3 && c.target_entity.is_none() && c.target_pos.is_some()));
