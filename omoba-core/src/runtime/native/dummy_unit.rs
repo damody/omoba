@@ -17,9 +17,12 @@ pub const STATES: [&str; 7] = [state::INVULNERABLE, state::UNSELECTABLE, state::
 pub const BREAKABLE_STATES: [&str; 2] = [state::COMMAND_RESTRICTED, super::ability_runtime::NO_UNIT_COLLISION];
 
 /// A summon template a spawn admits: a dummy (its zero body is checked by the catalog), or a
-/// body with life and an attack.
+/// body with life that never attacks (`no_attack`, E546: C16 鬼影) or attacks at a positive
+/// interval from a range of 0 or more (a melee range 0 reaches what it touches, edge to edge:
+/// A21 鐵扇).
 pub fn body_valid(stats: &omoba_template_ids::SummonStats) -> bool {
-    stats.dummy || (stats.hp > Fixed64::ZERO && stats.attack_interval > Fixed64::ZERO && stats.attack_range > Fixed64::ZERO)
+    stats.dummy || (stats.hp > Fixed64::ZERO
+        && (stats.no_attack || (stats.attack_interval > Fixed64::ZERO && stats.attack_range >= Fixed64::ZERO)))
 }
 
 /// The dummy's states for `lifetime` (zero = until it is removed): [`BREAKABLE_STATES`] when it
@@ -47,6 +50,19 @@ pub fn hold_base_stats(buffs: &mut BuffStore, entity: Entity, stats: &omoba_temp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// E546: a body that never attacks (C16 鬼影) and a melee range 0 (A21 鐵扇) spawn.
+    #[test]
+    fn a_body_without_an_attack_or_with_melee_range_zero_spawns() {
+        let stats = |id: &str| omoba_template_ids::summon_by_name(id).and_then(omoba_template_ids::active_summon_stats);
+        let ghost = stats("c16e_ghost").expect("c16e_ghost row");
+        assert!(ghost.no_attack && body_valid(ghost));
+        let mut melee = *ghost; melee.no_attack = false;
+        melee.attack_interval = Fixed64::ONE; melee.attack_range = Fixed64::ZERO;
+        assert!(body_valid(&melee), "melee range 0");
+        melee.attack_interval = Fixed64::ZERO;
+        assert!(!body_valid(&melee), "an attack needs an interval");
+    }
     use specs::{Builder, World, WorldExt};
 
     #[test]
