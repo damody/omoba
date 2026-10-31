@@ -2,6 +2,15 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E519 conformance：conformance 看不到 trigger 吞掉的 Err：harness 讀 ScriptErrorLog（E517 的 harness 端）（2026-10-31，conformance session）
+- **現象**：A06 的 a06t_fury 每擊 set_state 都失敗（vars key 含不允許的 `#`，E515），conformance 仍判 0 fail。
+- **根因**：trigger hook 經 ABI 回傳 ()，生成碼用 `let _ =` 丟掉 Err；harness 只看效果，沒檢查到的效果失敗就看不到。
+- **通用修正**：
+  - 生成碼改成失敗時呼叫 `cx.report_error`（A，8b57ba34）。
+  - host 記到 `ScriptErrorLog`（B，E517，25bbcf71）。
+  - harness 每個 Run 都插入 log，Run drop 時收集；情境結束後，有這位英雄自己技能的錯誤就判 fail，訊息帶技能、hook 和錯誤內容。
+- **以後如何避免**：腳本執行期的錯誤一律回報並當成差異，不靠效果檢查間接發現。
+
 ## E522 split 重建時 cargo 的英雄套件清單在快照之前取得，比快照舊（2026-10-31，工作線 C）
 - 現象：工作線 C 的 okuma_tomohide spotlight split 在 E399 的第二次建置失敗：`dev_run_freshness.lua:8: source missing: target\lineC-bins\release\hero_b05.dll`。
 - 原因：`build_all` 在等 build lock 之前就產生全部建置指令，cargo 的 `-p` 英雄套件清單也在這時決定。快照則是取得 build lock、前端建置之後才鏡像。等鎖的 220 秒內 b2195a2a 讓 B05 轉正式，快照的 hero_dlls 有 hero_b05，cargo 的清單沒有。E507 之後 stage-dll 讀快照的集合，所以找不到 DLL。

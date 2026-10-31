@@ -156,6 +156,20 @@ impl CastResult {
 
 enum Verdict { Pass, Fail(String), Unsupported(String), PassNoted(String) }
 
+use omoba_core::scripting::parallel_world_adapter::ScriptErrorLog;
+
+thread_local! {
+    /// What the scenario's runs' triggers reported (E519): `ability`, `hook`, `message`.
+    static SCRIPT_ERRORS: std::cell::RefCell<Vec<(String, String, String)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+impl Drop for Run {
+    fn drop(&mut self) {
+        let rows = self.world.try_fetch::<ScriptErrorLog>().map(|log| log.take()).unwrap_or_default();
+        SCRIPT_ERRORS.with(|all| all.borrow_mut().extend(rows.into_iter().map(|r| (r.ability.to_string(), r.hook.to_string(), r.message.to_string()))));
+    }
+}
+
 struct Run {
     world: World, driver: SimulationDriver, caster: specs::Entity, enemy: specs::Entity, target: specs::Entity,
     entry: String, rank: usize, slot: u32, target_hp: Fixed64, casts: Vec<CastResult>,
@@ -480,6 +494,8 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     world.insert(omoba_core::runtime::native::damage_trace::DamageTrace::default());
     // Why a cast was refused (B's cast_trace; E254).
     world.insert(omoba_core::runtime::native::cast_trace::CastTrace::default());
+    // Errors the triggers report (E519): collected when the run ends.
+    world.insert(ScriptErrorLog::default());
     let at = origin + omoba_sim::Vec2::new(fixed(distance), Fixed64::ZERO);
     world.write_storage::<Pos>().get_mut(caster).unwrap().0 = origin;
     world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = at;
@@ -2649,9 +2665,20 @@ fn conformance(id: &str) {
     // entries is a content ability; E320) cannot be spawned yet.
     let in_content = doc["scenarios"].as_array().unwrap().iter().filter_map(|s| s["entry"].as_str())
         .any(|entry| omoba_template_ids::ability_by_name(entry).is_some());
+    let entries: std::collections::BTreeSet<String> = doc["scenarios"].as_array().unwrap().iter()
+        .filter_map(|s| s["entry"].as_str().map(str::to_owned)).collect();
     for s in doc["scenarios"].as_array().unwrap() {
         let sid = s["id"].as_str().unwrap();
+        SCRIPT_ERRORS.with(|all| all.borrow_mut().clear());
         let verdict = if in_content { run(&hero, s) } else { Verdict::Unsupported(format!("{hero} is not in the content yet")) };
+        // A trigger of this hero's that failed (E519) is a difference whatever the checks saw.
+        let failed: Vec<String> = SCRIPT_ERRORS.with(|all| all.borrow_mut().drain(..).collect::<Vec<_>>()).into_iter()
+            .filter(|(ability, ..)| entries.contains(ability))
+            .map(|(ability, hook, message)| format!("{ability} {hook}: {message}")).collect();
+        let verdict = if failed.is_empty() { verdict } else {
+            let mut unique = failed; unique.dedup();
+            Verdict::Fail(format!("script error in a trigger: {}", unique.join("; ")))
+        };
         let (verdict, detail) = match verdict {
             Verdict::Pass => ("pass", String::new()),
             Verdict::PassNoted(note) => ("pass", note),
