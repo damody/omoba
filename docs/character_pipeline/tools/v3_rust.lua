@@ -567,6 +567,11 @@ function Gen:expr(node, ctx)
     -- learner of a passive, the applier of a status)
     if base.k == "id" and base.name == "ability" and #parts == 1 and not scope_find(ctx.scope, "ability") then
       if parts[1] == "level" then return "Fixed64::from_i32(i32::from(cx.rank))", "num" end
+      -- the hero that owns this ability: the caster, or the hero owning the summon that runs it
+      -- (like caster_hero)
+      if parts[1] == "owner" then
+        return "{ let c = cx.caster; let o = cx.unit_ref(c, ability_kit::unit_attr::OWNER); if o.is_valid() { o } else { c } }", "unit"
+      end
       local id = self.entry and self.entry.kind == "ability" and self.entry.def.id
       if parts[1] == "is_ready" and id then return string.format("cx.ability_ready(cx.caster, %s)", rust_str(id)), "bool" end
       -- this rank's mana cost (`cost.mana`, GetManaCost)
@@ -742,6 +747,8 @@ function Gen:expr(node, ctx)
     end
     if op == "==" or op == "~=" then
       if lt ~= rt or lt:match("^sym") or lt == "event" or lt == "event_ability" then self:block("expr: " .. op .. " of " .. lt .. " and " .. rt) end
+      -- a right side that takes &mut cx (a block): the left value first, so no borrow of cx is held
+      if r:find("{", 1, true) then return string.format("{ let l_ = %s; l_ %s %s }", l, op == "==" and "==" or "!=", r), "bool" end
       return string.format("(%s %s %s)", l, op == "==" and "==" or "!=", r), "bool"
     end
     -- vectors (Vec2): a point moved by an offset, the offset between points, an offset scaled
@@ -1799,11 +1806,13 @@ function Gen:action(a, ctx, ind)
     local slow = self.last_slow
     self.slow_ok, self.last_slow = nil, nil
     if independent then
-      if slow then self:block("status.stacking:independent with slow_pct") end
-      local call = "cx.apply_status_instance(to, &super::ids::status::" .. upper(a.status) .. ", duration, stats)"
+      -- slow_pct: the instance's own slow row `<id>#<n>:slow` (line B E463)
+      local call = slow and ("cx.apply_status_instance_slowed(to, &super::ids::status::" .. upper(a.status) .. ", duration, stats, slow)")
+        or ("cx.apply_status_instance(to, &super::ids::status::" .. upper(a.status) .. ", duration, stats)")
       local body = line("{") .. line("    let to = " .. to .. ";") .. line("    let duration = " .. dur .. ";")
         -- the stats first: their reads take &mut cx
         .. line("    let stats: &[(StatKey, i64)] = " .. stats .. ";")
+        .. (slow and line("    let slow = Some(" .. slow .. ");") or "")
       -- the new instance's start (on_created, periodic) runs as that instance, its source the caster
       local start_fn = starts and string.format("super::%s::st_%s_start(cx, to)", so.parent.id, a.status)
       if starts then self:need_module(so) end
