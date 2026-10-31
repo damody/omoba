@@ -2,6 +2,19 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E476 （保留）creep_facing 攻擊樣本沒有目標資訊，距離 0 的目標以 atan2(0,0) 算成 0°（2026-10-31）
+
+## E475 （保留）event.damage.is_attack 沒有 host 落點：傷害事件分不出普攻，C13、B17 只能擋下（2026-10-31）
+
+## E474 bot_auto_policies 沒有 nearest_tree 意圖，樹木目標技能（B22）沒有策略（2026-10-31，e187 遊戲模式 session；已放回 live）
+- **現象**：m6new1／m6new2 的太原雪齋 b22_force_of_nature、b22_wood_spirit 都是 NEVER CAST；派生 hint 是 `kind = none`（tree target），executor 也沒有樹木目標的意圖。
+- **通用修正**：B 的 E473 在 executor 加了 `nearest_tree {enemy_radius}`；bot_auto_policies 的 SUPPORTED 加 `nearest_tree`，admissible 依 executor 相同條件檢查，enemy_radius 輸出成整數。條件如下：
+  - row 的 `targets_tree = true`，而且是 point 目標；
+  - 每級施法距離在 (0, 10000]；
+  - 選填的 enemy_radius 是 [0, 10000] 內的整數值。
+  - 以模擬 hint 驗證兩招都產生策略；實際施放要等 A 的 v3_bot.lua 輸出 `kind = "nearest_tree"`。
+- **避免**：executor 新增意圖時，同一輪就把派生策略的對應接上。
+
 ## E473 bot 沒有以樹為目標的意圖，B22 兩招以樹為目標的技能從未施放（2026-10-31，工作線 B）
 
 - **現象**：工作線 C 回報 B22（太原雪齋）的 b22_force_of_nature（砍樹召喚樹人）與 b22_wood_spirit（喚醒樹木）的 bot kind 是 none，從未施放。
@@ -96,7 +109,12 @@
   - 對施法者自己單位的迴圈（for_each 的 select.team 是 ally 或 self，例如 B23W 每隻幽靈各觸發一次衝擊）也不算。第一版漏了這一項，B23 的 4 個 normal 因此轉為 fail。
 - **結果**：A19W、B19W、B14 等技能的第一下傷害開始被比對，而且符合文件。另外量了一次施法的總傷害：A19W r4 是 2 次爆炸 × 300 加上 5 次餘火 × 40，B19W 對同一目標只打一次，都和文件一致。A19T 同一個 pulse 內多次 apply 會讓 on_created 重複觸發，已交給工作線 A（E466）。
 
-## E466 （保留）同一個 tick 內多次套用同一狀態，每次都當成新建而重跑 on_created（2026-10-31）
+## E466 同一個 tick 內多次套用同一狀態，每次都當成新建而重跑 on_created（2026-10-31，工作線 A）
+
+- **現象**：A19T 的 a19t_burn 在同一個 pulse 內對同一目標 apply 多次，每次都被當成新建，on_created 重複觸發，第一下傷害被重複計算。
+- **原因**：`scripts/ability_kit` 的 has_status 只看 host 回報的狀態表；同一 tick 內剛 apply 的狀態要等下個 tick 才會出現在表上，所以腳本端判斷「尚未存在」而走新建路徑。
+- **修正**：host_ext 加 `applied: BTreeMap<(u32,u32,String),bool>`，apply_status_keyed 通過免疫檢查後記 true，remove_status 記 false；has_status 先查這張表。這是通用修正，所有狀態都受益，不是針對 A19T 的特例。
+- **預防**：腳本端任何「先查是否存在再決定新建或刷新」的判斷，都要把同一 tick 內自己已發出的寫入算進去，不能只信 host 上一個 tick 的快照。
 
 ## E465 on_order_targeted 沒有派送：order_targets 記錄了卻沒有人讀，b06_mind_eye 只能擋下（2026-10-31，工作線 B）
 

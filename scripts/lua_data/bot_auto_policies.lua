@@ -25,6 +25,8 @@ local SUPPORTED = {
   approach_enemy_point = { target = 'point', params = { 'min_distance', 'reach_key' } },
   -- A summon placed near the enemy, or one with no target at all (E419 executor, E427 here).
   summon_near_enemy = { target = 'point', also_target = 'none', params = { 'threat_radius' } },
+  -- A tree-targeted point skill at the nearest standing tree in range (E473 executor, E474 here).
+  nearest_tree = { target = 'point', params = { 'enemy_radius' }, tree = true },
   toggle_engage = { target = 'none', params = { 'threat_radius', 'on_status' }, toggle = true },
   self_heal = { target = 'none', params = { 'below_hp_per_mille' } },
   self_area = { target = 'none', params = { 'radius_key', 'min_targets' }, extras = { 'radius_key' } },
@@ -96,6 +98,17 @@ local function admissible(row, hint)
       if (level.range or 0) <= 0 then return false end
     end
   end
+  -- A tree target reaches only trees within its cast range (the executor's check).
+  if kind.tree then
+    if row.targets_tree ~= true then return false end
+    local radius = hint.enemy_radius ~= nil and math.tointeger(hint.enemy_radius)
+    if hint.enemy_radius ~= nil and (not radius or radius < 0 or radius > 10000) then
+      return false
+    end
+    for _, level in ipairs(row.levels or {}) do
+      if (level.range or 0) <= 0 or level.range > 10000 then return false end
+    end
+  end
   if kind.anywhere then
     for _, level in ipairs(row.levels or {}) do
       if (level.range or 0) ~= 0 then return false end
@@ -122,6 +135,7 @@ end
 local function intent(hint)
   local out = { kind = hint.kind }
   for _, name in ipairs(SUPPORTED[hint.kind].params) do out[name] = hint[name] end
+  if out.enemy_radius ~= nil then out.enemy_radius = math.tointeger(out.enemy_radius) end
   return out
 end
 
