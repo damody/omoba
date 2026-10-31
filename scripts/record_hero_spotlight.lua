@@ -109,7 +109,8 @@ end
 -- A package that is only a v3 document (heroes promoted from scripts/v3_test_heroes.lua) has no
 -- abilities.lua or character.lua: its slots come from the content catalog (the hero row's ability
 -- order, each ability's name, description and type; its team from the v3 bot kind, as the item
--- spotlight aims items).
+-- spotlight aims items). An active the bot declares it cannot aim (bot kind "none", e.g. a tree
+-- target) is left out and listed in `unshown`; the other slots keep their numbers.
 function M.load_v3_package(root,hero)
   local ctx=require('content_builder').new(path.join(root,'scripts','lua_data'))
   local row
@@ -119,14 +120,17 @@ function M.load_v3_package(root,hero)
   for _,ability in ipairs(ctx.include('templates/abilities.lua')) do by_id[ability.id]=ability end
   ITEM_SPOTLIGHT_AS_MODULE=true
   local aim=require('item_spotlight').AIM
-  local slots={}
+  local slots,unshown={},{}
   for index,id in ipairs(assert(row.abilities,'hero without abilities')) do
+    local ability=by_id[id]
+    local bot=ability and ability.v3 and ability.v3.bot
+    if bot and bot.kind=='none' and ability.ability_type~='passive' then
+      unshown[#unshown+1]={slot=index-1,id=id,reason='bot kind none'}
     -- "" is an empty slot (an F without a D): nothing to show, the next slot keeps its number.
-    if id~='' then
-    local ability=assert(by_id[id],'ability '..id..' of '..hero..' is not in the content catalog')
+    elseif id~='' then
+    assert(ability,'ability '..id..' of '..hero..' is not in the content catalog')
     local kind=ability.ability_type
     if kind~='passive' and kind~='toggle' and kind~='ultimate' then kind='active' end
-    local bot=ability.v3 and ability.v3.bot
     local team='self'
     if kind~='passive' then
       local target=bot and aim[bot.kind]
@@ -137,7 +141,7 @@ function M.load_v3_package(root,hero)
       line=M.first_line(ability.description),kind=kind,team=team}
     end
   end
-  return {hero=hero,hero_name=row.display_name or hero,title=row.title or '',slots=slots}
+  return {hero=hero,hero_name=row.display_name or hero,title=row.title or '',slots=slots,unshown=unshown}
 end
 
 function M.load_package(root,hero)

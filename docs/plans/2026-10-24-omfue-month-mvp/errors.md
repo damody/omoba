@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E459 hero spotlight 遇到 bot 無法瞄準的技能（樹木目標）整位英雄中止（2026-10-31，工作線 C）
+- 現象：line A 把 B22 太原雪齋轉正式（16a34749）後，產生 spotlight 腳本時 `record_hero_spotlight.load_v3_package` 在 `b22_force_of_nature` 斷言失敗（「has no bot kind the spotlight can aim (none)」），整位英雄連能示範的 Q、E、R 都沒有腳本。
+- 原因：B22 的 W（自然之力）和 D（木靈）以樹木為目標，v3_compile 給的 bot kind 是 `none`（bot 本身也不施放）。spotlight 把「沒有可瞄準的 kind」一律當成錯誤，不區分內容明確宣告不能瞄準的技能和漏寫的 kind。
+- 修正（共用層）：`load_v3_package` 遇到 bot kind 為 `none` 的主動技能時不放進 slots，改列在 `unshown`（slot、id、原因）；其他技能保留原本的格子編號。沒寫 kind 或 kind 不在瞄準表的仍然斷言失敗。`record_hero_spotlight_test` 以 B22 驗證（W、D 列為 unshown，Q、E、R 在 0、2、3 格）。
+- 避免：spotlight 沒有樹木目標的示範能力；報告會把這些技能列為未示範。若要示範，需要在自動駕駛加「最近的樹」目標，而不是逐英雄特例。
+
 ## E455 （保留）v3 refund { cooldown = true } 沒有 host 落點（2026-10-31）
 
 ## E454 headless 統計沒有 INVALID_TARGET 的目標狀態，executor 查不出被拒原因（2026-10-31，e187 遊戲模式 session，B 要求；已放回 live）
