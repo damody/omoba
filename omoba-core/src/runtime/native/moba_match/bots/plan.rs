@@ -577,6 +577,13 @@ mod tests {
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().hold_players.insert(1); reject(p);
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().hold_players.insert(9); reject(p);
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().placements.insert(9,[1,1]); reject(p);
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().placements.insert(1,[-600_000,0]); reject(p);
+        // Negative world coordinates are a valid stage (E574: the nobu tree stage stands at (-1400,-600)).
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().placements.insert(1,[-1400,-600]);
+        let (config,_) = p.compile(1,SimulationTickProfile::Production60Hz).unwrap();
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        setup_single_lane_match(&mut world, config).unwrap();
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_level = 0; reject(p);
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_level = 26; reject(p);
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().hold_hp_permille = 999; reject(p);

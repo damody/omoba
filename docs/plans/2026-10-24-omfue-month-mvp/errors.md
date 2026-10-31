@@ -12,7 +12,14 @@
 - **測試**：`parallel_world_adapter` 的 unit attr 測試：英雄回傳自己，分身回傳英雄，野怪營地回傳 None。
 - **檔案**：`scripts/script-abi/src/ext.rs`、`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`
 
-## E574 （保留）showcase 舞台拒絕負座標的 placement（nobu 地圖樹木舞台）（2026-11-01）
+## E574 showcase 舞台拒絕負座標的 placement（nobu 地圖樹木舞台）（2026-11-01，工作線 C）
+**現象**：rerun6 的 taigen_sessai（B22 樹木舞台）以 `runtime-p1 ready timeout` 失敗，spotlight.json 的 observer 沒有檢查到。server.stderr.log 只有一行 `Error: ErrorMessage { msg: "invalid showcase stage" }`：server 拒絕了舞台，runtime 連上後一直等不到 ready。
+
+**根因**：`ShowcaseConfig::is_valid` 要求 placement 落在 `0..=1_000_000`，預設的 live-check 地圖座標全為正，所以一直沒出事。nobu 原始地圖的世界座標有負值，樹木舞台把示範者放在 (-1400,-600)，整個舞台因此被拒絕。這是穩定可重現的錯誤，不是負載問題。
+
+**修正**（通用）：placement 改成有號世界座標，上限取地形幾何的同一個上限（`MAX_GEOMETRY_RAW / SCALE`），範圍是 ±524288。`showcase_stage_rejects_…` 測試補上兩個案例：超出範圍的負座標仍會被拒絕，(-1400,-600) 能夠建立舞台。
+
+**驗證**：taigen_sessai 排進下一輪重跑，確認 observer 和樹木目標。
 
 ## E573 create_unit.overrides 不收 armor（B07）（2026-11-01，工作線 B）
 
