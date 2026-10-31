@@ -43,6 +43,41 @@ pub fn is_night(world: &World) -> bool {
     world.try_fetch::<TemporaryNight>().and_then(|night| night.until).is_some_and(|until| time < until)
 }
 
+/// v3 `set_time_of_day { mode, duration }`（E453）：一次性的 host 封包（施法者身上，不儲存）。
+/// `night`：全圖夜晚 `duration` 秒（與 [`start_temporary_night`] 相同，重疊取較晚者）；
+/// `day`：立刻結束暫時夜晚。
+pub const TIME_OF_DAY_BUFF: &str = "__time_of_day";
+pub const TIME_OF_DAY_KEY: &str = "__time_of_day_v1";
+
+pub fn time_of_day_payload(night: bool, duration: Fixed64) -> serde_json::Value {
+    serde_json::json!({ (TIME_OF_DAY_KEY): { "night": night, "duration_raw": duration.raw() } })
+}
+
+/// 結算一個 [`TIME_OF_DAY_BUFF`] 封包；不是這個封包時回傳 false（格式錯誤的封包也算處理過，不做事）。
+pub fn settle_time_of_day(world: &mut World, buff_id: &str, payload: &serde_json::Value) -> bool {
+    if buff_id != TIME_OF_DAY_BUFF && payload.get(TIME_OF_DAY_KEY).is_none() { return false; }
+    let row = payload.as_object().filter(|row| row.len() == 1).and_then(|row| row.get(TIME_OF_DAY_KEY))
+        .and_then(serde_json::Value::as_object).filter(|row| row.len() == 2 && buff_id == TIME_OF_DAY_BUFF);
+    let Some(row) = row else { return true };
+    match (row.get("night").and_then(serde_json::Value::as_bool), row.get("duration_raw").and_then(serde_json::Value::as_i64)) {
+        (Some(true), Some(raw)) if raw > 0 && raw <= Fixed64::from_i32(3600).raw() => start_temporary_night(world, Fixed64::from_raw(raw)),
+        (Some(false), Some(_)) => if let Some(mut night) = world.try_fetch_mut::<TemporaryNight>() { night.until = None; },
+        _ => {}
+    }
+    true
+}
+
+/// Replica 每一步開始：採用這一步公開的夜晚剩餘時間（[`NIGHT_METRIC_ID`]，每個 tick 都送，白天 0），
+/// 讓 `game.is_night` 在每一端都一樣（E453）。沒有這個指標時不動。
+pub fn apply_disclosed(world: &mut World, payloads: &[&[u8]]) {
+    let Some(remaining) = payloads.iter().filter(|bytes| bytes.len() == 20 && bytes[0..4] == 0_u32.to_le_bytes()
+            && bytes[4..12] == NIGHT_METRIC_ID.to_le_bytes())
+        .map(|bytes| Fixed64::from_raw(i64::from_le_bytes(bytes[12..20].try_into().unwrap()))).last() else { return };
+    let until = (remaining > Fixed64::ZERO).then(|| now(world) + remaining);
+    if world.try_fetch::<TemporaryNight>().is_none() { world.insert(TemporaryNight::default()); }
+    world.write_resource::<TemporaryNight>().until = until;
+}
+
 /// 單位尋路與移動時是否當成飛行（越過地形與樹）：`flying_for_pathing` 或 `flying`（E397）。
 pub fn flying_for_pathing(buffs: &BuffStore, entity: Entity) -> bool {
     buffs.has(entity, super::vocab::state::FLYING_FOR_PATHING) || buffs.has(entity, super::vocab::state::FLYING)
@@ -78,6 +113,44 @@ mod tests {
         buffs.remove(unit, super::super::vocab::state::FLYING_FOR_PATHING);
         buffs.add(unit, super::super::vocab::state::FLYING, Fixed64::from_i32(3), serde_json::Value::Null);
         assert!(movement_regions(&buffs, unit, &walls).0.is_empty() && flying_sight(&buffs, unit));
+    }
+
+    /// E453: the set_time_of_day packet starts or ends the night; a replica adopts the disclosed night.
+    #[test]
+    fn a_time_of_day_packet_sets_the_night_and_replicas_adopt_the_disclosed_one() {
+        let mut world = World::new();
+        assert!(!settle_time_of_day(&mut world, "other", &serde_json::json!({})));
+        assert!(settle_time_of_day(&mut world, TIME_OF_DAY_BUFF, &time_of_day_payload(true, Fixed64::from_i32(30))));
+        assert_eq!(night_remaining(&world, Fixed64::ZERO), Fixed64::from_i32(30));
+        assert!(settle_time_of_day(&mut world, TIME_OF_DAY_BUFF, &serde_json::json!({ (TIME_OF_DAY_KEY): { "night": true } })));
+        assert_eq!(night_remaining(&world, Fixed64::ZERO), Fixed64::from_i32(30), "a malformed packet does nothing");
+        assert!(settle_time_of_day(&mut world, TIME_OF_DAY_BUFF, &time_of_day_payload(false, Fixed64::ZERO)));
+        assert!(!is_night(&world), "day ends the night");
+        let hud = |remaining: i64| [0_u32.to_le_bytes().as_slice(), NIGHT_METRIC_ID.to_le_bytes().as_slice(), remaining.to_le_bytes().as_slice()].concat();
+        let mut replica = World::new();
+        apply_disclosed(&mut replica, &[hud(Fixed64::from_i32(12).raw()).as_slice()]);
+        assert!(is_night(&replica) && night_remaining(&replica, Fixed64::ZERO) == Fixed64::from_i32(12));
+        apply_disclosed(&mut replica, &[]);
+        assert!(is_night(&replica), "no fact, no change");
+        apply_disclosed(&mut replica, &[hud(0).as_slice()]);
+        assert!(!is_night(&replica));
+    }
+
+    /// E453：施法送出的 time_of_day 封包由 process_outcomes 結算成夜晚，不留在 BuffStore。
+    #[test]
+    fn process_outcomes_settles_a_time_of_day_packet_without_storing_it() {
+        use crate::runtime::{SingleLaneConfig, StateInitializer};
+        let pool = StateInitializer::create_thread_pool();
+        let mut world = StateInitializer::setup_campaign_ecs_world(&pool);
+        crate::runtime::setup_single_lane_match(&mut world, SingleLaneConfig::default()).unwrap();
+        let hero = world.read_resource::<crate::runtime::MobaMatch>().heroes.iter().find_map(|slot| slot.entity).unwrap();
+        assert!(!is_night(&world));
+        world.write_resource::<Vec<crate::comp::Outcome>>().push(crate::comp::Outcome::AddBuff { target: hero,
+            buff_id: TIME_OF_DAY_BUFF.into(), duration: Fixed64::ONE, payload: time_of_day_payload(true, Fixed64::from_i32(30)) });
+        let mut events = crate::runtime::native::events::RuntimeEventVecSink::default();
+        crate::runtime::native::game_processor::process_outcomes(&mut world, &mut events).unwrap();
+        assert!(is_night(&world));
+        assert!(!world.read_resource::<crate::runtime::BuffStore>().has(hero, TIME_OF_DAY_BUFF));
     }
 
     #[test]

@@ -64,7 +64,24 @@
 - **通用修正**：hero_stats 每位英雄加 `invalid_targets[ability]`，每個 (player, ability) 最多 5 筆：被拒那個 tick、該技能最後一次施法輸入的目標 index，以及目標的 alive、hp、hero、hostile、距離、施法者隊伍的 sighted、magic_immune_blocks、unselectable、invulnerable 與身上狀態鍵。
 - **避免**：統計報告列出拒絕原因時，同時保留足以重現的樣本。
 
-## E453 （保留）沒有 set_time_of_day 的 host 落點，replica 也不採用公開的夜晚（2026-10-31）
+## E453 沒有 set_time_of_day 的 host 落點，replica 也不採用公開的夜晚（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 第五批缺口中的 v3 `set_time_of_day { mode = "night"|"day", duration }` 沒有 host 能力，用到它的技能只能擋下。
+- **根因**：
+  - 夜晚只有 `rules::world::start_temporary_night` 這個 host 內部入口，腳本送不到。
+  - team replica 不會採用 authority 公開的夜晚剩餘時間（`NIGHT_METRIC_ID` HUD fact），所以 replica 判斷夜晚的條件會和 authority 分歧。
+- **通用修正**：
+  - `rules::world` 新增一次性封包 `TIME_OF_DAY_BUFF`／`TIME_OF_DAY_KEY` 與 `settle_time_of_day`：
+    - night 會開始 ≤3600 秒的暫時夜晚，重疊時取較晚的結束時間；
+    - day 會立即結束夜晚；
+    - 格式錯誤的封包不做事。
+  - `game_processor::process_outcomes` 把這個封包當成世界事件結算，不寫入 BuffStore。
+  - ability_kit 新增 `set_time_of_day(night, duration)`。
+  - replica 在 `filtered_specs` 透過 `apply_disclosed` 採用公開的夜晚剩餘時間；這和 E426 的 unit_blockers 走同一條路徑。
+- **回歸**：
+  - `rules::world::tests::a_time_of_day_packet_sets_the_night_and_replicas_adopt_the_disclosed_one`
+  - `rules::world::tests::process_outcomes_settles_a_time_of_day_packet_without_storing_it`
+- **檔案**：`omoba-core/src/runtime/native/rules/world.rs`、`omoba-core/src/runtime/native/game_processor.rs`、`omoba-core/src/runtime/filtered_specs.rs`、`scripts/ability_kit/src/codegen.rs`
 
 ## E452 post-damage 事件沒有 event.damage.lethal：b26_kozuke_valor 只能擋下（2026-10-31，工作線 B）
 

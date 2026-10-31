@@ -3227,6 +3227,12 @@ pub fn process_outcomes(
                 continue;
             },
             // v3 `attack` (perform_attack): the hit settles now, its damage next in this batch.
+            // v3 set_time_of_day (E453): a world packet, never stored as a buff.
+            Outcome::AddBuff {buff_id,payload,..}
+                if buff_id==super::rules::world::TIME_OF_DAY_BUFF || payload.get(super::rules::world::TIME_OF_DAY_KEY).is_some()=>{
+                super::rules::world::settle_time_of_day(world,&buff_id,&payload);
+                continue;
+            },
             Outcome::AddBuff {target,buff_id,payload,..} if buff_id==super::perform_attack::BUFF=>{
                 if !remove_uids.contains(&target) {
                     for child in super::perform_attack::outcomes(world,target,&payload).into_iter().rev(){pending.push_front(child);}

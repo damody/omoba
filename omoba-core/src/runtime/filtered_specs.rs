@@ -1219,6 +1219,8 @@ impl SpecsDisclosedWorldStepper {
         // Pathing blockers disclosed for this step (E426), after the trees.
         crate::runtime::native::unit_blockers::apply_disclosed(&self.filtered.world, &hud)
             .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+        // The public night (E453): `game.is_night` reads the same on every peer.
+        crate::runtime::native::rules::world::apply_disclosed(&mut self.filtered.world, &hud);
         let gameplay_active = fixed_raw != 0;
         self.filtered
             .world

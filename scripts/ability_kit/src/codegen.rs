@@ -815,6 +815,17 @@ impl<'a, 'w> Cx<'a, 'w> {
         Ok(())
     }
 
+    /// v3 `set_time_of_day { mode = "night", duration }` (the whole map is night for `duration`
+    /// seconds, overlaps keeping the later end) or `mode = "day"` (the night ends now); a one-shot
+    /// packet on the caster (omoba-core rules::world, E453).
+    pub fn set_time_of_day(&mut self, night: bool, duration: Fixed64) -> Res {
+        use omoba_core::runtime::native::rules::world::{time_of_day_payload, TIME_OF_DAY_BUFF};
+        if night && (duration <= Fixed64::ZERO || duration > Fixed64::from_i32(3600)) { return Err("v3: set_time_of_day duration out of range"); }
+        self.world.add_stat_buff(self.caster, RStr::from_str(TIME_OF_DAY_BUFF), Fixed64::ONE,
+            RStr::from_str(&time_of_day_payload(night, if night { duration } else { Fixed64::ZERO }).to_string()));
+        Ok(())
+    }
+
     /// `reveal`: a sight circle owned by the caster (`all_teams`: every team sees it).
     pub fn reveal(&mut self, at: Vec2, radius: Fixed64, duration: Fixed64, all_teams: bool, follow: Option<EntityHandle>) -> Res {
         let sight = reveal_zone::sight_payload(self.caster.id, self.caster.gen, at, radius, all_teams,
