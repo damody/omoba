@@ -57,4 +57,6 @@ return {
   {hero='mogami_yoshihime',package='hero_b33',dir='heroes/mogami_yoshihime'},
   {hero='taigen_sessai',package='hero_b22',dir='heroes/taigen_sessai'},
   {hero='yamamoto_kansuke',package='hero_b12',dir='heroes/yamamoto_kansuke'},
+  {hero='okuma_tomohide',package='hero_b26',dir='heroes/okuma_tomohide'},
+  {hero='tachibana_dosetsu',package='hero_c07',dir='heroes/tachibana_dosetsu'},
 }

@@ -35,7 +35,7 @@ local HEROES = {
   -- M6 batch 1 (line-conformance REPORT_ONLY), plus A05
   { package = "tokugawa_ieyasu", playable = true },
   { package = "yamagata_masakage" },
-  { package = "okuma_tomohide" },
+  { package = "okuma_tomohide", playable = true },
   { package = "sasaki_kojiro", playable = true },
   { package = "otani_yoshitsugu", playable = true },
   { package = "maeda_toshiie" },
@@ -101,7 +101,7 @@ local HEROES = {
   { package = "matsunaga_hisahide" },
   { package = "mogami_yoshihime", playable = true },
   { package = "taigen_sessai", playable = true },
-  { package = "tachibana_dosetsu" },
+  { package = "tachibana_dosetsu", playable = true },
   { package = "saito_dosan" },
   { package = "zuiryuin_nisshu" },
   { package = "imagawa_yoshimoto" },
