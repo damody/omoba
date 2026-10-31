@@ -2,7 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E468 （保留）bot_auto_policies 的 approach_enemy_point 不認 reach_key，射程 0 的縮地（b13_shukuchi）沒有策略（2026-10-31）
+## E468 bot_auto_policies 的 approach_enemy_point 不認 reach_key，射程 0 的縮地（b13_shukuchi）沒有策略（2026-10-31，e187 遊戲模式 session；已放回 live）
+- **現象**：m6new1（新英雄批次）百地三太夫的 b13_shukuchi bot 輸入 0、NEVER CAST；B 的 E438 已經讓 executor 支援 `reach_key`，派生 hint 也帶著 `reach_key = blink_range`。
+- **根因**：bot_auto_policies 的 approach_enemy_point 只抄 `min_distance`，而且一律要求每級施法距離大於 min_distance；縮地施法距離 0，所以被 admissible 擋下。
+- **通用修正**：approach_enemy_point 的參數加上 `reach_key`；hint 有 reach_key 時，依 executor 相同條件檢查，條件如下。沒有 reach_key 的 approach 照舊檢查施法距離。
+  - 該 extra 存在，而且每級都有值；
+  - 每個值大於 min_distance，且不超過 10000。
+- **避免**：executor 新增 intent 參數時，同步更新派生策略的參數表與編譯檢查。
 
 ## E467 （保留）conformance 的 expected_damage 遇到 repeat／delay／tether 就不判定（A19W 爆炸、B19W 第一下都沒驗過）（2026-10-31）
 

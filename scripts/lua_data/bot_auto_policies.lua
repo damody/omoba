@@ -21,7 +21,8 @@ local SUPPORTED = {
   ally_engage = { target = 'unit', params = { 'threat_radius' } },
   enemy_line = { target = 'point', params = { 'min_targets' }, shape = 'line' },
   enemy_cone = { target = 'point', params = { 'min_targets' }, shape = 'cone' },
-  approach_enemy_point = { target = 'point', params = { 'min_distance' } },
+  -- `reach_key` (E438 executor, E468 here): a range-free blink reaches its reach extra instead.
+  approach_enemy_point = { target = 'point', params = { 'min_distance', 'reach_key' } },
   -- A summon placed near the enemy, or one with no target at all (E419 executor, E427 here).
   summon_near_enemy = { target = 'point', also_target = 'none', params = { 'threat_radius' } },
   toggle_engage = { target = 'none', params = { 'threat_radius', 'on_status' }, toggle = true },
@@ -99,6 +100,15 @@ local function admissible(row, hint)
     for _, level in ipairs(row.levels or {}) do
       if (level.range or 0) ~= 0 then return false end
     end
+  end
+  -- An approach with a reach extra reaches that far at every rank, as the executor checks (E468).
+  if hint.kind == 'approach_enemy_point' and hint.reach_key ~= nil then
+    local reach = type(hint.reach_key) == 'string' and type(row.extras) == 'table' and row.extras[hint.reach_key]
+    if type(reach) ~= 'table' or #reach ~= #(row.levels or {}) then return false end
+    for _, value in ipairs(reach) do
+      if type(value) ~= 'number' or value <= (hint.min_distance or 0) or value > 10000 then return false end
+    end
+    return true
   end
   -- a placed summon or approach reaches only its cast range; a no-target summon has none
   if hint.kind == 'approach_enemy_point' or (hint.kind == 'summon_near_enemy' and row.target_type == 'point') then
