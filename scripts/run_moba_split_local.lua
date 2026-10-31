@@ -305,6 +305,17 @@ function M.script_set(root)
   return table.concat(files,',')
 end
 
+-- The failure a role left in its run directory (moba_role_launch writes errors.md when a role
+-- fails), as its first meaningful line; nil when the role left none (E540).
+function M.role_failure(root,label)
+  local file=path.join(root,label,'errors.md')
+  if not path.is_file(file) then return nil end
+  for line in path.read(file):gmatch('[^\r\n]+') do
+    if not line:match('^#') and line:match('%S') then return line end
+  end
+  return 'see '..file
+end
+
 function M.run(options)
   -- Built before waiting for the machine (E337); without a build, the sources as of the match start.
   local sources_as_of=not options.no_build and M.build_all(options) or nil
@@ -411,6 +422,11 @@ function M.run(options)
       for _,child in ipairs(children) do
         if not process.owned_alive(child) then
           print(child.label..' ended; retiring the rest of this split run')
+          -- E540: a role that ended on a failure (its launch wrote errors.md: the authority
+          -- terminated the match, a process crashed) fails the run with its reason instead of
+          -- exiting 0 like a finished match.
+          local failure=M.role_failure(root,child.label)
+          if failure then error(child.label..' ended on a failure: '..failure,0) end
           return
         end
       end

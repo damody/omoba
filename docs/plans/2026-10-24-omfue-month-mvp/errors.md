@@ -2,6 +2,16 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E540 split 的角色異常結束時仍以 0 結束，失敗被吞掉（2026-11-01，工作線 C）
+- 現象：工作線 C 的 demo10（1+9 quick 效能局）被伺服器以 `observer-mismatch-after-rebase` 中止，`p1/errors.md` 記下 `runtime-p1 exited during match`。但 `run_moba_split_local.lua` 仍以 0 結束，呼叫端（佇列、量測腳本）都當作成功。
+- 原因：split 的監看迴圈發現任何角色結束時，只印出 `<label> ended; retiring the rest of this split run` 就 return。這和比賽正常結束走的是同一條路，失敗被吞掉。
+- 修正（共用層）：
+  - 新增 `run_moba_split_local.role_failure(root, label)`：讀該角色 run 目錄的 `errors.md`（`moba_role_launch` 在角色失敗時寫出），回傳標題之後第一行內容作為原因。
+  - 角色結束時若有失敗原因，就 `error('<label> ended on a failure: <原因>')`。split 寫出 `lifecycle.json`（ok=false）並以非 0 結束。
+  - 沒有 errors.md 的結束（比賽結束、手動關閉視窗）照舊不算失敗。
+  - `run_moba_split_local_test` 涵蓋三種情況：沒有 errors.md、有 errors.md、角色沒有目錄；並檢查角色結束的分支會呼叫 error。
+- 避免：監看子程序的工具要分清「正常結束」和「失敗結束」，失敗一定要以非 0 回報並寫出原因。
+
 ## E539 selector dead_within 沒寫時沒有預設（B23）（2026-11-01，工作線 B）
 
 - **現象**：依調度指示（D19）。E532 的 `dead_in_circle(center, radius, team, within)` 規定一定要給 within，也就是屍體保留多久。B23 原作只用 `GetHealth() == 0` 找屍體，屍體留多久是 Dota 引擎決定的，不是內容數值。依 D13，文件不該為此編一個數字。

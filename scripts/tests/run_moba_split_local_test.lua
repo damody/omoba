@@ -209,4 +209,20 @@ do
   assert(dlls:find('os.getenv(M.SET_ROOT_ENV)',1,true),'script_dlls.modules reads the set root from the environment')
   os.remove(tree..'/scripts/hero_dlls.lua');require('lfs').rmdir(tree..'/scripts');require('lfs').rmdir(tree)
 end
+-- E540: a role that ended on a failure (errors.md in its run directory) fails the run with the
+-- reason; a role without one (a finished match, a closed window) does not.
+do
+  local lfs=require('lfs')
+  local root=(os.getenv('TEMP'):gsub('\\','/'))..'/om_e540_'..os.time()
+  lfs.mkdir(root);lfs.mkdir(root..'/p1')
+  assert(split.role_failure(root,'p1')==nil,'no errors.md, no failure')
+  local out=assert(io.open(root..'/p1/errors.md','wb'))
+  out:write('# Role launch error\n\nD:/omoba/scripts/moba_role_launch.lua:910: runtime-p1 exited during match\nstack traceback:\n');out:close()
+  assert(split.role_failure(root,'p1'):find('runtime-p1 exited during match',1,true),'the first line after the title is the reason')
+  assert(split.role_failure(root,'netem')==nil,'a role without a directory has no failure')
+  local text=assert(io.open('scripts/run_moba_split_local.lua','rb')):read('a')
+  local ended=assert(text:find("' ended; retiring the rest of this split run'",1,true))
+  assert(text:find("if failure then error(child.label..' ended on a failure: '..failure,0) end",ended,true),'an ended role with a failure fails the run')
+  os.remove(root..'/p1/errors.md');lfs.rmdir(root..'/p1');lfs.rmdir(root)
+end
 print('split local topology: options, seats and per-role arguments passed')
