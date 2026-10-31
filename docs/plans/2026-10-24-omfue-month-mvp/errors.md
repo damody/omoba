@@ -2,6 +2,11 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E552 M6 batch 的 Performance 段沒有單列 headless observer 的耗時（2026-11-01，E187）
+- 現象：E545 的 in-process observer 每局約多花 12.7–17 s（quick），但 verify_m6_batch 的 Performance 段只有 tick 分佈和 run wall time，observer 的成本混在 run wall 裡看不出來，和 observer off 的批次也無法比較。
+- 修正（共用層）：每局把 `report.observer.wall_ms`（enabled 時）記在該局的 performance 上；Performance 段每個 recipe 列 `observer wall s (median of N): X of Y run wall s`。
+- 避免：驗收工具新增的檢查本身有成本時，要在效能段單獨列出，效能量測（E521）一律 `--observer off`。
+
 ## E551 authority 在 outcome 標記以外改變 hp 沒發 CommittedVitals：replica 小兵 hp 不同步（D21）（2026-11-01，工作線 B）
 
 - **現象**：

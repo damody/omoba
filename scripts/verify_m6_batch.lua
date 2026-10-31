@@ -282,6 +282,9 @@ for _, r in ipairs(recipes) do
         if report.performance then
           report.performance.match = ('%s-%02d'):format(r.name, job.seed)
           report.performance.stages = report.tick_profile and report.tick_profile.phases_ms_mean
+          -- The in-process observer's own wall time (E545 report.observer.wall_ms), outside the tick cost.
+          report.performance.observer_wall_ms = type(report.observer) == 'table' and report.observer.enabled
+            and report.observer.wall_ms or nil
           row.perf[#row.perf + 1] = report.performance
         end
         -- Creep facing from the simulation data (E461, moba_headless creep_facing): accepted at 0.
@@ -496,6 +499,16 @@ for _, row in ipairs(summary.recipes) do
   if #row.perf > 0 then
     md[#md + 1] = ('| %s | %d | %.2f | %.2f | %.2f | %.2f | %d of %d | %.1f |'):format(row.name, #row.perf, median(p50), median(p99),
       worst, max_ms, over, ticks, median(wall))
+  end
+end
+-- The observer (E552): its wall time per match, beside the run wall time it is part of.
+for _, row in ipairs(summary.recipes) do
+  local observer, wall = {}, {}
+  for _, perf in ipairs(row.perf) do
+    if perf.observer_wall_ms then observer[#observer + 1] = perf.observer_wall_ms / 1000; wall[#wall + 1] = perf.run_wall_seconds end
+  end
+  if #observer > 0 then
+    md[#md + 1] = ('- %s observer wall s (median of %d): %.1f of %.1f run wall s'):format(row.name, #observer, median(observer), median(wall))
   end
 end
 -- The driver's serial stages (E513, E520): mean ms per tick over the recipe's matches.
