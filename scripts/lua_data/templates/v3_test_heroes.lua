@@ -68700,16 +68700,13 @@ local data = {
     {
       abilities = { "c25_raid", "c25_blood_blade", "c25_grievous_wound", "c25_falling_sakura" },
       authored_package = "chacha",
-      background = "茶茶（schema v3 產生的 Rust；測試用）",
       display_name = "茶茶",
       id = "chacha",
       moba_loadout = {
         ranks = { 1, 1, 1, 0 },
         skill_points = 0,
       },
-      source_stats = "C25",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:C25",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "chacha",

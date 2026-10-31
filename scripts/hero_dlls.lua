@@ -80,4 +80,6 @@ return {
   -- M6 batch (2026-10-31): follow, on_refreshed, knockback on_end and rank-up re-put generated; conformance 0 fail (shadow)
   {hero='takenaka_shigeharu',package='hero_a04',dir='heroes/takenaka_shigeharu'},
   {hero='maeda_toshiie',package='hero_a14',dir='heroes/maeda_toshiie'},
+  -- M6 batch (2026-10-31): ability_in_slot generated; conformance 0 fail (shadow)
+  {hero='chacha',package='hero_c25',dir='heroes/chacha'},
 }
