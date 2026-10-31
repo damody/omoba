@@ -330,6 +330,9 @@ impl Run {
             (code, rows.iter().any(|row| matches!(row.result, CastTraceResult::Accepted)), (recorded && rows.is_empty()) || cut, error)
         };
         if (refused.is_some() || unrecorded) && !ran { accepted = false; }
+        // The trace's own Accepted, without a refusal or an interruption, is the cast landing
+        // (E456): an entry with no cost, cooldown or status of its own shows nothing else.
+        if ran && refused.is_none() && !unrecorded { accepted = true; }
         let (refused, error) = if accepted { (None, None) } else { (refused, error) };
         let result = CastResult { accepted, mana_spent: spent, charges: charges_before.zip(self.charges()), refused, error };
         self.casts.push(result.clone());
@@ -357,6 +360,8 @@ fn swap_in(world: &mut World, driver: &mut SimulationDriver, caster: specs::Enti
         let by_rank = (1..=rank.min(top)).rev().find(|r| value(by, *r, "cooldown").is_some()).unwrap_or(1);
         h.ability_levels.insert(by.to_owned(), by_rank as i32);
         if let Some(replaces) = replaces { h.ability_levels.insert(replaces.to_owned(), rank as i32); }
+        // The spawn ranks gave the entry a level already: only the parent's own gives it here (E440).
+        if leveled { h.ability_levels.insert(entry.to_owned(), 0); }
         if let Some(pool) = h.mana_pool.as_mut() {
             let maximum = pool.maximum().max(Fixed64::from_i32(5000));
             *pool = omoba_core::runtime::ability_runtime::ManaPool::new(maximum, maximum).map_err(|e| format!("{e:?}"))?;
