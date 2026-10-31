@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：bot 不施放被停用的技能（E433）
+
+- bot 選技能前去掉擁有者以 `set_ability_active(false)` 停用的技能（a05_counter_stance 重新啟用前）。
 ## 2026-10-31 線 B：批次期間推進的 outcome 不再被清掉（E431）
 
 - `process_outcomes` 結尾保留結算期間推進 `Vec<Outcome>` 的效果（傷害 hook、summon limit 的移除），由下一批結算。修 a05 sakai 不死。

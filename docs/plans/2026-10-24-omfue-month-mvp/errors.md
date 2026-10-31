@@ -8,7 +8,14 @@
 - **通用修正**：與 build_lock（E346）相同：取得鎖後寫 owner.txt，記錄持有的 Lua 程序（lua-host caller_owned 的 pid 與 creation token）；等待的一方發現那個程序已結束就立即接手並記 log。沒有 owner.txt 的鎖（持有者在 mkdir 與寫入之間死掉，或是舊版留下的）超過 60 秒視為放棄；3 小時過期仍是最後的保險。`M.lock` 公開供測試；source_snapshot_test 加 5 項（記錄持有者、釋放、已結束的持有者立即接手、等待仍在執行的持有者、無持有者的鎖過寬限後接手），共 13 項。放回後重跑第 3 批，log 顯示接手了那個無主的鎖。
 - **避免**：任何跨程序的鎖都要記錄持有者身分，讓等待者能判斷持有者是否還活著，不要只靠時間過期。
 
-## E433 （保留）bot 一直施放被 set_ability_active 停用的技能（2026-10-31）
+## E433 bot 一直施放被 set_ability_active 停用的技能：a05_counter_stance 1236／1656 次 CAST_REJECTED（2026-10-31，工作線 B）
+
+- **現象**：工作線 E 的 m6b2 中，a05_counter_stance 的 1656 次 bot 輸入有 1236 次被拒（CAST_REJECTED）。
+- **根因**：a05_counter_stance 施放後以 `set_ability_active(false)` 停用自己，累積承受 250 傷害後才重新啟用；施放時，admission 會拒絕被停用的技能（`ability_slots::inactive`）。bot 的選擇器只看冷卻、等級與法力，看不到這個狀態。
+- **通用修正**：
+  - bot 在選技能前以 `castable_policies` 去掉擁有者自己已停用的技能。停用是擁有者自己的狀態，不涉及任何隱藏資訊。
+  - 沒有停用的技能時直接借用原本的列表，不配置記憶體。
+- **驗證**：新測試 `a_bot_skips_an_ability_its_hero_set_inactive`；bots 與 summon_owner_cap 測試通過。
 
 ## E432 conformance：no_effects 把施法前就在目標身上的狀態算成被拒施法的效果（2026-10-31，conformance session）
 - **現象**：b31_raging_fire r1～r4 的 insufficient_mana 判 fail，原因是「target hp 100550 → 100400」。施法確實被拒絕，但學會的 B31R 自己的光環一直對敵人套 b31r_burn，所以敵人照樣受到灼燒。

@@ -484,6 +484,17 @@ fn reachable_travel_destination(points:impl IntoIterator<Item=Vec2>,own:Vec2,
     None
 }
 
+/// The policies whose ability the owner may cast now. v3 set_ability_active(false) (原作
+/// SetActivated) is the owner's own state; admission refuses such an ability, so it is never
+/// picked (E433). Borrowed unless one is inactive.
+fn castable_policies<'a>(policies:&'a [BotAbilityPolicy],buffs:Option<&crate::runtime::ability_runtime::BuffStore>,
+    entity:specs::Entity) -> std::borrow::Cow<'a,[BotAbilityPolicy]> {
+    let inactive=|policy:&BotAbilityPolicy|buffs
+        .is_some_and(|store|crate::runtime::native::ability_slots::inactive(store,entity,&policy.ability));
+    if !policies.iter().any(inactive) {return policies.into();}
+    policies.iter().filter(|policy|!inactive(policy)).cloned().collect::<Vec<_>>().into()
+}
+
 fn hold_input(commands:Option<&HeroCommandQueue>) -> Option<PlayerInputEnum> {
     if commands.is_some_and(|q|q.active==Some(HeroCommand::HoldPosition) && q.queued.is_empty()) {return None;}
     Some(PlayerInputEnum::HoldPosition(crate::game_proto::HoldPosition {queued:false}))
@@ -715,9 +726,10 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 continue;
             }
             // Silence blocks spells, not ordinary attacks or skill learning.
+            let policies=castable_policies(&config.ability_policies,buffs.as_deref(),entity);
             let cast = if buffs.as_ref().is_some_and(|store|store.is_silenced(entity)) {None} else {
                 abilities::choose_cast_with_control_observation(hero,assignment.role,team,own.position,
-                properties.get(entity).expect("validated owner health"),seen,&config.ability_policies,focus,defer_offense || recovery_wait,
+                properties.get(entity).expect("validated owner health"),seen,&policies,focus,defer_offense || recovery_wait,
                 immobilized,|id,rank| {
                     // Only this authorized owner's resources; targets still come
                     // exclusively from the committed team disclosure above.
@@ -1050,6 +1062,24 @@ mod tests {
         for invalid in [SeenUnit {hp_raw:0,..near},SeenUnit {team:1,..near},SeenUnit {kind:2,..near}] {
             assert_eq!(role_combat_focus(&assignment,1,p(0),&[invalid]),None);
         }
+    }
+    /// E433: an ability its owner set inactive (a05_counter_stance until it re-arms) is never picked.
+    #[test]
+    fn a_bot_skips_an_ability_its_hero_set_inactive() {
+        use crate::runtime::native::ability_slots::{apply, ActiveSpec, ACTIVE_BUFF};
+        let mut world=crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+        let mut row=Hero::default();row.abilities=vec!["stance".into(),"strike".into()];
+        let hero=world.create_entity().with(row).build();
+        let policy=|ability:&str|BotAbilityPolicy {ability:ability.into(),intent:BotAbilityIntent::EnemyHero};
+        let policies=vec![policy("stance"),policy("strike")];
+        let names=|world:&World|castable_policies(&policies,Some(&world.read_resource::<crate::runtime::ability_runtime::BuffStore>()),hero)
+            .iter().map(|policy|policy.ability.clone()).collect::<Vec<_>>();
+        assert!(matches!(castable_policies(&policies,None,hero),std::borrow::Cow::Borrowed(_)));
+        assert_eq!(names(&world),vec!["stance","strike"]);
+        apply(&mut world,hero,ACTIVE_BUFF,Fixed64::ONE,&ActiveSpec {ability:"stance".into(),active:false}.payload());
+        assert_eq!(names(&world),vec!["strike"]);
+        apply(&mut world,hero,ACTIVE_BUFF,Fixed64::ONE,&ActiveSpec {ability:"stance".into(),active:true}.payload());
+        assert_eq!(names(&world),vec!["stance","strike"]);
     }
     #[test]
     fn role_bot_lane_route_keeps_corners_and_rejoins_segments_without_clock_state() {
