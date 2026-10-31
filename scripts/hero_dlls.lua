@@ -111,4 +111,6 @@ return {
   {hero='matsunaga_hisahide',package='hero_b28',dir='heroes/matsunaga_hisahide'},
   -- M6 batch (2026-10-31): every ability generated (法球槽 orb_slot（E534）); conformance 0 fail
   {hero='imagawa_yoshimoto',package='hero_b15',dir='heroes/imagawa_yoshimoto'},
+  -- M6 batch (2026-10-31): every ability generated (受傷前 routine 在呼叫端展開；heal 檢查 E536 修正後全數通過); conformance 0 fail
+  {hero='sakakibara_yasumasa',package='hero_a08',dir='heroes/sakakibara_yasumasa'},
 }

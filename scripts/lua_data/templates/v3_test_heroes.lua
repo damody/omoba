@@ -69190,16 +69190,13 @@ local data = {
     {
       abilities = { "a08_skull_crusher", "a08_war_cry", "a08_indomitable", "a08_steadfast_general" },
       authored_package = "sakakibara_yasumasa",
-      background = "榊原康政（schema v3 產生的 Rust；測試用）",
       display_name = "榊原康政",
       id = "sakakibara_yasumasa",
       moba_loadout = {
         ranks = { 1, 1, 1, 0 },
         skill_points = 0,
       },
-      source_stats = "A08",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:A08",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "sakakibara_yasumasa",

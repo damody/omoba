@@ -87,7 +87,7 @@ local HEROES = {
   { package = "mori_ranmaru", playable = true },
   { package = "uesugi_kenshin", playable = true },
   { package = "kato_kiyomasa", playable = true },
-  { package = "sakakibara_yasumasa" },
+  { package = "sakakibara_yasumasa", playable = true },
   { package = "miyamoto_musashi", playable = true },
   { package = "yamamoto_kansuke", playable = true },
   { package = "matsuhime", playable = true },
