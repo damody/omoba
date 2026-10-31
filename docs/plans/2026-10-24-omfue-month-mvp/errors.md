@@ -2,7 +2,33 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E464 （保留）沒有 status.forced_move 的 host 落點：a11_evil_gaze、a21_false_intel 只能擋下（2026-10-31）
+## E468 （保留）bot_auto_policies 的 approach_enemy_point 不認 reach_key，射程 0 的縮地（b13_shukuchi）沒有策略（2026-10-31）
+
+## E467 （保留）conformance 的 expected_damage 遇到 repeat／delay／tether 就不判定（A19W 爆炸、B19W 第一下都沒驗過）（2026-10-31）
+
+## E466 （保留）同一個 tick 內多次套用同一狀態，每次都當成新建而重跑 on_created（2026-10-31）
+
+## E465 （保留）on_order_targeted 沒有派送：order_targets 記錄了卻沒有人讀，b06_mind_eye 只能擋下（2026-10-31）
+
+## E464 沒有 status.forced_move 的 host 落點：a11_evil_gaze、a21_false_intel 只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 第五批第 4 項：v3 `status.forced_move = { toward, locks }` 沒有 host 落點，A11 a11_evil_gaze 與 a21_false_intel 只能擋下。
+- **根因**：host 只有 taunt（強制攻擊），沒有「強制走向某處並鎖住指令」的狀態。
+- **通用修正**：
+  - 新模組 `forced_move.rs`。目標身上帶一列 `<status runtime id>:forced_move`，payload 是 `{"forced_move_to":[x_raw,y_raw]}`（目的地必須在地圖幾何範圍內）。
+  - game_processor 結算時存入這列後，英雄持有者會清掉手上的指令、取消前搖與攻擊，改成 MoveTo（一般尋路移動）。
+  - 持有期間，`command_restriction::restricted` 拒絕擁有者的新指令（等同鎖住 locks 的全部指令）。
+  - 狀態結束後，移動指令照常保留，和 taunt 一樣。
+  - `dispel::remove_status` 和 kit 的 `remove_status` 會一併移除這列。
+  - ability_kit 新增 `force_move(to, status, at, duration)`。
+  - authority 和 replica 跑同一段結算。
+- **限制**：目前只處理英雄持有者。creep 與召喚物仍照自己的 AI 行動。
+- **回歸**：`forced_move::tests::a_forced_hero_walks_to_the_destination_and_refuses_orders` 檢查下列行為：
+  - 英雄被命令走到目的地；
+  - 期間拒絕擁有者的指令；
+  - 狀態結束後恢復接受指令；
+  - 隨狀態一起被移除。
+- **檔案**：`omoba-core/src/runtime/native/forced_move.rs`（新檔）、`omoba-core/src/runtime/native.rs`、`command_restriction.rs`、`game_processor.rs`、`dispel.rs`、`scripts/ability_kit/src/codegen.rs`
 
 ## E463 獨立實例的狀態沒有緩速列，slow_pct 的 independent 狀態只能擋下（2026-10-31，工作線 B）
 

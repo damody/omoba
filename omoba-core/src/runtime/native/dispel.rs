@@ -272,8 +272,9 @@ pub fn remove_status(world: &World, entity: Entity, id: &str) {
 /// The control-source row is named by the runtime id or by the v3 status id (the catalog maps a
 /// runtime id back to its status).
 pub fn remove_status_with(registry: &Registry, world: &World, entity: Entity, id: &str) {
-    // Its slow row (`<id>:slow`, ability_kit apply_status_slowed; an instance's `<id>#<n>:slow`) goes with it.
-    let mut doomed = vec![id.to_owned(), format!("{id}:slow")];
+    // Its slow row (`<id>:slow`, ability_kit apply_status_slowed; an instance's `<id>#<n>:slow`) and
+    // its forced move row (forced_move.rs) go with it.
+    let mut doomed = vec![id.to_owned(), format!("{id}:slow"), super::forced_move::row(id)];
     // An independent instance (`…#<n>`) takes its own row only.
     let instance = omoba_template_ids::instance_number(id).map_or_else(String::new, |n| format!("#{n}"));
     let rows: Vec<String> = std::iter::once(id.to_owned()).chain(registry.status_ids(id).into_iter().map(|status| format!("{status}{instance}")))

@@ -6601,6 +6601,13 @@ fn handle_add_buff(
         if world.read_resource::<BuffStore>().has(target,&buff_id) {super::taunt::order(world,target,&payload);}
         return Ok(());
     }
+    // v3 status.forced_move (E464): stored as the status's row, then a hero holder is ordered there.
+    if payload.get(super::forced_move::KEY).is_some() {
+        if !buff_id.ends_with(super::forced_move::SUFFIX) || super::forced_move::destination(&payload).is_none() {return Ok(());}
+        world.write_resource::<BuffStore>().add(target,&buff_id,duration,payload.clone());
+        if world.read_resource::<BuffStore>().has(target,&buff_id) {super::forced_move::order(world,target,&payload);}
+        return Ok(());
+    }
     // v3 modify_attack (on_attack_windup): the attack in windup crits (rules::attack); never stored.
     if payload.get(super::rules::attack::MODIFY_KEY).is_some() || buff_id==super::rules::attack::MODIFY_BUFF {
         super::rules::attack::modify_attack(world,target,&buff_id,duration,&payload);

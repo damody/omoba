@@ -747,10 +747,22 @@ impl<'a, 'w> Cx<'a, 'w> {
         if !from.is_valid() { return Ok(()); }
         let id = self.runtime_id(status);
         self.world.remove_buff(from, RStr::from_str(&id));
-        // the slow row of a status with slow_pct (apply_status_slowed)
-        if self.world.has_buff(from, RStr::from_str(&format!("{id}:slow"))) {
-            self.world.remove_buff(from, RStr::from_str(&format!("{id}:slow")));
+        // the slow row of a status with slow_pct (apply_status_slowed) and its forced move (force_move)
+        for row in [format!("{id}:slow"), omoba_core::runtime::native::forced_move::row(&id)] {
+            if self.world.has_buff(from, RStr::from_str(&row)) { self.world.remove_buff(from, RStr::from_str(&row)); }
         }
+        Ok(())
+    }
+
+    /// v3 `status.forced_move = { toward }` (E464): the status's row on `to` forcing it toward `at`
+    /// for `duration` (omoba-core forced_move: a hero holder is ordered there and refuses its owner's
+    /// orders until the row ends); it goes with the status.
+    pub fn force_move(&mut self, to: EntityHandle, status: &StatusDef, at: Vec2, duration: Fixed64) -> Res {
+        use omoba_core::runtime::native::forced_move;
+        if !to.is_valid() { return Ok(()); }
+        let duration = if duration == Self::FOREVER { Fixed64::from_raw(i64::from(i32::MAX)) } else { duration };
+        let id = forced_move::row(&self.runtime_id(status));
+        self.world.add_stat_buff(to, RStr::from_str(&id), duration, RStr::from_str(&forced_move::payload(at).to_string()));
         Ok(())
     }
 

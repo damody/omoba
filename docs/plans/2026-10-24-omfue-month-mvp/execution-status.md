@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：status.forced_move（E464）
+
+- ability_kit `force_move(to, status, at, duration)`：英雄持有者被命令走向目的地並鎖住指令，隨狀態移除；creep／召喚物尚未支援。
 ## 2026-10-31 線 B：獨立實例的緩速（E463）
 
 - ability_kit `apply_status_instance_slowed`：每個實例自己的 `#<n>:slow` 列；remove_status 一併移除狀態的緩速列。

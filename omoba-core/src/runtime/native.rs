@@ -57,6 +57,7 @@ pub mod ability_slots;
 pub mod order_targets;
 pub mod absorb;
 pub mod taunt;
+pub mod forced_move;
 pub mod command_restriction;
 pub(crate) mod targeted_effect;
 pub(crate) mod attack_accuracy;
