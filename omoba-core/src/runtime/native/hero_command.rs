@@ -30,6 +30,9 @@ pub enum Command {
     /// v3 `issue_order` stop / hold / move / attack_move: the hero's current command is replaced
     /// as an owner's order would (`at` in raw map units); nothing is locked.
     Order { kind: OrderKind, at: (i32, i32) },
+    /// v3 `issue_order follow` (原作 MoveToNPC, E489): a summon walks to `target` and keeps
+    /// following it until another order replaces this one or the target dies. Heroes do not take it.
+    OrderFollow { target: (u32, i32) },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,6 +64,8 @@ impl Command {
             Command::OrderAttack { target: (id, gen) } =>
                 json!({ "op": "order_attack", "ability": "", "raw": ((i64::from(*id)) << 32) | i64::from(*gen as u32) }),
             Command::Order { kind, at: (x, y) } => json!({ "op": kind.name(), "ability": "", "raw": pack(*x, *y) }),
+            Command::OrderFollow { target: (id, gen) } =>
+                json!({ "op": "order_follow", "ability": "", "raw": ((i64::from(*id)) << 32) | i64::from(*gen as u32) }),
         };
         json!({ (KEY): row })
     }
@@ -84,17 +89,18 @@ impl Command {
                 if matches!(kind, OrderKind::Stop | OrderKind::Hold) && raw != 0 { return None; }
                 return Some(Command::Order { kind, at });
             }
-            "order_attack" if raw >= 0 && ability.is_empty() => {
+            op @ ("order_attack" | "order_follow") if raw >= 0 && ability.is_empty() => {
                 let gen = (raw & 0xffff_ffff) as u32 as i32;
                 if gen <= 0 { return None; }
-                return Some(Command::OrderAttack { target: ((raw >> 32) as u32, gen) });
+                let target = ((raw >> 32) as u32, gen);
+                return Some(if op == "order_attack" { Command::OrderAttack { target } } else { Command::OrderFollow { target } });
             }
             _ => return None,
         };
         match &cmd {
             Command::CooldownStart { ability, .. } | Command::CooldownReduce { ability, .. } | Command::CooldownEnd { ability }
             | Command::Level { ability, .. } => ability_ok(ability).then_some(cmd),
-            Command::Health { .. } | Command::OrderAttack { .. } | Command::Order { .. } => Some(cmd),
+            Command::Health { .. } | Command::OrderAttack { .. } | Command::Order { .. } | Command::OrderFollow { .. } => Some(cmd),
         }
     }
 }
@@ -146,6 +152,11 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, payload: &Value) 
         Command::CooldownReduce { ability, seconds } => with_hero_ability(world, target, &ability, |h| { h.reduce_cooldown(&ability, seconds); }),
         Command::OrderAttack { target: (id, gen) } => order_attack(world, target, id, gen),
         Command::Order { kind, at } => order(world, target, kind, at),
+        Command::OrderFollow { target: (id, gen) } => {
+            let leader = world.entities().entity(id);
+            if leader.gen().id() != gen || !world.entities().is_alive(leader) || leader == target { return false; }
+            summon_order(world, target, SummonOrder::Follow(leader))
+        }
     }
 }
 
@@ -157,7 +168,17 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, payload: &Value) 
 #[storage(DenseVecStorage)]
 pub struct OrderedAttack(pub Entity);
 
-enum SummonOrder { Clear, MoveTo(omoba_sim::Vec2), Attack(Entity) }
+/// A summon's ordered follow (E489, `issue_order follow`): summon_tick walks it to the living
+/// leader whenever it is farther than their collision radii and [`FOLLOW_GAP`], past the follow
+/// rules; its AI still attacks what is in range. Authority state, never replicated.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[storage(DenseVecStorage)]
+pub struct OrderedFollow(pub Entity);
+
+/// How close an ordered follow walks beyond the two units' collision radii.
+pub const FOLLOW_GAP: i32 = 50;
+
+enum SummonOrder { Clear, MoveTo(omoba_sim::Vec2), Attack(Entity), Follow(Entity) }
 
 /// A living summon drops its orders (move, ordered attack, assigned target) and takes this one;
 /// an immobile one takes no move. Its own AI goes on: it still attacks what is in range, so an
@@ -166,9 +187,11 @@ fn summon_order(world: &mut World, unit: Entity, order: SummonOrder) -> bool {
     use super::comp::{CProperty, MoveTarget, SummonedUnit};
     let Some(immobile) = world.read_storage::<SummonedUnit>().get(unit).filter(|s| !s.is_expired()).map(|s| s.immobile) else { return false };
     if world.read_storage::<CProperty>().get(unit).is_none_or(|p| p.hp <= Fixed64::ZERO) { return false; }
-    if immobile && matches!(order, SummonOrder::MoveTo(_)) { return false; }
+    if immobile && matches!(order, SummonOrder::MoveTo(_) | SummonOrder::Follow(_)) { return false; }
     if !world.has_value::<specs::storage::MaskedStorage<OrderedAttack>>() { world.register::<OrderedAttack>(); }
+    if !world.has_value::<specs::storage::MaskedStorage<OrderedFollow>>() { world.register::<OrderedFollow>(); }
     world.write_storage::<OrderedAttack>().remove(unit);
+    world.write_storage::<OrderedFollow>().remove(unit);
     world.write_storage::<MoveTarget>().remove(unit);
     world.write_resource::<crate::runtime::BuffStore>().remove(unit, omb_script_abi::buff_ids::SUMMON_TARGET_BUFF);
     if let Some(summon) = world.write_storage::<SummonedUnit>().get_mut(unit) {
@@ -184,6 +207,7 @@ fn summon_order(world: &mut World, unit: Entity, order: SummonOrder) -> bool {
                 Fixed64::from_raw(i64::MAX), json!({ (omb_script_abi::buff_ids::SUMMON_TARGET_BUFF): [target.id(), target.gen().id()] }));
             if !immobile { let _ = world.write_storage::<OrderedAttack>().insert(unit, OrderedAttack(target)); }
         }
+        SummonOrder::Follow(leader) => { let _ = world.write_storage::<OrderedFollow>().insert(unit, OrderedFollow(leader)); }
     }
     true
 }

@@ -2,6 +2,10 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E495 （保留）issue_order.queue 沒有 host 落點（C15 百箭）（2026-10-31）
+
+## E494 （保留）knockback 的 contact_radius／stop_on_contact／on_end 沒有 host 落點（A14）（2026-10-31）
+
 ## E493 （保留）burn_mana 的最大單 tick 扣魔被目標同 tick 的回魔脈衝抵掉（a21 r1 128.67 vs 130）（2026-10-31）
 
 ## E492 spotlight 閃現後替身或原點超出畫面邊界，回位、走近、被動攻擊的點擊全被拒（c02 汰選斬擊未示範）（2026-10-31，工作線 C）
@@ -24,7 +28,17 @@
 
 ## E490 （保留）showcase start_items 限制原始清單 ≤ 6，含合成道具元件的道具 spotlight（m71b、m73）被拒（2026-10-31）
 
-## E489 （保留）issue_order follow 沒有 host 落點（A04 式神拉回）（2026-10-31）
+## E489 issue_order follow 沒有 host 落點：A04 式神拉回只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A 第五批第 16 項：a04 的式神狀態每 0.1 秒檢查，離竹中超過 2000 就 `issue_order { order = "follow", target = "self.owner" }`（原作 MoveToNPC）。host 只有 stop／hold／move／attack_move 與攻擊，產生器擋下。
+- **根因**：hero_command 的命令沒有「跟隨單位」：移動只能給固定點，目標移動後就跟丟。
+- **通用修正**：
+  - `hero_command::Command::OrderFollow { target }`（op `order_follow`）：召喚物取得 `OrderedFollow(leader)`，和 ordered attack 一樣先清掉原本的命令。
+  - summon_tick 每 tick 把它走向仍存活的 leader：距離超過兩者 collision 半徑加 `FOLLOW_GAP`（50）就移動，到了就站著，但命令保留，leader 再走遠就繼續跟。跟隨期間不跑召喚物自己的跟隨規則，它的 AI 仍會攻擊範圍內的目標。
+  - leader 死亡或消失、或有新命令時，跟隨結束。英雄不接受這個命令。
+  - kit 新增 `order_follow(unit, target)`。
+- **回歸**：`summon_tick` 測試 `a_summon_takes_issued_attack_move_and_stop_orders`：跟隨命令走到 leader 旁邊並保留，leader 移動後 MoveTarget 跟著更新，stop 結束跟隨。
+- **檔案**：`omoba-core/src/runtime/native/hero_command.rs`、`tick/summon_tick.rs`、`initialization.rs`、`scripts/ability_kit/src/codegen.rs`
 
 ## E488 modify_attack 只支援 crit_multiplier：cannot_miss（C03）與 is_orb（C09）沒有 host 落點（2026-10-31，工作線 B）
 

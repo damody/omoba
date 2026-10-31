@@ -962,6 +962,12 @@ impl<'a, 'w> Cx<'a, 'w> {
         let at = match kind { hero_command::OrderKind::Stop | hero_command::OrderKind::Hold => (0, 0), _ => (raw(at.x)?, raw(at.y)?) };
         self.hero_command(unit, hero_command::Command::Order { kind, at })
     }
+    /// `issue_order follow` (E489, 原作 MoveToNPC): `unit` (a summon) walks to `target` and keeps
+    /// following it until another order replaces this one; a hero does not take it.
+    pub fn order_follow(&mut self, unit: EntityHandle, target: EntityHandle) -> Res {
+        if !target.is_valid() { return Ok(()); }
+        self.hero_command(unit, hero_command::Command::OrderFollow { target: (target.id, target.gen as i32) })
+    }
     /// `order_attack`: `unit` (a hero) attacks `target` as if its owner ordered it; not locked.
     pub fn order_attack(&mut self, unit: EntityHandle, target: EntityHandle) -> Res {
         if !target.is_valid() { return Ok(()); }

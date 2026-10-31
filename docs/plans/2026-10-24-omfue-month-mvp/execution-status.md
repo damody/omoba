@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：issue_order follow（E489）
+
+- kit `order_follow(unit, target)`：召喚物持續跟隨目標（原作 MoveToNPC），直到新命令或目標死亡；英雄不接受。
 ## 2026-10-31 線 B：modify_attack 的 cannot_miss 與 is_orb（E488）
 
 - kit `modify_attack(attacker, crit_multiplier: Option, cannot_miss, is_orb)`：必中的普攻發出時不擲失手、抵達時不擲閃避；is_orb 記在攻擊紀錄。
