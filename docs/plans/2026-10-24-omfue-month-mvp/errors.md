@@ -13,7 +13,12 @@
   - `ArmAndConfirm` 記住瞄準的單位；保持瞄準期間與確認時，都改點那個單位目前的位置（友方單位目標也一樣）。
   - 輸入層沒有送出的 `spotlight_slot*` 示範，與伺服器拒絕一樣記為 refused，期限內重試。
 
-## E441 （保留）batch 固定平行數不看系統可用 commit：與其他 session 的建置同時跑時 commit 用光，lua-host 以 0xC000012D 結束（2026-10-31）
+## E441 batch 固定平行數不看系統可用 commit：與其他 session 的建置同時跑時 commit 用光，lua-host 以 0xC000012D 結束（2026-10-31，e187 遊戲模式 session，主 session 要求；已放回 live）
+- **現象**：09:35 整台機器 commit 用光（上限 68.7 GB，分頁檔小），e187 的 m6b2g7 與 C 的 lua-host 都以 -1073741523 結束。e187 一開始把它誤解成 0xC000013A（Ctrl+C），因為 host.lua 只印出十進位的結束碼。
+- **根因**：verify_m6_batch 固定開 `--parallel`（預設 6）個 headless，不看機器剩多少 commit；同時有多個 session 在 cargo 建置。量測（m6b3g4，3 局並行）：每局 moba-headless 的 private 只有 28～44 MB；吃 commit 的主要是批次自己的快照 cargo release 建置與其他 session 的建置。
+- **通用修正**：lua-host 加 `memory_status`（GlobalMemoryStatusEx：available_commit_bytes＝ullAvailPageFile、commit_limit_bytes、available／total physical），C 的 UBT 平行數也共用這個 op。新增 `scripts/memory_admission.lua`：`new(estimate):admit(running)` 在可用 commit ≥ MARGIN（2）× 估計值時才放行，拒絕只記一次 log；verify_m6_batch 每開一局都先問它，`--parallel` 只是上限。每局估計值 HEADLESS_COMMIT_BYTES＝128 MB（量到的峰值 44 MB 再留餘裕）。host.lua 呼叫失敗時把結束碼解成 NTSTATUS（例如 `-1073741523 = 0xC000012D STATUS_COMMITMENT_LIMIT`）。`scripts/tests/memory_admission_test.lua`（6 項）接進 test_lua_tooling.lua。放回後 lua-host 重建，`memory_status` 回傳 29.4／68.7 GB。
+- **後續**：快照 cargo 建置也要依可用 commit 准入（量測中）。
+- **避免**：平行數依當下可用資源決定，不寫死；錯誤訊息裡的 Windows 結束碼一律用十六進位 NTSTATUS 解讀。
 
 ## E440 （保留）conformance：由另一招設定等級的子技能（c07_storm_move）沒有先施放那一招（2026-10-31）
 

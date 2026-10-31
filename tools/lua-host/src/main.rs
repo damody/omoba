@@ -31,6 +31,24 @@ fn monotonic_ms() -> Result<Value, String> {
     Err("monotonic workflow clock is not supported on this platform; no wall-clock fallback".into())
 }
 
+// System commit and memory (E441): batch runners start a worker only while the machine has
+// commit to spare, so parallel workloads of several sessions do not exhaust it together.
+#[cfg(windows)]
+fn memory_status() -> Result<Value, String> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+    status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
+        return Err(format!("GlobalMemoryStatusEx failed: {}", std::io::Error::last_os_error()));
+    }
+    Ok(json!({"available_commit_bytes": status.ullAvailPageFile, "commit_limit_bytes": status.ullTotalPageFile,
+        "available_physical_bytes": status.ullAvailPhys, "total_physical_bytes": status.ullTotalPhys}))
+}
+#[cfg(not(windows))]
+fn memory_status() -> Result<Value, String> {
+    Err("memory_status is not supported on this platform".into())
+}
+
 #[derive(Deserialize)]
 struct Request {
     version: u32,
@@ -1333,6 +1351,7 @@ fn dispatch(request: &Request) -> Result<Value, String> {
         "cpu_capacity" => Ok(json!({"logical_cpus": std::thread::available_parallelism()
             .map_err(|e| format!("cannot query CPU capacity: {e}"))?.get()})),
         "monotonic_ms" => monotonic_ms(),
+        "memory_status" => memory_status(),
         "stop" => stop(&request.params),
         "stop_owned" => stop_owned(&request.params),
         "close_window" => close_window(&request.params),

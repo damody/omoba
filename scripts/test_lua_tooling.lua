@@ -173,6 +173,11 @@ local ok, failure = xpcall(function()
     { cwd = b.root, check = false })
   assert(item_builds.exit_code == 0,
     "bot item build tests failed:\n" .. tostring(item_builds.stdout) .. tostring(item_builds.stderr))
+  -- E441: batch workers start only while the machine has commit to spare.
+  local memory = process.run(lua, { path.join(b.root, "scripts", "tests", "memory_admission_test.lua") },
+    { cwd = b.root, check = false })
+  assert(memory.exit_code == 0,
+    "memory admission tests failed:\n" .. tostring(memory.stdout) .. tostring(memory.stderr))
 end, debug.traceback)
 remove_tree(temp)
 if not ok then error(failure) end

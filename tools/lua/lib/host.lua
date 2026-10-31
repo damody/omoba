@@ -100,9 +100,22 @@ function M.call(operation, params)
   end
   assert(lfs.rmdir(reserved), 'failed to remove owned Lua host directory: ' .. reserved)
   local decoded_ok, response = pcall(json.decode, output)
-  assert(decoded_ok, "invalid omoba-lua-host response (exit " .. tostring(code) .. "): " .. output)
+  assert(decoded_ok, "invalid omoba-lua-host response (exit " .. M.describe_exit(code) .. "): " .. output)
   assert(ok and code == 0 and response.ok, response.error or ("omoba-lua-host " .. operation .. " failed"))
   return response.result
+end
+
+-- E441: a Windows exit status as the NTSTATUS it is (-1073741523 is 0xC000012D, commit exhausted,
+-- not 0xC000013A, Ctrl+C), named when known.
+M.NTSTATUS = { [0xC000012D] = 'STATUS_COMMITMENT_LIMIT: system commit exhausted',
+  [0xC000013A] = 'STATUS_CONTROL_C_EXIT', [0xC0000005] = 'STATUS_ACCESS_VIOLATION',
+  [0xC0000017] = 'STATUS_NO_MEMORY', [0xC0000142] = 'STATUS_DLL_INIT_FAILED' }
+function M.describe_exit(code)
+  if math.type(code) ~= 'integer' then return tostring(code) end
+  local unsigned = code & 0xFFFFFFFF
+  if unsigned < 0x80000000 then return tostring(code) end
+  local name = M.NTSTATUS[unsigned]
+  return ('%d = 0x%08X%s'):format(code, unsigned, name and (' ' .. name) or '')
 end
 
 function M.executable() return ensure() end

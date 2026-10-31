@@ -198,8 +198,12 @@ for _, r in ipairs(recipes) do
   end
 end
 local running, next_job = {}, options.report_only and #jobs + 1 or 1
+-- `--parallel` is the most at once; each one starts only while the machine has commit to spare
+-- (E441, memory_admission.lua), so a batch beside other sessions' builds does not exhaust it.
+local admission = require('memory_admission')
+local gate = admission.new(admission.HEADLESS_COMMIT_BYTES)
 while next_job <= #jobs or #running > 0 do
-  while next_job <= #jobs and #running < options.parallel do
+  while next_job <= #jobs and #running < options.parallel and gate:admit(#running) do
     wait_performance_lock()
     local job = jobs[next_job]; next_job = next_job + 1
     job.pid = process.spawn(exe, { '--role-plan', job.recipe.plan, '--profile', '60', '--seed', tostring(job.seed),
