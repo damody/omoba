@@ -35,11 +35,12 @@ do
       options.observer = arg[i + 1]; i = i + 1
       assert(options.observer == 'on' or options.observer == 'off', '--observer on|off')
     elseif v == '--observer-note' then options.observer_note = arg[i + 1]; i = i + 1
+    elseif v == '--recipes' then options.recipes = arg[i + 1]; i = i + 1
     elseif v == '--item-coverage' then options.item_coverage = true
     elseif v == '--no-build' then options.no_build = true
     elseif v == '--report-only' then options.report_only = true; options.no_build = true
     elseif v == '--help' then
-      print('Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua --batch N [--group G] [--matches 6] [--parallel 6] [--ue] [--split] [--spotlight-observed a,b,...] [--observer on|off] [--observer-note TEXT] [--item-coverage] [--output DIR] [--no-build] [--report-only]')
+      print('Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua --batch N [--group G] [--matches 6] [--parallel 6] [--ue] [--split] [--spotlight-observed a,b,...] [--observer on|off] [--observer-note TEXT] [--recipes quick,quick_swap,teamfight] [--item-coverage] [--output DIR] [--no-build] [--report-only]')
       return
     else error('unknown argument ' .. v) end
     i = i + 1
@@ -184,6 +185,18 @@ local recipes = {
   { name = 'quick_swap', file = recipe('quick_swap', true, false), group_team = 2 },
   { name = 'teamfight', file = recipe('teamfight', false, true), group_team = 1 },
 }
+-- `--recipes` keeps only the named ones, in this order (E565: a regression pass over every hero
+-- needs one quick match per group, not all three). --split runs the quick recipe, so it needs it.
+if options.recipes then
+  local wanted = {}
+  for name in options.recipes:gmatch('[^,]+') do wanted[name] = true end
+  local kept = {}
+  for _, r in ipairs(recipes) do if wanted[r.name] then kept[#kept + 1] = r; wanted[r.name] = nil end end
+  assert(next(wanted) == nil, '--recipes: unknown recipe ' .. tostring(next(wanted)))
+  assert(#kept > 0, '--recipes names no recipe')
+  assert(not options.split or kept[1].name == 'quick', '--split needs the quick recipe')
+  recipes = kept
+end
 
 -- 3. Build once (the script DLL set and moba-headless) from this batch's own source snapshot into
 -- its own cargo target (E347, source_snapshot.lua): no repo build lock. Both come from one snapshot
