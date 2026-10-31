@@ -698,6 +698,8 @@ function Gen:expr(node, ctx)
       elseif node.name == "is_magical" then return "((cx.event_damage_kind & 0x0f) == 1)", "bool"
       elseif node.name == "is_pure" then return "((cx.event_damage_kind & 0x0f) == 2)", "bool"
       elseif node.name == "is_reflection" then return "((cx.event_damage_kind & 0x10) != 0)", "bool"
+      -- a basic attack's damage, melee or projectile (StatusEvent::ATTACK, line B E475)
+      elseif node.name == "is_attack" then return "((cx.event_damage_kind & 0x40) != 0)", "bool"
       -- it killed (StatusEvent::LETHAL, line B E452); before it lands: it would (final >= hp)
       elseif node.name == "lethal" and ctx.pre then return "(cx.event_amount >= cx.hp(cx.self_unit))", "bool"
       elseif node.name == "lethal" then return "((cx.event_damage_kind & 0x20) != 0)", "bool" end
