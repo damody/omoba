@@ -82,4 +82,7 @@ return {
   {hero='maeda_toshiie',package='hero_a14',dir='heroes/maeda_toshiie'},
   -- M6 batch (2026-10-31): ability_in_slot generated; conformance 0 fail (shadow)
   {hero='chacha',package='hero_c25',dir='heroes/chacha'},
+  -- M6 batch (2026-10-31): item_tag and prd chance generated; conformance 0 fail (shadow)
+  {hero='ryuzoji_takanobu',package='hero_c13',dir='heroes/ryuzoji_takanobu'},
+  {hero='sassa_narimasa',package='hero_a17',dir='heroes/sassa_narimasa'},
 }
