@@ -153,6 +153,21 @@ impl Cx<'_, '_> {
         Ok(())
     }
 
+    /// v3 `modify_base_stat { to, stat, amount }` (E523, 原作 ModifyAgility): `to`'s base (white)
+    /// attribute changes by `amount`, rounded to whole points; a unit that is not a hero is unchanged.
+    pub fn modify_base_stat(&mut self, to: EntityHandle, stat: crate::Attr, amount: Fixed64) -> Res {
+        use omoba_core::runtime::native::{attributes, comp::AttributeType};
+        let stat = match stat {
+            crate::Attr::Strength => AttributeType::Strength, crate::Attr::Agility => AttributeType::Agility,
+            crate::Attr::Intelligence => AttributeType::Intelligence, crate::Attr::Universal => return Err("v3: modify_base_stat of universal"),
+        };
+        if !to.is_valid() || amount == Fixed64::ZERO { return Ok(()); }
+        let payload = attributes::base_stat_payload(stat, amount);
+        attributes::base_stat_spec(attributes::BASE_STAT_BUFF, &payload).ok_or("v3: invalid modify_base_stat amount")?;
+        self.world.add_stat_buff(to, RStr::from_str(attributes::BASE_STAT_BUFF), Fixed64::ONE, RStr::from_str(&payload.to_string()));
+        Ok(())
+    }
+
     /// v3 `impulse { who, direction, speed, decay, duration }` (E514, omoba-core `impulse`): adds a
     /// velocity of `speed` units per physics frame (1/30 s) along `direction` to `who`, kept
     /// `decay` of each frame (0.95: 原作 Physics friction); several add up, and `who` still moves by
@@ -636,6 +651,20 @@ impl Cx<'_, '_> {
 
     /// v3 `reveal` with `ignore_terrain = true` (flying sight: trees and cliffs do not block it);
     /// otherwise the same as `Cx::reveal`.
+    /// [`Cx::reveal_ex`] for v3 `reveal.teams` (E527): `"own"`, `"all"` or `"enemy"` (every team but
+    /// the caster's: the caster shown to its enemies).
+    pub fn reveal_teams(&mut self, at: Vec2, radius: Fixed64, duration: Fixed64, teams: &str, follow: Option<EntityHandle>,
+        ignore_terrain: bool) -> Res {
+        use omoba_core::runtime::native::reveal_zone;
+        if teams != "enemy" { return self.reveal_ex(at, radius, duration, teams == "all", follow, ignore_terrain); }
+        let sight = reveal_zone::sight_payload(self.caster.id, self.caster.gen, at, radius, false,
+            follow.map(|u| (u.id, u.gen))).ok_or("v3: invalid reveal")?;
+        let sight = reveal_zone::with_enemy_teams(sight);
+        let sight = if ignore_terrain { reveal_zone::with_ignore_terrain(sight) } else { sight };
+        self.world.add_stat_buff(self.caster, RStr::from_str(reveal_zone::BUFF), duration, RStr::from_str(&sight.to_string()));
+        Ok(())
+    }
+
     pub fn reveal_ex(&mut self, at: Vec2, radius: Fixed64, duration: Fixed64, all_teams: bool, follow: Option<EntityHandle>,
         ignore_terrain: bool) -> Res {
         use omoba_core::runtime::native::reveal_zone;

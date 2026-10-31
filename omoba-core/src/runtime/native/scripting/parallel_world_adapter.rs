@@ -17,6 +17,31 @@ use crate::runtime::ability_runtime::{BuffStore, UnitStats};
 
 use super::tag::ScriptUnitTag;
 
+/// Where removed units last stood (E526, 原作 a dead unit's position stays readable in its death
+/// and later hooks: C16 鬼影 rises where its holder died, B23's channel end reads its dead caster).
+/// `EntityRemoved` records the unit before deleting it; a script's `get_pos` of a unit that is
+/// gone reads it here. Rows older than [`RetiredPositions::KEEP_TICKS`] go, and at most
+/// [`RetiredPositions::MAX`] are kept (the oldest go first).
+#[derive(Default)]
+pub struct RetiredPositions { rows: std::collections::BTreeMap<Entity, (Vec2, u64)> }
+
+impl RetiredPositions {
+    /// One minute at 60 Hz.
+    pub const KEEP_TICKS: u64 = 3_600;
+    pub const MAX: usize = 4_096;
+
+    pub fn record(&mut self, entity: Entity, at: Vec2, tick: u64) {
+        self.rows.retain(|_, (_, when)| tick.saturating_sub(*when) <= Self::KEEP_TICKS);
+        if self.rows.len() >= Self::MAX {
+            if let Some(oldest) = self.rows.iter().min_by_key(|(entity, (_, when))| (*when, entity.id(), entity.gen().id())).map(|(e, _)| *e) {
+                self.rows.remove(&oldest);
+            }
+        }
+        self.rows.insert(entity, (at, tick));
+    }
+    pub fn get(&self, entity: Entity) -> Option<Vec2> { self.rows.get(&entity).map(|(at, _)| *at) }
+}
+
 /// One generated hook's `Err` (ext SCRIPT_ERROR, E517).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScriptErrorRow { pub tick: u64, pub entity: (u32, u32), pub ability: String, pub hook: String, pub message: String }
@@ -49,6 +74,7 @@ pub struct ParallelAdapterCache<'a> {
     commands: Option<ReadStorage<'a, HeroCommandQueue>>,
     summon_host_movement: Option<Read<'a, super::super::tick::summon_tick::HostMovement>>,
     script_errors: Option<Read<'a, ScriptErrorLog>>,
+    retired_positions: Option<Read<'a, RetiredPositions>>,
     pub facing: ReadStorage<'a, Facing>,
     pub cprop: ReadStorage<'a, CProperty>,
     pub unit: ReadStorage<'a, Unit>,
@@ -125,6 +151,7 @@ impl<'a> ParallelAdapterCache<'a> {
                 .then(||world.read_storage::<HeroCommandQueue>()),
             summon_host_movement: world.try_fetch::<super::super::tick::summon_tick::HostMovement>().map(Into::into),
             script_errors: world.try_fetch::<ScriptErrorLog>().map(Into::into),
+            retired_positions: world.try_fetch::<RetiredPositions>().map(Into::into),
             facing: world.read_storage::<Facing>(),
             cprop: world.read_storage::<CProperty>(),
             unit: world.read_storage::<Unit>(),
@@ -1103,6 +1130,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             return RSome(*p);
         }
         match self.retired_source(ent) {Some(source)=>source.pos,None=>self.cache.pos.get(ent).map(|p|p.0)}
+            // A removed unit: where it last stood (E526).
+            .or_else(|| (!self.cache.entities.is_alive(ent)).then(|| self.cache.retired_positions.as_ref().and_then(|rows| rows.get(ent))).flatten())
             .map_or(RNone, RSome)
     }
 
@@ -3135,6 +3164,27 @@ mod tests {
         adapter.discard_cast();
         adapter.start_cooldown(entity, "test".into(), Fixed64::from_i32(5));
         assert!(matches!(adapter.finish().as_slice(), [Outcome::ScriptStartCooldown { .. }]));
+    }
+
+    /// E526: a removed unit's position stays readable where it last stood.
+    #[test]
+    fn a_removed_units_last_position_stays_readable() {
+        let mut world = world_for_adapter_tests();
+        let at = Vec2::new(Fixed64::from_i32(300), Fixed64::from_i32(-40));
+        let unit = world.create_entity().with(Pos(at)).build();
+        let handle = ParallelWorldAdapter::entity_to_handle(unit);
+        world.insert(RetiredPositions::default());
+        world.write_resource::<RetiredPositions>().record(unit, at, 10);
+        world.entities().delete(unit).unwrap();
+        world.maintain();
+        let later = world.create_entity().build();
+        let cache = ParallelAdapterCache::new(&world, 1);
+        let adapter = ParallelWorldAdapter::new(&cache, unit);
+        assert_eq!(adapter.get_pos(handle), RSome(at));
+        let mut rows = RetiredPositions::default();
+        rows.record(unit, at, 10);
+        rows.record(later, at, 10 + RetiredPositions::KEEP_TICKS + 1);
+        assert_eq!(rows.get(unit), None, "an old row goes");
     }
 
     /// E517: a hook error is recorded when the world keeps the log, in tick then entity order.

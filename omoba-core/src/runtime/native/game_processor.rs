@@ -3698,6 +3698,15 @@ pub fn process_outcomes(
                 world.write_resource::<ScriptEventQueue>().push(ScriptEvent::SpentMana { caster: entity, cost: amount, ability_id });
             }
             Outcome::EntityRemoved { entity } => {
+                // Its last position stays readable to later hooks (E526).
+                let last = world.read_storage::<Pos>().get(entity).map(|p| p.0);
+                if let Some(at) = last {
+                    let tick = world.read_resource::<Tick>().0;
+                    if world.try_fetch::<super::scripting::parallel_world_adapter::RetiredPositions>().is_none() {
+                        world.insert(super::scripting::parallel_world_adapter::RetiredPositions::default());
+                    }
+                    world.write_resource::<super::scripting::parallel_world_adapter::RetiredPositions>().record(entity, at, tick);
+                }
                 world.write_resource::<BuffStore>().remove_all_for(entity);
                 world
                     .write_resource::<RemovedEntitiesQueue>()
@@ -6639,6 +6648,11 @@ fn handle_add_buff(
     }
     if payload.get(super::forced_motion::KEY).is_some() || buff_id==super::forced_motion::BUFF {
         super::forced_motion::apply(world,target,&buff_id,duration,&payload);
+        return Ok(());
+    }
+    // v3 modify_base_stat (E523): a hero's base attribute, never stored as a buff.
+    if payload.get(super::attributes::BASE_STAT_KEY).is_some() || buff_id==super::attributes::BASE_STAT_BUFF {
+        super::attributes::apply_base_stat(world,target,&buff_id,&payload);
         return Ok(());
     }
     // v3 impulse (E514): a decaying velocity on the unit, never stored as a buff.

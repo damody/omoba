@@ -16,6 +16,12 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-31 線 B：基礎三圍、持續施法拒絕原因、移除單位位置、reveal 給敵隊（E523、E525、E526、E527）
+
+- kit `modify_base_stat(to, Attr, amount)`：改英雄白字屬性（B11）。
+- `ability_channel::start_refusal`：channel 結算被拒時記錄 target_dead／not_hostile／out_of_range 等原因。
+- `RetiredPositions`：死亡後的 hook 讀得到單位最後的位置（C16、B23、A14、A28）。
+- kit `reveal_teams(..., "enemy", ...)`：只給敵隊視野（B23、瑞龍院日秀）。
 ## 2026-10-31 線 B：tick 階段耗時、impulse、hook 錯誤紀錄（E513、E514、E517）
 
 - `SimulationDriver::phase_report`／`last_step_phases`：step 各階段與各 system 的耗時。

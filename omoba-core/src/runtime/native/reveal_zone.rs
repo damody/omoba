@@ -69,7 +69,7 @@ impl Spec {
         if buff_id != BUFF || !valid_duration(duration) || payload.as_object()?.len() != 1 { return None; }
         let row = payload.get(KEY)?.as_object()?;
         let detect = match row.get("detect") { None => true, Some(Value::Bool(false)) => false, Some(_) => return None };
-        let teams = match row.get("teams") { None => 0, Some(value) if value == "all" => 1, Some(_) => return None };
+        let teams = match row.get("teams") { None => 0, Some(value) if value == "all" || value == "enemy" => 1, Some(_) => return None };
         let follow = match row.get("follow") { None => 0, Some(_) => { follow_of(payload)?; 1 } };
         let terrain = match row.get("ignore_terrain") { None => 0, Some(Value::Bool(true)) => 1, Some(_) => return None };
         if row.len() != if detect { 6 } else { 7 } + teams + follow + terrain { return None; }
@@ -84,6 +84,13 @@ impl Spec {
 /// Every team gets the zone (原作 AddFOWViewer for each team), not only the caster's.
 pub fn with_all_teams(mut payload: Value) -> Value {
     if let Some(row) = payload.get_mut(KEY).and_then(Value::as_object_mut) { row.insert("teams".into(), json!("all")); }
+    payload
+}
+
+/// v3 `reveal.teams = "enemy"` (E527, 原作 AddFOWViewer for the other team: B23 伊勢姬 and B28 瑞龍院日秀
+/// show the caster to its enemies): every team but the caster's gets the zone.
+pub fn with_enemy_teams(mut payload: Value) -> Value {
+    if let Some(row) = payload.get_mut(KEY).and_then(Value::as_object_mut) { row.insert("teams".into(), json!("enemy")); }
     payload
 }
 
@@ -116,8 +123,13 @@ pub fn ignores_terrain_of(payload: &Value) -> bool {
     payload.get(KEY).and_then(|row| row.get("ignore_terrain")) == Some(&Value::Bool(true))
 }
 
-fn all_teams(payload: &Value) -> bool {
-    payload.get(KEY).and_then(|row| row.get("teams")).is_some_and(|teams| teams == "all")
+/// Who a zone opens for (`teams`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Audience { Own, All, Enemy }
+
+fn audience_of(payload: &Value) -> Audience {
+    match payload.get(KEY).and_then(|row| row.get("teams")).and_then(Value::as_str) {
+        Some("all") => Audience::All, Some("enemy") => Audience::Enemy, _ => Audience::Own }
 }
 
 /// The followed unit `(id, generation)`; None when absent or malformed.
@@ -197,17 +209,18 @@ pub fn admitted(world: &World, target: Entity, buff_id: &str, duration: Fixed64,
     ((center - at).length_squared() <= spec.cast_range * spec.cast_range).then_some((Spec { center, ..spec }, team))
 }
 
-/// The teams a zone opens for: the caster's, or (`teams: "all"`) every team that keeps a
-/// vision view, plus every hero team, in ascending order.
-fn audience(world: &World, caster_team: u32, all: bool) -> Vec<u32> {
+/// The teams a zone opens for: the caster's; (`teams: "all"`) every team that keeps a vision
+/// view, plus every hero team; (`teams: "enemy"`) those but the caster's. Ascending order.
+fn audience(world: &World, caster_team: u32, who: Audience) -> Vec<u32> {
     let mut teams = std::collections::BTreeSet::from([caster_team]);
-    if all {
+    if who != Audience::Own {
         if let Some(runtime) = world.try_fetch::<crate::runtime::TeamVisibilityRuntime>() { teams.extend(runtime.teams.keys().copied()); }
         let heroes = world.read_storage::<super::comp::Hero>();
         let factions = world.read_storage::<Faction>();
         use specs::Join;
         teams.extend((&heroes, &factions).join().filter_map(|(_, f)| u32::try_from(f.team_id).ok().filter(|t| *t > 0)));
     }
+    if who == Audience::Enemy { teams.remove(&caster_team); }
     teams.into_iter().collect()
 }
 
@@ -236,7 +249,7 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, duration: Fixed64
     let follow = follow_of(payload).map(|(id, _)| world.entities().entity(id));
     let zone = Zone { team, center: spec.center, radius: spec.radius, remaining: duration,
         detection_level: if spec.detect { u16::MAX } else { 0 }, follow, ignores_terrain: ignores_terrain_of(payload) };
-    for team in audience(world, team, all_teams(payload)) { insert(world, team, zone); }
+    for team in audience(world, team, audience_of(payload)) { insert(world, team, zone); }
     true
 }
 
@@ -327,8 +340,13 @@ mod tests {
         assert!(apply(&mut world, caster, BUFF, Fixed64::from_i32(6), &both));
         let teams: Vec<u32> = world.read_resource::<RevealZones>().zones.values().map(|zone| zone.team).collect();
         assert_eq!(teams, vec![1, 2], "one plain zone per team");
-        let mut bad = both.clone(); bad[KEY]["teams"] = json!("enemy");
+        let mut bad = both.clone(); bad[KEY]["teams"] = json!("own");
         assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &bad), None);
+        // E527: teams = enemy is every team but the caster's.
+        world.write_resource::<RevealZones>().zones.clear();
+        assert!(apply(&mut world, caster, BUFF, Fixed64::from_i32(6), &with_enemy_teams(spec.payload())));
+        let teams: Vec<u32> = world.read_resource::<RevealZones>().zones.values().map(|zone| zone.team).collect();
+        assert_eq!(teams, vec![2], "the enemy only");
         // Following the enemy: starts at it, moves with it, closes when it is gone.
         world.write_resource::<RevealZones>().zones.clear();
         let follow = with_follow(with_all_teams(spec.payload()), enemy.id(), enemy.gen().id() as u32);

@@ -2,7 +2,39 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E519 conformance：conformance 看不到 trigger 吞掉的 Err：harness 讀 ScriptErrorLog（E517 的 harness 端）（2026-10-31，conformance session）
+## E527 reveal 只能給自己或全部隊伍：teams = enemy 只能擋下（B23）（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage B23（伊勢姬）與瑞龍院日秀：`reveal { teams = "enemy" }` 把施法者暴露給敵方，原作是對另一隊 AddFOWViewer。host 的 reveal_zone 只接受施法者的隊伍或 `"all"`。
+- **通用修正**：
+  - reveal_zone 的 `teams` 接受 `"enemy"`（`with_enemy_teams`）：除了施法者的隊伍以外，每個保有視野的隊伍與每個英雄隊伍。
+  - kit `reveal_teams(at, radius, duration, teams, follow, ignore_terrain)`，`teams` 為 `"own"`／`"all"`／`"enemy"`。
+- **測試**：reveal_zone 測試新增 teams = enemy 只開給敵隊。
+- **檔案**：`omoba-core/src/runtime/native/reveal_zone.rs`、`scripts/ability_kit/src/host_ext.rs`
+
+## E526 已移除單位的位置讀不到：死亡後的 hook 回 unit without a position（c16、b23、a14、a28）（2026-10-31，工作線 B）
+
+- **現象**：工作線 D conformance 開始讀 ScriptErrorLog（E517）後新增 17 個 fail，全是 `v3: unit without a position`，都在死亡情境：
+  - c16_curse_shadow 持有者死亡時要在死者位置生鬼影；
+  - b23_soul_feast 的 on_channel_end 讀死去施法者的位置；
+  - a14_impact_spear、a28_creation 的 on_scheduled 讀已死目標的位置。
+- **根因**：`Outcome::EntityRemoved` 刪除單位後，之後的 dispatch 讀不到它的 Pos。只有投射物來源有 retired source。
+- **通用修正**：
+  - EntityRemoved 刪除前把單位最後的位置記進 `RetiredPositions` resource（omoba-core `scripting::parallel_world_adapter`）。
+  - 腳本的 `get_pos` 讀不到已移除的單位時，回傳它最後的位置。原作中，死者的位置在死亡當下與之後的 hook 裡都讀得到。
+  - 紀錄保留 3600 tick（60 秒），最多 4096 筆，最舊的先移除。
+- **測試**：`a_removed_units_last_position_stays_readable`。
+- **檔案**：`omoba-core/src/runtime/native/game_processor.rs`、`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`
+
+## E525 持續施法開始被拒時沒有原因：settlement_refused:ScriptAbilityChannel 看不出是目標死亡、陣營或射程（2026-10-31，工作線 B）
+
+- **現象**：e187 m6acc1：b09_mind_burst 405 次裡有 2 次 `settlement_refused:ScriptAbilityChannel`。stage 用快照判斷，結算時 `ability_channel::can_start` 用即時世界重查，報告只寫 outcome 種類，看不出是哪一項不成立。
+- **根因**：`can_start` 只回傳 bool，admission 把它當成白名單裡的一項，被拒時只記 outcome 種類。
+- **通用修正**：
+  - `ability_channel::start_refusal` 回傳原因：`channel:target_dead`（目標死亡或沒有位置）、`channel:not_hostile`、`channel:out_of_range`、`channel:caster_state`、`channel:caster_position`、`channel:point_outside`、`channel:paused`、`channel:spec`、`channel:anchor`。`can_start` 就是「沒有原因」。
+  - 施法結算在白名單之前先檢查持續施法，拒絕時以這個原因記進 cast trace（`settlement_refused:channel:…`），批次報告也就依原因分開計數。
+  - 判定本身不變。下一批資料若是 out_of_range，再改成和 stage 相同的射程算法（不加容差，D13）。
+- **檔案**：`omoba-core/src/runtime/native/ability_channel.rs`、`omoba-core/src/runtime/native/cast_settlement.rs`
+
 ## E524 autopilot 截圖在遊戲執行緒編碼 PNG，每張造成 250–290 ms 卡頓（2026-10-31，工作線 C）
 - 現象：D21 量 UE frame time。E389 基準 demo9（1+9 quick，600 s）在暖機後有 15 次 ≥100 ms 卡頓，其中 8 次是 autopilot 的定時截圖：`Tracing Screenshot "autopilot-p1-shot-NNN-periodic"` 之後那一幀 250–290 ms，presentation 工作只有 0.5–8 ms。
 - 原因：`FOmAutoPilot::MaybeScreenshot` 用 `FScreenshotRequest::RequestScreenshot(File, true, false)`。引擎在 `UGameViewportClient::ProcessScreenShots` 讀回畫面後，在遊戲執行緒上用 `ProcessScreenshotData` 把 1920×1080 編碼成 PNG 並寫檔。
@@ -14,13 +46,17 @@
 - 避免：在遊戲中做的證據擷取（截圖、錄影）都要在背景執行緒編碼。量 frame time 時，要把 harness 自己的成本分開列。
 - 待驗證：demo10 和 demo9 比較截圖幀的 frame time。
 
-- **現象**：A06 的 a06t_fury 每擊 set_state 都失敗（vars key 含不允許的 `#`，E515），conformance 仍判 0 fail。
-- **根因**：trigger hook 經 ABI 回傳 ()，生成碼用 `let _ =` 丟掉 Err；harness 只看效果，沒檢查到的效果失敗就看不到。
+## E523 沒有改基礎三圍（白字）的落點：modify_base_stat 只能擋下（B11）（2026-10-31，工作線 B）
+
+- **現象**：工作線 A coverage B11（菊姬）：on_kill 讓英雄（分身則是它的主人）永久增加敏捷基礎值，原作是 ModifyAgility。v3 `modify_base_stat { to, stat = str|agi|int, amount }` 沒有 host 落點。
+- **根因**：stat row 只能加額外屬性（綠字），英雄的基礎屬性（`Hero.strength/agility/intelligence`）只在建立英雄時設定。
 - **通用修正**：
-  - 生成碼改成失敗時呼叫 `cx.report_error`（A，8b57ba34）。
-  - host 記到 `ScriptErrorLog`（B，E517，25bbcf71）。
-  - harness 每個 Run 都插入 log，Run drop 時收集；情境結束後，有這位英雄自己技能的錯誤就判 fail，訊息帶技能、hook 和錯誤內容。
-- **以後如何避免**：腳本執行期的錯誤一律回報並當成差異，不靠效果檢查間接發現。
+  - attributes 新增一次性 AddBuff 封包（`__modify_base_stat`）：`amount` 四捨五入成整數點（遠離零），基礎值保持在 0..=10000；不是英雄的單位不變。
+  - 英雄的基礎值隨 Hero 一起揭露，replica 會跟著拿到新值。
+  - 施法交易的 admission 會檢查封包。
+  - kit `modify_base_stat(to, Attr, amount)`；`Attr::Universal` 回傳 Err。
+- **測試**：`a_base_stat_packet_changes_the_white_attribute`。
+- **檔案**：`omoba-core/src/runtime/native/attributes.rs`、`game_processor.rs`、`cast_settlement.rs`、`scripts/ability_kit/src/host_ext.rs`
 
 ## E522 split 重建時 cargo 的英雄套件清單在快照之前取得，比快照舊（2026-10-31，工作線 C）
 - 現象：工作線 C 的 okuma_tomohide spotlight split 在 E399 的第二次建置失敗：`dev_run_freshness.lua:8: source missing: target\lineC-bins\release\hero_b05.dll`。
@@ -31,6 +67,8 @@
   - `run_moba_split_local_test` 的鏡像寫出只有 hero_c17 的快照 hero_dlls，檢查 cargo 建置的是快照集合。
 - 避免：從快照建置時，任何由來源推導的清單（套件、DLL、檔案）都在快照之後、從快照產生。
 
+## E521 （保留）hero_command 每個 tick 都用空的路徑 memo 重算地形：10 英雄每 tick 1.45 ms（2026-10-31）
+
 ## E520 headless 效能報告的最慢 tick 看不到 driver 的序列階段（2026-10-31，e187 遊戲模式 session，配合 B 的 E513；已放回 live）
 - **現象**：m6acc1 最慢的 tick 是 120～193 ms，但 system_stats 只解釋了 20～60 ms，其餘的時間落在 specs system 之外。
 - **通用修正**：
@@ -39,6 +77,14 @@
   - verify_m6_batch 的 Performance 一節列出每個 recipe 各階段每 tick 的平均 ms。
 - **避免**：效能分解要能加總回整個 tick；分解不出來的部分本身就是線索。
 
+## E519 conformance：conformance 看不到 trigger 吞掉的 Err：harness 讀 ScriptErrorLog（E517 的 harness 端）（2026-10-31，conformance session）
+- **現象**：A06 的 a06t_fury 每擊 set_state 都失敗（vars key 含不允許的 `#`，E515），conformance 仍判 0 fail。
+- **根因**：trigger hook 經 ABI 回傳 ()，生成碼用 `let _ =` 丟掉 Err；harness 只看效果，沒檢查到的效果失敗就看不到。
+- **通用修正**：
+  - 生成碼改成失敗時呼叫 `cx.report_error`（A，8b57ba34）。
+  - host 記到 `ScriptErrorLog`（B，E517，25bbcf71）。
+  - harness 每個 Run 都插入 log，Run drop 時收集；情境結束後，有這位英雄自己技能的錯誤就判 fail，訊息帶技能、hook 和錯誤內容。
+- **以後如何避免**：腳本執行期的錯誤一律回報並當成差異，不靠效果檢查間接發現。
 
 ## E518 creep_facing 把 lane step 之後同一 tick 的英雄位移（閃現、衝刺）算成小兵沒轉向（2026-10-31，e187 遊戲模式 session，B 分析；已放回 live）
 - **現象**：m6acc1 剩 4 筆 violation。

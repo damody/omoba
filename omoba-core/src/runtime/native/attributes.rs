@@ -191,10 +191,72 @@ fn settle_matching(world: &mut World, rules: &AttributeRulesConst, converts: imp
     }
 }
 
+/// v3 `modify_base_stat { to, stat, amount }` (E523, 原作 ModifyAgility): changes a hero's base
+/// (white) attribute; `stats` str/agi/int rows stay the bonus (green) ones. A one-shot AddBuff
+/// packet on the hero, never stored; the amount rounds to a whole point, the base stays in
+/// 0..=[`MAX_BASE`]. A unit that is not a hero is unchanged. The hero is disclosed with its base,
+/// so replicas take the new value with it.
+pub const BASE_STAT_BUFF: &str = "__modify_base_stat";
+pub const BASE_STAT_KEY: &str = "__modify_base_stat_v1";
+pub const MAX_BASE: i32 = 10_000;
+
+fn stat_name(stat: AttributeType) -> &'static str {
+    match stat { AttributeType::Strength => "str", AttributeType::Agility => "agi", AttributeType::Intelligence => "int" }
+}
+
+pub fn base_stat_payload(stat: AttributeType, amount: Fixed64) -> serde_json::Value {
+    serde_json::json!({ (BASE_STAT_KEY): { "stat": stat_name(stat), "amount_raw": amount.raw() } })
+}
+
+/// A well-formed packet: the attribute and a change of at most [`MAX_BASE`] points either way.
+pub fn base_stat_spec(buff_id: &str, payload: &serde_json::Value) -> Option<(AttributeType, Fixed64)> {
+    if buff_id != BASE_STAT_BUFF || payload.as_object()?.len() != 1 { return None; }
+    let row = payload.get(BASE_STAT_KEY)?.as_object()?;
+    if row.len() != 2 { return None; }
+    let stat = match row.get("stat")?.as_str()? {
+        "str" => AttributeType::Strength, "agi" => AttributeType::Agility, "int" => AttributeType::Intelligence, _ => return None };
+    let amount = Fixed64::from_raw(row.get("amount_raw")?.as_i64()?);
+    (amount.raw().unsigned_abs() <= Fixed64::from_i32(MAX_BASE).raw().unsigned_abs()).then_some((stat, amount))
+}
+
+/// Settles a [`BASE_STAT_BUFF`] packet; false when it is not one or the target is not a hero.
+pub fn apply_base_stat(world: &mut World, target: Entity, buff_id: &str, payload: &serde_json::Value) -> bool {
+    let Some((stat, amount)) = base_stat_spec(buff_id, payload) else { return false };
+    let mut heroes = world.write_storage::<Hero>();
+    let Some(hero) = heroes.get_mut(target) else { return false };
+    // Whole points, half away from zero.
+    let raw = amount.raw();
+    let points = ((raw.unsigned_abs() + 512) >> 10) as i64 * raw.signum();
+    let base = match stat { AttributeType::Strength => &mut hero.strength, AttributeType::Agility => &mut hero.agility,
+        AttributeType::Intelligence => &mut hero.intelligence };
+    *base = (i64::from(*base) + points).clamp(0, i64::from(MAX_BASE)) as i32;
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::runtime::ability_runtime::UnitStats;
+
+    /// E523: the base attribute moves by whole points, never below zero; others are untouched.
+    #[test]
+    fn a_base_stat_packet_changes_the_white_attribute() {
+        let mut world = World::new();
+        world.register::<Hero>();
+        let mut hero = Hero::default();
+        hero.strength = 20; hero.agility = 30; hero.intelligence = 10;
+        let unit = world.create_entity().with(hero).build();
+        let plain = world.create_entity().build();
+        let packet = |stat, points: i32| base_stat_payload(stat, Fixed64::from_i32(points));
+        assert!(apply_base_stat(&mut world, unit, BASE_STAT_BUFF, &packet(AttributeType::Agility, 3)));
+        assert!(apply_base_stat(&mut world, unit, BASE_STAT_BUFF, &base_stat_payload(AttributeType::Strength, Fixed64::from_raw(-1536))));
+        assert!(apply_base_stat(&mut world, unit, BASE_STAT_BUFF, &packet(AttributeType::Intelligence, -50)));
+        assert!(!apply_base_stat(&mut world, plain, BASE_STAT_BUFF, &packet(AttributeType::Agility, 3)), "not a hero");
+        let heroes = world.read_storage::<Hero>();
+        let hero = heroes.get(unit).unwrap();
+        assert_eq!((hero.strength, hero.agility, hero.intelligence), (18, 33, 0), "-1.5 rounds to -2; never below 0");
+        assert!(base_stat_spec(BASE_STAT_BUFF, &packet(AttributeType::Agility, MAX_BASE + 1)).is_none());
+    }
     use specs::Builder;
 
     // The values of templates/attribute_rules.lua (6.87-7.05).

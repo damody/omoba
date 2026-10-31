@@ -23,6 +23,14 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
     let channels=effects.iter().filter(|effect|matches!(effect,Outcome::ScriptRecoveryChannel {..}|Outcome::ScriptAbilityChannel {..})).count();
     if channels>1 || (channels>0&&summons){return Err("channel_with_summons");}
     let ability_channel=effects.iter().any(|effect|matches!(effect,Outcome::ScriptAbilityChannel {..}));
+    // A channel that cannot start now says why (E525: the target died, turned or left range since staging).
+    for effect in effects {
+        if let Outcome::ScriptAbilityChannel {caster:source,owner,spec,anchor,..}=effect {
+            if *source==caster && Some(*owner)==player {
+                if let Some(reason)=super::super::ability_channel::start_refusal(world,caster,*owner,*spec,*anchor) {return Err(reason);}
+            }
+        }
+    }
     // Trace tags are observation only: the summon cap counts the effects alike with stats on or off.
     let counted=effects.iter().filter(|effect|!matches!(effect,Outcome::ScriptDamageTag {..})).count();
     if skill.is_empty() || (summons&&counted>512) || cue_count>16 || rank>u8::MAX as u32
@@ -70,6 +78,8 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
             && super::super::mana_drain::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return Err("effect:mana_drain");}
         if (payload.get(super::super::forced_motion::KEY).is_some() || buff_id==super::super::forced_motion::BUFF)
             && super::super::forced_motion::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return Err("effect:forced_motion");}
+        if (payload.get(super::super::attributes::BASE_STAT_KEY).is_some() || buff_id==super::super::attributes::BASE_STAT_BUFF)
+            && super::super::attributes::base_stat_spec(buff_id,payload).is_none(){return Err("effect:modify_base_stat");}
         if (payload.get(super::super::impulse::KEY).is_some() || buff_id==super::super::impulse::BUFF)
             && super::super::impulse::admitted(world,*target,buff_id,payload).is_none(){return Err("effect:impulse");}
         if (payload.get(super::super::blink_landing::KEY).is_some() || buff_id==super::super::blink_landing::BUFF)

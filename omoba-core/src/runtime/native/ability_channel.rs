@@ -198,18 +198,31 @@ pub(crate) fn within_range(spec: &Spec, origin: Vec2, point: Vec2) -> bool {
 }
 
 pub(crate) fn can_start(world: &World, entity: Entity, owner: u32, spec: Spec, anchor: Anchor) -> bool {
-    if !spec.valid() || world.read_resource::<GamePause>().is_paused || !live(world, entity, owner) {
-        return false;
-    }
-    let Some(origin) = world.read_storage::<Pos>().get(entity).map(|p| p.0) else { return false };
-    if !in_geometry(origin) { return false; }
+    start_refusal(world, entity, owner, spec, anchor).is_none()
+}
+
+/// Why [`can_start`] refuses now (E525: the cast trace's `SettlementRefused` names it); None when
+/// it can start. A unit anchor's target is checked in order: alive with a position, hostile, in range.
+pub(crate) fn start_refusal(world: &World, entity: Entity, owner: u32, spec: Spec, anchor: Anchor) -> Option<&'static str> {
+    if !spec.valid() { return Some("channel:spec"); }
+    if world.read_resource::<GamePause>().is_paused { return Some("channel:paused"); }
+    if !live(world, entity, owner) { return Some("channel:caster_state"); }
+    let Some(origin) = world.read_storage::<Pos>().get(entity).map(|p| p.0).filter(|origin| in_geometry(*origin))
+        else { return Some("channel:caster_position") };
     let within = |point: Vec2| within_range(&spec, origin, point);
     match (spec.anchor, anchor) {
-        (ChannelAnchor::SelfOrigin, Anchor::Origin) => true,
-        (ChannelAnchor::Point, Anchor::Point(point)) => in_geometry(point) && within(point),
-        (ChannelAnchor::Unit, Anchor::Unit(target)) => unit_anchor_live(world, entity, target)
-            && world.read_storage::<Pos>().get(target).is_some_and(|p| within(p.0)),
-        _ => false,
+        (ChannelAnchor::SelfOrigin, Anchor::Origin) => None,
+        (ChannelAnchor::Point, Anchor::Point(point)) if !in_geometry(point) => Some("channel:point_outside"),
+        (ChannelAnchor::Point, Anchor::Point(point)) => (!within(point)).then_some("channel:out_of_range"),
+        (ChannelAnchor::Unit, Anchor::Unit(target)) => {
+            let at = (target != entity && world.entities().is_alive(target)
+                && world.read_storage::<CProperty>().get(target).is_some_and(|p| p.hp > Fixed64::ZERO))
+                .then(|| world.read_storage::<Pos>().get(target).map(|p| p.0)).flatten();
+            let Some(at) = at else { return Some("channel:target_dead") };
+            if !unit_anchor_live(world, entity, target) { return Some("channel:not_hostile"); }
+            (!within(at)).then_some("channel:out_of_range")
+        }
+        _ => Some("channel:anchor"),
     }
 }
 
@@ -441,6 +454,7 @@ mod tests {
         let near = Anchor::Point(origin + Vec2::new(Fixed64::from_i32(600), Fixed64::ZERO));
         assert!(can_start(&world, hero, 7, spec(ChannelAnchor::Point), near));
         assert!(!can_start(&world, hero, 7, spec(ChannelAnchor::Point), far), "outside 700");
+        assert_eq!(start_refusal(&world, hero, 7, spec(ChannelAnchor::Point), far), Some("channel:out_of_range"), "E525: the reason");
         let unlimited = Spec { range: Fixed64::ZERO, ..spec(ChannelAnchor::Point) };
         assert!(unlimited.valid() && can_start(&world, hero, 7, unlimited, far), "range 0 has no limit");
     }
