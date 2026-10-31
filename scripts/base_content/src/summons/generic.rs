@@ -20,6 +20,8 @@ pub struct Generic {
     pub projectile_speed: Fixed64,
     /// Its attack's damage type (E503).
     pub damage_type: omoba_template_ids::SummonDamageType,
+    /// It never attacks (E511): no target of its own, no attack.
+    pub no_attack: bool,
 }
 
 impl Generic {
@@ -28,7 +30,8 @@ impl Generic {
         let stats = omoba_template_ids::summon_by_name(name).and_then(omoba_template_ids::active_summon_stats)?;
         // A chase summon (E406) is flown by the host (omoba-core summon_chase).
         (!stats.dummy && stats.chase.is_none()).then(|| Generic { unit_id: name.into(), acquisition: stats.acquisition_range, ai: stats.ai,
-            immobile: stats.immobile, projectile_speed: stats.projectile_speed, damage_type: stats.attack_damage_type })
+            immobile: stats.immobile, projectile_speed: stats.projectile_speed, damage_type: stats.attack_damage_type,
+            no_attack: stats.no_attack })
     }
 }
 
@@ -38,7 +41,7 @@ impl UnitScript for Generic {
     }
 
     fn on_tick(&self, e: EntityHandle, dt: Fixed64, w: &mut GameWorldDyn<'_>) {
-        if self.ai == SummonAi::Idle { return; }
+        if self.ai == SummonAi::Idle || self.no_attack { return; }
         let RSome(pos) = w.get_pos(e) else { return; };
         let interval = w.get_asd_interval(e);
         if interval <= Fixed64::ZERO { return; }
@@ -116,9 +119,14 @@ mod tests {
             Fixed64::from_i32(30), Fixed64::ONE, Fixed64::from_i32(200), Fixed64::from_i32(900))).unwrap();
         let enemy = body(&mut world, p(150), 2);
         let guard = Generic { unit_id: "test_guard".into(), acquisition: Fixed64::from_i32(600), ai: SummonAi::Guard,
-            immobile: false, projectile_speed: Fixed64::from_i32(1500), damage_type: omoba_template_ids::SummonDamageType::Physical };
+            immobile: false, projectile_speed: Fixed64::from_i32(1500), damage_type: omoba_template_ids::SummonDamageType::Physical,
+            no_attack: false };
         let rows = tick(&world, &guard, summon);
         assert!(rows.iter().any(|o| matches!(o, Outcome::ScriptProjectile { .. })), "in range: attacks {rows:?}");
+        // E511: a summon without attack neither attacks nor closes on the enemy.
+        world.write_storage::<omoba_core::TAttack>().get_mut(summon).unwrap().asd_count = Fixed64::from_i32(5);
+        let unarmed = Generic { no_attack: true, ..guard.clone() };
+        assert!(tick(&world, &unarmed, summon).is_empty(), "no attack");
         // E503: the attack's damage is of the template's type.
         for (kind, phys, magi, real) in [(omoba_template_ids::SummonDamageType::Physical, true, false, false),
             (omoba_template_ids::SummonDamageType::Magical, false, true, false), (omoba_template_ids::SummonDamageType::Pure, false, false, true)] {

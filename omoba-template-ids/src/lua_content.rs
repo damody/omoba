@@ -1795,6 +1795,9 @@ pub(crate) struct SummonEntry {
     /// Its attack's damage type (E503); physical when absent.
     #[serde(default)]
     pub(crate) attack_damage_type: SummonDamageTypeEntry,
+    /// It never attacks (E511).
+    #[serde(default)]
+    pub(crate) no_attack: bool,
     /// Health regenerated per second.
     #[serde(default)]
     pub(crate) hp_regen: f32,
@@ -1862,6 +1865,9 @@ pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),Stri
     for entry in entries.iter().filter(|entry|!entry.tombstone) {
         if entry.immobile && (entry.move_speed!=0.0 || entry.follow_start_distance!=0.0 || entry.follow_stop_distance!=0.0) {
             return Err(format!("summon {} is immobile but has move speed or follow distances",entry.id));
+        }
+        if entry.no_attack && (entry.damage!=0.0 || entry.damage_per_owner_level!=0.0) {
+            return Err(format!("summon {} has no attack but an attack damage",entry.id));
         }
         if !entry.damage_per_owner_level.is_finite() || !(0.0..=10_000.0).contains(&entry.damage_per_owner_level) {
             return Err(format!("summon {} has invalid damage_per_owner_level",entry.id));
@@ -1938,6 +1944,14 @@ fn summon_follow_metadata_rejects_invalid_hysteresis_and_preserves_disabled_defa
         entry.follow_start_distance=start;entry.follow_stop_distance=stop;
         assert!(validate_summon_navigation(&[entry.clone()]).is_err());
     }
+}
+
+#[test]
+fn a_summon_without_attack_has_no_attack_damage() {
+    let ghost:SummonEntry=serde_json::from_value(serde_json::json!({"id":"fixture","no_attack":true,"move_speed":200.0})).unwrap();
+    assert!(validate_summon_navigation(std::slice::from_ref(&ghost)).is_ok());
+    let mut armed=ghost.clone();armed.damage=10.0;
+    assert!(validate_summon_navigation(&[armed]).is_err(),"no attack with a damage");
 }
 
 #[test]

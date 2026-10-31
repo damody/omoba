@@ -4497,6 +4497,7 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     summoned.navigation.follow_start_distance=stats.follow_start_distance;
     summoned.navigation.follow_stop_distance=stats.follow_stop_distance;
     summoned.immobile=stats.immobile;
+    summoned.no_attack=stats.no_attack;
     summoned.expire_with_owner=stats.owner_death==omoba_template_ids::SummonOwnerDeath::Expire;
     summoned.spawn_tick=world.read_resource::<Tick>().0;
     summoned.bounty=(stats.bounty_gold,stats.bounty_xp);

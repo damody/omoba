@@ -33,7 +33,16 @@
     - `## Performance`：每個 recipe 的 p50／p99 中位數、最差 p99、max、超出預算的 tick、wall 中位數，以及整批最慢的 tick 與它的 system。
 - **避免**：驗收標準改變時，報告同時提供對應的總表，不要只保留平均值。
 
-## E511 （保留）召喚物沒有不能攻擊的形式：c16e_ghost 只能擋下（2026-10-31）
+## E511 召喚物沒有不能攻擊的形式：c16e_ghost 只能擋下（2026-10-31，工作線 B）
+
+- **現象**：工作線 A C16：c16e_ghost 是 owner_controlled 召喚物，AttackCapabilities NO_ATTACK（能移動、偵查，不會攻擊）。召喚 row 沒有「不能攻擊」的形式，v3_summons 只能以 `no attack (the dummy unit type)` 擋下；另有 1 個道具卡在同一個 blocker。
+- **根因**：召喚物的攻擊能力只能靠 dummy（沒有身體、不能被控制）或 disarm（可被驅散的控制狀態）表達，都不符合「本來就沒有攻擊能力」。
+- **通用修正**：
+  - unit_template 新增 `no_attack = true`（`SummonStats.no_attack`、`SummonedUnit.no_attack`）。
+  - Generic AI 不自己找目標，也不攻擊；hero_command 的 `summon_order` 拒絕攻擊命令（包含排隊的攻擊）；移動、跟隨與控制照常。
+  - 內容檢查：`no_attack` 不能有攻擊傷害。
+- **測試**：`a_summon_without_attack_has_no_attack_damage`；generic 測試：沒有攻擊能力時，範圍內有敵人也不攻擊。
+- **檔案**：`omoba-template-ids/src/{lib.rs,lua_content.rs,runtime_content.rs}`、`omoba-template-ids/build.rs`、`omoba-core/src/runtime/native/comp/unit.rs`、`omoba-core/src/runtime/native/game_processor.rs`、`omoba-core/src/runtime/native/hero_command.rs`、`scripts/base_content/src/summons/generic.rs`
 
 ## E510 creep_facing 對暈眩／被強制位移的小兵與疊在一起的小兵也檢查朝向（2026-10-31，e187 遊戲模式 session，B 分析；已放回 live）
 - **現象**：m6new5 是第一批 E491 版的 creep_facing，結果 13 筆 violation。分成兩類：

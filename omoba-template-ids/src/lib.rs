@@ -1425,6 +1425,9 @@ pub struct SummonStats {
     pub projectile_speed: Fixed64,
     /// Its attack's damage type (v3 unit_template `attack.damage_type`, E503).
     pub attack_damage_type: SummonDamageType,
+    /// It never attacks (v3 unit_template `no_attack`, 原作 AttackCapabilities NO_ATTACK, E511): no
+    /// target of its own and no attack order, while it still moves, follows and takes orders.
+    pub no_attack: bool,
     /// Health regenerated per second.
     pub hp_regen: Fixed64,
     /// Night sight minus day sight (0 when the template gives one sight).

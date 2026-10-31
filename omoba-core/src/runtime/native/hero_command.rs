@@ -222,9 +222,12 @@ enum SummonOrder { Clear, MoveTo(omoba_sim::Vec2), Attack(Entity), Follow(Entity
 /// attack-move is a move (原作 a unit's attack-move acquires on the way; a summon's AI already does).
 fn summon_order(world: &mut World, unit: Entity, order: SummonOrder) -> bool {
     use super::comp::{CProperty, MoveTarget, SummonedUnit};
-    let Some(immobile) = world.read_storage::<SummonedUnit>().get(unit).filter(|s| !s.is_expired()).map(|s| s.immobile) else { return false };
+    let Some((immobile, no_attack)) = world.read_storage::<SummonedUnit>().get(unit).filter(|s| !s.is_expired()).map(|s| (s.immobile, s.no_attack))
+        else { return false };
     if world.read_storage::<CProperty>().get(unit).is_none_or(|p| p.hp <= Fixed64::ZERO) { return false; }
     if immobile && matches!(order, SummonOrder::MoveTo(_) | SummonOrder::Follow(_)) { return false; }
+    // A summon that never attacks (E511) takes no attack order; it keeps what it was doing.
+    if no_attack && matches!(order, SummonOrder::Attack(_)) { return false; }
     if !world.has_value::<specs::storage::MaskedStorage<OrderedAttack>>() { world.register::<OrderedAttack>(); }
     if !world.has_value::<specs::storage::MaskedStorage<OrderedFollow>>() { world.register::<OrderedFollow>(); }
     world.write_storage::<OrderedAttack>().remove(unit);

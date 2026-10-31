@@ -1777,6 +1777,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \tai: SummonAi::{},\n\
              \tprojectile_speed: {},\n\
              \tattack_damage_type: SummonDamageType::{},\n\
+             \tno_attack: {},\n\
              \thp_regen: {},\n\
              \tnight_vision_bonus: {},\n\
              \tturn_speed: {},\n\
@@ -1812,6 +1813,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             e.ai.rust_variant(),
             fixed64_lit(if e.projectile_speed > 0.0 { e.projectile_speed } else { 900.0 }),
             e.attack_damage_type.rust_variant(),
+            e.no_attack,
             fixed64_lit(e.hp_regen),
             fixed64_lit(if e.night_vision_radius > 0.0 { e.night_vision_radius - e.vision_radius } else { 0.0 }),
             fixed64_lit(e.turn_speed()),
