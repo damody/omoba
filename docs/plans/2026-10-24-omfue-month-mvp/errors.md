@@ -13,6 +13,7 @@
   - `memory_admission.parallel_jobs(per_job, max)`：以 lua-host `memory_status`（E441）取得可用 commit，扣掉 8 GB 保留量後算出平行數，至少 1。
   - UBT：`ue_engine_bootstrap.commit_parallel_actions()`（每個動作 3 GB，最多 16）。`build_ue_moba` 的本機編譯和 `stage_ue_shadow --build`（land_to_live 的 UBT 階段）都帶 `-MaxParallelActions`，除非呼叫端自己指定。
   - cargo：land_to_live 的 codegen 與 cargo 階段設 `CARGO_BUILD_JOBS`（每個工作 2.5 GB，最多 24），並在 log 印出平行數。
+  - split 的建置階段（`run_moba_split_local.build_all`）也設 `CARGO_BUILD_JOBS`：10:21 一局 split 開始前的建置開了 24 個 rustc，約 12 GB，這就是「剛好在 split 開始時」中斷的原因。
   - 還沒涵蓋：omfue/restart 的 Rust 建置路徑，以及各 session 自己直接下的 cargo 指令。
 
 ## E442 spotlight 的單位目標施法被輸入層拒絕（射程外、目標移動）卻算成已示範（2026-10-31，工作線 C）

@@ -204,6 +204,7 @@ end
 -- take minutes, and inside the lock it used up the whole --max-seconds before the match started.
 -- Returns the moment the sources were built as of, for OMOBA_SOURCES_AS_OF (E202).
 M.BUILD_WAIT_S=1800
+M.CARGO_JOB_COMMIT_BYTES=5*1024*1024*1024//2
 function M.build_all(options)
   -- The wait for another build is bounded like the wait for the machine (E346): a build that
   -- holds the lock longer fails this run with the holder named instead of queueing for hours.
@@ -212,6 +213,9 @@ function M.build_all(options)
   local as_of=os.time()
   local build_env=build_lock:env()
   for _,command in ipairs(M.build_commands(options,os.getenv('OM_UE_RUN_BINARIES'))) do
+    -- Cargo jobs by the commit left when each build starts (E443): the default 24 rustc at a split's
+    -- start took 12 GB beside other sessions' builds.
+    build_env.CARGO_BUILD_JOBS=tostring(require('memory_admission').parallel_jobs(M.CARGO_JOB_COMMIT_BYTES,24))
     local result=process.run(command.exe,command.args,{cwd=b.root,check=false,env=build_env})
     if result.exit_code~=0 then
       io.stderr:write(result.stderr or '')
