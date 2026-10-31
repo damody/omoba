@@ -551,6 +551,24 @@ mod tests {
         assert_eq!(gold.get(one).unwrap().0, gold.get(two).unwrap().0, "no gold spent");
     }
     #[test]
+    fn showcase_start_items_may_list_more_purchases_than_slots_when_components_combine() {
+        // E490: the item spotlight lists each combined item's components first (m73: 11 purchases).
+        let list = ["staff","staff","spell_book","rockfall_book","shuriken","staff","staff","spell_book",
+            "spirit_ingot","lesser_shield","the_poketto_of_meiso"];
+        let mut p = showcase_plan();
+        p.showcase.as_mut().unwrap().start_items.insert(1,list.iter().map(|id| id.to_string()).collect());
+        let (config,_) = p.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        setup_single_lane_match(&mut world, config).unwrap();
+        let entity = world.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==1).and_then(|slot|slot.entity).unwrap();
+        let inventories = world.read_storage::<crate::comp::Inventory>();
+        let held = inventories.get(entity).unwrap().slots.iter().flatten().map(|item|item.item_id.clone()).collect::<Vec<_>>();
+        for shown in ["rockfall_book","shuriken","spell_book","the_poketto_of_meiso"] {
+            assert!(held.iter().any(|id| id==shown), "{shown} in {held:?}");
+        }
+    }
+    #[test]
     fn showcase_stage_rejects_human_holds_and_out_of_roster_or_range_values() {
         let reject = |p:RoleBotMatchPlan| assert!(p.compile(1,SimulationTickProfile::Production60Hz)
             .ok().and_then(|(config,_)| { let pool = crate::runtime::StateInitializer::create_thread_pool();
@@ -564,7 +582,9 @@ mod tests {
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().hold_hp_permille = 999; reject(p);
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_items.insert(9,vec!["sake".into()]); reject(p);
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_items.insert(1,vec!["no_such_item".into()]); reject(p);
+        // Seven separate items do not fit six slots; the grant refuses the stage (E490).
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_items.insert(1,vec!["sake".into();7]); reject(p);
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_items.insert(1,vec!["sake".into();65]); reject(p);
         let json = serde_json::to_value(showcase_plan()).unwrap();
         assert_eq!(serde_json::from_value::<RoleBotMatchPlan>(json.clone()).unwrap().showcase, showcase_plan().showcase);
         let mut unknown = json; unknown["showcase"]["camera"] = serde_json::json!(1);

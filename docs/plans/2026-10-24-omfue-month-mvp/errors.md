@@ -26,7 +26,12 @@
   - 沒有 Tower 元件的 lane 建築（基地）標成 structure。
 - **避免**：拿「最近一次事件」的對象當成「現在」的狀態之前，先確認系統是不是每個 tick 都會重新決定。
 
-## E490 （保留）showcase start_items 限制原始清單 ≤ 6，含合成道具元件的道具 spotlight（m71b、m73）被拒（2026-10-31）
+## E490 showcase start_items 限制原始清單 ≤ 6，含合成道具元件的道具 spotlight（m71b、m73）被拒（2026-10-31，工作線 C）
+- 現象：道具 spotlight 的 m71b 和 m73 兩組，server 一啟動就以 `invalid showcase stage` 結束，client runtime 等不到 ready（`runtime-p1 ready timeout`），整局失敗。m71、m72 正常。
+- 原因：item_spotlight 為了讓合成道具買得到，起始清單先列出它的元件（深度優先），所以 m73 有 11 筆購買，m71b 有 12 筆。但 `ShowcaseConfig::is_valid` 要求清單長度 ≤ 6，把購買次數當成格子數。兩邊都是 b9335109（工作線 C）寫的，從一開始就不一致。
+- 修正（共用層）：`is_valid` 改為限制購買次數 ≤ `MAX_START_PURCHASES`（64）。背包放不下時，`grant_showcase_items` 的 `buy_item` 本來就會拒絕整個舞台，7 個 sake 仍被拒。新增測試 `showcase_start_items_may_list_more_purchases_than_slots_when_components_combine`：m73 的 11 筆購買放得進去，展示的四件道具都在背包裡；65 筆被拒。omoba-core 的 showcase 測試 4／4 通過，land_to_live 的 cargo check 通過。
+- 避免：驗證規則要和產生資料的那一端用同一個概念（購買或格子），並以產生器的實際輸出寫測試。
+- 待確認：m71b、m73 重跑。
 
 ## E489 issue_order follow 沒有 host 落點：A04 式神拉回只能擋下（2026-10-31，工作線 B）
 

@@ -488,11 +488,14 @@ pub struct ShowcaseConfig {
 
 impl ShowcaseConfig {
     fn default_hold_hp_permille() -> u32 { 1000 }
+    const MAX_START_PURCHASES: usize = 64;
     pub fn is_valid(&self, players: &BTreeSet<u32>) -> bool {
         (1..=25).contains(&self.start_level)
             && (1000..=100_000).contains(&self.hold_hp_permille)
             && self.placements.keys().chain(self.hold_players.iter()).chain(self.start_items.keys()).all(|id| players.contains(id))
-            && self.start_items.values().all(|items| items.len() <= 6)
+            // Purchases, not slots (E490): a combined item is bought after its components, which the
+            // shop consumes; a full inventory refuses the stage when the items are granted.
+            && self.start_items.values().all(|items| items.len() <= Self::MAX_START_PURCHASES)
             && self.placements.values().all(|[x, y]| (0..=1_000_000).contains(x) && (0..=1_000_000).contains(y))
     }
     fn holds(config: &SingleLaneConfig, player_id: u32) -> bool {
