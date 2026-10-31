@@ -707,6 +707,16 @@ function Gen:expr(node, ctx)
       if not r then self:block("attr:" .. node.name .. " of ability_in_slot"); return "Fixed64::ZERO", "err" end
       return string.format("{ let (u, a) = (%s.0, %s.1.clone()); match a { Some(id) => %s, None => %s } }", obj, obj, r[1], r[3]), r[2]
     end
+    if ot == "item_in" then
+      if node.name == "slot" then return "Fixed64::from_i32(i32::from(" .. obj .. ".slot))", "num" end
+      if node.name == "cooldown_remaining" then return "cx.item_slot_cooldown(" .. obj .. ".owner, " .. obj .. ".slot)", "num" end
+      if node.name == "name" then return obj .. ".item.clone()", "item_name" end
+      self:block("attr:" .. node.name .. " of an item"); return "Fixed64::ZERO", "err"
+    end
+    if ot == "item" then
+      if node.name == "name" then return "(" .. obj .. ").as_ref().map(|p| p.item.clone()).unwrap_or_default()", "item_name" end
+      self:block("attr:" .. node.name .. " of a picked item"); return "Fixed64::ZERO", "err"
+    end
     if ot == "ability_ref" then
       local u, id = obj:match("^(.*)%z([%w_]+)$")
       local reads = { cooldown_remaining = { "cx.ability_cooldown(u, %s)", "num" }, is_ready = { "cx.ability_ready(u, %s)", "bool" },
@@ -988,6 +998,7 @@ function Gen:call(node, ctx)
     -- the order's ability: a cast order (damage_kind 1), not an attack order (0; line B E465)
     if t == "event_ability" and ctx.event == "order_targeted" then return "(cx.event_damage_kind == 1)", "bool" end
     if t == "slot_ref" then return "(" .. u .. ").1.is_some()", "bool" end
+    if t == "item" then return "(" .. u .. ").is_some()", "bool" end
     if t ~= "unit" then self:block("fn:exists of a " .. t); return "false", "bool" end
     return cx_call("cx.exists(%s)", u), "bool"
   elseif fn == "has_state" then
@@ -1174,6 +1185,12 @@ function Gen:call(node, ctx)
       local HOST_TAGS = { boss = true, dummy = true, fountain = true, general = true, summon = true, neutral = true }
       if HOST_TAGS[n] then return "{ let u = " .. u .. "; cx.has_unit_tag(u, " .. rust_str(n) .. ") }", "bool" end
       self:block("fn:has_tag:" .. n .. " of a unit"); return "false", "bool"
+    end
+    if fn == "is_item" and n and (at == "item" or at == "item_in") then
+      self.item_names = self.item_names or C.item_names(((self.opts.root or "."):gsub("\\", "/")) .. "/docs/character_pipeline/items")
+      if not self.item_names[n] and not (self.m.abilities[n] and self.m.abilities[n].kind == "item") then self:block("fn:is_item of " .. n .. " (no such item)"); return "false", "bool" end
+      if at == "item_in" then return "(" .. u .. ".item == " .. rust_str(n) .. ")", "bool" end
+      return "(" .. u .. ").as_ref().is_some_and(|p| p.item == " .. rust_str(n) .. ")", "bool"
     end
     if at ~= "event_ability" or not n then self:block("fn:" .. fn .. " of a non-event ability"); return "false", "bool" end
     if fn == "is_item" then return "cx.event_is_item(" .. rust_str(n) .. ")", "bool" end
@@ -1408,7 +1425,12 @@ local ACTION_FIELDS = {
   teleport = set({ "op", "who", "to", "find_clear_space", "max_distance" }),
   add_stacks = set({ "op", "to", "status", "count", "max", "refresh" }),
   set_stacks = set({ "op", "to", "status", "count" }),
-  modify_cooldown = set({ "op", "of", "ability", "mode", "amount", "item_tag" }),
+  modify_cooldown = set({ "op", "of", "ability", "mode", "amount", "item_tag", "item" }),
+  -- inventory items (line B E561/E569; ids are the documents' item ids): a picked item is an
+  -- `item` binding (Option<PickedItem>), `it` in pick_item.where the candidate (&PickedItem)
+  pick_item = set({ "op", "from", "slots", "order", "where", "as" }),
+  give_item = set({ "op", "to", "item" }),
+  remove_item = set({ "op", "from", "item" }),
   set_ability_level = set({ "op", "of", "ability", "level" }),
   end_channel = set({ "op", "interrupted" }),
   set_health = set({ "op", "to", "value" }),
@@ -3012,6 +3034,46 @@ function Gen:action(a, ctx, ind)
       out = out .. line(string.format("    step_%d(cx, &args)?;", step))
     end
     return out .. line("}")
+  elseif op == "pick_item" then
+    if a.slots ~= nil and a.slots ~= "inventory" then self:block("action:pick_item.slots:" .. tostring(a.slots)); return "" end
+    local order = ({ first = "First", last = "Last", random = "Random" })[a.order or "first"]
+    if not order then self:block("action:pick_item.order:" .. tostring(a.order)); return "" end
+    local from = self:value(a.from, ctx, "unit")
+    local keep = "true"
+    local wscope = scope_child(ctx.scope)
+    local it = self:bind(wscope, "it", "item_in")
+    if a.where ~= nil then
+      keep = self:value(a.where, { owner = ctx.owner, scope = wscope, event = ctx.event, pre = ctx.pre, cast = ctx.cast, ended = ctx.ended, windup = ctx.windup }, "bool")
+    end
+    local marker = self:bind(ctx.scope, a.as, "item")
+    -- the closure's own cx (the outer one is lent to pick_item); `let _` keeps it used
+    return line("let " .. marker .. " = { let from = " .. from .. "; cx.pick_item(from, ability_kit::PickOrder::" .. order
+      .. ", |cx, " .. it .. ": &ability_kit::PickedItem| { let _ = &cx; " .. keep .. " }) };")
+  elseif op == "give_item" or op == "remove_item" then
+    local unit = self:value(op == "give_item" and a.to or a.from, ctx, "unit")
+    local code, ty = self:value(a.item, ctx)
+    local lit = type(ty) == "string" and ty:match("^sym:(.+)$")
+    self.item_names = self.item_names or C.item_names(((self.opts.root or "."):gsub("\\", "/")) .. "/docs/character_pipeline/items")
+    local head = line("{") .. line("    let unit = " .. unit .. ";")
+    if lit then
+      if not self.item_names[lit] and not (self.m.abilities[lit] and self.m.abilities[lit].kind == "item") then self:block("action:" .. op .. " of " .. lit .. " (no such item)"); return "" end
+      return head .. line("    cx." .. op .. "(unit, " .. rust_str(lit) .. ")?;") .. line("}")
+    end
+    if op == "give_item" and ty == "item_name" then return head .. line("    let id: String = " .. code .. ";") .. line("    cx.give_item(unit, &id)?;") .. line("}") end
+    if op == "remove_item" and ty == "item" then
+      -- the slot the pick found (its holder is the pick's `from`)
+      return head .. line("    let _ = unit;") .. line("    if let Some(p) = (" .. code .. ").as_ref() { cx.remove_picked_item(p)?; }") .. line("}")
+    end
+    if ty ~= "err" then self:block("action:" .. op .. ".item of a " .. tostring(ty)) end
+    return ""
+  elseif op == "modify_cooldown" and a.item ~= nil then
+    -- a picked item's cooldown started (by id: the holder's first slot holding it, line B E501)
+    if a.ability ~= nil or a.item_tag ~= nil then self:block("action:modify_cooldown with item and ability/item_tag"); return "" end
+    if (a.mode or "start") ~= "start" or a.amount == nil then self:block("action:modify_cooldown.item (start with an amount only)"); return "" end
+    local code, ty = self:value(a.item, ctx)
+    if ty ~= "item" then if ty ~= "err" then self:block("action:modify_cooldown.item of a " .. tostring(ty)) end; return "" end
+    return line("{") .. line("    let amount = " .. self:value(a.amount, ctx, "num") .. ";")
+      .. line("    if let Some(p) = (" .. code .. ").as_ref() { let (u, id) = (p.owner, p.item.clone()); cx.item_cooldown_start(u, &id, amount)?; }") .. line("}")
   elseif op == "modify_cooldown" and a.item_tag ~= nil then
     -- every item carrying the tag (the item documents, expanded here): each slot holding one of
     -- them gets exactly `amount` of cooldown (line B E501 item_cooldown_start)
