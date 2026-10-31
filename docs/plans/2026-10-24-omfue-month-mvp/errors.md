@@ -2,6 +2,21 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E572 （保留）conformance 從沒驗證被動的 on_take_damage／on_death／on_kill trigger（when event 一律 unsupported）（2026-11-01）
+
+## E571 （保留）give_item 不保留 vars：道具實例變數、item_name 狀態、道具移除自己（C06）（2026-11-01）
+
+## E570 kit 缺 status_source：讀 status 的施加者（C18）（2026-11-01，工作線 B）
+
+- **現象**：小早川隆景（C18）的 W 用 `status_source(it, c18w_mark) == self` 篩選自己施加的印記，kit 沒有對應函式，產生器無法編譯。
+- **修正**：
+  - `Cx::status_source(u, status)` 讀 status 列 payload 裡每個 status 都會寫的 `source_entity_id/gen`。
+  - independent status 沒有主列時，取最早還在的實例。
+  - 本次執行剛施加、尚未提交的，回傳本次的 caster；本次移除的，或單位身上沒有這個 status，回傳 `INVALID`。
+  - 純 kit 讀取，不需要 host 改動。
+- **測試**：`codegen::status_source_tests::a_status_payload_names_its_applier`：有施加者的 payload 能讀出施加者；缺欄位或不是 JSON 時回傳 None。
+- **檔案**：`scripts/ability_kit/src/codegen.rs`
+
 ## E569 kit 道具 API 用的 id 與文件不同，pick_item 的 where 也拿不到格子（2026-11-01，工作線 B）
 
 - **現象**：A 接 E561 時發現：inventory 與 give 的檢查用的是 catalog id（例如 `moba_sword`），v3 文件寫的是 source id（`item_flash_ring`，也就是 catalog 列 `source_ref` 冒號後的那段）；而且 `pick_item` 的 keep 只拿到道具 id，讀不到 `it.slot`（B07）與冷卻（C18）。

@@ -469,6 +469,23 @@ impl<'a, 'w> Cx<'a, 'w> {
         self.world.has_buff(u, RStr::from_str(&id))
     }
 
+    /// v3 `status_source(u, status)`: who applied the status `u` holds (the payload's
+    /// `source_entity_id/gen`; an independent status: its earliest live instance). One applied in
+    /// this run and not yet committed is this run's caster. `INVALID` when `u` holds none.
+    pub fn status_source(&self, u: EntityHandle, status: &StatusDef) -> EntityHandle {
+        let id = self.runtime_id(status);
+        match self.applied.get(&(u.id, u.gen, id.clone())) {
+            Some(false) => return EntityHandle::INVALID,
+            Some(true) if !self.world.has_buff(u, RStr::from_str(&id)) => return self.caster,
+            _ => {}
+        }
+        let read = |key: &str| self.world.get_buff_payload(u, RStr::from_str(key)).into_option()
+            .and_then(|p| payload_source(p.as_str()));
+        if let Some(source) = read(&id) { return source; }
+        let count = self.state_num(u, &format!("__inst:{id}"), Fixed64::ZERO).raw() >> 10;
+        (1..=count.clamp(0, 4096)).find_map(|n| read(&format!("{id}#{n}"))).unwrap_or(EntityHandle::INVALID)
+    }
+
     // ---- the triggering ability (`event.ability`) ------------------------------------------------
 
     /// The triggering skill: a passive hook's (`event_skill`), else a status hook's
@@ -1484,6 +1501,27 @@ mod aura_tests {
         assert_eq!(aura_source("passive"), None);
         assert_eq!(aura_source("passive:x:1"), None);
         assert_eq!(AURA_PERIOD, omoba_core::runtime::native::aura::PERIOD);
+    }
+}
+
+/// The applier a status payload records (`source_entity_id/gen`, written by every status row).
+fn payload_source(payload: &str) -> Option<EntityHandle> {
+    let value: serde_json::Value = serde_json::from_str(payload).ok()?;
+    let part = |key: &str| value.get(key).and_then(serde_json::Value::as_u64).and_then(|n| u32::try_from(n).ok());
+    Some(EntityHandle { id: part("source_entity_id")?, gen: part("source_entity_gen")? }).filter(EntityHandle::is_valid)
+}
+
+#[cfg(test)]
+mod status_source_tests {
+    use super::*;
+
+    /// A status row's applier comes back from its payload; a row without one names nobody.
+    #[test]
+    fn a_status_payload_names_its_applier() {
+        assert_eq!(payload_source(r#"{"source_entity_id":7,"source_entity_gen":2,"armor":3}"#), Some(EntityHandle { id: 7, gen: 2 }));
+        assert_eq!(payload_source(r#"{"armor":3}"#), None);
+        assert_eq!(payload_source(r#"{"source_entity_id":7}"#), None);
+        assert_eq!(payload_source("not json"), None);
     }
 }
 

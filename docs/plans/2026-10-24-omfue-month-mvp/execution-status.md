@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：kit status_source（E570）
+
+- C18 的印記篩選可以讀出施加者。
 ## 2026-11-01 線 B：施法失敗時 authority 送出冷卻修正（E567）
 
 - 失敗的施法在 tick 結尾送出 CommittedCooldown 與 CommittedCharge，replica 預測的冷卻同 tick 撤回。
