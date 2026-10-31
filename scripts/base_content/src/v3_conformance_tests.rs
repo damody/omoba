@@ -601,6 +601,20 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
         }
         let level = run.world.read_storage::<Hero>().get(run.caster).and_then(|h| h.ability_levels.get(&run.entry).copied()).unwrap_or(0);
         if level != rank as i32 { return Err(format!("learned {} to rank {level}, not {rank}", run.entry)); }
+        // What the lower ranks put on other units goes (E470): the entry's aura gives it again at
+        // this rank, and the hits of the learning steps are not the scenario's.
+        let ids = entry_runtime_ids(&run.entry);
+        if !ids.is_empty() {
+            let units: Vec<specs::Entity> = { use specs::Join; run.world.entities().join().filter(|u| *u != run.caster).collect() };
+            for unit in units {
+                let keys: Vec<String> = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(unit)
+                    .filter(|(key, _)| ids.iter().any(|id| omoba_core::runtime::native::dispel::runtime_id_matches(id, key)))
+                    .map(|(key, _)| key.to_owned()).collect();
+                for key in keys { omoba_core::runtime::native::dispel::remove_status(&run.world, unit, &key); }
+            }
+        }
+        run.world.insert(omoba_core::runtime::native::damage_trace::DamageTrace::default());
+        if !ids.is_empty() { run.step(ticks(0.5)); }
         // The mana the givens set, again: the learning steps let the hero settle, which refills
         // its pool (an insufficient_mana case cast with a full one; E425).
         if let Some((exact, amount)) = mana {
@@ -1377,7 +1391,15 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
             let seconds = match expr(&step["seconds"], &entry, rank) { Ok(seconds) => seconds, Err(e) => return Verdict::Unsupported(e) };
             let first = remaining(&run, holder, &runtime_id).unwrap_or(0.0);
             if first > seconds + 2.0 / 60.0 { return Verdict::Fail(format!("wait: {runtime_id} lasts {first:.3}s, the document says {seconds}")); }
-            for _ in 0..ticks(60.0) { if !holds(&run, holder, &runtime_id) || !living(&run, holder) { break; } run.step(1); }
+            // A holder other than the caster walks away from whatever applies it again (A29R's aura
+            // refreshes its drain while the unit stands in it; E470).
+            if holder != run.caster {
+                let far = omoba_sim::Vec2::new(Fixed64::from_i32(-3000), Fixed64::from_i32(isolated_skill_origin_y()));
+                if let Some(pos) = run.world.write_storage::<Pos>().get_mut(holder) { pos.0 = far; }
+                run.sustain = false;
+            }
+            // At least the document's duration (A33E's ghost walk lasts 120 s; E470).
+            for _ in 0..ticks((seconds + 2.0).max(60.0)) { if !holds(&run, holder, &runtime_id) || !living(&run, holder) { break; } run.step(1); }
         }
     }
     let present = living(&run, holder) && holds(&run, holder, &runtime_id);
