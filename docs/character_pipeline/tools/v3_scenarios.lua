@@ -223,6 +223,26 @@ M.QUIRK_TOPICS = {
       end
       return points
     end },
+  -- buildings in a selector's area: the entry's one building_in_effect scenario (one selector it
+  -- could be about), the quirk saying the same as its `affected`
+  { topic = "building_selection", word = "建築", case = "building_in_effect",
+    claim = function(text)
+      local no = contains_any(text, { "不含建築", "不打建築", "搜不到建築", "不包括建築", "不對建築", "建築不受", "不能對建築" })
+      local yes = contains_any(text, { "含建築", "包括建築", "建築也", "TARGET_ALL", "BUILDING" })
+        and not contains_any(text, { "不含建築", "不包括建築" })
+      if no and not yes then return false elseif yes and not no then return true end
+      return nil
+    end,
+    points = function(_, _, _, scenarios)
+      local points = {}
+      for _, s in ipairs(scenarios or {}) do
+        local e = s.expect and s.expect[1]
+        if e and e.kind == "building_affected" then
+          points[#points + 1] = { path = e.path, flag = "types_building", value = e.affected, scenarios = { s } }
+        end
+      end
+      return points
+    end },
   -- the cast's damage after its caster died: it lands only with require_source_alive = false. The
   -- death scenarios check the default (damage_skipped_if_source_dead per path); a quirk saying the
   -- damage stops is covered when the entry has exactly one such path. One saying it goes on has
@@ -923,6 +943,35 @@ local function entry_scenarios(doc, def, entry_kind, out)
     else
       push(1, "hook", { suffix = name, given = { { kind = "learned", entry = def.id, rank = 1 } }, when = {},
         expect = { { kind = "hook_behavior", hook = name, text = h.behavior or h.why, test = h.test } }, hook = name })
+    end
+  end
+  -- buildings in a selector's area (line D judges it): one scenario per on_cast for_each selector
+  -- reaching enemies whose spot line D can place a building at (a circle from the caster, the
+  -- point or the target, no `where`, unconditional). Whether the building is affected is the
+  -- selector's types (building or all); `ops` are that selector's own unconditional damage and
+  -- apply_status, the trace line D looks for (rank 1: the types do not change with the rank)
+  if castable then
+    for _, e in ipairs(base_effects) do
+      local sel = e.op == "for_each" and e.phase == "on_cast" and not e.conds and e.args and e.args.select
+      local from = sel and (sel.from or "caster")
+      if sel and (sel.shape or "circle") == "circle" and sel.where == nil and sel.team ~= "ally" and sel.team ~= "ally_not_self"
+        and (from == "caster" or from == "self" or from == "point" or from == "target") then
+        local ops, seen = {}, {}
+        for _, c in ipairs(base_effects) do
+          if not c.conds and (c.op == "damage" or c.op == "apply_status") and c.path:match("^" .. e.path:gsub("%p", "%%%0") .. "%.actions%[%d+%]$")
+            and not seen[c.op] then
+            seen[c.op] = true; ops[#ops + 1] = c.op
+          end
+        end
+        if #ops > 0 then
+          local affected = false
+          for _, ty in ipairs(type(sel.types) == "table" and sel.types or {}) do if ty == "building" or ty == "all" then affected = true end end
+          push(1, "building_in_effect", { suffix = e.path, given = { { kind = "learned", entry = def.id, rank = 1 },
+              { kind = "building_in_effect", path = e.path, team = "enemy" } }, when = { cast_step },
+            expect = { { kind = "building_affected", path = e.path, affected = affected, ops = ops } },
+            rule = "selector types decide whether a building in the area is picked" })
+        end
+      end
     end
   end
   -- one scenario per quirk (rank 1; the quirk text says when it applies). A quirk about a topic the
