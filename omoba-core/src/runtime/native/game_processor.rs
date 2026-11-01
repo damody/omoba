@@ -4582,6 +4582,9 @@ fn handle_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
         (&entities,&positions,&radii,&factions).join().filter(|(_,_,_,f)|f.team_id==faction.team_id)
             .map(|(_,p,r,_)|(p.0,r.0)).collect::<Vec<_>>()
     };
+    // A pathing blocker (原作 B22W's rocks, GridNav obstructions) stands where it is raised, beside
+    // its siblings and over units (unit_blockers: none is pushed out); terrain still holds (E599).
+    let occupied=if stats.blocks_pathing {Vec::new()} else {occupied};
     let anchor=world.read_storage::<Pos>().get(owner).map(|p|p.0);
     let Some(pos)=super::summon_navigation::placement(pos,anchor,stats.collision_radius,
         &world.read_resource::<BlockedRegions>(),&occupied) else {

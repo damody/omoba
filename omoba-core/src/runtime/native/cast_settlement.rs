@@ -375,7 +375,9 @@ pub(super) fn plan_summons(world:&World,effects:&[Outcome])->Option<Vec<PlannedS
         let stats=omoba_template_ids::summon_by_name(unit_id).and_then(omoba_template_ids::active_summon_stats)?;
         if !super::super::dummy_unit::body_valid(stats)||stats.move_speed<Fixed64::ZERO||stats.collision_radius<Fixed64::ZERO
             ||stats.vision_radius<Fixed64::ZERO||stats.vision_radius>Fixed64::from_i32(10_000){return None;}
-        let friendly:Vec<_>=occupied.iter().filter(|(team,_,_)|*team==faction.team_id).map(|(_,p,r)|(*p,*r)).collect();
+        // A pathing blocker ignores unit occupancy, as its spawn does (game_processor, E599).
+        let friendly:Vec<_>=if stats.blocks_pathing {Vec::new()} else {
+            occupied.iter().filter(|(team,_,_)|*team==faction.team_id).map(|(_,p,r)|(*p,*r)).collect()};
         let pos=super::super::summon_navigation::placement(*pos,positions.get(*owner).map(|p|p.0),stats.collision_radius,&regions,&friendly)?;
         occupied.push((faction.team_id,pos,stats.collision_radius));
         planned.push(PlannedSummon {outcome:Outcome::SpawnSummoned {entity:*entity,pos,unit_id:unit_id.clone(),owner:*owner,
@@ -431,3 +433,28 @@ pub(super) fn publish(world:&World,caster:Entity,cues:Vec<CastSettlementCue>) {
 #[cfg(test)]
 #[path="cast_settlement_tests.rs"]
 mod tests;
+
+/// E599: a cast's pathing blockers (原作 B22W's ring of rocks) stand where they are raised, beside
+/// each other; another summon still keeps clear of them.
+#[cfg(test)]
+#[test]
+fn pathing_blockers_of_one_cast_stand_beside_each_other() {
+    let Some(rock)=omoba_template_ids::summon_by_name("b22w_rock") else {return;};
+    assert!(omoba_template_ids::active_summon_stats(rock).unwrap().blocks_pathing);
+    let (mut world,hero)=crate::runtime::native::moba_match::stop_command_world();
+    world.register::<Faction>();world.register::<CollisionRadius>();world.register::<Unit>();
+    let team=world.read_storage::<Faction>().get(hero).map_or(1,|faction|faction.team_id);
+    if world.read_storage::<Faction>().get(hero).is_none() {
+        world.write_storage::<Faction>().insert(hero,Faction::new(FactionType::Player,team)).unwrap();
+    }
+    if !world.has_value::<BlockedRegions>() {world.insert(BlockedRegions(Vec::new()));}
+    let faction=world.read_storage::<Faction>().get(hero).cloned().unwrap();
+    let player_owner=world.read_storage::<PlayerOwner>().get(hero).map(|owner|owner.player_id);
+    let origin=world.read_storage::<Pos>().get(hero).unwrap().0;
+    let points:Vec<SimVec2>=(0..4).map(|i|origin+SimVec2::new(Fixed64::from_i32(300+50*i),Fixed64::ZERO)).collect();
+    let effects:Vec<Outcome>=points.iter().map(|pos|Outcome::SpawnSummoned {entity:world.create_entity().build(),pos:*pos,
+        unit_id:"b22w_rock".into(),owner:hero,faction:faction.clone(),player_owner,duration:Fixed64::ONE}).collect();
+    let planned=plan_summons(&world,&effects).expect("every rock is placed");
+    let placed:Vec<SimVec2>=planned.iter().map(|plan|match &plan.outcome {Outcome::SpawnSummoned {pos,..}=>*pos,_=>unreachable!()}).collect();
+    assert_eq!(placed,points,"each rock where the script raised it");
+}

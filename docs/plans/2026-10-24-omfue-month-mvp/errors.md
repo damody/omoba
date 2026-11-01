@@ -2,6 +2,19 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E600 （保留）召喚物技能請求失敗時沒有任何 log（spotlight 查不到原因）（2026-11-01）
+
+## E599 會擋路的召喚物（B22 石牆）擺放時被同一次施放的其他岩石擠開，整招中止（2026-11-01，工作線 B，C 回報）
+
+- **現象**：b22_natural_barrier 整招中止，權威端記錄 `v3: unit placement rejected`。
+- **根因**：
+  - 16 顆碰撞半徑 96 的岩石排在半徑 250 的圓上，相鄰間距約 98。
+  - `summon_navigation::placement` 會避開同隊單位的碰撞範圍，兩顆岩石之間至少要隔 192。同一次施放先擺好的岩石會把後面的擠開，擠到 512 外都放不下，那一顆就失敗。kit 的 `create_unit` 失敗後整招跟著中止。
+  - 原作的岩石是 GridNav 障礙，就立在指定的位置。unit_blockers 的規則也是「障礙出現時不推開站在那裡的單位」。
+- **修正**：`blocks_pathing` 的召喚物擺放時不看單位佔位，只檢查公開地形和從主人出發的可達性。這條規則同時套在召喚交易的規劃（`cast_settlement::plan_summons`）和生成（`game_processor`）。其他召喚物照舊避開，岩石變成 blocker 之後也會照舊擋住它們。
+- **測試**：`cast_settlement::pathing_blockers_of_one_cast_stand_beside_each_other`：同一次施放、間距 50 的 4 顆 b22w_rock 都放在腳本指定的位置。cast_settlement 與 summon 相關的 129 個測試通過。
+- **檔案**：`omoba-core/src/runtime/native/game_processor.rs`、`omoba-core/src/runtime/native/cast_settlement.rs`
+
 ## E598 英雄被 teleport 到地形裡卡住：set_pos 對英雄不找落點（2026-11-01，工作線 B，C 回報）
 
 - **現象**：加藤段藏的 c08_scatter_escape 往背後瞬移 700，落點 (2339, 3129) 在縮放後的 jungle_wall_2_3 裡面（x 2080～2700、y 3100～3220）。之後所有移動都回 UNREACHABLE，吞噬的靠近移動也被拒。

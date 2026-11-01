@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：會擋路的召喚物照指定位置立起（E599）
+
+- B22 的石牆 16 顆岩石都會立起，整招不再中止。
 ## 2026-11-01 線 B：英雄 teleport 進地形時移到最近可站的位置（E598）
 
 - c08_scatter_escape 這類往後瞬移的技能，不會再讓英雄卡在牆裡。
