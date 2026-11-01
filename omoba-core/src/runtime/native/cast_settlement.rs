@@ -47,9 +47,14 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
     };
     if !same_faction || world.read_storage::<PlayerOwner>().get(caster).map(|p|p.player_id)!=player {return Err("owner");}
     let heroes=world.read_storage::<Hero>();let hero=heroes.get(caster);
+    // A non-hero casts its unit abilities at their rank (unit_abilities, E529): A28's phoenix (E637).
+    let held=match hero {
+        Some(h)=>h.get_ability_level(skill),
+        None=>super::super::unit_abilities::level(&world.read_resource::<BuffStore>(),caster,skill).map_or(0,i32::from),
+    };
     if hero.and_then(|h|h.mana_pool.as_ref())!=expected
         || hero.is_some_and(|h|!h.cast_ready(skill))
-        || (rank>0 && hero.is_none_or(|h|h.get_ability_level(skill)!=rank as i32)) {return Err("mana_cooldown_or_rank");}
+        || (rank>0 && held!=rank as i32) {return Err("mana_cooldown_or_rank");}
     // A charge ability spends exactly one stored use per admitted cast.
     let consumes=effects.iter().filter(|effect|matches!(effect,Outcome::ScriptConsumeCharge {..})).count();
     let charged=hero.is_some_and(|h|h.ability_charges.contains_key(skill));
@@ -282,6 +287,28 @@ fn summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_betwe
         assert!(accepts(&[remove(old),spawn(first),assign(first)]),"the caster's own summon leaves first");
         assert!(!accepts(&[remove(others),spawn(first)]),"never another owner's summon");
     }
+}
+
+/// E637: a non-hero caster settles at its unit ability's rank (A28's phoenix 天火), and only there.
+#[cfg(test)]
+#[test]
+fn a_non_hero_cast_settles_at_its_unit_ability_rank() {
+    let (mut world,hero)=crate::runtime::native::moba_match::stop_command_world();
+    world.register::<Faction>();
+    world.insert(BuffStore::default());
+    world.insert(crate::runtime::native::moba_match::stop_command_match(hero,crate::runtime::MobaMatchPhase::Playing));
+    let faction=world.read_storage::<Faction>().get(hero).cloned();
+    let props=world.read_storage::<CProperty>().get(hero).cloned().unwrap();
+    let mut builder=world.create_entity().with(props).with(PlayerOwner::new(7));
+    if let Some(faction)=faction.clone() {builder=builder.with(faction);}
+    let phoenix=builder.build();
+    let ability="a28_heaven_fire";
+    let row=super::super::unit_abilities::payload(ability,2).expect("catalog unit ability");
+    world.write_resource::<BuffStore>().add(phoenix,&super::super::unit_abilities::row_id(ability),Fixed64::from_i32(30),row);
+    let settles=|rank|admission(&world,phoenix,ability,rank,faction.as_ref(),Some(7),None,&[],0);
+    assert_eq!(settles(2),Ok(()));
+    assert_eq!(settles(1),Err("mana_cooldown_or_rank"),"another rank");
+    assert_eq!(admission(&world,phoenix,"a28_spreading_fire",1,faction.as_ref(),Some(7),None,&[],0),Err("mana_cooldown_or_rank"),"an ability it does not hold");
 }
 
 #[cfg(test)]

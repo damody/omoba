@@ -19,7 +19,13 @@
 
 ## E638 （保留）A36 地雷沒有進 UE frame（調查中）（2026-11-01）
 
-## E637 （保留）非英雄施法者在結算時被以 mana_cooldown_or_rank 拒絕（A28 鳳凰天火）（2026-11-01）
+## E637 非英雄施法者在結算時被以 mana_cooldown_or_rank 拒絕（A28 鳳凰天火，2026-11-01，工作線 B，C rerun20 回報）
+
+- **現象**：E633 之後，鳳凰的 a28_heaven_fire 已經 `cast ok`，接著被 `cast refused at settlement reason=mana_cooldown_or_rank` 拒絕。
+- **根因**：`cast_settlement::admission` 只拿 Hero 的 `get_ability_level` 比對 rank。沒有 Hero 的施法者，只要 rank > 0 就一定被拒。
+- **修正**：非英雄比對的是自己的 unit ability 等級（`unit_abilities::level`，E529）。英雄的檢查不變。
+- **測試**：`cast_settlement::a_non_hero_cast_settles_at_its_unit_ability_rank`：等級相同就通過；等級不同、或不是它持有的技能，都會被拒。
+- **檔案**：`omoba-core/src/runtime/native/cast_settlement.rs`
 
 ## E635 authority 拒絕非前搖施放、或施放退還冷卻時，沒有送冷卻更正（B16 相移、獸靈同化，2026-11-01，工作線 B，E 回報）
 
