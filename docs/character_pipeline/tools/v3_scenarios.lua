@@ -194,6 +194,19 @@ local function contains_any(text, words)
   for _, w in ipairs(words) do if text:find(w, 1, true) then return true end end
   return false
 end
+-- Whether a quirk names the status `id`: the id itself, or the source modifier it ports
+-- (a08w_haste is modifier_A08W, not modifier_A08W_counter)
+local function names_status(text, id)
+  if text:find(id, 1, true) then return true end
+  local modifier = "modifier_" .. (id:match("^([^_]+)_") or id):upper()
+  local at = 1
+  while true do
+    local s, e = text:find(modifier, at, true)
+    if not s then return false end
+    if not text:sub(e + 1, e + 1):match("[%w_]") then return true end
+    at = e + 1
+  end
+end
 M.QUIRK_TOPICS = {
   { topic = "magic_immune", word = "魔免", case = "magic_immune",
     -- the claim: magic-immune enemies are affected (true), are not (false), or unclear (nil)
@@ -237,21 +250,10 @@ M.QUIRK_TOPICS = {
       return nil
     end,
     points = function(_, _, _, scenarios, text)
-      local function named(id)
-        if text:find(id, 1, true) then return true end
-        local modifier = "modifier_" .. (id:match("^([^_]+)_") or id):upper()
-        local at = 1
-        while true do
-          local s, e = text:find(modifier, at, true)
-          if not s then return false end
-          if not text:sub(e + 1, e + 1):match("[%w_]") then return true end
-          at = e + 1
-        end
-      end
       local by_status, order = {}, {}
       for _, s in ipairs(scenarios or {}) do
         local e = s.expect and s.expect[1]
-        if e and e.status and e.dispel and named(e.status) then
+        if e and e.status and e.dispel and names_status(text, e.status) then
           if not by_status[e.status] then by_status[e.status] = { dispel = e.dispel, list = {} }; order[#order + 1] = e.status end
           local l = by_status[e.status].list
           l[#l + 1] = s
@@ -260,6 +262,29 @@ M.QUIRK_TOPICS = {
       local points = {}
       for _, id in ipairs(order) do
         points[#points + 1] = { path = "statuses." .. id, flag = "dispel", value = by_status[id].dispel, scenarios = by_status[id].list }
+      end
+      return points
+    end },
+  -- how a status takes being put on again: the entry's reapply scenarios check `stacking`. Only
+  -- the statuses the quirk names, exactly one, the quirk saying the same (independent: several
+  -- copies at once, each timed; refresh: the duration starts over; keep: it does not)
+  { topic = "stacking", word = "", case = "reapply",
+    claim = function(text)
+      local independent = contains_any(text, { "stacking = independent", "各自計時", "同時存在" })
+        or (text:find("MULTIPLE", 1, true) and not contains_any(text, { "不是 MULTIPLE", "非 MULTIPLE", "沒有 MULTIPLE" }))
+      local refresh = contains_any(text, { "stacking = refresh", "只刷新", "刷新持續", "重施刷新" })
+      local keep = contains_any(text, { "stacking = keep", "不刷新" })
+      local n = (independent and 1 or 0) + (refresh and 1 or 0) + (keep and 1 or 0)
+      if n ~= 1 then return nil end
+      return independent and "independent" or refresh and "refresh" or "keep"
+    end,
+    points = function(_, _, _, scenarios, text)
+      local points = {}
+      for _, s in ipairs(scenarios or {}) do
+        local e = s.expect and s.expect[1]
+        if e and e.kind == "reapplied" and names_status(text, e.status) then
+          points[#points + 1] = { path = "statuses." .. e.status, flag = "stacking", value = e.stacking, scenarios = { s } }
+        end
       end
       return points
     end },
@@ -979,6 +1004,22 @@ local function entry_scenarios(doc, def, entry_kind, out)
         push(rank, "death", { suffix = s.id .. "/holder_dies", given = given({ on_unit(s, a) }),
           when = { { kind = "holder_dies" } },
           expect = { { kind = (s.scope == "hero" or s.scope == "unit" or s.scope == "permanent") and "status_kept" or "status_removed", status = s.id } } })
+        -- put on again by the same source halfway through (rank 1; line D judges it, casting the
+        -- entry again, so only a status its cast applies unconditionally): refresh, keep,
+        -- independent or a counted stack (`{ max }` alone); replace and extend look like refresh
+        -- from outside, and a status without a duration has no clock to tell them by
+        local st = s.stacking
+        local how = (st == "refresh" or st == "keep" or st == "independent") and st
+          or (type(st) == "table" and st.max ~= nil and st.mode == nil and st.per_stack_duration == nil and st.decay == nil
+            and st.initial == nil) and "stack" or nil
+        local by_cast = castable and kind ~= "passive" and type(a.path) == "string" and a.path:find("^events%.on_cast") ~= nil
+          and not (a.conds and #a.conds > 0)
+        if rank == 1 and how and by_cast and s.duration ~= nil and s.duration ~= "infinite" and not s.block_reapply then
+          push(rank, "reapply", { suffix = s.id, given = given({ on_unit(s, a) }),
+            when = { { kind = "reapply", status = s.id, after = "half" } },
+            expect = { { kind = "reapplied", status = s.id, runtime_id = runtime_key(s), stacking = how,
+              max = type(st) == "table" and st.max or nil } } })
+        end
         for _, ev in ipairs(sorted_keys(s.triggers or {})) do
           push(rank, "trigger", { suffix = s.id .. "/" .. ev, given = given({ on_unit(s, a) }),
             -- interval: a periodic trigger's period (E220), so a test can time its ticks; duration:
