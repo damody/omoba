@@ -69522,16 +69522,13 @@ local data = {
     {
       abilities = { "c06_quick_hands", "c06_sleight_of_hand", "c06_lavish_strike", "c06_grand_heist", "c06_murder_and_loot" },
       authored_package = "ishikawa_goemon",
-      background = "石川五右衛門（schema v3 產生的 Rust；測試用）",
       display_name = "石川五右衛門",
       id = "ishikawa_goemon",
       moba_loadout = {
         ranks = { 1, 1, 1, 0, 1 },
         skill_points = 0,
       },
-      source_stats = "C06",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:C06",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "ishikawa_goemon",

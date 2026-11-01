@@ -110,7 +110,7 @@ local HEROES = {
   { package = "kato_danzo", playable = true },
   { package = "kobayakawa_takakage", playable = true },
   { package = "akiyama_nobutomo" },
-  { package = "ishikawa_goemon" },
+  { package = "ishikawa_goemon", playable = true },
 }
 
 -- v3 hero slots in the MOBA loadout order (Q W E R, then the D slot)

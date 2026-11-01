@@ -127,4 +127,6 @@ return {
   {hero='mochizuki_chiyome',package='hero_b16',dir='heroes/mochizuki_chiyome'},
   -- M6 batch (2026-10-31): every ability generated (選取器 segment、add_ability 指定格位與 slot_ref、remove_ability(slot_ref)、set_ability_active event.ability); conformance 0 fail
   {hero='kato_danzo',package='hero_c08',dir='heroes/kato_danzo'},
+  -- M6 batch (2026-10-31): every ability generated (道具 pick／give／remove、實例變數與 item_name（E561、E571）、unit attr hero（E575）、英雄文件道具進入道具目錄); conformance 0 fail
+  {hero='ishikawa_goemon',package='hero_c06',dir='heroes/ishikawa_goemon'},
 }
