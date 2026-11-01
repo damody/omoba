@@ -18,6 +18,10 @@ function M.options(args)
   while i<=#args do
     local key=args[i]
     if key=='--no-build' then options.no_build=true
+    -- A queue of matches builds once (E583): --build-only builds the snapshot and writes its
+    -- record; each match then launches it with --prebuilt instead of building again.
+    elseif key=='--build-only' then options.build_only=true
+    elseif key=='--prebuilt' then options.prebuilt=true
     -- The authority records its accepted inputs by default (E086 offline replay).
     elseif key=='--no-accepted-input-log' then options.no_accepted_inputs=true
     -- M3' ② dev hot reload (scripts/hero_hot_reload.lua --run <authority run dir>).
@@ -44,6 +48,7 @@ function M.options(args)
     else error('unknown argument: '..key) end
     i=i+1
   end
+  assert((options.no_build and 1 or 0)+(options.build_only and 1 or 0)+(options.prebuilt and 1 or 0)<=1,'--no-build, --build-only and --prebuilt exclude each other')
   if options.autopilot then assert(options.autopilot:match('^[%w_%-]+$'),'--autopilot requires a profile name') end
   assert(not options.spotlight_script or options.autopilot=='spotlight','--spotlight-script requires --autopilot spotlight')
   if options.netem then assert(options.netem:match('^[%w_%-]+$'),'--netem requires a proxy profile name') end
@@ -269,6 +274,7 @@ function M.build_all(options,deps)
   local commands=M.build_commands(options,os.getenv('OM_UE_RUN_BINARIES'))
   for _,command in ipairs(commands) do if command.locked then step(command,build_lock:env()) end end
   local started=clock()
+  local commit=(deps.commit or M.head_commit)(b.root)
   local copied=mirror(b.root,snapshot)
   log(('[split-build] source snapshot %s: %d file(s) in %d s; build lock released'):format(snapshot,copied,(clock()-started)//1000))
   if build_lock.release then build_lock:release() end
@@ -282,7 +288,51 @@ function M.build_all(options,deps)
       step(command,command.crate and {CARGO_TARGET_DIR=target_of(command.crate)} or {})
     end
   end
-  return as_of
+  return as_of,commit
+end
+
+-- The commit the repo was at when its sources were mirrored (the snapshot also carries the
+-- uncommitted changes of that moment); nil outside a git checkout.
+function M.head_commit(root)
+  local result=process.run('git',{'-C',root,'rev-parse','HEAD'},{cwd=root,check=false})
+  return result.exit_code==0 and (result.stdout or ''):match('%x+') or nil
+end
+
+-- E583: the build of a queue of matches. --build-only builds once and records what it built
+-- beside the snapshot; every --prebuilt match of the queue launches that build, so a queue of
+-- heroes spends one 16-minute build instead of one per hero.
+function M.build_record_path(snapshot) return snapshot..'.build.json' end
+function M.build_once(options,deps)
+  local as_of,commit=M.build_all(options,deps)
+  local snapshot=(deps and deps.snapshot) or M.snapshot_root(b.root)
+  local heroes={}
+  for _,module in ipairs(require('script_dlls').modules(snapshot)) do heroes[#heroes+1]=module.hero end
+  local record={schema_version=1,as_of=as_of,commit=commit,snapshot=snapshot,heroes=heroes}
+  path.write(M.build_record_path(snapshot),json.encode(record),true)
+  return record
+end
+-- The recorded build a --prebuilt match launches. Refuses a hero of the match that is playable
+-- now but was not in the build (made playable since): queue it after the next --build-only.
+-- LIVE_HEROES (optional) is the repo's playable set, for tests.
+function M.prebuilt(options,snapshot,live_heroes)
+  snapshot=snapshot or M.snapshot_root(b.root)
+  local file=M.build_record_path(snapshot)
+  assert(path.is_file(file),'--prebuilt needs a build: run --build-only first ('..file..' is missing)')
+  local record=json.read(file)
+  assert(record.schema_version==1 and math.type(record.as_of)=='integer','invalid build record '..file)
+  local built,live={},{}
+  for _,hero in ipairs(record.heroes or {}) do built[hero]=true end
+  if not live_heroes then
+    live_heroes={}
+    for _,module in ipairs(require('script_dlls').modules(b.root)) do live_heroes[#live_heroes+1]=module.hero end
+  end
+  for _,hero in ipairs(live_heroes) do live[hero]=true end
+  for _,value in ipairs(options.heroes or {}) do
+    local hero=value:match('=([%w_]+)$')
+    assert(built[hero] or not live[hero],('hero %s is not in the prebuilt snapshot (commit %s); '..
+      'run --build-only again to include it'):format(hero,tostring(record.commit)))
+  end
+  return record
 end
 
 -- The performance lock of a measured match (E343): holds as long as the match's processes run,
@@ -318,7 +368,8 @@ end
 
 function M.run(options)
   -- Built before waiting for the machine (E337); without a build, the sources as of the match start.
-  local sources_as_of=not options.no_build and M.build_all(options) or nil
+  local record=options.prebuilt and M.prebuilt(options) or nil
+  local sources_as_of=record and record.as_of or not options.no_build and M.build_all(options) or nil
   -- E533: no build happens under the live lock. Every role launches the set the snapshot built
   -- (E516), so a hero made playable while this run waits for the machine is not in this match
   -- and does not break it (the E399 rebuild held the machine for a whole build).
@@ -333,6 +384,8 @@ function M.run(options)
     assert(not path.exists(root),'output must be a new directory: '..root);path.mkdir_p(root)
   end
   assert(root,'cannot reserve split run directory')
+  -- The build this match launches, for reports (E583).
+  if record then path.write(path.join(root,'build.json'),json.encode(record),true) end
   -- One live match per machine (E197). Every child joins this lock through its token and
   -- attaches the processes it starts; the lock is released when this run returns or fails.
   local acquired,lock=pcall(require('machine_lock').acquire,b.root,'live_match',{run=root,label='run_moba_split_local',
@@ -449,13 +502,20 @@ end
 
 if arg and arg[0] and arg[0]:match('run_moba_split_local%.lua$') then
   if arg[1]=='--help' then
-    print('Usage: tools/lua/lua.exe scripts/run_moba_split_local.lua [--recipe FILE] [--hero PLAYER_ID=HERO (repeatable)] [--autopilot PROFILE] [--netem PROFILE [--netem-seed N] [--netem-outage TEAM:AT_S:DURATION_S (repeatable)]] [--no-build] [--ue-root PATH] [--port 57061] [--output NEW_DIRECTORY] [--wait-live-lock SECONDS] [--performance-lock]')
+    print('Usage: tools/lua/lua.exe scripts/run_moba_split_local.lua [--recipe FILE] [--hero PLAYER_ID=HERO (repeatable)] [--autopilot PROFILE] [--netem PROFILE [--netem-seed N] [--netem-outage TEAM:AT_S:DURATION_S (repeatable)]] [--no-build | --build-only | --prebuilt] [--ue-root PATH] [--port 57061] [--output NEW_DIRECTORY] [--wait-live-lock SECONDS] [--performance-lock]')
     print('--netem routes each team client through omoba-netem-proxy (e.g. wan-80-20-loss1 = 80 ms +/-20 ms RTT, 1% loss); one human per team.')
     print('--netem-outage drops all traffic of one team both ways for DURATION_S seconds, AT_S seconds after every client is admitted (e.g. 1:120:10).')
     print('Runs the same-machine B+C+C topology: one --server-only authority and one --connect client per human seat, with shared host totals and staggered renderer start.')
     return
   end
   process.supervise_workflow(source,arg)
-  M.run(M.options(arg))
+  local options=M.options(arg)
+  if options.build_only then
+    local record=M.build_once(options)
+    print(('[split-build] built snapshot %s at commit %s: %d hero DLL(s); record %s'):format(record.snapshot,
+      tostring(record.commit),#record.heroes,M.build_record_path(record.snapshot)))
+    return
+  end
+  M.run(options)
 end
 return M

@@ -163,9 +163,11 @@ do
   local failed=spotlight.observer(run)
   assert(not failed.checked and failed.mismatch==0 and failed.first=='runtime-p1 exited during match','a failed run names its reason')
   local out=path.join(b.root,'target','spotlight-observer-test-out-'..os.time())
+  write('build.json','{"schema_version":1,"as_of":1700000000,"commit":"abc123","heroes":[]}')
   local report=spotlight.write_observer(out,'saika_magoichi',run)
   assert(report.observer.first=='runtime-p1 exited during match' and path.is_file(path.join(out,'saika_magoichi','spotlight.json')))
-  for _,p in ipairs({'server/server.stdout.log','p1/errors.md'}) do os.remove(path.join(run,p)) end
+  assert(report.build.commit=='abc123' and report.build.as_of==1700000000,'the report names the build it launched (E583)')
+  for _,p in ipairs({'server/server.stdout.log','p1/errors.md','build.json'}) do os.remove(path.join(run,p)) end
   lfs.rmdir(path.join(run,'server'));lfs.rmdir(path.join(run,'p1'));lfs.rmdir(run)
   os.remove(path.join(out,'saika_magoichi','spotlight.json'));lfs.rmdir(path.join(out,'saika_magoichi'));lfs.rmdir(out)
 end

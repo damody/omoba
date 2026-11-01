@@ -292,6 +292,9 @@ function M.write_observer(output,hero,run_root)
   local report=path.is_file(file) and json.decode(path.read(file)) or {schema_version=1,hero=hero}
   report.run=run_root
   report.observer=M.observer(run_root)
+  -- The build the match launched (E583: a queue builds once; run_moba_split_local --prebuilt).
+  local build=path.join(run_root,'build.json')
+  report.build=path.is_file(build) and (function(r) return {commit=r.commit,as_of=r.as_of} end)(json.decode(path.read(build))) or nil
   json.write(file,report,true)
   return report
 end

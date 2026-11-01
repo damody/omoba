@@ -226,3 +226,32 @@ do
   os.remove(root..'/p1/errors.md');lfs.rmdir(root..'/p1');lfs.rmdir(root)
 end
 print('split local topology: options, seats and per-role arguments passed')
+-- E583: a queue builds once. --build-only records the snapshot it built; a --prebuilt match
+-- launches that build and refuses a hero made playable after it.
+do
+  assert(split.options({'--build-only'}).build_only and split.options({'--prebuilt'}).prebuilt)
+  assert(not pcall(split.options,{'--prebuilt','--no-build'}),'one build mode')
+  local lfs=require('lfs')
+  local snap=(os.getenv('TEMP'):gsub('\\','/'))..'/om_e583_'..os.time()
+  local deps={snapshot=snap,jobs=function() return 1 end,log=function() end,clock=function() return 0 end,
+    commit=function() return 'abc123' end,target_of=function(crate) return 'D:/targets/'..crate end,
+    lock={acquire=function() return setmetatable({release=function() end,env=function() return {} end},{__close=function() end}) end},
+    mirror=function(_,to)
+      lfs.mkdir(to);lfs.mkdir(to..'/scripts')
+      local out=assert(io.open(to..'/scripts/hero_dlls.lua','wb'))
+      out:write("return {{hero='oichi',package='hero_c17',dir='heroes/oichi'}}\n");out:close();return 0
+    end,
+    run=function() return {exit_code=0} end}
+  local record=split.build_once({ue_root='D:/UE5.8'},deps)
+  assert(record.commit=='abc123' and record.heroes[1]=='oichi' and #record.heroes==1)
+  local read=split.prebuilt({heroes={'1=oichi'}},snap,{'oichi','hattori_hanzo'})
+  assert(read.as_of==record.as_of and read.commit=='abc123','the match launches the recorded build')
+  assert(split.prebuilt({heroes={'1=old_base_hero'}},snap,{'oichi'}),'a hero outside every DLL set is not refused')
+  local ok,err=pcall(split.prebuilt,{heroes={'1=hattori_hanzo'}},snap,{'oichi','hattori_hanzo'})
+  assert(not ok and err:find('not in the prebuilt snapshot',1,true),'a hero made playable since is refused: '..tostring(err))
+  os.remove(split.build_record_path(snap));os.remove(snap..'/scripts/hero_dlls.lua');lfs.rmdir(snap..'/scripts');lfs.rmdir(snap)
+  assert(not pcall(split.prebuilt,{heroes={}},snap,{}),'no build, no prebuilt match')
+  local f=assert(io.open('scripts/run_moba_split_local.lua','rb'));local text=f:read('a');f:close()
+  local run=assert(text:find('function M.run(options)',1,true))
+  assert(text:find('M.prebuilt(options)',run,true)<text:find("machine_lock').acquire",run,true),'checked before the live lock')
+end

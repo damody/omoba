@@ -2,6 +2,22 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E583 spotlight 佇列每位英雄都重建整套 binary（一輪只建一次）（2026-11-01，工作線 C）
+**現象**：spotlight 佇列每位英雄都跑一次完整的 split 建置：UE 前端、snapshot、全部 hero DLL、omobab、client runtime。機器有負載時一位要 16–30 分鐘，真正跑局只要 2–4 分鐘（D21：建置時間也算效能）。
+
+**修正**（通用，`run_moba_split_local.lua`）：
+- `--build-only`：照原本的流程建置一次（E487 的 snapshot，E522 的 snapshot hero 集合），不取 live lock。建完在 snapshot 旁寫 `<snapshot>.build.json`，內容有 `as_of`、mirror 當下的 `commit`（snapshot 也帶著當時未提交的變更）和 snapshot 的 hero 集合。
+- `--prebuilt`：不建置，讀這份紀錄。`OMOBA_SOURCES_AS_OF` 用紀錄裡的 `as_of`，roles 用 snapshot 的 DLL 集合（E516）。紀錄也複製到 run 目錄的 `build.json`。
+  - 這一局的英雄如果現在是 playable，卻不在這份 build 裡（剛轉正式），會在取 live lock 之前就拒絕，訊息會指出要重跑 `--build-only`。
+- 三種建置模式（`--no-build`、`--build-only`、`--prebuilt`）互斥。
+- `record_hero_spotlight` 把這次 build 的 `commit`、`as_of` 寫進 spotlight.json 的 `build` 欄位，方便對照。
+
+佇列（工作線 C 的 pres15）每輪開始時只建一次。被拒絕的英雄（不在 build 裡，或因為 live 前端換了 content hash 而 launch 被拒絕），會在這一輪最後統一重建一次再跑。
+
+**測試**：run_moba_split_local_test 的 E583 區塊，record_hero_spotlight_test 的 E544 區塊。
+
+## E582 （保留）replica 把看見敵方英雄當成出生，重跑 on_learn 改了冷卻（observer Hero 不一致）（2026-11-01）
+
 ## E581 （保留）conformance on_removed 只驗證會移除或套上持有者狀態的 trigger，其他效果一律 unsupported（2026-11-01）
 
 ## E580 小兵投影後被移動，replica 位置沒有校正（observer DemoRender 不一致）（2026-11-01，工作線 B）
