@@ -1066,8 +1066,38 @@ local function entry_scenarios(doc, def, entry_kind, out)
       end
       return needs
     end
+    -- A status the passive puts on when its holder lands an attack (on_attack_hit: the caster
+    -- attacks) or is hit by one (on_attacked_hit: an enemy hero attacks the caster): line D makes
+    -- that attack. The trigger's filter may only ask what such an attack on (or by) an enemy
+    -- hero already is; a `chance` is passed on (line D attacks for longer).
+    local ATTACK_GIVEN = {
+      ["not self.is_illusion"] = true, ["not event.target.is_building"] = true, ["not event.attacker.is_building"] = true,
+      ["not event.target.is_illusion"] = true, ["not event.attacker.is_illusion"] = true,
+      ["not event.target.is_magic_immune"] = true, ["not has_state(event.target, untargetable_by_spells)"] = true,
+      ["(event.target.is_hero or event.target.is_creep)"] = true, ["event.target.is_hero"] = true, ["event.attacker.is_hero"] = true,
+    }
+    local function attack_needs(a)
+      local ev = type(a.path) == "string" and a.path:match("^passive%.triggers%.([%w_]+)")
+      local by = ev == "on_attack_hit" and "holder" or ev == "on_attacked_hit" and "attacker" or nil
+      if not by then return nil end
+      local need = { kind = "via_attack", by = by }
+      for _, c in ipairs(a.conds or {}) do
+        local p = c:match("^chance: (.+)$")
+        if p then
+          if need.chance then return nil end
+          need.chance = p
+        else
+          for clause in (c .. " and "):gmatch("(.-) and ") do
+            -- the holder's own cooldown marker is not on it before the first hit
+            local own = clause:match("^not has_status%(self, [%w_]+%)$") or clause:match("^not has_status_tag%(event%.target, [%w_]+%)$")
+            if not ATTACK_GIVEN[clause] and not own then return nil end
+          end
+        end
+      end
+      return { need }
+    end
     local function on_unit(s, a) return { kind = "status_on_unit", status = s.id, on = a.to, runtime_id = runtime_key(s),
-      visibility = s.visibility, needs = apply_needs(a) } end
+      visibility = s.visibility, needs = attack_needs(a) or apply_needs(a) } end
     local done = {}
     for _, a in ipairs(statuses) do
       local s = a.status
