@@ -397,6 +397,18 @@ local function home_of(so)
   return so.parent
 end
 
+-- A read of status `sname` from another ability's program: a `{rank}` runtime id (a07t_strongest
+-- `a07_strongest_r{rank}:{caster}`) is the rank of the ability the status belongs to, not this
+-- program's (a07_rouse_free r4 looked for a07_strongest_r4). `code` evaluated at that rank.
+function Gen:at_status_rank(sname, code)
+  local so = self.m.statuses[sname]
+  local home = so and home_of(so)
+  if not (home and home.kind == "ability" and (so.def.runtime_id or ""):find("{rank}", 1, true)) then return code end
+  if self.entry and self.entry.def.id == home.id then return code end
+  return "{ let rank_prev = cx.rank; cx.rank = cx.rank_of(cx.caster, " .. rust_str(home.id) .. "); let v = " .. code
+    .. "; cx.rank = rank_prev; v }"
+end
+
 function Gen:need_module(so)
   local parent = so and home_of(so)
   if parent and (parent.kind == "ability" or parent.kind == "item") and not (self.entry and self.entry.def.id == parent.id) then
@@ -1201,7 +1213,7 @@ function Gen:call(node, ctx)
       local u = arg(1)
       return string.format("({ let u = %s; cx.status_instances(u, &super::ids::status::%s) } > 0)", u, upper(s)), "bool"
     end
-    return cx_call("cx.has_status(%s, &super::ids::status::" .. upper(s) .. ")", u), "bool"
+    return self:at_status_rank(s, cx_call("cx.has_status(%s, &super::ids::status::" .. upper(s) .. ")", u)), "bool"
   elseif fn == "has_tag" or fn == "is_item" or fn == "is_ability" then
     local u, at = arg(1)
     local n = name_arg(2)
@@ -3940,8 +3952,9 @@ local function emit_entry(m, o, opts, status_problems)
       if k == "has_status" or k == "not_status" then
         if type(sname) ~= "string" or not m.statuses[sname] then g:block("requires." .. k .. ":" .. tostring(sname))
         else
-          requires_check = requires_check .. string.format("    if %scx.has_status(cx.caster, &super::ids::status::%s) { return Err(%s); }\n",
-            k == "has_status" and "!" or "", upper(sname), rust_str("v3: requires " .. k .. " " .. sname))
+          requires_check = requires_check .. string.format("    if %s%s { return Err(%s); }\n",
+            k == "has_status" and "!" or "", g:at_status_rank(sname, "cx.has_status(cx.caster, &super::ids::status::" .. upper(sname) .. ")"),
+            rust_str("v3: requires " .. k .. " " .. sname))
         end
       elseif k == "condition" then
         -- a condition the cast must meet (checked before the program, like a target check)

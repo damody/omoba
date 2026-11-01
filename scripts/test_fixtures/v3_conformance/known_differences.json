@@ -2,20 +2,5 @@
   "schema": "v3-conformance-known/1",
   "note": "Scenarios that fail today on purpose: class b = a listed port difference (census-v3 README), c = found by these tests. Remove an entry once it passes (the test reports it).",
   "scenarios": {
-    "a07_rouse_free/r1/cooldown": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"},
-    "a07_rouse_free/r1/normal": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"},
-    "a07_rouse_free/r2/cooldown": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"},
-    "a07_rouse_free/r2/normal": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"},
-    "a07_rouse_free/r3/cooldown": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"},
-    "a07_rouse_free/r3/normal": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"},
-    "a07_rouse_free/r4/cooldown": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"},
-    "a07_rouse_free/r4/normal": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"},
-    "a07_rouse_free/r5/cooldown": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"},
-    "a07_rouse_free/r5/normal": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"},
-    "a07_rouse_free/r1/visibility/invisible_caster": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"},
-    "a07_rouse_free/r2/visibility/invisible_caster": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"},
-    "a07_rouse_free/r3/visibility/invisible_caster": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"},
-    "a07_rouse_free/r4/visibility/invisible_caster": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"},
-    "a07_rouse_free/r5/visibility/invisible_caster": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）。E313：harness 會先施放 a07_strongest、等它換進來再測；現行手寫 a07_strongest 不換技能。負責：線 A（a07_strongest 改跑產生碼）。修好條件：a07_strongest 換成產生碼後這列通過即刪"}
   }
 }

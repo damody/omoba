@@ -396,6 +396,9 @@ fn abilities() -> RVec<AbilityDefFFI> {
             "a07_rouse" => hero_a07_impl::generated::a07_rouse::ffi(),
             // conformance 2026-10-30: 0 differences
             "a07_red_thunder" => hero_a07_impl::generated::a07_red_thunder::ffi(),
+            // the generated one swaps a07_rouse for a07_rouse_free while a07t_strongest lasts (the
+            // handler did not; known_differences a07_rouse_free/*)
+            "a07_strongest" => hero_a07_impl::generated::a07_strongest::ffi(),
             "b06_brave_warriors" => hero_b06_impl::generated::b06_brave_warriors::ffi(),
             "b06_flame_fangs" => hero_b06_impl::generated::b06_flame_fangs::ffi(),
             // conformance 2026-10-30: 0 regressions (B04, B06 compare vs handler)
