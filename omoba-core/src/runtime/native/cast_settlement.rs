@@ -169,8 +169,10 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
         Outcome::ScriptSetPos {entity,..} if summons && channels==0 && *entity==caster=>true,
         // The caster's own summon leaving (v3 remove_unit: 原作 B16 replaces its moon before raising
         // the next): the plan only gains room, and nothing else of the caster's moves (E612).
+        // A removal of a unit already gone (its handle still in the script's state: B16's moon died
+        // before it is summoned again) does nothing at all (script_kill::apply), anywhere (E650).
         Outcome::AddBuff {target,buff_id,..} if summons && channels==0 && *target!=caster
-            && buff_id==crate::runtime::native::script_kill::BUFF && own_summon(target)=>true,
+            && buff_id==crate::runtime::native::script_kill::BUFF && (own_summon(target) || !world.entities().is_alive(*target))=>true,
         // Never the caster: its life and resources back the whole transaction.
         Outcome::AddBuff {target,..}|Outcome::RawDamage {target,..}|Outcome::Damage {target,..}|Outcome::ScriptDirectDamage {target,..}
             if summons && channels==0 && *target!=caster && last_spawn.is_some_and(|last|*index>last)=>true,
@@ -297,6 +299,15 @@ fn summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_betwe
         let accepts=|effects:&[Outcome]|admit(&world,hero,"fixture",0,faction.as_ref(),player,expected.as_ref(),effects,0);
         assert!(accepts(&[remove(old),spawn(first),assign(first)]),"the caster's own summon leaves first");
         assert!(!accepts(&[remove(others),spawn(first)]),"never another owner's summon");
+        // E650: the old summon died earlier and its id was reused; the script's stale handle removes nothing.
+        let dead=world.create_entity().with(summon(hero)).build();
+        world.delete_entity(dead).unwrap();
+        world.maintain();
+        let reused=world.create_entity().build();
+        assert_eq!(reused.id(),dead.id(),"the id comes back with a new generation");
+        let accepts=|effects:&[Outcome]|admit(&world,hero,"fixture",0,faction.as_ref(),player,expected.as_ref(),effects,0);
+        assert!(accepts(&[remove(dead),spawn(first),assign(first)]),"a stale handle removes nothing");
+        assert!(!accepts(&[remove(reused),spawn(first)]),"but the live unit now holding its id is not the caster's");
     }
 }
 

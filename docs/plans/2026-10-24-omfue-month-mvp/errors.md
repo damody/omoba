@@ -2,6 +2,25 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E650 召喚施法移除已經死亡的舊召喚物時，結算拒絕整招：B16 忍犬第二次以後的召喚失敗（2026-11-02，工作線 B，E 的 m6new21c 回報）
+
+- **現象**：
+  - m6new21c 裡，b16_summon_hound 有 529 次被接受，其中 422 次 `settlement_refused:AddBuff`，和 E612 之前的 461 次差不多。
+  - 報告只有計數，log 裡也沒有拒絕原因。
+- **根因**：
+  - 結算拒絕時，log 改成也記錄被拒的那一列（47e81a25）。以 live build 重跑 quick-01：被拒的都是 row 0，`__script_kill` 打到 `Entity(72, Generation(1))`，own_summon=false。這時施法者是 `Entity(72, Generation(2))`。
+  - 舊月早就死了，entity id 也被回收重用，但 `state.b16_moon` 還留著失效的 handle。kit 的 `exists()` 對已移除的單位也回傳 true（E526：get_pos 給出最後站的位置），所以 on_cast 的 `if exists(state.b16_moon) then remove_unit` 對失效的 handle 送出 kill。
+  - E612 只放行施法者自己存活中的召喚物（`SummonedUnit.summoner == caster`）。死掉的實體已經沒有 SummonedUnit，就被拒絕了。
+  - 這也解釋了為什麼場上沒有舊月時（第一次召喚）會成立。
+- **修正**：
+  - 召喚交易裡，`__script_kill` 的目標如果已經不存在（`!is_alive`，generation 不符也算），也允許出現在任何位置。
+  - `script_kill::apply` 遇到不存在的目標本來就什麼都不做，所以它不會改變放置規劃，也不會改到現在持有這個 id 的單位。
+- **測試**：`cast_settlement::summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_between_siblings` 加了兩種情況：
+  - 舊召喚物死掉、id 被重用後，用失效的 handle 移除，會被接受。
+  - 現在持有這個 id 的活單位不是施法者的，仍然拒絕。
+- **避免**：腳本 state 裡的單位 handle 可能已經失效。host 判斷「是不是自己的單位」時，要先分清楚目標是不存在，還是別人的。
+- **檔案**：`omoba-core/src/runtime/native/cast_settlement.rs`
+
 ## E649 隱形中重放隱形技能，狀態整個消失：施法者狀態的 on_ability_executed 排在這次施放之後結算（2026-11-02，工作線 B，D 的 reapply 情境回報）
 
 - **現象**：D 的 reapply 情境。隱形技能的狀態持續到一半時，清掉冷卻、補滿魔力，再放一次同一招。放完之後，持有者身上的隱形與 stealth 狀態全部消失，2 秒內也沒有再出現。
