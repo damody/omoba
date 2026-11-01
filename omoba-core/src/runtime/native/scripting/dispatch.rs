@@ -559,7 +559,14 @@ fn dispatch_scripts(
                 .extend(visual_events);
         }
     }
-    if !windups.0.is_empty() || !windups.1.is_empty() {world.insert(windups);}
+    // A cast refused when it released (out of range, its target gone) ended without its effect
+    // too (E567): the authority commits its cooldown, so a replica that predicted it drops it (E628).
+    if !refused_releases.is_empty() {
+        let tick = world.try_fetch::<crate::runtime::Tick>().map_or(0, |tick| tick.0);
+        for (caster, ability, _) in &refused_releases { windups.failed_ability(tick, *caster, ability.clone()); }
+    }
+    // The tick's failed casts (.2) are read after this batch: they keep the resource too.
+    if !windups.0.is_empty() || !windups.1.is_empty() || !windups.2.is_empty() {world.insert(windups);}
     let event_ns = event_t.elapsed().as_nanos();
     drop(event_span);
 

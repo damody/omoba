@@ -217,10 +217,15 @@ fn route_input(
             // 僅確認 - 保持活動心跳，沒有副作用。
         }
         Some(PlayerInputEnum::OwnedSummonOrder(order)) => {
-            if super::super::summon_orders::decode(&order).is_err() {return;}
+            // Each step of a summon order names itself in the log (E627).
+            if let Err(reason)=super::super::summon_orders::decode(&order) {
+                log::info!("OwnedSummonOrder dropped pid={} tick={} operation={} reason={}",player_id,tick,order.operation,reason);
+                return;
+            }
             let count=move_q.requests.iter().filter(|pending|pending.owner_pid==player_id
                 && matches!(&pending.kind,PendingHeroCommandKind::OwnedSummonOrder {..})).count();
-            if count>=32 {return;}
+            if count>=32 {log::info!("OwnedSummonOrder dropped pid={} tick={} reason=queue_full",player_id,tick);return;}
+            log::info!("OwnedSummonOrder queued pid={} tick={} operation={} ability='{}'",player_id,tick,order.operation,order.ability);
             move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,owner_pid:player_id,queued:false,
                 kind:PendingHeroCommandKind::OwnedSummonOrder {order}});
         }

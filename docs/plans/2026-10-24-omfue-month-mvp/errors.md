@@ -2,10 +2,50 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E630 （保留）spotlight 舞台沒有友方小兵與屍體，C19 奇襲、B23 亡靈之契無法示範（props）（2026-11-01）
+
+## E629 （保留）conformance 狀態 on_created 換格（A12T、A07T）與 on_removed 換回的情境（2026-11-01）（2026-11-01）
+
 ## E624 conformance：on_attacked_hit 從未觸發；敵方英雄攻擊持有者後比對效果（2026-11-01，conformance session）
 - **現象**：on_attacked_hit 的 16 個情境（A17E、A20R、B24R、B35R）回「when event」或「status step status_event」，從來沒執行過。
 - **通用修正**：新增 attacked_hit。持有者必須是玩家英雄。把敵方英雄（player 2）放到持有者旁邊並讓它看得到持有者，對它下攻擊持有者的指令，之後 4 秒內用 E564 的效果檢查比對。只納入條件一定成立的效果（holding_now，另外持有者不是幻象），帶機率或其他條件的效果略過。被動的 `when event` 和狀態 trigger 都走這條路。
 - **結果**：全跑 0 退步，4 個情境變 pass（B35R 四級的 b35r_lockout；條件 `not has_status` 在攻擊前確認成立），fail 0、pass 21178。A17E、A20R、B24R 的效果都帶機率，仍是 unsupported。
+
+## E628 施放在 release 時被拒沒有記成失敗：authority 不送冷卻更正，replica 留著預測的冷卻（B17 牙毒，2026-11-01，工作線 B，E 回報）
+
+- **現象**：m6new23 quick_swap-01 在 tick 9960，team 2 的 replica 有 `b17_tooth_poison` 冷卻（12407／14336），權威端沒有。
+- **追蹤**：用 E 的 bin 加 log 重跑。tick 9841 時 replica（hero 82）的牙毒有 cast ok，權威端（hero 91）沒有，也沒有任何紀錄。用有 E622 的 build 重跑，拒絕原因是 `OUT_OF_RANGE`（release 時目標已經離開射程）。
+- **根因**：
+  - `reject_cast!` 的 release 分支只放進 `refused_releases`，沒有呼叫 E567 的 `failed_ability`。
+  - 而且 `AbilityWindups` 只在 `.0` 或 `.1` 不是空的時候才放回 world，只有 `.2`（本 tick 失敗的施放）時整個被丟掉。
+  - 兩者造成 `emit_failed_cast_cooldowns` 讀不到這次失敗，不會送冷卻更正。
+- **修正**：
+  - 批次結束時，每一筆 `refused_releases` 都記為 `failed_ability`。
+  - `.2` 不是空的時候也把 windups 放回 world。
+- **檔案**：`omoba-core/src/runtime/native/scripting/dispatch.rs`
+
+## E627 召喚物指令的每一步沒有 log：A28 天火在 UE accepted 之後，server 端看不出停在哪一步（2026-11-01，工作線 B，C 回報）
+
+- **現象**：E613 之後，A28 天火的 op3 ack 是 accepted，server log 卻沒有任何 heaven_fire、OwnedSummonOrder 或 refused 的紀錄。
+- **修正**：補上每一步的 log。
+  - edge：`SummonCommand refused ... reason=SUMMON_SESSION`。
+  - input tick：`OwnedSummonOrder queued/dropped`，附上 operation 和 ability。
+  - apply 成功時：`OwnedSummonOrder applied`。
+  - 下一次 rerun 看最後出現的是哪一行，就能找出指令停在哪裡。
+- **檔案**：`omoba-core/src/runtime/native/tick/player_input_tick.rs`、`omoba-core/src/runtime/native/game_processor.rs`、`omb/src/transport/kcp_transport.rs`
+
+## E626 replica 預測自家技能把敵方單位拉走：權威端勾到 replica 看不到的單位，被拉走的小兵沒有任何更正（2026-11-01，工作線 B）
+
+- **現象**：B24／A13 的 teamfight probe 局在 tick 38280 出現 0x464f4701 不一致。team 1 的 replica 看到 team 2 的近戰兵在 (4699,4699)，權威端在 (4648,4648)。這和兵營陷落無關，只是時間剛好接近。
+- **追蹤**：本機加了 OBS_TRACE 診斷，沒有 land。
+  - 權威端的小兵一直站著攻擊同 lane 的 team 1 小兵。
+  - replica 在 tick 38203～38210 以每 tick 7.24 的速度把它往 (4812,4812) 移動。
+  - 那段時間 team 1 的服部（A13）剛放了勾鎖鐮（tick 38197）。勾鎖鐮會勾住範圍內第一個敵人，再用 scheduled teleport 拉回。
+- **根因**：team 1 的 replica 用自己看得到的單位預測自家英雄的勾，勾到了這個小兵；權威端勾到的是 team 1 看不到的單位。權威端只為自己真的移動過的單位送 Movement fact，這個小兵在權威端沒有被移動，replica 預測錯的位置就永遠不會被更正。
+- **修正**：`handle_script_set_pos` 在 replica（world 有 `DisclosedSummonerAuthority(team)`）上，只移動本隊的單位。其他隊伍的單位位置一律以權威端的 movement fact 為準。
+- **測試**：`game_processor::tests::a_replica_leaves_other_teams_units_to_the_authoritys_movement`。
+- **驗證**：同一個 plan（target/m3p/v610/quick.json，seed 1）打完整局，tick 38364 team 1 勝，checked_ticks 319，mismatch 0。
+- **檔案**：`omoba-core/src/runtime/native/game_processor.rs`
 
 ## E625 verify_m6_batch 的 observer first 指向沒有不一致的局（2026-11-01，E187）
 

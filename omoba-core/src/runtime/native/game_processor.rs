@@ -299,8 +299,9 @@ pub fn drain_pending_moves(world: &mut World) {
         let command = match req.kind {
             PendingHeroCommandKind::OwnedSummonOrder {order} => {
                 if req.queued {continue;}
-                if let Err(reason)=super::summon_orders::apply(world,req.owner_pid,hero,&order) {
-                    log::info!("OwnedSummonOrder rejected pid={} reason={}",req.owner_pid,reason);
+                match super::summon_orders::apply(world,req.owner_pid,hero,&order) {
+                    Err(reason)=>log::info!("OwnedSummonOrder rejected pid={} reason={}",req.owner_pid,reason),
+                    Ok(())=>log::info!("OwnedSummonOrder applied pid={} operation={} ability='{}'",req.owner_pid,order.operation,order.ability),
                 }
                 continue;
             }
@@ -4762,6 +4763,16 @@ fn creep_bounty_from_template(creep_name: &str) -> Bounty {
 }
 
 fn handle_script_set_pos(world: &mut World, entity: Entity, pos: omoba_sim::Vec2) {
+    // A team's replica predicts its own heroes' scripts with what it sees: a pull or knockback of
+    // another team's unit there may not be the authority's (A13 勾鎖鐮 hooks the first enemy in
+    // reach, and the authority's may be one this team cannot see). The authority's movement facts
+    // place every unit it moved; a unit it did not move gets none, so the replica leaves other
+    // teams' units to those facts (E626).
+    if let Some(team) = world.try_fetch::<crate::runtime::summoner_transport::DisclosedSummonerAuthority>().map(|team| team.0) {
+        let own = world.has_value::<specs::storage::MaskedStorage<Faction>>()
+            && world.read_storage::<Faction>().get(entity).is_some_and(|faction| u32::try_from(faction.team_id).ok() == Some(team));
+        if !own { return; }
+    }
     // A hero never stands inside terrain (E598, 原作 a teleported hero is put clear by the engine):
     // a point it cannot stand at clears to the nearest one around it, else it stays.
     // A world without heroes (tests, TD) moves its units as told.
@@ -6210,6 +6221,25 @@ mod tests {
             .and_then(|tower| tower.active_ability.as_ref())
             .expect("boomerang path two level four should unlock its active ability");
         assert_eq!(active.ability_id, "boomerang_turbo_charge");
+    }
+
+    /// E626: a replica (its team in DisclosedSummonerAuthority) moves only its own team's units by
+    /// a predicted script; another team's unit waits for the authority's movement fact.
+    #[test]
+    fn a_replica_leaves_other_teams_units_to_the_authoritys_movement() {
+        let mut world = World::new();
+        world.register::<Pos>();
+        world.register::<Faction>();
+        let at = |x: i32| omoba_sim::Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO);
+        let ally = world.create_entity().with(Pos(at(0))).with(Faction::new(FactionType::Player, 1)).build();
+        let enemy = world.create_entity().with(Pos(at(0))).with(Faction::new(FactionType::Enemy, 2)).build();
+        handle_script_set_pos(&mut world, enemy, at(50));
+        assert_eq!(world.read_storage::<Pos>().get(enemy).unwrap().0, at(50), "the authority moves every unit");
+        world.insert(crate::runtime::summoner_transport::DisclosedSummonerAuthority(1));
+        handle_script_set_pos(&mut world, ally, at(30));
+        handle_script_set_pos(&mut world, enemy, at(90));
+        assert_eq!(world.read_storage::<Pos>().get(ally).unwrap().0, at(30), "its own team's unit");
+        assert_eq!(world.read_storage::<Pos>().get(enemy).unwrap().0, at(50), "another team's unit stays for the fact");
     }
 
     #[test]

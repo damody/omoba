@@ -16,6 +16,11 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：replica 不預測敵方單位的強制位移、召喚物指令每步 log、release 被拒時的冷卻更正（E626～E628）
+
+- E626：replica 上的 ScriptSetPos 只移動本隊單位。A13 勾鎖鐮在預測時勾錯小兵，造成 0x464f4701 不一致；B24／A13 teamfight probe 局現在整局 mismatch 0。
+- E627：召喚物指令在 edge、input tick、apply 每一步都留 log（用來查 A28 天火）。
+- E628：release 被拒（OUT_OF_RANGE 等）時記成失敗，windups 帶著 `.2` 一起放回 world，authority 會送冷卻更正（B17 牙毒，E 的 m6new23）。
 ## 2026-11-01 線 B：bot 施法者狀態前提、B22 牆後岩石、召喚交易的 Explosion、施放拒絕 log、自家隱形召喚物（E619～E623）
 
 - E619：BotAbilityPolicy 新增 `caster_status`、`caster_no_status`（requires.has_status／not_status）。A 已經寫好產生器端，等這次 land 後輸出。
