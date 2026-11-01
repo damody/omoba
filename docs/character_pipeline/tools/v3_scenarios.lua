@@ -1096,8 +1096,69 @@ local function entry_scenarios(doc, def, entry_kind, out)
       end
       return { need }
     end
+    -- A status that lives on a summon: its template lists it or applies it, or this cast applies
+    -- it to the unit it just created. A separate field, not a need: most of these cases already
+    -- find it their own way, and this is where line D looks when they do not (the caster's unit
+    -- of that template after casting `by`, the one entry that creates that template).
+    local function creator_of(template)
+      local by
+      local function walk(list)
+        for _, x in ipairs(type(list) == "table" and list or {}) do
+          if type(x) == "table" then
+            if x.op == "create_unit" and x.template == template then return true end
+            if walk(x.actions) or walk(x.otherwise) then return true end
+          end
+        end
+        return false
+      end
+      for _, list in ipairs({ current_doc and current_doc.abilities or {}, current_doc and current_doc.items or {} }) do
+        for _, owner in ipairs(list) do
+          local makes = false
+          for _, ev in pairs(type(owner.events) == "table" and owner.events or {}) do
+            if walk(ev.actions or ev) then makes = true end
+          end
+          if makes then
+            if by then return nil end
+            by = owner.id
+          end
+        end
+      end
+      return by
+    end
+    local function template_with(id)
+      local function applies(node)
+        if type(node) ~= "table" then return false end
+        if node.op == "apply_status" and node.status == id then return true end
+        for _, v in pairs(node) do if type(v) == "table" and applies(v) then return true end end
+        return false
+      end
+      local found
+      for _, t in ipairs(current_doc and current_doc.unit_templates or {}) do
+        local listed = false
+        for _, sid in ipairs(type(t.statuses) == "table" and t.statuses or {}) do if sid == id then listed = true end end
+        if listed or applies(t) then
+          if found then return nil end
+          found = t.id
+        end
+      end
+      return found
+    end
+    local function summon_needs(s, a)
+      local template, by
+      for _, x in ipairs(base_effects) do
+        if x.op == "create_unit" and x.args and x.args.as == a.to and type(x.args.template) == "string" then
+          template, by = x.args.template, def.id
+        end
+      end
+      if not template then
+        template = template_with(s.id)
+        by = template and creator_of(template)
+      end
+      if not template or not by then return nil end
+      return { template = template, by = by }
+    end
     local function on_unit(s, a) return { kind = "status_on_unit", status = s.id, on = a.to, runtime_id = runtime_key(s),
-      visibility = s.visibility, needs = attack_needs(a) or apply_needs(a) } end
+      visibility = s.visibility, needs = attack_needs(a) or apply_needs(a), on_summon = summon_needs(s, a) } end
     local done = {}
     for _, a in ipairs(statuses) do
       local s = a.status
