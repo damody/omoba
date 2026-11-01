@@ -123,4 +123,6 @@ return {
   {hero='hattori_hanzo',package='hero_a13',dir='heroes/hattori_hanzo'},
   -- M6 batch (2026-10-31): every ability generated (status_source（E570）、pick_item 與 modify_cooldown.item（E561、E566、E569）); conformance 0 fail
   {hero='kobayakawa_takakage',package='hero_c18',dir='heroes/kobayakawa_takakage'},
+  -- M6 batch (2026-10-31): every ability generated (add_ability（E560）、set_base_max_hp（E563）、has_item、dodge_projectiles.of（E557）；harness 先召喚月（E568）); conformance 0 fail
+  {hero='mochizuki_chiyome',package='hero_b16',dir='heroes/mochizuki_chiyome'},
 }

@@ -69460,16 +69460,13 @@ local data = {
     {
       abilities = { "b16_flying_raid", "b16_falling_leaves", "b16_swift_thunder", "b16_beast_union", "b16_summon_hound", "b16_phase_shift" },
       authored_package = "mochizuki_chiyome",
-      background = "望月千代女（schema v3 產生的 Rust；測試用）",
       display_name = "望月千代女",
       id = "mochizuki_chiyome",
       moba_loadout = {
         ranks = { 1, 1, 1, 0, 1, 1 },
         skill_points = 0,
       },
-      source_stats = "B16",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B16",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "mochizuki_chiyome",
