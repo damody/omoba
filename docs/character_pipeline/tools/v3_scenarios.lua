@@ -263,38 +263,7 @@ M.QUIRK_TOPICS = {
       end
       return points
     end },
-  -- the cooldown an ability swap keeps: the entry's swap scenarios (its cast's or its status's
-  -- swap_abilities) check the policy. Only an entry with exactly one swap, the quirk naming the
-  -- policy (continue: kept or carried over; reset: cleared), not both
-  { topic = "swap_cooldown", word = "冷卻", case = "swap",
-    claim = function(text)
-      local continue = contains_any(text, { "cooldown_policy = continue", "保留冷卻", "冷卻延續" })
-      local reset = contains_any(text, { "cooldown_policy = reset", "冷卻清空" })
-      if continue and not reset then return "continue" elseif reset and not continue then return "reset" end
-      return nil
-    end,
-    points = function(_, _, effects, scenarios)
-      local by_to, order = {}, {}
-      for _, s in ipairs(scenarios or {}) do
-        local e = s.expect and s.expect[2]
-        if e and e.kind == "ability_swapped" and e.policy then
-          if not by_to[e.to] then
-            local path = e.by_status and ("statuses." .. e.by_status .. ".triggers.on_created") or nil
-            for _, x in ipairs(effects) do
-              if not path and x.op == "swap_abilities" and x.args and x.args.to == e.to then path = x.path end
-            end
-            by_to[e.to] = { path = path or e.to, policy = e.policy, list = {} }; order[#order + 1] = e.to
-          end
-          local l = by_to[e.to].list
-          l[#l + 1] = s
-        end
-      end
-      local points = {}
-      for _, to in ipairs(order) do
-        points[#points + 1] = { path = by_to[to].path, flag = "cooldown_policy", value = by_to[to].policy, scenarios = by_to[to].list }
-      end
-      return points
-    end },
+  -- (the cooldown an ability swap keeps waits for the swap check of its cooldown_policy: line D)
   -- a cast on itself cancelled before the cost and cooldown (no_target_self): the entry's
   -- target_invalid/self scenario checks the refusal and that no cooldown starts. Only a quirk
   -- naming the flag and saying the cooldown is not paid
