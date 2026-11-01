@@ -515,6 +515,7 @@ local data = {
         pull_max_time = { 2.0, 2.0, 2.0, 2.0 },
         pull_speed = { 1250.0, 1250.0, 1250.0, 1250.0 },
         pull_think = { 0.008, 0.008, 0.008, 0.008 },
+        shape_width = { 300.0, 300.0, 300.0, 300.0 },
       },
       id = "a13_chain_sickle",
       levels = {
@@ -526,10 +527,11 @@ local data = {
       max_level = 4,
       pierces_magic_immunity = true,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "enemy_line", min_targets = 1, note = "point skill without an area: aimed at the nearest enemy", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "hook_width", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "needs_hook",
         info = {
           { field = "cast_range", value = "cast_range" },

@@ -129,8 +129,9 @@ function M.facts(def, castable, doc)
     elseif a.op == "let" and type(a.value) == "string" then
       -- the clamp idiom: a destination at most `$x` from the caster is the move's reach
       f.clamp = f.clamp or a.value:match("distance%(%s*caster%s*,%s*point%s*%)%s*>%s*%$([%a_][%w_]*)")
-    -- a linear projectile sweeps a line as wide as its largest radius on both sides
-    elseif a.op == "projectile" and a.kind == "linear" then
+    -- a linear projectile sweeps a line as wide as its largest radius on both sides; a path one
+    -- (a13_chain_sickle's two-point hook) sweeps its legs the same way
+    elseif a.op == "projectile" and (a.kind == "linear" or a.kind == "path") then
       f.lines[#f.lines + 1] = { value = arg_value(a.end_radius or a.radius), owner = owner }
     end
   end
