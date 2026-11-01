@@ -1247,7 +1247,7 @@ fn status_trigger(run: &mut Run, holder: specs::Entity, step: &Value, expectatio
         }
         // Damage taken, the holder's death, the holder's kill (E564): the event is made, then the
         // trigger's plain effects are looked for.
-        Some(event @ ("on_take_damage" | "on_death" | "on_kill" | "on_attack_launch")) => make_event(run, holder, event, &effects),
+        Some(event @ ("on_take_damage" | "on_death" | "on_kill" | "on_attack_launch" | "on_attacked_hit")) => make_event(run, holder, event, &effects),
         // Its running out (E618): waited out, then what its effects leave is looked for.
         Some("on_expired") => {
             let runtime_id = status["runtime_id"].as_str().unwrap_or("").to_owned();
@@ -1281,6 +1281,7 @@ fn status_trigger(run: &mut Run, holder: specs::Entity, step: &Value, expectatio
 /// (by the other hero), then the trigger's plain effects are looked for.
 fn make_event(run: &mut Run, holder: specs::Entity, event: &str, effects: &[&Value]) -> Verdict {
         if event == "on_attack_launch" { return attack_launch(run, holder, effects); }
+        if event == "on_attacked_hit" { return attacked_hit(run, holder, effects); }
         let other = if holder == run.enemy { run.caster } else { run.enemy };
         let before = EffectsSeen::of(run, holder, other, effects);
         let mut victim = None;
@@ -1364,11 +1365,43 @@ fn attack_launch(run: &mut Run, holder: specs::Entity, effects: &[&Value]) -> Ve
     verdict
 }
 
+/// The holder hit by an attack (E624): the enemy hero (player 2's) stands beside the player's hero,
+/// sees it, and is ordered to attack it. The trigger's effects run whose conditions hold for that
+/// hit (holding_now; the holder is no illusion); a chance or any other condition leaves its effect out.
+fn attacked_hit(run: &mut Run, holder: specs::Entity, effects: &[&Value]) -> Verdict {
+    if holder != run.caster { return Verdict::Unsupported("on_attacked_hit of a unit other than the player's hero".into()); }
+    let other = run.enemy;
+    let owned = holding_now(run, holder, effects, &["not self.is_illusion"]);
+    let effects: Vec<&Value> = owned.iter().collect();
+    if !effects.iter().any(|f| EffectsSeen::observable(f)) {
+        return Verdict::Unsupported("on_attacked_hit: no effect it can observe without a chance or condition".into());
+    }
+    let at = run.world.read_storage::<Pos>().get(holder).map(|p| p.0);
+    if let Some(at) = at {
+        if let Some(pos) = run.world.write_storage::<Pos>().get_mut(other) { pos.0 = at + omoba_sim::Vec2::new(Fixed64::from_i32(100), Fixed64::ZERO); }
+    }
+    let team = run.world.read_storage::<Faction>().get(other).map(|f| f.team_id.max(0) as u32);
+    run.world.write_storage::<VisibilityOverride>().insert(holder, VisibilityOverride {
+        team, kind: VisibilityOverrideKind::ForceShow, priority: 1, stable_rule_id: 0xE624 }).ok();
+    run.step(1);
+    let before = EffectsSeen::of(run, holder, other, &effects);
+    if let Some(attack) = run.world.write_storage::<TAttack>().get_mut(other) { attack.asd_count = Fixed64::ZERO; }
+    let order = PlayerInput { action: Some(PlayerInputEnum::AttackTarget(AttackTarget { target_id: holder.id(), queued: false })) };
+    { let result = run.driver.step(&mut run.world, [(2, order)]).unwrap(); project_tick(&mut run.world, result); }
+    let mut verdict = Verdict::Unsupported("on_attacked_hit: no hit".into());
+    for _ in 0..ticks(4.0) {
+        verdict = before.compare(run, holder, other, None, "on_attacked_hit", &effects);
+        if matches!(verdict, Verdict::Pass | Verdict::PassNoted(_)) { return verdict; }
+        run.step(1);
+    }
+    verdict
+}
+
 /// A passive's own trigger on damage taken, its hero's death or a kill (E572): the passive is
 /// learned (rank by rank, as the player does), and the event is made on the hero.
 fn check_passive_event(hero: &str, s: &Value) -> Option<Verdict> {
     let event = s["when"][0]["event"].as_str()?;
-    if !matches!(event, "on_take_damage" | "on_death" | "on_kill" | "on_attack_launch") { return None; }
+    if !matches!(event, "on_take_damage" | "on_death" | "on_kill" | "on_attack_launch" | "on_attacked_hit") { return None; }
     let effects: Vec<&Value> = s["expect"].as_array()?.iter().find(|e| e["kind"] == "effects")?["effects"].as_array()?.iter().collect();
     let (entry, rank) = (s["entry"].as_str()?.to_owned(), s["rank"].as_u64()? as usize);
     let learn = json!({"entry": entry, "rank": rank, "given": learning(s), "learn_by_upgrade": s["learn_by_upgrade"], "expect": [{"kind": "passive_stats"}]});
@@ -1568,7 +1601,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         ("status_event", _) if step["event"] == "on_attack_hit" || step["event"] == "on_attack_windup" => None,
         ("status_event", _) if step["event"] == "on_take_damage_pre" || step["event"] == "on_removed" || step["event"] == "on_created" => None,
         ("status_event", _) if step["event"] == "on_take_damage" || step["event"] == "on_death" || step["event"] == "on_kill" => None,
-        ("status_event", _) if step["event"] == "on_attack_launch" || step["event"] == "on_expired" => None,
+        ("status_event", _) if step["event"] == "on_attack_launch" || step["event"] == "on_expired" || step["event"] == "on_attacked_hit" => None,
         _ => return Verdict::Unsupported(format!("status step {kind}")),
     };
     let expect = s["expect"].as_array().unwrap();

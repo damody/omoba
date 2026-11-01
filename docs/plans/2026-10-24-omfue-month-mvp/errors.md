@@ -2,6 +2,11 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E624 conformance：on_attacked_hit 從未觸發；敵方英雄攻擊持有者後比對效果（2026-11-01，conformance session）
+- **現象**：on_attacked_hit 的 16 個情境（A17E、A20R、B24R、B35R）回「when event」或「status step status_event」，從來沒執行過。
+- **通用修正**：新增 attacked_hit。持有者必須是玩家英雄。把敵方英雄（player 2）放到持有者旁邊並讓它看得到持有者，對它下攻擊持有者的指令，之後 4 秒內用 E564 的效果檢查比對。只納入條件一定成立的效果（holding_now，另外持有者不是幻象），帶機率或其他條件的效果略過。被動的 `when event` 和狀態 trigger 都走這條路。
+- **結果**：全跑 0 退步，4 個情境變 pass（B35R 四級的 b35r_lockout；條件 `not has_status` 在攻擊前確認成立），fail 0、pass 21178。A17E、A20R、B24R 的效果都帶機率，仍是 unsupported。
+
 ## E625 verify_m6_batch 的 observer first 指向沒有不一致的局（2026-11-01，E187）
 
 - **現象**：m6new23 的 Acceptance 寫 `mismatch 1 (first: quick-01 tick nil …)`，但真正不一致的是 quick_swap-01（tick 9960），quick-01 的 mismatches 是 0。
