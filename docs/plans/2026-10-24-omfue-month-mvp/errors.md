@@ -2,6 +2,26 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E592 游標下疊著不合法單位時，指定單位技能被本地拒絕（不會挑同位置的合法目標）（2026-11-01，工作線 C）
+**現象**：rerun6／rerun8 的 spotlight 有多招沒有呈現，原因是指令在 UE 本地就被拒絕或判錯（工作線 C 的 unshown-diagnosis）。
+- A21 偽報、盜法：`Owned ability target is not a disclosed legal hostile`。前一招珠盤疊在敵方 stand-in 上，指標挑到的是自己的珠盤。
+- C08 鉤鎖：`target is outside the visible world area`。散逃之後 stand-in 不在畫面內。
+- A13 勾鎖：判定為「accepted」，實際上是影惑那次施放的重放。
+- spotlight 返回原位用的是 smart click，在 stand-in 旁邊被解讀成攻擊，追擊沒完沒了。
+- B22 木靈：射程 100，英雄最近只能站到距樹中心 98，條件卻要求 95 以內。
+
+**修正**（通用）：
+- `SubmitOwnedAbilityCommand`：指定單位的技能，所選單位不合法時，改用與它身體重疊、而且這招合法的最近單位（smart targeting，玩家點擊時同樣適用）。
+- OmAutoPilot：
+  - 示範只計算同一格技能的施放。
+  - enemy 目標不在畫面上時，先用只移動的點擊走過去。
+  - 返回原位、靠近目標都用 MoveOnlyClick。
+  - 樹木目標的距離放寬 40（`SpotlightTreeReachSlack`），由權威端判定實際射程。
+
+已轉給 B 的部分：英雄 teleport 不修正落點，C08 因此卡在牆裡；B22 自然屏障的岩石擺放失敗後整招中止；A13 幻象出現後 owner HUD 快照交替。
+
+**驗證**：用 land_to_live 經 UBT 放回 live。實機在下一輪 spotlight（rerun10）驗證。
+
 ## E591 script dispatch 沒有其他事件時提前 return，驅散留下的 status_ended 沒被處理：on_removed 不觸發（2026-11-01，工作線 B，D 回報）
 
 - **現象**：B30 b30w_shield 的 on_removed conformance r1～r4 都 fail：驅散後護盾確實被移除，但沒有爆炸，追蹤裡也看不到 REMOVED。對照組 a05t_mark 有產生 REMOVED。
