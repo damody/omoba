@@ -148,6 +148,8 @@ fn dispatch_scripts(
     let any_delayed = !world.read_resource::<super::super::delayed_effect::DueDelayedEffects>().0.is_empty()
         || world.read_resource::<crate::runtime::BuffStore>().entities_with_key(super::super::scheduled_effect::KEY).next().is_some()
         || world.read_resource::<crate::runtime::BuffStore>().entities_with_key(super::super::status_event::KEY).next().is_some()
+        // E591: the last such row dispelled (B30W's shield) still runs its on_removed.
+        || world.read_resource::<crate::runtime::BuffStore>().any_status_ended()
         // E413: clocks and ledgers that advance only inside the dispatch (the aura clock, the
         // equip ledger) keep it running on a tick with no event and no tagged unit.
         || world.read_resource::<crate::runtime::BuffStore>().entities_with_key(super::super::aura::KEY).next().is_some()

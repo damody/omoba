@@ -386,6 +386,10 @@ impl BuffStore {
         std::mem::take(&mut self.status_ended)
     }
 
+    /// Whether a status-event row left its holder since the last drain (E591): the dispatch runs
+    /// for it even when no row with status events is left.
+    pub fn any_status_ended(&self) -> bool { !self.status_ended.is_empty() }
+
     fn remove_entry(&mut self, entity: Entity, buff_id: &str) -> Option<BuffEntry> {
         let mut remove_entity = false;
         let entry = match self.buffs.get_mut(&entity) {

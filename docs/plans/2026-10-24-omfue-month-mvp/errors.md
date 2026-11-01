@@ -2,7 +2,15 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E591 （保留）script dispatch 沒有其他事件時提前 return，驅散留下的 status_ended 沒被處理：on_removed 不觸發（2026-11-01）
+## E591 script dispatch 沒有其他事件時提前 return，驅散留下的 status_ended 沒被處理：on_removed 不觸發（2026-11-01，工作線 B，D 回報）
+
+- **現象**：B30 b30w_shield 的 on_removed conformance r1～r4 都 fail：驅散後護盾確實被移除，但沒有爆炸，追蹤裡也看不到 REMOVED。對照組 a05t_mark 有產生 REMOVED。
+- **probe（單一情境）**：`BuffStore::remove` 有把 b30w_shield 記成 REMOVED（payload 帶 status_event key），但驅散後的 3 個 step 裡，`dispatch_status_events` 都沒有 drain 到這筆記錄。
+- **根因**：`dispatch_scripts` 在「沒有 tag 單位、沒有事件、沒有 windup／channel、沒有 delayed」時會提前 return。判斷 delayed 時只看「還有沒有帶 status_event key 的 row」。被驅散的護盾是世界上最後一個這種 row，它被移除後條件就不成立，dispatch 直接 return，status_ended 一直留在 BuffStore 裡。到期（EXPIRED）的情況不受影響，因為在那些情境裡還有其他事件讓 dispatch 繼續執行。實機局隨時都有 tag 單位，所以很少遇到，但稀疏的世界一定會發生。
+- **修正**：新增 `BuffStore::any_status_ended()`，有尚未處理的結束記錄時也算 delayed，dispatch 會繼續執行並 drain。
+- **測試**：用 probe 樹跑 `V3_ONLY=on_removed` 的 b30_kakizaki_kageie。修正前 r1～r4 都是「no hit of on_removed[3].actions[1]」；修正後每次驅散都 drain 到 kind=1（REMOVED），四個情境的 fail 都消失。
+- **避免**：一個暫存佇列只要還有東西沒處理，就要算進「是否需要執行」的條件。
+- **檔案**：`omoba-core/src/runtime/native/ability_runtime/buff_store.rs`、`omoba-core/src/runtime/native/scripting/dispatch.rs`
 
 ## E590 召喚交易不接受本次 spawned 單位的 ScriptSetPos：B24 W 石碑施放被退回（2026-11-01，工作線 B，D 回報）
 

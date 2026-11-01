@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：驅散最後一個帶 status event 的狀態也會觸發 on_removed（E591）
+
+- B30 的逆壓之盾被驅散時會爆炸。
 ## 2026-11-01 線 B：召喚交易接受本次召喚物的 set_pos（E590）
 
 - B24 W 的石碑可以放回游標中心，施放不再被退回。
