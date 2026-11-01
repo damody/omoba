@@ -69499,16 +69499,13 @@ local data = {
     {
       abilities = { "b24_earth_stele", "b24_taunt", "b24_stone_resonance", "b24_earth_prison" },
       authored_package = "akiyama_nobutomo",
-      background = "秋山信友（schema v3 產生的 Rust；測試用）",
       display_name = "秋山信友",
       id = "akiyama_nobutomo",
       moba_loadout = {
         ranks = { 1, 1, 1, 0 },
         skill_points = 0,
       },
-      source_stats = "B24",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B24",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "akiyama_nobutomo",

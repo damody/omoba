@@ -109,7 +109,7 @@ local HEROES = {
   { package = "mochizuki_chiyome", playable = true },
   { package = "kato_danzo", playable = true },
   { package = "kobayakawa_takakage", playable = true },
-  { package = "akiyama_nobutomo" },
+  { package = "akiyama_nobutomo", playable = true },
   { package = "ishikawa_goemon", playable = true },
 }
 
