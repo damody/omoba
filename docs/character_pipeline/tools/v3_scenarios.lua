@@ -1102,21 +1102,21 @@ local function entry_scenarios(doc, def, entry_kind, out)
     -- of that template after casting `by`, the one entry that creates that template).
     local function creator_of(template)
       local by
-      local function walk(list)
-        for _, x in ipairs(type(list) == "table" and list or {}) do
-          if type(x) == "table" then
-            if x.op == "create_unit" and x.template == template then return true end
-            if walk(x.actions) or walk(x.otherwise) then return true end
-          end
+      -- anywhere under the entry (its events, its statuses' triggers, a program key such as
+      -- on_hit), following `call` into routines
+      local function makes_it(node, seen)
+        if type(node) ~= "table" then return false end
+        if node.op == "create_unit" and node.template == template then return true end
+        if node.op == "call" and type(node.routine) == "string" and not seen[node.routine] then
+          seen[node.routine] = true
+          if makes_it(current_doc.routines and current_doc.routines[node.routine], seen) then return true end
         end
+        for _, v in pairs(node) do if type(v) == "table" and makes_it(v, seen) then return true end end
         return false
       end
       for _, list in ipairs({ current_doc and current_doc.abilities or {}, current_doc and current_doc.items or {} }) do
         for _, owner in ipairs(list) do
-          local makes = false
-          for _, ev in pairs(type(owner.events) == "table" and owner.events or {}) do
-            if walk(ev.actions or ev) then makes = true end
-          end
+          local makes = makes_it(owner.events, {}) or makes_it(owner.statuses, {}) or makes_it(owner.passive, {})
           if makes then
             if by then return nil end
             by = owner.id
