@@ -3834,6 +3834,26 @@ pub(crate) fn emit_changed_vitals(world: &mut World) {
 /// that ended without its effect — unreleased, refused when it released, or refused by the serial
 /// settlement — committed as it stands. A team replica that predicted the cast (its view admitted
 /// what the authority refused) started a cooldown the authority never did; this drops it.
+/// The authority's last tick each caster's ability ended without its effect (E596: a script's
+/// cancel_cast, a refused release). Owner-side only, never disclosed; the role bots hold off
+/// re-sending such a cast for a while instead of every think.
+#[derive(Default)]
+pub struct FailedCasts(pub BTreeMap<(Entity, String), u64>);
+
+impl FailedCasts {
+    /// Rows older than this are dropped (ten seconds at 120 Hz).
+    pub const KEPT_TICKS: u64 = 1200;
+
+    /// These casts ended without their effect on this tick (a refused admission or release, an
+    /// interrupted windup).
+    pub fn record(world: &mut World, tick: u64, rows: impl IntoIterator<Item = (Entity, String)>) {
+        if !world.has_value::<FailedCasts>() { world.insert(FailedCasts::default()); }
+        let mut failed = world.write_resource::<FailedCasts>();
+        failed.0.retain(|_, at| tick.saturating_sub(*at) < Self::KEPT_TICKS);
+        for row in rows { failed.0.insert(row, tick); }
+    }
+}
+
 pub(crate) fn emit_failed_cast_cooldowns(world: &mut World) {
     if world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>().is_some() { return; }
     let tick = world.try_fetch::<Tick>().map(|tick| tick.0).unwrap_or(0);
@@ -3843,6 +3863,7 @@ pub(crate) fn emit_failed_cast_cooldowns(world: &mut World) {
         None => return,
     };
     if rows.is_empty() { return; }
+    FailedCasts::record(world, tick, rows.iter().cloned());
     let (mut cooldowns, mut charges) = (BTreeMap::new(), BTreeMap::new());
     {
         let heroes = world.read_storage::<Hero>();

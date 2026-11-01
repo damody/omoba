@@ -520,6 +520,14 @@ fn dispatch_scripts(
             }).collect::<Vec<_>>();
             super::super::cast_trace::record(world, trace_rows.into_iter().chain(judged).chain(released));
         }
+        // E596: what the authority refused at admission (a v3 on_phase_start's cancel_cast) or
+        // release, so the role bots hold it off instead of re-sending it every think.
+        if world.try_fetch::<crate::runtime::MobaMatch>().is_some() {
+            let refused: Vec<(Entity, String)> = cast_outcomes.iter().filter(|(_, _, rejection)| rejection.is_some())
+                .map(|(caster, ability, _)| (*caster, ability.clone()))
+                .chain(refused_releases.iter().map(|(caster, ability, _)| (*caster, ability.clone()))).collect();
+            if !refused.is_empty() { super::super::game_processor::FailedCasts::record(world, trace_tick, refused); }
+        }
         if !cast_outcomes.is_empty() {
             let authoritative = world.try_fetch::<crate::runtime::MobaMatch>().is_some();
             if let Some(mut journal) = world.try_fetch_mut::<code::OwnerCommandOutcomes>() {

@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：role bot 對失敗的施法退避 2 秒（E596）
+
+- 茶茶的落櫻散華在範圍內沒有流血的敵人時會取消，bot 不再每次思考都重送。
 ## 2026-11-01 線 B：replica 以 PostStep Movement 為準（E594）
 
 - 同一個 tick 先走路、又被拉走或傳送的小兵，replica 會停在拉走後的位置（rg09 tick 30840）。

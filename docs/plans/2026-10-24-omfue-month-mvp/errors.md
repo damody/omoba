@@ -2,6 +2,23 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E597 （保留）不攻擊的召喚物（B24 石碑）沒有揭露 buff 圖示元件（2026-11-01）
+
+## E596 role bot 每 tick 重送被拒的施法：c25_falling_sakura 180/180 被拒（2026-11-01，工作線 B，E 回報）
+
+- **現象**：茶茶的 c25_falling_sakura（大招，self_area，半徑用 cast_range 2000，min_targets 1）幾乎每次都 CAST_REJECTED。m6acc1 有 6851 個 input，只有 35 個被接受；E585 重跑時 180 個 input 全部被拒。bot 每次思考都重送同一個施法。
+- **根因**：
+  - v3 的 on_phase_start 會檢查 2000 內有沒有帶 c25e_dot（流血）的敵人，沒有就 `cancel_cast`（原作「範圍內沒有流血的敵人時不能施放」）。bot 的 self_area 只數得到「範圍內的敵人」，看不到腳本的取消條件。
+  - 被拒之後 bot 沒有任何記錄，下一次思考又送出同一個施法。這不是 cast_range 當成 radius_key 的問題，executor 和 authority 的判斷一致，取消來自腳本本身。
+- **修正**（通用，不針對單一技能）：
+  - 新增 `game_processor::FailedCasts`：權威端記錄每個施法者每個技能最後一次「沒有產生效果」的 tick，只留給權威端自己用，不揭露。以下情況都會記錄：
+    - admission 被拒（含 on_phase_start 的 cancel_cast）；
+    - release 被拒（dispatch）；
+    - windup 中斷或結算被拒（`emit_failed_cast_cooldowns`）。
+  - role bot 選技能時，略過同一位英雄 `FAILED_CAST_BACKOFF_SECONDS = 2` 秒內失敗過的技能，其他技能照常選。只讀世界狀態，同一個 tick 呼叫兩次仍然得到相同結果。
+- **測試**：`bots::tests::a_bot_holds_off_a_cast_that_failed`：60 Hz 時退避 120 tick；退避期間只略過失敗的技能，期滿後恢復，其他英雄不受影響。bots 的 96 個測試通過。
+- **檔案**：`omoba-core/src/runtime/native/moba_match/bots.rs`、`omoba-core/src/runtime/native/game_processor.rs`、`omoba-core/src/runtime/native/scripting/dispatch.rs`
+
 ## E595 spotlight 不能示範召喚物技能與暫時開放的子技能（2026-11-01，工作線 C）
 **編號**：79482c0c、8a170ef（omfue）的訊息與程式註解誤寫 E594；E594 是工作線 B 的 replica PostStep Movement（7649b44d）。本項正確編號是 E595，程式註解已經改正。
 **現象**：spotlight script 只照英雄 row 的技能順序排 slot，下面三種技能從來沒有示範過：

@@ -542,6 +542,26 @@ fn castable_policies<'a>(policies:&'a [BotAbilityPolicy],buffs:Option<&crate::ru
     policies.iter().filter(|policy|!inactive(policy)).cloned().collect::<Vec<_>>().into()
 }
 
+/// How long a bot holds off a cast that ended without its effect (E596: c25_falling_sakura with no
+/// bleeding enemy in range cancels itself; re-sending it every think only floods rejections).
+pub(super) const FAILED_CAST_BACKOFF_SECONDS: i32 = 2;
+
+fn backoff_ticks(dt:Fixed64) -> u64 {
+    if dt<=Fixed64::ZERO {return 0;}
+    (i64::from(FAILED_CAST_BACKOFF_SECONDS) * omoba_sim::fixed::SCALE / dt.raw()).max(0) as u64
+}
+
+/// The policies whose ability did not fail for this hero within the backoff.
+fn without_failed<'a>(policies:std::borrow::Cow<'a,[BotAbilityPolicy]>,
+    failed:Option<&crate::runtime::native::game_processor::FailedCasts>,entity:specs::Entity,tick:u64,backoff:u64)
+    -> std::borrow::Cow<'a,[BotAbilityPolicy]> {
+    let Some(failed)=failed else {return policies;};
+    let held=|policy:&BotAbilityPolicy|failed.0.get(&(entity,policy.ability.clone()))
+        .is_some_and(|at|tick.saturating_sub(*at)<backoff);
+    if !policies.iter().any(held) {return policies;}
+    policies.iter().filter(|policy|!held(policy)).cloned().collect::<Vec<_>>().into()
+}
+
 fn hold_input(commands:Option<&HeroCommandQueue>) -> Option<PlayerInputEnum> {
     if commands.is_some_and(|q|q.active==Some(HeroCommand::HoldPosition) && q.queued.is_empty()) {return None;}
     Some(PlayerInputEnum::HoldPosition(crate::game_proto::HoldPosition {queued:false}))
@@ -584,6 +604,8 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
     let abilities = world.try_fetch::<crate::runtime::ability_runtime::AbilityRegistry>();
     let buffs = world.try_fetch::<crate::runtime::ability_runtime::BuffStore>();
     let windups = world.try_fetch::<super::super::cast_windup::AbilityWindups>();
+    let failed = world.try_fetch::<crate::runtime::native::game_processor::FailedCasts>();
+    let failed_backoff = backoff_ticks(world.read_resource::<crate::runtime::DeltaTime>().0);
     // Decode a team perception once per think, not once per hero.
     let perceptions = state.config.teams.map(|team|disclosed_units(&visibility,team,|id|{
         let entity=world.entities().entity(id as u32);
@@ -775,6 +797,7 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
             }
             // Silence blocks spells, not ordinary attacks or skill learning.
             let policies=castable_policies(&config.ability_policies,buffs.as_deref(),entity);
+            let policies=without_failed(policies,failed.as_deref(),entity,tick,failed_backoff);
             let cast = if buffs.as_ref().is_some_and(|store|store.is_silenced(entity)) {None} else {
                 abilities::choose_cast_with_control_observation(hero,assignment.role,team,own.position,
                 properties.get(entity).expect("validated owner health"),seen,&policies,focus,defer_offense || recovery_wait,
@@ -1117,6 +1140,25 @@ mod tests {
             assert_eq!(role_combat_focus(&assignment,1,p(0),&[invalid]),None);
         }
     }
+    /// E596: a cast that ended without its effect waits out the backoff, for that hero only.
+    #[test]
+    fn a_bot_holds_off_a_cast_that_failed() {
+        use crate::runtime::native::game_processor::FailedCasts;
+        let mut world=World::new();
+        let (hero,other)=(world.create_entity().build(),world.create_entity().build());
+        let policy=|ability:&str|BotAbilityPolicy {ability:ability.into(),intent:BotAbilityIntent::EnemyHero};
+        let policies=vec![policy("c25_falling_sakura"),policy("strike")];
+        let mut failed=FailedCasts::default();
+        failed.0.insert((hero,"c25_falling_sakura".into()),100);
+        let backoff=backoff_ticks(Fixed64::ONE/Fixed64::from_i32(60));
+        assert_eq!(backoff,120);
+        let names=|entity,tick|without_failed(policies.as_slice().into(),Some(&failed),entity,tick,backoff)
+            .iter().map(|policy|policy.ability.clone()).collect::<Vec<_>>();
+        assert_eq!(names(hero,150),vec!["strike"]);
+        assert_eq!(names(hero,220),vec!["c25_falling_sakura","strike"],"after the backoff");
+        assert_eq!(names(other,150),vec!["c25_falling_sakura","strike"],"another hero's failure");
+    }
+
     /// E433: an ability its owner set inactive (a05_counter_stance until it re-arms) is never picked.
     #[test]
     fn a_bot_skips_an_ability_its_hero_set_inactive() {
