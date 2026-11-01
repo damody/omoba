@@ -36,11 +36,12 @@ do
       assert(options.observer == 'on' or options.observer == 'off', '--observer on|off')
     elseif v == '--observer-note' then options.observer_note = arg[i + 1]; i = i + 1
     elseif v == '--recipes' then options.recipes = arg[i + 1]; i = i + 1
+    elseif v == '--keep-bin' then options.keep_bin = true
     elseif v == '--item-coverage' then options.item_coverage = true
     elseif v == '--no-build' then options.no_build = true
     elseif v == '--report-only' then options.report_only = true; options.no_build = true
     elseif v == '--help' then
-      print('Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua --batch N [--group G] [--matches 6] [--parallel 6] [--ue] [--split] [--spotlight-observed a,b,...] [--observer on|off] [--observer-note TEXT] [--recipes quick,quick_swap,teamfight] [--item-coverage] [--output DIR] [--no-build] [--report-only]')
+      print('Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua --batch N [--group G] [--matches 6] [--parallel 6] [--ue] [--split] [--spotlight-observed a,b,...] [--observer on|off] [--observer-note TEXT] [--recipes quick,quick_swap,teamfight] [--keep-bin] [--item-coverage] [--output DIR] [--no-build] [--report-only]')
       return
     else error('unknown argument ' .. v) end
     i = i + 1
@@ -643,6 +644,23 @@ path.write(path.join(output, 'report.md'), table.concat(md, '\n') .. '\n', true)
 print(table.concat(md, '\n'))
 print(('report: %s (%d castable abilities never cast, %d shop items never obtained or never used, %d balance flags)'):format(
   path.join(output, 'report.md'), never, unused_items, flagged))
+-- The batch's private build copy (E603: about 90 MB a batch, which filled the disk) goes once the
+-- report is written; kept with --keep-bin, or when a match failed so that it can be rerun with the
+-- same exe. The shared snapshot (target/snapshots/verify_m6_batch) stays: every batch builds into
+-- it incrementally.
+local function remove_tree(dir)
+  for name in lfs.dir(dir) do
+    if name ~= '.' and name ~= '..' then
+      local entry = path.join(dir, name)
+      if lfs.symlinkattributes(entry, 'mode') == 'directory' then remove_tree(entry) else assert(os.remove(entry)) end
+    end
+  end
+  assert(lfs.rmdir(dir))
+end
+if not options.keep_bin and not options.report_only and failed_matches == 0 and path.is_directory(bin) then
+  remove_tree(bin)
+  print('removed the batch build copy ' .. bin .. ' (--keep-bin keeps it)')
+end
 -- A batch where no match finished checked nothing (E332): fail, naming the first match's error.
 local finished = 0
 for _, row in ipairs(summary.recipes) do finished = finished + row.finished end

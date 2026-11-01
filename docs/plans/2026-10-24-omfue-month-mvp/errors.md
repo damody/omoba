@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E603 verify_m6_batch 每批留下 bin 副本，磁碟累積到不足（2026-11-01，E187）
+- 現象：D: 一度只剩約 1 GB，工作線 C 建置失敗（os error 112）。target/e187 累積到 149 GB，其中 102 個已完成批次各留一份 bin 副本（moba-headless.exe、base_content 和英雄 DLL，約 90 MB／批）；其餘是已 land 的 shadow 樹和裡面的 cargo target。
+- 修正（共用層）：verify_m6_batch 寫完 report.md 之後，刪掉該批次的 `<output>/bin`。有局失敗時保留，讓同一個 exe 可以重現；`--keep-bin` 也會保留；`--report-only` 不動。共用的 `target/snapshots/verify_m6_batch` 是每批增量建置的 cargo target，不會一批一批累積，所以保留。
+- 清理：刪掉 E187 自己建立、已經 land 完的 shadow 樹、debug／dev target、已完成批次的 bin、舊的 requests.log，約 142 GB；報告與 notes 引用的數據都保留。
+- 避免：批次工具產生的執行副本，在寫完報告後就要清掉，只留下重現需要的部分；shadow 樹 land 完後也要刪除。
+
 ## E601 可控制的幻象讓 client 的本機英雄在本體與幻象間跳動（2026-11-01，工作線 B，C 回報）
 
 - **現象**：A13 影惑（可控制的幻象）出現後，UE 收到的本機英雄 HUD 快照一格有、一格空，交替出現：`OM_SCOREBOARD player=0` 出現 77 次，其他局都是 0 次。之後移動和指定目標施法會隨機在本地被拒，訊息是 "Owned alive Moba hero snapshot does not match the local player"。
