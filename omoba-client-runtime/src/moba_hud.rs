@@ -159,7 +159,9 @@ pub fn project(snapshot: &FilteredRenderSnapshot, player_id: u32) -> Option<Moba
     if player_id == 0 || !(0..=2).contains(&phase) || elapsed < 0 || !(0..=2).contains(&winner) {
         return None;
     }
-    let hero = snapshot.entities.iter().find_map(|entity| {
+    // The owner's hero, never its controllable illusion (E601).
+    let illusions = omoba_core::runtime::runtime_fact_state::illusions(&snapshot.public_events);
+    let hero = snapshot.entities.iter().filter(|entity| !illusions.contains(&entity.replica_id)).find_map(|entity| {
         let render =
             decode_demo_render_state(entity.components.get(&DEMO_RENDER_COMPONENT_SCHEMA_ID)?)?;
         if render.kind != 1

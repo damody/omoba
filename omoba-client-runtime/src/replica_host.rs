@@ -575,6 +575,7 @@ impl ReplicaHost {
         &self,
         player_id: u32,
     ) -> Option<omoba_core::game_proto::SecureReplicaTarget> {
+        let illusions = omoba_core::runtime::runtime_fact_state::illusions(&self.runtime_facts);
         let mut matches = self
             .runtime
             .world()
@@ -591,7 +592,8 @@ impl ReplicaHost {
                             && render.kind == 1
                     })
                     .map(|_| *id)
-            });
+            })
+            .filter(|id| !illusions.contains(id));
         let render_id=matches.next()?;
         if matches.next().is_some() {return None;}
         self.secure_reference(render_id)
@@ -619,7 +621,8 @@ impl ReplicaHost {
     }
 
     pub fn owns_hero(&self, player_id: u32) -> bool {
-        self.runtime.world().entities.values().any(|entity| {
+        let illusions = omoba_core::runtime::runtime_fact_state::illusions(&self.runtime_facts);
+        self.runtime.world().entities.iter().filter(|(id, _)| !illusions.contains(id)).any(|(_, entity)| {
             entity
                 .components
                 .get(&omoba_core::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
@@ -633,7 +636,9 @@ impl ReplicaHost {
     }
 
     pub fn owned_hero_position(&self, player_id: u32) -> Option<(i64, i64)> {
-        self.runtime.world().entities.values().find_map(|entity| {
+        // The hero itself, never its controllable illusion (E601).
+        let illusions = omoba_core::runtime::runtime_fact_state::illusions(&self.runtime_facts);
+        self.runtime.world().entities.iter().filter(|(id, _)| !illusions.contains(id)).find_map(|(_, entity)| {
             entity
                 .components
                 .get(&omoba_core::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)

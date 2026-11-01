@@ -2,7 +2,20 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E601 （保留）可控制的幻象讓 client 的本機英雄在本體與幻象間跳動（2026-11-01）
+## E601 可控制的幻象讓 client 的本機英雄在本體與幻象間跳動（2026-11-01，工作線 B，C 回報）
+
+- **現象**：A13 影惑（可控制的幻象）出現後，UE 收到的本機英雄 HUD 快照一格有、一格空，交替出現：`OM_SCOREBOARD player=0` 出現 77 次，其他局都是 0 次。之後移動和指定目標施法會隨機在本地被拒，訊息是 "Owned alive Moba hero snapshot does not match the local player"。
+- **根因**：client 用「本隊、DemoRenderState kind=1、owner_player_id=本機玩家」找本機英雄。幻象複製英雄的樣子，也滿足這些條件：
+  - `replica_host::owned_hero_reference` 找到兩個時回傳 None；
+  - `owns_hero` 和 `owned_hero_position` 依 map 順序取第一個；
+  - HUD 也是取第一個符合條件的單位。
+  所以結果在本體與幻象之間跳動。幻象的 illusion 標記本來就由 runtime fact 送給本隊。
+- **修正**：
+  - 新增 `runtime_fact_state::illusions(events)`：從 runtime fact 中找出標記為 illusion 的 subject。
+  - `replica_host` 的 owned_hero_reference、owns_hero、owned_hero_position，以及 moba_hud 的本機英雄查找，都排除這些 subject。
+  - 敵隊收不到 illusion 標記，所以不會因此分辨出幻象。
+- **測試**：`runtime_fact_state::tests::illusions_lists_only_flagged_subjects`。client runtime 的 moba_hud／replica_host／owned 共 29 個測試通過。
+- **檔案**：`omoba-core/src/runtime/runtime_fact_state.rs`、`omoba-client-runtime/src/replica_host.rs`、`omoba-client-runtime/src/moba_hud.rs`
 
 ## E600 召喚物技能請求失敗時沒有任何 log（spotlight 查不到原因）（2026-11-01，工作線 C）
 **現象**：E595 的召喚物 slot（B16 忍犬「月」、A28 鳳凰）點選召喚物、按下 SummonAbility 鍵後，自動駕駛記錄「input layer submitted nothing」，UE log 什麼也沒留下。`RequestSelectedSummonAbility` 和 `TryIssueSelectedSummonCast` 拒絕時只把原因發到 HUD 的失敗通知，查不到是哪一步擋下的。

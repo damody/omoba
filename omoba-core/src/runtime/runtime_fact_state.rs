@@ -17,6 +17,15 @@ pub const MAX_ZONES: usize = 16;
 pub const MAX_LINKS: usize = 8;
 const MAGIC: &[u8; 4] = b"RFS1";
 
+/// The team's own illusions among a frame's events (E601): the subjects whose runtime fact says
+/// illusion (only the owner team is told). A controllable illusion shows as its owner's hero, so
+/// "the owner's hero" is the one not listed here.
+pub fn illusions(events: &[crate::game_proto::TeamPublicEvent]) -> std::collections::BTreeSet<u64> {
+    events.iter().filter(|event| event.event_kind == EVENT_KIND)
+        .filter(|event| RuntimeFactState::decode(&event.sanitized_payload).is_some_and(|state| state.illusion))
+        .filter_map(|event| event.subject.as_ref().map(|id| id.value)).collect()
+}
+
 /// A ground zone held by the entity: the disc at `center`, or the capsule to `end`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ZoneFact {
@@ -162,6 +171,17 @@ mod tests {
         DamageZoneSpec { end: None, grow: None, linger: None, independent: false, center: Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(5)),
             radius: Fixed64::from_i32(250), amount: Fixed64::ONE, interval: Fixed64::from_raw(512), kind: DamageKind::Magical,
             profile: DamageProfile::FIRE.bits() }
+    }
+
+    /// E601: the team's own illusions are the subjects whose fact says so.
+    #[test]
+    fn illusions_lists_only_flagged_subjects() {
+        use crate::game_proto::{ReplicaEntityId, TeamPublicEvent};
+        let fact = |id: u64, illusion: bool| TeamPublicEvent { event_kind: EVENT_KIND, subject: Some(ReplicaEntityId { value: id }),
+            sanitized_payload: RuntimeFactState { illusion, ..Default::default() }.encode().unwrap(), stable_sub_index: 0 };
+        let other = TeamPublicEvent { event_kind: EVENT_KIND + 1, subject: Some(ReplicaEntityId { value: 9 }),
+            sanitized_payload: RuntimeFactState { illusion: true, ..Default::default() }.encode().unwrap(), stable_sub_index: 0 };
+        assert_eq!(illusions(&[fact(3, true), fact(4, false), other]), std::collections::BTreeSet::from([3]));
     }
 
     #[test]
