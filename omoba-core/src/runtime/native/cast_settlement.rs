@@ -206,7 +206,18 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
         _=>false,
     });
     match refused {
-        Some((_,effect))=>Err(super::outcome_kind(effect)),
+        Some((index,effect))=>{
+            // Which row of the cast was refused, and against what: the reason alone names only its kind.
+            let target=match effect {
+                Outcome::AddBuff {target,buff_id,..}=>format!(" target={target:?} buff='{buff_id}' spawned={} own_summon={} caster_team={}",
+                    spawned.contains(target),own_summon(target),!outside_plan(target)),
+                Outcome::RawDamage {target,..}|Outcome::Damage {target,..}|Outcome::ScriptDirectDamage {target,..}=>format!(" target={target:?}"),
+                _=>String::new(),
+            };
+            log::info!("[scripting] settlement refused row caster={caster:?} ability='{skill}' row={index}/{} last_spawn={last_spawn:?} kind={}{target}",
+                effects.len(),super::outcome_kind(effect));
+            Err(super::outcome_kind(effect))
+        }
         None=>Ok(()),
     }
 }
