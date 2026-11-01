@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E625 verify_m6_batch 的 observer first 指向沒有不一致的局（2026-11-01，E187）
+
+- **現象**：m6new23 的 Acceptance 寫 `mismatch 1 (first: quick-01 tick nil …)`，但真正不一致的是 quick_swap-01（tick 9960），quick-01 的 mismatches 是 0。
+- **根因**：沒有不一致的局回報 `first: null`，`json.read` 把 null 解成 table sentinel，`type(...) == 'table'` 成立，第一個讀到的乾淨局就搶走了 first。
+- **修正**：只有 `mismatches > 0` 的局才能成為 first（`scripts/verify_m6_batch.lua`）。
+- **避免**：JSON 的 null 在本專案的 json 函式庫是 table；判斷「有沒有值」要看語意欄位（計數、tick），不要只看型別。
+
 ## E623 召喚物用 Vision scope：隱形的自家召喚物（A36 地雷）連 owner 的隊伍都看不到（2026-11-01，工作線 B，C 回報）
 
 - **現象**：A36 地刺陷阱施放成功，但 owner 端的 presentation frame 裡沒有地雷，autopilot 一直是 no_own_summon。

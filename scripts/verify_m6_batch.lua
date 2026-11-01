@@ -283,7 +283,8 @@ for _, r in ipairs(recipes) do
         o.matches = o.matches + 1
         o.mismatches = o.mismatches + (report.observer.mismatches or 0)
         o.checked_ticks = o.checked_ticks + (report.observer.checked_ticks or 0)
-        if not o.first and type(report.observer.first) == 'table' then
+        -- A clean match reports `first: null`, which json.read decodes to a table sentinel (E625).
+        if not o.first and (report.observer.mismatches or 0) > 0 and type(report.observer.first) == 'table' then
           o.first = report.observer.first
           o.first.match = ('%s-%02d'):format(r.name, job.seed)
         end
