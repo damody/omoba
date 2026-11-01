@@ -131,4 +131,6 @@ return {
   {hero='ishikawa_goemon',package='hero_c06',dir='heroes/ishikawa_goemon'},
   -- M6 batch (2026-10-31): every ability generated (aura exclude_invisible、光環的 independent 狀態每個來源一份、召喚物 tag ward（E530）); conformance 0 fail
   {hero='kirigakure_saizo',package='hero_b17',dir='heroes/kirigakure_saizo'},
+  -- M6 batch (2026-10-31): every ability generated (召喚物背包：pick_item→give_item 給召喚物（E587）); conformance 0 fail
+  {hero='ashikaga_yoshiaki',package='hero_b07',dir='heroes/ashikaga_yoshiaki'},
 }

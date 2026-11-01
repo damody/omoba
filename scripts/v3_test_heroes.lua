@@ -105,7 +105,7 @@ local HEROES = {
   { package = "saito_dosan", playable = true },
   { package = "zuiryuin_nisshu", playable = true },
   { package = "imagawa_yoshimoto", playable = true },
-  { package = "ashikaga_yoshiaki" },
+  { package = "ashikaga_yoshiaki", playable = true },
   { package = "mochizuki_chiyome", playable = true },
   { package = "kato_danzo", playable = true },
   { package = "kobayakawa_takakage", playable = true },

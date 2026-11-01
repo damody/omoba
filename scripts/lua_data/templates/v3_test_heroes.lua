@@ -69443,16 +69443,13 @@ local data = {
     {
       abilities = { "b07_starfall", "b07_battle_line", "b07_glorious_momentum", "b07_reign_over_all" },
       authored_package = "ashikaga_yoshiaki",
-      background = "足利義昭（schema v3 產生的 Rust；測試用）",
       display_name = "足利義昭",
       id = "ashikaga_yoshiaki",
       moba_loadout = {
         ranks = { 1, 1, 1, 0 },
         skill_points = 0,
       },
-      source_stats = "B07",
-      test_only = true,
-      title = "v3 測試英雄",
+      source_ref = "history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:B07",
       turn_speed = 720.0,
       ue = { native_only = true },
       v3_crate = "ashikaga_yoshiaki",
