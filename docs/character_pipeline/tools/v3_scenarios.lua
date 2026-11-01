@@ -1064,22 +1064,22 @@ local function entry_scenarios(doc, def, entry_kind, out)
         expect = { { kind = "hook_behavior", hook = name, text = h.behavior or h.why, test = h.test } }, hook = name })
     end
   end
+  -- rank 1 with the facts every case of the entry starts from (an ability swapped in or one
+  -- needing another's status: A12T's a12_awe_t; the unit owning it; the cast-point guards)
+  local function rank1_given(fact)
+    local g = { { kind = "learned", entry = def.id, rank = 1 } }
+    if swapped then g[#g + 1] = swapped end
+    if unit_owned then g[#g + 1] = unit_owned end
+    for _, need in ipairs(phase_needs) do g[#g + 1] = need end
+    g[#g + 1] = fact
+    return g
+  end
   -- buildings in a selector's area (line D judges it): one scenario per on_cast for_each selector
   -- reaching enemies whose spot line D can place a building at (a circle from the caster, the
   -- point or the target, no `where`, unconditional). Whether the building is affected is the
   -- selector's types (building or all); `ops` are that selector's own unconditional damage and
   -- apply_status, the trace line D looks for (rank 1: the types do not change with the rank)
   if castable then
-    -- rank 1 with the facts every case of the entry starts from (an ability swapped in or one
-    -- needing another's status: A12T's a12_awe_t; the unit owning it; the cast-point guards)
-    local function rank1_given(fact)
-      local g = { { kind = "learned", entry = def.id, rank = 1 } }
-      if swapped then g[#g + 1] = swapped end
-      if unit_owned then g[#g + 1] = unit_owned end
-      for _, need in ipairs(phase_needs) do g[#g + 1] = need end
-      g[#g + 1] = fact
-      return g
-    end
     for _, e in ipairs(base_effects) do
       local sel = e.op == "for_each" and e.phase == "on_cast" and not e.conds and e.args and e.args.select
       local from = sel and (sel.from or "caster")
@@ -1108,6 +1108,42 @@ local function entry_scenarios(doc, def, entry_kind, out)
             push(1, "hidden_in_effect", { suffix = state .. "/" .. e.path, given = rank1_given({ kind = "hidden_in_effect", path = e.path, team = "enemy", state = state }), when = { cast_step },
               expect = { { kind = "hidden_affected", path = e.path, affected = picked, ops = ops, state = state } },
               rule = "selector flags visible_only / exclude_invisible decide whether an enemy the caster's team cannot see is picked" })
+          end
+        end
+      end
+    end
+  end
+  -- an enemy the caster's team cannot see on a linear flight's path (line D judges it): one pair
+  -- per on_cast linear projectile from the caster with a distance, flying at enemies, and
+  -- unconditional damage / apply_status right under its on_hit. Line D puts the unseen enemy at a
+  -- third of `distance` and a visible one at two thirds; `pierce` says whether the flight goes on
+  -- after a hit. Hit unless the projectile has visible_only, which no package writes today: these
+  -- check that a flight hits unseen units by default
+  if castable then
+    for _, e in ipairs(base_effects) do
+      local a = e.op == "projectile" and e.phase == "on_cast" and not e.conds and e.args
+      if a and a.kind == "linear" and (a.from == nil or a.from == "caster" or a.from == "self") and a.distance ~= nil
+        and a.where == nil and (a.team == nil or a.team == "enemy") and a.max_hits == nil then
+        local ops, seen = {}, {}
+        for _, c in ipairs(base_effects) do
+          -- the on_hit body carries one condition, `projectile.on_hit` (walk_program)
+          local only_hit = c.conds and #c.conds == 1 and c.conds[1] == "projectile.on_hit"
+          if only_hit and (c.op == "damage" or c.op == "apply_status") and c.path:match("^" .. e.path:gsub("%p", "%%%0") .. "%.on_hit%[%d+%]$")
+            and not seen[c.op] then
+            seen[c.op] = true; ops[#ops + 1] = c.op
+          end
+        end
+        if #ops > 0 then
+          local visible = false
+          for _, f in ipairs(type(a.flags) == "table" and a.flags or {}) do if f == "visible_only" then visible = true end end
+          for _, state in ipairs({ "invisible", "fogged" }) do
+            push(1, "hidden_in_flight", { suffix = state .. "/" .. e.path,
+              given = rank1_given({ kind = "hidden_in_flight", path = e.path, team = "enemy", state = state,
+                distance = a.distance, pierce = a.pierce == true, types = a.types }),
+              when = { cast_step },
+              expect = { { kind = "hidden_hit", path = e.path, affected = not visible, ops = ops, state = state } },
+              rule = "a linear flight hits an enemy its caster's team cannot see unless it has visible_only (none does"
+                .. " today: this checks the default)" })
           end
         end
       end
