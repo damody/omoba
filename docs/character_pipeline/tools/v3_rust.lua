@@ -533,6 +533,8 @@ local UNIT_ATTRS = {
   mana = { "num", "cx.mana(%s)" }, is_building = { "bool", "cx.is_building(%s)" }, is_hero = { "bool", "cx.is_hero(%s)" },
   is_magic_immune = { "bool", "cx.is_magic_immune(%s)" }, position = { "point", "cx.pos(%s)?" },
   alive = { "bool", "cx.alive(%s)" },
+  -- the unit's hero: itself, an illusion's / summon's summoner hero, else none (line B E575)
+  hero = { "unit", "cx.unit_ref(%s, ability_kit::unit_attr::HERO)" },
   armor = { "num", "cx.armor(%s)" },
   missing_hp = { "num", "(cx.max_hp(%s) - cx.hp(%s))" },
   -- a host channel (ability_channel) holds its public status on the channeler
