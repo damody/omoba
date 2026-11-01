@@ -68240,6 +68240,9 @@ local data = {
       },
     },
   },
+  hero_items = {
+    { cost = 0, id = "item_c06e", name = "大盜的贈禮", package = "ishikawa_goemon" },
+  },
   heroes = {
     {
       abilities = { "a13_shadow_illusion", "a13_chain_sickle", "a13_iga_ninjutsu", "a13_shadow_slash", "a13_vanishing_step" },

@@ -199,5 +199,13 @@ return function(ctx)
       item.description = zh and zh.rendered or nil
     end
   end
+  -- Items a hero document defines (C06 item_c06e, scripts/v3_test_heroes.lua hero_items): a catalog
+  -- row each so the hero's generated item entry registers and give_item finds it (E571). Never
+  -- sold, never a bot goal, no source row (test_only); listed under the v3 id `item_<key>` itself,
+  -- which the kit's item_def and the host's item_script_id accept. Catalog ids from 900 in id order.
+  local heroes = ctx.include("templates/v3_test_heroes.lua")
+  for i, it in ipairs(heroes.hero_items or {}) do
+    items[#items + 1] = { catalog_id = 900 + i, id = it.id, test_only = true, name = it.name, cost = it.cost }
+  end
   return items
 end

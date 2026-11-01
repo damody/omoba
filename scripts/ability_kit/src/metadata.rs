@@ -36,11 +36,12 @@ fn target_type_from(c: TargetTypeC) -> TargetType {
 /// The full `AbilityDef` of a catalog ability, or None when the catalog does not carry it.
 /// The `AbilityDef` of a shop item's generated script (items.dll, M7): rank 1 with the catalog's
 /// cooldown, mana cost and target range; `kind = item`. `id` is the v3 item id; the catalog item
-/// cites it as its source (`source_ref` `…:<id>`). `passive`: an item with no active.
+/// cites it as its source (`source_ref` `…:<id>`), or a hero document's item (never sold) is
+/// listed under that id itself. `passive`: an item with no active.
 pub fn item_def(id: &str, passive: bool) -> Option<AbilityDef> {
     use omoba_template_ids::MobaItemTargetShapeConst as Shape;
     let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
-        .find(|item| item.source_ref.and_then(|r| r.rsplit_once(':')).is_some_and(|(_, source)| source == id))?;
+        .find(|item| item.id == id || item.source_ref.and_then(|r| r.rsplit_once(':')).is_some_and(|(_, source)| source == id))?;
     let target = match item.target.shape { Shape::Self_ => "none", Shape::Point => "point", Shape::Unit => "unit" };
     let def = serde_json::json!({
         "id": id, "name": item.name, "kind": "item",

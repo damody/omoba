@@ -871,6 +871,12 @@ function Gen:expr(node, ctx)
       if lt ~= "bool" or rt ~= "bool" then self:block("expr: " .. op .. " of non-booleans") end
       return string.format("(%s %s %s)", l, op == "and" and "&&" or "||", r), "bool"
     end
+    if (op == "==" or op == "~=") and ((lt == "event_ability" and rt == "slot_ref") or (lt == "slot_ref" and rt == "event_ability")) then
+      -- the event's ability is the one in that slot (by id)
+      local s = lt == "slot_ref" and l or r
+      local code = "{ let s = " .. s .. "; s.1.as_deref().is_some_and(|id| cx.event_is_ability(id)) }"
+      return op == "==" and code or ("(!" .. code .. ")"), "bool"
+    end
     if op == "==" or op == "~=" then
       if lt ~= rt or lt:match("^sym") or lt == "event" or lt == "event_ability" then self:block("expr: " .. op .. " of " .. lt .. " and " .. rt) end
       -- a right side that takes &mut cx (a block): the left value first, so no borrow of cx is held
@@ -1208,6 +1214,9 @@ function Gen:call(node, ctx)
       if HOST_TAGS[n] then return "{ let u = " .. u .. "; cx.has_unit_tag(u, " .. rust_str(n) .. ") }", "bool" end
       self:block("fn:has_tag:" .. n .. " of a unit"); return "false", "bool"
     end
+    if fn == "is_ability" and n and at == "slot_ref" then
+      return "{ let s = " .. u .. "; s.1.as_deref() == Some(" .. rust_str(n) .. ") }", "bool"
+    end
     if fn == "is_item" and n and (at == "item" or at == "item_in") then
       self.item_names = self.item_names or C.item_names(((self.opts.root or "."):gsub("\\", "/")) .. "/docs/character_pipeline/items")
       if not self.item_names[n] and not (self.m.abilities[n] and self.m.abilities[n].kind == "item") then self:block("fn:is_item of " .. n .. " (no such item)"); return "false", "bool" end
@@ -1435,7 +1444,7 @@ local ACTION_FIELDS = {
   __orb = set({ "op", "mode" }),
   -- a non-hero unit gains / loses an ability of this document (line B E560); a hero's slots
   -- (slot, cast_point, as: C08's stolen ability) wait for the hero version
-  add_ability = set({ "op", "to", "ability", "level" }),
+  add_ability = set({ "op", "to", "ability", "level", "slot", "cast_point", "as" }),
   -- a non-hero unit's base maximum health (line B E563); bonuses kept, health capped
   set_base_max_hp = set({ "op", "to", "value" }),
   remove_ability = set({ "op", "from", "ability" }),
@@ -1518,7 +1527,7 @@ local ACTION_FIELDS = {
   refund = set({ "op", "cooldown", "mana", "health" }),
   tether = false, -- shape-checked in Gen:tether
 }
-local SELECTOR_FIELDS = set({ "from", "radius", "shape", "team", "types", "flags", "where", "notes", "limit", "order", "exclude", "relative_to", "dead_within" })
+local SELECTOR_FIELDS = set({ "from", "radius", "shape", "team", "types", "flags", "where", "notes", "limit", "order", "exclude", "relative_to", "dead_within", "to", "width" })
 local SELECT_TYPES = { [""] = "All", all = "All", hero = "Heroes", ["creep+hero+neutral+summon"] = "NonBuilding",
   -- every unit class, buildings included / every non-building class (couriers and wards are units too)
   ["building+creep+hero+neutral+summon"] = "All", ["courier+creep+hero+neutral+summon+ward"] = "NonBuilding",
@@ -2583,7 +2592,11 @@ function Gen:action(a, ctx, ind)
     -- global: a circle past the map's diagonal (omoba_sim terrain coordinates stay within 2^19)
     local global = s.shape == "global"
     if global and s.radius ~= nil then self:block("selector.shape:global with a radius") end
-    if (s.shape or "circle") ~= "circle" and not global then self:block("selector.shape:" .. s.shape) end
+    -- segment (line B E576): the circle around it, then the units whose edge is within width/2
+    local segment = s.shape == "segment"
+    if (s.shape or "circle") ~= "circle" and not global and not segment then self:block("selector.shape:" .. s.shape) end
+    if segment and (s.to == nil or s.width == nil or s.radius ~= nil) then self:block("selector.shape:segment needs to and width (no radius)") end
+    if not segment and (s.to ~= nil or s.width ~= nil) then self:block("selector.to/width outside a segment") end
     if s.team ~= "enemy" and not team_kind then self:block("selector.team:" .. tostring(s.team)) end
     local types = SELECT_TYPES[types_key(s.types)]
     -- every non-building class but heroes (a boss is a neutral unit): non-buildings, heroes skipped
@@ -2615,7 +2628,7 @@ function Gen:action(a, ctx, ind)
     local exclude = s.exclude ~= nil and self:value(s.exclude, ctx, "unit")
       or s.team == "ally_not_self" and self:value("self", ctx, "unit") or nil
     local from = s.from ~= nil and self:value(s.from, ctx, "point") or "cx.pos(cx.caster)?"
-    local radius = global and "Fixed64::from_i32(1 << 21)" or self:value(s.radius, ctx, "num")
+    local radius = global and "Fixed64::from_i32(1 << 21)" or not segment and self:value(s.radius, ctx, "num") or nil
     local limit = s.limit ~= nil and self:value(s.limit, ctx, "num") or nil
     local body_scope = scope_child(ctx.scope)
     local it = self:bind(body_scope, a.as or "it", "unit")
@@ -2627,7 +2640,11 @@ function Gen:action(a, ctx, ind)
     local origin = s.relative_to ~= nil and nearest and self:value(s.relative_to, ctx, "point") or nil
     if s.dead_within ~= nil and not dead then self:block("selector.dead_within without include_dead") end
     local within = dead and (s.dead_within ~= nil and ("Some(" .. self:value(s.dead_within, ctx, "num") .. ")") or "None") or nil
-    local str = line("{") .. line("    let center = " .. from .. ";") .. line("    let radius = " .. radius .. ";")
+    local str = line("{") .. (segment
+        and (line("    let seg_from = " .. from .. ";") .. line("    let seg_to = " .. self:value(s.to, ctx, "point") .. ";")
+          .. line("    let seg_w = " .. self:value(s.width, ctx, "num") .. ";")
+          .. line("    let (center, radius) = Cx::segment_bounds(seg_from, seg_to, seg_w);"))
+        or (line("    let center = " .. from .. ";") .. line("    let radius = " .. radius .. ";")))
       .. (exclude and line("    let excluded = " .. exclude .. ";") or "")
       .. (within and line("    let within = " .. within .. ";") or "")
       .. (origin and line("    let origin = " .. origin .. ";") or "")
@@ -2637,13 +2654,14 @@ function Gen:action(a, ctx, ind)
         or line(string.format("    let %sunits = cx.enemies_in_circle(center, radius, Select { types: UnitTypes::%s, include_magic_immune: %s, include_invulnerable: %s, include_hidden: %s, include_illusions: %s });",
           (nearest or random or within) and "mut " or "", types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false", ill and "true" or "false")))
       .. (within and line("    units.extend(cx.dead_in_circle(center, radius, " .. rust_str(team_kind or "enemy") .. ", within));") or "")
-      .. (nearest and line("    cx.nearest_first(&mut units, " .. (origin and "origin" or "center") .. ");") or "")
+      .. (nearest and line("    cx.nearest_first(&mut units, " .. (origin and "origin" or segment and "seg_from" or "center") .. ");") or "")
       .. (farthest and line("    units.reverse();") or "")
       .. (random and line("    cx.shuffle(&mut units);") or "")
       .. (limit and (line("    let limit = usize::try_from(ability_kit::floor(" .. limit .. ").raw() >> 10).unwrap_or(0);")
         .. line("    let mut taken = 0usize;")) or "")
       .. line("    for " .. it .. " in units {")
       .. (exclude and line("        if " .. it .. " == excluded { continue; }") or "")
+      .. (segment and line("        if !cx.within_segment(" .. it .. ", seg_from, seg_to, seg_w) { continue; }") or "")
     for _, flag in ipairs(skip) do
       str = str .. line("        if cx.unit_flag(" .. it .. ", ability_kit::unit_attr::" .. flag .. ") { continue; }")
     end
@@ -2910,6 +2928,36 @@ function Gen:action(a, ctx, ind)
       .. line("    cx.set_base_max_hp(to, value)?;") .. line("}")
   elseif op == "add_ability" or op == "remove_ability" then
     local id = a.ability
+    -- an ability read from a slot (`ability_in_slot(u, F)` or a binding of one): its id at run time
+    local slot_code
+    if type(id) == "string" and not (id:match("^[%a_][%w_]*$") and self.m.abilities[id]) then
+      local code, ty = self:value(id, ctx)
+      if ty == "slot_ref" then slot_code = code elseif ty == "err" then return "" end
+    end
+    if op == "remove_ability" and slot_code then
+      return line("{") .. line("    let from = " .. self:value(a.from, ctx, "unit") .. ";") .. line("    let s = " .. slot_code .. ";")
+        .. line("    if let Some(id) = s.1 { cx.remove_ability(from, &id)?; }") .. line("}")
+    end
+    -- a hero's slot (line B E578): Q..F = 0..5; cast_point "0" is an instant cast, any other refused
+    if op == "add_ability" and (a.slot ~= nil or slot_code) then
+      local sidx = ({ Q = 0, W = 1, E = 2, R = 3, D = 4, F = 5 })[a.slot or ""]
+      if not sidx then self:block("action:add_ability.slot:" .. tostring(a.slot)); return "" end
+      if a.cast_point ~= nil and a.cast_point ~= "0" and a.cast_point ~= 0 then self:block("action:add_ability.cast_point other than 0"); return "" end
+      local instant = (a.cast_point == "0" or a.cast_point == 0) and "true" or "false"
+      local level = a.level ~= nil and self:value(a.level, ctx, "num") or "Fixed64::ONE"
+      local lit = not slot_code and type(id) == "string" and id:match("^[%a_][%w_]*$") and self.m.abilities[id] and id
+      if not slot_code and not lit then self:block("action:add_ability of " .. tostring(id)); return "" end
+      local body = line("    let to = " .. self:value(a.to, ctx, "unit") .. ";") .. line("    let level = " .. level .. ";")
+        .. (slot_code and line("    let s = " .. slot_code .. ";") or "")
+        .. line("    let added: Option<String> = " .. (slot_code and "s.1.clone()" or ("Some(" .. rust_str(lit) .. ".to_owned())")) .. ";")
+        .. line(string.format("    if let Some(id) = &added { cx.add_hero_ability(to, id, level, %d, %s)?; }", sidx, instant))
+      if a.as then
+        local marker = self:bind(ctx.scope, a.as, "slot_ref")
+        return line("let " .. marker .. " = {") .. body .. line("    (to, added)") .. line("};")
+      end
+      return line("{") .. body .. line("}")
+    end
+    if a.as ~= nil or a.cast_point ~= nil then self:block("action:add_ability.as/cast_point without a slot"); return "" end
     if type(id) ~= "string" or not id:match("^[%a_][%w_]*$") or not self.m.abilities[id] then
       self:block("action:" .. op .. " of " .. tostring(id) .. " (an ability id of this document)"); return ""
     end
@@ -3306,6 +3354,13 @@ function Gen:action(a, ctx, ind)
         flag("trigger_effects"), flag("use_orb"))) .. line("}")
   elseif op == "set_ability_active" or op == "swap_abilities" then
     local function id_of(v) return type(v) == "string" and v:match("^[%a_][%w_]*$") and v end
+    if op == "set_ability_active" and a.ability == "event.ability" and type(a.active) == "boolean" then
+      -- the ability whose execution fired this trigger (a cast's skill, or a status trigger's)
+      local of = self:value(a.of, ctx, "unit")
+      return line("{") .. line("    let of = " .. of .. ";")
+        .. line("    let id = cx.event_skill.map(|s| s.to_owned()).or_else(|| cx.event_ability_id());")
+        .. line(string.format("    if let Some(id) = id { cx.set_ability_active(of, &id, %s)?; }", tostring(a.active))) .. line("}")
+    end
     if op == "set_ability_active" then
       local ab = id_of(a.ability)
       if not ab or type(a.active) ~= "boolean" then self:block("action:set_ability_active (an ability id and a fixed active)"); return "" end

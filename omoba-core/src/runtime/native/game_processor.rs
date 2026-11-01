@@ -1942,9 +1942,14 @@ fn finish_item_use(world: &mut World, hero_entity: Entity, slot_i: usize, item_i
 }
 
 /// The script id of a catalog item (items.dll registers it under its v3 id, the item's source).
+/// A hero document's item (never sold, no source) is listed under its v3 id `item_<key>` itself
+/// and its hero's DLL registers it there.
 pub(crate) fn item_script_id(item_id: &str) -> Option<&'static str> {
-    omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == item_id)
-        .and_then(|item| item.source_ref).and_then(|r| r.rsplit_once(':')).map(|(_, source)| source)
+    let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == item_id)?;
+    match item.source_ref {
+        Some(r) => r.rsplit_once(':').map(|(_, source)| source),
+        None => item.id.starts_with("item_").then_some(item.id),
+    }
 }
 
 /// An item whose active is a generated script (items.dll registers it with `kind = item`).

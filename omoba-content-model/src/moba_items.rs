@@ -142,7 +142,7 @@ pub fn validate_moba_items(items: &[MobaItemEntry]) -> Result<(), String> {
             .map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
         if item.id.is_empty() || item.id.len() > 64
             || !item.id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
-            || item.name.is_empty() || item.name.len() > 128 || item.cost <= 0
+            || item.name.is_empty() || item.name.len() > 128 || item.cost < 0 || (item.cost == 0 && !item.test_only)
             || item.recipe.len() > 6
             || [item.atk, item.hp, item.ms, item.armor].iter()
                 .any(|v| !v.is_finite() || *v < 0.0 || *v > 100_000.0
