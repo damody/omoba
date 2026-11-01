@@ -22816,7 +22816,7 @@ local data = {
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "self_area", min_targets = 1, radius_key = "cast_range", source = "derived" },
+        bot = { kind = "self_area_status", min_targets = 1, radius_key = "cast_range", source = "derived", status = "c25e_dot" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "cast_range" },
@@ -50885,7 +50885,12 @@ local data = {
       target_type = "point",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "global_enemy_point", min_targets = 1, radius_key = "ally_radius", source = "derived" },
+        bot = {
+          kind = "ally_anchor_point",
+          radius_key = "ally_radius",
+          source = "derived",
+          types = { "creep", "summon", "building" },
+        },
         coverage = "expressible",
         info = {
           { field = "cast_point", value = "cast_point" },
@@ -56284,7 +56289,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "summon_near_enemy", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_area_corpses", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },

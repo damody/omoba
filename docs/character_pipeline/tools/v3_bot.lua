@@ -38,6 +38,12 @@ M.KINDS = {
   -- E387 (line B): an area placed anywhere (no cast range) at the revealed enemy hero with the
   -- most enemy heroes around it; a cast on another allied hero near revealed enemies
   global_enemy_point = { params = { radius_key = "value", min_targets = "count" } },
+  -- E605 (line B): what the cast's own guard asks for (on_phase_start cancel_cast, M.facts guard_*)
+  -- enemies around the caster carrying a public status; bodies around the caster; a point at an
+  -- allied non-hero unit nearest the revealed enemy heroes
+  self_area_status = { params = { radius_key = "value", min_targets = "count", status = "status" } },
+  self_area_corpses = { params = { radius_key = "value", min_targets = "count" } },
+  ally_anchor_point = { params = { radius_key = "value", types = "types" } },
   ally_engage = { params = { threat_radius = "radius" } },
   -- proposed (m6-bot-intents.md): not cast until the executor has them
   escape = { params = { below_hp_per_mille = "per_mille", threat_radius = "radius" }, proposed = true },
@@ -73,6 +79,8 @@ local function approach(target, def, f)
   -- no cast range and no cap: a move anywhere on the map. It lands where the cast's own check
   -- counts units around the point (c19_surprise_raid: allies within $ally_radius), aimed at the
   -- revealed enemy heroes (the executor's global_enemy_point)
+  -- the cast is cancelled unless allied units of `types` are near the point (c19_surprise_raid)
+  if f.guard_anchor then return { kind = "ally_anchor_point", radius_key = f.guard_anchor.radius, types = f.guard_anchor.types } end
   if unranged(target, def) and not reach and f.point_radius then
     return { kind = "global_enemy_point", radius_key = f.point_radius, min_targets = M.DEFAULTS.min_targets }
   end
@@ -146,7 +154,38 @@ function M.facts(def, castable, doc)
     elseif type(t) == "table" then for _, k in ipairs(sorted_keys(t)) do scan(t[k]) end end
   end
   scan(castable.events)
+  -- the cast's guard: on_phase_start cancels it unless its own scan finds something (a status on an
+  -- enemy, a body, allied units near the point); the bot asks for the same (E605)
+  local phase = (castable.events or {}).on_phase_start
+  local cancels = false
+  walk(phase, function(a) if a.op == "cancel_cast" then cancels = true end end, function() end, doc)
+  if cancels then
+    walk(phase, function(a)
+      local cond = type(a.cond) == "string" and a.cond or ""
+      for r, ty in cond:gmatch("count_in_radius%(%s*point%s*,%s*%$([%a_][%w_]*)%s*,%s*team_of%(%s*caster%s*%)%s*,%s*([%a_]+)%s*%)") do
+        f.guard_anchor = f.guard_anchor or { radius = r, types = {} }
+        if f.guard_anchor.radius == r then f.guard_anchor.types[#f.guard_anchor.types + 1] = ty end
+      end
+    end, function(s)
+      local st = type(s.where) == "string" and s.where:match("^%s*has_status%(%s*it%s*,%s*([%a_][%w_]*)%s*%)%s*$")
+      if st and (s.team == nil or s.team == "enemy") then f.guard_status = f.guard_status or { status = st, radius = value_name(s.radius) } end
+      for _, fl in ipairs(s.flags or {}) do
+        if fl == "include_dead" and (s.from == nil or s.from == "caster" or s.from == "self") then f.guard_dead = f.guard_dead or value_name(s.radius) end
+      end
+    end, doc)
+  end
   return f
+end
+
+-- a status' runtime id (the host's buff id), searched in the whole document
+local function status_runtime_id(doc, def, id)
+  local function find(list)
+    for _, st in ipairs(list or {}) do if st.id == id then return st.runtime_id or st.id end end
+  end
+  local rid = find(def.statuses)
+  for _, ab in ipairs(doc and doc.abilities or {}) do rid = rid or find(ab.statuses) end
+  if rid and rid:find("{", 1, true) then return nil end
+  return rid
 end
 
 -- Whether a `swap_abilities` of the document puts ability `id` into a slot (`to`): it is cast from
@@ -265,6 +304,8 @@ function M.derive(def, kind_of_entry, doc)
     return { kind = "self_recovery", below_hp_per_mille = 0, below_mana_per_mille = D.mana_below, restore_key = f.mana }
   end
   if f.heal_self and not f.damage then return { kind = "self_heal", below_hp_per_mille = D.heal_below } end
+  -- a cast that needs a body near the caster (b23_undead_pact): bodies, not enemies
+  if f.guard_dead then return { kind = "self_area_corpses", radius_key = f.guard_dead, min_targets = D.min_targets } end
   -- a summon without a target point (C02 phantom_move, B18 earth_claw): summon_near_enemy takes
   -- target none too (line B E419)
   if f.summon then return { kind = "summon_near_enemy", threat_radius = D.threat } end
@@ -272,6 +313,9 @@ function M.derive(def, kind_of_entry, doc)
     local r = value_name(s.radius)
     local around_caster = s.from == nil or s.from == "caster" or s.from == "self"
     if s.shape == "circle" and r and around_caster and (s.team == nil or s.team == "enemy") and (f.damage or f.enemy_status) then
+      -- a cast that needs an enemy carrying a status (c25_falling_sakura: a bleeding one)
+      local rid = f.guard_status and status_runtime_id(doc, def, f.guard_status.status)
+      if rid then return { kind = "self_area_status", radius_key = f.guard_status.radius or r, min_targets = D.min_targets, status = rid } end
       return { kind = "self_area", radius_key = r, min_targets = D.min_targets }
     end
   end
@@ -293,6 +337,14 @@ function M.check(bot, find_value)
         local n = value_name(v)
         if not n then problems[#problems + 1] = "bot." .. k .. " 必須寫成 `$值名稱`"
         elseif not find_value(n) then problems[#problems + 1] = "bot." .. k .. "：值 `" .. n .. "` 不存在" end
+      elseif p == "status" then
+        if type(v) ~= "string" or v == "" then problems[#problems + 1] = "bot." .. k .. " 必須是狀態 id" end
+      elseif p == "types" then
+        local ok = type(v) == "table" and #v > 0
+        for _, ty in ipairs(type(v) == "table" and v or {}) do
+          if ty ~= "creep" and ty ~= "summon" and ty ~= "building" then ok = false end
+        end
+        if not ok then problems[#problems + 1] = "bot." .. k .. " 必須是 creep／summon／building 的清單" end
       elseif math.type(v) ~= "integer" then problems[#problems + 1] = "bot." .. k .. " 必須是整數"
       elseif p == "per_mille" and (v < 0 or v > 1000) then problems[#problems + 1] = "bot." .. k .. " 必須在 0～1000"
       elseif p == "radius" and (v < 1 or v > 10000) then problems[#problems + 1] = "bot." .. k .. " 必須在 1～10000"

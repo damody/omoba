@@ -30,6 +30,11 @@ local SUPPORTED = {
   toggle_engage = { target = 'none', params = { 'threat_radius', 'on_status' }, toggle = true },
   self_heal = { target = 'none', params = { 'below_hp_per_mille' } },
   self_area = { target = 'none', params = { 'radius_key', 'min_targets' }, extras = { 'radius_key' } },
+  -- The cast's own guard (E605 executor): enemies around carrying a public status, bodies around,
+  -- a point at an allied non-hero unit nearest the revealed enemy heroes (any cast range).
+  self_area_status = { target = 'none', params = { 'radius_key', 'min_targets', 'status' }, extras = { 'radius_key' } },
+  self_area_corpses = { target = 'none', params = { 'radius_key', 'min_targets' }, extras = { 'radius_key' } },
+  ally_anchor_point = { target = 'point', params = { 'radius_key', 'types' }, extras = { 'radius_key' } },
   self_engage = { target = 'none', params = { 'threat_radius' } },
 }
 
