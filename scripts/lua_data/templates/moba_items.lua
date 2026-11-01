@@ -74,6 +74,15 @@ local SOURCE_ITEMS = {
   { 146, "item_spell_book" },
   { 147, "item_rockfall_book" },
   { 148, "item_ignite_book" },
+  -- Effects past the catalog's translation run in items.dll, generated from the item's v3 document
+  -- (third field): the source row's capability gaps are that script's, not the shelf's.
+  { 149, "item_brave_ring", true },
+  { 150, "item_ghost_mask", true },
+  { 151, "item_lesser_armor", true },
+  { 152, "item_sakabatou", true },
+  { 153, "item_satsuma_gun", true },
+  { 154, "item_toughness_ingot", true },
+  { 155, "item_big_tachi", true },
 }
 
 return function(ctx)
@@ -129,8 +138,11 @@ return function(ctx)
       unique_passive = {group="movement",name="疾行",priority=2,ms=45},recipe={"moba_boots"},
       purchase_group = {id="footwear",name="鞋靴",limit=1} },
   }
+  local scripted = {}
+  ctx.scripted_items = scripted
   for _, entry in ipairs(SOURCE_ITEMS) do
     local row = assert(rows[entry[2]], "unknown source item " .. entry[2])
+    if entry[3] then scripted[id_of(row.source_ref)] = true end
     assert(row.source_ref == source.name .. "@" .. source.commit .. ":" .. entry[2], "source row " .. entry[2] .. " cites another source")
     local item = { catalog_id = entry[1], id = id_of(row.source_ref), source_ref = row.source_ref,
       name = row.name, cost = row.cost, description = row.description }
@@ -156,7 +168,7 @@ return function(ctx)
     end
     items[#items + 1] = item
   end
-  sources_check.check(items, source)
+  sources_check.check(items, source, scripted)
   -- Package schema v3 is the single source of the shelf's numbers and recipes (value-single-source
   -- §3.3): scripts/gen_item_v3.lua resolves every number of the row and the recipe from the v3 values
   -- (templates/item_shop_v3.lua) and compares them with the source catalog export, which only shapes

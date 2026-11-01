@@ -21,12 +21,15 @@ local function copy(t) local c = {} for k, v in pairs(t) do c[k] = type(v) == 't
 local function rejects(mutate, pattern)
   local list = copy(items)
   mutate(list)
-  local passed, err = pcall(check, list, source)
+  local passed, err = pcall(check, list, source, ctx.scripted_items)
   ok(not passed and tostring(err):find(pattern, 1, true), 'expected "' .. pattern .. '", got ' .. tostring(err))
 end
 local function find(list, id) for _, item in ipairs(list) do if item.id == id then return item end end end
 
-ok(check(items, source), 'the real catalog follows the source')
+ok(check(items, source, ctx.scripted_items), 'the real catalog follows the source')
+-- a capability gap is allowed only on an item whose effects run in its generated script
+ok(ctx.scripted_items.lesser_armor, 'lesser_armor is marked scripted')
+ok(not pcall(check, items, source), 'without the mark its gap rejects it')
 local shop, fixtures = 0, 0
 for _, item in ipairs(items) do
   if item.test_only then fixtures = fixtures + 1 else shop = shop + 1; ok(item.source_ref, item.id .. ' cites a source') end
@@ -50,8 +53,8 @@ rejects(function(l) find(l, 'moba_sword').source_ref = 'item_spear' end, 'cannot
 rejects(function(l) find(l, 'spear').source_ref = 'item_not_in_source' end, 'is not a shop item of the source')
 -- A source row with a capability gap never reaches the shop.
 rejects(function(l)
-  l[#l + 1] = {catalog_id = 900, id = 'lesser_armor', source_ref = source.name .. '@' .. source.commit .. ':item_lesser_armor', name = '短甲', cost = 400}
-end, 'needs_framework: PHYSICAL_CONSTANT_BLOCK')
+  l[#l + 1] = {catalog_id = 900, id = 'wayumi', source_ref = source.name .. '@' .. source.commit .. ':item_wayumi', name = '短甲', cost = 400}
+end, 'needs_framework: SCRIPT')
 -- E160: a source active is copied exactly, with its cooldown and mana cost.
 ok(find(items, 'fire_scroll').active.kind == 'apply_modifiers', 'fire_scroll carries its source active')
 rejects(function(l) find(l, 'fire_scroll').active.radius = 900 end, 'active differs from the source')

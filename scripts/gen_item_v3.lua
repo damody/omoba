@@ -41,6 +41,17 @@ local function tools()
   return v, dofile(b.root .. "/docs/character_pipeline/tools/v3_compile.lua")
 end
 
+-- The shelf numbers a v3 passive stat is (the host applies an item's passive stats from its shelf
+-- row, not from items.dll: v3_rust.lua). A value without `v2_key` maps through these.
+M.STAT_PATHS = {
+  attack_damage = { "atk" }, armor = { "armor" }, max_hp = { "hp" },
+  attack_speed = { "modifiers.attackspeed_bonus_constant" }, hp_regen = { "modifiers.health_regen_constant" },
+  mana_regen = { "modifiers.mana_regen_constant" }, max_mana = { "modifiers.mana_bonus" },
+  spell_amp_pct = { "modifiers.spell_amplify_percentage" },
+  str = { "modifiers.stats_strength_bonus" }, agi = { "modifiers.stats_agility_bonus" }, int = { "modifiers.stats_intellect_bonus" },
+  all_stats = { "modifiers.stats_strength_bonus", "modifiers.stats_agility_bonus", "modifiers.stats_intellect_bonus" },
+}
+
 -- number leaves of a row: { ["active.damage"] = 300, cost = 150, ... }
 function M.numbers(row)
   local out = {}
@@ -93,6 +104,17 @@ function M.build(shelf, docs, partial)
             end
           end
           local nums = M.numbers(row)
+          -- no v2_key: `shop.cost` and `passive.stats` name the value (the numbers are still compared)
+          local by_name = {}
+          for _, value in ipairs(block.values or {}) do by_name[value.name] = value end
+          local function infer(path, expr)
+            local name = type(expr) == "string" and expr:match("^%$([%w_]+)$")
+            if name and by_name[name] and not mapped[path] then mapped[path] = by_name[name] end
+          end
+          infer("cost", item.shop and item.shop.cost)
+          for stat, expr in pairs(item.passive and item.passive.stats or {}) do
+            for _, path in ipairs(M.STAT_PATHS[stat] or {}) do if nums[path] ~= nil then infer(path, expr) end end
+          end
           local shop = { numbers = {} }
           for path, n in pairs(nums) do
             local value = mapped[path]

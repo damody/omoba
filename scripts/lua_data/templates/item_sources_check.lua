@@ -13,7 +13,7 @@
 return function(ctx)
   local STATS = { "atk", "hp", "armor", "ms", "lifesteal", "critical_chance" }
   local M = {}
-  function M.check(items, source)
+  function M.check(items, source, scripted)
     local rows, by_id, errors = {}, {}, {}
     for _, row in ipairs(source.items) do rows[row.source_ref] = row end
     for _, item in ipairs(items) do by_id[item.id] = item end
@@ -26,7 +26,7 @@ return function(ctx)
         if not item.source_ref then fail(item, "a shop item needs source_ref (items outside history_nobu cannot be sold)")
         elseif not row then fail(item, "source_ref " .. item.source_ref .. " is not a shop item of the source")
         else
-          if #row.gaps > 0 then fail(item, "source needs_framework: " .. table.concat(row.gaps, ", ")) end
+          if #row.gaps > 0 and not (scripted and scripted[item.id]) then fail(item, "source needs_framework: " .. table.concat(row.gaps, ", ")) end
           if item.name ~= row.name then fail(item, ("name '%s' is not the source name '%s'"):format(tostring(item.name), tostring(row.name))) end
           if item.cost ~= row.cost then fail(item, ("cost %s is not the source cost %s"):format(tostring(item.cost), tostring(row.cost))) end
           if item.description ~= row.description then fail(item, "description differs from the source") end

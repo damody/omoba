@@ -7,11 +7,18 @@ local data = {
   attack_speed_ingot = {
     numbers = { cost = 400, ["modifiers.attackspeed_bonus_constant"] = 15 },
   },
+  big_tachi = {
+    numbers = { atk = 15, cost = 2800, ["modifiers.stats_agility_bonus"] = 10 },
+    recipe = { "tachi", "power_ingot", "brave_ring" },
+  },
   blowgun = {
     numbers = { ["active.control.duration"] = 1, ["active.damage"] = 50, ["active.projectile.speed"] = 2500, ["active.projectile.vision"] = 225, cooldown = 55, cost = 1850, mana_cost = 75, ["target.range"] = 700 },
   },
   body_wrap = {
     numbers = { armor = 10, cost = 1400 },
+  },
+  brave_ring = {
+    numbers = { cost = 1500 },
   },
   cursed_katana = {
     numbers = { atk = 40, cost = 1850 },
@@ -29,6 +36,10 @@ local data = {
   },
   fire_scroll = {
     numbers = { ["active.modifiers.1.duration"] = 8, ["active.modifiers.1.stats.basedamageoutgoing_percentage"] = 0.2, ["active.radius"] = 700, cooldown = 26, cost = 500, mana_cost = 50 },
+  },
+  ghost_mask = {
+    numbers = { cost = 2000, ["modifiers.stats_agility_bonus"] = 5, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 5 },
+    recipe = { "strength_ingot", "agility_ingot", "intelligence_ingot" },
   },
   gorgeous_tachi = {
     numbers = { atk = 7, cost = 1950, ["modifiers.stats_agility_bonus"] = 15, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 5 },
@@ -77,6 +88,9 @@ local data = {
   },
   katana = {
     numbers = { atk = 14, cost = 1120, ["modifiers.attackspeed_bonus_constant"] = 15 },
+  },
+  lesser_armor = {
+    numbers = { cost = 400 },
   },
   lesser_shield = {
     numbers = { armor = 2, cost = 250 },
@@ -150,8 +164,16 @@ local data = {
     },
     recipe = { "spell_book" },
   },
+  sakabatou = {
+    numbers = { atk = 35, cost = 3290, ["modifiers.attackspeed_bonus_constant"] = 30 },
+    recipe = { "katana", "katana" },
+  },
   sake = {
     numbers = { ["active.modifiers.1.duration"] = 10, ["active.modifiers.1.stats.movespeed_bonus_percentage"] = 0.15, cooldown = 35, cost = 85 },
+  },
+  satsuma_gun = {
+    numbers = { atk = 21, cost = 3500, ["modifiers.attackspeed_bonus_constant"] = 15, ["modifiers.stats_agility_bonus"] = 15, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 5 },
+    recipe = { "gorgeous_tachi", "katana" },
   },
   shuriken = {
     numbers = { ["active.control.duration"] = 0.05, ["active.damage"] = 150, ["active.projectile.speed"] = 2500, ["active.projectile.vision"] = 225, cooldown = 2, cost = 40, ["target.range"] = 700 },
@@ -215,6 +237,9 @@ local data = {
       ["modifiers.stats_intellect_bonus"] = 5,
     },
     recipe = { "spirit_ingot", "lesser_shield" },
+  },
+  toughness_ingot = {
+    numbers = { cost = 650 },
   },
 }
 return function(ctx) return data end
