@@ -6801,6 +6801,11 @@ fn handle_add_buff(
         return Ok(());
     }
     // v3 set_ability_active / swap_abilities: never stored as the packet itself.
+    // v3 redirect_motion (E586): a one-shot turn of the unit's running motion, never a stored row.
+    if buff_id==super::forced_motion::REDIRECT_BUFF || payload.get(super::forced_motion::REDIRECT_KEY).is_some() {
+        super::forced_motion::redirect(world,target,&payload);
+        return Ok(());
+    }
     if buff_id==super::ability_slots::ACTIVE_BUFF || buff_id==super::ability_slots::SWAP_BUFF || buff_id==super::ability_slots::SLOT_BUFF
         || payload.get(super::ability_slots::ACTIVE_KEY).is_some() || payload.get(super::ability_slots::SWAP_KEY).is_some()
         || payload.get(super::ability_slots::SLOT_KEY).is_some() {

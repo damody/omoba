@@ -590,3 +590,70 @@ mod tests {
         }
     }
 }
+
+/// v3 `redirect_motion { who, toward, speed }` (E586, B24W's bounce toward its stele): a one-shot
+/// packet on `who` that turns its running knockback or pull toward `toward` at `speed` for the
+/// time it has left, ending on `toward` at the latest. Nothing happens without such a motion.
+pub const REDIRECT_KEY: &str = "__redirect_motion_v1";
+pub const REDIRECT_BUFF: &str = "__redirect_motion";
+
+pub fn redirect_payload(toward_id: u32, toward_generation: u32, speed: Fixed64) -> Value {
+    json!({ (REDIRECT_KEY): { "toward": [toward_id, toward_generation], "speed_raw": speed.raw() } })
+}
+
+fn redirect_of(payload: &Value) -> Option<(Entity, Fixed64)> {
+    if payload.as_object()?.len() != 1 { return None; }
+    let row = payload.get(REDIRECT_KEY)?.as_object().filter(|row| row.len() == 2)?;
+    let toward = row.get("toward")?.as_array().filter(|unit| unit.len() == 2)?;
+    let (id, gen) = (u32::try_from(toward[0].as_u64()?).ok()?, i32::try_from(toward[1].as_u64()?).ok().filter(|gen| *gen > 0)?);
+    let speed = Fixed64::from_raw(row.get("speed_raw")?.as_i64()?);
+    (speed > Fixed64::ZERO && speed <= Fixed64::from_i32(10_000))
+        .then(|| (Entity::new(id, specs::world::Generation::new(gen)), speed))
+}
+
+/// Settles a redirect packet on `target`; false when it changes nothing.
+pub fn redirect(world: &mut World, target: Entity, payload: &Value) -> bool {
+    let Some((toward, speed)) = redirect_of(payload) else { return false };
+    if !world.entities().is_alive(toward) { return false; }
+    let (Some(from), Some(goal)) = ({ let p = world.read_storage::<Pos>(); (p.get(target).map(|p| p.0), p.get(toward).map(|p| p.0)) })
+        else { return false };
+    let gap = goal - from;
+    let length = gap.length();
+    if length <= Fixed64::ZERO { return false; }
+    let Some(mut motions) = world.try_fetch_mut::<ForcedMotions>() else { return false };
+    let Some(motion) = motions.0.get_mut(&target).filter(|motion| motion.mode != Mode::Dash && motion.time_left > Fixed64::ZERO) else { return false };
+    motion.direction = gap.normalized();
+    motion.remaining = (speed * motion.time_left).min(length);
+    motion.to = None;
+    true
+}
+
+#[cfg(test)]
+mod redirect_tests {
+    use super::*;
+    use specs::Builder;
+
+    /// E586: a running knockback turns toward the unit at the new speed for its time left, never
+    /// past it; without a motion, a malformed packet or a dash, nothing changes.
+    #[test]
+    fn a_redirect_turns_a_running_knockback_toward_the_unit() {
+        let mut world = World::new();
+        world.register::<Pos>();
+        let at = |x: i32, y: i32| Pos(Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y)));
+        let victim = world.create_entity().with(at(0, 0)).build();
+        let stele = world.create_entity().with(at(0, 300)).build();
+        let motion = Motion { source: stele, mode: Mode::Knockback, direction: Vec2::new(Fixed64::ONE, Fixed64::ZERO),
+            remaining: Fixed64::from_i32(200), time_left: Fixed64::from_raw(512), to: None, contact: None, on_end: None };
+        assert!(!redirect(&mut world, victim, &redirect_payload(stele.id(), stele.gen().id() as u32, Fixed64::from_i32(1000))), "no motion");
+        world.insert(ForcedMotions([(victim, motion.clone())].into_iter().collect()));
+        assert!(redirect(&mut world, victim, &redirect_payload(stele.id(), stele.gen().id() as u32, Fixed64::from_i32(400))));
+        let now = world.read_resource::<ForcedMotions>().0[&victim].clone();
+        assert!(now.direction.x == Fixed64::ZERO && now.direction.y > Fixed64::from_raw(1000), "toward the stele");
+        assert_eq!(now.remaining, Fixed64::from_i32(200), "400 for half a second");
+        assert!(redirect(&mut world, victim, &redirect_payload(stele.id(), stele.gen().id() as u32, Fixed64::from_i32(1000))));
+        assert_eq!(world.read_resource::<ForcedMotions>().0[&victim].remaining, Fixed64::from_i32(300), "never past the unit");
+        assert!(!redirect(&mut world, victim, &redirect_payload(stele.id(), stele.gen().id() as u32, Fixed64::ZERO)), "no speed");
+        world.write_resource::<ForcedMotions>().0.get_mut(&victim).unwrap().mode = Mode::Dash;
+        assert!(!redirect(&mut world, victim, &redirect_payload(stele.id(), stele.gen().id() as u32, Fixed64::from_i32(400))), "a dash is the unit's own");
+    }
+}

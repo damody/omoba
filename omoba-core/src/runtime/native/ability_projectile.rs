@@ -201,7 +201,7 @@ impl Spec {
         if buff_id != BUFF || payload.as_object()?.len() != 1 { return None; }
         let row = payload.get(KEY)?.as_object()?;
         let optional = ["slow", "control", "dot", "buildings", "forced", "retarget_radius", "bounce",
-            "dodgeable", "end_radius", "dot_interval", "hit_stack", "delay", "healing_reduction", "vision", "on_hit", "start"].iter().filter(|key| row.contains_key(**key)).count();
+            "dodgeable", "only", "end_radius", "dot_interval", "hit_stack", "delay", "healing_reduction", "vision", "on_hit", "start", "on_end"].iter().filter(|key| row.contains_key(**key)).count();
         if row.len() != 15 + optional { return None; }
         let raw = |name: &str| row.get(name)?.as_i64().map(Fixed64::from_raw);
         let id = |value: &Value, name: &str| value.get(name)?.as_u64().and_then(|v| u32::try_from(v).ok());
@@ -262,6 +262,7 @@ impl Spec {
         // The buff duration is the authored lifetime; a mismatch is ambiguous.
         if row.contains_key("bounce") && bounce_of(payload).is_none() { return None; }
         if row.contains_key("dodgeable") && !dodgeable_of(payload) { return None; }
+        if row.contains_key("only") && only_of(payload).is_none() { return None; }
         if row.contains_key("end_radius") && end_radius_of(payload).is_none() { return None; }
         if row.contains_key("dot_interval") && dot_interval_of(payload).is_none() { return None; }
         if row.contains_key("hit_stack") && hit_stack_of(payload).is_none() { return None; }
@@ -270,6 +271,7 @@ impl Spec {
         if row.contains_key("vision") && vision_of(payload).is_none() { return None; }
         if row.contains_key("on_hit") && on_hit_of(payload).is_none() { return None; }
         if row.contains_key("start") && start_of(payload).is_none() { return None; }
+        if row.contains_key("on_end") && on_end_of(payload).is_none() { return None; }
         (spec.valid() && duration == spec.lifetime).then_some(spec)
     }
 }
@@ -306,6 +308,22 @@ pub fn with_on_hit(payload: Value, template: &super::scheduled_effect::Spec) -> 
     with_row(payload, "on_hit", template.payload()[super::scheduled_effect::KEY].clone())
 }
 
+/// When the flight retires, schedules `template` once on the owner with its end point appended
+/// (v3 `projectile.on_end`); at most `MAX_ARGS - 1` authored captures.
+pub fn with_on_end(payload: Value, template: &super::scheduled_effect::Spec) -> Value {
+    with_row(payload, "on_end", template.payload()[super::scheduled_effect::KEY].clone())
+}
+
+/// The on-end schedule template of a payload, if valid.
+pub fn on_end_of(payload: &Value) -> Option<super::scheduled_effect::Spec> {
+    use super::scheduled_effect as se;
+    let row = payload.get(KEY)?.as_object()?.get("on_end")?.clone();
+    let probe = row.as_object()?;
+    let id = format!("{}{}:{}:{}", se::PREFIX, probe.get("ability")?.as_str()?, probe.get("instance")?.as_u64()?, probe.get("step")?.as_u64()?);
+    let spec = se::Spec::from_buff(&id, &serde_json::json!({ (se::KEY): row }))?;
+    (spec.args.len() + 1 <= se::MAX_ARGS).then_some(spec)
+}
+
 /// The on-hit schedule template of a payload, if valid.
 pub fn on_hit_of(payload: &Value) -> Option<super::scheduled_effect::Spec> {
     use super::scheduled_effect as se;
@@ -318,6 +336,21 @@ pub fn on_hit_of(payload: &Value) -> Option<super::scheduled_effect::Spec> {
 
 /// Marks a homing payload dodgeable: [`dodge`] of the locked unit retires it.
 pub fn with_dodgeable(payload: Value) -> Value { with_row(payload, "dodgeable", json!(true)) }
+
+/// E586 (v3 `team = "any"` with `where = "it == unit"`, B24R): a linear flight hits only `unit`,
+/// whatever its team.
+pub fn with_only(payload: Value, id: u32, generation: u32) -> Value {
+    with_row(payload, "only", json!([id, generation]))
+}
+
+/// The one unit a linear flight hits ([`with_only`]); `None` for any other payload.
+pub fn only_of(payload: &Value) -> Option<Entity> {
+    let row = payload.get(KEY)?;
+    row.get("linear")?;
+    let unit = row.get("only")?.as_array().filter(|unit| unit.len() == 2)?;
+    let (id, gen) = (u32::try_from(unit[0].as_u64()?).ok()?, i32::try_from(unit[1].as_u64()?).ok().filter(|gen| *gen > 0)?);
+    Some(Entity::new(id, specs::world::Generation::new(gen)))
+}
 
 /// Whether the payload is a dodgeable homing flight (canonical: present only when true).
 pub fn dodgeable_of(payload: &Value) -> bool {
@@ -503,12 +536,16 @@ pub struct State {
     pub bounce: Option<(u16, Fixed64)>,
     /// Payload extensions (see the module doc); fixed for the flight's life.
     pub dodgeable: bool,
+    /// The one unit a linear flight hits, any team ([`with_only`]).
+    pub only: Option<Entity>,
     pub end_radius: Option<Fixed64>,
     pub dot_interval: Option<Fixed64>,
     pub hit_stack: Option<String>,
     pub healing_reduction: Option<(Fixed64, Fixed64)>,
     /// The `on_hit` schedule template (scheduled_effect).
     pub on_hit: Option<super::scheduled_effect::Spec>,
+    /// The `on_end` schedule template, due once when the flight retires.
+    pub on_end: Option<super::scheduled_effect::Spec>,
     /// Launch delay still to wait before the first step (see [`MAX_LAUNCH_DELAY`]).
     pub delay_left: Fixed64,
 }
@@ -542,10 +579,12 @@ impl AbilityProjectiles {
             });
             // Extensions join the hash only when set, so older flights hash as before.
             if state.dodgeable { row["dodgeable"] = json!(true); }
+            if let Some(only) = state.only { row["only"] = json!(crate::runtime::canonical_entity_id(only)); }
             if let Some(end) = state.end_radius { row["end_radius"] = json!(end.raw()); }
             if let Some(interval) = state.dot_interval { row["dot_interval"] = json!(interval.raw()); }
             if let Some(buff) = &state.hit_stack { row["hit_stack"] = json!(buff); }
             if let Some(on_hit) = &state.on_hit { row["on_hit"] = on_hit.payload(); }
+            if let Some(on_end) = &state.on_end { row["on_end"] = on_end.payload(); }
             row["delay_left"] = json!(state.delay_left.raw());
             row
         }).collect())
@@ -558,6 +597,13 @@ fn attackable(world: &World, target: Entity) -> bool {
 }
 
 /// A live, hostile, non-building unit that ability projectiles may hit.
+/// A living, placed, attackable body of any team (an `only` flight's one unit, E586).
+fn reachable_body(world: &World, target: Entity, removed: &[Entity]) -> bool {
+    world.entities().is_alive(target) && !removed.contains(&target)
+        && world.read_storage::<CProperty>().get(target).is_some_and(|p| p.hp > Fixed64::ZERO)
+        && world.read_storage::<Pos>().get(target).is_some() && attackable(world, target)
+}
+
 fn hittable(world: &World, faction: &Faction, target: Entity, removed: &[Entity], buildings: bool) -> bool {
     world.entities().is_alive(target) && !removed.contains(&target)
         && world.read_storage::<CProperty>().get(target).is_some_and(|p| p.hp > Fixed64::ZERO)
@@ -643,9 +689,10 @@ pub fn launch(world: &mut World, target: Entity, buff_id: &str, duration: Fixed6
         spec, owner: source, faction, team, origin, end, target: victim, target_lost: false,
         age: Fixed64::ZERO, hits: BTreeSet::new(), heading: Vec2::ZERO,
         bounce: bounce_of(payload),
-        dodgeable: dodgeable_of(payload), end_radius: end_radius_of(payload),
+        dodgeable: dodgeable_of(payload), only: only_of(payload), end_radius: end_radius_of(payload),
         dot_interval: dot_interval_of(payload), hit_stack: hit_stack_of(payload),
         delay_left: delay_of(payload), healing_reduction: healing_reduction_of(payload), on_hit: on_hit_of(payload),
+        on_end: on_end_of(payload),
     });
     // Flight vision: the team sees around the projectile until it retires (the zone follows
     // the entity and closes when it is removed; the duration only bounds it).
@@ -709,7 +756,8 @@ pub fn settle_step(world: &mut World, projectile: Entity, from: Vec2, to: Vec2, 
             // Widening flights test this step at the radius reached by its end.
             let radius = state.hit_radius();
             let mut rows: Vec<_> = (&entities, &positions, &world.read_storage::<Faction>()).join()
-                .filter(|(target, _, other)| *target != state.owner && state.faction.is_hostile_to(other)
+                .filter(|(target, _, other)| *target != state.owner
+                    && state.only.map_or_else(|| state.faction.is_hostile_to(other), |only| *target == only)
                     && !state.hits.contains(&identity(*target)))
                 .filter_map(|(target, pos, _)| {
                     let reach = radius + radii.get(target).map_or(Fixed64::ZERO, |r| r.0.max(Fixed64::ZERO));
@@ -717,7 +765,8 @@ pub fn settle_step(world: &mut World, projectile: Entity, from: Vec2, to: Vec2, 
                 })
                 .collect();
             drop((entities, positions, radii));
-            rows.retain(|(_, target)| hittable(world, &state.faction, *target, removed, false));
+            rows.retain(|(_, target)| if state.only.is_some() { reachable_body(world, *target, removed) }
+                else { hittable(world, &state.faction, *target, removed, false) });
             rows.sort_by_key(|(contact, target)| (*contact, identity(*target)));
             rows.truncate(remaining);
             hits = rows;
@@ -834,6 +883,15 @@ pub fn settle_step(world: &mut World, projectile: Entity, from: Vec2, to: Vec2, 
         }
     }
     if done {
+        if let Some(template) = &state.on_end {
+            // Once, due on the next dispatch: captures + where the flight ended.
+            use super::scheduled_effect as se;
+            let mut args = template.args.clone();
+            args.push(omb_script_abi::types::ScheduleArg { kind: se::ARG_POINT, num: Fixed64::ZERO,
+                unit: omb_script_abi::types::EntityHandle::INVALID, point: end_pos });
+            let spec = se::Spec { instance: template.instance.wrapping_mul(64).wrapping_add(63), args, ..template.clone() };
+            outcomes.push(Outcome::AddBuff { target: state.owner, buff_id: spec.buff_id(), duration: se::GRACE, payload: spec.payload() });
+        }
         if let Some(pos) = world.write_storage::<Pos>().get_mut(projectile) { pos.0 = end_pos; }
         emit_fact(world, projectile, hits.len() as u32 + 1, crate::runtime::FactKind::Projectile,
             crate::runtime::ObservableFact::Projectile { source: crate::runtime::canonical_entity_id(projectile),
@@ -902,3 +960,19 @@ pub fn decode_disclosed_flight(bytes: &[u8]) -> Option<DisclosedFlight> {
 #[cfg(test)]
 #[path = "ability_projectile_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod only_tests {
+    use super::*;
+
+    /// E586: a linear flight can name the one unit it hits; a homing flight or a malformed unit
+    /// cannot, and the spec still admits the payload.
+    #[test]
+    fn a_linear_flight_names_the_one_unit_it_hits() {
+        let linear = json!({ (KEY): { "linear": { "x": 0, "y": 0 } } });
+        let marked = with_only(linear, 12, 3);
+        assert_eq!(only_of(&marked), Some(Entity::new(12, specs::world::Generation::new(3))));
+        assert_eq!(only_of(&with_only(json!({ (KEY): { "homing": {} } }), 12, 3)), None, "homing hits its target anyway");
+        assert_eq!(only_of(&with_only(json!({ (KEY): { "linear": {} } }), 12, 0)), None, "no such generation");
+    }
+}

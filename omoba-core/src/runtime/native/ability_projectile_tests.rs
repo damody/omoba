@@ -577,7 +577,7 @@ fn widening_line_hits_by_the_radius_reached_at_each_distance() {
     // The radius is an exact lerp on the distance flown, capped at the end.
     let mut state = State { spec: linear(caster, at(1, 0)), owner: caster, faction: Faction::new(FactionType::Player, 1), team: 1,
         origin: super::super::moba_match::capture_projectile_origin(&w, caster).unwrap(), end: at(1000, 0), target: None,
-        target_lost: false, age: Fixed64::ZERO, hits: BTreeSet::new(), heading: Vec2::ZERO, bounce: None, dodgeable: false,
+        target_lost: false, age: Fixed64::ZERO, hits: BTreeSet::new(), heading: Vec2::ZERO, bounce: None, dodgeable: false, only: None,
         end_radius: Some(Fixed64::from_i32(310)), dot_interval: None, hit_stack: None, delay_left: Fixed64::ZERO, healing_reduction: None, on_hit: None, on_end: None };
     assert_eq!(state.hit_radius(), Fixed64::from_i32(10));
     state.age = Fixed64::from_raw(512);

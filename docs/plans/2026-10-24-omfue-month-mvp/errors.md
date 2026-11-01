@@ -2,6 +2,25 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E586 B24：redirect_motion 與只打特定單位的直線投射物（team any、where it == X）（2026-11-01，工作線 B）
+
+- **現象**：秋山信友（B24）有兩處 kit 缺口，產生器無法輸出：
+  - W「地靈石碑」震開敵人後，在 0.1 秒間隔內檢查目標附近有沒有己方岩石；有的話用 `redirect_motion { who = victim, toward = stele, speed }` 把位移改成朝石碑。
+  - R 被動被普攻時，丟出 `kind = "linear"`、`team = "any"`、`where = "it == attacker"` 的落石，只命中攻擊者。
+  - host 的 forced motion 不能中途改向；直線投射物只會命中敵方單位。
+- **修正**：
+  - **forced_motion**：新增一次性封包 `__redirect_motion`。`redirect()` 把 who 正在進行的 knockback 或 pull 轉向 toward，方向重新計算。剩餘距離 = speed × 剩餘時間，最多到 toward 的位置；dash、沒有 motion、資料不合法時不動作。封包在 game_processor 的 AddBuff 鏈處理，不會存成列。
+  - **ability_projectile**：payload 新增選用的 `only`（`with_only`／`only_of`，只限直線）。帶 `only` 的直線投射物只命中那一個單位，不論陣營；命中條件改用 `reachable_body`（活著、有位置、可被攻擊），不檢查敵對。`only` 也納入 State 與 hash。
+  - **kit**：
+    - `Cx::redirect_motion(who, toward, speed)`。
+    - `Cx::projectile_only(ability, p, only, on_hit, on_end)`：直線投射物；only 已不存在時不發射，homing 回傳錯誤。
+    - `projectile_ended` 改經由共用的 `projectile_launch`，行為不變。
+- **測試**：
+  - `forced_motion::redirect_tests::a_redirect_turns_a_running_knockback_toward_the_unit`：沒有 motion 時不動作；轉向後方向朝石碑，速度 × 時間正確，且不會超過石碑；speed 0 與 dash 被拒。
+  - `ability_projectile::only_tests::a_linear_flight_names_the_one_unit_it_hits`：直線可以帶 only；homing 與 generation 0 回傳 None。
+  - ability_projectile 與 forced_motion 的 33 個測試通過。
+- **檔案**：`omoba-core/src/runtime/native/{ability_projectile,ability_projectile_tests,forced_motion,game_processor}.rs`、`scripts/ability_kit/src/{codegen,host_ext}.rs`
+
 ## E585 jungle bot 不放 self_engage、不支援隊友（bot 整局 hero_damage 0）（2026-11-01，工作線 B）
 
 - **現象**：

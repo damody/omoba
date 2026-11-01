@@ -110,6 +110,17 @@ impl Cx<'_, '_> {
         self.knockback_arc(who, from, distance, duration, stun, range, Fixed64::ZERO)
     }
 
+    /// v3 `redirect_motion { who, toward, speed }` (E586, B24W): `who`'s running knockback or pull
+    /// turns toward `toward` at `speed` for the time it has left, ending on it at the latest;
+    /// nothing without such a motion (omoba-core forced_motion::redirect).
+    pub fn redirect_motion(&mut self, who: EntityHandle, toward: EntityHandle, speed: Fixed64) -> Res {
+        use omoba_core::runtime::native::forced_motion;
+        if !who.is_valid() || !toward.is_valid() || speed <= Fixed64::ZERO { return Ok(()); }
+        let packet = forced_motion::redirect_payload(toward.id, toward.gen, speed.min(Fixed64::from_i32(10_000)));
+        self.world.add_stat_buff(who, RStr::from_str(forced_motion::REDIRECT_BUFF), Fixed64::ONE, RStr::from_str(&packet.to_string()));
+        Ok(())
+    }
+
     /// [`Cx::knockback`] with v3 `height`: the arc's peak height, for the presentation only (the
     /// simulation is flat). Zero is no arc.
     pub fn knockback_arc(&mut self, who: EntityHandle, from: Vec2, distance: Fixed64, duration: Fixed64, stun: bool, range: Fixed64,

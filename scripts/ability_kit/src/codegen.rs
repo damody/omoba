@@ -1122,6 +1122,21 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// appended, when the flight retires.
     pub fn projectile_ended(&mut self, ability: &str, p: Proj, on_hit: Option<(u16, &[ScheduleArg])>,
         on_end: Option<(u16, &[ScheduleArg])>) -> Res {
+        self.projectile_launch(ability, p, on_hit, on_end, None)
+    }
+
+    /// v3 `projectile { kind = "linear", team = "any", where = "it == u" }` (E586, B24R): a linear
+    /// [`Cx::projectile_ended`] that hits only `only`, whatever its team. Nothing when `only` is
+    /// gone; a homing flight already hits only its target.
+    pub fn projectile_only(&mut self, ability: &str, p: Proj, only: EntityHandle, on_hit: Option<(u16, &[ScheduleArg])>,
+        on_end: Option<(u16, &[ScheduleArg])>) -> Res {
+        if !only.is_valid() { return Ok(()); }
+        if p.homing.is_some() { return Err("v3: projectile only is a linear flight"); }
+        self.projectile_launch(ability, p, on_hit, on_end, Some(only))
+    }
+
+    fn projectile_launch(&mut self, ability: &str, p: Proj, on_hit: Option<(u16, &[ScheduleArg])>,
+        on_end: Option<(u16, &[ScheduleArg])>, only: Option<EntityHandle>) -> Res {
         if p.homing.is_some_and(|u| !u.is_valid()) { return Ok(()); }
         let caster = self.caster;
         let spec = projectile_spec(caster, ability, &p)?;
@@ -1131,6 +1146,7 @@ impl<'a, 'w> Cx<'a, 'w> {
         if let Some(v) = p.vision { payload = ability_projectile::with_vision(payload, v); }
         if let (Some(e), None) = (p.end_radius, p.homing) { payload = ability_projectile::with_end_radius(payload, e); }
         if let Some(at) = p.start { payload = ability_projectile::with_start(payload, at); }
+        if let Some(only) = only { payload = ability_projectile::with_only(payload, only.id, only.gen); }
         if let Some((step, args)) = on_hit {
             let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
             let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec() }
