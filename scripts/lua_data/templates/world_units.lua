@@ -39,7 +39,8 @@ return function(ctx)
     unit('single_lane_tower', 32768, 'tower_yagura', 240),
     unit('single_lane_base', 32769, 'castle_keep', 260),
     unit('moba_inhibitor', 32770, 'shrine_gate', 110),
-    unit('moba_nexus_tower', 32771, 'tower_yagura', 210),
+    -- The commander tower (大將塔) has its own taller three-tier model so it reads apart from lane towers.
+    unit('moba_nexus_tower', 32771, 'general_tower', 260),
     -- Disclosed wards (frame entity kind Ward, no presentation catalog of their own) wear this
     -- stone lantern; its paper panels carry the owner's team colour (OmWorldBridgeActor maps them).
     unit('moba_ward', 32772, 'ward_lantern', 48),
