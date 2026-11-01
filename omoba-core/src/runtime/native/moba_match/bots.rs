@@ -278,13 +278,37 @@ fn jungle_assist_target(player:u32,team:u32,own:Vec2,seen:&[SeenUnit]) -> Option
     heroes.iter().filter(|u|u.team!=team
         && (u.position-own).length_squared()<=radius_squared)
         .filter(|target|{
+            // An allied structure the enemy stands at counts as an ally (E585: defending a tower).
+            let structures=seen.iter().filter(|u|matches!(u.kind,4|5) && u.team==team && u.hp_raw>0
+                && (u.position-target.position).length_squared()<=radius_squared).count();
             let allies=heroes.iter().filter(|u|u.team==team
-                && u.owner_player_id!=player && (u.position-target.position).length_squared()<=radius_squared).count();
+                && u.owner_player_id!=player && (u.position-target.position).length_squared()<=radius_squared).count()+structures;
             let enemies=heroes.iter().filter(|u|u.team!=team
                 && (u.position-target.position).length_squared()<=radius_squared).count();
             allies>0 && allies.saturating_add(1)>=enemies
         }).min_by_key(|u|(u.hp_raw,(u.position-own).length_squared().raw(),u.canonical_id))
         .map(|u|u.canonical_id)
+}
+
+/// How near an allied hero or structure an enemy hero must be for the jungler to go help (E585).
+const JUNGLE_RESPONSE_RADIUS:i32=1200;
+/// How far the jungler goes to help.
+const JUNGLE_RESPONSE_REACH:i32=3500;
+
+/// E585: an enemy hero near an allied hero (not the jungler) or an allied structure, within the
+/// jungler's reach: the jungler heads there, nearest first; the assist then takes the fight.
+fn jungle_response_destination(player:u32,team:u32,own:Vec2,seen:&[SeenUnit],
+    mut reachable:impl FnMut(Vec2)->bool)->Option<Vec2> {
+    let near=Fixed64::from_i32(JUNGLE_RESPONSE_RADIUS);let reach=Fixed64::from_i32(JUNGLE_RESPONSE_REACH);
+    // Within the assist radius jungle_assist_target already judges the fight (numbers, allies).
+    let assist=Fixed64::from_i32(550);
+    let guarded:Vec<Vec2>=seen.iter().filter(|u|u.team==team && u.hp_raw>0
+        && ((u.kind==1 && u.owner_player_id!=player) || matches!(u.kind,4|5))).map(|u|u.position).collect();
+    let mut threats:Vec<_>=seen.iter().filter(|u|u.kind==1 && u.team!=team && u.team!=0 && u.hp_raw>0
+        && (u.position-own).length_squared()<=reach*reach && (u.position-own).length_squared()>assist*assist
+        && guarded.iter().any(|p|(*p-u.position).length_squared()<=near*near)).collect();
+    threats.sort_by_key(|u|((u.position-own).length_squared().raw(),u.canonical_id));
+    threats.into_iter().take(MAX_TRAVEL_ROUTE_QUERIES).find(|u|reachable(u.position)).map(|u|u.position)
 }
 
 fn jungle_farm_target(own:Vec2,seen:&[SeenUnit])->Option<u64> {
@@ -391,6 +415,13 @@ fn role_decision_with_focus(assignment:&BotAssignment,team:u32,own:Vec2,destinat
 
 fn role_decision_excluding(assignment:&BotAssignment,team:u32,own:Vec2,destination:Vec2,
     seen:&[SeenUnit],focus:Option<u64>,mut reachable:impl FnMut(Vec2)->bool,excluded:&[u64])->Decision {
+    // A jungler not already fighting a hero leaves its camp to help (E585).
+    if assignment.role==BotRole::Jungle && excluded.is_empty()
+        && !focus.is_some_and(|id|seen.iter().any(|u|u.canonical_id==id && u.kind==1)) {
+        if let Some(point)=jungle_response_destination(assignment.player_id,team,own,seen,&mut reachable) {
+            return Decision::Escort(point);
+        }
+    }
     if let Some(target)=focus.filter(|id|!excluded.contains(id)) {return Decision::Attack(target);}
     let decision = decide_excluding(assignment.role,team,own,destination,seen,excluded);
     if let Decision::YieldBehind(point)=decision {
@@ -1498,5 +1529,33 @@ mod tests {
         }
         let mut trailing=baseline(render,1); trailing.push(0);
         assert!(decode_disclosed_components(&trailing).is_none());
+    }
+}
+
+#[cfg(test)]
+mod jungle_response_tests {
+    use super::*;
+    fn p(x:i32)->Vec2 {Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO)}
+    fn unit(id:u64,x:i32,team:u32,kind:u8,owner:u32)->SeenUnit {
+        SeenUnit {canonical_id:id,position:p(x),team,kind,owner_player_id:owner,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO}
+    }
+
+    /// E585: an enemy hero near an allied hero or tower within reach draws the jungler; one near
+    /// only the jungler itself, out of reach, or unreachable does not.
+    #[test]
+    fn a_jungler_goes_to_an_enemy_hero_at_an_ally_or_tower() {
+        let me=unit(1,0,1,1,5);
+        let ally=unit(2,2000,1,1,6);
+        let enemy=unit(3,2500,2,1,7);
+        assert_eq!(jungle_response_destination(5,1,p(0),&[me,ally,enemy],|_|true),Some(p(2500)));
+        let tower=unit(4,3000,1,4,0);
+        assert_eq!(jungle_response_destination(5,1,p(0),&[me,tower,enemy],|_|true),Some(p(2500)),"defending a tower");
+        assert_eq!(jungle_response_destination(5,1,p(0),&[me,enemy],|_|true),None,"no one to help");
+        let far=unit(3,5000,2,1,7);let far_ally=unit(2,4800,1,1,6);
+        assert_eq!(jungle_response_destination(5,1,p(0),&[me,far_ally,far],|_|true),None,"out of reach");
+        assert_eq!(jungle_response_destination(5,1,p(0),&[me,ally,enemy],|_|false),None,"unreachable");
+        // An enemy at an allied tower is an assist target, the tower its ally.
+        let close=unit(3,300,2,1,7);let home=unit(4,500,1,4,0);
+        assert_eq!(jungle_assist_target(5,1,p(0),&[me,close,home]),Some(3));
     }
 }

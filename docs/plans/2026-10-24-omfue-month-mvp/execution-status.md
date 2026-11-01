@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：jungle bot 放 self_engage 並支援隊友（E585）
+
+- jungle 位的 self_engage 以正在打的營地為 threat；敵方英雄靠近隊友或塔時，jungle 會前往支援。
 ## 2026-11-01 線 B：野怪 tick 結尾補送位置（E584）
 
 - E580 延伸到 jungle camp NPC；rg04 tick 8400（entity 738）的不一致可以重現。

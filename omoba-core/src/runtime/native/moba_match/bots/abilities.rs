@@ -511,8 +511,11 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
             BotAbilityIntent::SelfEngage {threat_radius}=>{
                 if health.hp<=Fixed64::ZERO {continue;}
                 let radius=Fixed64::from_i32(*threat_radius as i32);
-                if !seen.iter().filter(enemy).any(|unit|unit.kind==1
-                    && omoba_sim::terrain::point_in_swept_circle(unit.position,own,own,radius)) {continue;}
+                // A jungler's threat is also the camp it fights, its focus (E585): it farms most of the game.
+                let threat=|unit:&&SeenUnit|unit.kind==1
+                    || (role==BotRole::Jungle && unit.kind==3 && Some(unit.canonical_id)==focus);
+                if !seen.iter().filter(enemy).filter(threat).any(|unit|
+                    omoba_sim::terrain::point_in_swept_circle(unit.position,own,own,radius)) {continue;}
                 None
             }
             BotAbilityIntent::NearestTree {enemy_radius}=>{
@@ -1389,5 +1392,27 @@ mod tests {
         assert_eq!(decide(&[],true),Some(0),"on with no threat: switch off");
         assert_eq!(decide(&[unit(8,300,2)],false),None,"a creep is no fight");
         assert_eq!(decide(&[unit(7,901,1)],false),None,"beyond the threat radius");
+    }
+}
+
+#[cfg(test)]
+mod jungle_self_engage_tests {
+    use super::*;
+
+    /// E585: a jungler's self_engage also takes the camp it fights (its focus) as the threat; a
+    /// laner's still needs an enemy hero.
+    #[test]
+    fn a_jungler_engages_the_camp_it_fights() {
+        let mut hero=Hero::default();
+        hero.abilities=vec!["a06_red_power".into()];hero.ability_levels.insert("a06_red_power".into(),1);
+        let hp=CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
+        let camp=SeenUnit {canonical_id:9,position:Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO),team:0,kind:3,owner_player_id:0,
+            hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
+        let policy=BotAbilityPolicy {ability:"a06_red_power".into(),intent:BotAbilityIntent::SelfEngage {threat_radius:900}};
+        let decide=|role:BotRole,focus:Option<u64>|choose_cast_with_attack_priority(&hero,role,1,Vec2::ZERO,&hp,&[camp],&[policy.clone()],
+            focus,false,false,|_,_|None,|_,_|None,|_|false);
+        assert!(decide(BotRole::Jungle,Some(9)).is_some(),"the camp it fights");
+        assert!(decide(BotRole::Jungle,None).is_none(),"a camp it does not fight");
+        assert!(decide(BotRole::Mid,Some(9)).is_none(),"a laner needs an enemy hero");
     }
 }

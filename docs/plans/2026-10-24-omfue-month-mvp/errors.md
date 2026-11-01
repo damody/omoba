@@ -2,6 +2,25 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E585 jungle bot 不放 self_engage、不支援隊友（bot 整局 hero_damage 0）（2026-11-01，工作線 B）
+
+- **現象**：
+  - E 在 E555 之後的 quick 發現 5 個 self_engage 技能（threat 900、無目標）整局 0 inputs：b04_tanegashima、b13_burrow、a06_red_power、a06_red_fury、c10_day_night_shift。
+  - 原因是這四位英雄被排在 jungle 位，E555 之前多半在 top 等位置。用同一份計畫、目前的 build，只把 ii_naomasa 換回 top，a06_red_power 有 8 次、a06_red_fury 有 2 次，所以不是 E555 退步。
+  - 但在 jungle 位時，ii_naomasa 整局 hero_damage 是 0。依調度決定（D21 功能完整），這屬於 bot 行為缺口。
+- **根因**：
+  - jungle bot 的 `enemy` 只算野怪，以及正在 focus 的敵方英雄；SelfEngage 只認敵方英雄。打野時 focus 是營地，所以永遠不放。
+  - `jungle_assist_target` 只在敵方英雄已經在 550 內、而且旁邊有隊友英雄時才接手，jungle bot 不會主動離開營地去支援。
+- **通用修正**（只改 bot 行為，不改數值）：
+  - SelfEngage：jungle 位正在打的營地（focus 為 kind 3）也算進 threat 集合，半徑照原本的 `threat_radius`。gank 時 focus 的英雄照常算進去。
+  - `jungle_response_destination`：敵方英雄出現在我方英雄（不含自己）或建築附近 1200 內，且距離 jungle 不超過 3500、可以到達時，jungle 往最近的那一個移動（Escort）。550 內的敵人仍交給原本的 assist 判斷，人數不利時照舊不打。
+  - `jungle_assist_target`：敵方英雄附近有我方建築時，建築算一個隊友，守塔可以接戰。
+- **測試**：
+  - `bots::jungle_response_tests::a_jungler_goes_to_an_enemy_hero_at_an_ally_or_tower`：隊友或塔附近的敵人會吸引 jungle；只靠自己、超出範圍、無法到達則不會；塔算作 assist 的隊友。
+  - `abilities::jungle_self_engage_tests::a_jungler_engages_the_camp_it_fights`：jungle 會對正在打的營地放 self_engage，沒在打的營地不放；laner 仍需要敵方英雄。
+  - bots 的 95 個測試全過。
+- **檔案**：`omoba-core/src/runtime/native/moba_match/bots.rs`、`omoba-core/src/runtime/native/moba_match/bots/abilities.rs`
+
 ## E584 野怪投影後被移動，replica 位置沒有校正（E580 延伸）（2026-11-01，工作線 B）
 
 - **現象**：E580、E582 之後，用 snapshot 建置重跑 m6e555rg04（quick、seed 1）已通過 tick 960，但在 tick 8400 出現 entity 738（kind 3 野怪，team 0）的 DemoRender 不一致。replica 值同樣等於投影出的 DemoRenderState，authority 的 Pos 不同。
