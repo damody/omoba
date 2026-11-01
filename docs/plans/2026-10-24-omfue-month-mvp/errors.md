@@ -167,6 +167,10 @@
   - split、2player、UE 的 client 都連 `127.0.0.1`，netem 和 presentation IPC 本來就綁 `127.0.0.1`。selection host 的位址由參數明確指定。
 - **檔案**：`omb/src/transport/kcp_transport.rs`、`omb/src/transport/grpc_transport.rs`（omb 5060e73）、`omoba-core/src/kcp/client.rs`
 
+## E638 A36 地雷沒有進 UE frame（2026-11-01 保留，2026-11-02 結案，工作線 B）
+
+- 調查結果：地雷確實有進 frame，施放約 2.6 秒後才消失，原因是隱形後不再揭露給自己隊伍。修正與記錄見 E645。
+
 ## E637 非英雄施法者在結算時被以 mana_cooldown_or_rank 拒絕（A28 鳳凰天火，2026-11-01，工作線 B，C rerun20 回報）
 
 - **現象**：E633 之後，鳳凰的 a28_heaven_fire 已經 `cast ok`，接著被 `cast refused at settlement reason=mana_cooldown_or_rank` 拒絕。
@@ -2037,6 +2041,8 @@ defect 行也帶上同樣的原因。依調度指示，這三種從此是報告�
   - 新增狀態事件 `HEAL_RECEIVED = 19`、mask `ON_HEAL_RECEIVED = 1 << 16`。`handle_heal` 以實際回復量（受最大生命限制）呼叫 `status_event::note_heal`，只在有狀態在聽時記錄；回復量為 0 不送。治療來源目前不追蹤。
 - **回歸**：`script_hooks_tests::a_marked_status_hears_its_holders_heal`：缺 25 血時治療 40 只聽到一次、量不超過 25；滿血再治療不觸發。
 - **檔案**：`omoba-core/src/runtime/native/status_event.rs`、`game_processor.rs`、`scripting/dispatch.rs`、`scripting/parallel_world_adapter.rs`、`script_hooks_tests.rs`、`scripts/script-abi/src/ext.rs`、`scripts/ability_kit/src/host_ext.rs`
+
+## E477 （保留）event.damage.raw 與 on_heal_received 沒有 host 落點，B21 只能擋下（2026-10-31）
 
 ## E476 creep_facing 攻擊樣本沒有目標資訊，距離 0 的目標以 atan2(0,0) 算成 0°（2026-10-31，e187 遊戲模式 session，B 要求；已放回 live）
 - **現象**：m6new3 剩 81 筆 violation，全都是攻擊；很多樣本的 expected 剛好是 0°，看不出目標是什麼。
