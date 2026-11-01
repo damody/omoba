@@ -2,6 +2,14 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E631 E611 讓 replica 在 D／F 格換格時刪掉被換出技能的等級，但 authority 的 swap 保留（A07 a07_rouse ↔ a07_rouse_free，2026-11-01，工作線 B，A 回報）
+
+- **現象**：A 把 a07_strongest 改用產生的程式碼後，parity soak `honda_tadakatsu_kit_keeps_team_replicas_identical` 在 tick 2140 出現不一致：authority 的 ability_levels 比 replica 多了 `a07_rouse:1`。
+- **根因**：A07 的大招在 D 格（Q–R 之外）把 a07_rouse 換成 a07_rouse_free。authority 的 `ability_slots::swap` 會保留被換出技能的等級，等換回時使用。replica 的 `adopt_ability_slots` 套用 E611 的 `release_granted_rank`，被換出、已經不在任何格的 a07_rouse 就被刪掉等級。replica 只看槽位 fact，分不出這是 swap 還是 SlotSpec 授予。
+- **修正**：`release_granted_rank` 只刪除不屬於英雄自己 kit（`active_hero_abilities`）的技能等級。C08 偷來的 b29_quake_axe 不在 C08 的 kit 裡，照樣刪除；A07 的 a07_rouse 在 kit 裡，保留。authority 的 set_slot 和 replica 的 adopt 用同一條規則。
+- **測試**：`hero::granted_rank_tests::a_replaced_grant_drops_its_rank_but_the_heros_own_ability_keeps_it`；filtered_specs 和 ability_slots 測試通過。
+- **檔案**：`omoba-core/src/runtime/native/comp/hero.rs`
+
 ## E630 （保留）spotlight 舞台沒有友方小兵與屍體，C19 奇襲、B23 亡靈之契無法示範（props）（2026-11-01）
 
 ## E629 conformance：狀態 on_created 換格與 on_removed 換回的情境（A12T、A07T）（2026-11-01，conformance session）

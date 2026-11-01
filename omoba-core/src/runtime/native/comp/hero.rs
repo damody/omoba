@@ -457,9 +457,12 @@ impl Hero {
     /// A granted slot past Q-R (ability_slots::SlotSpec: C08's stolen F ability) that now holds
     /// another ability leaves `old` without a rank once no slot holds it: it was only ever that
     /// grant's. A replica that predicted another steal (the pick is random) and the authority's
-    /// slot then agree on the ranks (E611).
+    /// slot then agree on the ranks (E611). An ability of the hero's own kit keeps its rank: it was
+    /// swapped out, and comes back (A07 a07_rouse under a07_rouse_free, E631).
     pub fn release_granted_rank(&mut self, slot: usize, old: &str) {
         if slot < LEGACY_HERO_ABILITY_SLOTS || old.is_empty() || self.abilities.iter().any(|held| held == old) { return; }
+        let kit = omoba_template_ids::hero_by_name(&self.id).map(omoba_template_ids::active_hero_abilities).unwrap_or(&[]);
+        if kit.iter().any(|id| id.as_str() == old) { return; }
         self.ability_levels.remove(old);
     }
 
@@ -905,5 +908,26 @@ mod charge_tests {
         let mut legacy = value; legacy.as_object_mut().unwrap().remove("ability_charges");
         assert!(serde_json::from_value::<Hero>(legacy).unwrap().ability_charges.is_empty());
         assert!(serde_json::to_value(Hero::new("x".into(), "x".into(), "".into())).unwrap().get("ability_charges").is_none());
+    }
+}
+
+#[cfg(test)]
+mod granted_rank_tests {
+    use super::*;
+
+    /// E611 / E631: a granted slot's replaced ability loses its rank unless it is the hero's own
+    /// kit (A07's a07_rouse swapped under a07_rouse_free comes back with it).
+    #[test]
+    fn a_replaced_grant_drops_its_rank_but_the_heros_own_ability_keeps_it() {
+        let mut honda = Hero::new("honda_tadakatsu".into(), "h".into(), "".into());
+        honda.abilities = vec![String::new(), String::new(), String::new(), String::new(), "a07_rouse_free".into()];
+        honda.ability_levels.insert("a07_rouse".into(), 1);
+        honda.release_granted_rank(4, "a07_rouse");
+        assert_eq!(honda.get_ability_level("a07_rouse"), 1, "its own kit");
+        let mut kato = Hero::new("kato_danzo".into(), "k".into(), "".into());
+        kato.abilities = vec![String::new(), String::new(), String::new(), String::new(), String::new(), "b29_ground_slam".into()];
+        kato.ability_levels.insert("b29_quake_axe".into(), 1);
+        kato.release_granted_rank(5, "b29_quake_axe");
+        assert!(!kato.ability_levels.contains_key("b29_quake_axe"), "a stolen grant");
     }
 }
