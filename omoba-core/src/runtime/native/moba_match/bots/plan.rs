@@ -379,13 +379,13 @@ mod tests {
     #[test]
     fn mana_recovery_plan_requires_explicit_rules() {
         let mut p=plan();
-        p.ability_policies=vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_touch".into(),
+        p.ability_policies=vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_touch".into(),
             intent:BotAbilityIntent::SelfRecovery {below_hp_per_mille:600,
                 below_mana_per_mille:500,restore_key:"mana_restore".into()}}];
         assert!(p.compile(1,SimulationTickProfile::Production60Hz).unwrap_err().contains("explicit mana_enabled"));
         p.mana_enabled=true;
         assert!(p.compile(1,SimulationTickProfile::Production60Hz).is_ok());
-        p.ability_policies[0]=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"ranger_patch".into(),
+        p.ability_policies[0]=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_patch".into(),
             intent:BotAbilityIntent::SelfManaRegeneration {below_hp_per_mille:600,below_mana_per_mille:500,
                 rate_key:"mana_buff_value".into(),duration_key:"mana_buff_duration".into()}};
         assert!(p.compile(1,SimulationTickProfile::Production60Hz).is_ok());

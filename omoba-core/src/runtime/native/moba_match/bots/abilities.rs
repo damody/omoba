@@ -91,6 +91,20 @@ pub struct BotAbilityPolicy {
     /// v3 `requires.not_status` on the caster: cast only while the caster does not hold it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caster_no_status:Option<String>,
+    /// v3 `requires` on a summon the caster created (`exists(state.V) and alive(state.V) [and
+    /// edge_distance(caster, state.V) <= R]`): cast only while the caster owns a live one (原作 B16
+    /// 相移 needs its moon within 1000; E648).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caster_summon:Option<BotCasterSummon>,
+}
+
+/// A live summon of the caster's own, by its unit template, within `within` edge distance when given.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BotCasterSummon {
+    pub template:String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub within:Option<u32>,
 }
 
 /// Each entry spends one point, in author order when its prerequisites permit.
@@ -197,6 +211,8 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
         if !ids.insert(&policy.ability) {return Err("duplicate bot ability policy");}
         let status_id=|id:&String|!id.is_empty() && id.len()<=96 && id.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'_'||b==b':');
         if policy.caster_status.iter().chain(&policy.caster_no_status).any(|id|!status_id(id)) {return Err("invalid bot caster status");}
+        if policy.caster_summon.as_ref().is_some_and(|summon|!status_id(&summon.template) || summon.template.contains(':')
+            || summon.within.is_some_and(|within|within==0 || within>100_000)) {return Err("invalid bot caster summon");}
         let def=omoba_template_ids::ability_by_name(&policy.ability)
             .and_then(omoba_template_ids::active_ability_const).ok_or("unknown active compiled bot ability")?;
         let supported_cast=if matches!(policy.intent,BotAbilityIntent::SelfChannelRecovery {..}) {
@@ -752,7 +768,7 @@ mod tests {
     use super::*;
     #[test]
     fn channel_intent_is_closed_explicit_bounded_and_requires_managed_mana() {
-        let valid=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"apprentice_mend".into(),intent:BotAbilityIntent::SelfChannelRecovery {below_hp_per_mille:650,threat_radius:1000}};
+        let valid=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"apprentice_mend".into(),intent:BotAbilityIntent::SelfChannelRecovery {below_hp_per_mille:650,threat_radius:1000}};
         assert!(validate_policies(&[valid.clone()]).is_ok());assert!(requires_mana(&[valid.clone()]));
         let mut bad=valid.clone();bad.ability="lumen_mend".into();assert!(validate_policies(&[bad]).is_err());
         let mut bad=valid.clone();bad.intent=BotAbilityIntent::SelfHeal {below_hp_per_mille:650};assert!(validate_policies(&[bad]).is_err());
@@ -765,7 +781,7 @@ mod tests {
     #[test]
     fn channel_intent_uses_disclosed_threat_boundary_resources_root_and_bounded_geometry() {
         use crate::runtime::ability_runtime::ManaPool;
-        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"apprentice_mend".into(),intent:BotAbilityIntent::SelfChannelRecovery {below_hp_per_mille:650,threat_radius:1000}};
+        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"apprentice_mend".into(),intent:BotAbilityIntent::SelfChannelRecovery {below_hp_per_mille:650,threat_radius:1000}};
         let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
         hero.abilities=vec!["lumen_bolt".into(),"apprentice_mend".into()];hero.ability_levels.insert("apprentice_mend".into(),1);
         hero.mana_pool=Some(ManaPool::new(Fixed64::from_i32(100),Fixed64::from_i32(200)).unwrap());
@@ -805,7 +821,7 @@ mod tests {
             ("vanguard_resolve",BotAbilityIntent::ApproachEnemyPoint {min_distance:100,reach_key:None},1),
             ("ranger_volley",BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1},2),
         ] {
-            let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:ability.into(),intent};
+            let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:ability.into(),intent};
             let result=cast(&[close,enemy],&[policy.clone()]).unwrap();
             assert_eq!(result.ability_index,slot);
             if slot==0 {assert_eq!(result.target_entity,Some(7));}
@@ -815,8 +831,8 @@ mod tests {
                 assert!(cast(&[invalid],&[policy.clone()]).is_none());
             }
         }
-        let heal=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHeal {below_hp_per_mille:600}};
-        let damage=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit};
+        let heal=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHeal {below_hp_per_mille:600}};
+        let damage=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit};
         let ally=SeenUnit {canonical_id:9,team:1,hp_raw:20,owner_player_id:3,..close};
         let result=cast(&[enemy,ally],&[heal,damage]).unwrap();
         assert_eq!((result.ability_index,result.target_entity),(3,Some(9)),"author heal-first priority must survive guard focus");
@@ -825,7 +841,7 @@ mod tests {
     #[test]
     fn bot_cleanse_policy_prioritizes_public_control_then_health_without_target_private_queries() {
         let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());hero.abilities=vec!["lumen_aid".into()];hero.ability_levels.insert("lumen_aid".into(),1);
-        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHealOrCleanse {below_hp_per_mille:600}};
+        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHealOrCleanse {below_hp_per_mille:600}};
         assert!(validate_policies(&[policy.clone()]).is_ok());
         let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let ally=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),team:1,kind:1,owner_player_id:3,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
@@ -849,7 +865,7 @@ mod tests {
     fn ally_heal_bot_uses_disclosed_relative_health_and_stable_range() {
         let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
         hero.abilities=vec!["lumen_aid".into()];hero.ability_levels.insert("lumen_aid".into(),1);
-        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHeal {below_hp_per_mille:600}};
+        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHeal {below_hp_per_mille:600}};
         assert!(validate_policies(&[policy.clone()]).is_ok());
         let ally=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),
             team:1,kind:1,owner_player_id:3,hp_raw:30,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
@@ -879,7 +895,7 @@ mod tests {
         let enemy=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO),
             team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let decide=|enemy_radius:u32,seen:&[SeenUnit],trees:&dyn Fn(Vec2,Fixed64)->Option<Vec2>|choose_cast_with_control_observation(&hero,BotRole::Mid,1,Vec2::ZERO,&hp,seen,
-            &[BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:ability.into(),intent:BotAbilityIntent::NearestTree {enemy_radius}}],None,false,false,
+            &[BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:ability.into(),intent:BotAbilityIntent::NearestTree {enemy_radius}}],None,false,false,
             |_,_|None,|_,_|None,|_|true,|_|None,&|_|false,&|_|0,trees,&|_,_|false,&|_,_|0).map(|cast|cast.target_pos);
         let reach=def.levels[0].range;
         let near=|from:Vec2,within:Fixed64|(from==Vec2::ZERO && within==reach).then_some(tree);
@@ -888,8 +904,8 @@ mod tests {
         assert_eq!(decide(0,&[],&|_,_|None),None,"no tree, no cast");
         assert_eq!(decide(500,&[],&near),None,"no enemy hero about");
         assert_eq!(decide(500,&[enemy],&near),Some(at),"an enemy hero within the radius");
-        assert!(validate_policies(&[BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:ability.into(),intent:BotAbilityIntent::NearestTree {enemy_radius:0}}]).is_ok());
-        assert!(validate_policies(&[BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::NearestTree {enemy_radius:0}}]).is_err());
+        assert!(validate_policies(&[BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:ability.into(),intent:BotAbilityIntent::NearestTree {enemy_radius:0}}]).is_ok());
+        assert!(validate_policies(&[BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::NearestTree {enemy_radius:0}}]).is_err());
     }
     /// E460：authority 會拒絕的單位技能目標（敵方魔免、不可選取）從公開的目標狀態排除，
     /// 改選下一個合法目標；友方魔免不受影響。
@@ -901,7 +917,7 @@ mod tests {
         let near=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO),
             team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let far=SeenUnit {canonical_id:8,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),..near};
-        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit};
+        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit};
         let decide=|states:&dyn Fn(u64)->u8|choose_cast_with_control_observation(&hero,BotRole::Mid,1,Vec2::ZERO,&hp,&[near,far],
             &[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,&|_|false,states,&|_,_|None,&|_,_|false,&|_,_|0).map(|cast|cast.target_entity);
         assert_eq!(decide(&|_|0),Some(Some(7)),"the nearest without states");
@@ -921,7 +937,7 @@ mod tests {
             team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let neutral=SeenUnit {canonical_id:8,position:Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO),
             team:0,kind:3,owner_player_id:0,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
-        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit};
+        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit};
         let decide=|seen:&[SeenUnit],assist|choose_cast_with_resources(&hero,BotRole::Jungle,1,Vec2::ZERO,
             &hp,seen,&[policy.clone()],assist,|_,_|None,|_,_|None);
         assert_eq!(decide(&[enemy,neutral],Some(7)).unwrap().target_entity,Some(7));
@@ -938,8 +954,8 @@ mod tests {
         let enemy=SeenUnit {position:Vec2::new(Fixed64::from_i32(350),Fixed64::ZERO),..enemy};
         let neutral=SeenUnit {position:Vec2::new(Fixed64::from_i32(320),Fixed64::ZERO),..neutral};
         for policy in [
-            BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}},
-            BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}},
         ] {
             let cast=choose_cast_with_resources(&point_hero,BotRole::Jungle,1,Vec2::ZERO,&hp,
                 &[neutral,enemy],&[policy.clone()],Some(7),|_,_|None,|_,_|None).unwrap();
@@ -959,12 +975,12 @@ mod tests {
         let enemy_hero=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),
             team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let creep=SeenUnit {canonical_id:9,kind:2,owner_player_id:0,position:Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO),..enemy_hero};
-        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyHero};
+        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyHero};
         assert!(validate_policies(&[policy.clone()]).is_ok());
         let decide=|seen:&[SeenUnit]|choose_cast_with_resources(&hero,BotRole::Mid,1,Vec2::ZERO,
             &hp,seen,&[policy.clone()],None,|_,_|None,|_,_|None);
         assert_eq!(decide(&[creep,enemy_hero]).unwrap().target_entity,Some(7));
-        let unit_policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit};
+        let unit_policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit};
         assert_eq!(choose_cast_with_resources(&hero,BotRole::Mid,1,Vec2::ZERO,&hp,&[creep,enemy_hero],&[unit_policy],
             None,|_,_|None,|_,_|None).unwrap().target_entity,Some(9),"enemy_unit takes the nearer creep");
         assert!(decide(&[creep]).is_none(),"creeps are never targeted");
@@ -973,7 +989,7 @@ mod tests {
     #[test]
     fn mana_regeneration_bot_compares_marginal_gain_and_blocks_active_source() {
         use crate::runtime::ability_runtime::ManaPool;
-        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"ranger_patch".into(),intent:BotAbilityIntent::SelfManaRegeneration {
+        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_patch".into(),intent:BotAbilityIntent::SelfManaRegeneration {
             below_hp_per_mille:600,below_mana_per_mille:1000,
             rate_key:"mana_buff_value".into(),duration_key:"mana_buff_duration".into()}};
         assert!(validate_policies(&[policy.clone()]).is_ok());assert!(requires_mana(&[policy.clone()]));
@@ -1007,7 +1023,7 @@ mod tests {
     #[test]
     fn mana_recovery_bot_requires_positive_gain_and_preserves_healing() {
         use crate::runtime::ability_runtime::ManaPool;
-        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfRecovery {
+        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfRecovery {
             below_hp_per_mille:600,below_mana_per_mille:500,restore_key:"mana_restore".into()}};
         assert!(validate_policies(&[policy.clone()]).is_ok());
         let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
@@ -1117,8 +1133,8 @@ mod tests {
         hero.ability_levels.insert("lumen_bolt".into(),0);
         hero.abilities.clear();assert!(choose_upgrade(&hero,&steps).is_none());
     }
-    fn damage() -> BotAbilityPolicy {BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}}
-    fn heal() -> BotAbilityPolicy {BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}}}
+    fn damage() -> BotAbilityPolicy {BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}}
+    fn heal() -> BotAbilityPolicy {BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}}}
     #[test]
     fn dash_bot_skips_blocked_candidates_and_falls_through_without_blocking_area() {
         let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
@@ -1129,7 +1145,7 @@ mod tests {
         let near=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(350),Fixed64::ZERO),
             team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let far=SeenUnit {canonical_id:8,position:Vec2::new(Fixed64::ZERO,Fixed64::from_i32(400)),..near};
-        let dash=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_resolve".into(),
+        let dash=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_resolve".into(),
             intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}};
         let policies=[dash.clone(),heal()];
         let choose=|seen:&[SeenUnit],policies:&[BotAbilityPolicy],clear:fn(Vec2)->bool|
@@ -1140,7 +1156,7 @@ mod tests {
         assert_eq!(choose(&[near],&policies, |_|false).unwrap().ability_index,1,
             "blocked relocation must release author priority to recovery");
         assert!(choose(&[near],&[dash], |_|false).is_none());
-        let area=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"ranger_volley".into(),
+        let area=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_volley".into(),
             intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}};
         assert_eq!(choose(&[near],&[area], |_|panic!("area is not relocation")).unwrap().ability_index,2);
         assert!(hero.ability_cooldowns.is_empty(),"planning must not reserve cooldown");
@@ -1151,7 +1167,7 @@ mod tests {
         let mut hero=Hero::new("asai_nagamasa".into(),"asai_nagamasa".into(),"asai_nagamasa".into());
         hero.abilities=vec!["b08_fang_slash".into(),"b08_flash_cut".into(),"b08_living_soul".into(),"b08_sky_fang".into(),"b08_endless_fang".into()];
         hero.ability_levels.insert("b08_endless_fang".into(),1);
-        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"b08_endless_fang".into(),intent:BotAbilityIntent::EnemyUnit};
+        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"b08_endless_fang".into(),intent:BotAbilityIntent::EnemyUnit};
         assert!(validate_policies(&[policy.clone()]).is_ok());
         let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let enemy=SeenUnit {canonical_id:(1<<32)|77,position:Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO),
@@ -1168,9 +1184,9 @@ mod tests {
         hero.abilities=vec!["b29_ground_slam".into(),"b29_quake_axe".into(),"b29_morale_boost".into(),"b29_earth_tremor".into()];
         hero.ability_levels.insert("b29_quake_axe".into(),1);
         hero.ability_levels.insert("b29_earth_tremor".into(),1);
-        let leap=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"b29_quake_axe".into(),intent:BotAbilityIntent::LeapEnemyPoint {
+        let leap=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"b29_quake_axe".into(),intent:BotAbilityIntent::LeapEnemyPoint {
             radius_key:"radius".into(),reach_key:"dash_max_distance".into(),min_targets:1}};
-        let placed=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"b29_quake_axe".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}};
+        let placed=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"b29_quake_axe".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}};
         assert!(validate_policies(&[leap.clone()]).is_ok());
         for bad in [BotAbilityIntent::LeapEnemyPoint {radius_key:"radius".into(),reach_key:"missing".into(),min_targets:1},
             BotAbilityIntent::LeapEnemyPoint {radius_key:"radius".into(),reach_key:"dash_max_distance".into(),min_targets:0}] {
@@ -1186,7 +1202,7 @@ mod tests {
         assert!(choose(&[at(400)],&leap).is_none(),"beyond the rank-1 reach (300)");
         assert!(choose(&[at(280)],&placed).is_none(),"a placed area with range 0 never casts");
         // B29R 大地震撼: a channeled point ultimate without a recovery rule casts like an instant.
-        let tremor=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"b29_earth_tremor".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"area_radius".into(),min_targets:1}};
+        let tremor=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"b29_earth_tremor".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"area_radius".into(),min_targets:1}};
         assert!(validate_policies(&[tremor.clone()]).is_ok());
         assert_eq!(choose(&[at(900)],&tremor).expect("within the cast range").ability_index,3);
     }
@@ -1197,7 +1213,7 @@ mod tests {
         let mut hero=Hero::new("momochi_sandayu".into(),"momochi_sandayu".into(),"momochi_sandayu".into());
         hero.abilities=vec!["b13_shukuchi".into()];
         hero.ability_levels.insert("b13_shukuchi".into(),1);
-        let approach=|reach_key:Option<&str>|BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"b13_shukuchi".into(),
+        let approach=|reach_key:Option<&str>|BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"b13_shukuchi".into(),
             intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:reach_key.map(str::to_owned)}};
         assert!(validate_policies(&[approach(None)]).is_err(),"range 0 never exceeds min_distance");
         assert!(validate_policies(&[approach(Some("missing"))]).is_err());
@@ -1225,7 +1241,7 @@ mod tests {
         let mut hero=Hero::new("murakami_yoshikiyo".into(),"murakami_yoshikiyo".into(),"murakami_yoshikiyo".into());
         hero.abilities=vec!["b29_ground_slam".into(),"b29_quake_axe".into(),"b29_morale_boost".into(),"b29_earth_tremor".into()];
         hero.ability_levels.insert("b29_earth_tremor".into(),1);
-        let tremor=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"b29_earth_tremor".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"area_radius".into(),min_targets:1}};
+        let tremor=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"b29_earth_tremor".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"area_radius".into(),min_targets:1}};
         let choose=|role:BotRole,seen:&[SeenUnit]|choose_cast(&hero,role,1,Vec2::ZERO,&health,seen,&[tremor.clone()]);
         assert!(choose(BotRole::Top,&[unit(1,500,2)]).is_none(),"one creep: keep it");
         assert!(choose(BotRole::Top,&[unit(1,500,2),unit(2,520,2),unit(3,540,2)]).is_some(),"a wave alone");
@@ -1247,11 +1263,11 @@ mod tests {
         let mut keiji=Hero::new("maeda_keiji".into(),"maeda_keiji".into(),"maeda_keiji".into());
         keiji.abilities=vec!["c05_flash_thunder".into()];
         keiji.ability_levels.insert("c05_flash_thunder".into(),1);
-        let thunder=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"c05_flash_thunder".into(),intent:BotAbilityIntent::GlobalEnemyPoint {radius_key:"radius".into(),min_targets:1}};
+        let thunder=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"c05_flash_thunder".into(),intent:BotAbilityIntent::GlobalEnemyPoint {radius_key:"radius".into(),min_targets:1}};
         assert!(validate_policies(&[thunder.clone()]).is_ok());
         assert!(validate_policies(&[BotAbilityPolicy {intent:BotAbilityIntent::GlobalEnemyPoint {radius_key:"missing".into(),min_targets:1},..thunder.clone()}]).is_err());
         // A cast-range skill is not an any-distance one.
-        assert!(validate_policies(&[BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"b29_earth_tremor".into(),
+        assert!(validate_policies(&[BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"b29_earth_tremor".into(),
             intent:BotAbilityIntent::GlobalEnemyPoint {radius_key:"area_radius".into(),min_targets:1}}]).is_err());
         let cast=choose_cast(&keiji,BotRole::Top,1,Vec2::ZERO,&health,
             &[unit(5,3000,2,2,100),unit(6,5000,2,1,100),unit(7,5400,2,1,100),unit(8,4000,2,1,100)],&[thunder.clone()]).expect("a far enemy hero");
@@ -1260,7 +1276,7 @@ mod tests {
         let mut muneyoshi=Hero::new("yagyu_muneyoshi".into(),"yagyu_muneyoshi".into(),"yagyu_muneyoshi".into());
         muneyoshi.abilities=vec!["c24_last_life".into()];
         muneyoshi.ability_levels.insert("c24_last_life".into(),1);
-        let life=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"c24_last_life".into(),intent:BotAbilityIntent::AllyEngage {threat_radius:900}};
+        let life=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"c24_last_life".into(),intent:BotAbilityIntent::AllyEngage {threat_radius:900}};
         assert!(validate_policies(&[life.clone()]).is_ok());
         let choose=|seen:&[SeenUnit]|choose_cast(&muneyoshi,BotRole::Top,1,Vec2::ZERO,&health,seen,&[life.clone()]);
         assert!(choose(&[unit(1,6000,1,1,30)]).is_none(),"an ally out of any fight");
@@ -1278,7 +1294,7 @@ mod tests {
         let mut yoshitsugu=Hero::new("otani_yoshitsugu".into(),"otani_yoshitsugu".into(),"otani_yoshitsugu".into());
         yoshitsugu.abilities=vec!["a12_mystic_arrow".into()];
         yoshitsugu.ability_levels.insert("a12_mystic_arrow".into(),1);
-        let arrow=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"a12_mystic_arrow".into(),intent:BotAbilityIntent::EnemyLine {min_targets:1}};
+        let arrow=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"a12_mystic_arrow".into(),intent:BotAbilityIntent::EnemyLine {min_targets:1}};
         assert_eq!(validate_policies(&[arrow.clone()]),Ok(()));
         // The arrow is cast in the 刑部 form only (content requires_status a12t_form, E472).
         let form=|status:&str|status=="a12t_form";
@@ -1295,7 +1311,7 @@ mod tests {
         let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
         hero.abilities=vec!["lumen_bolt".into(),"vanguard_resolve".into()];
         hero.ability_levels.insert("vanguard_resolve".into(),1);
-        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_resolve".into(),
+        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_resolve".into(),
             intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}};
         assert!(validate_policies(&[policy.clone()]).is_ok());
         for min_distance in [0,450,10_001] {
@@ -1335,7 +1351,7 @@ mod tests {
     fn area_effects_bot_selects_disclosed_point_cluster_without_entity_target() {
         let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
         hero.abilities=vec!["ranger_volley".into()];hero.ability_levels.insert("ranger_volley".into(),1);
-        let mut policies=vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:2}}];
+        let mut policies=vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:2}}];
         assert!(validate_policies(&policies).is_ok());
         let units=[(3,820,2),(2,600,2),(1,600,1),(4,950,2)].map(|(id,x,team)|SeenUnit {
             canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),team,kind:1,owner_player_id:id as u32,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO});
@@ -1373,11 +1389,11 @@ mod tests {
     }
     #[test]
     fn self_area_and_self_engage_cast_only_with_disclosed_enemies_in_reach() {
-        let area=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"a07_red_thunder".into(),intent:BotAbilityIntent::SelfArea {radius_key:"shape_radius".into(),min_targets:2}};
-        let engage=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfEngage {threat_radius:700}};
+        let area=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"a07_red_thunder".into(),intent:BotAbilityIntent::SelfArea {radius_key:"shape_radius".into(),min_targets:2}};
+        let engage=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfEngage {threat_radius:700}};
         assert!(validate_policies(&[area.clone(),engage.clone()]).is_ok());
         assert!(validate_policies(&[BotAbilityPolicy {intent:BotAbilityIntent::SelfArea {radius_key:"missing".into(),min_targets:1},..area.clone()}]).is_err());
-        assert!(validate_policies(&[BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_bolt".into(),..engage.clone()}]).is_err(),"targeted abilities are not self engage");
+        assert!(validate_policies(&[BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_bolt".into(),..engage.clone()}]).is_err(),"targeted abilities are not self engage");
         let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
         hero.abilities=vec!["a07_red_thunder".into(),"lumen_touch".into()];
         for ability in hero.abilities.clone() {hero.ability_levels.insert(ability,1);}
@@ -1399,9 +1415,9 @@ mod tests {
     /// anchor point lands on the allied unit nearest the closest enemy hero, never a hero.
     #[test]
     fn preconditioned_areas_and_ally_anchors_follow_what_the_cast_needs() {
-        let status=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"a07_red_thunder".into(),intent:BotAbilityIntent::SelfAreaStatus {
+        let status=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"a07_red_thunder".into(),intent:BotAbilityIntent::SelfAreaStatus {
             radius_key:"shape_radius".into(),min_targets:1,status:"c25e_dot".into()}};
-        let corpses=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"a07_red_thunder".into(),intent:BotAbilityIntent::SelfAreaCorpses {
+        let corpses=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"a07_red_thunder".into(),intent:BotAbilityIntent::SelfAreaCorpses {
             radius_key:"shape_radius".into(),min_targets:1}};
         assert!(validate_policies(std::slice::from_ref(&status)).is_ok() && validate_policies(std::slice::from_ref(&corpses)).is_ok());
         assert!(validate_policies(&[BotAbilityPolicy {intent:BotAbilityIntent::SelfAreaStatus {radius_key:"shape_radius".into(),
@@ -1426,16 +1442,16 @@ mod tests {
     fn summon_near_enemy_casts_at_or_toward_the_nearest_threat() {
         assert!(matches!(serde_json::from_str::<BotAbilityIntent>(r#"{"kind":"summon_near_enemy","threat_radius":900}"#).unwrap(),
             BotAbilityIntent::SummonNearEnemy {threat_radius:900}));
-        let summon=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"b01_saika_corps".into(),intent:BotAbilityIntent::SummonNearEnemy {threat_radius:900}};
+        let summon=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"b01_saika_corps".into(),intent:BotAbilityIntent::SummonNearEnemy {threat_radius:900}};
         assert!(validate_policies(&[summon.clone()]).is_ok());
         assert!(validate_policies(&[BotAbilityPolicy {intent:BotAbilityIntent::SummonNearEnemy {threat_radius:0},..summon.clone()}]).is_err());
-        assert!(validate_policies(&[BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"b01_sniper_mode".into(),..summon.clone()}]).is_ok(),"an untargeted skill is cast with no point (E419)");
+        assert!(validate_policies(&[BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"b01_sniper_mode".into(),..summon.clone()}]).is_ok(),"an untargeted skill is cast with no point (E419)");
         {
             // E419: an untargeted summon is cast when a threat is near, with no point.
             let mut kojiro=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
             kojiro.abilities=vec!["c02_phantom_move".into()];
             kojiro.ability_levels.insert("c02_phantom_move".into(),1);
-            let phantom=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"c02_phantom_move".into(),intent:BotAbilityIntent::SummonNearEnemy {threat_radius:900}};
+            let phantom=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"c02_phantom_move".into(),intent:BotAbilityIntent::SummonNearEnemy {threat_radius:900}};
             assert!(validate_policies(&[phantom.clone()]).is_ok());
             let near=SeenUnit {canonical_id:(1<<32)|9,position:Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO),team:2,kind:1,
                 owner_player_id:9,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
@@ -1465,11 +1481,11 @@ mod tests {
     /// off when none is; it reads only the owner's own on-marker and casts only to change it.
     #[test]
     fn toggle_engage_switches_by_threat_and_the_owners_own_marker() {
-        let toggle=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"a02_venom_arrow".into(),
+        let toggle=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"a02_venom_arrow".into(),
             intent:BotAbilityIntent::ToggleEngage {threat_radius:900,on_status:"attack_orb:a02_venom_arrow".into()}};
         assert!(validate_policies(&[toggle.clone()]).is_ok());
         assert!(validate_policies(&[BotAbilityPolicy {intent:BotAbilityIntent::ToggleEngage {threat_radius:900,on_status:String::new()},..toggle.clone()}]).is_err());
-        assert!(validate_policies(&[BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"b01_sniper_mode".into(),..toggle.clone()}]).is_err(),"an active skill is no toggle");
+        assert!(validate_policies(&[BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"b01_sniper_mode".into(),..toggle.clone()}]).is_err(),"an active skill is no toggle");
         assert!(validate_policies(&[BotAbilityPolicy {intent:BotAbilityIntent::SelfEngage {threat_radius:900},..toggle.clone()}]).is_err(),
             "a toggle takes only the toggle intent");
         let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
@@ -1502,7 +1518,7 @@ mod jungle_self_engage_tests {
         let hp=CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
         let camp=SeenUnit {canonical_id:9,position:Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO),team:0,kind:3,owner_player_id:0,
             hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
-        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"a06_red_power".into(),intent:BotAbilityIntent::SelfEngage {threat_radius:900}};
+        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"a06_red_power".into(),intent:BotAbilityIntent::SelfEngage {threat_radius:900}};
         let decide=|role:BotRole,focus:Option<u64>|choose_cast_with_attack_priority(&hero,role,1,Vec2::ZERO,&hp,&[camp],&[policy.clone()],
             focus,false,false,|_,_|None,|_,_|None,|_|false);
         assert!(decide(BotRole::Jungle,Some(9)).is_some(),"the camp it fights");

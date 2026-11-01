@@ -2,6 +2,18 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E648 bot 的施放前提無法要求「施法者有一個存活的召喚物」：B16 相移在月不在 1000 內時也照樣送出（82% 被拒）（2026-11-02，工作線 B，A／E 回報）
+
+- **現象**：m6new21c 裡，b16_phase_shift 有 381/465 次 `script_error:CAST_REJECTED`。這招的 requires 是 `exists(state.b16_moon) and alive(state.b16_moon) and edge_distance(caster, state.b16_moon) <= $max_range`。b16_beast_union 則是在 on_cast 檢查月，不在就退還。
+- **根因**：BotAbilityPolicy 只能表達施法者自身的狀態前提（E619 的 caster_status／caster_no_status）。executor 讀不到腳本 state，bot 不知道月在不在、距離多遠。
+- **修正**：
+  - BotAbilityPolicy 新增選填欄位 `caster_summon: { template, within? }`：施法者擁有一個存活的召喚物，模板等於 template；有 within 時，兩者的邊緣距離要小於或等於 within。不成立就不選這招。
+  - 判斷只讀施法隊伍的揭露資料：同隊、`owner_player_id` 是施法者的玩家、hp > 0、presentation identity 等於模板。E645 之後，自己隊伍的單位隱形時也會揭露，所以月隱形也判斷得到。
+  - validate：模板是合法的 id（不含 `:`），within 在 1～100000。
+  - 產生器的推導由 A 負責。
+- **測試**：`moba_match::bots::tests::a_bot_casts_only_while_its_own_summon_precondition_holds`：距離內、邊緣距離剛好、太遠、沒有 within、隊友的月、其他模板、死掉的月、沒有月，以及 JSON round-trip、validate 拒絕 within 0。
+- **檔案**：`omoba-core/src/runtime/native/moba_match/bots/abilities.rs`、`omoba-core/src/runtime/native/moba_match/bots.rs`，以及加上新欄位的測試字面值（`bots/plan.rs`、`bots/cone_tests.rs`、`scripts/base_content/src/single_lane_match_tests.rs`）
+
 ## E646 生成的 `*_by_name`／`status_buff_by_key` 是數百個分支的字串 match：每個揭露單位的每個狀態，每 tick 都要逐一比對（2026-11-02，工作線 B，效能）
 
 - **現象**：

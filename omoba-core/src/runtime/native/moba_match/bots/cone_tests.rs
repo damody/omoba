@@ -1,7 +1,7 @@
 use super::*;
 #[test]
 fn line_policy_requires_compiled_nonmoving_geometry_and_closed_bounded_intent() {
-    let policy=|min|BotAbilityPolicy{caster_status:None,caster_no_status:None,ability:"lumen_ray".into(),intent:BotAbilityIntent::EnemyLine{min_targets:min}};
+    let policy=|min|BotAbilityPolicy{caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_ray".into(),intent:BotAbilityIntent::EnemyLine{min_targets:min}};
     assert!(validate_policies(&[policy(2)]).is_ok());
     for min in [0,129]{assert!(validate_policies(&[policy(min)]).is_err());}
     for id in ["fire_dash","ranger_scatter","lumen_bolt","missing"]{let mut bad=policy(1);bad.ability=id.into();assert!(validate_policies(&[bad]).is_err());}
@@ -27,7 +27,7 @@ fn line_intent_keeps_owner_mana_public_enemy_filter_and_root_without_relocation_
     let mut hero=hero();hero.abilities=vec!["lumen_ray".into()];hero.ability_levels.insert("lumen_ray".into(),1);
     hero.mana_pool=Some(ManaPool::new(Fixed64::from_i32(45),Fixed64::from_i32(280)).unwrap());
     let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);let enemies=[unit(1,100,0),unit(2,600,0)];
-    let policy=BotAbilityPolicy{caster_status:None,caster_no_status:None,ability:"lumen_ray".into(),intent:BotAbilityIntent::EnemyLine{min_targets:2}};
+    let policy=BotAbilityPolicy{caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_ray".into(),intent:BotAbilityIntent::EnemyLine{min_targets:2}};
     let decide=|hero:&Hero,seen:&[SeenUnit],defer|choose_cast_with_attack_priority(hero,BotRole::Carry,1,Vec2::ZERO,&hp,seen,&[policy.clone()],None,defer,true,|_,_|Some(Fixed64::from_i32(45)),|_,_|None,|_|panic!("line must not query relocation"));
     let before=hero.mana_pool.clone();let cast=decide(&hero,&enemies,false).unwrap();
     assert_eq!((cast.ability_index,cast.target_entity,cast.target_pos),(0,None,Some(crate::runtime::Vec2I{x:600*1024,y:0})));
@@ -38,7 +38,7 @@ fn line_intent_keeps_owner_mana_public_enemy_filter_and_root_without_relocation_
 
 fn p(x:i32,y:i32)->Vec2 {Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y))}
 fn unit(id:u64,x:i32,y:i32)->SeenUnit {SeenUnit{canonical_id:id,position:p(x,y),team:2,kind:1,owner_player_id:id as u32,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO}}
-fn policy(min_targets:u16)->BotAbilityPolicy {BotAbilityPolicy{caster_status:None,caster_no_status:None,ability:"ranger_scatter".into(),intent:BotAbilityIntent::EnemyCone{min_targets}}}
+fn policy(min_targets:u16)->BotAbilityPolicy {BotAbilityPolicy{caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_scatter".into(),intent:BotAbilityIntent::EnemyCone{min_targets}}}
 fn hero()->Hero {let mut h=Hero::new("unrelated".into(),"unrelated".into(),"unrelated".into());h.abilities=vec!["ranger_scatter".into()];h.ability_levels.insert("ranger_scatter".into(),1);h}
 
 #[test]

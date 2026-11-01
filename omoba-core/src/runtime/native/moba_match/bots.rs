@@ -124,6 +124,23 @@ fn disclosed_units(runtime: &TeamVisibilityRuntime, team: u32, threat: impl Fn(u
         }).collect()
 }
 
+/// Whether the owner `player` has a live disclosed summon of `need.template` (its presentation
+/// identity) within `need.within` edge distance of `own` (E648). Its own team's units are always
+/// disclosed to it (E645), so this reads the committed disclosure like every other bot choice.
+fn owns_disclosed_summon(runtime:&TeamVisibilityRuntime,seen:&[SeenUnit],own:&SeenUnit,player:u32,
+    need:&abilities::BotCasterSummon)->bool {
+    seen.iter().any(|u| u.canonical_id!=own.canonical_id && u.team==own.team && u.owner_player_id==player && u.hp_raw>0
+        && need.within.is_none_or(|within| {
+            let reach=Fixed64::from_i32(within as i32)+own.radius+u.radius;
+            (u.position-own.position).length_squared()<=reach*reach
+        })
+        && runtime.latest_disclosed_baseline_by_canonical.get(&u.canonical_id)
+            .and_then(|bytes|decode_disclosed_components(bytes))
+            .and_then(|components|components.get(&DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID)
+                .and_then(|bytes|decode_disclosed_presentation_identity(bytes)).map(|id|id==need.template))
+            .unwrap_or(false))
+}
+
 /// Disclosed bodies whose presentation identity is a boss camp's unit (E187 §5.4). The identity is
 /// public (what the unit is); the boss tag is public map data.
 fn disclosed_boss_ids(runtime:&TeamVisibilityRuntime,team:u32,bosses:&[&str])->Vec<u64> {
@@ -547,10 +564,12 @@ fn reachable_travel_destination(points:impl IntoIterator<Item=Vec2>,own:Vec2,
 /// The policies whose ability the owner may cast now. v3 set_ability_active(false) (原作
 /// SetActivated) is the owner's own state; admission refuses such an ability, so it is never
 /// picked (E433). A policy's caster status precondition (v3 requires.has_status / not_status,
-/// E619) holds now too. Borrowed unless one is left out.
+/// E619) holds now too, and so does its summon precondition (`owns_summon`, E648). Borrowed unless
+/// one is left out.
 fn castable_policies<'a>(policies:&'a [BotAbilityPolicy],buffs:Option<&crate::runtime::ability_runtime::BuffStore>,
-    entity:specs::Entity) -> std::borrow::Cow<'a,[BotAbilityPolicy]> {
-    let inactive=|policy:&BotAbilityPolicy|buffs.is_some_and(|store|
+    entity:specs::Entity,owns_summon:impl Fn(&abilities::BotCasterSummon)->bool) -> std::borrow::Cow<'a,[BotAbilityPolicy]> {
+    let inactive=|policy:&BotAbilityPolicy|policy.caster_summon.as_ref().is_some_and(|summon|!owns_summon(summon))
+        || buffs.is_some_and(|store|
         crate::runtime::native::ability_slots::inactive(store,entity,&policy.ability)
             || policy.caster_status.as_ref().is_some_and(|id|!store.has(entity,id))
             || policy.caster_no_status.as_ref().is_some_and(|id|store.has(entity,id)));
@@ -813,7 +832,8 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 continue;
             }
             // Silence blocks spells, not ordinary attacks or skill learning.
-            let policies=castable_policies(&config.ability_policies,buffs.as_deref(),entity);
+            let policies=castable_policies(&config.ability_policies,buffs.as_deref(),entity,
+                |need|owns_disclosed_summon(&visibility,seen,own,slot.player_id,need));
             let policies=without_failed(policies,failed.as_deref(),entity,tick,failed_backoff);
             let cast = if buffs.as_ref().is_some_and(|store|store.is_silenced(entity)) {None} else {
                 abilities::choose_cast_with_control_observation(hero,assignment.role,team,own.position,
@@ -1148,7 +1168,7 @@ mod tests {
         hero.abilities=vec!["ranger_volley".into()];hero.ability_levels.insert("ranger_volley".into(),1);
         let hp=CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),
             msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
-        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {
+        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {
             radius_key:"radius".into(),min_targets:1}};
         let cast=abilities::choose_cast_with_resources(&hero,BotRole::Jungle,1,p(0),&hp,
             &seen,&[policy.clone()],focus,|_,_|None,|_,_|None).unwrap();
@@ -1168,7 +1188,7 @@ mod tests {
         use crate::runtime::native::game_processor::FailedCasts;
         let mut world=World::new();
         let (hero,other)=(world.create_entity().build(),world.create_entity().build());
-        let policy=|ability:&str|BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:ability.into(),intent:BotAbilityIntent::EnemyHero};
+        let policy=|ability:&str|BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:ability.into(),intent:BotAbilityIntent::EnemyHero};
         let policies=vec![policy("c25_falling_sakura"),policy("strike")];
         let mut failed=FailedCasts::default();
         failed.0.insert((hero,"c25_falling_sakura".into()),100);
@@ -1188,11 +1208,11 @@ mod tests {
         let mut world=crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
         let mut row=Hero::default();row.abilities=vec!["stance".into(),"strike".into()];
         let hero=world.create_entity().with(row).build();
-        let policy=|ability:&str|BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:ability.into(),intent:BotAbilityIntent::EnemyHero};
+        let policy=|ability:&str|BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:ability.into(),intent:BotAbilityIntent::EnemyHero};
         let policies=vec![policy("stance"),policy("strike")];
-        let names=|world:&World|castable_policies(&policies,Some(&world.read_resource::<crate::runtime::ability_runtime::BuffStore>()),hero)
+        let names=|world:&World|castable_policies(&policies,Some(&world.read_resource::<crate::runtime::ability_runtime::BuffStore>()),hero,|_|true)
             .iter().map(|policy|policy.ability.clone()).collect::<Vec<_>>();
-        assert!(matches!(castable_policies(&policies,None,hero),std::borrow::Cow::Borrowed(_)));
+        assert!(matches!(castable_policies(&policies,None,hero,|_|true),std::borrow::Cow::Borrowed(_)));
         assert_eq!(names(&world),vec!["stance","strike"]);
         apply(&mut world,hero,ACTIVE_BUFF,Fixed64::ONE,&ActiveSpec {ability:"stance".into(),active:false}.payload());
         assert_eq!(names(&world),vec!["strike"]);
@@ -1206,10 +1226,10 @@ mod tests {
         let mut world=crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
         let mut row=Hero::default();row.abilities=vec!["arrow".into(),"strike".into()];
         let hero=world.create_entity().with(row).build();
-        let arrow=BotAbilityPolicy {caster_status:Some("a12t_form".into()),caster_no_status:None,ability:"arrow".into(),intent:BotAbilityIntent::EnemyHero};
-        let strike=BotAbilityPolicy {caster_status:None,caster_no_status:Some("a12t_form".into()),ability:"strike".into(),intent:BotAbilityIntent::EnemyHero};
+        let arrow=BotAbilityPolicy {caster_status:Some("a12t_form".into()),caster_no_status:None,caster_summon:None,ability:"arrow".into(),intent:BotAbilityIntent::EnemyHero};
+        let strike=BotAbilityPolicy {caster_status:None,caster_no_status:Some("a12t_form".into()),caster_summon:None,ability:"strike".into(),intent:BotAbilityIntent::EnemyHero};
         let policies=vec![arrow,strike];
-        let names=|world:&World|castable_policies(&policies,Some(&world.read_resource::<crate::runtime::ability_runtime::BuffStore>()),hero)
+        let names=|world:&World|castable_policies(&policies,Some(&world.read_resource::<crate::runtime::ability_runtime::BuffStore>()),hero,|_|true)
             .iter().map(|policy|policy.ability.clone()).collect::<Vec<_>>();
         assert_eq!(names(&world),vec!["strike"],"no form: only the one that needs its absence");
         world.write_resource::<crate::runtime::ability_runtime::BuffStore>().add(hero,"a12t_form",Fixed64::from_i32(5),serde_json::json!({}));
@@ -1219,6 +1239,41 @@ mod tests {
         let plain:BotAbilityPolicy=serde_json::from_value(serde_json::json!({"ability":"strike","intent":{"kind":"enemy_hero"}})).unwrap();
         assert!(plain.caster_status.is_none() && plain.caster_no_status.is_none(),"absent fields default");
         assert!(serde_json::to_value(&plain).unwrap().get("caster_status").is_none(),"and are not written");
+    }
+    /// E648: a policy that needs the caster's own live summon (原作 B16 相移: its moon within 1000)
+    /// is picked only while the caster's team disclosure holds one of that template that close.
+    #[test]
+    fn a_bot_casts_only_while_its_own_summon_precondition_holds() {
+        use crate::runtime::visibility::{encode_demo_render_state, encode_disclosed_baseline, encode_disclosed_presentation_identity, DemoRenderState};
+        let unit=|id:u64,x:i32,team:u32,player:u32|SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
+            team,kind:4,owner_player_id:player,hp_raw:1024,max_hp_raw:1024,threat:Fixed64::ZERO,radius:Fixed64::from_i32(20)};
+        let mut runtime=TeamVisibilityRuntime::default();
+        for (id,template) in [(2,"b16d_moon"),(3,"b16d_moon"),(4,"other_pet")] {
+            let render=DemoRenderState {x_raw:0,y_raw:0,team_id:1,kind:4,owner_player_id:1};
+            runtime.latest_disclosed_baseline_by_canonical.insert(id,encode_disclosed_baseline(&[
+                (DEMO_RENDER_COMPONENT_SCHEMA_ID,encode_demo_render_state(render)),
+                (DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID,encode_disclosed_presentation_identity(template).unwrap())]));
+        }
+        let own=unit(1,0,1,1);
+        let need=|within|abilities::BotCasterSummon {template:"b16d_moon".into(),within};
+        let owns=|seen:&[SeenUnit],within|owns_disclosed_summon(&runtime,seen,&own,1,&need(within));
+        assert!(owns(&[own,unit(2,900,1,1)],Some(1000)),"its moon within 1000");
+        assert!(owns(&[own,unit(2,1030,1,1)],Some(1000)),"edge to edge: 1030 minus both radii");
+        assert!(!owns(&[own,unit(2,1050,1,1)],Some(1000)),"too far");
+        assert!(owns(&[own,unit(2,5000,1,1)],None),"any distance without within");
+        assert!(!owns(&[own,unit(3,100,1,2)],None),"an ally's moon is not the caster's");
+        assert!(!owns(&[own,unit(4,100,1,1)],None),"another template");
+        assert!(!owns(&[own,SeenUnit {hp_raw:0,..unit(2,100,1,1)}],None),"a dead moon");
+        assert!(!owns(&[own],None),"no moon");
+        let phase=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:Some(need(Some(1000))),
+            ability:"phase".into(),intent:BotAbilityIntent::EnemyHero};
+        let hero=specs::World::new().create_entity().build();
+        assert!(castable_policies(std::slice::from_ref(&phase),None,hero,|_|false).is_empty());
+        assert_eq!(castable_policies(std::slice::from_ref(&phase),None,hero,|_|true).len(),1);
+        let json=serde_json::to_value(&phase).unwrap();
+        assert_eq!(json["caster_summon"],serde_json::json!({"template":"b16d_moon","within":1000}));
+        assert_eq!(serde_json::from_value::<BotAbilityPolicy>(json).unwrap().caster_summon,phase.caster_summon);
+        assert_eq!(abilities::validate_policies(&[BotAbilityPolicy {caster_summon:Some(need(Some(0))),..phase.clone()}]),Err("invalid bot caster summon"));
     }
     #[test]
     fn role_bot_lane_route_keeps_corners_and_rejoins_segments_without_clock_state() {
