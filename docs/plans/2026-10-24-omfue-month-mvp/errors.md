@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E608 conformance：施放換格從未檢查；加上換入招所在格、初始冷卻、兩隊 replica 與時間到換回（2026-11-01，conformance session）
+- **現象**：swap_abilities 只在換入的副招被施放時間接用到（swapped_in），沒有檢查換格本身：哪一格換成什麼、換入招的冷卻、replica 的格，以及到期後換回。工作線 A 的換格清單（lineA-slot-swap-inventory.md）列出建議情境。
+- **通用修正**：
+  - v3_scenarios：施放對施法者做不帶條件的 swap_abilities 時，產生 `swap` 情境，期望 `ability_swapped`，帶 from、to、duration、cooldown_policy。同一段施放有不帶條件的 `modify_cooldown set` 改換入招時，另帶 initial_cooldown。
+  - harness：施放後檢查 authority 有一格是 to、沒有格是 from；有 initial_cooldown 時，換入招剩餘冷卻要符合；每隊看得到施法者的 replica（自己隊一定要有）該格都要一致。有 duration 時，等 duration＋0.5 秒，確認該格與 replica 都回到 from。
+- **結果**：全跑 0 退步，新增 10 個 pass（B24 R 的 shatter 三級、A13 替身四級、C14 龍形三級），fail 0、pass 21168。A32 的換格在帶條件的投射物命中裡、A07／A12 由狀態換格，這次都沒有涵蓋。
+
 ## E607 召喚物指令、戰鬥偏好、方向輸入、召喚師技能被 SubmitGameplayInputEvent 誤判不是 presentation 模式（2026-11-01，工作線 C）
 **現象**：spotlight 的召喚物技能（A28 天火、B16 忍犬「月」的技能）每次都送不出去。E600 的 log 顯示 `OM_SUMMON_CAST submit … accepted=0 error=戰鬥偏好需要本地玩家的正式連線`。
 

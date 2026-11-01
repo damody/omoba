@@ -35,7 +35,8 @@ const MISSING: &str = "missing entry: ";
 const CHECKED: &[&str] = &["cast_accepted", "cast_rejected", "cast_cancelled", "mana_spent", "cooldown_started",
     "cooldown_not_started", "no_effects", "then_cast_accepted", "approach_until",
     "caster_invisibility_broken", "caster_invisibility_kept", "damage_to_magic_immune", "selectors_skip_magic_immune",
-    "status_removed", "status_kept", "passive_stats", "toggled_off", "charge_spent", "charge_restore", "summon_cap", "damage_skipped_if_source_dead", "damage", "moved_toward"];
+    "status_removed", "status_kept", "passive_stats", "toggled_off", "charge_spent", "charge_restore", "summon_cap", "damage_skipped_if_source_dead", "damage", "moved_toward",
+    "ability_swapped"];
 /// A check that found nothing to judge (marks an error as unsupported, not failed).
 const UNOBSERVED: &str = "unobserved: ";
 
@@ -775,6 +776,57 @@ fn replica_icons(run: &Run, team: u32, unit: specs::Entity) -> Option<Vec<u16>> 
     let icons = runtime.expected_component_bytes(team, replica, SCHEMA_ID).and_then(BuffVisualSnapshot::decode)
         .map(|snapshot| snapshot.buffs.0.iter().map(|(id, _)| *id).collect()).unwrap_or_default();
     Some(icons)
+}
+
+/// The hero component one team's replica is told for the unit; None when the team does not see it.
+fn replica_hero(run: &Run, team: u32, unit: specs::Entity) -> Option<Hero> {
+    let runtime = run.world.read_resource::<TeamProjectionRuntime>();
+    let canonical = omoba_core::runtime::stable_fact::canonical_entity_id(unit);
+    let (identity, _) = runtime.communication_disclosure(team)?;
+    let replica = identity.disclosed_mappings().into_iter()
+        .find(|(key, _)| (u64::from(key.generation) << 32 | u64::from(key.id)) == canonical)?.1.replica_id.get();
+    let bytes = runtime.expected_component_bytes(team, replica, omoba_core::runtime::visibility::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// `ability_swapped` (E608): after the cast the caster's slot holds `to` (and no slot `from`),
+/// with `initial_cooldown` left on it when a modify_cooldown of the cast sets one; every team
+/// replica that sees the caster shows the same slot, its own team's always; after `duration` the
+/// slot holds `from` again, in the replicas too.
+fn swapped(run: &mut Run, e: &Value, entry: &str, rank: usize) -> Result<(), String> {
+    let (from, to) = (e["from"].as_str().unwrap_or(""), e["to"].as_str().unwrap_or(""));
+    let slots = |run: &Run| run.hero(|h| h.abilities.clone());
+    let replicas = |run: &Run, slot: usize, id: &str| -> Result<(), String> {
+        let own = run.world.read_storage::<Faction>().get(run.caster).map(|f| f.team_id.max(0) as u32);
+        let teams: Vec<u32> = run.world.read_resource::<TeamProjectionRuntime>().communication_disclosures().into_iter().map(|(team, _, _)| team).collect();
+        for team in teams {
+            match replica_hero(run, team, run.caster) {
+                Some(h) if h.abilities.get(slot).map(String::as_str) != Some(id) =>
+                    return Err(format!("team {team}'s replica has {:?} in slot {slot}, the authority {id}", h.abilities.get(slot))),
+                None if Some(team) == own => return Err(format!("the caster's own team {team} has no replica of its hero")),
+                _ => {}
+            }
+        }
+        Ok(())
+    };
+    let now = slots(run);
+    let Some(slot) = now.iter().position(|id| id == to) else { return Err(format!("{to} is in no slot after the cast (slots {now:?})")) };
+    if now.iter().any(|id| id == from) { return Err(format!("{from} is still in a slot beside {to} ({now:?})")); }
+    if !e["initial_cooldown"].is_null() {
+        let want = expr(&e["initial_cooldown"], entry, rank)?;
+        let left = run.hero(|h| real(h.get_cooldown(to)));
+        // The cast window's few ticks have run off it already.
+        if left > want + 0.05 || left < want - 1.0 { return Err(format!("{to}'s cooldown is {left:.2} s after the swap, the cast set {want}")); }
+    }
+    replicas(run, slot, to)?;
+    if !e["duration"].is_null() {
+        let seconds = expr(&e["duration"], entry, rank)?;
+        run.step(ticks(seconds + 0.5));
+        let back = slots(run);
+        if back.get(slot).map(String::as_str) != Some(from) { return Err(format!("slot {slot} holds {:?} {:.1} s after the swap, not {from}", back.get(slot), seconds + 0.5)); }
+        replicas(run, slot, from)?;
+    }
+    Ok(())
 }
 
 /// The icon the host shows for this one status entry (the same mapping the projection uses).
@@ -2000,6 +2052,7 @@ fn run(hero: &str, s: &Value) -> Verdict {
                 let total = run.hero(|h| h.cooldown_total(&entry, Fixed64::ZERO)).map(real).unwrap_or(0.0);
                 if (total - length).abs() <= 0.02 { Ok(()) } else { Err(format!("cooldown total {total:.3}, expected {length}")) }
             }
+            "ability_swapped" => swapped(&mut run, e, &entry, rank),
             "cooldown_not_started" => {
                 let remaining = run.cooldown();
                 if remaining == 0.0 { Ok(()) } else { Err(format!("cooldown {remaining:.3} running")) }

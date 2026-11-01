@@ -493,6 +493,25 @@ local function entry_scenarios(doc, def, entry_kind, out)
               note = "the third cast, after waiting the cooldown: the cast deactivated the entry" }
             or { kind = "cast_accepted", nth = 3, after_wait = cost.cooldown, note = "the third cast, after waiting the cooldown" } } })
       end
+      -- An ability swap its cast makes on its caster (B24T's shatter, A32's second slash; E608):
+      -- the slot holds the ability swapped in, with the cooldown a plain modify_cooldown of the same
+      -- cast sets, in the authority and the team replicas, and the original after the duration.
+      for _, e in ipairs(base_effects) do
+        local a = e.args
+        if e.op == "swap_abilities" and e.phase == "on_cast" and not (e.conds and #e.conds > 0) and a
+          and (a.on == "caster" or a.on == "self") and type(a.from) == "string" and type(a.to) == "string" then
+          local initial
+          for _, m in ipairs(base_effects) do
+            local b = m.args
+            if m.op == "modify_cooldown" and m.phase == "on_cast" and not (m.conds and #m.conds > 0) and b
+              and b.ability == a.to and b.mode == "set" then initial = b.amount end
+          end
+          push(rank, "swap", { suffix = a.to, given = given({ valid_target }), when = { cast_step },
+            expect = { { kind = "cast_accepted" }, { kind = "ability_swapped", from = a.from, to = a.to, duration = a.duration,
+              policy = a.cooldown_policy, initial_cooldown = initial } },
+            rule = "v3.md swap_abilities: the slot, its cooldown and the swap back" })
+        end
+      end
       -- targeting
       if target.type == "unit" then
         local cases = {}
