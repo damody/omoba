@@ -1408,6 +1408,10 @@ fn status_trigger(run: &mut Run, holder: specs::Entity, step: &Value, expectatio
         // Damage taken, the holder's death, the holder's kill (E564): the event is made, then the
         // trigger's plain effects are looked for.
         Some(event @ ("on_take_damage" | "on_death" | "on_kill" | "on_attack_launch" | "on_attacked_hit")) => make_event(run, holder, event, &effects),
+        Some("periodic") => {
+            let runtime_id = status["runtime_id"].as_str().unwrap_or("").to_owned();
+            periodic_effects(run, holder, step, &effects, Some(&runtime_id))
+        }
         // Its running out (E618): waited out, then what its effects leave is looked for.
         Some("on_expired") => {
             let runtime_id = status["runtime_id"].as_str().unwrap_or("").to_owned();
@@ -1471,6 +1475,128 @@ fn make_event(run: &mut Run, holder: specs::Entity, event: &str, effects: &[&Val
             }
         }
         before.compare(run, holder, other, victim, event, effects)
+}
+
+/// A `periodic` trigger's effects (E654): those whose conditions hold now (holding_now) and whose
+/// unit is known for sure are looked for, one at a time, over two intervals; a status it puts on is
+/// first taken off, so that it shows the trigger running again. `it` of a for_each around the holder
+/// is the other hero, placed and seen beside it (an enemy selector), or the holder (an ally one); a
+/// selector with a limit, a `where`, an exclusion, or that a hero does not satisfy leaves them out.
+fn periodic_effects(run: &mut Run, holder: specs::Entity, step: &Value, effects: &[&Value], lasting: Option<&str>) -> Verdict {
+    let (entry, rank) = (run.entry.clone(), run.rank);
+    let interval = match expr(&step["interval"], &entry, rank) {
+        Ok(i) if i > 0.0 && i <= 15.0 => i,
+        Ok(i) => return Verdict::Unsupported(format!("periodic every {i} s")),
+        Err(err) => return Verdict::Unsupported(err),
+    };
+    let other = if holder == run.enemy { run.caster } else { run.enemy };
+    let hostile = { let f = run.world.read_storage::<Faction>(); f.get(holder).zip(f.get(other)).is_some_and(|(h, o)| h.is_hostile_to(o)) };
+    // What `it` stands for under the for_each around this path, in the names EffectsSeen knows.
+    let it_of = |path: &str| -> Option<&'static str> {
+        let mut at = path;
+        while let Some((up, _)) = at.rsplit_once('.') {
+            at = up;
+            let Some(each) = effects.iter().find(|f| f["op"] == "for_each" && f["path"] == at) else { continue };
+            let select = &each["args"]["select"];
+            let hero_fits = select["types"].as_array().into_iter().flatten().any(|t| t == "hero" || t == "all");
+            let radius = expr(&select["radius"], &entry, rank).unwrap_or(0.0);
+            if select["from"] != "self" || select["shape"] != "circle" || radius < 80.0 || !hero_fits { return None; }
+            if !select["where"].is_null() || !select["exclude"].is_null() || !select["limit"].is_null() { return None; }
+            return match select["team"].as_str() { Some("enemy") if hostile => Some("event.attacker"), Some("ally") => Some("self"), _ => None };
+        }
+        None
+    };
+    let mut owned = Vec::new();
+    for mut f in holding_now(run, holder, effects, &[]) {
+        let path = f["path"].as_str().unwrap_or("").to_owned();
+        let key = match f["op"].as_str() {
+            Some("damage" | "apply_status" | "heal" | "restore_mana" | "kill") => "to",
+            Some("remove_status") => "from",
+            Some("issue_order") => "who",
+            Some("modify_cooldown") => "of",
+            Some("create_unit") => "",
+            _ => continue,
+        };
+        if !key.is_empty() {
+            if f["args"][key] == "it" {
+                let Some(name) = it_of(&path) else { continue };
+                f["args"][key] = json!(name);
+            }
+            if EffectsSeen::unit(run, holder, other, None, &f["args"][key]).is_none() { continue; }
+        }
+        // The status itself, on the holder, is what runs this.
+        if f["op"] == "apply_status" && lasting.is_some_and(|id| EffectsSeen::runtime(run, &f).as_deref() == Some(id)) { continue; }
+        owned.push(f);
+    }
+    let effects: Vec<&Value> = owned.iter().filter(|f| EffectsSeen::observable(f)).collect();
+    if effects.is_empty() { return Verdict::Unsupported("periodic: no effect it can observe without a chance or condition".into()); }
+    if effects.iter().any(|f| ["to", "from", "who", "of"].iter().any(|k| f["args"][*k] == "event.attacker")) {
+        let at = run.world.read_storage::<Pos>().get(holder).map(|p| p.0);
+        if let Some(at) = at { if let Some(pos) = run.world.write_storage::<Pos>().get_mut(other) { pos.0 = at + omoba_sim::Vec2::new(Fixed64::from_i32(60), Fixed64::ZERO); } }
+        let team = run.world.read_storage::<Faction>().get(holder).map(|f| f.team_id.max(0) as u32);
+        run.world.write_storage::<VisibilityOverride>().insert(other, VisibilityOverride { team, kind: VisibilityOverrideKind::ForceShow, priority: 1, stable_rule_id: 0xE654 }).ok();
+    }
+    for f in effects.iter().filter(|f| f["op"] == "apply_status") {
+        let (Some(unit), Some(id)) = (EffectsSeen::unit(run, holder, other, None, &f["args"]["to"]), EffectsSeen::runtime(run, f)) else { continue };
+        let mut buffs = run.world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
+        let keys: Vec<String> = buffs.iter_for(unit).filter(|(k, _)| omoba_core::runtime::native::dispel::runtime_id_matches(&id, k)).map(|(k, _)| k.to_owned()).collect();
+        for key in keys { buffs.remove(unit, &key); }
+    }
+    let before = EffectsSeen::of(run, holder, other, &effects);
+    let (mut pending, mut seen, mut waited) = (effects, Vec::new(), 0u32);
+    let full = ticks(interval * 2.0 + 0.5);
+    for _ in 0..full {
+        run.step(1);
+        waited += 1;
+        pending.retain(|f| match before.compare(run, holder, other, None, "periodic", &[*f]) {
+            Verdict::PassNoted(note) => { seen.push(note); false }
+            _ => true,
+        });
+        if pending.is_empty() || lasting.is_some_and(|id| !holds(run, holder, id)) { break; }
+    }
+    let wrong: Vec<String> = pending.iter().filter_map(|f| match before.compare(run, holder, other, None, "periodic", &[*f]) { Verdict::Fail(why) => Some(why), _ => None }).collect();
+    if !wrong.is_empty() {
+        if waited < full { return Verdict::Unsupported(format!("periodic: the status ended {:.1} s in, before two intervals of {interval} s", f64::from(waited) / 60.0)); }
+        return Verdict::Fail(wrong.join("; "));
+    }
+    if seen.is_empty() { return Verdict::Unsupported("periodic: no plain effect it can observe".into()); }
+    Verdict::PassNoted(seen.join("; "))
+}
+
+/// `by` (another active of the hero) is learned and cast at the enemy hero; how long its cast point
+/// takes. The entry itself was cast already, and a passive cannot be (E655).
+fn cast_other(run: &mut Run, by: &str, entry: &str) -> f64 {
+    if by == entry { return 0.0; }
+    let Some(slot) = run.hero(|h| h.abilities.iter().position(|id| id == by)) else { return 0.0 };
+    let Some(kind) = omoba_template_ids::ability_by_name(by).and_then(omoba_template_ids::active_ability_const).map(|c| c.target_type) else { return 0.0 };
+    let aim = match kind { omoba_template_ids::TargetTypeC::Unit => "unit", omoba_template_ids::TargetTypeC::Point => "point", _ => "none" };
+    {
+        let mut heroes = run.world.write_storage::<Hero>();
+        if let Some(h) = heroes.get_mut(run.caster) {
+            h.ability_levels.entry(by.to_owned()).or_insert(1);
+            h.ability_cooldowns.clear();
+            if let Some(pool) = h.mana_pool.as_mut() { let max = pool.maximum(); if let Ok(full) = omoba_core::runtime::ability_runtime::ManaPool::new(max, max) { *pool = full; } }
+        }
+    }
+    let (entry_id, entry_slot) = (run.entry.clone(), run.slot);
+    run.target = run.enemy;
+    run.keep = Some(entry_id.clone());
+    run.entry = by.to_owned();
+    run.slot = slot as u32;
+    let cast_point = value(by, 1, "cast_point").unwrap_or(0.0);
+    let _ = run.cast(aim, cast_point + 1.0, None);
+    run.entry = entry_id;
+    run.slot = entry_slot;
+    run.keep = None;
+    cast_point
+}
+
+/// `unit` this far from the caster, seen by the caster's team (E655).
+fn place_seen_beside(run: &mut Run, unit: specs::Entity, away: f64) {
+    let at = run.world.read_storage::<Pos>().get(run.caster).map(|p| p.0);
+    if let Some(at) = at { if let Some(pos) = run.world.write_storage::<Pos>().get_mut(unit) { pos.0 = at + omoba_sim::Vec2::new(fixed(away), Fixed64::ZERO); } }
+    let team = run.world.read_storage::<Faction>().get(run.caster).map(|f| f.team_id.max(0) as u32);
+    run.world.write_storage::<VisibilityOverride>().insert(unit, VisibilityOverride { team, kind: VisibilityOverrideKind::ForceShow, priority: 1, stable_rule_id: 0xE655 }).ok();
 }
 
 /// Conditions on the attacked unit that hold when the holder attacks the enemy hero (E604).
@@ -1561,12 +1687,13 @@ fn attacked_hit(run: &mut Run, holder: specs::Entity, effects: &[&Value]) -> Ver
 /// learned (rank by rank, as the player does), and the event is made on the hero.
 fn check_passive_event(hero: &str, s: &Value) -> Option<Verdict> {
     let event = s["when"][0]["event"].as_str()?;
-    if !matches!(event, "on_take_damage" | "on_death" | "on_kill" | "on_attack_launch" | "on_attacked_hit") { return None; }
+    if !matches!(event, "on_take_damage" | "on_death" | "on_kill" | "on_attack_launch" | "on_attacked_hit" | "periodic") { return None; }
     let effects: Vec<&Value> = s["expect"].as_array()?.iter().find(|e| e["kind"] == "effects")?["effects"].as_array()?.iter().collect();
     let (entry, rank) = (s["entry"].as_str()?.to_owned(), s["rank"].as_u64()? as usize);
     let learn = json!({"entry": entry, "rank": rank, "given": learning(s), "learn_by_upgrade": s["learn_by_upgrade"], "expect": [{"kind": "passive_stats"}]});
     let mut run = match setup(hero, &learn) { Ok(run) => run, Err(e) => return Some(Verdict::Unsupported(e)) };
     let caster = run.caster;
+    if event == "periodic" { return Some(periodic_effects(&mut run, caster, &s["when"][0], &effects, None)); }
     Some(make_event(&mut run, caster, event, &effects))
 }
 
@@ -1695,9 +1822,11 @@ impl EffectsSeen {
                 "heal" => {
                     let Some(unit) = Self::unit(run, holder, other, victim, &f["args"]["to"]) else { continue };
                     // The holder's own life also took the event's hit.
-                    if unit == holder && event != "on_kill" { continue; }
+                    if unit == holder && event != "on_kill" && event != "periodic" { continue; }
                     let (Some(was), Some(now)) = (self.life.get(&unit.id()), run.world.read_storage::<CProperty>().get(unit).map(|p| real(p.hp))) else { continue };
-                    if now > was + 0.5 { seen.push(format!("healed {:.1}", now - was)) } else { missing.push("no heal on its target".to_owned()) }
+                    // Over a periodic's seconds, more than regeneration: half the heal (E654).
+                    let more = if event == "periodic" { match expr(&f["args"]["amount"], &run.entry, run.rank) { Ok(amount) => amount * 0.5, Err(_) => continue } } else { 0.5 };
+                    if now > was + more { seen.push(format!("healed {:.1}", now - was)) } else { missing.push("no heal on its target".to_owned()) }
                 }
                 // E618: a kill, a cooldown the trigger starts or sets on the hero, a move order.
                 "kill" => {
@@ -1721,8 +1850,9 @@ impl EffectsSeen {
                 "restore_mana" => {
                     let Some(unit) = Self::unit(run, holder, other, victim, &f["args"]["to"]) else { continue };
                     let (Some(was), Some(now)) = (self.mana.get(&unit.id()), Self::mana_of(run, unit)) else { continue };
-                    // More than the few ticks of regeneration the event takes.
-                    if now > was + 2.0 { seen.push(format!("mana +{:.1}", now - was)) } else { missing.push("no mana restored".to_owned()) }
+                    // More than the few ticks of regeneration the event takes, or a periodic's seconds of it.
+                    let more = if event == "periodic" { match expr(&f["args"]["amount"], &run.entry, run.rank) { Ok(amount) => amount * 0.5, Err(_) => continue } } else { 2.0 };
+                    if now > was + more { seen.push(format!("mana +{:.1}", now - was)) } else { missing.push("no mana restored".to_owned()) }
                 }
                 _ => {}
             }
@@ -1835,6 +1965,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         ("status_event", _) if step["event"] == "on_take_damage_pre" || step["event"] == "on_removed" || step["event"] == "on_created" => None,
         ("status_event", _) if step["event"] == "on_take_damage" || step["event"] == "on_death" || step["event"] == "on_kill" => None,
         ("status_event", _) if step["event"] == "on_attack_launch" || step["event"] == "on_expired" || step["event"] == "on_attacked_hit" => None,
+        ("status_event", _) if step["event"] == "periodic" => None,
         ("reapply", _) => None,
         _ => return Verdict::Unsupported(format!("status step {kind}")),
     };
@@ -2050,6 +2181,56 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
             for _ in 0..ticks(cast_point + 2.0) {
                 if let Some(found) = find(&run) { holder = Some(found); break; }
                 run.step(1);
+            }
+        }
+    }
+    // What A marks on a status the cast alone does not show (E655).
+    let tick = status["after_tick"]["seconds"].is_string().then(|| expr(&status["after_tick"]["seconds"], &entry, rank).ok()).flatten().filter(|t| *t > 0.0).map(|t| t.min(30.0));
+    if holder.is_none() && status["on_summon"].is_object() {
+        let template = status["on_summon"]["template"].as_str().unwrap_or("").to_owned();
+        let wait = cast_other(&mut run, status["on_summon"]["by"].as_str().unwrap_or(""), &entry) + 3.0 + tick.unwrap_or(0.0) * 1.5;
+        for _ in 0..ticks(wait) {
+            let summoned: Option<specs::Entity> = {
+                use specs::Join;
+                let units: Vec<specs::Entity> = (&run.world.entities(), &run.world.read_storage::<ScriptUnitTag>()).join().filter(|(_, t)| of_template(&t.unit_id, &template)).map(|(e, _)| e).collect();
+                units.into_iter().find(|e| holds(&run, *e, &runtime_id))
+            };
+            if summoned.is_some() { holder = summoned; break; }
+            run.step(1);
+        }
+    }
+    if let (None, Some(tick)) = (holder, tick) {
+        // Its target within reach of what the caster's status does each interval.
+        if run.target != run.caster { let target = run.target; place_seen_beside(&mut run, target, 60.0); }
+        for _ in 0..ticks(tick * 1.5 + 0.5) {
+            if let Some(found) = find(&run) { holder = Some(found); break; }
+            run.step(1);
+        }
+    }
+    if holder.is_none() && status["via_aura"].is_object() {
+        let aura = &status["via_aura"];
+        cast_other(&mut run, aura["by"].as_str().unwrap_or(""), &entry);
+        if let Ok(radius) = expr(&aura["radius"], &entry, rank) {
+            let near = (radius * 0.5).clamp(1.0, 200.0);
+            let unit = match aura["team"].as_str() {
+                Some("enemy") => Some(run.enemy),
+                Some("ally") => {
+                    let team = run.world.read_storage::<Faction>().get(run.caster).map(|f| f.team_id).unwrap_or(0);
+                    let at = run.world.read_storage::<Pos>().get(run.caster).map(|p| p.0).unwrap_or(omoba_sim::Vec2::ZERO);
+                    let body = spawn_body(&mut run.world, real(at.x) as i32, real(at.y) as i32, team, 800, None);
+                    run.world.write_storage::<omoba_core::Unit>().insert(body,
+                        omoba_core::Unit::new("v3_conformance_ally".into(), "v3_conformance_ally".into(), omoba_core::UnitType::Creep)).ok();
+                    Some(body)
+                }
+                _ => None,
+            };
+            if let Some(unit) = unit {
+                place_seen_beside(&mut run, unit, near);
+                for _ in 0..ticks(5.0) {
+                    if holds(&run, unit, &runtime_id) { holder = Some(unit); break; }
+                    if let Some(found) = find(&run) { holder = Some(found); break; }
+                    run.step(1);
+                }
             }
         }
     }

@@ -2,6 +2,16 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E655 conformance：接上 on_summon、after_tick、via_aura：施放後沒觀察到時才使用（2026-11-02，conformance session）
+- **現象**：工作線 A 在 `status_on_unit` 加了三個備援欄位（85ecd264、3639e051）：on_summon、after_tick、via_aura，標示只施放一次看不到的狀態要去哪裡看，harness 還沒有用。
+- **通用修正**：只在施放後 not observed 才使用，已 pass 的流程不變。on_summon：`by` 不是這一招就先學會並施放（`cast_other`），再到該 template 的單位上找；after_tick：把目標放到施法者旁邊，多等 1.5 個週期（上限 30 秒）；via_aura：把敵方英雄或一個己方小兵放進半徑內且看得見，最多等 5 秒。
+- **結果**：全跑 0 退步，fail 從 10 歸零（E652 修正也在這輪確認），pass 22194，unsupported 5437；這輪 189 個 unsupported 轉 pass。
+
+## E654 conformance：判定狀態與被動的 periodic 效果，等兩個週期逐一觀察（2026-11-02，conformance session）
+- **現象**：狀態與被動的 `periodic`，只要不是「對持有者造成傷害」（check_periodic 的範圍），都沒有判定，約 230 個情境 unsupported。
+- **通用修正**：`periodic_effects`：條件現在成立（holding_now）、對象確定的效果，在兩個週期內逐一找；它要套的狀態先拿掉，確保看到的是觸發再次執行的結果。for_each 從持有者畫圓時，`it` 是放在旁邊且看得見的另一個英雄（enemy）或持有者自己（ally）；selector 帶 limit、where、exclude，或英雄不符合 types，就略過那些效果。治療、回魔在週期內要超過效果量的一半，才不會把自然回復算成有效。狀態在兩個週期內就結束時判 unsupported，不判 fail。
+- **結果**：全跑（與 E655 同一輪）0 退步，periodic 62 個情境 pass。被動 periodic 的 `interval` 為 null 的 43 個，以及沒有可觀察效果的 89 個，仍是 unsupported。
+
 ## E653 canonical_disclosed_json 每次都整棵重建來排序 key，但 serde_json 的 Map 本來就已排序（2026-11-02，工作線 B，效能）
 
 - **現象**：E646 拆解 visibility wave 時，`canonical_disclosed_json` 每 tick 約 165 次呼叫，合計約 0.22 ms，其中重新排序約 0.07 ms。
