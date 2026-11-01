@@ -125,4 +125,6 @@ return {
   {hero='kobayakawa_takakage',package='hero_c18',dir='heroes/kobayakawa_takakage'},
   -- M6 batch (2026-10-31): every ability generated (add_ability（E560）、set_base_max_hp（E563）、has_item、dodge_projectiles.of（E557）；harness 先召喚月（E568）); conformance 0 fail
   {hero='mochizuki_chiyome',package='hero_b16',dir='heroes/mochizuki_chiyome'},
+  -- M6 batch (2026-10-31): every ability generated (選取器 segment、add_ability 指定格位與 slot_ref、remove_ability(slot_ref)、set_ability_active event.ability); conformance 0 fail
+  {hero='kato_danzo',package='hero_c08',dir='heroes/kato_danzo'},
 }
