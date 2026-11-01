@@ -80,7 +80,7 @@ assert(sessai.slots[2].id=='b22_force_of_nature' and sessai.slots[2].team=='tree
 assert(spotlight.recipe_for(sessai)==spotlight.TREE_RECIPE,'B22 is shown on the tree stage')
 assert(spotlight.recipe_for(spotlight.load_package(b.root,'saika_magoichi'))==spotlight.RECIPE,'other heroes keep the base stage')
 
--- E594: summon abilities and sub-abilities follow the slot that makes them castable.
+-- E595: summon abilities and sub-abilities follow the slot that makes them castable.
 local function index_of(package,id,summon)
   for index,slot in ipairs(package.slots) do if slot.id==id and slot.summon==summon then return index,slot end end
 end

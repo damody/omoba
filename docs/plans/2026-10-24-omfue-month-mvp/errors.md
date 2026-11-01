@@ -2,7 +2,25 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E595 （保留）spotlight 不能示範召喚物技能與暫時開放的子技能（2026-11-01）
+## E595 spotlight 不能示範召喚物技能與暫時開放的子技能（2026-11-01，工作線 C）
+**編號**：79482c0c、8a170ef（omfue）的訊息與程式註解誤寫 E594；E594 是工作線 B 的 replica PostStep Movement（7649b44d）。本項正確編號是 E595，程式註解已經改正。
+**現象**：spotlight script 只照英雄 row 的技能順序排 slot，下面三種技能從來沒有示範過：
+- 召喚物技能：A36 引爆、B16 忍犬「月」的 4 招、A28 天火；
+- 只在另一招期間開放的子技能：B26 釋放波排到時已經回到 0 級，被跳過；
+- 施放後換進 slot 的技能：A13 替身。
+
+**修正**（通用）：
+- `record_hero_spotlight.lua`：`v3_dependents` 從 v3 文件推出「接在別的技能後面」的示範：
+  - 召喚物模板的 `abilities`，以及建立它的技能裡的 `add_ability`；
+  - 不可學、會被暫時設成非 0 級的子技能；
+  - 施放時換進 slot 的技能。
+  `with_dependents` 把這些 slot 標上 `after`（召喚物另標 `summon`），排在啟用者正後面。示範不了的（召喚物的被動、無法瞄準的、啟用者沒示範的）列進 `unshown` 並寫明原因。
+- OmSpotlight：slot 新增 `Summon`、`After`，上限 16。`after` 必須指向更早的 slot。舊 script 照舊解析。
+- OmAutoPilot：
+  - `after` slot 接在啟用者後面直接示範，不走回原位；還是 0 級時在 patience 內等待。
+  - 召喚物 slot 照玩家的路線操作：左鍵點選自己的召喚物，等選取資訊出現這招後按 SummonAbility 鍵，point 技能再用左鍵確認。只有這招的召喚物指令被接受才算施放（`spotlight_summon<N>_<aim>`）。
+
+**測試**：`record_hero_spotlight_test`、`OmSpotlightTests`（UE automation，只經 UBT 編譯過）。實機在下一輪有召喚物或子技能的英雄上驗證。
 
 ## E594 replica 在同一 step 先套 PostStep Movement 再套 PreStepMovement：被拉走的小兵留在走路位置（2026-11-01，工作線 B）
 

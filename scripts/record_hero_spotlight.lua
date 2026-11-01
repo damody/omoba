@@ -155,7 +155,7 @@ function M.load_v3_package(root,hero)
   return {hero=hero,hero_name=row.display_name or hero,title=row.title or '',slots=slots,unshown=unshown}
 end
 
--- E594: the hero's v3 document (docs/character_pipeline/packages/<hero>/v3.lua), loaded with only
+-- E595: the hero's v3 document (docs/character_pipeline/packages/<hero>/v3.lua), loaded with only
 -- pure helpers like hero_author/cli.lua safe_env (a package is data); nil without one.
 function M.v3_document(root,hero)
   local file=path.join(root,'docs','character_pipeline','packages',hero,'v3.lua')
@@ -181,7 +181,7 @@ local function each_op(node,fn,seen)
   for _,key in ipairs(keys) do each_op(node[key],fn,seen) end
 end
 
--- E594: what can only be shown after another slot of the hero row (ROW = the row's ability ids):
+-- E595: what can only be shown after another slot of the hero row (ROW = the row's ability ids):
 --   subs[id] = enabler: a row ability that is not learnable, set to a nonzero level only inside one
 --     other ability and back to 0 (b26 釋放蓄力波: 蓄力波 sets it to 1 on cast and to 0 after 12 s);
 --     one whose level only rises with another (a13 迷蹤步 = 影殺 level + 1) is an ordinary slot.
@@ -263,7 +263,7 @@ local function summon_team(ability,target,aim)
   return nil
 end
 
--- E594: SLOTS (the hero row's demonstrations) with the dependents of DEPS: a sub-ability gets
+-- E595: SLOTS (the hero row's demonstrations) with the dependents of DEPS: a sub-ability gets
 -- `after` = its enabler, a swapped-in ability and each summon ability become slots of their own,
 -- and every dependent is moved right after its enabler, so the renderer shows it while the window
 -- the enabler opened is still open. A dependent whose enabler is not shown is listed in UNSHOWN.
@@ -401,7 +401,7 @@ function M.keyframes(events,frames)
       if event.event=='spotlight_cast' then t=t+1.2 end
       local row=nearest(t)
       if row then
-        -- A summon's ability (E594) is named by its summon: its slot is the summon ability index.
+        -- A summon's ability (E595) is named by its summon: its slot is the summon ability index.
         shots[#shots+1]={name=('%02d_%sslot%d_%s_%s'):format(#shots+1,
           type(event.summon)=='string' and event.summon:match('^[%w_]+$') and event.summon..'_' or '',event.slot,event.aim or 'self',
           event.event=='spotlight_slot' and 'caption' or 'effect'),frame=row.frame}
