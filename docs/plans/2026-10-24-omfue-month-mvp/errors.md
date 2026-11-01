@@ -33,7 +33,13 @@
 - **測試**：`game_processor::tests::a_replicas_replayed_learn_hooks_leave_cooldowns_as_disclosed`：replica 上重跑的 hook 重設冷卻後還原成揭露的 16 秒，authority 保留 hook 設的 30 秒。game_processor、filtered_specs、team_replica 的 158 個測試通過。
 - **檔案**：`omoba-core/src/runtime/native/game_processor.rs`、`omoba-core/src/runtime/filtered_specs.rs`
 
-## E581 （保留）conformance on_removed 只驗證會移除或套上持有者狀態的 trigger，其他效果一律 unsupported（2026-11-01）
+## E581 conformance：conformance on_removed 只驗證會移除或套上持有者狀態的 trigger，其他效果一律 unsupported（2026-11-01，conformance session）
+- **現象**：on_removed trigger 有 112 個情境 unsupported，只有 1 個 pass，效果不是「持有者自己的狀態」就不驗證。
+- **通用修正**：
+  - 改用 E564 的效果檢查：先強驅散讓狀態結束，再檢查不帶條件的效果。驅散本身就會拿掉的持有者狀態不算。
+  - trigger 有傷害時，把另一位英雄放到持有者旁，並 ForceShow 給持有者的隊伍（自身施法的情境裡，敵人對誰都不可見）。
+  - 找不到傷害時，訊息列出事件後 trace 到的所有命中。
+- **結果**：全跑 0 退步，147 個情境變 pass。新出現的 fail 是 b30_reverse_shield r1–r4 的 on_removed：狀態被驅散後爆炸沒有發生，已轉給 B 查 host 端。
 
 ## E580 小兵投影後被移動，replica 位置沒有校正（observer DemoRender 不一致）（2026-11-01，工作線 B）
 

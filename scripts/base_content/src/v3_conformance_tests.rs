@@ -1140,19 +1140,27 @@ fn status_trigger(run: &mut Run, holder: specs::Entity, step: &Value, expectatio
             let plain = |f: &&&Value| f["conds"].as_array().is_none_or(|c| c.is_empty());
             let gone: Vec<String> = effects.iter().filter(plain).filter(|f| f["op"] == "remove_status" && f["args"]["from"] == "self").filter_map(|f| id_of(f)).collect();
             let put: Vec<String> = effects.iter().filter(plain).filter(|f| f["op"] == "apply_status" && f["args"]["to"] == "self").filter_map(|f| id_of(f)).collect();
-            if gone.is_empty() && put.is_empty() { return Verdict::Unsupported("on_removed without a status it removes or applies".into()); }
             let runtime_id = status["runtime_id"].as_str().unwrap_or("").to_owned();
             // The dispel that ends this status must not end the others itself.
             let ends = |id: &str| dispel::registry().declared(id).is_some_and(|rule| !matches!(rule.class, dispel::Class::None | dispel::Class::DeathOnly));
             if !ends(&runtime_id) { return Verdict::Unsupported(format!("{runtime_id} cannot be dispelled to fire on_removed")); }
-            if gone.iter().any(|id| ends(id)) { return Verdict::Unsupported("the dispel would remove the trigger's statuses too".into()); }
-            if let Some(missing) = gone.iter().find(|id| !holds(run, holder, id)) { return Verdict::Unsupported(format!("{missing} was not on the holder")); }
             let hostile = { let f = run.world.read_storage::<Faction>(); f.get(holder).zip(f.get(run.caster)).is_some_and(|(h, c)| h.is_hostile_to(c)) };
             let purge = match status["visibility"].as_str() {
                 Some("debuff") => dispel::Purge::Debuffs,
                 Some("buff") => dispel::Purge::Buffs,
                 _ => if hostile { dispel::Purge::Debuffs } else { dispel::Purge::Buffs },
             };
+            // Other effects (E581): the dispel ends it, then what its plain effects leave is looked for.
+            if gone.is_empty() && put.is_empty() {
+                let other = if holder == run.enemy { run.caster } else { run.enemy };
+                let before = EffectsSeen::of(run, holder, other, &effects);
+                dispel::dispel(&run.world, holder, dispel::Strength::Strong, purge);
+                run.step(3);
+                if holds(run, holder, &runtime_id) { return Verdict::Unsupported(format!("{runtime_id} was not dispelled")); }
+                return before.compare(run, holder, other, None, "on_removed", &effects);
+            }
+            if gone.iter().any(|id| ends(id)) { return Verdict::Unsupported("the dispel would remove the trigger's statuses too".into()); }
+            if let Some(missing) = gone.iter().find(|id| !holds(run, holder, id)) { return Verdict::Unsupported(format!("{missing} was not on the holder")); }
             dispel::dispel(&run.world, holder, dispel::Strength::Strong, purge);
             run.step(2);
             if holds(run, holder, &runtime_id) { return Verdict::Unsupported(format!("{runtime_id} was not dispelled")); }
@@ -1277,6 +1285,17 @@ impl EffectsSeen {
                 }
             }
         }
+        // Damage the trigger deals around its holder (B30W's blast; E581): the other unit beside it.
+        if effects.iter().any(|f| Self::plain(f) && f["op"] == "damage") && other != holder {
+            let at = run.world.read_storage::<Pos>().get(holder).map(|p| p.0);
+            if let Some(at) = at {
+                if let Some(pos) = run.world.write_storage::<Pos>().get_mut(other) { pos.0 = at + omoba_sim::Vec2::new(Fixed64::from_i32(60), Fixed64::ZERO); }
+            }
+            // and seen by the holder's team (a self cast's scenario shows the enemy to nobody)
+            let team = run.world.read_storage::<Faction>().get(holder).map(|f| f.team_id.max(0) as u32);
+            run.world.write_storage::<VisibilityOverride>().insert(other, VisibilityOverride {
+                team, kind: VisibilityOverrideKind::ForceShow, priority: 1, stable_rule_id: 0xE581 }).ok();
+        }
         // A heal's target at half life, so the heal shows (a full one is capped).
         for f in effects.iter().filter(|f| Self::plain(f) && f["op"] == "heal") {
             if let Some(unit) = Self::unit(run, holder, other, None, &f["args"]["to"]) {
@@ -1307,7 +1326,11 @@ impl EffectsSeen {
                     let rows: Vec<(f64, DamageTraceResult)> = run.world.read_resource::<DamageTrace>().0.iter().skip(self.trace)
                         .filter(|r| same_path(&r.path, path)).map(|r| (real(r.before.0 + r.before.1 + r.before.2), r.result)).collect();
                     match rows.first() {
-                        None => missing.push(format!("no hit of {path}")),
+                        None => {
+                            let traced: Vec<String> = run.world.read_resource::<DamageTrace>().0.iter().skip(self.trace)
+                                .map(|r| format!("{}:{:?}", if r.path.is_empty() { "-" } else { r.path.as_str() }, r.result)).collect();
+                            missing.push(format!("no hit of {path} (traced since: [{}])", traced.join(", ")))
+                        }
                         Some((_, result)) if *result != DamageTraceResult::Applied => missing.push(format!("{path} was {result:?}")),
                         Some((dealt, _)) => match expr(&f["args"]["amount"], &run.entry, run.rank) {
                             Ok(amount) if (dealt - amount).abs() > (amount * 0.01).max(1.0) => missing.push(format!("{path} dealt {dealt:.1}, expected {amount}")),
@@ -1318,8 +1341,10 @@ impl EffectsSeen {
                 "apply_status" | "remove_status" => {
                     let target = if op == "apply_status" { &f["args"]["to"] } else { &f["args"]["from"] };
                     let (Some(unit), Some(id)) = (Self::unit(run, holder, other, victim, target), Self::runtime(run, f)) else { continue };
-                    // A dead holder's statuses are cleared by the death itself.
+                    // A dead holder's statuses are cleared by the death itself; a dispelled one's
+                    // removable ones by the dispel (E581).
                     if event == "on_death" && unit == holder { continue; }
+                    if event == "on_removed" && unit == holder && op == "remove_status" { continue; }
                     if victim == Some(unit) { continue; }
                     if op == "apply_status" {
                         if holds(run, unit, &id) { seen.push(format!("{id} put on")) } else { missing.push(format!("{id} not put on")) }
