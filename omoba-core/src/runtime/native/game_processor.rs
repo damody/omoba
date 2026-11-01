@@ -3195,6 +3195,22 @@ pub fn process_outcomes(
     // Only the admitted cast's own mana commit applies now, so the same
     // caster's next cast in this batch admits against its reserved ledger.
     let mut pending: std::collections::VecDeque<_> = outcomes.into_iter().map(|outcome|pre_admit(world,&remove_uids,outcome)).collect();
+    // A cast the settlement refused commits its cooldown like a refused handler (E635).
+    if world.try_fetch::<crate::runtime::MobaMatch>().is_some() {
+        let refused: Vec<(Entity, String)> = pending.iter().filter_map(|outcome| match outcome {
+            Outcome::ScriptCastPreAdmitted {transaction, admitted: false} => match &**transaction {
+                Outcome::ScriptCastTransaction {caster, skill_id, ..} => Some((*caster, skill_id.clone())),
+                _ => None,
+            },
+            _ => None,
+        }).collect();
+        if !refused.is_empty() {
+            let tick = world.try_fetch::<Tick>().map_or(0, |tick| tick.0);
+            if world.try_fetch::<super::cast_windup::AbilityWindups>().is_none() { world.insert(super::cast_windup::AbilityWindups::default()); }
+            let mut windups = world.write_resource::<super::cast_windup::AbilityWindups>();
+            for (caster, ability) in refused { windups.failed_ability(tick, caster, ability); }
+        }
+    }
     // Test damage trace: the tag a script sent right before its damage packet.
     let mut damage_tag: Option<super::damage_trace::DamageTag> = None;
     // v3 `damage.credit`: the credit a script sent right before its damage packet (a trace tag may

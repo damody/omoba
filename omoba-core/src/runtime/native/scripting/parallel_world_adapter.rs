@@ -1121,6 +1121,9 @@ impl<'a> ParallelWorldAdapter<'a> {
         self.outcomes.push(Outcome::ScriptSetMana { entity, pool });
     }
 
+    /// The cast refunded its cooldown (v3 `refund cooldown`): it starts none.
+    pub(crate) fn cooldown_refunded(&self) -> bool { self.refund_cooldown }
+
     pub fn start_cooldown(&mut self, entity: Entity, ability_id: String, duration: Fixed64) {
         if self.refund_cooldown { return; }
         self.outcomes.push(Outcome::ScriptStartCooldown {

@@ -467,6 +467,12 @@ fn dispatch_scripts(
                     }
                 }
             }
+            // A cast that refunded its cooldown started none (B16 獸靈同化 with its moon gone on the
+            // authority): the authority commits its cooldown, as for a refused cast, so a replica
+            // that saw the moon and started one drops it (E635).
+            if is_cast && cast_ok && adapter.cooldown_refunded() && world.try_fetch::<crate::runtime::MobaMatch>().is_some() {
+                if let Some(skill_id) = &settlement_skill { windups.failed_ability(trace_tick, invocation_entity, skill_id.clone()); }
+            }
             if is_cast && !cast_ok {
                 if let Some(skill_id) = &settlement_skill {
                     let rejection = adapter.cast_rejection().unwrap_or(code::CAST_REJECTED);
@@ -528,6 +534,10 @@ fn dispatch_scripts(
             let refused: Vec<(Entity, String)> = cast_outcomes.iter().filter(|(_, _, rejection)| rejection.is_some())
                 .map(|(caster, ability, _)| (*caster, ability.clone()))
                 .chain(refused_releases.iter().map(|(caster, ability, _)| (*caster, ability.clone()))).collect();
+            // Every refused or failed cast commits its cooldown, a cast without a windup too: the
+            // casting team's replica that predicted it from its own view (B16 相移 with its moon
+            // in reach there) drops what it started (E635; E628 did it for releases).
+            for (caster, ability) in &refused { windups.failed_ability(trace_tick, *caster, ability.clone()); }
             if !refused.is_empty() { super::super::game_processor::FailedCasts::record(world, trace_tick, refused); }
         }
         if !cast_outcomes.is_empty() {

@@ -21,7 +21,18 @@
 
 ## E637 （保留）非英雄施法者在結算時被以 mana_cooldown_or_rank 拒絕（A28 鳳凰天火）（2026-11-01）
 
-## E635 （保留）非前搖施放在 authority 被拒或失敗時沒有送冷卻更正（B16 b16_phase_shift）（2026-11-01）
+## E635 authority 拒絕非前搖施放、或施放退還冷卻時，沒有送冷卻更正（B16 相移、獸靈同化，2026-11-01，工作線 B，E 回報）
+
+- **現象**：m6new21b 的 B16 6/6 局都出現 observer mismatch：replica 多出 `b16_phase_shift` 的冷卻。修掉這個之後，又出現 `b16_beast_union` 的冷卻也是 replica 多出來。
+- **根因**：
+  - b16_phase_shift 要求月在 1000 以內。casting team 的 replica 用自己看到的位置判定成立，開始冷卻；authority 判定不成立，handler 回傳錯誤。E628 只為前搖放開時被拒的施放送冷卻更正，沒有前搖的施放被拒時，authority 的冷卻沒有改變，也就不送任何 fact。
+  - b16_beast_union 在月不在時呼叫 `refund cooldown`。authority 上施放成功但不開始冷卻，replica 看到月還在，就開始了冷卻。
+- **修正**：
+  - dispatch：MobaMatch 上每一個被拒或失敗的施放（`cast_outcomes` 的拒絕），以及施放成功但退還冷卻的施放（`ParallelWorldAdapter::cooldown_refunded`），都記進 `AbilityWindups::failed_ability`。
+  - game_processor：結算被拒（`ScriptCastPreAdmitted { admitted: false }`）也記進去。
+  - 回合結束時 `emit_failed_cast_cooldowns` 送出 authority 的冷卻，預測錯的 replica 就會放掉自己開始的冷卻。
+- **驗證**：用 m6new21b 的 quick.json 跑 seed 1、2，開 observer，都 PASS（tick 18715、33160）。修正前分別在 tick 3240 失敗；只修拒絕、還沒修退還時，分別在 17280、9240 失敗。omoba-core 1543 個測試通過。
+- **檔案**：`scripting/dispatch.rs`、`game_processor.rs`、`scripting/parallel_world_adapter.rs`（都在 `omoba-core/src/runtime/native/`）
 
 ## E636 conformance：判定 quirk 的 covered_by：以驗同一旗標的情境結果判（2026-11-01，conformance session）
 - **現象**：quirk 情境多數回「no checked expectation」（2302 筆）。工作線 A 在 60921c0b、4762bcd6 讓產生器替定義裡帶得到主張的 quirk 加上 `covered_by`（魔免 61 筆、施法者死亡後傷害停止 5 筆），欄位有 path、flag、value，以及只驗同一個 path 的情境 id。harness 還沒有判定。
