@@ -315,7 +315,9 @@ function M.template_rows(doc, t)
   -- (v3_rust <template>_passive)
   for _, k in ipairs(sorted(p)) do if k ~= "reveal" and k ~= "states" and k ~= "triggers" then no("passive." .. k) end end
   if p.reveal ~= nil and p.reveal ~= "public" then no("passive.reveal:" .. tostring(p.reveal)) end
-  for _, tag in ipairs(t.tags or {}) do if tag ~= "summon" then no("tag:" .. tag) end end
+  -- tag ward: the host's SummonedUnit.ward, unit tag `ward` (line B E530)
+  for _, tag in ipairs(t.tags or {}) do if tag ~= "summon" and tag ~= "ward" then no("tag:" .. tag) end end
+  local ward = has(t.tags, "ward")
   local rows = {}
   for rank = 1, ranks do
     local function num(ref, what)
@@ -328,6 +330,7 @@ function M.template_rows(doc, t)
       display_name = t.text and t.text.zh_TW and t.text.zh_TW.name or t.id }
     row.attack_damage_type = damage_type
     row.no_attack = no_attack or nil
+    row.ward = ward or nil
     row.hp = num(stats.hp, "stats.hp")
     if row.hp == nil then no("stats.hp missing") end
     row.armor = num(stats.armor, "stats.armor") or 0

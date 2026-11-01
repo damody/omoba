@@ -1269,6 +1269,32 @@ local STATUS_FIELDS = set({ "id", "runtime_id", "duration", "stacking", "dispel"
   -- forced_move: its apply_status also calls cx.force_move (line B E464)
   "forced_move" })
 
+-- Statuses an aura of the document gives (`aura.status` anywhere in its statuses or abilities).
+local aura_status_cache = setmetatable({}, { __mode = "k" })
+local function aura_statuses(m)
+  if aura_status_cache[m] then return aura_status_cache[m] end
+  local found = {}
+  local function walk(node, seen)
+    if type(node) ~= "table" or seen[node] then return end
+    seen[node] = true
+    if type(node.aura) == "table" and type(node.aura.status) == "string" then found[node.aura.status] = true end
+    for _, v in pairs(node) do walk(v, seen) end
+  end
+  local seen = {}
+  for _, so in pairs(m.statuses) do walk(so.def, seen) end
+  for _, ab in pairs(m.abilities) do walk(ab.def, seen) end
+  aura_status_cache[m] = found
+  return found
+end
+
+-- An `independent` status an aura gives (the original's MULTIPLE aura modifier, one per aura
+-- source): one row per aura source (`{caster}` in its runtime id), renewed every pulse, so its
+-- on_created runs once when a source first reaches the unit (line B, E586 notes).
+local function aura_independent(m, id)
+  local so = m.statuses[id]
+  return so ~= nil and so.def.stacking == "independent" and aura_statuses(m)[id] == true
+end
+
 -- The StatusDef constant of every status; problems per status (states the host does not hold).
 local function emit_statuses(m, root)
   local voc = M.vocab(root)
@@ -1278,6 +1304,7 @@ local function emit_statuses(m, root)
     local s = m.statuses[id].def
     local p = {}
     local runtime_id = s.runtime_id or id
+    if aura_independent(m, id) and not runtime_id:find("{caster}", 1, true) then runtime_id = runtime_id .. ":{caster}" end
     if s.per_source and not runtime_id:find("{caster}", 1, true) then p[#p + 1] = "status.per_source without {caster}" end
     -- a passive's learn marker is its ability id (passive_stats, `learned`): a status under that
     -- row would replace the marker and look applied whenever the passive is learned (E268)
@@ -1454,6 +1481,7 @@ local ACTION_FIELDS = {
   remove_status = set({ "op", "status", "from", "dispel", "only", "team_of_source", "except", "states", "limit", "tags", "exclude_tags" }),
   damage = set({ "op", "to", "amount", "type", "require_source_alive", "flags", "source", "credit" }),
   teleport = set({ "op", "who", "to", "find_clear_space", "max_distance" }),
+  redirect_motion = set({ "op", "who", "toward", "speed" }),
   add_stacks = set({ "op", "to", "status", "count", "max", "refresh" }),
   set_stacks = set({ "op", "to", "status", "count" }),
   modify_cooldown = set({ "op", "of", "ability", "mode", "amount", "item_tag", "item" }),
@@ -1516,7 +1544,7 @@ local ACTION_FIELDS = {
   dodge_projectiles = set({ "op", "of", "from_team", "kind" }),
   set_state = set({ "op", "var", "value", "on" }),
   projectile = set({ "op", "kind", "from", "to", "direction", "speed", "radius", "distance", "pierce", "max_hits",
-    "team", "types", "flags", "dodgeable", "vision", "end_radius", "cue", "on_hit", "as", "on_end" }),
+    "team", "types", "flags", "dodgeable", "vision", "end_radius", "cue", "on_hit", "as", "on_end", "where" }),
   clear_state = set({ "op", "var", "on" }),
   stop = set({ "op" }),
   destroy_trees = set({ "op", "at", "radius" }),
@@ -1822,11 +1850,14 @@ function Gen:aura_arm(key, a, owner)
   local types = SELECT_TYPES[types_key(a.types)]
   if not types then self:block("aura.types:" .. types_key(a.types)); types = "All" end
   local mi, inv, hid, ill = false, false, false, false
+  local skip_invisible = false
   for _, f in ipairs(a.flags or {}) do
     if f == "include_magic_immune" then mi = true elseif f == "include_invulnerable" then inv = true
     elseif f == "include_hidden" then hid = true
     -- include_illusions: Select.include_illusions (a hero aura also reaches illusions)
     elseif f == "include_illusions" then ill = true
+    -- exclude_invisible: an invisible receiver is skipped (like the selector's flag)
+    elseif f == "exclude_invisible" then skip_invisible = true
     else self:block("aura.flag:" .. f) end
   end
   if type(a.include_self) ~= "boolean" and a.include_self ~= nil then self:block("aura.include_self of an expression") end
@@ -1841,8 +1872,9 @@ function Gen:aura_arm(key, a, owner)
     __dur = "(" .. linger .. ") + ability_kit::AURA_PERIOD" }, ctx, "        ") or ""
   local fn = string.format("/// aura `%s`: the host's receivers this pulse.\nfn aura_%s(cx: &mut Cx<'_, '_>, receivers: &[EntityHandle]) -> Res {\n"
     .. "    let aura_select = Select { types: UnitTypes::%s, include_magic_immune: %s, include_invulnerable: %s, include_hidden: %s, include_illusions: %s };\n"
-    .. "    for &%s in receivers {\n        if !cx.admits(%s, aura_select) { continue; }\n%s%s    }\n    Ok(())\n}\n",
+    .. "    for &%s in receivers {\n        if !cx.admits(%s, aura_select) { continue; }\n%s%s%s    }\n    Ok(())\n}\n",
     key, key, types, mi and "true" or "false", inv and "true" or "false", hid and "true" or "false", ill and "true" or "false", it, it,
+    skip_invisible and ("        if cx.unit_flag(" .. it .. ", ability_kit::unit_attr::IS_INVISIBLE) { continue; }\n") or "",
     where and ("        if !(" .. where .. ") { continue; }\n") or "", apply)
   return { key = key, fn = fn }
 end
@@ -2149,6 +2181,8 @@ function Gen:action(a, ctx, ind)
     if s.stacking ~= "refresh" and s.stacking ~= "keep" and s.stacking ~= "replace" and not independent then
       self:block("status.stacking:" .. (type(s.stacking) == "table" and (s.stacking.mode or "stacks") or tostring(s.stacking)))
     end
+    -- an aura's independent status: a row per aura source, refreshed (aura_independent)
+    if independent and a.__aura and aura_independent(self.m, a.status) then independent = false end
     if independent then
       -- an instance row `<runtime id>#<n>` (cx.apply_status_instance); its triggers run as that
       -- instance (host events carry `instance`, its on_created and periodic clock get `n`); its
@@ -3411,6 +3445,13 @@ function Gen:action(a, ctx, ind)
     local to = self:value(a.to, ctx, "unit")
     local value = self:value(a.value, ctx, "num")
     return line("{") .. line("    let to = " .. to .. ";") .. line("    let value = " .. value .. ";") .. line("    cx.set_health(to, value)?;") .. line("}")
+  elseif op == "redirect_motion" then
+    -- the knockback or pull `who` is in turns toward `toward` (E586)
+    local who = self:value(a.who, ctx, "unit")
+    local toward = self:value(a.toward, ctx, "unit")
+    local speed = self:value(a.speed, ctx, "num")
+    return line("{") .. line("    let who = " .. who .. ";") .. line("    let toward = " .. toward .. ";") .. line("    let speed = " .. speed .. ";")
+      .. line("    cx.redirect_motion(who, toward, speed)?;") .. line("}")
   elseif op == "teleport" and a.find_clear_space == true then
     if a.who ~= "caster" and not (a.who == "self" and self.entry) then self:block("action:teleport.find_clear_space of " .. tostring(a.who)); return "" end
     local to = self:value(a.to, ctx, "point")
@@ -3513,7 +3554,13 @@ function Gen:action(a, ctx, ind)
       elseif ty == "unit" then start = "Some(cx.pos(" .. code .. ")?)"
       else self:block("action:projectile.from:" .. tostring(a.from)) end
     end
-    if a.team ~= nil and a.team ~= "enemy" then self:block("action:projectile.team:" .. tostring(a.team)) end
+    -- `team = "any"` with `where = "it == U"`: a linear flight that only hits U, whatever its team (E586)
+    local only
+    if a.where ~= nil then
+      local who = type(a.where) == "string" and a.where:match("^%s*it%s*==%s*(.-)%s*$")
+      if not who or a.team ~= "any" or a.kind ~= "linear" then self:block("action:projectile.where:" .. tostring(a.where))
+      else only = self:value(who, ctx, "unit") end
+    elseif a.team ~= nil and a.team ~= "enemy" then self:block("action:projectile.team:" .. tostring(a.team)) end
     local tk = types_key(a.types)
     local buildings = tk:find("building", 1, true) ~= nil
     if tk ~= "" and tk ~= "all" and tk ~= "creep+hero+neutral+summon" and tk ~= "building+creep+hero+neutral+summon" then
@@ -3542,10 +3589,15 @@ function Gen:action(a, ctx, ind)
     elseif tracking then
       homing = "Some(" .. self:value(a.to, ctx, "unit") .. ")"
     else
-      distance = self:value(a.distance, ctx, "num")
-      local dir = self:value(a.direction, ctx, "vec")
       -- from its start point when it has one (`from` a point or unit), else from the caster
       local origin = start ~= "None" and start:match("^Some%((.*)%)$") or "cx.pos(cx.caster)?"
+      if a.distance == nil and only then
+        -- a flight that only hits one unit and gives no distance flies to where that unit is now
+        distance = "{ let o: Vec2 = " .. origin .. "; let u = " .. only .. "; ability_kit::distance(o, cx.pos(u)?) + " .. radius .. " }"
+      else
+        distance = self:value(a.distance, ctx, "num")
+      end
+      local dir = self:value(a.direction, ctx, "vec")
       aim = "ability_kit::offset(" .. origin .. ", " .. dir .. ", " .. distance .. ")"
     end
     local max_hits = "1"
@@ -3588,7 +3640,8 @@ function Gen:action(a, ctx, ind)
     return line("{") .. args_line
       .. line(string.format("    let p = Proj { homing: %s, aim: %s, speed: %s, radius: %s, distance: %s, max_hits: %s, buildings: %s, dodgeable: %s, vision: %s, end_radius: %s, start: %s };",
         homing, aim, speed, radius, distance, max_hits, buildings and "true" or "false", a.dodgeable and "true" or "false", vision, end_radius, start))
-      .. line("    cx.projectile_ended(ID, p, " .. on_hit .. ", " .. on_end .. ")?;") .. line("}")
+      .. (only and line("    let only = " .. only .. ";") .. line("    cx.projectile_only(ID, p, only, " .. on_hit .. ", " .. on_end .. ")?;")
+        or line("    cx.projectile_ended(ID, p, " .. on_hit .. ", " .. on_end .. ")?;")) .. line("}")
   elseif op == "set_state" or op == "clear_state" then
     local v = self.m.vars[a.var]
     if not v then self:block("state:" .. tostring(a.var) .. " not declared"); return "" end
