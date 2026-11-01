@@ -223,6 +223,38 @@ M.QUIRK_TOPICS = {
       end
       return points
     end },
+  -- the cast's damage after its caster died: it lands only with require_source_alive = false. The
+  -- death scenarios check the default (damage_skipped_if_source_dead per path); a quirk saying the
+  -- damage stops is covered when the entry has exactly one such path. One saying it goes on has
+  -- no scenario that checks it, so it adds nothing.
+  { topic = "source_dead_damage", word = "死亡", case = "death",
+    claim = function(text)
+      if not text:find("傷害", 1, true) then return nil end
+      local stops = contains_any(text, { "死亡後不造成", "死亡時不造成", "死亡時不再", "死亡後不再", "不會再有傷害", "攻擊者已死不造成",
+        "攻擊者需存活", "要求政秀存活", "後續尖刺不造成", "之後的波次不造成", "不再造成傷害", "死亡時傷害由規則層歸零",
+        "死亡後由規則層歸", "死亡時由規則層歸零", "require_source_alive 預設", "require_source_alive 歸零", "規則層 require_source_alive）" })
+      local goes = contains_any(text, { "仍造成", "仍會造成", "傷害照常", "照常攻擊", "照常落下", "不檢查施法者存活", "require_source_alive = false" })
+      if stops and not goes then return true end
+      return nil
+    end,
+    points = function(_, _, _, scenarios)
+      local by_path = {}
+      local order = {}
+      for _, s in ipairs(scenarios or {}) do
+        for _, e in ipairs(s.expect or {}) do
+          if e.kind == "damage_skipped_if_source_dead" and e.path then
+            if not by_path[e.path] then by_path[e.path] = {}; order[#order + 1] = e.path end
+            local list = by_path[e.path]
+            if list[#list] ~= s then list[#list + 1] = s end
+          end
+        end
+      end
+      local points = {}
+      for _, p in ipairs(order) do
+        points[#points + 1] = { path = p, flag = "require_source_alive", value = true, scenarios = by_path[p] }
+      end
+      return points
+    end },
 }
 
 local function entry_scenarios(doc, def, entry_kind, out)
@@ -898,18 +930,22 @@ local function entry_scenarios(doc, def, entry_kind, out)
   -- also carries `covered_by` those scenarios: it holds when they all pass (line D judges it)
   local own = {}
   for _, s in ipairs(out) do
-    if s.entry == def.id then own[s.case] = own[s.case] or {}; own[s.case][#own[s.case] + 1] = s.id end
+    if s.entry == def.id then own[s.case] = own[s.case] or {}; own[s.case][#own[s.case] + 1] = s end
   end
   for i, q in ipairs(def.quirks or {}) do
     local expect = { { kind = "quirk_policy", policy = q.policy, text = q.text, ref = q.ref } }
     for _, t in ipairs(M.QUIRK_TOPICS) do
-      local ids = own[t.case]
-      local claim = q.policy ~= "fixed" and ids and type(q.text) == "string" and q.text:find(t.word, 1, true) and t.claim(q.text)
-      local points = claim ~= nil and claim ~= false and t.points(castable, target, base_effects)
-        or (claim == false and t.points(castable, target, base_effects)) or {}
+      local mine = own[t.case]
+      local claim
+      if q.policy ~= "fixed" and mine and type(q.text) == "string" and q.text:find(t.word, 1, true) then claim = t.claim(q.text) end
+      local points = claim ~= nil and t.points(castable, target, base_effects, mine) or {}
       if #points == 1 and points[1].value == claim then
-        expect[#expect + 1] = { kind = "covered_by", topic = t.topic, entry = def.id, cases = { t.case }, scenarios = ids,
-          path = points[1].path, flag = points[1].flag, value = points[1].value }
+        local ids = {}
+        for _, s in ipairs(points[1].scenarios or mine) do ids[#ids + 1] = s.id end
+        if #ids > 0 then
+          expect[#expect + 1] = { kind = "covered_by", topic = t.topic, entry = def.id, cases = { t.case }, scenarios = ids,
+            path = points[1].path, flag = points[1].flag, value = points[1].value }
+        end
       end
     end
     push(1, "quirk", { suffix = tostring(i), given = { { kind = "learned", entry = def.id, rank = 1 } }, when = {},
