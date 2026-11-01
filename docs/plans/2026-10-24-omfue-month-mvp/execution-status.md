@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：bot 依技能前提條件施放（E605）
+
+- 新增 self_area_status、self_area_corpses、ally_anchor_point 三種 intent，讓 c25、b23、c19 只在前提成立時施放。產生器端由 A 輸出。
 ## 2026-11-01 線 B：腳本改的英雄冷卻在 tick 結尾補送 committed cooldown（E602）
 
 - 修正 A12 玄能狀態期間 a12_awe_t 冷卻在 replica 不見的 observer mismatch（rg06 tick 11520）。

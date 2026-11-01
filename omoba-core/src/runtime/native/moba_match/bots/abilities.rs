@@ -52,6 +52,17 @@ pub enum BotAbilityIntent {
     /// Untargeted area around the caster (E163): cast when at least `min_targets`
     /// disclosed enemies stand within the compiled radius extra.
     SelfArea { radius_key:String, min_targets:u16 },
+    /// [`BotAbilityIntent::SelfArea`] that counts only the disclosed enemies showing `status`
+    /// (its public icon; E605, 原作 C25T detonates the bleeding: the cast cancels itself without one).
+    SelfAreaStatus { radius_key:String, min_targets:u16, status:String },
+    /// [`BotAbilityIntent::SelfArea`] over corpses (E605, 原作 B23D raises a ghost from one): the combat
+    /// units of either team that died within the radius in the last minute (include_dead).
+    SelfAreaCorpses { radius_key:String, min_targets:u16 },
+    /// A point skill that must land beside an allied unit (E605, 原作 C19D teleports to an ally
+    /// creep, summon or building): at the allied unit of `types` ("creep", "summon", "building";
+    /// never a hero) nearest the closest disclosed enemy hero; within the cast range, or anywhere
+    /// when every rank's range is 0. `radius_key` is the area the script checks around the point.
+    AllyAnchorPoint { radius_key:String, types:Vec<String> },
     /// Untargeted self/ally buff for a fight (E163): cast when a disclosed enemy
     /// hero is within `threat_radius`.
     SelfEngage { threat_radius:u32 },
@@ -229,6 +240,22 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
                     return Err("bot self-area radius must be positive bounded per-rank data");
                 }
             },
+            BotAbilityIntent::SelfAreaStatus {radius_key,min_targets,..}|BotAbilityIntent::SelfAreaCorpses {radius_key,min_targets}
+                if def.target_type==TargetTypeC::None && (1..=128).contains(min_targets)
+                    && !matches!(&policy.intent,BotAbilityIntent::SelfAreaStatus {status,..} if status.is_empty() || status.len()>128)=>{
+                let Some((_,radii))=def.extras.iter().find(|(key,_)|*key==radius_key) else {return Err("bot self-area intent requires compiled radius extras");};
+                if radii.len()!=def.levels.len() || radii.iter().any(|r|*r<=Fixed64::ZERO || *r>Fixed64::from_i32(10_000)) {
+                    return Err("bot self-area radius must be positive bounded per-rank data");
+                }
+            },
+            BotAbilityIntent::AllyAnchorPoint {radius_key,types} if def.target_type==TargetTypeC::Point
+                && !types.is_empty() && types.len()<=3 && types.iter().all(|kind|matches!(kind.as_str(),"creep"|"summon"|"building"))
+                && def.levels.iter().all(|rank|rank.range>=Fixed64::ZERO&&rank.range<=Fixed64::from_i32(10_000))=>{
+                let Some((_,radii))=def.extras.iter().find(|(key,_)|*key==radius_key) else {return Err("bot anchor intent requires compiled radius extras");};
+                if radii.len()!=def.levels.len() || radii.iter().any(|r|*r<=Fixed64::ZERO || *r>Fixed64::from_i32(10_000)) {
+                    return Err("bot anchor radius must be positive bounded per-rank data");
+                }
+            },
             BotAbilityIntent::SelfRecovery {below_hp_per_mille,below_mana_per_mille,restore_key}
                 if def.target_type==TargetTypeC::None && *below_hp_per_mille<=1000
                     && (1..=1000).contains(below_mana_per_mille)=>{
@@ -328,7 +355,7 @@ pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,
     cost:impl Fn(&str,u8)->Option<Fixed64>,
     regen:impl Fn(&str,Fixed64)->Option<(Fixed64,Fixed64)>,
     relocation_clear:impl Fn(Vec2)->bool) -> Option<CastAbility> {
-    choose_cast_with_control_observation(hero,role,team,own,health,seen,policies,focus,defer_offense,immobilized,cost,regen,relocation_clear,|_|None,&|_|false,&|_|0,&|_,_|None)
+    choose_cast_with_control_observation(hero,role,team,own,health,seen,policies,focus,defer_offense,immobilized,cost,regen,relocation_clear,|_|None,&|_|false,&|_|0,&|_,_|None,&|_,_|false,&|_,_|0)
 }
 
 pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:u32,own:Vec2,health:&CProperty,
@@ -336,7 +363,8 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
     cost:impl Fn(&str,u8)->Option<Fixed64>,regen:impl Fn(&str,Fixed64)->Option<(Fixed64,Fixed64)>,
     relocation_clear:impl Fn(Vec2)->bool,control_priority:impl Fn(u64)->Option<u8>,
     own_status:&dyn Fn(&str)->bool,target_states:&dyn Fn(u64)->u8,
-    tree_near:&dyn Fn(Vec2,Fixed64)->Option<Vec2>) -> Option<CastAbility> {
+    tree_near:&dyn Fn(Vec2,Fixed64)->Option<Vec2>,
+    unit_status:&dyn Fn(u64,&str)->bool,corpses_near:&dyn Fn(Vec2,Fixed64)->usize) -> Option<CastAbility> {
     let enemy=|unit:&&SeenUnit|unit.hp_raw>0 && unit.team!=team
         && if role==BotRole::Jungle {unit.kind==3
             || (unit.kind==1 && unit.team!=0 && Some(unit.canonical_id)==focus)}
@@ -354,7 +382,8 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
         // Root blocks voluntary relocation, not ordinary damage/recovery.
         if immobilized && matches!(policy.intent,BotAbilityIntent::ApproachEnemyPoint {..}) {continue;}
         if defer_offense && matches!(policy.intent,BotAbilityIntent::EnemyUnit|BotAbilityIntent::EnemyHero
-            |BotAbilityIntent::SelfArea {..}|BotAbilityIntent::SelfEngage {..}
+            |BotAbilityIntent::SelfArea {..}|BotAbilityIntent::SelfAreaStatus {..}|BotAbilityIntent::SelfAreaCorpses {..}
+            |BotAbilityIntent::AllyAnchorPoint {..}|BotAbilityIntent::SelfEngage {..}
             |BotAbilityIntent::EnemyPoint {..}|BotAbilityIntent::LeapEnemyPoint {..}|BotAbilityIntent::GlobalEnemyPoint {..}
             |BotAbilityIntent::AllyEngage {..}|BotAbilityIntent::EnemyCone {..}|BotAbilityIntent::EnemyLine {..}|BotAbilityIntent::ApproachEnemyPoint {..}
             |BotAbilityIntent::SummonNearEnemy {..}|BotAbilityIntent::ToggleEngage {..}) {continue;}
@@ -507,6 +536,37 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
                 let heroes=inside.iter().filter(|unit|unit.kind==1).count();
                 if !area_worth(heroes,inside.len(),*min_targets,lane,hero_near) {continue;}
                 None
+            }
+            BotAbilityIntent::SelfAreaStatus {radius_key,min_targets,status}=>{
+                if health.hp<=Fixed64::ZERO {continue;}
+                let Some(radius)=def.extras.iter().find(|(key,_)|*key==radius_key).and_then(|(_,radii)|radii.get(rank)).copied() else {continue;};
+                let inside:Vec<_>=seen.iter().filter(enemy).filter(|unit|omoba_sim::terrain::point_in_swept_circle(unit.position,own,own,radius)
+                    && unit_status(unit.canonical_id,status)).collect();
+                let heroes=inside.iter().filter(|unit|unit.kind==1).count();
+                if !area_worth(heroes,inside.len(),*min_targets,lane,hero_near) {continue;}
+                None
+            }
+            BotAbilityIntent::SelfAreaCorpses {radius_key,min_targets}=>{
+                if health.hp<=Fixed64::ZERO {continue;}
+                let Some(radius)=def.extras.iter().find(|(key,_)|*key==radius_key).and_then(|(_,radii)|radii.get(rank)).copied() else {continue;};
+                if corpses_near(own,radius)<usize::from(*min_targets) {continue;}
+                None
+            }
+            BotAbilityIntent::AllyAnchorPoint {types,..}=>{
+                if health.hp<=Fixed64::ZERO {continue;}
+                // Disclosed kinds: 2 lane creep, 4 summon or attacking structure, 5/6 other structures.
+                let wanted=|kind:u8|types.iter().any(|name|match name.as_str() {
+                    "creep"=>kind==2,"summon"=>kind==4,"building"=>matches!(kind,4|5|6),_=>false});
+                let within=|unit:&&SeenUnit|level.range==Fixed64::ZERO || (unit.position-own).length_squared()<=level.range*level.range;
+                let anchors:Vec<_>=seen.iter().filter(|unit|unit.team==team && unit.hp_raw>0 && unit.kind!=1 && wanted(unit.kind))
+                    .filter(within).collect();
+                let Some(goal)=seen.iter().filter(enemy).filter(|unit|unit.kind==1)
+                    .min_by_key(|unit|((unit.position-own).length_squared().raw(),unit.canonical_id)).map(|unit|unit.position) else {continue;};
+                let Some(anchor)=anchors.iter().min_by_key(|unit|((unit.position-goal).length_squared().raw(),unit.canonical_id)) else {continue;};
+                // Not where the bot already stands (a teleport there does nothing).
+                if (anchor.position-own).length_squared()<=Fixed64::from_i32(600)*Fixed64::from_i32(600) {continue;}
+                let (Ok(x),Ok(y))=(i32::try_from(anchor.position.x.raw()),i32::try_from(anchor.position.y.raw())) else {continue;};
+                target_pos=Some(crate::runtime::Vec2I {x,y});None
             }
             BotAbilityIntent::SelfEngage {threat_radius}=>{
                 if health.hp<=Fixed64::ZERO {continue;}
@@ -761,7 +821,7 @@ mod tests {
         let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
         let ally=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),team:1,kind:1,owner_player_id:3,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let injured=SeenUnit {canonical_id:8,hp_raw:20,..ally};let second=SeenUnit {canonical_id:9,..ally};
-        let decide=|seen:&[SeenUnit],observed:&[(u64,u8)]|choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,seen,&[policy.clone()],None,true,true,|_,_|None,|_,_|None,|_|panic!("nonmovement"),|id|observed.iter().find(|(key,_)|*key==id).map(|(_,p)|*p),&|_|false,&|_|0,&|_,_|None);
+        let decide=|seen:&[SeenUnit],observed:&[(u64,u8)]|choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,seen,&[policy.clone()],None,true,true,|_,_|None,|_,_|None,|_|panic!("nonmovement"),|id|observed.iter().find(|(key,_)|*key==id).map(|(_,p)|*p),&|_|false,&|_|0,&|_,_|None,&|_,_|false,&|_,_|0);
         assert!(decide(&[ally],&[]).is_none());
         assert_eq!(decide(&[injured,ally],&[(7,1)]).unwrap().target_entity,Some(7));
         assert_eq!(decide(&[ally,injured],&[(7,1)]).unwrap().target_entity,Some(7));
@@ -769,7 +829,7 @@ mod tests {
         assert_eq!(decide(&[second,ally],&[(7,1),(9,1)]).unwrap().target_entity,Some(7));
         assert_eq!(decide(&[injured],&[]).unwrap().target_entity,Some(8));
         for invalid in [SeenUnit {team:2,..ally},SeenUnit {kind:2,..ally},SeenUnit {hp_raw:0,..ally},SeenUnit {position:Vec2::new(Fixed64::from_i32(601),Fixed64::ZERO),..ally}] {
-            let result=choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,&[invalid],&[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|panic!("invalid candidate must not query public status"),&|_|false,&|_|0,&|_,_|None);assert!(result.is_none());}
+            let result=choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,&[invalid],&[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|panic!("invalid candidate must not query public status"),&|_|false,&|_|0,&|_,_|None,&|_,_|false,&|_,_|0);assert!(result.is_none());}
         assert!(decide(&[],&[(7,1)]).is_none());assert!(decide(&[ally],&[(7,0),(9,1)]).is_none());assert!(decide(&[ally],&[(7,255)]).is_none());
         for value in [0,1001]{let mut bad=policy.clone();bad.intent=BotAbilityIntent::AllyHealOrCleanse{below_hp_per_mille:value};assert!(validate_policies(&[bad]).is_err());}
         for ability in ["lumen_bolt","vanguard_strike","lumen_touch"]{let mut bad=policy.clone();bad.ability=ability.into();assert!(validate_policies(&[bad]).is_err());}
@@ -811,7 +871,7 @@ mod tests {
             team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let decide=|enemy_radius:u32,seen:&[SeenUnit],trees:&dyn Fn(Vec2,Fixed64)->Option<Vec2>|choose_cast_with_control_observation(&hero,BotRole::Mid,1,Vec2::ZERO,&hp,seen,
             &[BotAbilityPolicy {ability:ability.into(),intent:BotAbilityIntent::NearestTree {enemy_radius}}],None,false,false,
-            |_,_|None,|_,_|None,|_|true,|_|None,&|_|false,&|_|0,trees).map(|cast|cast.target_pos);
+            |_,_|None,|_,_|None,|_|true,|_|None,&|_|false,&|_|0,trees,&|_,_|false,&|_,_|0).map(|cast|cast.target_pos);
         let reach=def.levels[0].range;
         let near=|from:Vec2,within:Fixed64|(from==Vec2::ZERO && within==reach).then_some(tree);
         let at=Some(crate::runtime::Vec2I {x:tree.x.raw() as i32,y:tree.y.raw() as i32});
@@ -834,7 +894,7 @@ mod tests {
         let far=SeenUnit {canonical_id:8,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),..near};
         let policy=BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit};
         let decide=|states:&dyn Fn(u64)->u8|choose_cast_with_control_observation(&hero,BotRole::Mid,1,Vec2::ZERO,&hp,&[near,far],
-            &[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,&|_|false,states,&|_,_|None).map(|cast|cast.target_entity);
+            &[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,&|_|false,states,&|_,_|None,&|_,_|false,&|_,_|0).map(|cast|cast.target_entity);
         assert_eq!(decide(&|_|0),Some(Some(7)),"the nearest without states");
         for refused in [crate::runtime::TARGET_STATE_MAGIC_IMMUNE,crate::runtime::TARGET_STATE_UNSELECTABLE] {
             assert_eq!(decide(&|id|if id==7 {refused} else {0}),Some(Some(8)),"states {refused}: the next legal target");
@@ -1214,7 +1274,7 @@ mod tests {
         // The arrow is cast in the 刑部 form only (content requires_status a12t_form, E472).
         let form=|status:&str|status=="a12t_form";
         let choose=|seen:&[SeenUnit],own_status:&dyn Fn(&str)->bool|choose_cast_with_control_observation(&yoshitsugu,BotRole::Top,1,Vec2::ZERO,
-            &health,seen,std::slice::from_ref(&arrow),None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,own_status,&|_|0,&|_,_|None);
+            &health,seen,std::slice::from_ref(&arrow),None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,own_status,&|_|0,&|_,_|None,&|_,_|false,&|_,_|0);
         let cast=choose(&[unit(5,1500)],&form).expect("a hero in reach");
         assert_eq!(cast.target_pos.unwrap().x,Fixed64::from_i32(1500).raw() as i32,"aimed at the hero");
         assert!(choose(&[unit(5,4000)],&form).is_none(),"beyond the distance");
@@ -1326,6 +1386,31 @@ mod tests {
         assert_eq!(choose(&[unit(7,700,1)],&[engage.clone()]).unwrap().ability_index,1);
         assert!(choose(&[unit(7,701,1)],&[engage]).is_none());
     }
+    /// E605: the area counts only enemies showing the status, or the corpses near the bot; the
+    /// anchor point lands on the allied unit nearest the closest enemy hero, never a hero.
+    #[test]
+    fn preconditioned_areas_and_ally_anchors_follow_what_the_cast_needs() {
+        let status=BotAbilityPolicy {ability:"a07_red_thunder".into(),intent:BotAbilityIntent::SelfAreaStatus {
+            radius_key:"shape_radius".into(),min_targets:1,status:"c25e_dot".into()}};
+        let corpses=BotAbilityPolicy {ability:"a07_red_thunder".into(),intent:BotAbilityIntent::SelfAreaCorpses {
+            radius_key:"shape_radius".into(),min_targets:1}};
+        assert!(validate_policies(std::slice::from_ref(&status)).is_ok() && validate_policies(std::slice::from_ref(&corpses)).is_ok());
+        assert!(validate_policies(&[BotAbilityPolicy {intent:BotAbilityIntent::SelfAreaStatus {radius_key:"shape_radius".into(),
+            min_targets:1,status:String::new()},..status.clone()}]).is_err(),"a status is named");
+        let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
+        hero.abilities=vec!["a07_red_thunder".into()];hero.ability_levels.insert("a07_red_thunder".into(),1);
+        let health=property(Fixed64::from_i32(100),Fixed64::ZERO);
+        let unit=|id:u64,x:i32,team:u32,kind:u8|SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
+            team,kind,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
+        let choose=|seen:&[SeenUnit],policy:&BotAbilityPolicy,marked:u64,dead:usize|choose_cast_with_control_observation(&hero,BotRole::Top,1,
+            Vec2::ZERO,&health,seen,std::slice::from_ref(policy),None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,&|_|false,&|_|0,
+            &|_,_|None,&|id,name|id==marked && name=="c25e_dot",&|_,_|dead);
+        assert!(choose(&[unit(7,300,2,1)],&status,0,0).is_none(),"no enemy bleeds");
+        assert!(choose(&[unit(7,300,2,1)],&status,7,0).is_some(),"the hero bleeds");
+        assert!(choose(&[],&corpses,0,0).is_none(),"no corpse");
+        assert!(choose(&[],&corpses,0,1).is_some(),"a corpse in reach");
+    }
+
     /// E260: a point summon is cast near the nearest disclosed enemy within the threat radius,
     /// at the enemy when it is in cast range, else toward it at the cast range.
     #[test]
@@ -1386,7 +1471,7 @@ mod tests {
             team:2,kind,owner_player_id:2,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let decide=|seen:&[SeenUnit],on:bool|choose_cast_with_control_observation(&hero,BotRole::Carry,1,Vec2::ZERO,&health,seen,
             &[toggle.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|None,
-            &|status:&str|on && status=="attack_orb:a02_venom_arrow",&|_|0,&|_,_|None).map(|cast|cast.ability_index);
+            &|status:&str|on && status=="attack_orb:a02_venom_arrow",&|_|0,&|_,_|None,&|_,_|false,&|_,_|0).map(|cast|cast.ability_index);
         assert_eq!(decide(&[unit(7,800,1)],false),Some(0),"off with an enemy hero near: switch on");
         assert_eq!(decide(&[unit(7,800,1)],true),None,"already on");
         assert_eq!(decide(&[],true),Some(0),"on with no threat: switch off");

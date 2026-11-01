@@ -2,6 +2,34 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E605 bot 看不到技能的前提條件：新增 self_area_status、self_area_corpses、ally_anchor_point（2026-11-01，工作線 B，與 A 協作）
+
+- **現象**：A 統計 E 的 m6new15～20、b25fix、c19、e585，被拒比例超過 20% 的只有三個技能：
+  - c25_falling_sakura：100%
+  - c19_surprise_raid：95.7%
+  - b23_undead_pact：69.4%
+- **根因**：這三個技能的 on_phase_start 都會先做一次前提掃描，不成立就 cancel_cast。三個前提分別是：
+  - c25：範圍內要有帶 c25e_dot 的敵人；
+  - c19：落點附近要有友方小兵、召喚物或建築；
+  - b23：600 內要有屍體。
+  bot 的 intent（self_area、global_enemy_point）沒有這些條件，所以看不出施法會被取消。E596 的退避只能減少重送，擋不住這一類被拒。
+- **修正**（host 端，產生器的推導由 A 負責）：新增三種 intent kind。
+  - `self_area_status { radius_key, min_targets, status }`：只計算圖示上有這個 status 的已揭露敵人。對方隊伍只看 public 圖示，自己隊伍看全部，和 team projector 揭露的範圍一致（`disclosed_status`）。
+  - `self_area_corpses { radius_key, min_targets }`：計算 bot 自身半徑內、最近 60 秒死亡的雙方戰鬥單位（RetiredPositions），和 include_dead 是同一份資料。
+  - `ally_anchor_point { radius_key, types }`：
+    - types 可以是 creep、summon、building。
+    - 落點是最靠近「最近的已揭露敵方英雄」的友方非英雄單位的位置。
+    - cast range 為 0 時不限距離。
+    - 沒有敵方英雄，或錨點離自己 600 以內時不施放。
+  - 三種都納入 defer_offense，validate_policies 也會檢查 radius extra 和欄位。
+  - 改成新增 kind，不在現有 kind 上加欄位，所以現有 120 多處 intent 寫法都不用改。
+- **測試**：`abilities::tests::preconditioned_areas_and_ally_anchors_follow_what_the_cast_needs`：
+  - 沒有敵人流血時不施放，英雄流血時施放；
+  - 沒有屍體時不施放，有屍體時施放；
+  - 空的 status 名稱不通過驗證。
+  bots 的 97 個測試通過。
+- **檔案**：`omoba-core/src/runtime/native/moba_match/bots/abilities.rs`、`omoba-core/src/runtime/native/moba_match/bots.rs`
+
 ## E604 （保留）conformance on_attack_launch 從未觸發：持有者攻擊身旁的敵方英雄後比對效果（2026-11-01）（2026-11-01）
 
 ## E603 verify_m6_batch 每批留下 bin 副本，磁碟累積到不足（2026-11-01，E187）

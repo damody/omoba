@@ -185,6 +185,19 @@ fn disclosed_control_priority(runtime:&TeamVisibilityRuntime,team:u32,identity:u
 }
 
 /// A disclosed unit's public targeting states (E460); none when it shows none or is not disclosed.
+/// Whether a disclosed unit shows `status` (E605): an own-team unit's every icon, another team's
+/// public ones only (buff_visual_state, as the team projector discloses them).
+fn disclosed_status(runtime:&TeamVisibilityRuntime,team:u32,identity:u64,status:&str)->bool {
+    let Some(id)=omoba_template_ids::buff_by_name(status) else {return false;};
+    if !runtime.teams.get(&team).is_some_and(|state|state.index.current.contains(&identity)) {return false;}
+    let Some(components)=runtime.latest_disclosed_baseline_by_canonical.get(&identity).and_then(|bytes|decode_disclosed_components(bytes)) else {return false;};
+    let own=components.get(&DEMO_RENDER_COMPONENT_SCHEMA_ID).and_then(|bytes|decode_demo_render_state(bytes)).is_some_and(|render|render.team_id==team);
+    if !own && !omoba_template_ids::buff_is_public(id) {return false;}
+    components.get(&crate::runtime::buff_visual_state::SCHEMA_ID)
+        .and_then(|bytes|crate::runtime::buff_visual_state::BuffVisualSnapshot::decode(bytes))
+        .is_some_and(|snapshot|snapshot.buffs.0.iter().any(|(row,_)|*row==id.raw()))
+}
+
 fn disclosed_target_states(runtime:&TeamVisibilityRuntime,team:u32,identity:u64)->u8 {
     if !runtime.teams.get(&team).is_some_and(|state|state.index.current.contains(&identity)) {return 0;}
     runtime.latest_disclosed_baseline_by_canonical.get(&identity).and_then(|bytes|decode_disclosed_components(bytes))
@@ -605,6 +618,7 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
     let buffs = world.try_fetch::<crate::runtime::ability_runtime::BuffStore>();
     let windups = world.try_fetch::<super::super::cast_windup::AbilityWindups>();
     let failed = world.try_fetch::<crate::runtime::native::game_processor::FailedCasts>();
+    let retired = world.try_fetch::<crate::runtime::native::scripting::parallel_world_adapter::RetiredPositions>();
     let failed_backoff = backoff_ticks(world.read_resource::<crate::runtime::DeltaTime>().0);
     // Decode a team perception once per think, not once per hero.
     let perceptions = state.config.teams.map(|team|disclosed_units(&visibility,team,|id|{
@@ -840,7 +854,12 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                         && crate::runtime::native::dispel::registry().statuses_of(key).contains(&status))),
                 &|identity|disclosed_target_states(&visibility,team,identity),
                 // Public map state: the standing trees (tree_cut, E473).
-                &|from,reach|crate::runtime::native::tree_cut::standing_tree_near(&regions,from,reach))
+                &|from,reach|crate::runtime::native::tree_cut::standing_tree_near(&regions,from,reach),
+                // A disclosed unit's status by its icon (another team's public ones only, E605).
+                &|identity,status|disclosed_status(&visibility,team,identity,status),
+                // Corpses: the combat units of either team that died here in the last minute (E605).
+                &|center,radius|retired.as_ref().map_or(0,|rows|rows.units_in_range(center,radius,
+                    tick.saturating_sub(crate::runtime::native::scripting::parallel_world_adapter::RetiredPositions::KEEP_TICKS)).len()))
             };
             if let Some(cast) = cast {
                 if let Some(id)=cast.target_entity {
