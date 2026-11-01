@@ -11284,7 +11284,7 @@ local data = {
       targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_line", line_width = "width", line_width_scale = 2, min_targets = 1, source = "derived" },
+        bot = { caster_status = "a12t_form", kind = "enemy_line", line_width = "width", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { expr = "0", field = "cast_point" },
@@ -30430,7 +30430,7 @@ local data = {
       unit_target = "enemy",
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "enemy_unit", source = "derived" },
+        bot = { caster_status = "a27t_oni", kind = "enemy_unit", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -44829,7 +44829,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", source = "derived", threat_radius = 900 },
+        bot = { caster_status = "b36w_mark", kind = "self_engage", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "mana_cost", value = "mana_cost" },

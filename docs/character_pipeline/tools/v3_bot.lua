@@ -400,6 +400,12 @@ function M.export(def, kind_of_entry, doc)
   end
   policy.notes = nil
   policy.source = source
+  -- the cast's own requires on the caster (E619): cast only while the caster has (or lacks) it
+  local req = castable and castable.requires or {}
+  for key, field in pairs({ has_status = "caster_status", not_status = "caster_no_status" }) do
+    local rid = type(req[key]) == "string" and status_runtime_id(doc, def, req[key])
+    if rid and rid:match("^[%w_:]+$") and #rid <= 96 and policy.kind ~= "none" then policy[field] = rid end
+  end
   if spec and spec.proposed then policy.proposed = true end
   return policy
 end

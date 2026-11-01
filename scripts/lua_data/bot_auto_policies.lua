@@ -169,7 +169,8 @@ return function(policies, players)
         local hint = row and row.v3 and row.v3.bot
         if not listed[ability] and type(hint) == 'table' and admissible(row, hint) then
           listed[ability] = true
-          out[#out + 1] = { ability = ability, intent = intent(hint) }
+          -- E619: the cast's requires on the caster's own status
+          out[#out + 1] = { ability = ability, intent = intent(hint), caster_status = hint.caster_status, caster_no_status = hint.caster_no_status }
         end
       end
     end
