@@ -10,8 +10,11 @@
 --   OM_FORCED_ARC unit=<id> peak_cm=<cm>                                    (knockback arcs, whole run)
 -- and lists what the content says each ability should show (cast-cues-v1.json, status-cues-v1.json)
 -- next to it. "unresolved" (a cue id the UE catalog does not know) is always a defect.
+-- With --server-log (the authority's stdout), an ability that showed nothing is told apart as
+-- 沒施放 (no `AbilityCast ok`), 被取消 (requested but its script never ran: `cast ok` missing, a
+-- precondition cancelled it) or 施放了但沒畫 (the script ran, UE drew nothing).
 --
---   tools\lua\lua.exe scripts\ue_presentation_report.lua --hero HERO_ID --log FILE [--log FILE ...] [--out FILE]
+--   tools\lua\lua.exe scripts\ue_presentation_report.lua --hero HERO_ID --log FILE [--log FILE ...] [--server-log FILE ...] [--out FILE]
 --   tools\lua\lua.exe scripts\ue_presentation_report.lua --item ITEM_ID[,ITEM_ID...] --log FILE ... (item spotlight)
 --
 -- HERO_ID is the content hero id (honda_tadakatsu); its abilities come from target/site/source-catalog.json
@@ -59,6 +62,26 @@ function M.parse(text)
     if peak then out.arcs = out.arcs + 1; out.peaks[#out.peaks + 1] = tonumber(peak) end
   end
   return out
+end
+
+-- authority log text -> { requested = {[ability] = n}, executed = {[ability] = n} }
+function M.parse_server(text)
+  local out = { requested = {}, executed = {} }
+  for line in text:gmatch("[^\n]+") do
+    local requested = line:match("AbilityCast ok pid=%d+ slot=%d+ ability='([^']+)'")
+    if requested then out.requested[requested] = (out.requested[requested] or 0) + 1 end
+    local executed = line:match("%[scripting%] cast ok ability='([^']+)'")
+    if executed then out.executed[executed] = (out.executed[executed] or 0) + 1 end
+  end
+  return out
+end
+
+-- An ability that showed nothing, by what the authority did with it (nil without a server log).
+function M.cast_outcome(server, id)
+  if not server then return nil end
+  if (server.requested[id] or 0) == 0 then return "沒施放" end
+  if (server.executed[id] or 0) == 0 then return "被取消" end
+  return "施放了但沒畫"
 end
 
 -- hero id, catalog, nobu icon index, cast cue table, status cue table -> ordered ability rows
@@ -121,7 +144,7 @@ local function count_text(row)
 end
 
 -- -> markdown, defects (list of strings)
-function M.render(hero_id, source_id, rows, seen)
+function M.render(hero_id, source_id, rows, seen, server)
   local out = { "# " .. hero_id .. "（" .. source_id .. "）UE 呈現檢查", "",
     "| 招式 | cue 播放（依美術） | 目標 cue | 狀態 cue | 判定 |", "|---|---|---|---|---|" }
   local defects = {}
@@ -153,8 +176,9 @@ function M.render(hero_id, source_id, rows, seen)
       -- these markers can show; damage and heal numbers are not checked here.
       verdict = "被動，無 cue／狀態可檢查"
     elseif not cue_row and target == 0 and status_total == 0 then
-      verdict = "本局沒有呈現"
-      defects[#defects + 1] = r.id .. ": nothing shown"
+      local outcome = M.cast_outcome(server, r.id)
+      verdict = "本局沒有呈現" .. (outcome and ("（" .. outcome .. "）") or "")
+      defects[#defects + 1] = r.id .. ": nothing shown" .. (outcome and (" (" .. outcome .. ")") or "")
     end
     if #r.target_cues > 0 and target == 0 and verdict == "有呈現" then verdict = "有呈現（目標 cue 沒出現）" end
     out[#out + 1] = string.format("| `%s` | %s | %d（預期 %d 個） | %s | %s |", r.id, count_text(cue_row), target, #r.target_cues,
@@ -166,7 +190,7 @@ function M.render(hero_id, source_id, rows, seen)
 end
 
 function M.main(args)
-  local hero, logs, out, items = nil, {}, nil, nil
+  local hero, logs, out, items, server_logs = nil, {}, nil, nil, {}
   local i = 1
   while i <= #args do
     if args[i] == "--hero" then hero = args[i + 1]; i = i + 1
@@ -175,6 +199,7 @@ function M.main(args)
       for id in args[i + 1]:gmatch("[^,]+") do items[#items + 1] = id:find("^item_") and id or ("item_" .. id) end
       i = i + 1
     elseif args[i] == "--log" then logs[#logs + 1] = args[i + 1]; i = i + 1
+    elseif args[i] == "--server-log" then server_logs[#server_logs + 1] = args[i + 1]; i = i + 1
     elseif args[i] == "--out" then out = args[i + 1]; i = i + 1
     else error("unknown argument " .. args[i]) end
     i = i + 1
@@ -193,7 +218,13 @@ function M.main(args)
     source_id, rows = M.expected(hero, json.decode(read(root(M.CATALOG))), json.decode(read(root(M.ICONS))),
       json.decode(read(root(M.CAST_CUES))), json.decode(read(root(M.STATUS_CUES))))
   end
-  local md, defects = M.render(hero, source_id, rows, seen)
+  local server
+  if #server_logs > 0 then
+    local server_text = {}
+    for _, p in ipairs(server_logs) do server_text[#server_text + 1] = read(p) end
+    server = M.parse_server(table.concat(server_text, "\n"))
+  end
+  local md, defects = M.render(hero, source_id, rows, seen, server)
   if out then local f = assert(io.open(out, "wb")); f:write(md); f:close() else io.write(md) end
   for _, d in ipairs(defects) do print("DEFECT " .. d) end
   return 0

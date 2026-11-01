@@ -57,4 +57,11 @@ local item_md = M.render("道具", "item_bomb", items, M.parse("OM_CUE ability=b
 ok(item_md:find("`item_bomb` | style 1", 1, true) and item_md:find("bomb_burn：status_cue 1", 1, true), "item cues found under the authority id")
 ok(not pcall(M.expected_items, { "item_none" }, { items = {} }, {}, { statuses = {} }), "unknown item refused")
 ok(not pcall(M.expected, "nobody", { abilities = {} }, { entries = {} }, {}, { statuses = {} }), "unknown hero refused")
+-- --server-log tells a silent ability apart: never requested, cancelled before its script ran, or ran undrawn.
+local server = M.parse_server("[INFO] - AbilityCast ok pid=1 slot=0 ability='h01_idle'   (x)\n[INFO] - AbilityCast ok pid=1 slot=1 ability='h01_ghost'   (x)\n"..
+  "[INFO] - [scripting] cast ok ability='h01_ghost' caster=0 rank=1   (x)\n")
+ok(M.cast_outcome(server, "h01_none") == "沒施放" and M.cast_outcome(server, "h01_idle") == "被取消"
+  and M.cast_outcome(server, "h01_ghost") == "施放了但沒畫" and M.cast_outcome(nil, "h01_idle") == nil, "cast outcomes")
+local md2, defects2 = M.render("hero_one", source_id, rows, seen, server)
+ok(md2:find("本局沒有呈現（被取消）", 1, true) and defects2[2]:find("(被取消)", 1, true), "the verdict names the outcome")
 print("ue_presentation_report_test: " .. checks .. " checks passed")

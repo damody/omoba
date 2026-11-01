@@ -2,6 +2,21 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E593 呈現報告分不出「沒施放／被取消／施放了但沒畫」（2026-11-01，工作線 C）
+**現象**：`ue_presentation_report` 只看 UE log，一招沒有任何 cue 或狀態就判「本局沒有呈現」，但分不出原因：
+- 指令根本沒送出（A21、C08）；
+- 前搖時因為舞台缺條件被取消（C19 奇襲要附近有友方單位，B23 亡靈之契要附近有屍體）；
+- 腳本跑了但 UE 沒畫（A13 影惑）。
+
+**修正**：新增 `--server-log`（authority 的 stdout，可以重複指定）。`parse_server` 計算每招的 `AbilityCast ok`（authority 接受了請求）和 `[scripting] cast ok`（腳本真正執行）。一招沒有呈現時，判定會寫成：
+- 本局沒有呈現（沒施放）
+- 本局沒有呈現（被取消）
+- 本局沒有呈現（施放了但沒畫）
+
+defect 行也帶上同樣的原因。依調度指示，這三種從此是報告的固定欄位。
+
+**測試**：`ue_presentation_report_test` 的 cast outcomes 測試。
+
 ## E592 游標下疊著不合法單位時，指定單位技能被本地拒絕（不會挑同位置的合法目標）（2026-11-01，工作線 C）
 **現象**：rerun6／rerun8 的 spotlight 有多招沒有呈現，原因是指令在 UE 本地就被拒絕或判錯（工作線 C 的 unshown-diagnosis）。
 - A21 偽報、盜法：`Owned ability target is not a disclosed legal hostile`。前一招珠盤疊在敵方 stand-in 上，指標挑到的是自己的珠盤。
