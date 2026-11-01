@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E644 conformance：判定 hidden_in_flight：直線投射物路線上看不見的敵人（2026-11-01，conformance session）
+- **現象**：工作線 A 在 b0a42a7d 新增 hidden_in_flight（直線投射物路線上看不見的敵人，invisible 與 fogged 各一個，期望 hidden_hit），harness 還沒有判定。目前沒有任何投射物帶 visible_only，所以全部 affected=true，驗的是「預設會打到看不見的單位」。
+- **通用修正**：
+  - 讀 given 的 distance（算不出來時退回 cast_range）。看不見的敵方英雄放在飛行路線的 1/3 處，可見的敵方小兵放在 2/3 處，施放瞄準 +X 方向、半個施放距離外（施法者不用移動）。沒有方向的施放判 unsupported。
+  - hidden_hit 沿用 hidden_affected 的 in_area_affected 判定，path 是投射物所在的 path（on_hit 底下的命中都算）。
+- **結果**：全跑 0 退步、0 fail，22 個情境 pass；A06 的 unit_or_point 施放判 unsupported（6 個，harness 本來就不支援這種目標）。pass 21643。
+
 ## E645 隱形的己方單位不再揭露給自己隊伍：視野判定對自己隊伍也套用隱形（A36 地雷）（2026-11-02，工作線 B，C 的 UE 回報）
 
 - **現象**：A36 地刺放出的地雷 `a36e_mine` 一開始有進己方的 frame，施放約 2.6 秒後就從己方的實體清單消失，之後也沒有再出現。地刺說明寫「1.5 秒後隱形」。

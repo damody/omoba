@@ -28,7 +28,7 @@ use super::*;
 use serde_json::{json, Value};
 
 const ENEMY: &str = "training_luminary";
-const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "leveled_by", "unit_ability", "target_status", "ally_target_lower", "ally_unit_at_point", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line", "target_ahead", "corpse_near_caster", "cast_first", "building_in_effect", "hidden_in_effect"];
+const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "leveled_by", "unit_ability", "target_status", "ally_target_lower", "ally_unit_at_point", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line", "target_ahead", "corpse_near_caster", "cast_first", "building_in_effect", "hidden_in_effect", "hidden_in_flight"];
 const WHEN: &[&str] = &["cast", "wait", "caster_dies", "target_dies", "owner_dies", "owner_respawns", "toggle", "cast_until_over_cap"];
 /// A document entry the ported hero does not have at all: a difference, not a harness gap.
 const MISSING: &str = "missing entry: ";
@@ -36,7 +36,7 @@ const CHECKED: &[&str] = &["cast_accepted", "cast_rejected", "cast_cancelled", "
     "cooldown_not_started", "no_effects", "then_cast_accepted", "approach_until",
     "caster_invisibility_broken", "caster_invisibility_kept", "damage_to_magic_immune", "selectors_skip_magic_immune",
     "status_removed", "status_kept", "passive_stats", "toggled_off", "charge_spent", "charge_restore", "summon_cap", "damage_skipped_if_source_dead", "damage", "moved_toward",
-    "ability_swapped", "building_affected", "hidden_affected"];
+    "ability_swapped", "building_affected", "hidden_affected", "hidden_hit"];
 /// A check that found nothing to judge (marks an error as unsupported, not failed).
 const UNOBSERVED: &str = "unobserved: ";
 
@@ -453,6 +453,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let (mut immune, mut dead, mut hidden, mut invisible) = (false, false, false, false);
     let mut building_in = false;
     let mut hidden_in: Option<String> = None;
+    let mut in_flight: Option<f64> = None;
     let (mut clear_line, mut face_ahead, mut corpse) = (false, false, false);
     let mut cast_first: Option<String> = None;
     // What the entry's on_phase_start needs (E457): a status on the target, an ally target lower
@@ -499,6 +500,12 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
             "cast_first" => cast_first = given["entry"].as_str().map(str::to_owned),
             "building_in_effect" => building_in = true,
             "hidden_in_effect" => hidden_in = given["state"].as_str().map(str::to_owned),
+            // On a linear projectile's flight (E644): how far it flies, to place the units along it.
+            "hidden_in_flight" => {
+                hidden_in = given["state"].as_str().map(str::to_owned);
+                let flies = expr(&given["distance"], &entry, rank).ok().or_else(|| value(&entry, rank, "cast_range")).filter(|d| *d > 0.0);
+                in_flight = Some(flies.ok_or_else(|| format!("hidden_in_flight: no flight distance in {}", given["distance"]))?);
+            }
             other => return Err(format!("given {other}")),
         }
     }
@@ -646,9 +653,14 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let hidden = match hidden_in.as_deref() {
         None => None,
         Some(_) if s["when"][0]["target"] == "unit" => return Err("hidden_in_effect of a unit-target cast: its target cannot be hidden".into()),
+        Some(_) if in_flight.is_some() && s["when"][0]["target"] == "none" => return Err("hidden_in_flight of a cast without a direction".into()),
         Some(state) => {
-            let center = if s["when"][0]["target"] == "none" { origin } else { at };
-            world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = center + omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(40));
+            // In the area (beside the caster, or at the point), or a third of the way along the
+            // flight toward +X, the creep two thirds along (E644).
+            let along = |share: f64| origin + omoba_sim::Vec2::new(fixed(in_flight.unwrap_or(0.0) * share), Fixed64::ZERO);
+            let center = match in_flight { Some(_) => along(1.0 / 3.0), None if s["when"][0]["target"] == "none" => origin, None => at };
+            let spot = if in_flight.is_some() { center } else { center + omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(40)) };
+            world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = spot;
             let enemy_team = world.read_storage::<Faction>().get(enemy).unwrap().team_id;
             match state {
                 "invisible" => {
@@ -660,7 +672,8 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
                     team: Some(caster_team.max(0) as u32), kind: VisibilityOverrideKind::ForceHide, priority: 2, stable_rule_id: 0xE641 }).unwrap(); }
                 other => return Err(format!("hidden state {other}")),
             }
-            let creep = spawn_body(&mut world, real(center.x) as i32, real(center.y) as i32 - 40, enemy_team, 800, None);
+            let creep_at = if in_flight.is_some() { along(2.0 / 3.0) } else { center - omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(40)) };
+            let creep = spawn_body(&mut world, real(creep_at.x) as i32, real(creep_at.y) as i32, enemy_team, 800, None);
             world.write_storage::<VisibilityOverride>().insert(creep, VisibilityOverride {
                 team: Some(caster_team.max(0) as u32), kind: VisibilityOverrideKind::ForceShow, priority: 1, stable_rule_id: 0xE641 }).unwrap();
             let keys = |unit: specs::Entity| -> Vec<String> { world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(unit).map(|(k, _)| k.to_owned()).collect() };
@@ -673,7 +686,9 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let last = world.read_storage::<Hero>().get(caster).unwrap().clone();
     let target_at = world.read_storage::<Pos>().get(target).map(|pos| pos.0).unwrap_or(at);
     let keep = swapped.as_ref().and_then(|g| g["by"].as_str()).map(str::to_owned);
-    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), target_held: (0, Vec::new()), low_ally, phase_statuses: target_statuses.iter().filter(|id| !id.is_empty() && !id.contains('{')).cloned().collect(), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim: clear_line.then_some(at), keep, building, hidden };
+    // A flight's cast aims along +X, half its cast range off (the caster does not walk; E644).
+    let aim = if in_flight.is_some() { Some(origin + omoba_sim::Vec2::new(fixed((value(&entry, rank, "cast_range").unwrap_or(600.0) * 0.5).max(100.0)), Fixed64::ZERO)) } else { clear_line.then_some(at) };
+    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), target_held: (0, Vec::new()), low_ally, phase_statuses: target_statuses.iter().filter(|id| !id.is_empty() && !id.contains('{')).cloned().collect(), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim, keep, building, hidden };
     // Let auto-learn settle the ranks set above (it learns passives at their hero level).
     run.step(2);
     if passive {
@@ -2270,7 +2285,7 @@ fn run(hero: &str, s: &Value) -> Verdict {
             }
             "ability_swapped" => swapped(&mut run, e, &entry, rank),
             "building_affected" => building_affected(&mut run, e),
-            "hidden_affected" => hidden_affected(&mut run, e),
+            "hidden_affected" | "hidden_hit" => hidden_affected(&mut run, e),
             "cooldown_not_started" => {
                 let remaining = run.cooldown();
                 if remaining == 0.0 { Ok(()) } else { Err(format!("cooldown {remaining:.3} running")) }
