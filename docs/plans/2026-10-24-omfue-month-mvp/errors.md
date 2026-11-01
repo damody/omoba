@@ -2,6 +2,24 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E607 召喚物指令、戰鬥偏好、方向輸入、召喚師技能被 SubmitGameplayInputEvent 誤判不是 presentation 模式（2026-11-01，工作線 C）
+**現象**：spotlight 的召喚物技能（A28 天火、B16 忍犬「月」的技能）每次都送不出去。E600 的 log 顯示 `OM_SUMMON_CAST submit … accepted=0 error=戰鬥偏好需要本地玩家的正式連線`。
+
+**根因**：`UOmRuntimeBridgeSubsystem::SubmitGameplayInputEvent` 判斷 presentation 模式時，讀的是 ini 預設值 `Settings->RuntimeMode`（DefaultGame.ini 寫的是 `SinglePlayer`），但 launch 是用 `-om-presentation-only` 選 presentation 模式的。bridge 其他地方都用 `ResolveRuntimeMode(Settings)`，它會把環境變數和命令列一起算進去，只有這兩處讀 ini 原值。結果所有 split 和實機局裡，下面這些輸入都在 UE 本地被拒：
+- 召喚物指令（移動、釋放、施法）
+- 戰鬥偏好
+- 輸入方案
+- 方向輸入
+- 召喚師技能
+
+玩家實際操作時也一樣會被拒。
+
+**修正**：這兩處改用 `ResolveRuntimeMode(Settings)`。
+
+**驗證**：用 land_to_live 放回 live，UBT 通過。實機用 A28、B16 重跑驗證。
+
+## E606 （保留）replica 先套 committed cooldown 再套同 tick 的槽位交換：a12_awe_t 冷卻落到被換掉的 a12_awe（2026-11-01）
+
 ## E605 bot 看不到技能的前提條件：新增 self_area_status、self_area_corpses、ally_anchor_point（2026-11-01，工作線 B，與 A 協作）
 
 - **現象**：A 統計 E 的 m6new15～20、b25fix、c19、e585，被拒比例超過 20% 的只有三個技能：
