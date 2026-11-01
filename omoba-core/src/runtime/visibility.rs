@@ -1284,6 +1284,8 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     let properties = world.read_storage::<CProperty>();
     let patrols = world.read_storage::<DemoPatrol>();
     let attacks = world.read_storage::<crate::runtime::TAttack>();
+    let summons = world.has_value::<specs::storage::MaskedStorage<crate::runtime::native::comp::SummonedUnit>>()
+        .then(|| world.read_storage::<crate::runtime::native::comp::SummonedUnit>());
     let facings = world.read_storage::<crate::runtime::Facing>();
     let turn_speeds = world.read_storage::<crate::runtime::TurnSpeed>();
     let unit_manas = crate::runtime::native::unit_mana::registered(world)
@@ -1472,6 +1474,12 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 // Status icons: every fighting unit shows its own (原作 a summon's or a creep's
                 // debuff is on its portrait too, E384); the team projector keeps the hidden ones
                 // to the owner team.
+                let state=buffs.as_ref().map(|store|crate::runtime::buff_visual_state::BuffVisualSnapshot::from_store(store,entity))
+                    .unwrap_or(crate::runtime::buff_visual_state::BuffVisualSnapshot {buffs:crate::runtime::buff_visual_state::BuffVisualState(vec![]),channel_totals:vec![]});
+                disclosed.push((crate::runtime::buff_visual_state::SCHEMA_ID,state.encode().expect("bounded generated buff IDs")));
+            } else if moba && summons.as_ref().is_some_and(|summons| summons.get(entity).is_some()) {
+                // A summon that never attacks (a dummy: B24's stele, E597) still shows its statuses
+                // (its life countdown) like every other summon.
                 let state=buffs.as_ref().map(|store|crate::runtime::buff_visual_state::BuffVisualSnapshot::from_store(store,entity))
                     .unwrap_or(crate::runtime::buff_visual_state::BuffVisualSnapshot {buffs:crate::runtime::buff_visual_state::BuffVisualState(vec![]),channel_totals:vec![]});
                 disclosed.push((crate::runtime::buff_visual_state::SCHEMA_ID,state.encode().expect("bounded generated buff IDs")));

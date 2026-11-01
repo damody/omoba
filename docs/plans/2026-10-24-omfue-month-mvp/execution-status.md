@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：不攻擊的召喚物也揭露 buff 圖示（E597）
+
+- B24 石碑的壽命狀態兩隊都看得到。
 ## 2026-11-01 線 B：role bot 對失敗的施法退避 2 秒（E596）
 
 - 茶茶的落櫻散華在範圍內沒有流血的敵人時會取消，bot 不再每次思考都重送。

@@ -2,7 +2,15 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E597 （保留）不攻擊的召喚物（B24 石碑）沒有揭露 buff 圖示元件（2026-11-01）
+## E598 （保留）英雄被 teleport 到地形裡卡住：set_pos 對英雄不找落點（2026-11-01）
+
+## E597 不攻擊的召喚物（B24 石碑）沒有揭露 buff 圖示元件（2026-11-01，工作線 B，D 回報）
+
+- **現象**：B24 W 的 conformance 有 4 個 fail，項目是 `visibility/b24w_stele_life`。石碑（dummy、immobile 召喚物）身上有 public 的 b24w_stele_life，本機算得出圖示 [49, 456]，但兩隊 replica 的 buff visual 都是空的；同一局敵方英雄的圖示則一致。
+- **根因**：`visibility` 只對「英雄、有 TAttack 的單位，或有攻擊視覺狀態的單位」揭露 buff visual，這是「會戰鬥的單位才有頭像狀態」（E384）的條件。石碑不會攻擊，所以整個元件都沒有被揭露。
+- **修正**：MOBA 裡不屬於上述單位的召喚物，也揭露 buff visual（`BuffVisualSnapshot::from_store`），由 team projector 照舊只讓其他隊看到 public 圖示。attack／channel visual 的條件不變。測試世界沒有註冊 SummonedUnit storage 時就略過。
+- **測試**：omoba-core 的 visibility、team_projector、buff_visual、summon 相關 175 個測試通過。
+- **檔案**：`omoba-core/src/runtime/visibility.rs`
 
 ## E596 role bot 每 tick 重送被拒的施法：c25_falling_sakura 180/180 被拒（2026-11-01，工作線 B，E 回報）
 
