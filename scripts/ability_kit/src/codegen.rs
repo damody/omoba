@@ -87,6 +87,7 @@ pub struct Select {
 /// Whether a selector without `include_hidden` leaves `unit` out for the `hidden` state. The host
 /// has no `hidden` state yet (no v3 document applies one), so no unit is excluded; when the state
 /// is added, its test belongs here and every selector picks it up.
+#[inline]
 pub fn hidden_excluded(_unit: EntityHandle) -> bool { false }
 
 /// The unit classes a selector admits.
@@ -332,7 +333,9 @@ impl<'a, 'w> Cx<'a, 'w> {
         u.is_valid() && self.world.is_alive(u) && self.world.get_hp(u).into_option().is_some_and(|hp| hp > Fixed64::ZERO)
     }
 
+    #[inline]
     pub fn attack(&self, u: EntityHandle) -> Fixed64 { self.world.get_final_atk(u) }
+    #[inline]
     pub fn armor(&self, u: EntityHandle) -> Fixed64 { self.world.get_final_armor(u) }
     /// Seconds left of `status` on `u` (0: not on it).
     pub fn status_remaining(&self, u: EntityHandle, status: &StatusDef) -> Fixed64 {
@@ -345,9 +348,13 @@ impl<'a, 'w> Cx<'a, 'w> {
         if hi <= lo { return lo; }
         (lo + floor(self.random(Fixed64::ZERO, hi - lo + Fixed64::ONE))).min(hi)
     }
+    #[inline]
     pub fn random(&mut self, lo: Fixed64, hi: Fixed64) -> Fixed64 { lo + (hi - lo) * self.world.rand_unit() }
+    #[inline]
     pub fn hp(&self, u: EntityHandle) -> Fixed64 { self.world.get_hp(u).into_option().unwrap_or(Fixed64::ZERO) }
+    #[inline]
     pub fn max_hp(&self, u: EntityHandle) -> Fixed64 { self.world.get_max_hp(u).into_option().unwrap_or(Fixed64::ZERO) }
+    #[inline]
     pub fn mana(&self, u: EntityHandle) -> Fixed64 { self.world.current_mana(u) }
     /// v3 `is_template(u, t)`: `u` was made from template `t` (its host unit id; create_unit's).
     pub fn is_template(&self, u: EntityHandle, template: &str) -> bool {
@@ -392,6 +399,7 @@ impl<'a, 'w> Cx<'a, 'w> {
         let _ = self.world.spend_mana(from, amount, RStr::from_str(ability));
         Ok(())
     }
+    #[inline]
     pub fn is_building(&self, u: EntityHandle) -> bool { self.world.is_building(u) }
     /// `hp_pct`: hp / max_hp (0 without a maximum).
     pub fn hp_pct(&self, u: EntityHandle) -> Fixed64 {
@@ -420,7 +428,9 @@ impl<'a, 'w> Cx<'a, 'w> {
         }
     }
     /// `exists`: a reference to a unit still in the world (dead units included).
+    #[inline]
     pub fn exists(&self, u: EntityHandle) -> bool { u.is_valid() && self.world.get_pos(u).into_option().is_some() }
+    #[inline]
     pub fn is_magic_immune(&self, u: EntityHandle) -> bool { self.world.has_buff(u, RStr::from_str(magic_immunity::BUFF)) }
 
     /// Whether `u` passes `select` as a selector candidate does (`units_in_circle`): alive, of its
@@ -501,9 +511,11 @@ impl<'a, 'w> Cx<'a, 'w> {
     }
 
     /// `is_ability(event.ability, a)`.
+    #[inline]
     pub fn event_is_ability(&mut self, ability: &str) -> bool { self.event_skill_id().as_deref() == Some(ability) }
 
     /// `has_tag(event.ability, item)`.
+    #[inline]
     pub fn event_is_any_item(&mut self) -> bool { self.event_skill_id().is_some_and(|k| k.starts_with(ITEM_SKILL_PREFIX)) }
 
     /// `has_tag(event.ability, toggle)`: an authored toggle ability.
@@ -1068,6 +1080,7 @@ impl<'a, 'w> Cx<'a, 'w> {
         if self.damage_edit.mode != DamageEdit::CANCEL { self.damage_edit = DamageEdit { mode: DamageEdit::SET, value: value.max(Fixed64::ZERO) }; }
     }
     /// `modify_damage { cancel = true }`.
+    #[inline]
     pub fn damage_cancel(&mut self) { self.damage_edit = DamageEdit { mode: DamageEdit::CANCEL, value: Fixed64::ZERO }; }
 
     // ---- unit state variables (omoba-core unit_var) --------------------------------------------
@@ -1097,10 +1110,12 @@ impl<'a, 'w> Cx<'a, 'w> {
         self.written.insert((u.id, u.gen, key.to_owned()), Some(value));
         Ok(())
     }
+    #[inline]
     pub fn set_state_num(&mut self, u: EntityHandle, key: &str, v: Fixed64, hero: bool) -> Res { self.set_state(u, key, VarValue::Num(v), hero) }
     pub fn set_state_bool(&mut self, u: EntityHandle, key: &str, v: bool, hero: bool) -> Res {
         self.set_state(u, key, VarValue::Num(if v { Fixed64::ONE } else { Fixed64::ZERO }), hero)
     }
+    #[inline]
     pub fn set_state_unit(&mut self, u: EntityHandle, key: &str, v: EntityHandle, hero: bool) -> Res { self.set_state(u, key, VarValue::Unit(v), hero) }
     /// `clear_state`: back to the declared `init`.
     pub fn clear_state(&mut self, u: EntityHandle, key: &str) -> Res {
@@ -1217,6 +1232,7 @@ impl<'a, 'w> Cx<'a, 'w> {
         Ok(())
     }
 
+    #[inline]
     pub fn has_buff(&self, u: EntityHandle, id: &str) -> bool { self.world.has_buff(u, RStr::from_str(id)) }
 
     /// The learner's marker of passive `id` (stats, rank `level`), listening to the passive's
@@ -1254,6 +1270,7 @@ impl<'a, 'w> Cx<'a, 'w> {
     }
 
     /// `chance { p }`: true with probability `p` (a fraction) from the host RNG.
+    #[inline]
     pub fn chance(&mut self, p: Fixed64) -> bool { self.world.rand_unit() < p }
 
     /// The passive stats buff on the learner, carrying its rank (`level`).
@@ -1293,12 +1310,15 @@ pub fn div(a: Fixed64, b: Fixed64) -> Result<Fixed64, &'static str> {
 }
 
 /// Percent points of a fraction (stat rows in percent points).
+#[inline]
 pub fn percent_points(v: Fixed64) -> i64 { v.raw().saturating_mul(100) }
 
 /// `offset(p, dir, distance)`.
+#[inline]
 pub fn offset(p: Vec2, dir: Vec2, distance: Fixed64) -> Vec2 { p + dir * distance }
 
 /// `direction(a, b)`: unit vector from a to b (zero when they coincide).
+#[inline]
 pub fn direction(a: Vec2, b: Vec2) -> Vec2 { (b - a).normalized() }
 
 /// The most runs of a `repeat` without an interval (a bound on `while` loops).
@@ -1333,7 +1353,9 @@ pub fn degrees(d: Fixed64) -> omoba_sim::trig::Angle {
     let ticks = (i128::from(d.raw()) * i128::from(omoba_sim::trig::TAU_TICKS) / (360 * 1024)).rem_euclid(i128::from(omoba_sim::trig::TAU_TICKS));
     omoba_sim::trig::Angle::from_ticks(ticks as i32)
 }
+#[inline]
 pub fn sin_deg(d: Fixed64) -> Fixed64 { omoba_sim::trig::sin(degrees(d)) }
+#[inline]
 pub fn cos_deg(d: Fixed64) -> Fixed64 { omoba_sim::trig::cos(degrees(d)) }
 /// `polar(center, angle, distance)`: angle 0 along +x, counterclockwise.
 pub fn polar(center: Vec2, angle: Fixed64, dist: Fixed64) -> Vec2 {
@@ -1352,9 +1374,11 @@ pub fn angle_between(a: Vec2, b: Vec2) -> Fixed64 {
 }
 
 /// The point a fraction `t` of the way from `a` to `b`.
+#[inline]
 pub fn lerp_point(a: Vec2, b: Vec2, t: Fixed64) -> Vec2 { a + (b - a) * t }
 
 /// `distance(a, b)`.
+#[inline]
 pub fn distance(a: Vec2, b: Vec2) -> Fixed64 { (b - a).length() }
 
 /// The distance from `p` to the segment `a`..`b` (to `a` when the segment is a point).
@@ -1376,9 +1400,13 @@ pub fn rotate(v: Vec2, degrees: Fixed64) -> Vec2 {
 pub fn rem(a: Fixed64, b: Fixed64) -> Result<Fixed64, &'static str> {
     Ok(a - floor(div(a, b)?) * b)
 }
+#[inline]
 pub fn floor(x: Fixed64) -> Fixed64 { Fixed64::from_raw(x.raw() - x.raw().rem_euclid(omoba_sim::fixed::SCALE)) }
+#[inline]
 pub fn ceil(x: Fixed64) -> Fixed64 { let f = floor(x); if f == x { f } else { f + Fixed64::ONE } }
+#[inline]
 pub fn abs(x: Fixed64) -> Fixed64 { if x < Fixed64::ZERO { -x } else { x } }
+#[inline]
 pub fn clamp(x: Fixed64, lo: Fixed64, hi: Fixed64) -> Fixed64 { x.max(lo).min(hi) }
 
 /// A generated script behind the DLL boundary: a panic in any hook never unwinds into the host

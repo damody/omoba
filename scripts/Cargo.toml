@@ -13,13 +13,23 @@ members = [
 ]
 
 # 針對 DLL 腳本調整的發布設定檔：最佳化且不輸出 PDB / debug info。
+# 不做跨 crate LTO（工作線 A，2026-11-01）：thin LTO 讓 90 個英雄 DLL 各自把 kit 與 omoba-core
+# 重新最佳化一次（每個約 31 s），乾淨建置 663 s；關掉後只剩英雄自己的程式碼，配合 omoba-core
+# codegen-units 16，建置 237 s（−64%）。kit 的一行轉送方法標 #[inline] 補回跨 crate 內聯；
+# headless A/B（teamfight、quick 各 4 輪，150 遊戲秒）的 tick p99 沒有變差（16.24 對 19.08 ms、
+# 8.46 對 10.19 ms）。
 [profile.release]
 opt-level = 3
-lto = "thin"
+lto = false
 codegen-units = 1
 debug = "none"
 split-debuginfo = "off"
 strip = "symbols"
+
+# omoba-core 在 DLL 建置的關鍵路徑上（codegen-units 1 時單線程 codegen 約 220 s）；host 的 omb
+# release 本來就用預設的 16。
+[profile.release.package.omoba-core]
+codegen-units = 16
 
 [profile.release.build-override]
 debug = "none"

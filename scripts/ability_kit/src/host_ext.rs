@@ -542,6 +542,7 @@ impl Cx<'_, '_> {
 
     /// v3 `refund { cooldown = true }` in a cast: its own cooldown does not start (host ext
     /// REFUND, E455). No other refund exists.
+    #[inline]
     pub fn refund_cooldown(&mut self) { let _ = self.read(op::REFUND, &[ExtArg::Str("cooldown".into())]); }
 
     /// v3 `immune_to` (E445): a status on `to` refuses `status` (host ext STATUS_IMMUNE).
@@ -730,8 +731,10 @@ impl Cx<'_, '_> {
     }
 
     /// v3 `ability.is_passive` (E497).
+    #[inline]
     pub fn ability_is_passive(&mut self, unit: EntityHandle, ability: &str) -> bool { self.ability_flag(unit, ability, ability_attr::IS_PASSIVE) }
     /// v3 `ability.is_toggle` (E497).
+    #[inline]
     pub fn ability_is_toggle(&mut self, unit: EntityHandle, ability: &str) -> bool { self.ability_flag(unit, ability, ability_attr::IS_TOGGLE) }
 
     /// v3 `modify_cooldown { ability = <an ability of another unit>, mode = "start" }` without an
@@ -753,6 +756,7 @@ impl Cx<'_, '_> {
     /// v3 `landmark(team, kind)` (E534): the team's base for `base` / `fort`;
     /// `EntityHandle::INVALID` when there is none.
     /// The team number of `unit` (`unit_attr::TEAM`, E538): what [`Cx::landmark`] takes.
+    #[inline]
     pub fn team_id(&mut self, unit: EntityHandle) -> Fixed64 { self.unit_num(unit, omb_script_abi::ext::unit_attr::TEAM) }
 
     /// [`Cx::landmark`] of `unit`'s team (v3 `landmark(team_of(u), kind)`).
