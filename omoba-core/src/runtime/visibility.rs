@@ -253,26 +253,40 @@ pub(crate) fn decode_disclosed_incoming_damage(bytes: &[u8]) -> Option<Fixed64> 
 }
 
 pub(crate) fn canonical_disclosed_json<T: Serialize>(value: &T) -> Vec<u8> {
-    fn sort_objects(value: serde_json::Value) -> serde_json::Value {
-        match value {
-            serde_json::Value::Array(values) => {
-                serde_json::Value::Array(values.into_iter().map(sort_objects).collect())
-            }
-            serde_json::Value::Object(values) => {
-                let mut entries: Vec<_> = values.into_iter().collect();
-                entries.sort_by(|left, right| left.0.cmp(&right.0));
-                let mut sorted = serde_json::Map::new();
-                for (key, value) in entries {
-                    sorted.insert(key, sort_objects(value));
-                }
-                serde_json::Value::Object(sorted)
-            }
-            scalar => scalar,
-        }
-    }
-
     let value = serde_json::to_value(value).expect("safe disclosed component");
-    serde_json::to_vec(&sort_objects(value)).expect("safe disclosed component")
+    // About 160 components each tick. Without serde_json's `preserve_order` a Map already iterates
+    // in key order, so rebuilding every object changes no byte (E653).
+    let value = if json_maps_keep_keys_sorted() { value } else { sort_disclosed_objects(value) };
+    serde_json::to_vec(&value).expect("safe disclosed component")
+}
+
+/// Whether a serde_json Map iterates in key order in this build (no `preserve_order` feature).
+fn json_maps_keep_keys_sorted() -> bool {
+    static SORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SORTED.get_or_init(|| {
+        let mut probe = serde_json::Map::new();
+        probe.insert("b".to_owned(), serde_json::Value::Null);
+        probe.insert("a".to_owned(), serde_json::Value::Null);
+        probe.keys().next().is_some_and(|first| first == "a")
+    })
+}
+
+fn sort_disclosed_objects(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Array(values) => {
+            serde_json::Value::Array(values.into_iter().map(sort_disclosed_objects).collect())
+        }
+        serde_json::Value::Object(values) => {
+            let mut entries: Vec<_> = values.into_iter().collect();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            let mut sorted = serde_json::Map::new();
+            for (key, value) in entries {
+                sorted.insert(key, sort_disclosed_objects(value));
+            }
+            serde_json::Value::Object(sorted)
+        }
+        scalar => scalar,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -706,6 +720,24 @@ mod tests {
         assert!(decode_disclosed_presentation_identity(&[2, 1, b'a']).is_none());
     }
     use super::*;
+
+    /// E653: the shortcut writes the same bytes the full sort does: keys in order at every depth,
+    /// a HashMap's too.
+    #[test]
+    fn canonical_json_without_the_sort_keeps_its_bytes() {
+        assert!(json_maps_keep_keys_sorted(), "this workspace does not enable preserve_order");
+        #[derive(serde::Serialize)]
+        struct Row { zebra: u32, apple: Vec<Inner>, levels: std::collections::HashMap<String, i32> }
+        #[derive(serde::Serialize)]
+        struct Inner { y: i64, x: Option<String> }
+        let levels = (0..32).map(|n| (format!("ability_{n}"), n)).collect();
+        let row = Row { zebra: 1, apple: vec![Inner { y: 2, x: None }, Inner { y: 3, x: Some("é".into()) }], levels };
+        let sorted = serde_json::to_vec(&sort_disclosed_objects(serde_json::to_value(&row).unwrap())).unwrap();
+        assert_eq!(canonical_disclosed_json(&row), sorted);
+        let text = String::from_utf8(sorted).unwrap();
+        assert!(text.find("\"apple\"").unwrap() < text.find("\"levels\"").unwrap() && text.find("\"levels\"").unwrap() < text.find("\"zebra\"").unwrap());
+        assert!(text.contains("{\"x\":null,\"y\":2}"), "{text}");
+    }
 
     fn entity(scope: ReplicationScopeKind, owner_team: Option<u32>, x: i32) -> CommittedEntityView {
         CommittedEntityView {

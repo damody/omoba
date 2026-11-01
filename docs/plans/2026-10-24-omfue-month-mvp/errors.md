@@ -2,6 +2,25 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E653 canonical_disclosed_json 每次都整棵重建來排序 key，但 serde_json 的 Map 本來就已排序（2026-11-02，工作線 B，效能）
+
+- **現象**：E646 拆解 visibility wave 時，`canonical_disclosed_json` 每 tick 約 165 次呼叫，合計約 0.22 ms，其中重新排序約 0.07 ms。
+- **根因**：`to_value` 之後整棵 Value 再重建一次來排序 key。所有 workspace 都沒有開 serde_json 的 `preserve_order`，Map 是 BTreeMap，key 本來就已排序，所以這次重建不會改變任何 byte。
+- **修正**：
+  - Map 確實依 key 排序時略過重建。第一次呼叫時實測一次（`json_maps_keep_keys_sorted`）並記住結果。
+  - 哪天有 crate 開了 `preserve_order`，會自動回到完整排序，輸出的 bytes 不變。
+- **A/B**：quick 計畫、seed 1、observer off，performance 鎖下交錯 3 輪，三輪的 final_digest 完全相同。
+
+  | 輪 | visibility wave（ms） | step（ms） | p50（ms） |
+  |---|---|---|---|
+  | 1 | 0.657 → 0.647 | 1.888 → 1.972 | 1.80 → 1.59 |
+  | 2 | 0.910 → 0.765 | 3.052 → 2.441 | 2.37 → 2.26 |
+  | 3 | 0.899 → 0.624 | 2.817 → 1.845 | 2.65 → 1.91 |
+
+  量測時 E 的全英雄回歸同時在跑。第 2、3 輪的差距遠大於這個修改預期的 0.07 ms，主要是機器負載；第 1 輪的 step 反而略升。所以這些數字只代表方向，不代表幅度。digest 相同才是這個修改的驗收。
+- **測試**：`visibility::tests::canonical_json_without_the_sort_keeps_its_bytes`：略過重建與完整排序的輸出 bytes 相同，包含巢狀物件和 HashMap 欄位。
+- **檔案**：`omoba-core/src/runtime/visibility.rs`
+
 ## E652 conformance：狀態情境的 needs：先設好條件（目標類型、夜晚、前置狀態、召喚物、普攻）再觀察（2026-11-02，conformance session）
 - **現象**：A 在 `status_on_unit` 標了 `needs`（只在某條件下才套上的狀態），harness 沒照條件布置，這些狀態一律「施放後沒觀察到」，算 unsupported。
 - **通用修正**：
