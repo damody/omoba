@@ -2,6 +2,26 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E649 隱形中重放隱形技能，狀態整個消失：施法者狀態的 on_ability_executed 排在這次施放之後結算（2026-11-02，工作線 B，D 的 reapply 情境回報）
+
+- **現象**：D 的 reapply 情境。隱形技能的狀態持續到一半時，清掉冷卻、補滿魔力，再放一次同一招。放完之後，持有者身上的隱形與 stealth 狀態全部消失，2 秒內也沒有再出現。
+  - 涉及的技能：a13_vanishing_step、a15_shadow_step、b02_vanishing_step、c08_vanishing_step、a36_shadow_step，共 10 個情境。
+  - 這些狀態的 stacking 都是 refresh，照原作，重放應該刷新時間並維持隱形。
+- **根因**：
+  - 這些隱形狀態都有 `on_ability_executed` 觸發，持有者放技能時會移除自己（例如 a13d_stealth 移除 a13d_stealth 和 a13d_invisible）。
+  - `dispatch_status_events` 在這個 tick 所有施放之後才執行，產生的 outcome 接在施放交易後面。結果是先套上新的狀態，接著被觸發移除，最後什麼都不剩。
+  - v3 §12.5 規定 on_ability_executed 在施法者自己的 on_cast 之前發生（原作 OnAbilityExecuted 早於 OnSpellStart）。觸發讀到的已經是施放前的狀態，錯的只有結算順序。
+  - E226 的施放破隱沒有問題，本來就插在這次施放的效果之前。
+- **修正**：
+  - 持有者對自己這次施放或道具使用的 on_ability_executed，outcome 移到那次使用的交易前面結算。施放對應 `ScriptCastTransaction`（同一施法者、同一技能），道具對應 `ScriptItemTransaction`（同一持有者、同一道具）。
+  - 其他事件，以及找不到交易的使用（非 managed 的施放），維持原本的順序。
+  - 第一次施放時身上還沒有這些狀態，所以照樣不會拆掉剛套上的隱形。
+- **測試**：omoba-core 的 cast_settlement、status_event、scripting::dispatch 測試共 27 個通過。D 的 10 個 reapply 情境要重跑確認。
+- **避免**：
+  - 「某事件之前」的觸發不能統一排在 tick 的最後。要確認它的 outcome 和它要搶先的效果之間的結算順序。
+  - 先移除再套上同一個狀態的組合，要測重放的情境。
+- **檔案**：`omoba-core/src/runtime/native/scripting/dispatch.rs`
+
 ## E647 conformance：判定 reapply：重施放後依 stacking 檢查狀態（refresh／keep／independent／stack）（2026-11-01，conformance session）
 - **現象**：約 87 筆疊加／刷新類 quirk 沒有情境驗 status 的 stacking。工作線 A 在 40c09e3a 新增 reapply 情境（期望 reapplied），harness 還沒有判定。
 - **通用修正**：
@@ -127,8 +147,6 @@
   - client：server 在 loopback 時，本地端綁 `127.0.0.1:0`（IPv6 是 `[::1]:0`），其他情況照舊。
   - split、2player、UE 的 client 都連 `127.0.0.1`，netem 和 presentation IPC 本來就綁 `127.0.0.1`。selection host 的位址由參數明確指定。
 - **檔案**：`omb/src/transport/kcp_transport.rs`、`omb/src/transport/grpc_transport.rs`（omb 5060e73）、`omoba-core/src/kcp/client.rs`
-
-## E638 （保留）A36 地雷沒有進 UE frame（調查中）（2026-11-01）
 
 ## E637 非英雄施法者在結算時被以 mana_cooldown_or_rank 拒絕（A28 鳳凰天火，2026-11-01，工作線 B，C rerun20 回報）
 
@@ -2000,8 +2018,6 @@ defect 行也帶上同樣的原因。依調度指示，這三種從此是報告�
   - 新增狀態事件 `HEAL_RECEIVED = 19`、mask `ON_HEAL_RECEIVED = 1 << 16`。`handle_heal` 以實際回復量（受最大生命限制）呼叫 `status_event::note_heal`，只在有狀態在聽時記錄；回復量為 0 不送。治療來源目前不追蹤。
 - **回歸**：`script_hooks_tests::a_marked_status_hears_its_holders_heal`：缺 25 血時治療 40 只聽到一次、量不超過 25；滿血再治療不觸發。
 - **檔案**：`omoba-core/src/runtime/native/status_event.rs`、`game_processor.rs`、`scripting/dispatch.rs`、`scripting/parallel_world_adapter.rs`、`script_hooks_tests.rs`、`scripts/script-abi/src/ext.rs`、`scripts/ability_kit/src/host_ext.rs`
-
-## E477 （保留）event.damage.raw 與 on_heal_received 沒有 host 落點，B21 只能擋下（2026-10-31）
 
 ## E476 creep_facing 攻擊樣本沒有目標資訊，距離 0 的目標以 atan2(0,0) 算成 0°（2026-10-31，e187 遊戲模式 session，B 要求；已放回 live）
 - **現象**：m6new3 剩 81 筆 violation，全都是攻擊；很多樣本的 expected 剛好是 0°，看不出目標是什麼。

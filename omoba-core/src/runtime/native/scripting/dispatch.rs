@@ -1167,6 +1167,11 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     }
     let cache = ParallelAdapterCache::new(&*world, rng_seed);
     let mut accepted = Vec::new();
+    // A holder's on_ability_executed for its own cast or item use runs before that use's effects
+    // (v3 §12.5, 原作 OnAbilityExecuted before OnSpellStart): its batch settles ahead of the use's
+    // transaction, so a status it removes does not take the one the use applies again (E649: a
+    // second vanishing step while invisible left none).
+    let mut ahead: Vec<(Option<(Entity, String)>, Vec<crate::comp::Outcome>)> = Vec::new();
     for (ordinal, (holder, row, spec, kind, other, amount, dk, executed_index, raw)) in calls.into_iter().enumerate() {
         let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
         let handle = ParallelWorldAdapter::entity_to_handle(holder);
@@ -1186,15 +1191,31 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
         }
         let outcomes = adapter.finish();
         if let Some(outcomes) = effect_batch(&cache, outcomes) {
-            accepted.extend(outcomes);
+            let own_use = executed_index.map(|index| &executed[index])
+                .filter(|(user, _, _)| kind == se::ABILITY_EXECUTED && *user == holder).map(|(user, used, _)| (*user, used.clone()));
+            ahead.push((own_use, outcomes));
         } else {
             log::warn!("[scripting] status event of '{}' ({}) tried to charge; dropped", spec.status, spec.ability);
         }
     }
     drop(cache);
-    if !accepted.is_empty() {
-        world.write_resource::<Vec<crate::comp::Outcome>>().extend(accepted);
+    if ahead.is_empty() { return; }
+    let mut global = world.write_resource::<Vec<crate::comp::Outcome>>();
+    for (own_use, outcomes) in ahead {
+        let Some((user, used)) = own_use else { accepted.extend(outcomes); continue };
+        let item = used.strip_prefix(super::event::ITEM_SKILL_PREFIX);
+        let at = global.iter().rposition(|outcome| match outcome {
+            crate::comp::Outcome::ScriptCastTransaction { caster, skill_id, .. } => item.is_none() && *caster == user && *skill_id == used,
+            crate::comp::Outcome::ScriptItemTransaction { owner, item_id, .. } => *owner == user && Some(item_id.as_str()) == item,
+            _ => false,
+        });
+        // A use settled without a transaction (no managed cast): after it, as before.
+        match at {
+            Some(at) => { global.splice(at..at, outcomes); }
+            None => accepted.extend(outcomes),
+        }
     }
+    global.extend(accepted);
 }
 
 /// CHASE_REACH (status_event): the reach ability's `on_status_event` with the summon as holder and
