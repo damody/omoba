@@ -28,7 +28,7 @@ use super::*;
 use serde_json::{json, Value};
 
 const ENEMY: &str = "training_luminary";
-const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "leveled_by", "unit_ability", "target_status", "ally_target_lower", "ally_unit_at_point", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line", "target_ahead", "corpse_near_caster", "cast_first", "building_in_effect", "hidden_in_effect", "hidden_in_flight"];
+const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "leveled_by", "unit_ability", "target_status", "ally_target_lower", "ally_unit_at_point", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line", "target_ahead", "corpse_near_caster", "cast_first", "building_in_effect", "hidden_in_effect", "hidden_in_flight", "illusion_in_effect"];
 const WHEN: &[&str] = &["cast", "wait", "caster_dies", "target_dies", "owner_dies", "owner_respawns", "toggle", "cast_until_over_cap"];
 /// A document entry the ported hero does not have at all: a difference, not a harness gap.
 const MISSING: &str = "missing entry: ";
@@ -36,7 +36,7 @@ const CHECKED: &[&str] = &["cast_accepted", "cast_rejected", "cast_cancelled", "
     "cooldown_not_started", "no_effects", "then_cast_accepted", "approach_until",
     "caster_invisibility_broken", "caster_invisibility_kept", "damage_to_magic_immune", "selectors_skip_magic_immune",
     "status_removed", "status_kept", "passive_stats", "toggled_off", "charge_spent", "charge_restore", "summon_cap", "damage_skipped_if_source_dead", "damage", "moved_toward",
-    "ability_swapped", "building_affected", "hidden_affected", "hidden_hit"];
+    "ability_swapped", "building_affected", "hidden_affected", "hidden_hit", "illusion_affected"];
 /// A check that found nothing to judge (marks an error as unsupported, not failed).
 const UNOBSERVED: &str = "unobserved: ";
 
@@ -203,6 +203,9 @@ struct Run {
     /// The enemy hero hidden in a selector's area and the visible creep beside it, with what each
     /// held then (hidden_in_effect; E641).
     hidden: Option<(specs::Entity, Vec<String>, specs::Entity, Vec<String>)>,
+    /// An illusion of the enemy hero in a selector's area, and what it and the enemy hero held then
+    /// (illusion_in_effect; E651).
+    illusion: Option<(specs::Entity, Vec<String>, Vec<String>)>,
 }
 
 impl Run {
@@ -452,6 +455,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let mut mana: Option<(bool, f64)> = None;
     let (mut immune, mut dead, mut hidden, mut invisible) = (false, false, false, false);
     let mut building_in = false;
+    let mut illusion_in = false;
     let mut hidden_in: Option<String> = None;
     let mut in_flight: Option<f64> = None;
     let (mut clear_line, mut face_ahead, mut corpse) = (false, false, false);
@@ -499,6 +503,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
             "corpse_near_caster" => corpse = true,
             "cast_first" => cast_first = given["entry"].as_str().map(str::to_owned),
             "building_in_effect" => building_in = true,
+            "illusion_in_effect" => illusion_in = true,
             "hidden_in_effect" => hidden_in = given["state"].as_str().map(str::to_owned),
             // On a linear projectile's flight (E644): how far it flies, to place the units along it.
             "hidden_in_flight" => {
@@ -680,6 +685,22 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
             Some((enemy, keys(enemy), creep, keys(creep)))
         }
     };
+    // An illusion of the enemy hero in the selector's area (E651): a summoned unit of its team
+    // holding the host's illusion state, beside the caster for a cast without a target, beside the
+    // target or point otherwise; the real enemy hero, seen, is the proof that the cast ran.
+    let illusion = if illusion_in {
+        let center = if s["when"][0]["target"] == "none" { origin } else { at };
+        let enemy_team = world.read_storage::<Faction>().get(enemy).unwrap().team_id;
+        if s["when"][0]["target"] == "none" { world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = center + omoba_sim::Vec2::new(Fixed64::from_i32(40), Fixed64::ZERO); }
+        let unit = spawn_body(&mut world, real(center.x) as i32, real(center.y) as i32 + 40, enemy_team, 800, None);
+        world.write_storage::<SummonedUnit>().insert(unit, SummonedUnit::new_fixed(enemy, Some(Fixed64::from_i32(60)))).ok();
+        world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(unit, omoba_core::runtime::native::rules::vocab::state::ILLUSION,
+            Fixed64::from_i32(60), json!({}));
+        world.write_storage::<VisibilityOverride>().insert(unit, VisibilityOverride {
+            team: Some(caster_team.max(0) as u32), kind: VisibilityOverrideKind::ForceShow, priority: 1, stable_rule_id: 0xE651 }).unwrap();
+        let keys = |u: specs::Entity| -> Vec<String> { world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(u).map(|(k, _)| k.to_owned()).collect() };
+        Some((unit, keys(unit), keys(enemy)))
+    } else { None };
     if immune && !omoba_core::runtime::native::magic_immunity::grant(&world, target, Fixed64::from_i32(60)) {
         return Err("magic immunity not granted".into());
     }
@@ -688,7 +709,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let keep = swapped.as_ref().and_then(|g| g["by"].as_str()).map(str::to_owned);
     // A flight's cast aims along +X, half its cast range off (the caster does not walk; E644).
     let aim = if in_flight.is_some() { Some(origin + omoba_sim::Vec2::new(fixed((value(&entry, rank, "cast_range").unwrap_or(600.0) * 0.5).max(100.0)), Fixed64::ZERO)) } else { clear_line.then_some(at) };
-    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), target_held: (0, Vec::new()), low_ally, phase_statuses: target_statuses.iter().filter(|id| !id.is_empty() && !id.contains('{')).cloned().collect(), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim, keep, building, hidden };
+    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), target_held: (0, Vec::new()), low_ally, phase_statuses: target_statuses.iter().filter(|id| !id.is_empty() && !id.contains('{')).cloned().collect(), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim, keep, building, hidden, illusion };
     // Let auto-learn settle the ranks set above (it learns passives at their hero level).
     run.step(2);
     if passive {
@@ -887,6 +908,7 @@ fn in_area_affected(run: &mut Run, e: &Value, unit: specs::Entity, held: &[Strin
     let affected = e["affected"] == true;
     match (affected, hit_building || !fresh.is_empty()) {
         (true, true) => Ok(()),
+        (true, false) if !hit_other && !enemy_status => Err(format!("{UNOBSERVED}{path} hit nobody: nothing tells {what} was left out by it")),
         (true, false) => {
             let traced: Vec<String> = trace.0.iter().filter(|r| under(&r.path) || r.target == *building)
                 .map(|r| format!("{}{}:{:?}", if r.target == *building { "it " } else { "" }, r.path, r.result)).collect();
@@ -2369,6 +2391,11 @@ fn run(hero: &str, s: &Value) -> Verdict {
             "ability_swapped" => swapped(&mut run, e, &entry, rank),
             "building_affected" => building_affected(&mut run, e),
             "hidden_affected" | "hidden_hit" => hidden_affected(&mut run, e),
+            "illusion_affected" => {
+                let Some((unit, held, enemy_held)) = run.illusion.clone() else { return Err(format!("{UNOBSERVED}no illusion placed")) };
+                let enemy = run.enemy;
+                in_area_affected(&mut run, e, unit, &held, enemy, &enemy_held, "the enemy hero's illusion")
+            }
             "cooldown_not_started" => {
                 let remaining = run.cooldown();
                 if remaining == 0.0 { Ok(()) } else { Err(format!("cooldown {remaining:.3} running")) }

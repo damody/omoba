@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E651 conformance：判定 illusion_in_effect：選取範圍內的敵方英雄幻象受不受影響（2026-11-01，conformance session）
+- **現象**：約 40 筆幻象類 quirk（英雄選取含不含幻象）沒有情境可驗。工作線 A 在 87a2ef84 新增 illusion_in_effect（期望 illusion_affected），harness 還沒有判定。
+- **通用修正**：
+  - illusion_in_effect：在選取範圍內放一個敵方英雄的幻象（敵方隊伍的 spawn_body，掛 SummonedUnit 和 host 的 illusion 狀態，對施法隊伍可見），可見的真敵方英雄當作施放有生效的證明。
+  - illusion_affected 沿用 in_area_affected。另外修正共用判定：affected=true 而這個 path 對誰都沒打到時，改判 unsupported，不判 fail（B11W 那次施放範圍內沒有可選的目標）。
+- **結果**：全跑 0 退步，46 個情境 pass（含 B24 的 covered_by）。這輪也確認了 B 的 E649：隱形類 reapply 的 10 個轉 pass。A 篩掉的 103 個 reapply 情境不再產生。pass 21848。
+
 ## E650 召喚施法移除已經死亡的舊召喚物時，結算拒絕整招：B16 忍犬第二次以後的召喚失敗（2026-11-02，工作線 B，E 的 m6new21c 回報）
 
 - **現象**：
