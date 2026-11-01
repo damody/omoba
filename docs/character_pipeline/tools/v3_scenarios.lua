@@ -223,6 +223,46 @@ M.QUIRK_TOPICS = {
       end
       return points
     end },
+  -- whether a status can be dispelled: the entry's dispel scenarios check every status' `dispel`.
+  -- Only the statuses the quirk names (its id, or the source modifier: a08w_haste is
+  -- modifier_A08W), exactly one of them, the quirk saying the same: not dispellable
+  -- (dispel none) or dispellable by a basic dispel (basic)
+  { topic = "dispel", word = "驅散", case = "dispel",
+    claim = function(text)
+      local none = contains_any(text, { "不可驅散", "不能驅散", "無法驅散", "不能被驅散", "不可被驅散" })
+      local basic = contains_any(text, { "可被一般驅散", "可一般驅散", "推定可驅散", "暫定可驅散", "可以被驅散", "可驅散" })
+        and not none
+      if none and not contains_any(text, { "可被一般驅散", "可一般驅散", "暫定可驅散" }) then return "none" end
+      if basic then return "basic" end
+      return nil
+    end,
+    points = function(_, _, _, scenarios, text)
+      local function named(id)
+        if text:find(id, 1, true) then return true end
+        local modifier = "modifier_" .. (id:match("^([^_]+)_") or id):upper()
+        local at = 1
+        while true do
+          local s, e = text:find(modifier, at, true)
+          if not s then return false end
+          if not text:sub(e + 1, e + 1):match("[%w_]") then return true end
+          at = e + 1
+        end
+      end
+      local by_status, order = {}, {}
+      for _, s in ipairs(scenarios or {}) do
+        local e = s.expect and s.expect[1]
+        if e and e.status and e.dispel and named(e.status) then
+          if not by_status[e.status] then by_status[e.status] = { dispel = e.dispel, list = {} }; order[#order + 1] = e.status end
+          local l = by_status[e.status].list
+          l[#l + 1] = s
+        end
+      end
+      local points = {}
+      for _, id in ipairs(order) do
+        points[#points + 1] = { path = "statuses." .. id, flag = "dispel", value = by_status[id].dispel, scenarios = by_status[id].list }
+      end
+      return points
+    end },
   -- buildings in a selector's area: the entry's one building_in_effect scenario (one selector it
   -- could be about), the quirk saying the same as its `affected`
   { topic = "building_selection", word = "建築", case = "building_in_effect",
@@ -987,7 +1027,7 @@ local function entry_scenarios(doc, def, entry_kind, out)
       local mine = own[t.case]
       local claim
       if q.policy ~= "fixed" and mine and type(q.text) == "string" and q.text:find(t.word, 1, true) then claim = t.claim(q.text) end
-      local points = claim ~= nil and t.points(castable, target, base_effects, mine) or {}
+      local points = claim ~= nil and t.points(castable, target, base_effects, mine, q.text) or {}
       if #points == 1 and points[1].value == claim then
         local ids = {}
         for _, s in ipairs(points[1].scenarios or mine) do ids[#ids + 1] = s.id end
