@@ -281,6 +281,35 @@ M.QUIRK_TOPICS = {
       if #list == 0 then return {} end
       return { { path = "target", flag = "no_target_self", value = true, scenarios = list } }
     end },
+  -- units the caster's team cannot see in a selector's area: the entry's hidden_in_effect
+  -- scenarios (an invisible and a fogged enemy per selector). Only a selector where both agree
+  -- (no exclude_invisible) and exactly one of them, the quirk saying the same as its `affected`
+  { topic = "hidden_selection", word = "", case = "hidden_in_effect",
+    claim = function(text)
+      local no = contains_any(text, { "看不見的敵人不", "迷霧中的敵人不", "隱形的敵人不", "隱形敵人不", "只選看得見", "FOW_VISIBLE", "不含隱形", "排除隱形" })
+      local yes = contains_any(text, { "隱形與迷霧中的敵人照樣", "隱形與迷霧中的敵人也", "隱形、迷霧中的敵人", "迷霧中的敵人也", "迷霧中的敵人照樣",
+        "包含隱形與迷霧", "FOW 不篩選", "隱形單位也會", "不看視野", "沒有 FOW 旗標" })
+      if no and not yes then return false elseif yes and not no then return true end
+      return nil
+    end,
+    points = function(_, _, _, scenarios)
+      local by_path, order = {}, {}
+      for _, s in ipairs(scenarios or {}) do
+        local e = s.expect and s.expect[1]
+        if e and e.kind == "hidden_affected" then
+          local p = by_path[e.path]
+          if not p then p = { affected = e.affected, list = {} }; by_path[e.path] = p; order[#order + 1] = e.path end
+          if p.affected ~= e.affected then p.mixed = true end
+          p.list[#p.list + 1] = s
+        end
+      end
+      local points = {}
+      for _, path in ipairs(order) do
+        local p = by_path[path]
+        if not p.mixed then points[#points + 1] = { path = path, flag = "visible_only", value = p.affected, scenarios = p.list } end
+      end
+      return points
+    end },
   -- buildings in a selector's area: the entry's one building_in_effect scenario (one selector it
   -- could be about), the quirk saying the same as its `affected`
   { topic = "building_selection", word = "建築", case = "building_in_effect",
@@ -1028,6 +1057,18 @@ local function entry_scenarios(doc, def, entry_kind, out)
               { kind = "building_in_effect", path = e.path, team = "enemy" } }, when = { cast_step },
             expect = { { kind = "building_affected", path = e.path, affected = affected, ops = ops } },
             rule = "selector types decide whether a building in the area is picked" })
+          -- an enemy the caster's team cannot see in the same area (invisible, or in the fog; line
+          -- D places it and a visible enemy that shows the cast landed): picked unless the
+          -- selector has visible_only (and, for the invisible one, exclude_invisible)
+          local flags = {}
+          for _, f in ipairs(type(sel.flags) == "table" and sel.flags or {}) do flags[f] = true end
+          for _, state in ipairs({ "invisible", "fogged" }) do
+            local picked = not flags.visible_only and not (state == "invisible" and flags.exclude_invisible)
+            push(1, "hidden_in_effect", { suffix = state .. "/" .. e.path, given = { { kind = "learned", entry = def.id, rank = 1 },
+                { kind = "hidden_in_effect", path = e.path, team = "enemy", state = state } }, when = { cast_step },
+              expect = { { kind = "hidden_affected", path = e.path, affected = picked, ops = ops, state = state } },
+              rule = "selector flags visible_only / exclude_invisible decide whether an enemy the caster's team cannot see is picked" })
+          end
         end
       end
     end
@@ -1044,7 +1085,7 @@ local function entry_scenarios(doc, def, entry_kind, out)
     for _, t in ipairs(M.QUIRK_TOPICS) do
       local mine = own[t.case]
       local claim
-      if q.policy ~= "fixed" and mine and type(q.text) == "string" and q.text:find(t.word, 1, true) then claim = t.claim(q.text) end
+      if q.policy ~= "fixed" and mine and type(q.text) == "string" and (t.word == "" or q.text:find(t.word, 1, true)) then claim = t.claim(q.text) end
       local points = claim ~= nil and t.points(castable, target, base_effects, mine, q.text) or {}
       if #points == 1 and points[1].value == claim then
         local ids = {}
