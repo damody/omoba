@@ -39,8 +39,8 @@ function M.main(args)
  end
  local first=once('first');local second=once('second')
  assert(second.created==0 and second.updated==0 and second.saved==0,'repeat pass changed materials')
- print(('Scene art materials PASS: %d created / %d updated / %d saved, repeat saved 0; evidence: %s')
-  :format(first.created,first.updated,first.saved,out))
+ print(('Scene art materials PASS: %d created / %d updated / %d saved, repeat saved 0; SM5 precompile %.0f s then %.0f s; evidence: %s')
+  :format(first.created,first.updated,first.saved,first.precompile_seconds or 0,second.precompile_seconds or 0,out))
  return first
 end
 if ...=='ue_scene_art_materials'then return M end
