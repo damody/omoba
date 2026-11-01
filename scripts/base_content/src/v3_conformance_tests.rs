@@ -3159,10 +3159,20 @@ fn conformance(id: &str) {
         .any(|entry| omoba_template_ids::ability_by_name(entry).is_some());
     let entries: std::collections::BTreeSet<String> = doc["scenarios"].as_array().unwrap().iter()
         .filter_map(|s| s["entry"].as_str().map(str::to_owned)).collect();
-    for s in doc["scenarios"].as_array().unwrap() {
+    // A quirk the definition covers (covered_by; E636) is judged by other scenarios' results: last.
+    let covering = |s: &&Value| s["expect"].as_array().is_some_and(|e| e.iter().any(|e| e["kind"] == "covered_by"));
+    let ordered: Vec<&Value> = doc["scenarios"].as_array().unwrap().iter().filter(|s| !covering(s))
+        .chain(doc["scenarios"].as_array().unwrap().iter().filter(covering)).collect();
+    let mut judged: std::collections::BTreeMap<String, String> = Default::default();
+    for s in ordered {
         let sid = s["id"].as_str().unwrap();
         SCRIPT_ERRORS.with(|all| all.borrow_mut().clear());
-        let verdict = if in_content { run(&hero, s) } else { Verdict::Unsupported(format!("{hero} is not in the content yet")) };
+        let cover = s["expect"].as_array().and_then(|e| e.iter().find(|e| e["kind"] == "covered_by"));
+        let verdict = match cover {
+            Some(e) => covered_by(&judged, e),
+            None if in_content => run(&hero, s),
+            None => Verdict::Unsupported(format!("{hero} is not in the content yet")),
+        };
         // A trigger of this hero's that failed (E519) is a difference whatever the checks saw.
         let failed: Vec<String> = SCRIPT_ERRORS.with(|all| all.borrow_mut().drain(..).collect::<Vec<_>>()).into_iter()
             .filter(|(ability, ..)| entries.contains(ability))
@@ -3186,6 +3196,7 @@ fn conformance(id: &str) {
         };
         *counts.entry(format!("{}:{status}", s["case"].as_str().unwrap())).or_default() += 1;
         *counts.entry(status.clone()).or_default() += 1;
+        judged.insert(sid.to_owned(), status.clone());
         rows.push(json!({"id": sid, "case": s["case"], "status": status, "detail": detail}));
     }
     let dir = root().join(if handler_mode() { "target/v3-conformance-handlers" } else { "target/v3-conformance" });
@@ -3200,6 +3211,22 @@ fn conformance(id: &str) {
         return;
     }
     assert!(unexpected.is_empty(), "{id}: {} scenario(s) differ from the v3 document and are not listed:\n{}", unexpected.len(), unexpected.join("\n"));
+}
+
+/// `covered_by` (E636): a quirk whose claim is the definition's own `flag` = `value` at `path` (A's
+/// generator derives it, 60921c0b) holds when the scenarios checking that flag do: any of them
+/// failing fails it, at least one passing passes it, none judged leaves it unsupported.
+fn covered_by(judged: &std::collections::BTreeMap<String, String>, e: &Value) -> Verdict {
+    let ids: Vec<&str> = e["scenarios"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let what = format!("{} {} = {} at {}", e["topic"].as_str().unwrap_or("?"), e["flag"].as_str().unwrap_or("?"), e["value"], e["path"].as_str().unwrap_or("?"));
+    if ids.is_empty() { return Verdict::Unsupported(format!("covered_by {what}: no scenario listed")); }
+    let status = |id: &str| judged.get(id).map(String::as_str).unwrap_or("not run");
+    if let Some(id) = ids.iter().find(|id| status(id) == "fail" || status(id).starts_with("known_")) {
+        return Verdict::Fail(format!("covered_by {what}: {id} is {}", status(id)));
+    }
+    let passed = ids.iter().filter(|id| status(id) == "pass").count();
+    if passed == 0 { return Verdict::Unsupported(format!("covered_by {what}: none of {} scenario(s) passed ({})", ids.len(), ids.iter().map(|id| status(id)).collect::<Vec<_>>().join(", "))); }
+    Verdict::PassNoted(format!("covered_by {passed}/{} scenario(s): {what}", ids.len()))
 }
 
 macro_rules! conformance_tests {

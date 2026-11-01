@@ -2,6 +2,11 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E636 conformance：判定 quirk 的 covered_by：以驗同一旗標的情境結果判（2026-11-01，conformance session）
+- **現象**：quirk 情境多數回「no checked expectation」（2302 筆）。工作線 A 在 60921c0b、4762bcd6 讓產生器替定義裡帶得到主張的 quirk 加上 `covered_by`（魔免 61 筆、施法者死亡後傷害停止 5 筆），欄位有 path、flag、value，以及只驗同一個 path 的情境 id。harness 還沒有判定。
+- **通用修正**：帶 covered_by 的 quirk 排在同一位英雄的其他情境之後判定，只看列出情境的結果：有任何一個 fail（或 known_*）就 fail；至少一個 pass、其他都不是 fail 才 pass；全部都沒判出結果就 unsupported。detail 會標「covered_by n/m scenario(s): <topic> <flag> = <value> at <path>」，回報時和直接驗過的 pass 分開計數。
+- **結果**：全跑 0 退步、0 fail，67 個 quirk 變 pass；另有 8 個所連的情境都還是 unsupported，所以仍是 unsupported。A07 改用產生碼（cc2876c4）後另外有 21 個轉 pass。pass 21476。
+
 ## E634 conformance：狀態的 slow_pct 與 set_absolute stat 從未檢查（2026-11-01，conformance session）
 - **現象**：狀態 stats 情境裡，slow_pct 有 172 個、base_attack_time 有 32 個是 unsupported（「stat slow_pct」「stat base_attack_time」），因為 vocab::stat 沒有這兩個名稱：slow_pct 由 ability_kit 存在另一個 slow row，set_absolute 的 stat 在 vocab::absolute_stat 裡。
 - **通用修正**：
