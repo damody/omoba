@@ -186,6 +186,45 @@ local function has_damage(effects, type_)
 end
 
 -- one entry (ability or item) -> scenarios
+-- Quirk topics routed to the entry's own scenarios of a case (`covered_by`, line D judges it): the
+-- quirk names the topic and says which way it goes; the definition has exactly one place deciding
+-- it (`points`: path, flag, value); the two agree. Anything less adds nothing (D19: no pass by
+-- association). D13: no number is read from the prose.
+local function contains_any(text, words)
+  for _, w in ipairs(words) do if text:find(w, 1, true) then return true end end
+  return false
+end
+M.QUIRK_TOPICS = {
+  { topic = "magic_immune", word = "魔免", case = "magic_immune",
+    -- the claim: magic-immune enemies are affected (true), are not (false), or unclear (nil)
+    claim = function(text)
+      local no = contains_any(text, { "魔免敵人不", "魔免單位不", "不能對魔免", "不能指定魔免", "排除魔免", "不含魔免", "不打魔免", "魔免英雄不" })
+      local yes = contains_any(text, { "魔免敵人會", "魔免單位也", "魔免敵人也", "無視魔免", "穿透魔免", "MAGIC_IMMUNE_ENEMIES", "魔免照樣", "魔免也" })
+        or (text:find("含魔免", 1, true) and not text:find("不含魔免", 1, true))
+      if no and not yes then return false elseif yes and not no then return true end
+      return nil
+    end,
+    -- where the definition decides it: an enemy unit target (pierce_magic_immune), and every
+    -- for_each / projectile selector reaching enemies (include_magic_immune)
+    points = function(castable, target, effects)
+      local points = {}
+      if castable and target.type == "unit" and (target.team == "enemy" or target.team == "both") then
+        local pierce = false
+        for _, f in ipairs(castable.flags or {}) do if f == "pierce_magic_immune" then pierce = true end end
+        points[#points + 1] = { path = "target", flag = "pierce_magic_immune", value = pierce }
+      end
+      for _, e in ipairs(effects) do
+        local sel = e.op == "for_each" and e.args and e.args.select or (e.op == "projectile" and e.args) or nil
+        if sel and sel.team ~= "ally" and sel.team ~= "ally_not_self" then
+          local keep = false
+          for _, f in ipairs(type(sel.flags) == "table" and sel.flags or {}) do if f == "include_magic_immune" then keep = true end end
+          points[#points + 1] = { path = e.path, flag = "include_magic_immune", value = keep }
+        end
+      end
+      return points
+    end },
+}
+
 local function entry_scenarios(doc, def, entry_kind, out)
   local castable = entry_kind == "ability" and def or def.active
   local passive = def.passive
@@ -854,10 +893,27 @@ local function entry_scenarios(doc, def, entry_kind, out)
         expect = { { kind = "hook_behavior", hook = name, text = h.behavior or h.why, test = h.test } }, hook = name })
     end
   end
-  -- one scenario per quirk (rank 1; the quirk text says when it applies)
+  -- one scenario per quirk (rank 1; the quirk text says when it applies). A quirk about a topic the
+  -- entry's own checkable scenarios test (its selectors' magic-immune flags: the magic_immune case)
+  -- also carries `covered_by` those scenarios: it holds when they all pass (line D judges it)
+  local own = {}
+  for _, s in ipairs(out) do
+    if s.entry == def.id then own[s.case] = own[s.case] or {}; own[s.case][#own[s.case] + 1] = s.id end
+  end
   for i, q in ipairs(def.quirks or {}) do
+    local expect = { { kind = "quirk_policy", policy = q.policy, text = q.text, ref = q.ref } }
+    for _, t in ipairs(M.QUIRK_TOPICS) do
+      local ids = own[t.case]
+      local claim = q.policy ~= "fixed" and ids and type(q.text) == "string" and q.text:find(t.word, 1, true) and t.claim(q.text)
+      local points = claim ~= nil and claim ~= false and t.points(castable, target, base_effects)
+        or (claim == false and t.points(castable, target, base_effects)) or {}
+      if #points == 1 and points[1].value == claim then
+        expect[#expect + 1] = { kind = "covered_by", topic = t.topic, entry = def.id, cases = { t.case }, scenarios = ids,
+          path = points[1].path, flag = points[1].flag, value = points[1].value }
+      end
+    end
     push(1, "quirk", { suffix = tostring(i), given = { { kind = "learned", entry = def.id, rank = 1 } }, when = {},
-      expect = { { kind = "quirk_policy", policy = q.policy, text = q.text, ref = q.ref } }, quirk = { policy = q.policy, ref = q.ref } })
+      expect = expect, quirk = { policy = q.policy, ref = q.ref } })
   end
 end
 
