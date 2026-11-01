@@ -572,7 +572,9 @@ struct LifeRanksLearned(std::collections::BTreeSet<Entity>);
 /// authority and every replica alike.
 fn relearn_life_ranks(world: &mut World) {
     if world.try_fetch::<LifeRanksLearned>().is_none() { world.insert(LifeRanksLearned::default()); }
+    let replica = world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>().is_some();
     let mut learn = Vec::new();
+    let mut kept = Vec::new();
     {
         let entities = world.entities();
         let properties = world.read_storage::<CProperty>();
@@ -581,16 +583,38 @@ fn relearn_life_ranks(world: &mut World) {
         lives.0.retain(|entity| entities.is_alive(*entity));
         for (entity, hero, property) in (&entities, &heroes, &properties).join() {
             if property.hp <= Fixed64::ZERO || !lives.0.insert(entity) { continue; }
+            let before = learn.len();
             for id in hero.abilities.iter().filter(|id| !id.is_empty()) {
                 let rank = hero.ability_levels.get(id).copied().unwrap_or(0);
                 if rank > 0 { learn.push((entity, id.clone(), rank)); }
             }
+            if replica && learn.len() > before {
+                kept.push((entity, hero.ability_cooldowns.clone(), hero.ability_cooldown_totals.clone()));
+            }
         }
     }
+    // E582: a replica's hero life starts where the disclosure first shows the hero, and its
+    // cooldowns are the authority's, which already ran these hooks (a spawn cooldown started in
+    // on_learn, C19): the replays keep the cooldowns as disclosed (restore_relearn_cooldowns).
+    if !kept.is_empty() { world.insert(RelearnKeptCooldowns(kept)); }
     if learn.is_empty() { return; }
     let mut queue = world.write_resource::<ScriptEventQueue>();
     for (caster, skill_id, rank) in learn {
         queue.push(ScriptEvent::SkillLearn { caster, skill_id, new_level: rank.clamp(1, i32::from(u8::MAX)) as u8 });
+    }
+}
+
+/// The cooldowns a replica's hero lives held when their learn hooks were replayed this tick.
+#[derive(Default)]
+struct RelearnKeptCooldowns(Vec<(Entity, std::collections::HashMap<String, Fixed64>, std::collections::HashMap<String, Fixed64>)>);
+
+/// E582: at the end of the tick, a replica puts back the cooldowns its replayed learn hooks
+/// changed (see relearn_life_ranks); the authority never keeps any.
+pub(crate) fn restore_relearn_cooldowns(world: &mut World) {
+    let Some(kept) = world.try_fetch_mut::<RelearnKeptCooldowns>().map(|mut kept| std::mem::take(&mut kept.0)) else { return };
+    let mut heroes = world.write_storage::<Hero>();
+    for (entity, cooldowns, totals) in kept {
+        if let Some(hero) = heroes.get_mut(entity) { hero.ability_cooldowns = cooldowns; hero.ability_cooldown_totals = totals; }
     }
 }
 
@@ -6439,6 +6463,32 @@ mod tests {
             }] if *attacker == source && *victim == target
         ));
     }
+    /// E582: a replica replaying a hero life's learn hooks keeps the cooldowns the disclosure gave
+    /// it (a hook restarting a spawn cooldown, C19); the authority keeps what its hooks did.
+    #[test]
+    fn a_replicas_replayed_learn_hooks_leave_cooldowns_as_disclosed() {
+        for replica in [true, false] {
+            let mut world = World::new();
+            world.register::<Hero>(); world.register::<CProperty>();
+            world.insert(ScriptEventQueue::default());
+            if replica { world.insert(crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets::default()); }
+            let mut hero = Hero::default();
+            hero.abilities = vec!["c19_surprise_raid".into()];
+            hero.ability_levels.insert("c19_surprise_raid".into(), 1);
+            hero.start_cooldown("c19_surprise_raid", Fixed64::from_i32(16));
+            let unit = world.create_entity().with(hero)
+                .with(CProperty { hp: Fixed64::from_i32(100), mhp: Fixed64::from_i32(100), msd: Fixed64::ZERO,
+                    def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build();
+            relearn_life_ranks(&mut world);
+            assert_eq!(world.read_resource::<ScriptEventQueue>().len(), 1, "the hook replays on both");
+            // the replayed on_learn restarts the spawn cooldown
+            world.write_storage::<Hero>().get_mut(unit).unwrap().start_cooldown("c19_surprise_raid", Fixed64::from_i32(30));
+            restore_relearn_cooldowns(&mut world);
+            let left = world.read_storage::<Hero>().get(unit).unwrap().get_cooldown("c19_surprise_raid");
+            assert_eq!(left, Fixed64::from_i32(if replica { 16 } else { 30 }));
+        }
+    }
+
     /// A hero cast that ended without its effect this tick commits the caster's cooldown of it as
     /// it stands (none: zero remaining), once; an older tick's row commits nothing (E567).
     #[test]

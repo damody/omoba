@@ -16,7 +16,22 @@
 
 **測試**：run_moba_split_local_test 的 E583 區塊，record_hero_spotlight_test 的 E544 區塊。
 
-## E582 （保留）replica 把看見敵方英雄當成出生，重跑 on_learn 改了冷卻（observer Hero 不一致）（2026-11-01）
+## E582 replica 把看見敵方英雄當成出生，重跑 on_learn 改了冷卻（observer Hero 不一致）（2026-11-01，工作線 B）
+
+- **現象**：E 的 E555 回歸 m6e555rg04（tick 960，team 1 看 entity 63，松姬 C19）出現 `ability_cooldowns.c19_surprise_raid` 不一致：A=16 秒，R=28.69 秒。用含 E567 的 live 建置重跑 rg04（quick、seed 1）仍在同一處失敗，所以和 E567 無關。
+- **根因**：
+  - C19 的「奇襲」用 `on_learn` 的 `modify_cooldown start 30` 表達原作開場 30 秒冷卻。
+  - `relearn_life_ranks` 在每一條英雄生命開始時重跑已有等級的 learn hook，authority 與 replica 都會執行。
+  - replica 上，敵方英雄是在第一次被看見、被揭露時才建立實體，replica 把這一刻當成出生。hook 在 tick 881 左右又把冷卻重設成 30 秒；authority 的冷卻早在出生（2 秒）時就開始了。
+  - 揭露帶來的 Hero 冷卻是 authority 的值，已經包含這些 hook 的效果。
+- **通用修正**：
+  - 只在 replica 上（`DisclosedAuthorityCombatTargets`）做：重跑某條生命的 learn hook 前，先記下該英雄的 `ability_cooldowns` 與 `ability_cooldown_totals`（`RelearnKeptCooldowns`）。
+  - replica step 結尾、套用 authoritative movement 之後，`restore_relearn_cooldowns` 把它們還原。
+  - 冷卻遞減在 Dispatcher 階段，早於 AbilityUpgrades，所以記下的值已經是本 tick 遞減後的結果，還原後與 authority 完全一致。
+  - authority 不變：出生、復活時的開場冷卻照常生效。
+  - hook 的其他效果（被動 buff 列等）在 replica 照常產生。
+- **測試**：`game_processor::tests::a_replicas_replayed_learn_hooks_leave_cooldowns_as_disclosed`：replica 上重跑的 hook 重設冷卻後還原成揭露的 16 秒，authority 保留 hook 設的 30 秒。game_processor、filtered_specs、team_replica 的 158 個測試通過。
+- **檔案**：`omoba-core/src/runtime/native/game_processor.rs`、`omoba-core/src/runtime/filtered_specs.rs`
 
 ## E581 （保留）conformance on_removed 只驗證會移除或套上持有者狀態的 trigger，其他效果一律 unsupported（2026-11-01）
 

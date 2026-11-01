@@ -1495,6 +1495,8 @@ impl SpecsDisclosedWorldStepper {
             .0
             .clear();
         apply_authoritative_movement_outcomes(self, injections)?;
+        // Replayed learn hooks leave the heroes' cooldowns as disclosed (E582).
+        crate::runtime::native::game_processor::restore_relearn_cooldowns(&mut self.filtered.world);
         crate::runtime::native::cast_windup::anchor_started_windups(&self.filtered.world);
         self.export_gameplay_components(world)?;
         apply_disclosed_events(world, injections)?;
