@@ -1052,8 +1052,11 @@ local function entry_scenarios(doc, def, entry_kind, out)
         local inner = c:match("^not %((.*)%)$") or c:match("^not ([%w_.]+)$")
         if inner then neg, body = true, inner end
         local who, sid = body:match("^has_status%(([%w_]+), ([%w_]+)%)$")
+        -- under a flight's on_hit `it` is the unit it hits: the cast's target for line D
+        if who == "it" and a.in_flight then who = "target" end
         local v1, v2 = body:match("^exists%(state%.([%w_]+)%) and alive%(state%.([%w_]+)%)$")
-        if body == "game.is_night" then needs[#needs + 1] = { kind = "time_of_day", night = not neg }
+        if c == "projectile.on_hit" then a.in_flight = true -- the flight lands after the cast
+        elseif body == "game.is_night" then needs[#needs + 1] = { kind = "time_of_day", night = not neg }
         elseif body:match("^[%w_]+%.is_building$") then needs[#needs + 1] = { kind = "target_kind", is_building = not neg }
         elseif body:match("^[%w_]+%.is_hero$") then needs[#needs + 1] = { kind = "target_kind", is_hero = not neg }
         elseif who and not neg and (who == "target" or who == "caster") and status_home(sid) then
@@ -1064,7 +1067,7 @@ local function entry_scenarios(doc, def, entry_kind, out)
           needs[#needs + 1] = { kind = "summon", template = template, by = by }
         else return nil end
       end
-      return needs
+      return #needs > 0 and needs or nil
     end
     -- A status the passive puts on when its holder lands an attack (on_attack_hit: the caster
     -- attacks) or is hit by one (on_attacked_hit: an enemy hero attacks the caster): line D makes
@@ -1197,8 +1200,31 @@ local function entry_scenarios(doc, def, entry_kind, out)
       end
       return found or nil
     end
+    -- A status only a routine of the cast applies (the entry's own effects keep the `call` as one
+    -- effect): that apply with the call's conditions, when it is the only one under on_cast.
+    local function routine_apply(s, a)
+      if a.to ~= "holder" or not castable or kind == "passive" then return nil end
+      local on_cast = type(def.events) == "table" and def.events.on_cast
+      if not on_cast then return nil end
+      local was = expand_calls
+      expand_calls = true
+      local effects = walk_program(on_cast.actions or on_cast, "events.on_cast", "on_cast", {}, {})
+      expand_calls = was
+      local found
+      for _, x in ipairs(effects) do
+        if x.op == "apply_status" and x.args and x.args.status == s.id then
+          if found then return nil end
+          found = { conds = x.conds }
+        end
+      end
+      return found
+    end
+    local function routine_needs(s, a)
+      local found = routine_apply(s, a)
+      return found and apply_needs(found) or nil
+    end
     local function on_unit(s, a) return { kind = "status_on_unit", status = s.id, on = a.to, runtime_id = runtime_key(s),
-      visibility = s.visibility, needs = attack_needs(a) or apply_needs(a), on_summon = summon_needs(s, a),
+      visibility = s.visibility, needs = attack_needs(a) or apply_needs(a) or routine_needs(s, a), on_summon = summon_needs(s, a),
       after_tick = after_tick(s), via_aura = via_aura(s) } end
     local done = {}
     for _, a in ipairs(statuses) do
