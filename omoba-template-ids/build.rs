@@ -651,11 +651,17 @@ fn emit_status_buffs(out: &mut String, buffs: &[Entry]) {
     let rows: Vec<(usize, &str)> = buffs.iter().enumerate()
         .filter(|(_, b)| !b.tombstone)
         .filter_map(|(i, b)| b.runtime_id.as_deref().map(|id| (i + 1, id))).collect();
-    out.push_str("pub fn status_buff_by_key(key: &str) -> Option<BuffId> {\n    let key = crate::instance_base(key);\n    match key {\n");
-    for (index, id) in rows.iter().filter(|(_, id)| !id.contains('{')) {
-        out.push_str(&format!("        {id:?} => return Some(BuffId({index})),\n"));
+    // Exact ids: a sorted table and a binary search (a string `match` compares arm by arm, and
+    // this runs for every status of every disclosed unit each tick).
+    let mut exact: Vec<(&str, usize)> = rows.iter().filter(|(_, id)| !id.contains('{')).map(|(index, id)| (*id, *index)).collect();
+    // Stable: a repeated id keeps its first buff, as the first `match` arm did.
+    exact.sort_by(|a, b| a.0.cmp(b.0));
+    exact.dedup_by(|later, first| later.0 == first.0);
+    out.push_str("pub fn status_buff_by_key(key: &str) -> Option<BuffId> {\n    let key = crate::instance_base(key);\n    const EXACT: &[(&str, u16)] = &[\n");
+    for (id, index) in &exact {
+        out.push_str(&format!("        ({id:?}, {index}),\n"));
     }
-    out.push_str("        _ => {}\n    }\n    const PATTERNS: &[(&str, u16)] = &[\n");
+    out.push_str("    ];\n    if let Ok(at) = EXACT.binary_search_by(|(id, _)| (*id).cmp(key)) { return Some(BuffId(EXACT[at].1)); }\n    const PATTERNS: &[(&str, u16)] = &[\n");
     for (index, id) in rows.iter().filter(|(_, id)| id.contains('{')) {
         out.push_str(&format!("        ({id:?}, {index}),\n"));
     }
@@ -711,24 +717,29 @@ fn emit_namespace(
     }
     out.push('\n');
 
-    // forward lookup：name → Option<Id>
-    out.push_str(&format!(
-        "pub fn {}_by_name(s: &str) -> Option<{}Id> {{\n\tmatch s {{\n",
-        ns_lower, ty,
-    ));
+    // forward lookup：name → Option<Id>. A sorted table and a binary search: a string `match`
+    // compares arm by arm, and buff names are looked up for every status of every disclosed
+    // unit each tick (E646).
+    let mut names: Vec<(&str, u16)> = Vec::new();
     let mut next: u16 = 1;
     for e in entries {
         if !e.tombstone {
-            out.push_str(&format!(
-                "\t\t\"{}\" => Some({}Id({})),\n",
-                escape_str_literal(&e.id),
-                ty,
-                next,
-            ));
+            names.push((e.id.as_str(), next));
         }
         next += 1;
     }
-    out.push_str("\t\t_ => None,\n\t}\n}\n\n");
+    names.sort_unstable();
+    out.push_str(&format!(
+        "pub fn {}_by_name(s: &str) -> Option<{}Id> {{\n\tconst NAMES: &[(&str, u16)] = &[\n",
+        ns_lower, ty,
+    ));
+    for (id, index) in &names {
+        out.push_str(&format!("\t\t(\"{}\", {}),\n", escape_str_literal(id), index));
+    }
+    out.push_str(&format!(
+        "\t];\n\tNAMES.binary_search_by(|(id, _)| (*id).cmp(s)).ok().map(|at| {}Id(NAMES[at].1))\n}}\n\n",
+        ty,
+    ));
 
     // reverse：id → 原始 id string（供 logs / backward-compat JSON 使用）
     out.push_str(&format!(

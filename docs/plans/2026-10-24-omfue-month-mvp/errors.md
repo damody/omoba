@@ -2,6 +2,40 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E646 生成的 `*_by_name`／`status_buff_by_key` 是數百個分支的字串 match：每個揭露單位的每個狀態，每 tick 都要逐一比對（2026-11-02，工作線 B，效能）
+
+- **現象**：
+  - 量測條件：E521 的 quick 計畫、seed 1、observer off。目前 HEAD 的 step 是 3.70／3.69 ms，E521 之後的基準是 3.63 ms，沒有退步，但每 tick 最大的單項是 visibility wave，約 1.1 ms，比 hero_command 還多。
+  - 在快照副本加分段計時，拆出 visibility wave 的組成：
+    - `build_wave_b_read_view`：0.96 ms，場上約 95 個實體。
+    - team wave：0.12～0.24 ms。
+    - 其餘：不到 0.1 ms。
+  - read view 內部：
+    - `BuffVisualSnapshot::from_store`：0.29 ms，是單項最大。
+    - `canonical_disclosed_json`：0.26 ms，其中重新排序 0.08 ms。
+    - baseline 編碼：0.07 ms。
+- **根因**：
+  - `BuffVisualState::from_store` 對實體身上的每個狀態，依序呼叫 `buff_by_name`、`declarative_buff_visual_id`、`status_buff_by_key`。
+  - 這些函式是 build.rs 產生的字串 `match`，各有約 450 個分支。Rust 的字串 match 會逐一比對，v3 狀態的 runtime id 要先在 `buff_by_name` 比完全部分支、確定沒有命中，才輪到 `status_buff_by_key`。
+  - 其他 namespace 的 `*_by_name`（ability、hero、summon…）也是同樣的寫法，hero_command 等 system 也會用到。
+- **修正**：
+  - build.rs 改成產生排序好的 `(&str, u16)` 表格，以 `binary_search_by` 查詢。所有 `*_by_name` 和 `status_buff_by_key` 的精確比對部分都改了，查詢從數百次比對變成約 9 次。
+  - 回傳的結果完全相同。重複的 status runtime id 依穩定排序保留第一個，和原本 match 取第一個分支一致。`{caster}`／`{rank}` 樣式維持原本的線性比對，目前只有 22 個。
+- **A/B**：
+  - base 是 live（含 E645），new 只多了這個修改。performance 鎖下交錯跑 3 輪，三輪的 final_digest 完全相同。
+
+  | 輪 | step（ms） | visibility wave（ms） | p50（ms） | hero_command（ms） |
+  |---|---|---|---|---|
+  | 1 | 2.42 → 2.16 | 0.82 → 0.73 | 2.38 → 2.02 | 0.49 → 0.40 |
+  | 3 | 3.55 → 1.68 | 1.02 → 0.62 | 4.73 → 1.52 | 0.84 → 0.22 |
+  | 2 | 7.96 → 9.23 | 1.73 → 2.10 | 2.98 → 6.76 | 0.69 → 1.05 |
+
+  - 第 2 輪兩版都被機器上的其他負載拉高到平常的 3～4 倍，不拿來比較。第 1、3 輪 new 都比較快。
+- **避免**：
+  - 熱路徑上的名稱查詢不要用大型字串 match。生成碼裡的查表要先確認它的複雜度。
+  - 效能分解要拆到能指出單一函式，才知道該改哪裡。
+- **檔案**：`omoba-template-ids/build.rs`
+
 ## E644 conformance：判定 hidden_in_flight：直線投射物路線上看不見的敵人（2026-11-01，conformance session）
 - **現象**：工作線 A 在 b0a42a7d 新增 hidden_in_flight（直線投射物路線上看不見的敵人，invisible 與 fogged 各一個，期望 hidden_hit），harness 還沒有判定。目前沒有任何投射物帶 visible_only，所以全部 affected=true，驗的是「預設會打到看不見的單位」。
 - **通用修正**：
