@@ -63,6 +63,25 @@ local function value_name(expr)
   return expr:match("^%s*%$([%a_][%w_]*)%s*$")
 end
 
+-- `$a`, or `$a` times or divided by a constant (a number, or a value equal at every rank:
+-- c08_kite_chain's `$hook_width / $half`): the value's name and the factor, else nil
+local function scaled_value(expr, def)
+  local plain = value_name(expr)
+  if plain then return plain, 1 end
+  if type(expr) ~= "string" then return nil end
+  local a, op, b = expr:match("^%s*%$([%a_][%w_]*)%s*([%*/])%s*(%S+)%s*$")
+  if not a then return nil end
+  local k = tonumber(b)
+  local bn = not k and b:match("^%$([%a_][%w_]*)$")
+  local v = bn and def.values and def.values[bn]
+  if type(v) == "table" and #v > 0 then
+    k = v[1]
+    for _, n in ipairs(v) do if n ~= k then return nil end end
+  end
+  if type(k) ~= "number" or k == 0 then return nil end
+  return a, op == "*" and k or 1 / k
+end
+
 -- no cast range: none written, or a value 0 at every rank (E366: range 0 is anywhere on the map)
 local function unranged(target, def)
   if target.range == nil then return true end
@@ -280,7 +299,8 @@ function M.derive(def, kind_of_entry, doc)
       -- line_width / line_width_scale: the value the line's width is (scaled), for the row's
       -- targeting shape (hero_author/v3.lua shape_width); not an executor parameter
       if s.shape == "line" or s.shape == "segment" or s.shape == "rect" then
-        return { kind = "enemy_line", min_targets = D.min_targets, line_width = value_name(s.width), line_width_scale = value_name(s.width) and 1 or nil }
+        local w, k = scaled_value(s.width, def)
+        return { kind = "enemy_line", min_targets = D.min_targets, line_width = w, line_width_scale = w and k or nil }
       end
     end
     for _, s in ipairs(f.selectors) do

@@ -65222,6 +65222,7 @@ local data = {
         point_spacing = { 100.0, 100.0, 100.0, 100.0 },
         pull_lifetime = { 2.0, 2.0, 2.0, 2.0 },
         pull_tick = { 0.04, 0.04, 0.04, 0.04 },
+        shape_width = { 300.0, 300.0, 300.0, 300.0 },
         stun = { 1.8, 1.8, 1.8, 1.8 },
       },
       id = "c08_kite_chain",
@@ -65234,10 +65235,11 @@ local data = {
       max_level = 4,
       pierces_magic_immunity = true,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "enemy_line", min_targets = 1, source = "derived" },
+        bot = { kind = "enemy_line", line_width = "hook_width", line_width_scale = 2.0, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
