@@ -19,9 +19,10 @@ pub const BUFF: &str = "command_restricted";
 
 /// Whether `hero` currently refuses new orders.
 /// A taunted hero (taunt.rs) or one forced to move (forced_move.rs) refuses its owner's orders the same way.
+/// A team replica holds an enemy's taunt or forced move on its hero as `owner_control::RESTRICTED` (E643).
 pub fn restricted(world: &World, hero: Entity) -> bool {
     world.try_fetch::<BuffStore>().is_some_and(|buffs| buffs.has(hero, BUFF) || buffs.has(hero, super::taunt::BUFF)
-        || super::forced_move::forced(&buffs, hero))
+        || super::forced_move::forced(&buffs, hero) || buffs.has(hero, super::owner_control::RESTRICTED))
 }
 
 #[cfg(test)]

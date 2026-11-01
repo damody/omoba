@@ -13,6 +13,8 @@
 //! last one ends. The replica applies that batch right after its own matching
 //! `process_outcomes`, so both worlds read equal state in every later phase.
 //! A rebase seeds the same statuses from the owner-only buff visual baseline.
+//! A taunt or forced move from an enemy restricts the hero's orders the same way (E643): the row
+//! carries the longest such restriction, which the replica holds as [`RESTRICTED`].
 use std::collections::BTreeMap;
 
 use omb_script_abi::buff_ids::BuffId;
@@ -26,18 +28,22 @@ pub(crate) const CONTROLS: [BuffId; 3] = [BuffId::Stun, BuffId::Silence, BuffId:
 /// Channel statuses carry `{status:{"total_raw"}}`; the replica reads their presence.
 pub(crate) const CHANNELS: [&str; 2] = [super::ability_channel::STATUS, super::recovery_channel::STATUS];
 const MAX_REMAINING_RAW: i64 = 60 * 1024;
+/// The replica's copy of a restriction it cannot derive (command_restriction.rs reads it).
+pub(crate) const RESTRICTED: &str = "owner_restricted";
 /// Two batches per active tick (pre- and post-script outcomes); a bound, not a phase name.
 pub(crate) const MAX_BATCH: u8 = 7;
 
-/// Remaining per control, then (remaining, total) per channel status.
+/// Remaining per control, then (remaining, total) per channel status, then the longest taunt or
+/// forced move.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct OwnerControlRow {
     pub controls: [i64; 3],
     pub channels: [(i64, i64); 2],
+    pub restricted: i64,
 }
 
 impl OwnerControlRow {
-    pub(crate) const ENCODED_LEN: usize = 1 + 8 * 3 + 16 * 2;
+    pub(crate) const ENCODED_LEN: usize = 1 + 8 * 3 + 16 * 2 + 8;
 
     fn is_empty(&self) -> bool { *self == Self::default() }
 
@@ -47,7 +53,11 @@ impl OwnerControlRow {
             .and_then(|entry| Some((entry.remaining.raw(), entry.payload.get(status)?.get("total_raw")?.as_i64()?)))
             .filter(|(remaining, total)| *remaining > 0 && remaining <= total && *total <= MAX_REMAINING_RAW)
             .unwrap_or((0, 0)));
-        Self { controls, channels }
+        let restricted = buffs.iter_for(entity)
+            .filter(|(id, entry)| *id == super::taunt::BUFF
+                || (id.ends_with(super::forced_move::SUFFIX) && entry.payload.get(super::forced_move::KEY).is_some()))
+            .map(|(_, entry)| entry.remaining.raw().clamp(0, MAX_REMAINING_RAW)).max().unwrap_or(0);
+        Self { controls, channels, restricted }
     }
 
     pub(crate) fn encode(&self, batch: u8) -> Vec<u8> {
@@ -55,6 +65,7 @@ impl OwnerControlRow {
         payload.push(batch);
         for raw in self.controls { payload.extend(raw.to_le_bytes()); }
         for (remaining, total) in self.channels { payload.extend(remaining.to_le_bytes()); payload.extend(total.to_le_bytes()); }
+        payload.extend(self.restricted.to_le_bytes());
         payload
     }
 
@@ -64,11 +75,13 @@ impl OwnerControlRow {
         let row = Self {
             controls: [raw(0), raw(1), raw(2)],
             channels: [(raw(3), raw(4)), (raw(5), raw(6))],
+            restricted: raw(7),
         };
         let bounded = |value: i64| (0..=MAX_REMAINING_RAW).contains(&value);
         let channel_ok = |(remaining, total): (i64, i64)| (remaining == 0 && total == 0)
             || (remaining > 0 && remaining <= total && total <= MAX_REMAINING_RAW);
-        (row.controls.iter().all(|value| bounded(*value)) && row.channels.iter().all(|value| channel_ok(*value)))
+        (row.controls.iter().all(|value| bounded(*value)) && row.channels.iter().all(|value| channel_ok(*value))
+            && bounded(row.restricted))
             .then_some((payload[0], row))
     }
 }
@@ -159,6 +172,7 @@ pub(crate) fn install(world: &World, entity: Entity, row: &OwnerControlRow) {
             }
             set_remaining(&mut buffs, entity, status, remaining, || serde_json::json!({(*status): {"total_raw": total}}));
         }
+        set_remaining(&mut buffs, entity, RESTRICTED, row.restricted, || serde_json::json!({}));
     }
     // The authority decides when a channel is over; a local predictor row ends with it.
     if row.channels[0].0 == 0 { super::ability_channel::forget(world, entity); }
@@ -180,7 +194,9 @@ pub(crate) fn seed_from_visual(world: &World, entity: Entity, visual: &crate::ru
     let channels = CHANNELS.map(|status| raw(status)
         .and_then(|(id, remaining)| visual.channel_totals.iter().find(|row| row.0 == id).map(|row| (remaining, row.1)))
         .unwrap_or((0, 0)));
-    install(world, entity, &OwnerControlRow { controls, channels });
+    // A forced move row has no visual of its own; the next published batch carries it.
+    let restricted = raw(super::taunt::BUFF).map_or(0, |(_, remaining)| remaining.clamp(0, MAX_REMAINING_RAW));
+    install(world, entity, &OwnerControlRow { controls, channels, restricted });
 }
 
 #[cfg(test)]
@@ -188,7 +204,7 @@ mod tests {
     use super::*;
     use specs::Builder;
 
-    fn row() -> OwnerControlRow { OwnerControlRow { controls: [512, 0, 1024], channels: [(300, 3072), (0, 0)] } }
+    fn row() -> OwnerControlRow { OwnerControlRow { controls: [512, 0, 1024], channels: [(300, 3072), (0, 0)], restricted: 0 } }
 
     #[test]
     fn payload_round_trips_and_rejects_malformed_rows() {
@@ -199,7 +215,8 @@ mod tests {
         assert_eq!(OwnerControlRow::decode(&row().encode(MAX_BATCH + 1)), None);
         for bad in [OwnerControlRow { controls: [-1, 0, 0], ..row() }, OwnerControlRow { controls: [MAX_REMAINING_RAW + 1, 0, 0], ..row() },
             OwnerControlRow { channels: [(301, 300), (0, 0)], ..row() }, OwnerControlRow { channels: [(0, 300), (0, 0)], ..row() },
-            OwnerControlRow { channels: [(1, MAX_REMAINING_RAW + 1), (0, 0)], ..row() }] {
+            OwnerControlRow { channels: [(1, MAX_REMAINING_RAW + 1), (0, 0)], ..row() },
+            OwnerControlRow { restricted: -1, ..row() }, OwnerControlRow { restricted: MAX_REMAINING_RAW + 1, ..row() }] {
             assert_eq!(OwnerControlRow::decode(&bad.encode(0)), None, "{bad:?}");
         }
     }
@@ -212,7 +229,7 @@ mod tests {
         buffs.add(hero, BuffId::Root.as_str(), Fixed64::from_raw(300), serde_json::json!({"k": 1}));
         world.insert(buffs);
         world.insert(Tick(5));
-        let later = OwnerControlRow { controls: [700, 0, 200], channels: [(0, 0), (512, 2048)] };
+        let later = OwnerControlRow { controls: [700, 0, 200], channels: [(0, 0), (512, 2048)], restricted: 0 };
         world.insert(OwnerControlInjections(vec![(hero, 1, later), (hero, 0, row())]));
         settle_batch(&mut world);
         {
@@ -231,5 +248,27 @@ mod tests {
         assert!(!buffs.has(hero, CHANNELS[0]), "the authority ended the channel");
         assert_eq!(buffs.get(hero, CHANNELS[1]).unwrap().payload, serde_json::json!({(CHANNELS[1]): {"total_raw": 2048}}));
         assert_eq!(OwnerControlRow::of(&buffs, hero), later);
+    }
+
+    /// E643: an enemy's taunt or forced move is not in the hero team's replica (秋山 b24_taunt on
+    /// 本多 A07): the row carries the longest one, and the replica refuses the owner's orders until
+    /// the authority's row ends it.
+    #[test]
+    fn an_enemy_taunt_or_forced_move_restricts_the_replica_hero_too() {
+        let mut authority = BuffStore::default();
+        let mut world = World::new();
+        let hero = world.create_entity().build();
+        authority.add(hero, super::super::taunt::BUFF, Fixed64::from_raw(400), super::super::taunt::payload(9, 1));
+        authority.add(hero, &super::super::forced_move::row("a11e_gaze"), Fixed64::from_raw(700),
+            super::super::forced_move::payload(omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::ZERO)));
+        let row = OwnerControlRow::of(&authority, hero);
+        assert_eq!(row.restricted, 700, "the longest restriction");
+        assert_eq!(OwnerControlRow::decode(&row.encode(0)), Some((0, row)));
+        world.insert(BuffStore::default());
+        assert!(!crate::runtime::native::command_restriction::restricted(&world, hero));
+        install(&world, hero, &row);
+        assert!(crate::runtime::native::command_restriction::restricted(&world, hero), "replica refuses orders");
+        install(&world, hero, &OwnerControlRow::default());
+        assert!(!crate::runtime::native::command_restriction::restricted(&world, hero), "ended with the authority row");
     }
 }

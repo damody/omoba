@@ -2,6 +2,22 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E643 敵方的嘲諷／強制移動沒有同步到己方 replica：replica 接受了 authority 拒絕的施放（A07 冷卻不一致）（2026-11-02，工作線 B，E 的 m6new25b 回報）
+
+- **現象**：m6new25b 有 7/18 局的 A07 本多忠勝出現冷卻不一致，都是 replica 有冷卻、authority 沒有（a07_red_thunder、a07_unscathed、a07_rouse）。E635／E637 之後 tick 和剩餘冷卻都沒變。
+- **根因**：
+  - 以 quick-05（seed 5）重現：tick 10777 秋山 b24_taunt 嘲諷了本多。tick 10813 本多施放 a07_unscathed，authority 以 `HERO_INACTIVE: hero is command restricted` 拒絕，team 2 的 replica 卻接受施放，開始冷卻。
+  - `command_restriction::restricted` 讀 `taunt` 與 forced_move 的狀態。這兩個狀態由敵方施放加上，己方 replica 不會執行敵方的施放，所以沒有這兩個狀態。
+  - owner_control（split16）只同步 stun、silence、root 和引導狀態給英雄的隊伍，嘲諷和強制移動不在其中。
+- **修正**：
+  - `OwnerControlRow` 加 `restricted` 欄位，值是英雄身上最長的嘲諷或強制移動的剩餘時間。和其他控制一樣，有效期間每個 outcome batch 都發布，結束時再發布一次 0。
+  - replica 把它放成狀態 `owner_restricted`，`command_restriction::restricted` 也讀它。所以 authority 拒絕的指令與施放，replica 也拒絕。
+  - rebase 時從 buff 視覺基準取嘲諷的剩餘時間。強制移動沒有自己的視覺，由下一個 batch 補上。
+- **測試**：`owner_control::tests::an_enemy_taunt_or_forced_move_restricts_the_replica_hero_too`，另外編碼的邊界值也加進既有的 malformed 測試。
+- **避免**：會影響 admission 的狀態如果可能由敵方施加，就要經 owner_control 同步給英雄的隊伍；新增這類狀態時，要確認它在 owner_control 的 row 裡。
+- **檔案**：`omoba-core/src/runtime/native/owner_control.rs`、`omoba-core/src/runtime/native/command_restriction.rs`
+
+
 ## E641 conformance：判定 hidden_in_effect：選取範圍內看不見的敵方英雄受不受影響（2026-11-01，conformance session）
 - **現象**：149 筆隱形／迷霧類 quirk 大多在講選取會不會打到看不見的敵人，但沒有情境驗這件事。工作線 A 在 a7593425 新增 hidden_in_effect（invisible 與 fogged 各一個，期望 hidden_affected，affected = 沒有 visible_only），harness 還沒有判定。
 - **通用修正**：
