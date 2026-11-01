@@ -64131,7 +64131,12 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", source = "derived", threat_radius = 900 },
+        bot = {
+          caster_summon = { template = "b16d_moon", within = 1000 },
+          kind = "self_engage",
+          source = "derived",
+          threat_radius = 900,
+        },
         coverage = "expressible",
         info = {
           { field = "cooldown", value = "cooldown" },
@@ -64211,7 +64216,12 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", source = "derived", threat_radius = 900 },
+        bot = {
+          caster_summon = { template = "b16d_moon" },
+          kind = "self_engage",
+          source = "derived",
+          threat_radius = 900,
+        },
         coverage = "expressible",
         info = {
           { field = "mana_cost", value = "mana_cost" },

@@ -207,6 +207,82 @@ local function status_runtime_id(doc, def, id)
   return rid
 end
 
+-- The summon a cast needs (line B E648 caster_summon): its requires.condition `exists(state.V) and alive(state.V)`,
+-- optionally `and edge_distance(caster, state.V) <= R`, or an on_cast that starts with
+-- `if exists(state.V) and alive(state.V)` and refunds otherwise. V is a state the document sets to
+-- a unit it creates (`create_unit ... as = u`, `set_state V = u`): the summon's template, and R
+-- (the smallest rank value of `$R`, or a number) as `within`.
+local function created_template(doc, var)
+  local found
+  local function walk(list)
+    local made = {}
+    for _, a in ipairs(type(list) == "table" and list or {}) do
+      if type(a) == "table" then
+        if a.op == "create_unit" and type(a.as) == "string" and type(a.template) == "string"
+          and (a.owner == nil or a.owner == "caster") then made[a.as] = a.template end
+        if a.op == "set_state" and a.var == var and type(a.value) == "string" and made[a.value] then
+          if found and found ~= made[a.value] then found = false elseif found == nil then found = made[a.value] end
+        end
+        for _, k in ipairs({ "actions", "otherwise" }) do walk(a[k]) end
+      end
+    end
+  end
+  for _, list in ipairs({ doc and doc.abilities or {}, doc and doc.items or {} }) do
+    for _, ab in ipairs(list) do
+      for _, ev in pairs(type(ab.events) == "table" and ab.events or {}) do walk(ev.actions or ev) end
+    end
+  end
+  return found or nil
+end
+local function needed_summon(def, castable, doc)
+  local function smallest(expr)
+    if type(expr) == "number" then return expr end
+    local name = value_name(expr)
+    local v = name and def.values and def.values[name]
+    if type(v) == "number" then return v end
+    if type(v) ~= "table" or #v == 0 then return nil end
+    local m
+    for _, n in ipairs(v) do if type(n) ~= "number" then return nil end; m = m and math.min(m, n) or n end
+    return m
+  end
+  local var, within, ok
+  local cond = castable and castable.requires and castable.requires.condition
+  if type(cond) == "string" then
+    local v1, v2, rest = cond:match("^exists%(state%.([%w_]+)%) and alive%(state%.([%w_]+)%)(.*)$")
+    if v1 and v1 == v2 then
+      if rest == "" then var, ok = v1, true
+      else
+        local v3, r = rest:match("^ and edge_distance%(caster, state%.([%w_]+)%) <= (%S+)$")
+        if v3 == v1 then
+          within = smallest(r)
+          var, ok = v1, within ~= nil
+        end
+      end
+    end
+  end
+  local first = not ok and castable and type(castable.events) == "table" and castable.events.on_cast
+  first = type(first) == "table" and (first.actions or first)
+  for _, a in ipairs(type(first) == "table" and first or {}) do
+    if a.op == "if" and type(a.cond) == "string" then
+      local v1, v2 = a.cond:match("^exists%(state%.([%w_]+)%) and alive%(state%.([%w_]+)%)$")
+      local refunds = false
+      for _, o in ipairs(type(a.otherwise) == "table" and a.otherwise or {}) do if o.op == "refund" then refunds = true end end
+      if v1 and v1 == v2 and refunds then var, ok = v1, true end
+      break
+    elseif a.op ~= "cue" then break end
+  end
+  if not ok then return nil end
+  local template = created_template(doc, var)
+  if not template or not template:match("^[%w_]+$") then return nil end
+  -- a ranked template spawns `<id>_r<rank>` (v3_rust create_unit): no single id to name
+  for _, t in ipairs(doc and doc.unit_templates or {}) do
+    if t.id == template and (t.max_level or 1) > 1 then return nil end
+  end
+  local within_int = within and math.tointeger(within)
+  if within and (not within_int or within_int <= 0 or within_int > 10000) then return nil end
+  return { template = template, within = within_int }
+end
+
 -- Whether a `swap_abilities` of the document puts ability `id` into a slot (`to`): it is cast from
 -- that slot while it sits there, so the bot needs its own policy (derived from its own document).
 function M.swapped_in(doc, id)
@@ -406,6 +482,8 @@ function M.export(def, kind_of_entry, doc)
     local rid = type(req[key]) == "string" and status_runtime_id(doc, def, req[key])
     if rid and rid:match("^[%w_:]+$") and #rid <= 96 and policy.kind ~= "none" then policy[field] = rid end
   end
+  -- the summon it needs (line B's caster_summon)
+  if policy.kind ~= "none" then policy.caster_summon = needed_summon(def, castable, doc) end
   if spec and spec.proposed then policy.proposed = true end
   return policy
 end
