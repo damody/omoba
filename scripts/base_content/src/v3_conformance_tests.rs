@@ -996,6 +996,11 @@ fn icon_of(holder: specs::Entity, key: &str, entry: &omoba_core::runtime::abilit
 fn observe(run: &mut Run, holder: specs::Entity, runtime_id: &str, expectation: &Value) -> Verdict {
     run.world.write_storage::<VisibilityOverride>().insert(holder, VisibilityOverride {
         team: None, kind: VisibilityOverrideKind::ForceShow, priority: 2, stable_rule_id: 0xE216 }).unwrap();
+    // A placed body stands for a creep, which attacks: the host shows a fighting unit's icons (E652).
+    let bare = run.world.read_storage::<Hero>().get(holder).is_none() && run.world.read_storage::<SummonedUnit>().get(holder).is_none();
+    if bare && run.world.read_storage::<TAttack>().get(holder).is_none() {
+        run.world.write_storage::<TAttack>().insert(holder, TAttack::new(Fixed64::from_i32(1), Fixed64::ONE, Fixed64::from_i32(100), Fixed64::from_i32(1000))).ok();
+    }
     run.step(2);
     let Some((key, entry)) = held(run, holder, runtime_id) else { return Verdict::Unsupported(format!("{runtime_id} ended before it was observed")) };
     let teams: Vec<u32> = run.world.read_resource::<TeamProjectionRuntime>().communication_disclosures().into_iter().map(|(team, _, _)| team).collect();
@@ -1891,7 +1896,21 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
             Some(_) => {}
         }
     }
-    let learned_only = json!({"entry": s["entry"], "rank": s["rank"], "given": learning(s), "learn_by_upgrade": s["learn_by_upgrade"]});
+    // The world the status's condition needs (E652): facts the setup places, then the rest below.
+    let needs: Vec<Value> = status["needs"].as_array().cloned().unwrap_or_default();
+    let mut given = learning(s);
+    for need in &needs {
+        match (need["kind"].as_str(), need["by"].as_str()) {
+            (Some("target_kind"), _) if need["is_building"] == true => given.push(json!({"kind": "target_unit", "team": "enemy", "types": ["building"]})),
+            (Some("target_kind"), _) if need["is_hero"] == false => given.push(json!({"kind": "target_unit", "team": "enemy", "types": ["creep"]})),
+            // The default target is the enemy hero: not a building, a hero.
+            (Some("target_kind"), _) if need["is_building"] == false || need["is_hero"] == true => {}
+            (Some("has_status" | "summon"), Some(by)) => given.push(json!({"kind": "cast_first", "entry": by})),
+            (Some("has_status"), None) | (Some("time_of_day"), _) | (Some("via_attack"), _) => {}
+            _ => return Verdict::Unsupported(format!("status needs {need}")),
+        }
+    }
+    let learned_only = json!({"entry": s["entry"], "rank": s["rank"], "given": given, "learn_by_upgrade": s["learn_by_upgrade"]});
     let mut run = match setup(hero, &learned_only) {
         Ok(run) => run,
         Err(e) if e.starts_with(MISSING) => return Verdict::Fail(e),
@@ -1899,6 +1918,19 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
     };
 
     let (entry, rank) = (run.entry.clone(), run.rank);
+    for need in &needs {
+        match need["kind"].as_str() {
+            Some("time_of_day") if need["night"] == true => omoba_core::runtime::native::rules::world::start_temporary_night(&mut run.world, Fixed64::from_i32(600)),
+            // The watched status itself (its cast refreshes it when held) comes from the cast.
+            Some("has_status") if need["status"] == status["status"] || need["status"] == status["runtime_id"] => {}
+            Some("has_status") if need["by"].is_null() => {
+                let unit = if need["on"] == "caster" { run.caster } else { run.target };
+                let Some(id) = need["status"].as_str().filter(|id| !id.contains('{')) else { return Verdict::Unsupported(format!("status needs {need}")) };
+                run.world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(unit, id, Fixed64::from_i32(600), json!({}));
+            }
+            _ => {}
+        }
+    }
     // `it`/`target` of an ally-or-self cast is the caster too (B06W's rally on every ally, C17E cast
     // on oneself; E229): the target first, then the caster.
     let candidates = match on.as_str() { "caster" | "self" => vec![run.caster], _ => vec![run.target, run.caster] };
@@ -1945,12 +1977,43 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
     }
     // A status an attack puts on (an orb's on_attack_hit, A02W's poison; E229): the caster, with
     // what the cast gave it, attacks the enemy hero.
+    // needs via_attack (E652): the hero's attacks (by holder) or the enemy hero's on it (by
+    // attacker); a chance p keeps attacking until missing every attack is under 1 % (60 s at most,
+    // an attack about every 1.7 s).
+    let via = needs.iter().find(|n| n["kind"] == "via_attack");
+    let attack_seconds = match via.map(|n| &n["chance"]).filter(|c| !c.is_null()) {
+        None => 5.0,
+        Some(c) => match expr(c, &entry, rank) {
+            Ok(p) => { let p = if p > 1.0 { p / 100.0 } else { p }; if p <= 0.0 { return Verdict::Unsupported(format!("via_attack chance {p}")); }
+                (((0.01f64).ln() / (1.0 - p.min(0.99)).ln()).ceil() * 1.7 + 2.0).min(60.0) }
+            Err(err) => return Verdict::Unsupported(err),
+        },
+    };
+    if holder.is_none() && via.is_some_and(|n| n["by"] == "attacker") {
+        // The enemy hero beside the caster, seeing it and armed, attacks it; the caster stays sturdy.
+        let (caster, enemy) = (run.caster, run.enemy);
+        let at = run.world.read_storage::<Pos>().get(caster).map(|p| p.0);
+        if let Some(at) = at { if let Some(pos) = run.world.write_storage::<Pos>().get_mut(enemy) { pos.0 = at + omoba_sim::Vec2::new(Fixed64::from_i32(100), Fixed64::ZERO); } }
+        let team = run.world.read_storage::<Faction>().get(enemy).map(|f| f.team_id.max(0) as u32);
+        run.world.write_storage::<VisibilityOverride>().insert(caster, VisibilityOverride { team, kind: VisibilityOverrideKind::ForceShow, priority: 1, stable_rule_id: 0xE652 }).ok();
+        run.world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(caster, "v3_conformance_sturdy",
+            Fixed64::from_i32(100_000), json!({ (omb_script_abi::stat_keys::StatKey::HealthBonus.as_str()): Fixed64::from_i32(100_000).raw() }));
+        run.step(1);
+        if let Some(attack) = run.world.write_storage::<TAttack>().get_mut(enemy) { attack.asd_count = Fixed64::ZERO; }
+        let order = PlayerInput { action: Some(PlayerInputEnum::AttackTarget(AttackTarget { target_id: caster.id(), queued: false })) };
+        { let result = run.driver.step(&mut run.world, [(2, order)]).unwrap(); project_tick(&mut run.world, result); }
+        for _ in 0..ticks(attack_seconds) {
+            if let Some(found) = find(&run) { holder = Some(found); break; }
+            run.step(1);
+        }
+        if holder.is_some() { set_hold(&mut run.world, enemy); disarm_attack(&mut run.world, enemy); }
+    }
     if holder.is_none() {
         let enemy = run.enemy;
         if let Some(attack) = run.world.write_storage::<TAttack>().get_mut(run.caster) { attack.asd_count = Fixed64::ZERO; }
         let order = PlayerInput { action: Some(PlayerInputEnum::AttackTarget(AttackTarget { target_id: enemy.id(), queued: false })) };
         { let result = run.driver.step(&mut run.world, [(1, order)]).unwrap(); project_tick(&mut run.world, result); }
-        for _ in 0..ticks(5.0) {
+        for _ in 0..ticks(attack_seconds) {
             if let Some(found) = find(&run) { holder = Some(found); break; }
             run.step(1);
         }
