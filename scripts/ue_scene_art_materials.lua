@@ -33,6 +33,8 @@ function M.main(args)
   assert(result.exit_code==0,label..' scene art material commandlet failed; see '..out)
   local value=j.read(result_file)
   assert(value.schema=='omoba.scene-art-materials/1'and value.success==true,label..' result is not a success')
+  local count=0;for _ in ids:gmatch('[^,]+')do count=count+1 end
+  assert(#value.materials==count,label..' handled '..#value.materials..' of '..count..' models')
   return value
  end
  local first=once('first');local second=once('second')
