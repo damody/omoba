@@ -2855,8 +2855,6 @@ function Gen:action(a, ctx, ind)
     s = s .. line("    let at = " .. at .. ";") .. line("    let lifetime = " .. life .. ";")
     if a.as then
       local marker = self:bind(ctx.scope, a.as, "unit")
-      -- a created summon: give_item to it waits for the host (summons hold no inventory, line B)
-      ctx.scope.names[a.as].created = true
       -- the binding lives after the block: hoist it
       return line("let " .. marker .. " = {") .. s:gsub("^" .. I:gsub("%p", "%%%0") .. "{\n", "")
         .. line("    " .. make) .. line("};")
@@ -3157,9 +3155,8 @@ function Gen:action(a, ctx, ind)
     return line("let " .. marker .. " = { let from = " .. from .. "; cx.pick_item(from, ability_kit::PickOrder::" .. order
       .. ", |cx, " .. it .. ": &ability_kit::PickedItem| { let _ = &cx; " .. keep .. " }) };")
   elseif op == "give_item" or op == "remove_item" then
+    -- any unit: the host gives a summon without one an inventory first (line B E587)
     local holder = op == "give_item" and a.to or a.from
-    local hb = type(holder) == "string" and holder:match("^[%a_][%w_]*$") and self:lookup(ctx, holder)
-    if hb and hb.created then self:block("action:" .. op .. " on a created unit (host: summons hold no inventory)"); return "" end
     local unit = self:value(holder, ctx, "unit")
     local code, ty = self:value(a.item, ctx)
     local lit = type(ty) == "string" and ty:match("^sym:(.+)$")
