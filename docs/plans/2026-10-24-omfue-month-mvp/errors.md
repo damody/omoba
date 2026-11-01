@@ -4,7 +4,10 @@
 
 ## E630 （保留）spotlight 舞台沒有友方小兵與屍體，C19 奇襲、B23 亡靈之契無法示範（props）（2026-11-01）
 
-## E629 （保留）conformance 狀態 on_created 換格（A12T、A07T）與 on_removed 換回的情境（2026-11-01）（2026-11-01）
+## E629 conformance：狀態 on_created 換格與 on_removed 換回的情境（A12T、A07T）（2026-11-01，conformance session）
+- **現象**：由狀態換格的技能（A12T 秘術附身換三格、A07T 戰國最強換奮起）沒有任何情境檢查換格本身；E608 只涵蓋施放時直接 swap_abilities。
+- **通用修正**：v3_scenarios 對施放時套到施法者身上的自家狀態，若它的 on_created 有對 self 的 swap_abilities，也產生 `swap` 情境（期望 `ability_swapped`，帶 by_status）。只有 on_removed 有反向 swap 而且狀態時間是數值或 `$值` 時，才帶 duration 檢查換回；on_created 的 `modify_cooldown set` 數量是 `$值` 時才帶 initial_cooldown（A12 的 r_cd 是 let 變數，所以不檢查）。套狀態的動作只能帶「施法者還沒有這個狀態」的條件（A12T 第一次施放走 otherwise 分支）。
+- **結果**：全跑 0 退步，9 個情境變 pass（A12T 三級各三格，都在狀態結束後換回）。新增 3 個 fail：a07_strongest r1～r3 施放後 a07_rouse 沒有換成 a07_rouse_free。known_differences 已記這是手寫 a07_strongest 不換技能（E313，線 A 改用產生碼後會通過）；新情境沒有加進清單，已轉知工作線 A。
 
 ## E624 conformance：on_attacked_hit 從未觸發；敵方英雄攻擊持有者後比對效果（2026-11-01，conformance session）
 - **現象**：on_attacked_hit 的 16 個情境（A17E、A20R、B24R、B35R）回「when event」或「status step status_event」，從來沒執行過。

@@ -512,6 +512,36 @@ local function entry_scenarios(doc, def, entry_kind, out)
             rule = "v3.md swap_abilities: the slot, its cooldown and the swap back" })
         end
       end
+      -- A swap a status of this cast makes when it is put on the caster (A12T's form, A07T's
+      -- strongest; E629), and the reverse swap of its on_removed when it runs out. Its only
+      -- condition may be that the caster lacks it (A12T's first cast).
+      local own_status = {}
+      for _, st in ipairs(def.statuses or {}) do own_status[st.id] = st end
+      local function money(v) return type(v) == "number" or (type(v) == "string" and v:match("^%$[%w_.]+$") ~= nil) end
+      for _, e in ipairs(base_effects) do
+        local a = e.args
+        local st = e.op == "apply_status" and e.phase == "on_cast" and a and (a.to == "caster" or a.to == "self") and own_status[a.status]
+        local lacks = true
+        for _, c in ipairs(st and e.conds or {}) do
+          if c ~= "not (has_status(caster, " .. a.status .. "))" and c ~= "not has_status(caster, " .. a.status .. ")" then lacks = false end
+        end
+        local trig = st and lacks and st.triggers or {}
+        for _, w in ipairs(trig.on_created or {}) do
+          if w.op == "swap_abilities" and (w.on == "self" or w.on == "caster") and type(w.from) == "string" and type(w.to) == "string" then
+            local back, initial
+            for _, r in ipairs(trig.on_removed or {}) do
+              if r.op == "swap_abilities" and r.from == w.to and r.to == w.from and money(st.duration) then back = st.duration end
+            end
+            for _, m in ipairs(trig.on_created) do
+              if m.op == "modify_cooldown" and m.ability == w.to and m.mode == "set" and money(m.amount) then initial = m.amount end
+            end
+            push(rank, "swap", { suffix = w.to, given = given({ valid_target }), when = { cast_step },
+              expect = { { kind = "cast_accepted" }, { kind = "ability_swapped", from = w.from, to = w.to, duration = back,
+                policy = w.cooldown_policy, initial_cooldown = initial, by_status = st.id } },
+              rule = "v3.md swap_abilities in a status's on_created / on_removed" })
+          end
+        end
+      end
       -- targeting
       if target.type == "unit" then
         local cases = {}
