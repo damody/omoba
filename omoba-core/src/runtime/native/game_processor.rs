@@ -4610,7 +4610,8 @@ fn handle_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     // A pathing blocker (原作 B22W's rocks, GridNav obstructions) stands where it is raised, beside
     // its siblings and over units (unit_blockers: none is pushed out); terrain still holds (E599).
     let occupied=if stats.blocks_pathing {Vec::new()} else {occupied};
-    let anchor=world.read_storage::<Pos>().get(owner).map(|p|p.0);
+    // ... and never walks, so its owner need not reach it (E620).
+    let anchor=if stats.blocks_pathing {None} else {world.read_storage::<Pos>().get(owner).map(|p|p.0)};
     let Some(pos)=super::summon_navigation::placement(pos,anchor,stats.collision_radius,
         &world.read_resource::<BlockedRegions>(),&occupied) else {
         log::warn!("summon placement retired reservation {:?}: no legal public-terrain position",entity);
@@ -4656,6 +4657,14 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
         world.write_storage::<VisionSource>().insert(entity,VisionSource {
             team:world.read_storage::<Faction>().get(entity).expect("summon faction").team_id.max(0) as u32,
             radius:stats.vision_radius,detection_level:0})?;
+    }
+    // Its owner's team always knows its own summon, an invisible one too (A36's mine, a ward): the
+    // geometry of the team's sight, which detects no stealth, decides only for the other team (E623).
+    if world.has_value::<specs::storage::MaskedStorage<ReplicationScope>>() {
+        let team=world.read_storage::<Faction>().get(entity).expect("summon faction").team_id;
+        if let Ok(team)=u32::try_from(team) {
+            world.write_storage::<ReplicationScope>().insert(entity,ReplicationScope {kind:ReplicationScopeKind::OwnerTeam,owner_team:Some(team)})?;
+        }
     }
     world.write_storage::<ScriptUnitTag>().insert(entity,ScriptUnitTag {unit_id:unit_id.into()})?;
     // A building template (E428); replicas derive it from the same tag (filtered_specs).
@@ -4755,8 +4764,12 @@ fn creep_bounty_from_template(creep_name: &str) -> Bounty {
 fn handle_script_set_pos(world: &mut World, entity: Entity, pos: omoba_sim::Vec2) {
     // A hero never stands inside terrain (E598, 原作 a teleported hero is put clear by the engine):
     // a point it cannot stand at clears to the nearest one around it, else it stays.
-    let pos = if world.read_storage::<Hero>().get(entity).is_some() {
-        let radius = world.read_storage::<CollisionRadius>().get(entity).map_or(Fixed64::ZERO, |r| r.0.max(Fixed64::ZERO));
+    // A world without heroes (tests, TD) moves its units as told.
+    let hero = world.has_value::<specs::storage::MaskedStorage<Hero>>() && world.read_storage::<Hero>().get(entity).is_some();
+    let pos = if hero {
+        let radius = if world.has_value::<specs::storage::MaskedStorage<CollisionRadius>>() {
+            world.read_storage::<CollisionRadius>().get(entity).map_or(Fixed64::ZERO, |r| r.0.max(Fixed64::ZERO))
+        } else { Fixed64::ZERO };
         match world.try_fetch::<crate::comp::BlockedRegions>() {
             Some(regions) => match super::blink_landing::clear_space(&regions, pos, radius) {
                 Some(pos) => pos,

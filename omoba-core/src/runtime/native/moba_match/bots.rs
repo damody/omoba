@@ -546,11 +546,14 @@ fn reachable_travel_destination(points:impl IntoIterator<Item=Vec2>,own:Vec2,
 
 /// The policies whose ability the owner may cast now. v3 set_ability_active(false) (原作
 /// SetActivated) is the owner's own state; admission refuses such an ability, so it is never
-/// picked (E433). Borrowed unless one is inactive.
+/// picked (E433). A policy's caster status precondition (v3 requires.has_status / not_status,
+/// E619) holds now too. Borrowed unless one is left out.
 fn castable_policies<'a>(policies:&'a [BotAbilityPolicy],buffs:Option<&crate::runtime::ability_runtime::BuffStore>,
     entity:specs::Entity) -> std::borrow::Cow<'a,[BotAbilityPolicy]> {
-    let inactive=|policy:&BotAbilityPolicy|buffs
-        .is_some_and(|store|crate::runtime::native::ability_slots::inactive(store,entity,&policy.ability));
+    let inactive=|policy:&BotAbilityPolicy|buffs.is_some_and(|store|
+        crate::runtime::native::ability_slots::inactive(store,entity,&policy.ability)
+            || policy.caster_status.as_ref().is_some_and(|id|!store.has(entity,id))
+            || policy.caster_no_status.as_ref().is_some_and(|id|store.has(entity,id)));
     if !policies.iter().any(inactive) {return policies.into();}
     policies.iter().filter(|policy|!inactive(policy)).cloned().collect::<Vec<_>>().into()
 }
@@ -1145,7 +1148,7 @@ mod tests {
         hero.abilities=vec!["ranger_volley".into()];hero.ability_levels.insert("ranger_volley".into(),1);
         let hp=CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),
             msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
-        let policy=BotAbilityPolicy {ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {
+        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {
             radius_key:"radius".into(),min_targets:1}};
         let cast=abilities::choose_cast_with_resources(&hero,BotRole::Jungle,1,p(0),&hp,
             &seen,&[policy.clone()],focus,|_,_|None,|_,_|None).unwrap();
@@ -1165,7 +1168,7 @@ mod tests {
         use crate::runtime::native::game_processor::FailedCasts;
         let mut world=World::new();
         let (hero,other)=(world.create_entity().build(),world.create_entity().build());
-        let policy=|ability:&str|BotAbilityPolicy {ability:ability.into(),intent:BotAbilityIntent::EnemyHero};
+        let policy=|ability:&str|BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:ability.into(),intent:BotAbilityIntent::EnemyHero};
         let policies=vec![policy("c25_falling_sakura"),policy("strike")];
         let mut failed=FailedCasts::default();
         failed.0.insert((hero,"c25_falling_sakura".into()),100);
@@ -1185,7 +1188,7 @@ mod tests {
         let mut world=crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
         let mut row=Hero::default();row.abilities=vec!["stance".into(),"strike".into()];
         let hero=world.create_entity().with(row).build();
-        let policy=|ability:&str|BotAbilityPolicy {ability:ability.into(),intent:BotAbilityIntent::EnemyHero};
+        let policy=|ability:&str|BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:ability.into(),intent:BotAbilityIntent::EnemyHero};
         let policies=vec![policy("stance"),policy("strike")];
         let names=|world:&World|castable_policies(&policies,Some(&world.read_resource::<crate::runtime::ability_runtime::BuffStore>()),hero)
             .iter().map(|policy|policy.ability.clone()).collect::<Vec<_>>();
@@ -1195,6 +1198,27 @@ mod tests {
         assert_eq!(names(&world),vec!["strike"]);
         apply(&mut world,hero,ACTIVE_BUFF,Fixed64::ONE,&ActiveSpec {ability:"stance".into(),active:true}.payload());
         assert_eq!(names(&world),vec!["stance","strike"]);
+    }
+    /// E619: a policy's caster status precondition (v3 requires.has_status / not_status) holds
+    /// before the bot picks it (原作 A12 秘矢 only in a12t_form).
+    #[test]
+    fn a_bot_casts_only_while_its_caster_status_precondition_holds() {
+        let mut world=crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+        let mut row=Hero::default();row.abilities=vec!["arrow".into(),"strike".into()];
+        let hero=world.create_entity().with(row).build();
+        let arrow=BotAbilityPolicy {caster_status:Some("a12t_form".into()),caster_no_status:None,ability:"arrow".into(),intent:BotAbilityIntent::EnemyHero};
+        let strike=BotAbilityPolicy {caster_status:None,caster_no_status:Some("a12t_form".into()),ability:"strike".into(),intent:BotAbilityIntent::EnemyHero};
+        let policies=vec![arrow,strike];
+        let names=|world:&World|castable_policies(&policies,Some(&world.read_resource::<crate::runtime::ability_runtime::BuffStore>()),hero)
+            .iter().map(|policy|policy.ability.clone()).collect::<Vec<_>>();
+        assert_eq!(names(&world),vec!["strike"],"no form: only the one that needs its absence");
+        world.write_resource::<crate::runtime::ability_runtime::BuffStore>().add(hero,"a12t_form",Fixed64::from_i32(5),serde_json::json!({}));
+        assert_eq!(names(&world),vec!["arrow"],"in form");
+        let json=serde_json::to_value(&policies[0]).unwrap();
+        assert_eq!(json["caster_status"],"a12t_form");
+        let plain:BotAbilityPolicy=serde_json::from_value(serde_json::json!({"ability":"strike","intent":{"kind":"enemy_hero"}})).unwrap();
+        assert!(plain.caster_status.is_none() && plain.caster_no_status.is_none(),"absent fields default");
+        assert!(serde_json::to_value(&plain).unwrap().get("caster_status").is_none(),"and are not written");
     }
     #[test]
     fn role_bot_lane_route_keeps_corners_and_rejoins_segments_without_clock_state() {

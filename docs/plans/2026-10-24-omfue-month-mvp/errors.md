@@ -2,6 +2,47 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E623 召喚物用 Vision scope：隱形的自家召喚物（A36 地雷）連 owner 的隊伍都看不到（2026-11-01，工作線 B，C 回報）
+
+- **現象**：A36 地刺陷阱施放成功，但 owner 端的 presentation frame 裡沒有地雷，autopilot 一直是 no_own_summon。
+- **根因**：召喚物沒有 ReplicationScope，預設是 Vision。同隊單位也必須落在本隊的視野範圍內才看得到，而本隊視野的 detection_level 是 0，看不到 stealth_level 大於 0 的隱形地雷，所以連自己都看不見。
+- **修正**：召喚物生成時改為 `ReplicationScope::OwnerTeam`（owner 的隊伍），和英雄一樣。owner 的隊伍一定看得到自己的召喚物；對方隊伍仍然依幾何視野和偵測判定（`owner_team_entity_can_be_revealed_to_enemy_by_geometry`）。
+- **檔案**：`omoba-core/src/runtime/native/game_processor.rs`
+
+## E622 dispatch 的 reject_cast 沒有 log：召喚物施法（A28 天火）被拒時看不到原因（2026-11-01，工作線 B，C 回報）
+
+- **現象**：E613 之後，A28 天火的召喚物指令已經 accepted，server log 卻沒有任何 cast ok 或 refused 的紀錄。
+- **根因**：dispatch 在 admission 拒絕施放（inactive、冷卻、NOT_LEARNED、ALREADY_CASTING 等）時，只把代碼放進 outcomes，沒有寫 log。
+- **修正**：`reject_cast!` 每次都記 `[scripting] cast refused caster ability releasing reason`。
+- **檔案**：`omoba-core/src/runtime/native/scripting/dispatch.rs`
+
+## E621 召喚交易拒絕純呈現的 Explosion cue：B16 忍犬召喚被以 reason=Explosion 拒絕（2026-11-01，工作線 B，C 回報）
+
+- **現象**：rerun16 的 server log 有 `cast refused at settlement caster=0 ability='b16_summon_hound' reason=Explosion`。
+- **根因**：B16 的等級同步 routine 會在施法者身上放一個帶半徑的 SpellHintSelf cue，kit 會把它轉成 `Outcome::Explosion`。召喚交易的規則沒有列出它，於是落到 `_=>false`。
+- **修正**：召喚交易一律接受 `Outcome::Explosion`。它只會推進 ExplosionFxQueue，不移動也不傷害任何單位，和 ScriptDamageTag 同類。
+- **檔案**：`omoba-core/src/runtime/native/cast_settlement.rs`
+
+## E620 B22 的岩石放置仍然要求「從施法者走得到」：牆後的岩石被拒，自然屏障在 spotlight 被取消（2026-11-01，工作線 B，C 回報）
+
+- **現象**：E609 之後，C 的 rerun16 仍然出現 `execute returned error: v3: unit placement rejected`。我的 headless 局因為位置不同，有 18 次成功。
+- **根因**：`summon_navigation::placement` 有 anchor 時，要求候選點從施法者走得到。圓周上的岩石只要有一塊落在牆後（或在 spotlight 的地形邊）就找不到落點，整招被取消。
+- **修正**：`blocks_pathing` 的召喚物不會移動，所以不傳 anchor，只檢查地形本身。adapter 和 settlement 兩邊用同一條規則。
+- **檔案**：`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`、`omoba-core/src/runtime/native/game_processor.rs`
+
+## E619 bot 不知道施法者自身狀態的前提：a12_mystic_arrow、b36_footsteps 大多以 script_error 收場（2026-11-01，工作線 B，A 提案）
+
+- **現象**：A 重新統計 m6 批次：a12_mystic_arrow 有 98.6% 是 script_error（只能在 a12t_form 期間施放），b36_footsteps 有 95.9%（身上要有 b36w_mark）。
+- **根因**：requires.has_status／not_status 指的是施法者自己身上的狀態，BotAbilityPolicy 沒有欄位可以表達，bot 在前提不成立時照樣施放。
+- **修正**：
+  - BotAbilityPolicy 新增 `caster_status`、`caster_no_status`（runtime status id，serde default，沒有值就不寫出），並加上格式檢查。
+  - `castable_policies` 和 inactive（E433）一起篩選：前提不成立的技能不會被選。
+  - 產生器由 A 從 requires 輸出。
+- **測試**：`bots::tests::a_bot_casts_only_while_its_caster_status_precondition_holds`；bots 的 98 個測試全部通過。
+- **檔案**：`omoba-core/src/runtime/native/moba_match/bots.rs`、`bots/abilities.rs`、`bots/cone_tests.rs`、`bots/plan.rs`
+
+## E618 （保留）conformance on_expired 從未觸發：等狀態到期後比對效果；效果檢查加上 kill、modify_cooldown、移動命令（2026-11-01）（2026-11-01）
+
 ## E617 server observer 遇到 replica 拒收 frame 時只 warn 並停止比對：live 驗收照樣判 observer 0 mismatch（2026-11-01，工作線 B，調度要求）
 
 - **現象**：

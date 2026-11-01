@@ -224,6 +224,8 @@ fn dispatch_scripts(
     macro_rules! reject_cast {
         ($outcomes:ident, $event:ident, $releasing:ident, $code:expr) => {{
             if let ScriptEvent::SkillCast { caster, skill_id, .. } = &$event {
+                // Every refusal names its reason, like AbilityCast's own (E622).
+                log::info!("[scripting] cast refused caster={} ability='{}' releasing={} reason={:?}", caster.id(), skill_id, $releasing, $code);
                 if !$releasing { $outcomes.push((*caster, skill_id.clone(), Some($code))); }
                 else { refused_releases.push((*caster, skill_id.clone(), $code)); }
             }

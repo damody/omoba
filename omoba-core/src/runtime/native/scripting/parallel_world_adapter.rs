@@ -1469,7 +1469,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         // A pathing blocker stands where the script raises it, beside its siblings (原作 B22W's 16
         // rocks overlap on their circle), as the settlement places it (E599); terrain still holds (E609).
         if stats.blocks_pathing {occupied.clear();}
-        let anchor=self.overlay_pos.get(&owner).copied().or_else(||self.cache.pos.get(owner).map(|p|p.0));
+        // ... and need not be reachable from its owner: it never walks (E620, a rock beyond a wall).
+        let anchor=if stats.blocks_pathing {None} else {self.overlay_pos.get(&owner).copied().or_else(||self.cache.pos.get(owner).map(|p|p.0))};
         let Some(pos)=crate::runtime::native::summon_navigation::placement(pos,anchor,stats.collision_radius,
             &self.cache.blocked,&occupied) else {return EntityHandle::INVALID;};
         let entity = self.cache.entities.create();

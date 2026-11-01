@@ -16,6 +16,15 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：bot 施法者狀態前提、B22 牆後岩石、召喚交易的 Explosion、施放拒絕 log、自家隱形召喚物（E619～E623）
+
+- E619：BotAbilityPolicy 新增 `caster_status`、`caster_no_status`（requires.has_status／not_status）。A 已經寫好產生器端，等這次 land 後輸出。
+- E620：會擋路的召喚物不要求從施法者走得到（B22 牆後的岩石）。
+- E621：召喚交易接受純呈現的 Explosion（B16 忍犬召喚 reason=Explosion）。
+- E622：dispatch 的每一次 reject_cast 都會記錄原因（用來查 A28 天火 accepted 之後為什麼沒有執行）。
+- E623：召喚物改用 OwnerTeam scope，owner 的隊伍一定看得到自家隱形的召喚物（A36 地雷）。
+- 順帶修正 E598 的回歸：`handle_script_set_pos` 在沒有 Hero storage 的 world 裡不再 panic（`script_outcomes_apply_in_order`）。
+- 驗證：omoba-core 全部 lib 測試 1538 個通過。
 ## 2026-11-01 線 B：換格技能、召喚物施法、自然屏障、吞噬與 observer 拒收（E609～E615、E617）
 
 - E610：換入的技能繼承的等級最多是自己的 max_level。原本 replica 每一幀都拒收，B24 粉碎、A13 替身在 HUD 上按不到。

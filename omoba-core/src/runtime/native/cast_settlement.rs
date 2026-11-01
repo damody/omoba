@@ -179,6 +179,8 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
         Outcome::AddBuff {target,buff_id,..} if summons && channels==0 && *target!=caster && plain_status(buff_id)=>true,
         // Conformance trace metadata for the next damage packet; it changes nothing (damage_trace).
         Outcome::ScriptDamageTag {..}=>true,
+        // An area cue (ExplosionFxQueue) is presentation only: it moves and kills nothing (E621).
+        Outcome::Explosion {..}=>true,
         // G-2: exactly the cast's own ability, at most once (count checked above).
         Outcome::ScriptConsumeCharge {entity,ability_id}=>*entity==caster&&ability_id==skill,
         _ if !summons&&channels==0=>true,
