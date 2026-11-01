@@ -10,8 +10,8 @@
 
 擊退拋物線（全局）：0 次
 
-- 實機：`target/lineC-pres14/taigen_sessai-run`（spotlight，2026-11-01），錄到 937 幀、掉 0 幀，下了 5 次指令，略過 0 格。
-- observer：有檢查，mismatch 0。build：snapshot commit `a5c11697`（E583，一輪建一次）。
-- 木靈走到射程內施放，這次呈現了。自然屏障在 E599 之後仍被權威端取消（已轉給 B）。
+- 實機：`target/lineC-pres14/taigen_sessai-run`（spotlight，2026-11-01），錄到 976 幀、掉 0 幀，下了 5 次指令，略過 0 格。
+- observer：有檢查，mismatch 0。build：snapshot commit `8ccb4310`（E583，一輪建一次）。
+- 自然屏障在 E609 之後仍被權威端取消（已轉 B）。
 - 5 招中 4 招有呈現。
 - 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。

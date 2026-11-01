@@ -14,8 +14,8 @@
 
 擊退拋物線（全局）：0 次
 
-- 實機：`target/lineC-pres14/otani_yoshitsugu-run`（spotlight，2026-11-01），錄到 1160 幀、掉 0 幀，下了 6 次指令，略過 0 格。
-- observer：有檢查，mismatch 0。build：snapshot commit `63a7512d`（E583，一輪建一次）。
-- a12_insight_flash_t、a12_mystic_field、a12_awe_t 不在英雄 row 裡，script 沒有對應的 slot，待查。
+- 實機：`target/lineC-pres14/otani_yoshitsugu-run`（spotlight，2026-11-01），錄到 1157 幀、掉 0 幀，下了 6 次指令，略過 0 格。
+- observer：有檢查，mismatch 0。build：snapshot commit `8ccb4310`（E583，一輪建一次）。
+- a12 的三招 _t／mystic_field 沒有施放，待查。
 - 9 招中 6 招有呈現。
 - 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。選角稱號「玄能的智將」。
