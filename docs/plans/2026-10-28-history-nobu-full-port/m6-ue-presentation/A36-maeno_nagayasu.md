@@ -9,3 +9,9 @@
 | `a36_deadly_strike` | 0 | 0（預期 0 個） | a36t_stun：ring 1 | 有呈現 |
 
 擊退拋物線（全局）：0 次
+
+- 實機：`target/lineC-pres14/maeno_nagayasu-run`（spotlight，rerun18，2026-11-01），略過 1 格（detonate）。錄影幀已在跑完後刪除，報告只讀 log。
+- observer：有檢查，mismatch 0。build：snapshot commit `fb460511`（E583，一輪建一次）。
+- 地雷：spike_trap 在 tick 3571 施放，但 detonate 一直等不到我方的召喚物（`no_own_summon`），tick 4125 跳過。UE 的實體數在施放後 8 秒內沒有增加。已轉 B，UE 下一輪會加 spawn log。
+- 5 招中 4 招有呈現。
+- 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。
