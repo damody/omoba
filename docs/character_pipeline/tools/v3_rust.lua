@@ -2651,7 +2651,7 @@ function Gen:action(a, ctx, ind)
     if not types and (tk == "creep+neutral+summon" or tk == "boss+creep+neutral+summon") then types, no_heroes = "NonBuilding", true end
     if not types then self:block("selector.types:" .. tk); types = "All" end
     local mi, inv, hid, ill = false, false, false, false
-    local dead = false
+    local dead, visible = false, false
     local skip = {}
     for _, f in ipairs(s.flags or {}) do
       if f == "include_magic_immune" then mi = true elseif f == "include_invulnerable" then inv = true
@@ -2665,8 +2665,10 @@ function Gen:action(a, ctx, ind)
       -- exclude_illusions / exclude_invisible: such a unit is skipped (before `where` and `limit`)
       elseif f == "exclude_illusions" then skip[#skip + 1] = "IS_ILLUSION"
       elseif f == "exclude_invisible" then skip[#skip + 1] = "IS_INVISIBLE"
-      -- visible_only: enemies_in_circle already takes the caster team's disclosed units
-      elseif f ~= "include_untargetable" and f ~= "visible_only" then self:block("selector.flag:" .. f) end
+      -- visible_only: a unit the caster's team cannot see now is skipped (before `where` and
+      -- `limit`); the range queries take every unit, seen or not (line D E641)
+      elseif f == "visible_only" then visible = true
+      elseif f ~= "include_untargetable" then self:block("selector.flag:" .. f) end
     end
     if ill and table.concat(skip, ","):find("IS_ILLUSION", 1, true) then self:block("selector.flag: include_illusions with exclude_illusions") end
     if s.order ~= nil and s.order ~= "id" and s.order ~= "nearest" and s.order ~= "farthest" and s.order ~= "random" then self:block("selector.order:" .. tostring(s.order)) end
@@ -2711,6 +2713,7 @@ function Gen:action(a, ctx, ind)
     for _, flag in ipairs(skip) do
       str = str .. line("        if cx.unit_flag(" .. it .. ", ability_kit::unit_attr::" .. flag .. ") { continue; }")
     end
+    if visible then str = str .. line("        if !cx.is_visible_to(" .. it .. ", cx.caster) { continue; }") end
     if no_heroes then str = str .. line("        if cx.is_hero(" .. it .. ") { continue; }") end
     if s.where then
       -- the selector's `where` names the candidate `it`
