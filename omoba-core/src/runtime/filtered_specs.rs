@@ -1813,6 +1813,9 @@ fn apply_disclosed_events(
             }
             for (slot,rank) in ranks.iter().enumerate() {
                 if let Some(ability)=hero.abilities.get(slot).filter(|ability|!ability.is_empty()) {
+                    // An unlearned ability the authority holds no rank for (a swapped-in or D/F
+                    // ability, E579) stays without one here: rank 0 reads the same either way.
+                    if *rank==0 && !hero.ability_levels.contains_key(ability) {continue;}
                     hero.ability_levels.insert(ability.clone(),*rank);
                 }
             }
@@ -2526,6 +2529,21 @@ mod committed_actor_state_tests {
         let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
         assert_eq!(hero.abilities,vec!["lumen_touch"]);
         assert_eq!((hero.get_ability_level("lumen_touch"),hero.get_ability_level("lumen_bolt")),(1,2));
+    }
+
+    /// E579: an unlearned ability swapped in (no rank on the authority) gets no rank key from a
+    /// rank 0 here either, so the replica's hero matches the authority's.
+    #[test]
+    fn an_unlearned_swapped_in_ability_gets_no_rank_key() {
+        let mut world=world();
+        let id=|name:&str|omoba_template_ids::ability_by_name(name).unwrap().raw();
+        let mut tick=event(FactKind::CommittedAbilityRanks,[0i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect());
+        tick.public_events.extend(event(FactKind::CommittedAbilitySlots,
+            [id("lumen_touch"),0,0,0].into_iter().flat_map(u16::to_le_bytes).collect()).public_events);
+        apply_disclosed_events(&mut world,&tick).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities,vec!["lumen_touch"]);
+        assert!(!hero.ability_levels.contains_key("lumen_touch"),"no key the authority does not hold");
     }
 
     #[test]

@@ -2,6 +2,17 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E579 replica 把未學技能的等級 0 寫成 key，authority 沒有（observer Hero 不一致）（2026-11-01，工作線 B）
+
+- **現象**：E 的 E555 回歸中，m6e555rg06（tick 960，entity 1，`b26_release_wave`）與 rg08（tick 8400，entity 12，`c07_storm_move`）出現 observer 不一致：Hero 元件的 `ability_levels`，replica 多了值為 0 的 key，authority 沒有。兩局的 build 分別在 06:59 與 07:22，都早於 E578。
+- **根因**：
+  - replica 套用 CommittedAbilityRanks 時，對格子裡的每個技能都 `insert(ability, rank)`，連 rank 0 也寫。
+  - authority 沒學過的 D／F 格或 swap 換入的技能沒有 key（`ability_slots::swap` 只在有等級時才複製）。
+  - 這兩位英雄轉正式後才有 D／F 技能，所以問題現在才出現。
+- **通用修正**：等級 0 且 replica 原本沒有這個 key 時就不寫入。等級 0 有沒有 key 讀起來都一樣，replica 因此與 authority 一致。
+- **測試**：`filtered_specs::tests::an_unlearned_swapped_in_ability_gets_no_rank_key`：同一 tick 換入沒學過的技能並收到等級 0，不會出現 key。filtered_specs 與 team_replica 的 66 個測試通過。
+- **檔案**：`omoba-core/src/runtime/filtered_specs.rs`
+
 ## E578 英雄技能格 add_ability／remove_ability（C08 偷技能到 F 格）（2026-11-01，工作線 B）
 
 - **現象**：加藤段藏（C08）的 T 偷目標一個技能，寫法是 `add_ability { to = caster, ability = pick, level, slot = "F", cast_point = "0" }`，F 格原本的技能先 `remove_ability`。E560 的 add_ability／remove_ability 只支援非英雄單位，對英雄回傳錯誤。
