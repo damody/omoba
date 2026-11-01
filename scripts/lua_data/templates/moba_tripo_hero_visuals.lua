@@ -31,6 +31,8 @@ return function(ctx)
     otani_yoshitsugu={idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.65},
     maeda_toshiie={idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.65},
     kojima_sadaoki={idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.65},
+    shimazu_yoshihiro={idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.65},
+    maeda_keiji={idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.65},
     nohime={idle='Idle_Loop',attack='Spell_Simple_Shoot',critical='Spell_Simple_Shoot',impact=0.3},
     -- Lane minions (templates/world_units.lua): weapons hang on their backs like the heroes'.
     minion_ashigaru={idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.5},
@@ -75,7 +77,7 @@ return function(ctx)
   -- Heroes whose Tripo rig and retargeted clips are imported and verified.
   local imported={saika_magoichi=true,date_masamune=true,omatsu=true,oichi=true,inahime=true,asai_nagamasa=true,
     murakami_yoshikiyo=true,tamako=true,honda_tadakatsu=true,sanada_yukimura=true,tokugawa_ieyasu=true,
-    yamagata_masakage=true,okuma_tomohide=true,sasaki_kojiro=true,otani_yoshitsugu=true,maeda_toshiie=true,nohime=true,kojima_sadaoki=true,minion_ashigaru=true,minion_archer=true,minion_siege=true,
+    yamagata_masakage=true,okuma_tomohide=true,sasaki_kojiro=true,otani_yoshitsugu=true,maeda_toshiie=true,nohime=true,kojima_sadaoki=true,shimazu_yoshihiro=true,maeda_keiji=true,minion_ashigaru=true,minion_archer=true,minion_siege=true,
     jungle_kappa=true,jungle_tengu=true,jungle_oni=true}
   -- Build-time colour variants (manifest recolor block, scripts/recolor_characters.lua) whose texture and
   -- material are imported: the variant material replaces the body's single section. Oichi's pale pink
