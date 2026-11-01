@@ -80,6 +80,61 @@ assert(sessai.slots[2].id=='b22_force_of_nature' and sessai.slots[2].team=='tree
 assert(spotlight.recipe_for(sessai)==spotlight.TREE_RECIPE,'B22 is shown on the tree stage')
 assert(spotlight.recipe_for(spotlight.load_package(b.root,'saika_magoichi'))==spotlight.RECIPE,'other heroes keep the base stage')
 
+-- E594: summon abilities and sub-abilities follow the slot that makes them castable.
+local function index_of(package,id,summon)
+  for index,slot in ipairs(package.slots) do if slot.id==id and slot.summon==summon then return index,slot end end
+end
+-- A36 地刺陷阱 creates the mine (unit template ability 引爆): shown right after it, by summon slot 0.
+local nagayasu=spotlight.load_package(b.root,'maeno_nagayasu')
+local trap=index_of(nagayasu,'a36_spike_trap')
+local det_index,detonate=index_of(nagayasu,'a36_detonate','a36e_mine')
+assert(detonate and det_index==trap+1,'引爆 follows 地刺陷阱')
+assert(detonate.slot==0 and detonate.after=='a36_spike_trap' and detonate.team=='self' and detonate.kind=='active')
+-- B16 月月: abilities granted by add_ability in 忍犬召喚 (template has none); its passives are not slots.
+local chiyome=spotlight.load_package(b.root,'mochizuki_chiyome')
+local hound=index_of(chiyome,'b16_summon_hound')
+local mm_index,mm=index_of(chiyome,'b16_mm_phase_shift','b16d_moon')
+assert(mm and mm_index==hound+1 and mm.slot==0 and mm.after=='b16_summon_hound','月月的相移 follows 忍犬召喚')
+assert(not index_of(chiyome,'b16_mm_sweep','b16d_moon') and not index_of(chiyome,'b16_mm_stealth','b16d_moon'))
+local passives=0
+for _,row in ipairs(chiyome.unshown) do if row.summon=='b16d_moon' and row.reason=='summon passive' then passives=passives+1 end end
+assert(passives==3,'the hound passives are listed as unshown: '..passives)
+-- A28 鳳凰's 天火 is a point cast: aimed at the enemy, confirmed by the summon point click.
+local _,fire=index_of(spotlight.load_package(b.root,'hashiba_hideyoshi'),'a28_heaven_fire','a28_phoenix')
+assert(fire and fire.team=='enemy' and fire.after=='a28_phoenix_summon')
+-- B26 釋放蓄力波: castable only while 蓄力波 charges (set_ability_level 1 on cast, 0 after): moved
+-- right after it; its own slot (D) is kept.
+local okuma=spotlight.load_package(b.root,'okuma_tomohide')
+assert(okuma.slots[1].id=='b26_charging_wave' and okuma.slots[2].id=='b26_release_wave','釋放 follows 蓄力波')
+assert(okuma.slots[2].slot==4 and okuma.slots[2].after=='b26_charging_wave' and okuma.slots[2].summon==nil)
+-- A13 換位之術 is swapped into Q by 影惑之術: a second demonstration of slot 0 right after it.
+local hanzo=spotlight.load_package(b.root,'hattori_hanzo')
+assert(hanzo.slots[2].id=='a13_substitution' and hanzo.slots[2].slot==0 and hanzo.slots[2].after=='a13_shadow_illusion' and hanzo.slots[2].team=='ally')
+-- 迷蹤步 only rises with 影殺 (never back to 0): an ordinary slot without `after`.
+local _,step=index_of(hanzo,'a13_vanishing_step')
+assert(step and step.after==nil)
+-- Sub-ability rules on document fragments: one enabler and a reset to 0 make a sub-ability; a level
+-- a routine raises does not; a swap names the swapped row slot.
+do
+  local deps=spotlight.v3_dependents({abilities={
+    {id='q',events={on_cast={{op='set_ability_level',of='caster',ability='d',level='1'},
+      {op='swap_abilities',on='caster',from='q',to='q2'}}}},
+    {id='d',learnable=false,events={on_cast={{op='set_ability_level',of='caster',ability='d',level='0'}}}},
+    {id='f',learnable=false},
+    {id='r',events={on_cast={{op='create_unit',template='pet',as='u'},{op='add_ability',ability='bite',to='u'},{op='add_ability',ability='other',to='x'}}}},
+  },routines={adjust={actions={{op='set_ability_level',ability='f',level=1}}}},
+  unit_templates={{id='pet',abilities={'howl'}},{id='rock'}}},{'q','','r','d','f'})
+  assert(deps.subs.d=='q' and deps.subs.f==nil)
+  assert(#deps.swaps==1 and deps.swaps[1].id=='q2' and deps.swaps[1].slot==0 and deps.swaps[1].after=='q')
+  assert(#deps.summons==1 and deps.summons[1].template=='pet' and deps.summons[1].after=='r'
+    and table.concat(deps.summons[1].abilities,',')=='howl,bite','template abilities, then the creator add_ability ops')
+end
+-- The script carries summon/after only where they apply (old scripts parse as before).
+local nscript=json.decode(json.encode(spotlight.script(nagayasu)))
+assert(nscript.slots[1].summon==nil and nscript.slots[1].after==nil and nscript.slots[det_index].summon=='a36e_mine')
+-- Keyframes of a summon demonstration are named by the summon.
+assert(spotlight.keyframes({{event='spotlight_slot',slot=0,summon='a36e_mine',aim='self',t=0}},{{frame=0,t=0}})[1].name=='01_a36e_mine_slot0_self_caption')
+
 local saika=spotlight.load_package(b.root,'saika_magoichi')
 assert(saika.hero_name=='雜賀孫市' and saika.slots[1].name=='狙擊模式' and saika.slots[2].team=='ally' and saika.slots[3].kind=='passive')
 assert(not pcall(spotlight.load_package,b.root,'missing_hero'))

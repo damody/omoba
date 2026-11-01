@@ -2,6 +2,8 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E595 （保留）spotlight 不能示範召喚物技能與暫時開放的子技能（2026-11-01）
+
 ## E594 replica 在同一 step 先套 PostStep Movement 再套 PreStepMovement：被拉走的小兵留在走路位置（2026-11-01，工作線 B）
 
 - **現象**：E 的 rg09 在 tick 30840 出現 observer mismatch：team 1 看自己的 lane_melee（replica id 3800），元件 0x464f4701（DemoRenderState）。權威端在 (4694, 4102)，replica 在 (4800, 3605)，差約 500 單位。E580 補送位置之後仍會發生。

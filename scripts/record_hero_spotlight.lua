@@ -149,7 +149,183 @@ function M.load_v3_package(root,hero)
       line=M.first_line(ability.description),kind=kind,team=team}
     end
   end
+  local doc=M.v3_document(root,hero)
+  if doc then slots=M.with_dependents(slots,M.v3_dependents(doc,row.abilities),by_id,aim,unshown) end
+  assert(#slots<=16,hero..' has more than 16 demonstrations (FOmSpotlightScript::Parse)')
   return {hero=hero,hero_name=row.display_name or hero,title=row.title or '',slots=slots,unshown=unshown}
+end
+
+-- E594: the hero's v3 document (docs/character_pipeline/packages/<hero>/v3.lua), loaded with only
+-- pure helpers like hero_author/cli.lua safe_env (a package is data); nil without one.
+function M.v3_document(root,hero)
+  local file=path.join(root,'docs','character_pipeline','packages',hero,'v3.lua')
+  if not path.is_file(file) then return nil end
+  local env={pairs=pairs,ipairs=ipairs,next=next,select=select,type=type,tostring=tostring,
+    tonumber=tonumber,assert=assert,error=error,string=string,table=table,math=math,utf8=utf8}
+  local doc=assert(loadfile(file,'t',env))()
+  if type(doc)=='function' then doc=doc({}) end
+  return doc
+end
+
+-- Every op table under NODE in document order (array entries first, then named fields sorted),
+-- so add_ability ops keep the order the document grants them in.
+local function each_op(node,fn,seen)
+  seen=seen or {}
+  if type(node)~='table' or seen[node] then return end
+  seen[node]=true
+  if type(node.op)=='string' then fn(node) end
+  for _,value in ipairs(node) do each_op(value,fn,seen) end
+  local keys={}
+  for key in pairs(node) do if type(key)=='string' then keys[#keys+1]=key end end
+  table.sort(keys)
+  for _,key in ipairs(keys) do each_op(node[key],fn,seen) end
+end
+
+-- E594: what can only be shown after another slot of the hero row (ROW = the row's ability ids):
+--   subs[id] = enabler: a row ability that is not learnable, set to a nonzero level only inside one
+--     other ability and back to 0 (b26 釋放蓄力波: 蓄力波 sets it to 1 on cast and to 0 after 12 s);
+--     one whose level only rises with another (a13 迷蹤步 = 影殺 level + 1) is an ordinary slot.
+--   swaps = {id, from, after}: an ability a caster's cast swaps into a row slot (a13 換位之術 for
+--     影惑之術 Q, c14 火龍吐息術 for 火吐息術 during 龍化).
+--   summons = {template, after, abilities}: a unit template with abilities (its own `abilities` and
+--     the add_ability ops of the ability that creates it, in order: b16 月月's 相移...), shown through
+--     the player's summon controls after the creating ability (a36 地刺陷阱 → 引爆).
+function M.v3_dependents(doc,row)
+  local in_row={}
+  for index,id in ipairs(row) do if id~='' then in_row[id]=index end end
+  local out={subs={},swaps={},summons={}}
+  local abilities=doc.abilities or {}
+  for _,target in ipairs(abilities) do
+    if target.learnable==false and in_row[target.id] then
+      local zero,enablers,count=false,{},0
+      for _,ability in ipairs(abilities) do
+        each_op(ability,function(op)
+          if op.op=='set_ability_level' and op.ability==target.id then
+            if tonumber(op.level)==0 then zero=true
+            elseif ability.id~=target.id and (op.of==nil or op.of=='caster') and not enablers[ability.id] then
+              enablers[ability.id]=true;count=count+1
+            end
+          end
+        end)
+      end
+      -- A level a routine raises (b16 相移 from b16_adjust) is not a cast window.
+      local routine=false
+      each_op(doc.routines,function(op)
+        if op.op=='set_ability_level' and op.ability==target.id and tonumber(op.level)~=0 then routine=true end
+      end)
+      if zero and count==1 and not routine then out.subs[target.id]=next(enablers) end
+    end
+  end
+  local swapped={}
+  for _,ability in ipairs(abilities) do
+    if in_row[ability.id] then
+      each_op(ability,function(op)
+        if op.op=='swap_abilities' and op.on=='caster' and in_row[op.from] and not in_row[op.to] and not swapped[op.to] then
+          swapped[op.to]=true
+          out.swaps[#out.swaps+1]={id=op.to,from=op.from,slot=in_row[op.from]-1,after=ability.id}
+        end
+      end)
+    end
+  end
+  for _,template in ipairs(doc.unit_templates or {}) do
+    local creator,as
+    for _,ability in ipairs(abilities) do
+      if in_row[ability.id] and not creator then
+        each_op(ability,function(op)
+          if op.op=='create_unit' and op.template==template.id and not creator then creator,as=ability,op.as end
+        end)
+      end
+    end
+    local list,seen={},{}
+    for _,id in ipairs(template.abilities or {}) do if not seen[id] then seen[id]=true;list[#list+1]=id end end
+    if creator and as then
+      each_op(creator,function(op)
+        if op.op=='add_ability' and op.to==as and op.ability and not seen[op.ability] then seen[op.ability]=true;list[#list+1]=op.ability end
+      end)
+    end
+    if #list>0 then
+      local targets={}
+      for _,ability in ipairs(abilities) do targets[ability.id]=ability.target end
+      out.summons[#out.summons+1]={template=template.id,after=creator and creator.id,abilities=list,targets=targets}
+    end
+  end
+  return out
+end
+
+-- The aim of a summon's ability: its v3 bot kind when the spotlight can aim it, else its target
+-- (summon abilities have bot kind none: the hero bot never casts them). nil when it cannot be shown.
+local function summon_team(ability,target,aim)
+  local bot=ability.v3 and ability.v3.bot
+  if bot and bot.kind~='none' and aim[bot.kind] then return aim[bot.kind].team end
+  local kind=(target and target.type) or ability.target_type or 'none'
+  if kind=='none' then return 'self' end
+  if kind=='point' or kind=='unit' then return target and target.team=='ally' and 'ally' or 'enemy' end
+  return nil
+end
+
+-- E594: SLOTS (the hero row's demonstrations) with the dependents of DEPS: a sub-ability gets
+-- `after` = its enabler, a swapped-in ability and each summon ability become slots of their own,
+-- and every dependent is moved right after its enabler, so the renderer shows it while the window
+-- the enabler opened is still open. A dependent whose enabler is not shown is listed in UNSHOWN.
+function M.with_dependents(slots,deps,by_id,aim,unshown)
+  local shown={}
+  for _,slot in ipairs(slots) do shown[slot.id]=true end
+  local after={}
+  local function depend(enabler,slot)
+    if not shown[enabler] then
+      unshown[#unshown+1]={slot=slot.slot,id=slot.id,summon=slot.summon,reason='enabler '..tostring(enabler)..' not shown'}
+      return
+    end
+    slot.after=enabler
+    after[enabler]=after[enabler] or {}
+    table.insert(after[enabler],slot)
+  end
+  local base={}
+  for _,slot in ipairs(slots) do
+    local enabler=deps.subs[slot.id]
+    if enabler then depend(enabler,slot) else base[#base+1]=slot end
+  end
+  local function slot_of(id,index,extra)
+    local ability=assert(by_id[id],'ability '..id..' is not in the content catalog')
+    local kind=ability.ability_type
+    if kind~='passive' and kind~='toggle' and kind~='ultimate' then kind='active' end
+    local slot={slot=index,id=id,name=assert(ability.display_name,'ability without a name'),line=M.first_line(ability.description),kind=kind}
+    for key,value in pairs(extra) do slot[key]=value end
+    return slot,ability
+  end
+  for _,swap in ipairs(deps.swaps) do
+    if by_id[swap.id] then
+      local slot,ability=slot_of(swap.id,swap.slot,{})
+      local bot=ability.v3 and ability.v3.bot
+      slot.team=bot and aim[bot.kind] and aim[bot.kind].team or (slot.kind=='passive' and 'self') or nil
+      if slot.team then depend(swap.after,slot)
+      else unshown[#unshown+1]={slot=swap.slot,id=swap.id,reason='bot kind none'} end
+    else unshown[#unshown+1]={slot=swap.slot,id=swap.id,reason='not in the content catalog'} end
+  end
+  for _,summon in ipairs(deps.summons) do
+    for index,id in ipairs(summon.abilities) do
+      local ability=by_id[id]
+      local reason=not ability and 'not in the content catalog' or not summon.after and 'no row ability creates '..summon.template
+        or index>4 and 'summon ability past SummonAbility4' or ability.ability_type=='passive' and 'summon passive' or nil
+      local team=not reason and summon_team(ability,summon.targets[id],aim) or nil
+      if not reason and not team then reason='summon target cannot be aimed' end
+      if reason then unshown[#unshown+1]={slot=index-1,id=id,summon=summon.template,reason=reason}
+      else
+        local slot=slot_of(id,index-1,{summon=summon.template,team=team})
+        -- A summon's ultimate-typed ability is still cast through the summon ability keys.
+        if slot.kind=='ultimate' or slot.kind=='toggle' then slot.kind='active' end
+        depend(summon.after,slot)
+      end
+    end
+  end
+  local out={}
+  local function emit(slot)
+    out[#out+1]=slot
+    for _,dependent in ipairs(after[slot.id] or {}) do emit(dependent) end
+    after[slot.id]=nil
+  end
+  for _,slot in ipairs(base) do emit(slot) end
+  return out
 end
 
 function M.load_package(root,hero)
@@ -225,7 +401,9 @@ function M.keyframes(events,frames)
       if event.event=='spotlight_cast' then t=t+1.2 end
       local row=nearest(t)
       if row then
-        shots[#shots+1]={name=('%02d_slot%d_%s_%s'):format(#shots+1,event.slot,event.aim or 'self',
+        -- A summon's ability (E594) is named by its summon: its slot is the summon ability index.
+        shots[#shots+1]={name=('%02d_%sslot%d_%s_%s'):format(#shots+1,
+          type(event.summon)=='string' and event.summon:match('^[%w_]+$') and event.summon..'_' or '',event.slot,event.aim or 'self',
           event.event=='spotlight_slot' and 'caption' or 'effect'),frame=row.frame}
       end
     end
