@@ -15,7 +15,7 @@
 擊退拋物線（全局）：0 次
 
 - 實機：`target/lineC-pres14/mochizuki_chiyome-run`（spotlight，2026-11-01），錄到 1396 幀、掉 0 幀，下了 6 次指令，略過 1 格。
-- observer：有檢查，mismatch 0。build：snapshot commit `64803c87`（E583，一輪建一次）。
-- 忍犬「月」的技能：點選召喚物、按下 Alt+D 後，輸入層沒有送出任何指令（OM_SUMMON_CAST 記錄加在 E600，正在查）。
+- observer：有檢查，mismatch 0。build：snapshot commit `a5c11697`（E583，一輪建一次）。
+- 忍犬「月」的技能：同上，E607 修好後在 rerun14 重驗。
 - 9 招中 5 招有呈現，1 招被動沒有 cue 或狀態可檢查。
 - 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。
