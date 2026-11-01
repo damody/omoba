@@ -367,6 +367,26 @@ M.QUIRK_TOPICS = {
       end
       return points
     end },
+  -- an enemy hero's illusion in a selector's area: the entry's one illusion_in_effect scenario
+  -- (one hero selector it could be about), the quirk saying the same as its `affected`
+  { topic = "illusion_selection", word = "幻象", case = "illusion_in_effect",
+    claim = function(text)
+      local no = contains_any(text, { "不含幻象", "排除幻象", "不包括幻象", "幻象不受", "幻象不會" })
+      local yes = text:find("含幻象", 1, true) ~= nil and not contains_any(text, { "不含幻象" })
+        or contains_any(text, { "幻象也會被", "包括幻象", "幻象一樣" })
+      if no and not yes then return false elseif yes and not no then return true end
+      return nil
+    end,
+    points = function(_, _, _, scenarios)
+      local points = {}
+      for _, s in ipairs(scenarios or {}) do
+        local e = s.expect and s.expect[1]
+        if e and e.kind == "illusion_affected" then
+          points[#points + 1] = { path = e.path, flag = "include_illusions", value = e.affected, scenarios = { s } }
+        end
+      end
+      return points
+    end },
   -- buildings in a selector's area: the entry's one building_in_effect scenario (one selector it
   -- could be about), the quirk saying the same as its `affected`
   { topic = "building_selection", word = "建築", case = "building_in_effect",
@@ -1149,6 +1169,19 @@ local function entry_scenarios(doc, def, entry_kind, out)
             push(1, "hidden_in_effect", { suffix = state .. "/" .. e.path, given = rank1_given({ kind = "hidden_in_effect", path = e.path, team = "enemy", state = state }), when = { cast_step },
               expect = { { kind = "hidden_affected", path = e.path, affected = picked, ops = ops, state = state } },
               rule = "selector flags visible_only / exclude_invisible decide whether an enemy the caster's team cannot see is picked" })
+          end
+          -- an enemy hero's illusion in the same area, for a selector reaching heroes (line D
+          -- places it and a real enemy hero that shows the cast landed): picked with
+          -- include_illusions, never with exclude_illusions; without either an illusion is no
+          -- hero but a summon (ability_kit Select), so then the types decide
+          local types = {}
+          for _, ty in ipairs(type(sel.types) == "table" and sel.types or { "all" }) do types[ty] = true end
+          if types.hero or types.all then
+            local picked = not flags.exclude_illusions and (flags.include_illusions or types.summon or types.all or false)
+            push(1, "illusion_in_effect", { suffix = e.path,
+              given = rank1_given({ kind = "illusion_in_effect", path = e.path, team = "enemy" }), when = { cast_step },
+              expect = { { kind = "illusion_affected", path = e.path, affected = picked, ops = ops } },
+              rule = "selector flags include_illusions / exclude_illusions (else its summon type) decide whether an enemy hero's illusion is picked" })
           end
         end
       end
