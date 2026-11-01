@@ -2,6 +2,26 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E581 （保留）conformance on_removed 只驗證會移除或套上持有者狀態的 trigger，其他效果一律 unsupported（2026-11-01）
+
+## E580 小兵投影後被移動，replica 位置沒有校正（observer DemoRender 不一致）（2026-11-01，工作線 B）
+
+- **現象**：E 的 E555 回歸中，m6e555rg02／rg03／rg09 出現小兵（kind 2）的 DemoRender（schema 0x464f4701）位置不一致，分別在 tick 6840、2640、6600，差約 4.6、365、482 單位。三筆的 replica 值都等於該 tick 投影出的 DemoRenderState，authority 自己的 Pos 卻不同。用 live（含 E579）建置重跑 rg03（quick、seed 1）可以穩定重現：tick 2640，entity 199。
+- **根因**：
+  - replica 不會模擬線上與野區的小兵（filtered_specs `CreepWave => {}`），小兵在 replica 上的位置只來自移動事實（PreStepMovement、forced motion、impulse）。
+  - `finish_moba_match_tick` 只在 tick 結尾送出英雄與召喚物的位置。小兵在移動事實送出之後若又被移動，例如 `handle_script_set_pos`、`blink_landing::apply` 這類不送事實的寫入，replica 就一直停在舊位置。
+  - E555 之後追擊與停點改變，讓這類移動更常發生。
+- **通用修正**：
+  - `CommittedLanePoses` 記錄每個 lane 單位最後一次移動事實送出的位置。PreStepMovement 送出時更新。
+  - `finish_moba_match_tick` 的最後，`emit_moved_lane_units` 比對 `state.units`（不含英雄與召喚物，它們已有 tick 結尾的位置）目前的 Pos。只對位置不同的單位補送一筆 PostStep Movement，包含 facing。
+  - 沒有移動的單位不送，stress 場景的熱路徑只多一次比對。
+  - 不論是哪一段程式移動了小兵，replica 都會在 tick 結尾回到 authority 的位置。
+- **測試**：
+  - `moba_match::committed_lane_pose_tests::only_lane_units_moved_after_their_fact_are_sent`：只送出位置和事實不同的單位，同一位置只送一次；新單位會送；死亡的單位從記錄中移除。
+  - moba_match 的 291 個測試通過。
+  - 實機重現與修正後重跑見 execution-status。
+- **檔案**：`omoba-core/src/runtime/native/moba_match.rs`
+
 ## E579 replica 把未學技能的等級 0 寫成 key，authority 沒有（observer Hero 不一致）（2026-11-01，工作線 B）
 
 - **現象**：E 的 E555 回歸中，m6e555rg06（tick 960，entity 1，`b26_release_wave`）與 rg08（tick 8400，entity 12，`c07_storm_move`）出現 observer 不一致：Hero 元件的 `ability_levels`，replica 多了值為 0 的 key，authority 沒有。兩局的 build 分別在 06:59 與 07:22，都早於 E578。

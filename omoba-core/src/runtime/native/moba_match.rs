@@ -2529,6 +2529,12 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
     for (entity, from, target) in attack_faces {
         if let Some(ticks) = face_toward(world, entity, from, target) { poses.entry(entity).or_insert((from, None)).1 = Some(ticks); }
     }
+    // The positions these facts commit (E580: the end of the tick sends only what moved after).
+    if !world.has_value::<CommittedLanePoses>() { world.insert(CommittedLanePoses::default()); }
+    {
+        let mut committed = world.write_resource::<CommittedLanePoses>();
+        for (entity, (pos, _)) in &poses { committed.0.insert(*entity, *pos); }
+    }
     for (entity, (pos, facing_ticks)) in poses {
         let source = crate::runtime::canonical_entity_id(entity);
         world
@@ -3073,6 +3079,57 @@ pub fn finish_moba_match_tick(world: &mut World) {
     if world.try_fetch::<MobaMatch>().is_some() {
         super::game_processor::emit_changed_vitals(world);
         super::game_processor::emit_failed_cast_cooldowns(world);
+        emit_moved_lane_units(world);
+    }
+}
+
+/// The position each lane unit's last movement fact committed (E580).
+#[derive(Default)]
+pub struct CommittedLanePoses(pub BTreeMap<Entity, Vec2>);
+
+/// The lane units whose position at the end of the tick is not the one their last movement fact
+/// committed, with that position (and the record brought up to date). A replica never steps a
+/// lane or camp creep (filtered_specs `CreepWave`): it holds the creep where the facts put it.
+fn moved_lane_units(committed: &mut CommittedLanePoses, alive: impl Fn(Entity) -> bool,
+    now: impl IntoIterator<Item = (Entity, Vec2)>) -> Vec<(Entity, Vec2)> {
+    committed.0.retain(|entity, _| alive(*entity));
+    let mut moved: Vec<(Entity, Vec2)> = now.into_iter().filter(|(entity, pos)| committed.0.get(entity) != Some(pos)).collect();
+    moved.sort_by_key(|(entity, _)| (entity.id(), entity.gen().id()));
+    moved.dedup_by_key(|(entity, _)| *entity);
+    for (entity, pos) in &moved { committed.0.insert(*entity, *pos); }
+    moved
+}
+
+/// E580: a lane unit moved after its movement fact this tick (a script's set_pos, a blink
+/// landing, any other writer) gets its committed pose now, like a summon's, so every replica
+/// that discloses it ends the tick where the authority has it. Only moved units send one.
+fn emit_moved_lane_units(world: &mut World) {
+    if !world.has_value::<CommittedLanePoses>() { world.insert(CommittedLanePoses::default()); }
+    let tick = world.read_resource::<Tick>().0;
+    let moved: Vec<_> = {
+        let state = world.read_resource::<MobaMatch>();
+        let entities = world.entities();
+        let positions = world.read_storage::<Pos>();
+        let facings = world.read_storage::<Facing>();
+        let (summons, heroes) = (world.read_storage::<SummonedUnit>(), world.read_storage::<Hero>());
+        let mut committed = world.write_resource::<CommittedLanePoses>();
+        // heroes and summons already end every tick with their committed pose
+        let now = state.units.values().filter(|unit| summons.get(unit.entity).is_none() && heroes.get(unit.entity).is_none())
+            .filter_map(|unit| positions.get(unit.entity).map(|pos| (unit.entity, pos.0)));
+        moved_lane_units(&mut committed, |entity| entities.is_alive(entity), now).into_iter()
+            .map(|(entity, pos)| (entity, pos, facings.get(entity).map(|facing| facing.0.ticks()))).collect()
+    };
+    for (entity, pos, facing_ticks) in moved {
+        let source = crate::runtime::canonical_entity_id(entity);
+        world.read_resource::<crate::runtime::ObservableFactBuffer>()
+            .emit(crate::runtime::OrderedFact {
+                key: crate::runtime::FactOrderingKey { tick, phase: crate::runtime::FactPhase::PostStep,
+                    canonical_source_order: source, local_ordinal: 0, fact_kind: crate::runtime::FactKind::Movement },
+                audience: crate::runtime::FactAudience::VisibilityPolicy(
+                    omb_script_abi::types::projection_policy_ids::MOVEMENT.to_owned()),
+                fact: crate::runtime::ObservableFact::Movement { source, x_mm: pos.x.raw(), y_mm: pos.y.raw(), facing_ticks },
+            })
+            .expect("valid committed lane pose");
     }
 }
 
@@ -4456,4 +4513,27 @@ fn invulnerable_summons_are_never_attackable_and_dead_lives_are_pruned() {
     state.add_invulnerable_summon(&world.entities(), next);
     assert_eq!(state.invulnerable_summons.len(), 1, "the dead arrow is pruned");
     assert!(!state.current_match_target_attackable(next));
+}
+
+#[cfg(test)]
+mod committed_lane_pose_tests {
+    use super::*;
+
+    /// E580: only a lane unit whose position differs from its last committed fact is sent, once;
+    /// a dead unit leaves the record.
+    #[test]
+    fn only_lane_units_moved_after_their_fact_are_sent() {
+        let mut world = World::new();
+        let (a, b) = (world.create_entity().build(), world.create_entity().build());
+        let p = |x: i32| Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO);
+        let mut committed = CommittedLanePoses::default();
+        committed.0.insert(a, p(10));
+        committed.0.insert(b, p(20));
+        assert_eq!(moved_lane_units(&mut committed, |_| true, [(a, p(10)), (b, p(20))]), vec![], "where their facts put them");
+        assert_eq!(moved_lane_units(&mut committed, |_| true, [(a, p(10)), (b, p(385))]), vec![(b, p(385))], "moved after its fact");
+        assert_eq!(moved_lane_units(&mut committed, |_| true, [(a, p(10)), (b, p(385))]), vec![], "sent once");
+        let fresh = world.create_entity().build();
+        assert_eq!(moved_lane_units(&mut committed, |e| e != a, [(fresh, p(1))]), vec![(fresh, p(1))], "a new unit has no fact yet");
+        assert!(!committed.0.contains_key(&a), "a dead unit leaves the record");
+    }
 }
