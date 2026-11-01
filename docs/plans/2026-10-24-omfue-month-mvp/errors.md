@@ -2,6 +2,21 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E594 replica 在同一 step 先套 PostStep Movement 再套 PreStepMovement：被拉走的小兵留在走路位置（2026-11-01，工作線 B）
+
+- **現象**：E 的 rg09 在 tick 30840 出現 observer mismatch：team 1 看自己的 lane_melee（replica id 3800），元件 0x464f4701（DemoRenderState）。權威端在 (4694, 4102)，replica 在 (4800, 3605)，差約 500 單位。E580 補送位置之後仍會發生。
+- **probe**：
+  - 在 mismatch 時印出單位身分，並追蹤它的 movement fact。
+  - tick 30808 這隻小兵先照路線走路，權威端送出 PreStepMovement（(4800, 3605.3)，路線上 x 正好是 4800）。
+  - 同一個 tick 裡，山縣昌景（B20）的 E 壞毀波把它拉到身旁，E580 在 tick 結尾送出 PostStep Movement（(4694, 4102)），並更新 committed。
+  - replica 收到的順序是 Movement(kind 0) → PreStepMovement(kind 16)。fact 依 kind 排序，Movement 排在前面，所以走路的位置蓋掉了被拉走後的位置。
+  - 之後小兵被暈眩，不再移動。權威端的 committed 已經等於現在的位置，不會再補送，replica 就一直停在路線上。
+- **根因**：replica 有兩處依 fact 的到達順序套用位置：`apply_authoritative_movement_outcomes` 處理 Specs 的 Pos，`apply_disclosed_events` 處理 DemoRenderState。但同一 step 裡，PostStep Movement 才是 tick 結尾的位置。
+- **修正**：同一 step 裡，有 PostStep Movement 的單位，略過它的 PreStepMovement（`post_step_movers`／`superseded_pre_step`）。兩處都套用，其他 fact 的順序不變。
+- **測試**：`filtered_specs` 的 movement 測試新增一段：同一個單位依序收到 Movement(900) 與 PreStepMovement(50)，結果停在 900。filtered_specs 的 37 個測試通過。
+- **避免**：同一個 tick 有兩個階段的位置 fact 時，要依階段決定誰是最後的位置，不能依 kind 排序或到達順序。
+- **檔案**：`omoba-core/src/runtime/filtered_specs.rs`
+
 ## E593 呈現報告分不出「沒施放／被取消／施放了但沒畫」（2026-11-01，工作線 C）
 **現象**：`ue_presentation_report` 只看 UE log，一招沒有任何 cue 或狀態就判「本局沒有呈現」，但分不出原因：
 - 指令根本沒送出（A21、C08）；

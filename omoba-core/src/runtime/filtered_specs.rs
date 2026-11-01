@@ -1669,10 +1669,12 @@ fn apply_authoritative_movement_outcomes(
     stepper: &mut SpecsDisclosedWorldStepper,
     injections: &StepInjections,
 ) -> Result<(), ReplicaRuntimeError> {
+    let settled = post_step_movers(injections);
     for event in &injections.public_events {
         if (event.event_kind != crate::runtime::FactKind::Movement as u32
             && event.event_kind != crate::runtime::FactKind::PreStepMovement as u32)
             || event.sanitized_payload.len() < 16
+            || superseded_pre_step(&settled, event)
         {
             continue;
         }
@@ -1749,10 +1751,25 @@ fn adopt_ability_slots(hero: &mut crate::runtime::Hero, names: Vec<String>) -> R
     Ok(())
 }
 
+/// The units a step's post-step Movement fact places (E594): the lane step's PreStepMovement of
+/// the same unit (it walked, then a pull or a set_pos moved it) is superseded, whatever order the
+/// facts come in (the fact kinds sort Movement first).
+fn post_step_movers(injections: &StepInjections) -> std::collections::BTreeSet<u64> {
+    injections.public_events.iter()
+        .filter(|event| event.event_kind == crate::runtime::FactKind::Movement as u32 && event.sanitized_payload.len() >= 16)
+        .filter_map(|event| event.subject.as_ref().map(|id| id.value)).collect()
+}
+
+fn superseded_pre_step(settled: &std::collections::BTreeSet<u64>, event: &crate::game_proto::TeamPublicEvent) -> bool {
+    event.event_kind == crate::runtime::FactKind::PreStepMovement as u32
+        && event.subject.as_ref().is_some_and(|id| settled.contains(&id.value))
+}
+
 fn apply_disclosed_events(
     world: &mut DisclosedReplicaWorld,
     injections: &StepInjections,
 ) -> Result<(), ReplicaRuntimeError> {
+    let settled = post_step_movers(injections);
     for event in &injections.public_events {
         if event.event_kind==crate::runtime::FactKind::OwnerBuffVisual as u32 {
             crate::runtime::buff_visual_state::BuffVisualSnapshot::decode(&event.sanitized_payload).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
@@ -1971,6 +1988,7 @@ fn apply_disclosed_events(
         if (event.event_kind == crate::runtime::FactKind::Movement as u32
             || event.event_kind == crate::runtime::FactKind::PreStepMovement as u32)
             && event.sanitized_payload.len() >= 16
+            && !superseded_pre_step(&settled, event)
         {
             let target = event.subject.as_ref().map_or(0, |id| id.value);
             let entity = world
@@ -2929,6 +2947,20 @@ mod canonical_json_tests {
         assert_eq!(positions.get(entity).unwrap().0.x.raw(), 123);
         assert_eq!(positions.get(entity).unwrap().0.y.raw(), -456);
         assert_eq!(facings.get(entity).unwrap().0.ticks(), 1024);
+        drop((positions, facings));
+
+        // E594: a unit that walked (PreStepMovement) and was then pulled (Movement) the same step
+        // ends where the pull put it, though the walk comes after in the step's facts.
+        let fact = |kind: FactKind, x: i64| TeamPublicEvent { event_kind: kind as u32, subject: Some(ReplicaEntityId { value: replica_id }),
+            sanitized_payload: [x.to_le_bytes(), 0_i64.to_le_bytes()].concat(), stable_sub_index: 0 };
+        let injections = StepInjections {
+            public_events: vec![fact(FactKind::Movement, 900), fact(FactKind::PreStepMovement, 50)],
+            ..StepInjections::default()
+        };
+        super::apply_authoritative_movement_outcomes(&mut stepper, &injections).unwrap();
+        assert_eq!(stepper.filtered.world.read_storage::<Pos>().get(entity).unwrap().0.x.raw(), 900);
+        assert!(super::superseded_pre_step(&super::post_step_movers(&injections), &injections.public_events[1]));
+        assert!(!super::superseded_pre_step(&super::post_step_movers(&injections), &injections.public_events[0]));
     }
 }
 
