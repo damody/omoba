@@ -1367,7 +1367,8 @@ mod tests {
     #[test]
     fn authored_catalog_combine_matches_buy_item_and_rejects_bad_graphs() {
         let registry = ItemRegistry::generated_moba();
-        let sources: Vec<RecipeSource> = omoba_template_ids::MOBA_ITEM_CATALOG.iter().map(|item| RecipeSource {
+        // a row at cost 0 (a hero document's item, test_only and never sold) has no price to combine
+        let sources: Vec<RecipeSource> = omoba_template_ids::MOBA_ITEM_CATALOG.iter().filter(|item| item.cost > 0).map(|item| RecipeSource {
             id: item.id, catalog_id: u32::from(item.catalog_id), cost: item.cost, recipe: item.recipe,
         }).collect();
         let projected = project_catalog_recipes(&sources).unwrap();
