@@ -1144,6 +1144,8 @@ fn status_trigger(run: &mut Run, holder: specs::Entity, step: &Value, expectatio
             // The dispel that ends this status must not end the others itself.
             let ends = |id: &str| dispel::registry().declared(id).is_some_and(|rule| !matches!(rule.class, dispel::Class::None | dispel::Class::DeathOnly));
             if !ends(&runtime_id) { return Verdict::Unsupported(format!("{runtime_id} cannot be dispelled to fire on_removed")); }
+            // Run out by itself before the dispel (B30W's shield; E581): its on_removed already ran.
+            if !holds(run, holder, &runtime_id) { return Verdict::Unsupported(format!("{runtime_id} ran out before the dispel")); }
             let hostile = { let f = run.world.read_storage::<Faction>(); f.get(holder).zip(f.get(run.caster)).is_some_and(|(h, c)| h.is_hostile_to(c)) };
             let purge = match status["visibility"].as_str() {
                 Some("debuff") => dispel::Purge::Debuffs,
