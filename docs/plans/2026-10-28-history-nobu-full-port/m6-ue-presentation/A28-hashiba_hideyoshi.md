@@ -11,8 +11,6 @@
 
 擊退拋物線（全局）：0 次
 
-- 實機：`target/lineC-pres14/hashiba_hideyoshi-run`（spotlight，rerun18，2026-11-01），略過 0 格。錄影幀已在跑完後刪除，報告只讀 log。
-- observer：有檢查，mismatch 0。build：snapshot commit `fb460511`（E583，一輪建一次）。
-- 天火（B 的 E627 加 log 後）：伺服器最後一行是 `OwnedSummonOrder applied ... ability='a28_heaven_fire'`（tick 6583），之後沒有任何施放或拒絕紀錄。已轉 B。
-- 6 招中 4 招有呈現，1 招被動沒有 cue 或狀態可檢查。
+- 實機：`target/lineC-pres14/hashiba_hideyoshi-run`（spotlight，rerun20，2026-11-01）。observer 有檢查。build：snapshot commit `a0d43837`（含 B 的 E633）。
+- 天火：E633 之後鳳凰施放成功（`[scripting] cast ok ability='a28_heaven_fire' caster=63 rank=2`），但結算時被拒：`cast refused at settlement ... reason=mana_cooldown_or_rank`。已轉 B。
 - 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。

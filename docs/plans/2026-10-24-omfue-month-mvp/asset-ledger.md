@@ -81,6 +81,13 @@
 | 2026-11-01 | Tripo（image-to-3D＋自動綁定＋匯出） | tokugawa_ieyasu（M6 第 1 批，tripo-order 第 1 位） | 單張正面圖（Grok）、H3.1、2K、去光、PBR 關、三角面、面數上限 10,000；人形綁骨 UE5 Mannequin；FBX Mixamo 2K | 25＋20＋0 | 25,075 | `3e2ba573-81a3-4c41-ae84-f6343fa0b868`；`TripoV1/tokugawa_ieyasu/` | 一次可用：9,715 tris、80 骨（H3.1 多了手指掌骨，auto characterization 會多出 LeftIndexMetacarpal 等骨鏈而對不上動畫庫；manifest 改寫明確的 21 條骨鏈，手指從 _01 開始）。開始前 25,120 點 |
 | 2026-11-01 | Tripo | yamagata_masakage（第 2 位） | 同上 | 25＋20＋0 | 25,030 | `1adce7fd-7b50-4621-8774-5daebbdff1b4`；`TripoV1/yamagata_masakage/` | 一次可用：9,383 tris、80 骨；赤備具足，頭盔拿在左手 |
 | 2026-11-01 | Tripo | okuma_tomohide（第 3 位） | 同上 | 25＋20＋0 | 24,985 | `dfa7ee32-fefd-455d-9f44-631342f47e2e`；`TripoV1/okuma_tomohide/` | 一次可用：9,345 tris、80 骨；黑具足、狼皮披肩 |
+| 2026-11-01 | Tripo | sasaki_kojiro（第 4 位） | 同上 | 25＋20＋0 | 24,940 | `ec05329a-4a01-4979-ae03-977349866a5c`；`TripoV1/sasaki_kojiro（第/` | 一次可用：9,306 tris、80 骨；深藍羽織、長髮。綁骨進度條停住，重新整理頁面後綁骨已完成 |
+| 2026-11-01 | Tripo | otani_yoshitsugu（第 5 位） | 同上 | 25＋20＋0 | 24,895 | `a660358f-342f-4e5e-bf98-afe4c9d7adc0`；`TripoV1/otani_yoshitsugu（第/` | 一次可用：9,766 tris、80 骨；藍頭巾、具足 |
+| 2026-11-01 | Tripo | maeda_toshiie（第 6 位） | 同上 | 25＋20＋0 | 24,850 | `adcab301-d9af-4d27-92c2-02cbd6a9f8d3`；`TripoV1/maeda_toshiie（第/` | 一次可用：9,612 tris、80 骨；赤具足、長馬尾 |
+| 2026-11-01 | Tripo | nohime（第 7 位） | 同上 | 25＋20＋0 | 24,805 | `6faec3a0-bbbc-4507-862a-2d8f0fa11301`；`TripoV1/nohime（第/` | 一次可用：9,551 tris、80 骨；紅色蝶紋打掛 |
+| 2026-11-01 | Tripo | kojima_sadaoki（第 8 位） | 同上 | 25＋20＋0 | 24,760 | `749c3ffb-a8ad-456e-864e-294226dd85de`；`TripoV1/kojima_sadaoki（第/` | 一次可用：9,782 tris、80 骨；暗紅具足、背刀 |
+| 2026-11-01 | Tripo | shimazu_yoshihiro（第 9 位） | 同上 | 25＋20＋0 | 24,715 | `8b0d037d-cf7f-4078-b5d9-c5d057438951`；`TripoV1/shimazu_yoshihiro（第/` | 一次可用：9,586 tris、80 骨；黑具足、背大錘 |
+| 2026-11-01 | Tripo | maeda_keiji（第 10 位） | 同上 | 25＋20＋0 | 24,670 | `ccb5bcac-c4ac-48dd-96f8-8cc06394147a`；`TripoV1/maeda_keiji（第/` | 一次可用：9,431 tris、80 骨；橘色具足、紅髮、花紋披風 |
 
 7 位是先連續送出生成、再逐一綁骨，所以點數是交錯扣的，中間的剩餘點數不逐列記。7 位合計 315 點（7410 → 7095），與「7 × 45」相符。
 

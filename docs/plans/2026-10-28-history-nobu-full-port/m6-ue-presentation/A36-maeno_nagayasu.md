@@ -10,8 +10,6 @@
 
 擊退拋物線（全局）：0 次
 
-- 實機：`target/lineC-pres14/maeno_nagayasu-run`（spotlight，rerun18，2026-11-01），略過 1 格（detonate）。錄影幀已在跑完後刪除，報告只讀 log。
-- observer：有檢查，mismatch 0。build：snapshot commit `fb460511`（E583，一輪建一次）。
-- 地雷：spike_trap 在 tick 3571 施放，但 detonate 一直等不到我方的召喚物（`no_own_summon`），tick 4125 跳過。UE 的實體數在施放後 8 秒內沒有增加。已轉 B，UE 下一輪會加 spawn log。
-- 5 招中 4 招有呈現。
+- 實機：`target/lineC-pres14/maeno_nagayasu-run`（spotlight，rerun20，2026-11-01）。observer 有檢查。build：snapshot commit `a0d43837`。
+- 地雷：spike_trap 在 tick 3162 施放成功。之後 spotlight_summon_scan 只看到一座塔（`5:2:alive`），直到 tick 3715 跳過。kind 4 的地雷從來沒有進 bridge frame。B 確認 server 和 replica 都有地雷，所以問題在 client runtime 到 bridge frame 之間，已轉 B。
 - 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。
