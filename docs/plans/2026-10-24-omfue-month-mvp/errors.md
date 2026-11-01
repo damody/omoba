@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E652 conformance：狀態情境的 needs：先設好條件（目標類型、夜晚、前置狀態、召喚物、普攻）再觀察（2026-11-02，conformance session）
+- **現象**：A 在 `status_on_unit` 標了 `needs`（只在某條件下才套上的狀態），harness 沒照條件布置，這些狀態一律「施放後沒觀察到」，算 unsupported。
+- **通用修正**：
+  - `run_status` 先照 `needs` 布置再觀察。target_kind 決定放建築或小兵；has_status、summon 帶 by 就先施放那一招；has_status 不帶 by 就先放上狀態；time_of_day 開夜晚；via_attack 由英雄自己打，或由敵方英雄打它（by = attacker），有機率時加長到全部落空低於 1 %（最多 60 秒）。未知的 need 仍回 unsupported。
+  - 全量第一次出現 10 個新 fail，都是 harness 的問題：前置狀態就是要觀察的狀態（A12T、C02R，施放會刷新自己），先放 600 秒蓋掉真正的持續時間，改成不放；目標是沒有攻擊元件的假單位，host 只投影戰鬥單位的狀態圖示（A22T），`observe` 時讓它和真小兵一樣帶 TAttack。
+- **結果**：修正前的全量 154 個 unsupported 轉 pass，10 個新 fail 都是上述原因；修正後子集 A12、C02、A22：18 個轉 pass，0 退步、0 fail。修正後的完整全量併在下一輪確認。
+
 ## E651 conformance：判定 illusion_in_effect：選取範圍內的敵方英雄幻象受不受影響（2026-11-01，conformance session）
 - **現象**：約 40 筆幻象類 quirk（英雄選取含不含幻象）沒有情境可驗。工作線 A 在 87a2ef84 新增 illusion_in_effect（期望 illusion_affected），harness 還沒有判定。
 - **通用修正**：
