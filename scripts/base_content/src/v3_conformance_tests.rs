@@ -2766,15 +2766,32 @@ fn status_stats(run: &mut Run, holder: specs::Entity, runtime_id: &str, e: &Valu
     // Stats that count stacks (`value_stacks`): a whole number of stacks, up to the maximum.
     let stacks = if e["value_stacks"] == true { expr(&e["max_stacks"], &run.entry, run.rank).map_or(1, |m| m.max(1.0) as i64) } else { 1 };
     let run = &*run;
-    let Some((_, buff)) = held(run, holder, runtime_id) else { return Verdict::Unsupported(format!("{runtime_id} ended before it was observed")) };
+    let Some((held_key, buff)) = held(run, holder, runtime_id) else { return Verdict::Unsupported(format!("{runtime_id} ended before it was observed")) };
     let Some(stats) = e["stats"].as_object() else { return Verdict::Unsupported("no stats".into()) };
     let entry = run.entry.as_str();
     let mut wrong = Vec::new();
     let mut checked = 0;
     for (name, value) in stats {
-        let Some((key, unit)) = vocab::stat(name) else { return Verdict::Unsupported(format!("stat {name}")) };
+        // A slow (E634): the status's own slow row carries move_speed_bonus = -slow (ability_kit
+        // add_slow_row), a fraction of at most 1.
+        if name == "slow_pct" && !value.is_object() {
+            let Ok(v) = expr(value, entry, run.rank) else { return Verdict::Unsupported(format!("stat {name}: {value}")) };
+            let pct = value_unit(entry, value).as_deref() == Some("pct");
+            let expected = (if pct { v / 100.0 } else { v }).min(1.0);
+            let (row, instance) = (format!("{held_key}:slow"), format!("{held_key}#"));
+            let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
+            let slows: Vec<f64> = buffs.iter_for(holder).filter(|(k, _)| *k == row || (k.starts_with(&instance) && k.ends_with(":slow")))
+                .filter_map(|(_, b)| b.payload.get("move_speed_bonus").and_then(Value::as_f64)).map(|raw| -raw / 1024.0).collect();
+            let Some(actual) = slows.first().copied() else { wrong.push(format!("slow_pct: no slow row {row} on the holder")); continue };
+            checked += 1;
+            if (actual - expected).abs() > (expected.abs() * 0.01).max(0.01) { wrong.push(format!("slow_pct {actual:.3}, expected {expected}")); }
+            continue;
+        }
+        // A value the status sets outright (E634): base_attack_time, move_speed under their absolute keys.
+        let absolute = value.is_object() && value["op"] == "set_absolute" && value.get("when").is_none();
+        let Some((key, unit)) = (if absolute { vocab::absolute_stat(name) } else { vocab::stat(name) }) else { return Verdict::Unsupported(format!("stat {name}")) };
         let amount = if value.is_object() {
-            if value["op"].as_str().unwrap_or("add") != "add" || value.get("when").is_some() { return Verdict::Unsupported(format!("stat {name} {}", value["op"])); }
+            if !absolute && (value["op"].as_str().unwrap_or("add") != "add" || value.get("when").is_some()) { return Verdict::Unsupported(format!("stat {name} {}", value["op"])); }
             &value["value"]
         } else { value };
         let Ok(v) = expr(amount, entry, run.rank) else { return Verdict::Unsupported(format!("stat {name}: {amount}")) };

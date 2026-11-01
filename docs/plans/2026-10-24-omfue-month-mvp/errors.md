@@ -2,7 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E634 （保留）conformance 狀態的 slow_pct 與 set_absolute stat（base_attack_time、move_speed）從未檢查（2026-11-01）（2026-11-01）
+## E634 conformance：狀態的 slow_pct 與 set_absolute stat 從未檢查（2026-11-01，conformance session）
+- **現象**：狀態 stats 情境裡，slow_pct 有 172 個、base_attack_time 有 32 個是 unsupported（「stat slow_pct」「stat base_attack_time」），因為 vocab::stat 沒有這兩個名稱：slow_pct 由 ability_kit 存在另一個 slow row，set_absolute 的 stat 在 vocab::absolute_stat 裡。
+- **通用修正**：
+  - status_stats 讀 slow_pct 時，到持有者身上找這個狀態自己的 slow row（`<key>:slow` 或 instance 的 `<key>#<n>:slow`，見 ability_kit add_slow_row），用 `-move_speed_bonus` 和文件值比對（pct 換成比例，上限 1）。
+  - `op = "set_absolute"` 的 stat 改用 vocab::absolute_stat 的 key，到狀態本身的 entry 裡比對。
+- **結果**：全跑 0 退步，201 個情境變 pass，pass 21388。舊的手寫 a07_strongest 沒有帶 base_attack_time，曾讓 3 個 stats 情境變成 fail；A 的 cc2876c4 改用產生碼後，A07 重跑 0 fail、174 pass（E629 的換格情境也一起通過）。A02 的 generic_slow 手寫 row 仍是 unsupported。
 
 ## E633 召喚物不能持續施法：A28 鳳凰的天火被靜默擋下（2026-11-01，工作線 B，C rerun18 回報）
 
