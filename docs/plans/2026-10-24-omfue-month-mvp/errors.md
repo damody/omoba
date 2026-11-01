@@ -59,7 +59,14 @@
   bots 的 97 個測試通過。
 - **檔案**：`omoba-core/src/runtime/native/moba_match/bots/abilities.rs`、`omoba-core/src/runtime/native/moba_match/bots.rs`
 
-## E604 （保留）conformance on_attack_launch 從未觸發：持有者攻擊身旁的敵方英雄後比對效果（2026-11-01）（2026-11-01）
+## E604 conformance：on_attack_launch 從未觸發；改成持有者攻擊身旁的敵方英雄後比對效果（2026-11-01，conformance session）
+- **現象**：on_attack_launch 有 46 個情境 unsupported、0 pass。狀態 trigger 回「status step status_event」，被動回「when event」。
+- **通用修正**：
+  - 新增 attack_launch：把敵方英雄放到持有者旁邊，ForceShow 給持有者的隊伍，再下普攻指令。之後最多 4 秒內，用 E564 的效果檢查比對。
+  - 條件對這次攻擊必然成立的效果才納入：目標是英雄、非建築、活著、非魔免，以及持有者身上沒有的 `not has_status(self, X)`。帶機率或其他條件的效果略過。
+  - 被攻擊的單位就是 event.target。它還活著，所以身上的狀態照樣檢查；只有 on_kill 已死的受害者會略過。
+  - 傷害量算出來是 0 的效果不檢查，因為 0 傷害不會留下 trace（A13D、B02D、C08D 一級的 bonus_damage 是 0）。
+- **結果**：全跑 0 退步，27 個情境變 pass（A06R 充能、A13D、B02D、C08D 的隱形出手傷害與現身等），fail 0、pass 21158。仍有 19 個 unsupported，都只有機率效果或投射物命中。
 
 ## E603 verify_m6_batch 每批留下 bin 副本，磁碟累積到不足（2026-11-01，E187）
 - 現象：D: 一度只剩約 1 GB，工作線 C 建置失敗（os error 112）。target/e187 累積到 149 GB，其中 102 個已完成批次各留一份 bin 副本（moba-headless.exe、base_content 和英雄 DLL，約 90 MB／批）；其餘是已 land 的 shadow 樹和裡面的 cargo target。
