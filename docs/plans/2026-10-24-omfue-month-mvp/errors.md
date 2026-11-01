@@ -2,7 +2,17 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E600 （保留）召喚物技能請求失敗時沒有任何 log（spotlight 查不到原因）（2026-11-01）
+## E601 （保留）可控制的幻象讓 client 的本機英雄在本體與幻象間跳動（2026-11-01）
+
+## E600 召喚物技能請求失敗時沒有任何 log（spotlight 查不到原因）（2026-11-01，工作線 C）
+**現象**：E595 的召喚物 slot（B16 忍犬「月」、A28 鳳凰）點選召喚物、按下 SummonAbility 鍵後，自動駕駛記錄「input layer submitted nothing」，UE log 什麼也沒留下。`RequestSelectedSummonAbility` 和 `TryIssueSelectedSummonCast` 拒絕時只把原因發到 HUD 的失敗通知，查不到是哪一步擋下的。
+
+**修正**：仿照英雄 slot 的 `OM_CAST`，加上 `OM_SUMMON_CAST` log：
+- `request`：index、summon、abilities 數；
+- `refused`：沒有這個技能、無法操作或建事件失敗，附上原因；
+- `submit`：accepted、input、error。
+
+**驗證**：rerun12 用 A28、B16 查出召喚物技能沒有送出的實際原因，再做修正。
 
 ## E599 會擋路的召喚物（B22 石牆）擺放時被同一次施放的其他岩石擠開，整招中止（2026-11-01，工作線 B，C 回報）
 
