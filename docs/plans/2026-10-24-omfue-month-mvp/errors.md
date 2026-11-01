@@ -109,16 +109,18 @@
   - hidden_hit 沿用 hidden_affected 的 in_area_affected 判定，path 是投射物所在的 path（on_hit 底下的命中都算）。
 - **結果**：全跑 0 退步、0 fail，22 個情境 pass；A06 的 unit_or_point 施放判 unsupported（6 個，harness 本來就不支援這種目標）。pass 21643。
 
-## E645 隱形的己方單位不再揭露給自己隊伍：視野判定對自己隊伍也套用隱形（A36 地雷）（2026-11-02，工作線 B，C 的 UE 回報）
+## E645 隱形的己方單位不再揭露給自己隊伍：視野判定對自己隊伍也套用隱形（2026-11-02，工作線 B，查 A36 時從程式發現）
 
-- **現象**：A36 地刺放出的地雷 `a36e_mine` 一開始有進己方的 frame，施放約 2.6 秒後就從己方的實體清單消失，之後也沒有再出現。地刺說明寫「1.5 秒後隱形」。
+- **現象**：Vision scope 的己方單位隱形後，不再揭露給自己隊伍。這是讀程式發現的，沒有實機現象佐證。
+- **更正**：原本把 A36 地雷從 frame 消失歸因於此，是錯的。含這個修正的 build 重跑後地雷照樣消失；trace 顯示它是被敵方英雄觸發爆炸（同一 frame 有 `a36e_slow` 和實體移除），符合設計，見 E638。
 - **根因**：
   - `entity_visible_with_brush`（Wave B）的規則：Vision scope 的單位，即使是同隊也要經過幾何視野判定。隱形檢查 `source.detection_level < entity.stealth_level` 對所有視野來源都生效，包括自己隊伍的來源。
-  - 所以地雷隱形後，自己隊伍的視野偵測不到它，authority 不再揭露給主人隊伍，replica 也就把它移除了。
-  - 英雄是 OwnerTeam scope，自己隊伍無條件看得到，所以英雄隱形沒有這個問題；召喚物、地雷這類 Vision scope 的單位才會出事。
+  - 所以這類單位隱形後，自己隊伍的視野偵測不到它，authority 不再揭露給自己隊伍，replica 也就把它移除了。
+  - 英雄是 OwnerTeam scope，自己隊伍無條件看得到，所以英雄隱形沒有這個問題；Vision scope 的單位才會受影響。
   - ECS 端的 `item_entity_visible_to_team`（game_processor.rs）有一樣的判斷。
 - **修正**：隱形只對其他隊伍有效。Wave B 判定自己隊伍時不檢查隱形等級；`item_entity_visible_to_team` 判定自己隊伍時隱形等級視為 0。兩邊的規則維持相同。自己隊伍仍然要在視野範圍內才看得到。
-- **測試**：`visibility::tests::an_invisible_unit_is_still_seen_by_its_own_team`：自己隊伍看得到、對方看不到、對方的來源有偵測時看得到、自己隊伍沒有視野時看不到。
+- **測試**：`visibility::tests::an_invisible_unit_is_still_seen_by_its_own_team`：自己隊伍看得到、對方看不到、對方的來源有偵測時看得到、自己隊伍沒有視野時看不到。headless 局裡己方隱形單位（stealth=1）每 30 tick 都是 sighted=true。
+- **教訓**：沒有重現前後對照就不要說某個修正解決了現象。單位從 frame 消失時，先確認它是死亡、爆炸還是被隱藏。
 - **避免**：隱形、偵測這類只對敵方有意義的規則，要先確認觀看的隊伍是不是單位自己的隊伍。
 - **檔案**：`omoba-core/src/runtime/visibility.rs`、`omoba-core/src/runtime/native/game_processor.rs`
 
@@ -176,7 +178,8 @@
 
 ## E638 A36 地雷沒有進 UE frame（2026-11-01 保留，2026-11-02 結案，工作線 B）
 
-- 調查結果：地雷確實有進 frame，施放約 2.6 秒後才消失，原因是隱形後不再揭露給自己隊伍。修正與記錄見 E645。
+- 調查結果：地雷確實有進 frame，約 1.8 秒後消失，原因是敵方英雄在觸發範圍內，地雷啟動後被光環觸發而爆炸，符合設計。autopilot 把地刺瞄準敵人，所以活不過啟動。
+- 當初歸因為隱形後不再揭露（E645）是錯的。E645 修的是另一個真實的問題。
 
 ## E637 非英雄施法者在結算時被以 mana_cooldown_or_rank 拒絕（A28 鳳凰天火，2026-11-01，工作線 B，C rerun20 回報）
 
