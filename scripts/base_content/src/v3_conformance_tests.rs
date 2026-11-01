@@ -1248,6 +1248,31 @@ fn status_trigger(run: &mut Run, holder: specs::Entity, step: &Value, expectatio
         // Damage taken, the holder's death, the holder's kill (E564): the event is made, then the
         // trigger's plain effects are looked for.
         Some(event @ ("on_take_damage" | "on_death" | "on_kill" | "on_attack_launch")) => make_event(run, holder, event, &effects),
+        // Its running out (E618): waited out, then what its effects leave is looked for.
+        Some("on_expired") => {
+            let runtime_id = status["runtime_id"].as_str().unwrap_or("").to_owned();
+            let Some(left) = remaining(run, holder, &runtime_id) else { return Verdict::Unsupported(format!("{runtime_id} was not on the holder")) };
+            if left > 120.0 { return Verdict::Unsupported(format!("{runtime_id} lasts {left:.0} s")); }
+            let owned = holding_now(run, holder, &effects, &[]);
+            let effects: Vec<&Value> = owned.iter().collect();
+            if !effects.iter().any(|f| EffectsSeen::observable(f)) { return Verdict::Unsupported("on_expired: no effect it can observe without a chance or condition".into()); }
+            let other = if holder == run.enemy { run.caster } else { run.enemy };
+            let before = EffectsSeen::of(run, holder, other, &effects);
+            for _ in 0..ticks(left + 1.0) { if !holds(run, holder, &runtime_id) { break; } run.step(1); }
+            if holds(run, holder, &runtime_id) { return Verdict::Unsupported(format!("{runtime_id} did not run out in {left:.1} s")); }
+            // A move it orders counts from where its unit stood when it ran out (A21's retreat walks while it lasts).
+            let mut before = before;
+            for unit in [holder, run.caster, other] {
+                if let Some(p) = run.world.read_storage::<Pos>().get(unit) { before.at.insert(unit.id(), (real(p.0.x), real(p.0.y))); }
+            }
+            let mut verdict = Verdict::Unsupported("on_expired: nothing compared".into());
+            for _ in 0..ticks(1.0) {
+                run.step(1);
+                verdict = before.compare(run, holder, other, None, "on_expired", &effects);
+                if matches!(verdict, Verdict::Pass | Verdict::PassNoted(_)) { return verdict; }
+            }
+            verdict
+        }
         other => Verdict::Unsupported(format!("status event {other:?}")),
     }
 }
@@ -1291,6 +1316,21 @@ fn make_event(run: &mut Run, holder: specs::Entity, event: &str, effects: &[&Val
 const LAUNCH_CONDS: &[&str] = &["not event.target.is_building", "not event.target.is_building and not event.target.is_magic_immune",
     "alive(event.target)", "event.target.is_hero", "event.target.is_hero or event.target.is_creep", "not event.target.is_magic_immune"];
 
+/// The effects whose conditions all hold now (E604, E618), their conditions dropped: the event's
+/// own `known` ones, `alive(self)` while the holder lives, `not has_status(self, X)` while it lacks
+/// X, `ability_ready(self, X)` while X is off cooldown. A chance or any other condition leaves its
+/// effect out.
+fn holding_now(run: &Run, holder: specs::Entity, effects: &[&Value], known: &[&str]) -> Vec<Value> {
+    let entry = run.entry.clone();
+    let arg = |c: &str, head: &str| c.strip_prefix(head).and_then(|r| r.strip_suffix(')')).map(str::to_owned);
+    let holds_now = |c: &str| known.contains(&c)
+        || (c == "alive(self)" && living(run, holder))
+        || arg(c, "not has_status(self, ").is_some_and(|st| !holds(run, holder, &status_runtime_id(&entry, &st).unwrap_or_else(|| st.clone())))
+        || (holder == run.caster && arg(c, "ability_ready(self, ").is_some_and(|id| run.hero(|h| h.abilities.contains(&id) && h.get_cooldown(&id) <= Fixed64::ZERO)));
+    effects.iter().filter(|f| f["conds"].as_array().into_iter().flatten().all(|c| c.as_str().is_some_and(holds_now)))
+        .map(|f| { let mut plain = (*f).clone(); plain["conds"] = json!([]); plain }).collect()
+}
+
 /// The holder's attack being launched (E604): the enemy hero stands beside the holder, seen by its
 /// team, and the holder is ordered to attack it. The trigger's effects run whose conditions all
 /// hold for that attack (LAUNCH_CONDS, and `not has_status(self, X)` while the holder lacks X);
@@ -1298,15 +1338,7 @@ const LAUNCH_CONDS: &[&str] = &["not event.target.is_building", "not event.targe
 fn attack_launch(run: &mut Run, holder: specs::Entity, effects: &[&Value]) -> Verdict {
     if holder != run.caster { return Verdict::Unsupported("on_attack_launch of a unit the player does not order".into()); }
     let other = run.enemy;
-    let entry = run.entry.clone();
-    let owned: Vec<Value> = effects.iter().filter_map(|f| {
-        let holds_now = |c: &str| LAUNCH_CONDS.contains(&c) || c.strip_prefix("not has_status(self, ").and_then(|r| r.strip_suffix(')'))
-            .is_some_and(|st| !holds(run, holder, &status_runtime_id(&entry, st).unwrap_or_else(|| st.to_owned())));
-        if !f["conds"].as_array().into_iter().flatten().all(|c| c.as_str().is_some_and(holds_now)) { return None; }
-        let mut plain = (*f).clone();
-        plain["conds"] = json!([]);
-        Some(plain)
-    }).collect();
+    let owned = holding_now(run, holder, effects, LAUNCH_CONDS);
     let effects: Vec<&Value> = owned.iter().collect();
     if !effects.iter().any(|f| matches!(f["op"].as_str(), Some("damage" | "apply_status" | "remove_status" | "create_unit" | "heal" | "restore_mana"))) {
         return Verdict::Unsupported("on_attack_launch: no effect it can observe without a chance or condition".into());
@@ -1347,7 +1379,8 @@ fn check_passive_event(hero: &str, s: &Value) -> Option<Verdict> {
 
 /// What a status trigger's plain effects (no conds) can be seen to leave (E564), taken before the
 /// event: the damage trace's length, life, statuses held and the units of each template.
-struct EffectsSeen { trace: usize, life: std::collections::BTreeMap<u32, f64>, mana: std::collections::BTreeMap<u32, f64>, held: std::collections::BTreeSet<(u32, String)>, made: std::collections::BTreeMap<String, usize> }
+struct EffectsSeen { trace: usize, life: std::collections::BTreeMap<u32, f64>, mana: std::collections::BTreeMap<u32, f64>, held: std::collections::BTreeSet<(u32, String)>, made: std::collections::BTreeMap<String, usize>,
+    at: std::collections::BTreeMap<u32, (f64, f64)> }
 
 impl EffectsSeen {
     /// The unit an effect names: the holder, the status's caster, or the event's other unit.
@@ -1361,6 +1394,11 @@ impl EffectsSeen {
         }
     }
     fn plain(f: &Value) -> bool { f["conds"].as_array().is_none_or(|c| c.is_empty()) }
+    /// An op `compare` can see the result of.
+    fn observable(f: &Value) -> bool {
+        matches!(f["op"].as_str(), Some("damage" | "apply_status" | "remove_status" | "create_unit" | "heal" | "restore_mana" | "kill" | "modify_cooldown"))
+            || (f["op"] == "issue_order" && f["args"]["order"] == "move")
+    }
     fn mana_of(run: &Run, unit: specs::Entity) -> Option<f64> {
         run.world.read_storage::<Hero>().get(unit).and_then(|h| h.mana_pool.as_ref().map(|p| real(p.current())))
     }
@@ -1402,8 +1440,9 @@ impl EffectsSeen {
                 if let Some(p) = run.world.write_storage::<CProperty>().get_mut(unit) { p.hp = p.mhp / Fixed64::from_i32(2); }
             }
         }
-        let mut seen = EffectsSeen { trace: run.world.read_resource::<DamageTrace>().0.len(), life: Default::default(), mana: Default::default(), held: Default::default(), made: Default::default() };
+        let mut seen = EffectsSeen { trace: run.world.read_resource::<DamageTrace>().0.len(), life: Default::default(), mana: Default::default(), held: Default::default(), made: Default::default(), at: Default::default() };
         for unit in [holder, run.caster, other] {
+            if let Some(p) = run.world.read_storage::<Pos>().get(unit) { seen.at.insert(unit.id(), (real(p.0.x), real(p.0.y))); }
             if let Some(p) = run.world.read_storage::<CProperty>().get(unit) { seen.life.insert(unit.id(), real(p.hp)); }
             if let Some(m) = Self::mana_of(run, unit) { seen.mana.insert(unit.id(), m); }
         }
@@ -1446,6 +1485,7 @@ impl EffectsSeen {
                     // A dead holder's statuses are cleared by the death itself; a dispelled one's
                     // removable ones by the dispel (E581).
                     if event == "on_death" && unit == holder { continue; }
+                    if event == "on_expired" && unit == holder && !living(run, holder) { continue; }
                     if event == "on_removed" && unit == holder && op == "remove_status" { continue; }
                     if victim == Some(unit) && !living(run, unit) { continue; }
                     if op == "apply_status" {
@@ -1465,6 +1505,25 @@ impl EffectsSeen {
                     if unit == holder && event != "on_kill" { continue; }
                     let (Some(was), Some(now)) = (self.life.get(&unit.id()), run.world.read_storage::<CProperty>().get(unit).map(|p| real(p.hp))) else { continue };
                     if now > was + 0.5 { seen.push(format!("healed {:.1}", now - was)) } else { missing.push("no heal on its target".to_owned()) }
+                }
+                // E618: a kill, a cooldown the trigger starts or sets on the hero, a move order.
+                "kill" => {
+                    let Some(unit) = Self::unit(run, holder, other, victim, &f["args"]["to"]) else { continue };
+                    if living(run, unit) { missing.push("its target still lives".to_owned()) } else { seen.push("killed".to_owned()) }
+                }
+                "modify_cooldown" if matches!(f["args"]["mode"].as_str(), Some("start" | "set")) => {
+                    let (Some(unit), Some(id)) = (Self::unit(run, holder, other, victim, &f["args"]["of"]), f["args"]["ability"].as_str()) else { continue };
+                    if unit != run.caster { continue; }
+                    let Ok(want) = expr(&f["args"]["amount"], &run.entry, run.rank) else { continue };
+                    let left = run.hero(|h| real(h.get_cooldown(id)));
+                    // The second it took to see it has run off the cooldown already.
+                    if left <= want + 0.05 && left >= want - 1.5 { seen.push(format!("{id} cooldown {left:.1}")) }
+                    else { missing.push(format!("{id}'s cooldown is {left:.2}, the trigger set {want}")) }
+                }
+                "issue_order" if f["args"]["order"] == "move" => {
+                    let Some(unit) = Self::unit(run, holder, other, victim, &f["args"]["who"]) else { continue };
+                    let (Some(was), Some(now)) = (self.at.get(&unit.id()), run.world.read_storage::<Pos>().get(unit).map(|p| (real(p.0.x), real(p.0.y)))) else { continue };
+                    if (now.0 - was.0).hypot(now.1 - was.1) > 5.0 { seen.push("moved".to_owned()) } else { missing.push("its unit did not move".to_owned()) }
                 }
                 "restore_mana" => {
                     let Some(unit) = Self::unit(run, holder, other, victim, &f["args"]["to"]) else { continue };
@@ -1509,7 +1568,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         ("status_event", _) if step["event"] == "on_attack_hit" || step["event"] == "on_attack_windup" => None,
         ("status_event", _) if step["event"] == "on_take_damage_pre" || step["event"] == "on_removed" || step["event"] == "on_created" => None,
         ("status_event", _) if step["event"] == "on_take_damage" || step["event"] == "on_death" || step["event"] == "on_kill" => None,
-        ("status_event", _) if step["event"] == "on_attack_launch" => None,
+        ("status_event", _) if step["event"] == "on_attack_launch" || step["event"] == "on_expired" => None,
         _ => return Verdict::Unsupported(format!("status step {kind}")),
     };
     let expect = s["expect"].as_array().unwrap();

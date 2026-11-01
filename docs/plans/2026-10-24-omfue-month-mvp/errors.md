@@ -41,7 +41,14 @@
 - **測試**：`bots::tests::a_bot_casts_only_while_its_caster_status_precondition_holds`；bots 的 98 個測試全部通過。
 - **檔案**：`omoba-core/src/runtime/native/moba_match/bots.rs`、`bots/abilities.rs`、`bots/cone_tests.rs`、`bots/plan.rs`
 
-## E618 （保留）conformance on_expired 從未觸發：等狀態到期後比對效果；效果檢查加上 kill、modify_cooldown、移動命令（2026-11-01）（2026-11-01）
+## E618 conformance：on_expired 從未觸發；等狀態到期後比對效果，效果檢查加上 kill、modify_cooldown 與移動命令（2026-11-01，conformance session）
+- **現象**：on_expired 的 12 個情境（A21T 撤退、A28T 鳳凰壽命、B33T 蜘蛛、C18E 再施放）都回「status step status_event」，從來沒執行過。
+- **通用修正**：
+  - 狀態 trigger 的 on_expired：讀取持有者身上這個狀態的剩餘時間（超過 120 秒就判 unsupported），等它跑完，再在 1 秒內用 E564 的效果檢查比對。
+  - 判斷哪些效果此刻一定會跑的邏輯抽成 holding_now，on_attack_launch 也改用它。能判定的條件有：`alive(self)`、`not has_status(self, X)`、`ability_ready(self, X)`；帶機率或其他條件的效果略過。
+  - EffectsSeen 多看三種效果：kill（目標死了）、施法者技能的 modify_cooldown start／set（剩餘冷卻要符合）、移動命令（單位在到期那一刻之後有移動；A21 的撤退在狀態期間本來就在走，所以位置從到期時重新記）。
+  - 持有者在到期時死亡（A28 的鳳凰），它的狀態效果不檢查。
+- **結果**：全跑 0 退步，6 個情境變 pass（A21T 撤退命令三級、A28T 到期時殺死鳳凰三級），fail 0、pass 21174。B33T 移除的是另一個單位（vars.victim）的狀態，C18E 的冷卻帶 ability_ready 條件但施放後技能不在可用狀態，兩者仍是 unsupported。
 
 ## E617 server observer 遇到 replica 拒收 frame 時只 warn 並停止比對：live 驗收照樣判 observer 0 mismatch（2026-11-01，工作線 B，調度要求）
 
