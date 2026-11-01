@@ -9,5 +9,7 @@
 
 擊退拋物線（全局）：0 次
 
-- 實機：`target/lineC-pres/saika_magoichi-run`（spotlight，2026-10-30，queue4）。四招中三招都有呈現：狙擊模式與三段擊有狀態 cue，雜賀眾有目標 cue（placeholder 美術）。
-- 雨鐵炮是被動技（普攻附加物理傷害），沒有 cue 也沒有公開狀態，畫面上只有傷害數字；這份報告不檢查傷害數字。
+- 實機：`target/lineC-pres14/saika_magoichi-run`（spotlight，2026-11-01），錄到 779 幀、掉 0 幀，下了 4 次指令，略過 0 格。
+- observer：有檢查，mismatch 0。build：snapshot commit `63a7512d`（E583，一輪建一次）。
+- 4 招中 3 招有呈現，1 招被動沒有 cue 或狀態可檢查。
+- 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。選角稱號「千里狙擊手」。

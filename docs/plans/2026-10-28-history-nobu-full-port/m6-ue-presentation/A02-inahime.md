@@ -4,11 +4,12 @@
 |---|---|---|---|---|
 | `a02_venom_arrow` | style 2 | 0（預期 0 個） | a02w_poison：status_cue 1 | 有呈現 |
 | `a02_wind_prayer` | style 1 | 0（預期 0 個） | a02e_haste（a02_wind_prayer）：status_cue 1 | 有呈現 |
-| `a02_wind_drift` | 0 | 0（預期 0 個） | — | 本局沒有呈現 |
+| `a02_wind_drift` | 0 | 0（預期 0 個） | — | 被動，無 cue／狀態可檢查 |
 | `a02_shadow_meld` | style 1 | 0（預期 0 個） | a02t_meld（a02_shadow_meld）：status_cue 1 | 有呈現 |
 
 擊退拋物線（全局）：0 次
 
-- 實機：`target/lineC-pres/inahime-run`（spotlight，2026-10-30）。毒矢、風之祈、影隱都有施放與狀態 cue。
-
-- 遊風行身是被動數值（魔抗與攻擊加成），沒有狀態也沒有 cue，不需要呈現。
+- 實機：`target/lineC-pres14/inahime-run`（spotlight，2026-11-01），錄到 805 幀、掉 0 幀，下了 4 次指令，略過 0 格。
+- observer：有檢查，mismatch 0。build：snapshot commit `63a7512d`（E583，一輪建一次）。
+- 4 招中 3 招有呈現，1 招被動沒有 cue 或狀態可檢查。
+- 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。選角稱號「風中的蠍毒弓」。

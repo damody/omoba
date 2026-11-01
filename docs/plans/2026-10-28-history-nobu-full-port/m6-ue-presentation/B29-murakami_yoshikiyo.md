@@ -9,5 +9,7 @@
 
 擊退拋物線（全局）：1 次，最高 20000 cm
 
-- 實機：`target/lineC-pres/murakami_yoshikiyo-run`（spotlight，2026-10-30，E331 與 E337 修正後重跑）。四招都有呈現：震地的暈眩、震地斧的減速／破甲／光環、士氣的狀態 cue（自身與友軍）、地裂的特效與目標 cue。
-- E331 已在實機確認：地裂的跳躍拋物線最高點是 20000 cm。UE 的比例是 1 遊戲單位 = 100 cm（`WorldUnitsToCm`，水平座標也用同一個比例），所以正好等於 v3 寫的跳躍高度 200。修正前同一招是 0 cm。
+- 實機：`target/lineC-pres14/murakami_yoshikiyo-run`（spotlight，2026-11-01），錄到 846 幀、掉 0 幀，下了 4 次指令，略過 0 格。
+- observer：有檢查，mismatch 0。build：snapshot commit `63a7512d`（E583，一輪建一次）。
+- 4 招中 4 招有呈現。
+- 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。選角稱號「震地的信濃猛將」。

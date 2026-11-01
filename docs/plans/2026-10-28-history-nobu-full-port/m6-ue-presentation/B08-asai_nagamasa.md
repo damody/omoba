@@ -10,6 +10,7 @@
 
 擊退拋物線（全局）：0 次
 
-- 實機：`target/lineC-pres/asai_nagamasa-run`（spotlight，2026-10-30）。五招都有呈現：牙斬的封鎖、閃斬的目標 cue 與暈眩、活魂的狀態 cue、無盡牙的無敵與暈眩圓環。
-
-- 閃斬的 b08e_lockout（command_restricted）本局沒出現：目標同時被暈眩，共用狀態只顯示一個圓環。
+- 實機：`target/lineC-pres14/asai_nagamasa-run`（spotlight，2026-11-01），錄到 900 幀、掉 0 幀，下了 5 次指令，略過 0 格。
+- observer：有檢查，mismatch 0。build：snapshot commit `63a7512d`（E583，一輪建一次）。
+- 5 招中 5 招有呈現。
+- 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。選角稱號「一刀流的近江之主」。
