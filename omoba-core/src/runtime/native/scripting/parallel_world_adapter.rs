@@ -2052,7 +2052,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             (op::ABILITY_IN_SLOT, [A::Unit(unit), A::Num(slot)]) => {
                 let hero = Self::handle_to_entity(*unit).and_then(|entity| self.cache.hero.get(entity));
                 let slot = usize::try_from(slot.raw() >> 10).ok().filter(|_| *slot >= Fixed64::ZERO);
-                ROk(match hero.zip(slot).and_then(|(hero, slot)| hero.abilities.get(slot)) {
+                // an empty slot ("", E578) holds nothing
+                ROk(match hero.zip(slot).and_then(|(hero, slot)| hero.abilities.get(slot)).filter(|id| !id.is_empty()) {
                     Some(id) => V::Str(id.as_str().into()),
                     None => V::None,
                 })

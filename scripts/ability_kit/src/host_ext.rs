@@ -846,19 +846,42 @@ impl Cx<'_, '_> {
     }
 
     /// v3 `add_ability { to, ability, level }` (E560) on a non-hero unit: it holds `ability` at
-    /// `level` (at least 1), as [`Cx::grant_unit_ability`] (B16's dog). A hero's slots
-    /// (`slot`, `cast_point`: C08's stolen F) are not supported yet: an error the host records.
+    /// `level` (at least 1), as [`Cx::grant_unit_ability`] (B16's dog). A hero takes it in a
+    /// slot ([`Cx::add_hero_ability`]); without one it is an error the host records.
     pub fn add_ability(&mut self, to: EntityHandle, ability: &str, level: Fixed64) -> Res {
-        if to.is_valid() && self.is_hero(to) { return Err("v3: add_ability on a hero is not supported"); }
+        if to.is_valid() && self.is_hero(to) { return Err("v3: add_ability on a hero needs a slot"); }
         self.grant_unit_ability(to, ability, level)
     }
 
+    /// v3 `add_ability { to, ability, level, slot, cast_point = 0 }` on a hero (E578, C08's stolen
+    /// F): slot `slot` (Q..F = 0..5) holds `ability` at `level` (at least 1, at most its max),
+    /// off cooldown, in place of what it held; `instant` (`cast_point = "0"`) casts it with no
+    /// windup. A non-hero takes it as [`Cx::add_ability`]. Any other cast point is an error.
+    pub fn add_hero_ability(&mut self, to: EntityHandle, ability: &str, level: Fixed64, slot: u8, instant: bool) -> Res {
+        use omoba_core::runtime::native::ability_slots::{SlotSpec, SLOT_BUFF};
+        if !to.is_valid() { return Ok(()); }
+        if !self.is_hero(to) { return self.add_ability(to, ability, level); }
+        let max = omoba_template_ids::ability_by_name(ability).and_then(omoba_template_ids::active_ability_const)
+            .ok_or("v3: add_ability of an unknown ability")?.max_level;
+        let level = i32::try_from(level.raw() >> 10).unwrap_or(1).clamp(1, i32::from(max));
+        let spec = SlotSpec { slot: usize::from(slot), ability: Some(ability.to_owned()), level, instant };
+        self.world.add_stat_buff(to, RStr::from_str(SLOT_BUFF), Fixed64::ONE, RStr::from_str(&spec.payload().to_string()));
+        Ok(())
+    }
+
     /// v3 `remove_ability { from, ability }` (E560) on a non-hero unit: the ability and its
-    /// running cooldown go. A hero's slots are not supported yet (an error, as add_ability).
+    /// running cooldown go. On a hero (E578) the slot holding it is empty after.
     pub fn remove_ability(&mut self, from: EntityHandle, ability: &str) -> Res {
         use omoba_core::runtime::native::unit_abilities;
         if !from.is_valid() { return Ok(()); }
-        if self.is_hero(from) { return Err("v3: remove_ability on a hero is not supported"); }
+        if self.is_hero(from) {
+            use omoba_core::runtime::native::ability_slots::{SlotSpec, SLOT_BUFF};
+            let slots = u8::try_from(omoba_template_ids::HERO_ABILITY_SLOTS).unwrap_or(6);
+            let Some(slot) = (0..slots).find(|slot| self.ability_in_slot(from, *slot).as_deref() == Some(ability)) else { return Ok(()) };
+            let spec = SlotSpec { slot: usize::from(slot), ability: None, level: 0, instant: false };
+            self.world.add_stat_buff(from, RStr::from_str(SLOT_BUFF), Fixed64::ONE, RStr::from_str(&spec.payload().to_string()));
+            return Ok(());
+        }
         self.world.remove_buff(from, RStr::from_str(&unit_abilities::row_id(ability)));
         self.world.remove_buff(from, RStr::from_str(&format!("{}{ability}", unit_abilities::COOLDOWN_PREFIX)));
         Ok(())

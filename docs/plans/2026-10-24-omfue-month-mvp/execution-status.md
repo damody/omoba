@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：英雄技能格 add_ability（E578）
+
+- C08 偷到的技能放進 F 格，沒有前搖。
 ## 2026-11-01 線 B：state blind（E577）
 
 - 被吞的目標失去視野。

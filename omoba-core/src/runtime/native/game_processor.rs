@@ -6746,8 +6746,9 @@ fn handle_add_buff(
         return Ok(());
     }
     // v3 set_ability_active / swap_abilities: never stored as the packet itself.
-    if buff_id==super::ability_slots::ACTIVE_BUFF || buff_id==super::ability_slots::SWAP_BUFF
-        || payload.get(super::ability_slots::ACTIVE_KEY).is_some() || payload.get(super::ability_slots::SWAP_KEY).is_some() {
+    if buff_id==super::ability_slots::ACTIVE_BUFF || buff_id==super::ability_slots::SWAP_BUFF || buff_id==super::ability_slots::SLOT_BUFF
+        || payload.get(super::ability_slots::ACTIVE_KEY).is_some() || payload.get(super::ability_slots::SWAP_KEY).is_some()
+        || payload.get(super::ability_slots::SLOT_KEY).is_some() {
         super::ability_slots::apply(world,target,&buff_id,duration,&payload);
         return Ok(());
     }

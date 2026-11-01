@@ -335,7 +335,8 @@ fn dispatch_scripts(
                     let Some((def,_))=registry.get_ability(skill_id) else {reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);};
                     let Some(level)=cast_level.and_then(|rank|def.get_level_data(rank)) else {reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);};
                     if !level.cast_time.is_finite() || !(0.0..=60.0).contains(&level.cast_time) {reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);}
-                    if level.cast_time>0.0 {
+                    // A slot granted with cast_point = 0 (E578) casts with no windup.
+                    if level.cast_time>0.0 && !super::super::ability_slots::instant(&cache.buffs,*caster,skill_id) {
                         if cache.buffs.is_silenced(*caster) {reject_cast!(cast_outcomes,ev,releasing,code::SILENCED);}
                         if !cache.entities.is_alive(*caster)
                             || cache.cprop.get(*caster).is_none_or(|p|p.hp<=Fixed64::ZERO) {reject_cast!(cast_outcomes,ev,releasing,code::HERO_INACTIVE);}

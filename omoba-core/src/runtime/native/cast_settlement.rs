@@ -101,6 +101,7 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
         if (payload.get(super::super::mana_burn::KEY).is_some() || buff_id==super::super::mana_burn::BUFF)
             && super::super::mana_burn::admitted(world,*target,buff_id,*duration,payload).is_none(){return Err("effect:mana_burn");}
         if (buff_id==super::super::ability_slots::ACTIVE_BUFF || buff_id==super::super::ability_slots::SWAP_BUFF
+            || buff_id==super::super::ability_slots::SLOT_BUFF || payload.get(super::super::ability_slots::SLOT_KEY).is_some()
             || payload.get(super::super::ability_slots::ACTIVE_KEY).is_some() || payload.get(super::super::ability_slots::SWAP_KEY).is_some())
             && !super::super::ability_slots::admitted(world,*target,buff_id,*duration,payload){return Err("effect:ability_slots");}
         if (payload.get(super::super::mana_burn::SET_KEY).is_some() || buff_id==super::super::mana_burn::SET_BUFF)

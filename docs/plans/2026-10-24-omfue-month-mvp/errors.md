@@ -2,7 +2,33 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E578 （保留）英雄技能格 add_ability／remove_ability（C08 偷技能到 F 格）（2026-11-01）
+## E578 英雄技能格 add_ability／remove_ability（C08 偷技能到 F 格）（2026-11-01，工作線 B）
+
+- **現象**：加藤段藏（C08）的 T 偷目標一個技能，寫法是 `add_ability { to = caster, ability = pick, level, slot = "F", cast_point = "0" }`，F 格原本的技能先 `remove_ability`。E560 的 add_ability／remove_ability 只支援非英雄單位，對英雄回傳錯誤。
+- **修正**：
+  - **新封包**：ability_slots 加上 `__ability_slot`（`SlotSpec { slot, ability, level, instant }`），與 swap 一樣在 cast_settlement 檢查、在 game_processor 套用。
+    - 指定的格子放入 catalog 技能，之前不足的格子補 `""`。
+    - 等級介於 1 和該技能最大等級之間；放入時沒有冷卻。
+    - 同一技能不能同時佔兩格。
+    - `ability = null` 時清空該格。
+  - **前搖為 0**：`instant` 留下永久列 `__ability_instant:<id>`。dispatch 發現施法者帶這一列時，這個技能沒有前搖直接施放；格子被換掉或清空時一併移除這一列。
+  - **replica**：`adopt_ability_slots` 遇到超過 Q–R 四格的 CommittedAbilitySlots 時，補到與 authority 相同的格數。authority 只有在英雄真的超過四格時才送出第五、六格，所以四格以下的英雄不變。
+  - **ext `ABILITY_IN_SLOT`**：空格（`""`）回傳 None，`exists(ability_in_slot(caster, F))` 才正確。
+  - **kit**：
+    - 新增 `add_hero_ability(to, ability, level, slot, instant)`；對非英雄單位等同 add_ability。
+    - `remove_ability` 對英雄改為清空持有該技能的格子。
+    - `add_ability` 對英雄沒有指定格子時仍回傳錯誤。
+- **已知限制**：
+  - `cast_point` 只支援 0，也就是原作的寫法。
+  - 偷到的技能用學技能點升級不在原作範圍內，這次也不擋。
+  - team replica 若沒有自己套用這個封包，`__ability_instant` 列不會出現在 replica，預測施法會進入前搖；E567 會在同一 tick 校正冷卻。
+- **測試**：
+  - `ability_slots::tests::a_slot_packet_grants_and_empties_a_hero_slot`：
+    - 放入 F 格後中間補空格，等級正確、沒有冷卻、帶 instant 列。
+    - 同一技能放第二格、等級超過上限、未知技能、格號超出範圍都被拒。
+    - 清空格子會一併移除 instant 列。
+  - 相關模組 102 個測試通過；影子 omoba-core 全套 lib 測試 1518 個通過。
+- **檔案**：`omoba-core/src/runtime/native/{ability_slots,cast_settlement,game_processor}.rs`、`omoba-core/src/runtime/native/scripting/{dispatch,parallel_world_adapter}.rs`、`omoba-core/src/runtime/filtered_specs.rs`、`scripts/ability_kit/src/host_ext.rs`
 
 ## E577 status state blind：被吞的目標不提供視野（C08）（2026-11-01，工作線 B）
 

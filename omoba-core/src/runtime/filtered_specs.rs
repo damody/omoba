@@ -1733,6 +1733,11 @@ fn decode_ability_slots(payload: &[u8]) -> Result<Vec<String>, ReplicaRuntimeErr
 /// changes nothing.
 fn adopt_ability_slots(hero: &mut crate::runtime::Hero, names: Vec<String>) -> Result<(), ReplicaRuntimeError> {
     if hero.abilities.len() > names.len() { return Err(ReplicaRuntimeError::MalformedBaseline); }
+    // Past the four Q-R slots the authority sends exactly the slots its hero has: a slot it
+    // granted there (ability_slots::SlotSpec, E578) is a slot here too.
+    if names.len() > crate::runtime::LEGACY_HERO_ABILITY_SLOTS {
+        while hero.abilities.len() < names.len() { hero.abilities.push(String::new()); }
+    }
     for (slot, name) in names.into_iter().enumerate().take(hero.abilities.len()) {
         if hero.abilities[slot] == name { continue; }
         let rank = hero.get_ability_level(&hero.abilities[slot]);
