@@ -1521,7 +1521,7 @@ fn checked_mana_modifiers_bot_budget_rejects_invalid_instead_of_planning_free_re
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Mid,lane:1,escort_player_id:None}],
         think_interval_ticks:1,sustain:None,item_builds:Vec::new(),ability_learning:Vec::new(),ability_policies:vec![BotAbilityPolicy {
-            ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfRecovery {below_hp_per_mille:600,below_mana_per_mille:500,restore_key:"mana_restore".into()}}]};
+            caster_status:None,caster_no_status:None,ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfRecovery {below_hp_per_mille:600,below_mana_per_mille:500,restore_key:"mana_restore".into()}}]};
     let has_cast=|inputs:&[(u32,PlayerInput)]|inputs.iter().any(|(_,i)|matches!(i.action,Some(PlayerInputEnum::CastAbility(_))));
     let before=w.read_storage::<Hero>().get(e).unwrap().mana_pool.clone();
     for value in [serde_json::json!("bad"),serde_json::json!(i64::MAX),serde_json::json!(u64::MAX)] {
@@ -3419,7 +3419,7 @@ fn area_effects_bot_formal_60hz_hits_multiple_enemies_not_allies_or_outside_radi
     for &(_,entity) in &entries {assert_eq!(w.read_storage::<CProperty>().get(entity).unwrap().hp,Fixed64::from_i32(1000));}
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Carry,lane:2,escort_player_id:None}],
         think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:2}}]};
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:2}}]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert_eq!(inputs.len(),1);
@@ -3447,8 +3447,8 @@ fn dash_bot_public_terrain_60hz_skips_blocked_cast_for_recovery_then_relocates()
     w.write_resource::<BlockedRegions>().0.push(isolated_skill_region("bot-dash-fixture",100.0,120.0,100.0));
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Top,lane:0,escort_player_id:None}],
         think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),ability_policies:vec![
-            BotAbilityPolicy {ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}},
-            BotAbilityPolicy {ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
         ]};
     run_committed_visibility_wave_b(&mut w,driver.tick(),0);
     let mana=w.read_storage::<Hero>().get(caster).unwrap().mana_pool.clone();
@@ -3499,8 +3499,8 @@ fn dash_effect_root_60hz_rejects_without_cost_then_bot_recovers_and_relocates() 
         if source==canonical_entity_id(caster))),"failed movement emits no successful cast cue");
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Top,lane:0,escort_player_id:None}],
         think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),ability_policies:vec![
-            BotAbilityPolicy {ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}},
-            BotAbilityPolicy {ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
         ]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let input=role_bot_inputs(&w,&bots).unwrap();
@@ -3550,7 +3550,7 @@ fn dash_effect_formal_60hz_rejects_wall_and_range_then_bot_relocates() {
     *w.write_resource::<BlockedRegions>()=original;
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Top,lane:0,escort_player_id:None}],
         think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"vanguard_resolve".into(),
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_resolve".into(),
             intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}}]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let inputs=role_bot_inputs(&w,&bots).unwrap();
@@ -3699,8 +3699,8 @@ fn role_bot_sustain_navigation_60hz_all_roles_defend_hold_and_resume() {
                 think_interval_ticks:1,ability_learning:Vec::new(),item_builds:Vec::new(),
                 sustain:Some(BotSustainPolicy {recall_below_hp_per_mille:350,leave_base_at_hp_per_mille:850,threat_radius:1000,mana:None}),
                 ability_policies:if healing {vec![
-                    BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit},
-                    BotAbilityPolicy {ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
+                    BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit},
+                    BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
                 ]} else {Vec::new()}};
             run_committed_visibility_wave_b(&mut w,driver.tick(),0);
             let escape=role_bot_inputs(&w,&bots).unwrap();
@@ -3768,8 +3768,8 @@ fn role_bot_rooted_sustain_60hz_casts_recovery_instead_of_blocked_escape() {
             think_interval_ticks:1,ability_learning:Vec::new(),item_builds:Vec::new(),
             sustain:Some(BotSustainPolicy {recall_below_hp_per_mille:350,leave_base_at_hp_per_mille:850,threat_radius:1000,mana:None}),
             ability_policies:vec![
-                BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit},
-                BotAbilityPolicy {ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
+                BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit},
+                BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
             ]};
         run_committed_visibility_wave_b(&mut w,result.tick,0);
         let escape=role_bot_inputs(&w,&bots).unwrap();
@@ -3871,7 +3871,7 @@ fn role_bot_control_state_waits_and_resumes_through_formal_60hz() {
     let mut bots=RoleBotConfig {assignments:vec![BotAssignment {
         player_id:2,role:BotRole::Mid,lane:1,escort_player_id:None,
     }],think_interval_ticks:1,sustain:None,item_builds:Vec::new(),ability_learning:Vec::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}]};
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}]};
     assert!(matches!(&role_bot_inputs(&w,&bots).unwrap()[0].1.action,
         Some(PlayerInputEnum::CastAbility(cast)) if cast.target_entity==Some(caster.id())));
     // Real generated enemy spell applies control; the bot never reads enemy Buffs.
@@ -4554,7 +4554,7 @@ fn role_bot_learning_rank_zero_through_formal_60hz_upgrade_and_cast() {
         think_interval_ticks:1,sustain:None,item_builds:Vec::new(),
         ability_learning:vec![BotAbilityLearningStep {ability:"apprentice_lance".into(),rank:1},
             BotAbilityLearningStep {ability:"apprentice_bolt".into(),rank:1}],
-        ability_policies:vec![BotAbilityPolicy {ability:"apprentice_bolt".into(),intent:BotAbilityIntent::EnemyUnit}]};
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"apprentice_bolt".into(),intent:BotAbilityIntent::EnemyUnit}]};
     {
         let heroes=w.read_storage::<Hero>();let hero=heroes.get(caster).unwrap();
         assert_eq!((hero.level,hero.skill_points,hero.get_ability_level("apprentice_bolt")),(1,1,0));
@@ -4604,7 +4604,7 @@ fn role_bot_abilities_cast_damage_and_heal_through_formal_60hz_pipeline() {
     w.write_storage::<Hero>().get_mut(caster).unwrap().abilities.swap(0,2);
     let player=w.read_resource::<MobaMatch>().heroes[0].player_id;
     let mut bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:player,role:BotRole::Mid,lane:1,escort_player_id:None}],
-        think_interval_ticks:1,sustain:None,item_builds:Vec::new(),ability_learning:Vec::new(),ability_policies:vec![BotAbilityPolicy {ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}]};
+        think_interval_ticks:1,sustain:None,item_builds:Vec::new(),ability_learning:Vec::new(),ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}]};
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert_eq!(inputs.len(),1);
     assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==2 && cast.target_entity==Some(target.id())));
@@ -4620,7 +4620,7 @@ fn role_bot_abilities_cast_damage_and_heal_through_formal_60hz_pipeline() {
     let canonical=((target.gen().id() as u32 as u64)<<32)|u64::from(target.id());
     w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.remove(&canonical);
     assert!(role_bot_inputs(&w,&bots).unwrap().iter().all(|(_,input)|!matches!(input.action,Some(PlayerInputEnum::CastAbility(_)))));
-    bots.ability_policies=vec![BotAbilityPolicy {ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}}];
+    bots.ability_policies=vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}}];
     w.write_storage::<CProperty>().get_mut(caster).unwrap().hp=Fixed64::from_i32(100);
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let inputs=role_bot_inputs(&w,&bots).unwrap();
@@ -4655,8 +4655,8 @@ fn mana_budget_bot_uses_script_cost_and_formal_60hz_debit_without_reservation() 
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Carry,lane:1,escort_player_id:None}],
         think_interval_ticks:1,sustain:None,item_builds:Vec::new(),ability_learning:Vec::new(),ability_policies:vec![
-            BotAbilityPolicy {ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}},
-            BotAbilityPolicy {ability:"ranger_patch".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}}]};
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"ranger_patch".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}}]};
     let mut expected=w.read_storage::<Hero>().get(caster).unwrap().mana_pool.clone().unwrap();
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert_eq!(inputs.len(),1);
@@ -4708,7 +4708,7 @@ fn mana_recovery_bot_60hz_full_health_uses_discounted_formal_cast() {
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Mid,lane:1,escort_player_id:None}],
         think_interval_ticks:1,sustain:None,item_builds:Vec::new(),ability_learning:Vec::new(),ability_policies:vec![
-            BotAbilityPolicy {ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfRecovery {
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfRecovery {
                 below_hp_per_mille:600,below_mana_per_mille:500,restore_key:"mana_restore".into()}}]};
     assert!(role_bot_inputs(&w,&bots).unwrap().iter().all(|(_,input)|
         !matches!(input.action,Some(PlayerInputEnum::CastAbility(_)))),"55 cost / 20 restore loses mana");
@@ -4751,7 +4751,7 @@ fn mana_regeneration_bot_60hz_generated_buff_blocks_recast_until_removed() {
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Carry,lane:1,escort_player_id:None}],
         think_interval_ticks:1,sustain:None,item_builds:Vec::new(),ability_learning:Vec::new(),ability_policies:vec![
-            BotAbilityPolicy {ability:"ranger_patch".into(),intent:BotAbilityIntent::SelfManaRegeneration {
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"ranger_patch".into(),intent:BotAbilityIntent::SelfManaRegeneration {
                 below_hp_per_mille:600,below_mana_per_mille:500,
                 rate_key:"mana_buff_value".into(),duration_key:"mana_buff_duration".into()}}]};
     let has_cast=|inputs:&[(u32,PlayerInput)]|inputs.iter().any(|(_,input)|matches!(input.action,Some(PlayerInputEnum::CastAbility(_))));
@@ -4792,7 +4792,7 @@ fn support_guard_focus_60hz_shares_formal_attack_and_skill_without_hidden_escort
         players:vec![player(1,1,BotRole::Support,"training_support"),player(2,2,BotRole::Mid,"training_luminary"),
             player(3,1,BotRole::Carry,"training_ranger"),player(4,2,BotRole::Top,"training_vanguard")],
         ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}], showcase: None};
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}], showcase: None};
     let (mut config,bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
     let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
@@ -4847,7 +4847,7 @@ fn jungle_assist_60hz_uses_committed_allies_and_formal_skill_and_attack_inputs()
     let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
         players:vec![player(1,1,BotRole::Jungle,"training_vanguard"),player(2,2,BotRole::Mid,"training_luminary"),
             player(3,1,BotRole::Mid,"training_ranger")],ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit}], showcase: None};
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit}], showcase: None};
     let (mut config,bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
     let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
@@ -4907,7 +4907,7 @@ fn jungle_cone_60hz_uses_committed_direction_and_authoritative_full_range_damage
         Some(ManaPool::new(Fixed64::from_i32(280),Fixed64::from_i32(280)).unwrap());
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Jungle,lane:0,
         escort_player_id:None}],think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"ranger_scatter".into(),intent:BotAbilityIntent::EnemyCone {min_targets:2}}]};
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"ranger_scatter".into(),intent:BotAbilityIntent::EnemyCone {min_targets:2}}]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(cast))
@@ -4955,7 +4955,7 @@ fn jungle_farm_focus_60hz_area_cast_and_attack_share_disclosed_neutral_target() 
         p.def_physic=Fixed64::ZERO;p.def_magic=Fixed64::ZERO;}}
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Jungle,lane:0,
         escort_player_id:None}],think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"ranger_volley".into(),
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"ranger_volley".into(),
             intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}}]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let inputs=role_bot_inputs(&w,&bots).unwrap();
@@ -4984,7 +4984,7 @@ fn bot_cleanse_formal_60hz_healthy_ally_public_only_pause_and_replay() {
         let plan=RoleBotMatchPlan{schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,
             players:vec![player(1,1,BotRole::Support,"training_support"),player(2,2,BotRole::Mid,"training_luminary"),player(3,1,BotRole::Carry,"training_ranger")],
             ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
-            ability_policies:vec![BotAbilityPolicy{ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHealOrCleanse{below_hp_per_mille:600}}], showcase: None};
+            ability_policies:vec![BotAbilityPolicy{caster_status:None,caster_no_status:None,ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHealOrCleanse{below_hp_per_mille:600}}], showcase: None};
         let (mut config,bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
         let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);driver.step(&mut w,[]).unwrap();let [caster,enemy]=hero_pair(&w);
         let ally=w.read_resource::<MobaMatch>().heroes.iter().find(|s|s.player_id==3).unwrap().entity.unwrap();let y=isolated_skill_origin_y();
@@ -5064,7 +5064,7 @@ fn ally_heal_60hz_generated_support_rejects_enemy_and_heals_disclosed_teammate()
     let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,
         players:vec![player(1,1,BotRole::Support,"training_support"),player(2,2,BotRole::Mid,"training_luminary"),
             player(3,1,BotRole::Carry,"training_ranger")],ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHeal {below_hp_per_mille:600}}], showcase: None};
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHeal {below_hp_per_mille:600}}], showcase: None};
     let (mut config,bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
     let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
@@ -7026,8 +7026,8 @@ fn carry_attack_priority_60hz_preserves_farming_windup_but_not_recovery_or_backs
     w.write_storage::<CProperty>().get_mut(creep).unwrap().hp=Fixed64::from_i32(20);
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Carry,lane:0,
         escort_player_id:None}],think_interval_ticks:1,ability_policies:vec![
-            BotAbilityPolicy {ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit},
-            BotAbilityPolicy {ability:"lumen_mend".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,ability:"lumen_mend".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
         ],ability_learning:Vec::new(),sustain:None,item_builds:Vec::new()};
     {let mut attacks=w.write_storage::<TAttack>();let a=attacks.get_mut(caster).unwrap();
         a.asd_count=Fixed64::from_i32(10);a.attack_phase=AttackSequencePhase::Idle;}
