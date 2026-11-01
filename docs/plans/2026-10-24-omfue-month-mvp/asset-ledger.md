@@ -88,6 +88,14 @@
 | 2026-11-01 | Tripo | kojima_sadaoki（第 8 位） | 同上 | 25＋20＋0 | 24,760 | `749c3ffb-a8ad-456e-864e-294226dd85de`；`TripoV1/kojima_sadaoki（第/` | 一次可用：9,782 tris、80 骨；暗紅具足、背刀 |
 | 2026-11-01 | Tripo | shimazu_yoshihiro（第 9 位） | 同上 | 25＋20＋0 | 24,715 | `8b0d037d-cf7f-4078-b5d9-c5d057438951`；`TripoV1/shimazu_yoshihiro（第/` | 一次可用：9,586 tris、80 骨；黑具足、背大錘 |
 | 2026-11-01 | Tripo | maeda_keiji（第 10 位） | 同上 | 25＋20＋0 | 24,670 | `ccb5bcac-c4ac-48dd-96f8-8cc06394147a`；`TripoV1/maeda_keiji（第/` | 一次可用：9,431 tris、80 骨；橘色具足、紅髮、花紋披風 |
+| 2026-11-01 | Grok Build CLI（image_gen） | 場景元件參考圖 7 張（崖壁直段、崖壁轉角、竹、闊葉樹、本陣泉水、商店、大將塔） | 1:1，三分之四俯角，「low-poly、形狀簡單、細節少」，背景鋪滿淺灰 | 不另計費 | — | scratchpad `grok/scene/<id>/`；`TripoStaticV1/<id>/reference/` | 7 張一次可用 |
+| 2026-11-01 | Tripo（image-to-3D，單張圖，不綁骨） | cliff_straight | H3.1、2K、去光、PBR 關、三角面、面數上限 1,500；FBX 2K | 25 | 24,645 | `1b351cf9-1728-4066-8611-770ea7cc6f89`；`TripoStaticV1/cliff_straight/` | 1,360 tris。第一次匯出的貼圖名稱帶連字號（`low-poly_grassy…`），UE 匯入時被拒；匯出時把檔名改成 `cliff_straight` 重新匯出（0 點）後可用 |
+| 2026-11-01 | Tripo | cliff_corner | 同上，上限 1,500 | 25 | 24,620 | `74867975-0e9a-4b1e-a937-f29e989dfd98` | 1,416 tris |
+| 2026-11-01 | Tripo | bamboo_tree | 同上，上限 800 | 25 | 24,595 | `6dbda8c0-18fa-4dc9-b970-bbf9e1b71446` | 774 tris |
+| 2026-11-01 | Tripo | broadleaf_tree | 同上，上限 800 | 25 | 24,570 | `2a72b4e4-3067-407d-bacd-d101ada03174` | 694 tris |
+| 2026-11-01 | Tripo | general_tower（大將塔） | 同上，上限 5,000 | 25 | 24,545 | `86d5f473-253e-4fcc-b276-584b38272058` | 4,616 tris |
+| 2026-11-01 | Tripo | fountain_honjin（本陣泉水） | 同上，上限 8,000 | 25 | 24,520 | `7967e9e8-898c-4f5b-b473-dde4b558180c` | 7,171 tris |
+| 2026-11-01 | Tripo | shop_stall（商店） | 同上，上限 8,000 | 25 | 24,495 | `c2f679cc-aea9-49a1-babc-93178743d39a` | 7,313 tris |
 
 7 位是先連續送出生成、再逐一綁骨，所以點數是交錯扣的，中間的剩餘點數不逐列記。7 位合計 315 點（7410 → 7095），與「7 × 45」相符。
 
