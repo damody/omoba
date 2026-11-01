@@ -86,7 +86,12 @@
   - 模板的 `inventory_locked`、`item_cast_blacklist` 在 host 本來就成立：道具指令只作用在玩家的英雄上。
 - **檔案**：`omoba-core/src/runtime/native/unit_overrides.rs`
 
-## E572 （保留）conformance 從沒驗證被動的 on_take_damage／on_death／on_kill trigger（when event 一律 unsupported）（2026-11-01）
+## E572 conformance：conformance 從沒驗證被動的 on_take_damage／on_death／on_kill trigger（when event 一律 unsupported）（2026-11-01，conformance session）
+- **現象**：被動自己的 on_take_damage、on_death、on_kill trigger（when event）一律判 unsupported，這三個 hook 的 pass 數是 0。
+- **通用修正**：
+  - 把 E564 的事件製造與效果檢查抽成 make_event，被動與狀態共用；被動的持有者是英雄本身，依等級逐級學習。
+  - 效果檢查再加上 restore_mana：目標事先降到半魔，必須多於事件那幾個 tick 的自然回魔。
+- **結果**：與 E568 合併全跑，0 退步，224 個情境從 unsupported 或 fail 變 pass。例如 a01_realm_momentum 的 on_take_damage 回魔 +20.8。
 
 ## E571 give_item 不保留 vars：道具實例變數、item_name 狀態、道具移除自己（C06）（2026-11-01，工作線 B）
 
@@ -134,7 +139,13 @@
 - **測試**：`item_grant` 測試補上：source id 與 catalog id 指向同一道具並可反查，source id 可用於 give；未知 id 為 None。
 - **檔案**：`omoba-core/src/runtime/native/item_grant.rs`、`scripts/ability_kit/src/host_ext.rs`
 
-## E568 （保留）conformance 技能前提要另一招做出的東西（b16 的月 state.b16_moon）時沒有先施放那一招（2026-11-01）
+## E568 conformance：conformance 技能前提要另一招做出的東西（b16 的月 state.b16_moon）時沒有先施放那一招（2026-11-01，conformance session）
+- **現象**：b16_phase_shift r1 normal／cooldown 判「CAST_REJECTED: v3: requires condition」；b16_beast_union 判冷卻沒開始（沒有忍犬時，文件規定 refund 冷卻）。
+- **根因**：兩招都要 b16_summon_hound 召出的月（state.b16_moon）存在；情境沒有先把月召出來。
+- **通用修正**：
+  - 情境產生器：requires.condition 或 on_cast 頂層 if 讀 `exists(state.X)` 時，找同英雄 on_cast 會 set_state X 的那一招，加 cast_first given。
+  - harness：先學那一招（1 級）並施放一次，做出的單位原地不動也不攻擊；施放不計入情境的 cast 序號，之後把冷卻和 mana 復原。
+- **以後如何避免**：技能的前提如果依賴另一招的產物，要從文件推出施放順序。
 
 ## E567 authority 放棄施法時不送冷卻修正：replica 預測的冷卻一直留著（2026-11-01，工作線 B）
 

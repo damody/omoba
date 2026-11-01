@@ -28,7 +28,7 @@ use super::*;
 use serde_json::{json, Value};
 
 const ENEMY: &str = "training_luminary";
-const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "leveled_by", "unit_ability", "target_status", "ally_target_lower", "ally_unit_at_point", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line", "target_ahead", "corpse_near_caster"];
+const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "leveled_by", "unit_ability", "target_status", "ally_target_lower", "ally_unit_at_point", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line", "target_ahead", "corpse_near_caster", "cast_first"];
 const WHEN: &[&str] = &["cast", "wait", "caster_dies", "target_dies", "owner_dies", "owner_respawns", "toggle", "cast_until_over_cap"];
 /// A document entry the ported hero does not have at all: a difference, not a harness gap.
 const MISSING: &str = "missing entry: ";
@@ -446,6 +446,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let mut mana: Option<(bool, f64)> = None;
     let (mut immune, mut dead, mut hidden, mut invisible) = (false, false, false, false);
     let (mut clear_line, mut face_ahead, mut corpse) = (false, false, false);
+    let mut cast_first: Option<String> = None;
     // What the entry's on_phase_start needs (E457): a status on the target, an ally target lower
     // than the caster, an allied unit at the point.
     let (mut target_statuses, mut ally_lower, mut ally_at_point) = (Vec::<String>::new(), false, false);
@@ -487,6 +488,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
             "ally_target_lower" => ally_lower = true,
             "ally_unit_at_point" => ally_at_point = true,
             "corpse_near_caster" => corpse = true,
+            "cast_first" => cast_first = given["entry"].as_str().map(str::to_owned),
             other => return Err(format!("given {other}")),
         }
     }
@@ -675,6 +677,48 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
         if target == caster { return Err("dead self target".into()); }
         run.kill(caster, target);
         run.step(3);
+    }
+    // What another entry of the hero makes (B16's moon; E568): that entry, learned at 1, is cast
+    // first; the scenario's casts are counted from after it, with cooldowns cleared and the mana the
+    // givens set.
+    if let Some(first) = cast_first {
+        let slot = run.hero(|h| h.abilities.iter().position(|id| *id == first)).ok_or(format!("{first} (cast first) not in the hero's slots"))? as u32;
+        let aim = match omoba_template_ids::ability_by_name(&first).and_then(omoba_template_ids::active_ability_const).map(|c| c.target_type) {
+            Some(omoba_template_ids::TargetTypeC::Unit) => "unit", Some(omoba_template_ids::TargetTypeC::Point) => "point", _ => "none",
+        };
+        let pool = run.hero(|h| h.mana_pool.clone());
+        {
+            let mut heroes = run.world.write_storage::<Hero>();
+            if let Some(h) = heroes.get_mut(run.caster) {
+                h.ability_levels.insert(first.clone(), 1);
+                h.ability_cooldowns.clear();
+                if let Some(pool) = h.mana_pool.as_mut() { let max = pool.maximum(); if let Ok(full) = omoba_core::runtime::ability_runtime::ManaPool::new(max, max) { *pool = full; } }
+            }
+        }
+        let (entry_id, entry_slot, target0, casts) = (run.entry.clone(), run.slot, run.target, run.casts.len());
+        run.keep = Some(entry_id.clone());
+        run.entry = first.clone();
+        run.slot = slot;
+        if aim == "unit" { run.target = run.enemy; }
+        let cast_point = value(&first, 1, "cast_point").unwrap_or(0.0);
+        let units = |run: &Run| -> Vec<specs::Entity> { use specs::Join; (&run.world.entities(), &run.world.read_storage::<ScriptUnitTag>()).join().map(|(e, _)| e).collect() };
+        let existing = units(&run);
+        let made = run.cast(aim, cast_point + 1.0, None);
+        // What it made stands still and does not attack: only the scenario's cast acts.
+        for unit in units(&run).into_iter().filter(|u| !existing.contains(u)) {
+            set_hold(&mut run.world, unit);
+            if run.world.read_storage::<TAttack>().get(unit).is_some() { disarm_attack(&mut run.world, unit); }
+        }
+        run.entry = entry_id;
+        run.slot = entry_slot;
+        run.keep = None;
+        run.target = target0;
+        run.casts.truncate(casts);
+        {
+            let mut heroes = run.world.write_storage::<Hero>();
+            if let Some(h) = heroes.get_mut(run.caster) { h.ability_cooldowns.clear(); h.mana_pool = pool; }
+        }
+        if !made.is_ok_and(|c| c.accepted) { return Err(format!("{first} (cast first) was not accepted")); }
     }
     // A corpse beside the caster (E547): an enemy creep killed there just before the cast.
     if corpse {
@@ -1141,44 +1185,61 @@ fn status_trigger(run: &mut Run, holder: specs::Entity, step: &Value, expectatio
         }
         // Damage taken, the holder's death, the holder's kill (E564): the event is made, then the
         // trigger's plain effects are looked for.
-        Some(event @ ("on_take_damage" | "on_death" | "on_kill")) => {
-            let other = if holder == run.enemy { run.caster } else { run.enemy };
-            let before = EffectsSeen::of(run, holder, other, &effects);
-            let mut victim = None;
-            match event {
-                "on_take_damage" => {
-                    run.world.write_resource::<Vec<Outcome>>().push(Outcome::Damage { pos: omoba_sim::Vec2::ZERO, phys: Fixed64::from_i32(100),
-                        magi: Fixed64::ZERO, real: Fixed64::ZERO, source: other, target: holder, damage_profile: 0, predeclared: false });
-                    run.step(3);
-                }
-                "on_death" => {
-                    if deathless(run, holder) { return Verdict::Unsupported("on_death: the holder cannot die".into()); }
-                    run.kill_physical_too(other, holder);
-                    run.step(3);
-                    if living(run, holder) { return Verdict::Unsupported("on_death: the holder survived the lethal hits".into()); }
-                }
-                _ => {
-                    let team = run.world.read_storage::<Faction>().get(other).map(|f| f.team_id).unwrap_or(1);
-                    let at = run.world.read_storage::<Pos>().get(holder).map(|p| p.0).unwrap_or(omoba_sim::Vec2::ZERO);
-                    let body = spawn_body(&mut run.world, real(at.x) as i32 + 80, real(at.y) as i32, team, 50, None);
-                    run.world.write_storage::<omoba_core::Unit>().insert(body,
-                        omoba_core::Unit::new("v3_conformance_victim".into(), "v3_conformance_victim".into(), omoba_core::UnitType::Creep)).ok();
-                    run.step(1);
-                    run.kill(holder, body);
-                    run.step(3);
-                    if living(run, body) { return Verdict::Unsupported("on_kill: the holder's lethal hit did not kill".into()); }
-                    victim = Some(body);
-                }
-            }
-            before.compare(run, holder, other, victim, event, &effects)
-        }
+        Some(event @ ("on_take_damage" | "on_death" | "on_kill")) => make_event(run, holder, event, &effects),
         other => Verdict::Unsupported(format!("status event {other:?}")),
     }
 }
 
+/// Damage taken, the holder's death, the holder's kill (E564): the event is made on `holder`
+/// (by the other hero), then the trigger's plain effects are looked for.
+fn make_event(run: &mut Run, holder: specs::Entity, event: &str, effects: &[&Value]) -> Verdict {
+        let other = if holder == run.enemy { run.caster } else { run.enemy };
+        let before = EffectsSeen::of(run, holder, other, effects);
+        let mut victim = None;
+        match event {
+            "on_take_damage" => {
+                run.world.write_resource::<Vec<Outcome>>().push(Outcome::Damage { pos: omoba_sim::Vec2::ZERO, phys: Fixed64::from_i32(100),
+                    magi: Fixed64::ZERO, real: Fixed64::ZERO, source: other, target: holder, damage_profile: 0, predeclared: false });
+                run.step(3);
+            }
+            "on_death" => {
+                if deathless(run, holder) { return Verdict::Unsupported("on_death: the holder cannot die".into()); }
+                run.kill_physical_too(other, holder);
+                run.step(3);
+                if living(run, holder) { return Verdict::Unsupported("on_death: the holder survived the lethal hits".into()); }
+            }
+            _ => {
+                let team = run.world.read_storage::<Faction>().get(other).map(|f| f.team_id).unwrap_or(1);
+                let at = run.world.read_storage::<Pos>().get(holder).map(|p| p.0).unwrap_or(omoba_sim::Vec2::ZERO);
+                let body = spawn_body(&mut run.world, real(at.x) as i32 + 80, real(at.y) as i32, team, 50, None);
+                run.world.write_storage::<omoba_core::Unit>().insert(body,
+                    omoba_core::Unit::new("v3_conformance_victim".into(), "v3_conformance_victim".into(), omoba_core::UnitType::Creep)).ok();
+                run.step(1);
+                run.kill(holder, body);
+                run.step(3);
+                if living(run, body) { return Verdict::Unsupported("on_kill: the holder's lethal hit did not kill".into()); }
+                victim = Some(body);
+            }
+        }
+        before.compare(run, holder, other, victim, event, effects)
+}
+
+/// A passive's own trigger on damage taken, its hero's death or a kill (E572): the passive is
+/// learned (rank by rank, as the player does), and the event is made on the hero.
+fn check_passive_event(hero: &str, s: &Value) -> Option<Verdict> {
+    let event = s["when"][0]["event"].as_str()?;
+    if !matches!(event, "on_take_damage" | "on_death" | "on_kill") { return None; }
+    let effects: Vec<&Value> = s["expect"].as_array()?.iter().find(|e| e["kind"] == "effects")?["effects"].as_array()?.iter().collect();
+    let (entry, rank) = (s["entry"].as_str()?.to_owned(), s["rank"].as_u64()? as usize);
+    let learn = json!({"entry": entry, "rank": rank, "given": learning(s), "learn_by_upgrade": s["learn_by_upgrade"], "expect": [{"kind": "passive_stats"}]});
+    let mut run = match setup(hero, &learn) { Ok(run) => run, Err(e) => return Some(Verdict::Unsupported(e)) };
+    let caster = run.caster;
+    Some(make_event(&mut run, caster, event, &effects))
+}
+
 /// What a status trigger's plain effects (no conds) can be seen to leave (E564), taken before the
 /// event: the damage trace's length, life, statuses held and the units of each template.
-struct EffectsSeen { trace: usize, life: std::collections::BTreeMap<u32, f64>, held: std::collections::BTreeSet<(u32, String)>, made: std::collections::BTreeMap<String, usize> }
+struct EffectsSeen { trace: usize, life: std::collections::BTreeMap<u32, f64>, mana: std::collections::BTreeMap<u32, f64>, held: std::collections::BTreeSet<(u32, String)>, made: std::collections::BTreeMap<String, usize> }
 
 impl EffectsSeen {
     /// The unit an effect names: the holder, the status's caster, or the event's other unit.
@@ -1192,6 +1253,9 @@ impl EffectsSeen {
         }
     }
     fn plain(f: &Value) -> bool { f["conds"].as_array().is_none_or(|c| c.is_empty()) }
+    fn mana_of(run: &Run, unit: specs::Entity) -> Option<f64> {
+        run.world.read_storage::<Hero>().get(unit).and_then(|h| h.mana_pool.as_ref().map(|p| real(p.current())))
+    }
     fn runtime(run: &Run, f: &Value) -> Option<String> {
         let st = f["args"]["status"].as_str()?;
         Some(status_runtime_id(&run.entry, st).unwrap_or_else(|| st.to_owned()))
@@ -1202,15 +1266,27 @@ impl EffectsSeen {
     }
     fn of(run: &mut Run, holder: specs::Entity, other: specs::Entity, effects: &[&Value]) -> Self {
         use omoba_core::runtime::native::damage_trace::DamageTrace;
+        // A restore_mana's target at half mana (E572), so it shows.
+        for f in effects.iter().filter(|f| Self::plain(f) && f["op"] == "restore_mana") {
+            if let Some(unit) = Self::unit(run, holder, other, None, &f["args"]["to"]) {
+                if let Some(h) = run.world.write_storage::<Hero>().get_mut(unit) {
+                    if let Some(pool) = h.mana_pool.as_mut() {
+                        let max = pool.maximum();
+                        if let Ok(half) = omoba_core::runtime::ability_runtime::ManaPool::new(max / Fixed64::from_i32(2), max) { *pool = half; }
+                    }
+                }
+            }
+        }
         // A heal's target at half life, so the heal shows (a full one is capped).
         for f in effects.iter().filter(|f| Self::plain(f) && f["op"] == "heal") {
             if let Some(unit) = Self::unit(run, holder, other, None, &f["args"]["to"]) {
                 if let Some(p) = run.world.write_storage::<CProperty>().get_mut(unit) { p.hp = p.mhp / Fixed64::from_i32(2); }
             }
         }
-        let mut seen = EffectsSeen { trace: run.world.read_resource::<DamageTrace>().0.len(), life: Default::default(), held: Default::default(), made: Default::default() };
+        let mut seen = EffectsSeen { trace: run.world.read_resource::<DamageTrace>().0.len(), life: Default::default(), mana: Default::default(), held: Default::default(), made: Default::default() };
         for unit in [holder, run.caster, other] {
             if let Some(p) = run.world.read_storage::<CProperty>().get(unit) { seen.life.insert(unit.id(), real(p.hp)); }
+            if let Some(m) = Self::mana_of(run, unit) { seen.mana.insert(unit.id(), m); }
         }
         for f in effects.iter().filter(|f| Self::plain(f)) {
             if let Some(id) = Self::runtime(run, f) {
@@ -1262,6 +1338,12 @@ impl EffectsSeen {
                     if unit == holder && event != "on_kill" { continue; }
                     let (Some(was), Some(now)) = (self.life.get(&unit.id()), run.world.read_storage::<CProperty>().get(unit).map(|p| real(p.hp))) else { continue };
                     if now > was + 0.5 { seen.push(format!("healed {:.1}", now - was)) } else { missing.push("no heal on its target".to_owned()) }
+                }
+                "restore_mana" => {
+                    let Some(unit) = Self::unit(run, holder, other, victim, &f["args"]["to"]) else { continue };
+                    let (Some(was), Some(now)) = (self.mana.get(&unit.id()), Self::mana_of(run, unit)) else { continue };
+                    // More than the few ticks of regeneration the event takes.
+                    if now > was + 2.0 { seen.push(format!("mana +{:.1}", now - was)) } else { missing.push("no mana restored".to_owned()) }
                 }
                 _ => {}
             }
@@ -1606,6 +1688,9 @@ fn run(hero: &str, s: &Value) -> Verdict {
     if s["case"] == "quirk" { if let Some(verdict) = check_fixed_quirk(s) { return verdict; } }
     if s["when"][0]["kind"] == "event" && s["when"][0]["event"] == "on_attack_hit" {
         if let Some(verdict) = check_passive_attack_hit(hero, s) { return verdict; }
+    }
+    if s["when"][0]["kind"] == "event" {
+        if let Some(verdict) = check_passive_event(hero, s) { return verdict; }
     }
     if s["when"][0]["event"] == "on_ability_executed" && (s["when"][0]["kind"] == "event" || s["when"][0]["kind"] == "status_event") {
         if let Some(verdict) = check_ability_executed(hero, s) { return verdict; }

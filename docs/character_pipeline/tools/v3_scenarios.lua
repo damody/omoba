@@ -362,6 +362,30 @@ local function entry_scenarios(doc, def, entry_kind, out)
         if radius and a.cond:find("== 0$") then phase_needs[#phase_needs + 1] = { kind = "ally_unit_at_point", radius = radius } end
       end
     end
+    -- What another entry of the hero makes (B16's moon, `exists(state.b16_moon)`; E568): the
+    -- entry whose on_cast sets that state is cast first.
+    do
+      local texts = {}
+      if type(def.requires) == "table" and type(def.requires.condition) == "string" then texts[#texts + 1] = def.requires.condition end
+      local cast_actions = type(def.events) == "table" and def.events.on_cast or nil
+      for _, a in ipairs(type(cast_actions) == "table" and cast_actions or {}) do
+        if a.op == "if" and type(a.cond) == "string" then texts[#texts + 1] = a.cond end
+      end
+      local done = {}
+      for _, text in ipairs(texts) do
+        for var in text:gmatch("exists%(state%.([%w_]+)%)") do
+          for _, other in ipairs(current_doc and current_doc.abilities or {}) do
+            local acts = other ~= def and type(other.events) == "table" and other.events.on_cast or nil
+            for _, a in ipairs(type(acts) == "table" and acts or {}) do
+              if a.op == "set_state" and a.var == var and not done[other.id] then
+                done[other.id] = true
+                phase_needs[#phase_needs + 1] = { kind = "cast_first", entry = other.id }
+              end
+            end
+          end
+        end
+      end
+    end
     -- A cast that blinks its caster ahead first (C12E; E502): its target stands where it lands.
     local on_cast = type(def.events) == "table" and def.events.on_cast or nil
     for _, a in ipairs(type(on_cast) == "table" and on_cast or {}) do
