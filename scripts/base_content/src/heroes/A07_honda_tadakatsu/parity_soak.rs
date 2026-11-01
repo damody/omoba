@@ -48,8 +48,13 @@ fn honda_tadakatsu_kit_keeps_team_replicas_identical() {
             if buffs.iter_for(second).any(|(id,_)|id.contains("a07_red_thunder")) {slow_ticks.set(slow_ticks.get()+1);}
             if buffs.iter_for(first).any(|(id,_)|id.starts_with("a07_strongest_r")) {ultimate_ticks.set(ultimate_ticks.get()+1);}
             if buffs.has(first,&super::No3_shattering_spear::crit_buff(caster)) {crit_ticks.set(crit_ticks.get()+1);}
-            if buffs.has(first,&super::No2_red_thunder::unslow_pending(caster)) {unslow_ticks.set(unslow_ticks.get()+1);}
-            if buffs.has(first,&format!("a07_rouse:{}:{}",caster.id,caster.gen)) {rouse_ticks.set(rouse_ticks.get()+1);}
+            // the generated red thunder (1c655563) clears the slow pool through a `delay` step: a
+            // scheduled_effect row on the caster (A07's only schedules: that unslow, also inlined
+            // in a07_strongest), not the handler's unslow_pending buff
+            if buffs.iter_for(first).any(|(id,_)|id.starts_with(omoba_core::runtime::native::scheduled_effect::PREFIX)) {unslow_ticks.set(unslow_ticks.get()+1);}
+            // a07d_rouse is independent (the generated rouse, 1c655563): one `<id>#n` row per cast
+            let rouse=format!("a07_rouse:{}:{}#",caster.id,caster.gen);
+            if buffs.iter_for(first).any(|(id,_)|id.starts_with(&rouse)) {rouse_ticks.set(rouse_ticks.get()+1);}
             match tick {
                 // Chase each other (re-aimed every second), then walk home out of vision.
                 t if t%1800<1300 && t%60==6=>vec![(1,attack_move(enemy)),(2,attack_move(me))],
