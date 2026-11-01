@@ -11,7 +11,8 @@
 
 擊退拋物線（全局）：0 次
 
-- 實機：`target/lineC-pres14/hattori_hanzo-run`（spotlight，2026-11-01），錄到 1306 幀、掉 0 幀，下了 4 次指令，略過 1 格。
-- observer：有檢查，mismatch 0。build：snapshot commit `a88dee83`（E583，一輪建一次）。
+- 實機：`target/lineC-pres14/hattori_hanzo-run`（spotlight，2026-11-01），錄到 1174 幀、掉 0 幀，下了 3 次指令，略過 2 格。
+- observer：有檢查，mismatch 0。build：snapshot commit `607b28ac`（E583，一輪建一次）。
+- 影惑出現後本機 HUD 快照交替，之後的指令在本地被拒（已轉 B）。替身是幻象的技能（E594 處理）。
 - 6 招中 2 招有呈現。
 - 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。

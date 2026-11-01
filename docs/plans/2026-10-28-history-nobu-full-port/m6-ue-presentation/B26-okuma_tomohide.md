@@ -10,8 +10,8 @@
 
 擊退拋物線（全局）：0 次
 
-- 實機：`target/lineC-pres14/okuma_tomohide-run`（spotlight，2026-11-01），錄到 1040 幀、掉 0 幀，下了 4 次指令，略過 1 格。
-- observer：有檢查，mismatch 1。build：snapshot commit `a88dee83`（E583，一輪建一次）。
-- observer：1 筆 mismatch（DISCLOSED_HERO ability_levels，連段期間授予的 level-0 `b26_release_wave`），已轉給工作線 B。
+- 實機：`target/lineC-pres14/okuma_tomohide-run`（spotlight，2026-11-01），錄到 1093 幀、掉 0 幀，下了 4 次指令，略過 1 格。
+- observer：有檢查，mismatch 0。build：snapshot commit `607b28ac`（E583，一輪建一次）。
+- E589 後 observer 0 mismatch。 只在衝鋒波期間開啟，排到時已經回到 0 級（E594 處理）。
 - 5 招中 3 招有呈現，1 招被動沒有 cue 或狀態可檢查。
 - 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。
