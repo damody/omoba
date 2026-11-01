@@ -560,6 +560,8 @@ fn child_definition(parent:MobaJungleConst,child:&omoba_template_ids::MobaJungle
 
 /// Camp NPC pose (position and, when it changed, facing) for every replica.
 fn emit_camp_pose(world: &World, entity: Entity, pos: Vec2, facing_ticks: Option<i32>) {
+    // the pose this fact commits (E584: the end of the tick sends only what moved after)
+    if let Some(mut committed) = world.try_fetch_mut::<super::CommittedLanePoses>() { committed.0.insert(entity, pos); }
     let source = crate::runtime::canonical_entity_id(entity);
     world.read_resource::<crate::runtime::ObservableFactBuffer>().emit(crate::runtime::OrderedFact {
         key: crate::runtime::FactOrderingKey { tick: world.read_resource::<Tick>().0,

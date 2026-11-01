@@ -3114,8 +3114,16 @@ fn emit_moved_lane_units(world: &mut World) {
         let (summons, heroes) = (world.read_storage::<SummonedUnit>(), world.read_storage::<Hero>());
         let mut committed = world.write_resource::<CommittedLanePoses>();
         // heroes and summons already end every tick with their committed pose
-        let now = state.units.values().filter(|unit| summons.get(unit.entity).is_none() && heroes.get(unit.entity).is_none())
-            .filter_map(|unit| positions.get(unit.entity).map(|pos| (unit.entity, pos.0)));
+        // jungle camp NPCs too (E584): replicas step them no more than lane creeps
+        let mut camps = Vec::new();
+        fn camp_entities(camp: &jungle::MobaJungleCamp, out: &mut Vec<Entity>) {
+            out.extend(camp.entity);
+            for member in &camp.members { camp_entities(member, out); }
+        }
+        for camp in &state.jungle_camps { camp_entities(camp, &mut camps); }
+        let now = state.units.values().map(|unit| unit.entity).chain(camps)
+            .filter(|entity| summons.get(*entity).is_none() && heroes.get(*entity).is_none())
+            .filter_map(|entity| positions.get(entity).map(|pos| (entity, pos.0)));
         moved_lane_units(&mut committed, |entity| entities.is_alive(entity), now).into_iter()
             .map(|(entity, pos)| (entity, pos, facings.get(entity).map(|facing| facing.0.ticks()))).collect()
     };

@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：野怪 tick 結尾補送位置（E584）
+
+- E580 延伸到 jungle camp NPC；rg04 tick 8400（entity 738）的不一致可以重現。
 ## 2026-11-01 線 B：replica 重跑 learn hook 不改冷卻（E582）
 
 - 修正 E555 回歸 rg04 的 c19_surprise_raid 冷卻不一致；修正前的 live 建置可以重現（tick 960，entity 63）。

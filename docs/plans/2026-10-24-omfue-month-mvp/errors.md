@@ -2,6 +2,16 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E584 野怪投影後被移動，replica 位置沒有校正（E580 延伸）（2026-11-01，工作線 B）
+
+- **現象**：E580、E582 之後，用 snapshot 建置重跑 m6e555rg04（quick、seed 1）已通過 tick 960，但在 tick 8400 出現 entity 738（kind 3 野怪，team 0）的 DemoRender 不一致。replica 值同樣等於投影出的 DemoRenderState，authority 的 Pos 不同。
+- **根因**：與 E580 相同，replica 不會模擬野怪。但 E580 只比對 `state.units`，野怪營地的 NPC 在 `state.jungle_camps`（含巢狀 members），沒有納入。
+- **通用修正**：
+  - `emit_moved_lane_units` 也比對所有營地 NPC，遞迴走 `jungle_camps` 與 members。
+  - `jungle::emit_camp_pose` 送出 PreStepMovement 時記入 `CommittedLanePoses`，沒有移動的野怪不會重複送。
+- **測試**：moba_match 的 291 個測試通過；rg04 重跑結果見 execution-status。
+- **檔案**：`omoba-core/src/runtime/native/moba_match.rs`、`omoba-core/src/runtime/native/moba_match/jungle.rs`
+
 ## E583 spotlight 佇列每位英雄都重建整套 binary（一輪只建一次）（2026-11-01，工作線 C）
 **現象**：spotlight 佇列每位英雄都跑一次完整的 split 建置：UE 前端、snapshot、全部 hero DLL、omobab、client runtime。機器有負載時一位要 16–30 分鐘，真正跑局只要 2–4 分鐘（D21：建置時間也算效能）。
 
