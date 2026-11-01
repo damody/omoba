@@ -2,11 +2,27 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E604 （保留）conformance on_attack_launch 從未觸發：持有者攻擊身旁的敵方英雄後比對效果（2026-11-01）（2026-11-01）
+
 ## E603 verify_m6_batch 每批留下 bin 副本，磁碟累積到不足（2026-11-01，E187）
 - 現象：D: 一度只剩約 1 GB，工作線 C 建置失敗（os error 112）。target/e187 累積到 149 GB，其中 102 個已完成批次各留一份 bin 副本（moba-headless.exe、base_content 和英雄 DLL，約 90 MB／批）；其餘是已 land 的 shadow 樹和裡面的 cargo target。
 - 修正（共用層）：verify_m6_batch 寫完 report.md 之後，刪掉該批次的 `<output>/bin`。有局失敗時保留，讓同一個 exe 可以重現；`--keep-bin` 也會保留；`--report-only` 不動。共用的 `target/snapshots/verify_m6_batch` 是每批增量建置的 cargo target，不會一批一批累積，所以保留。
 - 清理：刪掉 E187 自己建立、已經 land 完的 shadow 樹、debug／dev target、已完成批次的 bin、舊的 requests.log，約 142 GB；報告與 notes 引用的數據都保留。
 - 避免：批次工具產生的執行副本，在寫完報告後就要清掉，只留下重現需要的部分；shadow 樹 land 完後也要刪除。
+## E602 腳本改的英雄冷卻（modify_cooldown）沒有投影，replica 少了 a12_awe_t 冷卻（2026-11-01，工作線 B，E 回報）
+
+- **現象**：E 的 rg06（live build 15:30）tick 11520：team 1 看自己隊伍的大谷吉繼（entity 635），Hero 元件（0x464f4705）不一致。權威端有 `ability_cooldowns.a12_awe_t = 5597`、`ability_cooldown_totals.a12_awe_t = 7424`，replica 完全沒有 a12_awe_t 的冷卻。這時吉繼在玄能狀態，槽位已換成 a12_insight_flash_t／a12_mystic_field／a12_awe_t。
+- **根因**：
+  - A12T 的 on_created 先用 `swap_abilities` 把 a12_awe 換成 a12_awe_t，再用 `modify_cooldown set` 把 a12_awe 剩下的冷卻設到 a12_awe_t 上（原作 A12R 與替換招共用冷卻）。
+  - 這個冷卻改動經過 hero_command 的 CooldownStart 寫入，權威端從來沒有送出 committed cooldown。
+  - replica 自己跑同一個腳本時，可能還沒換好槽位（槽位交換在腳本之後才套用），或是重播 learn 時冷卻被蓋回（E582），結果就少了這筆冷卻，而且之後沒有任何 fact 補上。
+- **修正**：
+  - 新增 `game_processor::ScriptedCooldowns`：權威端在 MOBA 對局中，hero_command 的 CooldownStart、CooldownEnd、CooldownReduce 成功時記下（英雄, 技能）。
+  - tick 結尾由 `emit_failed_cast_cooldowns` 依英雄目前的冷卻送出 committed cooldown，與 E567 失敗施法共用同一條路徑。這些不算失敗施法，不會寫入 FailedCasts（E596），bot 不會因此退避。
+  - committed cooldown 在 replica 的處理在最後一步，會蓋過前面任何來源造成的差異。
+- **測試**：`game_processor::tests::a_scripted_cooldown_change_is_committed_at_the_end_of_the_tick`：送出一次槽位 1、剩 7 秒的冷卻；不記為失敗施法；下一個 tick 不重送。cooldown 與 hero_command 相關的 58 個測試通過。
+- **避免**：權威端改了會揭露的狀態，就要經過 committed fact 送出，不要假設 replica 跑同一個腳本一定會得到一樣的結果。
+- **檔案**：`omoba-core/src/runtime/native/hero_command.rs`、`omoba-core/src/runtime/native/game_processor.rs`
 
 ## E601 可控制的幻象讓 client 的本機英雄在本體與幻象間跳動（2026-11-01，工作線 B，C 回報）
 

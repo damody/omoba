@@ -3854,16 +3854,36 @@ impl FailedCasts {
     }
 }
 
+/// The hero cooldowns a script set, ended or reduced this tick (E602, v3 modify_cooldown: 原作
+/// A12T copies A12R's cooldown onto its replacement). A replica may not hold the same change (its
+/// slot swap lands after the script), so the authority commits each at the end of the tick.
+#[derive(Default)]
+pub struct ScriptedCooldowns(pub Vec<(Entity, String)>);
+
+impl ScriptedCooldowns {
+    /// Always true, so a command reports what it changed.
+    pub fn record(world: &mut World, hero: Entity, ability: &str) -> bool {
+        if world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>().is_none()
+            && world.try_fetch::<crate::runtime::MobaMatch>().is_some() {
+            if !world.has_value::<ScriptedCooldowns>() { world.insert(ScriptedCooldowns::default()); }
+            world.write_resource::<ScriptedCooldowns>().0.push((hero, ability.to_owned()));
+        }
+        true
+    }
+}
+
 pub(crate) fn emit_failed_cast_cooldowns(world: &mut World) {
     if world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>().is_some() { return; }
     let tick = world.try_fetch::<Tick>().map(|tick| tick.0).unwrap_or(0);
     let rows: Vec<(Entity, String)> = match world.try_fetch_mut::<super::cast_windup::AbilityWindups>() {
         Some(mut windups) => std::mem::take(&mut windups.2).into_iter()
             .filter(|(at, ..)| *at == tick).map(|(_, caster, ability)| (caster, ability)).collect(),
-        None => return,
+        None => Vec::new(),
     };
-    if rows.is_empty() { return; }
-    FailedCasts::record(world, tick, rows.iter().cloned());
+    let scripted = world.try_fetch_mut::<ScriptedCooldowns>().map(|mut rows| std::mem::take(&mut rows.0)).unwrap_or_default();
+    if rows.is_empty() && scripted.is_empty() { return; }
+    if !rows.is_empty() { FailedCasts::record(world, tick, rows.iter().cloned()); }
+    let rows: Vec<(Entity, String)> = rows.into_iter().chain(scripted).collect();
     let (mut cooldowns, mut charges) = (BTreeMap::new(), BTreeMap::new());
     {
         let heroes = world.read_storage::<Hero>();
@@ -6551,6 +6571,35 @@ mod tests {
         world.write_resource::<Tick>().0 = 8;
         emit_failed_cast_cooldowns(&mut world);
         assert!(world.read_resource::<crate::runtime::ObservableFactBuffer>().drain_ordered().unwrap().is_empty());
+    }
+
+    /// A script's cooldown change (v3 modify_cooldown set, 原作 A12T) is committed at the end of
+    /// the tick as it stands, once, without counting as a failed cast (E602).
+    #[test]
+    fn a_scripted_cooldown_change_is_committed_at_the_end_of_the_tick() {
+        let mut world = World::new();
+        world.register::<Hero>(); world.register::<CProperty>();
+        world.insert(crate::runtime::ObservableFactBuffer::default());
+        world.insert(Tick(7));
+        world.insert(super::super::cast_windup::AbilityWindups::default());
+        let anyone = world.create_entity().build();
+        world.insert(crate::runtime::native::moba_match::stop_command_match(anyone, crate::runtime::MobaMatchPhase::Playing));
+        let mut hero = Hero::default();
+        hero.abilities = vec!["a12_q".into(), "a12_awe_t".into()];
+        hero.start_cooldown("a12_awe_t", Fixed64::from_i32(7));
+        let caster = world.create_entity().with(hero).build();
+        assert!(ScriptedCooldowns::record(&mut world, caster, "a12_awe_t"));
+        emit_failed_cast_cooldowns(&mut world);
+        let cooldowns: Vec<_> = world.read_resource::<crate::runtime::ObservableFactBuffer>().drain_ordered().unwrap().into_iter()
+            .filter_map(|fact| match fact.fact {
+                crate::runtime::ObservableFact::CommittedCooldown { source, slot, remaining_raw } => Some((source, slot, remaining_raw)),
+                _ => None,
+            }).collect();
+        assert_eq!(cooldowns, vec![(crate::runtime::canonical_entity_id(caster), 1, Fixed64::from_i32(7).raw())]);
+        assert!(world.try_fetch::<FailedCasts>().is_none_or(|failed| failed.0.is_empty()), "not a failed cast");
+        world.write_resource::<Tick>().0 = 8;
+        emit_failed_cast_cooldowns(&mut world);
+        assert!(world.read_resource::<crate::runtime::ObservableFactBuffer>().drain_ordered().unwrap().is_empty(), "committed once");
     }
 
     /// An HP change no committed path reported (here a direct write, as a restore under its own

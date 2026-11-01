@@ -167,9 +167,13 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, payload: &Value) 
             }
             changed
         }
-        Command::CooldownStart { ability, seconds } => with_hero_ability(world, target, &ability, |h| h.set_cooldown(&ability, seconds)),
-        Command::CooldownEnd { ability } => with_hero_ability(world, target, &ability, |h| h.start_cooldown(&ability, Fixed64::ZERO)),
-        Command::CooldownReduce { ability, seconds } => with_hero_ability(world, target, &ability, |h| { h.reduce_cooldown(&ability, seconds); }),
+        // E602: a scripted cooldown change is committed to the team replicas at the end of the tick.
+        Command::CooldownStart { ability, seconds } => with_hero_ability(world, target, &ability, |h| h.set_cooldown(&ability, seconds))
+            && super::game_processor::ScriptedCooldowns::record(world, target, &ability),
+        Command::CooldownEnd { ability } => with_hero_ability(world, target, &ability, |h| h.start_cooldown(&ability, Fixed64::ZERO))
+            && super::game_processor::ScriptedCooldowns::record(world, target, &ability),
+        Command::CooldownReduce { ability, seconds } => with_hero_ability(world, target, &ability, |h| { h.reduce_cooldown(&ability, seconds); })
+            && super::game_processor::ScriptedCooldowns::record(world, target, &ability),
         Command::ItemCooldownStart { item, seconds } => item_cooldown_start(world, target, &item, seconds),
         Command::OrderAttack { target: (id, gen) } => order_attack(world, target, id, gen),
         Command::Order { kind, at } => order(world, target, kind, at),
