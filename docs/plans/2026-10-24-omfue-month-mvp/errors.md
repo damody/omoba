@@ -18,7 +18,18 @@
 
 **驗證**：用 land_to_live 放回 live，UBT 通過。實機用 A28、B16 重跑驗證。
 
-## E606 （保留）replica 先套 committed cooldown 再套同 tick 的槽位交換：a12_awe_t 冷卻落到被換掉的 a12_awe（2026-11-01）
+## E606 replica 先套 committed cooldown 再套同 tick 的槽位交換：a12_awe_t 冷卻落到被換掉的 a12_awe（2026-11-01，工作線 B，E 回報）
+
+- **現象**：E602 之後 rg06 仍然在 tick 11160 不一致。權威端是 `a12_awe_t = 7441`（total 8244），replica 的槽位已經換成 a12_awe_t，卻沒有它的冷卻。
+- **根因**：
+  - E602 補送的 committed cooldown 有送到。
+  - 但同一個 tick 的 fact 依種類排序：CommittedCooldown（18）排在 CommittedAbilitySlots（43）前面。
+  - replica 套用冷卻時，槽位 2 還是換掉前的 a12_awe，`commit_cooldown` 就寫到 a12_awe 上；接著槽位才換成 a12_awe_t，而 a12_awe_t 沒有冷卻。
+  - E407 已經替 ranks 修過同一類問題，cooldown 和 charge 沒有一起處理。
+- **修正**：新增 `adopt_same_tick_slots`。CommittedCooldown 與 CommittedCharge 依槽位找技能前，先採用同一個 tick 的 CommittedAbilitySlots，和 ranks 用同一套規則。
+- **測試**：`filtered_specs::tests::a_swap_and_its_slots_cooldown_in_one_tick_go_to_the_swapped_in_ability`：同一個 tick 內冷卻在前、槽位在後；冷卻記到換入的技能，被換掉的技能沒有冷卻。filtered_specs 的 38 個測試通過。
+- **避免**：fact 依槽位指向技能時，一律先套用同一個 tick 的槽位。
+- **檔案**：`omoba-core/src/runtime/filtered_specs.rs`
 
 ## E605 bot 看不到技能的前提條件：新增 self_area_status、self_area_corpses、ally_anchor_point（2026-11-01，工作線 B，與 A 協作）
 

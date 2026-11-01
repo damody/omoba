@@ -1735,6 +1735,19 @@ fn decode_ability_slots(payload: &[u8]) -> Result<Vec<String>, ReplicaRuntimeErr
 /// A swap the authority made takes the slot here too, and the ability swapped in takes the
 /// swapped-out one's rank when it has none (ability_slots::swap). Adopting the same slots twice
 /// changes nothing.
+/// The same tick's slots first (E407 for ranks, E606 for cooldowns and charges): a slot fact
+/// names the ability in that slot as the authority ends the tick, so a swap this tick must not
+/// put the swapped-in ability's cooldown on the one it hid (原作 A12T copies A12R's cooldown onto
+/// its replacement in the tick it swaps). Fact kinds sort cooldowns before slots.
+fn adopt_same_tick_slots(hero: &mut crate::runtime::Hero, injections: &StepInjections, id: u64) -> Result<(), ReplicaRuntimeError> {
+    if let Some(slots_event) = injections.public_events.iter().find(|other|
+        other.event_kind == crate::runtime::FactKind::CommittedAbilitySlots as u32
+            && other.subject.as_ref().map_or(0, |subject| subject.value) == id) {
+        adopt_ability_slots(hero, decode_ability_slots(&slots_event.sanitized_payload)?)?;
+    }
+    Ok(())
+}
+
 fn adopt_ability_slots(hero: &mut crate::runtime::Hero, names: Vec<String>) -> Result<(), ReplicaRuntimeError> {
     if hero.abilities.len() > names.len() { return Err(ReplicaRuntimeError::MalformedBaseline); }
     // Past the four Q-R slots the authority sends exactly the slots its hero has: a slot it
@@ -1966,6 +1979,7 @@ fn apply_disclosed_events(
             let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            adopt_same_tick_slots(&mut hero, injections, id)?;
             let ability = hero.abilities.get(slot).ok_or(ReplicaRuntimeError::MalformedBaseline)?.clone();
             hero.ability_charges.insert(ability, crate::runtime::comp::AbilityChargeState {
                 charges, max, recharge: omoba_sim::Fixed64::from_raw(recharge), remaining: omoba_sim::Fixed64::from_raw(remaining) });
@@ -1981,6 +1995,7 @@ fn apply_disclosed_events(
             let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            adopt_same_tick_slots(&mut hero, injections, id)?;
             let ability = hero.abilities.get(slot).ok_or(ReplicaRuntimeError::MalformedBaseline)?.clone();
             hero.commit_cooldown(&ability, omoba_sim::Fixed64::from_raw(raw));
             *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);
@@ -2549,6 +2564,22 @@ mod committed_actor_state_tests {
         let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
         assert_eq!(hero.abilities,vec!["lumen_touch"]);
         assert_eq!((hero.get_ability_level("lumen_touch"),hero.get_ability_level("lumen_bolt")),(1,2));
+    }
+
+    /// E606: a swap and a cooldown of its slot in one tick (cooldowns 18 sort before slots 43): the
+    /// cooldown is the swapped-in ability's, and the hidden one keeps its own (原作 A12T).
+    #[test]
+    fn a_swap_and_its_slots_cooldown_in_one_tick_go_to_the_swapped_in_ability() {
+        let mut world=world();
+        let id=|name:&str|omoba_template_ids::ability_by_name(name).unwrap().raw();
+        let mut tick=event(FactKind::CommittedCooldown,[0u32.to_le_bytes().to_vec(),7441i64.to_le_bytes().to_vec()].concat());
+        tick.public_events.extend(event(FactKind::CommittedAbilitySlots,
+            [id("lumen_touch"),0,0,0].into_iter().flat_map(u16::to_le_bytes).collect()).public_events);
+        apply_disclosed_events(&mut world,&tick).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities,vec!["lumen_touch"]);
+        assert_eq!(hero.get_cooldown("lumen_touch").raw(),7441);
+        assert_eq!(hero.get_cooldown("lumen_bolt").raw(),0,"the hidden ability keeps its own");
     }
 
     /// E579: an unlearned ability swapped in (no rank on the authority) gets no rank key from a
