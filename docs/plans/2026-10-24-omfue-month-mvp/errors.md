@@ -2,6 +2,24 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E590 （保留）召喚交易不接受本次 spawned 單位的 ScriptSetPos：B24 W 石碑施放被退回（2026-11-01）
+
+## E589 set_ability_level 0 在權威端移除 key、replica 寫 0：Hero 元件 ability_levels 不一致（2026-11-01，工作線 B）
+
+- **現象**：
+  - E 的 rg06（tick 960，team 2 看 entity 46）與 rg08（tick 8640，team 1 看自己隊伍的 entity 933）出現 observer mismatch，元件是 schema 0x464f4705（Hero）。
+  - C 的實機 split 局 rerun8 也一樣：okuma_tomohide 1 筆、tachibana_dosetsu 2 筆。
+  - 這些 mismatch 都是 replica 的 ability_levels 多了一個值為 0 的 key（`b26_release_wave`、`c07_storm_move`），權威端沒有這個 key。
+- **根因**：
+  - B26 與 C07 用 `set_ability_level ... level = 0` 把 D 槽的技能收回：B26 在 b26_release_wave 結束時，C07 在雷雲到期時。
+  - 權威端的 `hero_command` Level 遇到 0 會移除 key。
+  - replica 從 rank fact 收到 0 時，因為它手上原本就有值為 1 的 key，E579 的「沒有 key 才略過」不成立，於是寫入 0。
+  - 兩邊讀到的等級都是 0，但 Hero 元件的位元組不同。E579 只處理了「從沒學過」的情況，沒有處理「學過又歸零」。
+- **修正**：權威端 Level 設成 0 時保留值為 0 的 row，不再移除 key。replica 寫 0 蓋過原本的 1，兩邊的 row 就一致了。所有讀 ability_levels 的地方（`get_ability_level`、projectile、parallel_world_adapter、illusion 的複製）原本就把 0 當成未學，行為不變。
+- **測試**：`hero_command::tests::a_level_set_to_zero_keeps_a_zero_row`。
+- **避免**：權威端和 replica 要用同一種方式表示「等級 0」；不要一邊是缺 key，另一邊是值為 0 的 row。
+- **檔案**：`omoba-core/src/runtime/native/hero_command.rs`
+
 ## E588 moba_headless 的失敗路徑不輸出 performance／tick_profile，效能量測拿不到數據（2026-11-01，E187）
 - 現象：A 和 B 的效能量測遇到 execution budget 用完、objective stall 或 observer mismatch 的局時，report 只有 failure_document，沒有 tick p50／p99 和 tick_profile，數據反覆拿不到。
 - 原因：`performance`（TickPerf）與 `tick_profile`（driver.phase_report）只在成功路徑的 report 裡組出來；三個失敗路徑直接 `write_failure(failure_document(...))`。

@@ -154,7 +154,9 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, payload: &Value) 
                 let level = level.clamp(0, max.max(0));
                 let old = hero.get_ability_level(&ability);
                 if old == level { false } else {
-                    if level == 0 { hero.ability_levels.remove(&ability); } else { hero.ability_levels.insert(ability.clone(), level); }
+                    // Rank 0 stays a 0 row, never a removed key (E589): a replica's rank fact
+                    // writes the same 0 over the rank it held, so the hero rows agree.
+                    hero.ability_levels.insert(ability.clone(), level);
                     true
                 }
             };
@@ -341,6 +343,22 @@ mod tests {
         assert!(!apply(&mut world, other, BUFF, &command.payload()), "not held");
         let cooldowns: Vec<f32> = world.read_storage::<Inventory>().get(hero).unwrap().slots.iter().flatten().map(|i| i.cooldown_remaining).collect();
         assert!((cooldowns[0] - 0.3).abs() < 0.001 && (cooldowns[1] - 0.3).abs() < 0.001 && cooldowns[2] == 2.0, "{cooldowns:?}");
+    }
+
+    /// E589: a script setting a learned ability back to 0 keeps a 0 row, like the replica's
+    /// rank fact writes over the 1 it held.
+    #[test]
+    fn a_level_set_to_zero_keeps_a_zero_row() {
+        use specs::Builder;
+        let mut world = World::new();
+        world.register::<super::super::comp::Hero>();
+        world.insert(super::super::scripting::ScriptEventQueue::default());
+        let mut hero = super::super::comp::Hero::default();
+        hero.abilities = vec!["a07_rouse".into()];
+        hero.ability_levels.insert("a07_rouse".into(), 1);
+        let unit = world.create_entity().with(hero).build();
+        assert!(apply(&mut world, unit, BUFF, &Command::Level { ability: "a07_rouse".into(), level: 0 }.payload()));
+        assert_eq!(world.read_storage::<super::super::comp::Hero>().get(unit).unwrap().ability_levels.get("a07_rouse"), Some(&0));
     }
 
     #[test]
