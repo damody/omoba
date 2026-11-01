@@ -1007,8 +1007,67 @@ local function entry_scenarios(doc, def, entry_kind, out)
       if not listed[s.id] then statuses[#statuses + 1] = { status = s, id = s.id, to = "holder" } end
     end
     -- runtime_id: the BuffStore key the port uses for the status (E211), so a test can find it.
+    -- The setup a conditional apply needs before the cast (line D sets it up, then casts): night
+    -- or day, the kind of unit it lands on, a status already on the target or the caster, the
+    -- caster's summon. Every condition must be one of these, else there are no needs (the case
+    -- stays as it was).
+    local function status_home(id)
+      for _, list in ipairs({ current_doc and current_doc.abilities or {}, current_doc and current_doc.items or {} }) do
+        for _, owner in ipairs(list) do
+          for _, st in ipairs(owner.statuses or {}) do if st.id == id then return runtime_key(st), owner.id end end
+        end
+      end
+    end
+    -- the template a state holds (`create_unit ... as = u`, `set_state var = u`) and the entry
+    -- whose cast makes it
+    local owner_id
+    local function summon_of(var)
+      local found, by
+      local function walk(list, made)
+        for _, x in ipairs(type(list) == "table" and list or {}) do
+          if type(x) == "table" then
+            if x.op == "create_unit" and type(x.as) == "string" and type(x.template) == "string" then made[x.as] = x.template end
+            if x.op == "set_state" and x.var == var and made[x.value] then
+              if found == nil then found, by = made[x.value], owner_id
+              elseif found ~= made[x.value] or by ~= owner_id then found = false end
+            end
+            walk(x.actions, made); walk(x.otherwise, made)
+          end
+        end
+      end
+      for _, list in ipairs({ current_doc and current_doc.abilities or {}, current_doc and current_doc.items or {} }) do
+        for _, owner in ipairs(list) do
+          owner_id = owner.id
+          for _, ev in pairs(type(owner.events) == "table" and owner.events or {}) do walk(ev.actions or ev, {}) end
+        end
+      end
+      if not found then return nil end
+      return found, by
+    end
+    local function apply_needs(a)
+      if not (a.conds and #a.conds > 0) then return nil end
+      local needs = {}
+      for _, c in ipairs(a.conds) do
+        local neg, body = false, c
+        local inner = c:match("^not %((.*)%)$") or c:match("^not ([%w_.]+)$")
+        if inner then neg, body = true, inner end
+        local who, sid = body:match("^has_status%(([%w_]+), ([%w_]+)%)$")
+        local v1, v2 = body:match("^exists%(state%.([%w_]+)%) and alive%(state%.([%w_]+)%)$")
+        if body == "game.is_night" then needs[#needs + 1] = { kind = "time_of_day", night = not neg }
+        elseif body:match("^[%w_]+%.is_building$") then needs[#needs + 1] = { kind = "target_kind", is_building = not neg }
+        elseif body:match("^[%w_]+%.is_hero$") then needs[#needs + 1] = { kind = "target_kind", is_hero = not neg }
+        elseif who and not neg and (who == "target" or who == "caster") and status_home(sid) then
+          local rid, by = status_home(sid)
+          needs[#needs + 1] = { kind = "has_status", on = who, status = rid, by = by ~= def.id and by or nil }
+        elseif v1 and v1 == v2 and not neg and summon_of(v1) then
+          local template, by = summon_of(v1)
+          needs[#needs + 1] = { kind = "summon", template = template, by = by }
+        else return nil end
+      end
+      return needs
+    end
     local function on_unit(s, a) return { kind = "status_on_unit", status = s.id, on = a.to, runtime_id = runtime_key(s),
-      visibility = s.visibility } end
+      visibility = s.visibility, needs = apply_needs(a) } end
     local done = {}
     for _, a in ipairs(statuses) do
       local s = a.status
