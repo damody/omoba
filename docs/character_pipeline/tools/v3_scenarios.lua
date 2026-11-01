@@ -1034,6 +1034,27 @@ local function entry_scenarios(doc, def, entry_kind, out)
             and st.initial == nil) and "stack" or nil
         local by_cast = castable and kind ~= "passive" and type(a.path) == "string" and a.path:find("^events%.on_cast") ~= nil
           and not (a.conds and #a.conds > 0)
+        -- line D cannot tell these apart (E644): a cast that also sets the stack count (it sets
+        -- the same count again: C06W), a status on a unit the cast creates (the second cast makes
+        -- another unit), and a duration within twice the recast (cast point + 0.5 s)
+        local function smallest(v)
+          if type(v) == "number" then return v end
+          local name = type(v) == "string" and v:match("^%$([%w_]+)$")
+          local x = name and def.values and def.values[name]
+          if type(x) == "number" then return x end
+          if type(x) ~= "table" or #x == 0 then return nil end
+          local m
+          for _, n in ipairs(x) do if type(n) ~= "number" then return nil end; m = m and math.min(m, n) or n end
+          return m
+        end
+        local made = {}
+        for _, x in ipairs(base_effects) do
+          if x.op == "create_unit" and x.args and type(x.args.as) == "string" then made[x.args.as] = true end
+          if x.op == "set_stacks" and x.phase == "on_cast" and x.args and x.args.status == s.id then by_cast = false end
+        end
+        if made[a.to] then by_cast = false end
+        local lasts, point = smallest(s.duration), cast.cast_point == nil and 0 or smallest(cast.cast_point)
+        if lasts and point and lasts <= 2 * (point + 0.5) then by_cast = false end
         if rank == 1 and how and by_cast and s.duration ~= nil and s.duration ~= "infinite" and not s.block_reapply then
           push(rank, "reapply", { suffix = s.id, given = given({ on_unit(s, a) }),
             when = { { kind = "reapply", status = s.id, after = "half" } },
