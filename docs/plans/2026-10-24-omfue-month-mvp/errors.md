@@ -7,7 +7,6 @@
 - 原因：`performance`（TickPerf）與 `tick_profile`（driver.phase_report）只在成功路徑的 report 裡組出來；三個失敗路徑直接 `write_failure(failure_document(...))`。
 - 修正（共用層）：新增 `attach_performance(document, end_reason, perf, driver, world)`，三個失敗路徑都在寫出前附上 performance（到結束那個 tick 為止）、`performance.end_reason`、tick_profile，以及 observer 區塊。成功路徑的 `performance.end_reason` 是 `"finished"`。
 - 避免：量測用的欄位不論怎麼結束都要輸出，並標上結束原因，讓呼叫端決定要不要採用。
-
 ## E587 B07：召喚物背包——被給道具的單位拿到背包，道具效果對 replica 公開（2026-11-01，工作線 B）
 
 - **現象**：足利義昭（B07）E「戰線國崩隊」部署時，要把義昭前兩格的裝備複製一份新實例給國崩隊（原作 HasInventory 1，B07.lua:97-116）。國崩隊沒有 Inventory，`item_grant::apply` 直接回傳 false，產生器因此擋下對召喚物的 `give_item`。
@@ -881,7 +880,27 @@
   - `run_moba_split_local_test` 的鏡像寫出只有 hero_c17 的快照 hero_dlls，檢查 cargo 建置的是快照集合。
 - 避免：從快照建置時，任何由來源推導的清單（套件、DLL、檔案）都在快照之後、從快照產生。
 
-## E521 （保留）hero_command 每個 tick 都用空的路徑 memo 重算地形：10 英雄每 tick 1.45 ms（2026-10-31）
+## E521 hero_command 每個 tick 都用空的路徑 memo 重算地形：10 英雄每 tick 約 1.4 ms（2026-10-31 保留，2026-11-01 修正，工作線 B）
+
+- **現象**：headless 對局的 tick_profile 裡，hero_command 一個 system 就佔每 tick 約 1.4 ms，比其他所有 system 加起來還多。
+- **根因**：
+  - hero_command 讀的是 `Option<Write<NavMemo>>`，但 world 從來沒有放這個 resource。所以每個 tick 都從空的 memo 開始，格子與邊的地形測試全部重算。
+  - memo 和地形 bucket 的 HashMap 用 std 的 SipHash，key 只是小整數，雜湊本身就是查表的大部分成本。
+- **修正**：
+  - world 沒有 NavMemo 時，改用這個執行緒的 memo，跨 tick 保留，與 `static_next_waypoint` 的 thread_local 做法相同。memo 只存公開地形的答案，地形 fingerprint 改變時就清空，所以保留它不會改變任何路徑。
+  - memo（cells、edges）與 `TerrainIndex.buckets` 改用 FxHash（rustc 的雜湊，結果是決定性的，而且只用來查表，不會被迭代）。
+- **A/B**：quick 計畫 seed 1、observer off、一次跑一局，A／B 交錯共 7 局。
+
+  | 版本 | hero_command（ms／tick） |
+  |---|---|
+  | 現況 | 1.35、1.49、1.42 |
+  | 只有 memo 跨 tick | 1.22、1.35 |
+  | memo 跨 tick 加 FxHash | 0.83、0.83（約 −41%） |
+
+  7 局的 final_digest 完全相同，都結束在 tick 24618。step_wall_ms_mean 受其他 session 的負載影響，起伏比這個差距還大，所以不拿來比。
+- **測試**：hero_command 的 17 個單元測試通過。
+- **避免**：`Option<Write<R>>` 的 resource 沒有人放，就等於每個 tick 都從零開始。快取要確認真的有跨 tick 保留。
+- **檔案**：`omoba-core/src/runtime/native/tick/hero_command_tick.rs`
 
 ## E520 headless 效能報告的最慢 tick 看不到 driver 的序列階段（2026-10-31，e187 遊戲模式 session，配合 B 的 E513；已放回 live）
 - **現象**：m6acc1 最慢的 tick 是 120～193 ms，但 system_stats 只解釋了 20～60 ms，其餘的時間落在 specs system 之外。

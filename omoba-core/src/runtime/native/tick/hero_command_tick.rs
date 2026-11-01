@@ -10,6 +10,30 @@ use omoba_sim::{fixed::SCALE, Fixed64, Vec2 as SimVec2};
 use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, Write, WriteStorage};
 use std::collections::{BTreeSet, VecDeque};
 
+/// The path memo's and terrain buckets' keys are small integers; std's SipHash was most of the
+/// path search's lookups (E521). rustc's FxHash: deterministic, and only lookups depend on it.
+#[derive(Default, Clone, Copy)]
+struct FxHasher(u64);
+
+impl FxHasher {
+    fn add(&mut self, word: u64) { self.0 = (self.0.rotate_left(5) ^ word).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95); }
+}
+
+impl std::hash::Hasher for FxHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        for chunk in bytes.chunks(8) {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            self.add(u64::from_le_bytes(word));
+        }
+    }
+    fn write_u64(&mut self, n: u64) { self.add(n); }
+    fn write_i64(&mut self, n: i64) { self.add(n as u64); }
+    fn finish(&self) -> u64 { self.0 }
+}
+
+type FxMap<K, V> = std::collections::HashMap<K, V, std::hash::BuildHasherDefault<FxHasher>>;
+
 const PATH_GRID_WORLD_UNITS: i64 = 64;
 const PATH_GRID_RAW: i64 = PATH_GRID_WORLD_UNITS * SCALE;
 const PATH_GRID_MARGIN: i64 = 8;
@@ -73,7 +97,14 @@ impl<'a> System<'a> for Sys {
         // Built once per distinct terrain, not every tick (E187 §5.6).
         let terrain = TerrainIndex::cached(&data.regions);
         let terrain = &*terrain;
-        let nav = std::cell::RefCell::new(data.nav_memo.as_deref_mut().map(std::mem::take).unwrap_or_default());
+        // The memo lives across ticks (E521): the world's resource when it keeps one, else this
+        // thread's, like static_next_waypoint. It only holds public terrain answers and is cleared
+        // when the terrain fingerprint changes, so keeping it changes no path.
+        thread_local! { static MEMO: std::cell::RefCell<NavMemo> = std::cell::RefCell::new(NavMemo::default()); }
+        let nav = std::cell::RefCell::new(match data.nav_memo.as_deref_mut() {
+            Some(memo) => std::mem::take(memo),
+            None => MEMO.with(|memo| memo.try_borrow_mut().map(|mut memo| std::mem::take(&mut *memo)).unwrap_or_default()),
+        });
         let hero_ids: BTreeSet<specs::Entity> = (&data.entities, &data.heroes)
             .join()
             .map(|(entity, _hero)| entity)
@@ -147,7 +178,10 @@ impl<'a> System<'a> for Sys {
                 .collect()
         };
         decisions.sort_by_key(|decision| decision.entity.id());
-        if let Some(memo) = data.nav_memo.as_deref_mut() { *memo = nav.into_inner(); }
+        match data.nav_memo.as_deref_mut() {
+            Some(memo) => *memo = nav.into_inner(),
+            None => MEMO.with(|memo| if let Ok(mut memo) = memo.try_borrow_mut() { *memo = nav.into_inner(); }),
+        }
 
         if let Some(plan)=data.directional_steps.as_mut() {
             plan.tick=data.tick.0;plan.directions.clear();
@@ -488,7 +522,7 @@ pub(crate) struct TerrainIndex {
     /// by the TERRAIN_BUCKET_RAW cells their bounds touch, and each polygon's inclusive raw
     /// bounds. Polygons with a coordinate beyond the geometry bound are in `always`, because the
     /// exact test reports them as hit wherever they are.
-    buckets: std::collections::HashMap<(i64, i64), Vec<u32>>,
+    buckets: FxMap<(i64, i64), Vec<u32>>,
     bounds: Vec<[i64; 4]>,
     always: Vec<u32>,
 }
@@ -609,8 +643,8 @@ impl TerrainIndex {
 #[derive(Default)]
 pub struct NavMemo {
     fingerprint: Option<u64>,
-    cells: std::collections::HashMap<(i64, GridKey), bool>,
-    edges: std::collections::HashMap<(i64, GridKey, GridKey), bool>,
+    cells: FxMap<(i64, GridKey), bool>,
+    edges: FxMap<(i64, GridKey, GridKey), bool>,
     parent: Vec<u32>,
 }
 
