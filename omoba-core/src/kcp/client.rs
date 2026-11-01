@@ -43,10 +43,13 @@ fn udp_socket_no_connreset(addr: &std::net::SocketAddr) -> std::io::Result<tokio
     use std::os::windows::io::AsRawSocket;
     use win_udp::*;
 
-    let bind_addr: std::net::SocketAddr = if addr.is_ipv4() {
-        "0.0.0.0:0".parse().unwrap()
-    } else {
-        "[::]:0".parse().unwrap()
+    // A loopback server is reached from loopback: no socket on the other interfaces, so the
+    // firewall never asks (E639).
+    let bind_addr: std::net::SocketAddr = match (addr.is_ipv4(), addr.ip().is_loopback()) {
+        (true, true) => "127.0.0.1:0".parse().unwrap(),
+        (true, false) => "0.0.0.0:0".parse().unwrap(),
+        (false, true) => "[::1]:0".parse().unwrap(),
+        (false, false) => "[::]:0".parse().unwrap(),
     };
     let std_sock = std::net::UdpSocket::bind(bind_addr)?;
 

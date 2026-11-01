@@ -2,6 +2,27 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E640 （保留）conformance 判定 building_in_effect：選取範圍內的敵方建築受不受影響（2026-11-01）（2026-11-01）
+
+## E639 本機局 server 綁 0.0.0.0，每一局都跳 Windows 防火牆詢問（2026-11-01，工作線 B，使用者回報）
+
+- **現象**：每次開局，Windows 防火牆都跳出「是否允許 omobab.exe 存取網路」。
+- **根因**：
+  - `kcp_transport.rs` 和 `grpc_transport.rs` 把設定的 `localhost`／`127.0.0.1` 改綁成 `0.0.0.0`，等於開放所有網路介面，所以防火牆會詢問。
+  - E125 之後，每次 launch 都從 `target/run-bin/<key>/` 的新路徑執行 omobab.exe，防火牆的允許規則對不上新路徑，每一局都重新詢問。
+  - client 的 KCP UDP socket 也一律綁 `0.0.0.0:0`。
+- **修正**：
+  - server：`localhost` 綁 `127.0.0.1`，`127.0.0.1` 照原樣綁。要讓區網連入，就明確設定 `0.0.0.0` 或區網 IP（`--server-bind`），launch 的預設本來就是 `127.0.0.1`。
+  - client：server 在 loopback 時，本地端綁 `127.0.0.1:0`（IPv6 是 `[::1]:0`），其他情況照舊。
+  - split、2player、UE 的 client 都連 `127.0.0.1`，netem 和 presentation IPC 本來就綁 `127.0.0.1`。selection host 的位址由參數明確指定。
+- **檔案**：`omb/src/transport/kcp_transport.rs`、`omb/src/transport/grpc_transport.rs`（omb 5060e73）、`omoba-core/src/kcp/client.rs`
+
+## E638 （保留）A36 地雷沒有進 UE frame（調查中）（2026-11-01）
+
+## E637 （保留）非英雄施法者在結算時被以 mana_cooldown_or_rank 拒絕（A28 鳳凰天火）（2026-11-01）
+
+## E635 （保留）非前搖施放在 authority 被拒或失敗時沒有送冷卻更正（B16 b16_phase_shift）（2026-11-01）
+
 ## E636 conformance：判定 quirk 的 covered_by：以驗同一旗標的情境結果判（2026-11-01，conformance session）
 - **現象**：quirk 情境多數回「no checked expectation」（2302 筆）。工作線 A 在 60921c0b、4762bcd6 讓產生器替定義裡帶得到主張的 quirk 加上 `covered_by`（魔免 61 筆、施法者死亡後傷害停止 5 筆），欄位有 path、flag、value，以及只驗同一個 path 的情境 id。harness 還沒有判定。
 - **通用修正**：帶 covered_by 的 quirk 排在同一位英雄的其他情境之後判定，只看列出情境的結果：有任何一個 fail（或 known_*）就 fail；至少一個 pass、其他都不是 fail 才 pass；全部都沒判出結果就 unsupported。detail 會標「covered_by n/m scenario(s): <topic> <flag> = <value> at <path>」，回報時和直接驗過的 pass 分開計數。
