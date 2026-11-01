@@ -135,6 +135,9 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
     let outside_plan=|target:&Entity|*target!=caster && !spawned.contains(target)
         && factions.get(*target).zip(caster_team).is_some_and(|(faction,team)|faction.team_id!=team);
     let last_spawn=effects.iter().rposition(|effect|matches!(effect,Outcome::SpawnSummoned {..}));
+    // Worlds without summons (tests, TD) hold none of the caster's.
+    let own_summon=|target:&Entity|world.has_value::<specs::storage::MaskedStorage<SummonedUnit>>()
+        && world.read_storage::<SummonedUnit>().get(*target).is_some_and(|summon|summon.summoner==caster);
     let refused=effects.iter().enumerate().find(|(index,effect)|!match effect {
         Outcome::ScriptCastTransaction {..}|Outcome::ScriptCastCommitted {..}|Outcome::DamageZonePulse {..}|Outcome::IndependentDamageZonePulse {..}|Outcome::DamageWithLeech {..}|Outcome::DamageWithCritical {..}=>false,
         Outcome::ScriptManaCommit {changes,notifications}=>mana_admitted(world,changes,notifications)
@@ -159,6 +162,10 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
         // applies statuses, stops and teleports its caster around create_illusion; E373, E395).
         Outcome::AddBuff {target,..} if summons && channels==0 && *target==caster=>true,
         Outcome::ScriptSetPos {entity,..} if summons && channels==0 && *entity==caster=>true,
+        // The caster's own summon leaving (v3 remove_unit: 原作 B16 replaces its moon before raising
+        // the next): the plan only gains room, and nothing else of the caster's moves (E612).
+        Outcome::AddBuff {target,buff_id,..} if summons && channels==0 && *target!=caster
+            && buff_id==crate::runtime::native::script_kill::BUFF && own_summon(target)=>true,
         // Never the caster: its life and resources back the whole transaction.
         Outcome::AddBuff {target,..}|Outcome::RawDamage {target,..}|Outcome::Damage {target,..}|Outcome::ScriptDirectDamage {target,..}
             if summons && channels==0 && *target!=caster && last_spawn.is_some_and(|last|*index>last)=>true,
@@ -259,6 +266,20 @@ fn summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_betwe
     assert!(!accepts(&[spawn(first),Outcome::ScriptSetPos {entity:victim,pos:SimVec2::ZERO}]),"never another unit's position");
     assert_eq!(admission(&world,hero,"fixture",0,faction.as_ref(),player,expected.as_ref(),
         &[spawn(first),Outcome::ScriptDirectDamage {target:hero,amount:Fixed64::ONE}],0),Err("ScriptDirectDamage"));
+    {
+        // E612: the caster's own summon removed before its replacement rises (B16 b16_summon_hound).
+        world.register::<SummonedUnit>();
+        let summon=|summoner|SummonedUnit {summoner,duration:None,time_remaining:None,summon_time:Fixed64::ZERO,
+            navigation:Default::default(),immobile:false,no_attack:false,ward:false,expire_with_owner:false,
+            spawn_tick:0,bounty:(0,0),killer_player:None};
+        let old=world.create_entity().with(summon(hero)).build();
+        let others=world.create_entity().with(summon(victim)).build();
+        let remove=|target|Outcome::AddBuff {target,buff_id:crate::runtime::native::script_kill::BUFF.into(),duration:Fixed64::ONE,
+            payload:crate::runtime::native::script_kill::payload(hero.id(),hero.gen().id() as u32,true)};
+        let accepts=|effects:&[Outcome]|admit(&world,hero,"fixture",0,faction.as_ref(),player,expected.as_ref(),effects,0);
+        assert!(accepts(&[remove(old),spawn(first),assign(first)]),"the caster's own summon leaves first");
+        assert!(!accepts(&[remove(others),spawn(first)]),"never another owner's summon");
+    }
 }
 
 #[cfg(test)]

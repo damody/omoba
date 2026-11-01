@@ -300,7 +300,7 @@ pub fn drain_pending_moves(world: &mut World) {
             PendingHeroCommandKind::OwnedSummonOrder {order} => {
                 if req.queued {continue;}
                 if let Err(reason)=super::summon_orders::apply(world,req.owner_pid,hero,&order) {
-                    log::debug!("OwnedSummonOrder rejected pid={} reason={}",req.owner_pid,reason);
+                    log::info!("OwnedSummonOrder rejected pid={} reason={}",req.owner_pid,reason);
                 }
                 continue;
             }
@@ -3171,6 +3171,10 @@ pub fn process_outcomes(
                         // Summon placement is judged on the same batch-start world as mana.
                         .or_else(||cast_settlement::plan_summons(world,outcomes).is_none().then_some("summon_placement"))
                 };
+                // Like AbilityCast's own refusals, the settlement's reason is in the log (E614).
+                if let Some(reason) = refusal {
+                    log::info!("[scripting] cast refused at settlement caster={} ability='{}' reason={}", caster.id(), skill_id, reason);
+                }
                 if let Some(reason) = refusal.filter(|_| super::cast_trace::enabled(world)) {
                     super::cast_trace::record(world, [super::cast_trace::CastTraceRow { tick: world.try_fetch::<Tick>().map_or(0, |tick| tick.0),
                         caster: *caster, ability: skill_id.clone(), result: super::cast_trace::CastTraceResult::SettlementRefused(reason) }]);
@@ -3370,15 +3374,16 @@ pub fn process_outcomes(
                 Outcome::AddBuff { target, buff_id, payload, .. } if buff_id.as_str()==super::hero_command::BUFF => {
                     if let Some(ability_id) = super::hero_command::cooldown_ability(buff_id, payload) {
                         if let Some(slot) = world.read_storage::<Hero>().get(*target)
-                            .and_then(|hero| hero.abilities.iter().position(|id| *id == ability_id)) {
-                            committed_cooldowns.insert((crate::runtime::canonical_entity_id(*target), slot as u32), (*target, ability_id));
+                            .and_then(|hero| hero.committed_slot(&ability_id)) {
+                            committed_cooldowns.insert((crate::runtime::canonical_entity_id(*target), slot), (*target, ability_id));
                         }
                     }
                 }
                 Outcome::ScriptStartCooldown { entity, ability_id, .. } => {
+                    // The cast's own swap may have taken its slot already (E615).
                     if let Some(slot) = world.read_storage::<Hero>().get(*entity)
-                        .and_then(|hero| hero.abilities.iter().position(|id| id == ability_id)) {
-                        committed_cooldowns.insert((crate::runtime::canonical_entity_id(*entity), slot as u32), (*entity, ability_id.clone()));
+                        .and_then(|hero| hero.committed_slot(ability_id)) {
+                        committed_cooldowns.insert((crate::runtime::canonical_entity_id(*entity), slot), (*entity, ability_id.clone()));
                     }
                     for (slot, id) in world.read_storage::<Hero>().get(*entity)
                         .map(|hero| super::cooldown_refund::refunded_slots(hero, ability_id)).unwrap_or_default() {
@@ -3889,9 +3894,9 @@ pub(crate) fn emit_failed_cast_cooldowns(world: &mut World) {
         let heroes = world.read_storage::<Hero>();
         for (caster, ability) in rows {
             let Some(hero) = heroes.get(caster) else { continue };
-            let Some(slot) = hero.abilities.iter().position(|id| *id == ability) else { continue };
-            let key = (crate::runtime::canonical_entity_id(caster), slot as u32);
-            if hero.ability_charges.contains_key(&ability) { charges.insert(key, (caster, ability.clone())); }
+            let Some(slot) = hero.committed_slot(&ability) else { continue };
+            let key = (crate::runtime::canonical_entity_id(caster), slot);
+            if slot < Hero::HIDDEN_ABILITY_SLOT && hero.ability_charges.contains_key(&ability) { charges.insert(key, (caster, ability.clone())); }
             cooldowns.insert(key, (caster, ability));
         }
     }

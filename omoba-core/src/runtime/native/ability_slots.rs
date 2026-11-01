@@ -89,6 +89,7 @@ fn set_slot(world: &mut World, hero_entity: Entity, spec: &SlotSpec) -> bool {
         }
         while hero.abilities.len() <= spec.slot { hero.abilities.push(String::new()); }
         let old = std::mem::replace(&mut hero.abilities[spec.slot], spec.ability.clone().unwrap_or_default());
+        hero.release_granted_rank(spec.slot, &old);
         if let Some(id) = &spec.ability {
             hero.ability_levels.insert(id.clone(), spec.level);
             hero.ability_cooldowns.remove(id);
@@ -202,7 +203,7 @@ fn swap(world: &mut World, hero_entity: Entity, from: &str, to: &str, policy: Co
     let Some(slot) = hero.abilities.iter().position(|id| id == from) else { return false };
     hero.abilities[slot] = to.to_owned();
     let rank = hero.get_ability_level(from);
-    if hero.get_ability_level(to) <= 0 && rank > 0 { hero.ability_levels.insert(to.to_owned(), rank); }
+    hero.inherit_swapped_rank(to, rank);
     if policy == CooldownPolicy::Reset { hero.ability_cooldowns.remove(to); }
     true
 }
@@ -258,7 +259,7 @@ mod tests {
         {
             let heroes = world.read_storage::<Hero>();
             let hero = heroes.get(h).unwrap();
-            assert_eq!(hero.get_ability_level("b24_shatter"), 3, "the sub ability takes the rank");
+            assert_eq!(hero.get_ability_level("b24_shatter"), 1, "the sub ability takes the rank, at most its own max_level (E610)");
             assert!(!hero.is_on_cooldown("b24_shatter"), "reset");
         }
         settle(&mut world);

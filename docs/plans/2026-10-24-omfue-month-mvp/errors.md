@@ -2,6 +2,22 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E617 server observer 遇到 replica 拒收 frame 時只 warn 並停止比對：live 驗收照樣判 observer 0 mismatch（2026-11-01，工作線 B，調度要求）
+
+- **現象**：
+  - B24 秋山、A13 服部的 rerun12 中，server log 有 `team replica validation stopped ... Err(MalformedBaseline)`，client runtime 也有 157 筆 `ordered team frame rejected`，live 驗收卻判 `run:no-observer-mismatch PASS`。
+  - 實際上 replica 已經不再跟上 authority，玩家的 HUD 停在舊狀態（E610）。
+- **根因**：
+  - `observer_validation` 收到 apply 錯誤（malformed、unknown entity、stalled）時只記 warn，把 runtime 清掉，然後記成 coverage gap。
+  - `check_hero_live_acceptance` 只計算 `observer mismatch`，client 端的拒收也沒有任何關卡在看。
+  - headless 的 in-process observer 本來就把 apply 錯誤當成失敗，`checked_ticks` 也已經寫在 report 裡，所以 headless batch 的結論不受影響。
+- **修正**：
+  - server observer 遇到 replica 拒收時記 error：`observer mismatch team sequence replica_tick replica rejected the frame: ...`，並累加 `pre_repair_mismatch_count` 和新的 `replica_rejected_count`。
+  - live 驗收新增 `run:no-client-frame-rejection`：各玩家 runtime log 只要出現 `ordered team frame rejected` 就判 FAIL。
+- **驗證**：用 C 的 akiyama rerun12 跑新版驗收，結果 `run:no-client-frame-rejection FAIL count=157`。
+- **避免**：比對中途停止，一律算失敗，不能算通過。
+- **檔案**：`omoba-core/src/runtime/observer_validation.rs`、`scripts/check_hero_live_acceptance.lua`
+
 ## E616 新 bot kind 讓 spotlight script 產生器整位英雄失敗（2026-11-01，工作線 C）
 **現象**：rerun15 的 C19 松姬、B23 伊勢姬整位英雄都沒有跑：`record_hero_spotlight.lua:145: ability c19_surprise_raid has no bot kind the spotlight can aim (ally_anchor_point)`。B23 也一樣（`self_area_corpses`）。工作線 A 新增了 bot kind，spotlight 的 aim 表還沒有對應的項目，產生器碰到就 assert，整個 script 產生失敗。
 
@@ -9,19 +25,70 @@
 
 **測試**：record_hero_spotlight_test。用目前的 catalog 重新產生 C19、B23 的 script 都成功了。
 
-## E615 （保留）施放時被自己的 swap 換出格的技能冷卻沒有 committed fact：replica 少了 a13_shadow_illusion 冷卻（2026-11-01）
+## E615 施放時被自己的 swap 換出格的技能，冷卻沒有 committed fact：replica 少了 a13_shadow_illusion 的冷卻（2026-11-01，工作線 B）
 
-## E614 （保留）召喚物指令與施法在 authority 被拒時沒有原因 log（OwnedSummonOrder 只有 debug、settlement 拒絕不印）（2026-11-01）
+- **現象**：E610 之後，B24／A13 的 observer 局在 tick 1680 出現 DISCLOSED_HERO 不一致。權威端是 `a13_shadow_illusion` cooldown 13636（total 15360），對方隊伍的 replica 沒有這個冷卻。
+- **根因**：影惑的 on_cast 先 swap_abilities 把自己換成替身，冷卻的 ScriptStartCooldown 排在交易最後。收集 committed cooldown 時，影惑已經不在任何一格，`abilities.position` 找不到，這筆冷卻就被略過。CommittedCooldown fact 只能用格位指出技能，被換出格的技能無法表示。
+- **修正**：新增 `Hero::committed_slot`。技能在格裡就回傳格位；有等級但不在任何格時，回傳 `HIDDEN_ABILITY_SLOT（1<<16）| ability id`。ScriptStartCooldown、hero_command 的冷卻命令與 E602 的補送都改用它。replica 收到帶 hidden 旗標的 slot，就依 id 找到有等級的技能並套用冷卻；沒有等級或 id 不明就視為 malformed。
+- **測試**：`filtered_specs::tests::a_cooldown_of_an_ability_no_slot_holds_goes_to_that_ability`。
+- **避免**：以格位指技能的 fact，要考慮技能已經不在格裡的情況。
+- **檔案**：`omoba-core/src/runtime/native/comp/hero.rs`、`omoba-core/src/runtime/native/game_processor.rs`、`omoba-core/src/runtime/filtered_specs.rs`
 
-## E613 （保留）client runtime 重建召喚物指令時漏掉 ability，op3 召喚物施法一律被當成 STALE_SUMMON_SOURCE 在本地拒絕（2026-11-01）
+## E614 召喚物指令與施法被 authority 拒絕時沒有原因 log（2026-11-01，工作線 B，C 回報）
 
-## E612 （保留）召喚施法先移除施法者自己的舊召喚物（remove_unit）再生成新的，結算拒絕 script_kill AddBuff，B16 忍犬召喚被拒（2026-11-01）
+- **現象**：召喚物指令被拒時，server stdout 沒有任何紀錄，看不出是哪一道檢查擋下的。
+- **根因**：
+  - `summon_orders::apply` 的拒絕只記在 debug 等級。
+  - edge 的 `seal_client` 失敗時直接 `continue`。
+  - 結算拒絕施放時，只有開啟 cast_trace 才會記錄。
+- **修正**：
+  - `OwnedSummonOrder rejected` 改成 info。
+  - edge 記錄 `SummonCommand refused pid input operation reason`。
+  - 結算拒絕一律記錄 `[scripting] cast refused at settlement caster ability reason`。
+- **檔案**：`omoba-core/src/runtime/native/game_processor.rs`、`omb/src/transport/kcp_transport.rs`
 
-## E611 （保留）D／F 格被換掉的技能在 replica 留下等級：吞噬偷到的技能在 replica 隨機選錯時，ability_levels 多出一招（2026-11-01）
+## E613 client runtime 重建召喚物指令時漏掉 ability：op3 召喚物施法一律在本地以 STALE_SUMMON_SOURCE 拒絕（2026-11-01，工作線 B，C 回報）
 
-## E610 （保留）換入的技能繼承換出技能的等級超過自己的 max_level，replica 拒收每一幀，換入的技能在 HUD 上放不出來（2026-11-01）
+- **現象**：E607 之後，UE 已經送出召喚物施法（A28 鳳凰的天火、B16 月的 ability 460），`OM_SUMMON_CAST submit accepted=1`。但 applied ack 每次都是 status=4、reason_code=0，server 完全沒有收到這些指令。
+- **根因**：input_bridge 會用 `ReplicaHost::owned_summon_command` 依照 committed disclosure 重建「預期的」SummonCommand，再和 UE 送來的版本比對。重建時用的是 `client_from_references`，ability 一律是空字串。op3 施法帶著技能名稱，兩邊永遠不相等，因此在本地被拒成 `STALE_SUMMON_SOURCE`。UE 的 reason 表裡沒有這個代碼，所以顯示 0。
+- **修正**：`owned_summon_command` 多一個 ability 參數，op3 改用 `client_cast_from_references`。
+- **測試**：replica_host 的召喚物指令測試加入 op3：施法帶技能名稱，經過 input bridge 會被接受。
+- **避免**：proto 欄位新增後，用「重建後比對」驗證的地方也要帶上新欄位。
+- **檔案**：`omoba-client-runtime/src/replica_host.rs`、`omoba-client-runtime/src/input_bridge.rs`
 
-## E609 （保留）腳本立起會擋路的召喚物時，adapter 仍用友軍佔位擠開岩石，自然屏障被拒絕（2026-11-01）
+## E612 召喚施法先移除施法者自己的舊召喚物再生成新的：結算拒絕 script_kill，B16 忍犬召喚被拒（2026-11-01，工作線 B，E 回報）
+
+- **現象**：m6new21（B16 望月千代女，18 局）裡，b16_summon_hound 有 534 次被接受，卻有 461 次 `settlement_refused:AddBuff`，只有 73 次真的成立。
+- **根因**：on_cast 一開始，如果舊的月還在，就先 `remove_unit` 它，再 `create_unit` 新的月。`remove_unit` 會變成對舊月的 `__script_kill` AddBuff。這筆 AddBuff 的目標是同隊單位，不是這次施放生成的、也不是施法者，而且排在生成之前，結算的召喚交易規則因此拒絕整招。所以只有場上沒有舊月時（第一次召喚、舊月已經死了），施放才會成立。
+- **修正**：召喚交易裡，`__script_kill` 的目標如果是施法者自己的召喚物（`SummonedUnit.summoner == caster`），就允許它出現在任何位置。移除只會空出位置，不會讓放置規劃失效；別人的召喚物仍然拒絕。
+- **測試**：`cast_settlement::summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_between_siblings` 新增兩個情況：先移除自己的召喚物再生成會接受；移除別人的召喚物會拒絕。
+- **檔案**：`omoba-core/src/runtime/native/cast_settlement.rs`
+
+## E611 replica 自己隨機選到另一招偷來的技能：權威端的槽位換掉它之後，ability_levels 還留著那一招（2026-11-01，工作線 B，C 回報）
+
+- **現象**：加藤段藏 rerun12 tick 21720，DISCLOSED_HERO ability_levels 不一致：權威端 `b29_ground_slam:1`，replica 多了 `b29_quake_axe:1`。
+- **根因**：c08_devour 從目標的 Q／W／E 隨機挑一招放進 F 格。replica 預測施放時的隨機序號和權威端不同，挑到 quake_axe。權威端的 CommittedAbilitySlots 把 F 格改成 ground_slam，但被換掉的 quake_axe 等級還留在 replica。
+- **修正**：新增 `Hero::release_granted_rank`。Q–R 以外的授予格（SlotSpec）換成別的技能後，如果舊技能已經不在任何一格，就移除它的等級。權威端的 `set_slot` 和 replica 的 `adopt_ability_slots` 都套用；Q–R 的 swap 仍保留被換掉技能的等級。
+- **測試**：`filtered_specs::tests::a_replaced_granted_slot_leaves_no_rank_behind`。
+- **避免**：replica 能修正槽位的地方，也要一併清掉被換掉的技能留下的狀態。
+- **檔案**：`omoba-core/src/runtime/native/comp/hero.rs`、`omoba-core/src/runtime/native/ability_slots.rs`、`omoba-core/src/runtime/filtered_specs.rs`
+
+## E610 換入的技能繼承到超過自己 max_level 的等級：replica 拒收之後每一幀，換入的技能放不出來（2026-11-01，工作線 B，C 回報）
+
+- **現象**：B24 秋山的大地牢獄、A13 服部的影惑施放後，UE 的 R／Q 格還顯示原本那招的冷卻，換入的 b24_shatter、a13_substitution 按不出來。observer 顯示 0 mismatch，但其實是 server log 的 `team replica validation stopped ... Err(MalformedBaseline)` 讓驗證停止了。client runtime 每次重新同步後，下一幀又是 `frame rejected: MalformedBaseline`，HUD 一直停在舊狀態。
+- **根因**：`ability_slots::swap` 讓換入的技能沒有等級時直接繼承換出技能的等級。b24_earth_prison 2 級換成只有 1 級的 b24_shatter，權威端就記成 shatter 2 級。CommittedAbilityRanks 送出 2，replica 檢查等級超過 max_level，當成 malformed，整幀拒收。
+- **修正**：新增 `Hero::inherit_swapped_rank`，繼承的等級最多是換入技能自己的 max_level。權威端的 swap 和 replica 的 `adopt_ability_slots` 都改用它。
+- **測試**：`filtered_specs::tests::a_swapped_in_ability_inherits_at_most_its_own_max_level`。
+- **避免**：observer 0 mismatch 前，要先確認 log 裡沒有 `validation stopped`。
+- **檔案**：`omoba-core/src/runtime/native/comp/hero.rs`、`omoba-core/src/runtime/native/ability_slots.rs`、`omoba-core/src/runtime/filtered_specs.rs`
+
+## E609 腳本端立起會擋路的召喚物仍用友軍佔位擠開：自然屏障的岩石放不下，整招被取消（2026-11-01，工作線 B，C 回報）
+
+- **現象**：太原雪齋 rerun12 已包含 E599，自然屏障仍然 `AbilityCast ok` 卻沒有 `cast ok`。server log 是 `ability 'b22_natural_barrier' execute returned error: v3: unit placement rejected`。
+- **根因**：E599 只改了 settlement（`handle_summoned_spawn`）。腳本呼叫 `spawn_summoned_unit` 時，`ParallelWorldAdapter` 會先用友軍佔位和同一次施放的預約位置找落點，找不到就回傳無效 handle。16 塊岩石半徑 96、間距約 98，彼此重疊，後面的岩石找不到位置，腳本就回錯誤，整招被取消。
+- **修正**：adapter 端遇到 `blocks_pathing` 的召喚物也不看佔位，只看地形，和 settlement 同一條規則。
+- **避免**：同一個放置規則在 adapter 和 settlement 兩邊都要改。
+- **檔案**：`omoba-core/src/runtime/native/scripting/parallel_world_adapter.rs`
 
 ## E608 conformance：施放換格從未檢查；加上換入招所在格、初始冷卻、兩隊 replica 與時間到換回（2026-11-01，conformance session）
 - **現象**：swap_abilities 只在換入的副招被施放時間接用到（swapped_in），沒有檢查換格本身：哪一格換成什麼、換入招的冷卻、replica 的格，以及到期後換回。工作線 A 的換格清單（lineA-slot-swap-inventory.md）列出建議情境。

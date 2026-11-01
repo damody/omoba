@@ -16,6 +16,17 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：換格技能、召喚物施法、自然屏障、吞噬與 observer 拒收（E609～E615、E617）
+
+- E610：換入的技能繼承的等級最多是自己的 max_level。原本 replica 每一幀都拒收，B24 粉碎、A13 替身在 HUD 上按不到。
+- E615：施放時被自己換出格的技能，冷卻改用 hidden slot 送出。
+- E611：D／F 授予格換成別的技能後，移除被換掉那招的等級（C08 吞噬）。
+- E612：召喚交易允許施法者先移除自己的舊召喚物（B16 忍犬召喚）。
+- E613：client runtime 重建 op3 召喚物施法時帶上 ability（A28 天火、B16 月）。
+- E614：召喚物指令和結算拒絕施放都會記錄原因。
+- E609：adapter 放置會擋路的召喚物時，和結算端一樣不看佔位（B22 自然屏障）。
+- E617：server observer 遇到 replica 拒收 frame 時算成 mismatch；live 驗收新增 `run:no-client-frame-rejection` 關卡。
+- 驗證：probe 樹（line_b_probe10）跑 observer on 的 teamfight 局，B24、A13、C08、B22、A12 全部上場，到 tick 38280 為止沒有不一致，粉碎、替身、吞噬、自然屏障都有施放。tick 38280 另外出現一筆敵方小兵位置不一致，發生在兵營（inhibitor）被摧毀之後，是另一個問題，尚未處理。
 ## 2026-11-01 線 B：同一 tick 的冷卻和 charge 先套用槽位交換（E606）
 
 - E602 補送的 a12_awe_t 冷卻會落到換入的技能上（rg06 tick 11160）。

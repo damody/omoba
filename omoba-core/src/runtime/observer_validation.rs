@@ -68,6 +68,8 @@ pub struct TeamObserverMetrics {
     pub queue_depth: AtomicUsize,
     pub lag_ticks: AtomicU64,
     pub coverage_gap_count: AtomicU64,
+    /// Frames a replica refused (E617): each is also an `observer mismatch` in the log.
+    pub replica_rejected_count: AtomicU64,
     pub verified_frame_count: AtomicU64,
     pub verified_through_sequence: AtomicU64,
     pub pre_repair_mismatch_count: AtomicU64,
@@ -497,12 +499,20 @@ fn run_team_worker(
                         // must not trigger authority recovery/rebootstrap.
                     }
                     other => {
-                        log::warn!(
-                            "team replica validation stopped team={} sequence={} result={:?}",
+                        // A frame the replica refuses (malformed, unknown entity, stalled) is a
+                        // replica that no longer follows the authority: it fails acceptance like a
+                        // divergent hash, never a silent stop that reads as 0 mismatches (E617).
+                        log::error!(
+                            "observer mismatch team={} sequence={} replica_tick={} replica rejected the frame: {:?}",
                             team_id,
                             sequence,
+                            replica_tick,
                             other
                         );
+                        if let Some(team) = metrics.teams.get(&team_id) {
+                            team.pre_repair_mismatch_count.fetch_add(1, Ordering::Relaxed);
+                            team.replica_rejected_count.fetch_add(1, Ordering::Relaxed);
+                        }
                         runtime = None;
                         stepper = None;
                         record_gap(&gaps, &metrics, team_id, sequence);

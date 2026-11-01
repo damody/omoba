@@ -428,6 +428,41 @@ impl Hero {
         *self.ability_levels.get(ability_id).unwrap_or(&0)
     }
 
+
+    /// A swapped-in ability without a rank of its own takes the swapped-out one's `rank`, at most
+    /// its own max_level (B24's one-level b24_shatter under a rank-2 b24_earth_prison): a rank past
+    /// it is no rank the ability has, and a replica refuses it (E610). The authority's swap and a
+    /// replica adopting the swap share this.
+    pub fn inherit_swapped_rank(&mut self, to: &str, rank: i32) {
+        if to.is_empty() || rank <= 0 || self.get_ability_level(to) > 0 { return; }
+        let max = omoba_template_ids::ability_by_name(to).and_then(omoba_template_ids::active_ability_const)
+            .map_or(rank, |definition| i32::from(definition.max_level).max(1));
+        self.ability_levels.insert(to.to_owned(), rank.min(max));
+    }
+
+
+    /// A committed cooldown fact's slot for an ability the hero holds outside every slot: its
+    /// ability id past this flag (E615).
+    pub const HIDDEN_ABILITY_SLOT: u32 = 1 << 16;
+
+    /// The slot a committed cooldown fact names for `ability`: the slot it holds, or, for a ranked
+    /// ability no slot holds (its own cast swapped it out: 原作 A13 影惑 → 替身), its id past
+    /// [`Hero::HIDDEN_ABILITY_SLOT`], so the swapped-out ability's cooldown reaches a replica too.
+    pub fn committed_slot(&self, ability: &str) -> Option<u32> {
+        if let Some(slot) = self.abilities.iter().position(|id| id == ability) { return u32::try_from(slot).ok(); }
+        if self.get_ability_level(ability) <= 0 { return None; }
+        omoba_template_ids::ability_by_name(ability).map(|id| Self::HIDDEN_ABILITY_SLOT | u32::from(id.raw()))
+    }
+
+    /// A granted slot past Q-R (ability_slots::SlotSpec: C08's stolen F ability) that now holds
+    /// another ability leaves `old` without a rank once no slot holds it: it was only ever that
+    /// grant's. A replica that predicted another steal (the pick is random) and the authority's
+    /// slot then agree on the ranks (E611).
+    pub fn release_granted_rank(&mut self, slot: usize, old: &str) {
+        if slot < LEGACY_HERO_ABILITY_SLOTS || old.is_empty() || self.abilities.iter().any(|held| held == old) { return; }
+        self.ability_levels.remove(old);
+    }
+
     /// 檢查是否可以使用技能
     pub fn can_use_ability(&self, ability_id: &str) -> bool {
         self.get_ability_level(ability_id) > 0

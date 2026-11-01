@@ -1748,6 +1748,15 @@ fn adopt_same_tick_slots(hero: &mut crate::runtime::Hero, injections: &StepInjec
     Ok(())
 }
 
+/// A hidden-slot cooldown's ability (Hero::committed_slot, E615): a ranked ability of the hero's
+/// (no slot holds it on the authority); an unranked or unknown one is a malformed fact.
+fn hidden_ability(hero: &crate::runtime::Hero, raw: u32) -> Result<String, ReplicaRuntimeError> {
+    let id = omoba_template_ids::AbilityId(u16::try_from(raw).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?);
+    let name = omoba_template_ids::try_ability_id_str(id).filter(|name| !name.is_empty()).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+    if hero.get_ability_level(name) <= 0 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+    Ok(name.to_owned())
+}
+
 fn adopt_ability_slots(hero: &mut crate::runtime::Hero, names: Vec<String>) -> Result<(), ReplicaRuntimeError> {
     if hero.abilities.len() > names.len() { return Err(ReplicaRuntimeError::MalformedBaseline); }
     // Past the four Q-R slots the authority sends exactly the slots its hero has: a slot it
@@ -1758,8 +1767,9 @@ fn adopt_ability_slots(hero: &mut crate::runtime::Hero, names: Vec<String>) -> R
     for (slot, name) in names.into_iter().enumerate().take(hero.abilities.len()) {
         if hero.abilities[slot] == name { continue; }
         let rank = hero.get_ability_level(&hero.abilities[slot]);
-        if !name.is_empty() && hero.get_ability_level(&name) <= 0 && rank > 0 { hero.ability_levels.insert(name.clone(), rank); }
-        hero.abilities[slot] = name;
+        hero.inherit_swapped_rank(&name, rank);
+        let old = std::mem::replace(&mut hero.abilities[slot], name);
+        hero.release_granted_rank(slot, &old);
     }
     Ok(())
 }
@@ -1987,16 +1997,22 @@ fn apply_disclosed_events(
         }
         if event.event_kind == crate::runtime::FactKind::CommittedCooldown as u32 {
             if event.sanitized_payload.len() != 12 { return Err(ReplicaRuntimeError::MalformedBaseline); }
-            let slot = u32::from_le_bytes(event.sanitized_payload[0..4].try_into().unwrap()) as usize;
+            let slot = u32::from_le_bytes(event.sanitized_payload[0..4].try_into().unwrap());
             let raw = i64::from_le_bytes(event.sanitized_payload[4..12].try_into().unwrap());
-            if slot >= crate::runtime::HERO_ABILITY_SLOTS || raw < 0 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let hidden = slot & crate::runtime::Hero::HIDDEN_ABILITY_SLOT != 0;
+            if (!hidden && slot as usize >= crate::runtime::HERO_ABILITY_SLOTS) || raw < 0 { return Err(ReplicaRuntimeError::MalformedBaseline); }
             let id = event.subject.as_ref().map_or(0, |id| id.value);
             let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
             let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
             adopt_same_tick_slots(&mut hero, injections, id)?;
-            let ability = hero.abilities.get(slot).ok_or(ReplicaRuntimeError::MalformedBaseline)?.clone();
+            let ability = if hidden {
+                // A ranked ability no slot holds, by its id (E615).
+                hidden_ability(&hero, slot & !crate::runtime::Hero::HIDDEN_ABILITY_SLOT)?
+            } else {
+                hero.abilities.get(slot as usize).ok_or(ReplicaRuntimeError::MalformedBaseline)?.clone()
+            };
             hero.commit_cooldown(&ability, omoba_sim::Fixed64::from_raw(raw));
             *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);
         }
@@ -2564,6 +2580,69 @@ mod committed_actor_state_tests {
         let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
         assert_eq!(hero.abilities,vec!["lumen_touch"]);
         assert_eq!((hero.get_ability_level("lumen_touch"),hero.get_ability_level("lumen_bolt")),(1,2));
+    }
+
+    /// E610: a one-level ability swapped in under a rank-2 one (B24's b24_shatter for
+    /// b24_earth_prison) takes rank 1, the rank the authority sends for its slot; the hidden one
+    /// keeps rank 2.
+    #[test]
+    fn a_swapped_in_ability_inherits_at_most_its_own_max_level() {
+        let mut world=world();
+        apply_disclosed_events(&mut world,&event(FactKind::CommittedAbilityRanks,
+            [2i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect())).unwrap();
+        let id=|name:&str|omoba_template_ids::ability_by_name(name).unwrap().raw();
+        let mut tick=event(FactKind::CommittedAbilityRanks,[1i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect());
+        tick.public_events.extend(event(FactKind::CommittedAbilitySlots,
+            [id("b24_shatter"),0,0,0].into_iter().flat_map(u16::to_le_bytes).collect()).public_events);
+        apply_disclosed_events(&mut world,&tick).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities,vec!["b24_shatter"]);
+        assert_eq!((hero.get_ability_level("b24_shatter"),hero.get_ability_level("lumen_bolt")),(1,2));
+        let mut authority=Hero::default();
+        authority.inherit_swapped_rank("b24_shatter",2);
+        assert_eq!(authority.get_ability_level("b24_shatter"),1,"the authority's swap caps it the same way");
+    }
+
+    /// E611: the replica predicted another stolen F ability (C08's pick is random) than the one
+    /// the authority's slot names; the replaced grant leaves no rank behind.
+    #[test]
+    fn a_replaced_granted_slot_leaves_no_rank_behind() {
+        let mut world=world();
+        let id=|name:&str|omoba_template_ids::ability_by_name(name).unwrap().raw();
+        let slots=|fifth:&str|event(FactKind::CommittedAbilitySlots,
+            [id("lumen_bolt"),0,0,0,id(fifth)].into_iter().flat_map(u16::to_le_bytes).collect());
+        apply_disclosed_events(&mut world,&slots("b29_quake_axe")).unwrap();
+        apply_disclosed_events(&mut world,&event(FactKind::CommittedAbilityRanks,
+            [2i32,0,0,0,1].into_iter().flat_map(i32::to_le_bytes).collect())).unwrap();
+        apply_disclosed_events(&mut world,&slots("b29_ground_slam")).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities[4],"b29_ground_slam");
+        assert!(!hero.ability_levels.contains_key("b29_quake_axe"),"{:?}",hero.ability_levels);
+        assert_eq!((hero.get_ability_level("b29_ground_slam"),hero.get_ability_level("lumen_bolt")),(1,2));
+    }
+
+    /// E615: a cast that swaps its own ability out (原作 A13 影惑 → 替身) commits that ability's
+    /// cooldown by its id past Hero::HIDDEN_ABILITY_SLOT; an unranked id is malformed.
+    #[test]
+    fn a_cooldown_of_an_ability_no_slot_holds_goes_to_that_ability() {
+        let mut world=world();
+        apply_disclosed_events(&mut world,&event(FactKind::CommittedAbilityRanks,
+            [2i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect())).unwrap();
+        let id=|name:&str|omoba_template_ids::ability_by_name(name).unwrap().raw();
+        let hidden=|name:&str|Hero::HIDDEN_ABILITY_SLOT|u32::from(id(name));
+        let cooldown=|slot:u32|event(FactKind::CommittedCooldown,[slot.to_le_bytes().to_vec(),7441i64.to_le_bytes().to_vec()].concat());
+        let mut tick=cooldown(hidden("lumen_bolt"));
+        tick.public_events.extend(event(FactKind::CommittedAbilitySlots,
+            [id("lumen_touch"),0,0,0].into_iter().flat_map(u16::to_le_bytes).collect()).public_events);
+        apply_disclosed_events(&mut world,&tick).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities,vec!["lumen_touch"]);
+        assert_eq!((hero.get_cooldown("lumen_bolt").raw(),hero.get_cooldown("lumen_touch").raw()),(7441,0));
+        assert_eq!(hero.committed_slot("lumen_bolt"),Some(hidden("lumen_bolt")),"the authority names it the same way");
+        assert_eq!(hero.committed_slot("lumen_touch"),Some(0));
+        let before=world.clone();
+        assert!(apply_disclosed_events(&mut world,&cooldown(hidden("b24_shatter"))).is_err(),"an unranked ability");
+        assert_eq!(world,before);
     }
 
     /// E606: a swap and a cooldown of its slot in one tick (cooldowns 18 sort before slots 43): the

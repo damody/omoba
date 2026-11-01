@@ -138,6 +138,13 @@ function M.check(root,options)
   local mismatch,terminated=count(server,'observer mismatch'),count(server,'secure match terminated')
   row('-','-','run:no-observer-mismatch',mismatch==0 and 'PASS' or 'FAIL',('count=%d'):format(mismatch))
   row('-','-','run:no-termination',terminated==0 and 'PASS' or 'FAIL',('count=%d'):format(terminated))
+  -- A frame a player's client runtime refused (malformed, unknown entity) leaves that player's view
+  -- behind the authority, whatever the server observer saw (E617).
+  local rejected=0
+  for _,p in ipairs(plan and plan.players or {}) do
+    rejected=rejected+count(read(path.join(root,'p'..p.player_id,'runtime-p'..p.player_id..'.stderr.log')) or '','ordered team frame rejected')
+  end
+  row('-','-','run:no-client-frame-rejection',rejected==0 and 'PASS' or 'FAIL',('count=%d'):format(rejected))
   local ok,checked,inconclusive=true,0,false
   for _,r in ipairs(rows) do
     if r.status=='FAIL' then ok=false end
