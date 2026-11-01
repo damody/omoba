@@ -2,6 +2,20 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E645 隱形的己方單位不再揭露給自己隊伍：視野判定對自己隊伍也套用隱形（A36 地雷）（2026-11-02，工作線 B，C 的 UE 回報）
+
+- **現象**：A36 地刺放出的地雷 `a36e_mine` 一開始有進己方的 frame，施放約 2.6 秒後就從己方的實體清單消失，之後也沒有再出現。地刺說明寫「1.5 秒後隱形」。
+- **根因**：
+  - `entity_visible_with_brush`（Wave B）的規則：Vision scope 的單位，即使是同隊也要經過幾何視野判定。隱形檢查 `source.detection_level < entity.stealth_level` 對所有視野來源都生效，包括自己隊伍的來源。
+  - 所以地雷隱形後，自己隊伍的視野偵測不到它，authority 不再揭露給主人隊伍，replica 也就把它移除了。
+  - 英雄是 OwnerTeam scope，自己隊伍無條件看得到，所以英雄隱形沒有這個問題；召喚物、地雷這類 Vision scope 的單位才會出事。
+  - ECS 端的 `item_entity_visible_to_team`（game_processor.rs）有一樣的判斷。
+- **修正**：隱形只對其他隊伍有效。Wave B 判定自己隊伍時不檢查隱形等級；`item_entity_visible_to_team` 判定自己隊伍時隱形等級視為 0。兩邊的規則維持相同。自己隊伍仍然要在視野範圍內才看得到。
+- **測試**：`visibility::tests::an_invisible_unit_is_still_seen_by_its_own_team`：自己隊伍看得到、對方看不到、對方的來源有偵測時看得到、自己隊伍沒有視野時看不到。
+- **避免**：隱形、偵測這類只對敵方有意義的規則，要先確認觀看的隊伍是不是單位自己的隊伍。
+- **檔案**：`omoba-core/src/runtime/visibility.rs`、`omoba-core/src/runtime/native/game_processor.rs`
+
+
 ## E642 conformance：ability_swapped 檢查換格的 cooldown_policy（continue 保留、reset 清空）（2026-11-01，conformance session）
 - **現象**：E608 的 ability_swapped 只檢查換入的格、initial_cooldown、replica 和換回，沒有檢查 cooldown_policy。swap 情境 pass 不代表 continue／reset 是對的，A 要接的冷卻類 covered_by（swap_cooldown）會因此靠旁證放行。
 - **通用修正**：

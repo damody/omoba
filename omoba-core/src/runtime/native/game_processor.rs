@@ -2320,7 +2320,8 @@ pub(crate) fn item_entity_visible_to_team(world: &World, target: Entity, viewer_
         let Some(target_pos) = positions.get(target).map(|pos| pos.0) else { return false; };
         let profile = world.read_storage::<StealthProfile>().get(target).map(|profile| profile.stealth_level).unwrap_or(0);
         let buffs = world.try_fetch::<BuffStore>();
-        let stealth = buffs.as_ref().map_or(profile, |buffs| buffs.visible_stealth_level(target, profile));
+        // Invisibility hides a unit from the other teams only (E645, same rule as Wave B).
+        let stealth = if team == viewer_team { 0 } else { buffs.as_ref().map_or(profile, |buffs| buffs.visible_stealth_level(target, profile)) };
         // A carrier that provides vision is seen by the other teams (E392; same rule as Wave B).
         let provided = stealth == 0 && team != viewer_team
             && buffs.as_ref().is_some_and(|buffs| buffs.has(target, super::ability_runtime::PROVIDES_VISION));

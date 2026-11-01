@@ -673,7 +673,9 @@ pub(crate) fn entity_visible_with_brush(
         if source.team != team {
             return false;
         }
-        if source.detection_level < entity.stealth_level {
+        // Invisibility hides a unit from the other teams, never from its own (E645: A36's mine
+        // went invisible and left its own team's disclosure).
+        if entity.team != team && source.detection_level < entity.stealth_level {
             return false;
         }
         let delta = entity.position - source.position;
@@ -1179,6 +1181,19 @@ mod tests {
         assert!(!seen(&world, far), "an invisible carrier stays hidden");
         world.write_resource::<BuffStore>().add(far, REVEALED, Fixed64::from_i32(3), serde_json::json!({}));
         assert!(seen(&world, far), "unless it is revealed too");
+    }
+
+    /// E645: an invisible unit (A36's mine 1.5 s after it is planted) stays in its own team's
+    /// sight; only the other team's sources must detect its stealth.
+    #[test]
+    fn an_invisible_unit_is_still_seen_by_its_own_team() {
+        let mut mine = entity(ReplicationScopeKind::Vision, Some(1), 10);
+        mine.stealth_level = 1;
+        assert!(entity_visible_to_team(&mine, 1, &[source(1, 100)], &[]), "own team sees its invisible unit");
+        assert!(!entity_visible_to_team(&mine, 2, &[source(2, 100)], &[]), "the other team does not");
+        assert!(entity_visible_to_team(&mine, 2, &[CommittedVisionSource { detection_level: 1, ..source(2, 100) }], &[]),
+            "unless its source detects the stealth");
+        assert!(!entity_visible_to_team(&mine, 1, &[source(1, 5)], &[]), "own team still needs sight of it");
     }
 }
 
