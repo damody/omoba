@@ -28,7 +28,7 @@ use super::*;
 use serde_json::{json, Value};
 
 const ENEMY: &str = "training_luminary";
-const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "leveled_by", "unit_ability", "target_status", "ally_target_lower", "ally_unit_at_point", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line", "target_ahead", "corpse_near_caster", "cast_first", "building_in_effect"];
+const GIVEN: &[&str] = &["learned", "swapped_in", "required_status", "leveled_by", "unit_ability", "target_status", "ally_target_lower", "ally_unit_at_point", "target_unit", "mana_at_least", "mana_exactly", "distance", "caster_state", "enemy_unit_in_effect", "toggled_on", "charges", "no_unit_in_line", "target_ahead", "corpse_near_caster", "cast_first", "building_in_effect", "hidden_in_effect"];
 const WHEN: &[&str] = &["cast", "wait", "caster_dies", "target_dies", "owner_dies", "owner_respawns", "toggle", "cast_until_over_cap"];
 /// A document entry the ported hero does not have at all: a difference, not a harness gap.
 const MISSING: &str = "missing entry: ";
@@ -36,7 +36,7 @@ const CHECKED: &[&str] = &["cast_accepted", "cast_rejected", "cast_cancelled", "
     "cooldown_not_started", "no_effects", "then_cast_accepted", "approach_until",
     "caster_invisibility_broken", "caster_invisibility_kept", "damage_to_magic_immune", "selectors_skip_magic_immune",
     "status_removed", "status_kept", "passive_stats", "toggled_off", "charge_spent", "charge_restore", "summon_cap", "damage_skipped_if_source_dead", "damage", "moved_toward",
-    "ability_swapped", "building_affected"];
+    "ability_swapped", "building_affected", "hidden_affected"];
 /// A check that found nothing to judge (marks an error as unsupported, not failed).
 const UNOBSERVED: &str = "unobserved: ";
 
@@ -200,6 +200,9 @@ struct Run {
     died_at: Option<u64>,
     /// An enemy building placed in a selector's area (building_in_effect; E640) and what it held then.
     building: Option<(specs::Entity, Vec<String>, Vec<String>)>,
+    /// The enemy hero hidden in a selector's area and the visible creep beside it, with what each
+    /// held then (hidden_in_effect; E641).
+    hidden: Option<(specs::Entity, Vec<String>, specs::Entity, Vec<String>)>,
 }
 
 impl Run {
@@ -449,6 +452,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
     let mut mana: Option<(bool, f64)> = None;
     let (mut immune, mut dead, mut hidden, mut invisible) = (false, false, false, false);
     let mut building_in = false;
+    let mut hidden_in: Option<String> = None;
     let (mut clear_line, mut face_ahead, mut corpse) = (false, false, false);
     let mut cast_first: Option<String> = None;
     // What the entry's on_phase_start needs (E457): a status on the target, an ally target lower
@@ -494,6 +498,7 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
             "corpse_near_caster" => corpse = true,
             "cast_first" => cast_first = given["entry"].as_str().map(str::to_owned),
             "building_in_effect" => building_in = true,
+            "hidden_in_effect" => hidden_in = given["state"].as_str().map(str::to_owned),
             other => return Err(format!("given {other}")),
         }
     }
@@ -636,13 +641,39 @@ fn setup(hero: &str, s: &Value) -> Result<Run, String> {
         world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(caster, "v3_conformance_invisible",
             Fixed64::from_i32(600), json!({ (omb_script_abi::stat_keys::StatKey::InvisibilityLevel.as_str()): 1024 }));
     }
+    // The enemy hero unseen in the selector's area (E641): beside the caster for a cast without a
+    // target, at the point otherwise; a visible enemy creep beside it shows the cast ran.
+    let hidden = match hidden_in.as_deref() {
+        None => None,
+        Some(_) if s["when"][0]["target"] == "unit" => return Err("hidden_in_effect of a unit-target cast: its target cannot be hidden".into()),
+        Some(state) => {
+            let center = if s["when"][0]["target"] == "none" { origin } else { at };
+            world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = center + omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(40));
+            let enemy_team = world.read_storage::<Faction>().get(enemy).unwrap().team_id;
+            match state {
+                "invisible" => {
+                    world.write_storage::<VisibilityOverride>().remove(enemy);
+                    world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(enemy, "v3_conformance_hidden",
+                        Fixed64::from_i32(600), json!({ (omb_script_abi::stat_keys::StatKey::InvisibilityLevel.as_str()): 1024 }));
+                }
+                "fogged" => { world.write_storage::<VisibilityOverride>().insert(enemy, VisibilityOverride {
+                    team: Some(caster_team.max(0) as u32), kind: VisibilityOverrideKind::ForceHide, priority: 2, stable_rule_id: 0xE641 }).unwrap(); }
+                other => return Err(format!("hidden state {other}")),
+            }
+            let creep = spawn_body(&mut world, real(center.x) as i32, real(center.y) as i32 - 40, enemy_team, 800, None);
+            world.write_storage::<VisibilityOverride>().insert(creep, VisibilityOverride {
+                team: Some(caster_team.max(0) as u32), kind: VisibilityOverrideKind::ForceShow, priority: 1, stable_rule_id: 0xE641 }).unwrap();
+            let keys = |unit: specs::Entity| -> Vec<String> { world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(unit).map(|(k, _)| k.to_owned()).collect() };
+            Some((enemy, keys(enemy), creep, keys(creep)))
+        }
+    };
     if immune && !omoba_core::runtime::native::magic_immunity::grant(&world, target, Fixed64::from_i32(60)) {
         return Err("magic immunity not granted".into());
     }
     let last = world.read_storage::<Hero>().get(caster).unwrap().clone();
     let target_at = world.read_storage::<Pos>().get(target).map(|pos| pos.0).unwrap_or(at);
     let keep = swapped.as_ref().and_then(|g| g["by"].as_str()).map(str::to_owned);
-    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), target_held: (0, Vec::new()), low_ally, phase_statuses: target_statuses.iter().filter(|id| !id.is_empty() && !id.contains('{')).cloned().collect(), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim: clear_line.then_some(at), keep, building };
+    let mut run = Run { world, driver, caster, enemy, target, entry, rank, slot, target_hp: Fixed64::ZERO, casts: Vec::new(), target_held: (0, Vec::new()), low_ally, phase_statuses: target_statuses.iter().filter(|id| !id.is_empty() && !id.contains('{')).cloned().collect(), last, target_at, target_killed: dead, sustain: false, held_at_death: Vec::new(), died_at: None, aim: clear_line.then_some(at), keep, building, hidden };
     // Let auto-learn settle the ranks set above (it learns passives at their hero level).
     run.step(2);
     if passive {
@@ -803,9 +834,25 @@ fn replica_icons(run: &Run, team: u32, unit: specs::Entity) -> Option<Vec<u16>> 
 /// on the enemy building in its area when `affected`, and does neither otherwise; the same cast's
 /// hits under that path on another unit, or a status the enemy hero took, show it ran at all.
 fn building_affected(run: &mut Run, e: &Value) -> Result<(), String> {
+    let Some((building, held, enemy_held)) = run.building.clone() else { return Err(format!("{UNOBSERVED}no building placed")) };
+    let enemy = run.enemy;
+    in_area_affected(run, e, building, &held, enemy, &enemy_held, "the building")
+}
+
+/// `hidden_affected` (E641): as building_affected, for the enemy hero the caster's team does not
+/// see; the visible creep beside it is the proof that the cast ran.
+fn hidden_affected(run: &mut Run, e: &Value) -> Result<(), String> {
+    let Some((hero, held, creep, creep_held)) = run.hidden.clone() else { return Err(format!("{UNOBSERVED}no hidden unit placed")) };
+    let what = format!("the {} enemy hero", e["state"].as_str().unwrap_or("hidden"));
+    in_area_affected(run, e, hero, &held, creep, &creep_held, &what)
+}
+
+/// The selector at `path` reaches `unit` (a hit traced under it, or a status it did not hold) when
+/// `affected`, and does not otherwise, while it reaches another unit or puts a status on `proof`.
+fn in_area_affected(run: &mut Run, e: &Value, unit: specs::Entity, held: &[String], proof: specs::Entity, proof_held: &[String], what: &str) -> Result<(), String> {
     use omoba_core::runtime::native::damage_trace::{DamageTrace, DamageTraceResult};
-    let (Some((building, held, enemy_held)), Some(path)) = (run.building.clone(), e["path"].as_str()) else { return Err(format!("{UNOBSERVED}no building placed")) };
-    let (building, held, enemy_held) = (&building, &held, &enemy_held);
+    let Some(path) = e["path"].as_str() else { return Err(format!("{UNOBSERVED}no path")) };
+    let (building, held, enemy_held) = (&unit, held, proof_held);
     let under = |row: &str| row == path || row.starts_with(&format!("{path}."));
     // A channel strikes after the cast is accepted (B07T's first light): up to two seconds for the
     // path to reach anyone.
@@ -813,7 +860,7 @@ fn building_affected(run: &mut Run, e: &Value) -> Result<(), String> {
         .iter_for(unit).any(|(k, _)| !before.iter().any(|h| h == k) && !k.starts_with("v3_conformance"));
     for _ in 0..ticks(2.0) {
         if run.world.read_resource::<DamageTrace>().0.iter().any(|r| under(&r.path))
-            || fresh_on(run, *building, held) || fresh_on(run, run.enemy, enemy_held) { break; }
+            || fresh_on(run, *building, held) || fresh_on(run, proof, enemy_held) { break; }
         run.step(1);
     }
     let trace = run.world.read_resource::<DamageTrace>();
@@ -821,18 +868,18 @@ fn building_affected(run: &mut Run, e: &Value) -> Result<(), String> {
     let hit_other = trace.0.iter().any(|r| r.target != *building && r.result == DamageTraceResult::Applied && under(&r.path));
     let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
     let fresh: Vec<String> = buffs.iter_for(*building).map(|(k, _)| k.to_owned()).filter(|k| !held.contains(k) && !k.starts_with("v3_conformance")).collect();
-    let enemy_status = buffs.iter_for(run.enemy).any(|(k, _)| !enemy_held.iter().any(|h| h == k) && !k.starts_with("v3_conformance"));
+    let enemy_status = buffs.iter_for(proof).any(|(k, _)| !enemy_held.iter().any(|h| h == k) && !k.starts_with("v3_conformance"));
     let affected = e["affected"] == true;
     match (affected, hit_building || !fresh.is_empty()) {
         (true, true) => Ok(()),
         (true, false) => {
             let traced: Vec<String> = trace.0.iter().filter(|r| under(&r.path) || r.target == *building)
-                .map(|r| format!("{}{}:{:?}", if r.target == *building { "building " } else { "" }, r.path, r.result)).collect();
-            Err(format!("the building in {path}'s area took no hit and no status (traced: [{}])", traced.join(", ")))
+                .map(|r| format!("{}{}:{:?}", if r.target == *building { "it " } else { "" }, r.path, r.result)).collect();
+            Err(format!("{what} in {path}'s area took no hit and no status (traced: [{}])", traced.join(", ")))
         }
-        (false, true) => Err(format!("{path} reached the building: hit {hit_building}, statuses {fresh:?}")),
+        (false, true) => Err(format!("{path} reached {what}: hit {hit_building}, statuses {fresh:?}")),
         (false, false) if hit_other || enemy_status => Ok(()),
-        (false, false) => Err(format!("{UNOBSERVED}{path} hit nobody: nothing tells the building was left out")),
+        (false, false) => Err(format!("{UNOBSERVED}{path} hit nobody: nothing tells {what} was left out")),
     }
 }
 
@@ -2204,6 +2251,7 @@ fn run(hero: &str, s: &Value) -> Verdict {
             }
             "ability_swapped" => swapped(&mut run, e, &entry, rank),
             "building_affected" => building_affected(&mut run, e),
+            "hidden_affected" => hidden_affected(&mut run, e),
             "cooldown_not_started" => {
                 let remaining = run.cooldown();
                 if remaining == 0.0 { Ok(()) } else { Err(format!("cooldown {remaining:.3} running")) }

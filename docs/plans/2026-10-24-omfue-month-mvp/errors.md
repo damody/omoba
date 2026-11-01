@@ -2,6 +2,13 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E641 conformance：判定 hidden_in_effect：選取範圍內看不見的敵方英雄受不受影響（2026-11-01，conformance session）
+- **現象**：149 筆隱形／迷霧類 quirk 大多在講選取會不會打到看不見的敵人，但沒有情境驗這件事。工作線 A 在 a7593425 新增 hidden_in_effect（invisible 與 fogged 各一個，期望 hidden_affected，affected = 沒有 visible_only），harness 還沒有判定。
+- **通用修正**：
+  - hidden_in_effect：把敵方英雄放進選取範圍（無目標的施放放在施法者旁，否則放在落點），invisible 給它 host 隱形（InvisibilityLevel），fogged 則對施法隊伍 ForceHide；旁邊放一隻對施法隊伍可見的敵方小兵，證明施放有生效。單位目標的施放無法瞄準隱藏的目標，判 unsupported。
+  - hidden_affected 和 building_affected 共用 in_area_affected 判定（受影響時要有 path 底下的命中或新狀態；不受影響時目標兩者都沒有，且證明單位有被打到或多了狀態）。
+- **結果**：全跑 0 退步，72 個新情境 pass（含 hidden_selection 的 covered_by）。新增的 fail 是真的差異：A01 雷刃、A21 珍珠盤、A26 齊射、C08 散遁的選取帶 visible_only，但隱形和迷霧中的英雄還是被打到或被暈。原因是 host 的 query_enemies_in_range 不看視野，而產生器以為它只回傳看得見的單位（v3_rust.lua 的註解），已轉給 B 和 A。另有 a12_awe_t 的 missing entry，A 已在 2739aa06 修正。
+
 ## E640 conformance：判定 building_in_effect：選取範圍內的敵方建築受不受影響（2026-11-01，conformance session）
 - **現象**：174 筆建築類 quirk 在講「選取含不含建築」，但沒有情境驗選取的建築型別。工作線 A 在 6819bcbf 新增 building_in_effect 情境（期望 building_affected），harness 還沒有判定。
 - **通用修正**：
