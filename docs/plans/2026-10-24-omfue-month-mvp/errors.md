@@ -2,6 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E588 moba_headless 的失敗路徑不輸出 performance／tick_profile，效能量測拿不到數據（2026-11-01，E187）
+- 現象：A 和 B 的效能量測遇到 execution budget 用完、objective stall 或 observer mismatch 的局時，report 只有 failure_document，沒有 tick p50／p99 和 tick_profile，數據反覆拿不到。
+- 原因：`performance`（TickPerf）與 `tick_profile`（driver.phase_report）只在成功路徑的 report 裡組出來；三個失敗路徑直接 `write_failure(failure_document(...))`。
+- 修正（共用層）：新增 `attach_performance(document, end_reason, perf, driver, world)`，三個失敗路徑都在寫出前附上 performance（到結束那個 tick 為止）、`performance.end_reason`、tick_profile，以及 observer 區塊。成功路徑的 `performance.end_reason` 是 `"finished"`。
+- 避免：量測用的欄位不論怎麼結束都要輸出，並標上結束原因，讓呼叫端決定要不要採用。
+
 ## E587 B07：召喚物背包——被給道具的單位拿到背包，道具效果對 replica 公開（2026-11-01，工作線 B）
 
 - **現象**：足利義昭（B07）E「戰線國崩隊」部署時，要把義昭前兩格的裝備複製一份新實例給國崩隊（原作 HasInventory 1，B07.lua:97-116）。國崩隊沒有 Inventory，`item_grant::apply` 直接回傳 false，產生器因此擋下對召喚物的 `give_item`。
