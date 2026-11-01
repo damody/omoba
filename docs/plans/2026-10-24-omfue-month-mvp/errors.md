@@ -2,6 +2,14 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E647 conformance：判定 reapply：重施放後依 stacking 檢查狀態（refresh／keep／independent／stack）（2026-11-01，conformance session）
+- **現象**：約 87 筆疊加／刷新類 quirk 沒有情境驗 status 的 stacking。工作線 A 在 40c09e3a 新增 reapply 情境（期望 reapplied），harness 還沒有判定。
+- **通用修正**：
+  - 狀態被施放套上後，等持續時間過一半，清掉冷卻、補滿魔力，對同一個目標或點再放一次同一招（不直接加 buff，才驗得到腳本自己的 stacking），之後最多 2 秒內判定，因為有些狀態延遲才套上（B36W 的直江之印在 $delay 後才落下）。
+  - refresh：只有一份，剩餘時間回到接近完整。keep：只有一份，仍是大約一半。independent：至少兩份 `<id>#n`，一新一舊。stack：只有一份，層數增加且不超過 max（max 是運算式時照值算；一次可以加不只一層，A09R 會依打到的單位數疊加）。
+  - 以下判 unsupported：狀態在施放產生的單位身上（第二次施放會造出另一個）、持續時間不超過第二次施放時間＋0.5 秒的兩倍（分不出 refresh 和 keep）、持續超過 120 秒、第二次施放沒被接受。
+- **結果**：全跑 0 退步，149 個情境變 pass，pass 21792。新增 11 個 fail：隱形類 10 個（A13D、A15D、B02D、C08D、A36W 在隱形中重放後，狀態全部消失，疑似施放破隱把剛套上的那份也移除了，已轉給 B）；C06W 1 個（on_cast 會 set_stacks，期望應為 refresh，A 已在新情境中排除）。
+
 ## E648 bot 的施放前提無法要求「施法者有一個存活的召喚物」：B16 相移在月不在 1000 內時也照樣送出（82% 被拒）（2026-11-02，工作線 B，A／E 回報）
 
 - **現象**：m6new21c 裡，b16_phase_shift 有 381/465 次 `script_error:CAST_REJECTED`。這招的 requires 是 `exists(state.b16_moon) and alive(state.b16_moon) and edge_distance(caster, state.b16_moon) <= $max_range`。b16_beast_union 則是在 on_cast 檢查月，不在就退還。

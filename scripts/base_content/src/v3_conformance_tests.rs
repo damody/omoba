@@ -1706,6 +1706,79 @@ impl EffectsSeen {
     }
 }
 
+/// `reapplied` (E647): the status (just put on by the entry's cast) is let run half its time, the
+/// entry is cast again at the same aim (cooldowns cleared, mana refilled), and the holder's entries
+/// of it are judged by the stacking.
+fn reapply(run: &mut Run, holder: specs::Entity, runtime_id: &str, e: &Value, target: &str) -> Verdict {
+    let entries = |run: &Run| -> Vec<(String, f64, i64)> {
+        let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
+        let found: Vec<(String, f64, i64)> = buffs.iter_for(holder).filter(|(k, _)| !k.ends_with(":slow")
+                && (omoba_core::runtime::native::dispel::runtime_id_matches(runtime_id, k)
+                    || k.split_once('#').is_some_and(|(base, _)| omoba_core::runtime::native::dispel::runtime_id_matches(runtime_id, base))))
+            .map(|(k, b)| (k.to_owned(), real(b.remaining), b.payload.get("__v3_stacks").and_then(Value::as_i64).unwrap_or(1))).collect();
+        found
+    };
+    // On a unit the cast makes (a summon, a ward, a field): the second cast makes another one.
+    if ![run.caster, run.enemy, run.target].contains(&holder) { return Verdict::Unsupported(format!("{runtime_id} is on a unit the cast makes: a second cast makes another")); }
+    let first = entries(run);
+    let Some(full) = first.iter().map(|(_, left, _)| *left).fold(None, |m: Option<f64>, l| Some(m.map_or(l, |m| m.max(l)))) else {
+        return Verdict::Unsupported(format!("{runtime_id} not on the holder"));
+    };
+    if full > 120.0 { return Verdict::Unsupported(format!("{runtime_id} lasts {full:.0} s")); }
+    let stacks_before = first.iter().map(|(_, _, n)| *n).max().unwrap_or(1);
+    // Its half and its full time must lie further apart than the second cast's own time.
+    let window = value(&run.entry, run.rank, "cast_point").unwrap_or(0.0) + 0.5;
+    let slack = window + 0.5;
+    if full <= 2.0 * slack { return Verdict::Unsupported(format!("{runtime_id} lasts {full:.1} s: too short to tell its refresh from a keep")); }
+    run.step(ticks(full / 2.0));
+    if entries(run).is_empty() { return Verdict::Unsupported(format!("{runtime_id} ended before half its time")); }
+    {
+        let mut heroes = run.world.write_storage::<Hero>();
+        if let Some(h) = heroes.get_mut(run.caster) {
+            h.ability_cooldowns.clear();
+            if let Some(pool) = h.mana_pool.as_mut() { let max = pool.maximum(); if let Ok(full) = omoba_core::runtime::ability_runtime::ManaPool::new(max, max) { *pool = full; } }
+        }
+    }
+    match run.cast(target, window, None) {
+        Ok(cast) if cast.accepted => {}
+        Ok(cast) => return Verdict::Unsupported(format!("the second cast was not accepted{}", cast.why())),
+        Err(err) => return Verdict::Unsupported(err),
+    }
+    // A delayed application (B36W's strike after $delay): up to two seconds for the judgement.
+    let mut verdict = Verdict::Unsupported("reapplied: not judged".into());
+    for _ in 0..ticks(2.0) {
+        run.step(1);
+        verdict = reapplied(&entries(run), e, full, slack, stacks_before, &run.entry, run.rank);
+        if matches!(verdict, Verdict::Pass | Verdict::PassNoted(_)) { break; }
+    }
+    verdict
+}
+
+/// The `reapplied` judgement of the holder's entries `now` (E647): see [`reapply`].
+fn reapplied(now: &[(String, f64, i64)], e: &Value, full: f64, slack: f64, stacks_before: i64, entry: &str, rank: usize) -> Verdict {
+    let shown = format!("{:?}", now.iter().map(|(k, l, n)| format!("{k} {l:.1}s x{n}")).collect::<Vec<_>>());
+    let longest = now.iter().map(|(_, l, _)| *l).fold(0.0f64, f64::max);
+    match e["stacking"].as_str() {
+        Some("refresh") if now.len() == 1 && longest >= full - slack => Verdict::PassNoted(format!("refreshed to {longest:.1} of {full:.1} s")),
+        Some("refresh") => Verdict::Fail(format!("reapplied: refresh expected one entry back near {full:.1} s, holder has {shown}")),
+        Some("keep") if now.len() == 1 && longest <= full / 2.0 + 0.2 => Verdict::PassNoted(format!("kept at {longest:.1} of {full:.1} s")),
+        Some("keep") => Verdict::Fail(format!("reapplied: keep expected one entry near {:.1} s, holder has {shown}", full / 2.0)),
+        Some("independent") if now.len() >= 2 && now.iter().any(|(_, l, _)| *l >= full - slack) && now.iter().any(|(_, l, _)| *l <= full / 2.0 + 0.2) =>
+            Verdict::PassNoted(format!("{} instances: {shown}", now.len())),
+        Some("independent") => Verdict::Fail(format!("reapplied: independent expected two instances timed apart, holder has {shown}")),
+        Some("stack") => {
+            // Up by what the cast gives (one per unit it hits: A09R), never past the maximum.
+            let max = if e["max"].is_null() { Ok(i64::MAX) } else { e["max"].as_f64().map(|m| Ok(m as i64)).unwrap_or_else(|| expr(&e["max"], entry, rank).map(|m| m as i64)) };
+            let max = match max { Ok(m) => m, Err(err) => return Verdict::Unsupported(format!("stack max: {err}")) };
+            let have = now.iter().map(|(_, _, n)| *n).max().unwrap_or(0);
+            let grew = have > stacks_before || (stacks_before >= max && have == max);
+            if now.len() == 1 && grew && have <= max { Verdict::PassNoted(format!("{stacks_before} -> {have} stacks (max {max})")) }
+            else { Verdict::Fail(format!("reapplied: stack expected one entry above {stacks_before} stacks up to {max}, holder has {shown}")) }
+        }
+        other => Verdict::Unsupported(format!("stacking {other:?}")),
+    }
+}
+
 /// A dead holder's life ended with its statuses, whatever its entity still lists (a hero's body
 /// is kept until it respawns as a new entity).
 fn living(run: &Run, holder: specs::Entity) -> bool {
@@ -1735,6 +1808,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         ("status_event", _) if step["event"] == "on_take_damage_pre" || step["event"] == "on_removed" || step["event"] == "on_created" => None,
         ("status_event", _) if step["event"] == "on_take_damage" || step["event"] == "on_death" || step["event"] == "on_kill" => None,
         ("status_event", _) if step["event"] == "on_attack_launch" || step["event"] == "on_expired" || step["event"] == "on_attacked_hit" => None,
+        ("reapply", _) => None,
         _ => return Verdict::Unsupported(format!("status step {kind}")),
     };
     let expect = s["expect"].as_array().unwrap();
@@ -1775,6 +1849,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
     }
     let removed = match expectation["kind"].as_str() {
         _ if kind == "status_event" => false,
+        Some("reapplied") if kind == "reapply" => false,
         Some("status_removed") => true,
         Some("status_kept") => false,
         Some("status_display") if kind == "observe" => false,
@@ -1913,6 +1988,14 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         return Verdict::Unsupported(format!("{runtime_id} not observed after casting [caster: {}] [enemy: {}]", keys(caster), keys(enemy)));
     };
     if kind == "status_event" && !attack_event { return status_trigger(&mut run, holder, step, expectation, status); }
+    if kind == "reapply" {
+        let target = match kind_of {
+            Some(omoba_template_ids::TargetTypeC::Unit) => "unit",
+            Some(omoba_template_ids::TargetTypeC::Point) => "point",
+            _ => "none",
+        };
+        return reapply(&mut run, holder, &runtime_id, expectation, target);
+    }
     if attack_event {
         // The holder attacks the enemy hero; every status the hit applies lands on it.
         let enemy = run.enemy;
