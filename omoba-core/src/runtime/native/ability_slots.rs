@@ -204,6 +204,10 @@ fn swap(world: &mut World, hero_entity: Entity, from: &str, to: &str, policy: Co
     hero.abilities[slot] = to.to_owned();
     let rank = hero.get_ability_level(from);
     hero.inherit_swapped_rank(to, rank);
+    // The rule a replica adopting this slot applies (filtered_specs::adopt_ability_slots): a
+    // swapped-out grant past Q-R keeps no rank, the hero's own ability does (E632, A07
+    // a07_rouse_free swapped back).
+    hero.release_granted_rank(slot, from);
     if policy == CooldownPolicy::Reset { hero.ability_cooldowns.remove(to); }
     true
 }
@@ -272,6 +276,42 @@ mod tests {
         let stray = SwapSpec { from: "nope".into(), to: "b24_shatter".into(), policy: CooldownPolicy::Continue, duration: None };
         apply(&mut world, h, SWAP_BUFF, Fixed64::ONE, &stray.payload());
         assert_eq!(slots(&world)[1], "b24_earth_prison");
+    }
+
+    /// E632: a timed swap in a slot past Q-R and its swap back leave the ranks a replica adopting
+    /// the same slots has: the hero's own ability keeps its rank, the swapped-out sub ability none.
+    #[test]
+    fn a_swap_past_q_r_leaves_the_ranks_a_replica_adopts() {
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+        let mut hero = Hero::default();
+        hero.id = "honda_tadakatsu".into();
+        hero.abilities = vec!["".into(), "".into(), "".into(), "".into(), "a07_rouse".into()];
+        hero.ability_levels.insert("a07_rouse".into(), 1);
+        let mut replica = hero.clone();
+        let h = world.create_entity().with(hero).build();
+        let spec = SwapSpec { from: "a07_rouse".into(), to: "a07_rouse_free".into(), policy: CooldownPolicy::Continue,
+            duration: Some(Fixed64::from_i32(4)) };
+        apply(&mut world, h, SWAP_BUFF, Fixed64::ONE, &spec.payload());
+        let ranks = |w: &World| w.read_storage::<Hero>().get(h).unwrap().ability_levels.clone();
+        let adopt = |replica: &mut Hero, w: &World| {
+            let slots = w.read_storage::<Hero>().get(h).unwrap().abilities.clone();
+            for (slot, name) in slots.into_iter().enumerate() {
+                if replica.abilities[slot] == name { continue; }
+                let rank = replica.get_ability_level(&replica.abilities[slot]);
+                replica.inherit_swapped_rank(&name, rank);
+                let old = std::mem::replace(&mut replica.abilities[slot], name);
+                replica.release_granted_rank(slot, &old);
+            }
+        };
+        adopt(&mut replica, &world);
+        assert_eq!(ranks(&world).get("a07_rouse_free"), Some(&1));
+        assert_eq!(ranks(&world), replica.ability_levels, "swapped in");
+        world.write_resource::<BuffStore>().remove(h, &format!("{TIMER_PREFIX}a07_rouse_free"));
+        settle(&mut world);
+        adopt(&mut replica, &world);
+        assert_eq!(ranks(&world).get("a07_rouse"), Some(&1), "its own ability keeps its rank");
+        assert_eq!(ranks(&world).get("a07_rouse_free"), None, "the sub ability keeps none");
+        assert_eq!(ranks(&world), replica.ability_levels, "swapped back");
     }
 
     /// E578: a slot packet puts a catalog ability in a hero's slot past its own (the slots

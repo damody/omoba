@@ -2,6 +2,18 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E634 （保留）conformance 狀態的 slow_pct 與 set_absolute stat（base_attack_time、move_speed）從未檢查（2026-11-01）（2026-11-01）
+
+## E633 （保留）召喚物不能持續施法（A28 鳳凰天火被靜默擋下）（2026-11-01）
+
+## E632 authority 的 swap 保留被換出的 sub 技能等級，replica 依 E631 刪掉（A07 a07_rouse_free 換回，2026-11-01，工作線 B，A 回報）
+
+- **現象**：E631 之後，A07 parity soak 在 tick 2620（team 2，entity 125）換回時出現不一致：authority 的 ability_levels 比 replica 多了 `a07_rouse_free:1`。
+- **根因**：大招結束時，a07_rouse_free 被換回 a07_rouse。replica 的 `adopt_ability_slots` 依 E611／E631 刪掉 a07_rouse_free 的等級，因為它不在英雄自己的 kit 裡。authority 的 `ability_slots::swap` 只繼承等級，不放掉被換出技能的等級。
+- **修正**：`swap` 換格之後呼叫 `Hero::release_granted_rank(slot, from)`，和 replica adopt 用同一條規則。Q–R 以外的格子：被換出的授予技能或 sub 技能不保留等級，英雄自己的技能保留。下次換入時，sub 技能會從原技能繼承等級（E610），所以結果不變。
+- **測試**：`ability_slots::tests::a_swap_past_q_r_leaves_the_ranks_a_replica_adopts`（authority 換入、換回後的等級，和 replica adopt 的結果相同）。
+- **檔案**：`omoba-core/src/runtime/native/ability_slots.rs`
+
 ## E631 E611 讓 replica 在 D／F 格換格時刪掉被換出技能的等級，但 authority 的 swap 保留（A07 a07_rouse ↔ a07_rouse_free，2026-11-01，工作線 B，A 回報）
 
 - **現象**：A 把 a07_strongest 改用產生的程式碼後，parity soak `honda_tadakatsu_kit_keeps_team_replicas_identical` 在 tick 2140 出現不一致：authority 的 ability_levels 比 replica 多了 `a07_rouse:1`。
