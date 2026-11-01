@@ -10,9 +10,3 @@
 | `a28_spreading_fire` | 0 | 0（預期 0 個） | — | 被動，無 cue／狀態可檢查 |
 
 擊退拋物線（全局）：0 次
-
-- 實機：`target/lineC-pres14/hashiba_hideyoshi-run`（spotlight，2026-11-01），錄到 749 幀、掉 0 幀，下了 5 次指令，略過 0 格。
-- observer：有檢查，mismatch 0。build：snapshot commit `d2536318`（E583，一輪建一次）。
-- 天火的召喚物指令被 authority 接受，但伺服器沒有任何施放或拒絕紀錄（已轉 B，E622 之後）。
-- 6 招中 4 招有呈現，1 招被動沒有 cue 或狀態可檢查。
-- 頭像、技能圖示、載入圖由 HUD sync 依 id 接上；3D 身體目前是共用人形 fallback。
