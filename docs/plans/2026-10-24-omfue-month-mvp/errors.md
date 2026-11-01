@@ -2,7 +2,12 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E640 （保留）conformance 判定 building_in_effect：選取範圍內的敵方建築受不受影響（2026-11-01）（2026-11-01）
+## E640 conformance：判定 building_in_effect：選取範圍內的敵方建築受不受影響（2026-11-01，conformance session）
+- **現象**：174 筆建築類 quirk 在講「選取含不含建築」，但沒有情境驗選取的建築型別。工作線 A 在 6819bcbf 新增 building_in_effect 情境（期望 building_affected），harness 還沒有判定。
+- **通用修正**：
+  - building_in_effect：把離施法者最近的敵方建築移進選取範圍。無目標的施放放在施法者旁，有目標的放在目標或落點旁，並讓建築停火。同時記下建築和敵方英雄當時身上有的狀態。
+  - building_affected：最多等 2 秒，直到那個 path 打到任何人、或建築或敵方英雄身上出現新狀態為止。B07T 的持續施法第一擊在施放判定成功之後才發生；A01E 的定身比 2 秒短，所以一看到狀態就停。affected=true 時，要看到 path 底下有傷害打到建築，或建築多了新狀態；affected=false 時，建築要兩者都沒有，而且同一次施放有打到其他單位，或讓敵方英雄多了狀態（否則判 unsupported）。打不到時，訊息會列出 path 底下的 trace。
+- **結果**：全跑 0 退步，39 個建築情境 pass；A 的建築與驅散 covered_by 也一起判了（building_selection 3 筆、dispel 6 筆 pass）。5 個 fixed quirk 從 pass 回到 unsupported，是因為 A 在 4762bcd6 拿掉了它們的 covered_by。a12_awe_t 的 2 個建築情境回報 missing entry（換進來的副招沒有帶 swapped_in），已轉給 A。
 
 ## E639 本機局 server 綁 0.0.0.0，每一局都跳 Windows 防火牆詢問（2026-11-01，工作線 B，使用者回報）
 
