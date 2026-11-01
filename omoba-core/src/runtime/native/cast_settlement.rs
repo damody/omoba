@@ -150,6 +150,9 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
         Outcome::ScriptRemoveBuff {target,..} if spawned.contains(target)=>true,
         // v3 create_unit.facing: a summon this cast spawns faces where the script says.
         Outcome::ScriptSetFacing {entity,..} if spawned.contains(entity)=>true,
+        // ... and stands where the script puts it (E590, 原作 B24W2 SetAbsOrigin puts the stele back
+        // on the cursor): every planned spawn commits first, and a fresh unit holds nothing else.
+        Outcome::ScriptSetPos {entity,..} if spawned.contains(entity)=>true,
         // The caster's own statuses, orders and schedules (each host row checked above) and its
         // relocation change neither its life nor its resources, and every planned spawn commits
         // before any of them: they may come before, between or after the summons (原作 C02E 幻影步
@@ -240,6 +243,8 @@ fn summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_betwe
     let face=|entity|Outcome::ScriptSetFacing {entity,facing:omoba_sim::Angle::ZERO};
     assert!(accepts(&[spawn(first),face(first),spawn(second)]),"a summon of this cast faces its way");
     assert!(!accepts(&[spawn(first),face(victim)]),"never another unit's facing");
+    let place=|entity|Outcome::ScriptSetPos {entity,pos:SimVec2::ZERO};
+    assert!(accepts(&[spawn(first),place(first),spawn(second)]),"a summon of this cast stands where the script puts it (E590)");
     assert!(!accepts(&[spawn(first),Outcome::ScriptDirectDamage {target:hero,amount:Fixed64::ONE}]),"never the caster, even trailing");
     // The caster's own schedule (b13_storm: create_unit, then repeat) goes with the summons, and
     // the refusal names what it refused.

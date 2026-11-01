@@ -2,7 +2,15 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E590 （保留）召喚交易不接受本次 spawned 單位的 ScriptSetPos：B24 W 石碑施放被退回（2026-11-01）
+## E591 （保留）script dispatch 沒有其他事件時提前 return，驅散留下的 status_ended 沒被處理：on_removed 不觸發（2026-11-01）
+
+## E590 召喚交易不接受本次 spawned 單位的 ScriptSetPos：B24 W 石碑施放被退回（2026-11-01，工作線 B，D 回報）
+
+- **現象**：B24 W（b24_earth_stele）四個等級共 12 個 conformance fail。cast trace 依序是 WindupStarted → Accepted → SettlementRefused("ScriptSetPos")，整個施放被退回：不扣魔、不進冷卻，on_cast 的效果也都沒有留下。
+- **根因**：on_cast 先 `create_unit b24w_stele`，再 `teleport who=u find_clear_space=false`（原作 B24W2 用 SetAbsOrigin 把石碑放回游標中心）。`cast_settlement` 的召喚交易對本次 spawned 的單位，已經接受 AddBuff、ScriptRemoveBuff、ScriptSetFacing，但 ScriptSetPos 只接受施法者自己。
+- **修正**：和 ScriptSetFacing 一樣，接受 `ScriptSetPos{entity}`，條件是 entity 屬於本次 spawned。所有計畫中的 spawn 都會先提交，而且新召喚物身上沒有計畫依賴的東西。其他單位的位置仍然拒絕。
+- **測試**：在 `summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_between_siblings` 加入「本次召喚物的 set_pos 接受」的 assert；「其他單位的位置拒絕」的 assert 保持不變。cast_settlement 的 12 個測試通過。
+- **檔案**：`omoba-core/src/runtime/native/cast_settlement.rs`
 
 ## E589 set_ability_level 0 在權威端移除 key、replica 寫 0：Hero 元件 ability_levels 不一致（2026-11-01，工作線 B）
 
