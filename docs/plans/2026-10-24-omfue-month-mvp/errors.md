@@ -10,7 +10,17 @@
 - **測試**：`hero::granted_rank_tests::a_replaced_grant_drops_its_rank_but_the_heros_own_ability_keeps_it`；filtered_specs 和 ability_slots 測試通過。
 - **檔案**：`omoba-core/src/runtime/native/comp/hero.rs`
 
-## E630 （保留）spotlight 舞台沒有友方小兵與屍體，C19 奇襲、B23 亡靈之契無法示範（props）（2026-11-01）
+## E630 spotlight 舞台沒有友方小兵與屍體，C19 奇襲、B23 亡靈之契無法示範（props）（2026-11-01，工作線 C）
+**現象**：C19 奇襲的施放條件是落點 300 內要有友方的非英雄單位，B23 亡靈之契要 600 內有屍體。spotlight 舞台上只有示範者、友方替身（英雄）和敵方替身，這兩招永遠無法示範（E616 先把它們列為 unshown）。
+
+**修正**：
+- `ShowcaseConfig` 加 `props`：`{kind = unit/corpse, team_of, at}`，最多 16 個，隊伍必須是場上玩家、位置在世界內，未知欄位會被拒絕。
+- unit 道具是一隻不登記成 lane 小兵的 Creep：hp 20000，傷害、射程、移速都是 0，沒有路線，所以不走、不鎖目標、不攻擊，但 `count_in_radius(..., creep)` 會把它算成活著的友方小兵。setup 的最後才放，其他實體的 id 不變。
+- corpse 道具：`include_dead` 只找 `RetiredPositions` 裡 60 秒內被移除的戰鬥單位。所以 setup 時建一個實體後立刻刪掉，每 30 tick 在 `begin_moba_match_tick` 重寫它的移除紀錄，整場都找得到。
+- 新 recipe `scripts/lua_data/moba_hero_spotlight_props.lua`：base 舞台加一隻友方小兵 (1900,2160) 和一具屍體 (2100,2400)。script 裡有 `ally_anchor` slot、或有 `ally_anchor_point`／`self_area_corpses` 技能的英雄自動選它。
+- UE：新增 `EOmSpotlightAim::AllyAnchor`，autopilot 找離英雄最近的友方小兵或塔，不在畫面上就先走過去，再把施法點放在它身上。
+
+**測試**：`showcase_props_stand_still_as_allied_creeps_and_bodies_stay_for_the_match`（plan.rs）與拒絕案例；record_hero_spotlight_test；OmSpotlightTests。land_to_live 的 codegen、cargo check、UBT 都通過。實機待 C19、B23 重跑。
 
 ## E629 conformance：狀態 on_created 換格與 on_removed 換回的情境（A12T、A07T）（2026-11-01，conformance session）
 - **現象**：由狀態換格的技能（A12T 秘術附身換三格、A07T 戰國最強換奮起）沒有任何情境檢查換格本身；E608 只涵蓋施放時直接 swap_abilities。

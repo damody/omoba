@@ -44,4 +44,7 @@ ok(recipe.showcase.start_level == 16, "the rest of the stage is kept")
 -- Every bot kind of the v3 vocabulary has an aim (hero spotlights read it too).
 local kinds = dofile("docs/character_pipeline/tools/v3_bot.lua").KINDS
 for kind in pairs(kinds) do ok(M.AIM[kind] ~= nil, "the spotlight aims bot kind " .. kind) end
+-- E630: the casts needing a stage prop are marked for the prop stage.
+ok(M.AIM.ally_anchor_point.team == "ally_anchor" and M.AIM.ally_anchor_point.props, "c19 奇襲 aims at an allied unit prop")
+ok(M.AIM.self_area_corpses.team == "self" and M.AIM.self_area_corpses.props, "b23 亡靈之契 is a self cast near a body prop")
 print("item_spotlight_test: " .. checks .. " checks passed")

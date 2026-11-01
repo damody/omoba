@@ -78,6 +78,9 @@
 | 2026-10-30 | Grok Build CLI | hattori_hanzo（測試英雄服部半藏）載入圖 | 2:3（832x1248 JPEG，轉成 PNG） | 不另計費 | — | scratchpad `grok/loading/hattori_hanzo-a1/`；`omfue/Content/Omoba/UI/hattori-hanzo-loading-v1.png` | 一次可用：單一蒙面忍者，深藍頭巾只露眼睛，與 nobu 頭像一致；無文字、無邊框 |
 | 2026-10-30 | Grok Build CLI | M6 第 1～4 批 33 位英雄的載入圖（kind=loading） | 2:3（832x1248 JPEG，轉成 PNG） | 不另計費 | — | scratchpad `grok/loading/<id>-a1/`；`omfue/Content/Omoba/UI/gen-loading-<id>.png`，`generated-art-v1.json` | 36 張中退回 3 張（風魔小太郎、明智秀滿、菊姬：畫成多人拼貼），重生成中 |
 | 2026-10-30 | Grok Build CLI | M6 第 5～9 批 48 位英雄的載入圖＋第 1～4 批重生成 3 張 | 2:3（832x1248 JPEG，轉成 PNG） | 不另計費 | — | scratchpad `grok/loading/<id>-a1|a2/`；`gen-loading-<id>.png` | 50 張中退回 2 張（瑞龍院日秀畫成西式修女、望月千代女的分身畫成蒼白人物），重生成中；第 1～4 批的 3 張重生成後可用 |
+| 2026-11-01 | Tripo（image-to-3D＋自動綁定＋匯出） | tokugawa_ieyasu（M6 第 1 批，tripo-order 第 1 位） | 單張正面圖（Grok）、H3.1、2K、去光、PBR 關、三角面、面數上限 10,000；人形綁骨 UE5 Mannequin；FBX Mixamo 2K | 25＋20＋0 | 25,075 | `3e2ba573-81a3-4c41-ae84-f6343fa0b868`；`TripoV1/tokugawa_ieyasu/` | 一次可用：9,715 tris、80 骨（H3.1 多了手指掌骨，auto characterization 會多出 LeftIndexMetacarpal 等骨鏈而對不上動畫庫；manifest 改寫明確的 21 條骨鏈，手指從 _01 開始）。開始前 25,120 點 |
+| 2026-11-01 | Tripo | yamagata_masakage（第 2 位） | 同上 | 25＋20＋0 | 25,030 | `1adce7fd-7b50-4621-8774-5daebbdff1b4`；`TripoV1/yamagata_masakage/` | 一次可用：9,383 tris、80 骨；赤備具足，頭盔拿在左手 |
+| 2026-11-01 | Tripo | okuma_tomohide（第 3 位） | 同上 | 25＋20＋0 | 24,985 | `dfa7ee32-fefd-455d-9f44-631342f47e2e`；`TripoV1/okuma_tomohide/` | 一次可用：9,345 tris、80 骨；黑具足、狼皮披肩 |
 
 7 位是先連續送出生成、再逐一綁骨，所以點數是交錯扣的，中間的剩餘點數不逐列記。7 位合計 315 點（7410 → 7095），與「7 × 45」相符。
 

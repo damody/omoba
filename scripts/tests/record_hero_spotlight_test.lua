@@ -80,6 +80,38 @@ assert(sessai.slots[2].id=='b22_force_of_nature' and sessai.slots[2].team=='tree
 assert(spotlight.recipe_for(sessai)==spotlight.TREE_RECIPE,'B22 is shown on the tree stage')
 assert(spotlight.recipe_for(spotlight.load_package(b.root,'saika_magoichi'))==spotlight.RECIPE,'other heroes keep the base stage')
 
+-- E630: a cast whose own condition needs a stage prop is shown on the prop stage: C19 奇襲 aims at
+-- an allied non-hero unit (ally_anchor, the allied creep prop), B23 亡靈之契 is a self cast near
+-- the body prop.
+local function slot_of(package,id)
+  for _,slot in ipairs(package.slots) do if slot.id==id then return slot end end
+end
+local matsuhime=spotlight.load_package(b.root,'matsuhime')
+assert(slot_of(matsuhime,'c19_surprise_raid') and slot_of(matsuhime,'c19_surprise_raid').team=='ally_anchor','奇襲 aims at an allied unit')
+assert(spotlight.recipe_for(matsuhime)==spotlight.PROPS_RECIPE,'C19 is shown on the prop stage')
+local ise=spotlight.load_package(b.root,'ise_hime')
+assert(slot_of(ise,'b23_undead_pact') and slot_of(ise,'b23_undead_pact').team=='self','亡靈之契 is a self cast')
+assert(ise.props==true and spotlight.recipe_for(ise)==spotlight.PROPS_RECIPE,'B23 is shown on the prop stage')
+for _,package in ipairs({matsuhime,ise}) do
+  for _,row in ipairs(package.unshown) do assert(not row.reason:find('no spotlight aim',1,true),row.id..' '..row.reason) end
+end
+assert(json.encode(spotlight.script(ise)):find('"props"',1,true)==nil,'the prop flag is not part of the renderer script')
+assert(not pcall(spotlight.recipe_for,{hero='x',slots={{team='tree'},{team='ally_anchor'}}}),'no stage has both trees and props')
+-- The prop stage: the base stage plus an allied creep of the demonstrator's team, far outside the
+-- enemy stand-in's 128 attack range, and a body near the demonstrator (a body is never attacked).
+local base_stage=assert(loadfile(spotlight.RECIPE))()
+local prop_stage=assert(loadfile(spotlight.PROPS_RECIPE))()
+assert(prop_stage.map_id==base_stage.map_id and #prop_stage.players==#base_stage.players)
+local at=prop_stage.showcase.placements
+local function distance(p,q) return math.sqrt((p[1]-q[1])^2+(p[2]-q[2])^2) end
+local kinds={}
+for _,prop in ipairs(prop_stage.showcase.props) do
+  kinds[prop.kind]=prop
+  if prop.kind=='unit' then assert(distance(prop.at,at['6'])>400 and distance(prop.at,at['2'])>200,'clear of the stand-ins') end
+end
+assert(kinds.unit and kinds.unit.team_of==1,'an allied creep of the demonstrator')
+assert(kinds.corpse and distance(kinds.corpse.at,at['1'])<=200,'a body within 200 of the demonstrator (亡靈之契 600)')
+
 -- E595: summon abilities and sub-abilities follow the slot that makes them castable.
 local function index_of(package,id,summon)
   for index,slot in ipairs(package.slots) do if slot.id==id and slot.summon==summon then return index,slot end end

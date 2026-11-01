@@ -21,9 +21,18 @@ M.RECIPE='scripts/lua_data/moba_hero_spotlight.lua'
 -- A hero with a tree-target ability is shown on the nobu map, which has trees (D21: every ability
 -- is demonstrated).
 M.TREE_RECIPE='scripts/lua_data/moba_hero_spotlight_trees.lua'
+-- A hero with an ability whose own cast condition needs a stage prop (E630: C19 奇襲 an allied
+-- non-hero unit at its point, B23 亡靈之契 a body near the caster; item_spotlight.AIM `props`) is
+-- shown on the prop stage: the base stage plus an allied creep and a body.
+M.PROPS_RECIPE='scripts/lua_data/moba_hero_spotlight_props.lua'
 function M.recipe_for(package)
-  for _,slot in ipairs(package.slots) do if slot.team=='tree' then return M.TREE_RECIPE end end
-  return M.RECIPE
+  local tree,props=false,package.props==true
+  for _,slot in ipairs(package.slots) do
+    if slot.team=='tree' then tree=true end
+    if slot.team=='ally_anchor' then props=true end
+  end
+  assert(not (tree and props),(package.hero or 'hero')..' needs both the tree stage and the prop stage (no stage has both yet)')
+  return tree and M.TREE_RECIPE or props and M.PROPS_RECIPE or M.RECIPE
 end
 M.DEFAULT_FFMPEG='target/tools/ffmpeg/ffmpeg.exe'
 -- A spotlight run owns its authority port: never the shared split default (57061), so a
@@ -128,7 +137,7 @@ function M.load_v3_package(root,hero)
   for _,ability in ipairs(ctx.include('templates/abilities.lua')) do by_id[ability.id]=ability end
   ITEM_SPOTLIGHT_AS_MODULE=true
   local aim=require('item_spotlight').AIM
-  local slots,unshown={},{}
+  local slots,unshown,props={},{},false
   for index,id in ipairs(assert(row.abilities,'hero without abilities')) do
     local ability=by_id[id]
     local bot=ability and ability.v3 and ability.v3.bot
@@ -143,10 +152,11 @@ function M.load_v3_package(root,hero)
     local target=kind=='passive' or (bot and aim[bot.kind])
     if target~=true then team=target and target.team end
     if not team then
-      -- A bot kind the spotlight cannot aim yet (ally_anchor_point, self_area_corpses: the stage has
-      -- no allied creep or corpse) is left out and listed, not a failed script for the hero (E616).
+      -- A bot kind the spotlight cannot aim yet is left out and listed, not a failed script for the
+      -- hero (E616). ally_anchor_point and self_area_corpses are aimed on the prop stage (E630).
       unshown[#unshown+1]={slot=index-1,id=id,reason='no spotlight aim for bot kind '..tostring(bot and bot.kind)}
     else
+    if type(target)=='table' and target.props then props=true end
     slots[#slots+1]={slot=index-1,id=id,name=assert(ability.display_name,'ability without a name'),
       line=M.first_line(ability.description),kind=kind,team=team}
     end
@@ -155,7 +165,8 @@ function M.load_v3_package(root,hero)
   local doc=M.v3_document(root,hero)
   if doc then slots=M.with_dependents(slots,M.v3_dependents(doc,row.abilities),by_id,aim,unshown) end
   assert(#slots<=16,hero..' has more than 16 demonstrations (FOmSpotlightScript::Parse)')
-  return {hero=hero,hero_name=row.display_name or hero,title=row.title or '',slots=slots,unshown=unshown}
+  -- props: a shown slot needs the prop stage (E630, recipe_for); never part of the renderer script.
+  return {hero=hero,hero_name=row.display_name or hero,title=row.title or '',slots=slots,unshown=unshown,props=props}
 end
 
 -- E595: the hero's v3 document (docs/character_pipeline/packages/<hero>/v3.lua), loaded with only

@@ -485,21 +485,66 @@ pub struct ShowcaseConfig {
     /// purchase would place them (catalog and inventory group rules), without spending gold.
     #[serde(default)]
     pub start_items: BTreeMap<u32, Vec<String>>,
+    /// Stage props (E630): what an ability's own cast condition needs on the stage (c19 奇襲 an
+    /// allied non-hero unit at its point, b23 亡靈之契 a body near the caster).
+    #[serde(default)]
+    pub props: Vec<ShowcaseProp>,
+}
+
+/// One stage prop (E630), placed once when the match is set up.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShowcaseProp {
+    pub kind: ShowcasePropKind,
+    /// The prop belongs to this player's team.
+    pub team_of: u32,
+    /// World position.
+    pub at: [i32; 2],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShowcasePropKind {
+    /// A creep that stands still and never fights (E630): never tracked as a lane unit (no lane
+    /// route, target or attack), no movement path, zero move speed, damage and attack range. It is
+    /// a living allied creep for selectors and `count_in_radius(..., creep)`.
+    Unit,
+    /// A body (E630): a combat unit's removal record (RetiredPositions, what `include_dead` finds),
+    /// written at setup and rewritten every [`ShowcaseCorpses::REFRESH_TICKS`], so it never ages
+    /// out of a dead selector's look-back (RetiredPositions::KEEP_SECONDS): it lasts the whole match.
+    Corpse,
+}
+
+/// The stage's bodies (E630): (removed entity, position, team id), kept fresh by
+/// `begin_moba_match_tick`. Fixed at setup; empty without a showcase.
+#[derive(Clone, Debug, Default)]
+pub struct ShowcaseCorpses(pub Vec<(Entity, Vec2, i32)>);
+
+impl ShowcaseCorpses {
+    /// Ticks between two rewrites of the bodies' removal records (E630): far inside any dead
+    /// selector's look-back.
+    pub const REFRESH_TICKS: u64 = 30;
 }
 
 impl ShowcaseConfig {
     fn default_hold_hp_permille() -> u32 { 1000 }
     const MAX_START_PURCHASES: usize = 64;
+    const MAX_PROPS: usize = 16;
     const MAX_PLACEMENT: i64 = omoba_sim::terrain::MAX_GEOMETRY_RAW / omoba_sim::fixed::SCALE;
     pub fn is_valid(&self, players: &BTreeSet<u32>) -> bool {
+        let in_world = |[x, y]: &[i32; 2]| [x, y].iter().all(|v| v.unsigned_abs() as i64 <= Self::MAX_PLACEMENT);
         (1..=25).contains(&self.start_level)
             && (1000..=100_000).contains(&self.hold_hp_permille)
-            && self.placements.keys().chain(self.hold_players.iter()).chain(self.start_items.keys()).all(|id| players.contains(id))
+            && self.placements.keys().chain(self.hold_players.iter()).chain(self.start_items.keys())
+                .chain(self.props.iter().map(|prop| &prop.team_of)).all(|id| players.contains(id))
             // Purchases, not slots (E490): a combined item is bought after its components, which the
             // shop consumes; a full inventory refuses the stage when the items are granted.
             && self.start_items.values().all(|items| items.len() <= Self::MAX_START_PURCHASES)
             // World coordinates, signed (E574): the nobu map spans negative x and y.
-            && self.placements.values().all(|[x, y]| [x, y].iter().all(|v| v.unsigned_abs() as i64 <= Self::MAX_PLACEMENT))
+            && self.placements.values().all(in_world)
+            // E630: a few props, inside the world.
+            && self.props.len() <= Self::MAX_PROPS
+            && self.props.iter().all(|prop| in_world(&prop.at))
     }
     fn holds(config: &SingleLaneConfig, player_id: u32) -> bool {
         config.showcase.as_ref().is_some_and(|showcase| showcase.hold_players.contains(&player_id))
@@ -1671,6 +1716,10 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
     jungle::setup(world, &mut state);
     super::ward_world::apply_configured_trinket_loadouts(&mut state)
         .map_err(|error| err_msg(format!("invalid trinket loadout: {error:?}")))?;
+    // Last, so every other setup entity keeps its id (E630).
+    let corpses = spawn_showcase_props(world, &state);
+    world.insert(ShowcaseCorpses(corpses));
+    refresh_showcase_corpses(world, true);
     *world.write_resource::<GameMode>() = GameMode::Moba;
     world.write_resource::<MasterSeed>().0 = state.config.seed;
     world.write_resource::<CurrentCreepWave>().is_running = false;
@@ -1700,6 +1749,73 @@ fn grant_showcase_items(world: &mut World, state: &MobaMatch, showcase: &Showcas
         if let Some(effect) = effects.get_mut(entity) { effect.dirty = true; }
     }
     Ok(())
+}
+
+/// The showcase's props (E630), placed once; returns the bodies for [`ShowcaseCorpses`]. A unit
+/// prop is a creep body outside the lane rules (never tracked: no route, target or attack) that
+/// does not move or deal damage; a body prop is a removed entity whose removal record
+/// [`refresh_showcase_corpses`] keeps fresh.
+fn spawn_showcase_props(world: &mut World, state: &MobaMatch) -> Vec<(Entity, Vec2, i32)> {
+    let Some(showcase) = state.config.showcase.as_ref() else { return Vec::new() };
+    // A content creep the renderer already draws: the map's first minion, else the single lane's.
+    let creep_id = state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name)
+        .and_then(|map| map.minion_wave.first()).map_or("single_lane_creep", |minion| minion.id);
+    let mut corpses = Vec::new();
+    for prop in &showcase.props {
+        // Validated: the team is a seat's (ShowcaseConfig::is_valid).
+        let Some(side) = state.heroes.iter().find(|slot| slot.player_id == prop.team_of).map(|slot| slot.side) else { continue };
+        let team = state.config.teams[side];
+        let at = Vec2::new(Fixed64::from_i32(prop.at[0]), Fixed64::from_i32(prop.at[1]));
+        match prop.kind {
+            ShowcasePropKind::Unit => {
+                const HP: i32 = 20_000;
+                let mut unit = Unit::new(creep_id.into(), "Stage prop".into(), UnitType::Creep);
+                unit.max_hp = HP;
+                unit.current_hp = HP;
+                unit.base_damage = 0;
+                unit.attack_range = Fixed64::ZERO;
+                unit.move_speed = Fixed64::ZERO;
+                world.create_entity()
+                    .with(unit)
+                    .with(Creep {
+                        name: creep_id.into(),
+                        label: None,
+                        // No legacy TD path and no lane: nothing walks it.
+                        path: "__showcase_prop__".into(),
+                        pidx: 0,
+                        path_remaining_distance: Fixed64::ZERO,
+                        block_tower: None,
+                        status: CreepStatus::Stop,
+                        td_layer: None,
+                    })
+                    .with(faction(side as u8, team))
+                    .with(ReplicationScope { kind: ReplicationScopeKind::OwnerTeam, owner_team: Some(team) })
+                    .with(Pos(at))
+                    .with(Facing(omoba_sim::Angle::ZERO))
+                    .with(property(Fixed64::from_i32(HP), Fixed64::ZERO))
+                    .build();
+            }
+            ShowcasePropKind::Corpse => {
+                let body = world.create_entity().build();
+                world.delete_entity(body).expect("a fresh entity is alive");
+                corpses.push((body, at, team as i32));
+            }
+        }
+    }
+    corpses
+}
+
+/// Rewrites the stage bodies' removal records (E630) at setup (`now`) and every
+/// [`ShowcaseCorpses::REFRESH_TICKS`]: a dead selector (`include_dead`) only finds a body removed
+/// within its look-back, so the stage's bodies stay for the whole match.
+fn refresh_showcase_corpses(world: &mut World, now: bool) {
+    use super::scripting::parallel_world_adapter::RetiredPositions;
+    let Some(corpses) = world.try_fetch::<ShowcaseCorpses>().filter(|corpses| !corpses.0.is_empty()).map(|corpses| corpses.0.clone()) else { return };
+    let tick = world.read_resource::<Tick>().0;
+    if !now && tick % ShowcaseCorpses::REFRESH_TICKS != 0 { return; }
+    if world.try_fetch::<RetiredPositions>().is_none() { world.insert(RetiredPositions::default()); }
+    let mut rows = world.write_resource::<RetiredPositions>();
+    for (entity, at, team) in corpses { rows.record_unit(entity, at, tick, team); }
 }
 
 /// Validate the entire Lua birth loadout before mutating a hero. Only match
@@ -2262,6 +2378,8 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
     let Some(mut state) = world.remove::<MobaMatch>() else {
         return true;
     };
+    // The stage's bodies (E630) stay findable in every phase, warmup and pause included.
+    refresh_showcase_corpses(world, false);
     // An inactive tick must overwrite the previous active controls too.
     state.input_step = Some(crate::runtime::input_scheme::InputSchemeStepSnapshot {
         tick: world.read_resource::<Tick>().0, rows: BTreeMap::new(),

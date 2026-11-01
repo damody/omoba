@@ -416,7 +416,7 @@ mod tests {
             player(6,2,"murakami_yoshikiyo",BotRole::Mid,true)];
         p.showcase = Some(ShowcaseConfig { start_level:6, minion_waves:false,
             placements:[(1,[2300,2400]),(2,[2050,2400]),(6,[2750,2400])].into(),
-            hold_players:[2,6].into(), hold_hp_permille:5000, start_items:Default::default() });
+            hold_players:[2,6].into(), hold_hp_permille:5000, start_items:Default::default(), props:Vec::new() });
         p
     }
     #[test]
@@ -592,10 +592,77 @@ mod tests {
         // Seven separate items do not fit six slots; the grant refuses the stage (E490).
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_items.insert(1,vec!["sake".into();7]); reject(p);
         let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_items.insert(1,vec!["sake".into();65]); reject(p);
+        // E630: a prop of a seat's team, inside the world, at most 16 of them.
+        let prop = |team_of:u32,at:[i32;2]| ShowcaseProp { kind:ShowcasePropKind::Unit, team_of, at };
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().props.push(prop(9,[1,1])); reject(p);
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().props.push(prop(1,[600_000,0])); reject(p);
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().props = vec![prop(1,[1,1]);17]; reject(p);
         let json = serde_json::to_value(showcase_plan()).unwrap();
         assert_eq!(serde_json::from_value::<RoleBotMatchPlan>(json.clone()).unwrap().showcase, showcase_plan().showcase);
         let mut unknown = json; unknown["showcase"]["camera"] = serde_json::json!(1);
         assert!(serde_json::from_value::<RoleBotMatchPlan>(unknown).is_err(), "unknown stage fields fail closed");
         assert!(serde_json::to_value(plan()).unwrap().get("showcase").is_none(), "real plans never carry a stage");
+        let mut unknown = serde_json::to_value(showcase_plan()).unwrap();
+        unknown["showcase"]["props"] = serde_json::json!([{"kind":"unit","team_of":1,"at":[1,1],"hp":5}]);
+        assert!(serde_json::from_value::<RoleBotMatchPlan>(unknown).is_err(), "unknown prop fields fail closed");
+        let mut kind = serde_json::to_value(showcase_plan()).unwrap();
+        kind["showcase"]["props"] = serde_json::json!([{"kind":"tree","team_of":1,"at":[1,1]}]);
+        assert!(serde_json::from_value::<RoleBotMatchPlan>(kind).is_err(), "unknown prop kinds fail closed");
+    }
+    #[test]
+    fn showcase_props_stand_still_as_allied_creeps_and_bodies_stay_for_the_match() {
+        // E630: c19 奇襲 needs an allied non-hero unit at its point, b23 亡靈之契 a body near the caster.
+        use crate::runtime::native::scripting::parallel_world_adapter::RetiredPositions;
+        let mut p = showcase_plan();
+        p.showcase.as_mut().unwrap().props = vec![
+            ShowcaseProp { kind:ShowcasePropKind::Unit, team_of:1, at:[1900,2400] },
+            ShowcaseProp { kind:ShowcasePropKind::Corpse, team_of:6, at:[2100,2400] },
+        ];
+        let (config,_) = p.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        let before = world.read_resource::<crate::comp::Tick>().0;
+        setup_single_lane_match(&mut world, config).unwrap();
+        let point = |x:i32,y:i32| Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y));
+        let teams = world.read_resource::<MobaMatch>().config.teams;
+        let prop = {
+            use specs::Join;
+            let creeps = world.read_storage::<crate::comp::Creep>();
+            let positions = world.read_storage::<Pos>();
+            let entities = world.entities();
+            let found:Vec<_> = (&*entities,&creeps,&positions).join().filter(|(_,_,pos)| pos.0 == point(1900,2400)).map(|(e,_,_)| e).collect();
+            assert_eq!(found.len(), 1, "one unit prop");
+            found[0]
+        };
+        assert_eq!(world.read_storage::<crate::comp::Faction>().get(prop).unwrap().team_id, teams[0] as i32, "the demonstrator's team");
+        assert!(world.read_resource::<MobaMatch>().lane_role(prop).is_none(), "never a lane unit");
+        let body = { let units = world.read_storage::<crate::comp::Unit>(); let unit = units.get(prop).unwrap(); (unit.base_damage, unit.move_speed, unit.attack_range) };
+        assert_eq!(body, (0, Fixed64::ZERO, Fixed64::ZERO), "no damage, speed or reach");
+        assert_eq!(world.read_storage::<CProperty>().get(prop).unwrap().msd, Fixed64::ZERO);
+        let bodies = |world:&World, since:u64| world.read_resource::<RetiredPositions>().units_in_range(point(2100,2400), Fixed64::from_i32(10), since);
+        let found = bodies(&world, before);
+        assert_eq!(found.len(), 1, "a body from the start");
+        assert_eq!(found[0].1, teams[1] as i32, "of player 6's team");
+        assert!(!world.entities().is_alive(found[0].0), "a body is a removed unit");
+        // Played on for longer than a body is kept: the prop never moved and the body is still found.
+        {
+            let mut state = world.write_resource::<MobaMatch>();
+            state.phase = MobaMatchPhase::Playing;
+            let warmup = state.config.warmup;
+            state.elapsed = warmup;
+        }
+        world.write_resource::<crate::comp::DeltaTime>().0 = Fixed64::from_raw(16);
+        for tick in 1..=120 {
+            world.write_resource::<crate::comp::Tick>().0 = before + tick;
+            begin_moba_match_tick(&mut world);
+        }
+        assert_eq!(world.read_storage::<Pos>().get(prop).unwrap().0, point(1900,2400), "the unit prop stands still");
+        // Two body times on: the last rewrite of the loop above is older than the look-back.
+        let late = before + RetiredPositions::KEEP_TICKS * 2;
+        let late = late - late % ShowcaseCorpses::REFRESH_TICKS;
+        world.write_resource::<crate::comp::Tick>().0 = late;
+        begin_moba_match_tick(&mut world);
+        assert_eq!(bodies(&world, late - RetiredPositions::KEEP_TICKS).len(), 1, "the body is rewritten, never aged out");
+        assert!(world.read_storage::<CProperty>().get(prop).unwrap().hp > Fixed64::ZERO, "the unit prop is alive");
     }
 }
