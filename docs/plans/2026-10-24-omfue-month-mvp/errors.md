@@ -2,6 +2,27 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E616 新 bot kind 讓 spotlight script 產生器整位英雄失敗（2026-11-01，工作線 C）
+**現象**：rerun15 的 C19 松姬、B23 伊勢姬整位英雄都沒有跑：`record_hero_spotlight.lua:145: ability c19_surprise_raid has no bot kind the spotlight can aim (ally_anchor_point)`。B23 也一樣（`self_area_corpses`）。工作線 A 新增了 bot kind，spotlight 的 aim 表還沒有對應的項目，產生器碰到就 assert，整個 script 產生失敗。
+
+**修正**：遇到瞄準不了的 bot kind 時，這招不放進 slot，改列進 `unshown`，原因寫成 `no spotlight aim for bot kind <kind>`。英雄的其他招照常示範。這兩種 kind 都需要舞台上有友方小兵或屍體，等 props 舞台做好後再補 aim。
+
+**測試**：record_hero_spotlight_test。用目前的 catalog 重新產生 C19、B23 的 script 都成功了。
+
+## E615 （保留）施放時被自己的 swap 換出格的技能冷卻沒有 committed fact：replica 少了 a13_shadow_illusion 冷卻（2026-11-01）
+
+## E614 （保留）召喚物指令與施法在 authority 被拒時沒有原因 log（OwnedSummonOrder 只有 debug、settlement 拒絕不印）（2026-11-01）
+
+## E613 （保留）client runtime 重建召喚物指令時漏掉 ability，op3 召喚物施法一律被當成 STALE_SUMMON_SOURCE 在本地拒絕（2026-11-01）
+
+## E612 （保留）召喚施法先移除施法者自己的舊召喚物（remove_unit）再生成新的，結算拒絕 script_kill AddBuff，B16 忍犬召喚被拒（2026-11-01）
+
+## E611 （保留）D／F 格被換掉的技能在 replica 留下等級：吞噬偷到的技能在 replica 隨機選錯時，ability_levels 多出一招（2026-11-01）
+
+## E610 （保留）換入的技能繼承換出技能的等級超過自己的 max_level，replica 拒收每一幀，換入的技能在 HUD 上放不出來（2026-11-01）
+
+## E609 （保留）腳本立起會擋路的召喚物時，adapter 仍用友軍佔位擠開岩石，自然屏障被拒絕（2026-11-01）
+
 ## E608 conformance：施放換格從未檢查；加上換入招所在格、初始冷卻、兩隊 replica 與時間到換回（2026-11-01，conformance session）
 - **現象**：swap_abilities 只在換入的副招被施放時間接用到（swapped_in），沒有檢查換格本身：哪一格換成什麼、換入招的冷卻、replica 的格，以及到期後換回。工作線 A 的換格清單（lineA-slot-swap-inventory.md）列出建議情境。
 - **通用修正**：

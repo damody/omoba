@@ -140,13 +140,16 @@ function M.load_v3_package(root,hero)
     local kind=ability.ability_type
     if kind~='passive' and kind~='toggle' and kind~='ultimate' then kind='active' end
     local team='self'
-    if kind~='passive' then
-      local target=bot and aim[bot.kind]
-      assert(target,('ability %s has no bot kind the spotlight can aim (%s)'):format(id,tostring(bot and bot.kind)))
-      team=target.team
-    end
+    local target=kind=='passive' or (bot and aim[bot.kind])
+    if target~=true then team=target and target.team end
+    if not team then
+      -- A bot kind the spotlight cannot aim yet (ally_anchor_point, self_area_corpses: the stage has
+      -- no allied creep or corpse) is left out and listed, not a failed script for the hero (E616).
+      unshown[#unshown+1]={slot=index-1,id=id,reason='no spotlight aim for bot kind '..tostring(bot and bot.kind)}
+    else
     slots[#slots+1]={slot=index-1,id=id,name=assert(ability.display_name,'ability without a name'),
       line=M.first_line(ability.description),kind=kind,team=team}
+    end
     end
   end
   local doc=M.v3_document(root,hero)
