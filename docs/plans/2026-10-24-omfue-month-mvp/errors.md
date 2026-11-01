@@ -2,6 +2,14 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E642 conformance：ability_swapped 檢查換格的 cooldown_policy（continue 保留、reset 清空）（2026-11-01，conformance session）
+- **現象**：E608 的 ability_swapped 只檢查換入的格、initial_cooldown、replica 和換回，沒有檢查 cooldown_policy。swap 情境 pass 不代表 continue／reset 是對的，A 要接的冷卻類 covered_by（swap_cooldown）會因此靠旁證放行。
+- **通用修正**：
+  - 情境帶 policy、不帶 initial_cooldown 時，施放前先給換入招 5 秒冷卻（SWAP_SEED_COOLDOWN）。
+  - 換格後，continue 要保留這段冷卻（剩餘大於 0.5 秒、不超過 5 秒），reset 要清成 0；這和 ability_slots::swap 的行為一致。
+  - 施放本身會設換入招冷卻的換格（initial_cooldown），看不出 policy，所以不檢查。
+- **結果**：全跑 0 退步，22 個 swap 情境照樣 pass，A12 的 continue 和 reset 兩種 policy 都驗到了。fail→pass 的 6 個是 A 的 2739aa06（a12_awe_t）。目前 fail 12 個，都是 visible_only，A 已在 5fc41cef 修正，下一輪全跑確認。
+
 ## E643 敵方的嘲諷／強制移動沒有同步到己方 replica：replica 接受了 authority 拒絕的施放（A07 冷卻不一致）（2026-11-02，工作線 B，E 的 m6new25b 回報）
 
 - **現象**：m6new25b 有 7/18 局的 A07 本多忠勝出現冷卻不一致，都是 replica 有冷卻、authority 沒有（a07_red_thunder、a07_unscathed、a07_rouse）。E635／E637 之後 tick 和剩餘冷卻都沒變。

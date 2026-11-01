@@ -898,6 +898,9 @@ fn replica_hero(run: &Run, team: u32, unit: specs::Entity) -> Option<Hero> {
 /// with `initial_cooldown` left on it when a modify_cooldown of the cast sets one; every team
 /// replica that sees the caster shows the same slot, its own team's always; after `duration` the
 /// slot holds `from` again, in the replicas too.
+/// The cooldown the ability a swap brings in holds before it (E642), in seconds.
+const SWAP_SEED_COOLDOWN: i32 = 5;
+
 fn swapped(run: &mut Run, e: &Value, entry: &str, rank: usize) -> Result<(), String> {
     let (from, to) = (e["from"].as_str().unwrap_or(""), e["to"].as_str().unwrap_or(""));
     let slots = |run: &Run| run.hero(|h| h.abilities.clone());
@@ -922,6 +925,16 @@ fn swapped(run: &mut Run, e: &Value, entry: &str, rank: usize) -> Result<(), Str
         let left = run.hero(|h| real(h.get_cooldown(to)));
         // The cast window's few ticks have run off it already.
         if left > want + 0.05 || left < want - 1.0 { return Err(format!("{to}'s cooldown is {left:.2} s after the swap, the cast set {want}")); }
+    }
+    // The cooldown policy (E642): the seeded cooldown kept by `continue`, cleared by `reset`.
+    if e["initial_cooldown"].is_null() {
+        let left = run.hero(|h| real(h.get_cooldown(to)));
+        match e["policy"].as_str() {
+            Some("continue") if left <= 0.5 || left > SWAP_SEED_COOLDOWN as f64 + 0.05 =>
+                return Err(format!("{to}'s cooldown is {left:.2} s after a continue swap, not what it had before ({SWAP_SEED_COOLDOWN} s, running)")),
+            Some("reset") if left > 0.01 => return Err(format!("{to}'s cooldown is {left:.2} s after a reset swap, not 0")),
+            _ => {}
+        }
     }
     replicas(run, slot, to)?;
     if !e["duration"].is_null() {
@@ -2068,6 +2081,12 @@ fn run(hero: &str, s: &Value) -> Verdict {
         let Some(state) = heroes.get_mut(run.caster).and_then(|h| h.ability_charges.get_mut(&entry)) else { return Verdict::Fail(format!("{entry} has no charges")) };
         state.charges = count.min(state.max);
         state.remaining = if state.charges < state.max { state.recharge } else { Fixed64::ZERO };
+    }
+    // The ability a swap brings in holds a cooldown of its own (E642): its policy shows on it.
+    for e in s["expect"].as_array().unwrap().iter().filter(|e| e["kind"] == "ability_swapped" && e["initial_cooldown"].is_null() && !e["policy"].is_null()) {
+        if let (Some(to), Some(h)) = (e["to"].as_str(), run.world.write_storage::<Hero>().get_mut(run.caster)) {
+            h.ability_cooldowns.insert(to.to_owned(), Fixed64::from_i32(SWAP_SEED_COOLDOWN));
+        }
     }
     // Toggled on beforehand: the first cast turns it on and is not one the scenario counts.
     if s["given"].as_array().unwrap().iter().any(|g| g["kind"] == "toggled_on") {
