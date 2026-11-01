@@ -129,4 +129,6 @@ return {
   {hero='kato_danzo',package='hero_c08',dir='heroes/kato_danzo'},
   -- M6 batch (2026-10-31): every ability generated (道具 pick／give／remove、實例變數與 item_name（E561、E571）、unit attr hero（E575）、英雄文件道具進入道具目錄); conformance 0 fail
   {hero='ishikawa_goemon',package='hero_c06',dir='heroes/ishikawa_goemon'},
+  -- M6 batch (2026-10-31): every ability generated (aura exclude_invisible、光環的 independent 狀態每個來源一份、召喚物 tag ward（E530）); conformance 0 fail
+  {hero='kirigakure_saizo',package='hero_b17',dir='heroes/kirigakure_saizo'},
 }
