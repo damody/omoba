@@ -2,6 +2,19 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E587 B07：召喚物背包——被給道具的單位拿到背包，道具效果對 replica 公開（2026-11-01，工作線 B）
+
+- **現象**：足利義昭（B07）E「戰線國崩隊」部署時，要把義昭前兩格的裝備複製一份新實例給國崩隊（原作 HasInventory 1，B07.lua:97-116）。國崩隊沒有 Inventory，`item_grant::apply` 直接回傳 false，產生器因此擋下對召喚物的 `give_item`。
+- **修正**（照原作語意做最小可用版本，沒有新數值）：
+  - **item_grant**：Give 請求的目標沒有背包時，先替它建立空的 Inventory 與 ItemEffects，再放入道具。召喚物沒有金錢，也不能使用商店。權威端與 replica 執行同一個 give，所以兩邊結果一致；移除請求不會建立背包。
+  - **visibility**：非英雄單位只要有背包，就公開它的 ItemEffects（原本只公開英雄的，而且和金錢綁在一起）。背包本來就是公開的，道具效果是由背包推算出來的。replica 在 rebase 之後也能拿到相同的已套用加成，之後再給道具時不會重複加算。
+  - 道具帶來的屬性與被動，沿用原本通用的路徑（item_tick 的 dirty 重算、settle_item_passives、settle_item_auras）。
+  - `inventory_locked`、`item_cast_blacklist` 目前天然成立：host 沒有讓玩家對召喚物下道具指令或施放道具的路徑。
+- **測試**：
+  - `item_grant::tests::a_bagless_unit_gets_a_bag_with_its_first_item`：移除不建立背包；第一次給道具時建立背包，道具放在 slot 0，並標記 dirty；第二次給道具沿用同一個背包。
+  - omoba-core lib 測試 1525 通過，1 個失敗：`shop::tests::authored_catalog_combine_matches_buy_item_and_rejects_bad_graphs`。這個失敗與本修正無關：它假設目錄裡第一個多配方道具的 recipe[0] 出現兩次，669eb5ce 新增目錄道具後這個假設不再成立。
+- **檔案**：`omoba-core/src/runtime/native/item_grant.rs`、`omoba-core/src/runtime/visibility.rs`
+
 ## E586 B24：redirect_motion 與只打特定單位的直線投射物（team any、where it == X）（2026-11-01，工作線 B）
 
 - **現象**：秋山信友（B24）有兩處 kit 缺口，產生器無法輸出：

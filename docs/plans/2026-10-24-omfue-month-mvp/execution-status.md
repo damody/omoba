@@ -16,6 +16,9 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-11-01 線 B：B07 召喚物背包（E587）
+
+- 被給道具的單位會自動拿到背包，國崩隊可以複製義昭的裝備；非英雄單位的道具效果改為公開，replica 端一致。
 ## 2026-11-01 線 B：B24 的 redirect_motion 與 projectile only（E586）
 
 - 石碑可以把震開的敵人轉向；落石只命中攻擊者。

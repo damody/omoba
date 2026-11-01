@@ -1448,6 +1448,10 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             if moba && heroes.get(entity).is_some() {
                 disclose_json!(gold, DISCLOSED_GOLD_COMPONENT_SCHEMA_ID);
                 disclose_json!(item_effects, DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID);
+            } else if inventories.get(entity).is_some() {
+                // A non-hero's bag (a summon's given items, E587) has no gold or shop; its applied
+                // item stats are public like the bag, so a replica rebuilds the same deltas.
+                disclose_json!(item_effects, DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID);
             }
             disclose_json!(script_tags, DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID);
             // Unit identity is already public for this disclosed entity. Do not

@@ -103,6 +103,13 @@ pub fn decode(buff_id: &str, payload: &Value) -> Option<Request> {
 /// Applies a request to `unit`'s inventory. Returns whether the inventory changed.
 pub fn apply(world: &mut World, unit: Entity, buff_id: &str, payload: &Value) -> bool {
     let Some(request) = decode(buff_id, payload) else { return false };
+    // A unit without a bag (a summon, B07) gets one with its first item: HasInventory units hold
+    // items like a hero, without gold or a shop. Authority and replica run the same give.
+    if matches!(request, Request::Give(..)) && world.entities().is_alive(unit)
+        && world.read_storage::<Inventory>().get(unit).is_none() {
+        world.write_storage::<Inventory>().insert(unit, Inventory::default()).expect("live unit");
+        world.write_storage::<ItemEffects>().insert(unit, ItemEffects::default()).expect("live unit");
+    }
     let (slot, vars) = {
         let mut inventories = world.write_storage::<Inventory>();
         let Some(inventory) = inventories.get_mut(unit) else { return false };
@@ -170,6 +177,23 @@ mod tests {
             assert!(apply(&mut world, unit, BUFF, &give_payload(source)) || world.read_storage::<Inventory>().get(unit).unwrap().first_free_slot().is_none());
         }
         assert_eq!(catalog_id("no_such_item"), None);
+    }
+
+    /// E587: a unit without a bag (a summon) gets one with its first given item; a removal
+    /// never makes one.
+    #[test]
+    fn a_bagless_unit_gets_a_bag_with_its_first_item() {
+        let item = omoba_template_ids::MOBA_ITEM_CATALOG[0].id;
+        let mut world = World::new();
+        world.register::<Inventory>(); world.register::<ItemEffects>(); world.register::<PlayerOwner>();
+        let summon = world.create_entity().build();
+        assert!(!apply(&mut world, summon, BUFF, &remove_item_payload(item)));
+        assert!(world.read_storage::<Inventory>().get(summon).is_none(), "a removal makes no bag");
+        assert!(apply(&mut world, summon, BUFF, &give_payload(item)));
+        assert_eq!(world.read_storage::<Inventory>().get(summon).unwrap().find_item(item), Some(0));
+        assert!(world.read_storage::<ItemEffects>().get(summon).unwrap().dirty, "its stats follow");
+        assert!(apply(&mut world, summon, BUFF, &give_payload(item)));
+        assert_eq!(world.read_storage::<Inventory>().get(summon).unwrap().find_item(item), Some(0), "the same bag");
     }
 
     /// E571: a given instance's vars are its slot's unit vars; the slot's next give or removal
