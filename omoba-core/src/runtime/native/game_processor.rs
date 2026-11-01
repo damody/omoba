@@ -4725,6 +4725,18 @@ fn creep_bounty_from_template(creep_name: &str) -> Bounty {
 }
 
 fn handle_script_set_pos(world: &mut World, entity: Entity, pos: omoba_sim::Vec2) {
+    // A hero never stands inside terrain (E598, 原作 a teleported hero is put clear by the engine):
+    // a point it cannot stand at clears to the nearest one around it, else it stays.
+    let pos = if world.read_storage::<Hero>().get(entity).is_some() {
+        let radius = world.read_storage::<CollisionRadius>().get(entity).map_or(Fixed64::ZERO, |r| r.0.max(Fixed64::ZERO));
+        match world.try_fetch::<crate::comp::BlockedRegions>() {
+            Some(regions) => match super::blink_landing::clear_space(&regions, pos, radius) {
+                Some(pos) => pos,
+                None => return,
+            },
+            None => pos,
+        }
+    } else { pos };
     if let Some(pos_comp) = world.write_storage::<Pos>().get_mut(entity) {
         pos_comp.0 = pos;
     }

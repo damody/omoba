@@ -2,7 +2,16 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
-## E598 （保留）英雄被 teleport 到地形裡卡住：set_pos 對英雄不找落點（2026-11-01）
+## E598 英雄被 teleport 到地形裡卡住：set_pos 對英雄不找落點（2026-11-01，工作線 B，C 回報）
+
+- **現象**：加藤段藏的 c08_scatter_escape 往背後瞬移 700，落點 (2339, 3129) 在縮放後的 jungle_wall_2_3 裡面（x 2080～2700、y 3100～3220）。之後所有移動都回 UNREACHABLE，吞噬的靠近移動也被拒。
+- **根因**：v3 `teleport` 經過 kit 的 `set_pos` 進到 `handle_script_set_pos`，直接寫入 Pos，不檢查英雄能不能站在那裡。原作傳送後由引擎把英雄放到可以站立的位置。
+- **修正**：
+  - 新增 `blink_landing::clear_space`：目標點本身可以站就用目標點；否則從近到遠找一圈圈的候選點（每圈相隔 32，最遠 512，每圈 24 個方向），取第一個可站立的點，找不到就回 None。
+  - `handle_script_set_pos` 遇到英雄時套用 `clear_space`，用英雄的碰撞半徑對公開地形檢查；找不到可站的點就留在原地。其他單位不變。
+  - 只依公開地形決定結果，權威端與 replica 會得到相同的位置。
+- **測試**：`blink_landing::tests::clear_space_finds_the_nearest_standing_point`：空地維持原點；牆內的點移到最近一圈、可以站立的點；完全封住時回 None。
+- **檔案**：`omoba-core/src/runtime/native/blink_landing.rs`、`omoba-core/src/runtime/native/game_processor.rs`
 
 ## E597 不攻擊的召喚物（B24 石碑）沒有揭露 buff 圖示元件（2026-11-01，工作線 B，D 回報）
 

@@ -106,6 +106,21 @@ pub fn landing(world: &World, spec: &Spec) -> Option<Vec2> {
     None
 }
 
+/// The nearest point a body of `radius` can stand at around `point` (原作 FindClearSpaceForUnit,
+/// E598): `point` itself, else rings 32 apart up to 512 out, 24 directions each from +x
+/// counter-clockwise; `None` when all are blocked.
+pub fn clear_space(regions: &BlockedRegions, point: Vec2, radius: Fixed64) -> Option<Vec2> {
+    if point_walkable(regions, point, radius) { return Some(point); }
+    for ring in 1..=16 {
+        let out = Vec2::new(Fixed64::from_i32(32 * ring), Fixed64::ZERO);
+        for step in 0..24 {
+            let candidate = point + rotate(out, Angle::from_degrees_i32(step * 15));
+            if point_walkable(regions, candidate, radius) { return Some(candidate); }
+        }
+    }
+    None
+}
+
 /// Settles the packet: move to the landing (or stay) and face the anchor.
 pub fn apply(world: &mut World, target: Entity, buff_id: &str, duration: Fixed64, payload: &Value) {
     let Some(spec) = admitted(world, target, buff_id, duration, payload, None) else { return; };
@@ -151,6 +166,19 @@ mod tests {
     fn settle(world: &mut World, caster: Entity, spec: Spec) -> Vec2 {
         apply(world, caster, BUFF, Fixed64::ONE, &spec.payload());
         world.read_storage::<Pos>().get(caster).unwrap().0
+    }
+
+    /// E598: a point inside a wall clears to the nearest standing point; open ground stays.
+    #[test]
+    fn clear_space_finds_the_nearest_standing_point() {
+        let regions = BlockedRegions(vec![square((-100.0, -100.0), (100.0, 100.0))]);
+        let radius = Fixed64::from_i32(30);
+        assert_eq!(clear_space(&regions, p(500, 0), radius), Some(p(500, 0)));
+        let cleared = clear_space(&regions, p(90, 0), radius).unwrap();
+        assert!(point_walkable(&regions, cleared, radius));
+        assert!((cleared - p(90, 0)).length() <= Fixed64::from_i32(64), "the nearest ring: {cleared:?}");
+        let sealed = BlockedRegions(vec![square((-2_000.0, -2_000.0), (2_000.0, 2_000.0))]);
+        assert_eq!(clear_space(&sealed, p(0, 0), radius), None);
     }
 
     #[test]
