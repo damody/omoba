@@ -1157,8 +1157,49 @@ local function entry_scenarios(doc, def, entry_kind, out)
       if not template or not by then return nil end
       return { template = template, by = by }
     end
+    -- Where else a status comes from, for line D to try when it is not there right after the cast
+    -- (separate fields like on_summon: most of these cases already find it): a periodic trigger
+    -- of a status or a passive applies it (`after_tick`, wait that interval), or an aura hands it
+    -- out (`via_aura`, a unit of `team` within `radius`, `by` the entry owning the aura).
+    local function puts_on(node, id)
+      if type(node) ~= "table" then return false end
+      if node.op == "apply_status" and node.status == id then return true end
+      for _, v in pairs(node) do if type(v) == "table" and puts_on(v, id) then return true end end
+      return false
+    end
+    local function after_tick(s)
+      local found
+      local function see(p)
+        if type(p) == "table" and p.interval ~= nil and puts_on(p, s.id) then
+          if found ~= nil and found ~= p.interval then found = false elseif found == nil then found = p.interval end
+        end
+      end
+      for _, list in ipairs({ current_doc and current_doc.abilities or {}, current_doc and current_doc.items or {} }) do
+        for _, owner in ipairs(list) do
+          see(owner.passive and owner.passive.triggers and owner.passive.triggers.periodic)
+          for _, st in ipairs(owner.statuses or {}) do see(st.triggers and st.triggers.periodic) end
+        end
+      end
+      if found then return { seconds = found } end
+    end
+    local function via_aura(s)
+      local found
+      local function see(aura, by)
+        if type(aura) == "table" and aura.status == s.id and aura.radius ~= nil then
+          if found then found = false elseif found == nil then found = { radius = aura.radius, team = aura.team, by = by } end
+        end
+      end
+      for _, list in ipairs({ current_doc and current_doc.abilities or {}, current_doc and current_doc.items or {} }) do
+        for _, owner in ipairs(list) do
+          see(owner.passive and owner.passive.aura, owner.id)
+          for _, st in ipairs(owner.statuses or {}) do see(st.aura, owner.id) end
+        end
+      end
+      return found or nil
+    end
     local function on_unit(s, a) return { kind = "status_on_unit", status = s.id, on = a.to, runtime_id = runtime_key(s),
-      visibility = s.visibility, needs = attack_needs(a) or apply_needs(a), on_summon = summon_needs(s, a) } end
+      visibility = s.visibility, needs = attack_needs(a) or apply_needs(a), on_summon = summon_needs(s, a),
+      after_tick = after_tick(s), via_aura = via_aura(s) } end
     local done = {}
     for _, a in ipairs(statuses) do
       local s = a.status
