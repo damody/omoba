@@ -3578,8 +3578,12 @@ function Gen:action(a, ctx, ind)
     if tk ~= "" and tk ~= "all" and tk ~= "creep+hero+neutral+summon" and tk ~= "building+creep+hero+neutral+summon" then
       self:block("action:projectile.types:" .. tk)
     end
+    -- visible_only: a unit the caster's team cannot see when the flight reaches it is not hit
+    -- (its on_hit does not run; like the selector's flag, E641)
+    local visible = false
     for _, fl in ipairs(a.flags or {}) do
-      if fl ~= "include_magic_immune" and fl ~= "visible_only" then self:block("action:projectile.flag:" .. fl) end
+      if fl == "visible_only" then visible = true
+      elseif fl ~= "include_magic_immune" then self:block("action:projectile.flag:" .. fl) end
     end
     local tracking = a.kind == "tracking"
     if a.kind ~= "tracking" and a.kind ~= "linear" then self:block("action:projectile.kind:" .. tostring(a.kind)); return "" end
@@ -3627,6 +3631,7 @@ function Gen:action(a, ctx, ind)
       sc.names.here = { name = "here", ty = "point", marker = "ability_kit::arg_as_point(args, \1HERE\1)", used = true }
       local step = self:reserve_step()
       local body = self:actions(a.on_hit, { owner = ctx.owner, scope = sc, event = false }, "    ")
+      if visible then body = "    if !cx.is_visible_to(ability_kit::arg_as_unit(args, \1HIT\1), cx.caster) { return Ok(()); }\n" .. body end
       local args = self:capture_args(sc)
       if #args + 2 > 8 then self:block("projectile.on_hit: more than 6 captured values") end
       body = body:gsub("\1HIT\1", tostring(#args)):gsub("\1HERE\1", tostring(#args + 1))
