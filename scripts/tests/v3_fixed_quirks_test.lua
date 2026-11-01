@@ -651,4 +651,92 @@ test('listed heroes: B08 leaves other shields alone, A07 negates before settling
   assert(not any(venom, op_is('attack', {})), 'A02W never attacks again on a building')
 end)
 
+local function routine_rs(doc) return generated(doc, 'routines.rs') end
+
+test('FC-006 A08 war cry stuns everyone in range and deals no damage', function()
+  local doc = load('A08')
+  local cry = ability(doc, 'a08_war_cry')
+  assert(any(cry.events.on_cast, op_is('apply_status', { status = 'a08e_stun', to = 'it' })), 'the loop stuns each unit')
+  assert(not any(cry.events.on_cast, op_is('damage', {})), 'no damage from a stale global damageTable')
+  local rs = generated(doc, 'a08_war_cry.rs')
+  assert(has(rs, 'status::A08E_STUN') and not has(rs, 'cx.damage'), 'the generated cast stuns without damage')
+end)
+
+test('FC-007 A11 old fox captures its amount when the delay is scheduled', function()
+  local doc = load('A11')
+  assert(any(ability(doc, 'a11_old_fox'), function(t)
+    return t.op == 'delay' and t.capture and t.capture[1] == 'amount' and any(t.actions, op_is('damage', { to = 'self', amount = 'amount' }))
+  end), 'the delayed damage reads the captured amount')
+  local rs = generated(doc, 'a11_old_fox.rs')
+  assert(has(rs, 'ability_kit::arg_num(l_amount)') and has(rs, 'ability_kit::arg_as_num(args, 0)'), 'the amount travels in the schedule, not a global')
+end)
+
+test('FC-012 C14 dragon form slows through its own status, not the A14T key', function()
+  local doc = load('C14')
+  local slow = status(ability(doc, 'c14_dragon_form'), 'c14t_slow')
+  assert(slow.runtime_id == nil, 'held under its own id')
+  assert(slow.stacking == 'refresh')
+  assert(not any(doc, contains('status', 'a14t')), 'nothing of A14T')
+  assert(has(generated(doc, 'c14_dragon_form.rs'), 'status::C14T_SLOW'))
+end)
+
+test('FC-022 Kikuichimonji cuts status resistance through a stat, restored by the status ending', function()
+  local it = item(item_doc('batch_I4.lua'), 'item_the_great_sword_of_soul_hyper')
+  for _, row in ipairs({ { 'soul_hyper_aura_sr', '-$aura_sr' }, { 'soul_hyper_sr_cut', '-$active_sr' } }) do
+    assert(status_of(it, row[1]).stats.status_resistance_pct == row[2], row[1])
+  end
+  assert(not any(it, contains('var', 'states_resistance')), 'no direct write to the unit field')
+end)
+
+test('FC-050 A15 windmill hits a general for half, heals and keeps bouncing', function()
+  local doc = load('A15')
+  assert(numbers(doc, 'a15_shadow_windmill', 'general_pct') == '50/50/50/50')
+  assert(any(doc.routines, op_is('let', { name = 'g', value = 'select(has_tag(victim, general), $a15_shadow_windmill.general_pct, 1)' })), 'the general branch')
+  assert(has(generated(doc, 'a15_shadow_windmill.rs') .. routine_rs(doc), 'has_unit_tag(u, "general")'), 'reaches the generated Rust')
+end)
+
+test('FC-063 Yoshimitsu purge removes every status, a sourceless one too', function()
+  local it = item(item_doc('batch_I4.lua'), 'item_the_great_sword_of_drain')
+  assert(any(it, op_is('remove_status', { from = 'target', dispel = 'all' })), 'one host removal, no per-modifier ability lookup')
+end)
+
+test('FC-069 C25 has no D to learn at the start', function()
+  local doc = load('C25')
+  local deferred
+  for _, row in ipairs(doc.deferred or {}) do if row.source_id == 'C25D' then deferred = row end end
+  assert(deferred and deferred.reason == 'not_in_source' and has(deferred.note, 'FC-069'), 'recorded as not in the source')
+  for _, a in ipairs(doc.abilities) do assert(a.source_id ~= 'C25D', 'no C25D ability') end
+  for _, id in ipairs(doc.hero.auto_learn or {}) do assert(not id:find('c25d', 1, true), 'nothing auto-learns it') end
+end)
+
+test('FC-106 B21 bonus comes back after a dispel: the update reads the status, not a handle', function()
+  local doc = load('B21')
+  assert(any(doc.routines.b21t_update, function(t)
+    return t.op == 'if' and t.cond == 'has_status(who, b21t_bonus)' and any(t.otherwise, op_is('apply_status', { status = 'b21t_bonus', to = 'who' }))
+  end), 'reapplied at the next health change')
+  assert(status(ability(doc, 'b21_undying_demon'), 'b21t_bonus').dispel == 'basic', 'it can be dispelled')
+  assert(has(routine_rs(doc), 'status::B21T_BONUS'))
+end)
+
+test('FC-121 A21 false intel locks every order of the unit itself', function()
+  local locks = status(ability(load('A21'), 'a21_false_intel'), 'a21t_retreat').forced_move.locks
+  local want = {} for _, lock in ipairs(locks) do want[lock] = true end
+  for _, lock in ipairs({ 'move', 'attack', 'cast', 'item', 'stop', 'hold' }) do assert(want[lock], lock) end
+end)
+
+test('FC-126 C18 lone rider locks the dragged enemy\'s blink items, not Takakage\'s', function()
+  local doc = load('C18')
+  assert(numbers(doc, 'c18_lone_rider', 'item_lock'):match('^3'))
+  assert(any(ability(doc, 'c18_lone_rider'), op_is('pick_item', { from = 'self' })), 'the holder of the drag status')
+  assert(any(ability(doc, 'c18_lone_rider'), op_is('modify_cooldown', { of = 'self', item = 'blink_item', mode = 'start', amount = '$item_lock' })))
+  local rs = generated(doc, 'c18_lone_rider.rs')
+  assert(has(rs, 'let from = cx.self_unit; cx.pick_item(from') and has(rs, 'ITEM_LOCK') and has(rs, 'cx.item_cooldown_start(u, &id, amount)'), 'reaches the generated Rust')
+end)
+
+test('FC-135 B08 living soul refreshes its duration on every trigger', function()
+  local doc = load('B08')
+  assert(any(ability(doc, 'b08_living_soul'), op_is('add_stacks', { status = 'b08r_buff', to = 'self', refresh = true })), 'the refresh')
+  assert(has(generated(doc, 'b08_living_soul.rs'), 'cx.put_stacks(to, &super::ids::status::B08R_BUFF, Some(duration), duration'), 'stacks carry the duration')
+end)
+
 print(('%d tests passed'):format(count))
