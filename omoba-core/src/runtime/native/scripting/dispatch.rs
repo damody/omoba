@@ -1838,7 +1838,11 @@ fn dispatch_one(
                     adapter.mark_cast_succeeded();
                 }
                 else {
-                    adapter.note_cast_rejection(handler_rejection.unwrap_or(super::super::command_outcome::CAST_REJECTED));
+                    // Every failed run names itself, like an admission refusal (E633: a summon's channel).
+                    // A staging refusal (out of range) keeps its reason unless the handler gave one.
+                    let reason=handler_rejection.or(adapter.cast_rejection()).unwrap_or(super::super::command_outcome::CAST_REJECTED);
+                    log::info!("[scripting] cast failed ability='{}' caster={} rank={} reason={:?}", skill_id, caster.id(), level, reason);
+                    adapter.note_cast_rejection(reason);
                     if let Some(error) = handler_error { adapter.note_script_error(error); }
                 }
                 if exec_ok && cooldown.is_some_and(|duration| duration > Fixed64::ZERO) {

@@ -4,7 +4,17 @@
 
 ## E634 （保留）conformance 狀態的 slow_pct 與 set_absolute stat（base_attack_time、move_speed）從未檢查（2026-11-01）（2026-11-01）
 
-## E633 （保留）召喚物不能持續施法（A28 鳳凰天火被靜默擋下）（2026-11-01）
+## E633 召喚物不能持續施法：A28 鳳凰的天火被靜默擋下（2026-11-01，工作線 B，C rerun18 回報）
+
+- **現象**：A28 的鳳凰收到施放天火的 OwnedSummonOrder，server 也記了 applied，之後卻沒有任何 cast ok 或 cast refused，天火沒有發生。
+- **根因**：天火是 pulse channel（cast_time 0）。`ParallelWorldAdapter::stage_ability_channel` 和 `ability_channel::live` 都要求施法者本身是 Hero，並且在 MobaMatch 的名單裡，所以召喚物施放時 staging 回傳 false。handler 失敗的分支也沒有 log。
+- **修正**：
+  - `ability_channel::controller`：持續施法的歸屬是施法者自己；施法者是召喚物時，歸屬到它活著的召喚者英雄。名單和 owner 檢查都用這位英雄，施法者本身的生命、沉默、回城、位置照舊檢查。
+  - 持續施法中的召喚物不跟隨主人、不移動，因為移動會結束持續施法（`summon_tick`，`AbilityChannels::holds`）。
+  - 召喚物收到新的移動或停止指令時，結束它的持續施法，和英雄自己的指令相同（`summon_orders`）。
+  - dispatch 中 handler 或 staging 失敗時記 `[scripting] cast failed ability= caster= rank= reason=`。staging 給的拒絕原因（例如 out_of_range）不再被 CAST_REJECTED 蓋掉。
+- **測試**：`ability_channel::tests::a_heros_summon_channels_for_its_hero`；omoba-core 全套 1541 個通過。
+- **檔案**：`ability_channel.rs`、`scripting/parallel_world_adapter.rs`、`scripting/dispatch.rs`、`tick/summon_tick.rs`、`summon_orders.rs`（都在 `omoba-core/src/runtime/native/`）
 
 ## E632 authority 的 swap 保留被換出的 sub 技能等級，replica 依 E631 刪掉（A07 a07_rouse_free 換回，2026-11-01，工作線 B，A 回報）
 

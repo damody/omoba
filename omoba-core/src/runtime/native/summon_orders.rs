@@ -78,6 +78,8 @@ pub(crate) fn apply(world:&mut World,player:u32,owner:Entity,message:&crate::gam
     }
     // All rejection checks precede mutation. Never touch the owner's queues,
     // casts, attack or recovery; only this exact summon receives the order.
+    // A new order ends the summon's channel, as a hero's own order ends its (E633).
+    super::ability_channel::cancel(world,entity);
     match order {
         Order::MoveTo(target)=>{world.write_storage::<MoveTarget>().insert(entity,MoveTarget(target)).map_err(|_|"stale_storage")?;}
         Order::Release=>{world.write_storage::<MoveTarget>().remove(entity);}

@@ -35,6 +35,7 @@ pub struct SummonTickData<'a> {
     blocked: Read<'a, BlockedRegions>,
     buffs: Read<'a, crate::runtime::BuffStore>,
     outcomes: Write<'a, Vec<Outcome>>,
+    channels: Option<Read<'a, crate::runtime::native::ability_channel::AbilityChannels>>,
 }
 
 #[derive(Default)]
@@ -100,6 +101,11 @@ impl<'a> System<'a> for Sys {
             if data.ordered.get(entity).is_some() || data.following.get(entity).is_some() {summon.navigation.auto_target=None;continue;}
             // Fixed emplacements never acquire follow or autonomous destinations.
             if summon.immobile {summon.navigation.auto_target=None;continue;}
+            // A channeling summon holds still: moving ends its channel (ability_channel, E633).
+            if data.channels.as_ref().is_some_and(|channels|channels.holds(entity)) {
+                if summon.navigation.auto_target.take().is_some() {data.move_targets.remove(entity);}
+                continue;
+            }
             let nav=&mut summon.navigation;
             let current=data.move_targets.get(entity).map(|m|m.0);
             // A command replacing the autonomous destination owns movement until
@@ -123,6 +129,7 @@ impl<'a> System<'a> for Sys {
             &data.property,&mut data.pos,&data.move_targets,&mut data.facings).join() {
             if summon.is_expired() || property.hp<=Fixed64::ZERO {continue;}
             if summon.immobile || data.buffs.is_rooted(entity) {continue;}
+            if data.channels.as_ref().is_some_and(|channels|channels.holds(entity)) {continue;}
             let delta=target.0-pos.0;
             let distance=delta.length();
             if distance<=Fixed64::from_raw(1) {arrived.push(entity);continue;}

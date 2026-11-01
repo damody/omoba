@@ -111,6 +111,10 @@ struct Channel {
 /// dispatched to `on_channel_start` (a start is a `DueEnd` row with index 0, not interrupted).
 #[derive(Default, Debug)]
 pub(crate) struct AbilityChannels(BTreeMap<Entity, Channel>, Vec<DueEnd>, Vec<DueEnd>);
+impl AbilityChannels {
+    /// Whether `entity` is channeling now (a channeling summon holds its position, summon_tick).
+    pub(crate) fn holds(&self, entity: Entity) -> bool { self.0.contains_key(&entity) }
+}
 
 /// One ended channel for `AbilityScript::on_channel_end`.
 #[derive(Debug)]
@@ -164,13 +168,24 @@ pub(crate) fn is_active_for_owner(world: &World, entity: Entity, owner: u32) -> 
         && live(world, entity, owner)
 }
 
+/// The hero whose roster slot a channel belongs to: the caster itself, or the living hero whose
+/// summon casts it (A28's phoenix channels 天火 for Hideyoshi, E633).
+pub(crate) fn controller(world: &World, entity: Entity) -> Option<Entity> {
+    let heroes = world.read_storage::<Hero>();
+    if heroes.get(entity).is_some() { return Some(entity); }
+    if !world.has_value::<specs::storage::MaskedStorage<super::comp::SummonedUnit>>() { return None; }
+    let summoner = world.read_storage::<super::comp::SummonedUnit>().get(entity)
+        .filter(|summon| !summon.is_expired()).map(|summon| summon.summoner)?;
+    (world.entities().is_alive(summoner) && heroes.get(summoner).is_some()).then_some(summoner)
+}
+
 fn live(world: &World, entity: Entity, owner: u32) -> bool {
+    let Some(hero) = controller(world, entity) else { return false };
     owner > 0 && world.entities().is_alive(entity)
-        && world.read_storage::<Hero>().get(entity).is_some()
         && world.read_storage::<PlayerOwner>().get(entity).is_some_and(|p| p.player_id == owner)
         && world.read_storage::<CProperty>().get(entity).is_some_and(|p| p.hp > Fixed64::ZERO)
         && world.try_fetch::<MobaMatch>().map_or(true, |s| s.phase == MobaMatchPhase::Playing && !s.is_recalling(entity)
-            && s.heroes.iter().any(|h| h.player_id == owner && h.entity == Some(entity)))
+            && s.heroes.iter().any(|h| h.player_id == owner && h.entity == Some(hero)))
         // `is_silenced` also covers stun.
         && world.try_fetch::<BuffStore>().is_some_and(|b| !b.is_silenced(entity))
 }
@@ -411,6 +426,32 @@ mod tests {
         world.insert(DeltaTime(Fixed64::ZERO));
         world.insert(BuffStore::default());
         (world, hero)
+    }
+
+    /// E633: a hero's own summon channels for that hero (A28 鳳凰 天火) and holds that channel; a
+    /// summon whose summoner is no hero, or another player's, does not.
+    #[test]
+    fn a_heros_summon_channels_for_its_hero() {
+        use specs::Builder;
+        let (mut world, hero) = fixture();
+        world.register::<super::super::comp::SummonedUnit>();
+        let props = world.read_storage::<CProperty>().get(hero).unwrap().clone();
+        let at = world.read_storage::<Pos>().get(hero).unwrap().0;
+        let summon_of = |world: &mut World, summoner: Entity, player: u32| world.create_entity()
+            .with(super::super::comp::SummonedUnit::new_fixed(summoner, Some(Fixed64::from_i32(30))))
+            .with(PlayerOwner::new(player)).with(props.clone()).with(Pos(at)).build();
+        let phoenix = summon_of(&mut world, hero, 7);
+        assert_eq!(controller(&world, phoenix), Some(hero));
+        assert!(can_start(&world, phoenix, 7, spec(ChannelAnchor::SelfOrigin), Anchor::Origin));
+        assert!(!can_start(&world, phoenix, 8, spec(ChannelAnchor::SelfOrigin), Anchor::Origin), "another player's");
+        let stray = world.create_entity().with(props.clone()).with(Pos(at)).build();
+        let orphan = summon_of(&mut world, stray, 7);
+        assert_eq!(controller(&world, orphan), None);
+        assert!(!can_start(&world, orphan, 7, spec(ChannelAnchor::SelfOrigin), Anchor::Origin), "no hero behind it");
+        start(&mut world, phoenix, 7, "heaven_fire".into(), 1, spec(ChannelAnchor::SelfOrigin), Anchor::Origin);
+        assert!(world.read_resource::<AbilityChannels>().holds(phoenix));
+        step(&mut world, Fixed64::from_raw(102));
+        assert!(world.read_resource::<AbilityChannels>().holds(phoenix), "it goes on");
     }
 
     fn step(world: &mut World, dt: Fixed64) -> Vec<DuePulse> {

@@ -742,10 +742,16 @@ impl<'a> ParallelWorldAdapter<'a> {
         let Some(owner)=self.cache.player_owner.get(caster).map(|owner|owner.player_id).filter(|owner|*owner>0)else{return false;};
         // A replica has no MobaMatch: it admits from the same caster state, so
         // its own-team cooldown and channel stay deterministic (split16).
-        if !spec.valid() || !self.cache.entities.is_alive(caster) || self.cache.hero.get(caster).is_none()
+        // A hero channels for itself; its summon channels for it (ability_channel::controller, E633).
+        let controller=if self.cache.hero.get(caster).is_some() {Some(caster)} else {
+            self.cache.summoned.as_ref().and_then(|summoned|summoned.get(caster)).filter(|summon|!summon.is_expired())
+                .map(|summon|summon.summoner).filter(|hero|self.cache.entities.is_alive(*hero)&&self.cache.hero.get(*hero).is_some())
+        };
+        let Some(controller)=controller else {return false;};
+        if !spec.valid() || !self.cache.entities.is_alive(caster)
             || self.cache.cprop.get(caster).is_none_or(|props|props.hp<=Fixed64::ZERO)
             || self.cache.moba.as_ref().is_some_and(|state|state.phase!=crate::runtime::MobaMatchPhase::Playing || state.is_recalling(caster)
-                || !state.heroes.iter().any(|hero|hero.player_id==owner&&hero.entity==Some(caster))) {return false;}
+                || !state.heroes.iter().any(|hero|hero.player_id==owner&&hero.entity==Some(controller))) {return false;}
         if self.cache.buffs.is_silenced(caster) {self.note_cast_rejection(code::SILENCED);return false;}
         let Some(origin)=self.cache.pos.get(caster).map(|pos|pos.0)else{return false;};
         let (anchor,point)=match (spec.anchor,target) {
