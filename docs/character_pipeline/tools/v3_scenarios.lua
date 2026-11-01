@@ -1038,6 +1038,16 @@ local function entry_scenarios(doc, def, entry_kind, out)
   -- selector's types (building or all); `ops` are that selector's own unconditional damage and
   -- apply_status, the trace line D looks for (rank 1: the types do not change with the rank)
   if castable then
+    -- rank 1 with the facts every case of the entry starts from (an ability swapped in or one
+    -- needing another's status: A12T's a12_awe_t; the unit owning it; the cast-point guards)
+    local function rank1_given(fact)
+      local g = { { kind = "learned", entry = def.id, rank = 1 } }
+      if swapped then g[#g + 1] = swapped end
+      if unit_owned then g[#g + 1] = unit_owned end
+      for _, need in ipairs(phase_needs) do g[#g + 1] = need end
+      g[#g + 1] = fact
+      return g
+    end
     for _, e in ipairs(base_effects) do
       local sel = e.op == "for_each" and e.phase == "on_cast" and not e.conds and e.args and e.args.select
       local from = sel and (sel.from or "caster")
@@ -1053,8 +1063,7 @@ local function entry_scenarios(doc, def, entry_kind, out)
         if #ops > 0 then
           local affected = false
           for _, ty in ipairs(type(sel.types) == "table" and sel.types or {}) do if ty == "building" or ty == "all" then affected = true end end
-          push(1, "building_in_effect", { suffix = e.path, given = { { kind = "learned", entry = def.id, rank = 1 },
-              { kind = "building_in_effect", path = e.path, team = "enemy" } }, when = { cast_step },
+          push(1, "building_in_effect", { suffix = e.path, given = rank1_given({ kind = "building_in_effect", path = e.path, team = "enemy" }), when = { cast_step },
             expect = { { kind = "building_affected", path = e.path, affected = affected, ops = ops } },
             rule = "selector types decide whether a building in the area is picked" })
           -- an enemy the caster's team cannot see in the same area (invisible, or in the fog; line
@@ -1064,8 +1073,7 @@ local function entry_scenarios(doc, def, entry_kind, out)
           for _, f in ipairs(type(sel.flags) == "table" and sel.flags or {}) do flags[f] = true end
           for _, state in ipairs({ "invisible", "fogged" }) do
             local picked = not flags.visible_only and not (state == "invisible" and flags.exclude_invisible)
-            push(1, "hidden_in_effect", { suffix = state .. "/" .. e.path, given = { { kind = "learned", entry = def.id, rank = 1 },
-                { kind = "hidden_in_effect", path = e.path, team = "enemy", state = state } }, when = { cast_step },
+            push(1, "hidden_in_effect", { suffix = state .. "/" .. e.path, given = rank1_given({ kind = "hidden_in_effect", path = e.path, team = "enemy", state = state }), when = { cast_step },
               expect = { { kind = "hidden_affected", path = e.path, affected = picked, ops = ops, state = state } },
               rule = "selector flags visible_only / exclude_invisible decide whether an enemy the caster's team cannot see is picked" })
           end
