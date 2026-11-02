@@ -20,6 +20,10 @@ local data = {
   brave_ring = {
     numbers = { cost = 1500 },
   },
+  chidori = {
+    numbers = { armor = 8, atk = 20, cost = 5500, ["modifiers.attackspeed_bonus_constant"] = 40, ["modifiers.mana_regen_constant"] = 7.5, ["modifiers.stats_agility_bonus"] = 20, ["modifiers.stats_intellect_bonus"] = 25, ["modifiers.stats_strength_bonus"] = 5 },
+    recipe = { "sukemune", "sukezane" },
+  },
   cursed_katana = {
     numbers = { atk = 40, cost = 1850 },
   },
@@ -186,6 +190,17 @@ local data = {
       target = { out_of_range = "reject", range = 1200.0, requires_visible = true, shape = "unit", team = "enemy" },
     },
   },
+  kokumo = {
+    numbers = { atk = 42, cost = 4550, ["modifiers.stats_agility_bonus"] = 25 },
+    recipe = { "yubashiri", "tachi" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 25.0,
+      mana_cost = 60.0,
+      shares_cooldown_with = { "yubashiri" },
+      target = { out_of_range = "reject", range = 600.0, requires_visible = true, shape = "unit", team = "enemy" },
+    },
+  },
   kousetsusamonnji = {
     numbers = { atk = 50, cost = 6800, ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_strength_bonus"] = 10 },
     recipe = { "big_tachi", "red_spear" },
@@ -200,6 +215,10 @@ local data = {
   },
   lesser_shield = {
     numbers = { armor = 2, cost = 250 },
+  },
+  lightning_katana = {
+    numbers = { atk = 19, cost = 2470, ["modifiers.attackspeed_bonus_constant"] = 18 },
+    recipe = { "katana", "power_ingot", "lightning_scroll" },
   },
   lightning_scroll = {
     numbers = { cost = 750 },
@@ -298,6 +317,15 @@ local data = {
   napalm_bomb = {
     numbers = { ["active.damage"] = 300, ["active.radius"] = 300, cooldown = 10, cost = 150, ["target.range"] = 600 },
   },
+  ninja1 = {
+    numbers = { cost = 0 },
+    scripted = {
+      active = { kind = "scripted" },
+      consumable = true,
+      cooldown = 1.0,
+      target = { out_of_range = "reject", range = 400.0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
   ninja2 = {
     numbers = { cost = 100 },
     scripted = {
@@ -322,6 +350,15 @@ local data = {
       mana_cost = 80.0,
     },
   },
+  oochidorijuumonnjiyari = {
+    numbers = { atk = 38, cost = 6700, ["modifiers.attackspeed_bonus_constant"] = 22, ["modifiers.mana_bonus"] = 300, ["modifiers.stats_intellect_bonus"] = 20 },
+    recipe = { "kisyosennfuyuzuki", "lightning_katana" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      target = { out_of_range = "reject", range = 1000.0, requires_visible = true, shape = "unit", team = "enemy" },
+    },
+  },
   perceive_wine = {
     numbers = { ["active.magic_immunity"] = 3.5, cooldown = 45, cost = 135 },
   },
@@ -330,6 +367,17 @@ local data = {
   },
   power_ingot = {
     numbers = { atk = 5, cost = 300 },
+  },
+  raikiri = {
+    numbers = { atk = 41, cost = 4440, ["modifiers.attackspeed_bonus_constant"] = 30 },
+    recipe = { "lightning_katana", "katana" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 20.0,
+      mana_cost = 120.0,
+      shares_cooldown_with = { "lightning_scroll", "the_red_lightning_chapter", "the_red_lightning_chapter_hyper" },
+      target = { out_of_range = "reject", range = 500.0, requires_visible = true, shape = "unit", team = "enemy" },
+    },
   },
   rations = {
     numbers = { ["active.heal"] = 420, ["active.mana"] = 210, cooldown = 30, cost = 150 },
@@ -446,6 +494,10 @@ local data = {
   strength_ingot = {
     numbers = { cost = 350, ["modifiers.stats_strength_bonus"] = 5 },
   },
+  sukemune = {
+    numbers = { armor = 8, atk = 7, cost = 2700, ["modifiers.mana_regen_constant"] = 5, ["modifiers.stats_agility_bonus"] = 15, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 5 },
+    recipe = { "gorgeous_tachi", "spirit_ingot" },
+  },
   sukezane = {
     numbers = { armor = 8, cost = 2700, ["modifiers.attackspeed_bonus_constant"] = 30, ["modifiers.stats_intellect_bonus"] = 15 },
     recipe = { "staff", "stable_shield", "stable_shield", "speed_clothes", "intelligence_ingot" },
@@ -545,6 +597,10 @@ local data = {
       shares_cooldown_with = { "dark_boots", "dark_boots_1", "magic_defence_boots", "magic_defence_boots_1", "mana_boots", "mana_boots_1", "perceive_wine", "ryukyu_ronin_clogs", "ryukyu_ronin_clogs_1", "swiftness_boots", "swiftness_boots_1" },
     },
   },
+  the_great_spear_of_dragonfly = {
+    not_passive = { "modifiers.attack_range_bonus", "modifiers.movespeed_bonus_percentage" },
+    numbers = { atk = 50, cost = 8450, ["modifiers.stats_strength_bonus"] = 25 },
+  },
   the_great_sword_of_anger = {
     numbers = { atk = 60, cost = 7800, ["modifiers.stats_agility_bonus"] = 20, ["modifiers.stats_intellect_bonus"] = 20 },
     scripted = {
@@ -598,6 +654,25 @@ local data = {
       cooldown = 45.0,
       mana_cost = 100.0,
       target = { include_magic_immune = true, out_of_range = "reject", range = 900.0, requires_visible = true, shape = "unit", team = "enemy" },
+    },
+  },
+  the_great_sword_of_toxic = {
+    numbers = { atk = 35, cost = 5800, ["modifiers.stats_agility_bonus"] = 20 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 36.0,
+      mana_cost = 100.0,
+      target = { out_of_range = "reject", range = 1000.0, requires_visible = true, shape = "unit", team = "enemy" },
+    },
+  },
+  the_great_sword_of_xnew_moon = {
+    not_passive = { "modifiers.stats_agility_bonus", "modifiers.stats_strength_bonus" },
+    numbers = { cost = 6000, ["modifiers.stats_intellect_bonus"] = 20 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 40.0,
+      mana_cost = 130.0,
+      target = { out_of_range = "reject", range = 1000.0, requires_visible = true, shape = "unit", team = "enemy" },
     },
   },
   the_hooate_of_ghost = {
@@ -661,6 +736,14 @@ local data = {
       shares_cooldown_with = { "lightning_scroll", "raikiri", "the_red_lightning_chapter" },
       target = { out_of_range = "reject", range = 900.0, requires_visible = true, shape = "unit", team = "enemy" },
     },
+  },
+  the_scream_of_spiders = {
+    numbers = { atk = 50, cost = 7700, ["modifiers.stats_agility_bonus"] = 15, ["modifiers.stats_intellect_bonus"] = 10, ["modifiers.stats_strength_bonus"] = 20 },
+    recipe = { "the_spear_of_ghost", "the_spear_of_spiders" },
+  },
+  the_spear_of_ghost = {
+    numbers = { atk = 28, cost = 3650, ["modifiers.stats_agility_bonus"] = 15, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 5 },
+    recipe = { "gorgeous_tachi" },
   },
   the_spear_of_spiders = {
     numbers = { atk = 21, cost = 3050, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 15 },

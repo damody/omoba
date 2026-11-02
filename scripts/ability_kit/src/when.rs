@@ -54,6 +54,16 @@ impl Cx<'_, '_> {
         base
     }
 
+    /// The rows of `stats` that count for `holder` now; time-of-day rows go to the next status row
+    /// written, [`Cx::clear_when_row`] drops them when no row took them.
+    pub fn when_rows(&mut self, holder: EntityHandle, stats: &[(StatKey, i64, When)]) -> Vec<(StatKey, i64)> {
+        self.split_when(holder, stats)
+    }
+
+    pub fn clear_when_row(&mut self) {
+        self.when_row = None;
+    }
+
     /// [`Cx::apply_status`] with conditional stat rows.
     pub fn apply_status_when(&mut self, to: EntityHandle, status: &StatusDef, duration: Fixed64, stats: &[(StatKey, i64, When)]) -> Res {
         let rows = self.split_when(to, stats);

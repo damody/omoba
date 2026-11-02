@@ -47,4 +47,16 @@ for _, item in ipairs(final) do
   local s = generated[item.id]
   if s then ok(item.cost == s.numbers.cost, item.id .. ' costs what v3 says') end
 end
+-- every item marked scripted has its generated script: without one its effects are simply missing
+do
+  V3_CODEGEN_COVERAGE_AS_MODULE = true
+  local coverage = dofile(b.root .. '/docs/character_pipeline/tools/v3_codegen_coverage.lua')
+  V3_CODEGEN_COVERAGE_AS_MODULE = nil
+  local entries = {}
+  for _, e in ipairs(coverage.scan(b.root).items) do entries[e.id] = e end
+  for id in pairs(ctx.scripted_items) do
+    local e = entries['item_' .. id]
+    ok(e and #e.blockers == 0, id .. ' is marked scripted and has no script: ' .. table.concat(e and e.blockers or {}, '; '))
+  end
+end
 print('gen_item_v3 test: ' .. checks .. ' checks passed')

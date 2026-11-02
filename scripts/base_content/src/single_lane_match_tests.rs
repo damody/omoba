@@ -15128,6 +15128,16 @@ mod scripted_item_use {
     }
 
     #[test]
+    fn an_item_whose_source_key_has_capitals_still_runs_its_script() {
+        let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+        let (hero, _) = duel(&mut w, &mut d);
+        give(&mut w, hero, "hannya_onimaru");
+        for _ in 0..3 { d.step(&mut w, []).unwrap(); }
+        assert!(w.read_resource::<BuffStore>().stat_rows(hero).any(|(id, _)| id.starts_with("hannya_onimaru_pool")),
+            "item_Hannya_Onimaru's script ran on equip");
+    }
+
+    #[test]
     fn only_an_item_whose_target_admits_magic_immune_reaches_a_magic_immune_enemy() {
         let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
         let (hero, enemy) = duel(&mut w, &mut d);

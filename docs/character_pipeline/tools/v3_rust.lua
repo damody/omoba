@@ -1001,6 +1001,18 @@ function Gen:call(node, ctx)
     if t ~= "unit" then self:block("fn:status_source of a " .. t); return "EntityHandle::INVALID", "err" end
     if not self.m.statuses[st] then self:block("status:" .. st .. " not declared"); return "EntityHandle::INVALID", "err" end
     return "{ let u = " .. u .. "; cx.status_source(u, &super::ids::status::" .. upper(st) .. ") }", "unit"
+  elseif fn == "is_hero_id" then
+    -- the unit is this hero (source id, its package is the template id)
+    local u, t = arg(1)
+    local name = name_arg(2)
+    if t == "err" or not name then return "false", "bool" end
+    if t ~= "unit" then self:block("fn:is_hero_id of a " .. t); return "false", "bool" end
+    local root = ((self.opts.root or "."):gsub("\\", "/"))
+    self.hero_sources = self.hero_sources or dofile(root .. "/docs/character_pipeline/tools/v3_sources.lua").heroes(root)
+    for _, hero in ipairs(self.hero_sources) do
+      if hero.source_id:lower() == name:lower() then return string.format("cx.is_hero_named(%s, %s)", u, rust_str(hero.package)), "bool" end
+    end
+    self:block("fn:is_hero_id of " .. name .. " (no such hero)"); return "false", "bool"
   elseif fn == "has_item" then
     -- a catalog item in one of the unit's inventory slots (kit item_in_slot, line B E561; the
     -- host inventory has 6)
@@ -2190,11 +2202,31 @@ function Gen:action(a, ctx, ind)
     -- remove_on ends the status row; the host does not end its taunt with it
     return code
   end
+  -- conditional stat rows (`when`): which count is read from the unit it is applied to, once per apply
+  if a.op == "apply_status" and not a.__when and self.m.statuses[a.status] and self.m.statuses[a.status].def.stats then
+    local whens = false
+    for _, v in pairs(self.m.statuses[a.status].def.stats) do whens = whens or (type(v) == "table" and v.when ~= nil) end
+    if whens then
+      local so = self.m.statuses[a.status]
+      self.when_ok = true
+      self:stat_rows(so.def.stats, { owner = so, scope = ctx.scope, event = ctx.event, pre = ctx.pre, cast = ctx.cast, ended = ctx.ended, windup = ctx.windup })
+      local triples = self.last_when
+      self.when_ok, self.last_when = nil, nil
+      local inner = {}
+      for key, v in pairs(a) do inner[key] = v end
+      inner.__when = true
+      local code = self:action(inner, ctx, ind .. "    ")
+      if code == "" or not triples then return code end
+      return ind .. "{\n" .. ind .. "    let when_to = " .. self:value(a.to, ctx, "unit") .. ";\n"
+        .. ind .. "    let when_rows = cx.when_rows(when_to, " .. triples .. ");\n" .. code
+        .. ind .. "    cx.clear_when_row();\n" .. ind .. "}\n"
+    end
+  end
   local op = a.op
   local allowed = ACTION_FIELDS[op]
   if allowed == nil then self:block("action:" .. tostring(op)); return "" end
   if allowed then
-    for _, k in ipairs(sorted_keys(a)) do if not allowed[k] and k ~= "notes" and k ~= "__taunt" and k ~= "__vars" and k ~= "__absorb" and k ~= "__replace" and k ~= "__dur" and k ~= "__aura" and k ~= "__fmove" and k ~= "__refr" then self:block("action:" .. op .. "." .. k) end end
+    for _, k in ipairs(sorted_keys(a)) do if not allowed[k] and k ~= "notes" and k ~= "__taunt" and k ~= "__when" and k ~= "__vars" and k ~= "__absorb" and k ~= "__replace" and k ~= "__dur" and k ~= "__aura" and k ~= "__fmove" and k ~= "__refr" then self:block("action:" .. op .. "." .. k) end end
   end
   local I = ind
   local function line(s) return I .. s .. "\n" end
@@ -2231,7 +2263,7 @@ function Gen:action(a, ctx, ind)
     elseif s.duration == nil or s.duration == "infinite" then dur = "Cx::FOREVER"
     else dur = self:value(s.duration, sctx, "num") end
     self.slow_ok, self.last_slow = true, nil
-    local stats = s.stats and self:stat_rows(s.stats, sctx) or "&[]"
+    local stats = a.__when and "&when_rows" or s.stats and self:stat_rows(s.stats, sctx) or "&[]"
     local slow = self.last_slow
     self.slow_ok, self.last_slow = nil, nil
     if independent then
@@ -3813,7 +3845,10 @@ local function entry_head(def)
   return table.concat({ M.HEADER,
     string.format("//! %s %s（%s）\n", def.id, def.source_id or "", (def.text and def.text.zh_TW and def.text.zh_TW.name) or ""),
     "#![allow(unused_imports)]\nuse ability_kit::*;\n\n",
-    string.format("pub const ID: &str = %s;\n\npub struct %s;\n\n", rust_str(def.id), camel(def.id)) })
+    -- an item registers under its source key (the host's item_script_id reads it from source_ref);
+    -- the v3 id is that key in lower case
+    string.format("pub const ID: &str = %s;\n\npub struct %s;\n\n",
+      rust_str(def.id:find("^item_") and type(def.source_id) == "string" and def.source_id:lower() == def.id and def.source_id or def.id), camel(def.id)) })
 end
 local function stub_text(def, blockers)
   local why = def.id .. " is not generated yet: " .. table.concat(blockers, ", ")
@@ -5080,7 +5115,7 @@ function M.content_catalog(root)
   local shop = context.include("templates/moba_items.lua")
   for _, it in ipairs(shop.items or shop) do
     local source = type(it) == "table" and it.source_ref and it.source_ref:match(":([%w_]+)$")
-    if source then items[source] = true end
+    if source then items[source:lower()] = true end
   end
   catalog_cache[root] = { abilities = abilities, items = items }
   return catalog_cache[root]

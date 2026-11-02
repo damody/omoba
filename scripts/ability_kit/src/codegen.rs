@@ -442,6 +442,14 @@ impl<'a, 'w> Cx<'a, 'w> {
             && (select.include_magic_immune || !self.is_magic_immune(u) || !self.is_enemy(self.caster, u))
     }
 
+    /// v3 `is_hero_id(u, id)`: `u` is the hero of this template id.
+    pub fn is_hero_named(&self, u: EntityHandle, template: &str) -> bool {
+        self.world.unit_id_of(u).into_option().is_some_and(|id| {
+            let id = id.as_str();
+            id.strip_prefix("hero_").unwrap_or(id) == template
+        })
+    }
+
     /// A hero by its template id (MOBA spawns) or the legacy `hero_<template id>` script tag.
     pub fn is_hero(&self, u: EntityHandle) -> bool {
         self.world.unit_id_of(u).into_option().and_then(|id| {

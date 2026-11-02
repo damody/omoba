@@ -161,7 +161,8 @@ return function(ctx)
       { id = "item_the_great_sword_of_xnew_moon", source_id = "item_the_great_sword_of_xnew_moon",
         values = {
           cost = { 6000, unit = "gold", source = "kv:ItemCost" },
-          int = { 20, unit = "stat", source = "kv:Passive_lightning_katana MODIFIER_PROPERTY_STATS_INTELLECT_BONUS" },
+          int = { 20, unit = "stat", source = "kv:Passive_lightning_katana MODIFIER_PROPERTY_STATS_INTELLECT_BONUS",
+            source_differs = "來源匯出把智慧 +20 和主要屬性 +20 加總成 40；被動是 20" },
           primary_bonus = { 20, unit = "stat", source = "kv:modifier_add_strength MODIFIER_PROPERTY_STATS_STRENGTH_BONUS",
             note = "modifier_add_agility、modifier_add_intellect 也是 20" },
           cooldown = { 40, unit = "s", source = "kv:AbilityCooldown" },
