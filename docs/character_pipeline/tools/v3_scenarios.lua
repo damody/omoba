@@ -1130,7 +1130,7 @@ local function entry_scenarios(doc, def, entry_kind, out)
         end
         if has_damage(eff, "magical") or #applied_statuses(eff, by_status) > 0 then
           push(rank, "magic_immune", { suffix = ev, given = given({ { kind = "event_target", states = { "magic_immune" } } }),
-            when = { { kind = "event", event = ev } }, expect = { { kind = "damage_to_magic_immune", type = "magical", amount = "0" },
+            when = { { kind = "event", event = ev, interval = type(passive.triggers[ev]) == "table" and passive.triggers[ev].interval or nil } }, expect = { { kind = "damage_to_magic_immune", type = "magical", amount = "0" },
               { kind = "statuses_follow_immune_to", rule = "v3.md §12：魔免單位不受一般狀態，除非施加方 pierce" } } })
         end
       end
