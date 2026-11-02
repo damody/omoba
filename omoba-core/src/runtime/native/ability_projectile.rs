@@ -736,6 +736,9 @@ fn emit_fact(world: &World, projectile: Entity, ordinal: u32, kind: crate::runti
     });
 }
 
+/// A flight's cue ordinal starts here: above the tick's scripted cue range, and unique to the flight.
+pub const FLIGHT_CUE_ORDINAL_BASE: u32 = super::game_processor::CUE_FACT_ORDINAL_BASE + 1024;
+
 /// Public launch fact, emitted after a successful [`launch`].
 pub fn emit_launch(world: &World, projectile: Entity) {
     let Some(row) = world.try_fetch::<AbilityProjectiles>().and_then(|rows| rows.0.get(&projectile).map(|s| (s.owner, s.target, s.cue))) else { return; };
@@ -744,8 +747,7 @@ pub fn emit_launch(world: &World, projectile: Entity) {
         effect_id: 0, active: true });
     // The flight's own effect rides on its entity and ends with it.
     if let Some(cue) = row.2.filter(|_| super::game_processor::publishes_cues(world)) {
-        // Above the tick's scripted cue range, and unique to this flight.
-        let ordinal = super::game_processor::CUE_FACT_ORDINAL_BASE + 1024 + (projectile.id() & 0xFFFF);
+        let ordinal = FLIGHT_CUE_ORDINAL_BASE + (projectile.id() & 0xFFFF);
         emit_fact(world, projectile, ordinal, crate::runtime::FactKind::Cue, crate::runtime::ObservableFact::Cue {
             cue, source: Some(crate::runtime::canonical_entity_id(row.0)),
             at_unit: Some(crate::runtime::canonical_entity_id(projectile)), at_point: (0, 0),

@@ -190,6 +190,7 @@ pub struct TeamViewProjector {
     identity: TeamIdentityState,
     config: TeamProjectorConfig,
     pending_reveals: VecDeque<VisibilityTransition>,
+    flight_cues: FlightCues,
     pending_rebase_chunks: VecDeque<Vec<u8>>,
     hash_entities: BTreeMap<u64, (u64, u32, BTreeMap<u32, Vec<u8>>)>,
     pending_component_repairs: VecDeque<ComponentRepair>,
@@ -754,6 +755,7 @@ impl TeamViewProjector {
             identity: TeamIdentityState::new(team_id),
             config,
             pending_reveals: VecDeque::new(),
+            flight_cues: FlightCues::new(),
             pending_rebase_chunks: VecDeque::new(),
             hash_entities: BTreeMap::new(),
             pending_component_repairs: VecDeque::new(),
@@ -1488,6 +1490,7 @@ impl TeamViewProjector {
             // replica predicted the same value, applying it changes nothing.
             // A cue is projected end by end on this team's sight.
             if let ObservableFact::Cue { .. } = &fact.fact {
+                if is_flight_cue(fact) { continue; }
                 let view = self.point_view.as_deref();
                 let team = self.team_id;
                 project_cue(fact, visible, &self.identity, &|x, y| view.is_some_and(|view|
@@ -1552,6 +1555,7 @@ impl TeamViewProjector {
                     subject:Some(ProtoReplicaEntityId {value:id}),sanitized_payload:state.clone(),stable_sub_index:0});
             }
         }
+        advance_flight_cues(&mut self.flight_cues, facts, visible, &self.identity, &mut cues_seen, &mut public_events);
         public_events.sort_by_key(|event| {
             (
                 event.event_kind,
@@ -1694,6 +1698,45 @@ fn project_cue(
         sanitized_payload: CuePresentationCue::public_payload(*cue, source, at, to, *radius_raw, *duration_raw),
         stable_sub_index: ordered.key.local_ordinal,
     });
+}
+
+/// A flight's launch cue per projectile, and whether this team's current disclosure of it has played it.
+type FlightCues = BTreeMap<u64, (OrderedFact, bool)>;
+const MAX_TEAM_FLIGHT_CUES: usize = 512;
+
+fn is_flight_cue(ordered: &OrderedFact) -> bool {
+    matches!(ordered.fact, ObservableFact::Cue { at_unit: Some(_), .. })
+        && ordered.key.local_ordinal >= crate::runtime::native::ability_projectile::FLIGHT_CUE_ORDINAL_BASE
+}
+
+/// The body of a flight is drawn on the flight's own entity, and a team only has that entity once it
+/// is disclosed: some ticks after the launch, or mid flight when the flight comes into sight. So the
+/// launch cue waits here until the flight retires and plays on each disclosure.
+fn advance_flight_cues(
+    held: &mut FlightCues,
+    facts: &[OrderedFact],
+    visible: &BTreeSet<u64>,
+    identity: &TeamIdentityState,
+    seen: &mut Vec<(u64, crate::runtime::presentation_cue::CueEnd)>,
+    public: &mut Vec<TeamPublicEvent>,
+) {
+    for fact in facts {
+        if let (true, ObservableFact::Cue { at_unit: Some(flight), .. }) = (is_flight_cue(fact), &fact.fact) {
+            if held.len() < MAX_TEAM_FLIGHT_CUES { held.insert(*flight, (fact.clone(), false)); }
+        }
+    }
+    for fact in facts {
+        if let ObservableFact::Projectile { source, active: false, .. } = &fact.fact { held.remove(source); }
+    }
+    for (flight, (fact, played)) in held.iter_mut() {
+        if !visible.contains(flight) || replica_proto(identity, *flight).is_none() {
+            *played = false;
+        } else if !*played {
+            let before = public.len();
+            project_cue(fact, visible, identity, &|_, _| false, seen, public);
+            *played = public.len() > before;
+        }
+    }
 }
 
 fn project_fact(
@@ -2560,6 +2603,50 @@ mod ability_cue_projection_tests {
             project_cue(&fact, &visible, &identity, &|_, _| true, &mut seen, &mut public);
         }
         assert_eq!(public.len(), MAX_TEAM_CUES_PER_TICK);
+    }
+
+    #[test]
+    fn flight_cue_plays_when_its_flight_is_disclosed_and_stops_with_the_flight() {
+        use crate::runtime::presentation_cue::CuePresentationCue as Cue;
+        use crate::runtime::native::ability_projectile::FLIGHT_CUE_ORDINAL_BASE;
+        let flight = (1u64 << 32) | 42;
+        let mut launch = cue_fact(Some(flight), (0, 0), None, None);
+        launch.key.local_ordinal = FLIGHT_CUE_ORDINAL_BASE + 42;
+        let retire = OrderedFact { key: launch.key.clone(), audience: launch.audience.clone(),
+            fact: ObservableFact::Projectile { source: flight, target: None, effect_id: 0, active: false } };
+        let mut identity = TeamIdentityState::new(2);
+        let mut held = FlightCues::new();
+        let step = |held: &mut FlightCues, identity: &TeamIdentityState, facts: &[OrderedFact], visible: &[u64]| {
+            let (mut seen, mut public) = (Vec::new(), Vec::new());
+            advance_flight_cues(held, facts, &visible.iter().copied().collect(), identity, &mut seen, &mut public);
+            public
+        };
+        // Launch tick: the entity is not disclosed to anybody yet, and nothing leaks.
+        assert!(step(&mut held, &identity, std::slice::from_ref(&launch), &[]).is_empty());
+        assert!(step(&mut held, &identity, &[], &[flight]).is_empty(), "sight without a replica id names nothing");
+        // Disclosed: it plays once, on the flight's replica.
+        let replica = identity.disclose(CanonicalEntityKey { id: 42, generation: 1 }).unwrap().replica_id.get();
+        let played = step(&mut held, &identity, &[], &[flight]);
+        assert_eq!(Cue::from_public_event(17, &played[0], |_| Some(1)).unwrap().1.at_id, replica);
+        assert!(step(&mut held, &identity, &[], &[flight]).is_empty(), "once per disclosure");
+        // Out of sight and back mid flight: the new actor gets its body again.
+        assert!(step(&mut held, &identity, &[], &[]).is_empty());
+        assert_eq!(step(&mut held, &identity, &[], &[flight]).len(), 1);
+        // Retired, even on the tick it launched: nothing stays behind.
+        assert!(step(&mut held, &identity, std::slice::from_ref(&retire), &[flight]).is_empty());
+        assert!(held.is_empty());
+        assert!(step(&mut held, &identity, &[launch.clone(), retire.clone()], &[flight]).is_empty());
+        assert!(held.is_empty());
+        // A flight never counts as an ordinary cue, and the held rows are bounded.
+        assert!(is_flight_cue(&launch) && !is_flight_cue(&cue_fact(Some(flight), (0, 0), None, None)));
+        let many: Vec<_> = (0..MAX_TEAM_FLIGHT_CUES as u64 + 9).map(|id| {
+            let mut row = launch.clone();
+            row.fact = ObservableFact::Cue { at_unit: Some(id), cue: 99, source: None, at_point: (0, 0),
+                to_unit: None, to_point: None, radius_raw: 0, duration_raw: 0 };
+            row
+        }).collect();
+        step(&mut held, &identity, &many, &[]);
+        assert_eq!(held.len(), MAX_TEAM_FLIGHT_CUES);
     }
 
     #[test]
