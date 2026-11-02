@@ -1,9 +1,8 @@
 -- Items the shop does not sell yet, for UE (M7, work line C): every history_nobu item outside the shelf
 -- (templates/item_shop_v3.lua), with its v3 name, price, description and icon, and why it is not sold:
---   blocked   the interpreter cannot load its IR yet: the missing writings and the M7 unlock step
---             (docs/character_pipeline/tools/v3_item_order.lua, the same scan as m7-items.md);
---   ready     its IR loads today; it waits to be put on the shelf;
---   deferred  no IR (the v3 document defers it or the original has no behavior).
+--   blocked   the generator cannot write its Rust yet: the forms it does not lower
+--             (docs/character_pipeline/tools/v3_codegen_coverage.lua, the same scan as codegen-coverage.md);
+--   ready     it generates today; it waits to be put on the shelf.
 -- The shop lists them greyed out and never sells them; their tooltips use the same TooltipRenderer.
 --
 --   tools\lua\lua.exe scripts\gen_ue_item_roadmap.lua [--check]
@@ -28,11 +27,13 @@ M.SHELF = "scripts/lua_data/templates/item_shop_v3.lua"
 -- What players read for a blocker: its family, never the engine code (kept in blocker_codes).
 M.BLOCKER_FAMILY = {
   { "^passive:aura", "光環" },
+  { "^aura", "光環" },
   { "^passive_trigger:", "被動觸發" },
   { "^passive:", "被動效果" },
   { "^action:", "特殊動作" },
   { "^stat:", "屬性" },
-  { "^state:", "狀態" },
+  { "^state", "狀態" },
+  { "^status", "狀態" },
   { "^event:", "觸發時機" },
   { "", "條件判斷" }, -- fn:, attr:, token: and anything new
 }
@@ -49,7 +50,7 @@ function M.blocker_labels(codes)
   return out
 end
 
--- items, order from v3_item_order.build; source: source catalog; icons: nobu index; shelf: shelf ids
+-- items: { id, name, blockers } per item; source: source catalog; icons: nobu index; shelf: shelf ids
 function M.rows(items, source_catalog, icons, shelf)
   local by_source = {}
   for _, it in ipairs(source_catalog.items or {}) do by_source[it.source_id] = it; by_source[it.id] = it end
@@ -65,22 +66,16 @@ function M.rows(items, source_catalog, icons, shelf)
         id = id, source_id = src.source_id or row.id,
         name = { zh_TW = src.name and src.name.zh_TW or row.name, en = src.name and src.name.en or nil },
         cost = src.cost, category = src.category, icon = icon_of[id] or "",
-        state = not row.has_ir and "deferred" or (#row.blockers == 0 and "ready" or "blocked"),
+        state = #row.blockers == 0 and "ready" or "blocked",
         blockers = #row.blockers > 0 and M.blocker_labels(row.blockers) or nil,
         blocker_codes = #row.blockers > 0 and row.blockers or nil,
-        unlock_step = type(row.step) == "number" and row.step or nil,
         v3 = { text = v3.text, values = v3.values, info = v3.info, stat_lines = v3.stat_lines },
       }
       rows[#rows + 1] = out
     end
   end
   table.sort(rows, function(x, y)
-    local sx, sy = x.unlock_step or 1e9, y.unlock_step or 1e9
-    if x.state ~= y.state then
-      local rank = { ready = 1, blocked = 2, deferred = 3 }
-      return rank[x.state] < rank[y.state]
-    end
-    if sx ~= sy then return sx < sy end
+    if x.state ~= y.state then return x.state == "ready" end
     return x.id < y.id
   end)
   return rows
@@ -99,17 +94,23 @@ end
 
 function M.build(root)
   local function read(rel) local f = assert(io.open(root .. "/" .. rel, "rb"), "missing " .. rel); local s = f:read("a"); f:close(); return s end
-  V3_ITEM_ORDER_AS_MODULE = true
-  local order_tool = dofile(root .. "/docs/character_pipeline/tools/v3_item_order.lua")
-  V3_ITEM_ORDER_AS_MODULE = nil
-  order_tool.load_rules(root)
+  V3_CODEGEN_COVERAGE_AS_MODULE = true
+  local coverage = dofile(root .. "/docs/character_pipeline/tools/v3_codegen_coverage.lua")
+  V3_CODEGEN_COVERAGE_AS_MODULE = nil
   local shelf = require("content_builder").new(root .. "/scripts/lua_data").include("templates/item_shop_v3.lua")
   local content = json.decode(read(M.CONTENT))
-  local items, order = order_tool.build(content, shelf)
-  -- the unlock step of each item (the order lists what each step completes)
-  local step = {}
-  for n, s in ipairs(order) do for _, row in ipairs(s.unlocked) do step[row.id] = n end end
-  for _, row in ipairs(items) do row.step = step[row.id] end
+  -- "not in the shop" is why the generator skips an unsold item, not what it still lacks
+  local items = {}
+  for _, entry in ipairs(coverage.scan(root).items) do
+    local blockers = {}
+    for _, blocker in ipairs(entry.blockers) do
+      local code = tostring(type(blocker) == "table" and (blocker.feature or blocker[1]) or blocker)
+      if not code:find("is not in the shop", 1, true) then blockers[#blockers + 1] = code end
+    end
+    table.sort(blockers)
+    items[#items + 1] = { id = entry.id, name = entry.id, blockers = blockers }
+  end
+  table.sort(items, function(x, y) return x.id < y.id end)
   local rows = M.rows(items, json.decode(read(M.CATALOG)), json.decode(read(M.ICONS)), shelf)
   return { schema = M.SCHEMA, content_hash = content.content_hash, items = rows }
 end
