@@ -186,6 +186,93 @@ local function trigger_needs(doc, effects)
   return sets
 end
 
+-- Where `doc` applies status `id`, for a status a cast does not simply put on (line D's "not
+-- observed" cases): { source = "cast"|"passive"|"status", entry, event, status (the status whose
+-- trigger it is), conds (every condition on the way, filters first), where (the for_each's), to,
+-- needs (the conditions it
+-- can set up: a state flag and who sets it, a status, stacks) }; nil when no document action applies
+-- it (a host or engine status). The first site in document order.
+local function state_setter(doc, var)
+  local found = {}
+  local function sets(list)
+    for _, x in ipairs(type(list) == "table" and list or {}) do
+      if type(x) == "table" and (x.op == "set_state" and x.var == var or sets(x.actions) or sets(x.otherwise) or sets(x.on_hit)) then return true end
+    end
+    return false
+  end
+  for _, list in ipairs({ doc.abilities or {}, doc.items or {} }) do
+    for _, owner in ipairs(list) do
+      for _, ev in pairs(type(owner.events) == "table" and owner.events or {}) do
+        if sets(ev.actions or ev) then found[#found + 1] = owner.id; break end
+      end
+    end
+  end
+  return #found == 1 and found[1] or nil
+end
+
+local site_cache = setmetatable({}, { __mode = "k" })
+local function select_where(list, id, where)
+  for _, x in ipairs(type(list) == "table" and list or {}) do
+    if type(x) == "table" then
+      if x.op == "apply_status" and x.status == id then return where end
+      local here = x.op == "for_each" and x.select and x.select.where or where
+      for _, k in ipairs({ "actions", "otherwise", "on_hit" }) do
+        local found = select_where(x[k], id, here)
+        if found then return found end
+      end
+    end
+  end
+end
+
+local function apply_site(doc, id)
+  site_cache[doc] = site_cache[doc] or {}
+  if site_cache[doc][id] ~= nil then return site_cache[doc][id] or nil end
+  local site
+  local function scan(trigger, info)
+    if site or type(trigger) ~= "table" then return end
+    for _, e in ipairs(trigger_effects(trigger, "", info.event)) do
+      if e.op == "apply_status" and e.args and e.args.status == id then
+        site = info
+        site.conds, site.to = e.conds, e.args.to
+        site.where = select_where(trigger.actions or trigger, id)
+        return
+      end
+    end
+  end
+  for _, list in ipairs({ doc.abilities or {}, doc.items or {} }) do
+    for _, owner in ipairs(list) do
+      for _, ev in ipairs(sorted_keys(type(owner.events) == "table" and owner.events or {})) do
+        scan(owner.events[ev], { source = "cast", entry = owner.id, event = ev })
+      end
+      local triggers = owner.passive and owner.passive.triggers or {}
+      for _, ev in ipairs(sorted_keys(triggers)) do scan(triggers[ev], { source = "passive", entry = owner.id, event = ev }) end
+      for _, st in ipairs(owner.statuses or {}) do
+        for _, ev in ipairs(sorted_keys(st.triggers or {})) do
+          scan(st.triggers[ev], { source = "status", entry = owner.id, status = st.id, event = ev })
+        end
+      end
+    end
+  end
+  for _, st in ipairs(doc.statuses or {}) do
+    for _, ev in ipairs(sorted_keys(st.triggers or {})) do
+      scan(st.triggers[ev], { source = "status", status = st.id, event = ev })
+    end
+  end
+  if not site then site_cache[doc][id] = false; return nil end
+  local needs = {}
+  for _, c in ipairs(site.conds or {}) do
+    local var = c:match("^state%.([%w_]+)$")
+    local on, status = c:match("^has_status%(([%w_.]+), ([%w_]+)%)$")
+    local stack_on, stacked = c:match("^stacks%(([%w_.]+), ([%w_]+)%) > 0$")
+    if var then needs[#needs + 1] = { kind = "state", var = var, by = state_setter(doc, var) }
+    elseif status then needs[#needs + 1] = { kind = "has_status", on = on, status = status }
+    elseif stacked then needs[#needs + 1] = { kind = "stacks", on = stack_on, status = stacked } end
+  end
+  site.needs = #needs > 0 and needs or nil
+  site_cache[doc][id] = site
+  return site
+end
+
 -- statuses the entry owns, by id; and the ones its actions apply (with the target expression)
 local function status_index(doc, def)
   local by = {}
@@ -1285,7 +1372,7 @@ local function entry_scenarios(doc, def, entry_kind, out)
     end
     local function on_unit(s, a) return { kind = "status_on_unit", status = s.id, on = a.to, runtime_id = runtime_key(s),
       visibility = s.visibility, needs = attack_needs(a) or apply_needs(a) or routine_needs(s, a), on_summon = summon_needs(s, a),
-      after_tick = after_tick(s), via_aura = via_aura(s) } end
+      after_tick = after_tick(s), via_aura = via_aura(s), applied_by = current_doc and apply_site(current_doc, s.id) or nil } end
     local done = {}
     for _, a in ipairs(statuses) do
       local s = a.status
