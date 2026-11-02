@@ -6,7 +6,7 @@ return {
     -- the system stays at the caster, so the flight body is the flying rock and the system just the throw.
     b20w_pick_sound = { system = "burst", sprite = "rock", size = 260, life = 0.45, tint = EARTH,
       ground = "dust_crack", ground_size = 480, ground_seconds = 0.5, grow = 0.4 },
-    b20w_rock = { system = "sparks", tint = EARTH, mesh = "rock_chunk", ground_size = 130, ground_seconds = 0.7, height = 80, fly = true, spin = 540 },
+    b20w_rock = { system = "sparks", tint = EARTH, mesh = "rock_chunk", ground_size = 70, ground_seconds = 0.7, height = 80, fly = true, spin = 540 },
     -- W 壞毀波: a dust column and cracked ground, rocks and a shockwave over the area
     b20e_burrow = { system = "burst", sprite = "smoke_sheet", size = 380, life = 0.55, area = true,
       ground = "dust_crack", ground_size = 420, ground_seconds = 0.7, grow = 0.3 },

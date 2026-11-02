@@ -19,6 +19,8 @@ M.HEROES={'tokugawa_ieyasu','yamagata_masakage','okuma_tomohide','sasaki_kojiro'
 -- After the abilities: basic attacks on the stand-in, then the hero's real death. DEATH_AT is where the
 -- base stage's held enemies stand (scripts/lua_data/moba_hero_spotlight.lua).
 M.DEATH_AT={3000,2400}
+-- An ability only castable during another is shown right after it, or that one has run out by its turn.
+M.SHOWN_AFTER={a12_mystic_arrow='a12_mystic_possession'}
 M.BODY_SHOWS={
   {kind='attack',name='普通攻擊',line='對敵方連續普攻',team='enemy'},
   {kind='death',name='死亡',line='被敵方擊倒',team='self',at=M.DEATH_AT},
@@ -368,6 +370,16 @@ function M.load_package(root,hero)
       line=M.first_line(ability.description),kind=kind,team=team}
   end
   table.sort(slots,function(a,c) return a.slot<c.slot end)
+  for moved,after in pairs(M.SHOWN_AFTER) do
+    local from,to
+    for index,row in ipairs(slots) do
+      if row.id==moved then from=index elseif row.id==after then to=index end
+    end
+    if from and to then
+      local row=table.remove(slots,from)
+      table.insert(slots,from<to and to or to+1,row)
+    end
+  end
   return {hero=hero,hero_name=info.display_name or hero,title=info.title or '',slots=slots}
 end
 

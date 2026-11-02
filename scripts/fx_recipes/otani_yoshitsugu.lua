@@ -3,7 +3,7 @@ local ARCANE, GREEN, BLUE = { 0.5, 0.1, 1.0 }, { 0.1, 0.9, 0.25 }, { 0.12, 0.5, 
 return {
   recipes = {
     -- shared by a12_insight_flash and a12_insight_flash_t: the flare at the caster
-    a12w_vo = { system = "pop", sprite = "spark_star", size = 240, life = 0.3, tint = ARCANE },
+    a12w_vo = { system = "pop", sprite = "blink_flash", size = 180, life = 0.25, tint = ARCANE },
     -- a12_insight_flash: a burst of light that throws enemies out
     a12w_glow = { system = "burst", sprite = "blink_flash", size = 460, life = 0.5, tint = ARCANE,
       ground = "shock_ring", ground_size = 1000, ground_seconds = 0.5, grow = 0.15 },
@@ -28,7 +28,7 @@ return {
     a12f_arrow = { system = "stream", sprite = "soft_glow", size = 50, life = 0.3, loop = true, face = true, tint = ARCANE,
       mesh = "arcane_arrow", ground_size = 220, ground_seconds = 20, height = 70 },
     -- a12_mystic_possession: purple lightning crackling on him for the whole form
-    a12t_aura = { system = "stream", sprite = "lightning", size = 170, life = 0.22, loop = true, tint = ARCANE },
+    a12t_aura = { system = "stream", sprite = "lightning", size = 170, life = 0.22, loop = true, bold = true, tint = ARCANE },
   },
   notes = {
     a12_insight_flash = "a12w_glow (at caster, always plays) carries it; a12w_burst only on visible enemies; the empowered stun a12w_stun has no cue.",

@@ -8,7 +8,7 @@ return {
     c05w_armlet = { system = "stream", sprite = "spark_star", size = 85, life = 0.4, loop = true, tint = CYAN },
     -- c05_thunder_dance: lightning erupts around him, a bolt to each enemy, a burst on each hit
     c05e_cast_sound = { system = "burst", sprite = "lightning", size = 560, life = 0.4, tint = BLUE,
-      ground = "shock_ring", ground_size = 1700, ground_seconds = 0.5, grow = 0.15 },
+      ground = "shock_ring", ground_size = 420, ground_seconds = 0.45, grow = 0.3 },
     c05e_bolt = { system = "stream", sprite = "lightning", size = 50, life = 0.22, loop = true, face = true, tint = BLUE,
       mesh = "thunder_spear", ground_size = 220, ground_seconds = 20, height = 90 },
     c05e_impact = { system = "burst", sprite = "lightning", size = 270, life = 0.3, tint = BLUE,
@@ -20,9 +20,9 @@ return {
     -- c05_flash_thunder: charge under him, the landing mark, the strike
     c05t_vo = { system = "burst", sprite = "lightning", size = 380, life = 0.35, tint = BLUE,
       ground = "vortex", ground_size = 460, ground_seconds = 1.4, grow = 0.3 },
-    c05t_aoe_hint = { ground = "arcane_circle", ground_seconds = 1.5, tint = BLUE },
+    c05t_aoe_hint = { ground = "shock_ring", ground_seconds = 1.5, tint = BLUE, alpha = 0.55 },
     -- Both hints play for the viewer; the warning colour over the blue circle reads as the skill changing.
-    c05t_aoe_hint_enemy = { ground = "arcane_circle", ground_seconds = 0.8, tint = WARN, alpha = 0.01 },
+    c05t_aoe_hint_enemy = { ground = "shock_ring", ground_seconds = 0.8, tint = WARN, alpha = 0.01 },
     c05t_blink_start = { system = "pop", sprite = "lightning", size = 640, life = 0.3, tint = BLUE,
       ground = "blink_flash", ground_size = 420, ground_seconds = 0.35 },
     c05t_eclipse_area = { system = "pop", sprite = "lightning", size = 950, life = 0.5, tint = BLUE,
