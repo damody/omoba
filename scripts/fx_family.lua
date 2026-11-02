@@ -217,7 +217,7 @@ M.WEAPONS = {
 }
 M.ATTACKS = {
   sasaki_kojiro = { "katana", STEEL }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.35, 0.25 } },
-  okuma_tomohide = { "axe", { 1.0, 0.5, 0.2 } }, kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 } }, shimazu_yoshihiro = { "axe", { 0.1, 0.45, 0.9 } },
+  okuma_tomohide = { "axe", { 1.0, 0.5, 0.2 } }, kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 } }, shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 } },
   maeda_toshiie = { "spear", { 1.0, 0.85, 0.4 } }, maeda_keiji = { "spear", BLUE },
   nohime = { "gun", { 1.0, 0.6, 0.25 } }, otani_yoshitsugu = { "arcane", ARCANE },
 }
@@ -245,7 +245,9 @@ M.FX_ABILITIES = {
 
 -- Low-poly models (Tripo, asset-ledger.md), imported as static world models; a recipe's `mesh` draws one in the pool.
 M.MESH_ROOT = "/Game/Omoba/Structures/TripoStaticV1"
-M.MESHES = { war_hammer = true }
+M.MESH_SOURCE = "omfue/SourceArt/Structures/TripoStaticV1"
+-- roll: turns a model built "tip to the right" so its tip leads; tilt: about its long axis, before the roll.
+M.MESHES = { war_hammer = { roll = -90 } }
 function M.material(prefix, image) return ("%s/Instances/%s_fx_%s.%s_fx_%s"):format(M.ROOT, prefix, image, prefix, image) end
 function M.system(name) return ("%s/Systems/NS_fx_%s.NS_fx_%s"):format(M.ROOT, name, name) end
 
@@ -256,6 +258,10 @@ M.MAX_BODY = 210
 M.MAX_GROUND = 420
 M.MAX_AURA = 90
 function M.fit(r)
+  if r.mesh then
+    local model = M.MESHES[r.mesh] or {}
+    r.ground_roll, r.tilt = r.ground_roll or model.roll, r.tilt or model.tilt
+  end
   -- Leaning toward the camera it is no plank, and it keeps the way the blow went.
   if r.ground == "crescent_slash" and not r.face_camera then
     if not r.system then r.system, r.sprite, r.size, r.life = "pop", "crescent_slash", r.ground_size, r.ground_seconds end
@@ -305,7 +311,7 @@ function M.spec(root)
   local meshes = {}
   for _, id in ipairs(sorted(M.MESHES)) do
     local name = "fx_" .. id
-    meshes[#meshes + 1] = { id = name, texture = ("%s/%s/%s_basecolor.%s_basecolor"):format(M.MESH_ROOT, name, name, name) }
+    meshes[#meshes + 1] = { id = "mesh_" .. id, file = ("%s%s/%s/%s.fbm/%s_basecolor.PNG"):format(root and (root .. "/") or "", M.MESH_SOURCE, name, name, name) }
   end
   return { schema = "omoba.fx-family.v1", textures = textures, systems = systems, meshes = meshes }
 end
@@ -340,10 +346,14 @@ function M.ini_row(id)
   if r.loop then add("bFxLoop", "True") end
   if r.face then add("bFxFaceMotion", "True") end
   if r.mesh then
-    add("Ground", '"' .. M.material("MIG", r.mesh) .. '"')
+    add("Ground", ('"%s/Instances/MIG_mesh_%s.MIG_mesh_%s"'):format(M.ROOT, r.mesh, r.mesh))
     add("GroundMesh", ('"%s/%s/%s.%s"'):format(M.MESH_ROOT, "fx_" .. r.mesh, "fx_" .. r.mesh, "fx_" .. r.mesh))
   elseif r.ground then add("Ground", '"' .. M.material("MIG", r.ground) .. '"') end
   if r.spin then add("GroundSpin", number(r.spin)) end
+  if r.tilt then add("GroundTilt", number(r.tilt)) end
+  if r.launch then add("GroundLaunchCm", number(r.launch * M.WORLD_CM)) end
+  if r.lead then add("GroundLeadCm", number(r.lead * M.WORLD_CM)) end
+  if r.face_viewer then add("bGroundFaceViewer", "True") end
   if r.ground_size then add("GroundSizeCm", number(r.ground_size * M.WORLD_CM)) end
   if r.ground_seconds then add("GroundSeconds", number(r.ground_seconds)) end
   if r.grow then add("GroundGrow", number(r.grow)) end

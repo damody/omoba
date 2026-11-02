@@ -36,7 +36,7 @@ local function validate_tripo(root,set,project_dir,set_id)
  if p.is_directory(base)then for name in require('lfs').dir(base)do
   if name~='.'and name~='..'and p.is_file(p.join(base,name,'manifest.json'))then ids[#ids+1]=name end
  end end
- table.sort(ids);assert(#ids>=1 and #ids<=32,'bounded tripo hero source set required')
+ table.sort(ids);assert(#ids>=1 and #ids<=128,'bounded tripo hero source set required')
  local manifests={}
  for _,id in ipairs(ids)do
   assert(id:match('^[a-z][a-z0-9_]*$')and #id<=64,'invalid tripo hero directory')
