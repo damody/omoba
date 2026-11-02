@@ -1377,6 +1377,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b04"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b04_impl",
+]
+
+[[package]]
 name = "hero_b04_impl"
 version = "0.1.0"
 dependencies = [

@@ -141,4 +141,6 @@ return {
   {hero='sanada_yukimura',package='hero_b06',dir='heroes/sanada_yukimura'},
   -- C15: every ability generated, conformance 0 fail; handlers deleted
   {hero='tamako',package='hero_c15',dir='heroes/tamako'},
+  -- B04: every ability generated, conformance 0 fail; handlers deleted
+  {hero='date_masamune',package='hero_b04',dir='heroes/date_masamune'},
 }

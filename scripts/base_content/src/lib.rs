@@ -90,6 +90,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
     fn all_units() -> RVec<UnitDef> {
         let mut v = units();
         v.extend(hero_a02_impl::units());
+        v.extend(hero_b04_impl::units());
         v.extend(hero_c15_impl::units());
         v.extend(hero_b06_impl::units());
         v.extend(hero_a07_impl::units());
@@ -192,6 +193,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
     fn all_abilities() -> RVec<AbilityDefFFI> {
         let mut v = abilities();
         v.extend(hero_a02_impl::abilities());
+        v.extend(hero_b04_impl::abilities());
         v.extend(hero_c15_impl::abilities());
         v.extend(hero_b06_impl::abilities());
         v.extend(hero_a07_impl::abilities());
@@ -293,6 +295,11 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
         v.push(heroes::B01_saika_magoichi::saika_reinforcements_ffi());
         v.push(heroes::B01_saika_magoichi::rain_iron_cannon_ffi());
         v.push(heroes::B01_saika_magoichi::three_stage_technique_ffi());
+        // B04's retained legacy abilities, like B01's
+        v.push(heroes::B02_date_masamune::flame_blade_ffi());
+        v.push(heroes::B02_date_masamune::fire_dash_ffi());
+        v.push(heroes::B02_date_masamune::flame_assault_ffi());
+        v.push(heroes::B02_date_masamune::matchlock_gun_ffi());
         // items.dll scripts (M7), linked like a launch loads them
         v.extend(items_impl::abilities());
         v
@@ -383,22 +390,6 @@ fn units() -> RVec<UnitDef> {
 fn abilities() -> RVec<AbilityDefFFI> {
     let mut v: RVec<AbilityDefFFI> = RVec::new();
     include!(concat!(env!("OUT_DIR"), "/hero_ability_registry.rs"));
-    // M3' ④: B04's fire blast and flame swiftness run its generated Rust (heroes/date_masamune);
-    // its other abilities stay hand-written here until B04 gets its own DLL (M5).
-    // M5: the abilities conformance found equal to their handler run their generated Rust too
-    // (2026-10-30, target/e229/g11-compare.txt: 0 differences beside reports the handler could not
-    // make); the rest of those heroes stay hand-written until all of a hero generates.
-    for entry in v.iter_mut() {
-        let generated = match entry.script.ability_id().as_str() {
-            "b04_fire_blast" => hero_b04_impl::generated::b04_fire_blast::ffi(),
-            "b04_flame_swiftness" => hero_b04_impl::generated::b04_flame_swiftness::ffi(),
-            // conformance 2026-10-30: 0 regressions (B04, B06 compare vs handler)
-            "b04_flame_trail_dash" => hero_b04_impl::generated::b04_flame_trail_dash::ffi(),
-            _ => continue,
-        };
-        // The metadata stays the catalog one the handler used; only the script changes.
-        entry.script = generated.script;
-    }
     v
 }
 
