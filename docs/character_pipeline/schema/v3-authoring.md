@@ -183,6 +183,11 @@ end
 | `GetBaseMagicalResistanceValue()` | `it.base_magic_resist`（比例） |
 | `ultimate_modifiers` 名單（不受狀態抗性縮短） | 狀態 `status_resistance = "ignore"` |
 | `_G.EXCLUDE_TARGET_NAME` | 規則層的 `untargetable_by_spells` 狀態；selector 預設排除 |
+| `GetUnitName() == "npc_dota_hero_x"`、判斷是哪位英雄 | `is_hero_id(self, b04)`，第二個參數是原作英雄 id |
+| 依單位類型或主屬性才給的屬性 | 狀態 `stats` 的 `when`：`{ op = "add", value = "$stats", when = "primary_is(self, str)" }` |
+| 力量、敏捷、智力同加一個數 | `stats = { all_stats = "$all_stats" }` |
+| 不同道具或來源的同名 modifier 互相覆蓋 | 同一個 `unique_group`，加 `unique_rule = "latest"`（預設 `max` 是逐屬性取最高） |
+| 綁在道具實例上的 modifier、計數 | 狀態或 `unit_state` 的 `scope = "item_instance"`，目前的實作差異見 v3.md §12.13 |
 
 ## 5. 常見情境的寫法
 
@@ -213,6 +218,10 @@ end
 **吸血**：一般寫法是 StatKey `lifesteal_pct`，或 `on_deal_damage`（`filter = "event.damage.is_attack"`）讀 `event.damage.final`。原作自己算護甲而結果和最終傷害不同時（例如只扣額外護甲），照原作寫 `on_attack_hit` 加 `armor_multiplier(...)`，並在 quirks 說明。
 
 **需要冷卻的純被動道具**：`active = { kind = "passive", target = { type = "none" }, cost = { cooldown = "$cooldown" } }`。
+
+**有主動效果的道具**：文件照常寫 `active`（`target`、`cost`、`events`）。貨架列標成 scripted 後，host 依目錄檢查目標、距離、魔力和冷卻，效果由 `items.dll` 執行，見 §11。
+
+**道具召喚的單位有技能**：技能寫在道具文件的 `abilities`，單位模板列在 `unit_templates`。這些技能和道具腳本一樣編進 `items.dll`。
 
 **道具 id**：原作名稱轉小寫、去掉 `[a-z0-9_]` 以外的字元（`item_samurai's_badge` → `item_samurais_badge`），`source_id` 保留原名。
 
