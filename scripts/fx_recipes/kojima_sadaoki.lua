@@ -20,7 +20,7 @@ return {
     -- b27_rending_blade: a giant blade comes down, the earth breaks around him
     b27t_vo = { system = "pop", sprite = "crescent_slash", size = 880, life = 0.32, tint = GOLD },
     b27t_slam = { system = "burst", sprite = "rock", size = 300, life = 0.6, area = true,
-      mesh = "fissure_blade", ground_size = 500, ground_seconds = 1.1, height = 230, grow = 0.2, face_viewer = true },
+      mesh = "fissure_blade", ground_size = 500, ground_seconds = 1.1, grow = 0.2, face_viewer = true },
     b27t_screen_shake = { system = "burst", sprite = "spark_star", size = 220, life = 0.35, tint = GOLD,
       ground = "shock_ring", ground_size = 300, ground_seconds = 0.4, grow = 0.3 },
     b27t_move_slow = { ground = "slow_chains", ground_size = 170, ground_seconds = 1.2, tint = SLOW },

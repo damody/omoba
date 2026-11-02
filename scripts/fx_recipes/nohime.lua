@@ -19,9 +19,9 @@ return {
     -- a26_scorching_bomb
     a26t_voice = { system = "pop", sprite = "spark_star", size = 280, life = 0.45, tint = ORANGE,
       ground = "arcane_circle", ground_size = 340, ground_seconds = 0.5, grow = 0.4 },
-    a26t_bomb_arcana = { system = "stream", sprite = "flame_sheet", size = 190, life = 0.4, loop = true, face = true,
+    a26t_bomb_arcana = { system = "stream", sprite = "flame_sheet", size = 60, life = 0.3, loop = true, face = true,
       mesh = "fire_bomb", ground_size = 130, ground_seconds = 20, height = 110, spin = 360 },
-    a26t_small_bomb = { system = "stream", sprite = "flame_sheet", size = 100, life = 0.3, loop = true, face = true,
+    a26t_small_bomb = { system = "stream", sprite = "flame_sheet", size = 35, life = 0.2, loop = true, face = true,
       mesh = "fire_bomb", ground_size = 80, ground_seconds = 20, height = 90, spin = 360 },
     a26t_overhead_bomb = { system = "stream", sprite = "spark_star", size = 50, life = 0.3, loop = true, tint = ORANGE },
     a26t_big_explosion = { system = "burst", sprite = "flame_sheet", size = 700, life = 0.7,

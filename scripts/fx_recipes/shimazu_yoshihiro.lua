@@ -4,7 +4,7 @@ return {
   recipes = {
     -- c03_iron_shirt: a huge iron shield flares, a shield stays underfoot, steel motes while it lasts
     c03w_vo = { system = "pop", sprite = "iron_shield", size = 460, life = 0.45, tint = STEEL,
-      mesh = "iron_bell", ground_size = 230, ground_seconds = 0.9, height = 100, grow = 0.5, face_viewer = true },
+      mesh = "iron_bell", ground_size = 200, ground_seconds = 0.7, grow = 0.5, face_viewer = true },
     c03w_grow = { system = "burst", sprite = "spark_star", size = 260, life = 0.4, tint = STEEL,
       ground = "iron_shield", ground_size = 240 },
     c03w_iron_glow = { system = "stream", sprite = "spark_star", size = 85, life = 0.4, loop = true, tint = STEEL },
@@ -19,7 +19,7 @@ return {
     -- c03_iron_hammer: a hammer flares at the start and marches; fire and cracks at every tick
     -- Each blow lands 300 ahead of where the hammer would start, so it flies that far ahead and meets them.
     -- It faces the viewer and does not tumble: end on, a hammer reads as a barrel.
-    c03t_hammer = { mesh = "war_hammer", ground_size = 170, height = 90, fly = true, lead = 300, face_viewer = true },
+    c03t_hammer = { mesh = "war_hammer", ground_size = 170, height = 40, fly = true, lead = 300, face_viewer = true },
     c03t_hammer_hit = { system = "burst", sprite = "flame_sheet", size = 420, life = 0.5,
       ground = "dust_crack", ground_size = 900, ground_seconds = 0.45, grow = 0.3 },
   },

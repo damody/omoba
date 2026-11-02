@@ -11,7 +11,7 @@ return {
     b20e_burrow = { system = "burst", sprite = "smoke_sheet", size = 380, life = 0.55, area = true,
       ground = "dust_crack", ground_size = 420, ground_seconds = 0.7, grow = 0.3 },
     b20e_thunderclap = { system = "burst", sprite = "rock", size = 460, life = 0.5, area = true, tint = { 1.0, 0.5, 0.15 },
-      mesh = "earth_crown", ground_size = 420, ground_seconds = 0.9, height = 60, grow = 0.3 },
+      mesh = "earth_crown", ground_size = 420, ground_seconds = 0.9, grow = 0.3 },
     -- R 赤備猛攻: every half second rocks burst outward (leaving the model visible) and red cracks fill the radius
     b20t_epicenter = { system = "pop", sprite = "rock", size = 110, life = 0.3, tint = { 1.0, 0.2, 0.1 } },
   },

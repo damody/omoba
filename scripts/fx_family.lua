@@ -111,7 +111,7 @@ M.RECIPES = {
   c22d_cast_sound = { system = "burst", sprite = "lightning", size = 420, life = 0.5, tint = STEEL,
     ground = "shock_ring", ground_size = 460, ground_seconds = 0.5, grow = 0.2 },
   c22e_voice = { system = "pop", sprite = "crescent_slash", size = 340, life = 0.3, tint = STEEL },
-  c22e_swallow = { system = "stream", sprite = "swallow", size = 170, life = 0.9, loop = true, face = true, tint = STEEL,
+  c22e_swallow = { system = "stream", sprite = "soft_glow", size = 50, life = 0.5, loop = true, face = true, tint = STEEL,
     mesh = "swallow", ground_size = 190, ground_seconds = 20, height = 90 },
   c22e_impact = { system = "burst", sprite = "crescent_slash", size = 340, area = true, life = 0.5, tint = STEEL,
     ground = "blink_flash", ground_size = 340, ground_seconds = 0.4, height = 30, grow = 0.4 },
@@ -247,6 +247,7 @@ M.FX_ABILITIES = {
 M.MESH_ROOT = "/Game/Omoba/Structures/TripoStaticV1"
 M.MESH_SOURCE = "omfue/SourceArt/Structures/TripoStaticV1"
 -- A model built from a side view has its tip along +X and its side toward -Y, so a tip leads as it is.
+-- Its origin is at its foot: height is where its foot is, 0 for what stands on the ground.
 -- roll = 90 shows that side to whatever the cue faces (face_viewer); tilt: about its long axis, before the roll.
 M.MESHES = {
   throw_axe = {}, rocket = {}, cannon_shell = {}, arcane_arrow = {}, thunder_spear = {}, spear_head = {}, swallow = { tilt = -90 },

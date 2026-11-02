@@ -223,6 +223,17 @@ function M.frame_cap(options)
   return value
 end
 
+-- OM_UE_LOW_QUALITY=1 draws at UE's lowest quality levels, for measuring how a weak PC's settings behave.
+-- It lowers what is drawn; it does not make this machine's GPU or CPU any slower.
+function M.quality_commands()
+  if os.getenv('OM_UE_LOW_QUALITY')~='1' then return '' end
+  local commands={}
+  for _,name in ipairs{'ViewDistance','AntiAliasing','Shadow','PostProcess','Texture','Effects','Foliage','Shading','Reflection','GlobalIllumination'} do
+    commands[#commands+1]=', sg.'..name..'Quality 0'
+  end
+  return table.concat(commands)
+end
+
 function M.resolution(options)
   local value=options.resolution or '1280x720'
   local width,height=value:match('^(%d+)x(%d+)$')
@@ -616,7 +627,7 @@ function M.prepare(options,process)
       '-nosplash','-nop4','-NoLiveCoding','-AllowMultipleInstances',
       '-sessionname=omfue-role-p'..id,'-UserDir='..path.join(output,'ue-p'..id),
       '-abslog='..path.join(output,'ue-p'..id..'.log'),'-stdout','-FullStdOutLogOutput',
-      '-ExecCmds=t.MaxFPS '..M.frame_cap(options)}}
+      '-ExecCmds=t.MaxFPS '..M.frame_cap(options)..M.quality_commands()}}
     if options.packaged_game then
       -- A cooked game has no project argument and is already a game target.
       local kept={}

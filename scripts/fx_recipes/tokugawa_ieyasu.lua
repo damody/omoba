@@ -17,11 +17,11 @@ return {
     a01r_thunder_sound = { system = "pop", sprite = "lightning", size = 380, life = 0.28, tint = BLUE,
       ground = "shock_ring", ground_size = 620, ground_seconds = 0.35, grow = 0.2 },
     a01r_lightning = { system = "pop", sprite = "lightning", size = 460, life = 0.3, tint = BLUE,
-      mesh = "thunder_sword", ground_size = 280, ground_seconds = 0.6, height = 140, grow = 0.4, face_viewer = true },
+      mesh = "thunder_sword", ground_size = 280, ground_seconds = 0.6, grow = 0.4, face_viewer = true },
     -- R 三河之勇: banners thrown up at the cast, a large banner on the ground while it lasts
     a01t_vo = { system = "burst", sprite = "banner_rally", size = 520, life = 0.6, tint = GOLD,
       ground = "shock_ring", ground_size = 1400, ground_seconds = 0.7, grow = 0.15 },
-    a01t_banner = { mesh = "war_banner", ground_size = 280, ground_seconds = 1.2, height = 140, face_viewer = true },
+    a01t_banner = { mesh = "war_banner", ground_size = 280, ground_seconds = 1.2, face_viewer = true },
     -- Worn by every ally in the passive aura, creeps included and for as long as they stay: ground only, on purpose.
     a01t_ring = { ground = "shock_ring", ground_size = 110, ground_seconds = 1.2, tint = GOLD },
   },

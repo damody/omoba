@@ -15,7 +15,7 @@ return {
     b26d_thunder_clap = { system = "pop", sprite = "shock_ring", size = 600, life = 0.35, tint = FIRE,
       ground = "shock_ring", ground_size = 1000, ground_seconds = 0.5, grow = 0.15 },
     b26w_shockwave = { system = "burst", sprite = "flame_sheet", size = 480, life = 0.6, tint = FIRE,
-      mesh = "shock_dome", ground_size = 400, ground_seconds = 0.5, height = 70, grow = 0.3 },
+      mesh = "shock_dome", ground_size = 400, ground_seconds = 0.5, grow = 0.3 },
     -- D 釋放蓄力波: a flash, then the two cues above
     b26d_voice = { system = "pop", sprite = "blink_flash", size = 420, life = 0.25, tint = FIRE },
     -- W 血性狂怒: blood-red flames and a ring, a flash as he grows, red motes while it lasts.
@@ -28,7 +28,7 @@ return {
     b26t_voice_roar = { system = "burst", sprite = "flame_sheet", size = 620, life = 0.6, tint = FIRE,
       ground = "shock_ring", ground_size = 1000, ground_seconds = 0.6, grow = 0.15 },
     b26t_burst = { system = "pop", sprite = "fire_wings", size = 900, life = 0.6,
-      mesh = "fire_wings", ground_size = 300, ground_seconds = 1.5, height = 170, grow = 0.5, face_viewer = true },
+      mesh = "fire_wings", ground_size = 300, ground_seconds = 1.5, height = 40, grow = 0.5, face_viewer = true },
     b26t_wings = { system = "stream", sprite = "flame_sheet", size = 120, life = 0.4, loop = true },
   },
   notes = {

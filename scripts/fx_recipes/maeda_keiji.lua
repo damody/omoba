@@ -9,7 +9,7 @@ return {
     -- c05_thunder_dance: lightning erupts around him, a bolt to each enemy, a burst on each hit
     c05e_cast_sound = { system = "burst", sprite = "lightning", size = 560, life = 0.4, tint = BLUE,
       ground = "shock_ring", ground_size = 1700, ground_seconds = 0.5, grow = 0.15 },
-    c05e_bolt = { system = "stream", sprite = "lightning", size = 110, life = 0.22, loop = true, face = true, tint = BLUE,
+    c05e_bolt = { system = "stream", sprite = "lightning", size = 50, life = 0.22, loop = true, face = true, tint = BLUE,
       mesh = "thunder_spear", ground_size = 220, ground_seconds = 20, height = 90 },
     c05e_impact = { system = "burst", sprite = "lightning", size = 270, life = 0.3, tint = BLUE,
       ground = "blink_flash", ground_size = 240, ground_seconds = 0.25, height = 20, grow = 0.4 },
