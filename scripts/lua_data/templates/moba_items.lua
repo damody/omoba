@@ -109,23 +109,37 @@ local SOURCE_ITEMS = {
   { 178, "item_thunderstorms", true },
   { 179, "item_the_storm_call_book", true },
   { 180, "item_yubashiri", true },
-  { 187, "item_glass_mitsutomo", true },
-  { 188, "item_Hannya_Onimaru", true },
-  { 189, "item_kousetsusamonnji", true },
-  { 190, "item_magic_defence_boots", true },
-  { 191, "item_magic_defence_boots_1", true },
-  { 192, "item_magic_resistance_ingot", true },
-  { 193, "item_ryukyu_ronin_clogs", true },
-  { 194, "item_ryukyu_ronin_clogs_1", true },
-  { 197, "item_the_great_silver_armor", true },
-  { 198, "item_the_great_sword_of_precision", true },
-  { 199, "item_the_great_sword_of_soul_hyper", true },
-  { 181, "item_Sukezane", true },
-  { 182, "item_the_spear_of_spiders", true },
-  { 183, "item_the_blade_of_blood_devourer", true },
-  { 184, "item_the_great_sword_of_tiger", true },
-  { 185, "item_the_sword_of_kaminaobi", true },
-  { 186, "item_ninja2", true },
+  { 181, "item_wayumi2", true },
+  { 182, "item_the_lost_art_of_war_2", true },
+  { 183, "item_the_dark_armor", true },
+  { 184, "item_the_art_of_war_tornado_chapter", true },
+  { 185, "item_the_art_of_war_mountain_chapter", true },
+  { 186, "item_swiftness_boots_1", true },
+  { 187, "item_swiftness_boots", true },
+  { 188, "item_samurai_cloth", true },
+  { 189, "item_ninja_cloth", true },
+  { 190, "item_shun_armor", true },
+  { 191, "item_samurai's_badge", true },
+  { 192, "item_flame_armor", true },
+  { 193, "item_foxfire_armor", true },
+  { 194, "item_wayumi", true },
+  { 195, "item_glass_mitsutomo", true },
+  { 196, "item_Hannya_Onimaru", true },
+  { 197, "item_kousetsusamonnji", true },
+  { 198, "item_magic_defence_boots", true },
+  { 199, "item_magic_defence_boots_1", true },
+  { 200, "item_magic_resistance_ingot", true },
+  { 201, "item_ryukyu_ronin_clogs", true },
+  { 202, "item_ryukyu_ronin_clogs_1", true },
+  { 203, "item_the_great_silver_armor", true },
+  { 204, "item_the_great_sword_of_precision", true },
+  { 205, "item_the_great_sword_of_soul_hyper", true },
+  { 206, "item_Sukezane", true },
+  { 207, "item_the_spear_of_spiders", true },
+  { 208, "item_the_blade_of_blood_devourer", true },
+  { 209, "item_the_great_sword_of_tiger", true },
+  { 210, "item_the_sword_of_kaminaobi", true },
+  { 211, "item_ninja2", true },
 }
 
 return function(ctx)
@@ -137,7 +151,7 @@ return function(ctx)
   local rows = {}
   for _, row in ipairs(source.items) do rows[row.key] = row end
   -- source_ref is `history_nobu@<commit>:item_<key>`; the game id is <key>.
-  local function id_of(ref) local id = ref:match("item_([%w_]+)$"); return id and id:lower() end
+  local function id_of(ref) local id = ref:match("item_([%w_']+)$"); return id and id:lower():gsub("'", "") end
   local items = {
     { catalog_id = 1, id = "moba_sword", test_only = true, name = "鐵劍", cost = 350, atk = 10 },
     { catalog_id = 2, id = "moba_armor", test_only = true, name = "護身甲", cost = 300, hp = 100, armor = 5 },
@@ -228,6 +242,16 @@ return function(ctx)
         if s.scripted then
           item.active, item.target, item.cooldown, item.mana_cost = nil, nil, nil, nil
           item.consumable, item.shares_cooldown_with = nil, nil
+        end
+        if s.no_native_aura then item.aura = nil end
+        for path, number in pairs(s.added or {}) do
+          local key = path:match("^modifiers%.(.+)$")
+          if key then
+            item.modifiers = item.modifiers or {}
+            item.modifiers[key] = number
+          else
+            item[path] = number
+          end
         end
         for _, path in ipairs(s.not_passive or {}) do
           local key = path:match("^modifiers%.(.+)$")

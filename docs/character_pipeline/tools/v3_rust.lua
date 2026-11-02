@@ -1370,10 +1370,12 @@ local function emit_statuses(m, root)
     -- `__name:...` is the form of a host packet id (`__aura:`, `__aura_emitter:`, `__ground_damage_zone:`…):
     -- cast settlement and the BuffStore would take the status for that packet (E299)
     if runtime_id:match("^__[%w_]+:") then p[#p + 1] = "status.runtime_id in a host packet namespace (" .. runtime_id:match("^(__[%w_]+:)") .. ")" end
-    -- unique_group: per stat the strongest of the group (host aggregation family); `latest` waits
+    -- unique_group: per stat the strongest of the group, or with `latest` the last applied (host
+    -- aggregation family)
     local family = ""
     if s.unique_group ~= nil then
       if type(s.unique_group) ~= "string" then p[#p + 1] = "status.unique_group of an expression"
+      elseif s.unique_rule == "latest" then family = "unique_latest:" .. s.unique_group
       else family = "unique_group:" .. s.unique_group end
     end
     -- heal_reduction_pct: the host's healing_reduction family (heal_received_multiplier, the
@@ -1381,7 +1383,8 @@ local function emit_statuses(m, root)
     if s.stats and s.stats.heal_reduction_pct ~= nil then
       if family ~= "" then p[#p + 1] = "status.unique_group with heal_reduction_pct" else family = "healing_reduction" end
     end
-    if s.unique_rule ~= nil and s.unique_rule ~= "max" then p[#p + 1] = "status.unique_rule:" .. tostring(s.unique_rule) end
+    if s.unique_rule ~= nil and s.unique_rule ~= "max" and s.unique_rule ~= "latest" then p[#p + 1] = "status.unique_rule:" .. tostring(s.unique_rule) end
+    if s.unique_rule == "latest" and s.unique_group == nil then p[#p + 1] = "status.unique_rule:latest without unique_group" end
     -- scope: "unit" (the default) ends with the unit; hero / permanent outlive the hero's death
     -- (StatusDef.scope, host status_scope); item_instance lives as long as the item: kept across
     -- death, removed with the last copy (on_last_copy); others (match…) wait

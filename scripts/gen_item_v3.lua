@@ -129,7 +129,7 @@ function M.build(shelf, docs, partial, scripted)
   end
   local by_key = {}
   for _, row in ipairs(shelf) do
-    if not row.test_only and row.source_ref then by_key[row.source_ref:match(":(item_[%w_]+)$")] = row end
+    if not row.test_only and row.source_ref then by_key[row.source_ref:match(":(item_[%w_']+)$")] = row end
   end
   for _, d in ipairs(docs) do
     local errs = validator.validate_doc(d.doc)
@@ -172,11 +172,20 @@ function M.build(shelf, docs, partial, scripted)
           local is_scripted = scripted and scripted[row.id]
           -- The source export sums every Modifier block of an item into its row, also what only a status
           -- gives (the mountain scroll's +50 armor while active). A scripted item's status runs in
-          -- items.dll, so such a number leaves the row; it must still be a number of the document.
+          -- items.dll, so such a number leaves the row; it must still be a number of the document, or
+          -- two of them (the scroll's chapter: 50 + 6).
           local function only_in_a_status(n)
+            local numbers = {}
             for _, value in ipairs(block.values or {}) do
               local v = value.ranks and compiler.value_of(value.ranks[1])
-              if v and (same(v, n) or (value.unit == "pct" and same(v / 100, n))) then return true end
+              if v then
+                numbers[#numbers + 1] = v
+                if value.unit == "pct" then numbers[#numbers + 1] = v / 100 end
+              end
+            end
+            for i, a in ipairs(numbers) do
+              if same(a, n) then return true end
+              for j = i + 1, #numbers do if same(a + numbers[j], n) then return true end end
             end
             return false
           end
@@ -196,6 +205,8 @@ function M.build(shelf, docs, partial, scripted)
             local active_field = path:match("^active%.") or path:match("^target%.") or path == "cooldown" or path == "mana_cost"
             if is_scripted and item.active and active_field then
               -- replaced by the document's active (M.scripted_active)
+            elseif is_scripted and path:match("^aura%.") then
+              -- the aura runs in items.dll: checked below
             elseif not value and is_scripted and path == "unique_passive.priority" then
               shop.numbers[path] = n -- the row's ranking of its own number, no number of the document
             elseif not value and is_scripted and path == "unique_passive.ms" and only_in_a_status(n) then
@@ -237,10 +248,23 @@ function M.build(shelf, docs, partial, scripted)
               "} differs from the source catalog {" .. table.concat(row.recipe or {}, ", ") .. "}"
           end
           -- the host applies passive stats from the shelf row: a stat without a shelf number would be lost
-          for stat in pairs(is_scripted and item.passive and item.passive.stats or {}) do
+          -- The source row may lack one (its export reads other modifier blocks): the document's goes on it.
+          for stat, expr in pairs(is_scripted and item.passive and item.passive.stats or {}) do
             local found = false
-            for _, path in ipairs(M.STAT_PATHS[stat] or {}) do found = found or nums[path] ~= nil end
-            if not found then
+            local paths = M.STAT_PATHS[stat] or {}
+            for _, path in ipairs(paths) do found = found or nums[path] ~= nil end
+            local name = type(expr) == "string" and expr:match("^%$([%w_]+)$")
+            local value = name and by_name[name]
+            if not found and #paths > 0 and value and value.ranks then
+              shop.added = shop.added or {}
+              for _, path in ipairs(paths) do
+                local number = compiler.value_of(value.ranks[1])
+                if value.unit == "pct" then number = number / 100 end
+                if math.type(number) == "float" and number == math.floor(number) then number = math.tointeger(number) end
+                shop.added[path] = number
+                shop.numbers[path] = number
+              end
+            elseif not found then
               problems[#problems + 1] = d.path .. ": " .. item.id .. ": passive stat " .. stat .. " has no number on the shelf row"
             end
           end
@@ -252,7 +276,8 @@ function M.build(shelf, docs, partial, scripted)
             problems[#problems + 1] = d.path .. ": " .. item.id .. ": a move_speed_unique status and the row's movement unique passive must come together"
           end
           if is_scripted and row.aura then
-            problems[#problems + 1] = d.path .. ": " .. item.id .. ": a scripted item's aura runs in items.dll, the shelf row has one too"
+            if item.passive and item.passive.aura then shop.no_native_aura = true
+            else problems[#problems + 1] = d.path .. ": " .. item.id .. ": the shelf row has an aura, the document's passive has none" end
           end
           if is_scripted and item.active then
             local function number(expr)

@@ -53,8 +53,14 @@ elseif command == "export" then
   for _, item in ipairs(loaded.items) do by_key[item.key] = item end
   compare.index(loaded)
   local rows = {}
+  -- an unlisted component (quality component, no shop) is part of what a listed item's recipe costs
+  local parts = {}
   for _, item in ipairs(loaded.items) do
-    if item.listed then
+    local recipe = item.listed and item.recipe and item.recipe[1]
+    for _, part in ipairs(recipe and recipe.requirements[1] or {}) do parts[part] = true end
+  end
+  for _, item in ipairs(loaded.items) do
+    if item.listed or parts[item.key] then
       local stats = {}
       for _, p in ipairs(compare.passive_properties(item)) do
         local field = compare.SUPPORTED[p.property]

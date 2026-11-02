@@ -53,8 +53,8 @@ rejects(function(l) find(l, 'moba_sword').source_ref = 'item_spear' end, 'cannot
 rejects(function(l) find(l, 'spear').source_ref = 'item_not_in_source' end, 'is not a shop item of the source')
 -- A source row with a capability gap never reaches the shop.
 rejects(function(l)
-  l[#l + 1] = {catalog_id = 900, id = 'wayumi', source_ref = source.name .. '@' .. source.commit .. ':item_wayumi', name = '短甲', cost = 400}
-end, 'needs_framework: SCRIPT')
+  l[#l + 1] = {catalog_id = 900, id = 'true_katana', source_ref = source.name .. '@' .. source.commit .. ':item_true_katana', name = '短甲', cost = 400}
+end, 'needs_framework: ')
 -- E160: a source active is copied exactly, with its cooldown and mana cost.
 ok(find(items, 'fire_scroll').active.kind == 'apply_modifiers', 'fire_scroll carries its source active')
 rejects(function(l) find(l, 'fire_scroll').active.radius = 900 end, 'active differs from the source')

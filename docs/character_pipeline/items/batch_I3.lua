@@ -1254,6 +1254,18 @@ return function(ctx)
           "vscripts/items/Addon_Items/item_storm_book.lua:1-116", "shops/nobu_shops.txt:108" } },
 
       -------------------------------------------------------------------------
+      -- 原作 listed = false（quality component、不在任何商店），只是別件配方的零件；id 去掉撇號。
+      { id = "item_samurais_badge", source_id = "item_samurai's_badge",
+        values = {
+          cost = { 900, unit = "gold", source = "kv:ItemCost" },
+          all_stats = { 5, unit = "stat", source = "kv:Passive_lightning_katana MODIFIER_PROPERTY_STATS_STRENGTH_BONUS／AGILITY／INTELLECT" .. at(5070) },
+        },
+        text = { zh_TW = { name = "侍的徽章" }, en = { name = "Samurai's Badge" } },
+        shop = { cost = "$cost" },
+        passive = { stats = { all_stats = "$all_stats" } },
+        coverage = "rust_handler", handler = handler(), confidence = "high",
+        provenance = { KV .. ":5070-5080" } },
+
       { id = "item_strength_ingot", source_id = "item_strength_ingot",
         values = {
           cost = { 350, unit = "gold", v2_key = "cost", source = "kv:ItemCost" .. at(1913) },
