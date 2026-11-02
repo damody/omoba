@@ -10,9 +10,15 @@
 - **放回時的失誤**：第一次放回時 Lua 字串裡的反斜線少了一層，`verify_m6_batch.lua` 語法錯誤，live 壞了約兩分鐘（約 13:23 到 13:25）才修好。原因是語法檢查和放回串在同一行，檢查失敗沒有擋下放回；`land_to_live` 預設的 codegen 檢查也不會載入 `scripts/*.lua`。
 - **以後**：批次裡凡是要配合執行檔的輸入，都從快照讀，不從 live 讀。放回前先確認語法檢查通過，再執行 `land_to_live`。
 
-## E664 （保留）conformance 收緊三個寬鬆判定：預設 key 的狀態要實際找到、疊層讀實際層數、到期加時長下限（2026-11-02）
+## E664 conformance：收緊 4 處寬鬆判定：狀態要實際找到、疊層讀實際層數、swap 讀冷卻、repeat 計次（2026-11-02，conformance session）
+- **現象**：B 檢視 harness 找到 4 處判定寬鬆：`check_statuses` 預設 key 的狀態沒找到也算過；`status_stats` 疊層接受任一倍數；`swapped` 不讀換回後的原招冷卻；normal 的 damage 只比第一擊。
+- **通用修正**：預設 key 的狀態要實際找到（改從施放第一個 tick 開始看，並排除 selector 帶 where、limit 的狀態）；疊層讀實際 `__v3_stacks`；`swapped` 在 from 是這招、冷卻比換回時間長時檢查原招冷卻仍在跑；新增 `check_repeat_hits`，計數 repeat 內的命中次數與每次金額；到期判定加時長下限（只在親眼看到狀態落地、持續時間沒有被施加時指定、不是施放做出的單位時才判，允許施放以來經過的時間）。
+- **結果**：收緊本身讓 28 個 pass 轉 fail，查證全部是收緊後的判定誤讀（施放視窗跳過前搖才有的鎖定、selector 條件、被動已掛著的狀態），修正後 0 個 pass 轉 fail，也沒有找到新的真 bug。pass 從 22465 變 22509（+44，來自 E663 等）。`check_statuses` 現在真的找到狀態的情境有 555 個註記更新。
 
-## E663 （保留）conformance 魔免的事件目標：被動普攻、被攻擊、週期事件不傷害魔免單位（2026-11-02）
+## E663 conformance：魔免的事件目標：普攻、被攻擊、週期事件不傷害魔免單位（2026-11-02，conformance session）
+- **現象**：被動觸發的事件目標是魔免單位（`given event_target`，169 個）沒有判定。
+- **通用修正**：`check_immune_event_target`：敵方英雄魔免、撐得住、看得見，站在英雄旁；英雄攻擊它（on_attack_*）、它攻擊英雄（on_attacked_hit），或等兩個週期（periodic）。判定：魔法傷害沒有扣到血（damage trace 的 after 在魔免歸零之前，所以比對實際損血與物理、純粹傷害）；這招的狀態沒有留在它身上。招式帶 `pierce_magic_immune` 或 selector 帶 `include_magic_immune` 時不判。
+- **結果**：全量 51 個轉 pass（魔免 106 個裡的其餘是沒有可判定的效果）。新增 22 個 fail 是真 bug：`magic_immunity::is_debuff` 不認文件 `visibility = "debuff"` 的產生碼狀態，直接 `to = event.target` 的 debuff 會落在魔免單位上（A03、A04、A15、B11、B17、C03、C05、C25）。已轉給 B。
 
 ## E660 conformance：條件讀不懂的效果看到才算數；判定 modify_attack 的暴擊倍率（2026-11-02，conformance session）
 - **現象**：periodic 和普攻觸發的效果，只要條件讀不懂（計數器、區域變數、selector 的 where），就不會被觀察；`modify_attack` 的暴擊也沒有判定。多數 status_then_event 情境因此仍是 unsupported。
