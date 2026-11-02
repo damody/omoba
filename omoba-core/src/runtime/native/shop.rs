@@ -48,7 +48,8 @@ pub fn preview_buy_item(registry: &ItemRegistry, inventory: &Inventory, gold: &G
 }
 
 fn valid_item(item: &super::item::ItemConfig) -> bool {
-    item.cost > 0
+    // Zero is a source item given for free (ninja1); the catalog only allows it with a source.
+    item.cost >= 0
         && item.bonus.unique_passive.as_ref().is_none_or(|passive|passive.validate().is_ok())
         && item.bonus.critical_chance.is_finite()
         && (0.0..=1.0).contains(&item.bonus.critical_chance)
@@ -1072,7 +1073,7 @@ pub fn checked_combine_price(total_cost: i32, component_costs: &[i32]) -> Result
 }
 
 fn checked_combine_price_parts(total_cost: i32, component_costs: &[i32]) -> Result<i32, RecipeFault> {
-    if total_cost <= 0 {
+    if total_cost < 0 {
         return Err(RecipeFault::NonIncreasingPrice);
     }
     let mut materials = 0i32;
@@ -1308,6 +1309,22 @@ pub fn sell_item(
 mod tests {
     use super::super::item::{ItemBonus, ItemConfig};
     use super::*;
+
+    #[test]
+    fn a_free_item_costs_nothing_and_cannot_have_a_recipe() {
+        assert_eq!(checked_combine_price(0, &[]).ok(), Some(0));
+        assert!(checked_combine_price(0, &[100]).is_err());
+        assert!(checked_combine_price(-1, &[]).is_err());
+        let mut registry = ItemRegistry::default();
+        registry.items.insert("free".into(), std::sync::Arc::new(ItemConfig {
+            purchase_group: None, id: "free".into(), name: "Free".into(), cost: 0, bonus: ItemBonus::default(),
+            active: None, cooldown: 0.0, recipe: Vec::new() }));
+        let mut inventory = Inventory::default();
+        let mut gold = Gold(0);
+        assert!(buy_item(&registry, &mut inventory, &mut gold, "free").is_ok());
+        assert_eq!(gold.0, 0);
+        assert!(inventory.items().any(|(_, item)| item.item_id == "free"));
+    }
     fn registry() -> ItemRegistry {
         ItemRegistry::from_configs(vec![
             ItemConfig { purchase_group: None,
@@ -1552,7 +1569,7 @@ mod tests {
             let config = std::sync::Arc::make_mut(registry.items.get_mut("part").unwrap());
             match invalid {
                 0 => config.cost = -1,
-                1 => config.cost = 0,
+                1 => config.cost = i32::MIN,
                 2 => config.bonus.atk = f32::NAN,
                 3 => config.cooldown = f32::INFINITY,
                 4 => config.recipe = vec!["part".into()],
