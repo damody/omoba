@@ -113,7 +113,8 @@ function M.build(root)
       if not code:find("is not in the shop", 1, true) then blockers[#blockers + 1] = code end
     end
     table.sort(blockers)
-    items[#items + 1] = { id = entry.id, name = entry.id, blockers = blockers }
+    -- an item document also holds its summons' abilities: not items
+    if entry.id:find("^item_") then items[#items + 1] = { id = entry.id, name = entry.id, blockers = blockers } end
   end
   table.sort(items, function(x, y) return x.id < y.id end)
   local source_rows = {}

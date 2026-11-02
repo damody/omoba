@@ -44,7 +44,7 @@ local S = {
     changes_from = "上一版", changes_to = "本版", added = "新增", removed = "移除", changed = "數值變動",
     language = "語言",
     listed = "已上架", unlisted = "未上架", game_values = "數值為遊戲現行版本",
-    source_values = "數值為原作還原版本，尚未上架", deferred_items = "原作有、尚未移植的道具",
+    source_values = "數值為原作還原版本，尚未上架", deferred_items = "原作商店表有列、但沒有定義的道具（不會上架）",
     source_catalog = "來源目錄",
     stat = {
       str = "力量", agi = "敏捷", int = "智力", all_stats = "全屬性", hp = "生命", mana = "法力", max_hp = "最大生命",
@@ -101,7 +101,7 @@ local S = {
     changes_from = "Previous", changes_to = "Current", added = "Added", removed = "Removed", changed = "Changed values",
     language = "Language",
     listed = "In the game", unlisted = "Not in the game yet", game_values = "Values as in the current game",
-    source_values = "Values restored from the original; not in the game yet", deferred_items = "Original items not ported yet",
+    source_values = "Values restored from the original; not in the game yet", deferred_items = "Items the original's shop file lists without defining them (never sold)",
     source_catalog = "Source catalog",
     stat = {
       str = "Strength", agi = "Agility", int = "Intelligence", all_stats = "All attributes", hp = "Health", mana = "Mana",

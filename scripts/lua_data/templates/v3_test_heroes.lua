@@ -68258,6 +68258,181 @@ local data = {
         },
       },
     },
+    {
+      ability_type = "active",
+      authored_package = "items",
+      cast_type = "instant",
+      description = "鑽進地底：無法移動與攻擊，但隱形且魔法免疫；再施放一次就鑽出地面。",
+      display_name = "掘地",
+      extras = {
+        cast_point = { 0.1 },
+      },
+      id = "ninja2_burrow",
+      levels = {
+        { cast_time = 0.1, cooldown = 6.0, mana_cost = 0, range = 0 },
+      },
+      max_level = 1,
+      target_type = "none",
+      ue = { native_only = true },
+      v3 = {
+        bot = { kind = "none", reason = "sub-ability (cast through its parent)", source = "derived" },
+        coverage = "expressible",
+        info = {
+          { field = "cast_point", value = "cast_point" },
+          { field = "cooldown", value = "cooldown" },
+        },
+        kind = "ability",
+        max_level = 1,
+        schema = "3.3",
+        source_id = "ninja_underground",
+        statuses = {
+          {
+            dispel = "basic",
+            id = "ninja2_underground",
+            reveal = "public",
+            tags = { "invisible" },
+            visibility = "hidden",
+          },
+          {
+            dispel = "none",
+            id = "ninja2_underground_model",
+            reveal = "public",
+            tags = { "invisible" },
+            visibility = "hidden",
+          },
+        },
+        text = {
+          en = {
+            body = "Burrows underground: cannot move or attack, but is invisible and spell immune. Cast again to resurface.",
+            name = "Burrow",
+            pieces = {
+              { text = "Burrows underground: cannot move or attack, but is invisible and spell immune. Cast again to resurface." },
+            },
+            rendered = "Burrows underground: cannot move or attack, but is invisible and spell immune. Cast again to resurface.",
+          },
+          zh_TW = {
+            body = "鑽進地底：無法移動與攻擊，但隱形且魔法免疫；再施放一次就鑽出地面。",
+            name = "掘地",
+            pieces = {
+              { text = "鑽進地底：無法移動與攻擊，但隱形且魔法免疫；再施放一次就鑽出地面。" },
+            },
+            rendered = "鑽進地底：無法移動與攻擊，但隱形且魔法免疫；再施放一次就鑽出地面。",
+          },
+        },
+        values = {
+          {
+            name = "cast_point",
+            ranks = { "0.1" },
+            raw = { 102 },
+            unit = "s",
+          },
+          {
+            name = "cooldown",
+            ranks = { "6" },
+            raw = { 6144 },
+            unit = "s",
+          },
+        },
+      },
+    },
+    {
+      ability_type = "active",
+      authored_package = "items",
+      cast_type = "instant",
+      description = "使追蹤中的投射物失效，閃現到目標方向最多 300 距離的位置，並重新隱形。",
+      display_name = "閃身",
+      extras = {
+        cast_point = { 0.0 },
+        cast_range = { 300.0 },
+        max_blink_range = { 300.0 },
+        phase_time = { 0.1 },
+      },
+      id = "ninja1_flash",
+      levels = {
+        { cast_time = 0.0, cooldown = 30.0, mana_cost = 100.0, range = 300.0 },
+      },
+      max_level = 1,
+      target_type = "point",
+      ue = { native_only = true },
+      v3 = {
+        bot = { kind = "none", reason = "sub-ability (cast through its parent)", source = "derived" },
+        coverage = "expressible",
+        info = {
+          { field = "cast_range", value = "cast_range" },
+          { field = "cast_point", value = "cast_point" },
+          { field = "mana_cost", value = "mana_cost" },
+          { field = "cooldown", value = "cooldown" },
+        },
+        kind = "ability",
+        max_level = 1,
+        schema = "3.3",
+        source_id = "flash",
+        statuses = {
+          { dispel = "none", id = "ninja1_flash_phased", reveal = "public", visibility = "hidden" },
+        },
+        text = {
+          en = {
+            body = "Disjoints tracking projectiles, blinks up to {max_blink_range} toward the target point and turns invisible again.",
+            name = "Flash Step",
+            pieces = {
+              { text = "Disjoints tracking projectiles, blinks up to " },
+              { value = "max_blink_range" },
+              { text = " toward the target point and turns invisible again." },
+            },
+            rendered = "Disjoints tracking projectiles, blinks up to 300 toward the target point and turns invisible again.",
+          },
+          zh_TW = {
+            body = "使追蹤中的投射物失效，閃現到目標方向最多 {max_blink_range} 距離的位置，並重新隱形。",
+            name = "閃身",
+            pieces = {
+              { text = "使追蹤中的投射物失效，閃現到目標方向最多 " },
+              { value = "max_blink_range" },
+              { text = " 距離的位置，並重新隱形。" },
+            },
+            rendered = "使追蹤中的投射物失效，閃現到目標方向最多 300 距離的位置，並重新隱形。",
+          },
+        },
+        values = {
+          {
+            name = "cast_point",
+            ranks = { "0" },
+            raw = { 0 },
+            unit = "s",
+          },
+          {
+            name = "cast_range",
+            ranks = { "300" },
+            raw = { 307200 },
+            unit = "dist",
+          },
+          {
+            name = "cooldown",
+            ranks = { "30" },
+            raw = { 30720 },
+            unit = "s",
+          },
+          {
+            name = "mana_cost",
+            ranks = { "100" },
+            raw = { 102400 },
+            unit = "mana",
+          },
+          {
+            name = "max_blink_range",
+            ranks = { "300" },
+            raw = { 307200 },
+            unit = "dist",
+          },
+          {
+            hidden = true,
+            name = "phase_time",
+            ranks = { "0.1" },
+            raw = { 102 },
+            unit = "s",
+          },
+        },
+      },
+    },
   },
   hero_items = {
     { cost = 0, id = "item_c06e", name = "大盜的贈禮", package = "ishikawa_goemon" },

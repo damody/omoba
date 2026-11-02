@@ -165,7 +165,7 @@ function M.compile(repo_root, kit)
   local m = modules(repo_root)
   local errors = m.validator.validate_doc(kit)
   assert(#errors == 0, "v3.lua is not a valid v3 document:\n" .. table.concat(errors, "\n", 1, math.min(#errors, 20)))
-  assert(kit.kind == "hero", "v3.lua must be a hero document")
+  assert(kit.kind == "hero" or kit.kind == "items", "v3.lua must be a hero or item document")
   return m.compiler.compile(kit, { names = m.compiler.item_names(repo_root .. "/docs/character_pipeline/items") })
 end
 

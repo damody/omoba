@@ -53,6 +53,11 @@ mod tests {
         assert!(!all.is_empty(), "some item generates");
         for ffi in all.iter() {
             let def: AbilityDef = serde_json::from_str(ffi.def_json.as_str()).expect("def json");
+            // A summon's ability from an item document: on its unit, so not a shelf item.
+            if def.kind == AbilityKind::Ability {
+                assert!(["ninja1_flash", "ninja2_burrow"].contains(&def.id.as_str()), "{} is neither an item nor a known summon ability", def.id);
+                continue;
+            }
             assert_eq!(def.kind, AbilityKind::Item, "{}", def.id);
             let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
                 .find(|item| item.source_ref.is_some_and(|r| r.ends_with(&format!(":{}", def.id)))).expect("catalog item");
