@@ -2037,7 +2037,7 @@ fn queue_scripted_item_use(
             if rule.requires_visible && !item_entity_visible_to_team(world, target, viewer) {
                 return Err(failure::err_msg("ItemUse: target is not visible"));
             }
-            if !super::magic_immunity::admits_target(&world.read_resource::<BuffStore>(), Some(&owner_faction), Some(&faction), target, false) {
+            if !super::magic_immunity::admits_target(&world.read_resource::<BuffStore>(), Some(&owner_faction), Some(&faction), target, rule.include_magic_immune) {
                 return Err(failure::err_msg("ItemUse: target is magic immune"));
             }
             SkillTarget::Entity(target)

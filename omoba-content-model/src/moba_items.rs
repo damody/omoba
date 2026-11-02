@@ -369,6 +369,9 @@ pub struct MobaItemTargetEntry {
     pub team: MobaItemTeamFilter,
     pub requires_visible: bool,
     pub out_of_range: MobaItemOutOfRange,
+    /// A scripted unit active may aim at a magic-immune enemy (v3 flag include_magic_immune).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub include_magic_immune: bool,
 }
 
 impl Default for MobaItemTargetEntry {
@@ -383,6 +386,7 @@ impl MobaItemTargetEntry {
             team: MobaItemTeamFilter::Any,
             requires_visible: false,
             out_of_range: MobaItemOutOfRange::Reject,
+            include_magic_immune: false,
         }
     }
 
@@ -393,6 +397,9 @@ impl MobaItemTargetEntry {
     fn validate(&self, active: Option<&MobaItemActiveEntry>) -> Result<(), String> {
         let positive = |value: f32, maximum: f32| value.is_finite() && (1.0 / 1024.0..=maximum).contains(&value);
         let legacy = self.is_legacy_self();
+        if self.include_magic_immune && !(self.shape == MobaItemTargetShape::Unit && matches!(active, Some(MobaItemActiveEntry::Scripted {}))) {
+            return Err("include_magic_immune is for a scripted unit active".into());
+        }
         let shape_ok = match self.shape {
             MobaItemTargetShape::Self_ => legacy && matches!(active,
                 None | Some(MobaItemActiveEntry::Shield { .. } | MobaItemActiveEntry::SprintBuff { .. }
@@ -434,8 +441,8 @@ impl MobaItemTargetEntry {
             MobaItemTeamFilter::Ally => "Ally",
         };
         format!(
-            "MobaItemTargetConst {{ shape: MobaItemTargetShapeConst::{shape}, range: {}, team: MobaItemTeamConst::{team}, requires_visible: {}, out_of_range: MobaItemOutOfRangeConst::Reject }}",
-            fixed(self.range), self.requires_visible,
+            "MobaItemTargetConst {{ shape: MobaItemTargetShapeConst::{shape}, range: {}, team: MobaItemTeamConst::{team}, requires_visible: {}, out_of_range: MobaItemOutOfRangeConst::Reject, include_magic_immune: {} }}",
+            fixed(self.range), self.requires_visible, self.include_magic_immune,
         )
     }
 }
@@ -723,7 +730,7 @@ mod scripted_active_tests {
     use super::*;
 
     fn target(shape: MobaItemTargetShape, range: f32, team: MobaItemTeamFilter, requires_visible: bool) -> MobaItemTargetEntry {
-        MobaItemTargetEntry { shape, range, team, requires_visible, out_of_range: MobaItemOutOfRange::Reject }
+        MobaItemTargetEntry { shape, range, team, requires_visible, out_of_range: MobaItemOutOfRange::Reject, include_magic_immune: false }
     }
 
     #[test]
@@ -743,6 +750,17 @@ mod scripted_active_tests {
         assert!(target(MobaItemTargetShape::Point, 0.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_ok());
         assert!(target(MobaItemTargetShape::Unit, 0.0, MobaItemTeamFilter::Enemy, true).validate(Some(&scripted)).is_err());
         assert!(target(MobaItemTargetShape::Point, -1.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_err());
+    }
+
+    #[test]
+    fn only_a_scripted_unit_active_may_aim_at_the_magic_immune() {
+        let immune = |shape, range| MobaItemTargetEntry { include_magic_immune: true, ..target(shape, range, MobaItemTeamFilter::Enemy, true) };
+        let scripted = MobaItemActiveEntry::Scripted {};
+        let unit = immune(MobaItemTargetShape::Unit, 600.0);
+        assert!(unit.validate(Some(&scripted)).is_ok());
+        assert!(unit.rust_literal().contains("include_magic_immune: true"));
+        assert!(immune(MobaItemTargetShape::Point, 600.0).validate(Some(&scripted)).is_err());
+        assert!(unit.validate(Some(&MobaItemActiveEntry::UnitHeal { amount: 10.0 })).is_err());
     }
 
     #[test]

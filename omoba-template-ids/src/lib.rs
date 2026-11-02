@@ -646,6 +646,7 @@ pub struct MobaItemTargetConst {
     pub team: MobaItemTeamConst,
     pub requires_visible: bool,
     pub out_of_range: MobaItemOutOfRangeConst,
+    pub include_magic_immune: bool,
 }
 
 impl MobaItemTargetConst {
@@ -655,6 +656,7 @@ impl MobaItemTargetConst {
         team: MobaItemTeamConst::Any,
         requires_visible: false,
         out_of_range: MobaItemOutOfRangeConst::Reject,
+        include_magic_immune: false,
     };
 }
 
