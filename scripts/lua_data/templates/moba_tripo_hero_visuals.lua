@@ -30,8 +30,8 @@ return function(ctx)
       extra={['ability_b20_red_charge']={'Sword_Attack',false},['ability_b20_rock_rush']={'Punch_Cross',false},['ability_b20_ruin_wave']={'Sword_Attack',false}}},
     okuma_tomohide={idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.65,
       extra={['ability_b26_blood_fury']={'Spell_Simple_Enter',false},['ability_b26_charging_wave']={'Spell_Simple_Idle_Loop',false},['ability_b26_release_wave']={'Sword_Attack',false},['ability_b26_unstoppable']={'Punch_Cross',false}}},
-    sasaki_kojiro={idle='Idle_Loop',attack='Punch_Jab',critical='Punch_Cross',impact=0.25,
-      extra={['ability_c22_dream_mist']={'Spell_Simple_Shoot',false},['ability_c22_flying_swallow']={'Punch_Cross',false},['ability_c22_ganryu']={'Spell_Simple_Enter',false},['ability_c22_swallow_nest']={'Spell_Simple_Enter',false}}},
+    sasaki_kojiro={idle='Idle_Loop',attack='Mx_Sword_Inward',critical='Mx_Sword_Outward',impact=0.7,
+      extra={['ability_c22_dream_mist']={'Mx_Sword_Draw',false},['ability_c22_flying_swallow']={'Mx_Sword_Slash',false},['ability_c22_ganryu']={'Spell_Simple_Enter',false},['ability_c22_swallow_nest']={'Spell_Simple_Enter',false}}},
     otani_yoshitsugu={idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.65,
       extra={['ability_a12_awe']={'Spell_Simple_Shoot',false},['ability_a12_insight_flash']={'Spell_Simple_Shoot',false},['ability_a12_mystic_arrow']={'Spell_Simple_Shoot',false},['ability_a12_mystic_pierce']={'Spell_Simple_Enter',false},['ability_a12_mystic_possession']={'Spell_Simple_Enter',false}}},
     maeda_toshiie={idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.65,
@@ -112,6 +112,8 @@ return function(ctx)
     local definition=definitions[hero_id]
     if not(definition and imported[hero_id])then return nil end
     local function clip(name)
+      -- Further motions (scripts/mixamo_clips.lua) live beside the library's.
+      if name:sub(1,3)=='Mx_' then local added=hero_id..'_'..name;return root..'AddedClipsV1/'..hero_id..'/'..added..'.'..added end
       local object=hero_id..'_animation_library_Anim_Armature_'..name
       return root..'TripoRetargetV1/'..hero_id..'/'..object..'.'..object
     end

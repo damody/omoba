@@ -100,7 +100,7 @@ M.RECIPES = {
   a12t2 = { look = "flight_glow", tint = ARCANE },
   a12t_aura = { look = "aura_ground", tint = ARCANE },
   -- C22 佐佐木小次郎: steel blue sword light; swallows and a thunder clap
-  c22d_hand_glow = { ground = "soft_glow", ground_size = 140, ground_seconds = 1.2, height = 100, tint = STEEL },
+  c22d_hand_glow = { system = "stream", sprite = "spark_star", size = 70, life = 0.5, loop = true, tint = STEEL },
   c22d_return_projectile = { look = "line", tint = STEEL },
   c22d_cast_sound = { system = "burst", sprite = "lightning", size = 420, life = 0.5, tint = STEEL,
     ground = "shock_ring", ground_size = 460, ground_seconds = 0.5, grow = 0.2 },
@@ -114,8 +114,8 @@ M.RECIPES = {
   c22w_voice = { system = "sparks", tint = STEEL },
   c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, tint = STEEL,
     ground = "vortex", ground_size = 480, ground_seconds = 1.5 },
-  c22t_thunder_clap = { system = "pop", sprite = "lightning", size = 950, life = 0.5, tint = STEEL,
-    ground = "shock_ring", ground_size = 500, ground_seconds = 0.7, grow = 0.15 },
+  c22t_thunder_clap = { system = "burst", sprite = "lightning", size = 1200, life = 0.7, tint = STEEL,
+    ground = "shock_ring", ground_size = 500, ground_seconds = 1.1, grow = 0.08 },
   -- A26 濃姬: gunpowder fire and smoke
   a26w_hit_explosion = { look = "explosion_small" },
   a26e_smoke = { system = "burst", sprite = "smoke_sheet", size = 150, life = 0.8 },
