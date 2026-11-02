@@ -243,6 +243,9 @@ M.FX_ABILITIES = {
   "c05_matsukaze", "c05_thunder_dance", "c05_thunder_spear", "c05_flash_thunder",
 }
 
+-- Low-poly models (Tripo, asset-ledger.md), imported as static world models; a recipe's `mesh` draws one in the pool.
+M.MESH_ROOT = "/Game/Omoba/Structures/TripoStaticV1"
+M.MESHES = { war_hammer = true }
 function M.material(prefix, image) return ("%s/Instances/%s_fx_%s.%s_fx_%s"):format(M.ROOT, prefix, image, prefix, image) end
 function M.system(name) return ("%s/Systems/NS_fx_%s.NS_fx_%s"):format(M.ROOT, name, name) end
 
@@ -299,7 +302,12 @@ function M.spec(root)
     textures[#textures + 1] = row
   end
   for _, id in ipairs(sorted(M.SYSTEMS)) do systems[#systems + 1] = { id = id, emitters = M.SYSTEMS[id] } end
-  return { schema = "omoba.fx-family.v1", textures = textures, systems = systems }
+  local meshes = {}
+  for _, id in ipairs(sorted(M.MESHES)) do
+    local name = "fx_" .. id
+    meshes[#meshes + 1] = { id = name, texture = ("%s/%s/%s_basecolor.%s_basecolor"):format(M.MESH_ROOT, name, name, name) }
+  end
+  return { schema = "omoba.fx-family.v1", textures = textures, systems = systems, meshes = meshes }
 end
 
 function M.check()
@@ -309,7 +317,8 @@ function M.check()
     if r.system and not M.SYSTEMS[r.system] then problems[#problems + 1] = id .. ": system " .. r.system end
     if r.sprite and not M.IMAGES[r.sprite] then problems[#problems + 1] = id .. ": image " .. r.sprite end
     if r.ground and not M.IMAGES[r.ground] then problems[#problems + 1] = id .. ": ground image " .. r.ground end
-    if not r.system and not r.ground then problems[#problems + 1] = id .. ": draws nothing" end
+    if r.mesh and not M.MESHES[r.mesh] then problems[#problems + 1] = id .. ": model " .. r.mesh end
+    if not r.system and not r.ground and not r.mesh then problems[#problems + 1] = id .. ": draws nothing" end
   end
   return problems
 end
@@ -330,7 +339,11 @@ function M.ini_row(id)
   if r.life then add("FxSeconds", number(r.life)) end
   if r.loop then add("bFxLoop", "True") end
   if r.face then add("bFxFaceMotion", "True") end
-  if r.ground then add("Ground", '"' .. M.material("MIG", r.ground) .. '"') end
+  if r.mesh then
+    add("Ground", '"' .. M.material("MIG", r.mesh) .. '"')
+    add("GroundMesh", ('"%s/%s/%s.%s"'):format(M.MESH_ROOT, "fx_" .. r.mesh, "fx_" .. r.mesh, "fx_" .. r.mesh))
+  elseif r.ground then add("Ground", '"' .. M.material("MIG", r.ground) .. '"') end
+  if r.spin then add("GroundSpin", number(r.spin)) end
   if r.ground_size then add("GroundSizeCm", number(r.ground_size * M.WORLD_CM)) end
   if r.ground_seconds then add("GroundSeconds", number(r.ground_seconds)) end
   if r.grow then add("GroundGrow", number(r.grow)) end

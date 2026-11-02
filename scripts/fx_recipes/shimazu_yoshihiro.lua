@@ -17,8 +17,7 @@ return {
     c03r_thunder = { system = "pop", sprite = "lightning", size = 480, life = 0.3, tint = PURPLE,
       ground = "blink_flash", ground_size = 300, ground_seconds = 0.3, height = 20, grow = 0.4 },
     -- c03_iron_hammer: a hammer flares at the start and marches; fire and cracks at every tick
-    c03t_hammer = { system = "pop", sprite = "war_hammer", size = 620, life = 0.5,
-      ground = "war_hammer", ground_size = 540, height = 60, fly = true },
+    c03t_hammer = { mesh = "war_hammer", ground_size = 260, height = 90, fly = true, spin = 720 },
     c03t_hammer_hit = { system = "burst", sprite = "flame_sheet", size = 420, life = 0.5,
       ground = "dust_crack", ground_size = 900, ground_seconds = 0.45, grow = 0.3 },
   },
