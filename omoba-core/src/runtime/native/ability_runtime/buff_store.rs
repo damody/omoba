@@ -19,6 +19,8 @@
 //!   例外：`generic_ability_slow` 的 `move_speed_bonus` 照原作緩速規則
 //!   （dummy.lua:816-902）——同一來源名稱只算一筆，不同來源以 1−Π(1−sᵢ)
 //!   乘法疊加（見 [`combine_ability_slows`]）；同 family 的攻速常數減速仍取最強。
+//!   例外：[`LATEST_FAMILY_PREFIX`] 開頭的 family（v3 `unique_rule = "latest"`）對每個 stat
+//!   採帶該 stat、最後套上（含重新套用）的那一列。
 
 use omb_script_abi::buff_ids::BuffId;
 use omb_script_abi::stat_keys::StatKey;
@@ -28,6 +30,8 @@ use specs::Entity;
 use std::collections::{BTreeMap, HashMap};
 
 pub const AGGREGATION_FAMILY_KEY: &str = "__aggregation_family";
+/// `unique_latest:<group>`: per stat the row applied last, not the strongest.
+pub const LATEST_FAMILY_PREFIX: &str = "unique_latest:";
 /// Ability slows (原作 `dummy.lua` `Slow`／`slow_self_passive`).
 pub const ABILITY_SLOW_FAMILY: &str = "generic_ability_slow";
 const ABILITY_MOVE_SLOW_KEY: &str = "move_speed_bonus";
@@ -41,6 +45,14 @@ fn ability_slow_source(name: &str) -> &str {
 
 /// One move-speed slow of the ability-slow family. The same source name keeps
 /// one value (原作同名覆蓋; the strongest here, independent of HashMap order).
+/// Keeps the row applied last of a `LATEST_FAMILY_PREFIX` family, whatever the map's visit order.
+fn note_latest<'a, V>(latest: &mut BTreeMap<&'a str, (u64, V)>, family: &'a str, applied: u64, value: V) {
+    match latest.get_mut(family) {
+        Some(current) => if applied > current.0 { *current = (applied, value); },
+        None => { latest.insert(family, (applied, value)); }
+    }
+}
+
 fn note_ability_slow<'a>(slows: &mut BTreeMap<&'a str, i64>, name: &'a str, raw: i64) {
     // A slow is a reduction in 0..=1; positive or malformed values do not slow.
     let slow = raw.saturating_neg().clamp(0, 1024);
@@ -103,6 +115,8 @@ pub struct BuffEntry {
     /// Fraction of one raw damage quantum; owned by this buff lifetime.
     periodic_remainder: i64,
     zone_clock: i64,
+    /// When this row was last applied, in the store's own count (LATEST_FAMILY_PREFIX).
+    applied: u64,
 }
 
 /// Canonical persistent lifetime used by stat buffs and snapshots. Explicit removal still applies.
@@ -117,6 +131,7 @@ pub struct BuffStore {
     entities_by_key: HashMap<String, HashMap<Entity, u32>>,
     independent_zones:BTreeMap<(Entity,String),super::damage_zone::IndependentDamageZone>,
     next_zone_lease:u64,
+    next_applied:u64,
     /// Rows marked for status events (status_event::KEY) that left their holder, with how
     /// (status_event EXPIRED / REMOVED / CLEARED), in the order they left. Drained by the script
     /// dispatch; transient, not part of the replicated state. The last field is the duration the
@@ -304,9 +319,12 @@ impl BuffStore {
     }
 
     fn insert_buff(&mut self, entity: Entity, buff_id: &str, duration: Fixed64, payload: Value) {
+        let applied = self.next_applied;
+        self.next_applied += 1;
         let entity_buffs = self.buffs.entry(entity).or_default();
         match entity_buffs.get_mut(buff_id) {
             Some(e) => {
+                e.applied = applied;
                 if payload.get(super::damage_zone::KEY).is_some() {
                     e.remaining=duration;
                     e.zone_clock=0;
@@ -358,6 +376,7 @@ impl BuffStore {
                         payload,
                         periodic_remainder: 0,
                         zone_clock: 0,
+                        applied,
                     },
                 );
                 for k in &new_keys {
@@ -557,6 +576,7 @@ impl BuffStore {
         let mut total=0i128;
         let mut families:BTreeMap<&str,i64>=BTreeMap::new();
         let mut ability_slows:BTreeMap<&str,i64>=BTreeMap::new();
+        let mut latest:BTreeMap<&str,(u64,i64)>=BTreeMap::new();
         for (name,entry) in self.stat_rows(entity) {
             let Some(value)=entry.payload.get(stat.as_str()) else {continue;};
             let raw=if let Some(raw)=value.as_i64() {raw} else {
@@ -569,6 +589,9 @@ impl BuffStore {
             if family==Some(ABILITY_SLOW_FAMILY) && stat.as_str()==ABILITY_MOVE_SLOW_KEY {
                 note_ability_slow(&mut ability_slows,name,raw);continue;
             }
+            if let Some(family)=family.filter(|family|family.starts_with(LATEST_FAMILY_PREFIX)) {
+                note_latest(&mut latest,family,entry.applied,raw);continue;
+            }
             if let Some(family)=family {
                 families.entry(family).and_modify(|current| {
                     if raw.unsigned_abs()>current.unsigned_abs()
@@ -577,6 +600,7 @@ impl BuffStore {
             } else {total=total.checked_add(i128::from(raw))?;}
         }
         for raw in families.into_values() {total=total.checked_add(i128::from(raw))?;}
+        for (_,raw) in latest.into_values() {total=total.checked_add(i128::from(raw))?;}
         total=total.checked_add(i128::from(combine_ability_slows(&ability_slows)))?;
         Some(Fixed64::from_raw(i64::try_from(total).ok()?))
     }
@@ -585,6 +609,7 @@ impl BuffStore {
         let mut total = Fixed64::ZERO;
         let mut family_values: BTreeMap<&str, Fixed64> = BTreeMap::new();
         let mut ability_slows: BTreeMap<&str, i64> = BTreeMap::new();
+        let mut latest: BTreeMap<&str, (u64, Fixed64)> = BTreeMap::new();
         for (name, entry) in self.stat_rows(entity) {
             let Some(value) = entry.payload.get(key) else {
                 continue;
@@ -602,6 +627,10 @@ impl BuffStore {
                 note_ability_slow(&mut ability_slows, name, value.raw());
                 continue;
             }
+            if family.starts_with(LATEST_FAMILY_PREFIX) {
+                note_latest(&mut latest, family, entry.applied, value);
+                continue;
+            }
             family_values
                 .entry(family)
                 .and_modify(|current| {
@@ -616,6 +645,7 @@ impl BuffStore {
         family_values
             .into_values()
             .fold(total, |acc, value| acc + value)
+            + latest.into_values().fold(Fixed64::ZERO, |acc, (_, value)| acc + value)
             + Fixed64::from_raw(combine_ability_slows(&ability_slows))
     }
 
@@ -639,6 +669,7 @@ impl BuffStore {
         let key = stat.as_str();
         let mut product = Fixed64::ONE;
         let mut family_values: BTreeMap<&str, Fixed64> = BTreeMap::new();
+        let mut latest: BTreeMap<&str, (u64, Fixed64)> = BTreeMap::new();
         for (_, entry) in self.stat_rows(entity) {
             let Some(value) = entry.payload.get(key) else {
                 continue;
@@ -652,6 +683,10 @@ impl BuffStore {
                 product *= value;
                 continue;
             };
+            if family.starts_with(LATEST_FAMILY_PREFIX) {
+                note_latest(&mut latest, family, entry.applied, value);
+                continue;
+            }
             family_values
                 .entry(family)
                 .and_modify(|current| {
@@ -665,6 +700,7 @@ impl BuffStore {
                 })
                 .or_insert(value);
         }
+        let product = latest.into_values().fold(product, |acc, (_, value)| acc * value);
         family_values
             .into_values()
             .fold(product, |acc, value| acc * value)
@@ -956,6 +992,42 @@ fn move_speed_sum_slot<'a>(sums: &'a mut MoveSpeedSums, key: &str) -> Option<&'a
         "movespeed_max" => Some(&mut sums.max),
         "movespeed_limit" => Some(&mut sums.limit),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod latest_family_tests {
+    use super::*;
+    use specs::{Builder, World, WorldExt};
+
+    #[test]
+    fn a_latest_family_takes_the_row_applied_last_and_falls_back_when_it_ends() {
+        let mut world = World::new();
+        let e = world.create_entity().build();
+        let mut buffs = BuffStore::default();
+        let row = |armor: i64, mult: i64| serde_json::json!({
+            StatKey::PhysicalArmorBonus.as_str(): armor, StatKey::AttackSpeedMultiplier.as_str(): mult,
+            AGGREGATION_FAMILY_KEY: "unique_latest:armor_aura" });
+        let armor = |buffs: &BuffStore| buffs.sum_add(e, StatKey::PhysicalArmorBonus).raw();
+        let mult = |buffs: &BuffStore| buffs.product_mult(e, StatKey::AttackSpeedMultiplier).raw();
+        let checked = |buffs: &BuffStore| buffs.checked_sum_add(e, StatKey::PhysicalArmorBonus).unwrap().raw();
+        let time = Fixed64::from_i32(10);
+        buffs.add(e, "strong", time, row(8192, 2048));
+        buffs.add(e, "weak", time, row(1024, 1536));
+        assert_eq!((armor(&buffs), checked(&buffs), mult(&buffs)), (1024, 1024, 1536), "the weaker row was applied last");
+        buffs.add(e, "strong", time, row(8192, 2048));
+        assert_eq!((armor(&buffs), checked(&buffs), mult(&buffs)), (8192, 8192, 2048), "applying it again makes it the latest");
+        buffs.add(e, "other", time, serde_json::json!({ StatKey::PhysicalArmorBonus.as_str(): 2048 }));
+        assert_eq!(armor(&buffs), 8192 + 2048, "a row outside the family still adds");
+        buffs.remove(e, "other");
+        buffs.remove(e, "strong");
+        assert_eq!(armor(&buffs), 1024, "the row left takes over");
+        // a plain family keeps taking the strongest
+        let plain = |v: i64| serde_json::json!({ StatKey::PhysicalArmorBonus.as_str(): v, AGGREGATION_FAMILY_KEY: "unique_group:armor" });
+        buffs.remove(e, "weak");
+        buffs.add(e, "strong", time, plain(8192));
+        buffs.add(e, "weak", time, plain(1024));
+        assert_eq!(armor(&buffs), 8192);
     }
 }
 
