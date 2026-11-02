@@ -1063,6 +1063,10 @@ fn check_fixed_quirk(s: &Value) -> Option<Verdict> {
         "046" => fix_candidates::fc046_a07r_crits_after_misses_in_a_row,
         "008" => fix_candidates::fc008_b04t_extra_shots_keep_the_launch_aim,
         "078" => fix_candidates::fc078_a02w_does_nothing_on_buildings,
+        "102" => fix_candidates::fc102_a03e_is_off_and_ranged_after_a_death,
+        "104" => fix_candidates::fc104_b15_flame_arrow_is_off_after_a_death,
+        "110" => fix_candidates::fc110_c07_magic_shield_is_off_after_a_death,
+        "133" => fix_candidates::fc133_a32f_is_off_after_a_death,
         _ => return Some(Verdict::Unsupported(format!("FC-{fc} is fixed but has no test here yet"))),
     };
     match std::panic::catch_unwind(test) {
@@ -3866,6 +3870,86 @@ mod fix_candidates {
             phys: Fixed64::from_i32(phys), magi: Fixed64::from_i32(magi), real: Fixed64::from_i32(pure),
             source, target: victim, damage_profile: 0, predeclared: false });
         run.step(3);
+    }
+
+    /// FC-104/110/133: a toggle that was on at the holder's death comes back off: one press turns
+    /// it on with its status, it is not left on with nothing behind it.
+    fn toggled_on_dies_and_comes_back(hero: &str, entry: &str, status: &str) -> Run {
+        let mut run = learned(hero, entry, 1, false);
+        assert!(run.cast("none", 0.5, None).unwrap().accepted, "{entry} not turned on");
+        assert!(holds(&run, run.caster, status), "{entry} on without {status}");
+        let (caster, enemy) = (run.caster, run.enemy);
+        run.kill(enemy, caster);
+        run.step(3);
+        run.kill_physical_too(enemy, caster);
+        assert!(!living(&run, caster), "{hero} did not die");
+        for _ in 0..ticks(180.0) {
+            let hero = run.world.read_resource::<MobaMatch>().heroes[0].entity;
+            if let Some(hero) = hero.filter(|hero| living(&run, *hero)) { run.caster = hero; break; }
+            run.step(1);
+        }
+        assert!(living(&run, run.caster), "{hero} did not respawn");
+        run.step(ticks(1.0));
+        assert!(!holds(&run, run.caster, status), "{status} back on after the respawn");
+        run
+    }
+
+    fn press_turns_it_on(run: &mut Run, entry: &str, status: &str) {
+        run.step(ticks(value(entry, 1, "cooldown").unwrap_or(0.0) + 0.5));
+        if let Some(pool) = run.world.write_storage::<Hero>().get_mut(run.caster).and_then(|h| h.mana_pool.as_mut()) { *pool = omoba_core::runtime::ability_runtime::ManaPool::new(pool.maximum(), pool.maximum()).unwrap(); }
+        assert!(run.cast("none", 0.5, None).unwrap().accepted, "{entry} not cast after the respawn");
+        assert!(holds(run, run.caster, status), "one press after the respawn did not turn {entry} on");
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc102_a03e_is_off_and_ranged_after_a_death() {
+        let mut run = learned("ishikawa_kazumasa", "a03_spider_form", 1, false);
+        assert!(run.cast("none", 0.5, None).unwrap().accepted, "a03_spider_form not turned on");
+        assert!(holds(&run, run.caster, "a03e_melee"), "a03_spider_form on but not melee");
+        let mut run = toggled_on_dies_and_comes_back("ishikawa_kazumasa", "a03_spider_form", "a03e_spider");
+        assert!(!holds(&run, run.caster, "a03e_melee"), "still melee after the respawn");
+        press_turns_it_on(&mut run, "a03_spider_form", "a03e_spider");
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc104_b15_flame_arrow_is_off_after_a_death() {
+        let mut run = toggled_on_dies_and_comes_back("imagawa_yoshimoto", "b15_flame_arrow", "b15e_orb");
+        press_turns_it_on(&mut run, "b15_flame_arrow", "b15e_orb");
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc110_c07_magic_shield_is_off_after_a_death() {
+        let mut run = toggled_on_dies_and_comes_back("tachibana_dosetsu", "c07_magic_shield", "c07d_shield");
+        press_turns_it_on(&mut run, "c07_magic_shield", "c07d_shield");
+    }
+
+    /// FC-133: A32F on cancels his physical damage. After a death with it on, his physical damage
+    /// lands again, and one press cancels it again.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc133_a32f_is_off_after_a_death() {
+        let enemy_hp = |run: &Run| run.world.read_storage::<CProperty>().get(run.enemy).map(|p| real(p.hp)).unwrap();
+        let mut run = learned("takigawa_kazumasu", "a32_soul_blade", 1, false);
+        let (caster, enemy) = (run.caster, run.enemy);
+        assert!(run.cast("none", 0.5, None).unwrap().accepted, "a32_soul_blade not turned on");
+        let before = enemy_hp(&run);
+        hit(&mut run, caster, enemy, 100, 0, 0);
+        assert_eq!(enemy_hp(&run), before, "physical damage landed with a32_soul_blade on");
+
+        let mut run = toggled_on_dies_and_comes_back("takigawa_kazumasu", "a32_soul_blade", "a32f_soul_blade");
+        let (caster, enemy) = (run.caster, run.enemy);
+        let before = enemy_hp(&run);
+        hit(&mut run, caster, enemy, 100, 0, 0);
+        let after = enemy_hp(&run);
+        assert!(after < before, "after the respawn his physical damage is still canceled with no status ({before} -> {after})");
+        press_turns_it_on(&mut run, "a32_soul_blade", "a32f_soul_blade");
+        let caster = run.caster;
+        let before = enemy_hp(&run);
+        hit(&mut run, caster, enemy, 100, 0, 0);
+        assert_eq!(enemy_hp(&run), before, "physical damage landed with a32_soul_blade on again");
     }
 
     /// FC-024: A05D cancels a lethal hit and feigns death, then starts its own cooldown; a second

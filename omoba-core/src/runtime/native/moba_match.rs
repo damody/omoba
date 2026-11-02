@@ -753,7 +753,7 @@ pub struct MobaHeroSlot {
     /// v3 `unit_state` rows of scope `hero` (unit_var), kept from the last life for the next.
     hero_vars: Vec<(String, serde_json::Value)>,
     /// v3 statuses of scope `hero` / `permanent` (status_scope), kept from the last life for the next.
-    hero_statuses: Vec<super::status_scope::KeptStatus>,
+    pub(crate) hero_statuses: Vec<super::status_scope::KeptStatus>,
 }
 
 impl MobaHeroSlot {
@@ -3485,6 +3485,7 @@ fn finish_moba_match_rules(world: &mut World) {
                             agility_raw: agility.raw(),
                             intelligence_raw: intelligence.raw(),
                             attribute_hp_raw: hero.attribute_hp.raw(),
+                            base: [hero.strength, hero.agility, hero.intelligence],
                         },
                     })
                     .expect("valid visible attributes");

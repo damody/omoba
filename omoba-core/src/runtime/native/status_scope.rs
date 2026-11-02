@@ -24,16 +24,22 @@ fn kept(payload: &Value) -> bool {
 
 /// One status kept across a death: its row, payload and the match time it runs out (None: never).
 #[derive(Clone, Debug, PartialEq)]
-pub struct KeptStatus { pub id: String, pub payload: Value, pub until: Option<Fixed64> }
+pub struct KeptStatus { pub id: String, pub payload: Value, pub until: Option<Fixed64>, pub body: Entity }
 
 /// The kept-scope rows of `entity` at match time `now`, in buff id order.
 pub fn persisting(buffs: &BuffStore, entity: Entity, now: Fixed64) -> Vec<KeptStatus> {
     let mut rows: Vec<KeptStatus> = buffs.iter_for(entity).filter(|(_, entry)| kept(&entry.payload))
-        .map(|(id, entry)| KeptStatus { id: id.to_owned(), payload: entry.payload.clone(),
+        .map(|(id, entry)| KeptStatus { id: id.to_owned(), payload: entry.payload.clone(), body: entity,
             until: (entry.remaining < NEVER).then(|| now + entry.remaining.max(Fixed64::ZERO)) })
         .collect();
     rows.sort_by(|a, b| a.id.cmp(&b.id));
     rows
+}
+
+/// A removal aimed at the dead body after its rows were saved: an on_death trigger runs then
+/// (FC-102: A03's melee form came back on the respawn, E657).
+pub fn forget(rows: &mut Vec<KeptStatus>, body: Entity, id: &str) {
+    rows.retain(|row| row.body != body || row.id != id);
 }
 
 /// Put the saved rows that have not run out by `now` on the hero's new life.
@@ -50,6 +56,23 @@ mod tests {
     use super::*;
     use serde_json::json;
     use specs::{Builder, World, WorldExt};
+
+    #[test]
+    fn a_removal_aimed_at_the_dead_body_takes_only_that_row_of_that_body() {
+        let mut world = World::new();
+        let (dead, other) = (world.create_entity().build(), world.create_entity().build());
+        let mut buffs = BuffStore::default();
+        for hero in [dead, other] {
+            buffs.add(hero, "melee", Fixed64::from_i32(30), json!({ (KEY): "hero" }));
+            buffs.add(hero, "oath", Fixed64::from_i32(30), json!({ (KEY): "hero" }));
+        }
+        let mut rows = persisting(&buffs, dead, Fixed64::ZERO);
+        let mut others = persisting(&buffs, other, Fixed64::ZERO);
+        forget(&mut rows, dead, "melee");
+        forget(&mut others, dead, "melee");
+        assert_eq!(rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["oath"]);
+        assert_eq!(others.len(), 2, "another hero's row with that id stays");
+    }
 
     #[test]
     fn hero_and_permanent_statuses_outlive_a_death_and_keep_counting_down() {

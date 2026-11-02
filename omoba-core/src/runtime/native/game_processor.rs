@@ -4932,6 +4932,9 @@ pub(crate) fn handle_script_heal(world: &mut World, target: Entity, amount: Fixe
 fn handle_script_remove_buff(world: &mut World, target: Entity, buff_id: String) {
     // A status leaves with the shared states it alone held (dispel::CONTROL_SOURCE_PREFIX).
     super::dispel::remove_status(world, target, &buff_id);
+    if let Some(mut state) = world.try_fetch_mut::<crate::runtime::MobaMatch>() {
+        for slot in &mut state.heroes { super::status_scope::forget(&mut slot.hero_statuses, target, &buff_id); }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

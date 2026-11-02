@@ -2470,7 +2470,8 @@ function Gen:action(a, ctx, ind)
     return line("{") .. line("    let to = " .. self:value(a.to, ctx, "unit") .. ";") .. line("    cx.kill(to, " .. silent .. ")?;") .. line("}")
   elseif op == "toggle_ability" then
     -- turning a toggle of this document off: `of` runs its on_toggle_off while it holds the
-    -- toggle's status (the status is the toggle state; the host keeps no other)
+    -- toggle's status (the status is the toggle state; the host keeps no other). A trigger of that
+    -- status's own ending runs after the row left: there it held it, and the rest of the off still runs.
     if a.on ~= false then self:block("action:toggle_ability.on:" .. tostring(a.on)); return "" end
     local ab = self.m.abilities[a.ability]
     local ev = ab and ab.def.events or {}
@@ -2483,7 +2484,7 @@ function Gen:action(a, ctx, ind)
     local call = here and "on_toggle_off(cx)" or ("super::" .. a.ability .. "::on_toggle_off(cx)")
     local id = here and "ID" or ("super::" .. a.ability .. "::ID")
     return line("{") .. line("    let of = " .. self:value(a.of, ctx, "unit") .. ";")
-      .. line("    if cx.has_status(of, &super::ids::status::" .. upper(ts) .. ") {")
+      .. line(ctx.ended_status == ts and "    {" or ("    if cx.has_status(of, &super::ids::status::" .. upper(ts) .. ") {"))
       .. line("        let level = cx.ability_level(of, " .. id .. ");")
       .. line("        let (caster, rank) = (cx.caster, cx.rank);")
       .. line("        cx.caster = of;")
@@ -4218,7 +4219,7 @@ local function emit_entry(m, o, opts, status_problems)
             local pre = name == "on_take_damage_pre" or name == "on_deal_damage_pre"
             local ended = name == "on_removed" or name == "on_expired" or name == "on_death"
             local ctx = { owner = so, scope = scope_child(nil), event = executed and "ability_executed" or (name == "on_moved" and "moved") or (name == "on_mana_spent" and "mana_spent") or (name == "on_heal_received" and "heal_received") or (name == "on_order_targeted" and "order_targeted") or evented, pre = pre, ended = ended,
-              windup = name == "on_attack_windup" }
+              windup = name == "on_attack_windup", ended_status = ended and sd.id or nil }
             -- an absorb event names this hit's absorbed share `absorbed` (v3.md §4)
             if name == "on_absorb" or name == "on_broken" then
               ctx.scope.names.absorbed = { name = "absorbed", ty = "num", marker = "cx.event_amount", used = false }

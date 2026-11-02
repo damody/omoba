@@ -62,6 +62,9 @@ fn a_replica_settles_the_attribute_hp_of_a_bought_strength_item_like_the_authori
     let attribute_hp = |world: &World, hero| world.read_storage::<Hero>().get(hero).unwrap().attribute_hp;
     let before = attribute_hp(&authority, heroes[0]);
     for step in 0..30u64 {
+        // A settled base stat change (B11R's agility on a kill, E657): the totals alone left the
+        // replica's base points behind.
+        if step == 10 { authority.write_storage::<Hero>().get_mut(heroes[1]).unwrap().agility += 2; }
         let inputs: Vec<(u32, PlayerInput)> = if step == 2 {
             [1].into_iter().map(|player| (player, PlayerInput {
                 action: Some(Action::ItemBuy(ItemBuy { item_id: "strength_ingot".into() })) })).collect()

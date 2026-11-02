@@ -1741,8 +1741,9 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
             for value in [hp_raw, max_hp_raw, speed_raw, armor_raw, attack_raw] { payload.extend(value.to_le_bytes()); }
             (Some(*source), None, payload)
         }
-        ObservableFact::CommittedAttributes { source, strength_raw, agility_raw, intelligence_raw, attribute_hp_raw } => {
+        ObservableFact::CommittedAttributes { source, strength_raw, agility_raw, intelligence_raw, attribute_hp_raw, base } => {
             for value in [strength_raw, agility_raw, intelligence_raw, attribute_hp_raw] { payload.extend(value.to_le_bytes()); }
+            for value in base { payload.extend(value.to_le_bytes()); }
             (Some(*source), None, payload)
         }
         ObservableFact::CommittedAbilitySlots { source, abilities } => {

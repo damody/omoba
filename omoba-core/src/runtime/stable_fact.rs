@@ -128,7 +128,9 @@ pub enum ObservableFact {
     CommittedEconomy { source: u64, state: crate::runtime::native::economy_projection::CommittedEconomyState },
     CommittedEquipmentStats { source: u64, hp_raw: i64, max_hp_raw: i64, speed_raw: i64, armor_raw: i64, attack_raw: i64 },
     /// Public derived values only (what the attribute panel shows); never the items behind them.
-    CommittedAttributes { source: u64, strength_raw: i64, agility_raw: i64, intelligence_raw: i64, attribute_hp_raw: i64 },
+    CommittedAttributes { source: u64, strength_raw: i64, agility_raw: i64, intelligence_raw: i64, attribute_hp_raw: i64,
+        /// The base points under those totals: a settled base stat change (v3 modify_stat permanent).
+        base: [i32; 3] },
     /// The compiled ability id (`AbilityId`, 0 = empty slot) in each of a visible hero's slots.
     CommittedAbilitySlots { source: u64, abilities: Vec<u16> },
     /// Final, already-disclosable state after an authority-owned settlement.

@@ -2,6 +2,10 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E658 （保留）kind=active 帶 passive 的招，普攻命中觸發從來不執行（2026-11-02）
+
+## E657 （保留）CommittedAttributes 不帶基礎屬性，replica 的 agility 落後；on_death 移除 hero scope 狀態沒有作用（FC-102）（2026-11-02）
+
 ## E656 conformance：判定被動與狀態的普攻觸發，英雄實際攻擊後逐一觀察（2026-11-02，conformance session）
 - **現象**：被動的 on_attack_hit、on_attack_windup，以及舊檢查讀不懂的狀態普攻效果（heal、for_each、cue 加 damage 等），都沒有判定。
 - **通用修正**：`attack_effects`：英雄實際攻擊對方（敵方英雄持有時由 player 2 下令），對方在旁邊、看得見，並加上高血量 buff 撐完。條件成立、對象確定的效果逐一觀察；它要套的狀態先拿掉。機率效果持續攻擊，直到全部落空的機率低於 0.1 %（最多 60 秒，超過就略過那個效果）。

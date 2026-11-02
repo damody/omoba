@@ -1879,10 +1879,13 @@ fn apply_disclosed_events(
         // are (attributes.rs skips deriving them, E374).
         if event.event_kind == crate::runtime::FactKind::CommittedAttributes as u32 {
             let payload = &event.sanitized_payload;
-            if payload.len() != 32 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            if payload.len() != 44 { return Err(ReplicaRuntimeError::MalformedBaseline); }
             let raw = |offset| i64::from_le_bytes(payload[offset..offset + 8].try_into().unwrap());
             let values = [raw(0), raw(8), raw(16), raw(24)];
             if values.iter().any(|value| *value < 0) { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let point = |offset| i32::from_le_bytes(payload[offset..offset + 4].try_into().unwrap());
+            let base = [point(32), point(36), point(40)];
+            if base.iter().any(|value| *value < 0) { return Err(ReplicaRuntimeError::MalformedBaseline); }
             let id = event.subject.as_ref().map_or(0, |id| id.value);
             let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
             let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
@@ -1890,6 +1893,7 @@ fn apply_disclosed_events(
             let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
             hero.attribute_totals = [values[0], values[1], values[2]].map(omoba_sim::Fixed64::from_raw);
             hero.attribute_hp = omoba_sim::Fixed64::from_raw(values[3]);
+            [hero.strength, hero.agility, hero.intelligence] = base;
             *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);
         }
         if event.event_kind == crate::runtime::FactKind::CommittedProgression as u32 {
