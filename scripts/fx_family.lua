@@ -203,9 +203,9 @@ M.RECIPES.fx_stun = { system = "stream", sprite = "spark_star", size = 60, life 
 
 -- Basic attacks, generated: fx_swing_<hero> at the attacker, fx_strike_<hero> at the target (OmUnitActor::PlayAttackFx).
 M.WEAPONS = {
-  katana = { swing = { system = "pop", sprite = "crescent_slash", size = 150, life = 0.15 },
+  katana = { swing = { ground = "crescent_slash", ground_size = 170, ground_seconds = 0.16, height = 90, grow = 0.6, face_camera = 0.7 },
     strike = { ground = "crescent_slash", ground_size = 210, ground_seconds = 0.26, height = 80, grow = 0.5, face_camera = 0.7 } },
-  axe = { swing = { system = "pop", sprite = "crescent_slash", size = 190, life = 0.18 },
+  axe = { swing = { ground = "crescent_slash", ground_size = 210, ground_seconds = 0.2, height = 90, grow = 0.6, face_camera = 0.8 },
     strike = { ground = "crescent_slash", ground_size = 250, ground_seconds = 0.3, height = 70, grow = 0.4, face_camera = 0.8 } },
   spear = { swing = { ground = "chain_bolt", ground_size = 90, ground_seconds = 0.2, line = true },
     strike = { ground = "chain_bolt", ground_size = 150, ground_seconds = 0.22, height = 80, line = false, grow = 0.5, face_camera = 0.7 } },
