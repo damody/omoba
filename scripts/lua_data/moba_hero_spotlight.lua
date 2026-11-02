@@ -15,7 +15,7 @@ return {schema_version=1,map_id='three_lane_quick_training',think_hz=5,mana_enab
     -- Melee stand-ins (attack range 128): at their places they cannot reach the demonstrator.
     seat(2,1,'date_masamune','support',true),
     seat(6,2,'date_masamune','mid',true),
-    -- The death demonstration: the hero walks into these four, out of the stage's view until then.
+    -- The death demonstration: the hero walks between these four, out of the stage's view until then.
     seat(7,2,'asai_nagamasa','top',true),
     seat(8,2,'omatsu','jungle',true),
     seat(9,2,'saika_magoichi','carry',true),
@@ -29,5 +29,6 @@ return {schema_version=1,map_id='three_lane_quick_training',think_hz=5,mana_enab
     -- in reach (B06 連牙炎突 is 250: at 280 its spotlight was skipped, E163) and stays outside
     -- the melee stand-ins' 128 attack range.
     placements={['1']={2300,2400},['2']={2300,2160},['6']={2300,2640},
-      ['7']={2950,2400},['8']={3030,2320},['9']={3030,2480},['10']={3100,2400}}},
+      -- Either side of where the hero falls: nothing between it and the camera.
+      ['7']={2900,2230},['8']={2900,2570},['9']={3030,2190},['10']={3030,2610}}},
 }

@@ -171,7 +171,7 @@ M.RECIPES = {
   c05t_eclipse_area = { ground = "vortex", ground_size = 400, ground_seconds = 1.5, tint = BLUE },
   c05w_armlet = { ground = "soft_glow", ground_size = 170, ground_seconds = 1.2, tint = BLUE },
   -- The struck flash on any unit (OmUnitActor::OnDamageCue).
-  fx_hit = { ground = "blink_flash", ground_size = 150, ground_seconds = 0.2, height = 70, grow = 0.4, tint = { 1.0, 0.6, 0.25 } },
+  fx_hit = { ground = "blink_flash", ground_size = 150, ground_seconds = 0.25, height = 30, grow = 0.4, tint = { 1.0, 0.6, 0.25 } },
 }
 
 -- Abilities whose every look is in the recipes above.
