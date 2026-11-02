@@ -373,7 +373,10 @@ end
 
 -- The renderer's spotlight script (FOmSpotlightScript::Parse).
 -- The radius an ability's effect covers, from its package values (exact key, its highest level).
+-- Their radius is not something on the ground to show: the camera stays close.
+M.NO_VIEW={c05_matsukaze=true}
 function M.view_radius(doc,id)
+  if M.NO_VIEW[id] then return nil end
   for _,ability in ipairs(doc and doc.abilities or {}) do
     if ability.id==id and type(ability.values)=='table' then
       local value=ability.values.radius

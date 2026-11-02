@@ -131,7 +131,8 @@ M.RECIPES = {
   a26t_big_explosion = { look = "explosion", size = 340, ground_size = 560 },
   a26t_small_explosion = { look = "explosion_small" },
   spell_hint = { ground = "shock_ring", ground_size = 400, ground_seconds = 0.8, tint = { 1.0, 0.45, 0.2 } },
-  spell_hint_self = { ground = "arcane_circle", ground_size = 400, ground_seconds = 0.8, tint = ARCANE },
+  -- The cue's radius is the ability's reveal radius, not a mark to draw: the cast shows in the hero's own cue.
+  spell_hint_self = { ground = "arcane_circle", ground_size = 400, ground_seconds = 0.8, tint = ARCANE, alpha = 0.01 },
   move_slow = { ground = "slow_chains", ground_size = 140, ground_seconds = 1.2, tint = BLUE },
   c22w_hide_model = { ground = "soft_glow", ground_size = 180, ground_seconds = 1.2, tint = STEEL },
   -- A01 德川家康: gold rally, healing green, thunder blade, a binding net
@@ -211,7 +212,7 @@ M.WEAPONS = {
   gun = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.14,
       ground = "spark_star", ground_size = 90, ground_seconds = 0.2, height = 70, fly = true },
     strike = { system = "burst", sprite = "shock_ring", size = 240, area = true, life = 0.35, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
-  arcane = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.16, ground = "spark_star", ground_size = 90, ground_seconds = 0.26, height = 70, fly = true },
+  arcane = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.16, ground = "spark_star", ground_size = 180, ground_seconds = 0.26, height = 70, fly = true },
     strike = { system = "burst", sprite = "vortex", size = 240, area = true, life = 0.35, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
 }
 M.ATTACKS = {

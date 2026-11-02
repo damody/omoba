@@ -21,7 +21,8 @@ return {
     c05t_vo = { system = "burst", sprite = "lightning", size = 380, life = 0.35, tint = BLUE,
       ground = "vortex", ground_size = 460, ground_seconds = 1.4, grow = 0.3 },
     c05t_aoe_hint = { ground = "arcane_circle", ground_seconds = 1.5, tint = BLUE },
-    c05t_aoe_hint_enemy = { ground = "arcane_circle", ground_seconds = 0.8, tint = WARN },
+    -- Both hints play for the viewer; the warning colour over the blue circle reads as the skill changing.
+    c05t_aoe_hint_enemy = { ground = "arcane_circle", ground_seconds = 0.8, tint = WARN, alpha = 0.01 },
     c05t_blink_start = { system = "pop", sprite = "lightning", size = 640, life = 0.3, tint = BLUE,
       ground = "blink_flash", ground_size = 420, ground_seconds = 0.35 },
     c05t_eclipse_area = { system = "pop", sprite = "lightning", size = 950, life = 0.5, tint = BLUE,
