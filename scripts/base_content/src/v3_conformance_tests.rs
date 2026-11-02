@@ -1627,6 +1627,102 @@ fn periodic_effects(run: &mut Run, holder: specs::Entity, step: &Value, effects:
     Verdict::PassNoted(seen.join("; "))
 }
 
+/// Where A says a status gets put on (E673): what its `needs` and selector's `where` can be read to
+/// ask is set up, the status that runs the trigger is put on (the hero, then the enemy hero), and the
+/// cast or event is made. Returns the holder if the status shows.
+fn through_applied_by(run: &mut Run, by: &Value, find: &dyn Fn(&Run) -> Option<specs::Entity>) -> Option<specs::Entity> {
+    use omoba_core::runtime::ability_runtime::BuffStore;
+    let (entry, rank, caster, enemy) = (run.entry.clone(), run.rank, run.caster, run.enemy);
+    let runtime = |id: &str| status_runtime_id(&entry, id).unwrap_or_else(|| id.to_owned());
+    for need in by["needs"].as_array().into_iter().flatten() {
+        let unit = if matches!(need["on"].as_str(), Some("caster" | "self")) { caster } else { enemy };
+        let id = need["status"].as_str().unwrap_or("");
+        match need["kind"].as_str() {
+            Some("has_status") => run.world.write_resource::<BuffStore>().add(unit, &runtime(id), Fixed64::from_i32(600), json!({})),
+            Some("stacks") => run.world.write_resource::<BuffStore>().add(unit, &runtime(id), Fixed64::from_i32(600), json!({"__v3_stacks": 99})),
+            Some("state") => { if let Some(setter) = need["by"].as_str() { cast_other(run, setter, &entry); } }
+            _ => {}
+        }
+    }
+    let where_ = by["where"].as_str().unwrap_or("");
+    if where_.starts_with("it.hp_pct <") {
+        if let Some(p) = run.world.write_storage::<CProperty>().get_mut(enemy) { p.hp = p.mhp / Fixed64::from_i32(20); }
+    }
+    if let Some(id) = where_.strip_prefix("has_status(it, ").and_then(|r| r.strip_suffix(')')) {
+        run.world.write_resource::<BuffStore>().add(enemy, &runtime(id), Fixed64::from_i32(600), json!({}));
+    }
+    let seek = |run: &mut Run, seconds: f64| -> Option<specs::Entity> {
+        for _ in 0..ticks(seconds) { if let Some(found) = find(run) { return Some(found); } run.step(1); }
+        find(run)
+    };
+    if by["source"] == "cast" {
+        let cast = by["entry"].as_str().unwrap_or(&entry).to_owned();
+        if by["event"] != "on_cast" { return None; }
+        let wait = if cast == entry {
+            let kind = omoba_template_ids::ability_by_name(&entry).and_then(omoba_template_ids::active_ability_const).map(|c| c.target_type);
+            let aim = match kind { Some(omoba_template_ids::TargetTypeC::Unit) => "unit", Some(omoba_template_ids::TargetTypeC::Point) => "point", _ => "none" };
+            {
+                let mut heroes = run.world.write_storage::<Hero>();
+                if let Some(h) = heroes.get_mut(caster) {
+                    h.ability_cooldowns.clear();
+                    if let Some(pool) = h.mana_pool.as_mut() { let max = pool.maximum(); if let Ok(full) = omoba_core::runtime::ability_runtime::ManaPool::new(max, max) { *pool = full; } }
+                }
+            }
+            run.target = enemy;
+            place_seen_beside(run, enemy, 100.0);
+            let _ = run.cast(aim, 0.0, None);
+            value(&entry, rank, "cast_point").unwrap_or(0.0)
+        } else { cast_other(run, &cast, &entry) };
+        return seek(run, wait + 3.0);
+    }
+    // A trigger of a passive (learned already) or of a status, on the hero and then on the enemy hero.
+    let event = by["event"].as_str().unwrap_or("").to_owned();
+    let trigger = by["status"].as_str().map(&runtime);
+    place_seen_beside(run, enemy, 100.0);
+    let team = run.world.read_storage::<Faction>().get(enemy).map(|f| f.team_id.max(0) as u32);
+    run.world.write_storage::<VisibilityOverride>().insert(caster, VisibilityOverride { team, kind: VisibilityOverrideKind::ForceShow, priority: 1, stable_rule_id: 0xE673 }).ok();
+    for unit in [caster, enemy] {
+        run.world.write_resource::<BuffStore>().add(unit, "v3_conformance_sturdy",
+            Fixed64::from_i32(100_000), json!({ (omb_script_abi::stat_keys::StatKey::HealthBonus.as_str()): Fixed64::from_i32(100_000).raw() }));
+    }
+    let holders: &[specs::Entity] = if trigger.is_some() { &[caster, enemy] } else { &[caster] };
+    for &unit in holders {
+        if let Some(id) = &trigger { run.world.write_resource::<BuffStore>().add(unit, id, Fixed64::from_i32(120), json!({})); }
+        let other = if unit == caster { enemy } else { caster };
+        match event.as_str() {
+            "on_attack_hit" | "on_attack_windup" | "on_attack_launch" | "on_attacked_hit" => {
+                let unit_attacks = event != "on_attacked_hit";
+                let (attacker, target) = if unit_attacks { (unit, other) } else { (other, unit) };
+                let player = if attacker == caster { 1 } else { 2 };
+                if let Some(attack) = run.world.write_storage::<TAttack>().get_mut(attacker) { attack.asd_count = Fixed64::ZERO; }
+                let order = PlayerInput { action: Some(PlayerInputEnum::AttackTarget(AttackTarget { target_id: target.id(), queued: false })) };
+                { let result = run.driver.step(&mut run.world, [(player, order)]).unwrap(); project_tick(&mut run.world, result); }
+                if let Some(found) = seek(run, 20.0) { return Some(found); }
+            }
+            "on_take_damage" | "on_take_damage_pre" => {
+                for _ in 0..5 {
+                    run.world.write_resource::<Vec<Outcome>>().push(Outcome::Damage { pos: omoba_sim::Vec2::ZERO, phys: Fixed64::from_i32(100), magi: Fixed64::from_i32(100),
+                        real: Fixed64::ZERO, source: other, target: unit, damage_profile: 0, predeclared: false });
+                    if let Some(found) = seek(run, 0.5) { return Some(found); }
+                }
+            }
+            "on_kill" => {
+                let team = run.world.read_storage::<Faction>().get(other).map(|f| f.team_id).unwrap_or(1);
+                let at = run.world.read_storage::<Pos>().get(unit).map(|p| p.0).unwrap_or(omoba_sim::Vec2::ZERO);
+                let body = spawn_body(&mut run.world, real(at.x) as i32 + 80, real(at.y) as i32, team, 50, None);
+                run.world.write_storage::<omoba_core::Unit>().insert(body,
+                    omoba_core::Unit::new("v3_conformance_victim".into(), "v3_conformance_victim".into(), omoba_core::UnitType::Creep)).ok();
+                run.step(1);
+                run.kill(unit, body);
+                if let Some(found) = seek(run, 2.0) { return Some(found); }
+            }
+            "periodic" => { if let Some(found) = seek(run, 16.0) { return Some(found); } }
+            _ => return None,
+        }
+    }
+    None
+}
+
 /// `by` (another active of the hero) is learned and cast at the enemy hero; how long its cast point
 /// takes. The entry itself was cast already, and a passive cannot be (E655).
 fn cast_other(run: &mut Run, by: &str, entry: &str) -> f64 {
@@ -2476,6 +2572,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
             }
         }
     }
+    if holder.is_none() && status["applied_by"].is_object() { holder = through_applied_by(&mut run, &status["applied_by"], &find); }
     // A shared control follows its own status's class when the holder carries that status's
     // control row (B's `__ctl:<status>`, generated heroes); a handler's shared stun does not.
     if let (Some(why), Some(h)) = (&shared_class, holder) {

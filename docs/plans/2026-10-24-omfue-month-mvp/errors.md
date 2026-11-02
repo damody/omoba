@@ -2,6 +2,11 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E673 conformance：接上 applied_by：施放後沒觀察到時，依來源布置條件並製造事件（2026-11-02，conformance session）
+- **現象**：「施放後觀察不到狀態」約 1100 個情境，工作線 A 在 `status_on_unit` 加了 `applied_by`，說明狀態是在哪裡被套上（來源、事件、條件、selector 的 where），harness 還沒用。
+- **通用修正**：`through_applied_by`，只在其他方式都沒找到持有者時才用：照 `needs`（has_status、stacks、state 的 by）和 where（`has_status(it, X)`、`it.hp_pct <`）布置；來源是施放就再施放一次；被動或狀態的觸發則先放上觸發狀態（英雄身上，再試敵方英雄身上），再製造事件（普攻、被攻擊、受傷、擊殺、週期）。還是沒看到就維持 unsupported，不判 fail。
+- **結果**：全量（含 ABI 45、E664 的確認）：0 退步，100 個轉 pass，pass 22617，unsupported 4986；8 個 fail 轉 pass（E664 修正後）；52 個情境移除（A 排除 host 內部 buff）。剩 22 個 fail 都是 E663 回報的魔免 debuff host bug。
+
 ## E665 verify_m6_batch 的配對計畫從 live 匯出，建置途中上架道具就拿到執行檔不認得的目標（2026-11-02，game-mode）
 
 - **現象**：全英雄回歸 m6r2 十組有三組（rg03、rg07、rg10）開局就結束：`MOBA headless FAILED: unknown compiled bot item goal`，沒有任何技能資料。先前 m6r1rg05 也出現一次，當時當成暫時性問題，重跑就過。
