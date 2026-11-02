@@ -975,7 +975,9 @@ local function entry_scenarios(doc, def, entry_kind, out)
     if passive and passive.triggers then
       for _, ev in ipairs(sorted_keys(passive.triggers)) do
         local eff = trigger_effects(passive.triggers[ev], "passive.triggers." .. ev, ev)
-        push(rank, "trigger", { suffix = ev, given = given(), when = { { kind = "event", event = ev } },
+        -- interval: a periodic trigger's period, as a status's status_event carries it
+        push(rank, "trigger", { suffix = ev, given = given(), when = { { kind = "event", event = ev,
+            interval = type(passive.triggers[ev]) == "table" and passive.triggers[ev].interval or nil } },
           expect = { { kind = "effects", effects = eff } } })
         if has_damage(eff, "magical") or #applied_statuses(eff, by_status) > 0 then
           push(rank, "magic_immune", { suffix = ev, given = given({ { kind = "event_target", states = { "magic_immune" } } }),
