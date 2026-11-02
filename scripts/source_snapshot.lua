@@ -172,7 +172,9 @@ end
 -- Captures NAME and builds the script DLL set and moba-headless (release, compiled content) from
 -- it into its own cargo target, then copies them into OPTIONS.into (a new directory), so the
 -- batch runs binaries no later build changes (E125). OPTIONS: env (extra cargo environment;
--- compiled.environment is added), into, no_build (copy the snapshot's last build as it is).
+-- compiled.environment is added), into, no_build (copy the snapshot's last build as it is),
+-- under_lock (called with the tree before the lock is released: anything read from live after
+-- the capture can be newer than the binaries, and the next batch may mirror the tree, E665).
 -- Returns { tree, scripts_dir = into, exe = into/moba-headless.exe, content_hash }.
 function M.build_headless(root, name, options, deps)
   local d = deps_of(deps)
@@ -225,6 +227,7 @@ function M.build_headless(root, name, options, deps)
   end
   assert(content, 'no snapshot binary carries a content hash marker')
   d.log(('[snapshot] %s: %d binaries, content %s'):format(name, #files, content))
+  if options.under_lock then options.under_lock(tree) end
   return { tree = tree, scripts_dir = options.into, exe = d.path.join(options.into, 'moba-headless.exe'), content_hash = content }
 end
 

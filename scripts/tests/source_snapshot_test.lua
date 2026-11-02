@@ -98,5 +98,14 @@ local function rm(target)
     lfs.rmdir(target)
   else os.remove(target) end
 end
+-- E665: a plan is exported from the tree the batch built, not from live.
+local recipe_file = put('recipe.lua', 'local root = ... or "live"\nreturn { root = root }\n')
+local exporter = require('export_moba_role_plan')
+local plan_file = path.join(root, 'plan.json')
+exporter.export(recipe_file, plan_file, 'the/tree')
+check(path.read(plan_file):find('the/tree', 1, true), 'the recipe gets the tree it is exported from')
+exporter.export(recipe_file, plan_file)
+check(path.read(plan_file):find('live', 1, true), 'a recipe run alone reads live')
+
 rm(root)
 print(('source snapshot: %d checks passed'):format(checks))

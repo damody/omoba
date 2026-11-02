@@ -2,6 +2,18 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E665 verify_m6_batch 的配對計畫從 live 匯出，建置途中上架道具就拿到執行檔不認得的目標（2026-11-02，game-mode）
+
+- **現象**：全英雄回歸 m6r2 十組有三組（rg03、rg07、rg10）開局就結束：`MOBA headless FAILED: unknown compiled bot item goal`，沒有任何技能資料。先前 m6r1rg05 也出現一次，當時當成暫時性問題，重跑就過。
+- **根因**：執行檔由快照建置（E347），但配對計畫在建置完成後才從 live 的 `scripts/lua_data` 匯出，而 bot 的道具目標是從商店目錄推導的（E336）。建置要好幾分鐘，這段時間工作線 A 上架道具，計畫就會出現較新的目標。三次失敗都落在 A 的上架前後（11:49、12:23、13:19）；rg10 的計畫含 9fa88b88 才上架的 `the_great_spear_of_dragonfly`。
+- **通用修正**：`source_snapshot.build_headless` 加 `under_lock(tree)`，在快照鎖釋放前呼叫；`verify_m6_batch` 在裡面從建置用的那棵快照匯出計畫，`export_moba_role_plan.export` 把額外參數傳給 recipe。計畫和執行檔因此來自同一個狀態。`--split` 和手動執行 recipe 仍讀 live。
+- **放回時的失誤**：第一次放回時 Lua 字串裡的反斜線少了一層，`verify_m6_batch.lua` 語法錯誤，live 壞了約兩分鐘（約 13:23 到 13:25）才修好。原因是語法檢查和放回串在同一行，檢查失敗沒有擋下放回；`land_to_live` 預設的 codegen 檢查也不會載入 `scripts/*.lua`。
+- **以後**：批次裡凡是要配合執行檔的輸入，都從快照讀，不從 live 讀。放回前先確認語法檢查通過，再執行 `land_to_live`。
+
+## E664 （保留）conformance 收緊三個寬鬆判定：預設 key 的狀態要實際找到、疊層讀實際層數、到期加時長下限（2026-11-02）
+
+## E663 （保留）conformance 魔免的事件目標：被動普攻、被攻擊、週期事件不傷害魔免單位（2026-11-02）
+
 ## E660 conformance：條件讀不懂的效果看到才算數；判定 modify_attack 的暴擊倍率（2026-11-02，conformance session）
 - **現象**：periodic 和普攻觸發的效果，只要條件讀不懂（計數器、區域變數、selector 的 where），就不會被觀察；`modify_attack` 的暴擊也沒有判定。多數 status_then_event 情境因此仍是 unsupported。
 - **通用修正**：`watched_effects` 把效果分兩類：條件成立且對象確定的，沒看到就 fail；條件或 selector 讀不懂的，看到才算數，沒看到不判 fail（等待時間拉長到 periodic 10 秒、普攻 20 秒）。普攻觸發的 `it` 也能解析。`modify_attack`：攻擊本身的傷害要達到實際攻擊力乘以倍率（百分比換算）的 95 %。

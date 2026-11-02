@@ -5,17 +5,18 @@ package.path = dir .. '/?.lua;' .. package.path
 local bootstrap = require('_bootstrap')
 local path,json = bootstrap.lib('path'),bootstrap.lib('json')
 local M = {}
-local function recipe(input,output)
+local function recipe(input,output,...)
   input = path.absolute(input,bootstrap.root)
   output = path.absolute(output,bootstrap.root)
   assert(input:lower() ~= output:lower(),'refusing to overwrite the Lua recipe')
-  local value = assert(loadfile(input))()
+  local value = assert(loadfile(input))(...)
   assert(type(value)=='table','role recipe must return a table')
   return value,output
 end
-function M.export(input,output)
+-- Extra arguments go to the recipe chunk (verify_m6_batch passes the source tree, E665).
+function M.export(input,output,...)
   local value
-  value,output=recipe(input,output)
+  value,output=recipe(input,output,...)
   -- Authoring executes Lua; strict schema/catalog/control checks remain Rust's
   -- responsibility before any World is constructed.
   path.write(output,json.encode(value),true)
