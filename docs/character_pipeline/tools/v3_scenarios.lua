@@ -302,6 +302,47 @@ local function applied_statuses(effects, by)
   return out
 end
 
+-- Is a flag anywhere in this definition (a selector's, an aura's, the target's)?
+local function has_flag_deep(node, flag, seen)
+  if type(node) ~= "table" then return false end
+  seen = seen or {}
+  if seen[node] then return false end
+  seen[node] = true
+  if type(node.flags) == "table" then
+    for _, f in ipairs(node.flags) do if f == flag then return true end end
+  end
+  for _, v in pairs(node) do if has_flag_deep(v, flag, seen) then return true end end
+  return false
+end
+
+-- The statuses of a trigger that do land on a magic-immune unit, by document id (line D's event
+-- case): every status of an entry that keeps such units (include_magic_immune anywhere,
+-- pierce_magic_immune), one under an `is_magic_immune` branch, one a unit applies to itself.
+local function statuses_on_immune(def, effects)
+  local set = {}
+  if has_flag_deep(def, "include_magic_immune") or has_flag_deep(def, "pierce_magic_immune") then
+    for _, s in ipairs(def.statuses or {}) do set[s.id] = true end
+    for _, e in ipairs(effects) do
+      if e.op == "apply_status" and e.args and e.args.status then set[e.args.status] = true end
+    end
+  end
+  for _, e in ipairs(effects) do
+    if e.op == "apply_status" and e.args and e.args.status then
+      local source = e.args.source
+      if source and source == e.args.to then set[e.args.status] = true end
+      for _, c in ipairs(e.conds or {}) do
+        if type(c) == "string" and c:find("is_magic_immune", 1, true) and not c:find("not [%w_%.]*is_magic_immune") then
+          set[e.args.status] = true
+        end
+      end
+    end
+  end
+  local out = {}
+  for id in pairs(set) do out[#out + 1] = id end
+  table.sort(out)
+  return #out > 0 and out or nil
+end
+
 -- The BuffStore key a status is held under: its runtime_id, else the executor's default (the
 -- status id, `<id>:{caster}` per source; m3-ir-design §7, E227).
 local function runtime_key(s)
@@ -1130,6 +1171,7 @@ local function entry_scenarios(doc, def, entry_kind, out)
         end
         if has_damage(eff, "magical") or #applied_statuses(eff, by_status) > 0 then
           push(rank, "magic_immune", { suffix = ev, given = given({ { kind = "event_target", states = { "magic_immune" } } }),
+            allowed_statuses = statuses_on_immune(def, eff),
             when = { { kind = "event", event = ev, interval = type(passive.triggers[ev]) == "table" and passive.triggers[ev].interval or nil } }, expect = { { kind = "damage_to_magic_immune", type = "magical", amount = "0" },
               { kind = "statuses_follow_immune_to", rule = "v3.md §12：魔免單位不受一般狀態，除非施加方 pierce" } } })
         end
