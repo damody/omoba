@@ -65,9 +65,12 @@ M.SYSTEMS = {
   -- sparks alone, for a small hit
   sparks = { { template = emitter("OmnidirectionalBurst"), set = SPARKS(18) } },
   -- keeps emitting while it lasts: a trail behind a flight, smoke, motes around a unit
+  -- fire with volume: many flipbook tongues thrown out and rising, not one flat image
+  blaze = { { template = emitter("OmnidirectionalBurst"), main = true,
+      set = { ["SpawnBurst_Instantaneous.Spawn Count"] = 14, ["AddVelocity.Velocity Speed Scale"] = 45, ["GravityForce.Gravity"] = { 0, 0, 9000 } } } },
   -- a few thin images around a unit for as long as a status lasts: the hero stays in sight
   aura = { { template = emitter("Fountain"), main = true,
-      set = { ["SpawnRate.SpawnRate"] = 9, ["GravityForce.Gravity"] = { 0, 0, 0 }, ["AddVelocity.Velocity Speed Scale"] = 4, ["ShapeLocation.Sphere Radius"] = 7000 } } },
+      set = { ["SpawnRate.SpawnRate"] = 9, ["GravityForce.Gravity"] = { 0, 0, 0 }, ["AddVelocity.Velocity Speed Scale"] = 10, ["ShapeLocation.Sphere Radius"] = 5000 } } },
   stream = { { template = emitter("Fountain"), main = true,
       set = { ["SpawnRate.SpawnRate"] = 40, ["GravityForce.Gravity"] = { 0, 0, 0 }, ["AddVelocity.Velocity Speed Scale"] = 8, ["ShapeLocation.Sphere Radius"] = 4500 } } },
 }
@@ -252,6 +255,8 @@ function M.fit(r)
     r.ground, r.ground_size, r.ground_seconds, r.height, r.grow = nil, nil, nil, nil, nil
   end
   if r.sprite == "flame_sheet" and not r.tint then r.tint = { 1.0, 0.32, 0.05 } end
+  if r.sprite == "fire_wings" and (r.system == "pop" or r.system == "burst") then r.sprite = "flame_sheet" end
+  if r.sprite == "flame_sheet" and (r.system == "pop" or r.system == "burst") then r.system, r.size = "blaze", math.min(r.size or 110, 110); r.life = math.max(r.life or 0.7, 0.7) end
   if r.system == "stream" and r.loop and not r.face then
     r.system = "aura"
     -- bold: the status is the skill itself (a channel), so it may stand out more.
