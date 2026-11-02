@@ -6,7 +6,7 @@ return { recipes = {
   a14w_spear_cast = { system = "pop", sprite = "chain_bolt", size = 180, life = 0.25, tint = GOLD },
   a12t_cast = { system = "pop", sprite = "arcane_circle", size = 190, life = 0.45, tint = ARCANE },
   a01d_restore = { system = "pop", sprite = "heal_ring", size = 120, life = 0.3, tint = GREEN },
-  b20r_restore = { system = "pop", sprite = "heal_ring", size = 120, life = 0.3, tint = RED },
+  b20r_restore = { system = "burst", sprite = "heal_ring", size = 190, life = 0.4, tint = RED },
   b26r_restore = { system = "pop", sprite = "heal_ring", size = 130, life = 0.35, tint = RED },
   a12d_ready = { system = "pop", sprite = "arcane_circle", size = 150, life = 0.4, tint = ARCANE },
   a14r_stack_hit = { system = "pop", sprite = "spark_star", size = 120, life = 0.2, tint = GOLD },

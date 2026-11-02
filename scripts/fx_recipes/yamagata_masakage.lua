@@ -8,13 +8,12 @@ return {
       ground = "dust_crack", ground_size = 480, ground_seconds = 0.5, grow = 0.4 },
     b20w_rock = { system = "sparks", tint = EARTH, ground = "rock", ground_size = 260, ground_seconds = 0.7, height = 80, fly = true },
     -- W 壞毀波: a dust column and cracked ground, rocks and a shockwave over the area
-    b20e_burrow = { system = "burst", sprite = "smoke_sheet", size = 420, life = 0.55,
-      ground = "dust_crack", ground_size = 1200, ground_seconds = 0.7, grow = 0.3 },
-    b20e_thunderclap = { system = "burst", sprite = "rock", size = 300, life = 0.5, tint = EARTH,
-      ground = "shock_ring", ground_size = 1200, ground_seconds = 0.5, grow = 0.15 },
+    b20e_burrow = { system = "burst", sprite = "smoke_sheet", size = 380, life = 0.55, area = true,
+      ground = "dust_crack", ground_size = 420, ground_seconds = 0.7, grow = 0.3 },
+    b20e_thunderclap = { system = "burst", sprite = "rock", size = 460, life = 0.5, area = true, tint = { 1.0, 0.5, 0.15 },
+      ground = "shock_ring", ground_size = 420, ground_seconds = 0.6, grow = 0.15 },
     -- R 赤備猛攻: every half second rocks burst outward (leaving the model visible) and red cracks fill the radius
-    b20t_epicenter = { system = "burst", sprite = "rock", size = 280, life = 0.42, tint = RED,
-      ground = "dust_crack", ground_seconds = 0.45, grow = 0.3 },
+    b20t_epicenter = { system = "pop", sprite = "rock", size = 110, life = 0.3, tint = { 1.0, 0.2, 0.1 } },
   },
   notes = {
     b20_rock_rush = "body on b20w_pick_sound (throw) and b20w_rock (flight); no landing cue, so rocks hit without a burst and the point shows nothing; b20w_stun has no cue either",
