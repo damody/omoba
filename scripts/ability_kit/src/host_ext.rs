@@ -1050,6 +1050,12 @@ impl Cx<'_, '_> {
         Ok(())
     }
 
+    /// Ends an emitter of [`Self::emit_aura`]; its receivers keep the status until it runs out.
+    pub fn stop_aura(&mut self, holder: EntityHandle, ability: &str, aura: &str) {
+        let id = format!("{}{ability}:{aura}", omoba_core::runtime::native::aura::PREFIX);
+        self.world.remove_buff(holder, RStr::from_str(&id));
+    }
+
     /// v3 `game.is_night`.
     pub fn is_night(&mut self) -> bool {
         matches!(self.read(op::GAME_ATTR, &[ExtArg::Str(game_attr::IS_NIGHT.into())]), ExtValue::Bool(true))

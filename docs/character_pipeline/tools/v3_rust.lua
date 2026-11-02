@@ -1413,6 +1413,16 @@ function Gen:stat_rows(stats, ctx)
   local voc = self.opts.vocab
   local rows = {}
   local triples, any_when = {}, false
+  -- all_stats: strength, agility and intellect by the same amount
+  if stats.all_stats ~= nil then
+    local expanded = {}
+    for name, v in pairs(stats) do if name ~= "all_stats" then expanded[name] = v end end
+    for _, name in ipairs({ "str", "agi", "int" }) do
+      if expanded[name] ~= nil then self:block("stat:all_stats with " .. name) end
+      expanded[name] = stats.all_stats
+    end
+    stats = expanded
+  end
   for _, name in ipairs(sorted_keys(stats)) do
     local v = stats[name]
     local entry, expr
@@ -4050,7 +4060,6 @@ local function emit_entry(m, o, opts, status_problems)
   local auras = {}
   local passive_aura
   if passive.aura then
-    if o.kind ~= "ability" then g:block("passive:aura of an item") end
     local ctx = { owner = o, scope = scope_child(nil), event = false }
     passive_aura = "        let _ = " .. g:aura_emit(passive.aura, ctx, "passive", "caster", "None", "true") .. ";\n"
     auras[#auras + 1] = g:aura_arm("passive", passive.aura, o)
@@ -4343,7 +4352,7 @@ local function emit_entry(m, o, opts, status_problems)
   elseif passive_stats then learn[#learn + 1] = "        let _ = cx.passive_stats(ID, " .. passive_stats .. ");\n"
   elseif #owner_triggers > 0 then learn[#learn + 1] = "        let _ = cx.learn_marker(ID);\n" end
   if passive_periodic then learn[#learn + 1] = passive_periodic end
-  if passive_aura then learn[#learn + 1] = passive_aura end
+  if passive_aura and o.kind == "ability" then learn[#learn + 1] = passive_aura end
   if events.on_learn then learn[#learn + 1] = "        if new_level == 1 { let _ = on_learn_first(&mut cx); }\n" end
   if #rerank > 0 then learn[#learn + 1] = "        if new_level > 1 { let _ = on_learn_rerank(&mut cx); }\n" end
   -- the passive's implicit status is made: its on_created, once
@@ -4357,7 +4366,9 @@ local function emit_entry(m, o, opts, status_problems)
   end
   -- an item's passive: on_created per copy gained, on_removed per copy lost (its stats are the
   -- shop catalog's, which the host applies)
-  local marker = item_mask ~= 0 or item_periodic ~= nil
+  -- its aura is there from the first copy to the last, like the marker
+  local item_aura = o.kind == "item" and passive_aura or nil
+  local marker = item_mask ~= 0 or item_periodic ~= nil or item_aura ~= nil
   local copies = rust_str("__item_copies:" .. def.id)
   if item_equip.on_created or marker then
     local first = marker and ("        let caster = owner;\n"
@@ -4366,6 +4377,7 @@ local function emit_entry(m, o, opts, status_problems)
       .. "        if n == Fixed64::ONE {\n"
       .. string.format("            let _ = cx.passive_marker(ID, &[], %d);\n", item_mask)
       .. (item_periodic and item_periodic:gsub("\n(.)", "\n    %1"):gsub("^", "    ") or "")
+      .. (item_aura and ("    " .. item_aura) or "")
       .. "        }\n") or ""
     impl[#impl + 1] = "\n    fn on_equip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {\n"
       .. "        let mut cx = Cx::passive(world, owner, 1);\n" .. g:finish(first)
@@ -4375,7 +4387,9 @@ local function emit_entry(m, o, opts, status_problems)
     local last = marker and ("        let caster = owner;\n"
       .. "        let n = cx.state_num(caster, " .. copies .. ", Fixed64::ZERO) - Fixed64::ONE;\n"
       .. "        let _ = cx.set_state_num(caster, " .. copies .. ", n.max(Fixed64::ZERO), false);\n"
-      .. "        if n <= Fixed64::ZERO { cx.remove_passive_marker(ID); }\n") or ""
+      .. "        if n <= Fixed64::ZERO { cx.remove_passive_marker(ID);"
+      .. (item_aura and " let aura = ability_kit::aura_key(\"passive\", cx.caster); cx.stop_aura(caster, ID, &aura);" or "")
+      .. " }\n") or ""
     impl[#impl + 1] = "\n    fn on_unequip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {\n"
       .. "        let mut cx = Cx::passive(world, owner, 1);\n" .. last
       .. (item_equip.on_removed and "        let _ = on_removed(&mut cx);\n" or "") .. "    }\n"

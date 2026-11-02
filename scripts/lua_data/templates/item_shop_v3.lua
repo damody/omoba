@@ -224,6 +224,15 @@ local data = {
   napalm_bomb = {
     numbers = { ["active.damage"] = 300, ["active.radius"] = 300, cooldown = 10, cost = 150, ["target.range"] = 600 },
   },
+  ninja2 = {
+    numbers = { cost = 100 },
+    scripted = {
+      active = { kind = "scripted" },
+      consumable = true,
+      cooldown = 1.0,
+      target = { out_of_range = "reject", range = 400.0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
   ninja_sword = {
     not_passive = { "modifiers.movespeed_bonus_percentage" },
     numbers = { atk = 14, cost = 3320, ["modifiers.attackspeed_bonus_constant"] = 20, ["modifiers.stats_agility_bonus"] = 10 },
@@ -325,6 +334,10 @@ local data = {
   strength_ingot = {
     numbers = { cost = 350, ["modifiers.stats_strength_bonus"] = 5 },
   },
+  sukezane = {
+    numbers = { armor = 8, cost = 2700, ["modifiers.attackspeed_bonus_constant"] = 30, ["modifiers.stats_intellect_bonus"] = 15 },
+    recipe = { "staff", "stable_shield", "stable_shield", "speed_clothes", "intelligence_ingot" },
+  },
   tachi = {
     numbers = { cost = 700, ["modifiers.stats_agility_bonus"] = 10 },
   },
@@ -345,6 +358,11 @@ local data = {
       mana_cost = 50,
     },
     recipe = { "fire_scroll", "power_ingot", "power_ingot" },
+  },
+  the_blade_of_blood_devourer = {
+    not_passive = { "modifiers.attackspeed_bonus_constant", "modifiers.movespeed_bonus_percentage" },
+    numbers = { atk = 50, cost = 4850, ["modifiers.stats_agility_bonus"] = 5, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 5 },
+    recipe = { "cursed_katana", "ghost_mask" },
   },
   the_club_of_nebula = {
     numbers = { atk = 14, cost = 1300 },
@@ -388,6 +406,15 @@ local data = {
       active = { kind = "scripted" },
       cooldown = 70.0,
       mana_cost = 90.0,
+    },
+  },
+  the_great_sword_of_tiger = {
+    numbers = { atk = 70, cost = 8600, ["modifiers.stats_strength_bonus"] = 25 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 45.0,
+      mana_cost = 100.0,
+      target = { include_magic_immune = true, out_of_range = "reject", range = 900.0, requires_visible = true, shape = "unit", team = "enemy" },
     },
   },
   the_hooate_of_ghost = {
@@ -439,6 +466,10 @@ local data = {
       target = { out_of_range = "reject", range = 900.0, requires_visible = true, shape = "unit", team = "enemy" },
     },
   },
+  the_spear_of_spiders = {
+    numbers = { atk = 21, cost = 3050, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 15 },
+    recipe = { "moon_spear", "intelligence_ingot" },
+  },
   the_storm_call_book = {
     numbers = { cost = 7500, ["modifiers.spell_amplify_percentage"] = 0.12, ["modifiers.stats_intellect_bonus"] = 40 },
     recipe = { "storm_book", "thunderstorms" },
@@ -447,6 +478,16 @@ local data = {
       cooldown = 60.0,
       mana_cost = 150.0,
       target = { out_of_range = "reject", range = 800.0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
+  the_sword_of_kaminaobi = {
+    numbers = { atk = 35, cost = 4850, ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_intellect_bonus"] = 10, ["modifiers.stats_strength_bonus"] = 25 },
+    recipe = { "energy_ingot", "moon_spear" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 45.0,
+      mana_cost = 100.0,
+      target = { include_magic_immune = true, out_of_range = "reject", range = 900.0, requires_visible = true, shape = "unit", team = "any" },
     },
   },
   thunderstorms = {

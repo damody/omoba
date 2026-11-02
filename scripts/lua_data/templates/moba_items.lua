@@ -109,6 +109,12 @@ local SOURCE_ITEMS = {
   { 178, "item_thunderstorms", true },
   { 179, "item_the_storm_call_book", true },
   { 180, "item_yubashiri", true },
+  { 181, "item_Sukezane", true },
+  { 182, "item_the_spear_of_spiders", true },
+  { 183, "item_the_blade_of_blood_devourer", true },
+  { 184, "item_the_great_sword_of_tiger", true },
+  { 185, "item_the_sword_of_kaminaobi", true },
+  { 186, "item_ninja2", true },
 }
 
 return function(ctx)
@@ -120,7 +126,7 @@ return function(ctx)
   local rows = {}
   for _, row in ipairs(source.items) do rows[row.key] = row end
   -- source_ref is `history_nobu@<commit>:item_<key>`; the game id is <key>.
-  local function id_of(ref) return (ref:match("item_([%w_]+)$")) end
+  local function id_of(ref) return (ref:match("item_([%w_]+)$"):lower()) end
   local items = {
     { catalog_id = 1, id = "moba_sword", test_only = true, name = "鐵劍", cost = 350, atk = 10 },
     { catalog_id = 2, id = "moba_armor", test_only = true, name = "護身甲", cost = 300, hp = 100, armor = 5 },

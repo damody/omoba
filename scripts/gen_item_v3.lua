@@ -81,9 +81,11 @@ function M.scripted_active(item, number, cooldown_groups)
   local active, cost = item.active, item.active.cost or {}
   local target = active.target or { type = "none" }
   local out = { active = { kind = "scripted" }, cooldown = number(cost.cooldown), mana_cost = number(cost.mana) }
+  local include_magic_immune = false
   for _, flag in ipairs(target.flags or {}) do
-    if flag == "include_magic_immune" then return nil, "its target admits magic immune units, the catalog target cannot" end
+    if flag == "include_magic_immune" then include_magic_immune = true end
   end
+  if include_magic_immune and target.type ~= "unit" then return nil, "only a unit target can admit magic immune units" end
   if target.type == "point" then
     -- no range: anywhere on the map
     out.target = { shape = "point", range = number(target.range) or 0, team = "any", requires_visible = false, out_of_range = "reject" }
@@ -91,7 +93,7 @@ function M.scripted_active(item, number, cooldown_groups)
     local range = number(target.range)
     if not range then return nil, "a unit target needs a range" end
     out.target = { shape = "unit", range = range, team = target.team == "both" and "any" or target.team,
-      requires_visible = true, out_of_range = "reject" }
+      requires_visible = true, out_of_range = "reject", include_magic_immune = include_magic_immune or nil }
   elseif target.type ~= "none" then
     return nil, "target type " .. tostring(target.type) .. " has no catalog target"
   end
@@ -218,6 +220,9 @@ function M.build(shelf, docs, partial, scripted)
             if not found then
               problems[#problems + 1] = d.path .. ": " .. item.id .. ": passive stat " .. stat .. " has no number on the shelf row"
             end
+          end
+          if is_scripted and row.aura then
+            problems[#problems + 1] = d.path .. ": " .. item.id .. ": a scripted item's aura runs in items.dll, the shelf row has one too"
           end
           if is_scripted and item.active and not row.active then
             local function number(expr)
