@@ -1342,7 +1342,11 @@ fn check_passive_attack_hit(hero: &str, s: &Value) -> Option<Verdict> {
 ///   the holder are gone or there (only when the dispel itself would not do it).
 fn status_trigger(run: &mut Run, holder: specs::Entity, step: &Value, expectation: &Value, status: &Value) -> Verdict {
     use omoba_core::runtime::native::dispel;
-    let effects: Vec<&Value> = expectation["effects"].as_array().into_iter().flatten().collect();
+    let raw: Vec<&Value> = expectation["effects"].as_array().into_iter().flatten().collect();
+    // What holds now, its conditions dropped (E659); the cancel and on_created below read the effects as written.
+    let reads_conds = step["event"] == "on_take_damage_pre" || step["event"] == "on_created";
+    let owned = if reads_conds { Vec::new() } else { holding_now(run, holder, &raw, &[]) };
+    let effects: Vec<&Value> = if reads_conds { raw } else { owned.iter().collect() };
     let entry = run.entry.clone();
     match step["event"].as_str() {
         Some("on_take_damage_pre") => {
@@ -1460,6 +1464,9 @@ fn status_trigger(run: &mut Run, holder: specs::Entity, step: &Value, expectatio
 fn make_event(run: &mut Run, holder: specs::Entity, event: &str, effects: &[&Value]) -> Verdict {
         if event == "on_attack_launch" { return attack_launch(run, holder, effects); }
         if event == "on_attacked_hit" { return attacked_hit(run, holder, effects); }
+        let owned = holding_now(run, holder, effects, &[]);
+        let effects: Vec<&Value> = owned.iter().collect();
+        let effects = &effects[..];
         let other = if holder == run.enemy { run.caster } else { run.enemy };
         let before = EffectsSeen::of(run, holder, other, effects);
         let mut victim = None;
@@ -1491,6 +1498,61 @@ fn make_event(run: &mut Run, holder: specs::Entity, event: &str, effects: &[&Val
         before.compare(run, holder, other, victim, event, effects)
 }
 
+/// The effects of a trigger worth watching (E654, E656, E660): those whose conditions hold now and
+/// whose unit is known for sure, then those whose conditions or selector this cannot read (seen,
+/// they count; unseen, they say nothing). `it` of a for_each around the holder or the event's
+/// target is the other hero beside it (an enemy selector) or the holder (an ally one).
+fn watched_effects(run: &Run, holder: specs::Entity, other: specs::Entity, victim: Option<specs::Entity>, effects: &[&Value], known: &[&str], lasting: Option<&str>) -> (Vec<Value>, Vec<Value>) {
+    let (entry, rank) = (run.entry.clone(), run.rank);
+    let hostile = { let f = run.world.read_storage::<Faction>(); f.get(holder).zip(f.get(other)).is_some_and(|(h, o)| h.is_hostile_to(o)) };
+    // What `it` stands for under the for_each around this path, in the names EffectsSeen knows, and
+    // whether the selector surely picks it.
+    let it_of = |path: &str| -> Option<(&'static str, bool)> {
+        let mut at = path;
+        while let Some((up, _)) = at.rsplit_once('.') {
+            at = up;
+            let Some(each) = effects.iter().find(|f| f["op"] == "for_each" && f["path"] == at) else { continue };
+            let select = &each["args"]["select"];
+            let hero_fits = select["types"].as_array().into_iter().flatten().any(|t| t == "hero" || t == "all");
+            let radius = expr(&select["radius"], &entry, rank).unwrap_or(0.0);
+            let around = select["from"] == "self" || (victim.is_some() && select["from"] == "event.target");
+            if !around || select["shape"] != "circle" || radius < 110.0 || !hero_fits { return None; }
+            let sure = select["from"] == "self" && select["where"].is_null() && select["exclude"].is_null() && select["limit"].is_null();
+            return match select["team"].as_str() { Some("enemy") if hostile => Some(("event.attacker", sure)), Some("ally") => Some(("self", sure)), _ => None };
+        }
+        None
+    };
+    let held: std::collections::BTreeSet<String> = holding_now(run, holder, effects, known).iter().filter_map(|f| f["path"].as_str().map(str::to_owned)).collect();
+    let (mut must, mut maybe) = (Vec::new(), Vec::new());
+    for raw in effects {
+        let mut f = (*raw).clone();
+        let path = f["path"].as_str().unwrap_or("").to_owned();
+        let key = match f["op"].as_str() {
+            Some("damage" | "apply_status" | "heal" | "restore_mana" | "kill") => "to",
+            Some("remove_status") => "from",
+            Some("issue_order") => "who",
+            Some("modify_cooldown") => "of",
+            Some("create_unit" | "modify_attack") => "",
+            _ => continue,
+        };
+        let mut sure = held.contains(&path);
+        if !key.is_empty() {
+            if f["args"][key] == "it" {
+                let Some((name, surely)) = it_of(&path) else { continue };
+                f["args"][key] = json!(name);
+                sure &= surely;
+            }
+            if EffectsSeen::unit(run, holder, other, victim, &f["args"][key]).is_none() { continue; }
+        }
+        if !EffectsSeen::observable(&f) { continue; }
+        // The status itself, on the holder, is what runs this.
+        if f["op"] == "apply_status" && lasting.is_some_and(|id| EffectsSeen::runtime(run, &f).as_deref() == Some(id)) { continue; }
+        f["conds"] = json!([]);
+        if sure { must.push(f) } else { maybe.push(f) }
+    }
+    (must, maybe)
+}
+
 /// A `periodic` trigger's effects (E654): those whose conditions hold now (holding_now) and whose
 /// unit is known for sure are looked for, one at a time, over two intervals; a status it puts on is
 /// first taken off, so that it shows the trigger running again. `it` of a for_each around the holder
@@ -1504,46 +1566,9 @@ fn periodic_effects(run: &mut Run, holder: specs::Entity, step: &Value, effects:
         Err(err) => return Verdict::Unsupported(err),
     };
     let other = if holder == run.enemy { run.caster } else { run.enemy };
-    let hostile = { let f = run.world.read_storage::<Faction>(); f.get(holder).zip(f.get(other)).is_some_and(|(h, o)| h.is_hostile_to(o)) };
-    // What `it` stands for under the for_each around this path, in the names EffectsSeen knows.
-    let it_of = |path: &str| -> Option<&'static str> {
-        let mut at = path;
-        while let Some((up, _)) = at.rsplit_once('.') {
-            at = up;
-            let Some(each) = effects.iter().find(|f| f["op"] == "for_each" && f["path"] == at) else { continue };
-            let select = &each["args"]["select"];
-            let hero_fits = select["types"].as_array().into_iter().flatten().any(|t| t == "hero" || t == "all");
-            let radius = expr(&select["radius"], &entry, rank).unwrap_or(0.0);
-            if select["from"] != "self" || select["shape"] != "circle" || radius < 80.0 || !hero_fits { return None; }
-            if !select["where"].is_null() || !select["exclude"].is_null() || !select["limit"].is_null() { return None; }
-            return match select["team"].as_str() { Some("enemy") if hostile => Some("event.attacker"), Some("ally") => Some("self"), _ => None };
-        }
-        None
-    };
-    let mut owned = Vec::new();
-    for mut f in holding_now(run, holder, effects, &[]) {
-        let path = f["path"].as_str().unwrap_or("").to_owned();
-        let key = match f["op"].as_str() {
-            Some("damage" | "apply_status" | "heal" | "restore_mana" | "kill") => "to",
-            Some("remove_status") => "from",
-            Some("issue_order") => "who",
-            Some("modify_cooldown") => "of",
-            Some("create_unit") => "",
-            _ => continue,
-        };
-        if !key.is_empty() {
-            if f["args"][key] == "it" {
-                let Some(name) = it_of(&path) else { continue };
-                f["args"][key] = json!(name);
-            }
-            if EffectsSeen::unit(run, holder, other, None, &f["args"][key]).is_none() { continue; }
-        }
-        // The status itself, on the holder, is what runs this.
-        if f["op"] == "apply_status" && lasting.is_some_and(|id| EffectsSeen::runtime(run, &f).as_deref() == Some(id)) { continue; }
-        owned.push(f);
-    }
-    let effects: Vec<&Value> = owned.iter().filter(|f| EffectsSeen::observable(f)).collect();
-    if effects.is_empty() { return Verdict::Unsupported("periodic: no effect it can observe without a chance or condition".into()); }
+    let (must, maybe) = watched_effects(run, holder, other, None, effects, &[], lasting);
+    let (surely, effects): (Vec<&Value>, Vec<&Value>) = (must.iter().collect(), must.iter().chain(maybe.iter()).collect());
+    if effects.is_empty() { return Verdict::Unsupported("periodic: no effect it can observe".into()); }
     if effects.iter().any(|f| ["to", "from", "who", "of"].iter().any(|k| f["args"][*k] == "event.attacker")) {
         let at = run.world.read_storage::<Pos>().get(holder).map(|p| p.0);
         if let Some(at) = at { if let Some(pos) = run.world.write_storage::<Pos>().get_mut(other) { pos.0 = at + omoba_sim::Vec2::new(Fixed64::from_i32(60), Fixed64::ZERO); } }
@@ -1558,7 +1583,8 @@ fn periodic_effects(run: &mut Run, holder: specs::Entity, step: &Value, effects:
     }
     let before = EffectsSeen::of(run, holder, other, &effects);
     let (mut pending, mut seen, mut waited) = (effects, Vec::new(), 0u32);
-    let full = ticks(interval * 2.0 + 0.5);
+    // Longer for what a counter or a state lets through (E660).
+    let full = ticks((interval * 2.0 + 0.5).max(if maybe.is_empty() { 0.0 } else { 10.0 }));
     for _ in 0..full {
         run.step(1);
         waited += 1;
@@ -1568,7 +1594,8 @@ fn periodic_effects(run: &mut Run, holder: specs::Entity, step: &Value, effects:
         });
         if pending.is_empty() || lasting.is_some_and(|id| !holds(run, holder, id)) { break; }
     }
-    let wrong: Vec<String> = pending.iter().filter_map(|f| match before.compare(run, holder, other, None, "periodic", &[*f]) { Verdict::Fail(why) => Some(why), _ => None }).collect();
+    let wrong: Vec<String> = pending.iter().filter(|f| surely.iter().any(|g| std::ptr::eq(**f, *g)))
+        .filter_map(|f| match before.compare(run, holder, other, None, "periodic", &[*f]) { Verdict::Fail(why) => Some(why), _ => None }).collect();
     if !wrong.is_empty() {
         if waited < full { return Verdict::Unsupported(format!("periodic: the status ended {:.1} s in, before two intervals of {interval} s", f64::from(waited) / 60.0)); }
         return Verdict::Fail(wrong.join("; "));
@@ -1634,19 +1661,11 @@ fn attack_effects(run: &mut Run, holder: specs::Entity, event: &str, effects: &[
         if needs <= 60.0 { known.push(cond.to_owned()); seconds = seconds.max(needs); }
     }
     let known: Vec<&str> = known.iter().map(String::as_str).collect();
-    let owned: Vec<Value> = holding_now(run, holder, effects, &known).into_iter().filter(|f| {
-        let key = match f["op"].as_str() {
-            Some("damage" | "apply_status" | "heal" | "restore_mana" | "kill") => "to",
-            Some("remove_status") => "from",
-            Some("issue_order") => "who",
-            Some("modify_cooldown") => "of",
-            Some("create_unit") => return true,
-            _ => return false,
-        };
-        EffectsSeen::observable(f) && EffectsSeen::unit(run, holder, other, Some(other), &f["args"][key]).is_some()
-    }).collect();
-    let effects: Vec<&Value> = owned.iter().collect();
-    if effects.is_empty() { return Verdict::Unsupported(format!("{event}: no effect it can observe without a condition")); }
+    let (must, maybe) = watched_effects(run, holder, other, Some(other), effects, &known, None);
+    let (surely, effects): (Vec<&Value>, Vec<&Value>) = (must.iter().collect(), must.iter().chain(maybe.iter()).collect());
+    if effects.is_empty() { return Verdict::Unsupported(format!("{event}: no effect it can observe")); }
+    // Longer for what a counter or a state lets through (E660).
+    if !maybe.is_empty() { seconds = seconds.max(20.0); }
     let at = run.world.read_storage::<Pos>().get(holder).map(|p| p.0);
     if let Some(at) = at { if let Some(pos) = run.world.write_storage::<Pos>().get_mut(other) { pos.0 = at + omoba_sim::Vec2::new(Fixed64::from_i32(100), Fixed64::ZERO); } }
     let team = run.world.read_storage::<Faction>().get(holder).map(|f| f.team_id.max(0) as u32);
@@ -1674,7 +1693,8 @@ fn attack_effects(run: &mut Run, holder: specs::Entity, event: &str, effects: &[
         });
         if pending.is_empty() { break; }
     }
-    let wrong: Vec<String> = pending.iter().filter_map(|f| match before.compare(run, holder, other, Some(other), event, &[*f]) { Verdict::Fail(why) => Some(why), _ => None }).collect();
+    let wrong: Vec<String> = pending.iter().filter(|f| surely.iter().any(|g| std::ptr::eq(**f, *g)))
+        .filter_map(|f| match before.compare(run, holder, other, Some(other), event, &[*f]) { Verdict::Fail(why) => Some(why), _ => None }).collect();
     if !wrong.is_empty() { return Verdict::Fail(wrong.join("; ")); }
     if seen.is_empty() { return Verdict::Unsupported(format!("{event}: no plain effect it can observe")); }
     Verdict::PassNoted(seen.join("; "))
@@ -1691,7 +1711,12 @@ const LAUNCH_CONDS: &[&str] = &["not event.target.is_building", "not event.targe
 fn holding_now(run: &Run, holder: specs::Entity, effects: &[&Value], known: &[&str]) -> Vec<Value> {
     let entry = run.entry.clone();
     let arg = |c: &str, head: &str| c.strip_prefix(head).and_then(|r| r.strip_suffix(')')).map(str::to_owned);
+    let other = if holder == run.enemy { run.caster } else { run.enemy };
+    let holds_status = |unit: specs::Entity, st: String| holds(run, unit, &status_runtime_id(&entry, &st).unwrap_or(st));
     let holds_now = |c: &str| known.contains(&c)
+        || arg(c, "has_status(self, ").is_some_and(|st| holds_status(holder, st))
+        || arg(c, "has_status(caster, ").is_some_and(|st| holds_status(run.caster, st))
+        || arg(c, "has_status(event.target, ").is_some_and(|st| holds_status(other, st))
         || (c == "alive(self)" && living(run, holder))
         || arg(c, "not has_status(self, ").is_some_and(|st| !holds(run, holder, &status_runtime_id(&entry, &st).unwrap_or_else(|| st.clone())))
         || (holder == run.caster && arg(c, "ability_ready(self, ").is_some_and(|id| run.hero(|h| h.abilities.contains(&id) && h.get_cooldown(&id) <= Fixed64::ZERO)));
@@ -1771,9 +1796,19 @@ fn check_passive_event(hero: &str, s: &Value) -> Option<Verdict> {
     if !matches!(event, "on_take_damage" | "on_death" | "on_kill" | "on_attack_launch" | "on_attacked_hit" | "periodic" | "on_attack_hit" | "on_attack_windup") { return None; }
     let effects: Vec<&Value> = s["expect"].as_array()?.iter().find(|e| e["kind"] == "effects")?["effects"].as_array()?.iter().collect();
     let (entry, rank) = (s["entry"].as_str()?.to_owned(), s["rank"].as_u64()? as usize);
-    let learn = json!({"entry": entry, "rank": rank, "given": learning(s), "learn_by_upgrade": s["learn_by_upgrade"], "expect": [{"kind": "passive_stats"}]});
+    // The statuses a status_then_event scenario needs (E659): cast first, or put on after the setup.
+    let needs: Vec<Value> = s["needs"].as_array().cloned().unwrap_or_default();
+    let mut given = learning(s);
+    given.extend(needs.iter().filter_map(|n| n["by"].as_str()).map(|by| json!({"kind": "cast_first", "entry": by})));
+    let learn = json!({"entry": entry, "rank": rank, "given": given, "learn_by_upgrade": s["learn_by_upgrade"], "expect": [{"kind": "passive_stats"}]});
     let mut run = match setup(hero, &learn) { Ok(run) => run, Err(e) => return Some(Verdict::Unsupported(e)) };
     let caster = run.caster;
+    for need in needs.iter().filter(|n| n["by"].is_null()) {
+        let unit = if need["on"] == "event.target" { run.enemy } else { caster };
+        let Some(id) = need["status"].as_str() else { continue };
+        let id = status_runtime_id(&entry, id).unwrap_or_else(|| id.to_owned());
+        run.world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(unit, &id, Fixed64::from_i32(600), json!({}));
+    }
     if event == "periodic" { return Some(periodic_effects(&mut run, caster, &s["when"][0], &effects, None)); }
     if matches!(event, "on_attack_hit" | "on_attack_windup") { return Some(attack_effects(&mut run, caster, event, &effects)); }
     Some(make_event(&mut run, caster, event, &effects))
@@ -1802,6 +1837,7 @@ impl EffectsSeen {
     fn observable(f: &Value) -> bool {
         matches!(f["op"].as_str(), Some("damage" | "apply_status" | "remove_status" | "create_unit" | "heal" | "restore_mana" | "kill" | "modify_cooldown"))
             || (f["op"] == "issue_order" && f["args"]["order"] == "move")
+            || (f["op"] == "modify_attack" && !f["args"]["crit_multiplier"].is_null())
     }
     fn mana_of(run: &Run, unit: specs::Entity) -> Option<f64> {
         run.world.read_storage::<Hero>().get(unit).and_then(|h| h.mana_pool.as_ref().map(|p| real(p.current())))
@@ -1930,6 +1966,18 @@ impl EffectsSeen {
                     let Some(unit) = Self::unit(run, holder, other, victim, &f["args"]["who"]) else { continue };
                     let (Some(was), Some(now)) = (self.at.get(&unit.id()), run.world.read_storage::<Pos>().get(unit).map(|p| (real(p.0.x), real(p.0.y)))) else { continue };
                     if (now.0 - was.0).hypot(now.1 - was.1) > 5.0 { seen.push("moved".to_owned()) } else { missing.push("its unit did not move".to_owned()) }
+                }
+                // The attack's own hit (untagged) at the multiplier (E660).
+                "modify_attack" => {
+                    let Ok(times) = expr(&f["args"]["crit_multiplier"], &run.entry, run.rank) else { continue };
+                    let times = if times > 10.0 { times / 100.0 } else { times };
+                    let Some(base) = run.world.read_storage::<TAttack>().get(holder).map(|a| a.atk_physic.v) else { continue };
+                    let base = { let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
+                        real(omoba_core::runtime::ability_runtime::UnitStats::from_refs(&buffs, false).normal_attack_physical(base, holder)) };
+                    let most = run.world.read_resource::<DamageTrace>().0.iter().skip(self.trace)
+                        .filter(|r| r.source == holder && r.path.is_empty()).map(|r| real(r.before.0)).fold(0.0, f64::max);
+                    if most >= base * times * 0.95 { seen.push(format!("a hit of {most:.1}, {times}x {base:.1}")) }
+                    else { missing.push(format!("no hit near {times}x {base:.1}, at most {most:.1}")) }
                 }
                 "restore_mana" => {
                     let Some(unit) = Self::unit(run, holder, other, victim, &f["args"]["to"]) else { continue };
@@ -2087,7 +2135,7 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
             chancy |= conds.iter().any(|c| c.starts_with("chance: "));
             strikes.push((f["path"].as_str().unwrap_or("").to_owned(), expr(&f["args"]["amount"], entry_id, rank_n).ok()));
         }
-        attack_other = on_hit.is_empty() && spend.is_none() && strikes.is_empty();
+        attack_other = !s["needs"].is_null() || (on_hit.is_empty() && spend.is_none() && strikes.is_empty());
         if !attack_other && !matches!(on.as_str(), "caster" | "self") { return Verdict::Unsupported(format!("attack hit of a status on {on}")); }
     }
     let removed = match expectation["kind"].as_str() {
@@ -2113,7 +2161,8 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
         }
     }
     // The world the status's condition needs (E652): facts the setup places, then the rest below.
-    let needs: Vec<Value> = status["needs"].as_array().cloned().unwrap_or_default();
+    let mut needs: Vec<Value> = status["needs"].as_array().cloned().unwrap_or_default();
+    needs.extend(s["needs"].as_array().into_iter().flatten().cloned());
     let mut given = learning(s);
     for need in &needs {
         match (need["kind"].as_str(), need["by"].as_str()) {
@@ -2140,7 +2189,14 @@ fn run_status(hero: &str, s: &Value) -> Verdict {
             // The watched status itself (its cast refreshes it when held) comes from the cast.
             Some("has_status") if need["status"] == status["status"] || need["status"] == status["runtime_id"] => {}
             Some("has_status") if need["by"].is_null() => {
-                let unit = if need["on"] == "caster" { run.caster } else { run.target };
+                // `self` is the status's holder, `event.target` the other hero (E659).
+                let unit = match need["on"].as_str() {
+                    Some("caster") => run.caster,
+                    Some("self") if matches!(on.as_str(), "caster" | "self") => run.caster,
+                    Some("event.target") if matches!(on.as_str(), "caster" | "self") => run.enemy,
+                    Some("event.target") => run.caster,
+                    _ => run.target,
+                };
                 let Some(id) = need["status"].as_str().filter(|id| !id.contains('{')) else { return Verdict::Unsupported(format!("status needs {need}")) };
                 run.world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(unit, id, Fixed64::from_i32(600), json!({}));
             }
@@ -2489,7 +2545,7 @@ fn run(hero: &str, s: &Value) -> Verdict {
     if s["when"][0]["kind"] == "status_event" && s["when"][0]["event"] == "periodic" {
         if let Some(verdict) = check_cooldown_cap(hero, s) { return verdict; }
     }
-    if s["when"][0]["kind"] == "status_event" && s["when"][0]["event"] == "periodic" {
+    if s["when"][0]["kind"] == "status_event" && s["when"][0]["event"] == "periodic" && s["needs"].is_null() {
         if let Some(verdict) = check_periodic(hero, s) { return verdict; }
     }
     if s["when"][0]["kind"] == "observe_sources" {

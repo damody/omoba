@@ -2,6 +2,16 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E660 conformance：條件讀不懂的效果看到才算數；判定 modify_attack 的暴擊倍率（2026-11-02，conformance session）
+- **現象**：periodic 和普攻觸發的效果，只要條件讀不懂（計數器、區域變數、selector 的 where），就不會被觀察；`modify_attack` 的暴擊也沒有判定。多數 status_then_event 情境因此仍是 unsupported。
+- **通用修正**：`watched_effects` 把效果分兩類：條件成立且對象確定的，沒看到就 fail；條件或 selector 讀不懂的，看到才算數，沒看到不判 fail（等待時間拉長到 periodic 10 秒、普攻 20 秒）。普攻觸發的 `it` 也能解析。`modify_attack`：攻擊本身的傷害要達到實際攻擊力乘以倍率（百分比換算）的 95 %。
+- **結果**：全量 0 fail，pass 22451（+118），unsupported 5226。退步 4 個是 E659 的 on_created，已修並重跑確認。
+
+## E659 conformance：status_then_event：先布置狀態再發動事件，條件依實際狀態判定（2026-11-02，conformance session）
+- **現象**：工作線 A 新增 status_then_event 情境（id 帶 `/with_<狀態>`，情境層 `needs`），要先有 A 狀態再發生 B 事件，harness 沒有布置，也不看實際狀態。
+- **通用修正**：被動與狀態兩條路都先照情境層 `needs` 布置（帶 `by` 就先施放，否則放上狀態）；`holding_now` 直接讀 `has_status(self|caster|event.target, X)` 的實際狀態；on_removed 和事件情境改判當下成立的效果。on_created 與 on_take_damage_pre 仍讀原始效果（第一輪全量 B31R 的 on_created 因此退步 4 個，已修）。
+- **結果**：與 E660 同一輪全量：新情境 46 個裡 12 個 pass，其餘是下面的 unsupported。修正後 B31 重跑 0 退步。
+
 ## E661 投射物的 on_end 讀不到同一輪 on_hit 寫的 state：C11W、C11T 每次命中都分裂（2026-11-02，工作線 B，FC-059 的 runtime 測試）
 
 - **現象**：C11T 一級有兩個敵人時，haste 5 層（應為 3），三級 20 層（應為 7）；C11W 四級 63 筆傷害（應為 6）。
