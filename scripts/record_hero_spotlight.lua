@@ -15,7 +15,14 @@ local path,process,json,platform=b.lib('path'),b.lib('process'),b.lib('json'),b.
 local lfs=require('lfs')
 local M={}
 
-M.HEROES={'saika_magoichi','date_masamune','omatsu','oichi','inahime','asai_nagamasa','murakami_yoshikiyo','tamako'}
+M.HEROES={'tokugawa_ieyasu','yamagata_masakage','okuma_tomohide','sasaki_kojiro','otani_yoshitsugu','maeda_toshiie','nohime','kojima_sadaoki','shimazu_yoshihiro','maeda_keiji'}
+-- After the abilities: basic attacks on the stand-in, then the hero's real death. DEATH_AT is where the
+-- base stage's held enemies stand (scripts/lua_data/moba_hero_spotlight.lua).
+M.DEATH_AT={3000,2400}
+M.BODY_SHOWS={
+  {kind='attack',name='普通攻擊',line='對敵方連續普攻',team='enemy'},
+  {kind='death',name='死亡',line='被敵方擊倒',team='self',at=M.DEATH_AT},
+}
 M.SLOT_OF_ACTION={Q=0,W=1,E=2,R=3,extra1=4,extra2=5}
 M.RECIPE='scripts/lua_data/moba_hero_spotlight.lua'
 -- A hero with a tree-target ability is shown on the nobu map, which has trees (D21: every ability
@@ -366,8 +373,14 @@ end
 
 -- The renderer's spotlight script (FOmSpotlightScript::Parse).
 function M.script(package)
+  local slots={}
+  for _,slot in ipairs(package.slots) do slots[#slots+1]=slot end
+  -- The death ends the recording: only the base stage has the enemies that strike it down.
+  if M.recipe_for(package)==M.RECIPE then
+    for _,show in ipairs(M.BODY_SHOWS) do slots[#slots+1]=show end
+  end
   return {schema=1,hero=package.hero,hero_name=package.hero_name,title=package.title,
-    timing=json.object({caption_lead=1.5,hold=4.5,passive=5}),slots=package.slots}
+    timing=json.object({caption_lead=1.5,hold=4.5,passive=5}),slots=slots}
 end
 
 -- frames.jsonl from the renderer, sorted by frame index (workers finish out of order).
@@ -416,7 +429,7 @@ function M.keyframes(events,frames)
       local row=nearest(t)
       if row then
         -- A summon's ability (E595) is named by its summon: its slot is the summon ability index.
-        shots[#shots+1]={name=('%02d_%sslot%d_%s_%s'):format(#shots+1,
+        shots[#shots+1]={name=('%02d_%sslot%s_%s_%s'):format(#shots+1,
           type(event.summon)=='string' and event.summon:match('^[%w_]+$') and event.summon..'_' or '',event.slot,event.aim or 'self',
           event.event=='spotlight_slot' and 'caption' or 'effect'),frame=row.frame}
       end
