@@ -1066,6 +1066,11 @@ fn check_fixed_quirk(s: &Value) -> Option<Verdict> {
     let fc = text.strip_prefix("FC-")?.get(..3)?;
     let test: fn() = match fc {
         "005" => fix_candidates::fc005_b08_casts_keep_other_shields,
+        "015" => fix_candidates::fc015_b13e_hit_wakes_only_its_target,
+        "075" => fix_candidates::fc075_c12r_invisibility_ends_on_attack_and_cast,
+        "091" => fix_candidates::fc091_c24t_self_cast_gives_one_resolve,
+        "124" => fix_candidates::fc124_b07e_cannon_spawns_at_full_life,
+        "135" => fix_candidates::fc135_b08r_each_trigger_refreshes_its_time,
         "025" => fix_candidates::fc025_a07w_cancels_lethal_non_physical_damage,
         "024" => fix_candidates::fc024_a05d_cheats_death_once_per_cooldown,
         "046" => fix_candidates::fc046_a07r_crits_after_misses_in_a_row,
@@ -1743,7 +1748,8 @@ fn cast_other(run: &mut Run, by: &str, entry: &str) -> f64 {
     {
         let mut heroes = run.world.write_storage::<Hero>();
         if let Some(h) = heroes.get_mut(run.caster) {
-            h.ability_levels.entry(by.to_owned()).or_insert(1);
+            let level = h.ability_levels.entry(by.to_owned()).or_insert(1);
+            *level = (*level).max(1);
             h.ability_cooldowns.clear();
             if let Some(pool) = h.mana_pool.as_mut() { let max = pool.maximum(); if let Ok(full) = omoba_core::runtime::ability_runtime::ManaPool::new(max, max) { *pool = full; } }
         }
@@ -1985,7 +1991,9 @@ fn check_immune_event_target(hero: &str, s: &Value) -> Option<Verdict> {
     if order.is_some() && attacks == 0 { return Some(Verdict::Unsupported(format!("{event}: no attack landed"))); }
     let lost = life_was - run.world.read_storage::<CProperty>().get(enemy).map_or(0.0, |p| real(p.hp));
     if magical && lost > other_kinds + 1.0 { return Some(Verdict::Fail(format!("{event}: the magic-immune unit lost {lost:.1} life, physical and pure hits are {other_kinds:.1}"))); }
-    let ids = entry_runtime_ids(&entry);
+    let allowed: Vec<String> = s["given"].as_array().into_iter().flatten().filter(|g| g["kind"] == "event_target")
+        .flat_map(|g| g["allowed_statuses"].as_array().cloned().unwrap_or_default()).filter_map(|st| st.as_str().map(|st| status_runtime_id(&entry, st).unwrap_or_else(|| st.to_owned()))).collect();
+    let ids: Vec<String> = entry_runtime_ids(&entry).into_iter().filter(|id| !allowed.contains(id)).collect();
     let landed: Vec<String> = {
         let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
         buffs.iter_for(enemy).map(|(key, _)| key.to_owned()).filter(|key| ids.iter().any(|id| omoba_core::runtime::native::dispel::runtime_id_matches(id, key))).collect()
@@ -6232,6 +6240,97 @@ mod fix_candidates {
         run.step(ticks(2.0));
         let left = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().shield_remaining(caster);
         assert_eq!(left, amount, "the shield another unit gave Nagamasa changed after her cast");
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc124_b07e_cannon_spawns_at_full_life() {
+        for rank in 1..=4 {
+            let mut run = learned("ashikaga_yoshiaki", "b07_battle_line", rank, false);
+            let cast_point = value("b07_battle_line", rank, "cast_point").unwrap_or(0.0);
+            assert!(run.cast("point", cast_point + 1.0, None).unwrap().accepted, "b07_battle_line r{rank} not cast");
+            let cannons: Vec<specs::Entity> = { use specs::Join;
+                (&run.world.entities(), &run.world.read_storage::<ScriptUnitTag>()).join().filter(|(_, t)| of_template(&t.unit_id, "b07e_cannon")).map(|(e, _)| e).collect() };
+            assert!(!cannons.is_empty(), "no b07e_cannon at r{rank}");
+            for unit in cannons {
+                let (hp, mhp) = { let props = run.world.read_storage::<CProperty>(); let p = props.get(unit).unwrap(); (real(p.hp), real(p.mhp)) };
+                assert!((hp - mhp).abs() < 1.0, "b07e_cannon r{rank} has {hp} of {mhp} life");
+            }
+        }
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc075_c12r_invisibility_ends_on_attack_and_cast() {
+        let masked = || {
+            let mut run = learned("otomo_sorin", "c12_optical_mask", 1, false);
+            run.target = run.caster;
+            let cast_point = value("c12_optical_mask", 1, "cast_point").unwrap_or(0.0);
+            assert!(run.cast("unit", cast_point + 0.5, None).unwrap().accepted, "c12_optical_mask not cast on oneself");
+            assert!(holds(&run, run.caster, "c12r_invis"), "no c12r_invis after the cast");
+            run
+        };
+        let mut run = masked();
+        let body = seen_body(&mut run, 300, false);
+        attack_order(&mut run, body);
+        run.step(ticks(3.0));
+        assert!(!holds(&run, run.caster, "c12r_invis"), "c12r_invis kept through an attack");
+        let mut run = masked();
+        let enemy = run.enemy;
+        place_seen_beside(&mut run, enemy, 300.0);
+        if let Some(h) = run.world.write_storage::<Hero>().get_mut(run.caster) { h.ability_levels.insert("c12_missile_launch".into(), 1); }
+        cast_other(&mut run, "c12_missile_launch", "c12_optical_mask");
+        run.step(ticks(1.0));
+        assert!(!holds(&run, run.caster, "c12r_invis"), "c12r_invis kept through a cast");
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc015_b13e_hit_wakes_only_its_target() {
+        let mut run = learned("momochi_sandayu", "b13_hypnosis", 1, false);
+        let (caster, enemy) = (run.caster, run.enemy);
+        let cast_point = value("b13_hypnosis", 1, "cast_point").unwrap_or(0.0);
+        assert!(run.cast("unit", cast_point + 0.5, None).unwrap().accepted, "b13_hypnosis not cast at the first target");
+        assert!(holds(&run, enemy, "b13e_sleep"), "the first target is not asleep");
+        let second = seen_body(&mut run, 150, false);
+        run.world.write_storage::<omoba_core::Unit>().insert(second, omoba_core::Unit::new("v3_conformance_creep".into(), "v3_conformance_creep".into(), omoba_core::UnitType::Creep)).ok();
+        { let mut heroes = run.world.write_storage::<Hero>(); let h = heroes.get_mut(caster).unwrap(); h.ability_cooldowns.clear();
+          if let Some(pool) = h.mana_pool.as_mut() { let max = pool.maximum(); *pool = omoba_core::runtime::ability_runtime::ManaPool::new(max, max).unwrap(); } }
+        run.target = second;
+        run.step(ticks(1.0));
+        assert!(run.cast("unit", cast_point + 0.5, None).unwrap().accepted, "b13_hypnosis not cast at the second target");
+        assert!(holds(&run, second, "b13e_sleep"), "the second target is not asleep");
+        hit(&mut run, caster, enemy, 100, 0, 0);
+        assert!(!holds(&run, enemy, "b13e_sleep"), "the hit target slept on");
+        assert!(holds(&run, second, "b13e_sleep"), "the other target woke up");
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc135_b08r_each_trigger_refreshes_its_time() {
+        let id = "b08_living_soul_buff";
+        let mut run = learned("asai_nagamasa", "b08_living_soul", 1, true);
+        cast_other(&mut run, "b08_fang_slash", "b08_living_soul");
+        run.step(ticks(1.0));
+        assert!(holds(&run, run.caster, id), "no {id} after a cast");
+        run.step(ticks(3.0));
+        let before = remaining(&run, run.caster, id).unwrap_or(0.0);
+        cast_other(&mut run, "b08_fang_slash", "b08_living_soul");
+        run.step(ticks(1.0));
+        let after = remaining(&run, run.caster, id).unwrap_or(0.0);
+        assert!(after > before + 1.0, "{id} has {after:.2} s after a second trigger, had {before:.2} s");
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc091_c24t_self_cast_gives_one_resolve() {
+        let mut run = learned("yagyu_muneyoshi", "c24_last_life", 1, false);
+        run.target = run.caster;
+        let cast_point = value("c24_last_life", 1, "cast_point").unwrap_or(0.0);
+        assert!(run.cast("unit", cast_point + 0.5, None).unwrap().accepted, "c24_last_life not cast on oneself");
+        let copies = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(run.caster)
+            .filter(|(k, _)| omoba_core::runtime::native::dispel::runtime_id_matches("c24t_resolve", k) && !k.contains(':')).count();
+        assert_eq!(copies, 1, "{copies} copies of c24t_resolve on a self cast");
     }
 }
 #[test]
