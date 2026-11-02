@@ -575,6 +575,8 @@ function M.record(options,hero,index)
   local args={'--recipe',M.recipe_for(package),'--hero','1='..hero,'--autopilot','spotlight','--spotlight-script',script,
     '--resolution','1920x1080','--max-seconds',tostring(options.max_seconds),'--port',tostring(M.run_port(options,index or 1)),'--output',run_root,'--ue-root',options.ue_root}
   if options.no_build then args[#args+1]='--no-build' end
+  -- A batch of heroes queues with whatever else holds the machine, not fails.
+  args[#args+1]='--wait-live-lock';args[#args+1]='1800'
   split.run(split.options(args))
   return M.encode(options,hero,run_root)
 end
