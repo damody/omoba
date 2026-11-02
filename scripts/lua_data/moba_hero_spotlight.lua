@@ -16,10 +16,10 @@ return {schema_version=1,map_id='three_lane_quick_training',think_hz=5,mana_enab
     seat(2,1,'date_masamune','support',true),
     seat(6,2,'date_masamune','mid',true),
     -- The death demonstration: the hero walks into these four, out of the stage's view until then.
-    seat(7,2,'murakami_yoshikiyo','top',true),
-    seat(8,2,'murakami_yoshikiyo','jungle',true),
-    seat(9,2,'murakami_yoshikiyo','carry',true),
-    seat(10,2,'murakami_yoshikiyo','support',true),
+    seat(7,2,'asai_nagamasa','top',true),
+    seat(8,2,'omatsu','jungle',true),
+    seat(9,2,'saika_magoichi','carry',true),
+    seat(10,2,'tamako','support',true),
   },
   -- Level 16 learns every ultimate (asai's extra slot requires 16); 30x stand-in hit points
   -- survive summons and empowered attacks for the whole demonstration.

@@ -170,6 +170,22 @@ M.RECIPES = {
   c05t_blink_start = { look = "flash", tint = BLUE, ground = "blink_flash", ground_size = 340, ground_seconds = 0.35 },
   c05t_eclipse_area = { ground = "vortex", ground_size = 400, ground_seconds = 1.5, tint = BLUE },
   c05w_armlet = { ground = "soft_glow", ground_size = 170, ground_seconds = 1.2, tint = BLUE },
+  -- The struck flash on any unit (OmUnitActor::OnDamageCue).
+  fx_hit = { ground = "blink_flash", ground_size = 150, ground_seconds = 0.2, height = 70, grow = 0.4, tint = { 1.0, 0.6, 0.25 } },
+}
+
+-- Abilities whose every look is in the recipes above.
+M.FX_ABILITIES = {
+  "a01_tosho_gongen", "a01_heaven_net", "a01_thunder_blade", "a01_mikawa_valor", "a01_realm_momentum",
+  "b20_rock_rush", "b20_ruin_wave", "b20_tenacity", "b20_red_charge",
+  "b26_charging_wave", "b26_release_wave", "b26_blood_fury", "b26_kozuke_valor", "b26_unstoppable",
+  "c22_swallow_nest", "c22_flying_swallow", "c22_swallow_flash", "c22_dream_mist", "c22_ganryu",
+  "a12_insight_flash", "a12_insight_flash_t", "a12_mystic_pierce", "a12_mystic_field", "a12_awe", "a12_awe_t", "a12_mystic_possession", "a12_scheme", "a12_mystic_arrow",
+  "a14_impact_spear", "a14_divine_strike", "a14_stacked_spear", "a14_spear_fury",
+  "a26_volley", "a26_powder_kick", "a26_twin_guns", "a26_scorching_bomb",
+  "b27_horsemanship", "b27_mighty_strike", "b27_fearless_charge", "b27_rending_blade",
+  "c03_iron_shirt", "c03_quake_axe", "c03_thunder_wrath", "c03_iron_hammer",
+  "c05_matsukaze", "c05_thunder_dance", "c05_thunder_spear", "c05_flash_thunder",
 }
 
 function M.material(prefix, image) return ("%s/Instances/%s_fx_%s.%s_fx_%s"):format(M.ROOT, prefix, image, prefix, image) end
@@ -275,7 +291,11 @@ function M.merge_ini(text)
   end
   local out = {}
   for i, row in ipairs(rows) do out[i] = row.text end
-  return before .. "(" .. table.concat(out, ",") .. ")" .. after, nl
+  -- Their casts draw only their own cues: FxAbilities lines, in place of any earlier ones.
+  after = after:gsub("[\r\n]+%+?FxAbilities=[^\r\n]*", "")
+  local abilities = {}
+  for _, id in ipairs(M.FX_ABILITIES) do abilities[#abilities + 1] = nl .. "+FxAbilities=" .. id end
+  return before .. "(" .. table.concat(out, ",") .. ")" .. table.concat(abilities) .. after, nl
 end
 
 if arg and arg[0] and arg[0]:match("fx_family%.lua$") then
