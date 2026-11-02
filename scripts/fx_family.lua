@@ -33,6 +33,18 @@ M.IMAGES = {
   vortex = { gain = 1.2, spin = 2.5 },
   lightning = { gain = 2.0 },
   soft_glow = { gain = 1.4, mono = 1 },
+  net = { gain = 1.3 },
+  rock = { gain = 1.2, spin = 6 },
+  throw_axe = { gain = 1.3, spin = 18 },
+  war_hammer = { rot = 1.571, gain = 1.3 },
+  fire_wings = { rot = 1.571, gain = 1.3 },
+  heal_ring = { gain = 1.3, spin = 0.6 },
+  iron_shield = { gain = 1.1, spin = 0.5 },
+  banner_rally = { gain = 1.2, spin = 0.4 },
+  dust_crack = { gain = 1.3 },
+  chain_bolt = { gain = 1.8 },
+  slow_chains = { gain = 1.3, spin = -0.8 },
+  blink_flash = { gain = 1.5 },
 }
 
 -- main: takes the cue's image, size and life. The rest keep their own (their colour still follows the cue).
@@ -48,7 +60,7 @@ M.SYSTEMS = {
   sparks = { { template = emitter("OmnidirectionalBurst"), set = { ["SpawnBurst_Instantaneous.Spawn Count"] = 18 } } },
   -- keeps emitting while it lasts: a trail behind a flight, smoke, motes around a unit
   stream = { { template = emitter("Fountain"), main = true,
-      set = { ["SpawnRate.SpawnRate"] = 24 } } },
+      set = { ["SpawnRate.SpawnRate"] = 24, ["GravityForce.Gravity"] = { 0, 0, 0 }, ["AddVelocity.Velocity Speed Scale"] = 0.08, ["ShapeLocation.Sphere Radius"] = 12 } } },
 }
 
 -- Looks shared by many cues: fields of a recipe, overridden by the cue's own row.
@@ -98,6 +110,66 @@ M.RECIPES = {
   a26t_overhead_bomb = { ground = "soft_glow", ground_size = 120, ground_seconds = 1.2, height = 220, tint = GOLD },
   a26t_big_explosion = { look = "explosion", size = 340, ground_size = 560 },
   a26t_small_explosion = { look = "explosion_small" },
+  spell_hint = { ground = "shock_ring", ground_size = 400, ground_seconds = 0.8, tint = { 1.0, 0.45, 0.2 } },
+  spell_hint_self = { ground = "arcane_circle", ground_size = 400, ground_seconds = 0.8, tint = ARCANE },
+  move_slow = { ground = "slow_chains", ground_size = 140, ground_seconds = 1.2, tint = BLUE },
+  c22w_hide_model = { ground = "soft_glow", ground_size = 180, ground_seconds = 1.2, tint = STEEL },
+  -- A01 德川家康: gold rally, healing green, thunder blade, a binding net
+  a01e_net = { ground = "net", ground_size = 180, ground_seconds = 1.2 },
+  a01r_lightning = { system = "pop", sprite = "lightning", size = 240, life = 0.3, tint = BLUE, ground = "blink_flash", ground_size = 160, ground_seconds = 0.25 },
+  a01t_banner = { ground = "banner_rally", ground_size = 320, ground_seconds = 1.2 },
+  a01t_ring = { ground = "shock_ring", ground_size = 150, ground_seconds = 1.2, tint = GOLD },
+  a01w_healing_ring = { ground = "heal_ring", ground_size = 150, ground_seconds = 1.2 },
+  a01w_holy_bolt = { look = "flash", tint = GREEN, size = 220, ground = "heal_ring", ground_size = 420, ground_seconds = 0.8, grow = 0.3 },
+  -- B20 山縣昌景: rocks and the shattered ground
+  b20e_burrow = { ground = "dust_crack", ground_size = 460, ground_seconds = 0.7, grow = 0.5 },
+  b20e_thunderclap = { look = "shockwave", ground_size = 520, tint = GOLD },
+  b20t_epicenter = { system = "burst", sprite = "smoke_sheet", size = 130, life = 0.6, ground = "dust_crack", ground_size = 460, ground_seconds = 0.45, grow = 0.3 },
+  b20w_rock = { ground = "rock", ground_size = 110, ground_seconds = 0.7, height = 80, fly = true, system = "sparks" },
+  -- B26 大熊朝秀: fire charging and bursting
+  b26d_thunder_clap = { look = "shockwave", tint = { 1.0, 0.5, 0.15 } },
+  b26e_model_scale_up = { look = "flash", tint = { 1.0, 0.25, 0.15 }, size = 240 },
+  b26e_status_effect = { ground = "shock_ring", ground_size = 150, ground_seconds = 1.2, tint = { 1.0, 0.25, 0.15 } },
+  b26t_burst = { look = "explosion", size = 240, ground = "fire_wings", ground_size = 420, grow = 0.5 },
+  b26t_wings = { ground = "fire_wings", ground_size = 240, ground_seconds = 1.2 },
+  b26w_charge_fire = { ground = "vortex", ground_size = 220, ground_seconds = 1.2, tint = { 1.0, 0.45, 0.1 } },
+  b26w_charge_pulse = { look = "shockwave", ground_size = 360, tint = { 1.0, 0.5, 0.15 } },
+  b26w_fire_explode = { look = "explosion_small" },
+  b26w_shockwave = { look = "explosion", ground_size = 620 },
+  b26w_slow_overhead = { ground = "slow_chains", ground_size = 130, ground_seconds = 1.2, height = 200, tint = BLUE },
+  -- A14 前田利家: spear thrusts and lightning rage
+  a14e_blink_sparkles = { system = "sparks", ground = "blink_flash", ground_size = 240, ground_seconds = 0.3, tint = GOLD },
+  a14t_lightning = { ground = "lightning", ground_size = 240, ground_seconds = 1.2, tint = BLUE },
+  a14w_impact = { look = "slash", ground = "blink_flash", tint = GOLD },
+  a14w_move_slow = { ground = "slow_chains", ground_size = 140, ground_seconds = 1.2, tint = BLUE },
+  -- B27 小島貞興: axe throw and ground slam
+  b27e_axe = { look = "flight_glow", ground = "throw_axe", ground_size = 170, tint = STEEL },
+  b27e_hit_sound = { system = "sparks", tint = STEEL },
+  b27r_b15w3_aura = { ground = "iron_shield", ground_size = 180, ground_seconds = 1.2, tint = GOLD },
+  b27r_model_grow = { look = "flash", tint = GOLD, size = 220 },
+  b27t_move_slow = { ground = "slow_chains", ground_size = 140, ground_seconds = 1.2, tint = BLUE },
+  b27t_screen_shake = { look = "shockwave", ground_size = 240, tint = GOLD },
+  b27t_slam = { system = "burst", sprite = "smoke_sheet", size = 240, life = 0.7, ground = "dust_crack", ground_size = 900, ground_seconds = 0.8, grow = 0.2 },
+  b27w_armlet_glow = { ground = "soft_glow", ground_size = 180, ground_seconds = 1.2, tint = { 1.0, 0.35, 0.2 } },
+  -- C03 島津義弘: iron body, quake and the great hammer
+  c03e_move_slow = { ground = "slow_chains", ground_size = 140, ground_seconds = 1.2, tint = BLUE },
+  c03e_thunder_clap = { system = "sparks", ground = "dust_crack", ground_size = 460, ground_seconds = 0.6, grow = 0.3, tint = GOLD },
+  c03r_thunder = { system = "pop", sprite = "lightning", size = 220, life = 0.3, tint = BLUE },
+  c03t_hammer = { ground = "war_hammer", ground_size = 420, ground_seconds = 5, height = 60, fly = true },
+  c03t_hammer_hit = { look = "explosion_small", ground = "dust_crack", ground_size = 280, ground_seconds = 0.4, grow = 0.5 },
+  c03w_grow = { look = "flash", tint = STEEL, size = 200 },
+  c03w_iron_glow = { ground = "iron_shield", ground_size = 190, ground_seconds = 1.2 },
+  -- C05 前田慶次: lightning spear
+  c05e_bolt = { look = "flight_glow", tint = BLUE, ground = "lightning", ground_size = 150 },
+  c05e_impact = { system = "pop", sprite = "lightning", size = 180, life = 0.25, tint = BLUE },
+  c05r_chain_lightning = { look = "line", ground = "chain_bolt", tint = BLUE },
+  c05r_tempest = { ground = "lightning", ground_size = 170, ground_seconds = 1.2, tint = BLUE },
+  c05t_aoe_hint = { ground = "arcane_circle", ground_size = 400, ground_seconds = 1.5, tint = BLUE },
+  c05t_aoe_hint_enemy = { ground = "arcane_circle", ground_size = 400, ground_seconds = 1.5, tint = { 1.0, 0.25, 0.2 } },
+  c05t_blink_end = { look = "flash", tint = BLUE, ground = "blink_flash", ground_size = 340, ground_seconds = 0.35 },
+  c05t_blink_start = { look = "flash", tint = BLUE, ground = "blink_flash", ground_size = 340, ground_seconds = 0.35 },
+  c05t_eclipse_area = { ground = "vortex", ground_size = 400, ground_seconds = 1.5, tint = BLUE },
+  c05w_armlet = { ground = "soft_glow", ground_size = 170, ground_seconds = 1.2, tint = BLUE },
 }
 
 function M.material(prefix, image) return ("%s/Instances/%s_fx_%s.%s_fx_%s"):format(M.ROOT, prefix, image, prefix, image) end
@@ -162,6 +234,7 @@ function M.ini_row(id)
   if r.grow then add("GroundGrow", number(r.grow)) end
   if r.line then add("bGroundLine", "True") end
   if r.height then add("GroundHeightCm", number(r.height)) end
+  if r.fly then add("bGroundFly", "True") end
   return ('("%s",(%s))'):format(id, table.concat(f, ","))
 end
 
