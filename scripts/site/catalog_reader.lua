@@ -237,8 +237,7 @@ function M.read_source(src, game, supplement)
   end
 
   for _, it in ipairs(src.items or {}) do
-    -- by document id, or the source key when that differs (item_Sukemune, item_samurai's_badge)
-    local gi = game_item[it.id] or game_item[it.source_id]
+    local gi = game_item[it.id]
     local v3 = gi and gi.v3 or it.v3
     local text_names = {}
     for lang, name in pairs(it.name or {}) do text_names[lang] = name end
@@ -280,6 +279,7 @@ function M.read_source(src, game, supplement)
         shop = { cost = cost, recipe = recipe, category = it.category or (it.shop and it.shop.category) or (supplement and supplement.shop_category(source_id)) or nil },
         stats = stats, active = next(header) and { header = header } or nil, unlisted = (game and not gi) or nil,
         game_values = gi and true or nil, icon = supplement and supplement.item_icon(source_id) or nil,
+        scripted = it.scripted, conditions = it.conditions,
       }
     end
   end

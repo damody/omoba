@@ -139,7 +139,7 @@ function M.layout(C, page)
     "<body>",
     '<header class="top"><a class="brand" href="' .. base .. 'index.html">' .. esc(L.site_title) .. "</a>",
     '<nav><a href="' .. base .. 'index.html">' .. esc(L.heroes) .. '</a><a href="' .. base .. 'items/index.html">' .. esc(L.shop) ..
-      '</a><a href="' .. base .. 'changes.html">' .. esc(L.changes) .. "</a></nav>",
+      '</a><a href="' .. base .. 'changes.html">' .. esc(L.changes) .. '</a><a href="' .. base .. 'manual/index.html">' .. esc(L.manual) .. "</a></nav>",
     '<div class="langs" aria-label="' .. esc(L.language) .. '">' .. table.concat(switch, " ") .. "</div></header>",
     '<main>' .. page.body .. "</main>",
     '<footer><p>' .. esc(L.footer_note) .. "</p>",
@@ -246,6 +246,28 @@ local function stat_lines(C, entries, lang, rank)
   for _, s in ipairs(entries) do
     local label = L.stat[s.stat] or s.stat
     out[#out + 1] = "<li>" .. M.value(C, s.ref.owner, s.ref.name, "signed", rank) .. " " .. esc(label) .. "</li>"
+  end
+  out[#out + 1] = "</ul>"
+  return table.concat(out)
+end
+
+-- A stat's condition in words; a form with no wording shows the expression as written.
+function M.when_text(when, L)
+  if when == "self.is_hero" then return esc(L.when_forms.is_hero) end
+  if when == "game.is_night" then return esc(L.when_forms.is_night) end
+  local attr = when:match("^primary_is%(self, (%w+)%)$")
+  if attr and L.primary_names[attr] then return esc(L.when_forms.primary:format(L.primary_names[attr])) end
+  attr = when:match("^not primary_is%(self, (%w+)%)$")
+  if attr and L.primary_names[attr] then return esc(L.when_forms.not_primary:format(L.primary_names[attr])) end
+  return esc(L.when_unknown) .. " <code>" .. esc(when) .. "</code>"
+end
+
+local function conditions_block(it, L)
+  if not it.conditions then return "" end
+  local out = { "<h2>" .. esc(L.conditions) .. '</h2><ul class="stats">' }
+  for _, c in ipairs(it.conditions) do
+    out[#out + 1] = "<li>" .. esc(L.stat[c.stat] or c.stat) .. "：" .. M.when_text(c.when, L) ..
+      (c.status and (" <code>" .. esc(c.status) .. "</code>") or "") .. "</li>"
   end
   out[#out + 1] = "</ul>"
   return table.concat(out)
@@ -439,8 +461,10 @@ function M.item_page(C, it, lang)
   }
   local desc = text_field(C, it, lang, "body", nil)
   if desc then body[#body + 1] = '<p class="desc">' .. desc .. "</p>" end
+  body[#body + 1] = conditions_block(it, L)
   if it.active then
     body[#body + 1] = "<h2>" .. esc(L.active) .. "</h2>" .. M.info_rows(C, it, it.active.header, lang, nil, true)
+    if it.scripted then body[#body + 1] = '<p class="sub">' .. esc(L.scripted_active) .. "</p>" end
   elseif #(it.statuses or {}) > 0 then
     body[#body + 1] = M.info_rows(C, it, nil, lang, nil, true)
   end

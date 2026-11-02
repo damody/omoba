@@ -67,3 +67,9 @@ ul.tree li { margin: 4px 0; }
 }
 .tile.unlisted { opacity: .72; }
 ul.deferred code.reason { color: var(--muted); }
+
+.tbl { overflow-x: auto; margin: 12px 0; }
+.tbl table { border-collapse: collapse; }
+.tbl th, .tbl td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+main pre { overflow-x: auto; background: var(--card); border: 1px solid var(--line); padding: 8px 12px; }
+.toc ul { columns: 2; padding-left: 20px; }

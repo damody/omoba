@@ -31,6 +31,7 @@ local I = require('site.i18n')
 local P = require('site.pages')
 local CL = require('site.changelog')
 local CHECK = require('site.check')
+local MANUAL = require('site.manual')
 
 local M = {}
 
@@ -162,11 +163,15 @@ function M.build(opts)
       local pg = P.hero_page(C, h, lang.code); pg.hero = h; list[#list + 1] = pg
     end
     for _, it in ipairs(catalog.items) do list[#list + 1] = P.item_page(C, it, lang.code) end
+    for _, pg in ipairs(MANUAL.pages(b.root, lang.code, lang.dir, function(p) return path.is_file(p) and path.read(p, true) or nil end)) do
+      list[#list + 1] = pg
+    end
     for _, pg in ipairs(list) do
       local html = P.layout(C, pg)
-      local errs = CHECK.page(html, C, Cold, pg.hero)
+      -- a manual holds its own numbers (versions, sections, examples), not catalog values
+      local errs = pg.manual and {} or CHECK.page(html, C, Cold, pg.hero)
       for _, e in ipairs(errs) do errors[#errors + 1] = pg.path .. ': ' .. e end
-      pages[#pages + 1] = { path = pg.path, html = html, hero = pg.hero, lang = lang.code }
+      pages[#pages + 1] = { path = pg.path, html = html, hero = pg.hero, lang = lang.code, manual = pg.manual }
     end
   end
   if C.missing then
