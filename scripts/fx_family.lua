@@ -204,11 +204,11 @@ M.RECIPES.fx_stun = { system = "stream", sprite = "spark_star", size = 60, life 
 -- Basic attacks, generated: fx_swing_<hero> at the attacker, fx_strike_<hero> at the target (OmUnitActor::PlayAttackFx).
 M.WEAPONS = {
   katana = { swing = { system = "pop", sprite = "crescent_slash", size = 150, life = 0.15 },
-    strike = { system = "burst", sprite = "crescent_slash", size = 280, area = true, life = 0.35, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
+    strike = { ground = "crescent_slash", ground_size = 210, ground_seconds = 0.26, height = 80, grow = 0.5, face_camera = 0.7 } },
   axe = { swing = { system = "pop", sprite = "crescent_slash", size = 190, life = 0.18 },
-    strike = { system = "burst", sprite = "crescent_slash", size = 300, area = true, life = 0.35, ground = "dust_crack", ground_size = 240, ground_seconds = 0.4, grow = 0.4 } },
+    strike = { ground = "crescent_slash", ground_size = 250, ground_seconds = 0.3, height = 70, grow = 0.4, face_camera = 0.8 } },
   spear = { swing = { ground = "chain_bolt", ground_size = 90, ground_seconds = 0.2, line = true },
-    strike = { system = "burst", sprite = "crescent_slash", size = 280, area = true, life = 0.35, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
+    strike = { ground = "chain_bolt", ground_size = 150, ground_seconds = 0.22, height = 80, line = false, grow = 0.5, face_camera = 0.7 } },
   gun = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.14,
       ground = "spark_star", ground_size = 90, ground_seconds = 0.2, height = 70, fly = true },
     strike = { system = "burst", sprite = "shock_ring", size = 240, area = true, life = 0.35, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
@@ -253,7 +253,8 @@ M.MAX_BODY = 210
 M.MAX_GROUND = 420
 M.MAX_AURA = 90
 function M.fit(r)
-  if r.ground == "crescent_slash" then
+  -- Leaning toward the camera it is no plank, and it keeps the way the blow went.
+  if r.ground == "crescent_slash" and not r.face_camera then
     if not r.system then r.system, r.sprite, r.size, r.life = "pop", "crescent_slash", r.ground_size, r.ground_seconds end
     r.ground, r.ground_size, r.ground_seconds, r.height, r.grow = nil, nil, nil, nil, nil
   end
@@ -335,6 +336,7 @@ function M.ini_row(id)
   if r.grow then add("GroundGrow", number(r.grow)) end
   if r.line then add("bGroundLine", "True") end
   if r.height then add("GroundHeightCm", number(r.height * M.WORLD_CM)) end
+  if r.face_camera then add("GroundFaceCamera", number(r.face_camera)) end
   if r.fly then add("bGroundFly", "True") end
   return ('("%s",(%s))'):format(id, table.concat(f, ","))
 end
