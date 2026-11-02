@@ -372,9 +372,25 @@ function M.load_package(root,hero)
 end
 
 -- The renderer's spotlight script (FOmSpotlightScript::Parse).
+-- The radius an ability's effect covers, from its package values (exact key, its highest level).
+function M.view_radius(doc,id)
+  for _,ability in ipairs(doc and doc.abilities or {}) do
+    if ability.id==id and type(ability.values)=='table' then
+      local value=ability.values.radius
+      if type(value)=='number' then return value end
+      if type(value)=='table' then
+        local most=0
+        for _,level in ipairs(value) do if type(level)=='number' then most=math.max(most,level) end end
+        return most>0 and most or nil
+      end
+    end
+  end
+end
+
 function M.script(package)
   local slots={}
-  for _,slot in ipairs(package.slots) do slots[#slots+1]=slot end
+  local doc=package.hero and M.v3_document(b.root,package.hero)
+  for _,slot in ipairs(package.slots) do slot.view=M.view_radius(doc,slot.id);slots[#slots+1]=slot end
   -- The death ends the recording: only the base stage has the enemies that strike it down.
   if M.recipe_for(package)==M.RECIPE then
     for _,show in ipairs(M.BODY_SHOWS) do slots[#slots+1]=show end
