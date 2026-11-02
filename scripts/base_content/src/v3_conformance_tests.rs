@@ -1063,6 +1063,21 @@ fn check_fixed_quirk(s: &Value) -> Option<Verdict> {
         "046" => fix_candidates::fc046_a07r_crits_after_misses_in_a_row,
         "008" => fix_candidates::fc008_b04t_extra_shots_keep_the_launch_aim,
         "078" => fix_candidates::fc078_a02w_does_nothing_on_buildings,
+        "023" => fix_candidates::fc023_a04r_stops_a_lethal_hit,
+        "026" => fix_candidates::fc026_a18r_stops_a_lethal_magic_hit,
+        "027" => fix_candidates::fc027_a24d_stops_a_lethal_hit,
+        "028" => fix_candidates::fc028_a33e_ignores_a_lethal_hit,
+        "030" => fix_candidates::fc030_b16t_shares_a_lethal_hit_with_the_hound,
+        "032" => fix_candidates::fc032_b36e_stops_a_lethal_hit,
+        "033" => fix_candidates::fc033_c06r_stops_a_lethal_hit,
+        "034" => fix_candidates::fc034_c12e_stops_a_lethal_hit,
+        "035" => fix_candidates::fc035_c23r_stops_a_lethal_hit,
+        "082" => fix_candidates::fc082_a13w_invulnerable_only_when_the_cast_lands,
+        "084" => fix_candidates::fc084_a28t_phoenix_survives_a_dispel,
+        "108" => fix_candidates::fc108_b24e_dispel_ends_the_taunt,
+        "109" => fix_candidates::fc109_b24e_taunters_death_ends_the_taunt,
+        "111" => fix_candidates::fc111_c12d_count_goes_with_the_mark,
+        "118" => fix_candidates::fc118_a16r_reflects_at_the_current_rank,
         "059" => fix_candidates::fc059_c11t_bolt_arcs_between_enemies,
         "061" => fix_candidates::fc061_c21t_slashes_then_ends_invulnerability,
         "089" => fix_candidates::fc089_b28t_serpents_are_limited,
@@ -4541,6 +4556,1078 @@ mod fix_candidates {
             assert!(falls.len() >= 5, "rank {rank}: only {} attacks landed on the enemy ({})", falls.len(), holding(&run, spirit));
             let mean = (falls[falls.len() - 1] - falls[0]) as f64 / (falls.len() - 1) as f64 / 60.0;
             assert!((mean - interval).abs() <= 0.07, "rank {rank}: a spirit attacks every {mean:.3} s, expected {interval} (falls {falls:?})");
+        }
+    }
+
+    // FC-023, FC-026 to FC-028, FC-030 to FC-035: the source saved the hit after it had landed, so a
+    // lethal one killed first. Now it is stopped (or shared) before it lands.
+
+    const PHYSICAL: usize = 0;
+    const MAGICAL: usize = 1;
+    const PURE: usize = 2;
+    const ALL_KINDS: [usize; 3] = [PHYSICAL, MAGICAL, PURE];
+
+    fn life(run: &Run, unit: specs::Entity) -> f64 { real(run.world.read_storage::<CProperty>().get(unit).unwrap().hp) }
+
+    /// `unit` at `at` life, with room above it for hits measured in the thousands.
+    fn set_life(run: &mut Run, unit: specs::Entity, at: f64) {
+        let mut properties = run.world.write_storage::<CProperty>();
+        let p = properties.get_mut(unit).unwrap();
+        p.mhp = p.mhp.max(Fixed64::from_i32(60_000));
+        p.hp = fixed(at);
+    }
+
+    fn blow(run: &mut Run, source: specs::Entity, victim: specs::Entity, kind: usize, amount: i32) {
+        let mut parts = [0; 3];
+        parts[kind] = amount;
+        hit(run, source, victim, parts[0], parts[1], parts[2]);
+    }
+
+    /// What the status's absorb row has left.
+    fn absorb_left(run: &Run, unit: specs::Entity, status: &str) -> Option<f64> {
+        let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
+        let found = buffs.iter_for(unit)
+            .find(|(key, _)| key.strip_prefix("__absorb:").is_some_and(|rest| omoba_core::runtime::native::dispel::runtime_id_matches(status, rest)))
+            .and_then(|(_, entry)| entry.payload.get("remaining_raw").and_then(Value::as_i64));
+        found.map(|raw| raw as f64 / 1024.0)
+    }
+
+    /// `cast_other` keeps a level already written, and `setup` wrote 0 for every other ability.
+    fn learn_and_cast(run: &mut Run, by: &str, entry: &str) {
+        run.world.write_storage::<Hero>().get_mut(run.caster).unwrap().ability_levels.insert(by.to_owned(), 1);
+        cast_other(run, by, entry);
+    }
+
+    struct Shield<'a> {
+        status: &'a str,
+        ranks: std::ops::RangeInclusive<usize>,
+        /// The damage types it takes (the others go straight through to the life).
+        absorbs: &'a [usize],
+        /// The types whose hits compare exactly with a run without it (armor it also gives skews physical).
+        measured: &'a [usize],
+        /// `incoming_damage_pct` the same status gives, as a fraction.
+        reduction: f64,
+        /// The caster with the shield up, and how much it holds.
+        make: &'a dyn Fn(usize) -> (Run, f64),
+        /// The same caster at the same rank without it.
+        bare: &'a dyn Fn(usize) -> Run,
+    }
+
+    /// With life well under the hit and the hit within the shield: alive, life untouched. Without
+    /// the shield the same hit kills. A hit bigger than the shield lands by exactly the excess and
+    /// ends it, and nothing absorbs a hit after that.
+    fn shield_stops_lethal_hits(s: &Shield) {
+        const LOW: f64 = 30.0;
+        for rank in s.ranks.clone() {
+            for kind in ALL_KINDS {
+                let takes = s.absorbs.contains(&kind);
+                let (mut run, held) = (s.make)(rank);
+                let (caster, enemy) = (run.caster, run.enemy);
+                assert!(holds(&run, caster, s.status), "{} rank {rank}: not on the caster ({})", s.status, holding(&run, caster));
+                let amount = (held * 0.6) as i32;
+                set_life(&mut run, caster, LOW);
+                blow(&mut run, enemy, caster, kind, amount);
+                if takes {
+                    assert!(living(&run, caster), "{} rank {rank}: a lethal hit of kind {kind} ({amount}, shield {held:.1}) killed the caster", s.status);
+                    let after = life(&run, caster);
+                    assert!((after - LOW).abs() <= 5.0, "{} rank {rank} kind {kind}: life {LOW} -> {after:.1} under a hit the shield holds", s.status);
+                    assert!(holds(&run, caster, s.status), "{} rank {rank} kind {kind}: ended by a hit within it", s.status);
+                } else {
+                    assert!(!living(&run, caster), "{} rank {rank}: a lethal hit of kind {kind}, which it does not take, was stopped", s.status);
+                }
+                let mut control = (s.bare)(rank);
+                let (caster, enemy) = (control.caster, control.enemy);
+                assert!(!holds(&control, caster, s.status), "{} rank {rank}: the control holds it", s.status);
+                set_life(&mut control, caster, LOW);
+                blow(&mut control, enemy, caster, kind, amount);
+                assert!(!living(&control, caster), "{} rank {rank} kind {kind}: {amount} is not lethal without the shield: this proves nothing", s.status);
+            }
+            for &kind in s.measured {
+                let (mut run, held) = (s.make)(rank);
+                let (caster, enemy) = (run.caster, run.enemy);
+                let amount = (held * 2.0) as i32 + 800;
+                set_life(&mut run, caster, 40_000.0);
+                blow(&mut run, enemy, caster, kind, amount);
+                let lost = 40_000.0 - life(&run, caster);
+                let mut control = (s.bare)(rank);
+                let (bare_caster, bare_enemy) = (control.caster, control.enemy);
+                set_life(&mut control, bare_caster, 40_000.0);
+                blow(&mut control, bare_enemy, bare_caster, kind, amount);
+                let bare_lost = 40_000.0 - life(&control, bare_caster);
+                let expected = bare_lost * (1.0 - s.reduction) - held;
+                assert!((lost - expected).abs() <= 10.0, "{} rank {rank} kind {kind}: a hit of {amount} took {lost:.1}, expected {expected:.1} (without it {bare_lost:.1}, shield {held:.1})", s.status);
+                assert!(!holds(&run, caster, s.status), "{} rank {rank} kind {kind}: still on after being broken", s.status);
+                set_life(&mut run, caster, LOW);
+                blow(&mut run, enemy, caster, kind, 1_000_000);
+                assert!(!living(&run, caster), "{} rank {rank} kind {kind}: a lethal hit stopped after the shield broke", s.status);
+            }
+        }
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc023_a04r_stops_a_lethal_hit() {
+        const ENTRY: &str = "a04_frost_shelter";
+        let on_self = |rank: usize| json!({"entry": ENTRY, "rank": rank, "expect": [], "given": [{"kind": "learned", "entry": ENTRY, "rank": rank},
+            {"kind": "target_unit", "team": "self"}]});
+        let make = |rank: usize| {
+            let mut run = setup("takenaka_shigeharu", &on_self(rank)).unwrap();
+            let cast = run.cast("unit", 0.6, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast on himself{}", cast.why());
+            let held = value(ENTRY, rank, "shield").unwrap();
+            let left = absorb_left(&run, run.caster, "a04r_shield").unwrap_or(0.0);
+            assert!((left - held).abs() <= 1.0, "rank {rank}: the shield holds {left:.1}, the document says {held}");
+            (run, held)
+        };
+        shield_stops_lethal_hits(&Shield { status: "a04r_shield", ranks: 1..=4, absorbs: &ALL_KINDS, measured: &[], reduction: 0.0,
+            make: &make, bare: &|rank| setup("takenaka_shigeharu", &on_self(rank)).unwrap() });
+        // Broken, it shatters on the enemies around it.
+        let (mut run, held) = make(1);
+        let (caster, enemy) = (run.caster, run.enemy);
+        set_life(&mut run, caster, 40_000.0);
+        blow(&mut run, enemy, caster, PURE, held as i32 + 100);
+        assert!(holds(&run, enemy, "a04r_freeze"), "the broken shield froze no one ({})", holding(&run, enemy));
+    }
+
+    /// Real bug beside FC-023: a shield used up must not heal what it held. Its `on_broken` clears
+    /// `left`, yet its `on_removed` heals the full `$shield` (absorb.rs removes the status while it
+    /// absorbs, so the end trigger reads `left` as the row had it).
+    #[test]
+    #[ignore = "FC-023 真 bug，見測試上方註解"]
+    pub(super) fn fc023b_a04r_broken_shield_heals_nothing() {
+        const ENTRY: &str = "a04_frost_shelter";
+        let s = json!({"entry": ENTRY, "rank": 1, "expect": [], "given": [{"kind": "learned", "entry": ENTRY, "rank": 1}, {"kind": "target_unit", "team": "self"}]});
+        let mut run = setup("takenaka_shigeharu", &s).unwrap();
+        assert!(run.cast("unit", 0.6, None).unwrap().accepted, "{ENTRY} not cast");
+        let (caster, enemy) = (run.caster, run.enemy);
+        let held = value(ENTRY, 1, "shield").unwrap();
+        set_life(&mut run, caster, 5_000.0);
+        blow(&mut run, enemy, caster, PURE, held as i32 + 300);
+        run.step(12);
+        let after = life(&run, caster);
+        assert!((after - 4_700.0).abs() <= 15.0, "a hit of {} on a shield of {held} left life 5000 -> {after:.1}, 4700 expected", held as i32 + 300);
+    }
+
+    /// FC-026: its magical part only, and the source's write-back of the life of 0.2 s ago is gone:
+    /// other damage just after an absorbed hit still lands.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc026_a18r_stops_a_lethal_magic_hit() {
+        const ENTRY: &str = "a18_stubborn_tactics";
+        let make = |rank: usize| {
+            let mut run = learned("inaba_ittetsu", ENTRY, rank, true);
+            // Learned rank by rank: the timer started at rank 1's gap.
+            for _ in 0..ticks(value(ENTRY, 1, "shield_gap").unwrap() + 1.0) {
+                if holds(&run, run.caster, "a18r_shield") { break; }
+                run.step(1);
+            }
+            (run, value(ENTRY, rank, "shield").unwrap())
+        };
+        shield_stops_lethal_hits(&Shield { status: "a18r_shield", ranks: 1..=4, absorbs: &[MAGICAL], measured: &[MAGICAL], reduction: 0.0,
+            make: &make, bare: &|rank| learned("inaba_ittetsu", ENTRY, rank, true) });
+        let (mut run, _) = make(1);
+        let (caster, enemy) = (run.caster, run.enemy);
+        set_life(&mut run, caster, 5_000.0);
+        blow(&mut run, enemy, caster, MAGICAL, 100);
+        blow(&mut run, enemy, caster, PURE, 700);
+        let after = life(&run, caster);
+        assert!((after - 4_300.0).abs() <= 10.0, "life {after:.1} after 100 magic absorbed and 700 pure: the source's write-back of an earlier life?");
+    }
+
+    /// FC-027: the shield comes from the life paid by another ability (shield_ratio times it) and
+    /// stops hits before they land; what it absorbed is off the blood shield.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc027_a24d_stops_a_lethal_hit() {
+        const ENTRY: &str = "a24_blood_shield";
+        let make = |rank: usize| {
+            let mut run = learned("sakuma_morimasa", ENTRY, rank, true);
+            let (max, before) = run.world.read_storage::<CProperty>().get(run.caster).map(|p| (real(p.mhp), real(p.hp))).unwrap();
+            learn_and_cast(&mut run, "a24_slaughter_shot", ENTRY);
+            let paid = before - life(&run, run.caster);
+            let cost = max * value("a24_slaughter_shot", 1, "hp_cost_pct").unwrap() / 100.0;
+            assert!((paid - cost).abs() <= 5.0, "rank {rank}: paid {paid:.1} life for the shot, {cost:.1} expected (the shield must not absorb the price)");
+            let expected = (cost * 2.0).min(value(ENTRY, rank, "shield_max").unwrap());
+            let held = absorb_left(&run, run.caster, "a24d_shield").unwrap_or(0.0);
+            assert!((held - expected).abs() <= 20.0, "rank {rank}: the blood shield holds {held:.1}, {expected:.1} expected");
+            (run, held)
+        };
+        shield_stops_lethal_hits(&Shield { status: "a24d_shield", ranks: 1..=4, absorbs: &ALL_KINDS, measured: &ALL_KINDS, reduction: 0.0,
+            make: &make, bare: &|rank| learned("sakuma_morimasa", ENTRY, rank, true) });
+    }
+
+    /// FC-028: a lethal hit of a hero or a building is ignored, `$blocks` times, each one counted.
+    /// Under `$min_damage` it lands without using one. With none left the next hit ends the status
+    /// and lands. Rank 1 has none. Another unit's hit is not ignored.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc028_a33e_ignores_a_lethal_hit() {
+        const ENTRY: &str = "a33_ghost_step";
+        const STATUS: &str = "a33e_ghost_walk";
+        let cast = |rank: usize| {
+            let mut run = learned("honda_masanobu", ENTRY, rank, false);
+            assert!(run.cast("none", 0.5, None).unwrap().accepted, "rank {rank}: {ENTRY} not cast");
+            assert!(holds(&run, run.caster, STATUS), "rank {rank}: no {STATUS}");
+            run
+        };
+        for rank in 2..=4 {
+            let blocks = value(ENTRY, rank, "blocks").unwrap() as usize;
+            let min = value(ENTRY, rank, "min_damage").unwrap() as i32;
+            let mut run = cast(rank);
+            let (caster, enemy) = (run.caster, run.enemy);
+            set_life(&mut run, caster, 1_000.0);
+            blow(&mut run, enemy, caster, PURE, min - 10);
+            assert!((life(&run, caster) - (1_000.0 - (min - 10) as f64)).abs() <= 5.0, "rank {rank}: a hit under {min} did not land ({})", life(&run, caster));
+            for i in 0..blocks {
+                set_life(&mut run, caster, 30.0);
+                blow(&mut run, enemy, caster, ALL_KINDS[i % 3], 1_000_000);
+                assert!(living(&run, caster), "rank {rank}: lethal hit {} of {blocks} killed him", i + 1);
+                assert!((life(&run, caster) - 30.0).abs() <= 5.0, "rank {rank}: life {} after an ignored hit", life(&run, caster));
+                assert!(holds(&run, caster, STATUS), "rank {rank}: {STATUS} ended after {} hits of {blocks}", i + 1);
+            }
+            set_life(&mut run, caster, 1_000.0);
+            blow(&mut run, enemy, caster, PURE, 10);
+            assert!(!holds(&run, caster, STATUS), "rank {rank}: {STATUS} kept by a hit with none left");
+            assert!(life(&run, caster) < 995.0, "rank {rank}: the hit that ended it did not land");
+            set_life(&mut run, caster, 30.0);
+            blow(&mut run, enemy, caster, PURE, 1_000_000);
+            assert!(!living(&run, caster), "rank {rank}: a lethal hit stopped after it ended");
+        }
+        // Rank 1: none to use, the first hit ends it and kills.
+        let mut run = cast(1);
+        let (caster, enemy) = (run.caster, run.enemy);
+        set_life(&mut run, caster, 30.0);
+        blow(&mut run, enemy, caster, PURE, 1_000_000);
+        assert!(!living(&run, caster), "rank 1 ignored a hit with no blocks");
+        // A building counts; a creep does not.
+        let mut run = cast(2);
+        let caster = run.caster;
+        let tower = seen_body(&mut run, 300, true);
+        set_life(&mut run, caster, 30.0);
+        blow(&mut run, tower, caster, PURE, 1_000_000);
+        assert!(living(&run, caster), "a building's lethal hit killed him");
+        let mut run = cast(2);
+        let caster = run.caster;
+        let creep = seen_body(&mut run, 300, false);
+        set_life(&mut run, caster, 30.0);
+        blow(&mut run, creep, caster, PURE, 1_000_000);
+        assert!(!living(&run, caster), "a creep's lethal hit was ignored");
+    }
+
+    /// The first living unit holding the status.
+    fn unit_holding(run: &Run, status: &str) -> Option<specs::Entity> {
+        use specs::Join;
+        let units: Vec<specs::Entity> = run.world.entities().join().collect();
+        units.into_iter().find(|unit| holds(run, *unit, status))
+    }
+
+    /// FC-030: `$share_pct` of a hit leaves before it lands and falls on the hound as pure damage:
+    /// a hit lethal in full leaves her alive, and the hound takes its share even if she dies.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc030_b16t_shares_a_lethal_hit_with_the_hound() {
+        const ENTRY: &str = "b16_beast_union";
+        let cast = |rank: usize| {
+            let s = json!({"entry": ENTRY, "rank": rank, "expect": [], "given": [{"kind": "learned", "entry": ENTRY, "rank": rank},
+                {"kind": "cast_first", "entry": "b16_summon_hound"}]});
+            let mut run = setup("mochizuki_chiyome", &s).unwrap();
+            let hound = unit_holding(&run, "b16d_body").expect("no hound");
+            let c = run.cast("none", 0.5, None).unwrap();
+            assert!(c.accepted, "rank {rank}: {ENTRY} not cast{}", c.why());
+            assert!(holds(&run, run.caster, "b16t_union"), "rank {rank}: no b16t_union ({})", holding(&run, run.caster));
+            let beside = pos_of(&run, run.caster) + east(50.0);
+            move_unit(&mut run, hound, beside);
+            set_life(&mut run, hound, 50_000.0);
+            (run, hound)
+        };
+        for rank in 1..=3 {
+            let share = value(ENTRY, rank, "share_pct").unwrap() / 100.0;
+            let (mut run, hound) = cast(rank);
+            let (caster, enemy) = (run.caster, run.enemy);
+            set_life(&mut run, caster, 500.0);
+            blow(&mut run, enemy, caster, PURE, 1_000);
+            assert!(living(&run, caster), "rank {rank}: a hit of 1000 at 500 life killed her");
+            let (kept, took) = (life(&run, caster), 50_000.0 - life(&run, hound));
+            assert!((kept - (500.0 - 1_000.0 * (1.0 - share))).abs() <= 5.0, "rank {rank}: life 500 -> {kept:.1} under a pure hit of 1000");
+            assert!((took - 1_000.0 * share).abs() <= 5.0, "rank {rank}: the hound took {took:.1} of a pure hit of 1000");
+            // Mitigated types: the hound takes the shared part of what she would have lost.
+            for kind in [PHYSICAL, MAGICAL] {
+                set_life(&mut run, caster, 40_000.0);
+                set_life(&mut run, hound, 50_000.0);
+                blow(&mut run, enemy, caster, kind, 1_000);
+                let (lost, took) = (40_000.0 - life(&run, caster), 50_000.0 - life(&run, hound));
+                assert!(lost > 1.0, "rank {rank} kind {kind}: nothing landed");
+                assert!((took - lost * share / (1.0 - share)).abs() <= 20.0, "rank {rank} kind {kind}: she lost {lost:.1}, the hound {took:.1}");
+            }
+            // Still lethal after the share: she dies, and the hound still takes something.
+            set_life(&mut run, caster, 50.0);
+            set_life(&mut run, hound, 50_000.0);
+            blow(&mut run, enemy, caster, PURE, 1_000);
+            assert!(!living(&run, caster), "rank {rank}: survived 200 at 50 life");
+            assert!(life(&run, hound) < 50_000.0 - 1.0, "rank {rank}: the hound took nothing of the hit that killed her");
+        }
+        // The hound out of range shares nothing.
+        let (mut run, hound) = cast(1);
+        let (caster, enemy) = (run.caster, run.enemy);
+        let far = pos_of(&run, caster) + east(value(ENTRY, 1, "share_range").unwrap() + 400.0);
+        move_unit(&mut run, hound, far);
+        set_life(&mut run, caster, 500.0);
+        set_life(&mut run, hound, 50_000.0);
+        blow(&mut run, enemy, caster, PURE, 1_000);
+        assert!(!living(&run, caster), "a hound out of range shared a lethal hit");
+    }
+
+    /// Real bug beside FC-030: of a hit that kills her through the share the hound takes four times
+    /// the life she had left, not `$share_pct` of the hit: `event.damage.final` is capped by her life
+    /// (game_processor.rs DamageNote amount = hp_before - hp_after).
+    #[test]
+    #[ignore = "FC-030 真 bug，見測試上方註解"]
+    pub(super) fn fc030b_b16t_hound_takes_its_share_of_the_hit_that_kills_her() {
+        const ENTRY: &str = "b16_beast_union";
+        let s = json!({"entry": ENTRY, "rank": 1, "expect": [], "given": [{"kind": "learned", "entry": ENTRY, "rank": 1},
+            {"kind": "cast_first", "entry": "b16_summon_hound"}]});
+        let mut run = setup("mochizuki_chiyome", &s).unwrap();
+        let hound = unit_holding(&run, "b16d_body").expect("no hound");
+        assert!(run.cast("none", 0.5, None).unwrap().accepted, "{ENTRY} not cast");
+        let (caster, enemy) = (run.caster, run.enemy);
+        let beside = pos_of(&run, caster) + east(50.0);
+        move_unit(&mut run, hound, beside);
+        set_life(&mut run, hound, 50_000.0);
+        set_life(&mut run, caster, 50.0);
+        blow(&mut run, enemy, caster, PURE, 1_000);
+        assert!(!living(&run, caster), "survived 200 at 50 life");
+        let took = 50_000.0 - life(&run, hound);
+        let share = value(ENTRY, 1, "share_pct").unwrap() * 10.0;
+        assert!((took - share).abs() <= 5.0, "the hound took {took:.1} of the hit that killed her, {share} expected");
+    }
+
+    /// FC-031: a lethal hit is never restored.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc031_b26r_does_not_restore_a_lethal_hit() {
+        const ENTRY: &str = "b26_kozuke_valor";
+        for earlier in 0..8 {
+            let mut run = learned("okuma_tomohide", ENTRY, 4, true);
+            let (caster, enemy) = (run.caster, run.enemy);
+            for _ in 0..earlier { blow(&mut run, enemy, caster, PURE, 1); }
+            set_life(&mut run, caster, 30.0);
+            blow(&mut run, enemy, caster, PURE, 1_000);
+            run.step(30);
+            assert!(!living(&run, caster), "a lethal hit was restored (after {earlier} earlier hits)");
+        }
+    }
+
+    /// FC-031 real bug: a hit larger than half the life before it is restored at the chance too (the
+    /// source compared with the life after the hit), but the restore overshoots: life 1000 under a hit
+    /// of 800 ends at 1800, not 1000. `self.hp + event.damage.final` reads the life from before the
+    /// hit in on_take_damage, then sets it after the hit took it (same for B21T's hp_pct: from full
+    /// life a hit of 60% puts no bonus on).
+    #[test]
+    #[ignore = "FC-031 真 bug，見測試上方註解"]
+    pub(super) fn fc031b_b26r_restores_a_big_hit_to_the_life_before_it() {
+        const ENTRY: &str = "b26_kozuke_valor";
+        const HITS: usize = 200;
+        let chance = value(ENTRY, 4, "chance").unwrap() / 100.0;
+        let mut run = learned("okuma_tomohide", ENTRY, 4, true);
+        let (caster, enemy) = (run.caster, run.enemy);
+        let mut restored = 0;
+        for _ in 0..HITS {
+            set_life(&mut run, caster, 1_000.0);
+            blow(&mut run, enemy, caster, PURE, 800);
+            let after = life(&run, caster);
+            if (after - 1_000.0).abs() <= 5.0 { restored += 1; }
+            else { assert!((after - 200.0).abs() <= 5.0, "life 1000 -> {after:.1} under 800"); }
+        }
+        let rate = restored as f64 / HITS as f64;
+        assert!(rate >= chance * 0.4 && rate <= chance * 2.0, "restored {restored} of {HITS} big hits at a {chance} chance");
+    }
+
+    /// FC-032: 25% off comes first; the shield holds its amount plus 20% of his mana at the cast.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc032_b36e_stops_a_lethal_hit() {
+        const ENTRY: &str = "b36_heart_fence";
+        let make = |rank: usize| {
+            let mut run = learned("naoe_kanetsugu", ENTRY, rank, false);
+            let c = run.cast("none", 0.5, None).unwrap();
+            assert!(c.accepted, "rank {rank}: {ENTRY} not cast{}", c.why());
+            let expected = value(ENTRY, rank, "absorb").unwrap() + run.mana() * value(ENTRY, rank, "mana_pct").unwrap() / 100.0;
+            let held = absorb_left(&run, run.caster, "b36e_shield").unwrap_or(0.0);
+            assert!((held - expected).abs() <= 5.0, "rank {rank}: the shield holds {held:.1}, {expected:.1} expected");
+            (run, held)
+        };
+        shield_stops_lethal_hits(&Shield { status: "b36e_shield", ranks: 1..=4, absorbs: &ALL_KINDS, measured: &[MAGICAL, PURE],
+            reduction: value(ENTRY, 1, "damage_reduction").unwrap() / 100.0,
+            make: &make, bare: &|rank| learned("naoe_kanetsugu", ENTRY, rank, false) });
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc033_c06r_stops_a_lethal_hit() {
+        const ENTRY: &str = "c06_lavish_strike";
+        let make = |rank: usize| {
+            let mut run = learned("ishikawa_goemon", ENTRY, rank, false);
+            let c = run.cast("none", 0.5, None).unwrap();
+            assert!(c.accepted, "rank {rank}: {ENTRY} not cast{}", c.why());
+            let held = absorb_left(&run, run.caster, "c06r_shield").unwrap_or(0.0);
+            let base = value(ENTRY, rank, "absorb_base").unwrap();
+            assert!(held >= base - 1.0, "rank {rank}: the shield holds {held:.1}, under its base {base}");
+            (run, held)
+        };
+        shield_stops_lethal_hits(&Shield { status: "c06r_shield", ranks: 1..=4, absorbs: &ALL_KINDS, measured: &ALL_KINDS, reduction: 0.0,
+            make: &make, bare: &|rank| learned("ishikawa_goemon", ENTRY, rank, false) });
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc034_c12e_stops_a_lethal_hit() {
+        const ENTRY: &str = "c12_space_rift";
+        let ahead = |rank: usize| json!({"entry": ENTRY, "rank": rank, "expect": [], "given": [{"kind": "learned", "entry": ENTRY, "rank": rank},
+            {"kind": "target_ahead", "distance": "$blink_range"}]});
+        let make = |rank: usize| {
+            let mut run = setup("otomo_sorin", &ahead(rank)).unwrap();
+            let c = run.cast("none", 0.5, None).unwrap();
+            assert!(c.accepted, "rank {rank}: {ENTRY} not cast{}", c.why());
+            let intelligence = run.hero(|h| h.intelligence) as f64;
+            let held = absorb_left(&run, run.caster, "c12e_shield").unwrap_or(0.0);
+            assert!(held >= intelligence * value(ENTRY, rank, "shield_int_mult").unwrap() - 1.0, "rank {rank}: the shield holds {held:.1} at {intelligence} int");
+            (run, held)
+        };
+        shield_stops_lethal_hits(&Shield { status: "c12e_shield", ranks: 1..=4, absorbs: &ALL_KINDS, measured: &ALL_KINDS, reduction: 0.0,
+            make: &make, bare: &|rank| setup("otomo_sorin", &ahead(rank)).unwrap() });
+    }
+
+    /// FC-035: a hit the passive takes never lands: lethal ones too, the guaranteed one after
+    /// `$pity_after` misses and the one under c23r_on_spell. It restores `$heal` of the hit.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc035_c23r_stops_a_lethal_hit() {
+        const ENTRY: &str = "c23_blood_for_blood";
+        for rank in [1, 4] {
+            let (heal, pity) = (value(ENTRY, rank, "heal").unwrap() / 100.0, value(ENTRY, rank, "pity_after").unwrap() as usize);
+            let mut run = learned("kato_kiyomasa", ENTRY, rank, true);
+            let (caster, enemy) = (run.caster, run.enemy);
+            for (round, kind) in ALL_KINDS.into_iter().enumerate() {
+                let mut misses = 0;
+                let mut tries = 0;
+                while misses < pity {
+                    tries += 1;
+                    assert!(tries < 400, "rank {rank}: never {pity} misses in a row in {tries} hits");
+                    set_life(&mut run, caster, 5_000.0);
+                    blow(&mut run, enemy, caster, PURE, 100);
+                    let after = life(&run, caster);
+                    if after < 4_950.0 { misses += 1; } else { assert!(after >= 4_995.0, "rank {rank}: life 5000 -> {after:.1}"); misses = 0; }
+                }
+                // Now the next one is guaranteed.
+                set_life(&mut run, caster, 30.0);
+                blow(&mut run, enemy, caster, kind, 300);
+                assert!(living(&run, caster), "rank {rank} round {round}: the guaranteed absorb did not stop a lethal hit of kind {kind}");
+                let after = life(&run, caster);
+                assert!(after >= 28.0, "rank {rank} round {round}: life {after:.1} under an absorbed hit");
+                if kind == PURE { assert!((after - (30.0 + 300.0 * heal)).abs() <= 5.0, "rank {rank}: life {after:.1} after absorbing 300 pure at 30 life, heal {heal}"); }
+            }
+        }
+        // c23r_on_spell alone (C23R unlearned: no roll of the passive cancels first): one hit, no heal.
+        for kind in ALL_KINDS {
+            let mut run = learned("kato_kiyomasa", "c23_tainted_frenzy", 1, false);
+            let (caster, enemy) = (run.caster, run.enemy);
+            assert!(run.cast("none", 0.5, None).unwrap().accepted, "C23W not cast");
+            assert!(holds(&run, caster, "c23r_on_spell"), "no c23r_on_spell after C23W ({})", holding(&run, caster));
+            set_life(&mut run, caster, 30.0);
+            blow(&mut run, enemy, caster, kind, 300);
+            assert!(living(&run, caster), "c23r_on_spell did not stop a lethal hit of kind {kind}");
+            assert!((life(&run, caster) - 30.0).abs() <= 5.0, "life {} under c23r_on_spell", life(&run, caster));
+            assert!(!holds(&run, caster, "c23r_on_spell"), "c23r_on_spell kept after its hit");
+            blow(&mut run, enemy, caster, kind, 1_000_000);
+            assert!(!living(&run, caster), "a second lethal hit of kind {kind} stopped after c23r_on_spell ended");
+        }
+    }
+
+    // Death, dispel and order: FC-082, 084, 087, 103, 106 to 109, 111, 118.
+
+    fn order(run: &mut Run, player: u32, input: PlayerInput) {
+        let result = run.driver.step(&mut run.world, [(player, input)]).unwrap();
+        project_tick(&mut run.world, result);
+    }
+
+    fn stop_order() -> PlayerInput { PlayerInput { action: Some(PlayerInputEnum::Stop(Default::default())) } }
+
+    fn walk_order(x: i32) -> PlayerInput {
+        PlayerInput { action: Some(PlayerInputEnum::MoveTo(MoveTo { target: Some(Vec2I { x: x * 1024, y: isolated_skill_origin_y() * 1024 }), queued: false })) }
+    }
+
+    fn dispel_all(run: &Run, unit: specs::Entity, strength: omoba_core::runtime::native::dispel::Strength) {
+        use omoba_core::runtime::native::dispel::{dispel, Purge};
+        dispel(&run.world, unit, strength, Purge::Buffs);
+        dispel(&run.world, unit, strength, Purge::Debuffs);
+    }
+
+    fn accepted_casts(run: &Run, ability: &str, from: usize) -> usize {
+        use omoba_core::runtime::native::cast_trace::{CastTrace, CastTraceResult};
+        let trace = run.world.read_resource::<CastTrace>();
+        let count = trace.0.iter().skip(from).filter(|row| row.caster == run.caster && row.ability == ability && matches!(row.result, CastTraceResult::Accepted)).count();
+        count
+    }
+
+    fn trace_len(run: &Run) -> usize { run.world.read_resource::<omoba_core::runtime::native::cast_trace::CastTrace>().0.len() }
+
+    /// The caster dies and comes back; `run.caster` is the hero again.
+    fn dies_and_respawns(run: &mut Run) {
+        let (caster, enemy) = (run.caster, run.enemy);
+        run.kill(enemy, caster);
+        run.step(3);
+        run.kill_physical_too(enemy, caster);
+        assert!(!living(run, caster), "the hero did not die");
+        for _ in 0..ticks(180.0) {
+            let hero = run.world.read_resource::<MobaMatch>().heroes[0].entity;
+            if let Some(hero) = hero.filter(|hero| living(run, *hero)) { run.caster = hero; break; }
+            run.step(1);
+        }
+        assert!(living(run, run.caster), "the hero did not respawn");
+        run.step(ticks(1.0));
+    }
+
+    /// FC-082: a cast taken back in its cast point leaves no invulnerability and costs nothing; the
+    /// cast that lands gives it.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc082_a13w_invulnerable_only_when_the_cast_lands() {
+        const ENTRY: &str = "a13_shadow_illusion";
+        let mut run = learned("hattori_hanzo", ENTRY, 1, false);
+        let caster = run.caster;
+        let (mana, from) = (run.mana(), trace_len(&run));
+        let input = run.input("none").unwrap();
+        order(&mut run, 1, input);
+        run.step(1);
+        assert!(run.in_windup(from), "{ENTRY}: the cast point did not start");
+        assert!(!invulnerable(&run, caster), "invulnerable in the cast point");
+        order(&mut run, 1, stop_order());
+        for tick in 0..ticks(1.0) {
+            run.step(1);
+            assert!(!invulnerable(&run, caster), "invulnerable {tick} ticks after the cast was taken back ({})", holding(&run, caster));
+        }
+        assert_eq!(accepted_casts(&run, ENTRY, from), 0, "the cast landed after the stop");
+        assert!(run.cooldown() <= 0.0, "a taken back cast started the cooldown ({})", run.cooldown());
+        assert!(run.mana() >= mana - 0.5, "a taken back cast cost mana ({mana} -> {})", run.mana());
+        // The real one.
+        let invuln = value(ENTRY, 1, "invuln_time").unwrap();
+        let cast = run.cast("none", value(ENTRY, 1, "cast_point").unwrap() + 0.5, None).unwrap();
+        assert!(cast.accepted, "{ENTRY} not cast{}", cast.why());
+        assert!(invulnerable(&run, caster), "the cast landed without invulnerability ({})", holding(&run, caster));
+        run.step(ticks(invuln - 0.2));
+        assert!(invulnerable(&run, caster), "invulnerability ended before {invuln} s");
+        run.step(ticks(0.5));
+        assert!(!invulnerable(&run, caster), "still invulnerable after {invuln} s");
+    }
+
+    /// FC-084: no dispel ends the phoenix's lifetime (that killed it, with no killer and no bounty);
+    /// a kill does and the time does.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc084_a28t_phoenix_survives_a_dispel() {
+        use omoba_core::runtime::native::dispel::Strength;
+        const ENTRY: &str = "a28_phoenix_summon";
+        const STATUS: &str = "a28t_lifetime";
+        let summon = || {
+            let mut run = learned("hashiba_hideyoshi", ENTRY, 1, false);
+            let c = run.cast("none", value(ENTRY, 1, "cast_point").unwrap() + 0.5, None).unwrap();
+            assert!(c.accepted, "{ENTRY} not cast{}", c.why());
+            run.step(2);
+            let phoenix = unit_holding(&run, STATUS).expect("no phoenix holding its lifetime");
+            set_hold(&mut run.world, phoenix);
+            if run.world.read_storage::<TAttack>().get(phoenix).is_some() { disarm_attack(&mut run.world, phoenix); }
+            (run, phoenix)
+        };
+        let (mut run, phoenix) = summon();
+        for strength in [Strength::Basic, Strength::Strong] {
+            dispel_all(&run, phoenix, strength);
+            run.step(5);
+            assert!(living(&run, phoenix), "a {strength:?} dispel killed the phoenix");
+            assert!(holds(&run, phoenix, STATUS), "a {strength:?} dispel took {STATUS}");
+        }
+        let left = remaining(&run, phoenix, STATUS).unwrap();
+        run.step(ticks(left - 1.0));
+        assert!(living(&run, phoenix), "the phoenix died {left} s early");
+        run.step(ticks(2.0));
+        assert!(!living(&run, phoenix), "the phoenix outlived its {left} s");
+        let (mut run, phoenix) = summon();
+        let enemy = run.enemy;
+        run.kill(enemy, phoenix);
+        run.step(3);
+        assert!(!living(&run, phoenix), "the phoenix cannot be killed");
+    }
+
+    /// FC-087: a stun or the channel's own end takes her immunity status with it. The owner's stop is
+    /// fc087c, a real bug.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc087_b23r_immunity_ends_with_the_channel() {
+        const ENTRY: &str = "b23_soul_feast";
+        const STATUS: &str = "b23r_magic_immune";
+        let channel = || {
+            let mut run = learned("ise_hime", ENTRY, 1, false);
+            let c = run.cast("none", 0.5, None).unwrap();
+            assert!(c.accepted, "{ENTRY} not cast{}", c.why());
+            let caster = run.caster;
+            assert!(holds(&run, caster, STATUS), "no {STATUS} ({})", holding(&run, caster));
+            assert!(run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().has(caster, "ability_channel"), "not channeling");
+            run
+        };
+        let lands = |run: &mut Run| {
+            let (caster, enemy) = (run.caster, run.enemy);
+            run.step(3);
+            assert!(!run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().has(caster, "ability_channel"), "still channeling");
+            assert!(!holds(run, caster, STATUS), "{STATUS} kept after the channel ended ({})", holding(run, caster));
+            set_life(run, caster, 5_000.0);
+            blow(run, enemy, caster, MAGICAL, 500);
+            assert!(life(run, caster) < 4_950.0, "magic did not land after the channel ({})", life(run, caster));
+        };
+        // Stopped by its owner, with a listening status somewhere in the world, as a real match has:
+        // without one the end waits for the next dispatch (fc087c).
+        let mut run = channel();
+        let enemy = run.enemy;
+        run.world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(enemy, "fc087_listener", Fixed64::from_i32(600),
+            json!({ (omoba_core::runtime::native::status_event::KEY): {} }));
+        order(&mut run, 1, stop_order());
+        lands(&mut run);
+        // Interrupted by a stun.
+        let mut run = channel();
+        let caster = run.caster;
+        run.world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(caster, "stun", Fixed64::from_i32(1), json!({}));
+        lands(&mut run);
+        // Run to its end.
+        let mut run = channel();
+        run.step(ticks(value(ENTRY, 1, "channel_time").unwrap()));
+        lands(&mut run);
+    }
+
+    /// FC-087 real bug: the source's case itself, taking the channel back with a stop, keeps the full
+    /// status: the channel row ends (ability_channel gone) yet the status stays; a stun or the natural end does take it.
+    #[test]
+    #[ignore = "FC-087 真 bug，見測試上方註解"]
+    pub(super) fn fc087c_b23r_owners_stop_ends_the_status() {
+        let mut run = learned("ise_hime", "b23_soul_feast", 1, false);
+        assert!(run.cast("none", 0.5, None).unwrap().accepted, "b23_soul_feast not cast");
+        let caster = run.caster;
+        assert!(holds(&run, caster, "b23r_magic_immune"), "no b23r_magic_immune");
+        order(&mut run, 1, stop_order());
+        run.step(10);
+        assert!(!run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().has(caster, "ability_channel"), "still channeling");
+        assert!(!holds(&run, caster, "b23r_magic_immune"), "b23r_magic_immune kept {:?} s after a stop took the channel back", remaining(&run, caster, "b23r_magic_immune"));
+    }
+
+    /// Real bug beside FC-087: a status with `states = { "magic_immune" }` stores the row "buff", not
+    /// "magic_immune" (v3_rust.lua's vocabulary lowercases the constant's name, `magic_immunity::BUFF`),
+    /// so its holder is not magic immune at all.
+    #[test]
+    #[ignore = "FC-087 真 bug，見測試上方註解"]
+    pub(super) fn fc087b_b23r_makes_her_magic_immune() {
+        let mut run = learned("ise_hime", "b23_soul_feast", 1, false);
+        assert!(run.cast("none", 0.5, None).unwrap().accepted, "b23_soul_feast not cast");
+        let (caster, enemy) = (run.caster, run.enemy);
+        assert!(holds(&run, caster, "b23r_magic_immune"), "no b23r_magic_immune");
+        let immune = omoba_core::runtime::native::magic_immunity::is_magic_immune(&run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>(), caster);
+        assert!(immune, "b23r_magic_immune on, not magic immune ({})", holding(&run, caster));
+        set_life(&mut run, caster, 5_000.0);
+        blow(&mut run, enemy, caster, MAGICAL, 500);
+        assert!(life(&run, caster) >= 4_999.0, "magic landed under b23r_magic_immune ({})", life(&run, caster));
+    }
+
+    fn charges(run: &Run) -> i64 {
+        held(run, run.caster, "a06r_charge").map_or(0, |(_, entry)| entry.payload.get("__v3_stacks").and_then(Value::as_i64).unwrap_or(1))
+    }
+
+    /// A06's stacks from real attacks, until the flame is usable.
+    fn attack_up_to_the_flame(run: &mut Run, body: specs::Entity) {
+        let need = value("a06_red_flame_flow", 1, "charge_cost").unwrap() as i64;
+        attack_order(run, body);
+        for _ in 0..ticks(40.0) {
+            if charges(run) >= need { break; }
+            run.step(1);
+        }
+        assert!(charges(run) >= need, "{} stacks after 40 s of attacking", charges(run));
+        let caster = run.caster;
+        set_hold(&mut run.world, caster);
+        disarm_attack(&mut run.world, caster);
+        run.step(2);
+    }
+
+    fn flame_inactive(run: &Run) -> bool {
+        omoba_core::runtime::native::ability_slots::inactive(&run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>(), run.caster, "a06_flame_of_anger")
+    }
+
+    /// Orders the flame at the enemy hero; whether it landed.
+    fn order_flame(run: &mut Run) -> bool {
+        let slot = run.hero(|h| h.abilities.iter().position(|id| id == "a06_flame_of_anger")).expect("no flame in the slots") as u32;
+        let at = pos_of(run, run.enemy);
+        let caster = run.caster;
+        move_unit(run, caster, at - east(200.0));
+        let from = trace_len(run);
+        let input = PlayerInput { action: Some(PlayerInputEnum::CastAbility(CastAbility { ability_index: slot, target_entity: None,
+            target_pos: Some(Vec2I { x: at.x.raw() as i32, y: at.y.raw() as i32 }) })) };
+        order(run, 1, input);
+        run.step(ticks(0.5));
+        accepted_casts(run, "a06_flame_of_anger", from) > 0
+    }
+
+    /// FC-103: the flame goes with the stacks, by a dispel or a death; it comes back with the stacks,
+    /// and casting it then leaves no negative count.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc103_a06_flame_goes_with_its_stacks() {
+        use omoba_core::runtime::native::dispel::Strength;
+        const ENTRY: &str = "a06_red_flame_flow";
+        let cost = value(ENTRY, 1, "charge_cost").unwrap() as i64;
+        // It works with them, and spends them.
+        let mut run = learned("ii_naomasa", ENTRY, 1, true);
+        let body = seen_body(&mut run, 200, false);
+        attack_up_to_the_flame(&mut run, body);
+        assert!(!flame_inactive(&run), "{} stacks and the flame is not usable", charges(&run));
+        let before = charges(&run);
+        assert!(order_flame(&mut run), "the flame was refused with {before} stacks");
+        assert_eq!(charges(&run), before - cost, "the flame spent the wrong number of stacks");
+        // A dispel.
+        let mut run = learned("ii_naomasa", ENTRY, 1, true);
+        let body = seen_body(&mut run, 200, false);
+        attack_up_to_the_flame(&mut run, body);
+        dispel_all(&run, run.caster, Strength::Basic);
+        run.step(2);
+        assert_eq!(charges(&run), 0, "the stacks survived a basic dispel");
+        assert!(flame_inactive(&run), "the flame stayed usable after the stacks were dispelled");
+        assert!(!order_flame(&mut run), "the flame was cast after the stacks were dispelled");
+    }
+
+    /// FC-103 real bug: the source's case itself. After a death with the flame usable, the hero comes
+    /// back as a new entity with the flame's level kept and no `__ability_inactive` row (on_removed
+    /// wrote it, if at all, on the dead body), so one flame goes off with no stacks.
+    #[test]
+    #[ignore = "FC-103 真 bug，見測試上方註解"]
+    pub(super) fn fc103b_a06_flame_is_off_after_a_death() {
+        const ENTRY: &str = "a06_red_flame_flow";
+        let cost = value(ENTRY, 1, "charge_cost").unwrap() as i64;
+        let mut run = learned("ii_naomasa", ENTRY, 1, true);
+        let body = seen_body(&mut run, 200, false);
+        attack_up_to_the_flame(&mut run, body);
+        dies_and_respawns(&mut run);
+        assert_eq!(charges(&run), 0, "the stacks survived the death");
+        assert!(flame_inactive(&run), "the flame stayed usable after the death ({})", holding(&run, run.caster));
+        assert!(!order_flame(&mut run), "the flame was cast after the death, with no stacks");
+        attack_up_to_the_flame(&mut run, body);
+        assert!(!flame_inactive(&run), "{} stacks after the respawn and the flame is not usable", charges(&run));
+        let before = charges(&run);
+        assert!(order_flame(&mut run), "the flame was refused after the respawn with {before} stacks");
+        assert!(charges(&run) >= 0 && charges(&run) == before - cost, "stacks {before} -> {} after the flame", charges(&run));
+    }
+
+    /// FC-106: dispelled, the bonus comes back at the next change of life, by a hit or a heal, at the
+    /// stacks that life gives (the source kept a dead handle and never showed it again).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc106_b21t_bonus_comes_back_after_a_dispel() {
+        use omoba_core::runtime::native::dispel::Strength;
+        const ENTRY: &str = "b21_undying_demon";
+        const STATUS: &str = "b21t_bonus";
+        let per = value(ENTRY, 1, "stack_hp").unwrap() / 100.0;
+        let top = value(ENTRY, 1, "stack_max").unwrap() as i64;
+        let mut run = learned("baba_nobufusa", ENTRY, 1, true);
+        let (caster, enemy) = (run.caster, run.enemy);
+        let stacks = |run: &Run| held(run, caster, STATUS).map(|(_, entry)| entry.payload.get("__v3_stacks").and_then(Value::as_i64).unwrap_or(1));
+        let expected = |run: &Run| {
+            let properties = run.world.read_storage::<CProperty>();
+            let p = properties.get(caster).unwrap();
+            ((((1.0 - real(p.hp) / real(p.mhp)) / per).floor()) as i64).min(top)
+        };
+        let half = real(run.world.read_storage::<CProperty>().get(caster).unwrap().mhp) * 0.5;
+        run.world.write_storage::<CProperty>().get_mut(caster).unwrap().hp = fixed(half);
+        blow(&mut run, enemy, caster, PURE, 1);
+        assert!(expected(&run) >= 1, "at half life the bonus should have stacks");
+        assert_eq!(stacks(&run), Some(expected(&run)), "at half life ({})", holding(&run, caster));
+        dispel_all(&run, caster, Strength::Basic);
+        run.step(2);
+        assert_eq!(stacks(&run), None, "{STATUS} survived a basic dispel");
+        // By a hit.
+        blow(&mut run, enemy, caster, PURE, 1);
+        assert_eq!(stacks(&run), Some(expected(&run)), "not back after a hit ({})", holding(&run, caster));
+        dispel_all(&run, caster, Strength::Basic);
+        run.step(2);
+        assert_eq!(stacks(&run), None, "{STATUS} survived the second dispel");
+        // By a heal.
+        run.world.write_resource::<Vec<Outcome>>().push(Outcome::Heal { pos: omoba_sim::Vec2::ZERO, target: caster, amount: Fixed64::from_i32(20) });
+        run.step(3);
+        assert_eq!(stacks(&run), Some(expected(&run)), "not back after a heal ({})", holding(&run, caster));
+        // And it still follows the life.
+        let full = real(run.world.read_storage::<CProperty>().get(caster).unwrap().mhp);
+        run.world.write_storage::<CProperty>().get_mut(caster).unwrap().hp = fixed(full - 50.0);
+        run.world.write_resource::<Vec<Outcome>>().push(Outcome::Heal { pos: omoba_sim::Vec2::ZERO, target: caster, amount: Fixed64::from_i32(100) });
+        run.step(3);
+        assert_eq!(stacks(&run), None, "{STATUS} kept at full life");
+    }
+
+    /// Real bug in FC-106: the `heal` op of a script is Outcome::ScriptHeal, whose handler
+    /// (game_processor.rs handle_script_heal) does not note the heal, so no on_heal_received hears it.
+    #[test]
+    #[ignore = "FC-106 真 bug，見測試上方註解"]
+    pub(super) fn fc106b_b21t_hears_a_script_heal() {
+        let mut run = learned("baba_nobufusa", "b21_undying_demon", 1, true);
+        let caster = run.caster;
+        let half = real(run.world.read_storage::<CProperty>().get(caster).unwrap().mhp) * 0.5;
+        run.world.write_storage::<CProperty>().get_mut(caster).unwrap().hp = fixed(half);
+        run.world.write_resource::<Vec<Outcome>>().push(Outcome::ScriptHeal { target: caster, amount: Fixed64::from_i32(20) });
+        run.step(5);
+        assert!(holds(&run, caster, "b21t_bonus"), "a script's heal at half life put no bonus on ({})", holding(&run, caster));
+    }
+
+    /// FC-107: no dispel takes the pact: its reduction stays, a ghost's death still costs mana, and
+    /// her death still takes the ghosts.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc107_b23d_pact_survives_a_dispel() {
+        use omoba_core::runtime::native::dispel::Strength;
+        const ENTRY: &str = "b23_undead_pact";
+        const STATUS: &str = "b23d_damage_reduction";
+        let summon = || {
+            let s = json!({"entry": ENTRY, "rank": 1, "expect": [], "given": [{"kind": "learned", "entry": ENTRY, "rank": 1}, {"kind": "corpse_near_caster"}]});
+            let mut run = setup("ise_hime", &s).unwrap();
+            let c = run.cast("none", value(ENTRY, 1, "cast_point").unwrap() + 0.5, None).unwrap();
+            assert!(c.accepted, "{ENTRY} not cast{}", c.why());
+            run.step(2);
+            let ghost = unit_holding(&run, "b23d_ghost_link").expect("no ghost");
+            set_hold(&mut run.world, ghost);
+            if run.world.read_storage::<TAttack>().get(ghost).is_some() { disarm_attack(&mut run.world, ghost); }
+            assert!(holds(&run, run.caster, STATUS), "no {STATUS} with a ghost");
+            for strength in [Strength::Basic, Strength::Strong] {
+                dispel_all(&run, run.caster, strength);
+                run.step(2);
+                assert!(holds(&run, run.caster, STATUS), "a {strength:?} dispel took {STATUS}");
+            }
+            (run, ghost)
+        };
+        let (mut run, ghost) = summon();
+        let (caster, enemy) = (run.caster, run.enemy);
+        // The reduction is still real.
+        let cut = value(ENTRY, 1, "damage_reduction").unwrap() / 100.0;
+        set_life(&mut run, caster, 5_000.0);
+        blow(&mut run, enemy, caster, PURE, 1_000);
+        let lost = 5_000.0 - life(&run, caster);
+        assert!((lost - 1_000.0 * (1.0 - cut)).abs() <= 5.0, "a hit of 1000 took {lost:.1} under the pact, a {cut} cut");
+        assert!(living(&run, ghost), "the ghost died of the dispels");
+    }
+
+    /// FC-107 real bug: her death does not take the ghost, with no dispel involved at all, even a
+    /// second later.
+    #[test]
+    #[ignore = "FC-107 真 bug，見測試上方註解"]
+    pub(super) fn fc107c_b23d_her_death_takes_the_ghost() {
+        const ENTRY: &str = "b23_undead_pact";
+        let s = json!({"entry": ENTRY, "rank": 1, "expect": [], "given": [{"kind": "learned", "entry": ENTRY, "rank": 1}, {"kind": "corpse_near_caster"}]});
+        let mut run = setup("ise_hime", &s).unwrap();
+        assert!(run.cast("none", value(ENTRY, 1, "cast_point").unwrap() + 0.5, None).unwrap().accepted, "{ENTRY} not cast");
+        run.step(2);
+        let (caster, enemy) = (run.caster, run.enemy);
+        let ghost = unit_holding(&run, "b23d_ghost_link").expect("no ghost");
+        run.kill(enemy, caster);
+        run.step(3);
+        run.kill_physical_too(enemy, caster);
+        assert!(!living(&run, caster), "she did not die");
+        run.step(ticks(1.0));
+        let errors: Vec<(String, String, String)> = run.world.fetch::<ScriptErrorLog>().take().iter().map(|r| (r.ability.to_string(), r.hook.to_string(), r.message.to_string())).collect();
+        assert!(!living(&run, ghost), "the ghost outlived her by a second (script errors: {errors:?})");
+    }
+
+    /// FC-107 real bug: a ghost's death costs no mana and leaves the pact on, dispelled or not: a dead
+    /// summon's rows stay on it (game_processor.rs deletes `remove_uids` without
+    /// BuffStore::remove_all_for), so b23d_ghost_link's on_death never runs.
+    #[test]
+    #[ignore = "FC-107 真 bug，見測試上方註解"]
+    pub(super) fn fc107b_b23d_ghost_death_costs_mana() {
+        const ENTRY: &str = "b23_undead_pact";
+        let s = json!({"entry": ENTRY, "rank": 1, "expect": [], "given": [{"kind": "learned", "entry": ENTRY, "rank": 1}, {"kind": "corpse_near_caster"}]});
+        let mut run = setup("ise_hime", &s).unwrap();
+        assert!(run.cast("none", value(ENTRY, 1, "cast_point").unwrap() + 0.5, None).unwrap().accepted, "{ENTRY} not cast");
+        run.step(2);
+        let (caster, enemy) = (run.caster, run.enemy);
+        let ghost = unit_holding(&run, "b23d_ghost_link").expect("no ghost");
+        if let Some(pool) = run.world.write_storage::<Hero>().get_mut(caster).and_then(|h| h.mana_pool.as_mut()) {
+            *pool = omoba_core::runtime::ability_runtime::ManaPool::new(pool.maximum(), pool.maximum()).unwrap();
+        }
+        let max = run.mana_max().unwrap();
+        run.kill(enemy, ghost);
+        run.step(5);
+        assert!(!living(&run, ghost), "the ghost did not die");
+        let spent = max - run.mana();
+        let loss = max * value(ENTRY, 1, "mana_loss").unwrap() / 100.0;
+        assert!((spent - loss).abs() <= 5.0, "the ghost's death cost {spent:.1} mana, {loss:.1} expected");
+        assert!(!holds(&run, caster, "b23d_damage_reduction"), "b23d_damage_reduction kept with no ghost left");
+    }
+
+    fn x_of(run: &Run, unit: specs::Entity) -> f64 { real(pos_of(run, unit).x) }
+
+    /// B24E, rank 4 (3 s), on the enemy hero: mark and taunt on, its owner's orders refused.
+    fn taunted() -> Run {
+        let mut run = learned("akiyama_nobutomo", "b24_taunt", 4, false);
+        let c = run.cast("point", value("b24_taunt", 4, "cast_point").unwrap() + 0.5, None).unwrap();
+        assert!(c.accepted, "b24_taunt not cast{}", c.why());
+        run.step(ticks(value("b24_taunt", 4, "order_delay").unwrap() + 0.05));
+        let enemy = run.enemy;
+        assert!(holds(&run, enemy, "b24e_mark"), "no b24e_mark ({})", holding(&run, enemy));
+        assert!(holds(&run, enemy, "b24e_taunt"), "no b24e_taunt ({})", holding(&run, enemy));
+        assert!(omoba_core::runtime::native::command_restriction::restricted(&run.world, enemy), "taunted but its orders are not refused");
+        let before = x_of(&run, enemy);
+        order(&mut run, 2, walk_order(3000));
+        run.step(15);
+        assert!(x_of(&run, enemy) <= before + 1.0, "taunted, it walked away from the taunter ({before} -> {})", x_of(&run, enemy));
+        run
+    }
+
+    fn obeys_its_owner(run: &mut Run) {
+        let enemy = run.enemy;
+        assert!(!holds(run, enemy, "b24e_taunt"), "b24e_taunt kept ({})", holding(run, enemy));
+        assert!(!omoba_core::runtime::native::command_restriction::restricted(&run.world, enemy), "its orders are still refused");
+        let before = x_of(run, enemy);
+        order(run, 2, walk_order(3000));
+        run.step(30);
+        assert!(x_of(run, enemy) > before + 10.0, "it did not obey a move order ({before} -> {})", x_of(run, enemy));
+    }
+
+    /// FC-108: a basic dispel of the mark ends the taunt: the owner has the hero back at once.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc108_b24e_dispel_ends_the_taunt() {
+        let mut run = taunted();
+        let enemy = run.enemy;
+        dispel_all(&run, enemy, omoba_core::runtime::native::dispel::Strength::Basic);
+        run.step(2);
+        assert!(!holds(&run, enemy, "b24e_mark"), "b24e_mark survived a basic dispel");
+        obeys_its_owner(&mut run);
+    }
+
+    /// FC-109: the taunter's death ends the taunt, and a taunter dead before the order taunts no one.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc109_b24e_taunters_death_ends_the_taunt() {
+        let mut run = taunted();
+        let (caster, enemy) = (run.caster, run.enemy);
+        run.kill(enemy, caster);
+        run.step(3);
+        run.kill_physical_too(enemy, caster);
+        assert!(!living(&run, caster), "he did not die");
+        run.step(2);
+        obeys_its_owner(&mut run);
+        // Dead inside the 0.1 s before the order.
+        let mut run = learned("akiyama_nobutomo", "b24_taunt", 4, false);
+        let (caster, enemy) = (run.caster, run.enemy);
+        assert!(run.cast("point", value("b24_taunt", 4, "cast_point").unwrap() + 0.5, None).unwrap().accepted, "b24_taunt not cast");
+        run.kill(enemy, caster);
+        run.step(3);
+        run.kill_physical_too(enemy, caster);
+        assert!(!living(&run, caster), "he did not die");
+        run.step(ticks(0.3));
+        obeys_its_owner(&mut run);
+    }
+
+    /// One C12W at the enemy: the life it took and whether it stunned.
+    fn missile(run: &mut Run) -> (f64, bool) {
+        const ENTRY: &str = "c12_missile_launch";
+        let waited = ticks(value(ENTRY, 1, "cooldown").unwrap() + 0.2);
+        run.step(waited);
+        if let Some(pool) = run.world.write_storage::<Hero>().get_mut(run.caster).and_then(|h| h.mana_pool.as_mut()) {
+            *pool = omoba_core::runtime::ability_runtime::ManaPool::new(pool.maximum(), pool.maximum()).unwrap();
+        }
+        let enemy = run.enemy;
+        run.target = enemy;
+        let c = run.cast("none", value(ENTRY, 1, "cast_point").unwrap() + 0.5, None).unwrap();
+        assert!(c.accepted, "{ENTRY} not cast{}", c.why());
+        run.sustain = false;
+        let before = life(run, enemy);
+        let mut stunned = false;
+        for _ in 0..ticks(0.8) {
+            run.step(1);
+            stunned |= holds(run, enemy, "c12w_stun");
+        }
+        (before - life(run, enemy), stunned)
+    }
+
+    /// FC-111: the count goes with the mark. Marked, a missile deals its bonus and the even ones stun;
+    /// after a dispel or a death the same missile is a plain one, without bonus or stun.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc111_c12d_count_goes_with_the_mark() {
+        const ENTRY: &str = "c12_missile_launch";
+        let marked = || {
+            let s = json!({"entry": ENTRY, "rank": 1, "expect": [], "given": [{"kind": "learned", "entry": ENTRY, "rank": 1},
+                {"kind": "cast_first", "entry": "c12_homing_lock"}]});
+            let run = setup("otomo_sorin", &s).unwrap();
+            let enemy = run.enemy;
+            assert!(holds(&run, enemy, "c12d_mark"), "no c12d_mark ({})", holding(&run, enemy));
+            assert!(holds(&run, enemy, "c12d_count"), "no c12d_count ({})", holding(&run, enemy));
+            run
+        };
+        let mut run = marked();
+        let enemy = run.enemy;
+        let (first, first_stun) = missile(&mut run);
+        assert!(!first_stun, "the first marked missile stunned");
+        let (second, second_stun) = missile(&mut run);
+        assert!(second_stun, "the second marked missile did not stun");
+        assert!((first - second).abs() <= 10.0, "marked missiles took {first:.1} and {second:.1}");
+        omoba_core::runtime::native::dispel::dispel(&run.world, enemy, omoba_core::runtime::native::dispel::Strength::Basic, omoba_core::runtime::native::dispel::Purge::Debuffs);
+        run.step(2);
+        assert!(!holds(&run, enemy, "c12d_mark"), "c12d_mark survived a basic dispel");
+        assert!(!holds(&run, enemy, "c12d_count"), "c12d_count outlived its mark");
+        let (third, third_stun) = missile(&mut run);
+        let (fourth, fourth_stun) = missile(&mut run);
+        assert!(third > 1.0, "the plain missile did not land");
+        assert!(third < first - 5.0, "unmarked, a missile took {third:.1}, marked {first:.1}: the bonus stayed");
+        assert!(!third_stun && !fourth_stun, "unmarked missiles stunned ({third_stun}, {fourth_stun})");
+        assert!((third - fourth).abs() <= 10.0, "plain missiles took {third:.1} and {fourth:.1}");
+
+        // By a death: the enemy comes back without the count.
+        let mut run = marked();
+        let enemy = run.enemy;
+        let (with_mark, _) = missile(&mut run);
+        let caster = run.caster;
+        run.kill(caster, enemy);
+        run.step(3);
+        assert!(!living(&run, enemy), "the marked enemy did not die");
+        for _ in 0..ticks(180.0) {
+            let hero = run.world.read_resource::<MobaMatch>().heroes[1].entity;
+            if let Some(hero) = hero.filter(|hero| living(&run, *hero)) { run.enemy = hero; break; }
+            run.step(1);
+        }
+        let back = run.enemy;
+        assert!(living(&run, back), "the enemy did not respawn");
+        assert!(!holds(&run, back, "c12d_mark"), "c12d_mark kept through the death");
+        assert!(!holds(&run, back, "c12d_count"), "c12d_count kept through the death");
+        set_hold(&mut run.world, back);
+        disarm_attack(&mut run.world, back);
+        let (plain, stun) = missile(&mut run);
+        assert!(plain > 1.0, "the missile after the respawn did not land");
+        assert!(plain < with_mark - 5.0, "after the death a missile took {plain:.1}, marked {with_mark:.1}: the bonus stayed");
+        assert!(!stun, "a missile after the death stunned");
+    }
+
+    /// FC-118: the reflection follows the current rank: `$reflect_pct` after each upgrade, with no
+    /// death in between (the source kept the rank it first applied at).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc118_a16r_reflects_at_the_current_rank() {
+        const ENTRY: &str = "a16_blood_aura";
+        let mut run = learned("torii_mototada", ENTRY, 1, true);
+        let (caster, enemy, slot) = (run.caster, run.enemy, run.slot);
+        for rank in 1..=4 {
+            if rank > 1 {
+                run.world.write_storage::<Hero>().get_mut(caster).unwrap().skill_points = 1;
+                order(&mut run, 1, upgrade(slot));
+                run.step(ticks(1.5));
+            }
+            let level = run.hero(|h| h.ability_levels.get(ENTRY).copied().unwrap_or(0));
+            assert_eq!(level, rank as i32, "{ENTRY} not upgraded");
+            assert!(holds(&run, caster, "a16r_reflect"), "rank {rank}: no a16r_reflect ({})", holding(&run, caster));
+            let share = value(ENTRY, rank, "reflect_pct").unwrap() / 100.0;
+            set_life(&mut run, caster, 40_000.0);
+            set_life(&mut run, enemy, 40_000.0);
+            blow(&mut run, enemy, caster, PURE, 1_000);
+            let took = 40_000.0 - life(&run, enemy);
+            assert!((took - 1_000.0 * share).abs() <= 5.0, "rank {rank}: a hit of 1000 reflected {took:.1}, {} expected", 1_000.0 * share);
         }
     }
 
