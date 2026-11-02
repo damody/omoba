@@ -3,9 +3,10 @@
 # the pelvis follows at the leg-length ratio. Nothing but the motion comes across.
 import sys
 import bpy
-from mathutils import Matrix
+from math import radians
+from mathutils import Matrix, Quaternion
 
-library_fbx, tpose_fbx, clip_fbx, out_fbx, first_kept, last_kept = sys.argv[sys.argv.index('--') + 1:]
+library_fbx, tpose_fbx, clip_fbx, out_fbx, first_kept, last_kept, yaw_degrees, wrist_degrees = sys.argv[sys.argv.index('--') + 1:]
 
 PAIRS = [('pelvis', 'Hips'), ('spine_01', 'Spine'), ('spine_02', 'Spine1'), ('spine_03', 'Spine2'), ('neck_01', 'Neck'), ('Head', 'Head')]
 for side, name in (('l', 'Left'), ('r', 'Right')):
@@ -62,6 +63,7 @@ for pb in library.pose.bones:
     pb.rotation_mode = 'QUATERNION'
     pb.matrix_basis = Matrix.Identity(4)
 
+yaw = Matrix.Rotation(radians(float(yaw_degrees)), 4, 'Z')
 order = sorted(PAIRS, key=lambda row: len(library.pose.bones[row[0]].parent_recursive))
 frames = 0
 for frame in range(first, last + 1):
@@ -69,8 +71,13 @@ for frame in range(first, last + 1):
     bpy.context.view_layer.update()
     for bone, name in order:
         pb = library.pose.bones[bone]
-        world = source.matrix_world @ source.pose.bones['mixamorig:' + name].matrix
+        world = yaw @ source.matrix_world @ source.pose.bones['mixamorig:' + name].matrix
         rotation = world.to_quaternion() @ source_t_world[name].inverted() @ library_t[bone]
+        if bone == 'hand_r' and float(wrist_degrees):
+            at_bone = lambda part: (yaw @ source.matrix_world @ source.pose.bones['mixamorig:RightHand' + part].matrix).translation
+            across = at_bone('Pinky1') - at_bone('Index1')
+            along = at_bone('Middle1') - world.translation
+            rotation = Quaternion(across.cross(along).normalized(), radians(float(wrist_degrees))) @ rotation
         at = pb.matrix.translation.copy()
         if bone == 'pelvis':
             at = pelvis_t + (world.translation - hips_t) * ratio

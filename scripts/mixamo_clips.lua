@@ -9,16 +9,18 @@ local model=require('character_retarget')
 
 -- Clip name in moba_tripo_hero_visuals -> the Mixamo file's name, with the frames kept when the motion runs long.
 -- Swings keep 36 frames (1.2 s) around the fastest moment of the hand, so a fast attack cycle still reads and
--- the contact lands at 0.6 s (impact in moba_tripo_hero_visuals).
+-- the contact lands at 0.6 s (impact in moba_tripo_hero_visuals). The fourth value turns a clip authored side-on
+-- (degrees about up), so the hand is straight ahead at the contact and the swing goes at the target. The fifth tilts
+-- the right wrist (degrees, pinky side toward the fingers): a rifle stab's fist would otherwise hold a spear upright.
 local CLIPS={
-  Mx_Sword_Slash={'Great Sword Slash',6,42},
-  Mx_Sword_Inward={'Stable Sword Inward Slash',18,54},
-  Mx_Sword_Outward={'Stable Sword Outward Slash',8,44},
+  Mx_Sword_Slash={'Great Sword Slash',6,42,-97},
+  Mx_Sword_Inward={'Stable Sword Inward Slash',18,54,92},
+  Mx_Sword_Outward={'Stable Sword Outward Slash',8,44,-34},
   Mx_Sword_Draw='Withdrawing Sword',
   Mx_Axe_Down={'Standing Melee Attack Downward',7,43},
   Mx_Axe_Smash='Great Sword Downward Slash',
   Mx_Sweep={'Standing Melee Attack Horizontal',11,47},
-  Mx_Spear_Thrust={'Thrust Slash',7,43},
+  Mx_Spear_Thrust={'Bayonet Stab',10,46,39,50},
   Mx_Spear_Upward='Upward Thrust',
   Mx_Rifle_Fire='Firing Rifle',
   Mx_Battlecry={'Standing Taunt Battlecry',0,65},
@@ -47,7 +49,7 @@ for _,name in ipairs(names)do
   local source=p.join(input,entry[1]..'.fbx');assert(p.is_file(source),'missing '..source)
   local out=p.join(baked,name..'.fbx')
   if not(options['--reuse-baked'] and p.is_file(out)) then
-  local result=r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out,tostring(entry[2]or''),tostring(entry[3]or'')},{cwd=b.root,check=false})
+  local result=r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out,tostring(entry[2]or''),tostring(entry[3]or''),tostring(entry[4]or 0),tostring(entry[5]or 0)},{cwd=b.root,check=false})
   assert(result.exit_code==0 and p.is_file(out),'bake failed: '..name..'\n'..tostring(result.stdout):sub(-1500))
   end
   added[#added+1]={name=name,fbx=out}

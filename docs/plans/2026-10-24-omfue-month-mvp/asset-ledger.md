@@ -152,8 +152,8 @@
 | 2026-11-02 | Standing Melee Attack Downward | Downward Attack With Axe | Mx_Axe_Down | 斧下劈 |
 | 2026-11-02 | Standing Melee Attack Horizontal | Right To Left Attack With Axe | Mx_Sweep | 斧、槍橫掃 |
 | 2026-11-02 | Great Sword Slash（存為 Great Sword Downward Slash） | Great Sword Downward Slash | Mx_Axe_Smash | 砸地 |
-| 2026-11-02 | Bayonet Stab | Advancing And Stabbing With Rifle Bayonet Or Spear | — | 下載後沒有使用：步槍握法讓槍身近乎垂直 |
-| 2026-11-02 | Thrust Slash | Thrust And Slash With Blade | Mx_Spear_Thrust | 槍突刺 |
+| 2026-11-02 | Bayonet Stab | Advancing And Stabbing With Rifle Bayonet Or Spear | Mx_Spear_Thrust | 槍突刺（轉 39 度、手腕傾 50 度）|
+| 2026-11-02 | Thrust Slash | Thrust And Slash With Blade | — | 試過沒有採用：接觸時槍身是豎的 |
 | 2026-11-02 | Upward Thrust | Upward Weapon Thrust | Mx_Spear_Upward | 槍上挑 |
 | 2026-11-02 | Firing Rifle | Firing A Rifle While Standing | Mx_Rifle_Fire | 鐵砲射擊 |
 | 2026-11-02 | Standing Taunt Battlecry | Battlecry With Axe | Mx_Battlecry | 吶喊、Buff |

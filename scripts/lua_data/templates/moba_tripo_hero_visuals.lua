@@ -61,6 +61,8 @@ return function(ctx)
   -- pivot on the bottom face (center_z = half its height). length scales it to a share of the 100 cm body;
   -- grip is where the fist closes, as a fraction of the length from the centre (-0.5 = the very end).
   -- Blades, hafts and bows run through the fist; a gun lies along the fingers so its barrel points where the arm aims.
+  -- flip puts the tip on the thumb side: the hand bones of some rigs point the other way, and the sword clips need the
+  -- blade ahead of the thumb to swing it at the target.
   -- material names a build-time colour variant (manifest recolors, scripts/recolor_characters.lua): the dark iron
   -- axe and black-lacquered spear are lightened ('bright') and made a little larger so they read at MOBA distance.
   local weapons={
@@ -74,8 +76,8 @@ return function(ctx)
     tamako={mesh='weapon_hankyu',hand='hand_l',length=0.9,grip=0,center_z=10.1},
     -- The eleventh-of-November heroes share the existing weapon models.
     sasaki_kojiro={mesh='weapon_katana',hand='hand_r',length=1.15,grip=-0.40,center_z=6.0},
-    tokugawa_ieyasu={mesh='weapon_katana',hand='hand_r',length=0.95,grip=-0.40,center_z=6.0},
-    yamagata_masakage={mesh='weapon_katana',hand='hand_r',length=0.95,grip=-0.40,center_z=6.0},
+    tokugawa_ieyasu={mesh='weapon_katana',hand='hand_r',length=0.95,grip=-0.40,center_z=6.0,flip=true},
+    yamagata_masakage={mesh='weapon_katana',hand='hand_r',length=0.95,grip=-0.40,center_z=6.0,flip=true},
     okuma_tomohide={mesh='weapon_war_axe',hand='hand_r',length=1.1,grip=-0.35,center_z=20.4},
     maeda_toshiie={mesh='weapon_jumonji',hand='hand_r',length=1.7,grip=-0.15,center_z=10.3},
     maeda_keiji={mesh='weapon_tonbokiri',hand='hand_r',length=2.2,grip=-0.15,center_z=3.3},
@@ -90,7 +92,7 @@ return function(ctx)
     local s,gx=w.length,w.grip*100
     -- Along the fingers (-Y): yaw -90 maps the weapon's X onto -Y; the grip point lands in the palm.
     if w.along=='fingers'then return {palm[1],palm[2]+s*gx,palm[3]-s*w.center_z},{0,-90,0}end
-    if w.hand=='hand_r'then return {palm[1]+s*w.center_z,palm[2],palm[3]-s*gx},{90,0,0}end
+    if w.hand=='hand_r' and not w.flip then return {palm[1]+s*w.center_z,palm[2],palm[3]-s*gx},{90,0,0}end
     return {palm[1]-s*w.center_z,palm[2],palm[3]+s*gx},{-90,0,0}
   end
 
