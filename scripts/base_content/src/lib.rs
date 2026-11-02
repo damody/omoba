@@ -90,6 +90,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
     fn all_units() -> RVec<UnitDef> {
         let mut v = units();
         v.extend(hero_a02_impl::units());
+        v.extend(hero_a07_impl::units());
         v.extend(hero_b01_impl::units());
         v.extend(hero_c17_impl::units());
         v.extend(hero_a34_impl::units());
@@ -189,6 +190,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
     fn all_abilities() -> RVec<AbilityDefFFI> {
         let mut v = abilities();
         v.extend(hero_a02_impl::abilities());
+        v.extend(hero_a07_impl::abilities());
         v.extend(hero_b01_impl::abilities());
         v.extend(hero_c17_impl::abilities());
         v.extend(hero_a34_impl::abilities());
@@ -390,15 +392,6 @@ fn abilities() -> RVec<AbilityDefFFI> {
         let generated = match entry.script.ability_id().as_str() {
             "b04_fire_blast" => hero_b04_impl::generated::b04_fire_blast::ffi(),
             "b04_flame_swiftness" => hero_b04_impl::generated::b04_flame_swiftness::ffi(),
-            "a07_unscathed" => hero_a07_impl::generated::a07_unscathed::ffi(),
-            // conformance 2026-10-30: 0 differences (208 scenarios A07, B06 0 regressions)
-            "a07_shattering_spear" => hero_a07_impl::generated::a07_shattering_spear::ffi(),
-            "a07_rouse" => hero_a07_impl::generated::a07_rouse::ffi(),
-            // conformance 2026-10-30: 0 differences
-            "a07_red_thunder" => hero_a07_impl::generated::a07_red_thunder::ffi(),
-            // the generated one swaps a07_rouse for a07_rouse_free while a07t_strongest lasts (the
-            // handler did not; known_differences a07_rouse_free/*)
-            "a07_strongest" => hero_a07_impl::generated::a07_strongest::ffi(),
             "b06_brave_warriors" => hero_b06_impl::generated::b06_brave_warriors::ffi(),
             "b06_flame_fangs" => hero_b06_impl::generated::b06_flame_fangs::ffi(),
             // conformance 2026-10-30: 0 regressions (B04, B06 compare vs handler)
@@ -413,13 +406,8 @@ fn abilities() -> RVec<AbilityDefFFI> {
         // The metadata stays the catalog one the handler used; only the script changes.
         entry.script = generated.script;
     }
-    for generated in GENERATED_ONLY { v.push(generated()); }
     v
 }
-
-/// Abilities with no handler and no registry row (sub-abilities, slot "sub"): only generated
-/// Rust, registered after the registry (A07's free rouse, the swap sub-ability).
-const GENERATED_ONLY: &[fn() -> AbilityDefFFI] = &[hero_a07_impl::generated::a07_rouse_free::ffi];
 
 #[sabi_extern_fn]
 fn dev_reload_runtime_lua_content(expected_hash: RStr<'_>) -> RuntimeLuaReloadResultFFI {
@@ -440,7 +428,6 @@ mod generated_registry_tests {
             .map(|definition| definition.script.ability_id().as_str().to_owned())
             .collect::<Vec<_>>();
         let expected = EXPECTED_IDS.iter().map(|id| (*id).to_owned())
-            .chain(GENERATED_ONLY.iter().map(|generated| generated().script.ability_id().as_str().to_owned()))
             .collect::<Vec<_>>();
         assert_eq!(actual, expected);
         for (definition, expected_id) in definitions.iter().zip(EXPECTED_IDS) {

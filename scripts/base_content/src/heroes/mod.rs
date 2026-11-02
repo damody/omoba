@@ -10,5 +10,4 @@
 pub mod B01_saika_magoichi;
 pub mod B02_date_masamune;
 pub mod C15_tamako;
-pub mod A07_honda_tadakatsu;
 pub mod B06_sanada_yukimura;

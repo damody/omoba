@@ -135,4 +135,6 @@ return {
   {hero='ashikaga_yoshiaki',package='hero_b07',dir='heroes/ashikaga_yoshiaki'},
   -- M6 batch (2026-10-31): every ability generated (redirect_motion、只命中攻擊者的直線飛彈（E586）；host 放行生成單位的 SetPos、dummy 的狀態圖示投影（E590、E597）); conformance 0 fail
   {hero='akiyama_nobutomo',package='hero_b24',dir='heroes/akiyama_nobutomo'},
+  -- A07: every ability generated (a07_strongest 1c655563, conformance 0 fail); handlers deleted
+  {hero='honda_tadakatsu',package='hero_a07',dir='heroes/honda_tadakatsu'},
 }
