@@ -698,6 +698,8 @@ pub enum MobaItemActiveConst {
     ApplyModifiers { radius: Fixed64, include_basic: bool, modifiers: &'static [MobaItemModifierConst], heal: Fixed64, mana: Fixed64, magic_immunity: Fixed64 },
     /// Heal one living allied non-building unit.
     UnitHeal { amount: Fixed64 },
+    /// items.dll runs this active (no native effect).
+    Scripted,
 }
 
 /// One named timed modifier: its BuffStore stat values (StatKey name, raw Fixed64; percentages are fractions).

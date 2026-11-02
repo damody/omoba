@@ -398,7 +398,13 @@ impl MobaItemTargetEntry {
                 None | Some(MobaItemActiveEntry::Shield { .. } | MobaItemActiveEntry::SprintBuff { .. }
                     | MobaItemActiveEntry::ChannelHeal { .. } | MobaItemActiveEntry::SelfControlCleanse {}
                     | MobaItemActiveEntry::RestoreMana { .. } | MobaItemActiveEntry::DamageReduce { .. }
-                    | MobaItemActiveEntry::HeadshotNext { .. } | MobaItemActiveEntry::ApplyModifiers { .. })),
+                    | MobaItemActiveEntry::HeadshotNext { .. } | MobaItemActiveEntry::ApplyModifiers { .. }
+                    | MobaItemActiveEntry::Scripted {})),
+            // range zero: anywhere on the map
+            MobaItemTargetShape::Point if matches!(active, Some(MobaItemActiveEntry::Scripted {})) =>
+                (self.range == 0.0 || positive(self.range, 10_000.0)) && self.out_of_range == MobaItemOutOfRange::Reject,
+            MobaItemTargetShape::Unit if matches!(active, Some(MobaItemActiveEntry::Scripted {})) =>
+                positive(self.range, 10_000.0) && self.out_of_range == MobaItemOutOfRange::Reject,
             MobaItemTargetShape::Point => !legacy && positive(self.range, 10_000.0)
                 && matches!(self.team, MobaItemTeamFilter::Enemy | MobaItemTeamFilter::Hostile) && self.requires_visible
                 && self.out_of_range == MobaItemOutOfRange::Reject
@@ -513,6 +519,9 @@ pub enum MobaItemActiveEntry {
     /// (from any item sharing it) refreshes instead of stacking, as the source's shared names do.
     /// Heal one living allied non-building unit (E160, source Heal Target TARGET).
     UnitHeal { amount: f32 },
+    /// items.dll runs this active: the host admits it from the item's target, cooldown and mana,
+    /// and has no native effect of its own.
+    Scripted {},
     ApplyModifiers {
         #[serde(default, skip_serializing_if = "is_zero")] radius: f32,
         #[serde(default, skip_serializing_if = "is_false")] include_basic: bool,
@@ -627,7 +636,7 @@ impl MobaItemActiveEntry {
     fn validate(&self) -> Result<(), String> {
         let positive = |value: f32, maximum: f32| value.is_finite() && (1.0 / 1024.0..=maximum).contains(&value);
         let valid = match self {
-            Self::SelfControlCleanse {} => true,
+            Self::SelfControlCleanse {} | Self::Scripted {} => true,
             Self::ChannelHeal { amount,duration,interval } => positive(*amount,1_000_000.0)
                 && positive(*duration,60.0) && interval.is_finite() && (0.25..=10.0).contains(interval)
                 && duration>=interval && ((*duration*1024.0).round() as i64)%((*interval*1024.0).round() as i64)==0,
@@ -696,6 +705,7 @@ impl MobaItemActiveEntry {
                     hit: MobaItemHitConst {{ spell:{spell},slow:{slow},building_damage:None,excludes_magic_immune:false,dot:None,vision:None }} }}", fixed(*damage), damage_type)
             },
             Self::UnitHeal { amount } => format!("MobaItemActiveConst::UnitHeal {{ amount: {} }}", fixed(*amount)),
+            Self::Scripted {} => "MobaItemActiveConst::Scripted".to_owned(),
             Self::ApplyModifiers { radius, include_basic, modifiers, heal, mana, magic_immunity } => {
                 let modifiers = modifiers.iter().map(|m| {
                     let stats = m.stats.iter().map(|(key, value)| format!("({key:?}, {})", fixed(*value))).collect::<Vec<_>>().join(", ");
@@ -705,6 +715,42 @@ impl MobaItemActiveEntry {
                     fixed(*radius), fixed(*heal), fixed(*mana), fixed(*magic_immunity))
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod scripted_active_tests {
+    use super::*;
+
+    fn target(shape: MobaItemTargetShape, range: f32, team: MobaItemTeamFilter, requires_visible: bool) -> MobaItemTargetEntry {
+        MobaItemTargetEntry { shape, range, team, requires_visible, out_of_range: MobaItemOutOfRange::Reject }
+    }
+
+    #[test]
+    fn a_scripted_active_takes_any_target_the_item_authors() {
+        let scripted = MobaItemActiveEntry::Scripted {};
+        assert_eq!(scripted.rust_literal(), "MobaItemActiveConst::Scripted");
+        let parsed: MobaItemActiveEntry = serde_json::from_value(serde_json::json!({"kind":"scripted"})).unwrap();
+        assert_eq!(parsed.rust_literal(), scripted.rust_literal());
+        assert!(MobaItemTargetEntry::legacy_self().validate(Some(&scripted)).is_ok());
+        for team in [MobaItemTeamFilter::Enemy, MobaItemTeamFilter::Hostile, MobaItemTeamFilter::Ally, MobaItemTeamFilter::Any] {
+            for visible in [true, false] {
+                assert!(target(MobaItemTargetShape::Point, 600.0, team, visible).validate(Some(&scripted)).is_ok());
+                assert!(target(MobaItemTargetShape::Unit, 600.0, team, visible).validate(Some(&scripted)).is_ok());
+            }
+        }
+        // anywhere on the map is a point's; a unit keeps a range
+        assert!(target(MobaItemTargetShape::Point, 0.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_ok());
+        assert!(target(MobaItemTargetShape::Unit, 0.0, MobaItemTeamFilter::Enemy, true).validate(Some(&scripted)).is_err());
+        assert!(target(MobaItemTargetShape::Point, -1.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_err());
+    }
+
+    #[test]
+    fn native_actives_keep_their_target_contract() {
+        let heal = MobaItemActiveEntry::UnitHeal { amount: 10.0 };
+        assert!(target(MobaItemTargetShape::Unit, 600.0, MobaItemTeamFilter::Ally, true).validate(Some(&heal)).is_ok());
+        assert!(target(MobaItemTargetShape::Unit, 600.0, MobaItemTeamFilter::Ally, false).validate(Some(&heal)).is_err());
+        assert!(target(MobaItemTargetShape::Point, 600.0, MobaItemTeamFilter::Ally, true).validate(Some(&heal)).is_err());
     }
 }
 

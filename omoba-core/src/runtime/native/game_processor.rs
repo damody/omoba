@@ -2371,7 +2371,8 @@ fn item_faction_matches(rule: omoba_template_ids::MobaItemTeamConst, source: &Fa
         MobaItemTeamConst::Enemy => target.team_id > 0 && target.team_id != source.team_id,
         MobaItemTeamConst::Hostile => source.is_hostile_to(target),
         MobaItemTeamConst::Ally => target.team_id > 0 && target.team_id == source.team_id,
-        MobaItemTeamConst::Any => false,
+        // a scripted item's `both`: either side of a fight
+        MobaItemTeamConst::Any => source.is_hostile_to(target) || (target.team_id > 0 && target.team_id == source.team_id),
     }
 }
 
@@ -2739,6 +2740,9 @@ fn apply_resolved_item_use(
         return Err(failure::err_msg("ItemUse: invalid cooldown"));
     }
     let catalog_target = catalog_item_target(&cfg.id);
+    if matches!(active, ActiveEffect::Scripted {}) {
+        return Err(failure::err_msg(format!("ItemUse: item {} is scripted and no script of it is loaded", cfg.id)));
+    }
     if !item_effect_matches_target(&active, catalog_target.shape) {
         return Err(failure::err_msg(format!(
             "ItemUse: slot={} effect does not match authored target contract (pid={})",
@@ -2851,7 +2855,7 @@ fn apply_resolved_item_use(
                 return Err(failure::err_msg("ItemUse: invalid modifier active or resources"));
             }
         }
-        ActiveEffect::PointNova { .. } | ActiveEffect::UnitHex { .. } | ActiveEffect::UnitHeal { .. } => {
+        ActiveEffect::PointNova { .. } | ActiveEffect::UnitHex { .. } | ActiveEffect::UnitHeal { .. } | ActiveEffect::Scripted {} => {
             return Err(failure::err_msg("ItemUse: targeted effect reached the self transaction"));
         }
     }
@@ -2930,7 +2934,7 @@ fn apply_resolved_item_use(
                 }
             }
         }
-        ActiveEffect::PointNova { .. } | ActiveEffect::UnitHex { .. } | ActiveEffect::UnitHeal { .. } => {
+        ActiveEffect::PointNova { .. } | ActiveEffect::UnitHex { .. } | ActiveEffect::UnitHeal { .. } | ActiveEffect::Scripted {} => {
             return Err(failure::err_msg("ItemUse: targeted effect reached the self transaction"));
         }
     }

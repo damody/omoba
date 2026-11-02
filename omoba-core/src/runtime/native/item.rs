@@ -62,6 +62,9 @@ pub enum ActiveEffect {
         heal: Fixed64, mana: Fixed64, #[serde(default)] magic_immunity: Fixed64 },
     /// Heal one disclosed living allied non-building unit (E160).
     UnitHeal { amount: Fixed64 },
+    /// items.dll runs this active. Admitted by `queue_scripted_item_use`; with no script loaded a
+    /// use is refused, it never does nothing silently.
+    Scripted {},
 }
 
 #[derive(Clone,Debug,Serialize,Deserialize)]
@@ -147,6 +150,7 @@ impl From<omoba_template_ids::MobaItemActiveConst> for ActiveEffect {
                     area: m.area, stats: m.stats.iter().map(|(key, value)| ((*key).to_owned(), *value)).collect() }).collect(),
                 heal, mana },
             Generated::UnitHeal { amount } => Self::UnitHeal { amount },
+            Generated::Scripted => Self::Scripted {},
         }
     }
 }
