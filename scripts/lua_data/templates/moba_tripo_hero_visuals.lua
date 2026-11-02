@@ -26,7 +26,7 @@ return function(ctx)
     -- Empty-handed H3.1 rig (finger metacarpals; explicit retarget chains in its manifest).
     tokugawa_ieyasu={idle='Idle_Loop',attack='Mx_Sword_Inward',critical='Mx_Sword_Outward',impact=0.6,
       extra={death={'Mx_Death_Back',false},['ability_a01_heaven_net']={'Mx_Throw',false},['ability_a01_mikawa_valor']={'Mx_Charge',false},['ability_a01_thunder_blade']={'Mx_Sword_Slash',false},['ability_a01_tosho_gongen']={'Mx_Cast_Two',false}}},
-    yamagata_masakage={idle='Idle_Loop',attack='Mx_Sword_Outward',critical='Mx_Sword_Slash',impact=0.6,
+    yamagata_masakage={idle='Idle_Loop',attack='Mx_Sword_Inward',critical='Mx_Sword_Slash',impact=0.6,
       extra={['ability_b20_red_charge']={'Mx_Battlecry',false},['ability_b20_rock_rush']={'Mx_Throw',false},['ability_b20_ruin_wave']={'Mx_Axe_Smash',false}}},
     okuma_tomohide={idle='Idle_Loop',attack='Mx_Axe_Down',critical='Mx_Sweep',impact=0.6,
       extra={['ability_b26_blood_fury']={'Mx_Battlecry',false},['ability_b26_charging_wave']={'Mx_Channel',false},['ability_b26_release_wave']={'Mx_Axe_Smash',false},['ability_b26_unstoppable']={'Mx_Charge',false}}},
@@ -75,7 +75,7 @@ return function(ctx)
     inahime={mesh='weapon_yumi',hand='hand_l',length=1.25,grip=-0.05,center_z=9.0},
     tamako={mesh='weapon_hankyu',hand='hand_l',length=0.9,grip=0,center_z=10.1},
     -- The eleventh-of-November heroes share the existing weapon models.
-    sasaki_kojiro={mesh='weapon_katana',hand='hand_r',length=1.15,grip=-0.40,center_z=6.0},
+    sasaki_kojiro={mesh='weapon_katana',hand='hand_r',length=1.15,grip=-0.40,center_z=6.0,flip=true},
     tokugawa_ieyasu={mesh='weapon_katana',hand='hand_r',length=0.95,grip=-0.40,center_z=6.0,flip=true},
     yamagata_masakage={mesh='weapon_katana',hand='hand_r',length=0.95,grip=-0.40,center_z=6.0,flip=true},
     okuma_tomohide={mesh='weapon_war_axe',hand='hand_r',length=1.1,grip=-0.35,center_z=20.4},
