@@ -18,7 +18,8 @@ return {
       ground = "blink_flash", ground_size = 300, ground_seconds = 0.3, height = 20, grow = 0.4 },
     -- c03_iron_hammer: a hammer flares at the start and marches; fire and cracks at every tick
     -- Each blow lands 300 ahead of where the hammer would start, so it flies that far ahead and meets them.
-    c03t_hammer = { mesh = "war_hammer", ground_size = 170, height = 90, fly = true, spin = 180, lead = 300 },
+    -- It faces the viewer and does not tumble: end on, a hammer reads as a barrel.
+    c03t_hammer = { mesh = "war_hammer", ground_size = 170, height = 90, fly = true, lead = 300, face_viewer = true },
     c03t_hammer_hit = { system = "burst", sprite = "flame_sheet", size = 420, life = 0.5,
       ground = "dust_crack", ground_size = 900, ground_seconds = 0.45, grow = 0.3 },
   },

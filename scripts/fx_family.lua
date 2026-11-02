@@ -247,7 +247,7 @@ M.FX_ABILITIES = {
 M.MESH_ROOT = "/Game/Omoba/Structures/TripoStaticV1"
 M.MESH_SOURCE = "omfue/SourceArt/Structures/TripoStaticV1"
 -- roll: turns a model built "tip to the right" so its tip leads; tilt: about its long axis, before the roll.
-M.MESHES = { war_hammer = { roll = -90 } }
+M.MESHES = { war_hammer = {} }
 function M.material(prefix, image) return ("%s/Instances/%s_fx_%s.%s_fx_%s"):format(M.ROOT, prefix, image, prefix, image) end
 function M.system(name) return ("%s/Systems/NS_fx_%s.NS_fx_%s"):format(M.ROOT, name, name) end
 
