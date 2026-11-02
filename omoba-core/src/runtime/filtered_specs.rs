@@ -1420,6 +1420,9 @@ impl SpecsDisclosedWorldStepper {
                     crate::runtime::drain_pending_moves(&mut self.filtered.world)
                 }
                 P::PreScriptOutcomes | P::PostScriptOutcomes => {
+                    if crate::runtime::native::game_processor::publishes_cues(&self.filtered.world) {
+                        self.filtered.world.insert(crate::runtime::native::game_processor::ReplicaDropsCues);
+                    }
                     let mut sink = crate::runtime::RuntimeEventVecSink::default();
                     // The damage pipeline reaches on_damage_pre hooks through the registry (damage_pre).
                     self.filtered.world.insert(std::mem::take(&mut self.script_registry));
@@ -1794,6 +1797,8 @@ fn apply_disclosed_events(
 ) -> Result<(), ReplicaRuntimeError> {
     let settled = post_step_movers(injections);
     for event in &injections.public_events {
+        // Presentation only, and a cue's unit may be gone by now: it never touches the replica.
+        if event.event_kind==crate::runtime::FactKind::Cue as u32 { continue; }
         if event.event_kind==crate::runtime::FactKind::OwnerBuffVisual as u32 {
             crate::runtime::buff_visual_state::BuffVisualSnapshot::decode(&event.sanitized_payload).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let id=event.subject.as_ref().map_or(0,|id|id.value);

@@ -188,6 +188,17 @@ pub enum Outcome {
         radius: Fixed64,
         duration: Fixed64,
     },
+    /// A script's presentation cue (raw Fixed64 points): becomes a public fact, moves and kills nothing.
+    Cue {
+        cue: u64,
+        source: Option<Entity>,
+        at_unit: Option<Entity>,
+        at_point: (i64, i64),
+        to_unit: Option<Entity>,
+        to_point: Option<(i64, i64)>,
+        radius_raw: i64,
+        duration_raw: i64,
+    },
     ProjectileDirectional {
         pos: SimVec2,
         source: Option<Entity>,

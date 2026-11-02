@@ -2453,8 +2453,16 @@ function Gen:action(a, ctx, ind)
     if a.at ~= nil then at, at_ty = self:value(a.at, ctx) end
     if at_ty ~= "unit" and at_ty ~= "point" then self:block("action:cue.at of a " .. at_ty) end
     local radius = a.radius ~= nil and ("Some(" .. self:value(a.radius, ctx, "num") .. ")") or "None"
+    local duration = a.duration ~= nil and ("Some(" .. self:value(a.duration, ctx, "num") .. ")") or "None"
+    local to = "None"
+    if a.to ~= nil then
+      local to_value, to_ty = self:value(a.to, ctx)
+      if to_ty ~= "unit" and to_ty ~= "point" then self:block("action:cue.to of a " .. to_ty) end
+      to = "Some((" .. to_value .. ").into())"
+    end
     return line("{") .. line("    let at = " .. at .. ";") .. line("    let radius = " .. radius .. ";")
-      .. line("    cx." .. (at_ty == "unit" and "cue_on" or "cue") .. "(super::ids::Cue::" .. camel(a.id) .. ".as_str(), at, radius);") .. line("}")
+      .. line("    let duration = " .. duration .. ";") .. line("    let to = " .. to .. ";")
+      .. line("    cx.cue_event(super::ids::Cue::" .. camel(a.id) .. ".as_str(), at.into(), to, radius, duration);") .. line("}")
   elseif op == "if" then
     local cond = self:value(a.cond, ctx, "bool")
     local s = line("if " .. cond .. " {") .. self:actions(a.actions, { owner = ctx.owner, scope = scope_child(ctx.scope), event = ctx.event, pre = ctx.pre, cast = ctx.cast, ended = ctx.ended, windup = ctx.windup }, I .. "    ")
@@ -3712,8 +3720,9 @@ function Gen:action(a, ctx, ind)
       on_end = string.format("Some((%d, &end_args[..]))", step)
     end
     return line("{") .. args_line
-      .. line(string.format("    let p = Proj { homing: %s, aim: %s, speed: %s, radius: %s, distance: %s, max_hits: %s, buildings: %s, dodgeable: %s, vision: %s, end_radius: %s, start: %s };",
-        homing, aim, speed, radius, distance, max_hits, buildings and "true" or "false", a.dodgeable and "true" or "false", vision, end_radius, start))
+      .. line(string.format("    let p = Proj { homing: %s, aim: %s, speed: %s, radius: %s, distance: %s, max_hits: %s, buildings: %s, dodgeable: %s, vision: %s, end_radius: %s, start: %s, cue: %s };",
+        homing, aim, speed, radius, distance, max_hits, buildings and "true" or "false", a.dodgeable and "true" or "false", vision, end_radius, start,
+        a.cue and ("Some(ability_kit::cue_hash(super::ids::Cue::" .. camel(a.cue) .. ".as_str()))") or "None"))
       .. (only and line("    let only = " .. only .. ";") .. line("    cx.projectile_only(ID, p, only, " .. on_hit .. ", " .. on_end .. ")?;")
         or line("    cx.projectile_ended(ID, p, " .. on_hit .. ", " .. on_end .. ")?;")) .. line("}")
   elseif op == "set_state" or op == "clear_state" then

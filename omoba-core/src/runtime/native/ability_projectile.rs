@@ -201,7 +201,7 @@ impl Spec {
         if buff_id != BUFF || payload.as_object()?.len() != 1 { return None; }
         let row = payload.get(KEY)?.as_object()?;
         let optional = ["slow", "control", "dot", "buildings", "forced", "retarget_radius", "bounce",
-            "dodgeable", "only", "end_radius", "dot_interval", "hit_stack", "delay", "healing_reduction", "vision", "on_hit", "start", "on_end"].iter().filter(|key| row.contains_key(**key)).count();
+            "dodgeable", "only", "end_radius", "dot_interval", "hit_stack", "delay", "healing_reduction", "vision", "on_hit", "start", "on_end", "cue"].iter().filter(|key| row.contains_key(**key)).count();
         if row.len() != 15 + optional { return None; }
         let raw = |name: &str| row.get(name)?.as_i64().map(Fixed64::from_raw);
         let id = |value: &Value, name: &str| value.get(name)?.as_u64().and_then(|v| u32::try_from(v).ok());
@@ -272,6 +272,7 @@ impl Spec {
         if row.contains_key("on_hit") && on_hit_of(payload).is_none() { return None; }
         if row.contains_key("start") && start_of(payload).is_none() { return None; }
         if row.contains_key("on_end") && on_end_of(payload).is_none() { return None; }
+        if row.contains_key("cue") && cue_of(payload).is_none() { return None; }
         (spec.valid() && duration == spec.lifetime).then_some(spec)
     }
 }
@@ -408,6 +409,13 @@ pub fn healing_reduction_of(payload: &Value) -> Option<(Fixed64, Fixed64)> {
 /// The flight gives its caster's team plain sight of `radius` (1..=reveal_zone::MAX_RADIUS) around itself.
 pub fn with_vision(payload: Value, radius: Fixed64) -> Value { with_row(payload, "vision", json!(radius.raw())) }
 
+/// The presentation cue that rides on the flight (its FNV-1a id, see `emit_launch`).
+pub fn with_cue(payload: Value, cue: u64) -> Value { with_row(payload, "cue", json!(cue)) }
+
+fn cue_of(payload: &Value) -> Option<u64> {
+    payload.get(KEY)?.as_object()?.get("cue")?.as_u64().filter(|cue| *cue != 0)
+}
+
 /// The flight starts at `at` instead of at its caster (v3 `projectile.from` a point).
 pub fn with_start(payload: Value, at: Vec2) -> Value { with_row(payload, "start", json!([at.x.raw(), at.y.raw()])) }
 
@@ -520,6 +528,8 @@ pub fn delay_of(payload: &Value) -> Fixed64 {
 #[derive(Clone, Debug)]
 pub struct State {
     pub spec: Spec,
+    /// Presentation only: the cue attached to the flight when it launches.
+    pub cue: Option<u64>,
     pub owner: Entity,
     pub faction: Faction,
     pub team: u32,
@@ -692,7 +702,7 @@ pub fn launch(world: &mut World, target: Entity, buff_id: &str, duration: Fixed6
         dodgeable: dodgeable_of(payload), only: only_of(payload), end_radius: end_radius_of(payload),
         dot_interval: dot_interval_of(payload), hit_stack: hit_stack_of(payload),
         delay_left: delay_of(payload), healing_reduction: healing_reduction_of(payload), on_hit: on_hit_of(payload),
-        on_end: on_end_of(payload),
+        on_end: on_end_of(payload), cue: cue_of(payload),
     });
     // Flight vision: the team sees around the projectile until it retires (the zone follows
     // the entity and closes when it is removed; the duration only bounds it).
@@ -728,10 +738,19 @@ fn emit_fact(world: &World, projectile: Entity, ordinal: u32, kind: crate::runti
 
 /// Public launch fact, emitted after a successful [`launch`].
 pub fn emit_launch(world: &World, projectile: Entity) {
-    let Some(row) = world.try_fetch::<AbilityProjectiles>().and_then(|rows| rows.0.get(&projectile).map(|s| (s.owner, s.target))) else { return; };
+    let Some(row) = world.try_fetch::<AbilityProjectiles>().and_then(|rows| rows.0.get(&projectile).map(|s| (s.owner, s.target, s.cue))) else { return; };
     emit_fact(world, projectile, 0, crate::runtime::FactKind::Projectile, crate::runtime::ObservableFact::Projectile {
         source: crate::runtime::canonical_entity_id(row.0), target: row.1.map(crate::runtime::canonical_entity_id),
         effect_id: 0, active: true });
+    // The flight's own effect rides on its entity and ends with it.
+    if let Some(cue) = row.2.filter(|_| super::game_processor::publishes_cues(world)) {
+        // Above the tick's scripted cue range, and unique to this flight.
+        let ordinal = super::game_processor::CUE_FACT_ORDINAL_BASE + 1024 + (projectile.id() & 0xFFFF);
+        emit_fact(world, projectile, ordinal, crate::runtime::FactKind::Cue, crate::runtime::ObservableFact::Cue {
+            cue, source: Some(crate::runtime::canonical_entity_id(row.0)),
+            at_unit: Some(crate::runtime::canonical_entity_id(projectile)), at_point: (0, 0),
+            to_unit: None, to_point: None, radius_raw: 0, duration_raw: 0 });
+    }
 }
 
 /// Serial hit resolution for one fixed step. Returns child outcomes in order:

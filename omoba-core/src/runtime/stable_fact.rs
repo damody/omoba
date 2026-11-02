@@ -91,6 +91,8 @@ pub enum FactKind {
     /// A disclosed non-hero's unit abilities and cooldowns (unit_abilities, E531) this step; an
     /// empty payload once it has none (EVENT ONLY, team_projector; E541).
     UnitAbilities = 45,
+    /// A script's presentation cue (team_projector projects it on what the team sees).
+    Cue = 46,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -215,6 +217,14 @@ pub enum ObservableFact {
     AbilityTarget {
         source: u64, ability_id: u64, rank: u32,
         target: Option<u64>, point: Option<(i64, i64)>,
+    },
+    /// A script's presentation cue: at a unit or a point, optionally toward another. Each team
+    /// receives only the ends it sees (team_projector).
+    Cue {
+        cue: u64, source: Option<u64>,
+        at_unit: Option<u64>, at_point: (i64, i64),
+        to_unit: Option<u64>, to_point: Option<(i64, i64)>,
+        radius_raw: i64, duration_raw: i64,
     },
     Tower {
         source: u64,

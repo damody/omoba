@@ -131,6 +131,20 @@ fn ally_cleanse_serial_admission_is_atomic_source_bound_and_preserves_other_buff
 }
 
 #[test]
+fn cast_transaction_with_a_cue_between_its_spawns_commits_and_publishes_the_cue() {
+    let (mut world,caster,children,mut batch)=fixture();
+    let Outcome::ScriptCastTransaction {outcomes,..}=&mut batch else {panic!("a transaction")};
+    let spawn=outcomes.iter().position(|e|matches!(e,Outcome::SpawnSummoned {..})).expect("a spawn");
+    outcomes.insert(spawn+1,Outcome::Cue {cue:99,source:Some(caster),at_unit:Some(caster),at_point:(0,0),to_unit:None,to_point:None,radius_raw:0,duration_raw:0});
+    let restored:Outcome=serde_json::from_str(&serde_json::to_string(&batch).unwrap()).unwrap();
+    let facts=flush(&mut world,vec![restored]);
+    assert_eq!(facts.iter().filter(|f|matches!(f.fact,crate::runtime::ObservableFact::Spawn {..})).count(),2);
+    assert_eq!(facts.iter().filter(|f|matches!(f.fact,crate::runtime::ObservableFact::Cue {..})).count(),1);
+    assert_eq!(mana(&world,caster),Fixed64::from_i32(210));
+    for child in &children {assert!(world.read_storage::<SummonedUnit>().get(*child).is_some());}
+}
+
+#[test]
 fn cast_transaction_commits_entire_formation_once_with_resources_hooks_and_cue() {
     let (mut world,caster,children,batch)=fixture();
     let restored:Outcome=serde_json::from_str(&serde_json::to_string(&batch).unwrap()).unwrap();

@@ -3090,6 +3090,7 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::CreepLeaked { .. } => "CreepLeaked",
         Outcome::AddBuff { .. } => "AddBuff",
         Outcome::Explosion { .. } => "Explosion",
+        Outcome::Cue { .. } => "Cue",
         Outcome::ProjectileDirectional { .. } => "ProjectileDirectional",
         Outcome::AttackPhaseCue { .. } => "AttackPhaseCue",
         Outcome::ScriptSetPos { .. } => "ScriptSetPos",
@@ -3236,7 +3237,8 @@ pub fn process_outcomes(
         }
         // A trace tag is no fact: facts number alike with stats on or off.
         let outcome_ordinal = next_ordinal;
-        if !matches!(outcome, Outcome::ScriptDamageTag {..}) {next_ordinal += 1;}
+        // Nor is a cue a numbered outcome: other facts number alike with cues or without them.
+        if !matches!(outcome, Outcome::ScriptDamageTag {..} | Outcome::Cue {..}) {next_ordinal += 1;}
         let (outcome, projectile_origin) = match outcome {
             Outcome::ProjectileContext {origin, outcome} => {
                 let source = match &*outcome {
@@ -3428,7 +3430,16 @@ pub fn process_outcomes(
         // Summon intent is not a committed spawn: settlement can still reject
         // owner life/ownership or legal placement. Other outcome facts retain
         // their existing ordering contract.
-        let mut committed_fact = observable_fact_from_outcome(&outcome, projection_tick, outcome_ordinal as u32);
+        // Cues past the tick's bound drop here: they are presentation, in a deterministic order.
+        let fact_ordinal = if matches!(&outcome, Outcome::Cue {..}) {
+            match next_cue_fact_ordinal(world, projection_tick) {
+                Some(ordinal) => ordinal,
+                None => continue,
+            }
+        } else {
+            outcome_ordinal as u32
+        };
+        let mut committed_fact = observable_fact_from_outcome(&outcome, projection_tick, fact_ordinal);
         if let Some(fact) = (!matches!(&outcome, Outcome::SpawnSummoned {..}))
             .then(|| committed_fact.take()).flatten() {
             let _ = world
@@ -3606,6 +3617,8 @@ pub fn process_outcomes(
                 radius,
                 duration,
             } => handle_explosion(world, pos, radius, duration),
+            // Its public fact above is all it does.
+            Outcome::Cue { .. } => {}
             Outcome::AttackPhaseCue {
                 entity,
                 attack_seq,
@@ -3983,6 +3996,34 @@ fn emit_committed_actor_state(world: &mut World, tick: u64,
     }
 }
 
+/// Cue facts one tick may publish; a mass of them adds nothing a player can read.
+const MAX_CUE_FACTS_PER_TICK: u32 = 128;
+/// Cue facts number in their own range: they never shift another fact's ordinal.
+pub(crate) const CUE_FACT_ORDINAL_BASE: u32 = 1 << 24;
+
+/// This tick's cue fact count (tick, count).
+#[derive(Default)]
+struct CueFactCount(u64, u32, u64);
+
+/// A replica runs the same scripts, but only the authority's cues reach any client.
+pub(crate) struct ReplicaDropsCues;
+
+pub(crate) fn publishes_cues(world: &World) -> bool { !world.has_value::<ReplicaDropsCues>() }
+
+fn next_cue_fact_ordinal(world: &mut World, tick: u64) -> Option<u32> {
+    if !publishes_cues(world) { return None; }
+    if !world.has_value::<CueFactCount>() { world.insert(CueFactCount::default()); }
+    let mut count = world.write_resource::<CueFactCount>();
+    if count.0 != tick { count.0 = tick; count.1 = 0; }
+    if count.1 >= MAX_CUE_FACTS_PER_TICK {
+        count.2 += 1;
+        if count.2.is_power_of_two() { log::warn!("cue facts over {MAX_CUE_FACTS_PER_TICK} a tick: {} dropped so far", count.2); }
+        return None;
+    }
+    count.1 += 1;
+    Some(CUE_FACT_ORDINAL_BASE + count.1)
+}
+
 fn observable_fact_from_outcome(
     outcome: &Outcome,
     tick: u64,
@@ -4095,6 +4136,21 @@ fn observable_fact_from_outcome(
             FactKind::ProjectileImpact,
             policy::PROJECTILE,
             ObservableFact::ProjectileImpact { target: entity_id(*target) },
+        ),
+        Outcome::Cue { cue, source, at_unit, at_point, to_unit, to_point, radius_raw, duration_raw } => (
+            source.or(*at_unit).map_or(local_ordinal as u64, entity_id),
+            FactKind::Cue,
+            policy::HERO_ABILITY,
+            ObservableFact::Cue {
+                cue: *cue,
+                source: source.map(entity_id),
+                at_unit: at_unit.map(entity_id),
+                at_point: *at_point,
+                to_unit: to_unit.map(entity_id),
+                to_point: *to_point,
+                radius_raw: *radius_raw,
+                duration_raw: *duration_raw,
+            },
         ),
         Outcome::Explosion { pos, radius, .. } => (
             local_ordinal as u64,
@@ -5394,6 +5450,46 @@ mod tests {
         assert_eq!(clear, 154.0);
         assert!(point_segment_dist_sq(Vec2::new(0.0, 153.0), road_start, road_end) < clear_sq);
         assert!(point_segment_dist_sq(Vec2::new(0.0, 155.0), road_start, road_end) >= clear_sq);
+    }
+
+    fn cue_outcome(entity: Entity, cue: u64) -> Outcome {
+        Outcome::Cue { cue, source: Some(entity), at_unit: Some(entity), at_point: (0, 0), to_unit: None, to_point: None,
+            radius_raw: 2048, duration_raw: 1024 }
+    }
+
+    fn flush_cue_facts(world: &mut World, rows: Vec<Outcome>) -> Vec<crate::runtime::OrderedFact> {
+        world.write_resource::<Vec<Outcome>>().extend(rows);
+        process_outcomes(world, &mut crate::runtime::RuntimeEventVecSink::default()).expect("cue outcomes apply");
+        world.read_resource::<crate::runtime::ObservableFactBuffer>().drain_ordered().unwrap()
+    }
+
+    #[test]
+    fn cue_outcome_publishes_a_fact_and_never_shifts_another_facts_ordinal() {
+        let (mut world, entity) = world_for_script_outcome_tests();
+        let blast = || Outcome::Explosion { pos: omoba_sim::Vec2::ZERO, radius: Fixed64::ONE, duration: Fixed64::ONE };
+        let with = flush_cue_facts(&mut world, vec![blast(), cue_outcome(entity, 99), blast()]);
+        let cues: Vec<_> = with.iter().filter(|f| matches!(f.fact, crate::runtime::ObservableFact::Cue { .. })).collect();
+        assert_eq!(cues.len(), 1);
+        assert!(cues[0].key.local_ordinal > CUE_FACT_ORDINAL_BASE);
+        assert_eq!(cues[0].key.fact_kind, crate::runtime::FactKind::Cue);
+        let without = flush_cue_facts(&mut world, vec![blast(), blast()]);
+        let ordinals = |facts: &[crate::runtime::OrderedFact]| facts.iter()
+            .filter(|f| !matches!(f.fact, crate::runtime::ObservableFact::Cue { .. }))
+            .map(|f| f.key.local_ordinal).collect::<Vec<_>>();
+        assert_eq!(ordinals(&with), ordinals(&without), "other facts number alike with a cue or without it");
+    }
+
+    #[test]
+    fn cue_facts_stop_at_the_tick_bound_and_a_replica_publishes_none() {
+        let (mut world, entity) = world_for_script_outcome_tests();
+        let rows = (0..MAX_CUE_FACTS_PER_TICK as u64 + 40).map(|n| cue_outcome(entity, n + 1)).collect();
+        let facts = flush_cue_facts(&mut world, rows);
+        assert_eq!(facts.len(), MAX_CUE_FACTS_PER_TICK as usize);
+        let keys: std::collections::BTreeSet<_> = facts.iter().map(|f| f.key.local_ordinal).collect();
+        assert_eq!(keys.len(), facts.len(), "each cue fact has its own ordinal");
+        let (mut replica, entity) = world_for_script_outcome_tests();
+        replica.insert(ReplicaDropsCues);
+        assert!(flush_cue_facts(&mut replica, vec![cue_outcome(entity, 1)]).is_empty());
     }
 
     fn world_for_script_outcome_tests() -> (World, Entity) {

@@ -109,6 +109,10 @@ pub mod op {
     /// active item's `on_cast`; E571: its instance vars, `remove_item item = ability`); `None` in
     /// any other call.
     pub const EVENT_ITEM_SLOT: u32 = 24;
+    /// `(Num cue, Unit source, at, to, Num radius, Num duration) -> None`: a presentation cue; changes
+    /// nothing in the simulation. `cue` carries the FNV-1a of the v3 cue id in its raw bits. `at` is a
+    /// Unit or a Point; `to` is a Unit, a Point, or `Bool(false)` for none.
+    pub const CUE: u32 = 25;
 }
 
 /// Attribute names of [`op::EVENT_ABILITY_ATTR`].

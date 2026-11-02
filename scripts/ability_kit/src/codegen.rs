@@ -213,6 +213,8 @@ pub struct Proj {
     pub end_radius: Option<Fixed64>,
     /// `from` a point: the flight starts there instead of at the caster.
     pub start: Option<Vec2>,
+    /// The flight's own presentation cue (`cue_hash` of its id).
+    pub cue: Option<u64>,
 }
 
 /// The status payload key that holds a counted status' stacks (v3 `stacking = { ... }`).
@@ -237,6 +239,25 @@ pub fn projectile_spec(caster: EntityHandle, ability: &str, p: &Proj) -> Result<
         buildings: p.buildings && p.homing.is_some(), forced: None };
     if spec.valid() { Ok(spec) } else { Err("v3: invalid projectile") }
 }
+
+/// The FNV-1a of a v3 cue id, the same as the host's `stable_content_fact_id`.
+pub const fn cue_hash(id: &str) -> u64 {
+    let bytes = id.as_bytes();
+    let mut hash = 0xcbf29ce484222325u64;
+    let mut index = 0;
+    while index < bytes.len() {
+        hash = (hash ^ bytes[index] as u64).wrapping_mul(0x100000001b3);
+        index += 1;
+    }
+    hash
+}
+
+/// One end of a cue event.
+#[derive(Clone, Copy, Debug)]
+pub enum CueTo { Unit(EntityHandle), Point(Vec2) }
+
+impl From<EntityHandle> for CueTo { fn from(unit: EntityHandle) -> Self { Self::Unit(unit) } }
+impl From<Vec2> for CueTo { fn from(point: Vec2) -> Self { Self::Point(point) } }
 
 /// The prefix the host gives an item use reported as a cast (`item:<id>`).
 const ITEM_SKILL_PREFIX: &str = "item:";
@@ -968,6 +989,21 @@ impl<'a, 'w> Cx<'a, 'w> {
         }
     }
 
+    /// A presentation cue event: `at` a unit or a point, optionally toward another. Reads no state
+    /// and changes none; `radius` also keeps the host's area ring through `cue` / `cue_on`.
+    pub fn cue_event(&mut self, id: &'static str, at: CueTo, to: Option<CueTo>, radius: Option<Fixed64>, duration: Option<Fixed64>) {
+        use omb_script_abi::ext::{op, ExtArg as A};
+        let end = |end: CueTo| match end { CueTo::Unit(unit) => A::Unit(unit), CueTo::Point(point) => A::Point(point) };
+        let args = [A::Num(Fixed64::from_raw(cue_hash(id) as i64)), A::Unit(self.self_unit), end(at),
+            to.map_or(A::Bool(false), end), A::Num(radius.unwrap_or(Fixed64::ZERO)), A::Num(duration.unwrap_or(Fixed64::ZERO))];
+        // Presentation never fails a program.
+        let _ = self.world.ext(op::CUE, abi_stable::std_types::RSlice::from_slice(&args));
+        match at {
+            CueTo::Unit(unit) => self.cue_on(id, unit, radius),
+            CueTo::Point(point) => self.cue(id, point, radius),
+        }
+    }
+
     /// A cue at a unit; nothing when the unit has no position.
     pub fn cue_on(&mut self, id: &'static str, at: EntityHandle, radius: Option<Fixed64>) {
         if let Ok(p) = self.pos(at) { self.cue(id, p, radius); }
@@ -1169,6 +1205,7 @@ impl<'a, 'w> Cx<'a, 'w> {
         if let Some(v) = p.vision { payload = ability_projectile::with_vision(payload, v); }
         if let (Some(e), None) = (p.end_radius, p.homing) { payload = ability_projectile::with_end_radius(payload, e); }
         if let Some(at) = p.start { payload = ability_projectile::with_start(payload, at); }
+        if let Some(cue) = p.cue { payload = ability_projectile::with_cue(payload, cue); }
         if let Some(only) = only { payload = ability_projectile::with_only(payload, only.id, only.gen); }
         if let Some((step, args)) = on_hit {
             let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));

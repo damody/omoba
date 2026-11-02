@@ -188,6 +188,8 @@ pub(super) fn admission(world:&World,caster:Entity,skill:&str,rank:u32,faction:O
         Outcome::ScriptDamageTag {..}=>true,
         // An area cue (ExplosionFxQueue) is presentation only: it moves and kills nothing (E621).
         Outcome::Explosion {..}=>true,
+        // A script's cue is presentation only too.
+        Outcome::Cue {..}=>true,
         // G-2: exactly the cast's own ability, at most once (count checked above).
         Outcome::ScriptConsumeCharge {entity,ability_id}=>*entity==caster&&ability_id==skill,
         _ if !summons&&channels==0=>true,

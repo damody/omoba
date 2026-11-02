@@ -253,6 +253,7 @@ pub struct ParallelWorldAdapter<'a> {
     projectile_source_buffs: Option<BuffStore>,
     projectile_team_key: Option<String>,
     capture_cast_areas: bool,
+    cues_emitted: u32,
     cast_areas: Vec<(Vec2, Fixed64, Fixed64)>,
     pub(crate) allocation_allowed: bool,
     pub(crate) allocation_requested: bool,
@@ -682,6 +683,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             projectile_source_buffs: None,
             projectile_team_key: None,
             capture_cast_areas: false,
+            cues_emitted: 0,
             cast_areas: Vec::new(),
             allocation_allowed: true,
             allocation_requested: false,
@@ -1183,6 +1185,9 @@ impl<'a> ParallelWorldAdapter<'a> {
         });
     }
 }
+
+/// Cues one adapter (one hook batch) may emit.
+const MAX_CUES_PER_HOOK: u32 = 64;
 
 impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     fn get_pos(&self, e: EntityHandle) -> ROption<Vec2> {
@@ -1939,6 +1944,28 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         use omb_script_abi::ext::{op, ExtArg as A, ExtValue as V};
         match (op, args.as_slice()) {
             (op::DAMAGE_TRACE_ENABLED, []) => ROk(V::Bool(self.cache.damage_trace)),
+            (op::CUE, [A::Num(cue), A::Unit(source), at, to, A::Num(radius), A::Num(duration)]) => {
+                // One hook over a crowd stops here: the tick's bound would drop these anyway.
+                if self.cues_emitted >= MAX_CUES_PER_HOOK { return ROk(V::None); }
+                let (at_unit, at_point) = match at {
+                    A::Unit(unit) => match Self::handle_to_entity(*unit) {
+                        Some(entity) => (Some(entity), (0, 0)),
+                        None => return ROk(V::None),
+                    },
+                    A::Point(point) => (None, (point.x.raw(), point.y.raw())),
+                    _ => return RErr("cue: at must be a unit or a point".into()),
+                };
+                let (to_unit, to_point) = match to {
+                    A::Unit(unit) => (Self::handle_to_entity(*unit), None),
+                    A::Point(point) => (None, Some((point.x.raw(), point.y.raw()))),
+                    A::Bool(false) => (None, None),
+                    _ => return RErr("cue: to must be a unit, a point or false".into()),
+                };
+                self.cues_emitted += 1;
+                self.outcomes.push(Outcome::Cue { cue: cue.raw() as u64, source: Self::handle_to_entity(*source),
+                    at_unit, at_point, to_unit, to_point, radius_raw: radius.raw().max(0), duration_raw: duration.raw().max(0) });
+                ROk(V::None)
+            }
             (op::END_CHANNEL, [A::Unit(unit)]) => {
                 if let Some(entity) = Self::handle_to_entity(*unit) {
                     self.outcomes.push(Outcome::ScriptEndChannel { entity });

@@ -1462,6 +1462,7 @@ impl TeamViewProjector {
                 fact.key.local_ordinal,
             )
         });
+        let mut cues_seen: Vec<(u64, crate::runtime::presentation_cue::CueEnd)> = Vec::new();
         for fact in ordered {
             // Control rows exist only for this team's own heroes.
             if matches!(fact.fact, ObservableFact::OwnerControl { .. } | ObservableFact::EnemySight { .. })
@@ -1485,6 +1486,16 @@ impl TeamViewProjector {
             // hook the authority alone runs (a channel an opposing effect ended, its on_channel_end
             // resetting the cooldown) changes them where our replica cannot (E401). Where our
             // replica predicted the same value, applying it changes nothing.
+            // A cue is projected end by end on this team's sight.
+            if let ObservableFact::Cue { .. } = &fact.fact {
+                let view = self.point_view.as_deref();
+                let team = self.team_id;
+                project_cue(fact, visible, &self.identity, &|x, y| view.is_some_and(|view|
+                    crate::runtime::fog_grid::team_sees_point(view, team,
+                        omoba_sim::Vec2::new(omoba_sim::Fixed64::from_raw(x), omoba_sim::Fixed64::from_raw(y)))),
+                    &mut cues_seen, &mut public_events);
+                continue;
+            }
             // A cast's ground-point target reaches only the teams whose vision covers the point.
             if let ObservableFact::AbilityTarget { target: None, point: Some((x, y)), .. } = &fact.fact {
                 let point = omoba_sim::Vec2::new(omoba_sim::Fixed64::from_raw(*x), omoba_sim::Fixed64::from_raw(*y));
@@ -1641,6 +1652,48 @@ fn assign_presentation_ordinals(public: &mut [TeamPublicEvent], external: &mut [
         event.stable_sub_index = u32::try_from(external.len().checked_add(index)
             .expect("bounded team frame events")).expect("bounded team frame events");
     }
+}
+
+/// Cues one team receives in a tick.
+const MAX_TEAM_CUES_PER_TICK: usize = 64;
+
+/// A cue's public event. An end this team does not see is never named. When the `at` end is hidden
+/// but the `to` end shows, the cue plays there alone: a hidden caster's bolt still lands on a visible
+/// victim, and nothing says where it came from.
+fn project_cue(
+    ordered: &OrderedFact,
+    visible: &BTreeSet<u64>,
+    identity: &TeamIdentityState,
+    sees_point: &dyn Fn(i64, i64) -> bool,
+    seen: &mut Vec<(u64, crate::runtime::presentation_cue::CueEnd)>,
+    public: &mut Vec<TeamPublicEvent>,
+) {
+    use crate::runtime::presentation_cue::{CueEnd, CuePresentationCue};
+    let ObservableFact::Cue { cue, source, at_unit, at_point, to_unit, to_point, radius_raw, duration_raw } = &ordered.fact else { return };
+    if seen.len() >= MAX_TEAM_CUES_PER_TICK { return; }
+    let end = |unit: &Option<u64>, point: Option<(i64, i64)>| -> Option<CueEnd> {
+        match unit {
+            Some(id) => visible.contains(id).then(|| replica_proto(identity, *id)).flatten().map(|replica| CueEnd::Unit(replica.value)),
+            None => point.filter(|(x, y)| sees_point(*x, *y)).map(|(x, y)| CueEnd::Point(x, y)),
+        }
+    };
+    let at = end(at_unit, Some(*at_point));
+    let to = end(to_unit, *to_point);
+    let (at, to) = match (at, to) {
+        (Some(at), to) => (at, to),
+        (None, Some(to)) => (to, None),
+        (None, None) => return,
+    };
+    // The same cue at the same place this tick reads as one.
+    if seen.contains(&(*cue, at)) { return; }
+    seen.push((*cue, at));
+    let source = source.filter(|id| visible.contains(id)).and_then(|id| replica_proto(identity, id)).map_or(0, |replica| replica.value);
+    public.push(TeamPublicEvent {
+        event_kind: ordered.key.fact_kind as u32,
+        subject: None,
+        sanitized_payload: CuePresentationCue::public_payload(*cue, source, at, to, *radius_raw, *duration_raw),
+        stable_sub_index: ordered.key.local_ordinal,
+    });
 }
 
 fn project_fact(
@@ -1859,6 +1912,7 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
         }
         // Projected on its own (project_fact) before this table is consulted.
         ObservableFact::AbilityTarget { source, target, .. } => (Some(*source), *target, payload),
+        ObservableFact::Cue { source, .. } => (*source, None, payload),
         ObservableFact::AbilityArea {source, team, ability_id,rank,x_raw,y_raw,radius_raw,duration_raw} => {
             if *team == 0 || *team != viewer_team {return (None,None,Vec::new());}
             payload = crate::runtime::presentation_cue::AbilityAreaPresentationCue::public_payload(
@@ -2442,6 +2496,88 @@ mod ability_cue_projection_tests {
         projector.hash_entities.clear();
         let hidden=projector.build_step(4,&BTreeSet::new(),&[],vec![],&[],&[]).unwrap();
         assert!(!hidden.public_events.iter().any(|event|event.event_kind==crate::runtime::FactKind::ChannelVisual as u32));
+    }
+
+    fn cue_fact(at_unit: Option<u64>, at_point: (i64, i64), to_unit: Option<u64>, to_point: Option<(i64, i64)>) -> OrderedFact {
+        use crate::runtime::{FactKind, FactOrderingKey, FactPhase};
+        OrderedFact {
+            key: FactOrderingKey {tick:17, phase:FactPhase::PostStep, canonical_source_order:1, local_ordinal:(1<<24)+1, fact_kind:FactKind::Cue},
+            audience: FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.to_owned()),
+            fact: ObservableFact::Cue {cue: 99, source: at_unit, at_unit, at_point, to_unit, to_point, radius_raw: 2048, duration_raw: 1024},
+        }
+    }
+
+    #[test]
+    fn cue_names_only_the_ends_a_team_sees() {
+        use crate::runtime::presentation_cue::CuePresentationCue as Cue;
+        let caster_key = CanonicalEntityKey { id: 7, generation: 1 };
+        let target_key = CanonicalEntityKey { id: 42, generation: 1 };
+        let caster = (1u64 << 32) | 7;
+        let target = (1u64 << 32) | 42;
+        let mut identity = TeamIdentityState::new(2);
+        let caster_replica = identity.disclose(caster_key).unwrap().replica_id.get();
+        let target_replica = identity.disclose(target_key).unwrap().replica_id.get();
+        let project = |fact: &OrderedFact, visible: &[u64], points: bool| {
+            let (mut seen, mut public) = (Vec::new(), Vec::new());
+            project_cue(fact, &visible.iter().copied().collect(), &identity, &|_, _| points, &mut seen, &mut public);
+            public.iter().map(|event| Cue::from_public_event(17, event, |_| Some(1)).unwrap().1).collect::<Vec<_>>()
+        };
+        let line = cue_fact(Some(caster), (0, 0), Some(target), None);
+        // Both seen: the whole line, the numbers from the package.
+        let both = project(&line, &[caster, target], false);
+        assert_eq!((both[0].at_id, both[0].to_id, both[0].source_id), (caster_replica, target_replica, caster_replica));
+        assert_eq!((both[0].radius_raw, both[0].duration_raw), (2048, 1024));
+        // A hidden caster's bolt lands on the visible victim alone; nothing names the caster.
+        let hidden_caster = project(&line, &[target], false);
+        assert_eq!((hidden_caster[0].at_id, hidden_caster[0].to_id, hidden_caster[0].source_id), (target_replica, 0, 0));
+        // A hidden target loses the direction only.
+        let hidden_target = project(&line, &[caster], false);
+        assert_eq!((hidden_target[0].at_id, hidden_target[0].to_id), (caster_replica, 0));
+        // Neither end: nothing at all.
+        assert!(project(&line, &[], true).is_empty());
+        // A ground point under fog reaches nobody, and a fogged `to` point is not named.
+        let ground = cue_fact(None, (1024, 2048), None, Some((4096, 4096)));
+        assert!(project(&ground, &[], false).is_empty());
+        let seen_ground = project(&ground, &[], true);
+        assert_eq!((seen_ground[0].at_point, seen_ground[0].to_point), (Some((1024, 2048)), Some((4096, 4096))));
+        let unit_to_fogged_point = cue_fact(Some(caster), (0, 0), None, Some((4096, 4096)));
+        assert_eq!(project(&unit_to_fogged_point, &[caster], false)[0].to_point, None);
+    }
+
+    #[test]
+    fn cues_merge_at_one_place_and_stop_at_the_team_bound() {
+        let key = CanonicalEntityKey { id: 7, generation: 1 };
+        let caster = (1u64 << 32) | 7;
+        let mut identity = TeamIdentityState::new(2);
+        identity.disclose(key).unwrap();
+        let visible = BTreeSet::from([caster]);
+        let (mut seen, mut public) = (Vec::new(), Vec::new());
+        let fact = cue_fact(Some(caster), (0, 0), None, None);
+        for _ in 0..3 { project_cue(&fact, &visible, &identity, &|_, _| false, &mut seen, &mut public); }
+        assert_eq!(public.len(), 1, "the same cue at the same place is one effect");
+        for x in 0..200 {
+            let fact = cue_fact(None, (x * 1024, 0), None, None);
+            project_cue(&fact, &visible, &identity, &|_, _| true, &mut seen, &mut public);
+        }
+        assert_eq!(public.len(), MAX_TEAM_CUES_PER_TICK);
+    }
+
+    #[test]
+    fn cue_payload_round_trips_and_rejects_bad_input() {
+        use crate::runtime::presentation_cue::{CueEnd, CuePresentationCue as Cue, PresentationCue};
+        let event = |payload: Vec<u8>| TeamPublicEvent { event_kind: crate::runtime::FactKind::Cue as u32, subject: None,
+            sanitized_payload: payload, stable_sub_index: (1 << 24) + 2 };
+        let good = event(Cue::public_payload(99, 5, CueEnd::Unit(6), Some(CueEnd::Point(1024, -2048)), 2048, 1024));
+        let (id, cue) = Cue::from_public_event(17, &good, |_| Some(3)).unwrap();
+        assert_eq!(id >> 32, 17);
+        assert_eq!(Cue::decode(&cue.encode()), Some(cue));
+        assert!(matches!(PresentationCue::from_effect(id, &cue.encode(), 17), Some(PresentationCue::Cue(_))));
+        // An `at` unit no longer known plays nowhere and is no error.
+        assert!(Cue::from_public_event(17, &good, |_| None).is_none());
+        // A cue with no id, a negative radius, or a cut payload is refused.
+        assert!(Cue::from_public_event(17, &event(Cue::public_payload(0, 0, CueEnd::Point(0, 0), None, 0, 0)), |_| Some(1)).is_none());
+        assert!(Cue::from_public_event(17, &event(Cue::public_payload(9, 0, CueEnd::Point(0, 0), None, -1, 0)), |_| Some(1)).is_none());
+        assert!(Cue::from_public_event(17, &event(vec![b'C', b'U', b'E', b'1']), |_| Some(1)).is_none());
     }
 
     fn cast_target_fact(caster: u64, target: Option<u64>, point: Option<(i64, i64)>) -> OrderedFact {
