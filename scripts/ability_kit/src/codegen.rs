@@ -68,6 +68,9 @@ pub struct StatusDef {
     /// v3 `scope`: `"hero"` / `"permanent"` keep the status across its hero's death (omoba-core
     /// status_scope); "" (or `"unit"`) = it goes with the unit's statuses at death.
     pub scope: &'static str,
+    /// The entry's document reaches magic-immune units (E667): its rows carry magic_immunity's
+    /// PIERCE_KEY on one, where they would stay off otherwise.
+    pub reaches_immune: bool,
 }
 
 /// Selection filters of a v3 selector (v3.md §6).
@@ -158,6 +161,9 @@ pub struct Cx<'a, 'w> {
     /// run, so a later `has_status` of the same run sees them (four fire points reaching one unit
     /// in one pulse create its burn once, E466).
     applied: std::collections::BTreeMap<(u32, u32, String), bool>,
+    /// Gold this run gave or took per unit: the host applies it after the run, so a later `gold`
+    /// read of the same run counts it (C06T's bags stop at the target's gold, E671).
+    pub(crate) gold_delta: std::collections::BTreeMap<(u32, u32), i64>,
     /// `event.damage.final` and its kind (0 physical, 1 magical, 2 pure) in a damage trigger.
     pub event_amount: Fixed64,
     pub event_damage_kind: u8,
@@ -265,7 +271,7 @@ const ITEM_SKILL_PREFIX: &str = "item:";
 impl<'a, 'w> Cx<'a, 'w> {
     pub fn new(world: &'a mut GameWorldDyn<'w>, caster: EntityHandle, target: Target, rank: u8) -> Self {
         Self { world, caster, self_unit: caster, target, rank, event_target: EntityHandle::INVALID,
-            event_attacker: EntityHandle::INVALID, event_skill: None, cast_range: None, written: Default::default(), applied: Default::default(),
+            event_attacker: EntityHandle::INVALID, event_skill: None, cast_range: None, written: Default::default(), applied: Default::default(), gold_delta: Default::default(),
             event_amount: Fixed64::ZERO, event_damage_kind: 0, event_instance: 0, damage_edit: DamageEdit::KEEP,
             stack_count: None, when_row: None, cancelled: false }
     }
@@ -636,7 +642,8 @@ impl<'a, 'w> Cx<'a, 'w> {
         if let Some(slow) = slow.filter(|s| *s > Fixed64::ZERO) {
             if !to.is_valid() { return Ok(()); }
             let id = format!("{}:slow", self.runtime_id(status));
-            self.add_slow_row(to, &id, duration, slow);
+            let pierces = self.status_pierces(to, status);
+            self.add_slow_row(to, &id, duration, slow, pierces);
         }
         Ok(())
     }
@@ -650,15 +657,17 @@ impl<'a, 'w> Cx<'a, 'w> {
         if let Some(slow) = slow.filter(|s| *s > Fixed64::ZERO) {
             if to.is_valid() && instance > 0 {
                 let id = format!("{}#{instance}:slow", self.runtime_id(status));
-                self.add_slow_row(to, &id, duration, slow);
+                let pierces = self.status_pierces(to, status);
+                self.add_slow_row(to, &id, duration, slow, pierces);
             }
         }
         Ok(instance)
     }
 
-    fn add_slow_row(&mut self, to: EntityHandle, id: &str, duration: Fixed64, slow: Fixed64) {
+    fn add_slow_row(&mut self, to: EntityHandle, id: &str, duration: Fixed64, slow: Fixed64, pierces: bool) {
         let duration = if duration == Self::FOREVER { Fixed64::from_raw(i64::from(i32::MAX)) } else { duration };
-        let payload = serde_json::json!({ "move_speed_bonus": -slow.min(Fixed64::ONE).raw(), "__aggregation_family": "generic_ability_slow" });
+        let mut payload = serde_json::json!({ "move_speed_bonus": -slow.min(Fixed64::ONE).raw(), "__aggregation_family": "generic_ability_slow" });
+        if pierces { payload[magic_immunity::PIERCE_KEY] = 1.into(); }
         self.world.add_stat_buff(to, RStr::from_str(id), duration, RStr::from_str(&payload.to_string()));
     }
 
@@ -800,6 +809,8 @@ impl<'a, 'w> Cx<'a, 'w> {
         }
         // A status that is only a host control held under its own id (`stun` as stun) is that control.
         let host_state = payload.is_empty() && status.state_buffs.contains(&id.as_str());
+        let pierces = self.status_pierces(to, status);
+        if pierces { payload.insert(magic_immunity::PIERCE_KEY.into(), 1.into()); }
         if status.ignore_status_resistance {
             payload.insert(omoba_core::runtime::native::rules::status::IGNORE_STATUS_RESISTANCE.into(), true.into());
         }
@@ -812,9 +823,15 @@ impl<'a, 'w> Cx<'a, 'w> {
             self.world.add_stat_buff(to, RStr::from_str(&id), duration, RStr::from_str(&serde_json::Value::Object(payload).to_string()));
         }
         for buff in status.state_buffs {
-            if status.ignore_status_resistance {
-                let ignore = serde_json::json!({ (omoba_core::runtime::native::rules::status::IGNORE_STATUS_RESISTANCE): true });
-                self.world.add_stat_buff(to, RStr::from_str(buff), duration, RStr::from_str(&ignore.to_string()));
+            if status.ignore_status_resistance || pierces {
+                let mut row = serde_json::Map::new();
+                if status.ignore_status_resistance { row.insert(omoba_core::runtime::native::rules::status::IGNORE_STATUS_RESISTANCE.into(), true.into()); }
+                if pierces { row.insert(magic_immunity::PIERCE_KEY.into(), 1.into()); }
+                if pierces && *buff == magic_immunity::BUFF {
+                    row.insert("source_entity_id".into(), self.caster.id.into());
+                    row.insert("source_entity_gen".into(), self.caster.gen.into());
+                }
+                self.world.add_stat_buff(to, RStr::from_str(buff), duration, RStr::from_str(&serde_json::Value::Object(row).to_string()));
             } else {
                 self.world.add_buff(to, RStr::from_str(buff), duration);
             }
@@ -831,9 +848,18 @@ impl<'a, 'w> Cx<'a, 'w> {
                 Some(n) => format!("{}{}#{}", dispel::CONTROL_SOURCE_PREFIX, status.id, n),
                 None => format!("{}{}", dispel::CONTROL_SOURCE_PREFIX, status.id),
             };
-            self.world.add_stat_buff(to, RStr::from_str(&row), duration, RStr::from_str(&dispel::control_source_payload(&controls).to_string()));
+            let mut source = dispel::control_source_payload(&controls);
+            if pierces { source[magic_immunity::PIERCE_KEY] = 1.into(); }
+            self.world.add_stat_buff(to, RStr::from_str(&row), duration, RStr::from_str(&source.to_string()));
         }
         Ok(())
+    }
+
+    /// Whether the status's rows land through magic immunity on `to`: its entry reaches such units,
+    /// or the unit puts it on itself; only asked of a unit that is immune or is becoming so.
+    fn status_pierces(&self, to: EntityHandle, status: &StatusDef) -> bool {
+        (status.reaches_immune || to == self.caster)
+            && (status.state_buffs.contains(&magic_immunity::BUFF) || self.is_magic_immune(to))
     }
 
     /// A status with no expiry (no `duration`).

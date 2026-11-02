@@ -1325,6 +1325,16 @@ local function aura_independent(m, id)
 end
 
 -- The StatusDef constant of every status; problems per status (states the host does not hold).
+-- An entry's document reaches magic-immune units: it names a flag doing so anywhere, or grants the
+-- immunity its other debuffs land under (C08T's belly). StatusDef.reaches_immune.
+local function reaches_magic_immune(node, seen)
+  if node == "pierce_magic_immune" or node == "include_magic_immune" or node == "magic_immune" then return true end
+  if type(node) ~= "table" or seen[node] then return false end
+  seen[node] = true
+  for _, v in pairs(node) do if reaches_magic_immune(v, seen) then return true end end
+  return false
+end
+
 local function emit_statuses(m, root)
   local voc = M.vocab(root)
   local out = { M.HEADER, "//! The document's statuses as the host BuffStore runs them.\n\n#[allow(dead_code)]\npub mod status {\n    #[allow(unused_imports)]\n    use ability_kit::{StatKey, StatusDef};\n" }
@@ -1404,10 +1414,11 @@ local function emit_statuses(m, root)
       p[#p + 1] = "status.scope:" .. tostring(s.scope)
     end
     problems[id] = p
-    out[#out + 1] = string.format("\n    pub const %s: StatusDef = StatusDef {\n        id: %s,\n        runtime_id: %s,\n        state_buffs: &[%s],\n        state_payload: &[%s],\n        owner: %s,\n        events: %d,\n        ignore_status_resistance: %s,\n        family: %s,\n        scope: %s,\n    };\n",
+    out[#out + 1] = string.format("\n    pub const %s: StatusDef = StatusDef {\n        id: %s,\n        runtime_id: %s,\n        state_buffs: &[%s],\n        state_payload: &[%s],\n        owner: %s,\n        events: %d,\n        ignore_status_resistance: %s,\n        family: %s,\n        scope: %s,\n        reaches_immune: %s,\n    };\n",
       upper(id), rust_str(id), rust_str(runtime_id), table.concat(buffs, ", "), table.concat(payload, ", "), rust_str(owner), mask, tostring(sr == "ignore"), rust_str(family),
       -- scope hero / permanent: kept across the hero's death (host status_scope)
-      rust_str(s.scope == "item_instance" and "hero" or (s.scope == "hero" or s.scope == "permanent") and s.scope or ""))
+      rust_str(s.scope == "item_instance" and "hero" or (s.scope == "hero" or s.scope == "permanent") and s.scope or ""),
+      tostring(reaches_magic_immune(m.statuses[id].parent and m.statuses[id].parent.def or s, {})))
   end
   out[#out + 1] = "}\n"
   return table.concat(out), problems

@@ -2,6 +2,60 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E666 `states = { "magic_immune" }` 存成 `buff`，25 個魔免狀態都沒有魔免效果（2026-11-02，工作線 B，FC-087 的測試）
+
+- **現象**：B23R 持有 `b23r_magic_immune` 時 `is_magic_immune` 為 false，魔法傷害照打。
+- **根因**：`v3_rust.lua` 取 vocab 路徑最後一段轉小寫當列名；`magic_immunity::BUFF` 變成 `buff`。只有這條 vocab 用常數路徑。
+- **修正**：vocab 寫字面值 `"magic_immune"`，並加測試確認它等於 `magic_immunity::BUFF`。
+- **影響**：所有 v3 魔免狀態開始真正生效，連帶需要 E667。
+- **檔案**：`omoba-core/src/runtime/native/rules/vocab.rs`
+
+## E667 魔免真正生效後，v3 debuff 狀態的攔截與穿透（2026-11-02，工作線 B，D 的 magic_immune/on_attack_hit 情境）
+
+- **現象**：
+  - `visibility = "debuff"` 的產生狀態不在 `is_debuff` 名單，會落在魔免單位上。
+  - `pierce_magic_immune` 的控制（C06T、C08T）沒有帶穿透標記，魔免生效後反而被擋。
+  - C08T 的 `c08t_belly` 自帶魔免，`grant_state` 一上身就強驅散，把同一招的 debuff 清掉。
+- **修正**：
+  - `blocks` 另查 `dispel::Registry::immunity_blocks`（`side == Debuffs`，含 `__ctl:` 列）。持有者自己套的不算敵對。
+  - `StatusDef.reaches_immune`：產生器看整個條目有沒有 `pierce_magic_immune`、`include_magic_immune` 或 `magic_immune`。目標魔免或這個狀態會給魔免時，所有列帶 `PIERCE_KEY`。
+  - `grant_state` 讀列的來源：來自其他單位的魔免狀態不做強驅散。
+- **限制**：友軍套的 debuff 在 BuffStore 分不出來，一樣會被擋。
+- **測試**：`magic_immunity::tests::a_debuff_status_stays_off_a_magic_immune_unit_unless_its_own_or_it_reaches_them`、`fix_candidates::fc058_…`、`fc087_…`、`fc087b_…`。D 的全量還沒跑。
+- **檔案**：`omoba-core/src/runtime/native/{magic_immunity,dispel,game_processor}.rs`、`scripts/ability_kit/src/codegen.rs`、`docs/character_pipeline/tools/v3_rust.lua`
+
+## E668 技能的 heal 不觸發 on_heal_received（2026-11-02，工作線 B，FC-106 的測試）
+
+- **根因**：`handle_script_heal` 沒有呼叫 `status_event::note_heal`，只有道具和普攻的治療路徑有。
+- **修正**：算出實際回復量後呼叫 `note_heal`。
+- **測試**：`fix_candidates::fc106b_b21t_hears_a_script_heal`
+- **檔案**：`omoba-core/src/runtime/native/game_processor.rs`
+
+## E669 非英雄單位死亡不移除 buff，on_death、on_removed 不執行（2026-11-02，工作線 B，FC-107 的測試）
+
+- **現象**：鬼魂死亡不扣魔、不減計數；死亡單位的列留在 BuffStore。
+- **根因**：死亡路徑只有 `delete_entities`，沒有 `remove_all_for`；英雄路徑在 `unit_var::retire` 才有。
+- **修正**：刪除前對 `remove_uids` 呼叫 `remove_all_for`。
+- **連帶**：`raw_retired_target_in_same_batch_never_consumes_its_shield` 改成護盾隨單位消失。
+- **測試**：`fix_candidates::fc107b_b23d_ghost_death_costs_mana`
+- **檔案**：`omoba-core/src/runtime/native/game_processor.rs`、`raw_damage.rs`
+
+## E670 英雄的 inactive 技能死亡後變回可用（2026-11-02，工作線 B，FC-103 的測試）
+
+- **現象**：A06 死亡時層數消失、`on_removed` 要停用怒焰，但復活後怒焰可用。
+- **根因**：`__ability_inactive:` 列隨死亡移除，復活沒補；對死亡身體的封包也被 `admitted` 拒絕。
+- **修正**：`MobaHeroSlot` 保存 `retired_body`、`retired_inactive`；死亡身體收到的封包改寫這份清單；復活時放回。
+- **測試**：`fix_candidates::fc103b_a06_flame_is_off_after_a_death`
+- **檔案**：`omoba-core/src/runtime/native/{ability_slots,moba_match}.rs`
+
+## E671 同一次執行讀不到剛扣的金錢，C06T 10 袋全扣（2026-11-02，工作線 B，FC-131 的測試）
+
+- **現象**：對方 175 金時，C06T 應該扣 3 袋留 25，實際 10 袋都丟出、金錢歸 0。
+- **根因**：`take_gold` 是 outcome，執行結束才生效；同一次 `repeat` 裡 `target.gold` 一直讀舊值。
+- **修正**：`Cx.gold_delta` 記這次執行的增減（照 host 不低於 0 計算），`unit_num(GOLD)` 加上它。
+- **測試**：`fix_candidates::fc131_c06t_takes_only_the_bags_gold`
+- **檔案**：`scripts/ability_kit/src/{codegen,host_ext}.rs`
+
 ## E673 conformance：接上 applied_by：施放後沒觀察到時，依來源布置條件並製造事件（2026-11-02，conformance session）
 - **現象**：「施放後觀察不到狀態」約 1100 個情境，工作線 A 在 `status_on_unit` 加了 `applied_by`，說明狀態是在哪裡被套上（來源、事件、條件、selector 的 where），harness 還沒用。
 - **通用修正**：`through_applied_by`，只在其他方式都沒找到持有者時才用：照 `needs`（has_status、stacks、state 的 by）和 where（`has_status(it, X)`、`it.hp_pct <`）布置；來源是施放就再施放一次；被動或狀態的觸發則先放上觸發狀態（英雄身上，再試敵方英雄身上），再製造事件（普攻、被攻擊、受傷、擊殺、週期）。還是沒看到就維持 unsupported，不判 fail。

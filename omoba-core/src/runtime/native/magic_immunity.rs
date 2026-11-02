@@ -48,9 +48,14 @@ fn is_debuff(buff_id: &str, payload: &Value) -> bool {
         || payload.get("__aggregation_family").and_then(Value::as_str) == Some("generic_ability_slow")
 }
 
-/// BuffStore::add: the debuff does not land on a magic-immune unit unless it pierces.
+/// BuffStore::add: the debuff does not land on a magic-immune unit unless it pierces. A v3
+/// status its holder applied to itself is not hostile (E667).
 pub fn blocks(buffs: &BuffStore, entity: Entity, buff_id: &str, payload: &Value) -> bool {
-    payload.get(PIERCE_KEY).is_none() && is_debuff(buff_id, payload) && is_magic_immune(buffs, entity)
+    if !is_magic_immune(buffs, entity) || payload.get(PIERCE_KEY).is_some() { return false; }
+    if is_debuff(buff_id, payload) { return true; }
+    let own = payload.get("source_entity_id").and_then(Value::as_u64) == Some(u64::from(entity.id()))
+        && payload.get("source_entity_gen").and_then(Value::as_i64) == Some(i64::from(entity.gen().id()));
+    !own && super::dispel::registry().immunity_blocks(buff_id)
 }
 
 /// Whether `caster` may target `target` with an enemy unit-targeted ability or item.
@@ -83,10 +88,12 @@ pub fn grant(world: &World, entity: Entity, duration: Fixed64) -> bool {
 
 /// v3 state `magic_immune` of a status (any positive duration, a passive's too): the same strong
 /// dispel and status as [`grant`]. The status's `__ctl` row takes it back when the status goes
-/// (dispel::remove_status), since nothing else removes it.
-pub fn grant_state(world: &World, entity: Entity, duration: Fixed64) -> bool {
+/// (dispel::remove_status), since nothing else removes it. An immunity another unit's status puts
+/// on the holder (C08T's belly) leaves that status's debuffs alone (E667).
+pub fn grant_state(world: &World, entity: Entity, duration: Fixed64, payload: &Value) -> bool {
     if duration <= Fixed64::ZERO || !world.entities().is_alive(entity) { return false; }
-    strong_dispel(world, entity);
+    let foreign = payload.get("source_entity_id").and_then(Value::as_u64).is_some_and(|id| id != u64::from(entity.id()));
+    if !foreign { strong_dispel(world, entity); }
     world.write_resource::<BuffStore>().add(entity, BUFF, duration, status_payload());
     true
 }
@@ -98,6 +105,29 @@ mod tests {
     use specs::Builder;
 
     #[test]
+    fn a_debuff_status_stays_off_a_magic_immune_unit_unless_its_own_or_it_reaches_them() {
+        let mut world = World::new();
+        let (unit, foe) = (world.create_entity().build(), world.create_entity().build());
+        let mut buffs = BuffStore::default();
+        let time = Fixed64::from_i32(5);
+        let from = |source: Entity| json!({ "source_entity_id": source.id(), "source_entity_gen": source.gen().id() });
+        buffs.add(foe, "b17e_venom", time, from(unit));
+        assert!(buffs.has(foe, "b17e_venom"), "lands on a unit without immunity");
+        buffs.add(unit, BUFF, time, status_payload());
+        buffs.add(unit, "b17e_venom", time, from(foe));
+        assert!(!buffs.has(unit, "b17e_venom"), "an enemy's debuff status stays off");
+        buffs.add(unit, "b17e_venom", time, from(unit));
+        assert!(buffs.has(unit, "b17e_venom"), "its own is not hostile");
+        buffs.remove(unit, "b17e_venom");
+        let mut piercing = from(foe);
+        piercing[PIERCE_KEY] = json!(1);
+        buffs.add(unit, "b17e_venom", time, piercing);
+        assert!(buffs.has(unit, "b17e_venom"), "a piercing payload lands");
+        buffs.add(unit, "a13d_stealth", time, from(foe));
+        assert!(buffs.has(unit, "a13d_stealth"), "a buff status is not a debuff");
+    }
+
+    #[test]
     fn a_status_state_grants_immunity_with_its_payload_after_a_strong_dispel() {
         let mut world = World::new();
         world.register::<Faction>();
@@ -106,7 +136,7 @@ mod tests {
         let enemy = world.create_entity().with(Faction::new(FactionType::Enemy, 2)).build();
         world.write_resource::<BuffStore>().add(hero, "stun", Fixed64::ONE, json!({}));
         let _ = enemy;
-        assert!(grant_state(&world, hero, Fixed64::from_raw(i64::MAX)), "a passive's state lasts");
+        assert!(grant_state(&world, hero, Fixed64::from_raw(i64::MAX), &Value::Null), "a passive's state lasts");
         let buffs = world.read_resource::<BuffStore>();
         assert!(is_magic_immune(&buffs, hero) && !buffs.has(hero, "stun"), "dispelled, then immune");
         assert_eq!(buffs.get(hero, BUFF).unwrap().payload, status_payload());

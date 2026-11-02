@@ -889,7 +889,11 @@ impl<'a> ParallelWorldAdapter<'a> {
                 matches!(faction.faction_id,FactionType::Neutral|FactionType::HostileNeutral))),
             name::IS_RANGED=>V::Bool(entity.is_some_and(|e|self.source_attack(e).is_some()
                 && super::super::rules::attack::is_ranged(buffs(e),e,true))),
-            name::OWNER=>handle(entity.and_then(|e|self.cache.summoned.as_ref()?.get(e).map(|summon|summon.summoner))),
+            // A dead owner stays one while its last position is kept: its own on_death finds its summons (E672, FC-107).
+            name::OWNER=>entity.and_then(|e|self.cache.summoned.as_ref()?.get(e).map(|summon|summon.summoner))
+                .filter(|of|self.cache.entities.is_alive(*of)
+                    ||self.cache.retired_positions.as_ref().is_some_and(|rows|rows.get(*of).is_some()))
+                .map_or(V::None,|of|V::Unit(Self::entity_to_handle(of))),
             name::HERO=>handle(entity.and_then(|mut e|{
                 // a bounded walk: a summon chain is short and never a cycle, but a script cannot loop the host
                 for _ in 0..8 {

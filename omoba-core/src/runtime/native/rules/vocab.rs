@@ -202,7 +202,8 @@ const STATE_EFFECTS: &[(&str, StateEffect)] = &[
     ("provides_vision", StateEffect::Buff(crate::runtime::native::ability_runtime::PROVIDES_VISION)),
     // 魔法免疫：host 收到這個 buff 時先強驅散再授予（magic_immunity::grant_state）；status 結束或被
     // 移除時由 `__ctl` 來源列收回。
-    ("magic_immune", StateEffect::Buff(crate::runtime::native::magic_immunity::BUFF)),
+    // A literal: v3_rust.lua reads a path's last name as the row (BUFF would make the row `buff`, E666).
+    ("magic_immune", StateEffect::Buff("magic_immune")),
     // 被動失效（BuffStore::stat_rows：學會的被動不給 stat、不收事件）。
     ("break", StateEffect::Buff("break")),
     ("passives_disabled", StateEffect::Buff("break")),
@@ -253,6 +254,7 @@ mod tests {
         assert_eq!(stat("base_attack_time"), None, "only as an absolute value");
         assert_eq!(state("invisible"), Some(StateEffect::Payload(StatKey::InvisibilityLevel, 1024)));
         assert_eq!(state("no_unit_collision"), Some(StateEffect::Buff("no_unit_collision")));
+        assert_eq!(state("magic_immune"), Some(StateEffect::Buff(crate::runtime::native::magic_immunity::BUFF)));
         assert_eq!(state("not_on_minimap"), Some(StateEffect::Buff(super::state::NOT_ON_MINIMAP)));
         assert_eq!(state("not_a_state"), None);
     }

@@ -145,6 +145,14 @@ impl Registry {
         registry
     }
 
+    /// A hostile v3 status magic immunity keeps out: a debuff row, or its control-source row.
+    /// A row of an entry that reaches magic-immune units carries PIERCE_KEY (ability_kit).
+    pub fn immunity_blocks(&self, key: &str) -> bool {
+        let status = key.strip_prefix(CONTROL_SOURCE_PREFIX).unwrap_or(key);
+        let status = omoba_template_ids::instance_base(status);
+        self.status(status).or_else(|| self.rule(status)).and_then(|rule| rule.side) == Some(Purge::Debuffs)
+    }
+
     /// The rule for a BuffStore key.
     pub fn rule(&self, key: &str) -> Option<Rule> {
         let key = omoba_template_ids::instance_base(key);

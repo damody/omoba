@@ -33,6 +33,20 @@ pub const SLOT_KEY: &str = "__ability_slot_v1";
 pub const SLOT_BUFF: &str = "__ability_slot";
 const INSTANT_PREFIX: &str = "__ability_instant:";
 
+/// The hero's inactive abilities, kept across a death (E670, FC-103).
+pub fn inactive_abilities(buffs: &BuffStore, entity: Entity) -> Vec<String> {
+    let mut rows: Vec<String> = buffs.iter_for(entity).filter_map(|(id, _)| id.strip_prefix(INACTIVE_PREFIX).map(str::to_owned)).collect();
+    rows.sort();
+    rows
+}
+
+/// Sets them inactive on the hero's new life.
+pub fn restore_inactive(buffs: &mut BuffStore, entity: Entity, abilities: &[String]) {
+    for ability in abilities {
+        buffs.add(entity, &format!("{INACTIVE_PREFIX}{ability}"), Fixed64::from_raw(i64::MAX), json!({}));
+    }
+}
+
 /// Whether the unit's ability is set inactive (cast admission refuses it).
 pub fn inactive(buffs: &BuffStore, entity: Entity, ability: &str) -> bool {
     buffs.has(entity, &format!("{INACTIVE_PREFIX}{ability}"))
@@ -176,6 +190,13 @@ pub fn admitted(world: &World, target: Entity, buff_id: &str, duration: Fixed64,
 
 /// Applies an `__ability_active` or `__ability_swap` packet.
 pub fn apply(world: &mut World, target: Entity, buff_id: &str, duration: Fixed64, payload: &Value) {
+    if !world.entities().is_alive(target) {
+        // A status of the dead body ending (on_removed, on_death) sets what the next life starts with.
+        if let (Some(spec), Some(mut state)) = (ActiveSpec::from_payload(buff_id, duration, payload), world.try_fetch_mut::<crate::runtime::MobaMatch>()) {
+            state.set_retired_inactive(target, &spec.ability, !spec.active);
+        }
+        return;
+    }
     if !admitted(world, target, buff_id, duration, payload) { return; }
     if let Some(spec) = ActiveSpec::from_payload(buff_id, duration, payload) {
         let key = format!("{INACTIVE_PREFIX}{}", spec.ability);

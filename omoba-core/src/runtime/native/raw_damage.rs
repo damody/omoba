@@ -292,9 +292,10 @@ mod tests {
         let (mut world,source,target)=fixture(100,0);
         world.write_resource::<BuffStore>().grant_damage_shield(target,Fixed64::from_i32(10),Fixed64::ONE);
         flush(&mut world,vec![Outcome::Death{pos:Vec2::ZERO,ent:target},raw(source,target,100,0,0)]);
-        // The component entity is retired at the batch boundary; resource-backed
-        // shield state must not be consumed by damage after its explicit Death.
-        assert_eq!(world.read_resource::<BuffStore>().shield_remaining(target),Fixed64::from_i32(10));
+        // The entity retires at the batch boundary and its rows with it (E669): the shield is
+        // gone, and the damage after its explicit Death reached nothing.
+        assert_eq!(world.read_resource::<BuffStore>().shield_remaining(target),Fixed64::ZERO);
+        assert!(!world.entities().is_alive(target));
     }
     #[test]
     fn raw_td_packets_keep_layer_immunity_and_skip_moba_base_defenses() {

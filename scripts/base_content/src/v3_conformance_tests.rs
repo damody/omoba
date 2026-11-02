@@ -1071,6 +1071,16 @@ fn check_fixed_quirk(s: &Value) -> Option<Verdict> {
         "046" => fix_candidates::fc046_a07r_crits_after_misses_in_a_row,
         "008" => fix_candidates::fc008_b04t_extra_shots_keep_the_launch_aim,
         "078" => fix_candidates::fc078_a02w_does_nothing_on_buildings,
+        "103" => || { fix_candidates::fc103_a06_flame_goes_with_its_stacks(); fix_candidates::fc103b_a06_flame_is_off_after_a_death(); },
+        "106" => || { fix_candidates::fc106_b21t_bonus_comes_back_after_a_dispel(); fix_candidates::fc106b_b21t_hears_a_script_heal(); },
+        "054" => fix_candidates::fc054_b20r_grants_magic_resistance,
+        "055" => fix_candidates::fc055_b27w_speeds_up,
+        "081" => fix_candidates::fc081_a13w_keeps_its_cooldown_through_the_swap,
+        "085" => fix_candidates::fc085_a32w_keeps_its_cooldown_through_the_swap,
+        "088" => fix_candidates::fc088_b24t_keeps_its_cooldown_through_the_swap,
+        "129" => fix_candidates::fc129_c06e_moves_only_the_named_gold,
+        "130" => fix_candidates::fc130_c06d_pays_only_the_named_gold,
+        "131" => fix_candidates::fc131_c06t_takes_only_the_bags_gold,
         "023" => fix_candidates::fc023_a04r_stops_a_lethal_hit,
         "026" => fix_candidates::fc026_a18r_stops_a_lethal_magic_hit,
         "027" => fix_candidates::fc027_a24d_stops_a_lethal_hit,
@@ -5436,7 +5446,8 @@ mod fix_candidates {
         // Interrupted by a stun.
         let mut run = channel();
         let caster = run.caster;
-        run.world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(caster, "stun", Fixed64::from_i32(1), json!({}));
+        run.world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(caster, "stun", Fixed64::from_i32(1),
+            json!({ (omoba_core::runtime::native::magic_immunity::PIERCE_KEY): 1 }));
         lands(&mut run);
         // Run to its end.
         let mut run = channel();
@@ -5463,7 +5474,6 @@ mod fix_candidates {
     /// "magic_immune" (v3_rust.lua's vocabulary lowercases the constant's name, `magic_immunity::BUFF`),
     /// so its holder is not magic immune at all.
     #[test]
-    #[ignore = "FC-087 真 bug，見測試上方註解"]
     pub(super) fn fc087b_b23r_makes_her_magic_immune() {
         let mut run = learned("ise_hime", "b23_soul_feast", 1, false);
         assert!(run.cast("none", 0.5, None).unwrap().accepted, "b23_soul_feast not cast");
@@ -5544,8 +5554,7 @@ mod fix_candidates {
     /// back as a new entity with the flame's level kept and no `__ability_inactive` row (on_removed
     /// wrote it, if at all, on the dead body), so one flame goes off with no stacks.
     #[test]
-    #[ignore = "FC-103 真 bug，見測試上方註解"]
-    pub(super) fn fc103b_a06_flame_is_off_after_a_death() {
+        pub(super) fn fc103b_a06_flame_is_off_after_a_death() {
         const ENTRY: &str = "a06_red_flame_flow";
         let cost = value(ENTRY, 1, "charge_cost").unwrap() as i64;
         let mut run = learned("ii_naomasa", ENTRY, 1, true);
@@ -5609,8 +5618,7 @@ mod fix_candidates {
     /// Real bug in FC-106: the `heal` op of a script is Outcome::ScriptHeal, whose handler
     /// (game_processor.rs handle_script_heal) does not note the heal, so no on_heal_received hears it.
     #[test]
-    #[ignore = "FC-106 真 bug，見測試上方註解"]
-    pub(super) fn fc106b_b21t_hears_a_script_heal() {
+        pub(super) fn fc106b_b21t_hears_a_script_heal() {
         let mut run = learned("baba_nobufusa", "b21_undying_demon", 1, true);
         let caster = run.caster;
         let half = real(run.world.read_storage::<CProperty>().get(caster).unwrap().mhp) * 0.5;
@@ -5681,7 +5689,6 @@ mod fix_candidates {
     /// summon's rows stay on it (game_processor.rs deletes `remove_uids` without
     /// BuffStore::remove_all_for), so b23d_ghost_link's on_death never runs.
     #[test]
-    #[ignore = "FC-107 真 bug，見測試上方註解"]
     pub(super) fn fc107b_b23d_ghost_death_costs_mana() {
         const ENTRY: &str = "b23_undead_pact";
         let s = json!({"entry": ENTRY, "rank": 1, "expect": [], "given": [{"kind": "learned", "entry": ENTRY, "rank": 1}, {"kind": "corpse_near_caster"}]});
@@ -5872,6 +5879,143 @@ mod fix_candidates {
             let took = 40_000.0 - life(&run, enemy);
             assert!((took - 1_000.0 * share).abs() <= 5.0, "rank {rank}: a hit of 1000 reflected {took:.1}, {} expected", 1_000.0 * share);
         }
+    }
+
+    fn taken_from_a_magic_hit(hero: &str, entry: &str, rank: usize) -> f64 {
+        let mut run = learned(hero, entry, rank, true);
+        let caster = run.caster;
+        passive_stats(&run, &json!({"stats": {"magic_resist": "$magic_resist"}}), entry, rank).unwrap_or_else(|e| panic!("rank {rank}: {e}"));
+        let after = omoba_core::runtime::native::rules::damage::defenses(&run.world, caster, Fixed64::ZERO, Fixed64::from_i32(10_000), Fixed64::ZERO, omb_script_abi::types::DamageProfile::NORMAL.0, false).unwrap();
+        real(after.magical)
+    }
+
+    /// FC-054: B20R's passive carries its magic resistance at every rank, and magic hurts less
+    /// (the source read a key that does not exist: 0).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc054_b20r_grants_magic_resistance() {
+        let taken: Vec<f64> = (1..=4).map(|rank| taken_from_a_magic_hit("yamagata_masakage", "b20_tenacity", rank)).collect();
+        assert!(taken[0] > 0.0, "a magic hit took nothing");
+        let want = (1.0 - value("b20_tenacity", 4, "magic_resist").unwrap() / 100.0) / (1.0 - value("b20_tenacity", 1, "magic_resist").unwrap() / 100.0);
+        assert!((taken[3] / taken[0] - want).abs() < 0.01, "rank 4 took {:.0}, rank 1 {:.0}: not the ranks' resistance", taken[3], taken[0]);
+    }
+
+    /// FC-055: B27W's status carries its move and attack speed, in the bonus rows (the source wrote
+    /// them into the slow pool, where they never applied).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc055_b27w_speeds_up() {
+        for rank in 1..=4 {
+            let mut run = learned("kojima_sadaoki", "b27_horsemanship", rank, false);
+            assert!(run.cast("none", 0.5, None).unwrap().accepted, "rank {rank}: b27_horsemanship not cast");
+            let caster = run.caster;
+            let stats = json!({"stats": {"move_speed_pct": "$move_bonus", "attack_speed": "$attack_speed"}});
+            match status_stats(&mut run, caster, "b27w_buff", &stats) {
+                Verdict::Pass | Verdict::PassNoted(_) => {}
+                Verdict::Fail(why) | Verdict::Unsupported(why) => panic!("rank {rank}: {why}"),
+            }
+        }
+    }
+
+    /// The ability swapped out comes back with the cooldown it had running (the source re-created it,
+    /// with none: FC-081, FC-085, FC-088).
+    fn cooldown_kept_through_the_swap(run: &mut Run, entry: &str, to: &str, target: &str, rank: usize, window: &str) {
+        let cooldown = value(entry, rank, "cooldown").unwrap();
+        let window = value(entry, rank, window).unwrap();
+        assert!(run.cast(target, 1.0, None).unwrap().accepted, "{entry} not cast");
+        let has = |run: &Run, id: &str| run.hero(|h| h.abilities.iter().any(|slot| slot == id));
+        for _ in 0..ticks(3.0) {
+            if has(run, to) { break; }
+            run.step(1);
+        }
+        assert!(has(run, to), "{to} never swapped in: {:?}", run.hero(|h| h.abilities.clone()));
+        let swapped_with = run.hero(|h| real(h.get_cooldown(entry)));
+        let mut waited = 0;
+        while !has(run, entry) && waited < ticks(window + 2.0) {
+            run.step(1);
+            waited += 1;
+        }
+        assert!(has(run, entry), "{entry} did not come back: {:?}", run.hero(|h| h.abilities.clone()));
+        let left = run.hero(|h| real(h.get_cooldown(entry)));
+        assert!(left > 0.5, "{entry} is back with no cooldown ({left:.2} s; {swapped_with:.2} s when it left, {cooldown} s in all)");
+        assert!(left <= cooldown - window + 0.5, "{entry} is back with {left:.2} s of cooldown, its {cooldown} s did not run for the {window} s it was away");
+        assert!(left >= cooldown - window - 2.0, "{entry} is back with {left:.2} s of cooldown, about {} expected", cooldown - window);
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc081_a13w_keeps_its_cooldown_through_the_swap() {
+        let mut run = learned("hattori_hanzo", "a13_shadow_illusion", 1, false);
+        cooldown_kept_through_the_swap(&mut run, "a13_shadow_illusion", "a13_substitution", "none", 1, "swap_window");
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc085_a32w_keeps_its_cooldown_through_the_swap() {
+        let mut run = learned("takigawa_kazumasu", "a32_flying_slash", 1, false);
+        cooldown_kept_through_the_swap(&mut run, "a32_flying_slash", "a32_second_slash", "point", 1, "recast_window");
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc088_b24t_keeps_its_cooldown_through_the_swap() {
+        let mut run = learned("akiyama_nobutomo", "b24_earth_prison", 1, false);
+        cooldown_kept_through_the_swap(&mut run, "b24_earth_prison", "b24_shatter", "none", 1, "life_duration");
+    }
+
+    fn set_gold(run: &mut Run, unit: specs::Entity, gold: i32) {
+        run.world.write_storage::<Gold>().insert(unit, Gold(gold)).unwrap();
+    }
+    fn gold_of(run: &Run, unit: specs::Entity) -> i32 { let gold = run.world.read_storage::<Gold>(); gold.get(unit).map_or(0, |g| g.0) }
+
+    /// FC-129: C06E gives the caster and takes from the target exactly its amount (the source's
+    /// helper counted reliable gold in again).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc129_c06e_moves_only_the_named_gold() {
+        for rank in 1..=4 {
+            let mut run = learned("ishikawa_goemon", "c06_sleight_of_hand", rank, false);
+            let (caster, enemy) = (run.caster, run.enemy);
+            set_gold(&mut run, caster, 1000);
+            set_gold(&mut run, enemy, 1000);
+            assert!(run.cast("unit", 0.6, None).unwrap().accepted, "rank {rank}: c06_sleight_of_hand not cast");
+            run.step(2);
+            let money = value("c06_sleight_of_hand", rank, "money").unwrap() as i32;
+            assert_eq!(gold_of(&run, caster), 1000 + money, "rank {rank}: the caster's gold");
+            assert_eq!(gold_of(&run, enemy), 1000 - money, "rank {rank}: the target's gold");
+        }
+    }
+
+    /// FC-130: C06D pays its bounty and nothing more, for a unit worth no gold itself.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc130_c06d_pays_only_the_named_gold() {
+        let mut run = learned("ishikawa_goemon", "c06_murder_and_loot", 1, false);
+        let caster = run.caster;
+        let team = run.world.read_storage::<Faction>().get(caster).map(|f| f.team_id).unwrap();
+        let body = spawn_body(&mut run.world, 3000, isolated_skill_origin_y(), team + 1, 800, None);
+        run.world.write_storage::<Faction>().insert(body, Faction::new(FactionType::Player, team + 1)).unwrap();
+        run.world.write_storage::<Bounty>().remove(body);
+        set_gold(&mut run, caster, 1000);
+        run.kill(caster, body);
+        run.step(5);
+        assert!(!living(&run, body), "the body did not die");
+        assert_eq!(gold_of(&run, caster), 1000 + value("c06_murder_and_loot", 1, "other_bounty").unwrap() as i32);
+    }
+
+    /// FC-131: C06T takes a bag's gold while the target has more than a bag, and no more.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc131_c06t_takes_only_the_bags_gold() {
+        let mut run = learned("ishikawa_goemon", "c06_grand_heist", 1, false);
+        let enemy = run.enemy;
+        let bag = value("c06_grand_heist", 1, "bag_gold").unwrap() as i32;
+        set_gold(&mut run, enemy, bag * 3 + 25);
+        assert!(run.cast("unit", 0.5, None).unwrap().accepted, "c06_grand_heist not cast");
+        run.step(2);
+        // Three bags and the rest stays; a bag on the ground may already have gone to a hero.
+        let left = gold_of(&run, enemy);
+        assert!(left % bag == 25 % bag && left < bag * 3 + 25, "{left} gold left: three bags of {bag} leave 25, picked-up bags aside");
     }
 
     /// FC-024: A05D cancels a lethal hit and feigns death, then starts its own cooldown; a second

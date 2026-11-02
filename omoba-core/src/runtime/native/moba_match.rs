@@ -754,6 +754,9 @@ pub struct MobaHeroSlot {
     hero_vars: Vec<(String, serde_json::Value)>,
     /// v3 statuses of scope `hero` / `permanent` (status_scope), kept from the last life for the next.
     pub(crate) hero_statuses: Vec<super::status_scope::KeptStatus>,
+    /// The body of the last death and the abilities inactive on it (ability_slots, E670).
+    retired_body: Option<specs::Entity>,
+    retired_inactive: Vec<String>,
 }
 
 impl MobaHeroSlot {
@@ -1581,6 +1584,8 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         trinket: super::ward_world::WardRosterState::unavailable(),
         hero_vars: Vec::new(),
         hero_statuses: Vec::new(),
+        retired_body: None,
+        retired_inactive: Vec::new(),
     }).collect();
     let mut state = MobaMatch {
         base_structures: Vec::new(),
@@ -1974,6 +1979,9 @@ impl MobaMatch {
         super::unit_var::restore(&mut world.write_resource::<crate::runtime::BuffStore>(), entity, &kept);
         let statuses = std::mem::take(&mut self.heroes[index].hero_statuses);
         super::status_scope::restore(&mut world.write_resource::<crate::runtime::BuffStore>(), entity, &statuses, self.elapsed);
+        let inactive = std::mem::take(&mut self.heroes[index].retired_inactive);
+        self.heroes[index].retired_body = None;
+        super::ability_slots::restore_inactive(&mut world.write_resource::<crate::runtime::BuffStore>(), entity, &inactive);
         self.heroes[index].entity = Some(entity);
         self.heroes[index].lethal_pending = false;
         self.heroes[index].recall = None;
@@ -3040,11 +3048,14 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
                 objective_buffs::retire_hero(&mut state,retired_player);
                 personal_buffs::retire_hero(&mut state,retired_player);
                 let statuses = super::status_scope::persisting(&world.read_resource::<crate::runtime::BuffStore>(), entity, state.elapsed);
+                let inactive = super::ability_slots::inactive_abilities(&world.read_resource::<crate::runtime::BuffStore>(), entity);
                 // The body keeps only its hero variables, readable until it goes (unit_var::retire).
                 let kept = super::unit_var::retire(&mut world.write_resource::<crate::runtime::BuffStore>(), entity);
                 if let Some(slot) = state.heroes.iter_mut().find(|s| s.player_id == retired_player) {
                     slot.hero_vars = kept;
                     slot.hero_statuses = statuses;
+                    slot.retired_body = Some(entity);
+                    slot.retired_inactive = inactive;
                 }
                 minion_aura::synchronize(world,&mut state);
             }
@@ -3762,6 +3773,18 @@ fn emit_incoming_damage_observations(world: &mut World, tick: u64) {
 
 /// Canonical trace digest for the lane rules and their live ECS combat state.
 /// This is a replay diagnostic, not the selective-replica wire hash.
+impl MobaMatch {
+    /// A status of a dead hero's body set one of its abilities (in)active (ability_slots::apply).
+    pub(crate) fn set_retired_inactive(&mut self, body: specs::Entity, ability: &str, inactive: bool) {
+        let Some(slot) = self.heroes.iter_mut().find(|slot| slot.retired_body == Some(body)) else { return };
+        slot.retired_inactive.retain(|id| id != ability);
+        if inactive {
+            slot.retired_inactive.push(ability.to_owned());
+            slot.retired_inactive.sort();
+        }
+    }
+}
+
 pub fn single_lane_replay_digest(world: &World) -> String {
     use sha2::{Digest, Sha256};
     let state = world.read_resource::<MobaMatch>();
@@ -4226,6 +4249,8 @@ pub(crate) fn stop_command_match(hero: Entity, phase: MobaMatchPhase) -> MobaMat
             trinket: super::ward_world::WardRosterState::unavailable(),
             hero_vars: Vec::new(),
             hero_statuses: Vec::new(),
+            retired_body: None,
+            retired_inactive: Vec::new(),
         }],
         towers: [None, None],
         lane_towers: Vec::new(),
@@ -4343,6 +4368,8 @@ pub(crate) fn shop_fixture_slot(player_id: u32, side: usize, entity: Option<Enti
         trinket: super::ward_world::WardRosterState::unavailable(),
         hero_vars: Vec::new(),
         hero_statuses: Vec::new(),
+        retired_body: None,
+        retired_inactive: Vec::new(),
     }
 }
 

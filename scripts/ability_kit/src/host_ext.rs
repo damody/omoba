@@ -30,6 +30,10 @@ impl Cx<'_, '_> {
     fn gold(&mut self, unit: EntityHandle, delta: i64) -> Res {
         if !unit.is_valid() || delta == 0 { return Ok(()); }
         let spec = script_gold::Spec::checked(delta).ok_or("v3: gold amount out of range")?;
+        // As the host settles it: a charge stops at zero.
+        let before = self.unit_num(unit, omb_script_abi::ext::unit_attr::GOLD).raw() >> 10;
+        let after = (before + delta).max(0);
+        *self.gold_delta.entry((unit.id, unit.gen)).or_insert(0) += after - before;
         self.world.add_stat_buff(unit, RStr::from_str(script_gold::BUFF), Fixed64::ONE, RStr::from_str(&spec.payload().to_string()));
         Ok(())
     }
@@ -439,6 +443,8 @@ impl Cx<'_, '_> {
     /// A numeric unit attribute, e.g. `cx.unit_num(u, unit_attr::INT)` for v3 `u.int`.
     pub fn unit_num(&mut self, unit: EntityHandle, attr: &str) -> Fixed64 {
         match self.read(op::UNIT_ATTR, &[ExtArg::Unit(unit), ExtArg::Str(attr.into())]) {
+            ExtValue::Num(n) if attr == omb_script_abi::ext::unit_attr::GOLD =>
+                n + Fixed64::from_i32(self.gold_delta.get(&(unit.id, unit.gen)).copied().unwrap_or(0) as i32),
             ExtValue::Num(n) => n,
             _ => Fixed64::ZERO,
         }

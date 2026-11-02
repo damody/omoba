@@ -3816,6 +3816,11 @@ pub fn process_outcomes(
     // The dead (Outcome::Death) and leaked go here, not through EntityRemoved: their last
     // position stays readable to their death hooks too (E535).
     for entity in &remove_uids { retire_position(world, *entity); }
+    // Their statuses end with them: on_death and on_removed run (E669, FC-107).
+    {
+        let mut buffs = world.write_resource::<BuffStore>();
+        for entity in &remove_uids { buffs.remove_all_for(*entity); }
+    }
     let _ = world.delete_entities(&remove_uids[..]);
     // The batch took every queued outcome at its start, so what the resource holds now was pushed
     // while it settled (status damage hooks, a summon limit's removals): the next batch settles
@@ -4976,8 +4981,14 @@ fn apply_checked_direct_damage(world: &mut World, source: Option<Entity>, target
 
 pub(crate) fn handle_script_heal(world: &mut World, target: Entity, amount: Fixed64) {
     let amount=received_healing(world,target,amount);
-    if let Some(prop) = world.write_storage::<CProperty>().get_mut(target) {
+    let gained = world.write_storage::<CProperty>().get_mut(target).map(|prop| {
+        let before = prop.hp;
         prop.hp = healed_hp(prop.hp,prop.mhp,amount);
+        prop.hp - before
+    });
+    if let Some(gained) = gained {
+        // v3 on_heal_received: a skill's heal too (E668, FC-106).
+        super::status_event::note_heal(world, target, gained);
         return;
     }
     if let Some(unit) = world.write_storage::<Unit>().get_mut(target) {
@@ -5151,7 +5162,7 @@ mod tests {
             let target=Faction {faction_id:kind,team_id:team};
             assert_eq!(item_faction_matches(Scope::Enemy,&source,&target),enemy);
             assert_eq!(item_faction_matches(Scope::Hostile,&source,&target),hostile);
-            assert!(!item_faction_matches(Scope::Any,&source,&target));
+            assert_eq!(item_faction_matches(Scope::Any,&source,&target),hostile||team==source.team_id);
         }
     }
     #[test]
@@ -7030,7 +7041,7 @@ fn handle_add_buff(
     }
     // v3 state `magic_immune` (a status's state buff): strong dispel, then the immunity status.
     if buff_id==super::magic_immunity::BUFF {
-        super::magic_immunity::grant_state(world,target,duration);
+        super::magic_immunity::grant_state(world,target,duration,&payload);
         return Ok(());
     }
     // A per-owner summon limit (E418): settled at once, never stored; the summons it retires leave.
