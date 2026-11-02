@@ -65,6 +65,9 @@ M.SYSTEMS = {
   -- sparks alone, for a small hit
   sparks = { { template = emitter("OmnidirectionalBurst"), set = SPARKS(18) } },
   -- keeps emitting while it lasts: a trail behind a flight, smoke, motes around a unit
+  -- a few thin images around a unit for as long as a status lasts: the hero stays in sight
+  aura = { { template = emitter("Fountain"), main = true,
+      set = { ["SpawnRate.SpawnRate"] = 9, ["GravityForce.Gravity"] = { 0, 0, 0 }, ["AddVelocity.Velocity Speed Scale"] = 4, ["ShapeLocation.Sphere Radius"] = 7000 } } },
   stream = { { template = emitter("Fountain"), main = true,
       set = { ["SpawnRate.SpawnRate"] = 40, ["GravityForce.Gravity"] = { 0, 0, 0 }, ["AddVelocity.Velocity Speed Scale"] = 8, ["ShapeLocation.Sphere Radius"] = 4500 } } },
 }
@@ -114,7 +117,7 @@ M.RECIPES = {
   c22w_voice = { system = "sparks", tint = STEEL },
   c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, tint = STEEL,
     ground = "vortex", ground_size = 480, ground_seconds = 1.5 },
-  c22t_thunder_clap = { system = "burst", sprite = "lightning", size = 1200, life = 0.7, tint = STEEL,
+  c22t_thunder_clap = { system = "burst", sprite = "lightning", size = 1200, life = 0.7, tint = STEEL, area = true,
     ground = "shock_ring", ground_size = 500, ground_seconds = 1.1, grow = 0.08 },
   -- A26 濃姬: gunpowder fire and smoke
   a26w_hit_explosion = { look = "explosion_small" },
@@ -196,16 +199,15 @@ M.RECIPES.fx_stun = { system = "stream", sprite = "spark_star", size = 60, life 
 
 -- Basic attacks, generated: fx_swing_<hero> at the attacker, fx_strike_<hero> at the target (OmUnitActor::PlayAttackFx).
 M.WEAPONS = {
-  katana = { swing = { system = "pop", sprite = "crescent_slash", size = 300, life = 0.22, ground = "crescent_slash", ground_size = 300, ground_seconds = 0.26, height = 40, grow = 0.6 },
-    strike = { system = "pop", sprite = "spark_star", size = 240, life = 0.24, ground = "blink_flash", ground_size = 230, ground_seconds = 0.24, height = 30, grow = 0.4 } },
-  axe = { swing = { system = "pop", sprite = "crescent_slash", size = 380, life = 0.26, ground = "crescent_slash", ground_size = 380, ground_seconds = 0.3, height = 40, grow = 0.5 },
-    strike = { system = "burst", sprite = "smoke_sheet", size = 150, life = 0.4, ground = "dust_crack", ground_size = 320, ground_seconds = 0.4, grow = 0.4 } },
+  katana = { swing = { system = "pop", sprite = "crescent_slash", size = 150, life = 0.15 },
+    strike = { system = "pop", sprite = "spark_star", size = 150, life = 0.2, ground = "blink_flash", ground_size = 150, ground_seconds = 0.2, height = 30, grow = 0.4 } },
+  axe = { swing = { system = "pop", sprite = "crescent_slash", size = 190, life = 0.18 },
+    strike = { system = "pop", sprite = "spark_star", size = 170, life = 0.22, ground = "dust_crack", ground_size = 230, ground_seconds = 0.35, grow = 0.4 } },
   spear = { swing = { ground = "chain_bolt", ground_size = 90, ground_seconds = 0.2, line = true },
-    strike = { system = "pop", sprite = "spark_star", size = 240, life = 0.24, ground = "blink_flash", ground_size = 220, ground_seconds = 0.24, height = 30, grow = 0.4 } },
-  gun = { swing = { system = "pop", sprite = "spark_star", size = 170, life = 0.16,
+    strike = { system = "pop", sprite = "spark_star", size = 150, life = 0.2, ground = "blink_flash", ground_size = 150, ground_seconds = 0.2, height = 30, grow = 0.4 } },
+  gun = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.14,
       ground = "spark_star", ground_size = 90, ground_seconds = 0.2, height = 70, fly = true } },
-  arcane = { swing = { ground = "soft_glow", ground_size = 120, ground_seconds = 0.26, height = 70, fly = true },
-    strike = { system = "pop", sprite = "soft_glow", size = 200, life = 0.3 } },
+  arcane = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.16, ground = "spark_star", ground_size = 90, ground_seconds = 0.26, height = 70, fly = true } },
 }
 M.ATTACKS = {
   sasaki_kojiro = { "katana", STEEL }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.35, 0.25 } },
@@ -238,13 +240,38 @@ M.FX_ABILITIES = {
 function M.material(prefix, image) return ("%s/Instances/%s_fx_%s.%s_fx_%s"):format(M.ROOT, prefix, image, prefix, image) end
 function M.system(name) return ("%s/Systems/NS_fx_%s.NS_fx_%s"):format(M.ROOT, name, name) end
 
+-- What every recipe answers to, so no row hides the hero (a hero stands about 140): a body effect is at most
+-- 1.5 heroes, only an area skill's own mark (`area`, or a cue with a package radius) goes by its radius. A slash
+-- is an arc shown to the camera, never a flat plank; a lasting effect is thin and around the body, not over it.
+M.MAX_BODY = 210
+M.MAX_GROUND = 420
+M.MAX_AURA = 90
+function M.fit(r)
+  if r.ground == "crescent_slash" then
+    if not r.system then r.system, r.sprite, r.size, r.life = "pop", "crescent_slash", r.ground_size, r.ground_seconds end
+    r.ground, r.ground_size, r.ground_seconds, r.height, r.grow = nil, nil, nil, nil, nil
+  end
+  if r.sprite == "flame_sheet" and not r.tint then r.tint = { 1.0, 0.32, 0.05 } end
+  if r.system == "stream" and r.loop and not r.face then
+    r.system = "aura"
+    r.size = math.min(r.size or M.MAX_AURA, M.MAX_AURA)
+    r.alpha = r.alpha or 0.55
+    if r.life then r.life = math.min(r.life, 0.6) end
+  end
+  if not r.area then
+    if r.size then r.size = math.min(r.size, M.MAX_BODY) end
+    if r.ground_size then r.ground_size = math.min(r.ground_size, M.MAX_GROUND) end
+  end
+  return r
+end
+
 -- A recipe with its look applied.
 function M.resolve(id)
   local row = assert(M.RECIPES[id], "no recipe for " .. id)
   local out = {}
   if row.look then for k, v in pairs(assert(M.LOOKS[row.look], id .. ": look " .. row.look)) do out[k] = v end end
   for k, v in pairs(row) do out[k] = v end
-  return out
+  return M.fit(out)
 end
 
 local function sorted(t)
@@ -287,7 +314,7 @@ function M.ini_row(id)
   local f = {}
   local function add(k, v) f[#f + 1] = k .. "=" .. v end
   if r.system then add("Effect", '"' .. M.system(r.system) .. '"') end
-  if r.tint then add("EffectTint", ("(R=%s,G=%s,B=%s,A=1.0)"):format(number(r.tint[1]), number(r.tint[2]), number(r.tint[3]))) end
+  if r.tint then add("EffectTint", ("(R=%s,G=%s,B=%s,A=%s)"):format(number(r.tint[1]), number(r.tint[2]), number(r.tint[3]), number(r.alpha or 1))) end
   if r.sprite then add("Sprite", '"' .. M.material("MI", r.sprite) .. '"') end
   if r.size then add("FxSizeCm", number(r.size * M.WORLD_CM)) end
   if r.life then add("FxSeconds", number(r.life)) end
