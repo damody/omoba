@@ -250,6 +250,10 @@ local function apply_site(doc, id)
         for _, ev in ipairs(sorted_keys(st.triggers or {})) do
           scan(st.triggers[ev], { source = "status", entry = owner.id, status = st.id, event = ev })
         end
+        -- a status's absorb runs programs of its own (A04R's nova when the shield breaks)
+        for _, ev in ipairs({ "on_absorb", "on_broken" }) do
+          scan(st.absorb and st.absorb[ev], { source = "status", entry = owner.id, status = st.id, event = "absorb." .. ev })
+        end
       end
     end
   end
@@ -1376,7 +1380,9 @@ local function entry_scenarios(doc, def, entry_kind, out)
     local done = {}
     for _, a in ipairs(statuses) do
       local s = a.status
-      if s and not done[s.id] then
+      -- a status whose row is a host packet (`__spell_guard_active`: B06R) is the host's: line D
+      -- cannot observe it as a status
+      if s and not done[s.id] and not runtime_key(s):find("^__") then
         done[s.id] = true
         local d = s.dispel or "basic"
         push(rank, "dispel", { suffix = s.id .. "/basic", given = given({ on_unit(s, a) }),
