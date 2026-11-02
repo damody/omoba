@@ -90,6 +90,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
     fn all_units() -> RVec<UnitDef> {
         let mut v = units();
         v.extend(hero_a02_impl::units());
+        v.extend(hero_c15_impl::units());
         v.extend(hero_b06_impl::units());
         v.extend(hero_a07_impl::units());
         v.extend(hero_b01_impl::units());
@@ -191,6 +192,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
     fn all_abilities() -> RVec<AbilityDefFFI> {
         let mut v = abilities();
         v.extend(hero_a02_impl::abilities());
+        v.extend(hero_c15_impl::abilities());
         v.extend(hero_b06_impl::abilities());
         v.extend(hero_a07_impl::abilities());
         v.extend(hero_b01_impl::abilities());
@@ -362,10 +364,6 @@ fn units() -> RVec<UnitDef> {
     });
     // Heroes whose content sets `unit_script = true` (generated from templates).
     include!(concat!(env!("OUT_DIR"), "/hero_unit_registry.rs"));
-    // Mobile hunting summons (generic flying chase AI, summons::chaser).
-    for chaser in heroes::C15_tamako::No4_hundred_arrows::chasers() {
-        v.push(UnitDef { unit_id: chaser.unit_id.clone(), script: UnitScript_TO::from_value(chaser, TD_Opaque) });
-    }
     // G-3: every template without a dedicated script gets the generic summon AI from its stats
     // (summons::generic; fixed emplacements never move), so summons are pure data. A dummy holds
     // statuses only and gets none.
@@ -396,10 +394,6 @@ fn abilities() -> RVec<AbilityDefFFI> {
             "b04_flame_swiftness" => hero_b04_impl::generated::b04_flame_swiftness::ffi(),
             // conformance 2026-10-30: 0 regressions (B04, B06 compare vs handler)
             "b04_flame_trail_dash" => hero_b04_impl::generated::b04_flame_trail_dash::ffi(),
-            // conformance 2026-10-30: +16 pass, 0 regressions (one burn per fire segment, E356)
-            "c15_burst_arrow" => hero_c15_impl::generated::c15_burst_arrow::ffi(),
-            "c15_precise_light" => hero_c15_impl::generated::c15_precise_light::ffi(),
-            "c15_scatter_shot" => hero_c15_impl::generated::c15_scatter_shot::ffi(),
             _ => continue,
         };
         // The metadata stays the catalog one the handler used; only the script changes.

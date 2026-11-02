@@ -9,4 +9,3 @@
 
 pub mod B01_saika_magoichi;
 pub mod B02_date_masamune;
-pub mod C15_tamako;
