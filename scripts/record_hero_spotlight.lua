@@ -27,9 +27,9 @@ M.BODY_SHOWS={
 }
 M.SLOT_OF_ACTION={Q=0,W=1,E=2,R=3,extra1=4,extra2=5}
 M.RECIPE='scripts/lua_data/moba_hero_spotlight.lua'
--- A hero who throws the enemy a long way: the enemy stands on the side with room, not against the river wall.
-M.MIRROR_RECIPE='scripts/lua_data/moba_hero_spotlight_mirror.lua'
-M.MIRROR_HEROES={maeda_toshiie=true}
+-- A hero whose abilities cross a long way: the stand-ins line up along the open top lane.
+M.LANE_RECIPE='scripts/lua_data/moba_hero_spotlight_lane.lua'
+M.LANE_HEROES={maeda_toshiie=true}
 -- A hero with a tree-target ability is shown on the nobu map, which has trees (D21: every ability
 -- is demonstrated).
 M.TREE_RECIPE='scripts/lua_data/moba_hero_spotlight_trees.lua'
@@ -46,7 +46,7 @@ function M.recipe_for(package)
   assert(not (tree and props),(package.hero or 'hero')..' needs both the tree stage and the prop stage (no stage has both yet)')
   if tree then return M.TREE_RECIPE end
   if props then return M.PROPS_RECIPE end
-  return M.MIRROR_HEROES[package.hero or ''] and M.MIRROR_RECIPE or M.RECIPE
+  return M.LANE_HEROES[package.hero or ''] and M.LANE_RECIPE or M.RECIPE
 end
 M.DEFAULT_FFMPEG='target/tools/ffmpeg/ffmpeg.exe'
 -- A spotlight run owns its authority port: never the shared split default (57061), so a
@@ -426,7 +426,7 @@ function M.script(package)
   for _,slot in ipairs(package.slots) do slot.view=M.view_radius(doc,slot.id);slot.hold=M.hold_seconds(doc,slot.id);slots[#slots+1]=slot end
   -- The death ends the recording: only the base stage has the enemies that strike it down.
   local stage=M.recipe_for(package)
-  if stage==M.RECIPE or stage==M.MIRROR_RECIPE then
+  if stage==M.RECIPE or stage==M.LANE_RECIPE then
     for _,show in ipairs(M.BODY_SHOWS) do slots[#slots+1]=show end
   end
   return {schema=1,hero=package.hero,hero_name=package.hero_name,title=package.title,

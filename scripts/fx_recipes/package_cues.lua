@@ -5,7 +5,7 @@ return { recipes = {
   a01e_net_land = { system = "pop", sprite = "net", size = 190, life = 0.4, tint = GOLD, ground = "net", ground_size = 300, ground_seconds = 0.8, grow = 0.3 },
   a14w_spear_cast = { system = "pop", sprite = "chain_bolt", size = 180, life = 0.25, tint = GOLD,
     mesh = "spear_head", ground_size = 220, ground_seconds = 0.3, height = 100, launch = 500 },
-  a12t_cast = { system = "burst", sprite = "soft_glow", size = 340, area = true, life = 0.5, tint = ARCANE, ground = "shock_ring", ground_size = 420, ground_seconds = 0.6, grow = 0.2 },
+  a12t_cast = { system = "burst", sprite = "soft_glow", size = 150, life = 0.4, tint = ARCANE, ground = "shock_ring", ground_size = 420, ground_seconds = 0.6, grow = 0.2 },
   a01d_restore = { system = "pop", sprite = "heal_ring", size = 120, life = 0.3, tint = GREEN },
   b20r_restore = { system = "burst", sprite = "heal_ring", size = 190, life = 0.4, tint = RED },
   b26r_restore = { system = "pop", sprite = "heal_ring", size = 130, life = 0.35, tint = RED },

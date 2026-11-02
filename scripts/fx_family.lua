@@ -213,10 +213,10 @@ M.WEAPONS = {
       ground = "spark_star", ground_size = 90, ground_seconds = 0.2, height = 70, fly = true },
     strike = { system = "burst", sprite = "shock_ring", size = 170, life = 0.3, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
   arcane = { swing = { system = "pop", sprite = "soft_glow", size = 90, life = 0.16, ground = "soft_glow", ground_size = 110, ground_seconds = 0.26, height = 70, fly = true },
-    strike = { system = "pop", sprite = "spark_star", size = 170, life = 0.25, ground = "shock_ring", ground_size = 200, ground_seconds = 0.3, height = 30, grow = 0.4 } },
+    strike = { system = "burst", sprite = "spark_star", size = 300, area = true, life = 0.3, ground = "shock_ring", ground_size = 240, ground_seconds = 0.3, height = 30, grow = 0.4 } },
 }
 M.ATTACKS = {
-  sasaki_kojiro = { "katana", STEEL }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.35, 0.25 } },
+  sasaki_kojiro = { "katana", STEEL, { sprite = "blink_flash", size = 150, ground = "shock_ring", ground_size = 210, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.35, 0.25 } },
   okuma_tomohide = { "axe", { 1.0, 0.5, 0.2 }, { sprite = "flame_sheet", size = 110, ground = "shock_ring", ground_size = 240, height = 30, grow = 0.3, face_camera = false, ground_roll = false } },
   kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 }, { sprite = "spark_star", size = 170, ground = "dust_crack", ground_size = 280, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 } },
