@@ -2,6 +2,29 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E661 投射物的 on_end 讀不到同一輪 on_hit 寫的 state：C11W、C11T 每次命中都分裂（2026-11-02，工作線 B，FC-059 的 runtime 測試）
+
+- **現象**：C11T 一級有兩個敵人時，haste 5 層（應為 3），三級 20 層（應為 7）；C11W 四級 63 筆傷害（應為 6）。
+- **根因**：
+  - 命中時 `on_hit` 和飛行結束的 `on_end` 都排在下一次 dispatch，共用同一份快照；`set_state` 是 outcome，這一輪結束才生效。
+  - `on_end` 檢查 `state.c11_hop_done ~= my`，讀到舊值，以為沒命中，又多發一支。兩支都會再命中，所以每跳加倍。
+  - 同一輪的順序由 buff id 字串決定，`on_end` 也可能排在 `on_hit` 前面。
+- **修正**：`on_end` 的排程多延一個 dt，比最後一次命中的 `on_hit` 晚一輪，那時它的 state 已結算。
+  - 第一版想讓同一輪的腳本看見彼此寫的 state，測試仍然 6 層，因為順序不保證；這版不需要共享。
+- **影響**：所有 `projectile.on_end` 都晚一個 tick 執行；要看 D 的全量。
+- **測試**：`fix_candidates::fc059_c11t_bolt_arcs_between_enemies`、`v3_conformance::c11_` 在快照中通過，C11 fail 0。
+- **避免**：同一輪的 hook 不能靠 state 互相溝通；要溝通就排在不同輪。
+- **檔案**：`omoba-core/src/runtime/native/ability_projectile.rs`、`scripts/base_content/src/v3_conformance_tests.rs`
+
+## E662 負的狀態抗性被 clamp 成 0：FC-022、FC-092 的減狀態抗性沒有作用（2026-11-02，工作線 B，FC-092 的探針）
+
+- **現象**：-50% 狀態抗性下，2 秒暈眩仍是 2 秒。兩件道具還沒上架，所以對局裡還沒發生。
+- **根因**：`damage_immunity::strongest` 把結果限制在 0 到 1，`resist` 也只在抗性大於 0 時才縮放。
+- **修正**：狀態抗性改成最強的正值加上所有負值，範圍 -4 到 1（最多 5 倍時間）。緩速抗性不變。
+  - 下限 -4 是我定的保險值，不是原作數字。
+- **測試**：`damage_immunity::tests::a_status_resistance_cut_lengthens_controls_and_adds_to_the_strongest_positive`。道具上架後還沒有端到端驗證。
+- **檔案**：`omoba-core/src/runtime/native/damage_immunity.rs`
+
 ## E658 kind=active 帶 passive 區塊的招，普攻命中觸發從來不執行（2026-11-02，工作線 B，D 的 v3c_full656 回報）
 
 - **現象**：學了 b17_tooth_poison，普攻命中 5 次都套用了，b17e_venom 卻沒有上身。A26、B17、C19 共 11 個情境 fail。

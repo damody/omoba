@@ -49,6 +49,18 @@ fn strongest(buffs: &BuffStore, entity: Entity, key: &str) -> Fixed64 {
         .max().map_or(Fixed64::ZERO, Fixed64::from_raw).clamp(Fixed64::ZERO, Fixed64::ONE)
 }
 
+/// Status resistance of `entity`: the strongest positive row, plus every cut (a negative row;
+/// FC-022, FC-092: statuses last longer, E662). At most 1; at least -4, five times the duration.
+fn status_resistance(buffs: &BuffStore, entity: Entity) -> Fixed64 {
+    let (mut strongest, mut cuts) = (0i64, 0i128);
+    for (_, entry) in buffs.iter_for(entity) {
+        let Some(raw) = entry.payload.get(STATUS_RESISTANCE).and_then(Value::as_i64) else { continue };
+        if raw > 0 { strongest = strongest.max(raw); } else { cuts += i128::from(raw); }
+    }
+    let total = (i128::from(strongest) + cuts).clamp(i128::from(-4 * Fixed64::ONE.raw()), i128::from(Fixed64::ONE.raw()));
+    Fixed64::from_raw(total as i64)
+}
+
 /// The packet after immunity and conversion: (physical, magical, pure, healing).
 pub fn settle(buffs: &BuffStore, victim: Entity, physical: Fixed64, magical: Fixed64, pure: Fixed64)
     -> (Fixed64, Fixed64, Fixed64, Fixed64) {
@@ -88,8 +100,8 @@ pub fn resist(buffs: &BuffStore, entity: Entity, buff_id: &str, duration: Fixed6
     };
     // A status may declare that status resistance does not shorten it (rules::status).
     let status = if super::rules::status::ignores_status_resistance(&payload) { Fixed64::ZERO }
-        else { strongest(buffs, entity, STATUS_RESISTANCE) };
-    let duration = if status > Fixed64::ZERO && duration < Fixed64::from_raw(i64::MAX) {
+        else { status_resistance(buffs, entity) };
+    let duration = if status != Fixed64::ZERO && duration < Fixed64::from_raw(i64::MAX) {
         Fixed64::from_raw(scale(duration.raw(), status).max(1))
     } else { duration };
     if slow {
@@ -113,6 +125,24 @@ mod tests {
     use super::*;
     use serde_json::json;
     use specs::{Builder, World, WorldExt};
+
+    #[test]
+    fn a_status_resistance_cut_lengthens_controls_and_adds_to_the_strongest_positive() {
+        let mut world = World::new();
+        let e = world.create_entity().build();
+        let two = Fixed64::from_i32(2);
+        let stun = |buffs: &BuffStore| resist(buffs, e, "stun", two, Value::Null).0;
+        let mut buffs = BuffStore::default();
+        buffs.add(e, "cut", Fixed64::from_i32(60), json!({ (STATUS_RESISTANCE): -512 }));
+        assert_eq!(stun(&buffs), Fixed64::from_i32(3), "-50%: 2 s lasts 3 s");
+        buffs.add(e, "a", Fixed64::from_i32(60), json!({ (STATUS_RESISTANCE): 256 }));
+        buffs.add(e, "b", Fixed64::from_i32(60), json!({ (STATUS_RESISTANCE): 512 }));
+        assert_eq!(stun(&buffs), two, "the strongest +50% cancels the -50%; the +25% does not add");
+        buffs.remove(e, "cut");
+        assert_eq!(stun(&buffs), Fixed64::ONE, "+50% alone");
+        buffs.add(e, "huge", Fixed64::from_i32(60), json!({ (STATUS_RESISTANCE): -102_400 }));
+        assert_eq!(stun(&buffs), Fixed64::from_i32(10), "bounded at five times");
+    }
 
     fn entity() -> Entity { let mut w = World::new(); w.create_entity().build() }
     fn i(v: i32) -> Fixed64 { Fixed64::from_i32(v) }

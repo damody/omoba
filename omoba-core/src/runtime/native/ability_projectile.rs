@@ -884,13 +884,16 @@ pub fn settle_step(world: &mut World, projectile: Entity, from: Vec2, to: Vec2, 
     }
     if done {
         if let Some(template) = &state.on_end {
-            // Once, due on the next dispatch: captures + where the flight ended.
+            // Once, captures + where the flight ended. A round after the last hit's on_hit, whose
+            // state writes settle with its round (E661: on_end read a hit's mark as unset and sent
+            // another bolt, C11W and C11T split at every hit).
             use super::scheduled_effect as se;
             let mut args = template.args.clone();
             args.push(omb_script_abi::types::ScheduleArg { kind: se::ARG_POINT, num: Fixed64::ZERO,
                 unit: omb_script_abi::types::EntityHandle::INVALID, point: end_pos });
             let spec = se::Spec { instance: template.instance.wrapping_mul(64).wrapping_add(63), args, ..template.clone() };
-            outcomes.push(Outcome::AddBuff { target: state.owner, buff_id: spec.buff_id(), duration: se::GRACE, payload: spec.payload() });
+            let dt = world.read_resource::<crate::comp::DeltaTime>().0;
+            outcomes.push(Outcome::AddBuff { target: state.owner, buff_id: spec.buff_id(), duration: se::GRACE + dt, payload: spec.payload() });
         }
         if let Some(pos) = world.write_storage::<Pos>().get_mut(projectile) { pos.0 = end_pos; }
         emit_fact(world, projectile, hits.len() as u32 + 1, crate::runtime::FactKind::Projectile,

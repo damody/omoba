@@ -1063,6 +1063,12 @@ fn check_fixed_quirk(s: &Value) -> Option<Verdict> {
         "046" => fix_candidates::fc046_a07r_crits_after_misses_in_a_row,
         "008" => fix_candidates::fc008_b04t_extra_shots_keep_the_launch_aim,
         "078" => fix_candidates::fc078_a02w_does_nothing_on_buildings,
+        "059" => fix_candidates::fc059_c11t_bolt_arcs_between_enemies,
+        "061" => fix_candidates::fc061_c21t_slashes_then_ends_invulnerability,
+        "089" => fix_candidates::fc089_b28t_serpents_are_limited,
+        "058" => fix_candidates::fc058_c08t_devours_when_nothing_can_be_stolen,
+        "049" => fix_candidates::fc049_a12_mystic_field_guards_and_hastes,
+        "079" => fix_candidates::fc079_a04w_moves_and_attacks_at_its_stats,
         "029" => fix_candidates::fc029_a36r_holds_the_life_floor_through_a_lethal_hit,
         "057" => fix_candidates::fc057_b33t_cuts_healing,
         "076" => fix_candidates::fc076_c19t_is_untargetable_for_its_duration,
@@ -4042,6 +4048,444 @@ mod fix_candidates {
         let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
         assert!(!buffs.has(ally, &row), "the ally kept the enemy's status");
         assert!(buffs.has(caster, &row), "the caster lost its own status: the source's bug");
+    }
+
+    /// The ticks over `n` steps on which the unit lost more than 1 life.
+    fn life_falls(run: &mut Run, unit: specs::Entity, n: u32) -> Vec<u32> {
+        let hp = |run: &Run| real(run.world.read_storage::<CProperty>().get(unit).unwrap().hp);
+        let (mut previous, mut falls) = (hp(run), Vec::new());
+        for tick in 1..=n {
+            run.step(1);
+            let now = hp(run);
+            if now < previous - 1.0 { falls.push(tick); }
+            previous = now;
+        }
+        falls
+    }
+
+    fn holding(run: &Run, unit: specs::Entity) -> String {
+        let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
+        let keys: Vec<String> = buffs.iter_for(unit).map(|(key, _)| key.to_owned()).collect();
+        keys.join(", ")
+    }
+
+    fn pos_of(run: &Run, unit: specs::Entity) -> omoba_sim::Vec2 { run.world.read_storage::<Pos>().get(unit).unwrap().0 }
+
+    fn move_unit(run: &mut Run, unit: specs::Entity, to: omoba_sim::Vec2) {
+        run.world.write_storage::<Pos>().get_mut(unit).unwrap().0 = to;
+    }
+
+    fn east(x: f64) -> omoba_sim::Vec2 { omoba_sim::Vec2::new(fixed(x), Fixed64::ZERO) }
+
+    /// FC-061: C21T strikes `$slash_count` more times after `$first_check`, `$slash_interval` apart,
+    /// and its invulnerability ends with the last strike (the source's timer died after one strike
+    /// and left him invulnerable and silenced for ten seconds).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc061_c21t_slashes_then_ends_invulnerability() {
+        const ENTRY: &str = "c21_soaring_quake";
+        const STATUS: &str = "c21t_omnislash";
+        for rank in 1..=3 {
+            let count = value(ENTRY, rank, "slash_count").unwrap() as usize;
+            let first = ticks(value(ENTRY, rank, "first_check").unwrap());
+            let gap = ticks(value(ENTRY, rank, "slash_interval").unwrap());
+            let mut run = learned("miyamoto_musashi", ENTRY, rank, false);
+            let (caster, enemy) = (run.caster, run.enemy);
+            assert!(run.cast("unit", 0.5, None).unwrap().accepted, "rank {rank}: {ENTRY} not cast");
+            let hp = |run: &Run| real(run.world.read_storage::<CProperty>().get(enemy).unwrap().hp);
+            let mut previous = hp(&run);
+            assert!(previous < real(run.target_hp) - 1.0, "rank {rank}: the first strike did not land");
+            assert!(holds(&run, caster, STATUS), "rank {rank}: no {STATUS} after the cast ({})", holding(&run, caster));
+            let (mut slashes, mut ended) = (Vec::new(), None);
+            for tick in 1..=(first + gap * (count as u32 + 2) + 60) {
+                run.step(1);
+                let now = hp(&run);
+                if now < previous - 1.0 { slashes.push(tick); }
+                previous = now;
+                if holds(&run, caster, STATUS) {
+                    assert!(invulnerable(&run, caster), "rank {rank}: {STATUS} on at tick {tick} but not invulnerable");
+                } else if ended.is_none() { ended = Some(tick); }
+            }
+            assert_eq!(slashes.len(), count, "rank {rank}: {} strikes after the first, expected {count} (ticks {slashes:?}, status ended at {ended:?})", slashes.len());
+            assert!(slashes[0].abs_diff(first) <= 6, "rank {rank}: the strikes began at tick {}, expected about {first}", slashes[0]);
+            for pair in slashes.windows(2) {
+                assert!((pair[1] - pair[0]).abs_diff(gap) <= 2, "rank {rank}: strikes {} ticks apart, expected about {gap} ({slashes:?})", pair[1] - pair[0]);
+            }
+            let last = *slashes.last().unwrap();
+            let ended = ended.unwrap_or_else(|| panic!("rank {rank}: {STATUS} still on after the last strike"));
+            assert!(ended.abs_diff(last) <= 3, "rank {rank}: {STATUS} ended at tick {ended}, the last strike was at {last}");
+            assert!(!invulnerable(&run, caster), "rank {rank}: still invulnerable after the strikes ({})", holding(&run, caster));
+            let before = real(run.world.read_storage::<CProperty>().get(caster).unwrap().hp);
+            hit(&mut run, enemy, caster, 0, 0, 100);
+            let after = real(run.world.read_storage::<CProperty>().get(caster).unwrap().hp);
+            assert!(after < before - 50.0, "rank {rank}: a hit after the strikes did not land ({before} -> {after})");
+        }
+
+        // No enemy near at the first check: it ends there, without a strike.
+        let mut run = learned("miyamoto_musashi", ENTRY, 1, false);
+        let (caster, enemy) = (run.caster, run.enemy);
+        assert!(run.cast("unit", 0.5, None).unwrap().accepted, "{ENTRY} not cast");
+        let away = pos_of(&run, enemy) + omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(3000));
+        move_unit(&mut run, enemy, away);
+        let first = ticks(value(ENTRY, 1, "first_check").unwrap());
+        let falls = life_falls(&mut run, enemy, first + 6);
+        assert!(falls.is_empty(), "strikes with nobody in range (ticks {falls:?})");
+        assert!(!holds(&run, caster, STATUS), "{STATUS} still on with nobody in range at the first check");
+
+        // Several enemies near: the strikes go among them.
+        let mut run = learned("miyamoto_musashi", ENTRY, 3, false);
+        let (caster, enemy) = (run.caster, run.enemy);
+        let x = real(pos_of(&run, enemy).x) as i32;
+        let other = seen_body(&mut run, x + 100, false);
+        run.step(2);
+        let count = value(ENTRY, 3, "slash_count").unwrap() as u32;
+        assert!(run.cast("unit", 0.5, None).unwrap().accepted, "{ENTRY} not cast");
+        let life = |run: &Run, unit: specs::Entity| real(run.world.read_storage::<CProperty>().get(unit).unwrap().hp);
+        let (mut on_enemy, mut on_other, mut previous) = (0, 0, (life(&run, enemy), life(&run, other)));
+        for _ in 0..(ticks(value(ENTRY, 3, "first_check").unwrap()) + ticks(value(ENTRY, 3, "slash_interval").unwrap()) * (count + 2) + 60) {
+            run.step(1);
+            let now = (life(&run, enemy), life(&run, other));
+            if now.0 < previous.0 - 1.0 { on_enemy += 1; }
+            if now.1 < previous.1 - 1.0 { on_other += 1; }
+            previous = now;
+        }
+        assert!(on_enemy > 0 && on_other > 0, "strikes on the enemy {on_enemy}, on the other enemy {on_other}: not among both");
+        assert_eq!(on_enemy + on_other, count, "{on_enemy} + {on_other} strikes, expected {count}");
+        assert!(!holds(&run, caster, STATUS), "{STATUS} still on after the strikes");
+    }
+
+    /// FC-059: C11T's bolt arcs between enemies within `$jump_range` until it has struck `$max_jump`
+    /// times (the source read a key C11T lacks: radius 0, so it never arced). Each struck hop and the
+    /// return leg give one independent `c11t_haste` row, which counts them.
+    /// FAILS TODAY, a real bug: a flight's on_end reads `c11_hop_done` before the on_hit of the same
+    /// dispatch has landed its write, so every hit also fires a second hop (C11W too). Not listed in
+    /// check_fixed_quirk until that is fixed.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc059_c11t_bolt_arcs_between_enemies() {
+        const ENTRY: &str = "c11_unrivaled";
+        // (haste rows after the bolt, the other enemy was struck, the other enemy lost life)
+        let bolt = |rank: usize, other_dx: Option<f64>| -> (usize, bool, bool) {
+            let mut run = learned("tachibana_muneshige", ENTRY, rank, false);
+            let caster = run.caster;
+            let enemy_x = real(run.target_at.x);
+            let other = other_dx.map(|dx| seen_body(&mut run, (enemy_x + dx) as i32, false));
+            run.step(2);
+            let life = other.map(|o| real(run.world.read_storage::<CProperty>().get(o).unwrap().hp));
+            let cast = run.cast("unit", value(ENTRY, rank, "cast_point").unwrap_or(0.0) + 0.5, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            let mut struck = false;
+            for _ in 0..ticks(3.0) {
+                run.step(1);
+                if let Some(o) = other { struck |= holds(&run, o, "c11t_stun"); }
+            }
+            let rows = {
+                let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
+                let rows = buffs.iter_for(caster).filter(|(key, _)| *key == "c11t_haste" || key.starts_with("c11t_haste#")).count();
+                rows
+            };
+            assert!(!holds(&run, caster, "c11_lightning_form"), "rank {rank}: the bolt never finished ({})", holding(&run, caster));
+            let hurt = other.zip(life).is_some_and(|(o, before)| real(run.world.read_storage::<CProperty>().get(o).unwrap().hp) < before - 1.0);
+            (rows, struck, hurt)
+        };
+        for rank in 1..=3 {
+            let hops = value(ENTRY, rank, "max_jump").unwrap() as usize;
+            let (rows, struck, hurt) = bolt(rank, Some(300.0));
+            assert_eq!(rows, hops + 1, "rank {rank}: {rows} haste rows with a second enemy in range, expected {hops} hops + the return");
+            assert!(struck, "rank {rank}: the second enemy in range was never struck");
+            assert!(hurt, "rank {rank}: the second enemy's attack did not land");
+        }
+        // Alone, and with the only other enemy beyond the range: one hop and the return.
+        let (rows, _, _) = bolt(3, None);
+        assert_eq!(rows, 2, "alone: {rows} haste rows, expected one hop + the return");
+        let range = value(ENTRY, 3, "jump_range").unwrap();
+        let (rows, struck, _) = bolt(3, Some(range + 150.0));
+        assert_eq!(rows, 2, "the other enemy out of range: {rows} haste rows, expected one hop + the return");
+        assert!(!struck, "an enemy beyond {range} was struck");
+    }
+
+    /// FC-089: at most `$wave_num` serpents, from the enemies nearest the point, each with its own
+    /// hit table and at most `$max_jumps` jumps (the source: one serpent per visible enemy, 99 jumps,
+    /// and two serpents on one unit in a tick merged). Every packet is traced before defenses.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc089_b28t_serpents_are_limited() {
+        use omoba_core::runtime::native::damage_trace::{DamageTrace, DamageTraceResult};
+        const ENTRY: &str = "b28_serpent_fire";
+        let check = |rank: usize, units: usize| {
+            let wave = value(ENTRY, rank, "wave_num").unwrap() as usize;
+            let jumps = value(ENTRY, rank, "max_jumps").unwrap() as usize;
+            let base = value(ENTRY, rank, "base_damage").unwrap();
+            let bonus = value(ENTRY, rank, "bonus_damage").unwrap() / 100.0;
+            let mut run = learned("matsunaga_hisahide", ENTRY, rank, false);
+            let enemy = run.enemy;
+            let x = real(pos_of(&run, enemy).x) as i32;
+            // Nearest the point in this order: the enemy hero, then each body 30 further.
+            let mut line = vec![enemy];
+            for i in 1..units { line.push(seen_body(&mut run, x + 30 * i as i32, false)); }
+            run.step(2);
+            let cast = run.cast("point", value(ENTRY, rank, "cast_point").unwrap_or(0.0) + 0.3, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            let rows = |run: &Run| -> Vec<(specs::Entity, f64, DamageTraceResult)> {
+                run.world.read_resource::<DamageTrace>().0.iter().filter(|r| r.ability == ENTRY)
+                    .map(|r| (r.target, real(r.before.1), r.result)).collect()
+            };
+            let last_jump = ticks(value(ENTRY, rank, "jump_delay").unwrap() * jumps as f64 + value(ENTRY, rank, "damage_delay").unwrap());
+            run.step(last_jump + ticks(0.5));
+            let settled = rows(&run);
+            run.step(ticks(2.0));
+            let rows = rows(&run);
+            assert_eq!(rows.len(), settled.len(), "rank {rank}, {units} units: serpents still burning after their last jump");
+            assert!(rows.iter().all(|r| r.2 == DamageTraceResult::Applied), "rank {rank}, {units} units: a packet did not land: {rows:?}");
+            let serpents = wave.min(units);
+            let hits_per_serpent = (jumps + 1).min(units);
+            assert_eq!(rows.len(), serpents * hits_per_serpent, "rank {rank}, {units} units: {} packets, expected {serpents} serpents x {hits_per_serpent} hits", rows.len());
+            for hop in 0..hits_per_serpent {
+                let amount = base * (1.0 + hop as f64 * bonus);
+                let found = rows.iter().filter(|r| (r.1 - amount).abs() < 1.0).count();
+                assert_eq!(found, serpents, "rank {rank}, {units} units: {found} packets of {amount} (hop {hop}), expected {serpents}: {rows:?}");
+            }
+            let most = base * (1.0 + jumps as f64 * bonus);
+            assert!(rows.iter().all(|r| r.1 <= most + 1.0), "rank {rank}: a packet above {most}");
+            // The serpents start on the nearest enemies, and no serpent strikes a unit twice.
+            let starts: Vec<specs::Entity> = rows.iter().filter(|r| (r.1 - base).abs() < 1.0).map(|r| r.0).collect();
+            for unit in &line[..serpents] { assert!(starts.contains(unit), "rank {rank}: no serpent started on a nearest enemy"); }
+            for unit in &line {
+                let on = rows.iter().filter(|r| r.0 == *unit).count();
+                assert!(on <= serpents, "rank {rank}: {on} packets on one unit with {serpents} serpents");
+            }
+        };
+        for rank in 1..=3 { check(rank, 14); }
+        // Fewer enemies than serpents, jumping onto one another in the same tick: none gets stuck.
+        check(1, 3);
+        check(2, 2);
+    }
+
+    /// FC-058: C08T at a hero with nothing to steal devours as usual and steals nothing (the source
+    /// looped forever here); with one stealable slot it steals that one.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc058_c08t_devours_when_nothing_can_be_stolen() {
+        use omoba_core::runtime::native::damage_trace::{DamageTrace, DamageTraceResult};
+        const ENTRY: &str = "c08_devour";
+        let passive = "a05_loyal_secret";
+        assert!(omoba_template_ids::ability_by_name(passive).and_then(omoba_template_ids::active_ability_const)
+            .is_some_and(|a| a.ability_type == omoba_template_ids::AbilityTypeC::Passive), "{passive} is not passive");
+        let devour = |kit: [&str; 3]| -> Run {
+            let mut run = learned("kato_danzo", ENTRY, 1, false);
+            let enemy = run.enemy;
+            {
+                let mut heroes = run.world.write_storage::<Hero>();
+                let h = heroes.get_mut(enemy).unwrap();
+                for (slot, id) in kit.iter().enumerate() {
+                    h.abilities[slot] = (*id).to_owned();
+                    h.ability_levels.insert((*id).to_owned(), 1);
+                }
+            }
+            let cast = run.cast("unit", value(ENTRY, 1, "cast_point").unwrap_or(0.0) + 0.5, None).unwrap();
+            assert!(cast.accepted, "{ENTRY} not cast at {kit:?}{}", cast.why());
+            run
+        };
+        // Nothing to steal: a passive and the two the source refuses, in Q/W/E.
+        let mut run = devour(["a20_pirate_domain", "b16_flying_raid", passive]);
+        let (caster, enemy) = (run.caster, run.enemy);
+        assert!(holds(&run, enemy, "c08t_devoured"), "not devoured with nothing to steal ({})", holding(&run, enemy));
+        assert!(holds(&run, enemy, "c08t_belly"), "not in the belly with nothing to steal ({})", holding(&run, enemy));
+        assert!(!holds(&run, caster, "c08t_steal_stack"), "a stolen-uses stack with nothing to steal");
+        let kit = run.hero(|h| h.abilities.clone());
+        for id in ["a20_pirate_domain", "b16_flying_raid", passive] { assert!(!kit.contains(&id.to_owned()), "stole {id}: {kit:?}"); }
+        if let Some(p) = run.world.write_storage::<CProperty>().get_mut(caster) { p.hp = p.mhp / Fixed64::from_i32(2); }
+        let life = real(run.world.read_storage::<CProperty>().get(caster).unwrap().hp);
+        run.step(ticks(value(ENTRY, 1, "duration").unwrap() + 1.0));
+        assert!(!holds(&run, enemy, "c08t_devoured"), "still devoured after its duration");
+        assert!(!holds(&run, enemy, "c08t_belly"), "still in the belly after the duration");
+        let bites = run.world.read_resource::<DamageTrace>().0.iter().filter(|r| r.ability == ENTRY && r.target == enemy && r.result == DamageTraceResult::Applied).count();
+        assert!(bites >= 3, "{bites} bites in the duration");
+        assert!(real(run.world.read_storage::<CProperty>().get(caster).unwrap().hp) > life + 100.0, "Danzo was not healed by the bites");
+        // And the match goes on: Danzo still acts.
+        run.step(ticks(1.0));
+        assert!(living(&run, caster));
+
+        // One stealable slot, in E: that one, whatever the roll.
+        let run = devour(["a20_pirate_domain", passive, "lumen_lance"]);
+        assert!(holds(&run, run.enemy, "c08t_devoured"), "not devoured with one stealable slot");
+        let kit = run.hero(|h| h.abilities.clone());
+        assert!(kit.contains(&"lumen_lance".to_owned()), "lumen_lance was not stolen: {kit:?}");
+        assert!(!kit.contains(&passive.to_owned()) && !kit.contains(&"a20_pirate_domain".to_owned()), "stole what cannot be stolen: {kit:?}");
+        assert!(holds(&run, run.caster, "c08t_steal_stack"), "no stolen-uses stack");
+    }
+
+    fn a12_field_run(rank: usize, ally: bool) -> Run {
+        let mut given = vec![json!({"kind": "learned", "entry": "a12_mystic_field", "rank": rank}),
+            json!({"kind": "swapped_in", "by": "a12_mystic_possession", "replaces": "a12_mystic_pierce"})];
+        if ally { given.push(json!({"kind": "target_unit", "team": "ally", "types": ["hero"]})); }
+        setup("otani_yoshitsugu", &json!({"entry": "a12_mystic_field", "rank": rank, "expect": [], "given": given}))
+            .unwrap_or_else(|e| panic!("a12_mystic_field rank {rank}: {e}"))
+    }
+
+    /// FC-049: A12's field (the source's script died on a nil caster): for `$base_time` plus one
+    /// second per level of A12E, units in `$radius` of where he stood negate damage from non-building
+    /// attackers beyond `$guard_far`; an empowered cast also gives them A12E's attack speed.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc049_a12_mystic_field_guards_and_hastes() {
+        use omoba_core::runtime::ability_runtime::{BuffStore, UnitStats};
+        use omoba_core::runtime::native::unit_var::{Spec, VarValue};
+        const ENTRY: &str = "a12_mystic_field";
+        const GUARD: &str = "a12e_field_guard";
+        const HASTE: &str = "a12e_field_haste";
+        let hp = |run: &Run, unit: specs::Entity| real(run.world.read_storage::<CProperty>().get(unit).unwrap().hp);
+        let full = |run: &mut Run, unit: specs::Entity| { if let Some(p) = run.world.write_storage::<CProperty>().get_mut(unit) { p.hp = p.mhp; } };
+        for rank in 1..=3 {
+            let guard_far = value(ENTRY, rank, "guard_far").unwrap();
+            let lasts = value(ENTRY, rank, "base_time").unwrap() + rank as f64;
+            let mut run = a12_field_run(rank, false);
+            let (caster, enemy) = (run.caster, run.enemy);
+            let cast = run.cast("none", value(ENTRY, rank, "cast_point").unwrap_or(0.0) + 0.5, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            let mut elapsed = 0;
+            run.step(ticks(0.2)); elapsed += ticks(0.2);
+            assert!(holds(&run, caster, GUARD), "rank {rank}: no {GUARD} after the cast ({})", holding(&run, caster));
+            assert!(!holds(&run, caster, HASTE), "rank {rank}: {HASTE} without being empowered");
+            let center = pos_of(&run, caster);
+            // Beyond the distance: negated, a lethal hit too.
+            move_unit(&mut run, enemy, center + east(guard_far + 200.0));
+            full(&mut run, caster);
+            let before = hp(&run, caster);
+            hit(&mut run, enemy, caster, 0, 0, 300); elapsed += 3;
+            assert!(hp(&run, caster) >= before - 0.5, "rank {rank}: a far hit landed under {GUARD} ({before} -> {})", hp(&run, caster));
+            hit(&mut run, enemy, caster, 1_000_000, 1_000_000, 1_000_000); elapsed += 3;
+            assert!(living(&run, caster), "rank {rank}: a far lethal hit killed him under {GUARD}");
+            // Within the distance: it lands.
+            move_unit(&mut run, enemy, center + east(guard_far - 100.0));
+            full(&mut run, caster);
+            let before = hp(&run, caster);
+            hit(&mut run, enemy, caster, 0, 0, 300); elapsed += 3;
+            assert!(hp(&run, caster) < before - 100.0, "rank {rank}: a near hit was negated ({before} -> {})", hp(&run, caster));
+            // A far building: it lands.
+            let tower = seen_body(&mut run, real(center.x) as i32 + guard_far as i32 + 200, true);
+            full(&mut run, caster);
+            let before = hp(&run, caster);
+            hit(&mut run, tower, caster, 0, 0, 300); elapsed += 3;
+            assert!(hp(&run, caster) < before - 100.0, "rank {rank}: a far building's hit was negated ({before} -> {})", hp(&run, caster));
+            // It lasts its time, measured from the cast; then far hits land.
+            run.step(ticks(lasts - 0.4).saturating_sub(elapsed));
+            assert!(holds(&run, caster, GUARD), "rank {rank}: {GUARD} ended before {lasts} s");
+            run.step(ticks(0.9));
+            assert!(!holds(&run, caster, GUARD), "rank {rank}: {GUARD} still on after {lasts} s");
+            move_unit(&mut run, enemy, center + east(guard_far + 200.0));
+            full(&mut run, caster);
+            let before = hp(&run, caster);
+            hit(&mut run, enemy, caster, 0, 0, 300);
+            assert!(hp(&run, caster) < before - 100.0, "rank {rank}: a far hit was negated after the field ended");
+        }
+
+        // The field stays where he cast it: walking out loses the guard.
+        let mut run = a12_field_run(3, false);
+        let (caster, enemy) = (run.caster, run.enemy);
+        assert!(run.cast("none", 0.5, None).unwrap().accepted, "{ENTRY} not cast");
+        run.step(ticks(0.2));
+        let center = pos_of(&run, caster);
+        let radius = value(ENTRY, 3, "radius").unwrap();
+        move_unit(&mut run, caster, center + east(radius + 100.0));
+        run.step(ticks(0.5));
+        assert!(!holds(&run, caster, GUARD), "{GUARD} kept outside the field");
+        move_unit(&mut run, enemy, center + east(radius + 100.0 + value(ENTRY, 3, "guard_far").unwrap() + 200.0));
+        full(&mut run, caster);
+        let before = hp(&run, caster);
+        hit(&mut run, enemy, caster, 0, 0, 300);
+        assert!(hp(&run, caster) < before - 100.0, "a far hit was negated outside the field");
+
+        // An ally in the field is guarded, one outside it is not; an empowered cast hastes it and
+        // spends the empowerment.
+        let rank = 2;
+        let mut run = a12_field_run(rank, true);
+        let (caster, ally) = (run.caster, run.target);
+        assert_ne!(caster, ally);
+        let empowered = |run: &Run| -> Option<VarValue> {
+            run.world.read_resource::<BuffStore>().iter_for(caster).find_map(|(key, entry)| Spec::from_buff(key, &entry.payload).filter(|s| s.key == "a12:a12d_empowered").map(|s| s.value))
+        };
+        let spec = Spec { key: "a12:a12d_empowered".into(), value: VarValue::Num(Fixed64::ONE), hero: true };
+        run.world.write_resource::<BuffStore>().add(caster, &spec.buff_id(), Fixed64::from_i32(600), spec.payload());
+        let mult = |run: &Run, unit: specs::Entity| real(UnitStats::from_refs(&run.world.read_resource::<BuffStore>(), false).final_attack_speed_mult(unit));
+        let (caster_before, ally_before) = (mult(&run, caster), mult(&run, ally));
+        assert!(run.cast("none", 0.5, None).unwrap().accepted, "{ENTRY} not cast empowered");
+        run.step(ticks(0.2));
+        assert!(holds(&run, ally, GUARD), "the ally in the field has no {GUARD} ({})", holding(&run, ally));
+        assert!(holds(&run, ally, HASTE), "the ally in the empowered field has no {HASTE}");
+        assert!(holds(&run, caster, HASTE), "he has no {HASTE} in his empowered field");
+        assert_eq!(empowered(&run), Some(VarValue::Num(Fixed64::ZERO)), "the cast did not spend the empowerment");
+        let bonus = value("a12_mystic_pierce", rank, "attack_speed").unwrap() / 100.0;
+        assert!((mult(&run, caster) - caster_before - bonus).abs() < 0.03, "attack speed {caster_before} -> {} in the field, expected +{bonus}", mult(&run, caster));
+        assert!((mult(&run, ally) - ally_before - bonus).abs() < 0.03, "ally attack speed {ally_before} -> {} in the field, expected +{bonus}", mult(&run, ally));
+        let center = pos_of(&run, caster);
+        let team = run.world.read_storage::<Faction>().get(caster).map(|f| f.team_id).unwrap();
+        let guard_far = value(ENTRY, rank, "guard_far").unwrap();
+        let foe = spawn_body(&mut run.world, real(center.x) as i32 + guard_far as i32 + 600, isolated_skill_origin_y(), team + 1, 800, None);
+        run.world.write_storage::<Faction>().insert(foe, Faction::new(FactionType::Player, team + 1)).unwrap();
+        full(&mut run, ally);
+        let before = hp(&run, ally);
+        hit(&mut run, foe, ally, 0, 0, 300);
+        assert!(hp(&run, ally) >= before - 0.5, "a far hit landed on the ally in the field ({before} -> {})", hp(&run, ally));
+        let radius = value(ENTRY, rank, "radius").unwrap();
+        move_unit(&mut run, ally, center - east(radius + 100.0));
+        run.step(ticks(0.5));
+        assert!(!holds(&run, ally, GUARD), "the ally kept {GUARD} outside the field");
+        assert!(!holds(&run, ally, HASTE), "the ally kept {HASTE} outside the field");
+        full(&mut run, ally);
+        let before = hp(&run, ally);
+        hit(&mut run, foe, ally, 0, 0, 300);
+        assert!(hp(&run, ally) < before - 100.0, "a far hit was negated on the ally outside the field");
+    }
+
+    /// FC-079: A04W's spirits walk at `$base_move` (the source's +370%..+460% hit the engine's cap)
+    /// and attack every `$base_attack_time` seconds (the source added that as a little attack speed).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc079_a04w_moves_and_attacks_at_its_stats() {
+        use specs::Join;
+        const ENTRY: &str = "a04_water_shikigami";
+        for rank in 1..=4 {
+            let speed = value(ENTRY, rank, "base_move").unwrap();
+            let interval = value(ENTRY, rank, "base_attack_time").unwrap();
+            let mut run = learned("takenaka_shigeharu", ENTRY, rank, false);
+            let (caster, enemy) = (run.caster, run.enemy);
+            let cast = run.cast("point", 0.5, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            run.step(2);
+            let spirits: Vec<specs::Entity> = (&run.world.entities(), &run.world.read_storage::<ScriptUnitTag>()).join()
+                .filter(|(_, t)| of_template(&t.unit_id, "a04w_water_spirit")).map(|(e, _)| e).collect();
+            assert_eq!(spirits.len(), 2, "rank {rank}: {} spirits", spirits.len());
+            let (spirit, other) = (spirits[0], spirits[1]);
+            let origin = pos_of(&run, caster);
+            // Walking: the enemy far off, an owner's move order 1500 east.
+            move_unit(&mut run, enemy, origin + omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(4000)));
+            move_unit(&mut run, spirit, origin);
+            let to = origin + east(1500.0);
+            let order = omoba_core::game_proto::OwnedSummonOrder { owner_entity: caster.id(), owner_generation: caster.gen().id() as u32,
+                summon_entity: spirit.id(), summon_generation: spirit.gen().id() as u32, operation: 1,
+                point: Some(Vec2I { x: to.x.raw() as i32, y: to.y.raw() as i32 }), ability: String::new() };
+            let input = PlayerInput { action: Some(PlayerInputEnum::OwnedSummonOrder(order)) };
+            { let result = run.driver.step(&mut run.world, [(1, input)]).unwrap(); project_tick(&mut run.world, result); }
+            run.step(ticks(0.25));
+            let from = pos_of(&run, spirit);
+            run.step(60);
+            let walked = real((pos_of(&run, spirit) - from).length());
+            assert!((walked - speed).abs() <= speed * 0.05, "rank {rank}: a spirit walked {walked:.1} in one second, expected {speed} ({})", holding(&run, spirit));
+            // Attacking: one spirit beside the enemy, the other rooted far off, a release so it stands.
+            let release = omoba_core::game_proto::OwnedSummonOrder { owner_entity: caster.id(), owner_generation: caster.gen().id() as u32,
+                summon_entity: spirit.id(), summon_generation: spirit.gen().id() as u32, operation: 2, point: None, ability: String::new() };
+            let input = PlayerInput { action: Some(PlayerInputEnum::OwnedSummonOrder(release)) };
+            { let result = run.driver.step(&mut run.world, [(1, input)]).unwrap(); project_tick(&mut run.world, result); }
+            move_unit(&mut run, spirit, origin + east(100.0));
+            move_unit(&mut run, enemy, origin + east(350.0));
+            move_unit(&mut run, other, origin - east(1500.0));
+            run.world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(other, "root", Fixed64::from_i32(60), json!({}));
+            let falls = life_falls(&mut run, enemy, ticks(interval * 8.0 + 3.0));
+            assert!(falls.len() >= 5, "rank {rank}: only {} attacks landed on the enemy ({})", falls.len(), holding(&run, spirit));
+            let mean = (falls[falls.len() - 1] - falls[0]) as f64 / (falls.len() - 1) as f64 / 60.0;
+            assert!((mean - interval).abs() <= 0.07, "rank {rank}: a spirit attacks every {mean:.3} s, expected {interval} (falls {falls:?})");
+        }
     }
 
     /// FC-024: A05D cancels a lethal hit and feigns death, then starts its own cooldown; a second
