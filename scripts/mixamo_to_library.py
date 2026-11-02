@@ -5,7 +5,7 @@ import sys
 import bpy
 from mathutils import Matrix
 
-library_fbx, tpose_fbx, clip_fbx, out_fbx = sys.argv[sys.argv.index('--') + 1:]
+library_fbx, tpose_fbx, clip_fbx, out_fbx, last_kept = sys.argv[sys.argv.index('--') + 1:]
 
 PAIRS = [('pelvis', 'Hips'), ('spine_01', 'Spine'), ('spine_02', 'Spine1'), ('spine_03', 'Spine2'), ('neck_01', 'Neck'), ('Head', 'Head')]
 for side, name in (('l', 'Left'), ('r', 'Right')):
@@ -41,6 +41,8 @@ source = imported(clip_fbx)
 clip_action = next(a for a in bpy.data.actions if a not in known)
 
 first, last = (int(round(v)) for v in clip_action.frame_range)
+if last_kept:
+    last = min(last, first + int(last_kept))
 bpy.context.scene.render.fps = 30
 
 use(library, tpose_action, int(tpose_action.frame_range[0]))

@@ -138,8 +138,34 @@
   - 視野守衛（moba_ward）是石燈籠，顏色依擁有者英雄的隊伍；原本是預設方塊（errors.md E151）。
 - 尚未換成 Tripo 的：訓練用英雄（training_vanguard、training_luminary）仍是 CC0 模型；它們現在是 test-only，正式對局不會出現。TD 與訓練模式的 30 個類別仍沒有模型，不在 build 期「單位不可沒有模型」檢查的範圍內。
 
+## Mixamo 動作
+
+來源都是 mixamo.com（Adobe，帳號 damody），不花點數。下載設定：FBX Binary、Without Skin、30fps、Keyframe Reduction none。原始檔在 `target/mixamo-input/`（不進版控）；轉到動畫庫骨架後，由 `scripts/mixamo_clips.lua` 產生 `omfue/Content/Omoba/Characters/AddedClipsV1/`。Mixamo 的授權條款尚未在網站上逐條確認，記在下方「待決定」。
+
+| 日期 | Mixamo 動作（檔名） | 卡片說明 | clip | 用途 |
+|---|---|---|---|---|
+| 2026-11-02 | T-Pose | 轉骨架用的基準姿勢 | — | `mixamo_to_library.py` 的參考 |
+| 2026-11-02 | Great Sword Slash | Great Sword Slash 系列（C 下載） | Mx_Sword_Slash | 刀 |
+| 2026-11-02 | Stable Sword Inward Slash | Inward Slashing With A Sword Standing Stable | Mx_Sword_Inward | 刀普攻 |
+| 2026-11-02 | Stable Sword Outward Slash | Outward Slashing With A Sword Standing Stable | Mx_Sword_Outward | 刀普攻、暴擊 |
+| 2026-11-02 | Withdrawing Sword | 拔刀（C 下載） | Mx_Sword_Draw | 居合 |
+| 2026-11-02 | Standing Melee Attack Downward | Downward Attack With Axe | Mx_Axe_Down | 斧下劈 |
+| 2026-11-02 | Standing Melee Attack Horizontal | Right To Left Attack With Axe | Mx_Sweep | 斧、槍橫掃 |
+| 2026-11-02 | Great Sword Slash（存為 Great Sword Downward Slash） | Great Sword Downward Slash | Mx_Axe_Smash | 砸地 |
+| 2026-11-02 | Bayonet Stab | Advancing And Stabbing With Rifle Bayonet Or Spear | Mx_Spear_Thrust | 槍突刺 |
+| 2026-11-02 | Upward Thrust | Upward Weapon Thrust | Mx_Spear_Upward | 槍上挑 |
+| 2026-11-02 | Firing Rifle | Firing A Rifle While Standing | Mx_Rifle_Fire | 鐵砲射擊 |
+| 2026-11-02 | Standing Taunt Battlecry | Battlecry With Axe | Mx_Battlecry | 吶喊、Buff |
+| 2026-11-02 | Charge | Pointing Onward Charge | Mx_Charge | 衝鋒起手（只取前 100 幀） |
+| 2026-11-02 | Standing Melee Attack Kick Ver. 1 | Kick With Right Foot Holding Axe | Mx_Kick | 踢 |
+| 2026-11-02 | Throw | Throwing An Object From A Standard Pose | Mx_Throw | 投擲 |
+| 2026-11-02 | Two Hand Spell Casting | Casting A Spell With Two Hands | Mx_Cast_Two | 雙手施法（只取前 75 幀） |
+| 2026-11-02 | Standing 2H Magic Attack 03 | Two Handed Casting Spell Forwards Sustained | Mx_Channel | 引導（只取前 90 幀） |
+| 2026-11-02 | Standing React Death Backward | Death Falling Backwards | Mx_Death_Back | 第二種死亡 |
+
 ## 待決定
 
+- Mixamo 動作的授權條款：一般理解是可用於遊戲，但還沒在網站上逐條確認。
 - 下載的 Tripo 原始模型（FBX／GLB）是否進版控。角色放在 `omfue/SourceArt/Characters/TripoV1/<id>/`，建築放在 `omfue/SourceArt/Structures/TripoStaticV1/<id>/`，都還沒 commit。`omfue/` 照使用者要求不納入一般 commit。
 - Tripo 生成物的授權（免費方案是否可商用）。網站上沒有看到相關條款，仍待確認。
 - Tripo 的「模型私密性」維持網站預設「仅分享」，18 個模型都在帳號的資產列表裡。要不要改成私密，屬於帳號設定，由使用者決定。

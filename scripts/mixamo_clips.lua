@@ -7,12 +7,25 @@ local script=debug.getinfo(1,'S').source:sub(2);local dir=assert(script:match('^
 local b=require('_bootstrap');local p,j,r=b.lib('path'),b.lib('json'),b.lib('process')
 local model=require('character_retarget')
 
--- Clip name in moba_tripo_hero_visuals -> the Mixamo file's name.
+-- Clip name in moba_tripo_hero_visuals -> the Mixamo file's name, with the last frame kept when the motion runs long.
 local CLIPS={
   Mx_Sword_Slash='Great Sword Slash',
   Mx_Sword_Inward='Stable Sword Inward Slash',
   Mx_Sword_Outward='Stable Sword Outward Slash',
   Mx_Sword_Draw='Withdrawing Sword',
+  Mx_Axe_Down='Standing Melee Attack Downward',
+  Mx_Axe_Smash='Great Sword Downward Slash',
+  Mx_Sweep='Standing Melee Attack Horizontal',
+  Mx_Spear_Thrust='Bayonet Stab',
+  Mx_Spear_Upward='Upward Thrust',
+  Mx_Rifle_Fire='Firing Rifle',
+  Mx_Battlecry={'Standing Taunt Battlecry',65},
+  Mx_Charge={'Charge',100},
+  Mx_Kick='Standing Melee Attack Kick Ver. 1',
+  Mx_Throw='Throw',
+  Mx_Cast_Two={'Two Hand Spell Casting',75},
+  Mx_Channel={'Standing 2H Magic Attack 03',90},
+  Mx_Death_Back='Standing React Death Backward',
 }
 
 local options={};local i=1
@@ -28,9 +41,10 @@ local library=p.join(b.root,'omfue/SourceArt/Characters/QuaterniusV1/animation_l
 
 local added={}
 for _,name in ipairs(names)do
-  local source=p.join(input,assert(CLIPS[name],'unknown clip '..name)..'.fbx');assert(p.is_file(source),'missing '..source)
+  local entry=assert(CLIPS[name],'unknown clip '..name);if type(entry)=='string' then entry={entry} end
+  local source=p.join(input,entry[1]..'.fbx');assert(p.is_file(source),'missing '..source)
   local out=p.join(baked,name..'.fbx')
-  local result=r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out},{cwd=b.root,check=false})
+  local result=r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out,tostring(entry[2]or'')},{cwd=b.root,check=false})
   assert(result.exit_code==0 and p.is_file(out),'bake failed: '..name..'\n'..tostring(result.stdout):sub(-1500))
   added[#added+1]={name=name,fbx=out}
   print('baked '..name)
