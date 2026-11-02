@@ -174,6 +174,22 @@
 | 日期 | 工具 | 模型 | 用途（招式） | 點數 | 累計 | 帳號餘額 | 任務 ID | 結果 |
 |---|---|---|---|---|---|---|---|---|
 | 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_war_hammer | 島津 R 不動戰錘（c03t_hammer） | 25 | 25 | 24330 | `f1995d71-040b-4603-afde-4c7e0a78a3f2` | 1,399 tris；試點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_swallow | sasaki W（c22e_swallow） | 25 | 50 | 24305 | `b8e175c9-7bb0-4add-a799-1a10ad39b583` | 1406 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_rock_chunk | yamagata Q（b20w_rock） | 25 | 75 | 24280 | `da5db5e9-0dc7-4908-8a1e-e53cb794f499` | 1414 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_throw_axe | kojima W（b27e_axe） | 25 | 100 | 24255 | `2a3a479b-b146-4ae4-9009-1b4d6da3cd66` | 1374 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_fire_bomb | nohime R（a26t_bomb） | 25 | 125 | 24230 | `3f56f2c1-e1a3-4772-a79c-1d729c9a6275` | 1412 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_cannon_shell | nohime Q（a26w_flak） | 25 | 150 | 24205 | `5249e1aa-c1a2-416f-8d4d-a505a9a3bc1e` | 1430 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_rocket | nohime W（a26e_rocket） | 25 | 175 | 24180 | `f5780828-c790-4759-a9a6-033280e8a5aa` | 1350 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_arcane_arrow | otani C（a12f_arrow） | 25 | 200 | 24155 | `5f69627b-1e4d-4fa7-91b0-0497484d9a4a` | 1332 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_fissure_blade | kojima R（b27t_slam） | 25 | 225 | 24130 | `090d2df0-72e2-4b25-998e-d80558ab1cd6` | 1410 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_earth_crown | yamagata W（b20e_thunderclap） | 25 | 250 | 24105 | `d2e51e27-74b8-43fd-9a94-485908138f39` | 1378 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_thunder_spear | keiji W（c05e_bolt） | 25 | 275 | 24080 | `ec2d9c19-a40f-4f7c-ae81-50dbe385acd4` | 1416 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_fire_wings | okuma R（b26t_wings） | 25 | 300 | 24055 | `50913490-8d72-41e8-926c-7e5231d92828` | 1500 上限 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_shock_dome | okuma Q（b26w_shockwave） | 25 | 325 | 24030 | `41a17c6c-f481-471b-a9e8-1fc8cca7ef36` | 1500 上限 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_thunder_sword | tokugawa E（a01r_lightning） | 25 | 350 | 24005 | `08956e34-7f8c-435f-99d9-7f0306edadf3` | 1500 上限 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_war_banner | tokugawa R（a01t_vo） | 25 | 375 | 23980 | `1f48d21b-7d2d-48f7-ad1c-bbfd43a83a05` | 1388 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_spear_head | toshiie Q（a14w_spear_cast） | 25 | 400 | 23955 | `9ebeb1a1-6fe3-4ec3-b802-dd273889ce3d` | 1208 面，靜態，匯出 FBX 0 點 |
+| 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_iron_bell | shimazu Q（c03w_vo） | 25 | 425 | 23930 | `46852dae-614d-4b69-a129-6a07e144e8fa` | 1347 面，靜態，匯出 FBX 0 點 |
 
 ## 待決定
 
