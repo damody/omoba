@@ -15137,6 +15137,52 @@ mod scripted_item_use {
             "item_Hannya_Onimaru's script ran on equip");
     }
 
+    /// `hero` attacks `enemy` for `ticks`, holding only `item`.
+    fn attack_with(w: &mut World, d: &mut SimulationDriver, hero: specs::Entity, enemy: specs::Entity, item: &str, ticks: u32) {
+        give(w, hero, item);
+        w.write_storage::<TAttack>().get_mut(hero).unwrap().asd_count = Fixed64::ZERO;
+        let order = PlayerInput { action: Some(PlayerInputEnum::AttackTarget(AttackTarget { target_id: enemy.id(), queued: false })) };
+        d.step(w, [(1, order)]).unwrap();
+        for _ in 0..ticks { d.step(w, []).unwrap(); }
+    }
+
+    /// `is_hero_id(self, b04)`: the spear of ghost's melee share is for a melee hero that is not B04.
+    #[test]
+    fn is_hero_id_tells_the_named_hero_from_another() {
+        fn lost(template: &str) -> Fixed64 {
+            let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+            let (hero, enemy) = duel(&mut w, &mut d);
+            w.write_storage::<Hero>().get_mut(hero).unwrap().id = template.into();
+            // both melee: only the hero's id can tell the shares apart
+            w.write_storage::<TAttack>().get_mut(hero).unwrap().range.v = Fixed64::from_i32(100);
+            place_hero(&mut w, enemy, 80, isolated_skill_origin_y());
+            { let mut props = w.write_storage::<CProperty>(); let p = props.get_mut(enemy).unwrap();
+              p.hp = Fixed64::from_i32(50000); p.mhp = p.hp; }
+            attack_with(&mut w, &mut d, hero, enemy, "the_spear_of_ghost", 600);
+            let left = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+            Fixed64::from_i32(50000) - left
+        }
+        let (other, b04) = (lost("tamako"), lost("date_masamune"));
+        assert!(other > Fixed64::ZERO && b04 > Fixed64::ZERO, "both attacked: {other:?} {b04:?}");
+        assert!(other > b04, "another melee hero takes the melee share, B04 the ranged one: {other:?} {b04:?}");
+    }
+
+    /// `when = "self.is_hero"`: sukemune's status is on every unit it hits, its resist cut only on a hero.
+    #[test]
+    fn a_status_stat_with_when_counts_only_where_it_holds() {
+        fn cut(on_hero: bool) -> Option<serde_json::Value> {
+            let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+            let (hero, enemy) = duel(&mut w, &mut d);
+            if !on_hero { w.write_storage::<Hero>().remove(enemy); }
+            attack_with(&mut w, &mut d, hero, enemy, "sukemune", 300);
+            let buffs = w.read_resource::<BuffStore>();
+            let row = buffs.get(enemy, "sukemune_resist_cut").expect("the status is on the unit it hit");
+            row.payload.get(omb_script_abi::stat_keys::StatKey::MagicResistancePool.as_str()).cloned()
+        }
+        assert!(cut(true).is_some(), "the cut is on a hero");
+        assert!(cut(false).is_none(), "no cut on a unit that is no hero");
+    }
+
     #[test]
     fn only_an_item_whose_target_admits_magic_immune_reaches_a_magic_immune_enemy() {
         let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
