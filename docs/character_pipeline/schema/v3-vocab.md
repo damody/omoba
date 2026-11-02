@@ -6,14 +6,14 @@
 - 文件：`abilities`、`deferred`、`hero`、`hooks`、`id`、`items`、`kind`、`notes`、`routines`、`schema_version`、`source`、`statuses`、`unit_state`、`unit_templates`、`values`
 - hero：`attack`、`auto_learn`、`notes`、`source_id`、`text`
 - values.*：`damage_type`、`expr`、`hidden`、`integer`、`kv`、`note`、`per`、`rounding`、`source`、`source_differs`、`unit`、`v2_key`、`v2_only`
-- 技能：`bot`、`cast`、`confidence`、`cost`、`coverage`、`deferred_reason`、`events`、`flags`、`handler`、`id`、`kind`、`learnable`、`level_link`、`max_level`、`notes`、`passive`、`pending`、`provenance`、`quirks`、`requires`、`slot`、`source_id`、`statuses`、`tags`、`target`、`text`、`unit_state`、`values`
+- 技能：`bot`、`cast`、`confidence`、`cost`、`coverage`、`deferred_reason`、`events`、`flags`、`handler`、`hook`、`host`、`id`、`kind`、`learnable`、`level_link`、`max_level`、`notes`、`passive`、`pending`、`provenance`、`quirks`、`requires`、`slot`、`source_id`、`statuses`、`tags`、`target`、`text`、`unit_state`、`values`
 - target：`aoe_radius`、`flags`、`min_range`、`range`、`team`、`type`、`types`、`vector_length`
 - cast：`backswing`、`cast_point`、`channel_time`、`ignore_backswing`、`immediate`、`interruptible`、`move_while_casting`、`turn_while_casting`
 - cost：`charges`、`cooldown`、`cooldown_groups`、`cooldown_start`、`gold`、`health`、`mana`、`refund`
 - cost.charges：`initial`、`max`、`on_rank_up`、`restore`、`scope`
 - requires：`condition`、`has_status`、`hero_level`、`not_status`
 - passive：`aura`、`orb_slot`、`reveal`、`states`、`stats`、`triggers`、`unique_group`、`visibility`
-- 道具：`active`、`confidence`、`coverage`、`deferred_reason`、`handler`、`id`、`max_level`、`notes`、`passive`、`pending`、`provenance`、`quirks`、`shop`、`source_id`、`statuses`、`tags`、`text`、`unit_state`、`values`
+- 道具：`active`、`confidence`、`coverage`、`deferred_reason`、`handler`、`hook`、`host`、`id`、`max_level`、`notes`、`passive`、`pending`、`provenance`、`quirks`、`shop`、`source_id`、`statuses`、`tags`、`text`、`unit_state`、`values`
 - shop：`category`、`consumable`、`cost`、`droppable`、`purchasable`、`recipe`、`sellable`、`shareable`、`stock`、`unique`
 - 道具 active：`bot`、`cast`、`cost`、`events`、`flags`、`kind`、`learnable`、`requires`、`tags`、`target`
 - 狀態：`absorb`、`aura`、`block_reapply`、`charges`、`cue`、`dispel`、`duration`、`forced_move`、`id`、`immune_to`、`linger`、`notes`、`per_source`、`reapply_if_removed`、`remove_on`、`reveal`、`runtime_id`、`scope`、`stacking`、`states`、`stats`、`status_resistance`、`tags`、`text`、`triggers`、`unique_group`、`unique_rule`、`values`、`vars`、`visibility`
@@ -21,14 +21,14 @@
 - absorb：`amount`、`fraction`、`lethal_only`、`on_absorb`、`on_broken`、`phase`、`types`
 - aura：`flags`、`include_self`、`linger`、`radius`、`status`、`team`、`types`、`unique_group`、`where`
 - triggers.*（table）：`actions`、`filter`、`first`、`interval`、`notes`、`phase`、`priority`、`who`
-- selector：`angle`、`exclude`、`exclude_types`、`flags`、`from`、`inner`、`length`、`limit`、`notes`、`order`、`outer`、`post_filter`、`prefer`、`radius`、`relative_to`、`shape`、`take_while`、`team`、`to`、`types`、`visible_to`、`where`、`width`
+- selector：`angle`、`dead_within`、`exclude`、`exclude_types`、`flags`、`from`、`inner`、`length`、`limit`、`notes`、`order`、`outer`、`post_filter`、`prefer`、`radius`、`relative_to`、`shape`、`take_while`、`team`、`to`、`types`、`visible_to`、`where`、`width`
 - 單位模板：`abilities`、`acquisition_range`、`ai`、`attack`、`blocks_pathing`、`bounty`、`chase`、`collision_radius`、`flying`、`id`、`inventory_locked`、`item_cast_blacklist`、`limit_per_owner`、`max_level`、`notes`、`over_limit`、`owner_death`、`passive`、`provenance`、`quirks`、`source_id`、`stats`、`statuses`、`tags`、`text`、`turn_rate`、`values`、`vision`
 - 單位模板 attack：`attack_point`、`damage`、`damage_max`、`damage_type`、`interval`、`kind`、`projectile_speed`、`range`
 - create_unit.overrides：`ability_level`、`agi`、`armor`、`attack_damage`、`attack_damage_max`、`attack_interval`、`attack_range`、`bounty_gold`、`bounty_xp`、`hp`、`hp_regen`、`int`、`level`、`magic_resist`、`mana`、`mana_regen`、`model_scale`、`move_speed`、`str`、`vision_day`、`vision_night`
 - create_illusion.copy：`abilities`、`except_abilities`、`hp`、`items`、`level`、`mana`、`status_caster`、`status_duration`、`status_except`、`status_tags`、`statuses`、`team`、`unit_state`
 - create_illusion.outgoing／incoming：`all`、`magical`、`physical`、`pure`
 - unit_state.*／vars.*：`init`、`note`、`reveal`、`scope`、`type`
-- hooks.*：`kind`、`notes`、`params`、`reads`、`test`、`why`
+- hooks.*：`behavior`、`cases`、`kind`、`notes`、`params`、`reads`、`test`、`why`
 
 ## 數值單位（values.*.unit）
 
@@ -69,6 +69,7 @@
 - `as_source`：照原作實際行為還原（預設）
 - `design_intent`：跟 tick 頻率等引擎副作用有關，照設計意圖（KV 數值）
 - `fix_candidate`：明顯違反設計意圖且影響可玩性，列入修正候選清單由使用者決定；目前仍照原作
+- `fixed`：原作 bug，依 D13 照設計意圖修正；資料是修正後的行為，text 註明 fix-candidates.md 的編號
 - `no_effect`：原作執行期報錯或死碼，照中斷後的結果（通常沒有效果）
 - `note`：只是紀錄（命名錯誤、呈現細節），不影響結算
 - `port_adaptation`：現行移植（v2 Rust handler）與原作不同的改編；資料照現行，M1 決定保留或改回原作
@@ -139,6 +140,7 @@
 | `modify_charges` | `ability`=ability!，`amount`=expr，`mode`=enum:add|set|refill!，`of`=unit |
 | `modify_cooldown` | `ability`=ability，`amount`=expr，`item`=any，`item_tag`=name，`mode`=enum:set|reduce|reset|end|start!，`of`=unit |
 | `modify_damage` | `add`=expr，`block`=expr，`cancel`=bool，`multiplier`=expr，`set`=expr |
+| `order_attack` | `target`=unit!，`who`=unit! |
 | `pick_item` | `as`=name!，`from`=unit!，`order`=enum:random|first|last，`slots`=enum:inventory|backpack|all，`where`=cond |
 | `projectile` | `arm_distance`=expr，`as`=name，`bind`=name，`cue`=cue，`direction`=vec，`distance`=expr，`dodgeable`=bool，`end_radius`=expr，`flags`=list:flag，`from`=any!，`hit_buildings`=bool，`hit_priority`=list:enum:enemy|ally，`kind`=enum:linear|tracking|path!，`lifetime`=expr，`max_hits`=expr，`on_end`=actions，`on_hit`=actions，`on_tick`=actions，`path`=list:any，`pierce`=bool，`radius`=expr，`remove_on`=list:enum:owner_death|status_end，`speed`=expr!，`team`=enum:enemy|ally|both|any，`tick_interval`=expr，`to`=any，`types`=list:enum:hero|creep|building|summon|ward|neutral|boss|illusion|all，`vision`=expr，`where`=cond |
 | `pull` | `along`=any，`max_duration`=expr，`on_end`=actions，`speed`=expr!，`stop_distance`=expr，`toward`=any，`who`=unit! |

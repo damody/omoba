@@ -285,7 +285,9 @@ end
 - [ ] `coverage` 與 `confidence` 誠實；缺詞彙的地方寫進 `pending.gap` 並在回報中列出。
 - [ ] 沒有改 `docs/character_pipeline/tools` 或 `schema`。
 
-## 10. 已移植英雄的 v3.lua（行為仍在 Rust handler）
+## 10. 已移植英雄的 v3.lua（歷史：M1 的做法）
+
+> 現況（2026-11-02）：97 位英雄都跑產生的 Rust，每位一個 DLL（`scripts/hero_dlls.lua`），手寫 handler 已刪除。新寫的文件不要用 `coverage = "rust_handler"`。本節只留給還帶著 `handler`、`v2_key` 的舊條目對照。
 
 M1 把已移植英雄的數值與說明改成 v3，行為暫時不動。規格在 [v3-content-model-proposal.md](v3-content-model-proposal.md) §2.3。
 
@@ -321,3 +323,29 @@ M1 把已移植英雄的數值與說明改成 v3，行為暫時不動。規格�
   ```
 
   會檢查 kit 通過 v3 驗證、每個 v2 數字都有對應且相同、handler 讀的每個鍵都存在。
+
+## 11. 道具怎麼上架
+
+語意細節在 [v3.md](v3.md) §12.13。下面是操作步驟。
+
+1. **文件**：`docs/character_pipeline/items/*.lua` 寫好道具，`source_id` 是原作 key（大小寫和撇號都照原作，`id` 用小寫、去掉撇號）。
+2. **貨架列**：`scripts/lua_data/templates/moba_items.lua` 的 `SOURCE_ITEMS` 加 `{ catalog_id, "item_<原作 key>", true }`。第三個欄位表示效果在 `items.dll`；只有屬性、沒有腳本的道具不要加。
+3. **產生**：在影子或副本跑 `tools\lua\lua.exe scripts\gen_item_v3.lua`，再跑 `scripts\tests\gen_item_v3_test.lua`、`scripts\tests\item_sources_check_test.lua`，最後用 `scripts\land_to_live.lua` 放回。
+4. **UE 資料**：放回後重新產生 `gen_ue_item_roadmap.lua`、`gen_ue_item_categories.lua`（需要先跑 `gen_v3_content.lua`、`gen_source_catalog.lua`）。
+
+價錢、配方、數值只寫在文件裡，貨架和 tooltip 都從它來。不要到別處抄一份。
+
+**常見錯誤訊息**（`gen_item_v3.lua`）：
+
+| 訊息 | 意思 | 怎麼處理 |
+|---|---|---|
+| `shelf number X has no v3 value` | 來源匯出的數字在文件裡對不到 | 來源匯出常把狀態的數字加總進去（例如被動 6 加主動 50）。Scripted 道具的這類數字會自動移出貨架列，兩個文件數字的和也算；其他情況先查原作 |
+| `differs from the source catalog` | 文件和來源匯出數字不同 | 確認文件照原作，再在該值寫 `source_differs = "<原因>"` |
+| `passive stat X has no number on the shelf row` | 這個屬性貨架沒有欄位 | 確認 host 有這個 StatKey，把它加進 `v3_vocab.lua` 的 `ITEM_SCRIPT_STATS` |
+| `a move_speed_unique status and the row's movement unique passive must come together` | 移速會少算或重複算 | 檢查原作是否真的是唯一移速 |
+| `the shelf row has an aura, the document's passive has none` | 貨架列有光環、文件沒有 | 文件補上 `passive.aura` |
+| `target type X has no catalog target` | 目錄沒有這種目標形狀 | 需要 host 支援 |
+| `recipe ... is not the source recipe` | 零件沒有上架 | 先上架零件。原作未列出的零件（`listed = false`）也會匯出成來源列，但一樣要有文件 |
+| `X is marked scripted and has no script`（`gen_item_v3_test`） | 標了腳本，產生器卻沒有產生 | 看訊息裡的 blocker |
+
+原作的商店表提到、但 KV 沒定義、被註解掉或只有配方的道具，不會有來源列，也不賣。它們在 roadmap 的狀態是 `deferred`。
