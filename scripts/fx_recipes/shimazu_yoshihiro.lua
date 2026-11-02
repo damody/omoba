@@ -1,5 +1,5 @@
 -- C03 shimazu_yoshihiro: oni red and fire; steel blue for iron, purple for his thunder.
-local RED, STEEL, PURPLE, SLOW = { 1.0, 0.2, 0.1 }, { 0.12, 0.5, 1.0 }, { 0.5, 0.1, 1.0 }, { 0.08, 0.3, 1.0 }
+local RED, STEEL, PURPLE, SLOW, EARTH = { 1.0, 0.2, 0.1 }, { 0.12, 0.5, 1.0 }, { 0.5, 0.1, 1.0 }, { 0.08, 0.3, 1.0 }, { 0.75, 0.42, 0.18 }
 return {
   recipes = {
     -- c03_iron_shirt: a huge iron shield flares, a shield stays underfoot, steel motes while it lasts
@@ -10,7 +10,7 @@ return {
     c03w_iron_glow = { system = "stream", sprite = "spark_star", size = 85, life = 0.4, loop = true, tint = STEEL },
     -- c03_quake_axe: the axe swing, then dust and a cracked ground
     c03e_vo = { system = "pop", sprite = "crescent_slash", size = 430, life = 0.24, tint = RED },
-    c03e_thunder_clap = { system = "burst", sprite = "smoke_sheet", size = 430, life = 0.55,
+    c03e_thunder_clap = { system = "burst", sprite = "rock", size = 300, life = 0.55, tint = EARTH,
       ground = "dust_crack", ground_size = 760, ground_seconds = 0.7, grow = 0.3 },
     c03e_move_slow = { ground = "slow_chains", ground_size = 170, ground_seconds = 1.2, tint = SLOW },
     -- c03_thunder_wrath: a purple bolt strikes the target
@@ -19,7 +19,8 @@ return {
     -- c03_iron_hammer: a hammer flares at the start and marches; fire and cracks at every tick
     -- Each blow lands 300 ahead of where the hammer would start, so it flies that far ahead and meets them.
     -- It faces the viewer and does not tumble: end on, a hammer reads as a barrel.
-    c03t_hammer = { mesh = "war_hammer", ground_size = 170, height = 40, fly = true, lead = 300, face_viewer = true },
+    -- It comes down on each of the package's blows (interval 0.6 s), at the point the blow lands.
+    c03t_hammer = { mesh = "war_hammer", ground_size = 170, fly = true, lead = 300, face_viewer = true, bounce = 130, bounce_seconds = 0.6 },
     c03t_hammer_hit = { system = "burst", sprite = "flame_sheet", size = 420, life = 0.5,
       ground = "dust_crack", ground_size = 900, ground_seconds = 0.45, grow = 0.3 },
   },

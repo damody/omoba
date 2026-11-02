@@ -4,13 +4,13 @@ return {
   recipes = {
     -- a26_volley: muzzle flashes and a wave at her reach, then a blast on each enemy
     a26w_flak_sound = { system = "pop", sprite = "blink_flash", size = 200, life = 0.25, tint = ORANGE,
-      mesh = "cannon_shell", ground_size = 150, ground_seconds = 0.45, height = 100, launch = 800 },
+      mesh = "cannon_shell", ground_size = 150, ground_seconds = 0.8, height = 70, launch = 800 },
     a26w_hit_explosion = { system = "burst", sprite = "flame_sheet", size = 230, life = 0.4,
       ground = "dust_crack", ground_size = 240, ground_seconds = 0.35, grow = 0.5 },
     -- a26_powder_kick: the kick's arc, then the powder blast
     a26e_voice = { system = "pop", sprite = "crescent_slash", size = 300, life = 0.25, tint = ORANGE },
     a26e_rocket_sound = { system = "burst", sprite = "flame_sheet", size = 480, life = 0.5,
-      mesh = "rocket", ground_size = 220, ground_seconds = 0.55, height = 100, launch = 900 },
+      mesh = "rocket", ground_size = 220, ground_seconds = 0.8, height = 70, launch = 900 },
     a26e_smoke = { system = "pop", sprite = "smoke_sheet", size = 240, life = 0.6,
       ground = "dust_crack", ground_size = 130, ground_seconds = 0.5, line = true },
     -- a26_twin_guns: a crit's flash
@@ -22,12 +22,12 @@ return {
     a26t_bomb_arcana = { system = "stream", sprite = "flame_sheet", size = 60, life = 0.3, loop = true, face = true,
       mesh = "fire_bomb", ground_size = 130, ground_seconds = 20, height = 110, spin = 360 },
     a26t_small_bomb = { system = "stream", sprite = "flame_sheet", size = 35, life = 0.2, loop = true, face = true,
-      mesh = "fire_bomb", ground_size = 80, ground_seconds = 20, height = 90, spin = 360 },
+      mesh = "fire_bomb", ground_size = 110, ground_seconds = 20, height = 90, spin = 360 },
     a26t_overhead_bomb = { system = "stream", sprite = "spark_star", size = 50, life = 0.3, loop = true, tint = ORANGE },
     a26t_big_explosion = { system = "burst", sprite = "flame_sheet", size = 700, life = 0.7,
       ground = "dust_crack", ground_size = 800, ground_seconds = 0.8, grow = 0.25 },
-    a26t_small_explosion = { system = "burst", sprite = "flame_sheet", size = 320, life = 0.5,
-      ground = "dust_crack", ground_size = 800, ground_seconds = 0.4, grow = 0.4 },
+    a26t_small_explosion = { system = "burst", sprite = "rock", size = 130, life = 0.35, tint = ORANGE,
+      ground = "dust_crack", ground_size = 260, ground_seconds = 0.35, grow = 0.4 },
   },
   notes = {
     a26_volley = "a26w_flak_sound at her always plays; a26w_hit_explosion on each enemy.",

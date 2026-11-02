@@ -359,6 +359,7 @@ function M.ini_row(id)
   if r.tilt then add("GroundTilt", number(r.tilt)) end
   if r.launch then add("GroundLaunchCm", number(r.launch * M.WORLD_CM)) end
   if r.lead then add("GroundLeadCm", number(r.lead * M.WORLD_CM)) end
+  if r.bounce then add("GroundBounceCm", number(r.bounce * M.WORLD_CM)); add("GroundBounceSeconds", number(r.bounce_seconds)) end
   if r.face_viewer then add("bGroundFaceViewer", "True") end
   if r.ground_size then add("GroundSizeCm", number(r.ground_size * M.WORLD_CM)) end
   if r.ground_seconds then add("GroundSeconds", number(r.ground_seconds)) end
