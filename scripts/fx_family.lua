@@ -204,14 +204,14 @@ M.RECIPES.fx_stun = { system = "stream", sprite = "spark_star", size = 60, life 
 -- Basic attacks, generated: fx_swing_<hero> at the attacker, fx_strike_<hero> at the target (OmUnitActor::PlayAttackFx).
 M.WEAPONS = {
   katana = { swing = { ground = "crescent_slash", ground_size = 170, ground_seconds = 0.16, height = 90, grow = 0.6, face_camera = 0.7 },
-    strike = { ground = "crescent_slash", ground_size = 210, ground_seconds = 0.26, height = 80, grow = 0.5, face_camera = 0.7 } },
-  axe = { swing = { ground = "crescent_slash", ground_size = 210, ground_seconds = 0.2, height = 90, grow = 0.6, face_camera = 0.8 },
-    strike = { ground = "crescent_slash", ground_size = 250, ground_seconds = 0.3, height = 70, grow = 0.4, face_camera = 0.8 } },
+    strike = { system = "burst", sprite = "spark_star", size = 190, life = 0.3, ground = "crescent_slash", ground_size = 280, ground_seconds = 0.28, height = 80, grow = 0.5, face_camera = 0.7 } },
+  axe = { swing = { ground = "crescent_slash", ground_size = 230, ground_seconds = 0.2, height = 110, grow = 0.6, face_camera = 0.9, ground_roll = 90 },
+    strike = { system = "burst", sprite = "rock", size = 200, life = 0.4, ground = "crescent_slash", ground_size = 300, ground_seconds = 0.3, height = 90, grow = 0.4, face_camera = 0.9, ground_roll = 90 } },
   spear = { swing = { ground = "chain_bolt", ground_size = 90, ground_seconds = 0.2, line = true },
-    strike = { ground = "chain_bolt", ground_size = 150, ground_seconds = 0.22, height = 80, line = false, grow = 0.5, face_camera = 0.7 } },
+    strike = { system = "pop", sprite = "spark_star", size = 200, life = 0.26, ground = "chain_bolt", ground_size = 200, ground_seconds = 0.24, height = 80, line = false, grow = 0.5, face_camera = 0.7 } },
   gun = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.14,
       ground = "spark_star", ground_size = 90, ground_seconds = 0.2, height = 70, fly = true },
-    strike = { system = "burst", sprite = "shock_ring", size = 240, area = true, life = 0.35, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
+    strike = { system = "burst", sprite = "shock_ring", size = 170, life = 0.3, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
   arcane = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.16, ground = "spark_star", ground_size = 180, ground_seconds = 0.26, height = 70, fly = true },
     strike = { system = "burst", sprite = "vortex", size = 240, area = true, life = 0.35, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
 }
@@ -337,6 +337,7 @@ function M.ini_row(id)
   if r.line then add("bGroundLine", "True") end
   if r.height then add("GroundHeightCm", number(r.height * M.WORLD_CM)) end
   if r.face_camera then add("GroundFaceCamera", number(r.face_camera)) end
+  if r.ground_roll then add("GroundRoll", number(r.ground_roll)) end
   if r.fly then add("bGroundFly", "True") end
   return ('("%s",(%s))'):format(id, table.concat(f, ","))
 end
