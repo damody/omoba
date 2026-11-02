@@ -86,6 +86,7 @@ return function(ctx)
                     } },
                 } },
             } },
+            { op = "cue", id = "a14w_spear_cast", at = "caster", to = "target" },
           },
         },
         coverage = "expressible", confidence = "low",
@@ -180,6 +181,7 @@ return function(ctx)
           stats = { str = "$str_bonus" },
           triggers = {
             on_attack_hit = {
+              { op = "cue", id = "a14r_stack_hit", at = "event.target" },
               { op = "if", cond = "state.a14r_count < state.a14t_bonus", actions = {
                 { op = "set_state", var = "a14r_count", value = "state.a14t_bonus" },
               } },

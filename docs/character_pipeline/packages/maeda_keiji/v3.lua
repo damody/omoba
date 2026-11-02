@@ -75,7 +75,7 @@ return function(ctx)
         events = {
           on_phase_start = { { op = "cue", id = "c05e_vo", at = "caster" } },
           on_cast = {
-            { op = "cue", id = "c05e_cast_sound", at = "caster" },
+            { op = "cue", id = "c05e_cast_sound", at = "caster", radius = "$radius" },
             { op = "for_each",
               select = { from = "caster", shape = "circle", radius = "$radius", team = "enemy",
                 types = { "hero", "creep", "neutral", "summon" }, flags = { "visible_only" } },

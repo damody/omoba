@@ -105,7 +105,7 @@ return function(ctx)
         events = {
           on_phase_start = { { op = "cue", id = "c03e_vo", at = "caster" } },
           on_cast = {
-            { op = "cue", id = "c03e_thunder_clap", at = "caster" },
+            { op = "cue", id = "c03e_thunder_clap", at = "caster", radius = "$radius" },
             { op = "for_each",
               select = { from = "caster", shape = "circle", radius = "$radius", team = "enemy",
                 types = { "hero", "creep", "neutral", "summon" } },
@@ -236,7 +236,7 @@ return function(ctx)
             { op = "repeat", count = "floor($total_time / $interval) + 1", interval = "$interval", first = "0", as = "k",
               actions = {
                 { op = "let", name = "center", value = "offset(start, dir, $speed * $interval * k + $forward_offset)" },
-                { op = "cue", id = "c03t_hammer_hit", at = "center" },
+                { op = "cue", id = "c03t_hammer_hit", at = "center", radius = "$radius" },
                 { op = "for_each",
                   select = { from = "center", shape = "circle", radius = "$radius", team = "enemy",
                     types = { "hero", "creep", "neutral", "summon" }, flags = { "include_magic_immune" } },

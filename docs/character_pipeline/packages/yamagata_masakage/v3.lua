@@ -53,6 +53,7 @@ return function(ctx)
             { op = "repeat", interval = "$wave_interval", first = "0", count = "$waves", actions = {
               { op = "cue", id = "b20w_rock", at = "caster", to = "at", duration = "$flight_time" },
               { op = "delay", time = "$flight_time", capture = { "at" }, actions = {
+                { op = "cue", id = "b20w_rock_land", at = "at", radius = "$radius" },
                 { op = "for_each",
                   select = { from = "at", shape = "circle", radius = "$radius", team = "enemy",
                     types = { "hero", "creep", "neutral", "summon" } },
@@ -154,6 +155,7 @@ return function(ctx)
             on_ability_executed = { who = "self",
               filter = "not event.ability.is_toggle and not is_item(event.ability, item_logging) and not is_item(event.ability, item_tpscroll) and not is_item(event.ability, item_flash_shoes) and not is_item(event.ability, item_flash_ring) and not is_item(event.ability, item_samurai_cloth)",
               actions = {
+                { op = "cue", id = "b20r_restore", at = "self" },
                 { op = "set_mana", to = "self", value = "min(self.mana + self.max_mana * $mana_pct, self.max_mana)" },
                 { op = "if", cond = "self.hp_pct < $low_hp", actions = {
                   { op = "heal", to = "self", source = "self", amount = "self.max_hp * $heal_pct" },

@@ -257,7 +257,7 @@ return function(ctx)
           on_cast = {
             { op = "cue", id = "b27t_vo", at = "caster" },
             { op = "cue", id = "b27t_title" },
-            { op = "cue", id = "b27t_slam", at = "caster" },
+            { op = "cue", id = "b27t_slam", at = "caster", radius = "$radius" },
             { op = "for_each",
               select = { from = "caster", shape = "circle", radius = "$radius", team = "enemy", types = BASIC,
                 flags = { "include_magic_immune" } },

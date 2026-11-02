@@ -55,7 +55,7 @@ return function(ctx)
                     { op = "damage", to = "it", type = "magical", amount = "$damage", require_source_alive = false },
                     { op = "cue", id = "b26w_fire_explode", at = "it" },
                   } },
-                { op = "cue", id = "b26w_charge_pulse", at = "self" },
+                { op = "cue", id = "b26w_charge_pulse", at = "self", radius = "$radius" },
               } },
               -- 原作 modifier_B26W OnDestroy → B26D()：D 等級為 1 才釋放，釋放時把 D 設回 0
               on_removed = { filter = "ability_level(self, b26_release_wave) == 1", actions = {
@@ -67,7 +67,7 @@ return function(ctx)
                   actions = {
                     { op = "apply_status", status = "b26w_slow", to = "it" },
                   } },
-                { op = "cue", id = "b26w_shockwave", at = "self" },
+                { op = "cue", id = "b26w_shockwave", at = "self", radius = "$burst_radius" },
               } },
             },
             notes = "原作 modifier_B26W：IsPurgable 1、IsBuff、Duration %duration、ThinkInterval 1。" },
@@ -190,6 +190,7 @@ return function(ctx)
               op = "chance", p = "$chance",
               actions = {
                 { op = "if", cond = "not event.damage.lethal", actions = {
+                  { op = "cue", id = "b26r_restore", at = "self" },
                   { op = "set_health", to = "self", value = "self.hp + event.damage.final" },
                 } },
               } } },

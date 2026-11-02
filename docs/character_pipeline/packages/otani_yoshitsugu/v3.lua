@@ -112,6 +112,7 @@ return function(ctx)
                 { op = "if", cond = "state.a12d_count >= $trigger_at", actions = {
                   { op = "if", cond = "not event.ability.is_item and not is_ability(event.ability, a12_mystic_possession)",
                     actions = {
+                      { op = "cue", id = "a12d_ready", at = "self" },
                       { op = "set_state", var = "a12d_empowered", value = "true" },
                       { op = "set_state", var = "a12d_count", value = "0" },
                     },
@@ -250,7 +251,7 @@ return function(ctx)
         events = {
           on_cast = {
             { op = "cue", id = "a12r_vo", at = "caster" },
-            { op = "cue", id = "a12r_burst", at = "point" },
+            { op = "cue", id = "a12r_burst", at = "point", radius = "$radius" },
             { op = "if", cond = "state.a12d_empowered", actions = {
               { op = "for_each",
                 select = { from = "point", shape = "circle", radius = "$empowered_radius", team = "enemy",
@@ -410,6 +411,7 @@ return function(ctx)
         },
         events = {
           on_cast = {
+            { op = "cue", id = "a12t_cast", at = "caster" },
             { op = "if", cond = "has_status(caster, a12t_form)",
               actions = {
                 -- 原作：A12R 已被換掉（FindAbilityByName 為 nil）→ EndCooldown 後 return；接著 ApplyModifier 仍刷新 modifier_A12T
@@ -596,7 +598,7 @@ return function(ctx)
         events = {
           on_cast = {
             { op = "cue", id = "a12r_vo", at = "caster" },
-            { op = "cue", id = "a12r_burst", at = "point" },
+            { op = "cue", id = "a12r_burst", at = "point", radius = "$damage_radius" },
             { op = "for_each",
               select = { from = "point", shape = "circle", radius = "$damage_radius", team = "enemy",
                 types = { "hero", "creep", "neutral", "summon" }, flags = { "include_magic_immune" } },

@@ -32,6 +32,7 @@ return function(ctx)
           reveal = "public",
           triggers = {
             on_take_damage = {
+              { op = "cue", id = "a01d_restore", at = "self" },
               { op = "let", name = "part", value = "event.damage.final * $heal_pct" },
               { op = "restore_mana", to = "self", source = "self", amount = "event.damage.final * $mana_pct" },
               { op = "if", cond = "part < self.hp", actions = {
@@ -142,6 +143,7 @@ return function(ctx)
         events = {
           on_cast = {
             { op = "cue", id = "a01e_vo", at = "caster" },
+            { op = "cue", id = "a01e_net_land", at = "point", radius = "$radius" },
             { op = "for_each",
               select = { from = "point", shape = "circle", radius = "$radius", team = "enemy", types = { "all" },
                 flags = { "include_magic_immune" } },

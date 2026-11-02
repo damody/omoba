@@ -3129,6 +3129,7 @@ return {
     ["particles/a12t/a12t_aura.vpcf"] = {
       cues = {
         "a12t_aura",
+        "a12t_cast",
       },
       kind = "particle",
       refs = {
@@ -4403,6 +4404,7 @@ return {
     ["particles/b20w/b20w.vpcf"] = {
       cues = {
         "b20w_rock",
+        "b20w_rock_land",
       },
       kind = "particle",
       refs = {
@@ -5222,7 +5224,6 @@ return {
       kind = "particle",
       refs = {
         "npc/C_Neutral/C11.txt:305",
-        "npc/C_Neutral/C11.txt:435",
         "npc/C_Neutral/C11.txt:458",
       },
     },
@@ -6690,6 +6691,7 @@ return {
     ["particles/item/supressor_armor.vpcf"] = {
       cues = {
         "a18r_shield_glow",
+        "supressor_armor_shield",
         "supressor_armor",
       },
       kind = "particle",
@@ -6833,6 +6835,7 @@ return {
     },
     ["particles/items_fx/aura_assault.vpcf"] = {
       cues = {
+        "a01d_restore",
         "a16e_status_effect",
         "a16e_link_aura",
         "b23t_victory_anim",
@@ -8066,6 +8069,26 @@ return {
     },
   },
   cues = {
+    a01d_restore = {
+      assets = {
+        {
+          confidence = "low",
+          entry = "a01_realm_momentum",
+          kind = "particle",
+          path = "particles/items_fx/aura_assault.vpcf",
+          ref = "npc/A_Oda/A01.txt:64",
+        },
+      },
+      kind = "effect",
+      uses = {
+        {
+          doc = "A01",
+          entry = "a01_realm_momentum",
+          kind = "effect",
+          where = "on_take_damage cue",
+        },
+      },
+    },
     a01e_net = {
       assets = {
         {
@@ -8083,6 +8106,19 @@ return {
           entry = "a01_heaven_net",
           kind = "aura",
           where = "status a01e_root .cue",
+        },
+      },
+    },
+    a01e_net_land = {
+      assets = {},
+      kind = "effect",
+      placeholder = "generic",
+      uses = {
+        {
+          doc = "A01",
+          entry = "a01_heaven_net",
+          kind = "effect",
+          where = "on_cast cue",
         },
       },
     },
@@ -8792,7 +8828,7 @@ return {
           doc = "A04",
           entry = "a04_frost_shelter",
           kind = "effect",
-          where = "status a04r_shield on_take_damage in if cue",
+          where = "status a04r_shield on_broken cue",
         },
       },
     },
@@ -9512,6 +9548,12 @@ return {
       kind = "effect",
       placeholder = "generic",
       uses = {
+        {
+          doc = "A07",
+          entry = "a07_shattering_spear",
+          kind = "effect",
+          where = "on_attack_windup in if cue",
+        },
         {
           doc = "A07",
           entry = "a07_shattering_spear",
@@ -10441,6 +10483,19 @@ return {
         },
       },
     },
+    a12d_ready = {
+      assets = {},
+      kind = "effect",
+      placeholder = "generic",
+      uses = {
+        {
+          doc = "A12",
+          entry = "a12_scheme",
+          kind = "effect",
+          where = "on_ability_executed in if cue",
+        },
+      },
+    },
     a12e_heal_number = {
       assets = {
         {
@@ -10662,6 +10717,26 @@ return {
           entry = "a12_mystic_possession",
           kind = "aura",
           where = "status a12t_form .cue",
+        },
+      },
+    },
+    a12t_cast = {
+      assets = {
+        {
+          confidence = "low",
+          entry = "a12_mystic_possession",
+          kind = "particle",
+          path = "particles/a12t/a12t_aura.vpcf",
+          ref = "npc/A_Oda/A12.txt:845",
+        },
+      },
+      kind = "effect",
+      uses = {
+        {
+          doc = "A12",
+          entry = "a12_mystic_possession",
+          kind = "effect",
+          where = "on_cast cue",
         },
       },
     },
@@ -11022,6 +11097,19 @@ return {
         },
       },
     },
+    a14r_stack_hit = {
+      assets = {},
+      kind = "effect",
+      placeholder = "generic",
+      uses = {
+        {
+          doc = "A14",
+          entry = "a14_stacked_spear",
+          kind = "effect",
+          where = "on_attack_hit cue",
+        },
+      },
+    },
     a14t_lightning = {
       assets = {
         {
@@ -11119,6 +11207,19 @@ return {
           entry = "a14_impact_spear",
           kind = "aura",
           where = "status a14w_slow .cue",
+        },
+      },
+    },
+    a14w_spear_cast = {
+      assets = {},
+      kind = "effect",
+      placeholder = "generic",
+      uses = {
+        {
+          doc = "A14",
+          entry = "a14_impact_spear",
+          kind = "effect",
+          where = "on_cast cue",
         },
       },
     },
@@ -12664,13 +12765,19 @@ return {
           doc = "A24",
           entry = "a24_blood_shield",
           kind = "effect",
-          where = "periodic in if cue",
+          where = "status a24d_shield on_broken cue",
         },
         {
           doc = "A24",
           entry = "A24:shared",
           kind = "effect",
           where = "cue",
+        },
+        {
+          doc = "A24",
+          entry = "A24:shared",
+          kind = "effect",
+          where = "in if.otherwise cue",
         },
       },
     },
@@ -18543,6 +18650,19 @@ return {
         },
       },
     },
+    b20r_restore = {
+      assets = {},
+      kind = "effect",
+      placeholder = "generic",
+      uses = {
+        {
+          doc = "B20",
+          entry = "b20_tenacity",
+          kind = "effect",
+          where = "on_ability_executed cue",
+        },
+      },
+    },
     b20t_epicenter = {
       assets = {},
       kind = "effect",
@@ -18593,6 +18713,26 @@ return {
           entry = "b20_rock_rush",
           kind = "effect",
           where = "on_cast in repeat cue",
+        },
+      },
+    },
+    b20w_rock_land = {
+      assets = {
+        {
+          confidence = "low",
+          entry = "b20_rock_rush",
+          kind = "particle",
+          path = "particles/b20w/b20w.vpcf",
+          ref = "vscripts/heroes/B_Unified/B20.lua:18",
+        },
+      },
+      kind = "effect",
+      uses = {
+        {
+          doc = "B20",
+          entry = "b20_rock_rush",
+          kind = "effect",
+          where = "on_cast in delay cue",
         },
       },
     },
@@ -19509,6 +19649,19 @@ return {
           entry = "b26_blood_fury",
           kind = "sound",
           where = "on_cast cue",
+        },
+      },
+    },
+    b26r_restore = {
+      assets = {},
+      kind = "effect",
+      placeholder = "generic",
+      uses = {
+        {
+          doc = "B26",
+          entry = "b26_kozuke_valor",
+          kind = "effect",
+          where = "on_take_damage in if cue",
         },
       },
     },
@@ -24199,6 +24352,12 @@ return {
           kind = "aura",
           where = "status c11t_haste .cue",
         },
+        {
+          doc = "C11",
+          entry = "c11_unrivaled",
+          kind = "aura",
+          where = "status c11t_stun .cue",
+        },
       },
     },
     c11r_thunder_ring = {
@@ -26070,6 +26229,12 @@ return {
           doc = "C21",
           entry = "c21_soaring_quake",
           kind = "effect",
+          where = "on_cast in for_each cue",
+        },
+        {
+          doc = "C21",
+          entry = "c21_soaring_quake",
+          kind = "effect",
           where = "on_cast cue",
         },
       },
@@ -27828,6 +27993,12 @@ return {
         {
           doc = "batch_i1",
           entry = "item_insight_gem_shard",
+          kind = "effect",
+          where = "on_cast cue",
+        },
+        {
+          doc = "batch_i1",
+          entry = "item_insight_gem",
           kind = "effect",
           where = "on_cast cue",
         },
@@ -29638,6 +29809,26 @@ return {
         },
       },
     },
+    supressor_armor_shield = {
+      assets = {
+        {
+          confidence = "medium",
+          entry = "item_devil_supressor_armor",
+          kind = "particle",
+          path = "particles/item/supressor_armor.vpcf",
+          ref = "vscripts/items/Addon_Items/item_devil_supressor_armor.lua:135",
+        },
+      },
+      kind = "aura",
+      uses = {
+        {
+          doc = "batch_i0",
+          entry = "item_devil_supressor_armor",
+          kind = "aura",
+          where = "status devil_supressor_shield .cue",
+        },
+      },
+    },
     ta_focal_base_attack_explosion = {
       assets = {
         {
@@ -29805,14 +29996,6 @@ return {
         kind = "particle",
         path = "particles/units/heroes/hero_death_prophet/death_prophet_exorcism_attack_building.vpcf",
         ref = "vscripts/heroes/A_Oda/A29_Ishida_Mitsunari.lua:141",
-      },
-    },
-    a01_realm_momentum = {
-      {
-        context = "DOTAAbilities > A01D > Modifiers > modifier_A01D",
-        kind = "particle",
-        path = "particles/items_fx/aura_assault.vpcf",
-        ref = "npc/A_Oda/A01.txt:64",
       },
     },
     a02_wind_drift = {
@@ -32447,18 +32630,6 @@ return {
     },
     c11_unrivaled = {
       {
-        context = "DOTAAbilities > C11T > OnProjectileHitUnit > ApplyModifier",
-        kind = "particle",
-        path = "particles/c11/c11r.vpcf",
-        ref = "npc/C_Neutral/C11.txt:435",
-      },
-      {
-        context = "DOTAAbilities > C11T > Modifiers > modifier_C11T_stun",
-        kind = "particle",
-        path = "particles/c11/c11r.vpcf",
-        ref = "npc/C_Neutral/C11.txt:458",
-      },
-      {
         context = "C11W_hit_unit",
         kind = "particle",
         path = "particles/units/heroes/hero_zuus/zuus_arc_lightning_head.vpcf",
@@ -32883,14 +33054,6 @@ return {
         kind = "particle",
         path = "particles/generic_gameplay/dust_impact_medium.vpcf",
         ref = "vscripts/items/Addon_Items/item_death_of_scepter.lua:26",
-      },
-    },
-    item_devil_supressor_armor = {
-      {
-        context = "ShockTarget",
-        kind = "particle",
-        path = "particles/item/supressor_armor.vpcf",
-        ref = "vscripts/items/Addon_Items/item_devil_supressor_armor.lua:135",
       },
     },
     item_earth_wall_book = {

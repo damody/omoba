@@ -150,4 +150,37 @@ mod tests {
         assert!(!traced.2.is_empty(), "the batch publishes facts");
         assert_eq!(traced, run(false));
     }
+
+    /// A script's cue and its area ring are presentation: the same batch with or without them
+    /// settles the same life, statuses and match digest (the ring takes a fact number, so fact
+    /// keys are not compared).
+    #[test]
+    fn cues_and_area_rings_leave_the_digest_alone() {
+        let run = |cues: bool| {
+            let (mut world, mut driver, a, b) = world();
+            driver.step(&mut world, []).unwrap();
+            let _ = world.read_resource::<crate::runtime::ObservableFactBuffer>().drain_ordered().unwrap();
+            let mut batch = Vec::new();
+            for (index, (source, target)) in [(a, b), (b, a), (a, b)].into_iter().enumerate() {
+                if cues {
+                    batch.push(Outcome::Cue { cue: 99, source: Some(source), at_unit: Some(target), at_point: (0, 0), to_unit: None,
+                        to_point: None, radius_raw: Fixed64::from_i32(400).raw(), duration_raw: 0 });
+                    batch.push(Outcome::Explosion { pos: omoba_sim::Vec2::ZERO, radius: Fixed64::from_i32(400), duration: Fixed64::ONE });
+                }
+                batch.push(Outcome::ScriptDamageCredit { credit: source });
+                batch.push(Outcome::RawDamage { pos: omoba_sim::Vec2::ZERO, phys: Fixed64::from_i32(20), magi: Fixed64::from_i32(30),
+                    real: Fixed64::ZERO, source, target, damage_profile: DamageProfile::NORMAL.bits(), origin: None });
+                batch.push(Outcome::AddBuff { target, buff_id: format!("cue_probe_{index}"), duration: Fixed64::from_i32(3),
+                    payload: serde_json::json!({}) });
+            }
+            world.write_resource::<Vec<Outcome>>().extend(batch);
+            let mut events = crate::runtime::native::events::RuntimeEventVecSink::default();
+            crate::runtime::native::game_processor::process_outcomes(&mut world, &mut events).unwrap();
+            let hp = [a, b].map(|unit| world.read_storage::<crate::runtime::comp::CProperty>().get(unit).unwrap().hp.raw());
+            let buffs = [a, b].map(|unit| (0..3).map(|index| world.read_resource::<crate::runtime::BuffStore>()
+                .has(unit, &format!("cue_probe_{index}"))).collect::<Vec<_>>());
+            (hp, buffs, crate::runtime::single_lane_replay_digest(&world))
+        };
+        assert_eq!(run(true), run(false));
+    }
 }
