@@ -63,6 +63,7 @@ function M.build(root)
   local problems = {}
   local names = compiler.item_names(root .. "/" .. sources.ITEMS)
   local ships = shipped(root, sources.PACKAGES)
+  for _, h in ipairs(sources.shipped_v3(root)) do ships[h.package] = h.id end
   local content = { schema = compiler.SCHEMA, kind = "full", heroes = {}, abilities = {}, items = {} }
   local function compile(file)
     local doc, err = validator.load_file(file)

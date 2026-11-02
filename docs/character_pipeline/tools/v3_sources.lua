@@ -68,4 +68,20 @@ function M.all(root)
   return out
 end
 
+-- Heroes the game ships from a v3 document: the playable rows of the generated test-hero template
+-- (they name a roster hero by source_ref, so omoba_template_ids::hero_playable holds for them).
+function M.shipped_v3(root)
+  local chunk = loadfile(root .. "/scripts/lua_data/templates/v3_test_heroes.lua", "t", {})
+  if not chunk then return {} end
+  local data = chunk()
+  if type(data) == "function" then data = data({}) end
+  local out = {}
+  for _, h in ipairs(data.heroes or {}) do
+    if h.source_ref then
+      out[#out + 1] = { id = h.id, package = h.authored_package, source_id = h.source_ref:match(":([^:]+)$") }
+    end
+  end
+  return out
+end
+
 return M

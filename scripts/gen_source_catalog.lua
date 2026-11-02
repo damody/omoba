@@ -53,12 +53,43 @@ function M.playable(packages_dir)
   return map
 end
 
+-- Is the shelf row's active a scripted one (items.dll runs it, the host checks the catalog's target
+-- and costs)? From the generated shelf numbers.
+local shelf_rows
+function M.scripted(root, id)
+  if not shelf_rows then
+    local chunk = loadfile(root .. "/scripts/lua_data/templates/item_shop_v3.lua", "t", {})
+    shelf_rows = chunk and chunk() or {}
+    if type(shelf_rows) == "function" then shelf_rows = shelf_rows({}) end
+  end
+  local row = shelf_rows[(id:gsub("^item_", ""))]
+  return row and row.scripted and row.scripted.active and row.scripted.active.kind == "scripted" or nil
+end
+
+-- The stats of an item that hold only while a condition does: { { stat, when, status? } }, sorted.
+function M.conditions(it)
+  local out = {}
+  local function scan(stats, status)
+    for stat, v in pairs(stats or {}) do
+      if type(v) == "table" and v.when then out[#out + 1] = { stat = stat, when = v.when, status = status } end
+    end
+  end
+  scan(it.passive and it.passive.stats)
+  for _, s in ipairs(it.statuses or {}) do scan(s.stats, s.id) end
+  table.sort(out, function(a, b)
+    if (a.status or "") ~= (b.status or "") then return (a.status or "") < (b.status or "") end
+    return a.stat < b.stat
+  end)
+  return #out > 0 and out or nil
+end
+
 -- root: the repo root (default: this checkout)
 function M.build(root)
   root = root or b.root
   local validator, compiler, sources = tools(root)
   local problems = {}
   local playable = M.playable(root .. "/" .. sources.PACKAGES)
+  for _, h in ipairs(sources.shipped_v3(root)) do playable[h.source_id] = h.id end
   local names = compiler.item_names(root .. "/" .. sources.ITEMS)
   local catalog = { schema = compiler.SCHEMA, kind = "source", heroes = {}, abilities = {}, items = {}, owners = {} }
   local owner_seen = {}
@@ -131,7 +162,8 @@ function M.build(root)
               catalog.items[#catalog.items + 1] = { id = it.id, source_id = it.source_id,
                 name = { zh_TW = it.text and it.text.zh_TW and it.text.zh_TW.name, en = it.text and it.text.en and it.text.en.name },
                 cost = cost, recipe = recipe, category = type(shop.category) == "string" and shop.category or nil,
-                deferred = it.coverage == "deferred" and (it.deferred_reason or true) or nil, v3 = block }
+                deferred = it.coverage == "deferred" and (it.deferred_reason or true) or nil, v3 = block,
+                scripted = M.scripted(root, it.id), conditions = M.conditions(it) }
             end
             for _, d in ipairs(doc.deferred or {}) do
               catalog.items[#catalog.items + 1] = { id = d.id or d.source_id:lower(), source_id = d.source_id,

@@ -43,10 +43,11 @@ for _, id in ipairs({ 'A11', 'A13', 'A21', 'B01', 'B11', 'B22', 'C01', 'C06', 'C
 end
 local per_lang = {}
 for _, p in ipairs(r.pages) do per_lang[p.lang] = (per_lang[p.lang] or 0) + 1 end
-ok(per_lang.zh_TW == per_lang.en and per_lang.en == 3 + #cat.heroes + #cat.items, 'one page set per language')
+ok(per_lang.zh_TW == per_lang.en and per_lang.en == 3 + #cat.heroes + #cat.items + 4, 'one page set per language (4: the manuals)')
 local spans = 0
 for _, p in ipairs(r.pages) do
-  local errs, counts = CHECK.page(p.html, r.context, nil, p.hero)
+  local errs, counts = {}, { values = 0 }
+  if not p.manual then errs, counts = CHECK.page(p.html, r.context, nil, p.hero) end
   ok(#errs == 0, p.path .. ': ' .. table.concat(errs, '; '))
   spans = spans + counts.values
 end
@@ -162,7 +163,7 @@ ok(a24.html:find('badge warn">未上架', 1, true), 'an unshipped hero is marked
 local home = page('zh-TW/index.html')
 ok(home.html:find('<h2>已上架</h2>', 1, true) and home.html:find('<h2>未上架</h2>', 1, true), 'home groups shipped and unshipped heroes')
 local shop = page('zh-TW/items/index.html')
-ok(shop.html:find('原作有、尚未移植的道具', 1, true) and shop.html:find('not_in_source', 1, true), 'unported items are listed with their reason')
+ok(shop.html:find('原作商店表有列、但沒有定義的道具', 1, true) and shop.html:find('not_in_source', 1, true), 'unported items are listed with their reason')
 ok(not page('zh-TW/items/item_ancient_doll.html'), 'an unported item has no item page')
 ok(c17.html:find('fixture0000000000', 1, true) and c17.html:find(fixture('v3-content-catalog-sample.json').content_data_hash, 1, true),
   'footer shows the game content hash and the source catalog hash')
@@ -176,7 +177,7 @@ local gap_a24 = (function() for _, x in ipairs(gap.pages) do if x.path == 'zh-TW
 ok(gap_a24.html:find('class="missing-value"', 1, true), '... and shown as a gap, never a number')
 ok(#CHECK.page(gap_a24.html, gap.context, nil, gap_a24.hero) == 0, '... which the page check accepts')
 for _, p in ipairs(full.pages) do
-  local errs = CHECK.page(p.html, full.context, nil, p.hero)
+  local errs = p.manual and {} or CHECK.page(p.html, full.context, nil, p.hero)
   ok(#errs == 0, p.path .. ': ' .. table.concat(errs, '; '))
 end
 
@@ -199,5 +200,22 @@ local bad = path.join(tmp, 'bad.lua')
 path.write(bad, 'return function(ctx) return { schema_version = 3, kind = "hero", id = "X" } end\n', true)
 local _, berrs = A.build({ bad })
 ok(#berrs > 0, 'invalid document is an error')
+
+-- 11. manuals: the schema documents as pages; an item's conditions read as words
+local Manual = require('site.manual')
+local md = Manual.render(table.concat({ '# T', '', '| a | b |', '|---|---|', '| `x\\|y` | **z** |', '', '- one', '  - two', '- three', '', '```lua', '<x>', '```', '', '[v](v3.md#s1) [p](../p.md) [w](https://a.b)' }, '\n'))
+ok(md:find('<h1 id="s1">T</h1>', 1, true), 'manual heading')
+ok(md:find('<code>x|y</code>', 1, true), 'a bar inside a code cell stays')
+ok(md:find('<strong>z</strong>', 1, true), 'manual bold')
+ok(md:find('<li>one\n<ul><li>two\n</li></ul>\n</li><li>three', 1, true), 'nested list: ' .. md)
+ok(md:find('&lt;x&gt;', 1, true), 'code is escaped')
+ok(md:find('<a href="schema.html#s1">v</a>', 1, true) and not md:find('[p]', 1, true) and md:find('<a href="https://a.b">w</a>', 1, true), 'manual links')
+ok(page('zh-TW/manual/schema.html') and page('en/manual/index.html') and page('zh-TW/manual/vocab.html'), 'manual pages exist')
+ok(c17.html:find('manual/index.html', 1, true), 'manuals are in the navigation')
+local W, ZH = require('site.pages').when_text, require('site.i18n').strings('zh_TW')
+ok(W('self.is_hero', ZH) == ZH.when_forms.is_hero, 'when: hero')
+ok(W('not primary_is(self, str)', ZH) == '主屬性不是力量時', 'when: not primary')
+ok(W('primary_is(self, agi)', ZH) == '主屬性是敏捷時', 'when: primary')
+ok(W('x > y', ZH):find('<code>x &gt; y</code>', 1, true), 'when: other forms show as written')
 
 print(string.format('site_build_test: %d pages, %d value spans, %d checks passed', #r.pages, spans, checks))

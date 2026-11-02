@@ -40,7 +40,7 @@ return function(ctx)
       { source_id = "item_the_great_bow_of_scorpion", reason = "not_in_source",
         note = "商店清單 shops/nobu_shops.txt:264 有蠍尾妖弓，但 npc_items_custom_load.txt 沒有道具定義；只有 item_the_great_sword_of_toxic.lua:36-45,122 以名稱套用 Passive_the_great_bow_of_scorpion3 等 modifier。" },
       { source_id = "item_the_great_spirited_away", reason = "not_in_source",
-        note = "商店清單 shops/nobu_shops.txt:261 有神隱；npc_items_custom_load.txt:16507 起的定義整段被註解，vscripts 也沒有 item_the_great_spirited_away.lua。" },
+        note = "商店清單 shops/nobu_shops.txt:261 有神隱；npc_items_custom_load.txt:16507 起的定義整段被註解。殘留 vscripts/items/Addon_Items/item_the_great_spirited_away.lua，沒有 KV 引用，不會執行。" },
       { source_id = "item_the_great_sword_of_banish", reason = "not_in_source",
         note = "商店清單 shops/nobu_shops.txt:258 有大典太光世；KV 沒有定義。殘留 vscripts/items/Addon_Items/item_the_great_sword_of_banish.lua 與 B08_ai.lua:352 以名稱引用，都不會執行。" },
       { source_id = "item_the_great_sword_of_berserker", reason = "not_in_source",

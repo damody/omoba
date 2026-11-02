@@ -30,7 +30,7 @@ return function(ctx)
 
     deferred = {
       { source_id = "item_the_great_sword_of_weakness", reason = "not_in_source",
-        note = "shops/nobu_shops.txt:257（路邊名刀舖）列出天之叢雲．銘刀，但 npc_items_custom_load.txt 沒有定義，scripts/ 全文搜尋只在商店檔出現；原作遊戲裡買不到。" },
+        note = "shops/nobu_shops.txt:257（路邊名刀舖）列出天之叢雲．銘刀，但 npc_items_custom_load.txt 沒有定義；殘留 vscripts/items/Addon_Items/item_the_great_sword_of_weakness.lua，沒有 KV 引用，不會執行。原作遊戲裡買不到。" },
       { source_id = "item_the_shell_of_spirituality_kappa", reason = "not_in_source",
         note = "shops/nobu_shops.txt:145 列出妖化河童殼；npc_items_custom_load.txt 只有在某個合成表的 ItemRequirements（:17228）與 eventfororder.lua:251 的名單中以名稱出現，本身沒有定義。" },
       { source_id = "item_waterfall_book", reason = "not_in_source",
