@@ -113,7 +113,7 @@ M.RECIPES = {
   c22e_voice = { system = "pop", sprite = "crescent_slash", size = 340, life = 0.3, tint = STEEL },
   c22e_swallow = { system = "stream", sprite = "swallow", size = 170, life = 0.9, loop = true, face = true, tint = STEEL,
     ground = "swallow", ground_size = 260, ground_seconds = 20, height = 90 },
-  c22e_impact = { system = "burst", sprite = "spark_star", size = 280, life = 0.5, tint = STEEL,
+  c22e_impact = { system = "burst", sprite = "crescent_slash", size = 300, area = true, life = 0.5, tint = STEEL,
     ground = "crescent_slash", ground_size = 420, ground_seconds = 0.4, height = 60, grow = 0.5 },
   c22r_crit_sound = { system = "burst", sprite = "crescent_slash", size = 300, life = 0.4, tint = GOLD, area = true,
     ground = "blink_flash", ground_size = 340, ground_seconds = 0.3, height = 30, grow = 0.4 },
@@ -203,14 +203,16 @@ M.RECIPES.fx_stun = { system = "stream", sprite = "spark_star", size = 60, life 
 -- Basic attacks, generated: fx_swing_<hero> at the attacker, fx_strike_<hero> at the target (OmUnitActor::PlayAttackFx).
 M.WEAPONS = {
   katana = { swing = { system = "pop", sprite = "crescent_slash", size = 150, life = 0.15 },
-    strike = { system = "pop", sprite = "spark_star", size = 150, life = 0.2, ground = "blink_flash", ground_size = 150, ground_seconds = 0.2, height = 30, grow = 0.4 } },
+    strike = { system = "burst", sprite = "crescent_slash", size = 200, life = 0.3, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
   axe = { swing = { system = "pop", sprite = "crescent_slash", size = 190, life = 0.18 },
-    strike = { system = "pop", sprite = "spark_star", size = 170, life = 0.22, ground = "dust_crack", ground_size = 230, ground_seconds = 0.35, grow = 0.4 } },
+    strike = { system = "burst", sprite = "crescent_slash", size = 210, life = 0.32, ground = "dust_crack", ground_size = 240, ground_seconds = 0.4, grow = 0.4 } },
   spear = { swing = { ground = "chain_bolt", ground_size = 90, ground_seconds = 0.2, line = true },
-    strike = { system = "pop", sprite = "spark_star", size = 150, life = 0.2, ground = "blink_flash", ground_size = 150, ground_seconds = 0.2, height = 30, grow = 0.4 } },
+    strike = { system = "burst", sprite = "crescent_slash", size = 190, life = 0.28, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
   gun = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.14,
-      ground = "spark_star", ground_size = 90, ground_seconds = 0.2, height = 70, fly = true } },
-  arcane = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.16, ground = "spark_star", ground_size = 90, ground_seconds = 0.26, height = 70, fly = true } },
+      ground = "spark_star", ground_size = 90, ground_seconds = 0.2, height = 70, fly = true },
+    strike = { system = "burst", sprite = "shock_ring", size = 170, life = 0.3, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
+  arcane = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.16, ground = "spark_star", ground_size = 90, ground_seconds = 0.26, height = 70, fly = true },
+    strike = { system = "burst", sprite = "vortex", size = 170, life = 0.3, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
 }
 M.ATTACKS = {
   sasaki_kojiro = { "katana", STEEL }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.35, 0.25 } },

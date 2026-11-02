@@ -387,10 +387,23 @@ function M.view_radius(doc,id)
   end
 end
 
+-- A skill's segment lasts as long as the skill, so what it leaves does not run into the next segment.
+M.BASE_HOLD,M.MAX_HOLD=4.5,12
+function M.hold_seconds(doc,id)
+  for _,ability in ipairs(doc and doc.abilities or {}) do
+    if ability.id==id and type(ability.values)=='table' then
+      local value,most=ability.values.duration,0
+      if type(value)=='number' then most=value end
+      if type(value)=='table' then for _,level in ipairs(value) do if type(level)=='number' then most=math.max(most,level) end end end
+      if most+0.5>M.BASE_HOLD then return math.min(most+0.5,M.MAX_HOLD) end
+    end
+  end
+end
+
 function M.script(package)
   local slots={}
   local doc=package.hero and M.v3_document(b.root,package.hero)
-  for _,slot in ipairs(package.slots) do slot.view=M.view_radius(doc,slot.id);slots[#slots+1]=slot end
+  for _,slot in ipairs(package.slots) do slot.view=M.view_radius(doc,slot.id);slot.hold=M.hold_seconds(doc,slot.id);slots[#slots+1]=slot end
   -- The death ends the recording: only the base stage has the enemies that strike it down.
   if M.recipe_for(package)==M.RECIPE then
     for _,show in ipairs(M.BODY_SHOWS) do slots[#slots+1]=show end
