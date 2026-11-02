@@ -1,5 +1,24 @@
 # omoba Character Pipeline Schema
 
+## 目前的 schema：v3
+
+技能、英雄和道具的內容以 **package schema v3** 為準，新內容都寫 v3：
+
+| 檔案 | 內容 |
+|---|---|
+| [v3.md](v3.md) | 結構、語意、運算式文法、驗證規則、變更紀錄（目前 v3.4） |
+| [v3-authoring.md](v3-authoring.md) | 作者指南：範本、原作寫法對照、道具上架步驟 |
+| [v3-vocab.md](v3-vocab.md) | 詞彙表，由 `tools\lua\lua.exe docs/character_pipeline/tools/package_v3.lua --vocab-md` 產生 |
+| [v3-content-model-proposal.md](v3-content-model-proposal.md) | catalog 格式（§2）；§4 的 IR 已取消 |
+
+- 英雄：`docs/character_pipeline/packages/<package>/v3.lua`，97 位都已上架，每位一個 DLL（`scripts/hero_dlls.lua`）。
+- 道具：`docs/character_pipeline/items/*.lua`，都編進 `items.dll`；上架步驟見 v3-authoring.md §11。
+- v3 文件在建置期由 Lua 驗證並產生 Rust，遊戲執行期沒有 Lua，也沒有解譯器。
+
+下面的 v1、v2 是最早移植的 10 位英雄還保留的舊檔格式（`character.lua`、`abilities.lua`……），以及模型、動畫管線用的 prompt 與資產檔。新英雄不用寫 v1、v2 的檔案。
+
+## 舊檔：schema v1（資產管線）
+
 Character packages live under `docs/character_pipeline/packages/<hero_id>/`.
 
 Each package uses Lua as the source of truth. Every Lua source file returns a function:

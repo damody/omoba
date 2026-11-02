@@ -239,8 +239,8 @@ datadriven modifier 的 Properties 不會乘上 StackCount，所以腳本疊的�
 | 編號 | 英雄／道具 | 技能 | 原作實際行為 | 設計意圖（推定） | 影響 | 建議 | 出處 |
 |---|---|---|---|---|---|---|---|
 | FC-112 | 當世具足 | 被動減傷 | 持有兩件時只有一份減傷，卸下任一件就整份移除，剩下那件不再提供，直到重新裝備 | 還有一件就保留減傷 | 低 | 修 ✓ 2026-10-29 已改 v3 文件，quirk 改 `fixed` | batch_I0.lua · item_contemporary_armor · vscripts/items/Addon_Items/item_contemporary_armor.lua:16-29 |
-| FC-113 | 紅雪左文字 | 被動暴擊 | 持有兩件時每次命中擲兩次，第二次蓋掉第一次，第二件不增加暴擊率，但兩次都推進保底計數 | 兩件各自判定（推定） | 低 | 修（使用者 2026-10-29 決定全修）：持有兩件時各自判定、各自累積保底計數（scope = item_instance） ✓ 已改 v3 文件 | batch_I1.lua · item_kousetsusamonnji · npc/npc_items_custom_load.txt:9604-9616 |
-| FC-114 | 長船．太刀 | 被動暴擊 | 同 FC-113 | 同 FC-113 | 低 | 修（使用者 2026-10-29 決定全修）：同 FC-113 ✓ 已改 v3 文件 | batch_I4.lua · item_the_great_sword_of_precision · npc/npc_items_custom_load.txt:3218-3243 |
+| FC-113 | 紅雪左文字 | 被動暴擊 | 持有兩件時每次命中擲兩次，第二次蓋掉第一次，第二件不增加暴擊率，但兩次都推進保底計數 | 兩件各自判定（推定） | 低 | 修（使用者 2026-10-29 決定全修）：持有兩件時各自判定、各自累積保底計數（scope = item_instance） ✓ 已改 v3 文件；⚠ 2026-11-02 runtime 未完成：host 同種道具的被動事件只跑一次，第二件沒有作用（v3.md §12.13，工作線 B） | batch_I1.lua · item_kousetsusamonnji · npc/npc_items_custom_load.txt:9604-9616 |
+| FC-114 | 長船．太刀 | 被動暴擊 | 同 FC-113 | 同 FC-113 | 低 | 修（使用者 2026-10-29 決定全修）：同 FC-113 ✓ 已改 v3 文件；⚠ runtime 未完成，同 FC-113 | batch_I4.lua · item_the_great_sword_of_precision · npc/npc_items_custom_load.txt:3218-3243 |
 
 ---
 
