@@ -1149,7 +1149,8 @@ return function(ctx)
         values = {
           cost = { 11200, unit = "gold", source = "kv:ItemCost" },
           attack = { 60, unit = "dmg", source = "kv:Passive_great_sword_of_hurricane MODIFIER_PROPERTY_PREATTACK_BONUS_DAMAGE" },
-          armor = { 10, unit = "armor", source = "kv:Passive_great_sword_of_hurricane MODIFIER_PROPERTY_PHYSICAL_ARMOR_BONUS" },
+          armor = { 10, unit = "armor", source = "kv:Passive_great_sword_of_hurricane MODIFIER_PROPERTY_PHYSICAL_ARMOR_BONUS",
+            source_differs = "來源匯出把被動 +10 和減益的 -10 加總成 0；被動是 +10" },
           cooldown = { 100, unit = "s", source = "kv:AbilityCooldown" },
           mana_cost = { 150, unit = "mana", source = "kv:AbilityManaCost" },
           tornado_range = { 1000, unit = "dist", source = "kv:tornado_range" },

@@ -83,6 +83,32 @@ local SOURCE_ITEMS = {
   { 153, "item_satsuma_gun", true },
   { 154, "item_toughness_ingot", true },
   { 155, "item_big_tachi", true },
+  -- Actives whose effects run in items.dll; the catalog's Scripted active and target come from the v3 document.
+  { 156, "item_flash_ring", true },
+  { 157, "item_flash_shoes", true },
+  { 158, "item_flood_book", true },
+  { 159, "item_frozen_ring", true },
+  { 160, "item_fubuki_shoulders", true },
+  { 161, "item_healing_totem", true },
+  { 162, "item_kisyosennfuyuzuki", true },
+  { 163, "item_lightning_scroll", true },
+  { 164, "item_logs_big_tachi", true },
+  { 165, "item_mountain_scroll", true },
+  { 166, "item_nagamaki", true },
+  { 167, "item_ninja_sword", true },
+  { 168, "item_wind_scroll", true },
+  { 169, "item_storm_book", true },
+  { 170, "item_the_club_of_nebula", true },
+  { 171, "item_the_great_sword_of_anger", true },
+  { 172, "item_the_great_sword_of_disease", true },
+  { 173, "item_the_great_sword_of_hurricane", true },
+  { 174, "item_the_great_sword_of_spike", true },
+  { 175, "item_the_overflame_art_of_war", true },
+  { 176, "item_the_red_lightning_chapter", true },
+  { 177, "item_the_red_lightning_chapter_hyper", true },
+  { 178, "item_thunderstorms", true },
+  { 179, "item_the_storm_call_book", true },
+  { 180, "item_yubashiri", true },
 }
 
 return function(ctx)
@@ -182,6 +208,15 @@ return function(ctx)
     for _, item in ipairs(items) do
       local s = shop[item.id]
       if s then
+        for _, path in ipairs(s.not_passive or {}) do
+          local key = path:match("^modifiers%.(.+)$")
+          if key then
+            item.modifiers[key] = nil
+            if not next(item.modifiers) then item.modifiers = nil end
+          else
+            item[path] = nil
+          end
+        end
         local used = {}
         local function walk(t, prefix)
           for k, v in pairs(t) do
@@ -197,6 +232,8 @@ return function(ctx)
         walk(item, "")
         for path in pairs(s.numbers) do assert(used[path], item.id .. ": v3 number " .. path .. " is not on the shelf row; run scripts/gen_item_v3.lua") end
         item.recipe = s.recipe
+        -- its active runs in items.dll: the catalog fields the host checks come from the v3 active
+        for field, value in pairs(s.scripted or {}) do item[field] = value end
       elseif not item.test_only then
         error(item.id .. " has no v3 shop row; run scripts/gen_item_v3.lua")
       end

@@ -37,6 +37,53 @@ local data = {
   fire_scroll = {
     numbers = { ["active.modifiers.1.duration"] = 8, ["active.modifiers.1.stats.basedamageoutgoing_percentage"] = 0.2, ["active.radius"] = 700, cooldown = 26, cost = 500, mana_cost = 50 },
   },
+  flash_ring = {
+    numbers = { cost = 2000, ["modifiers.mana_bonus"] = 200, ["modifiers.movespeed_bonus_percentage"] = 0.025 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 120.0,
+      mana_cost = 100.0,
+      shares_cooldown_with = { "flash_shoes" },
+      target = { out_of_range = "reject", range = 0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
+  flash_shoes = {
+    numbers = { cost = 4100, ["modifiers.mana_bonus"] = 400, ["modifiers.movespeed_bonus_percentage"] = 0.075 },
+    recipe = { "flash_ring" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 105.0,
+      mana_cost = 100.0,
+      shares_cooldown_with = { "flash_ring" },
+      target = { out_of_range = "reject", range = 0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
+  flood_book = {
+    numbers = { cost = 1500, ["modifiers.mana_bonus"] = 300, ["modifiers.stats_intellect_bonus"] = 10 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 20.0,
+      mana_cost = 140.0,
+      target = { out_of_range = "reject", range = 700.0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
+  frozen_ring = {
+    numbers = { cost = 750 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 15.0,
+      mana_cost = 130.0,
+    },
+  },
+  fubuki_shoulders = {
+    numbers = { armor = 5, cost = 3350, ["modifiers.stats_intellect_bonus"] = 20 },
+    recipe = { "staff", "staff", "stable_shield", "frozen_ring" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 40.0,
+      mana_cost = 100.0,
+    },
+  },
   ghost_mask = {
     numbers = { cost = 2000, ["modifiers.stats_agility_bonus"] = 5, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 5 },
     recipe = { "strength_ingot", "agility_ingot", "intelligence_ingot" },
@@ -47,6 +94,14 @@ local data = {
   },
   hama_orb = {
     numbers = { cost = 2000 },
+  },
+  healing_totem = {
+    numbers = { cost = 450 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      target = { out_of_range = "reject", range = 500.0, requires_visible = false, shape = "point", team = "any" },
+    },
   },
   health_ingot = {
     numbers = { cost = 900, hp = 300 },
@@ -89,14 +144,45 @@ local data = {
   katana = {
     numbers = { atk = 14, cost = 1120, ["modifiers.attackspeed_bonus_constant"] = 15 },
   },
+  kisyosennfuyuzuki = {
+    numbers = { cost = 3200, ["modifiers.mana_bonus"] = 300, ["modifiers.stats_intellect_bonus"] = 10 },
+    recipe = { "frozen_ring", "mana_ingot", "staff" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 36.0,
+      mana_cost = 60.0,
+      target = { out_of_range = "reject", range = 1200.0, requires_visible = true, shape = "unit", team = "enemy" },
+    },
+  },
   lesser_armor = {
     numbers = { cost = 400 },
   },
   lesser_shield = {
     numbers = { armor = 2, cost = 250 },
   },
+  lightning_scroll = {
+    numbers = { cost = 750 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 20.0,
+      mana_cost = 120.0,
+      shares_cooldown_with = { "raikiri", "the_red_lightning_chapter", "the_red_lightning_chapter_hyper" },
+      target = { out_of_range = "reject", range = 500.0, requires_visible = true, shape = "unit", team = "enemy" },
+    },
+  },
   liquor = {
     numbers = { ["active.modifiers.1.duration"] = 17, ["active.modifiers.1.stats.attackspeed_bonus_constant"] = 35, cooldown = 35, cost = 85 },
+  },
+  logs_big_tachi = {
+    not_passive = { "modifiers.health_regen_constant" },
+    numbers = { atk = 7, cost = 2100, ["modifiers.stats_agility_bonus"] = 15, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 5 },
+    recipe = { "gorgeous_tachi" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 30.0,
+      mana_cost = 75.0,
+      target = { out_of_range = "reject", range = 700.0, requires_visible = true, shape = "unit", team = "any" },
+    },
   },
   mana_boots = {
     numbers = { ["active.magic_immunity"] = 4.5, cooldown = 60, cost = 2650, ["modifiers.mana_regen_constant"] = 8.5, ["modifiers.spell_amplify_percentage"] = 0.08, ["modifiers.stats_intellect_bonus"] = 5, ["unique_passive.ms"] = 60, ["unique_passive.priority"] = 60 },
@@ -113,11 +199,40 @@ local data = {
     numbers = { atk = 21, cost = 1950, ["modifiers.stats_strength_bonus"] = 15 },
     recipe = { "naginata", "spear", "strength_ingot" },
   },
+  mountain_scroll = {
+    not_passive = { "armor" },
+    numbers = { cost = 785 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 80.0,
+      mana_cost = 100.0,
+      shares_cooldown_with = { "the_art_of_war", "the_art_of_war_mountain_chapter", "the_lost_art_of_war_2" },
+    },
+  },
+  nagamaki = {
+    not_passive = { "modifiers.attackspeed_bonus_constant" },
+    numbers = { atk = 28, cost = 2150, ["modifiers.stats_strength_bonus"] = 5 },
+    recipe = { "spear", "spear", "strength_ingot" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 33.0,
+    },
+  },
   naginata = {
     numbers = { cost = 700, ["modifiers.stats_strength_bonus"] = 10 },
   },
   napalm_bomb = {
     numbers = { ["active.damage"] = 300, ["active.radius"] = 300, cooldown = 10, cost = 150, ["target.range"] = 600 },
+  },
+  ninja_sword = {
+    not_passive = { "modifiers.movespeed_bonus_percentage" },
+    numbers = { atk = 14, cost = 3320, ["modifiers.attackspeed_bonus_constant"] = 20, ["modifiers.stats_agility_bonus"] = 10 },
+    recipe = { "katana", "tachi" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 80.0,
+      mana_cost = 80.0,
+    },
   },
   perceive_wine = {
     numbers = { ["active.magic_immunity"] = 3.5, cooldown = 45, cost = 135 },
@@ -197,6 +312,16 @@ local data = {
   staff = {
     numbers = { cost = 600, ["modifiers.stats_intellect_bonus"] = 10 },
   },
+  storm_book = {
+    numbers = { cost = 3200, ["modifiers.spell_amplify_percentage"] = 0.06, ["modifiers.stats_intellect_bonus"] = 20 },
+    recipe = { "spell_book", "wind_scroll" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 30.0,
+      mana_cost = 100.0,
+      target = { out_of_range = "reject", range = 500.0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
   strength_ingot = {
     numbers = { cost = 350, ["modifiers.stats_strength_bonus"] = 5 },
   },
@@ -221,9 +346,63 @@ local data = {
     },
     recipe = { "fire_scroll", "power_ingot", "power_ingot" },
   },
+  the_club_of_nebula = {
+    numbers = { atk = 14, cost = 1300 },
+    recipe = { "spear" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 25.0,
+      mana_cost = 120.0,
+      target = { out_of_range = "reject", range = 500.0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
+  the_great_sword_of_anger = {
+    numbers = { atk = 60, cost = 7800, ["modifiers.stats_agility_bonus"] = 20, ["modifiers.stats_intellect_bonus"] = 20 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 40.0,
+      mana_cost = 150.0,
+      target = { out_of_range = "reject", range = 800.0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
+  the_great_sword_of_disease = {
+    not_passive = { "armor", "modifiers.attackspeed_bonus_constant", "modifiers.health_regen_constant" },
+    numbers = { cost = 7200, hp = 500, ["modifiers.stats_agility_bonus"] = 20, ["modifiers.stats_intellect_bonus"] = 25 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 110.0,
+      mana_cost = 150.0,
+    },
+  },
+  the_great_sword_of_hurricane = {
+    numbers = { armor = 10, atk = 60, cost = 11200 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 100.0,
+      mana_cost = 150.0,
+    },
+  },
+  the_great_sword_of_spike = {
+    numbers = { atk = 50, cost = 7500, ["modifiers.mana_regen_constant"] = 40, ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_intellect_bonus"] = 40, ["modifiers.stats_strength_bonus"] = 10 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 70.0,
+      mana_cost = 90.0,
+    },
+  },
   the_hooate_of_ghost = {
     numbers = { cost = 1350, hp = 300, ["modifiers.health_regen_constant"] = 10 },
     recipe = { "health_ingot" },
+  },
+  the_overflame_art_of_war = {
+    numbers = { cost = 8950, ["modifiers.spell_amplify_percentage"] = 0.1, ["modifiers.stats_intellect_bonus"] = 40 },
+    recipe = { "rockfall_book", "ignite_book" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 80.0,
+      mana_cost = 150.0,
+      target = { out_of_range = "reject", range = 800.0, requires_visible = false, shape = "point", team = "any" },
+    },
   },
   the_poketto_of_meiso = {
     numbers = {
@@ -238,8 +417,71 @@ local data = {
     },
     recipe = { "spirit_ingot", "lesser_shield" },
   },
+  the_red_lightning_chapter = {
+    numbers = { cost = 2000, ["modifiers.stats_intellect_bonus"] = 10 },
+    recipe = { "lightning_scroll", "intelligence_ingot", "intelligence_ingot" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 25.0,
+      mana_cost = 100.0,
+      shares_cooldown_with = { "lightning_scroll", "raikiri", "the_red_lightning_chapter_hyper" },
+      target = { out_of_range = "reject", range = 750.0, requires_visible = true, shape = "unit", team = "enemy" },
+    },
+  },
+  the_red_lightning_chapter_hyper = {
+    numbers = { cost = 4500, ["modifiers.spell_amplify_percentage"] = 0.045, ["modifiers.stats_intellect_bonus"] = 30 },
+    recipe = { "spell_book", "the_red_lightning_chapter" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 25.0,
+      mana_cost = 100.0,
+      shares_cooldown_with = { "lightning_scroll", "raikiri", "the_red_lightning_chapter" },
+      target = { out_of_range = "reject", range = 900.0, requires_visible = true, shape = "unit", team = "enemy" },
+    },
+  },
+  the_storm_call_book = {
+    numbers = { cost = 7500, ["modifiers.spell_amplify_percentage"] = 0.12, ["modifiers.stats_intellect_bonus"] = 40 },
+    recipe = { "storm_book", "thunderstorms" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      mana_cost = 150.0,
+      target = { out_of_range = "reject", range = 800.0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
+  thunderstorms = {
+    numbers = { cost = 2400, ["modifiers.spell_amplify_percentage"] = 0.06, ["modifiers.stats_intellect_bonus"] = 20 },
+    recipe = { "spell_book" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 40.0,
+      mana_cost = 190.0,
+      target = { out_of_range = "reject", range = 800.0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
   toughness_ingot = {
     numbers = { cost = 650 },
+  },
+  wind_scroll = {
+    not_passive = { "modifiers.movespeed_bonus_percentage" },
+    numbers = { cost = 600 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 30.0,
+      mana_cost = 60.0,
+      shares_cooldown_with = { "the_art_of_war", "the_art_of_war_tornado_chapter", "the_lost_art_of_war_2" },
+    },
+  },
+  yubashiri = {
+    numbers = { atk = 28, cost = 2550, ["modifiers.stats_agility_bonus"] = 10 },
+    recipe = { "frozen_ring", "tachi" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 25.0,
+      mana_cost = 60.0,
+      shares_cooldown_with = { "kokumo" },
+      target = { out_of_range = "reject", range = 600.0, requires_visible = true, shape = "unit", team = "enemy" },
+    },
   },
 }
 return function(ctx) return data end

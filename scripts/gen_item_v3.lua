@@ -19,6 +19,9 @@
 -- source of prices, recipes and stats (value-single-source §3.3); the source catalog export only
 -- shapes the row, and this script compares the v3 numbers with it (a difference needs
 -- `source_differs` on the value).
+-- An item whose effects run in items.dll (the third field of SOURCE_ITEMS) and whose source row has
+-- no translated active takes its active from the v3 document: `scripted` in item_shop_v3.lua holds
+-- the catalog fields the host checks (M.scripted_active).
 -- --check verifies both files are current instead of writing them.
 local source = debug.getinfo(1, "S").source:sub(2)
 local scripts_dir = assert(source:match("^(.*)[/\\]"))
@@ -45,6 +48,7 @@ end
 -- row, not from items.dll: v3_rust.lua). A value without `v2_key` maps through these.
 M.STAT_PATHS = {
   attack_damage = { "atk" }, armor = { "armor" }, max_hp = { "hp" },
+  move_speed_pct = { "modifiers.movespeed_bonus_percentage" },
   attack_speed = { "modifiers.attackspeed_bonus_constant" }, hp_regen = { "modifiers.health_regen_constant" },
   mana_regen = { "modifiers.mana_regen_constant" }, max_mana = { "modifiers.mana_bonus" },
   spell_amp_pct = { "modifiers.spell_amplify_percentage" },
@@ -70,10 +74,57 @@ end
 
 local function same(a, b) return math.abs(a - b) <= 1e-6 * math.max(1, math.abs(a), math.abs(b)) end
 
+-- The catalog fields of a scripted active (the host admits the use, items.dll runs the effect):
+-- cooldown, mana, target and the shared cooldown, from the v3 active. `number` resolves "$name".
+-- Returns the fields, or nil and why the catalog cannot state this active.
+function M.scripted_active(item, number, cooldown_groups)
+  local active, cost = item.active, item.active.cost or {}
+  local target = active.target or { type = "none" }
+  local out = { active = { kind = "scripted" }, cooldown = number(cost.cooldown), mana_cost = number(cost.mana) }
+  for _, flag in ipairs(target.flags or {}) do
+    if flag == "include_magic_immune" then return nil, "its target admits magic immune units, the catalog target cannot" end
+  end
+  if target.type == "point" then
+    -- no range: anywhere on the map
+    out.target = { shape = "point", range = number(target.range) or 0, team = "any", requires_visible = false, out_of_range = "reject" }
+  elseif target.type == "unit" then
+    local range = number(target.range)
+    if not range then return nil, "a unit target needs a range" end
+    out.target = { shape = "unit", range = range, team = target.team == "both" and "any" or target.team,
+      requires_visible = true, out_of_range = "reject" }
+  elseif target.type ~= "none" then
+    return nil, "target type " .. tostring(target.type) .. " has no catalog target"
+  end
+  local consumable = item.shop and item.shop.consumable
+  if consumable then
+    if number(consumable.charges) ~= 1 then return nil, "the catalog consumes one use, this item has charges" end
+    out.consumable = true
+  end
+  local shared, seen = {}, { [item.id] = true }
+  for _, group in ipairs(cost.cooldown_groups or {}) do
+    for _, other in ipairs(cooldown_groups[group.group]) do
+      if not seen[other] then seen[other] = true; shared[#shared + 1] = (other:gsub("^item_", "")) end
+    end
+  end
+  table.sort(shared)
+  if #shared > 0 then out.shares_cooldown_with = shared end
+  return out
+end
+
 -- shelf rows by source key (item_xxx); docs: list of v3 documents
-function M.build(shelf, docs, partial)
+function M.build(shelf, docs, partial, scripted)
   local validator, compiler = tools()
   local problems, blocks, seen, shops = {}, {}, {}, {}
+  local cooldown_groups = {}
+  for _, d in ipairs(docs) do
+    for _, item in ipairs(d.doc.items or {}) do
+      local cost = type(item.active) == "table" and item.active.cost
+      for _, group in ipairs(type(cost) == "table" and cost.cooldown_groups or {}) do
+        cooldown_groups[group.group] = cooldown_groups[group.group] or {}
+        table.insert(cooldown_groups[group.group], item.id)
+      end
+    end
+  end
   local by_key = {}
   for _, row in ipairs(shelf) do
     if not row.test_only and row.source_ref then by_key[row.source_ref:match(":(item_[%w_]+)$")] = row end
@@ -116,9 +167,24 @@ function M.build(shelf, docs, partial)
             for _, path in ipairs(M.STAT_PATHS[stat] or {}) do if nums[path] ~= nil then infer(path, expr) end end
           end
           local shop = { numbers = {} }
+          local is_scripted = scripted and scripted[row.id]
+          -- The source export sums every Modifier block of an item into its row, also what only a status
+          -- gives (the mountain scroll's +50 armor while active). A scripted item's status runs in
+          -- items.dll, so such a number leaves the row; it must still be a number of the document.
+          local function only_in_a_status(n)
+            for _, value in ipairs(block.values or {}) do
+              local v = value.ranks and compiler.value_of(value.ranks[1])
+              if v and (same(v, n) or (value.unit == "pct" and same(v / 100, n))) then return true end
+            end
+            return false
+          end
           for path, n in pairs(nums) do
             local value = mapped[path]
-            if not value then
+            if not value and is_scripted and only_in_a_status(n) then
+              shop.not_passive = shop.not_passive or {}
+              table.insert(shop.not_passive, path)
+              table.sort(shop.not_passive)
+            elseif not value then
               problems[#problems + 1] = d.path .. ": " .. item.id .. ": shelf number " .. path .. " = " .. n .. " has no v3 value (v2_key = \"" .. path .. "\")"
             elseif not value.ranks then
               problems[#problems + 1] = d.path .. ": " .. item.id .. ": value " .. value.name .. " maps " .. path .. " but has no static ranks"
@@ -144,6 +210,25 @@ function M.build(shelf, docs, partial)
           if table.concat(shop.recipe or {}, ",") ~= table.concat(row.recipe or {}, ",") then
             problems[#problems + 1] = d.path .. ": " .. item.id .. ": v3 recipe {" .. table.concat(shop.recipe or {}, ", ") ..
               "} differs from the source catalog {" .. table.concat(row.recipe or {}, ", ") .. "}"
+          end
+          -- the host applies passive stats from the shelf row: a stat without a shelf number would be lost
+          for stat in pairs(is_scripted and item.passive and item.passive.stats or {}) do
+            local found = false
+            for _, path in ipairs(M.STAT_PATHS[stat] or {}) do found = found or nums[path] ~= nil end
+            if not found then
+              problems[#problems + 1] = d.path .. ": " .. item.id .. ": passive stat " .. stat .. " has no number on the shelf row"
+            end
+          end
+          if is_scripted and item.active and not row.active then
+            local function number(expr)
+              if type(expr) == "number" then return expr end
+              local name = type(expr) == "string" and expr:match("^%$([%w_]+)$")
+              local value = name and by_name[name]
+              if value and value.ranks then return compiler.value_of(value.ranks[1]) end
+            end
+            local fields, why = M.scripted_active(item, number, cooldown_groups)
+            if fields then shop.scripted = fields
+            else problems[#problems + 1] = d.path .. ": " .. item.id .. ": " .. why end
           end
           shops[row.id] = shop
           for path, value in pairs(mapped) do
@@ -204,7 +289,7 @@ function M.main(argv)
     table.sort(names)
     for _, name in ipairs(names) do docs[#docs + 1] = { path = name, doc = load_doc(items_dir .. "/" .. name) } end
   end
-  local blocks, problems, shops = M.build(shelf, docs, opts.partial)
+  local blocks, problems, shops = M.build(shelf, docs, opts.partial, ctx.scripted_items)
   if #problems > 0 then
     for _, p in ipairs(problems) do io.stderr:write(p, "\n") end
     io.stderr:write(#problems .. " problem(s)\n")
