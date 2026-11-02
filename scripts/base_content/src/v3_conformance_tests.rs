@@ -1063,6 +1063,10 @@ fn check_fixed_quirk(s: &Value) -> Option<Verdict> {
         "046" => fix_candidates::fc046_a07r_crits_after_misses_in_a_row,
         "008" => fix_candidates::fc008_b04t_extra_shots_keep_the_launch_aim,
         "078" => fix_candidates::fc078_a02w_does_nothing_on_buildings,
+        "029" => fix_candidates::fc029_a36r_holds_the_life_floor_through_a_lethal_hit,
+        "057" => fix_candidates::fc057_b33t_cuts_healing,
+        "076" => fix_candidates::fc076_c19t_is_untargetable_for_its_duration,
+        "125" => fix_candidates::fc125_b22r_purifies_the_ally_not_the_caster,
         "102" => fix_candidates::fc102_a03e_is_off_and_ranged_after_a_death,
         "104" => fix_candidates::fc104_b15_flame_arrow_is_off_after_a_death,
         "110" => fix_candidates::fc110_c07_magic_shield_is_off_after_a_death,
@@ -3950,6 +3954,94 @@ mod fix_candidates {
         let before = enemy_hp(&run);
         hit(&mut run, caster, enemy, 100, 0, 0);
         assert_eq!(enemy_hp(&run), before, "physical damage landed with a32_soul_blade on again");
+    }
+
+    /// FC-029: under A36R a lethal hit of any kind leaves the life floor (the source's save came
+    /// after the damage, so a lethal hit killed).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc029_a36r_holds_the_life_floor_through_a_lethal_hit() {
+        for rank in 1..=4 {
+            let floor = value("a36_bitter_brew", rank, "hp_hold").unwrap() / 100.0;
+            for (phys, magi, pure) in [(1_000_000, 0, 0), (0, 1_000_000, 0), (0, 0, 1_000_000)] {
+                let mut run = learned("maeno_nagayasu", "a36_bitter_brew", rank, false);
+                assert!(run.cast("none", 0.5, None).unwrap().accepted, "rank {rank}: a36_bitter_brew not cast");
+                let (caster, enemy) = (run.caster, run.enemy);
+                hit(&mut run, enemy, caster, phys, magi, pure);
+                assert!(living(&run, caster), "rank {rank}: a lethal hit ({phys}/{magi}/{pure}) killed A36 under a36r_brew");
+                let (hp, max) = run.world.read_storage::<CProperty>().get(caster).map(|p| (real(p.hp), real(p.mhp))).unwrap();
+                assert!((hp - max * floor).abs() <= max * 0.02 + 2.0, "rank {rank}: life {hp:.1} of {max:.1} after a lethal hit, floor {floor}");
+            }
+        }
+    }
+
+    /// FC-057: a unit under B33T's spider receives 40% of a heal at rank 1 (the source set the
+    /// multiplier back to 1 right away).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc057_b33t_cuts_healing() {
+        let mut run = learned("mogami_yoshihime", "b33_spider_attack", 1, false);
+        let enemy = run.enemy;
+        run.cast("unit", 0.5, None).unwrap();
+        for _ in 0..ticks(10.0) {
+            if holds(&run, enemy, "b33t_spiderlings") { break; }
+            run.step(1);
+        }
+        assert!(holds(&run, enemy, "b33t_spiderlings"), "the spider did not latch on the enemy");
+        let healed_by = |run: &mut Run| {
+            if let Some(p) = run.world.write_storage::<CProperty>().get_mut(enemy) { p.mhp = Fixed64::from_i32(50_000); p.hp = Fixed64::from_i32(20_000); }
+            run.world.write_resource::<Vec<Outcome>>().push(Outcome::ScriptHeal { target: enemy, amount: Fixed64::from_i32(10_000) });
+            run.step(2);
+            run.world.read_storage::<CProperty>().get(enemy).map(|p| real(p.hp)).unwrap() - 20_000.0
+        };
+        let healed = healed_by(&mut run);
+        let cut = value("b33_spider_attack", 1, "heal_cut").unwrap() / 100.0;
+        let expected = 10_000.0 * (1.0 - cut);
+        assert!((healed - expected).abs() < 200.0, "a 10000 heal under b33t_spiderlings gave {healed:.1}, expected {expected:.1}");
+    }
+
+    /// FC-076: C19T makes her untargetable by spells for its duration (the source's modifier only
+    /// showed an effect).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc076_c19t_is_untargetable_for_its_duration() {
+        const TAG: &str = omoba_core::runtime::native::rules::targeting::UNTARGETABLE_BY_SPELLS;
+        let mut run = learned("matsuhime", "c19_inviolable", 1, false);
+        let caster = run.caster;
+        assert!(run.cast("none", 0.5, None).unwrap().accepted, "c19_inviolable not cast");
+        let tagged = |run: &Run| run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().has(caster, TAG);
+        assert!(tagged(&run), "c19t_aura holds no untargetable state");
+        let duration = value("c19_inviolable", 1, "duration").unwrap();
+        run.step(ticks(duration - 1.0));
+        assert!(tagged(&run), "untargetable ended before {duration} s");
+        run.step(ticks(2.0));
+        assert!(!tagged(&run), "still untargetable after {duration} s");
+    }
+
+    /// FC-125: B22R on an ally takes the enemy statuses off that ally, not off the caster.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc125_b22r_purifies_the_ally_not_the_caster() {
+        let s = json!({"entry": "b22_purify", "rank": 1, "expect": [], "given": [{"kind": "learned", "entry": "b22_purify", "rank": 1},
+            {"kind": "target_unit", "team": "ally", "types": ["hero"]}]});
+        let mut run = setup("taigen_sessai", &s).unwrap();
+        let (caster, ally) = (run.caster, run.target);
+        assert_ne!(caster, ally);
+        let team = run.world.read_storage::<Faction>().get(caster).map(|f| f.team_id).unwrap();
+        let foe = spawn_body(&mut run.world, 3000, isolated_skill_origin_y(), team + 1, 800, None);
+        // an opposing player team: only that is hostile to a hero
+        run.world.write_storage::<Faction>().insert(foe, Faction::new(FactionType::Player, team + 1)).unwrap();
+        let row = format!("generic_poison:{}:{}", foe.id(), foe.gen().id());
+        {
+            let mut buffs = run.world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
+            for unit in [caster, ally] {
+                buffs.add(unit, &row, Fixed64::from_i32(60), json!({ "source_entity_id": foe.id() }));
+            }
+        }
+        assert!(run.cast("unit", 0.5, None).unwrap().accepted, "b22_purify not cast on the ally");
+        let buffs = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
+        assert!(!buffs.has(ally, &row), "the ally kept the enemy's status");
+        assert!(buffs.has(caster, &row), "the caster lost its own status: the source's bug");
     }
 
     /// FC-024: A05D cancels a lethal hit and feigns death, then starts its own cooldown; a second
