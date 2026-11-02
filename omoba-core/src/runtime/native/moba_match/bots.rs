@@ -608,6 +608,18 @@ fn stand_in_input(commands:Option<&HeroCommandQueue>,own:Vec2,place:Vec2) -> Opt
     if (own-place).length_squared()>off*off {recovery_move(commands,place)} else {hold_input(commands)}
 }
 
+/// The nearest living enemy hero within a striking stand-in's reach.
+fn strike_target(own:Vec2,side:Option<usize>,heroes:&[super::MobaHeroSlot],positions:&specs::ReadStorage<Pos>,
+    properties:&specs::ReadStorage<CProperty>) -> Option<specs::Entity> {
+    let reach=Fixed64::from_i32(super::ShowcaseConfig::STRIKE_REACH);
+    heroes.iter().filter(|hero|Some(hero.side)!=side).filter_map(|hero|hero.entity)
+        .filter(|entity|properties.get(*entity).is_some_and(|p|p.hp>Fixed64::ZERO))
+        .filter_map(|entity|positions.get(entity).map(|pos|(entity,(pos.0-own).length_squared())))
+        .filter(|(_,distance)|*distance<=reach*reach)
+        .min_by_key(|(entity,distance)|(*distance,entity.id()))
+        .map(|(entity,_)|entity)
+}
+
 fn recovery_move(commands:Option<&HeroCommandQueue>,destination:Vec2) -> Option<PlayerInputEnum> {
     if commands.is_some_and(|q|q.queued.is_empty()
         && matches!(q.active,Some(HeroCommand::MoveTo {pos}) if pos==destination)) {return None;}
@@ -665,6 +677,15 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
             if let (Some([x, y]), Some(entity)) = (place, slot.and_then(|slot| slot.entity)) {
                 let alive = properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO);
                 if let (true, Some(own)) = (alive, positions.get(entity)) {
+                    if state.config.showcase.as_ref().is_some_and(|showcase| showcase.strike_players.contains(&assignment.player_id)) {
+                        if let Some(target) = strike_target(own.0, slot.map(|slot| slot.side), &state.heroes, &positions, &properties) {
+                            if !commands.get(entity).is_some_and(|q| matches!(q.active, Some(HeroCommand::AttackTarget { target: old, .. }) if old == target)) {
+                                inputs.push((assignment.player_id, PlayerInput { action: Some(
+                                    PlayerInputEnum::AttackTarget(AttackTarget { target_id: target.id(), queued: false })) }));
+                            }
+                            continue;
+                        }
+                    }
                     let place = Vec2::new(Fixed64::from_i32(*x), Fixed64::from_i32(*y));
                     if let Some(action) = stand_in_input(commands.get(entity), own.0, place) {
                         inputs.push((assignment.player_id, PlayerInput { action: Some(action) }));

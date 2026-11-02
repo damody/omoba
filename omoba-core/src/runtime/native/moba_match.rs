@@ -477,6 +477,10 @@ pub struct ShowcaseConfig {
     /// command on every life, so they never chase.
     #[serde(default)]
     pub hold_players: BTreeSet<u32>,
+    /// Held seats that also attack an enemy hero who comes within STRIKE_REACH of them: how a
+    /// spotlight shows the demonstrated hero's death, by the ordinary attack and death rules.
+    #[serde(default)]
+    pub strike_players: BTreeSet<u32>,
     /// Hit points of a held hero, per mille of its normal value, so a whole
     /// demonstration fits one life.
     #[serde(default = "ShowcaseConfig::default_hold_hp_permille")]
@@ -528,6 +532,7 @@ impl ShowcaseCorpses {
 
 impl ShowcaseConfig {
     fn default_hold_hp_permille() -> u32 { 1000 }
+    pub(crate) const STRIKE_REACH: i32 = 300;
     const MAX_START_PURCHASES: usize = 64;
     const MAX_PROPS: usize = 16;
     const MAX_PLACEMENT: i64 = omoba_sim::terrain::MAX_GEOMETRY_RAW / omoba_sim::fixed::SCALE;
@@ -535,7 +540,9 @@ impl ShowcaseConfig {
         let in_world = |[x, y]: &[i32; 2]| [x, y].iter().all(|v| v.unsigned_abs() as i64 <= Self::MAX_PLACEMENT);
         (1..=25).contains(&self.start_level)
             && (1000..=100_000).contains(&self.hold_hp_permille)
+            && self.strike_players.is_subset(&self.hold_players)
             && self.placements.keys().chain(self.hold_players.iter()).chain(self.start_items.keys())
+                .chain(self.strike_players.iter())
                 .chain(self.props.iter().map(|prop| &prop.team_of)).all(|id| players.contains(id))
             // Purchases, not slots (E490): a combined item is bought after its components, which the
             // shop consumes; a full inventory refuses the stage when the items are granted.

@@ -13,8 +13,8 @@ return {schema_version=1,map_id='three_lane_quick_training',think_hz=5,mana_enab
   players={
     seat(1,1,'saika_magoichi','mid',false),
     -- Melee stand-ins (attack range 128): at their places they cannot reach the demonstrator.
-    seat(2,1,'murakami_yoshikiyo','support',true),
-    seat(6,2,'murakami_yoshikiyo','mid',true),
+    seat(2,1,'date_masamune','support',true),
+    seat(6,2,'date_masamune','mid',true),
     -- The death demonstration: the hero walks into these four, out of the stage's view until then.
     seat(7,2,'murakami_yoshikiyo','top',true),
     seat(8,2,'murakami_yoshikiyo','jungle',true),
@@ -23,7 +23,7 @@ return {schema_version=1,map_id='three_lane_quick_training',think_hz=5,mana_enab
   },
   -- Level 16 learns every ultimate (asai's extra slot requires 16); 30x stand-in hit points
   -- survive summons and empowered attacks for the whole demonstration.
-  showcase={start_level=16,minion_waves=false,hold_players={2,6,7,8,9,10},hold_hp_permille=30000,
+  showcase={start_level=16,minion_waves=false,hold_players={2,6,7,8,9,10},strike_players={7,8,9,10},hold_hp_permille=30000,
     -- +x is down on screen and the caption covers the bottom: stand-ins left and right (y),
     -- 240 apart, clear of the north river brush (y 2700+). 240 keeps every published cast range
     -- in reach (B06 連牙炎突 is 250: at 280 its spotlight was skipped, E163) and stays outside
