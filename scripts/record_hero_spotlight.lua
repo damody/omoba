@@ -412,7 +412,7 @@ function M.script(package)
     for _,show in ipairs(M.BODY_SHOWS) do slots[#slots+1]=show end
   end
   return {schema=1,hero=package.hero,hero_name=package.hero_name,title=package.title,
-    timing=json.object({caption_lead=1.5,hold=4.5,passive=5}),slots=slots}
+    timing=json.object({caption_lead=1.5,hold=4.5,passive=9}),slots=slots}
 end
 
 -- frames.jsonl from the renderer, sorted by frame index (workers finish out of order).

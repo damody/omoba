@@ -115,12 +115,12 @@ M.RECIPES = {
     mesh = "swallow", ground_size = 190, ground_seconds = 20, height = 90 },
   c22e_impact = { system = "burst", sprite = "crescent_slash", size = 340, area = true, life = 0.5, tint = STEEL,
     ground = "blink_flash", ground_size = 340, ground_seconds = 0.4, height = 30, grow = 0.4 },
-  c22r_crit_sound = { system = "burst", sprite = "crescent_slash", size = 300, life = 0.4, tint = GOLD, area = true,
-    ground = "blink_flash", ground_size = 340, ground_seconds = 0.3, height = 30, grow = 0.4 },
+  c22r_crit_sound = { system = "pop", sprite = "blink_flash", size = 150, life = 0.2, tint = GOLD,
+    ground = "crescent_slash", ground_size = 300, ground_seconds = 0.22, height = 90, grow = 0.5, face_camera = 0.9, ground_roll = 60 },
   c22w_voice = { system = "burst", sprite = "swallow", size = 210, life = 0.5, tint = STEEL },
   c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, bold = true, tint = STEEL,
     ground = "vortex", ground_size = 480, ground_seconds = 1.5 },
-  c22t_thunder_clap = { system = "burst", sprite = "lightning", size = 1700, life = 0.9, tint = STEEL, area = true,
+  c22t_thunder_clap = { system = "burst", sprite = "lightning", size = 520, life = 0.9, tint = STEEL, area = true,
     ground = "shock_ring", ground_size = 500, ground_seconds = 1.1, grow = 0.08 },
   -- A26 濃姬: gunpowder fire and smoke
   a26w_hit_explosion = { look = "explosion_small" },
@@ -360,6 +360,7 @@ function M.ini_row(id)
   if r.launch then add("GroundLaunchCm", number(r.launch * M.WORLD_CM)) end
   if r.lead then add("GroundLeadCm", number(r.lead * M.WORLD_CM)) end
   if r.bounce then add("GroundBounceCm", number(r.bounce * M.WORLD_CM)); add("GroundBounceSeconds", number(r.bounce_seconds)) end
+  if r.pivot then add("GroundPivotCm", number(r.pivot * M.WORLD_CM)) end
   if r.face_viewer then add("bGroundFaceViewer", "True") end
   if r.ground_size then add("GroundSizeCm", number(r.ground_size * M.WORLD_CM)) end
   if r.ground_seconds then add("GroundSeconds", number(r.ground_seconds)) end

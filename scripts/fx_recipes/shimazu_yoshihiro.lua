@@ -20,7 +20,7 @@ return {
     -- Each blow lands 300 ahead of where the hammer would start, so it flies that far ahead and meets them.
     -- It faces the viewer and does not tumble: end on, a hammer reads as a barrel.
     -- It comes down on each of the package's blows (interval 0.6 s), at the point the blow lands.
-    c03t_hammer = { mesh = "war_hammer", ground_size = 170, fly = true, lead = 300, face_viewer = true, bounce = 130, bounce_seconds = 0.6 },
+    c03t_hammer = { mesh = "war_hammer", ground_size = 170, fly = true, lead = 300, face_viewer = true, bounce = 130, bounce_seconds = 0.6, pivot = 60 },
     c03t_hammer_hit = { system = "burst", sprite = "flame_sheet", size = 420, life = 0.5,
       ground = "dust_crack", ground_size = 900, ground_seconds = 0.45, grow = 0.3 },
   },
