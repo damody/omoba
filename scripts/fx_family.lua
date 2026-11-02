@@ -50,8 +50,9 @@ M.IMAGES = {
 -- main: takes the cue's image, size and life. The rest keep their own (their colour still follows the cue).
 -- Spray in world centimetres: a hero stands about 14,000 tall (a recipe's sizes are in backend units, M.WORLD_CM).
 local function SPARKS(count)
-  return { ["SpawnBurst_Instantaneous.Spawn Count"] = count, ["AddVelocity.Velocity Speed Scale"] = 80,
-    ["InitializeParticle.Uniform Sprite Size Min"] = 900, ["InitializeParticle.Uniform Sprite Size Max"] = 2200 }
+  return { ["SpawnBurst_Instantaneous.Spawn Count"] = count, ["AddVelocity.Velocity Speed Scale"] = 120,
+    ["InitializeParticle.Uniform Sprite Size Min"] = 180, ["InitializeParticle.Uniform Sprite Size Max"] = 520,
+    ["InitializeParticle.Lifetime Min"] = 0.25, ["InitializeParticle.Lifetime Max"] = 0.55 }
 end
 M.SYSTEMS = {
   -- explosion: a few flipbook puffs thrown outward, with sparks
@@ -65,7 +66,7 @@ M.SYSTEMS = {
   sparks = { { template = emitter("OmnidirectionalBurst"), set = SPARKS(18) } },
   -- keeps emitting while it lasts: a trail behind a flight, smoke, motes around a unit
   stream = { { template = emitter("Fountain"), main = true,
-      set = { ["SpawnRate.SpawnRate"] = 24, ["GravityForce.Gravity"] = { 0, 0, 0 }, ["AddVelocity.Velocity Speed Scale"] = 8, ["ShapeLocation.Sphere Radius"] = 4500 } } },
+      set = { ["SpawnRate.SpawnRate"] = 40, ["GravityForce.Gravity"] = { 0, 0, 0 }, ["AddVelocity.Velocity Speed Scale"] = 8, ["ShapeLocation.Sphere Radius"] = 4500 } } },
 }
 
 -- Looks shared by many cues: fields of a recipe, overridden by the cue's own row.
@@ -84,7 +85,7 @@ M.LOOKS = {
   line = { ground = "lightning", ground_size = 120, ground_seconds = 0.35, line = true },
 }
 
-local ARCANE, GREEN, BLUE, GOLD, STEEL = { 0.72, 0.35, 1.0 }, { 0.35, 1.0, 0.5 }, { 0.35, 0.65, 1.0 }, { 1.0, 0.8, 0.35 }, { 0.75, 0.9, 1.0 }
+local ARCANE, GREEN, BLUE, GOLD, STEEL = { 0.5, 0.1, 1.0 }, { 0.1, 0.9, 0.25 }, { 0.08, 0.3, 1.0 }, { 1.0, 0.55, 0.08 }, { 0.12, 0.5, 1.0 }
 -- cue id -> its look. tint only where the image's own colour is not what the skill says.
 M.RECIPES = {
   -- A12 大谷吉繼: arcane purple; insight flash, mystic pierce, awe vortex, mystic arrow, possession
@@ -101,16 +102,16 @@ M.RECIPES = {
   -- C22 佐佐木小次郎: steel blue sword light; swallows and a thunder clap
   c22d_hand_glow = { ground = "soft_glow", ground_size = 140, ground_seconds = 1.2, height = 100, tint = STEEL },
   c22d_return_projectile = { look = "line", tint = STEEL },
-  c22d_cast_sound = { system = "burst", sprite = "spark_star", size = 340, life = 0.6, tint = STEEL,
+  c22d_cast_sound = { system = "burst", sprite = "lightning", size = 420, life = 0.5, tint = STEEL,
     ground = "shock_ring", ground_size = 460, ground_seconds = 0.5, grow = 0.2 },
   c22e_voice = { system = "pop", sprite = "crescent_slash", size = 340, life = 0.3, tint = STEEL },
   c22e_swallow = { system = "stream", sprite = "swallow", size = 170, life = 0.9, loop = true, face = true, tint = STEEL,
     ground = "swallow", ground_size = 260, ground_seconds = 20, height = 90 },
   c22e_impact = { system = "burst", sprite = "spark_star", size = 280, life = 0.5, tint = STEEL,
     ground = "crescent_slash", ground_size = 420, ground_seconds = 0.4, height = 60, grow = 0.5 },
-  c22r_crit_sound = { system = "pop", sprite = "crescent_slash", size = 420, life = 0.32, tint = { 1.0, 0.9, 0.55 },
+  c22r_crit_sound = { system = "pop", sprite = "crescent_slash", size = 460, life = 0.34, tint = GOLD,
     ground = "blink_flash", ground_size = 340, ground_seconds = 0.3, height = 30, grow = 0.4 },
-  c22w_voice = { system = "pop", sprite = "soft_glow", size = 300, life = 0.4, tint = STEEL },
+  c22w_voice = { system = "sparks", tint = STEEL },
   c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, tint = STEEL,
     ground = "vortex", ground_size = 480, ground_seconds = 1.5 },
   c22t_thunder_clap = { system = "pop", sprite = "lightning", size = 950, life = 0.5, tint = STEEL,
@@ -189,12 +190,12 @@ M.RECIPES = {
 
 -- Basic attacks, generated: fx_swing_<hero> at the attacker, fx_strike_<hero> at the target (OmUnitActor::PlayAttackFx).
 M.WEAPONS = {
-  katana = { swing = { ground = "crescent_slash", ground_size = 340, ground_seconds = 0.26, height = 70, grow = 0.6 },
-    strike = { system = "sparks", ground = "blink_flash", ground_size = 210, ground_seconds = 0.22, height = 50, grow = 0.4 } },
-  axe = { swing = { ground = "crescent_slash", ground_size = 420, ground_seconds = 0.3, height = 60, grow = 0.5 },
-    strike = { system = "sparks", ground = "dust_crack", ground_size = 280, ground_seconds = 0.35, grow = 0.4 } },
+  katana = { swing = { system = "pop", sprite = "crescent_slash", size = 300, life = 0.22, ground = "crescent_slash", ground_size = 300, ground_seconds = 0.26, height = 40, grow = 0.6 },
+    strike = { system = "pop", sprite = "spark_star", size = 240, life = 0.24, ground = "blink_flash", ground_size = 230, ground_seconds = 0.24, height = 30, grow = 0.4 } },
+  axe = { swing = { system = "pop", sprite = "crescent_slash", size = 380, life = 0.26, ground = "crescent_slash", ground_size = 380, ground_seconds = 0.3, height = 40, grow = 0.5 },
+    strike = { system = "burst", sprite = "smoke_sheet", size = 150, life = 0.4, ground = "dust_crack", ground_size = 320, ground_seconds = 0.4, grow = 0.4 } },
   spear = { swing = { ground = "chain_bolt", ground_size = 90, ground_seconds = 0.2, line = true },
-    strike = { system = "sparks", ground = "blink_flash", ground_size = 200, ground_seconds = 0.22, height = 50, grow = 0.4 } },
+    strike = { system = "pop", sprite = "spark_star", size = 240, life = 0.24, ground = "blink_flash", ground_size = 220, ground_seconds = 0.24, height = 30, grow = 0.4 } },
   gun = { swing = { system = "pop", sprite = "spark_star", size = 170, life = 0.16,
       ground = "spark_star", ground_size = 90, ground_seconds = 0.2, height = 70, fly = true } },
   arcane = { swing = { ground = "soft_glow", ground_size = 120, ground_seconds = 0.26, height = 70, fly = true },
