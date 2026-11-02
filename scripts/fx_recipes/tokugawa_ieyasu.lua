@@ -23,7 +23,7 @@ return {
       ground = "shock_ring", ground_size = 1400, ground_seconds = 0.7, grow = 0.15 },
     a01t_banner = { ground = "banner_rally", ground_size = 900, ground_seconds = 1.2, tint = GOLD },
     -- Worn by every ally in the passive aura, creeps included and for as long as they stay: ground only, on purpose.
-    a01t_ring = { ground = "shock_ring", ground_size = 180, ground_seconds = 1.2, tint = GOLD },
+    a01t_ring = { ground = "shock_ring", ground_size = 110, ground_seconds = 1.2, tint = GOLD },
   },
   notes = {
     a01_realm_momentum = "no cue: the passive plays nothing, so it cannot show a visual without a package change",

@@ -112,12 +112,12 @@ M.RECIPES = {
     ground = "swallow", ground_size = 260, ground_seconds = 20, height = 90 },
   c22e_impact = { system = "burst", sprite = "spark_star", size = 280, life = 0.5, tint = STEEL,
     ground = "crescent_slash", ground_size = 420, ground_seconds = 0.4, height = 60, grow = 0.5 },
-  c22r_crit_sound = { system = "pop", sprite = "crescent_slash", size = 460, life = 0.34, tint = GOLD,
+  c22r_crit_sound = { system = "burst", sprite = "crescent_slash", size = 300, life = 0.4, tint = GOLD, area = true,
     ground = "blink_flash", ground_size = 340, ground_seconds = 0.3, height = 30, grow = 0.4 },
-  c22w_voice = { system = "sparks", tint = STEEL },
-  c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, tint = STEEL,
+  c22w_voice = { system = "burst", sprite = "swallow", size = 210, life = 0.5, tint = STEEL },
+  c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, bold = true, tint = STEEL,
     ground = "vortex", ground_size = 480, ground_seconds = 1.5 },
-  c22t_thunder_clap = { system = "burst", sprite = "lightning", size = 1200, life = 0.7, tint = STEEL, area = true,
+  c22t_thunder_clap = { system = "burst", sprite = "lightning", size = 1700, life = 0.9, tint = STEEL, area = true,
     ground = "shock_ring", ground_size = 500, ground_seconds = 1.1, grow = 0.08 },
   -- A26 濃姬: gunpowder fire and smoke
   a26w_hit_explosion = { look = "explosion_small" },
@@ -135,7 +135,7 @@ M.RECIPES = {
   a01e_net = { ground = "net", ground_size = 180, ground_seconds = 1.2 },
   a01r_lightning = { system = "pop", sprite = "lightning", size = 240, life = 0.3, tint = BLUE, ground = "blink_flash", ground_size = 160, ground_seconds = 0.25 },
   a01t_banner = { ground = "banner_rally", ground_size = 320, ground_seconds = 1.2 },
-  a01t_ring = { ground = "shock_ring", ground_size = 150, ground_seconds = 1.2, tint = GOLD },
+  a01t_ring = { ground = "shock_ring", ground_size = 110, ground_seconds = 1.2, tint = GOLD },
   a01w_healing_ring = { ground = "heal_ring", ground_size = 150, ground_seconds = 1.2 },
   a01w_holy_bolt = { look = "flash", tint = GREEN, size = 220, ground = "heal_ring", ground_size = 420, ground_seconds = 0.8, grow = 0.3 },
   -- B20 山縣昌景: rocks and the shattered ground
@@ -254,8 +254,9 @@ function M.fit(r)
   if r.sprite == "flame_sheet" and not r.tint then r.tint = { 1.0, 0.32, 0.05 } end
   if r.system == "stream" and r.loop and not r.face then
     r.system = "aura"
-    r.size = math.min(r.size or M.MAX_AURA, M.MAX_AURA)
-    r.alpha = r.alpha or 0.55
+    -- bold: the status is the skill itself (a channel), so it may stand out more.
+    r.size = math.min(r.size or M.MAX_AURA, r.bold and M.MAX_AURA * 1.6 or M.MAX_AURA)
+    r.alpha = r.alpha or (r.bold and 0.9 or 0.55)
     if r.life then r.life = math.min(r.life, 0.6) end
   end
   if not r.area then
