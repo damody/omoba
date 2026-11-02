@@ -29,7 +29,7 @@ return {
       ground = "shock_ring", ground_size = 1000, ground_seconds = 0.6, grow = 0.15 },
     b26t_burst = { system = "pop", sprite = "fire_wings", size = 900, life = 0.6,
       mesh = "fire_wings", ground_size = 300, ground_seconds = 1.5, height = 40, grow = 0.5, face_viewer = true },
-    b26t_wings = { system = "stream", sprite = "flame_sheet", size = 120, life = 0.4, loop = true },
+    b26t_wings = { system = "stream", sprite = "flame_sheet", size = 60, life = 0.3, loop = true, alpha = 0.35 },
   },
   notes = {
     b26_charging_wave = "body on b26w_voice, b26w_charge_pulse, b26w_fire_explode, b26w_shockwave, b26d_thunder_clap; b26w_charge_fire and b26w_slow_overhead are the unit bodies",

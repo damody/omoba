@@ -217,7 +217,9 @@ M.WEAPONS = {
 }
 M.ATTACKS = {
   sasaki_kojiro = { "katana", STEEL }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.35, 0.25 } },
-  okuma_tomohide = { "axe", { 1.0, 0.5, 0.2 } }, kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 } }, shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 } },
+  okuma_tomohide = { "axe", { 1.0, 0.5, 0.2 }, { sprite = "flame_sheet", size = 110, ground = "shock_ring", ground_size = 240, height = 30, grow = 0.3, face_camera = false, ground_roll = false } },
+  kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 }, { sprite = "rock", size = 150, ground = "dust_crack", ground_size = 280, height = false, face_camera = false, ground_roll = false } },
+  shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 } },
   maeda_toshiie = { "spear", { 1.0, 0.85, 0.4 } }, maeda_keiji = { "spear", BLUE, { sprite = "lightning", size = 260, area = true, ground = "blink_flash", ground_size = 240 } },
   nohime = { "gun", { 1.0, 0.6, 0.25 } }, otani_yoshitsugu = { "arcane", ARCANE },
 }

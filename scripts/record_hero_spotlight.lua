@@ -27,6 +27,9 @@ M.BODY_SHOWS={
 }
 M.SLOT_OF_ACTION={Q=0,W=1,E=2,R=3,extra1=4,extra2=5}
 M.RECIPE='scripts/lua_data/moba_hero_spotlight.lua'
+-- A hero who throws the enemy a long way: the enemy stands on the side with room, not against the river wall.
+M.MIRROR_RECIPE='scripts/lua_data/moba_hero_spotlight_mirror.lua'
+M.MIRROR_HEROES={maeda_toshiie=true}
 -- A hero with a tree-target ability is shown on the nobu map, which has trees (D21: every ability
 -- is demonstrated).
 M.TREE_RECIPE='scripts/lua_data/moba_hero_spotlight_trees.lua'
@@ -41,7 +44,9 @@ function M.recipe_for(package)
     if slot.team=='ally_anchor' then props=true end
   end
   assert(not (tree and props),(package.hero or 'hero')..' needs both the tree stage and the prop stage (no stage has both yet)')
-  return tree and M.TREE_RECIPE or props and M.PROPS_RECIPE or M.RECIPE
+  if tree then return M.TREE_RECIPE end
+  if props then return M.PROPS_RECIPE end
+  return M.MIRROR_HEROES[package.hero or ''] and M.MIRROR_RECIPE or M.RECIPE
 end
 M.DEFAULT_FFMPEG='target/tools/ffmpeg/ffmpeg.exe'
 -- A spotlight run owns its authority port: never the shared split default (57061), so a
@@ -370,23 +375,13 @@ function M.load_package(root,hero)
       line=M.first_line(ability.description),kind=kind,team=team}
   end
   table.sort(slots,function(a,c) return a.slot<c.slot end)
-  for moved,after in pairs(M.SHOWN_AFTER) do
-    local from,to
-    for index,row in ipairs(slots) do
-      if row.id==moved then from=index elseif row.id==after then to=index end
-    end
-    if from and to then
-      local row=table.remove(slots,from)
-      table.insert(slots,from<to and to or to+1,row)
-    end
-  end
   return {hero=hero,hero_name=info.display_name or hero,title=info.title or '',slots=slots}
 end
 
 -- The renderer's spotlight script (FOmSpotlightScript::Parse).
 -- The radius an ability's effect covers, from its package values (exact key, its highest level).
 -- Their radius is not something on the ground to show: the camera stays close.
-M.NO_VIEW={c05_matsukaze=true}
+M.NO_VIEW={c05_matsukaze=true,c05_flash_thunder=true}
 function M.view_radius(doc,id)
   if M.NO_VIEW[id] then return nil end
   for _,ability in ipairs(doc and doc.abilities or {}) do
@@ -417,10 +412,21 @@ end
 
 function M.script(package)
   local slots={}
+  for moved,after in pairs(M.SHOWN_AFTER) do
+    local from,to
+    for index,row in ipairs(package.slots) do
+      if row.id==moved then from=index elseif row.id==after then to=index end
+    end
+    if from and to then
+      local row=table.remove(package.slots,from)
+      table.insert(package.slots,from<to and to or to+1,row)
+    end
+  end
   local doc=package.hero and M.v3_document(b.root,package.hero)
   for _,slot in ipairs(package.slots) do slot.view=M.view_radius(doc,slot.id);slot.hold=M.hold_seconds(doc,slot.id);slots[#slots+1]=slot end
   -- The death ends the recording: only the base stage has the enemies that strike it down.
-  if M.recipe_for(package)==M.RECIPE then
+  local stage=M.recipe_for(package)
+  if stage==M.RECIPE or stage==M.MIRROR_RECIPE then
     for _,show in ipairs(M.BODY_SHOWS) do slots[#slots+1]=show end
   end
   return {schema=1,hero=package.hero,hero_name=package.hero_name,title=package.title,
