@@ -135,6 +135,57 @@ local function trigger_effects(trig, path, phase)
   return out
 end
 
+-- The entries of `doc` whose cast applies status `id` (events only: a passive's apply is no cast).
+local function status_appliers(doc, id)
+  local out = {}
+  local function applies(list)
+    for _, x in ipairs(type(list) == "table" and list or {}) do
+      if type(x) == "table" and (x.op == "apply_status" and x.status == id or applies(x.actions) or applies(x.otherwise)
+        or applies(x.on_hit)) then return true end
+    end
+    return false
+  end
+  for _, list in ipairs({ doc.abilities or {}, doc.items or {} }) do
+    for _, owner in ipairs(list) do
+      for _, ev in pairs(type(owner.events) == "table" and owner.events or {}) do
+        if applies(ev.actions or ev) then out[#out + 1] = owner.id; break end
+      end
+    end
+  end
+  return out
+end
+
+-- What a trigger's conditional effects need before the event (line D, status_then_event): one set
+-- per distinct set of plain `has_status(self|event.target|caster, X)` conditions, sorted. `status`
+-- is the document's id; `by` the entry that applies it, only when exactly one does. A condition
+-- written any other way is left to line D's harness, which reads the real state.
+local function trigger_needs(doc, effects)
+  local known = {}
+  for _, list in ipairs({ doc.abilities or {}, doc.items or {} }) do
+    for _, owner in ipairs(list) do for _, s in ipairs(owner.statuses or {}) do known[s.id] = true end end
+  end
+  local sets, seen = {}, {}
+  for _, e in ipairs(effects) do
+    local needs, keys = {}, {}
+    for _, c in ipairs(e.conds or {}) do
+      local on, id = c:match("^has_status%(([%w_.]+), ([%w_]+)%)$")
+      if (on == "self" or on == "event.target" or on == "caster") and known[id] then
+        local by = status_appliers(doc, id)
+        needs[#needs + 1] = { kind = "has_status", on = on, status = id, by = #by == 1 and by[1] or nil }
+        keys[#keys + 1] = id
+      end
+    end
+    table.sort(keys)
+    local key = table.concat(keys, "+")
+    if #needs > 0 and not seen[key] then
+      seen[key] = true
+      sets[#sets + 1] = { key = key, needs = needs }
+    end
+  end
+  table.sort(sets, function(a, b) return a.key < b.key end)
+  return sets
+end
+
 -- statuses the entry owns, by id; and the ones its actions apply (with the target expression)
 local function status_index(doc, def)
   local by = {}
@@ -979,6 +1030,13 @@ local function entry_scenarios(doc, def, entry_kind, out)
         push(rank, "trigger", { suffix = ev, given = given(), when = { { kind = "event", event = ev,
             interval = type(passive.triggers[ev]) == "table" and passive.triggers[ev].interval or nil } },
           expect = { { kind = "effects", effects = eff } } })
+        -- the same event with what its conditional effects need set up first
+        for _, set in ipairs(current_doc and trigger_needs(current_doc, eff) or {}) do
+          push(rank, "trigger", { suffix = ev .. "/with_" .. set.key, given = given(), needs = set.needs,
+            when = { { kind = "event", event = ev,
+              interval = type(passive.triggers[ev]) == "table" and passive.triggers[ev].interval or nil } },
+            expect = { { kind = "effects", effects = eff } } })
+        end
         if has_damage(eff, "magical") or #applied_statuses(eff, by_status) > 0 then
           push(rank, "magic_immune", { suffix = ev, given = given({ { kind = "event_target", states = { "magic_immune" } } }),
             when = { { kind = "event", event = ev } }, expect = { { kind = "damage_to_magic_immune", type = "magical", amount = "0" },
@@ -1287,6 +1345,13 @@ local function entry_scenarios(doc, def, entry_kind, out)
             when = { { kind = "status_event", status = s.id, event = ev, interval = type(s.triggers[ev]) == "table" and s.triggers[ev].interval or nil,
               duration = a.duration or s.duration } },
             expect = { { kind = "effects", effects = trigger_effects(s.triggers[ev], "statuses." .. s.id .. ".triggers." .. ev, ev) } } })
+          local eff = trigger_effects(s.triggers[ev], "statuses." .. s.id .. ".triggers." .. ev, ev)
+          for _, set in ipairs(current_doc and trigger_needs(current_doc, eff) or {}) do
+            push(rank, "trigger", { suffix = s.id .. "/" .. ev .. "/with_" .. set.key, given = given({ on_unit(s, a) }), needs = set.needs,
+              when = { { kind = "status_event", status = s.id, event = ev, interval = type(s.triggers[ev]) == "table" and s.triggers[ev].interval or nil,
+                duration = a.duration or s.duration } },
+              expect = { { kind = "effects", effects = eff } } })
+          end
         end
         -- The status's own stats on its holder (E388).
         if type(s.stats) == "table" and next(s.stats) then
