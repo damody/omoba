@@ -180,9 +180,32 @@ function M.build(shelf, docs, partial, scripted)
             end
             return false
           end
+          -- a number the document gives through a status, not its passive stats, is the status's
+          local in_passive, in_status = {}, {}
+          local function names(stats, into)
+            for _, expr in pairs(stats or {}) do
+              local name = type(expr) == "string" and expr:match("^%$([%w_]+)$")
+              if name then into[name] = true end
+            end
+          end
+          names(item.passive and item.passive.stats, in_passive)
+          for _, s in ipairs(item.statuses or {}) do names(s.stats, in_status) end
           for path, n in pairs(nums) do
             local value = mapped[path]
-            if not value and is_scripted and only_in_a_status(n) then
+            local passive_number = path:match("^modifiers%.") or not path:find(".", 1, true)
+            local active_field = path:match("^active%.") or path:match("^target%.") or path == "cooldown" or path == "mana_cost"
+            if is_scripted and item.active and active_field then
+              -- replaced by the document's active (M.scripted_active)
+            elseif not value and is_scripted and path == "unique_passive.priority" then
+              shop.numbers[path] = n -- the row's ranking of its own number, no number of the document
+            elseif not value and is_scripted and path == "unique_passive.ms" and only_in_a_status(n) then
+              shop.numbers[path] = n
+            elseif value and is_scripted and path:match("^modifiers%.") and in_status[value.name] and not in_passive[value.name] then
+              value = nil
+              shop.not_passive = shop.not_passive or {}
+              table.insert(shop.not_passive, path)
+              table.sort(shop.not_passive)
+            elseif not value and is_scripted and passive_number and only_in_a_status(n) then
               shop.not_passive = shop.not_passive or {}
               table.insert(shop.not_passive, path)
               table.sort(shop.not_passive)
@@ -221,10 +244,17 @@ function M.build(shelf, docs, partial, scripted)
               problems[#problems + 1] = d.path .. ": " .. item.id .. ": passive stat " .. stat .. " has no number on the shelf row"
             end
           end
+          -- movement speed of group move_speed_unique is the row's unique passive (v3_rust drops the
+          -- status's); the row and the status never hold the same number twice
+          local unique_status = false
+          for _, s in ipairs(item.statuses or {}) do unique_status = unique_status or s.unique_group == "move_speed_unique" end
+          if is_scripted and unique_status ~= (row.unique_passive ~= nil and row.unique_passive.group == "movement") then
+            problems[#problems + 1] = d.path .. ": " .. item.id .. ": a move_speed_unique status and the row's movement unique passive must come together"
+          end
           if is_scripted and row.aura then
             problems[#problems + 1] = d.path .. ": " .. item.id .. ": a scripted item's aura runs in items.dll, the shelf row has one too"
           end
-          if is_scripted and item.active and not row.active then
+          if is_scripted and item.active then
             local function number(expr)
               if type(expr) == "number" then return expr end
               local name = type(expr) == "string" and expr:match("^%$([%w_]+)$")
@@ -311,7 +341,7 @@ function M.main(argv)
     for _, file in ipairs(files) do
       local f = io.open(file[1], "rb")
       local current = f and f:read("a"); if f then f:close() end
-      if current ~= file[2] then io.stderr:write(file[1] .. " is stale; run scripts/gen_item_v3.lua\n"); return 1 end
+      if not current or current:gsub("\r\n", "\n") ~= file[2] then io.stderr:write(file[1] .. " is stale; run scripts/gen_item_v3.lua\n"); return 1 end
       print("OK: " .. file[1] .. " is current")
     end
     return 0

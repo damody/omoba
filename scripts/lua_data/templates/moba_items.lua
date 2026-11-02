@@ -63,13 +63,13 @@ local SOURCE_ITEMS = {
   -- Magic immunity with strong dispel (E179, item_perceive_wine.lua#Shock), single use.
   { 139, "item_perceive_wine" },
   -- Unique movespeed (highest wins), merged Modifiers blocks and the upgrade part (E183).
-  { 140, "item_pleated_skirt" },
-  { 141, "item_dark_boots" },
+  { 140, "item_pleated_skirt", true },
+  { 141, "item_dark_boots", true },
   { 142, "item_hama_orb" },
-  { 143, "item_dark_boots_1" },
+  { 143, "item_dark_boots_1", true },
   -- Spell amplification (E188): skill and item damage with an inflictor +8% / +10%.
-  { 144, "item_mana_boots" },
-  { 145, "item_mana_boots_1" },
+  { 144, "item_mana_boots", true },
+  { 145, "item_mana_boots_1", true },
   -- Spell books (E188): +4.5% amplification; the actives read from the reviewed scripts.
   { 146, "item_spell_book" },
   { 147, "item_rockfall_book" },
@@ -109,6 +109,17 @@ local SOURCE_ITEMS = {
   { 178, "item_thunderstorms", true },
   { 179, "item_the_storm_call_book", true },
   { 180, "item_yubashiri", true },
+  { 187, "item_glass_mitsutomo", true },
+  { 188, "item_Hannya_Onimaru", true },
+  { 189, "item_kousetsusamonnji", true },
+  { 190, "item_magic_defence_boots", true },
+  { 191, "item_magic_defence_boots_1", true },
+  { 192, "item_magic_resistance_ingot", true },
+  { 193, "item_ryukyu_ronin_clogs", true },
+  { 194, "item_ryukyu_ronin_clogs_1", true },
+  { 197, "item_the_great_silver_armor", true },
+  { 198, "item_the_great_sword_of_precision", true },
+  { 199, "item_the_great_sword_of_soul_hyper", true },
   { 181, "item_Sukezane", true },
   { 182, "item_the_spear_of_spiders", true },
   { 183, "item_the_blade_of_blood_devourer", true },
@@ -126,7 +137,7 @@ return function(ctx)
   local rows = {}
   for _, row in ipairs(source.items) do rows[row.key] = row end
   -- source_ref is `history_nobu@<commit>:item_<key>`; the game id is <key>.
-  local function id_of(ref) return (ref:match("item_([%w_]+)$"):lower()) end
+  local function id_of(ref) local id = ref:match("item_([%w_]+)$"); return id and id:lower() end
   local items = {
     { catalog_id = 1, id = "moba_sword", test_only = true, name = "鐵劍", cost = 350, atk = 10 },
     { catalog_id = 2, id = "moba_armor", test_only = true, name = "護身甲", cost = 300, hp = 100, armor = 5 },
@@ -214,6 +225,10 @@ return function(ctx)
     for _, item in ipairs(items) do
       local s = shop[item.id]
       if s then
+        if s.scripted then
+          item.active, item.target, item.cooldown, item.mana_cost = nil, nil, nil, nil
+          item.consumable, item.shares_cooldown_with = nil, nil
+        end
         for _, path in ipairs(s.not_passive or {}) do
           local key = path:match("^modifiers%.(.+)$")
           if key then

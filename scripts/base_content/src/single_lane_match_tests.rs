@@ -15067,4 +15067,99 @@ mod scripted_item_use {
         d.step(&mut w, [item_use(0, None, None, None)]).unwrap();
         assert!(slot_cooldown(&w, hero) < before);
     }
+
+    fn duel(w: &mut World, d: &mut SimulationDriver) -> (specs::Entity, specs::Entity) {
+        d.step(w, []).unwrap();
+        let [hero, enemy] = hero_pair(w);
+        let y = isolated_skill_origin_y();
+        for e in [hero, enemy] { set_hold(w, e); disarm_attack(w, e); }
+        place_hero(w, hero, 0, y);
+        place_hero(w, enemy, 300, y);
+        let tick = w.read_resource::<Tick>().0;
+        run_committed_visibility_wave_b(w, tick, 0);
+        (hero, enemy)
+    }
+
+    #[test]
+    fn an_item_aura_lives_from_the_first_copy_to_the_last() {
+        const SLOW: &str = "spear_spider_slow";
+        let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+        let (hero, enemy) = duel(&mut w, &mut d);
+        let run = |w: &mut World, d: &mut SimulationDriver, ticks: u32| for _ in 0..ticks { d.step(w, []).unwrap(); };
+        give(&mut w, hero, "the_spear_of_spiders");
+        run(&mut w, &mut d, 60);
+        assert!(w.read_resource::<BuffStore>().has(enemy, SLOW), "the first copy starts the aura");
+        // a second copy: losing the first keeps the aura
+        w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[1] =
+            Some(ItemInstance { item_id: "the_spear_of_spiders".into(), cooldown_remaining: 0.0 });
+        run(&mut w, &mut d, 5);
+        w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0] = None;
+        run(&mut w, &mut d, 120);
+        assert!(w.read_resource::<BuffStore>().has(enemy, SLOW), "one copy left, the aura stays");
+        // the last copy sold: the status runs out and nothing renews it
+        w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[1] = None;
+        run(&mut w, &mut d, 120);
+        assert!(!w.read_resource::<BuffStore>().has(enemy, SLOW), "the last copy ends the aura");
+        // bought again: it starts again
+        give(&mut w, hero, "the_spear_of_spiders");
+        run(&mut w, &mut d, 60);
+        assert!(w.read_resource::<BuffStore>().has(enemy, SLOW), "a new first copy starts it again");
+    }
+
+    #[test]
+    fn an_item_instance_status_goes_with_the_last_copy_and_its_unique_speed_stays_the_catalogs() {
+        // independent: its rows are `<runtime id>#<n>`
+        fn rows(w: &World, hero: specs::Entity, status: &str) -> Vec<serde_json::Value> {
+            w.read_resource::<BuffStore>().stat_rows(hero).filter(|(id, _)| id.starts_with(status))
+                .map(|(_, entry)| entry.payload.clone()).collect()
+        }
+        const POOL: &str = "magic_defence_boots_pool";
+        const SPEED: &str = "magic_defence_boots_unique_ms";
+        let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+        let (hero, _) = duel(&mut w, &mut d);
+        give(&mut w, hero, "magic_defence_boots");
+        for _ in 0..3 { d.step(&mut w, []).unwrap(); }
+        assert!(!rows(&w, hero, POOL).is_empty(), "made with the first copy");
+        assert!(rows(&w, hero, SPEED).iter().all(|payload| payload.get("move_speed_bonus").is_none()),
+            "the catalog's unique passive holds the speed, the status adds none");
+        w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0] = None;
+        for _ in 0..3 { d.step(&mut w, []).unwrap(); }
+        assert!(rows(&w, hero, POOL).is_empty(), "gone with the last copy");
+    }
+
+    #[test]
+    fn only_an_item_whose_target_admits_magic_immune_reaches_a_magic_immune_enemy() {
+        let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+        let (hero, enemy) = duel(&mut w, &mut d);
+        assert!(magic_immunity::grant(&w, enemy, Fixed64::from_i32(30)), "immune enemy");
+        give(&mut w, hero, "lightning_scroll");
+        d.step(&mut w, [item_use(0, None, Some(enemy.id()), None)]).unwrap();
+        d.step(&mut w, []).unwrap();
+        assert_eq!(slot_cooldown(&w, hero), 0.0, "lightning scroll refuses a magic immune target");
+        give(&mut w, hero, "the_great_sword_of_tiger");
+        d.step(&mut w, [item_use(0, None, Some(enemy.id()), None)]).unwrap();
+        for _ in 0..3 { if slot_cooldown(&w, hero) > 0.0 { break; } d.step(&mut w, []).unwrap(); }
+        assert!(slot_cooldown(&w, hero) > 0.0, "the tiger sword is admitted and committed");
+    }
+
+    #[test]
+    fn a_unit_item_without_buildings_in_its_types_does_not_work_on_a_building() {
+        let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+        let (hero, enemy) = duel(&mut w, &mut d);
+        give(&mut w, hero, "lightning_scroll");
+        let hp = |w: &World| w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+        // the same use on a unit that is no building lands and commits
+        let before = hp(&w);
+        d.step(&mut w, [item_use(0, None, Some(enemy.id()), None)]).unwrap();
+        for _ in 0..30 { d.step(&mut w, []).unwrap(); }
+        assert!(hp(&w) < before, "the lightning hits a hero");
+        assert!(slot_cooldown(&w, hero) > 0.0, "the use on a hero commits");
+        w.write_storage::<IsBuilding>().insert(enemy, IsBuilding).unwrap();
+        give(&mut w, hero, "lightning_scroll");
+        let before = hp(&w);
+        d.step(&mut w, [item_use(0, None, Some(enemy.id()), None)]).unwrap();
+        for _ in 0..30 { d.step(&mut w, []).unwrap(); }
+        assert_eq!(hp(&w), before, "no damage on a building");
+        assert_eq!(slot_cooldown(&w, hero), 0.0, "a failed use spends nothing");
+    }
 }

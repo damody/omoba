@@ -24,19 +24,19 @@ local function katana(d) for _, it in ipairs(d.items) do if it.id == 'item_katan
 local checks = 0
 local function ok(v, m) assert(v, m); checks = checks + 1 end
 
-local _, problems, shops = G.build(shelf, { { path = 'batch_I1.lua', doc = doc } }, true)
+local _, problems, shops = G.build(shelf, { { path = 'batch_I1.lua', doc = doc } }, true, ctx.scripted_items)
 ok(#problems == 0, table.concat(problems, '\n'))
 ok(shops.katana.numbers.cost == 1120 and math.type(shops.katana.numbers.cost) == 'integer', 'the price is the v3 cost, an integer')
 ok(shops.katana.numbers.atk == 14, 'the attack bonus is the v3 value')
 
 -- a v3 number that differs from the source catalog is an error unless it says so
 katana(doc).values.cost[1] = 1200
-_, problems = G.build(shelf, { { path = 'batch_I1.lua', doc = doc } }, true)
+_, problems = G.build(shelf, { { path = 'batch_I1.lua', doc = doc } }, true, ctx.scripted_items)
 local found = false
 for _, p in ipairs(problems) do if p:find('item_katana', 1, true) and p:find('source_differs', 1, true) then found = true end end
 ok(found, 'an undeclared difference from the source catalog fails')
 katana(doc).values.cost.source_differs = 'balance test'
-_, problems, shops = G.build(shelf, { { path = 'batch_I1.lua', doc = doc } }, true)
+_, problems, shops = G.build(shelf, { { path = 'batch_I1.lua', doc = doc } }, true, ctx.scripted_items)
 ok(#problems == 0, table.concat(problems, '\n'))
 ok(shops.katana.numbers.cost == 1200, 'the declared v3 price reaches the shelf')
 

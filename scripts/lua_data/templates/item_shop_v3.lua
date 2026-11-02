@@ -24,12 +24,22 @@ local data = {
     numbers = { atk = 40, cost = 1850 },
   },
   dark_boots = {
-    numbers = { ["active.magic_immunity"] = 4.5, atk = 30, cooldown = 60, cost = 2900, ["modifiers.attackspeed_bonus_constant"] = 30, ["unique_passive.ms"] = 90, ["unique_passive.priority"] = 90 },
+    numbers = { atk = 30, cost = 2900, ["modifiers.attackspeed_bonus_constant"] = 30, ["unique_passive.ms"] = 90, ["unique_passive.priority"] = 90 },
     recipe = { "pleated_skirt", "speed_clothes", "spear" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      shares_cooldown_with = { "dark_boots_1", "magic_defence_boots", "magic_defence_boots_1", "mana_boots", "mana_boots_1", "perceive_wine", "ryukyu_ronin_clogs", "ryukyu_ronin_clogs_1", "swiftness_boots", "swiftness_boots_1", "the_great_silver_armor" },
+    },
   },
   dark_boots_1 = {
-    numbers = { ["active.magic_immunity"] = 9, atk = 30, cooldown = 60, cost = 4900, ["modifiers.attackspeed_bonus_constant"] = 30, ["unique_passive.ms"] = 90, ["unique_passive.priority"] = 90 },
+    numbers = { atk = 30, cost = 4900, ["modifiers.attackspeed_bonus_constant"] = 30, ["unique_passive.ms"] = 90, ["unique_passive.priority"] = 90 },
     recipe = { "hama_orb", "dark_boots" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      shares_cooldown_with = { "dark_boots", "magic_defence_boots", "magic_defence_boots_1", "mana_boots", "mana_boots_1", "perceive_wine", "ryukyu_ronin_clogs", "ryukyu_ronin_clogs_1", "swiftness_boots", "swiftness_boots_1", "the_great_silver_armor" },
+    },
   },
   energy_ingot = {
     numbers = { cost = 1900, ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_intellect_bonus"] = 10, ["modifiers.stats_strength_bonus"] = 10 },
@@ -88,12 +98,27 @@ local data = {
     numbers = { cost = 2000, ["modifiers.stats_agility_bonus"] = 5, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 5 },
     recipe = { "strength_ingot", "agility_ingot", "intelligence_ingot" },
   },
+  glass_mitsutomo = {
+    numbers = { cost = 3100, ["modifiers.mana_bonus"] = 400, ["modifiers.stats_intellect_bonus"] = 10 },
+    recipe = { "staff", "regeneration_ingot", "mana_ingot" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 30.0,
+      mana_cost = 110.0,
+      target = { out_of_range = "reject", range = 800.0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
   gorgeous_tachi = {
     numbers = { atk = 7, cost = 1950, ["modifiers.stats_agility_bonus"] = 15, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 5 },
     recipe = { "tachi", "strength_ingot", "agility_ingot", "intelligence_ingot" },
   },
   hama_orb = {
     numbers = { cost = 2000 },
+  },
+  hannya_onimaru = {
+    not_passive = { "modifiers.movespeed_bonus_percentage" },
+    numbers = { atk = 21, cost = 3350, ["modifiers.stats_strength_bonus"] = 15 },
+    recipe = { "moon_spear", "magic_resistance_ingot" },
   },
   healing_totem = {
     numbers = { cost = 450 },
@@ -154,6 +179,15 @@ local data = {
       target = { out_of_range = "reject", range = 1200.0, requires_visible = true, shape = "unit", team = "enemy" },
     },
   },
+  kousetsusamonnji = {
+    numbers = { atk = 50, cost = 6800, ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_strength_bonus"] = 10 },
+    recipe = { "big_tachi", "red_spear" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 15.0,
+      shares_cooldown_with = { "fire_scroll", "red_spear", "the_art_of_war", "the_art_of_war_flame_chapter", "the_lost_art_of_war_1" },
+    },
+  },
   lesser_armor = {
     numbers = { cost = 400 },
   },
@@ -184,13 +218,46 @@ local data = {
       target = { out_of_range = "reject", range = 700.0, requires_visible = true, shape = "unit", team = "any" },
     },
   },
+  magic_defence_boots = {
+    numbers = { cost = 2700, ["modifiers.health_regen_constant"] = 30, ["unique_passive.ms"] = 70, ["unique_passive.priority"] = 70 },
+    recipe = { "pleated_skirt", "regeneration_ingot", "regeneration_ingot", "magic_resistance_ingot" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      shares_cooldown_with = { "dark_boots", "dark_boots_1", "magic_defence_boots_1", "mana_boots", "mana_boots_1", "perceive_wine", "ryukyu_ronin_clogs", "ryukyu_ronin_clogs_1", "swiftness_boots", "swiftness_boots_1", "the_great_silver_armor" },
+    },
+  },
+  magic_defence_boots_1 = {
+    numbers = { cost = 4700, ["modifiers.health_regen_constant"] = 20, ["unique_passive.ms"] = 70, ["unique_passive.priority"] = 70 },
+    recipe = { "hama_orb", "magic_defence_boots" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      shares_cooldown_with = { "dark_boots", "dark_boots_1", "magic_defence_boots", "mana_boots", "mana_boots_1", "perceive_wine", "ryukyu_ronin_clogs", "ryukyu_ronin_clogs_1", "swiftness_boots", "swiftness_boots_1", "the_great_silver_armor" },
+    },
+  },
+  magic_resistance_ingot = {
+    numbers = { cost = 650 },
+  },
   mana_boots = {
-    numbers = { ["active.magic_immunity"] = 4.5, cooldown = 60, cost = 2650, ["modifiers.mana_regen_constant"] = 8.5, ["modifiers.spell_amplify_percentage"] = 0.08, ["modifiers.stats_intellect_bonus"] = 5, ["unique_passive.ms"] = 60, ["unique_passive.priority"] = 60 },
+    not_passive = { "modifiers.mana_regen_constant", "modifiers.spell_amplify_percentage" },
+    numbers = { cost = 2650, ["modifiers.stats_intellect_bonus"] = 5, ["unique_passive.ms"] = 60, ["unique_passive.priority"] = 60 },
     recipe = { "pleated_skirt", "spirit_ingot" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      shares_cooldown_with = { "dark_boots", "dark_boots_1", "magic_defence_boots", "magic_defence_boots_1", "mana_boots_1", "perceive_wine", "ryukyu_ronin_clogs", "ryukyu_ronin_clogs_1", "swiftness_boots", "swiftness_boots_1", "the_great_silver_armor" },
+    },
   },
   mana_boots_1 = {
-    numbers = { ["active.magic_immunity"] = 9, cooldown = 60, cost = 4650, ["modifiers.mana_regen_constant"] = 8.5, ["modifiers.spell_amplify_percentage"] = 0.1, ["modifiers.stats_intellect_bonus"] = 5, ["unique_passive.ms"] = 60, ["unique_passive.priority"] = 60 },
+    not_passive = { "modifiers.mana_regen_constant", "modifiers.spell_amplify_percentage" },
+    numbers = { cost = 4650, ["modifiers.stats_intellect_bonus"] = 5, ["unique_passive.ms"] = 60, ["unique_passive.priority"] = 60 },
     recipe = { "hama_orb", "mana_boots" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      shares_cooldown_with = { "dark_boots", "dark_boots_1", "magic_defence_boots", "magic_defence_boots_1", "mana_boots", "perceive_wine", "ryukyu_ronin_clogs", "ryukyu_ronin_clogs_1", "swiftness_boots", "swiftness_boots_1", "the_great_silver_armor" },
+    },
   },
   mana_ingot = {
     numbers = { cost = 650, ["modifiers.mana_bonus"] = 300 },
@@ -288,6 +355,24 @@ local data = {
     },
     recipe = { "spell_book" },
   },
+  ryukyu_ronin_clogs = {
+    numbers = { cost = 2850, hp = 300, ["unique_passive.ms"] = 70, ["unique_passive.priority"] = 70 },
+    recipe = { "pleated_skirt", "health_ingot", "lesser_armor" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      shares_cooldown_with = { "dark_boots", "dark_boots_1", "magic_defence_boots", "magic_defence_boots_1", "mana_boots", "mana_boots_1", "perceive_wine", "ryukyu_ronin_clogs_1", "swiftness_boots", "swiftness_boots_1", "the_great_silver_armor" },
+    },
+  },
+  ryukyu_ronin_clogs_1 = {
+    numbers = { cost = 4850, hp = 300, ["unique_passive.ms"] = 70, ["unique_passive.priority"] = 70 },
+    recipe = { "hama_orb", "ryukyu_ronin_clogs" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      shares_cooldown_with = { "dark_boots", "dark_boots_1", "magic_defence_boots", "magic_defence_boots_1", "mana_boots", "mana_boots_1", "perceive_wine", "ryukyu_ronin_clogs", "swiftness_boots", "swiftness_boots_1", "the_great_silver_armor" },
+    },
+  },
   sakabatou = {
     numbers = { atk = 35, cost = 3290, ["modifiers.attackspeed_bonus_constant"] = 30 },
     recipe = { "katana", "katana" },
@@ -374,6 +459,14 @@ local data = {
       target = { out_of_range = "reject", range = 500.0, requires_visible = false, shape = "point", team = "any" },
     },
   },
+  the_great_silver_armor = {
+    numbers = { armor = 15, cost = 8000, ["unique_passive.ms"] = 105, ["unique_passive.priority"] = 105 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      shares_cooldown_with = { "dark_boots", "dark_boots_1", "magic_defence_boots", "magic_defence_boots_1", "mana_boots", "mana_boots_1", "perceive_wine", "ryukyu_ronin_clogs", "ryukyu_ronin_clogs_1", "swiftness_boots", "swiftness_boots_1" },
+    },
+  },
   the_great_sword_of_anger = {
     numbers = { atk = 60, cost = 7800, ["modifiers.stats_agility_bonus"] = 20, ["modifiers.stats_intellect_bonus"] = 20 },
     scripted = {
@@ -398,6 +491,18 @@ local data = {
       active = { kind = "scripted" },
       cooldown = 100.0,
       mana_cost = 150.0,
+    },
+  },
+  the_great_sword_of_precision = {
+    numbers = { atk = 70, cost = 7700 },
+  },
+  the_great_sword_of_soul_hyper = {
+    numbers = { atk = 50, cost = 6300, ["modifiers.stats_agility_bonus"] = 20 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 55.0,
+      mana_cost = 130.0,
+      target = { include_magic_immune = true, out_of_range = "reject", range = 700.0, requires_visible = true, shape = "unit", team = "enemy" },
     },
   },
   the_great_sword_of_spike = {

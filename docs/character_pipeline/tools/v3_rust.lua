@@ -98,7 +98,12 @@ local function model(doc, compiled)
   end
   for _, it in ipairs(doc.items or {}) do
     local o = add(it, "item"); abilities[it.id] = o; entries[#entries + 1] = o
-    for _, s in ipairs(it.statuses or {}) do statuses[s.id] = add(s, "status", o) end
+    for _, s in ipairs(it.statuses or {}) do
+      -- the catalog's unique passive holds this movement speed (the host takes the highest of every
+      -- item's, gen_item_v3 checks the row has one): the status adding it too would count it twice
+      if s.unique_group == "move_speed_unique" and s.stats then s.stats.move_speed = nil end
+      statuses[s.id] = add(s, "status", o)
+    end
   end
   for _, u in ipairs(doc.unit_templates or {}) do templates[u.id] = add(u, "template") end
   -- state variables: the host key is `<document id>:<var>`, a shared registry name stays itself
@@ -1378,15 +1383,16 @@ local function emit_statuses(m, root)
     end
     if s.unique_rule ~= nil and s.unique_rule ~= "max" then p[#p + 1] = "status.unique_rule:" .. tostring(s.unique_rule) end
     -- scope: "unit" (the default) ends with the unit; hero / permanent outlive the hero's death
-    -- (StatusDef.scope, host status_scope); others (match, item_instance…) wait
-    if s.scope ~= nil and s.scope ~= "unit" and s.scope ~= "hero" and s.scope ~= "permanent" then
+    -- (StatusDef.scope, host status_scope); item_instance lives as long as the item: kept across
+    -- death, removed with the last copy (on_last_copy); others (match…) wait
+    if s.scope ~= nil and s.scope ~= "unit" and s.scope ~= "hero" and s.scope ~= "permanent" and s.scope ~= "item_instance" then
       p[#p + 1] = "status.scope:" .. tostring(s.scope)
     end
     problems[id] = p
     out[#out + 1] = string.format("\n    pub const %s: StatusDef = StatusDef {\n        id: %s,\n        runtime_id: %s,\n        state_buffs: &[%s],\n        state_payload: &[%s],\n        owner: %s,\n        events: %d,\n        ignore_status_resistance: %s,\n        family: %s,\n        scope: %s,\n    };\n",
       upper(id), rust_str(id), rust_str(runtime_id), table.concat(buffs, ", "), table.concat(payload, ", "), rust_str(owner), mask, tostring(sr == "ignore"), rust_str(family),
       -- scope hero / permanent: kept across the hero's death (host status_scope)
-      rust_str((s.scope == "hero" or s.scope == "permanent") and s.scope or ""))
+      rust_str(s.scope == "item_instance" and "hero" or (s.scope == "hero" or s.scope == "permanent") and s.scope or ""))
   end
   out[#out + 1] = "}\n"
   return table.concat(out), problems
@@ -4050,6 +4056,15 @@ local function emit_entry(m, o, opts, status_problems)
     end
   end
   if #rerank > 0 then program("on_learn_rerank", rerank, false) end
+  -- statuses that live with the item: `scope = item_instance` or `remove_on = unequip`. Two copies
+  -- share them (a unique_group gives only the strongest anyway) until the last copy is lost
+  local last_copy = {}
+  for _, s in ipairs(o.kind == "item" and def.statuses or {}) do
+    local goes = s.scope == "item_instance"
+    for _, r in ipairs(s.remove_on or {}) do goes = goes or r == "unequip" end
+    if goes then last_copy[#last_copy + 1] = { op = "remove_status", from = "self", status = s.id } end
+  end
+  if #last_copy > 0 then program("on_last_copy", last_copy, false) end
   if events.on_upgrade then program("on_upgrade", events.on_upgrade, false) end
   local passive = def.passive or {}
   local owner_triggers = {}
@@ -4368,7 +4383,7 @@ local function emit_entry(m, o, opts, status_problems)
   -- shop catalog's, which the host applies)
   -- its aura is there from the first copy to the last, like the marker
   local item_aura = o.kind == "item" and passive_aura or nil
-  local marker = item_mask ~= 0 or item_periodic ~= nil or item_aura ~= nil
+  local marker = item_mask ~= 0 or item_periodic ~= nil or item_aura ~= nil or #last_copy > 0
   local copies = rust_str("__item_copies:" .. def.id)
   if item_equip.on_created or marker then
     local first = marker and ("        let caster = owner;\n"
@@ -4389,6 +4404,7 @@ local function emit_entry(m, o, opts, status_problems)
       .. "        let _ = cx.set_state_num(caster, " .. copies .. ", n.max(Fixed64::ZERO), false);\n"
       .. "        if n <= Fixed64::ZERO { cx.remove_passive_marker(ID);"
       .. (item_aura and " let aura = ability_kit::aura_key(\"passive\", cx.caster); cx.stop_aura(caster, ID, &aura);" or "")
+      .. (#last_copy > 0 and " let _ = on_last_copy(&mut cx);" or "")
       .. " }\n") or ""
     impl[#impl + 1] = "\n    fn on_unequip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {\n"
       .. "        let mut cx = Cx::passive(world, owner, 1);\n" .. last
