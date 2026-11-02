@@ -188,6 +188,12 @@ M.RECIPES = {
   fx_hit = { ground = "blink_flash", ground_size = 150, ground_seconds = 0.25, height = 30, grow = 0.4, tint = { 1.0, 0.6, 0.25 } },
 }
 
+-- One file per hero (scripts/fx_recipes/<hero>.lua) holds its abilities' looks; a row replaces the same id above.
+for _, hero in ipairs { "tokugawa_ieyasu", "yamagata_masakage", "okuma_tomohide", "otani_yoshitsugu", "maeda_toshiie", "nohime", "kojima_sadaoki", "shimazu_yoshihiro", "maeda_keiji" } do
+  for id, row in pairs(dofile(scripts_dir .. "/fx_recipes/" .. hero .. ".lua").recipes) do M.RECIPES[id] = row end
+end
+M.RECIPES.fx_stun = { system = "stream", sprite = "spark_star", size = 60, life = 0.5, loop = true, tint = GOLD }
+
 -- Basic attacks, generated: fx_swing_<hero> at the attacker, fx_strike_<hero> at the target (OmUnitActor::PlayAttackFx).
 M.WEAPONS = {
   katana = { swing = { system = "pop", sprite = "crescent_slash", size = 300, life = 0.22, ground = "crescent_slash", ground_size = 300, ground_seconds = 0.26, height = 40, grow = 0.6 },
@@ -203,7 +209,7 @@ M.WEAPONS = {
 }
 M.ATTACKS = {
   sasaki_kojiro = { "katana", STEEL }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.35, 0.25 } },
-  okuma_tomohide = { "axe", { 1.0, 0.5, 0.2 } }, kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 } }, shimazu_yoshihiro = { "axe", { 0.85, 0.85, 0.95 } },
+  okuma_tomohide = { "axe", { 1.0, 0.5, 0.2 } }, kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 } }, shimazu_yoshihiro = { "axe", { 0.1, 0.45, 0.9 } },
   maeda_toshiie = { "spear", { 1.0, 0.85, 0.4 } }, maeda_keiji = { "spear", BLUE },
   nohime = { "gun", { 1.0, 0.6, 0.25 } }, otani_yoshitsugu = { "arcane", ARCANE },
 }
