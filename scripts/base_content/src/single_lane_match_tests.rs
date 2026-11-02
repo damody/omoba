@@ -9334,6 +9334,7 @@ fn generated_active_shop_items_60hz_buy_use_real_catalog_without_effect_override
         assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(other), Fixed64::ZERO);
         assert_eq!(w.read_resource::<BuffStore>().sum_add(other, StatKey::MoveSpeedBonusBuff), Fixed64::ZERO);
         match cfg.active.as_ref().unwrap() {
+            ActiveEffect::Scripted {} => panic!("a scripted active has no native effect to check"),
             ActiveEffect::Shield { amount, .. } => assert_eq!(w.read_resource::<BuffStore>().shield_remaining(hero), fixed(*amount)),
             ActiveEffect::SprintBuff { ms_bonus, .. } => assert_eq!(w.read_resource::<BuffStore>().sum_add(hero, StatKey::MoveSpeedBonusBuff), fixed(*ms_bonus)),
             ActiveEffect::RestoreMana { amount } => {
@@ -9352,7 +9353,7 @@ fn generated_active_shop_items_60hz_buy_use_real_catalog_without_effect_override
             ActiveEffect::ChannelHeal { .. } => panic!("channeled recovery has dedicated formal pulse fixtures"),
             ActiveEffect::SelfControlCleanse {} => panic!("control cleanse has dedicated formal fixtures"),
             ActiveEffect::PointNova { .. } | ActiveEffect::UnitHex { .. } => panic!("targeted training items have their own fixtures"),
-            ActiveEffect::ApplyModifiers { .. } | ActiveEffect::UnitHeal { .. } => panic!("source item actives have omoba-core fixtures (E160)"),
+            ActiveEffect::ApplyModifiers { .. } | ActiveEffect::UnitHeal { .. } | ActiveEffect::Scripted {} => panic!("source item actives have omoba-core fixtures (E160)"),
         }
         let cooldown = w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining;
         assert!(cooldown > cfg.cooldown - 1.0 && cooldown <= cfg.cooldown);

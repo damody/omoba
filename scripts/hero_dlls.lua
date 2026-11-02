@@ -137,4 +137,6 @@ return {
   {hero='akiyama_nobutomo',package='hero_b24',dir='heroes/akiyama_nobutomo'},
   -- A07: every ability generated (a07_strongest 1c655563, conformance 0 fail); handlers deleted
   {hero='honda_tadakatsu',package='hero_a07',dir='heroes/honda_tadakatsu'},
+  -- B06: every ability generated, conformance 0 fail; handlers deleted
+  {hero='sanada_yukimura',package='hero_b06',dir='heroes/sanada_yukimura'},
 }

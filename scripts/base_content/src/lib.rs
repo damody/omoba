@@ -90,6 +90,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
     fn all_units() -> RVec<UnitDef> {
         let mut v = units();
         v.extend(hero_a02_impl::units());
+        v.extend(hero_b06_impl::units());
         v.extend(hero_a07_impl::units());
         v.extend(hero_b01_impl::units());
         v.extend(hero_c17_impl::units());
@@ -190,6 +191,7 @@ pub(crate) fn get_manifest() -> Manifest_Ref {
     fn all_abilities() -> RVec<AbilityDefFFI> {
         let mut v = abilities();
         v.extend(hero_a02_impl::abilities());
+        v.extend(hero_b06_impl::abilities());
         v.extend(hero_a07_impl::abilities());
         v.extend(hero_b01_impl::abilities());
         v.extend(hero_c17_impl::abilities());
@@ -392,11 +394,8 @@ fn abilities() -> RVec<AbilityDefFFI> {
         let generated = match entry.script.ability_id().as_str() {
             "b04_fire_blast" => hero_b04_impl::generated::b04_fire_blast::ffi(),
             "b04_flame_swiftness" => hero_b04_impl::generated::b04_flame_swiftness::ffi(),
-            "b06_brave_warriors" => hero_b06_impl::generated::b06_brave_warriors::ffi(),
-            "b06_flame_fangs" => hero_b06_impl::generated::b06_flame_fangs::ffi(),
             // conformance 2026-10-30: 0 regressions (B04, B06 compare vs handler)
             "b04_flame_trail_dash" => hero_b04_impl::generated::b04_flame_trail_dash::ffi(),
-            "b06_first_warrior" => hero_b06_impl::generated::b06_first_warrior::ffi(),
             // conformance 2026-10-30: +16 pass, 0 regressions (one burn per fire segment, E356)
             "c15_burst_arrow" => hero_c15_impl::generated::c15_burst_arrow::ffi(),
             "c15_precise_light" => hero_c15_impl::generated::c15_precise_light::ffi(),
