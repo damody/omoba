@@ -237,7 +237,8 @@ function M.read_source(src, game, supplement)
   end
 
   for _, it in ipairs(src.items or {}) do
-    local gi = game_item[it.id]
+    -- by document id, or the source key when that differs (item_Sukemune, item_samurai's_badge)
+    local gi = game_item[it.id] or game_item[it.source_id]
     local v3 = gi and gi.v3 or it.v3
     local text_names = {}
     for lang, name in pairs(it.name or {}) do text_names[lang] = name end
