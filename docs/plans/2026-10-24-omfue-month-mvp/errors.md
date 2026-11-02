@@ -2,6 +2,29 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E657 基礎屬性沒有同步到 replica；死亡身體上的 on_death 移除不到 hero scope 狀態（2026-11-02，工作線 B，E 的 m6r1rg04 與 FC-102 的 runtime 測試）
+
+- **現象**：
+  - m6r1rg04 tick 15840：kikuhime 的 `agility` authority 32、replica 30，attribute_totals 相同。
+  - 新寫的 FC-102 runtime 測試：A03 開著蜘蛛化型死亡，復活後身上還有 `a03e_melee`，仍是近戰。文件和 `v3_fixed_quirks_test` 都說修好了，只查文件所以沒發現。
+- **根因**：
+  - `CommittedAttributes` 只帶三個總值和 attribute_hp。永久加基礎屬性（B11R 擊殺加敏捷，`apply_base_stat`）後，replica 的總值會跟上，基礎值不會。
+  - hero scope 的狀態在英雄死亡時就存進 `slot.hero_statuses`。`on_death` 之後才執行，它的 `remove_status` 只移除 BuffStore 的列，存下的那份復活時又放回去。
+  - 另外，`toggle_ability` 判斷 `has_status(切換狀態)`。在這個狀態自己的 on_death 裡，狀態已經離開，所以關閉流程被跳過，A03 的模型還原 cue 和 C07 的 stop cue 都沒發。
+- **修正**：
+  - `CommittedAttributes` 帶上基礎屬性（payload 32→44 bytes），replica 一起寫入。
+  - `ScriptRemoveBuff` 也從 `hero_statuses` 移除同一個身體、同一個 id 的列（`status_scope::forget`）。
+  - 狀態自己的結束觸發（on_removed、on_expired、on_death）裡，`toggle_ability` 不再判斷 `has_status`。
+- **測試**：
+  - `attribute_replica_tests`：tick 中途改 authority 的基礎敏捷，team hash 要一致。
+  - `status_scope::a_removal_aimed_at_the_dead_body_takes_only_that_row_of_that_body`。
+  - `fix_candidates::fc102`／`fc104`／`fc110`／`fc133`：開著死亡、復活後關閉，按一次就重新開啟；A32 另外檢查物理傷害恢復。4 個都通過。
+- **未驗證**：cue 是否真的發出只查過產生碼的流程，沒有 runtime 測試；要等 D 和 E 重跑。
+- **避免**：
+  - 文件式測試只能證明文件寫了什麼。死亡、復活這類跨生命週期的修正要有 runtime 測試。
+  - 只送衍生值的 fact，要確認它的來源欄位也在 replica 上。
+- **檔案**：`omoba-core/src/runtime/stable_fact.rs`、`team_projector.rs`、`filtered_specs.rs`、`native/moba_match.rs`、`native/status_scope.rs`、`native/game_processor.rs`、`native/attribute_replica_tests.rs`、`docs/character_pipeline/tools/v3_rust.lua`、`scripts/base_content/src/v3_conformance_tests.rs`
+
 ## E658 （保留）kind=active 帶 passive 的招，普攻命中觸發從來不執行（2026-11-02）
 
 ## E657 （保留）CommittedAttributes 不帶基礎屬性，replica 的 agility 落後；on_death 移除 hero scope 狀態沒有作用（FC-102）（2026-11-02）
