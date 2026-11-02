@@ -2,6 +2,11 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E656 conformance：判定被動與狀態的普攻觸發，英雄實際攻擊後逐一觀察（2026-11-02，conformance session）
+- **現象**：被動的 on_attack_hit、on_attack_windup，以及舊檢查讀不懂的狀態普攻效果（heal、for_each、cue 加 damage 等），都沒有判定。
+- **通用修正**：`attack_effects`：英雄實際攻擊對方（敵方英雄持有時由 player 2 下令），對方在旁邊、看得見，並加上高血量 buff 撐完。條件成立、對象確定的效果逐一觀察；它要套的狀態先拿掉。機率效果持續攻擊，直到全部落空的機率低於 0.1 %（最多 60 秒，超過就略過那個效果）。
+- **結果**：全跑 0 退步，30 個 unsupported 轉 pass。新增 11 個 fail（A26、B17、C19 的 on_attack_hit）是真 bug：`dispatch_passive_attack_hit`（dispatch.rs）只派送給 `AbilityType::Passive`，`kind = "active"` 又帶 `passive` 區塊的招，普攻觸發從來不會執行。已轉給 B。另外 2 個 fail（FC-102、FC-133）是 B 進行中的測試。
+
 ## E655 conformance：接上 on_summon、after_tick、via_aura：施放後沒觀察到時才使用（2026-11-02，conformance session）
 - **現象**：工作線 A 在 `status_on_unit` 加了三個備援欄位（85ecd264、3639e051）：on_summon、after_tick、via_aura，標示只施放一次看不到的狀態要去哪裡看，harness 還沒有用。
 - **通用修正**：只在施放後 not observed 才使用，已 pass 的流程不變。on_summon：`by` 不是這一招就先學會並施放（`cast_other`），再到該 template 的單位上找；after_tick：把目標放到施法者旁邊，多等 1.5 個週期（上限 30 秒）；via_aura：把敵方英雄或一個己方小兵放進半徑內且看得見，最多等 5 秒。
