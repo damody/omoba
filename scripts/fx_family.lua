@@ -192,7 +192,7 @@ M.RECIPES = {
 }
 
 -- One file per hero (scripts/fx_recipes/<hero>.lua) holds its abilities' looks; a row replaces the same id above.
-for _, hero in ipairs { "tokugawa_ieyasu", "yamagata_masakage", "okuma_tomohide", "otani_yoshitsugu", "maeda_toshiie", "nohime", "kojima_sadaoki", "shimazu_yoshihiro", "maeda_keiji" } do
+for _, hero in ipairs { "tokugawa_ieyasu", "yamagata_masakage", "okuma_tomohide", "otani_yoshitsugu", "maeda_toshiie", "nohime", "kojima_sadaoki", "shimazu_yoshihiro", "maeda_keiji", "package_cues" } do
   for id, row in pairs(dofile(scripts_dir .. "/fx_recipes/" .. hero .. ".lua").recipes) do M.RECIPES[id] = row end
 end
 M.RECIPES.fx_stun = { system = "stream", sprite = "spark_star", size = 60, life = 0.5, loop = true, tint = GOLD }
