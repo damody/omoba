@@ -2,7 +2,9 @@
 -- (templates/item_shop_v3.lua), with its v3 name, price, description and icon, and why it is not sold:
 --   blocked   the generator cannot write its Rust yet: the forms it does not lower
 --             (docs/character_pipeline/tools/v3_codegen_coverage.lua, the same scan as codegen-coverage.md);
---   ready     it generates today; it waits to be put on the shelf.
+--   ready     it generates today; it waits to be put on the shelf;
+--   deferred  the original has no such item (no source row: the shop file names it, its KV is missing,
+--             commented out or only a recipe), so it is never sold.
 -- The shop lists them greyed out and never sells them; their tooltips use the same TooltipRenderer.
 --
 --   tools\lua\lua.exe scripts\gen_ue_item_roadmap.lua [--check]
@@ -51,7 +53,7 @@ function M.blocker_labels(codes)
 end
 
 -- items: { id, name, blockers } per item; source: source catalog; icons: nobu index; shelf: shelf ids
-function M.rows(items, source_catalog, icons, shelf)
+function M.rows(items, source_catalog, icons, shelf, source_rows)
   local by_source = {}
   for _, it in ipairs(source_catalog.items or {}) do by_source[it.source_id] = it; by_source[it.id] = it end
   local icon_of = {}
@@ -66,7 +68,7 @@ function M.rows(items, source_catalog, icons, shelf)
         id = id, source_id = src.source_id or row.id,
         name = { zh_TW = src.name and src.name.zh_TW or row.name, en = src.name and src.name.en or nil },
         cost = src.cost, category = src.category, icon = icon_of[id] or "",
-        state = #row.blockers == 0 and "ready" or "blocked",
+        state = source_rows and not source_rows[row.id:lower()] and "deferred" or (#row.blockers == 0 and "ready" or "blocked"),
         blockers = #row.blockers > 0 and M.blocker_labels(row.blockers) or nil,
         blocker_codes = #row.blockers > 0 and row.blockers or nil,
         v3 = { text = v3.text, values = v3.values, info = v3.info, stat_lines = v3.stat_lines },
@@ -75,7 +77,10 @@ function M.rows(items, source_catalog, icons, shelf)
     end
   end
   table.sort(rows, function(x, y)
-    if x.state ~= y.state then return x.state == "ready" end
+    if x.state ~= y.state then
+      local rank = { ready = 1, blocked = 2, deferred = 3 }
+      return rank[x.state] < rank[y.state]
+    end
     return x.id < y.id
   end)
   return rows
@@ -111,7 +116,11 @@ function M.build(root)
     items[#items + 1] = { id = entry.id, name = entry.id, blockers = blockers }
   end
   table.sort(items, function(x, y) return x.id < y.id end)
-  local rows = M.rows(items, json.decode(read(M.CATALOG)), json.decode(read(M.ICONS)), shelf)
+  local source_rows = {}
+  for _, row in ipairs(require("content_builder").new(root .. "/scripts/lua_data").include("templates/source_items.lua").items) do
+    source_rows[row.key:lower():gsub("'", "")] = true
+  end
+  local rows = M.rows(items, json.decode(read(M.CATALOG)), json.decode(read(M.ICONS)), shelf, source_rows)
   return { schema = M.SCHEMA, content_hash = content.content_hash, items = rows }
 end
 

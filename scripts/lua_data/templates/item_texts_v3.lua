@@ -15648,6 +15648,89 @@ local data = {
       },
     },
   },
+  true_katana = {
+    coverage = "expressible",
+    info = {
+      { field = "cost", value = "cost" },
+    },
+    kind = "item",
+    max_level = 1,
+    schema = "3.3",
+    source_id = "item_true_katana",
+    stat_lines = {
+      { stat = "attack_damage", value = "attack" },
+      { stat = "attack_speed", value = "attack_speed" },
+      { stat = "outgoing_damage_pct", value = "damage_out" },
+    },
+    text = {
+      en = {
+        body = "Passive: damage you deal is increased by {damage_out}. Each attack has a {true_chance} chance to be unable to miss and to deal a {crit} critical strike.",
+        name = "Samurai Katana, Masamune",
+        pieces = {
+          { text = "Passive: damage you deal is increased by " },
+          { value = "damage_out" },
+          { text = ". Each attack has a " },
+          { value = "true_chance" },
+          { text = " chance to be unable to miss and to deal a " },
+          { value = "crit" },
+          { text = " critical strike." },
+        },
+        rendered = "Passive: damage you deal is increased by 20%. Each attack has a 65% chance to be unable to miss and to deal a 101% critical strike.",
+      },
+      zh_TW = {
+        body = "被動：造成的傷害提高 {damage_out}。每次攻擊出手時有 {true_chance} 機率必定命中，並以 {crit} 的爆擊結算。",
+        name = "正宗．武士刀",
+        pieces = {
+          { text = "被動：造成的傷害提高 " },
+          { value = "damage_out" },
+          { text = "。每次攻擊出手時有 " },
+          { value = "true_chance" },
+          { text = " 機率必定命中，並以 " },
+          { value = "crit" },
+          { text = " 的爆擊結算。" },
+        },
+        rendered = "被動：造成的傷害提高 20%。每次攻擊出手時有 65% 機率必定命中，並以 101% 的爆擊結算。",
+      },
+    },
+    values = {
+      {
+        name = "attack",
+        ranks = { "90" },
+        raw = { 92160 },
+        unit = "dmg",
+      },
+      {
+        name = "attack_speed",
+        ranks = { "100" },
+        raw = { 102400 },
+        unit = "atk_speed",
+      },
+      {
+        name = "cost",
+        ranks = { "8500" },
+        raw = { 8704000 },
+        unit = "gold",
+      },
+      {
+        name = "crit",
+        ranks = { "101" },
+        raw = { 103424 },
+        unit = "pct",
+      },
+      {
+        name = "damage_out",
+        ranks = { "20" },
+        raw = { 20480 },
+        unit = "pct",
+      },
+      {
+        name = "true_chance",
+        ranks = { "65" },
+        raw = { 66560 },
+        unit = "pct",
+      },
+    },
+  },
   wayumi = {
     coverage = "expressible",
     info = {

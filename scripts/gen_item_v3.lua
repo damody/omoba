@@ -116,6 +116,7 @@ end
 -- shelf rows by source key (item_xxx); docs: list of v3 documents
 function M.build(shelf, docs, partial, scripted)
   local validator, compiler = tools()
+  local script_stats = dofile(b.root .. "/docs/character_pipeline/tools/v3_vocab.lua").ITEM_SCRIPT_STATS
   local problems, blocks, seen, shops = {}, {}, {}, {}
   local cooldown_groups = {}
   for _, d in ipairs(docs) do
@@ -264,7 +265,7 @@ function M.build(shelf, docs, partial, scripted)
                 shop.added[path] = number
                 shop.numbers[path] = number
               end
-            elseif not found then
+            elseif not found and not script_stats[stat] then
               problems[#problems + 1] = d.path .. ": " .. item.id .. ": passive stat " .. stat .. " has no number on the shelf row"
             end
           end

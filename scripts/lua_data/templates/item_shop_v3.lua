@@ -793,6 +793,9 @@ local data = {
   toughness_ingot = {
     numbers = { cost = 650 },
   },
+  true_katana = {
+    numbers = { atk = 90, cost = 8500, ["modifiers.attackspeed_bonus_constant"] = 100 },
+  },
   wayumi = {
     not_passive = { "modifiers.attack_range_bonus" },
     numbers = { atk = 14, cost = 2400, ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_strength_bonus"] = 10 },

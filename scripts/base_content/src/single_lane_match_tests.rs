@@ -15183,6 +15183,22 @@ mod scripted_item_use {
         assert!(cut(false).is_none(), "no cut on a unit that is no hero");
     }
 
+    /// outgoing_damage_pct has no catalog field: the item's script holds it, first copy to last.
+    #[test]
+    fn a_passive_stat_without_a_catalog_field_lives_on_the_items_marker() {
+        let key = omb_script_abi::stat_keys::StatKey::DamageOutgoingPercentage;
+        let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+        let (hero, _) = duel(&mut w, &mut d);
+        let held = |w: &World| w.read_resource::<BuffStore>().stat_rows(hero).any(|(_, entry)| entry.payload.get(key.as_str()).is_some());
+        assert!(!held(&w), "nothing before the item");
+        give(&mut w, hero, "true_katana");
+        for _ in 0..3 { d.step(&mut w, []).unwrap(); }
+        assert!(held(&w), "the stat is on the holder");
+        w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0] = None;
+        for _ in 0..3 { d.step(&mut w, []).unwrap(); }
+        assert!(!held(&w), "gone with the last copy");
+    }
+
     #[test]
     fn only_an_item_whose_target_admits_magic_immune_reaches_a_magic_immune_enemy() {
         let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);

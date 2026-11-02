@@ -207,6 +207,9 @@ V.AURA_FIELDS = set({ "radius", "team", "types", "flags", "status", "linger", "i
 V.FORCED_MOVE_FIELDS = set({ "toward", "locks", "speed" })
 V.ORDER_LOCKS = set({ "move", "attack", "cast", "item", "stop", "hold", "all" })
 V.LANDMARKS = set({ "base", "fort", "fountain", "barracks", "tower", "shop", "spawn" })
+-- An item's passive stats the catalog row has no field for: its script's marker holds them, from the
+-- first copy to the last. The other passive stats are the row's (scripts/gen_item_v3.lua STAT_PATHS).
+V.ITEM_SCRIPT_STATS = set({ "outgoing_damage_pct" })
 V.REMOVE_ON = set({ "death", "owner_death", "unequip", "channel_end", "attack", "cast", "move" })
 
 -- StatKey names (status / passive `stats`). Extends package_v2's list with the

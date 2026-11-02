@@ -4196,9 +4196,19 @@ local function emit_entry(m, o, opts, status_problems)
   end
   local passive_stats
   local passive_when
+  local item_marker_stats = false
   if passive.stats then
+    local stats = passive.stats
+    -- an item's stats are the catalog row's, but for those it has no field for and conditional ones
+    if o.kind == "item" then
+      stats = {}
+      for name, v in pairs(passive.stats) do
+        if V.ITEM_SCRIPT_STATS[name] or (type(v) == "table" and v.when ~= nil) then stats[name] = v end
+      end
+      item_marker_stats = next(stats) ~= nil
+    end
     g.when_ok = true
-    passive_stats = g:stat_rows(passive.stats, { owner = o, scope = scope_child(nil) })
+    passive_stats = g:stat_rows(stats, { owner = o, scope = scope_child(nil) })
     passive_when, g.when_ok, g.last_when = g.last_when, nil, nil
   end
 
@@ -4426,14 +4436,15 @@ local function emit_entry(m, o, opts, status_problems)
   -- shop catalog's, which the host applies)
   -- its aura is there from the first copy to the last, like the marker
   local item_aura = o.kind == "item" and passive_aura or nil
-  local marker = item_mask ~= 0 or item_periodic ~= nil or item_aura ~= nil or #last_copy > 0
+  local marker = item_mask ~= 0 or item_periodic ~= nil or item_aura ~= nil or #last_copy > 0 or item_marker_stats
   local copies = rust_str("__item_copies:" .. def.id)
   if item_equip.on_created or marker then
     local first = marker and ("        let caster = owner;\n"
       .. "        let n = cx.state_num(caster, " .. copies .. ", Fixed64::ZERO) + Fixed64::ONE;\n"
       .. "        let _ = cx.set_state_num(caster, " .. copies .. ", n, false);\n"
       .. "        if n == Fixed64::ONE {\n"
-      .. string.format("            let _ = cx.passive_marker(ID, &[], %d);\n", item_mask)
+      .. (passive_when and string.format("            let _ = cx.passive_marker_when(ID, %s, %d);\n", passive_when, item_mask)
+        or string.format("            let _ = cx.passive_marker(ID, %s, %d);\n", item_marker_stats and passive_stats or "&[]", item_mask))
       .. (item_periodic and item_periodic:gsub("\n(.)", "\n    %1"):gsub("^", "    ") or "")
       .. (item_aura and ("    " .. item_aura) or "")
       .. "        }\n") or ""
