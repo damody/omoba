@@ -48,19 +48,24 @@ M.IMAGES = {
 }
 
 -- main: takes the cue's image, size and life. The rest keep their own (their colour still follows the cue).
+-- Spray in world centimetres: a hero stands about 14,000 tall (a recipe's sizes are in backend units, M.WORLD_CM).
+local function SPARKS(count)
+  return { ["SpawnBurst_Instantaneous.Spawn Count"] = count, ["AddVelocity.Velocity Speed Scale"] = 80,
+    ["InitializeParticle.Uniform Sprite Size Min"] = 900, ["InitializeParticle.Uniform Sprite Size Max"] = 2200 }
+end
 M.SYSTEMS = {
   -- explosion: a few flipbook puffs thrown outward, with sparks
   burst = { { template = emitter("SimpleSpriteBurst"), main = true,
       set = { ["SpawnBurst_Instantaneous.Spawn Count"] = 5 } },
-    { template = emitter("OmnidirectionalBurst"), set = { ["SpawnBurst_Instantaneous.Spawn Count"] = 14 } } },
+    { template = emitter("OmnidirectionalBurst"), set = SPARKS(14) } },
   -- one image that flares and fades: flash, glow, lightning strike
   pop = { { template = emitter("SimpleSpriteBurst"), main = true,
       set = { ["SpawnBurst_Instantaneous.Spawn Count"] = 1 } } },
   -- sparks alone, for a small hit
-  sparks = { { template = emitter("OmnidirectionalBurst"), set = { ["SpawnBurst_Instantaneous.Spawn Count"] = 18 } } },
+  sparks = { { template = emitter("OmnidirectionalBurst"), set = SPARKS(18) } },
   -- keeps emitting while it lasts: a trail behind a flight, smoke, motes around a unit
   stream = { { template = emitter("Fountain"), main = true,
-      set = { ["SpawnRate.SpawnRate"] = 24, ["GravityForce.Gravity"] = { 0, 0, 0 }, ["AddVelocity.Velocity Speed Scale"] = 0.08, ["ShapeLocation.Sphere Radius"] = 12 } } },
+      set = { ["SpawnRate.SpawnRate"] = 24, ["GravityForce.Gravity"] = { 0, 0, 0 }, ["AddVelocity.Velocity Speed Scale"] = 8, ["ShapeLocation.Sphere Radius"] = 4500 } } },
 }
 
 -- Looks shared by many cues: fields of a recipe, overridden by the cue's own row.
@@ -96,12 +101,20 @@ M.RECIPES = {
   -- C22 佐佐木小次郎: steel blue sword light; swallows and a thunder clap
   c22d_hand_glow = { ground = "soft_glow", ground_size = 140, ground_seconds = 1.2, height = 100, tint = STEEL },
   c22d_return_projectile = { look = "line", tint = STEEL },
-  c22e_swallow = { look = "flight_glow", tint = STEEL, ground = "swallow", ground_size = 200 },
-  c22e_impact = { look = "slash", tint = STEEL },
-  c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 70, life = 0.6, loop = true, tint = STEEL,
-    ground = "shock_ring", ground_size = 300, ground_seconds = 1 },
-  c22t_thunder_clap = { system = "pop", sprite = "lightning", size = 420, life = 0.35, tint = STEEL,
-    ground = "shock_ring", ground_size = 500, ground_seconds = 0.5, grow = 0.15 },
+  c22d_cast_sound = { system = "burst", sprite = "spark_star", size = 340, life = 0.6, tint = STEEL,
+    ground = "shock_ring", ground_size = 460, ground_seconds = 0.5, grow = 0.2 },
+  c22e_voice = { system = "pop", sprite = "crescent_slash", size = 340, life = 0.3, tint = STEEL },
+  c22e_swallow = { system = "stream", sprite = "swallow", size = 170, life = 0.9, loop = true, face = true, tint = STEEL,
+    ground = "swallow", ground_size = 260, ground_seconds = 20, height = 90 },
+  c22e_impact = { system = "burst", sprite = "spark_star", size = 280, life = 0.5, tint = STEEL,
+    ground = "crescent_slash", ground_size = 420, ground_seconds = 0.4, height = 60, grow = 0.5 },
+  c22r_crit_sound = { system = "pop", sprite = "crescent_slash", size = 420, life = 0.32, tint = { 1.0, 0.9, 0.55 },
+    ground = "blink_flash", ground_size = 340, ground_seconds = 0.3, height = 30, grow = 0.4 },
+  c22w_voice = { system = "pop", sprite = "soft_glow", size = 300, life = 0.4, tint = STEEL },
+  c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, tint = STEEL,
+    ground = "vortex", ground_size = 480, ground_seconds = 1.5 },
+  c22t_thunder_clap = { system = "pop", sprite = "lightning", size = 950, life = 0.5, tint = STEEL,
+    ground = "shock_ring", ground_size = 500, ground_seconds = 0.7, grow = 0.15 },
   -- A26 濃姬: gunpowder fire and smoke
   a26w_hit_explosion = { look = "explosion_small" },
   a26e_smoke = { system = "burst", sprite = "smoke_sheet", size = 150, life = 0.8 },
@@ -174,6 +187,33 @@ M.RECIPES = {
   fx_hit = { ground = "blink_flash", ground_size = 150, ground_seconds = 0.25, height = 30, grow = 0.4, tint = { 1.0, 0.6, 0.25 } },
 }
 
+-- Basic attacks, generated: fx_swing_<hero> at the attacker, fx_strike_<hero> at the target (OmUnitActor::PlayAttackFx).
+M.WEAPONS = {
+  katana = { swing = { ground = "crescent_slash", ground_size = 340, ground_seconds = 0.26, height = 70, grow = 0.6 },
+    strike = { system = "sparks", ground = "blink_flash", ground_size = 210, ground_seconds = 0.22, height = 50, grow = 0.4 } },
+  axe = { swing = { ground = "crescent_slash", ground_size = 420, ground_seconds = 0.3, height = 60, grow = 0.5 },
+    strike = { system = "sparks", ground = "dust_crack", ground_size = 280, ground_seconds = 0.35, grow = 0.4 } },
+  spear = { swing = { ground = "chain_bolt", ground_size = 90, ground_seconds = 0.2, line = true },
+    strike = { system = "sparks", ground = "blink_flash", ground_size = 200, ground_seconds = 0.22, height = 50, grow = 0.4 } },
+  gun = { swing = { system = "pop", sprite = "spark_star", size = 170, life = 0.16,
+      ground = "spark_star", ground_size = 90, ground_seconds = 0.2, height = 70, fly = true } },
+  arcane = { swing = { ground = "soft_glow", ground_size = 120, ground_seconds = 0.26, height = 70, fly = true },
+    strike = { system = "pop", sprite = "soft_glow", size = 200, life = 0.3 } },
+}
+M.ATTACKS = {
+  sasaki_kojiro = { "katana", STEEL }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.35, 0.25 } },
+  okuma_tomohide = { "axe", { 1.0, 0.5, 0.2 } }, kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 } }, shimazu_yoshihiro = { "axe", { 0.85, 0.85, 0.95 } },
+  maeda_toshiie = { "spear", { 1.0, 0.85, 0.4 } }, maeda_keiji = { "spear", BLUE },
+  nohime = { "gun", { 1.0, 0.6, 0.25 } }, otani_yoshitsugu = { "arcane", ARCANE },
+}
+for hero, row in pairs(M.ATTACKS) do
+  for part, recipe in pairs(M.WEAPONS[row[1]]) do
+    local id = { tint = row[2] }
+    for k, v in pairs(recipe) do id[k] = v end
+    M.RECIPES["fx_" .. part .. "_" .. hero] = id
+  end
+end
+
 -- Abilities whose every look is in the recipes above.
 M.FX_ABILITIES = {
   "a01_tosho_gongen", "a01_heaven_net", "a01_thunder_blade", "a01_mikawa_valor", "a01_realm_momentum",
@@ -233,6 +273,8 @@ end
 local function number(v) return (("%.3f"):format(v):gsub("0+$", ""):gsub("%.$", "")) end
 
 -- One CueOverrides row. Radius and duration are not here: they arrive with the cue from the package.
+-- Recipes say sizes in backend units, like the packages; the game's world is 100 cm to the unit.
+M.WORLD_CM = 100
 function M.ini_row(id)
   local r = M.resolve(id)
   local f = {}
@@ -240,16 +282,16 @@ function M.ini_row(id)
   if r.system then add("Effect", '"' .. M.system(r.system) .. '"') end
   if r.tint then add("EffectTint", ("(R=%s,G=%s,B=%s,A=1.0)"):format(number(r.tint[1]), number(r.tint[2]), number(r.tint[3]))) end
   if r.sprite then add("Sprite", '"' .. M.material("MI", r.sprite) .. '"') end
-  if r.size then add("FxSizeCm", number(r.size)) end
+  if r.size then add("FxSizeCm", number(r.size * M.WORLD_CM)) end
   if r.life then add("FxSeconds", number(r.life)) end
   if r.loop then add("bFxLoop", "True") end
   if r.face then add("bFxFaceMotion", "True") end
   if r.ground then add("Ground", '"' .. M.material("MIG", r.ground) .. '"') end
-  if r.ground_size then add("GroundSizeCm", number(r.ground_size)) end
+  if r.ground_size then add("GroundSizeCm", number(r.ground_size * M.WORLD_CM)) end
   if r.ground_seconds then add("GroundSeconds", number(r.ground_seconds)) end
   if r.grow then add("GroundGrow", number(r.grow)) end
   if r.line then add("bGroundLine", "True") end
-  if r.height then add("GroundHeightCm", number(r.height)) end
+  if r.height then add("GroundHeightCm", number(r.height * M.WORLD_CM)) end
   if r.fly then add("bGroundFly", "True") end
   return ('("%s",(%s))'):format(id, table.concat(f, ","))
 end
