@@ -109,6 +109,7 @@ local SOURCE_ITEMS = {
   { 178, "item_thunderstorms", true },
   { 179, "item_the_storm_call_book", true },
   { 180, "item_yubashiri", true },
+  { 224, "item_kotennmyohiragumo", true },
   { 181, "item_the_great_sword_of_xnew_moon", true },
   { 182, "item_ninja1", true },
   { 183, "item_chidori", true },

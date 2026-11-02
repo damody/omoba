@@ -1878,7 +1878,12 @@ local AURA_FIELDS = set({ "radius", "team", "types", "flags", "include_self", "s
 
 -- `cx.emit_aura(..)` of aura `a` named `key` on `holder` (requires: the status it lives on, or None)
 function Gen:aura_emit(a, ctx, key, holder, requires, passive)
-  for _, k in ipairs(sorted_keys(a)) do if not AURA_FIELDS[k] then self:block("aura." .. k) end end
+  for _, k in ipairs(sorted_keys(a)) do
+    -- unique_group of the aura: its status's own, which the status's family already holds
+    local status = a.status and self.m.statuses[a.status]
+    local same_group = k == "unique_group" and status and status.def.unique_group == a.unique_group
+    if not AURA_FIELDS[k] and not same_group then self:block("aura." .. k) end
+  end
   if a.team ~= "ally" and a.team ~= "enemy" and a.team ~= "both" then self:block("aura.team:" .. tostring(a.team)) end
   if a.radius == nil then self:block("aura without radius"); return "Ok::<(), &'static str>(())" end
   local radius = self:value(a.radius, ctx, "num")

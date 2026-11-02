@@ -201,6 +201,17 @@ local data = {
       target = { out_of_range = "reject", range = 600.0, requires_visible = true, shape = "unit", team = "enemy" },
     },
   },
+  kotennmyohiragumo = {
+    no_native_aura = true,
+    numbers = { cost = 2600, hp = 300, ["modifiers.health_regen_constant"] = 25 },
+    recipe = { "regeneration_ingot", "health_ingot" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 45.0,
+      mana_cost = 100.0,
+      target = { out_of_range = "reject", range = 700.0, requires_visible = true, shape = "unit", team = "ally" },
+    },
+  },
   kousetsusamonnji = {
     numbers = { atk = 50, cost = 6800, ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_strength_bonus"] = 10 },
     recipe = { "big_tachi", "red_spear" },
