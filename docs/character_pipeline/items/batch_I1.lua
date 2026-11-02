@@ -759,6 +759,61 @@ return function(ctx)
           "npc/npc_items_custom_load.txt:16387-16400", "vscripts/items/Addon_Items/item_insight_gem.lua:1-44", "shops/nobu_shops.txt:15" } },
 
       -------------------------------------------------------------------------
+      { id = "item_insight_gem", source_id = "item_insight_gem",
+        values = {
+          cost = { 2000, unit = "gold", kv = { 1000 },
+            source = "kv:item_recipe_insight_gem ItemCost + 零件 ItemCost（item_insight_gem_Shard）",
+            source_differs = "KV ItemCost 是 1000；Dota 實際售價是碎片 400 加合成費 1600" },
+          recipe_cost = { 1600, unit = "gold", source = "kv:ItemCost@npc/npc_items_custom_load.txt:16391", note = "item_recipe_insight_gem ItemCost" },
+          cooldown = { 30, unit = "s", source = "kv:AbilityCooldown" },
+          aura_radius = { 600, unit = "dist", source = "kv:Aura_Radius" },
+          night_vision = { 200, unit = "dist", source = "kv:Passive_insight_gem MODIFIER_PROPERTY_BONUS_NIGHT_VISION" },
+          active_radius = { 1200, unit = "dist", source = "kv:OnSpellStart Radius", note = "OnSpellStart ApplyModifier；AOERadius 相同" },
+          reveal_time = { 10, unit = "s", source = "kv:OnSpellStart Duration", note = "OnSpellStart ApplyModifier" },
+        },
+        text = {
+          zh_TW = { name = "洞察寶石",
+            body = "被動：看穿身邊 {aura_radius} 內的隱形敵人（英雄、單位與建築），夜晚視野增加 {night_vision}。主動：看穿 {active_radius} 內的隱形敵人 {reveal_time} 秒。" },
+          en = { name = "Insight Gem",
+            body = "Passive: reveals invisible enemies (heroes, units and buildings) within {aura_radius} and adds {night_vision} night vision. Active: reveals invisible enemies within {active_radius} for {reveal_time} seconds." },
+        },
+        shop = { cost = "$cost", recipe = { components = { "item_insight_gem_shard" }, recipe_cost = "$recipe_cost" } },
+        passive = {
+          stats = { vision_night = "$night_vision" },
+          aura = { radius = "$aura_radius", team = "enemy", types = { "hero", "creep", "neutral", "summon", "building" },
+            flags = { "include_magic_immune", "include_invulnerable" }, status = "insight_gem_aura_reveal" },
+        },
+        active = { kind = "active", target = { type = "none", aoe_radius = "$active_radius" },
+          cast = { immediate = true },
+          cost = { cooldown = "$cooldown", cooldown_start = "on_cast" },
+          events = {
+            on_cast = {
+              { op = "cue", id = "insight_gem_reveal_map", at = "caster" },
+              { op = "for_each",
+                select = { from = "caster", shape = "circle", radius = "$active_radius", team = "enemy", types = { "hero", "creep", "neutral", "summon", "building" },
+                  flags = { "include_magic_immune", "include_invulnerable" } },
+                actions = { { op = "apply_status", status = "insight_gem_reveal", to = "it" } } },
+            },
+          } },
+        statuses = {
+          { id = "insight_gem_aura_reveal", duration = "infinite", stacking = "refresh", dispel = "none", visibility = "hidden",
+            reveal = "public", states = { "revealed" },
+            notes = "原作光環子狀態 modifier_insight_gem_truesight 在 OnCreated 對目標套引擎 modifier_truesight、OnDestroy 移除" },
+          { id = "insight_gem_reveal", duration = "$reveal_time", stacking = "refresh", dispel = "none", visibility = "debuff",
+            text = { zh_TW = { name = "現形", body = "對敵方隊伍現形，隱形會被看穿。" }, en = { name = "Revealed", body = "Revealed to the enemy team; invisibility is seen through." } },
+            reveal = "public", states = { "revealed" }, notes = "原作引擎 modifier_truesight，10 秒" },
+        },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "fixed", ref = "npc/npc_items_custom_load.txt:4423-4435",
+            text = "同 FC-097（D13 修正：資料以光環與主動各自的狀態表達，光環結束只移除光環自己那份）。原作：光環子狀態結束時移除目標身上的 modifier_truesight，可能連主動的 10 秒一起移除。" },
+          { policy = "note", ref = "vscripts/items/Addon_Items/item_insight_gem.lua:24-44",
+            text = "完整的洞察寶石沒有死亡銷毀；Death 只處理碎片。" },
+        },
+        provenance = { "npc/npc_items_custom_load.txt:4337-4440", "npc/npc_items_custom_load.txt:16387-16400",
+          "vscripts/items/Addon_Items/item_insight_gem.lua:1-8" } },
+
+      -------------------------------------------------------------------------
       { id = "item_insight_gem_hero", source_id = "item_insight_gem_hero",
         values = {
           cost = { 250, unit = "gold", source = "kv:ItemCost" },
