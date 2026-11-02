@@ -10,7 +10,7 @@ return {
     c05e_cast_sound = { system = "burst", sprite = "lightning", size = 560, life = 0.4, tint = BLUE,
       ground = "shock_ring", ground_size = 1700, ground_seconds = 0.5, grow = 0.15 },
     c05e_bolt = { system = "stream", sprite = "lightning", size = 110, life = 0.22, loop = true, face = true, tint = BLUE,
-      ground = "chain_bolt", ground_size = 230, ground_seconds = 20, height = 90 },
+      mesh = "thunder_spear", ground_size = 220, ground_seconds = 20, height = 90 },
     c05e_impact = { system = "burst", sprite = "lightning", size = 270, life = 0.3, tint = BLUE,
       ground = "blink_flash", ground_size = 240, ground_seconds = 0.25, height = 20, grow = 0.4 },
     -- c05_thunder_spear: a bolt along the thrust and a flash on the spear, then the target crackles
@@ -28,7 +28,7 @@ return {
     c05t_eclipse_area = { system = "pop", sprite = "lightning", size = 950, life = 0.5, tint = BLUE,
       ground = "shock_ring", ground_seconds = 0.6, grow = 0.15 },
     c05t_blink_end = { system = "burst", sprite = "lightning", size = 520, life = 0.45, tint = BLUE,
-      ground = "dust_crack", ground_size = 700, ground_seconds = 0.6, grow = 0.3 },
+      ground = "shock_ring", ground_size = 700, ground_seconds = 0.6, grow = 0.3 },
   },
   notes = {
     c05_matsukaze = "c05w_vo whirlwind burst + c05w_armlet stream for the buff.",

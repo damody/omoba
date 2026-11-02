@@ -8,8 +8,7 @@ return {
     b27w_armlet_glow = { system = "stream", sprite = "spark_star", size = 90, life = 0.4, loop = true, tint = RED },
     -- b27_mighty_strike: throw swing, spinning axe in flight, chop on the target
     b27e_vo = { system = "pop", sprite = "crescent_slash", size = 340, life = 0.26, tint = GOLD },
-    b27e_axe = { system = "stream", sprite = "spark_star", size = 90, life = 0.3, loop = true, face = true, tint = GOLD,
-      ground = "throw_axe", ground_size = 270, ground_seconds = 20, height = 110 },
+    b27e_axe = { face = true, mesh = "throw_axe", ground_size = 170, ground_seconds = 20, height = 110, spin = 1080 },
     b27e_hit_sound = { system = "burst", sprite = "crescent_slash", size = 340, life = 0.4, tint = GOLD,
       ground = "dust_crack", ground_size = 400, ground_seconds = 0.45, grow = 0.4 },
     -- b27_fearless_charge: fire and a rally banner on cast; a gold shield under him and gold motes for the duration
@@ -20,8 +19,8 @@ return {
     b27r_b15w3_aura = { system = "stream", sprite = "spark_star", size = 85, life = 0.4, loop = true, tint = GOLD },
     -- b27_rending_blade: a giant blade comes down, the earth breaks around him
     b27t_vo = { system = "pop", sprite = "crescent_slash", size = 880, life = 0.32, tint = GOLD },
-    b27t_slam = { system = "burst", sprite = "smoke_sheet", size = 720, life = 0.6,
-      ground = "dust_crack", ground_size = 1800, ground_seconds = 0.8, grow = 0.2 },
+    b27t_slam = { system = "burst", sprite = "rock", size = 300, life = 0.6, area = true,
+      mesh = "fissure_blade", ground_size = 500, ground_seconds = 1.1, height = 230, grow = 0.2, face_viewer = true },
     b27t_screen_shake = { system = "burst", sprite = "spark_star", size = 220, life = 0.35, tint = GOLD,
       ground = "shock_ring", ground_size = 300, ground_seconds = 0.4, grow = 0.3 },
     b27t_move_slow = { ground = "slow_chains", ground_size = 170, ground_seconds = 1.2, tint = SLOW },

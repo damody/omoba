@@ -4,7 +4,7 @@ return {
   recipes = {
     -- c03_iron_shirt: a huge iron shield flares, a shield stays underfoot, steel motes while it lasts
     c03w_vo = { system = "pop", sprite = "iron_shield", size = 460, life = 0.45, tint = STEEL,
-      ground = "shock_ring", ground_size = 600, ground_seconds = 0.45, grow = 0.2 },
+      mesh = "iron_bell", ground_size = 230, ground_seconds = 0.9, height = 100, grow = 0.5, face_viewer = true },
     c03w_grow = { system = "burst", sprite = "spark_star", size = 260, life = 0.4, tint = STEEL,
       ground = "iron_shield", ground_size = 240 },
     c03w_iron_glow = { system = "stream", sprite = "spark_star", size = 85, life = 0.4, loop = true, tint = STEEL },

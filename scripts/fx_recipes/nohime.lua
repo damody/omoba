@@ -3,14 +3,14 @@ local ORANGE = { 1.0, 0.55, 0.08 }
 return {
   recipes = {
     -- a26_volley: muzzle flashes and a wave at her reach, then a blast on each enemy
-    a26w_flak_sound = { system = "burst", sprite = "spark_star", size = 420, life = 0.4, tint = ORANGE,
-      ground = "shock_ring", ground_size = 1600, ground_seconds = 0.5, grow = 0.15 },
+    a26w_flak_sound = { system = "pop", sprite = "blink_flash", size = 200, life = 0.25, tint = ORANGE,
+      mesh = "cannon_shell", ground_size = 150, ground_seconds = 0.45, height = 100, launch = 800 },
     a26w_hit_explosion = { system = "burst", sprite = "flame_sheet", size = 230, life = 0.4,
       ground = "dust_crack", ground_size = 240, ground_seconds = 0.35, grow = 0.5 },
     -- a26_powder_kick: the kick's arc, then the powder blast
     a26e_voice = { system = "pop", sprite = "crescent_slash", size = 300, life = 0.25, tint = ORANGE },
     a26e_rocket_sound = { system = "burst", sprite = "flame_sheet", size = 480, life = 0.5,
-      ground = "dust_crack", ground_size = 600, ground_seconds = 0.6, grow = 0.25 },
+      mesh = "rocket", ground_size = 220, ground_seconds = 0.55, height = 100, launch = 900 },
     a26e_smoke = { system = "pop", sprite = "smoke_sheet", size = 240, life = 0.6,
       ground = "dust_crack", ground_size = 130, ground_seconds = 0.5, line = true },
     -- a26_twin_guns: a crit's flash
@@ -20,9 +20,9 @@ return {
     a26t_voice = { system = "pop", sprite = "spark_star", size = 280, life = 0.45, tint = ORANGE,
       ground = "arcane_circle", ground_size = 340, ground_seconds = 0.5, grow = 0.4 },
     a26t_bomb_arcana = { system = "stream", sprite = "flame_sheet", size = 190, life = 0.4, loop = true, face = true,
-      ground = "rock", ground_size = 200, ground_seconds = 20, height = 110 },
+      mesh = "fire_bomb", ground_size = 130, ground_seconds = 20, height = 110, spin = 360 },
     a26t_small_bomb = { system = "stream", sprite = "flame_sheet", size = 100, life = 0.3, loop = true, face = true,
-      ground = "rock", ground_size = 100, ground_seconds = 20, height = 90 },
+      mesh = "fire_bomb", ground_size = 80, ground_seconds = 20, height = 90, spin = 360 },
     a26t_overhead_bomb = { system = "stream", sprite = "spark_star", size = 50, life = 0.3, loop = true, tint = ORANGE },
     a26t_big_explosion = { system = "burst", sprite = "flame_sheet", size = 700, life = 0.7,
       ground = "dust_crack", ground_size = 800, ground_seconds = 0.8, grow = 0.25 },

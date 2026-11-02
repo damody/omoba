@@ -13,7 +13,7 @@ return {
     a14t_vo = { system = "burst", sprite = "spark_star", size = 480, life = 0.5, tint = BLUE,
       ground = "shock_ring", ground_size = 900, ground_seconds = 0.55, grow = 0.15 },
     a14t_title = { system = "pop", sprite = "lightning", size = 900, life = 0.45, tint = BLUE,
-      ground = "dust_crack", ground_size = 620, ground_seconds = 0.7, grow = 0.3 },
+      ground = "shock_ring", ground_size = 620, ground_seconds = 0.7, grow = 0.3 },
     a14t_lightning = { system = "stream", sprite = "lightning", size = 130, life = 0.22, loop = true, tint = BLUE },
   },
   notes = {

@@ -112,7 +112,7 @@ M.RECIPES = {
     ground = "shock_ring", ground_size = 460, ground_seconds = 0.5, grow = 0.2 },
   c22e_voice = { system = "pop", sprite = "crescent_slash", size = 340, life = 0.3, tint = STEEL },
   c22e_swallow = { system = "stream", sprite = "swallow", size = 170, life = 0.9, loop = true, face = true, tint = STEEL,
-    ground = "swallow", ground_size = 260, ground_seconds = 20, height = 90 },
+    mesh = "swallow", ground_size = 190, ground_seconds = 20, height = 90 },
   c22e_impact = { system = "burst", sprite = "crescent_slash", size = 340, area = true, life = 0.5, tint = STEEL,
     ground = "blink_flash", ground_size = 340, ground_seconds = 0.4, height = 30, grow = 0.4 },
   c22r_crit_sound = { system = "burst", sprite = "crescent_slash", size = 300, life = 0.4, tint = GOLD, area = true,
@@ -246,8 +246,13 @@ M.FX_ABILITIES = {
 -- Low-poly models (Tripo, asset-ledger.md), imported as static world models; a recipe's `mesh` draws one in the pool.
 M.MESH_ROOT = "/Game/Omoba/Structures/TripoStaticV1"
 M.MESH_SOURCE = "omfue/SourceArt/Structures/TripoStaticV1"
--- roll: turns a model built "tip to the right" so its tip leads; tilt: about its long axis, before the roll.
-M.MESHES = { war_hammer = {} }
+-- A model built from a side view has its tip along +X and its side toward -Y, so a tip leads as it is.
+-- roll = 90 shows that side to whatever the cue faces (face_viewer); tilt: about its long axis, before the roll.
+M.MESHES = {
+  throw_axe = {}, rocket = {}, cannon_shell = {}, arcane_arrow = {}, thunder_spear = {}, spear_head = {}, swallow = { tilt = -90 },
+  rock_chunk = {}, fire_bomb = {}, earth_crown = {}, shock_dome = {},
+  war_hammer = { roll = 90 }, fissure_blade = { roll = 90 }, iron_bell = { roll = 90 }, fire_wings = { roll = 90 }, thunder_sword = { roll = 90 }, war_banner = { roll = 90 },
+}
 function M.material(prefix, image) return ("%s/Instances/%s_fx_%s.%s_fx_%s"):format(M.ROOT, prefix, image, prefix, image) end
 function M.system(name) return ("%s/Systems/NS_fx_%s.NS_fx_%s"):format(M.ROOT, name, name) end
 
