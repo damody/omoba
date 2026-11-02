@@ -2,6 +2,16 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E658 kind=active 帶 passive 區塊的招，普攻命中觸發從來不執行（2026-11-02，工作線 B，D 的 v3c_full656 回報）
+
+- **現象**：學了 b17_tooth_poison，普攻命中 5 次都套用了，b17e_venom 卻沒有上身。A26、B17、C19 共 11 個情境 fail。
+- **根因**：`dispatch_passive_attack_hit` 對技能（非道具）多一個 `ability_type == Passive` 的條件，active 招的 `passive.triggers.on_attack_hit` 永遠輪不到。同一迴圈的 `dispatch_attack_launch` 沒有這個條件。
+- **影響**：D 統計文件裡有 34 招是 active 帶 passive，普攻命中的包含 c06_lavish_strike、a14_spear_fury、a15_shadow_moon_assault、c11_unrivaled、c15_hundred_arrows 等。這些招的命中效果從來沒在對局裡發生過，修好後對局內容會改變。
+- **修正**：拿掉這個條件，改成和 launch 一樣的 `rank == 0` 或超過最大等級才略過。沒有覆寫 `on_attack_hit` 的招走 trait 的預設空實作。
+- **測試**：`v3_conformance::b17_`、`c19_`、`a26_` 重跑，3 隻英雄 fail 都是 0。其他招要看 D 的全量和 E 的回歸。
+- **避免**：host 判斷技能能不能收到事件時，看學了沒有，不要看它的主動／被動類型；一招可以同時有主動和被動區塊。
+- **檔案**：`omoba-core/src/runtime/native/scripting/dispatch.rs`
+
 ## E657 基礎屬性沒有同步到 replica；死亡身體上的 on_death 移除不到 hero scope 狀態（2026-11-02，工作線 B，E 的 m6r1rg04 與 FC-102 的 runtime 測試）
 
 - **現象**：
@@ -25,9 +35,7 @@
   - 只送衍生值的 fact，要確認它的來源欄位也在 replica 上。
 - **檔案**：`omoba-core/src/runtime/stable_fact.rs`、`team_projector.rs`、`filtered_specs.rs`、`native/moba_match.rs`、`native/status_scope.rs`、`native/game_processor.rs`、`native/attribute_replica_tests.rs`、`docs/character_pipeline/tools/v3_rust.lua`、`scripts/base_content/src/v3_conformance_tests.rs`
 
-## E658 （保留）kind=active 帶 passive 的招，普攻命中觸發從來不執行（2026-11-02）
 
-## E657 （保留）CommittedAttributes 不帶基礎屬性，replica 的 agility 落後；on_death 移除 hero scope 狀態沒有作用（FC-102）（2026-11-02）
 
 ## E656 conformance：判定被動與狀態的普攻觸發，英雄實際攻擊後逐一觀察（2026-11-02，conformance session）
 - **現象**：被動的 on_attack_hit、on_attack_windup，以及舊檢查讀不懂的狀態普攻效果（heal、for_each、cue 加 damage 等），都沒有判定。
