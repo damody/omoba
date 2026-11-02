@@ -24,9 +24,9 @@ return {
       ground = "vortex", ground_size = 800, ground_seconds = 0.8, grow = 0.3 },
     a12r_vortex = { system = "stream", sprite = "vortex", size = 90, life = 0.25, loop = true, tint = ARCANE },
     -- a12_mystic_arrow
-    a12f_arc_sound = { system = "pop", sprite = "blink_flash", size = 320, life = 0.22, tint = ARCANE },
+    a12f_arc_sound = { system = "pop", sprite = "soft_glow", size = 120, life = 0.15, tint = ARCANE },
     a12f_arrow = { system = "stream", sprite = "soft_glow", size = 50, life = 0.3, loop = true, face = true, tint = ARCANE,
-      mesh = "arcane_arrow", ground_size = 220, ground_seconds = 20, height = 70 },
+      mesh = "arcane_arrow", ground_size = 150, ground_seconds = 20, height = 70 },
     -- a12_mystic_possession: purple lightning crackling on him for the whole form
     a12t_aura = { system = "stream", sprite = "lightning", size = 170, life = 0.22, loop = true, bold = true, tint = ARCANE },
   },
