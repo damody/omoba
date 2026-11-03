@@ -10,8 +10,7 @@ return {
     a14e_blink_sparkles = { system = "burst", sprite = "blink_flash", size = 440, life = 0.4, tint = GOLD,
       ground = "lightning", ground_size = 340, ground_seconds = 0.8, line = true },
     -- Wings over the struck target: his blow keeps the star.
-    a14e_hit = { system = "pop", sprite = "fire_wings", size = 340, life = 0.5, tint = GOLD,
-      ground = "dust_crack", ground_size = 300, ground_seconds = 0.6, grow = 0.3 },
+    a14e_hit = { ground = "fire_wings", ground_size = 340, ground_seconds = 0.6, height = 90, face_camera = 0.9, grow = 0.4, tint = GOLD },
     -- He arrives far away: the landing marks itself.
     a14e_arrive = { system = "burst", sprite = "blink_flash", size = 260, life = 0.35, tint = GOLD,
       ground = "shock_ring", ground_size = 420, ground_seconds = 0.5, grow = 0.2 },

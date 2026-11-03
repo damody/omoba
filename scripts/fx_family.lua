@@ -220,7 +220,7 @@ M.ATTACKS = {
   okuma_tomohide = { "axe", { 1.0, 0.3, 0.03 }, { sprite = "flame_sheet", size = 60, ground = "shock_ring", ground_size = 170, height = 30, grow = 0.3, face_camera = false, ground_roll = false } },
   kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 }, { sprite = "spark_star", size = 170, ground = "dust_crack", ground_size = 280, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 }, { sprite = "spark_star", size = 190 } },
-  maeda_toshiie = { "spear", { 1.0, 0.62, 0.05 }, { size = 110, height = 45 } }, maeda_keiji = { "spear", BLUE, { system = "burst", sprite = "spark_star", size = 110, life = 0.25, ground = "shock_ring", ground_size = 150, ground_seconds = 0.25, height = 30, line = false, face_camera = false } },
+  maeda_toshiie = { "spear", { 1.0, 0.62, 0.05 }, { sprite = "spark_star", size = 70, life = 0.2, ground = false, mesh = "spear_head", ground_size = 170, ground_seconds = 0.22, height = 45, line = false, grow = 0.6, face_camera = false } }, maeda_keiji = { "spear", BLUE, { system = "burst", sprite = "spark_star", size = 110, life = 0.25, ground = "shock_ring", ground_size = 150, ground_seconds = 0.25, height = 30, line = false, face_camera = false } },
   nohime = { "gun", { 1.0, 0.6, 0.25 } }, otani_yoshitsugu = { "arcane", ARCANE },
 }
 for hero, row in pairs(M.ATTACKS) do

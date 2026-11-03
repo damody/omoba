@@ -29,6 +29,8 @@ M.SLOT_OF_ACTION={Q=0,W=1,E=2,R=3,extra1=4,extra2=5}
 M.RECIPE='scripts/lua_data/moba_hero_spotlight.lua'
 -- A hero whose abilities cross a long way: the stand-ins line up along the open top lane.
 M.LANE_RECIPE='scripts/lua_data/moba_hero_spotlight_lane.lua'
+M.LINE_RECIPE='scripts/lua_data/moba_hero_spotlight_line.lua'
+M.LINE_HEROES={otani_yoshitsugu=true}
 M.LANE_DEATH_AT={2150,2400}
 M.LANE_HEROES={maeda_toshiie=true}
 -- A hero with a tree-target ability is shown on the nobu map, which has trees (D21: every ability
@@ -55,6 +57,7 @@ function M.recipe_for(package)
   if tree then return M.TREE_RECIPE end
   if props then return M.PROPS_RECIPE end
   if M.PATROL_HEROES[package.hero or ''] then return M.PATROL_RECIPE end
+  if M.LINE_HEROES[package.hero or ''] then return M.LINE_RECIPE end
   if M.CASTS_HEROES[package.hero or ''] then return M.CASTS_RECIPE end
   return M.LANE_HEROES[package.hero or ''] and M.LANE_RECIPE or M.RECIPE
 end
@@ -401,7 +404,7 @@ M.STRUCK_AT={2700,2130}
 M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_tenacity={2480,2450}}
 M.HOLDS_STILL={b20_tenacity=true}
 -- b27 裂地刃 reaches 1000: the death's stand-ins are hit too, and at the usual cap (2) their ripples were cut off.
-M.VIEW_BACK={b27_rending_blade=2.7,a14_impact_spear=2.3,a14_divine_strike=2.3}
+M.VIEW_BACK={b27_rending_blade=2.7,a14_impact_spear=2.3,a14_divine_strike=2.3,a12_mystic_arrow=1.35,a12_scheme=1.35}
 -- Ranged: hero and stand-in stand far apart, in frame from the segment's start.
 M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
 -- The stage's showcase.withheld_abilities: no rank at birth, learned in their own segment.
@@ -419,7 +422,7 @@ M.VIEW_EARLY={c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
 -- a14 on the lane stage: 衝擊槍 flies the stand-in (2800,2260) along the run into seat 10 (2800,1750), and the crash and its 350 show.
 -- 神現一擊 blinks 850 through the stand-in: straight along the run it lands on the cliff, a little aside it clears it, at about (2977,1573). Both frames hold the hero, the target and the landing.
 M.STAND_AT={a14_divine_strike={2765,2396}}
-M.VIEW_AT={a14_impact_spear={2800,2075},a14_divine_strike={2870,1985}}
+M.VIEW_AT={a14_impact_spear={2800,2075},a14_divine_strike={2870,1985},a12_mystic_arrow={2300,2640},a12_scheme={2300,2640}}
 -- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
 M.CAST_AT={c05_flash_thunder={2440,2300}}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one. c05: beside the patrol of
@@ -517,7 +520,7 @@ function M.script(package)
   end
   -- The death ends the recording: only the base stage has the enemies that strike it down.
   local stage=M.recipe_for(package)
-  if stage==M.RECIPE or stage==M.LANE_RECIPE or stage==M.PATROL_RECIPE or stage==M.CASTS_RECIPE then
+  if stage==M.RECIPE or stage==M.LANE_RECIPE or stage==M.LINE_RECIPE or stage==M.PATROL_RECIPE or stage==M.CASTS_RECIPE then
     local after_attack={}
     for index=#slots,1,-1 do
       if M.AFTER_ATTACK[slots[index].id] then table.insert(after_attack,1,table.remove(slots,index)) end
