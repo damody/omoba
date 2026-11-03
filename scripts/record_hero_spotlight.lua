@@ -38,9 +38,10 @@ M.TREE_RECIPE='scripts/lua_data/moba_hero_spotlight_trees.lua'
 -- non-hero unit at its point, B23 亡靈之契 a body near the caster; item_spotlight.AIM `props`) is
 -- shown on the prop stage: the base stage plus an allied creep and a body.
 M.PROPS_RECIPE='scripts/lua_data/moba_hero_spotlight_props.lua'
--- A hero whose passive slows a walker: the base stage plus a patrol out of every other segment's view.
+-- A hero struck or slowing a walker in its passive: the base stage plus a patrol out of every other segment's view,
+-- and whole again whenever no striker reaches it (refill_players).
 M.PATROL_RECIPE='scripts/lua_data/moba_hero_spotlight_patrol.lua'
-M.PATROL_HEROES={maeda_keiji=true}
+M.PATROL_HEROES={maeda_keiji=true,okuma_tomohide=true}
 function M.recipe_for(package)
   local tree,props=false,package.props==true
   for _,slot in ipairs(package.slots) do
@@ -395,9 +396,9 @@ M.STRUCK_AT={2700,2130}
 M.STRUCK_BOTH={c05_thunder_spear=true}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one. c05: beside the patrol of
 -- moba_hero_spotlight_patrol.lua, watched unhurt first, then hit: the same road walked slowed.
-M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=8},c05_thunder_spear={at={2300,1700},seconds=8,wait=5}}
--- The hero loses most of its life to these: shown after every other ability, or a later one finds it dead (E's B26 at R).
-M.SHOWN_LAST={b26_kozuke_valor=true,c05_thunder_spear=true}
+M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=8},c05_thunder_spear={at={2300,1700},seconds=5,wait=4}}
+-- Struck for this long the hero lives: seat 7 took 17 hits and 14 s to kill c05 at 164 a hit (out of its reach refill_players makes it whole).
+M.HALF_SECONDS={c05_thunder_spear=4}
 -- Where a reach is the point (backend units from the stand-in): c22 燕閃 reaches 228 at rank 1 and 378 at rank 4.
 M.STAND_OFF={c22_swallow_flash=330}
 -- Its attacks after that reach land from far off: the attack segment stands where the blade visibly connects.
@@ -446,7 +447,6 @@ function M.script(package)
     end
   end
   local doc=package.hero and M.v3_document(b.root,package.hero)
-  local shown_last={}
   for _,slot in ipairs(package.slots) do
     slot.view=M.view_radius(doc,slot.id);slot.hold=M.hold_seconds(doc,slot.id)
     if M.LEARN_MIDWAY[slot.id] then slot.learn_midway=true end
@@ -455,9 +455,9 @@ function M.script(package)
     local third=M.THIRD_HALF[slot.id]
     if third then slot.third_x,slot.third_y,slot.third_seconds,slot.third_wait=third.at[1],third.at[2],third.seconds,third.wait end
     if M.CASTS_OWN[slot.id] then slot.casts_own=true end
-    if M.SHOWN_LAST[slot.id] then shown_last[#shown_last+1]=slot else slots[#slots+1]=slot end
+    slot.half_seconds=M.HALF_SECONDS[slot.id]
+    slots[#slots+1]=slot
   end
-  for _,slot in ipairs(shown_last) do slots[#slots+1]=slot end
   -- What needs an ability still active has its turn while it is.
   for index=1,#slots-1 do
     if slots[index+1].after==slots[index].id and slots[index].hold then slots[index].hold=math.min(slots[index].hold,M.BASE_HOLD) end
