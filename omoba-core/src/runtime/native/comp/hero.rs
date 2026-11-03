@@ -40,6 +40,10 @@ pub struct Hero {
     /// Actual duration of each running cooldown; old saves may omit this map.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub ability_cooldown_totals: HashMap<String, Fixed64>,
+    /// A showcase stage's withheld abilities: while unlearned, no auto-learn and a skill point buys
+    /// them whatever their definition says. Here so that every replica holds the same rule.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub withheld_abilities: Vec<String>,
     /// Explicitly enabled by the authoritative ruleset. Legacy heroes/savegames
     /// remain unsupported rather than silently acquiring a full mana balance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -139,6 +143,7 @@ impl Hero {
             skill_points: 0,
             ability_cooldowns: HashMap::new(),
             ability_cooldown_totals: HashMap::new(),
+            withheld_abilities: Vec::new(),
             ability_charges: std::collections::BTreeMap::new(),
             mana_pool: None,
             level_growth: LevelGrowth::default(),
@@ -197,6 +202,7 @@ impl Hero {
             skill_points: 8, // 初始技能點（playtest 方便把所有 ability 點起來）
             ability_cooldowns: HashMap::new(),
             ability_cooldown_totals: HashMap::new(),
+            withheld_abilities: Vec::new(),
             ability_charges: std::collections::BTreeMap::new(),
             mana_pool: None,
             level_growth: LevelGrowth {

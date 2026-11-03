@@ -752,7 +752,7 @@ fn showcase_reset_input_keeps_a_learned_passive_and_clears_the_last_segments_sta
             ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
             showcase:stage.then(||ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2000]),(6,[2300,2600])].into(),
                 hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],
-                refill_players:Default::default()})};
+                refill_players:Default::default(),withheld_abilities:Default::default()})};
         let (mut config,_)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
         config.warmup=Fixed64::ZERO;
         let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
@@ -780,6 +780,57 @@ fn showcase_reset_input_keeps_a_learned_passive_and_clears_the_last_segments_sta
     assert_eq!(run(false),(true,true,true,true),"a real match refuses it");
 }
 
+/// A withheld ability: the demonstrated seat starts without it with a skill point for it and learns
+/// it through the upgrade input, an auto-learned one included. Every other seat keeps its birth rank.
+#[test]
+fn showcase_withheld_ability_starts_unlearned_for_the_demonstrator_alone_and_is_learned_later() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::ShowcaseConfig;
+    let seat=|player_id:u32,team_id:u32,hero:&str,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role:BotRole::Mid,lane:"mid".into(),bot};
+    // The hero's rank and skill points, and the same of the enemy seat with the same hero: at the
+    // start, after 2 s (auto-learn has run), after one upgrade and after a second one.
+    let run=|hero:&str,ability:&str,withheld:bool| {
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+            players:vec![seat(1,1,hero,false),seat(6,2,hero,true)],
+            ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+            showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
+                hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],refill_players:Default::default(),
+                // One list for every hero of a stage: the other ids are ignored.
+                withheld_abilities:if withheld {[ability.to_owned(),"a26_twin_guns".to_owned()].into()} else {Default::default()}})};
+        let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;
+        let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+        d.step(&mut w,[]).unwrap();
+        let of=|w:&World,id:u32|w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
+        let state=|w:&World,id:u32|{let heroes=w.read_storage::<Hero>();let hero=heroes.get(of(w,id)).unwrap();(hero.get_ability_level(ability),hero.skill_points)};
+        let slot=w.read_storage::<Hero>().get(of(&w,1)).unwrap().abilities.iter().position(|id|id==ability).unwrap() as u32;
+        let mut marks=vec![(state(&w,1),state(&w,6))];
+        for tick in 0..240 {
+            let mut inputs=role_bot_inputs(&w,&bots).unwrap();
+            if tick==120 || tick==180 {inputs.push((1,upgrade(slot)));}
+            d.step(&mut w,inputs).unwrap();
+            let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,t,0);
+            if tick==119 || tick==179 || tick==239 {marks.push((state(&w,1),state(&w,6)));}
+        }
+        marks
+    };
+    // Passive with ranks to buy, then the auto-learned one that has a single rank.
+    for (hero,ability,max) in [("maeda_keiji","c05_thunder_spear",4),("otani_yoshitsugu","a12_scheme",1)] {
+        let plain=run(hero,ability,false);
+        let held=run(hero,ability,true);
+        let (rank,points)=plain[0].0;
+        assert!(rank>=1,"{hero}: the birth loadout ranks it");
+        assert_eq!(held[0].0,(0,points+1),"{hero}: rank 0 and its skill point");
+        assert_eq!(held[1].0,(0,points+1),"{hero}: still unlearned, auto-learn or not");
+        assert_eq!(held[2].0,(1,points),"{hero}: learned with that point");
+        if max==1 {assert_eq!(held[3].0,(1,points),"{hero}: one rank, nothing more to buy");}
+        else {assert_eq!(held[3].0,(2,points-1),"{hero}: the next rank is an ordinary upgrade");}
+        for (mark,base) in held.iter().zip(&plain) {assert_eq!(mark.1,base.1,"{hero}: the other seat is untouched");}
+        // Without a list an auto-learned ability still cannot be bought.
+        if max==1 {assert_eq!(plain[3].0,plain[0].0,"{hero}: no list, no purchase");}
+    }
+}
+
 /// An enemy inside the hero's acquisition range but out of its attack range does not break a channel:
 /// the idle engage waits for the channel to end, and starts after it.
 #[test]
@@ -791,7 +842,7 @@ fn a_channel_is_not_broken_by_the_heros_own_idle_engage() {
         players:vec![seat(1,1,"maeda_keiji",false),seat(6,2,"date_masamune",true)],
         ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
         showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2800])].into(),
-            hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],refill_players:Default::default()})};
+            hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],refill_players:Default::default(),withheld_abilities:Default::default()})};
     let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;
     let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
@@ -836,7 +887,7 @@ fn showcase_held_seat_does_not_fight_back_but_casts_and_a_striker_still_hit() {
             ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
             showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2500]),(6,[2300,2600])].into(),
                 hold_players:[6].into(),strike_players:if strike {[6].into()} else {Default::default()},hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts,patrols:vec![],
-                refill_players:Default::default()})};
+                refill_players:Default::default(),withheld_abilities:Default::default()})};
         let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
         config.warmup=Fixed64::ZERO;
         let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
@@ -886,7 +937,7 @@ fn showcase_strike_seat_lets_a_hero_go_outside_its_place_and_walks_back() {
             ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
             showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,1800]),(6,[2300,2600])].into(),
                 hold_players:[6].into(),strike_players:[6].into(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],
-                refill_players:Default::default()})};
+                refill_players:Default::default(),withheld_abilities:Default::default()})};
         let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
         config.warmup=Fixed64::ZERO;
         let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
@@ -942,7 +993,7 @@ fn showcase_refill_seat_loses_life_and_dies_in_reach_and_is_full_again_out_of_it
         ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
         showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2000]),(6,[2300,2600])].into(),
             hold_players:[6].into(),strike_players:[6].into(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],
-            refill_players:if refill {[1].into()} else {Default::default()}})};
+            refill_players:if refill {[1].into()} else {Default::default()},withheld_abilities:Default::default()})};
     let top=Fixed64::from_i32(50_000);
     let start=|refill:bool| {
         let (mut config,bots)=plan(refill).compile(3,SimulationTickProfile::Production60Hz).unwrap();
@@ -1017,7 +1068,7 @@ fn showcase_stand_in_patrol_takes_longer_over_the_same_leg_when_slowed() {
         players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)],
         ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
         showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2000,2400]),(6,[2800,1900])].into(),
-            hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols,refill_players:Default::default()})};
+            hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols,refill_players:Default::default(),withheld_abilities:Default::default()})};
     let walk=vec![ShowcasePatrol {player:6,a:[2800,1900],b:[2800,2500]}];
     // Ticks at which the seat stood at b and back at a, and where it ended, over 40 s.
     let run=|patrols:Vec<ShowcasePatrol>,slow:bool| {
@@ -1069,7 +1120,7 @@ fn showcase_stand_in_spell_in_a_circle_hurts_less_after_the_hero_learns_magic_re
         showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
             hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],
             casts:vec![ShowcaseCast {player:6,ability:"b04_fire_blast".into(),rank:1,target:ShowcaseCastTarget::PlayerPoint {player:1},
-                first_seconds:0,when_near:Some([2300,2400,100]),every_seconds:3}],patrols:vec![],refill_players:Default::default()})};
+                first_seconds:0,when_near:Some([2300,2400,100]),every_seconds:3}],patrols:vec![],refill_players:Default::default(),withheld_abilities:Default::default()})};
     // Life lost in each window; `learn`: the hero learns B20R at 5 s. It walks out of the circle at 11 s.
     let run=|learn:bool| {
         let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
@@ -13892,7 +13943,7 @@ pub(crate) mod live_soak_replica_parity {
             let mut stage=ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
                 hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],
                 casts:vec![ShowcaseCast {player:6,ability:"b04_fire_blast".into(),rank:1,target:ShowcaseCastTarget::PlayerPoint {player:1},
-                    first_seconds:1,when_near:None,every_seconds:3}],patrols:vec![],refill_players:Default::default()};
+                    first_seconds:1,when_near:None,every_seconds:3}],patrols:vec![],refill_players:Default::default(),withheld_abilities:Default::default()};
             if full {
                 players.extend([seat(7,2,"saika_magoichi",BotRole::Top,true),seat(8,2,"akechi_mitsuhide",BotRole::Carry,true)]);
                 stage.placements.extend([(7,[2600,2400]),(8,[2800,1900])]);
@@ -13921,6 +13972,39 @@ pub(crate) mod live_soak_replica_parity {
         assert!(only_casts.is_empty(),"casts: {only_casts:#?}");
         let everything=run(true);
         assert!(everything.is_empty(),"everything: {everything:#?}");
+    }
+
+    /// A withheld ability and its later upgrade stay in step with both team replicas, an
+    /// auto-learned one (which a replica would otherwise learn by itself) included.
+    #[test]
+    fn showcase_withheld_abilities_keep_team_replicas_identical() {
+        use omoba_core::runtime::native::moba_match::bots::*;
+        use omoba_core::runtime::native::moba_match::ShowcaseConfig;
+        let seat=|player_id:u32,team_id:u32,hero:&str,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role:BotRole::Mid,lane:"mid".into(),bot};
+        for (hero,ability) in [("otani_yoshitsugu","a12_scheme"),("maeda_keiji","c05_thunder_spear")] {
+            let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+                players:vec![seat(1,1,hero,false),seat(6,2,"date_masamune",true)],
+                ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+                showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
+                    hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],refill_players:Default::default(),
+                    withheld_abilities:[ability.to_owned()].into()})};
+            let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+            config.warmup=Fixed64::ZERO;
+            let learned=std::cell::Cell::new((false,false));
+            let mut inputs=|w:&World,tick:u32| {
+                let entity=w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==1).unwrap().entity.unwrap();
+                let heroes=w.read_storage::<Hero>();let own=heroes.get(entity).unwrap();
+                let rank=own.get_ability_level(ability);
+                if tick==299 {learned.set((rank==0,false));}
+                if tick==599 {learned.set((learned.get().0,rank==1));}
+                let mut rows=role_bot_inputs(w,&bots).unwrap();
+                if tick==300 {rows.push((1,upgrade(own.abilities.iter().position(|id|id==ability).unwrap() as u32)));}
+                rows
+            };
+            let mismatches=soak_match(config,600,15,&|_|{},&mut inputs);
+            assert!(mismatches.is_empty(),"{hero}: {mismatches:#?}");
+            assert_eq!(learned.get(),(true,true),"{hero}: unlearned, then learned");
+        }
     }
 
     /// Authority state that the M3 replay compares every tick: the lane replay digest plus

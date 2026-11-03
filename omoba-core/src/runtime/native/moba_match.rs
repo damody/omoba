@@ -508,6 +508,11 @@ pub struct ShowcaseConfig {
     /// Playing and unpaused only, and a life only: the dead and the dying wait for their respawn.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub refill_players: BTreeSet<u32>,
+    /// Abilities the demonstrated hero (`DEMONSTRATOR`) starts without, to learn when their segment
+    /// comes: a passive a birth loadout ranks would otherwise show in every other segment. Rank 0 and
+    /// a skill point each; ids outside its kit are ignored, so one list serves every hero of a stage.
+    #[serde(default)]
+    pub withheld_abilities: BTreeSet<String>,
 }
 
 /// One held seat's walk: from its placement to `b`, then between `a` and `b` for the whole match.
@@ -611,6 +616,9 @@ impl ShowcaseConfig {
     const MAX_CASTS: usize = 16;
     const MAX_CAST_SECONDS: u32 = 3600;
     const MAX_PATROLS: usize = 16;
+    const MAX_WITHHELD: usize = 64;
+    /// The seat a recording demonstrates.
+    pub const DEMONSTRATOR: u32 = 1;
     const MAX_PLACEMENT: i64 = omoba_sim::terrain::MAX_GEOMETRY_RAW / omoba_sim::fixed::SCALE;
     pub fn is_valid(&self, players: &BTreeSet<u32>) -> bool {
         let in_world = |[x, y]: &[i32; 2]| [x, y].iter().all(|v| v.unsigned_abs() as i64 <= Self::MAX_PLACEMENT);
@@ -638,6 +646,9 @@ impl ShowcaseConfig {
                     ShowcaseCastTarget::Point { at } => in_world(at) && cast.when_near.is_none(),
                 }
                 && cast.when_near.is_none_or(|[x, y, radius]| in_world(&[x, y]) && radius > 0 && i64::from(radius) <= Self::MAX_PLACEMENT))
+            && self.withheld_abilities.len() <= Self::MAX_WITHHELD
+            && self.withheld_abilities.iter().all(|id| omoba_template_ids::ability_by_name(id)
+                .and_then(omoba_template_ids::active_ability_const).is_some())
             && self.patrols.len() <= Self::MAX_PATROLS
             && self.patrols.iter().map(|patrol| patrol.player).collect::<BTreeSet<_>>().len() == self.patrols.len()
             && self.patrols.iter().all(|patrol| self.hold_players.contains(&patrol.player)
@@ -1788,6 +1799,15 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
             while slot.hero.level < level {
                 let missing = (slot.hero.experience_to_next - slot.hero.experience).max(1) as u32;
                 slot.hero.add_moba_experience(missing, state.config.game_rules.as_ref());
+            }
+        }
+    }
+    if let Some(withheld) = state.config.showcase.as_ref().map(|showcase| showcase.withheld_abilities.clone()) {
+        for slot in state.heroes.iter_mut().filter(|slot| slot.player_id == ShowcaseConfig::DEMONSTRATOR) {
+            for id in slot.hero.abilities.clone().into_iter().filter(|id| withheld.contains(id)) {
+                slot.hero.ability_levels.insert(id.clone(), 0);
+                slot.hero.skill_points += 1;
+                slot.hero.withheld_abilities.push(id);
             }
         }
     }

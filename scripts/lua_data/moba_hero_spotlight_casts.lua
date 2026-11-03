@@ -24,7 +24,8 @@ return {schema_version=1,map_id='three_lane_quick_training',think_hz=5,mana_enab
   },
   -- Level 16 learns every ultimate (asai's extra slot requires 16); 30x stand-in hit points
   -- survive summons and empowered attacks for the whole demonstration.
-  showcase={start_level=16,minion_waves=false,hold_players={2,6,7,8,9,10},strike_players={7,8,9,10},hold_hp_permille=30000,refill_players={1},casts={{player=6,ability='b04_fire_blast',rank=1,target={kind='player_point',player=1},when_near={2480,2450,120},every_seconds=2}},
+  -- Passives a birth loadout ranks would show in every other segment: the recording learns them in their own.
+  showcase={start_level=16,withheld_abilities={'c03_thunder_wrath','a14_stacked_spear','a26_twin_guns','c05_thunder_spear','a12_scheme'},minion_waves=false,hold_players={2,6,7,8,9,10},strike_players={7,8,9,10},hold_hp_permille=30000,refill_players={1},casts={{player=6,ability='b04_fire_blast',rank=1,target={kind='player_point',player=1},when_near={2480,2450,120},every_seconds=2}},
     -- +x is down on screen and the caption covers the bottom: stand-ins left and right (y),
     -- 240 apart, clear of the north river brush (y 2700+). 240 keeps every published cast range
     -- in reach (B06 連牙炎突 is 250: at 280 its spotlight was skipped, E163) and stays outside

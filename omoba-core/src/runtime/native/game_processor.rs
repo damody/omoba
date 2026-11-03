@@ -499,7 +499,9 @@ fn admit_ability_upgrade(
         definition.map(|def| i32::from(def.max_level).max(1)).unwrap_or(5)
     };
     // Learned automatically at its level gates; a skill point can never buy it.
-    if omoba_template_ids::ability_by_name(&ability_id).and_then(omoba_template_ids::active_ability_const)
+    let withheld = world.read_storage::<Hero>().get(hero_entity).is_some_and(|hero|
+        hero.withheld_abilities.contains(&ability_id) && hero.ability_levels.get(&ability_id).copied().unwrap_or(0) <= 0);
+    if !withheld && omoba_template_ids::ability_by_name(&ability_id).and_then(omoba_template_ids::active_ability_const)
         .is_some_and(|definition| definition.auto_learn) {
         return Err(CommandRejection::new(code::UPGRADE_REJECTED, format!(
             "AbilityUpgrade: slot={} ability='{}' is learned automatically pid={}", slot, ability_id, owner_pid)));
@@ -802,6 +804,7 @@ fn auto_learn_gated_ranks(world: &mut World) {
                 let Some(definition) = omoba_template_ids::ability_by_name(&id)
                     .and_then(omoba_template_ids::active_ability_const).filter(|definition| definition.auto_learn) else { continue };
                 let start = hero.ability_levels.get(&id).copied().unwrap_or(0).max(0);
+                if start == 0 && hero.withheld_abilities.contains(&id) { continue; }
                 let rank = auto_learned_rank(start, definition.max_level,
                     definition.levels.iter().map(|level| level.required_hero_level), hero.level);
                 if rank != start {

@@ -416,7 +416,7 @@ mod tests {
             player(6,2,"murakami_yoshikiyo",BotRole::Mid,true)];
         p.showcase = Some(ShowcaseConfig { start_level:6, minion_waves:false,
             placements:[(1,[2300,2400]),(2,[2050,2400]),(6,[2750,2400])].into(),
-            hold_players:[2,6].into(), strike_players:Default::default(), hold_hp_permille:5000, start_items:Default::default(), props:Vec::new(), casts:Vec::new(), patrols:Vec::new(), refill_players:Default::default() });
+            hold_players:[2,6].into(), strike_players:Default::default(), hold_hp_permille:5000, start_items:Default::default(), props:Vec::new(), casts:Vec::new(), patrols:Vec::new(), refill_players:Default::default(),withheld_abilities:Default::default() });
         p
     }
     /// Player 6 (omatsu) learns frost bolt to rank 2 and casts it at player 1.
@@ -482,6 +482,17 @@ mod tests {
         world.write_resource::<crate::comp::Tick>().0 = tick;
         crate::runtime::run_committed_visibility_wave_b(&mut world, tick, 0);
         assert!(!super::role_bot_inputs(&world,&bots).unwrap().iter().any(|(player,_)|*player==6));
+    }
+    #[test]
+    fn a_withheld_ability_must_exist_but_may_be_outside_the_kit() {
+        let refused = |id:&str| { let mut p = showcase_plan();
+            p.showcase.as_mut().unwrap().withheld_abilities = [id.to_owned()].into();
+            let (config,_) = p.compile(1,SimulationTickProfile::Production60Hz).unwrap();
+            let pool = crate::runtime::StateInitializer::create_thread_pool();
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+            setup_single_lane_match(&mut world, config).is_err() };
+        assert!(!refused("a12_scheme"), "outside the seat's kit: ignored");
+        assert!(refused("no_such_ability"));
     }
     #[test]
     fn showcase_casts_are_rejected_off_the_stage_and_absent_from_real_plans() {
