@@ -10,7 +10,7 @@ return {
     c05e_cast_sound = { system = "burst", sprite = "lightning", size = 560, life = 0.4, tint = BLUE,
       ground = "shock_ring", ground_size = 420, ground_seconds = 0.45, grow = 0.3 },
     c05e_bolt = { system = "stream", sprite = "lightning", size = 50, life = 0.22, loop = true, face = true, tint = BLUE,
-      mesh = "thunder_spear", ground_size = 220, ground_seconds = 20, height = 90 },
+      mesh = "thunder_spear", ground_size = 220, ground_seconds = 20, height = 90, linger = 0.3 },
     c05e_impact = { system = "burst", sprite = "lightning", size = 270, life = 0.3, tint = BLUE,
       ground = "blink_flash", ground_size = 240, ground_seconds = 0.25, height = 20, grow = 0.4 },
     -- c05_thunder_spear: a bolt along the thrust and a flash on the spear, then the target crackles
