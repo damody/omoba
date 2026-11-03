@@ -425,6 +425,10 @@ function M.script(package)
   end
   local doc=package.hero and M.v3_document(b.root,package.hero)
   for _,slot in ipairs(package.slots) do slot.view=M.view_radius(doc,slot.id);slot.hold=M.hold_seconds(doc,slot.id);slots[#slots+1]=slot end
+  -- What needs an ability still active has its turn while it is.
+  for index=1,#slots-1 do
+    if slots[index+1].after==slots[index].id and slots[index].hold then slots[index].hold=math.min(slots[index].hold,M.BASE_HOLD) end
+  end
   -- The death ends the recording: only the base stage has the enemies that strike it down.
   local stage=M.recipe_for(package)
   if stage==M.RECIPE or stage==M.LANE_RECIPE then
@@ -564,6 +568,23 @@ function M.write_observer(output,hero,run_root)
 end
 
 -- Encode one recorded run: mp4 (H.264, yuv420p, constant 30 fps), keyframe PNGs and a report.
+-- What the script could not show: skipped segments, and the hero downed outside the death segment.
+function M.issues(events)
+  local names,issues={},{}
+  for _,event in ipairs(events) do
+    if event.event=='spotlight_slot' then names[event.slot]=(event.ability~='' and event.ability) or event.key end
+  end
+  for _,event in ipairs(events) do
+    if event.event=='spotlight_skipped' then
+      local why=event.level==0 and 'not learned or not castable at its turn (level 0)' or event.cooldown>0 and ('on cooldown %.1f s'):format(event.cooldown) or 'refused until its time ran out'
+      issues[#issues+1]={kind='skipped',slot=event.slot,ability=names[event.slot] or '?',reason=why,tick=event.tick}
+    elseif event.event=='spotlight_hero_down' then
+      issues[#issues+1]={kind='hero_down',slot=event.slot,ability=names[event.slot] or '?',reason='hero downed outside the death segment',t=event.t}
+    end
+  end
+  return issues
+end
+
 function M.encode(options,hero,run_root)
   local ffmpeg=M.ffmpeg(options)
   local seat=path.join(run_root,'p1')
@@ -591,8 +612,10 @@ function M.encode(options,hero,run_root)
     process.run(ffmpeg,{'-hide_banner','-loglevel','error','-y','-i',path.join(frames_dir,('frame_%06d.jpg'):format(shot.frame)),png},{label='ffmpeg keyframe'})
     shots[#shots+1]=png
   end
+  local issues=M.issues(events)
   local report={schema_version=1,hero=hero,video=video,keyframes=shots,run=run_root,frames=#frames,
-    duration_seconds=frames[#frames].t-frames[1].t,reason=finished.reason,casts=finished.casts,skipped=finished.skipped,
+    duration_seconds=frames[#frames].t-frames[1].t,reason=#issues>0 and 'incomplete' or finished.reason,
+    script_reason=finished.reason,issues=issues,casts=finished.casts,skipped=finished.skipped,
     dropped=finished.dropped,observer=M.observer(run_root)}
   json.write(path.join(out,'spotlight.json'),report,true)
   return report
