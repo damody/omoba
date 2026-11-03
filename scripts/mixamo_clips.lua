@@ -14,7 +14,6 @@ local model=require('character_retarget')
 -- the body faces the target, not only the hand. The sixth is the kept frame after which the clip returns to its first
 -- pose: a clip that holds the blade behind the body would otherwise show it pointing away until the next swing. The fifth tilts
 -- the right wrist (degrees, pinky side toward the fingers): a rifle stab's fist would otherwise hold a spear upright.
--- The seventh turns the right hand about up (degrees), for a long weapon's point: the wrist tilt only changes its height.
 local CLIPS={
   Mx_Sword_Slash={'Great Sword Slash',6,42,-47},
   Mx_Sword_Inward={'Stable Sword Inward Slash',18,54,32,0,22},
@@ -23,7 +22,7 @@ local CLIPS={
   Mx_Axe_Down={'Standing Melee Attack Downward',16,43,-30,0,21},
   Mx_Axe_Smash='Great Sword Downward Slash',
   Mx_Sweep={'Standing Melee Attack Horizontal',11,47,-35},
-  Mx_Spear_Thrust={'Bayonet Stab',10,46,39,50,0,-59},
+  Mx_Spear_Thrust={'Bayonet Stab',10,46,39,50},
   Mx_Spear_Upward='Upward Thrust',
   Mx_Rifle_Fire='Firing Rifle',
   Mx_Battlecry={'Standing Taunt Battlecry',0,65,25},
@@ -53,7 +52,7 @@ for _,name in ipairs(names)do
   local source=p.join(input,entry[1]..'.fbx');assert(p.is_file(source),'missing '..source)
   local out=p.join(baked,name..'.fbx')
   if not(options['--reuse-baked'] and p.is_file(out)) then
-  local result=r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out,tostring(entry[2]or''),tostring(entry[3]or''),tostring(entry[4]or 0),tostring(entry[5]or 0),tostring(entry[6]or 0),tostring(entry[7]or 0)},{cwd=b.root,check=false})
+  local result=r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out,tostring(entry[2]or''),tostring(entry[3]or''),tostring(entry[4]or 0),tostring(entry[5]or 0),tostring(entry[6]or 0)},{cwd=b.root,check=false})
   assert(result.exit_code==0 and p.is_file(out),'bake failed: '..name..'\n'..tostring(result.stdout):sub(-1500))
   end
   added[#added+1]={name=name,fbx=out}
