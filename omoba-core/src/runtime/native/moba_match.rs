@@ -1962,10 +1962,13 @@ fn run_showcase_casts(world: &mut World, state: &MobaMatch) {
     let properties = world.read_storage::<CProperty>();
     let mut heroes = world.write_storage::<Hero>();
     let mut schedule = world.write_resource::<ShowcaseCastSchedule>();
+    let mut ended = Vec::new();
     for (index, cast) in casts.iter().enumerate() {
-        if let Some(hero) = hero_of(cast.player).and_then(|entity| heroes.get_mut(entity)) {
-            hero.ability_cooldowns.remove(&cast.ability);
-            hero.ability_cooldown_totals.remove(&cast.ability);
+        if let Some(entity) = hero_of(cast.player) {
+            if let Some(hero) = heroes.get_mut(entity) {
+                hero.ability_cooldown_totals.remove(&cast.ability);
+                if hero.ability_cooldowns.remove(&cast.ability).is_some() { ended.push((entity, cast.ability.clone())); }
+            }
         }
         let Some([x, y, radius]) = cast.when_near else { continue };
         let (ShowcaseCastTarget::Player { player } | ShowcaseCastTarget::PlayerPoint { player }) = cast.target else { continue };
@@ -1975,6 +1978,12 @@ fn run_showcase_casts(world: &mut World, state: &MobaMatch) {
             && positions.get(entity).is_some_and(|pos| (pos.0 - center).length_squared() <= radius * radius));
         if !inside { schedule.0.remove(&index); }
         else { schedule.0.entry(index).or_insert(state.elapsed); }
+    }
+    drop((positions, properties, heroes, schedule));
+    // A replica holds the cooldown the cast committed and never runs this: commit its end too.
+    if !ended.is_empty() {
+        if !world.has_value::<super::game_processor::ScriptedCooldowns>() { world.insert(super::game_processor::ScriptedCooldowns::default()); }
+        world.write_resource::<super::game_processor::ScriptedCooldowns>().0.extend(ended);
     }
 }
 

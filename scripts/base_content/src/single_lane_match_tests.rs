@@ -13840,6 +13840,49 @@ pub(crate) mod live_soak_replica_parity {
         assert!(mismatches.is_empty(),"{:#?}",mismatches);
     }
 
+    /// What a showcase stage does outside the normal rules reaches both team replicas: its casts
+    /// (the cleared cooldowns among them), refills, patrols, a strike seat, the reset input.
+    #[test]
+    fn showcase_stage_keeps_team_replicas_identical() {
+        use omoba_core::runtime::native::moba_match::bots::*;
+        use omoba_core::runtime::native::moba_match::{ShowcaseCast,ShowcaseCastTarget,ShowcaseConfig,ShowcasePatrol};
+        let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
+        let run=|full:bool| {
+            let mut players=vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)];
+            let mut stage=ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
+                hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],
+                casts:vec![ShowcaseCast {player:6,ability:"b04_fire_blast".into(),rank:1,target:ShowcaseCastTarget::PlayerPoint {player:1},
+                    first_seconds:1,when_near:None,every_seconds:3}],patrols:vec![],refill_players:Default::default()};
+            if full {
+                players.extend([seat(7,2,"saika_magoichi",BotRole::Top,true),seat(8,2,"akechi_mitsuhide",BotRole::Carry,true)]);
+                stage.placements.extend([(7,[2600,2400]),(8,[2800,1900])]);
+                stage.hold_players.extend([7,8]);
+                stage.strike_players=[7].into();
+                stage.refill_players=[1].into();
+                stage.patrols=vec![ShowcasePatrol {player:8,a:[2800,1900],b:[2800,2500]}];
+            }
+            let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,players,
+                ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),showcase:Some(stage)};
+            let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+            config.warmup=Fixed64::ZERO;
+            let hurt=std::cell::Cell::new(false);
+            let mut inputs=|w:&World,tick:u32| {
+                let hero=w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==1).unwrap().entity;
+                if hero.and_then(|hero|w.read_storage::<CProperty>().get(hero).map(|p|p.hp<p.mhp)).unwrap_or(true) {hurt.set(true);}
+                let mut rows=role_bot_inputs(w,&bots).unwrap();
+                if full && tick%240==200 {rows.push((1,PlayerInput {action:Some(PlayerInputEnum::ShowcaseResetHero(omoba_core::game_proto::ShowcaseResetHero {}))}));}
+                rows
+            };
+            let mismatches=soak_match(config,1500,15,&|_|{},&mut inputs);
+            assert!(hurt.get(),"the stage reached the hero");
+            mismatches
+        };
+        let only_casts=run(false);
+        assert!(only_casts.is_empty(),"casts: {only_casts:#?}");
+        let everything=run(true);
+        assert!(everything.is_empty(),"everything: {everything:#?}");
+    }
+
     /// Authority state that the M3 replay compares every tick: the lane replay digest plus
     /// every body's position, vitals, hero progress (cooldowns, charges, mana) and buffs.
     fn authority_state_digest(world:&World)->u64 {
