@@ -400,6 +400,8 @@ M.STRUCK_AT={2700,2130}
 -- b20 不屈: a spell at ranks 1 and 4, in the circle of moba_hero_spotlight_casts.lua, 262 from its caster and no striker near.
 M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_tenacity={2480,2450}}
 M.HOLDS_STILL={b20_tenacity=true}
+-- b27 裂地刃 reaches 1000: the death's stand-ins are hit too, and at the usual cap (2) their ripples were cut off.
+M.VIEW_BACK={b27_rending_blade=2.7}
 -- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
 M.CAST_AT={c05_flash_thunder={2440,2300}}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one. c05: beside the patrol of
@@ -463,6 +465,7 @@ function M.script(package)
     local struck=M.STRUCK_BOTH[slot.id]
     if struck then slot.struck_x,slot.struck_y=struck[1],struck[2] end
     if M.HOLDS_STILL[slot.id] then slot.holds_still=true end
+    slot.view_back=M.VIEW_BACK[slot.id]
     local cast_at=M.CAST_AT[slot.id]
     if cast_at then slot.cast_x,slot.cast_y=cast_at[1],cast_at[2] end
     local third=M.THIRD_HALF[slot.id]
