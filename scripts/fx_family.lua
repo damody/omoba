@@ -27,7 +27,7 @@ M.IMAGES = {
   smoke_sheet = { cols = 4, gain = 0.6, mono = 1 },
   spark_star = { gain = 1.6 },
   shock_ring = { gain = 1.5 },
-  crescent_slash = { rot = 0.785, gain = 1.0 },
+  crescent_slash = { rot = 0.785, gain = 1.6 },
   swallow = { rot = 0.785, gain = 1.8 },
   arcane_circle = { gain = 1.2, spin = 0.8 },
   vortex = { gain = 1.2, spin = 2.5 },
