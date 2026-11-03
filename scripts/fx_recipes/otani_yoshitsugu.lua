@@ -26,7 +26,7 @@ return {
     -- a12_mystic_arrow
     a12f_arc_sound = { system = "pop", sprite = "soft_glow", size = 120, life = 0.15, tint = ARCANE },
     a12f_arrow = { system = "stream", sprite = "spark_star", size = 90, life = 0.5, loop = true, face = true, tint = ARCANE,
-      mesh = "arcane_arrow", ground_size = 200, ground_seconds = 20, height = 70, linger = 0.4 },
+      mesh = "arcane_arrow", ground_size = 200, ground_seconds = 20, height = 70, linger = 0.7 },
     -- a12_mystic_possession: purple lightning crackling on him for the whole form
     a12t_aura = { system = "stream", sprite = "lightning", size = 170, life = 0.22, loop = true, bold = true, tint = ARCANE },
   },
