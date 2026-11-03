@@ -49,13 +49,13 @@ M.IMAGES = {
   spear_thrust = { rot = -1.571, gain = 1.0 },
   spear_thrust_blue = { rot = -1.571, gain = 1.0 },
   -- Drawn the same way, light bodies that take the cue's tint: one shape per skill.
-  stack_spears = { gain = 1.3 },
-  axe_cleave = { gain = 1.3 },
-  twin_muzzle = { gain = 1.4 },
-  iai_cut = { gain = 1.5 },
-  cut_cross = { gain = 1.5 },
+  stack_spears = { gain = 1.0 },
+  axe_cleave = { gain = 1.0 },
+  twin_muzzle = { gain = 1.0 },
+  iai_cut = { gain = 1.0 },
+  cut_cross = { gain = 1.0 },
   bolt_fork = { gain = 1.8 },
-  quake_ripple = { gain = 1.1 },
+  quake_ripple = { gain = 0.35 },
 }
 
 -- main: takes the cue's image, size and life. The rest keep their own (their colour still follows the cue).
@@ -131,7 +131,7 @@ M.RECIPES = {
   c22w_voice = { system = "burst", sprite = "swallow", size = 210, life = 0.5, tint = STEEL },
   c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, bold = true, tint = STEEL,
     ground = "vortex", ground_size = 480, ground_seconds = 1.5 },
-  c22t_thunder_clap = { system = "pop", sprite = "cut_cross", size = 560, life = 0.7, tint = STEEL, area = true,
+  c22t_thunder_clap = { system = "pop", sprite = "cut_cross", size = 520, life = 0.7, tint = STEEL,
     ground = "soft_glow", ground_size = 500, ground_seconds = 1.1, grow = 0.08 },
   -- A26 濃姬: gunpowder fire and smoke
   a26w_hit_explosion = { look = "explosion_small" },
@@ -228,7 +228,7 @@ M.WEAPONS = {
 }
 M.ATTACKS = {
   sasaki_kojiro = { "katana", STEEL, { system = "pop", sprite = "iai_cut", size = 380, life = 0.24, ground = "soft_glow", ground_size = 150, ground_seconds = 0.2, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { ground_size = 230, ground_roll = -30 } },
-  okuma_tomohide = { "axe", { 1.0, 0.4, 0.05 }, { system = "pop", sprite = "axe_cleave", size = 340, life = 0.28, ground = "shock_ring", ground_size = 170, height = 30, grow = 0.3, face_camera = false, ground_roll = false } },
+  okuma_tomohide = { "axe", { 1.0, 0.12, 0.01 }, { system = "pop", sprite = "axe_cleave", size = 340, life = 0.28, ground = "shock_ring", ground_size = 170, height = 30, grow = 0.3, face_camera = false, ground_roll = false } },
   kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 }, { sprite = "spark_star", size = 170, ground = "dust_crack", ground_size = 280, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 }, { sprite = "spark_star", size = 190 } },
   maeda_toshiie = { "spear", { 1.0, 0.62, 0.05 }, { sprite = "spark_star", size = 70, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust", ground_size = 200, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } }, maeda_keiji = { "spear", BLUE, { sprite = "spark_star", size = 70, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust_blue", ground_size = 200, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } },
