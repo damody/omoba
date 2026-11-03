@@ -401,8 +401,9 @@ M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=8},c05_thunder_spear={at=
 M.HALF_SECONDS={c05_thunder_spear=4,b26_kozuke_valor=4}
 -- Where a reach is the point (backend units from the stand-in): c22 燕閃 reaches 228 at rank 1 and 378 at rank 4.
 M.STAND_OFF={c22_swallow_flash=330}
--- Its attacks after that reach land from far off: the attack segment stands where the blade visibly connects.
-M.ATTACK_STAND_OFF={sasaki_kojiro=130}
+-- A melee hero stands where its weapon reaches the stand-in (backend units): the stand-in no longer comes to it,
+-- and from the usual 188 the blow landed on nothing. Ranged heroes keep the usual place.
+M.WEAPON_REACH={sasaki_kojiro=130,tokugawa_ieyasu=130,yamagata_masakage=130,okuma_tomohide=120,kojima_sadaoki=120,shimazu_yoshihiro=120,maeda_toshiie=170,maeda_keiji=170}
 -- Passives that answer to the hero's own casts: the segment casts them, it does not attack.
 M.CASTS_OWN={a12_scheme=true}
 M.LEARN_MIDWAY={c22_swallow_flash=true,c05_thunder_spear=true,b26_kozuke_valor=true,a14_stacked_spear=true,a26_twin_guns=true,c03_thunder_wrath=true}
@@ -450,7 +451,7 @@ function M.script(package)
   for _,slot in ipairs(package.slots) do
     slot.view=M.view_radius(doc,slot.id);slot.hold=M.hold_seconds(doc,slot.id)
     if M.LEARN_MIDWAY[slot.id] then slot.learn_midway=true end
-    slot.stand_off=M.STAND_OFF[slot.id]
+    slot.stand_off=M.STAND_OFF[slot.id] or M.WEAPON_REACH[package.hero]
     if M.STRUCK_BOTH[slot.id] then slot.struck_x,slot.struck_y=M.STRUCK_AT[1],M.STRUCK_AT[2] end
     local third=M.THIRD_HALF[slot.id]
     if third then slot.third_x,slot.third_y,slot.third_seconds,slot.third_wait=third.at[1],third.at[2],third.seconds,third.wait end
@@ -466,10 +467,10 @@ function M.script(package)
   local stage=M.recipe_for(package)
   if stage==M.RECIPE or stage==M.LANE_RECIPE or stage==M.PATROL_RECIPE then
     for _,show in ipairs(M.BODY_SHOWS) do
-      if show.kind=='attack' and M.ATTACK_STAND_OFF[package.hero] then
+      if show.kind=='attack' and M.WEAPON_REACH[package.hero] then
         local closer={}
         for key,value in pairs(show) do closer[key]=value end
-        closer.stand_off=M.ATTACK_STAND_OFF[package.hero]
+        closer.stand_off=M.WEAPON_REACH[package.hero]
         show=closer
       end
       if show.kind=='death' and stage==M.LANE_RECIPE then
