@@ -649,6 +649,14 @@ function M.encode(options,hero,run_root)
     error('spotlight '..hero..': incomplete, no video; see '..path.join(out,'spotlight.json'),0)
   end
   local frames=M.read_frames(path.join(frames_dir,'frames.jsonl'))
+  -- Before the first caption the hero is only hitting the stand-in: the video starts at it. video_start says how far trace times lie ahead of video times.
+  local video_start=0
+  for _,event in ipairs(events) do
+    if event.event=='spotlight_slot' then video_start=tonumber(event.t) or 0;break end
+  end
+  local shown={}
+  for _,row in ipairs(frames) do if row.t>=video_start then shown[#shown+1]=row end end
+  if #shown>0 then frames=shown else video_start=0 end
   path.mkdir_p(path.join(out,'keyframes'))
   -- Keyframes describe this run only: never leave an earlier run's frames beside them.
   for name in lfs.dir(path.join(out,'keyframes')) do
@@ -667,7 +675,7 @@ function M.encode(options,hero,run_root)
     shots[#shots+1]=png
   end
   local issues=M.issues(events)
-  local report={schema_version=1,hero=hero,video=video,keyframes=shots,run=run_root,frames=#frames,
+  local report={schema_version=1,hero=hero,video=video,video_start=video_start,keyframes=shots,run=run_root,frames=#frames,
     duration_seconds=frames[#frames].t-frames[1].t,reason=#issues>0 and 'incomplete' or finished.reason,
     script_reason=finished.reason,issues=issues,casts=finished.casts,skipped=finished.skipped,
     dropped=finished.dropped,observer=M.observer(run_root)}
