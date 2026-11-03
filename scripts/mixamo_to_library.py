@@ -6,7 +6,7 @@ import bpy
 from math import radians
 from mathutils import Matrix, Quaternion
 
-library_fbx, tpose_fbx, clip_fbx, out_fbx, first_kept, last_kept, yaw_degrees, wrist_degrees, return_after = sys.argv[sys.argv.index('--') + 1:]
+library_fbx, tpose_fbx, clip_fbx, out_fbx, first_kept, last_kept, yaw_degrees, wrist_degrees, return_after, hand_turn = sys.argv[sys.argv.index('--') + 1:]
 
 PAIRS = [('pelvis', 'Hips'), ('spine_01', 'Spine'), ('spine_02', 'Spine1'), ('spine_03', 'Spine2'), ('neck_01', 'Neck'), ('Head', 'Head')]
 for side, name in (('l', 'Left'), ('r', 'Right')):
@@ -80,6 +80,8 @@ for frame in range(first, last + 1):
             across = at_bone('Pinky1') - at_bone('Index1')
             along = at_bone('Middle1') - world.translation
             rotation = Quaternion(across.cross(along).normalized(), radians(float(wrist_degrees))) @ rotation
+        if bone == 'hand_r' and float(hand_turn):
+            rotation = Quaternion((0, 0, 1), radians(float(hand_turn))) @ rotation
         at = pb.matrix.translation.copy()
         if bone == 'pelvis':
             at = pelvis_t + (world.translation - hips_t) * ratio
