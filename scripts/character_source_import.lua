@@ -8,6 +8,8 @@ local M={schema='omoba.character-source-plan.v1',destination='/Game/Omoba/Charac
 M.sets={
  quaternius_v1={source_dir='omfue/SourceArt/Characters/QuaterniusV1',destination=M.destination,
   registry='omfue/Content/Omoba/Characters/QuaterniusV2/source-registry.json',materials=false},
+ -- The commandlet gives each imported character material the low OmTripoCharacterSpecular and refuses an
+ -- existing one without it, so a new hero needs no extra step and an old one is pointed at OmCueVfx -tripo-specular.
  tripo_v1={source_dir='omfue/SourceArt/Characters/TripoV1',destination='/Game/Omoba/Characters/TripoV1',
   registry='omfue/Content/Omoba/Characters/TripoV1/source-registry.json',materials=true,tripo_schema='omoba.tripo-character-source.v1'},
  -- Generated unrigged world models (towers, keeps): one StaticMesh per directory, no skeleton.
