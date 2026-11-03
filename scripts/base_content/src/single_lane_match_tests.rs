@@ -740,14 +740,16 @@ fn summon_priority_formal_60hz_active_host_destination_prevents_lateral_aggro_st
 }
 
 /// A held seat does not fight back, melee or ranged: the hero attacking it from next to it takes
-/// nothing. The same seat's scheduled casts still land, and a strike seat still hits.
+/// nothing. The same seat's scheduled casts still land, and a strike seat still hits. Hold Position
+/// alone stops attacks, so `gap` runs with no order and no think at all: the moments a seat has none,
+/// arrived back at its place or done casting, before its next think.
 #[test]
 fn showcase_held_seat_does_not_fight_back_but_casts_and_a_striker_still_hit() {
     use omoba_core::runtime::native::moba_match::bots::*;
     use omoba_core::runtime::native::moba_match::{ShowcaseCast,ShowcaseCastTarget,ShowcaseConfig};
     let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
     // Life the hero lost in 8 s of attacking the seat, and life the seat lost.
-    let run=|stand_in:&str,strike:bool,casts:Vec<ShowcaseCast>| {
+    let run=|stand_in:&str,strike:bool,casts:Vec<ShowcaseCast>,gap:bool| {
         let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
             players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,stand_in,BotRole::Mid,true)],
             ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
@@ -767,22 +769,25 @@ fn showcase_held_seat_does_not_fight_back_but_casts_and_a_striker_still_hit() {
         let hp=|w:&World,unit|w.read_storage::<CProperty>().get(unit).unwrap().hp;
         let (hero_start,other_start)=(hp(&w,hero),hp(&w,other));
         for tick in 0..8*60 {
-            let mut inputs=role_bot_inputs(&w,&bots).unwrap();
+            let mut inputs=if gap {Vec::new()} else {role_bot_inputs(&w,&bots).unwrap()};
             if tick==0 {inputs.push((1,PlayerInput {action:Some(PlayerInputEnum::AttackTarget(omoba_core::game_proto::AttackTarget {target_id:other.id(),queued:false}))}));}
             d.step(&mut w,inputs).unwrap();
             let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,t,0);
+            if gap {w.write_storage::<HeroCommandQueue>().get_mut(other).unwrap().active=None;}
         }
         (hero_start-hp(&w,hero),other_start-hp(&w,other))
     };
     for stand_in in ["date_masamune","saika_magoichi"] {
-        let (taken,dealt)=run(stand_in,false,vec![]);
-        assert!(dealt>Fixed64::ZERO,"{stand_in}: the hero hit it");
-        assert_eq!(taken,Fixed64::ZERO,"{stand_in}: it fought back");
-        let (taken,_)=run(stand_in,true,vec![]);
+        for gap in [false,true] {
+            let (taken,dealt)=run(stand_in,false,vec![],gap);
+            assert!(dealt>Fixed64::ZERO,"{stand_in}: the hero hit it");
+            assert_eq!(taken,Fixed64::ZERO,"{stand_in}: it fought back (gap {gap})");
+        }
+        let (taken,_)=run(stand_in,true,vec![],false);
         assert!(taken>Fixed64::ZERO,"{stand_in}: a strike seat still hits");
     }
     let (taken,dealt)=run("date_masamune",false,vec![ShowcaseCast {player:6,ability:"b04_fire_blast".into(),rank:1,target:ShowcaseCastTarget::PlayerPoint {player:1},
-        first_seconds:1,when_near:None,every_seconds:3}]);
+        first_seconds:1,when_near:None,every_seconds:3}],false);
     assert!(dealt>Fixed64::ZERO);
     assert!(taken>Fixed64::ZERO,"its casts still land");
 }
