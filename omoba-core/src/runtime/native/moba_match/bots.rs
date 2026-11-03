@@ -639,6 +639,21 @@ fn stand_in_cast_input(casts:&[(usize,&super::ShowcaseCast)],hero:&Hero,elapsed:
     })
 }
 
+/// A patrolling stand-in: on along its leg, turning round once its move has ended at the leg's end.
+/// A push or a cast only delays the leg, and the walk replaces the way back to its place.
+fn patrol_input(player:u32,patrol:&super::ShowcasePatrol,commands:Option<&HeroCommandQueue>,own:Vec2,
+    legs:&mut super::ShowcasePatrolLegs) -> Option<PlayerInputEnum> {
+    let point=|[x,y]:[i32;2]|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+    let mut heading=point(if legs.0.contains(&player) {patrol.a} else {patrol.b});
+    let moving=commands.is_some_and(|q|matches!(q.active,Some(HeroCommand::MoveTo {pos}) if pos==heading));
+    let near=Fixed64::from_i32(60);
+    if !moving && (own-heading).length_squared()<=near*near {
+        if !legs.0.remove(&player) {legs.0.insert(player);}
+        heading=point(if legs.0.contains(&player) {patrol.a} else {patrol.b});
+    }
+    recovery_move(commands,heading)
+}
+
 /// The nearest living enemy hero within a striking stand-in's reach.
 fn strike_target(own:Vec2,side:Option<usize>,heroes:&[super::MobaHeroSlot],positions:&specs::ReadStorage<Pos>,
     properties:&specs::ReadStorage<CProperty>) -> Option<specs::Entity> {
@@ -701,7 +716,7 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
     for assignment in &config.assignments {
         // A held showcase seat stands still: no attack, cast, shop or learning input. Pushed off its
         // place (a knockback) it walks back and holds there again (E390), so a demonstration's next
-        // cast still finds it on screen; it never moves anywhere else.
+        // cast still finds it on screen; it moves nowhere else unless the recipe gives it a patrol.
         if super::ShowcaseConfig::holds(&state.config, assignment.player_id) {
             let place = state.config.showcase.as_ref().and_then(|showcase| showcase.placements.get(&assignment.player_id));
             let slot = state.heroes.iter().find(|s| s.player_id == assignment.player_id);
@@ -729,6 +744,13 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                             }
                             continue;
                         }
+                    }
+                    if let Some(patrol) = state.config.showcase.iter().flat_map(|showcase| showcase.patrols.iter()).find(|patrol| patrol.player == assignment.player_id) {
+                        let mut legs = world.write_resource::<super::ShowcasePatrolLegs>();
+                        if let Some(action) = patrol_input(assignment.player_id, patrol, commands.get(entity), own.0, &mut legs) {
+                            inputs.push((assignment.player_id, PlayerInput { action: Some(action) }));
+                        }
+                        continue;
                     }
                     let place = Vec2::new(Fixed64::from_i32(*x), Fixed64::from_i32(*y));
                     if let Some(action) = stand_in_input(commands.get(entity), own.0, place) {

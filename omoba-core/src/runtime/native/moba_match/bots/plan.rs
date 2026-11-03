@@ -416,7 +416,7 @@ mod tests {
             player(6,2,"murakami_yoshikiyo",BotRole::Mid,true)];
         p.showcase = Some(ShowcaseConfig { start_level:6, minion_waves:false,
             placements:[(1,[2300,2400]),(2,[2050,2400]),(6,[2750,2400])].into(),
-            hold_players:[2,6].into(), strike_players:Default::default(), hold_hp_permille:5000, start_items:Default::default(), props:Vec::new(), casts:Vec::new() });
+            hold_players:[2,6].into(), strike_players:Default::default(), hold_hp_permille:5000, start_items:Default::default(), props:Vec::new(), casts:Vec::new(), patrols:Vec::new() });
         p
     }
     /// Player 6 (omatsu) learns frost bolt to rank 2 and casts it at player 1.
@@ -505,6 +505,103 @@ mod tests {
         unknown["showcase"]["casts"][0]["damage"] = serde_json::json!(5);
         assert!(serde_json::from_value::<RoleBotMatchPlan>(unknown).is_err(), "unknown cast fields fail closed");
         assert!(serde_json::to_value(showcase_plan()).unwrap()["showcase"].get("casts").is_none(), "a stage without casts stays as it was");
+    }
+    /// Player 6 walks (2750,2000) to (2750,2800); it stands at the first.
+    fn patrol_plan() -> RoleBotMatchPlan {
+        let mut p = showcase_plan();
+        let stage = p.showcase.as_mut().unwrap();
+        stage.placements.insert(6,[2750,2000]);
+        stage.patrols = vec![ShowcasePatrol { player:6, a:[2750,2000], b:[2750,2800] }];
+        p
+    }
+    #[test]
+    fn a_patrolling_stand_in_turns_at_each_end_and_a_push_or_a_strike_only_delays_its_leg() {
+        let think = |plan:&RoleBotMatchPlan, steps:&mut dyn FnMut(&mut specs::World,specs::Entity,specs::Entity,usize)->bool| {
+            let (config,bots) = plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+            let pool = crate::runtime::StateInitializer::create_thread_pool();
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+            setup_single_lane_match(&mut world, config).unwrap();
+            world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Playing;
+            let of = |world:&specs::World,id:u32| world.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
+            let (seat,enemy) = (of(&world,6),of(&world,1));
+            world.write_storage::<HeroCommandQueue>().insert(seat, HeroCommandQueue::default()).unwrap();
+            let tick = bots.think_interval_ticks;
+            world.write_resource::<crate::comp::Tick>().0 = tick;
+            let mut out = Vec::new();
+            for step in 0.. {
+                if !steps(&mut world,seat,enemy,step) {break;}
+                crate::runtime::run_committed_visibility_wave_b(&mut world, tick, 0);
+                out.push(super::role_bot_inputs(&world,&bots).unwrap().into_iter().find(|(player,_)|*player==6).and_then(|(_,input)|input.action));
+            }
+            out
+        };
+        let at = |x:i32,y:i32| Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        let move_to = |action:&Option<PlayerInputEnum>,y:i32| matches!(action,Some(PlayerInputEnum::MoveTo(order))
+            if order.target==Some(Vec2I {x:Fixed64::from_i32(2750).raw() as i32,y:Fixed64::from_i32(y).raw() as i32}));
+        let put = |world:&mut specs::World,seat:specs::Entity,to:Vec2,active:Option<HeroCommand>| {
+            world.write_storage::<Pos>().get_mut(seat).unwrap().0 = to;
+            world.write_storage::<HeroCommandQueue>().get_mut(seat).unwrap().active = active; };
+        let walk = think(&patrol_plan(), &mut |world,seat,_,step| { match step {
+            0 => {}
+            // On the leg to b: no new order.
+            1 => put(world,seat,at(2750,2400),Some(HeroCommand::MoveTo {pos:at(2750,2800)})),
+            // Past halfway with the order gone (a cast took over): still b, not the nearer a or its place.
+            2 => put(world,seat,at(2750,2700),None),
+            // Pushed sideways, more than 60 off the line and off its place: still b.
+            3 => put(world,seat,at(2950,2500),Some(HeroCommand::MoveTo {pos:at(2750,2800)})),
+            // The move ended at b: turns round; then a, where it turns round again.
+            4 => put(world,seat,at(2750,2800),None),
+            5 => put(world,seat,at(2750,2000),None),
+            // Stopped short of b only by the 60 another body can keep it off: turns too.
+            6 => put(world,seat,at(2750,2750),None),
+            _ => return false,
+        } true });
+        assert!(move_to(&walk[0],2800),"first to b: {walk:?}");
+        assert!(walk[1].is_none(),"{walk:?}");
+        assert!(move_to(&walk[2],2800),"{walk:?}");
+        assert!(walk[3].is_none(),"{walk:?}");
+        assert!(move_to(&walk[4],2000),"{walk:?}");
+        assert!(move_to(&walk[5],2800),"{walk:?}");
+        assert!(move_to(&walk[6],2000),"{walk:?}");
+        // A striking seat attacks whoever comes within reach; with no one there it walks the same leg.
+        let mut striking = patrol_plan();
+        striking.showcase.as_mut().unwrap().strike_players.insert(6);
+        let struck = think(&striking, &mut |world,seat,enemy,step| { match step {
+            0 => put(world,seat,at(2750,2400),None),
+            1 => world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = at(2750,2500),
+            2 => world.write_storage::<Pos>().get_mut(enemy).unwrap().0 = at(2300,2400),
+            _ => return false,
+        } true });
+        assert!(move_to(&struck[0],2800),"{struck:?}");
+        assert!(matches!(struck[1],Some(PlayerInputEnum::AttackTarget(_))),"{struck:?}");
+        assert!(move_to(&struck[2],2800),"{struck:?}");
+        // Without a patrol the same push is the old way back to its place.
+        let mut still = patrol_plan();
+        still.showcase.as_mut().unwrap().patrols.clear();
+        let back = think(&still, &mut |world,seat,_,step| { match step {
+            0 => put(world,seat,at(2750,2400),None),
+            _ => return false,
+        } true });
+        assert!(move_to(&back[0],2000),"{back:?}");
+    }
+    #[test]
+    fn showcase_patrols_are_rejected_off_the_stage_and_absent_from_real_plans() {
+        let refused = |p:RoleBotMatchPlan| { let (config,_) = p.compile(1,SimulationTickProfile::Production60Hz).unwrap();
+            let pool = crate::runtime::StateInitializer::create_thread_pool();
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+            setup_single_lane_match(&mut world, config).is_err() };
+        assert!(!refused(patrol_plan()), "control");
+        let edit = |change:&dyn Fn(&mut ShowcasePatrol)| { let mut p = patrol_plan(); change(&mut p.showcase.as_mut().unwrap().patrols[0]); p };
+        assert!(refused(edit(&|patrol| patrol.player = 1)), "not a held seat");
+        assert!(refused(edit(&|patrol| patrol.player = 9)), "off the roster");
+        assert!(refused(edit(&|patrol| patrol.b = patrol.a)), "nowhere to walk");
+        assert!(refused(edit(&|patrol| patrol.b = [600_000,0])), "outside the world");
+        let mut twice = patrol_plan(); let stage = twice.showcase.as_mut().unwrap(); stage.patrols.push(stage.patrols[0].clone());
+        assert!(refused(twice), "one walk per seat");
+        let mut unknown = serde_json::to_value(patrol_plan()).unwrap();
+        unknown["showcase"]["patrols"][0]["speed"] = serde_json::json!(5);
+        assert!(serde_json::from_value::<RoleBotMatchPlan>(unknown).is_err(), "unknown patrol fields fail closed");
+        assert!(serde_json::to_value(showcase_plan()).unwrap()["showcase"].get("patrols").is_none(), "a stage without patrols stays as it was");
     }
     #[test]
     fn a_bot_hero_winding_up_its_own_cast_gets_no_new_order() {

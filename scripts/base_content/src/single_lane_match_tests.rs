@@ -739,6 +739,56 @@ fn summon_priority_formal_60hz_active_host_destination_prevents_lateral_aggro_st
     assert_eq!(run(),run());
 }
 
+/// A patrolling stand-in walks the ordinary way, so a slow shows on it: the same leg takes longer,
+/// and it keeps going back and forth for as long as the stage runs. Without a patrol it stays put.
+#[test]
+fn showcase_stand_in_patrol_takes_longer_over_the_same_leg_when_slowed() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::{ShowcaseConfig,ShowcasePatrol};
+    let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
+    let plan=|patrols:Vec<ShowcasePatrol>| RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+        players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)],
+        ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2000,2400]),(6,[2800,1900])].into(),
+            hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols})};
+    let walk=vec![ShowcasePatrol {player:6,a:[2800,1900],b:[2800,2500]}];
+    // Ticks at which the seat stood at b and back at a, and where it ended, over 40 s.
+    let run=|patrols:Vec<ShowcasePatrol>,slow:bool| {
+        let (mut config,bots)=plan(patrols).compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;
+        let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+        d.step(&mut w,[]).unwrap();
+        let hero=w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==6).unwrap().entity.unwrap();
+        if slow {w.write_resource::<BuffStore>().add(hero,"test_slow",Fixed64::from_i32(1000),
+            serde_json::json!({"move_speed_bonus":-512,"__aggregation_family":"generic_ability_slow"}));}
+        let at=|w:&World,y:i32| {let pos=w.read_storage::<Pos>().get(hero).unwrap().0;
+            (pos-omoba_sim::Vec2::new(Fixed64::from_i32(2800),Fixed64::from_i32(y))).length()<Fixed64::from_i32(2)};
+        let (mut turns,mut toward_b)=(Vec::new(),true);
+        for tick in 1..=(40*60) {
+            let inputs=role_bot_inputs(&w,&bots).unwrap();
+            d.step(&mut w,inputs).unwrap();
+            let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,t,0);
+            if at(&w,if toward_b {2500} else {1900}) {turns.push(tick);toward_b=!toward_b;}
+        }
+        let end=w.read_storage::<Pos>().get(hero).unwrap().0;
+        (turns,end)
+    };
+    let (plain,_)=run(walk.clone(),false);
+    let (slowed,_)=run(walk.clone(),true);
+    assert!(plain.len()>=6,"it keeps walking both ways: {plain:?}");
+    assert!(slowed.len()>=3,"{slowed:?}");
+    // Half speed: each 600 leg, first and later ones, takes nearly twice as long (the think rate
+    // adds up to one think at each turn).
+    let legs=|turns:&[i32]|turns.iter().zip(std::iter::once(&0).chain(turns)).map(|(end,start)|end-start).collect::<Vec<_>>();
+    let (plain_legs,slowed_legs)=(legs(&plain),legs(&slowed));
+    for (fast,slow) in plain_legs.iter().zip(&slowed_legs) {
+        assert!(slow*10>=fast*17,"{plain_legs:?} without, {slowed_legs:?} with the slow");
+    }
+    let (none,end)=run(vec![],false);
+    assert!(none.is_empty()||none.len()==1&&none[0]<=1,"no patrol, no walk: {none:?}");
+    assert_eq!(end,omoba_sim::Vec2::new(Fixed64::from_i32(2800),Fixed64::from_i32(1900)),"no patrol, it holds its place");
+}
+
 /// A stand-in's spell, cast while the hero stands in a circle, shows B20R's magic resistance: the
 /// same spell hurts less once learned, on a schedule shorter than its cooldown, and stops outside.
 #[test]
@@ -752,7 +802,7 @@ fn showcase_stand_in_spell_in_a_circle_hurts_less_after_the_hero_learns_magic_re
         showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
             hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],
             casts:vec![ShowcaseCast {player:6,ability:"b04_fire_blast".into(),rank:1,target:ShowcaseCastTarget::PlayerPoint {player:1},
-                first_seconds:0,when_near:Some([2300,2400,100]),every_seconds:3}]})};
+                first_seconds:0,when_near:Some([2300,2400,100]),every_seconds:3}],patrols:vec![]})};
     // Life lost in each window; `learn`: the hero learns B20R at 5 s. It walks out of the circle at 11 s.
     let run=|learn:bool| {
         let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();

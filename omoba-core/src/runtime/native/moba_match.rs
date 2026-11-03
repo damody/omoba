@@ -497,7 +497,27 @@ pub struct ShowcaseConfig {
     /// magic resistance shows on a real spell), by the ordinary learn and cast rules.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub casts: Vec<ShowcaseCast>,
+    /// Held seats that walk between two points instead of standing: how a demonstration shows a
+    /// movement slow on a moving target, by ordinary move orders at the seat's own speed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub patrols: Vec<ShowcasePatrol>,
 }
+
+/// One held seat's walk: from its placement to `b`, then between `a` and `b` for the whole match.
+/// Casts and a strike target come first; the walk then picks up the leg it was on. Both points must
+/// be reachable: the authority refuses a move to a walled point and the seat waits short of it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShowcasePatrol {
+    pub player: u32,
+    pub a: [i32; 2],
+    pub b: [i32; 2],
+}
+
+/// The seats on their way back to `a`. No row: heading for `b`. The seat's decision turns it round
+/// on arrival (a leg outlives whatever interrupts it, so a cast mid-way does not turn it back).
+#[derive(Clone, Debug, Default)]
+pub struct ShowcasePatrolLegs(pub BTreeSet<u32>);
 
 /// One held seat's scheduled cast. The seat learns the ability up to `rank` through the normal
 /// upgrade input. The schedule replaces the ability's cooldown (the stage clears it every tick);
@@ -583,6 +603,7 @@ impl ShowcaseConfig {
     const MAX_PROPS: usize = 16;
     const MAX_CASTS: usize = 16;
     const MAX_CAST_SECONDS: u32 = 3600;
+    const MAX_PATROLS: usize = 16;
     const MAX_PLACEMENT: i64 = omoba_sim::terrain::MAX_GEOMETRY_RAW / omoba_sim::fixed::SCALE;
     pub fn is_valid(&self, players: &BTreeSet<u32>) -> bool {
         let in_world = |[x, y]: &[i32; 2]| [x, y].iter().all(|v| v.unsigned_abs() as i64 <= Self::MAX_PLACEMENT);
@@ -610,6 +631,11 @@ impl ShowcaseConfig {
                     ShowcaseCastTarget::Point { at } => in_world(at) && cast.when_near.is_none(),
                 }
                 && cast.when_near.is_none_or(|[x, y, radius]| in_world(&[x, y]) && radius > 0 && i64::from(radius) <= Self::MAX_PLACEMENT))
+            && self.patrols.len() <= Self::MAX_PATROLS
+            && self.patrols.iter().map(|patrol| patrol.player).collect::<BTreeSet<_>>().len() == self.patrols.len()
+            && self.patrols.iter().all(|patrol| self.hold_players.contains(&patrol.player)
+                && self.placements.contains_key(&patrol.player)
+                && in_world(&patrol.a) && in_world(&patrol.b) && patrol.a != patrol.b)
     }
     /// Each cast's ability is in its seat's kit, and the stage's level learns it up to its rank.
     fn casts_fit(&self, hero_of: impl Fn(u32) -> Option<String>) -> bool {
@@ -1806,6 +1832,7 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
     world.insert(ShowcaseCastSchedule(state.config.showcase.iter().flat_map(|showcase| showcase.casts.iter().enumerate())
         .filter(|(_, cast)| cast.when_near.is_none())
         .map(|(index, cast)| (index, Fixed64::from_i32(cast.first_seconds as i32))).collect()));
+    world.insert(ShowcasePatrolLegs::default());
     refresh_showcase_corpses(world, true);
     *world.write_resource::<GameMode>() = GameMode::Moba;
     world.write_resource::<MasterSeed>().0 = state.config.seed;
