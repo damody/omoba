@@ -10,20 +10,21 @@ local model=require('character_retarget')
 -- Clip name in moba_tripo_hero_visuals -> the Mixamo file's name, with the frames kept when the motion runs long.
 -- Swings keep 36 frames (1.2 s) around the fastest moment of the hand, so a fast attack cycle still reads and
 -- the contact lands at 0.6 s (impact in moba_tripo_hero_visuals). The fourth value turns a clip authored side-on
--- (degrees about up), so the hand is straight ahead at the contact and the swing goes at the target. The fifth tilts
+-- (degrees about up), so at the contact the head, chest and hand are all within about 30 degrees of the unit's front:
+-- the body faces the target, not only the hand. The fifth tilts
 -- the right wrist (degrees, pinky side toward the fingers): a rifle stab's fist would otherwise hold a spear upright.
 local CLIPS={
-  Mx_Sword_Slash={'Great Sword Slash',6,42,-97},
-  Mx_Sword_Inward={'Stable Sword Inward Slash',18,54,92},
+  Mx_Sword_Slash={'Great Sword Slash',6,42,-47},
+  Mx_Sword_Inward={'Stable Sword Inward Slash',18,54,32},
   Mx_Sword_Outward={'Stable Sword Outward Slash',8,44,-34},
   Mx_Sword_Draw='Withdrawing Sword',
-  Mx_Axe_Down={'Standing Melee Attack Downward',7,43},
+  Mx_Axe_Down={'Standing Melee Attack Downward',7,43,-20},
   Mx_Axe_Smash='Great Sword Downward Slash',
-  Mx_Sweep={'Standing Melee Attack Horizontal',11,47},
+  Mx_Sweep={'Standing Melee Attack Horizontal',11,47,-35},
   Mx_Spear_Thrust={'Bayonet Stab',10,46,39,50},
   Mx_Spear_Upward='Upward Thrust',
   Mx_Rifle_Fire='Firing Rifle',
-  Mx_Battlecry={'Standing Taunt Battlecry',0,65},
+  Mx_Battlecry={'Standing Taunt Battlecry',0,65,25},
   Mx_Charge={'Charge',0,100},
   Mx_Kick='Standing Melee Attack Kick Ver. 1',
   Mx_Throw='Throw',

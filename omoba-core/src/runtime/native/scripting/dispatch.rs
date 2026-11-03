@@ -249,6 +249,7 @@ fn dispatch_scripts(
         let mut event_outcomes = Vec::new();
         let mut visual_events = Vec::new();
         let mut targeted_aggression = Vec::new();
+        let mut cast_turns: Vec<(Entity, omoba_sim::Angle)> = Vec::new();
         // Only serial queue order may advance managed mana/CD state. Never use
         // parallel hook scheduling or the immutable ECS cache as a balance ledger.
         for (event_ordinal, (mut ev,releasing)) in events.into_iter().enumerate() {
@@ -360,6 +361,7 @@ fn dispatch_scripts(
                                 PHASE_START_ORDINAL+event_ordinal as u64,&mut event_outcomes) {
                                 reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);
                             }
+                            cast_turns.extend(cast_turn(&cache,*caster,skill_id,target));
                             windups.start(*caster,super::super::cast_windup::Windup {
                                 skill_id:skill_id.clone(),target:target.clone(),origin,
                                 remaining:duration,
@@ -404,6 +406,10 @@ fn dispatch_scripts(
                         definition.target_type == crate::ability_meta::TargetType::Unit) => Some((*caster, *target)),
                 _ => None,
             };
+            let turn = match &ev {
+                ScriptEvent::SkillCast { caster, skill_id, target } => cast_turn(&cache, *caster, skill_id, target),
+                _ => None,
+            };
             adapter.set_cast_released(releasing && is_cast);
             dispatch_one(&mut adapter, registry, ev, cast_level, cooldown, rng_seed, &mut visual_events);
             if releasing {
@@ -417,6 +423,7 @@ fn dispatch_scripts(
                 visual_events.truncate(visual_checkpoint);
             }
             if is_cast && adapter.cast_succeeded() {
+                cast_turns.extend(turn);
                 for visual in &mut visual_events[visual_checkpoint..] {
                     if visual.kind == ScriptVisualEventKind::SkillCast {
                         visual.ability_rank = cast_rank;
@@ -558,6 +565,12 @@ fn dispatch_scripts(
             crate::runtime::native::moba_match::record_moba_champion_aggression(world, attacker, victim, true);
         }
         publish_successful_cast_facts(world, &mut visual_events);
+        if !cast_turns.is_empty() {
+            let mut facings = world.write_storage::<crate::comp::Facing>();
+            for (caster, angle) in cast_turns {
+                if let Some(facing) = facings.get_mut(caster) { facing.0 = angle; }
+            }
+        }
         if !event_outcomes.is_empty() {
             world
                 .write_resource::<Vec<crate::comp::Outcome>>()
@@ -1551,6 +1564,20 @@ fn prepare_mana_cast(
     // Same-tick follow-up casts on this ledger see the spent use.
     if !next.consume_charge(skill_id) { return Err(code::NO_CHARGE); }
     Ok(Some((*caster, next)))
+}
+
+/// A caster turns at once to what it casts at: when the windup starts, and again on release for
+/// a target that moved. A facing formation stays out: its aim preview and its summons follow the
+/// caster's facing, not the aimed point (scripts/lua_data/templates/abilities.lua).
+fn cast_turn(cache:&ParallelAdapterCache<'_>,caster:Entity,skill_id:&str,target:&SkillTarget)->Option<(Entity,omoba_sim::Angle)> {
+    if omoba_template_ids::ability_by_name(skill_id).and_then(omoba_template_ids::active_ability_const)
+        .is_some_and(|ability|ability.facing_formation_rows>0) {return None;}
+    let aim=match target {
+        SkillTarget::Entity(entity)=>cache.pos.get(*entity)?.0,
+        SkillTarget::Point {x,y}=>Vec2::new(*x,*y),
+        SkillTarget::None=>return None,
+    };
+    Some((caster,crate::runtime::native::moba_match::direction_angle(cache.pos.get(caster)?.0,aim)?))
 }
 
 fn windup_target_allowed(cache:&ParallelAdapterCache<'_>,def:&crate::ability_meta::AbilityDef,
@@ -2712,6 +2739,53 @@ mod effect_batch_tests {
         assert_eq!(read(&mut adapter, name::IS_TOGGLE), Ok(V::Bool(false)));
         assert_eq!(read(&mut adapter, name::POINT), Ok(V::Point(Vec2::new(Fixed64::from_i32(3), Fixed64::from_i32(4)))));
         assert!(read(&mut adapter, "mana").is_err());
+    }
+
+    #[test]
+    fn a_caster_turns_to_what_it_casts_at_when_the_windup_starts_and_keeps_its_facing_otherwise() {
+        use abi_stable::std_types::{RResult, RResult::{RErr, ROk}, RString};
+        use specs::Builder;
+        struct Script(String, bool);
+        impl omb_script_abi::ability::AbilityScript for Script {
+            fn ability_id(&self) -> RStr<'_> { RStr::from_str(&self.0) }
+            fn execute(&self, _: EntityHandle, _: omb_script_abi::types::Target, _: u8, _: RStr<'_>,
+                _: &mut omb_script_abi::world::GameWorldDyn<'_>) -> RResult<(), RString> {
+                if self.1 { ROk(()) } else { RErr("refused".into()) }
+            }
+        }
+        let def = |id: &str, target: &str, cast: f32| -> crate::ability_meta::AbilityDef { serde_json::from_value(serde_json::json!({
+            "id": id, "name": id, "ability_type": "active", "target_type": target, "max_level": 1,
+            "levels": {"1": {"cooldown": 0, "mana_cost": 0, "cast_time": cast, "range": 5000}},
+        })).unwrap() };
+        let mut scripts = crate::runtime::ScriptRegistry::new();
+        for (d, works) in [(def("windup", "point", 0.5), true), (def("instant", "point", 0.0), true),
+            (def("refused", "point", 0.0), false), (def("self", "none", 0.0), true)] {
+            let script = Script(d.id.clone(), works);
+            scripts.insert_ability_for_test(d, omb_script_abi::ability::AbilityScript_TO::from_value(
+                script, abi_stable::sabi_trait::prelude::TD_Opaque));
+        }
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        world.insert(super::super::super::cast_windup::FormalCastRules);
+        let mut hero = crate::comp::Hero::new("h".into(), "h".into(), String::new());
+        for id in ["windup", "instant", "refused", "self"] { hero.ability_levels.insert(id.into(), 1); }
+        let start = omoba_sim::Angle::from_ticks(123);
+        let caster = world.create_entity().with(hero).with(crate::comp::Pos(Vec2::ZERO))
+            .with(crate::comp::Facing(start))
+            .with(crate::comp::CProperty { hp: Fixed64::ONE, mhp: Fixed64::ONE, msd: Fixed64::ZERO, def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO })
+            .build();
+        let mut cast = |skill: &str, target: SkillTarget, dt: Fixed64| {
+            world.write_resource::<ScriptEventQueue>().push(ScriptEvent::SkillCast { caster, skill_id: skill.into(), target });
+            run_script_dispatch(&mut world, &scripts, 1, dt);
+            world.read_storage::<crate::comp::Facing>().get(caster).unwrap().0
+        };
+        let point = |x: i32, y: i32| SkillTarget::Point { x: Fixed64::from_i32(x), y: Fixed64::from_i32(y) };
+        let toward = |x: i32, y: i32| omoba_sim::trig::atan2(Fixed64::from_i32(y), Fixed64::from_i32(x));
+        assert_eq!(cast("refused", point(0, 100), Fixed64::ZERO), start, "a refused cast does not turn");
+        assert_eq!(cast("self", SkillTarget::None, Fixed64::ZERO), start, "a cast with no target keeps the facing");
+        assert_eq!(cast("instant", point(0, 0), Fixed64::ZERO), start, "a point under the caster has no direction");
+        assert_eq!(cast("instant", point(100, 100), Fixed64::ZERO), toward(100, 100), "no windup: turns when it succeeds");
+        assert_eq!(cast("windup", point(-100, 0), Fixed64::ZERO), toward(-100, 0), "a windup turns when it starts, before the effect");
     }
 
     #[test]
