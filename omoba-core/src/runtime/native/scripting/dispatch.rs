@@ -126,7 +126,7 @@ pub fn run_script_dispatch(
     // Handlers judge targets by the life both the authority and the team replica
     // hold: before this tick's settled batch (E194).
     let settled = super::super::tick_start_hp::enter(world);
-    dispatch_scripts(world, registry, rng_seed, dt);
+    dispatch_scripts(world, registry, rng_seed, dt, &settled);
     super::super::tick_start_hp::leave(world, settled);
 }
 
@@ -135,6 +135,7 @@ fn dispatch_scripts(
     registry: &ScriptRegistry,
     rng_seed: u64,
     dt: Fixed64,
+    settled: &[(Entity, Fixed64, Fixed64)],
 ) {
     crate::runtime::refresh_moba_mana_capacities(world);
     bind_hero_unit_scripts(world, registry);
@@ -666,7 +667,7 @@ fn dispatch_scripts(
     // scheduled_effect: due schedules after the delayed effects, serial, same pulse rule.
     dispatch_scheduled_effects(world, registry, rng_seed, event_count as u64 + tagged.len() as u64 + 8192);
     // status_event: holder combat events, then statuses that ended, serial, same pulse rule.
-    dispatch_status_events(world, registry, rng_seed, &status_combat, &status_executed, event_count as u64 + tagged.len() as u64 + 12288);
+    dispatch_status_events(world, registry, rng_seed, &status_combat, &status_executed, event_count as u64 + tagged.len() as u64 + 12288, settled);
     // item_equip: each item copy gained or lost reaches its item script, same pulse rule.
     dispatch_item_equips(world, registry, rng_seed, event_count as u64 + tagged.len() as u64 + 20480);
     // aura: every aura::PERIOD, each emitter hears its receivers, same pulse rule.
@@ -1076,7 +1077,7 @@ fn effect_batch(cache: &ParallelAdapterCache<'_>, outcomes: Vec<crate::comp::Out
 /// event: first this tick's attack hits and damage of their holders (event order, then the
 /// holder's rows in id order), then the rows that left their holders (in the order they left).
 fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, combat: &[ScriptEvent],
-    executed: &[(Entity, String, Option<Vec2>)], ordinal_base: u64) {
+    executed: &[(Entity, String, Option<Vec2>)], ordinal_base: u64, settled: &[(Entity, Fixed64, Fixed64)]) {
     use super::super::status_event as se;
     let ended = world.write_resource::<crate::runtime::BuffStore>().drain_status_ended();
     let attacks = se::take_attack_events(world);
@@ -1093,10 +1094,13 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     let mut executed = executed.to_vec();
     let damage_kind = |k: &DamageKind| match k { DamageKind::Physical => 0u8, DamageKind::Magical => 1, DamageKind::Pure => 2 };
     // The last field: the executed ability (an index into `executed`) of an ABILITY_EXECUTED call.
-    // The very last: a landed hit's total before mitigation (v3 event.damage.raw, E478), else zero.
-    let mut calls: Vec<(Entity, String, se::Spec, u8, Option<Entity>, Fixed64, u8, Option<usize>, Fixed64)> = Vec::new();
+    // Then: a landed hit's total before mitigation (v3 event.damage.raw, E478), else zero. The very
+    // last: the call hears a landed hit, so its holder reads the life that hit left (FC-031). Only a
+    // side that settled the hit has its notice, so this read cannot part it from a team replica (E194).
+    let mut calls: Vec<(Entity, String, se::Spec, u8, Option<Entity>, Fixed64, u8, Option<usize>, Fixed64, bool)> = Vec::new();
     let executing = std::cell::Cell::new(None::<usize>);
     let raw_damage = std::cell::Cell::new(Fixed64::ZERO);
+    let landed_hit = std::cell::Cell::new(false);
     {
         let buffs = world.read_resource::<crate::runtime::BuffStore>();
         let mut on_holder = |holder: Entity, kind: u8, other: Option<Entity>, amount: Fixed64, dk: u8| {
@@ -1105,7 +1109,7 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
                 .filter_map(|(id, b)| se::Spec::from_payload(&b.payload).map(|s| (id.to_owned(), s)))
                 .filter(|(_, s)| s.listens(kind)).collect();
             rows.sort_by(|a, b| a.0.cmp(&b.0));
-            for (id, s) in rows { calls.push((holder, id, s, kind, other, amount, dk, executing.get(), raw_damage.get())); }
+            for (id, s) in rows { calls.push((holder, id, s, kind, other, amount, dk, executing.get(), raw_damage.get(), landed_hit.get())); }
         };
         for event in combat {
             match event {
@@ -1140,10 +1144,12 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
         }
         for note in &damage {
             raw_damage.set(note.raw);
+            landed_hit.set(true);
             on_holder(note.target, se::TAKE_DAMAGE, Some(note.source), note.amount, note.damage_kind);
             on_holder(note.source, se::DEAL_DAMAGE, Some(note.target), note.amount, note.damage_kind);
             if let Some(killer) = note.killer { on_holder(killer, se::KILL, Some(note.target), note.amount, note.damage_kind); }
             raw_damage.set(Fixed64::ZERO);
+            landed_hit.set(false);
         }
         // v3 on_heal_received (E478): the health the holder gained.
         for (holder, amount) in &heals { on_holder(*holder, se::HEAL_RECEIVED, None, *amount, 0); }
@@ -1165,14 +1171,14 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     for note in absorbs {
         for (kind, happened) in [(se::ABSORB, true), (se::BROKEN, note.broken)] {
             if happened && note.spec.listens(kind) {
-                calls.push((note.holder, note.row.clone(), note.spec.clone(), kind, Some(note.source), note.amount, 0, None, Fixed64::ZERO));
+                calls.push((note.holder, note.row.clone(), note.spec.clone(), kind, Some(note.source), note.amount, 0, None, Fixed64::ZERO, false));
             }
         }
     }
     // an end carries the duration the status had left (`status.remaining` of an end trigger)
     for (holder, id, payload, kind, remaining) in ended {
         if let Some(s) = se::Spec::from_payload(&payload).filter(|s| s.listens(kind)) {
-            calls.push((holder, id, s, kind, None, remaining, 0, None, Fixed64::ZERO));
+            calls.push((holder, id, s, kind, None, remaining, 0, None, Fixed64::ZERO, false));
         }
     }
     if calls.is_empty() {
@@ -1185,7 +1191,7 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     // transaction, so a status it removes does not take the one the use applies again (E649: a
     // second vanishing step while invisible left none).
     let mut ahead: Vec<(Option<(Entity, String)>, Vec<crate::comp::Outcome>)> = Vec::new();
-    for (ordinal, (holder, row, spec, kind, other, amount, dk, executed_index, raw)) in calls.into_iter().enumerate() {
+    for (ordinal, (holder, row, spec, kind, other, amount, dk, executed_index, raw, hit)) in calls.into_iter().enumerate() {
         let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
         let handle = ParallelWorldAdapter::entity_to_handle(holder);
         let other = other.map_or(EntityHandle::INVALID, ParallelWorldAdapter::entity_to_handle);
@@ -1193,6 +1199,12 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
         let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, holder, ordinal_base + ordinal as u64);
         adapter.event_ability = executed_index.map(|index| executed_ability(&cache, registry, &executed[index].0, &executed[index].1, executed[index].2));
         adapter.event_raw_damage = raw;
+        // Tick-start life is from before this hit when it settled this tick; a set_health from it
+        // would put the hit back on top of what it restores (FC-031). A later hit has its own row
+        // only once the tick's life is settled, so no row means the read is already right.
+        adapter.event_holder_life = settled.iter().find(|(unit, ..)| hit && *unit == holder)
+            .filter(|(_, _, start)| cache.cprop.get(holder).is_some_and(|property| property.hp == *start))
+            .map(|(_, life, _)| (holder, *life));
         adapter.relative_mana = true;
         let mut world_dyn = world_dyn_of(&mut adapter);
         let result = catch_unwind(AssertUnwindSafe(|| script.on_status_event(handle, RStr::from_str(&spec.status), event, &mut world_dyn)));

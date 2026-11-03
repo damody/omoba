@@ -246,6 +246,8 @@ pub struct ParallelWorldAdapter<'a> {
     pub(crate) event_ability: Option<EventAbility>,
     /// A landed hit's total before mitigation in a damage status event (event_ability_attr::RAW_DAMAGE, E478).
     pub(crate) event_raw_damage: Fixed64,
+    /// A status event hearing a landed hit: its holder, and the life that hit left it (FC-031).
+    pub(crate) event_holder_life: Option<(Entity, Fixed64)>,
     /// A serial effect hook without a cast mana ledger (a status event) may spend a hero's mana
     /// as a one-shot relative set the host settles in order (E506; an orb's cost per attack).
     pub(crate) relative_mana: bool,
@@ -690,6 +692,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             reserved_entities: Vec::new(),
             event_ability: None,
             event_raw_damage: Fixed64::ZERO,
+            event_holder_life: None,
             relative_mana: false,
         }
     }
@@ -1211,6 +1214,9 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return RNone;
         };
+        if let Some((_, life)) = self.event_holder_life.filter(|(holder, _)| *holder == ent) {
+            return RSome(life);
+        }
         if let Some(p) = self.source_property(ent) {
             return RSome(p.hp);
         }

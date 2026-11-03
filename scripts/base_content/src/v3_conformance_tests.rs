@@ -5178,13 +5178,10 @@ mod fix_candidates {
         }
     }
 
-    /// FC-031 real bug: a hit larger than half the life before it is restored at the chance too (the
-    /// source compared with the life after the hit), but the restore overshoots: life 1000 under a hit
-    /// of 800 ends at 1800, not 1000. `self.hp + event.damage.final` reads the life from before the
-    /// hit in on_take_damage, then sets it after the hit took it (same for B21T's hp_pct: from full
-    /// life a hit of 60% puts no bonus on).
+    /// FC-031: a hit larger than half the life before it is restored at the chance too (the source
+    /// compared with the life after the hit), and to that life: in on_take_damage `self.hp` is the
+    /// life the hit left, so `self.hp + event.damage.final` does not put the hit back on top.
     #[test]
-    #[ignore = "FC-031 真 bug，見測試上方註解"]
     pub(super) fn fc031b_b26r_restores_a_big_hit_to_the_life_before_it() {
         const ENTRY: &str = "b26_kozuke_valor";
         const HITS: usize = 200;
