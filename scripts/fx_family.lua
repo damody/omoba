@@ -224,7 +224,7 @@ M.ATTACKS = {
   kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 }, { sprite = "spark_star", size = 170, ground = "dust_crack", ground_size = 280, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 }, { sprite = "spark_star", size = 190 } },
   maeda_toshiie = { "spear", { 1.0, 0.62, 0.05 }, { sprite = "spark_star", size = 70, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust", ground_size = 200, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } }, maeda_keiji = { "spear", BLUE, { sprite = "spark_star", size = 70, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust_blue", ground_size = 200, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } },
-  nohime = { "gun", { 1.0, 0.6, 0.25 } }, otani_yoshitsugu = { "arcane", ARCANE },
+  nohime = { "gun", { 1.0, 0.6, 0.25 }, { system = "pop", sprite = "blink_flash", size = 220, life = 0.22, ground = "shock_ring", ground_size = 200, ground_seconds = 0.25, height = 30, grow = 0.4, face_camera = false } }, otani_yoshitsugu = { "arcane", ARCANE },
 }
 for hero, row in pairs(M.ATTACKS) do
   for part, recipe in pairs(M.WEAPONS[row[1]]) do

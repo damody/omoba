@@ -416,7 +416,7 @@ M.AFTER_ATTACK={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true
 -- Only inside the 20 s form do five casts fit in a segment, and only there can arrows fly: it stays open from R, its segments short.
 M.KEEPS_BUFFS={a12_mystic_arrow=true,a12_scheme=true}
 M.BURST={a12_mystic_arrow={5,5},a12_scheme={5,5,5,5,0}}
-M.HOLD_FOR={a12_mystic_possession=3.5,a12_mystic_arrow=3.5}
+M.HOLD_FOR={a12_mystic_possession=3.5,a12_mystic_arrow=3.5,a26_scorching_bomb=8}
 -- c03 不動戰錘: the hero stands far from the stand-in for it, and the blast is large: out before the cast.
 M.VIEW_EARLY={c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
 -- a14 on the lane stage: 衝擊槍 flies the stand-in (2800,2260) along the run into seat 10 (2800,1750), and the crash and its 350 show.
