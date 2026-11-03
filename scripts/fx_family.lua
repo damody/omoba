@@ -34,7 +34,7 @@ M.IMAGES = {
   lightning = { gain = 2.0 },
   soft_glow = { gain = 1.4, mono = 1 },
   net = { gain = 1.3 },
-  rock = { gain = 1.2, spin = 6 },
+  rock = { gain = 1.2, spin = 6, soft = 150 },
   throw_axe = { gain = 1.3, spin = 18 },
   war_hammer = { rot = 1.571, gain = 1.3 },
   fire_wings = { rot = 1.571, gain = 1.3 },
@@ -255,7 +255,7 @@ M.MESH_SOURCE = "omfue/SourceArt/Structures/TripoStaticV1"
 -- roll = 90 shows that side to whatever the cue faces (face_viewer); tilt: about its long axis, before the roll.
 M.MESHES = {
   throw_axe = {}, rocket = {}, cannon_shell = {}, arcane_arrow = {}, thunder_spear = {}, spear_head = {}, swallow = { tilt = -90 },
-  rock_chunk = {}, fire_bomb = {}, earth_crown = {}, shock_dome = {},
+  rock_chunk = {}, fire_bomb = {}, earth_crown = {}, shock_dome = { translucent = true },
   war_hammer = { roll = 90 }, fissure_blade = { roll = 90 }, iron_bell = { roll = 90 }, fire_wings = { roll = 90 }, thunder_sword = { roll = 90 }, war_banner = { roll = 90 },
 }
 function M.material(prefix, image) return ("%s/Instances/%s_fx_%s.%s_fx_%s"):format(M.ROOT, prefix, image, prefix, image) end
@@ -321,7 +321,7 @@ function M.spec(root)
   local meshes = {}
   for _, id in ipairs(sorted(M.MESHES)) do
     local name = "fx_" .. id
-    meshes[#meshes + 1] = { id = "mesh_" .. id, file = ("%s%s/%s/%s.fbm/%s_basecolor.PNG"):format(root and (root .. "/") or "", M.MESH_SOURCE, name, name, name) }
+    meshes[#meshes + 1] = { id = "mesh_" .. id, translucent = M.MESHES[id].translucent, file = ("%s%s/%s/%s.fbm/%s_basecolor.PNG"):format(root and (root .. "/") or "", M.MESH_SOURCE, name, name, name) }
   end
   return { schema = "omoba.fx-family.v1", textures = textures, systems = systems, meshes = meshes }
 end
