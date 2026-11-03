@@ -3101,6 +3101,8 @@ return {
     ["particles/a12f/a12f.vpcf"] = {
       cues = {
         "a12f_arrow",
+        "a12f_hit",
+        "a12f_streak",
       },
       kind = "particle",
       refs = {
@@ -10599,6 +10601,46 @@ return {
           entry = "a12_mystic_arrow",
           kind = "projectile",
           where = "on_cast projectile.cue",
+        },
+      },
+    },
+    a12f_hit = {
+      assets = {
+        {
+          confidence = "low",
+          entry = "a12_mystic_arrow",
+          kind = "particle",
+          path = "particles/a12f/a12f.vpcf",
+          ref = "npc/A_Oda/A12.txt:736",
+        },
+      },
+      kind = "effect",
+      uses = {
+        {
+          doc = "A12",
+          entry = "a12_mystic_arrow",
+          kind = "effect",
+          where = "on_hit in if cue",
+        },
+      },
+    },
+    a12f_streak = {
+      assets = {
+        {
+          confidence = "low",
+          entry = "a12_mystic_arrow",
+          kind = "particle",
+          path = "particles/a12f/a12f.vpcf",
+          ref = "npc/A_Oda/A12.txt:736",
+        },
+      },
+      kind = "effect",
+      uses = {
+        {
+          doc = "A12",
+          entry = "a12_mystic_arrow",
+          kind = "effect",
+          where = "on_cast cue",
         },
       },
     },

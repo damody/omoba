@@ -317,10 +317,14 @@ return function(ctx)
           on_cast = {
             { op = "modify_cooldown", ability = "a12_mystic_arrow", of = "caster", mode = "set", amount = "caster.attack_interval" },
             { op = "cue", id = "a12f_arc_sound", at = "caster" },
-            { op = "projectile", kind = "linear", from = "caster", direction = "direction(caster, point)", speed = "$speed",
+            { op = "let", name = "dir", value = "direction(caster, point)" },
+            { op = "projectile", kind = "linear", from = "caster", direction = "dir", speed = "$speed",
               distance = "$distance", radius = "$width", team = "enemy", types = { "hero", "creep", "neutral", "summon" },
               flags = { "include_magic_immune" }, pierce = true, cue = "a12f_arrow",
               on_hit = {
+                { op = "if", cond = "alive(it)", actions = {
+                  { op = "cue", id = "a12f_hit", at = "it", to = "offset(it, dir, $width)" },
+                } },
                 { op = "if", cond = "state.a12d_empowered",
                   actions = { { op = "damage", to = "it", type = "physical", amount = "$damage" } },
                   otherwise = { { op = "damage", to = "it", type = "magical", amount = "$damage" } } },
@@ -332,6 +336,7 @@ return function(ctx)
                 } },
               },
               on_end = { { op = "set_state", var = "a12d_empowered", value = "false" } } },
+            { op = "cue", id = "a12f_streak", at = "caster.position", to = "offset(caster, dir, $distance)" },
           },
         },
         coverage = "expressible", confidence = "medium",
