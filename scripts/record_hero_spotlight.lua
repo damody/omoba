@@ -29,7 +29,7 @@ M.SLOT_OF_ACTION={Q=0,W=1,E=2,R=3,extra1=4,extra2=5}
 M.RECIPE='scripts/lua_data/moba_hero_spotlight.lua'
 -- A hero whose abilities cross a long way: the stand-ins line up along the open top lane.
 M.LANE_RECIPE='scripts/lua_data/moba_hero_spotlight_lane.lua'
-M.LANE_DEATH_AT={2100,2400}
+M.LANE_DEATH_AT={2150,2400}
 M.LANE_HEROES={maeda_toshiie=true}
 -- A hero with a tree-target ability is shown on the nobu map, which has trees (D21: every ability
 -- is demonstrated).
