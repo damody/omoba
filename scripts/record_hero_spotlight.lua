@@ -396,7 +396,7 @@ M.STRUCK_AT={2700,2130}
 M.STRUCK_BOTH={c05_thunder_spear=true}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one. c05: beside the patrol of
 -- moba_hero_spotlight_patrol.lua, watched unhurt first, then hit: the same road walked slowed.
-M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=8},c05_thunder_spear={at={2700,1700},seconds=5,wait=4}}
+M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=8},c05_thunder_spear={at={2550,1720},seconds=5,wait=4}}
 -- Struck for this long the hero lives: seat 7 took 17 hits and 14 s to kill c05 at 164 a hit (out of its reach refill_players makes it whole).
 M.HALF_SECONDS={c05_thunder_spear=4,b26_kozuke_valor=4}
 -- Where a reach is the point (backend units from the stand-in): c22 燕閃 reaches 228 at rank 1 and 378 at rank 4.
@@ -422,7 +422,7 @@ function M.view_radius(doc,id)
 end
 
 -- A skill's segment lasts as long as the skill, so what it leaves does not run into the next segment.
-M.BASE_HOLD,M.MAX_HOLD=4.5,12
+M.BASE_HOLD,M.MAX_HOLD=4.5,8
 function M.hold_seconds(doc,id)
   for _,ability in ipairs(doc and doc.abilities or {}) do
     if ability.id==id and type(ability.values)=='table' then
