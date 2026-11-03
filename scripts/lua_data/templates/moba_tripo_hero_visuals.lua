@@ -24,23 +24,23 @@ return function(ctx)
     omatsu={idle='Idle_Loop',attack='Mx_Throw_Short',critical='Mx_Throw_Short',impact=0.6},
     oichi={idle='Idle_Talking_Loop',attack='Mx_Throw_Short',critical='Mx_Throw_Short',impact=0.6},
     -- Empty-handed H3.1 rig (finger metacarpals; explicit retarget chains in its manifest).
-    tokugawa_ieyasu={idle='Idle_Loop',attack='Mx_Sword_Inward',critical='Mx_Sword_Outward',impact=0.3,
+    tokugawa_ieyasu={idle='Idle_Loop',attack='Mx_Sword_Inward',critical='Mx_Sword_Outward',impact=0.3,contact=0.51,critical_impact=0.65,critical_contact=0.82,
       extra={death={'Mx_Death_Back',false},['ability_a01_heaven_net']={'Mx_Throw',false},['ability_a01_mikawa_valor']={'Mx_Charge',false},['ability_a01_thunder_blade']={'Mx_Sword_Slash',false},['ability_a01_tosho_gongen']={'Mx_Cast_Two',false}}},
-    yamagata_masakage={idle='Idle_Loop',attack='Mx_Sword_Inward',critical='Mx_Sword_Slash',impact=0.3,
+    yamagata_masakage={idle='Idle_Loop',attack='Mx_Sword_Inward',critical='Mx_Sword_Slash',impact=0.3,contact=0.51,critical_impact=0.47,critical_contact=0.64,
       extra={['ability_b20_red_charge']={'Mx_Battlecry',false},['ability_b20_rock_rush']={'Mx_Throw',false},['ability_b20_ruin_wave']={'Mx_Axe_Smash',false}}},
-    okuma_tomohide={idle='Idle_Loop',attack='Mx_Axe_Down',critical='Mx_Sweep',impact=0.1,
+    okuma_tomohide={idle='Idle_Loop',attack='Mx_Axe_Down',critical='Mx_Axe_Down',impact=0.1,contact=0.28,critical_impact=0.1,critical_contact=0.28,
       extra={['ability_b26_blood_fury']={'Mx_Battlecry',false},['ability_b26_charging_wave']={'Mx_Channel',false},['ability_b26_release_wave']={'Mx_Axe_Smash',false},['ability_b26_unstoppable']={'Mx_Charge',false}}},
-    sasaki_kojiro={idle='Idle_Loop',attack='Mx_Sword_Inward',critical='Mx_Sword_Outward',impact=0.3,
+    sasaki_kojiro={idle='Idle_Loop',attack='Mx_Sword_Inward',critical='Mx_Sword_Outward',impact=0.3,contact=0.51,critical_impact=0.65,critical_contact=0.82,
       extra={['ability_c22_dream_mist']={'Mx_Sword_Draw',false},['ability_c22_flying_swallow']={'Mx_Sword_Slash',false},['ability_c22_ganryu']={'Mx_Battlecry',false},['ability_c22_swallow_nest']={'Mx_Cast_Two',false}}},
     otani_yoshitsugu={idle='Idle_Loop',attack='Mx_Throw_Short',critical='Mx_Throw_Short',impact=0.6,
       extra={death={'Mx_Death_Back',false},['ability_a12_awe']={'Mx_Cast_Two',false},['ability_a12_insight_flash']={'Mx_Cast_Two',false},['ability_a12_mystic_arrow']={'Mx_Throw',false},['ability_a12_mystic_pierce']={'Mx_Battlecry',false},['ability_a12_mystic_possession']={'Mx_Channel',false}}},
-    maeda_toshiie={idle='Idle_Loop',attack='Mx_Spear_Thrust',critical='Mx_Sweep',impact=0.6,
+    maeda_toshiie={idle='Idle_Loop',attack='Mx_Spear_Thrust',critical='Mx_Sweep',impact=0.6,contact=0.74,critical_impact=0.47,critical_contact=0.64,
       extra={['ability_a14_divine_strike']={'Mx_Spear_Upward',false},['ability_a14_impact_spear']={'Mx_Sweep',false},['ability_a14_spear_fury']={'Mx_Battlecry',false}}},
-    kojima_sadaoki={idle='Idle_Loop',attack='Mx_Axe_Down',critical='Mx_Sweep',impact=0.1,
+    kojima_sadaoki={idle='Idle_Loop',attack='Mx_Axe_Down',critical='Mx_Axe_Down',impact=0.1,contact=0.28,critical_impact=0.1,critical_contact=0.28,
       extra={death={'Mx_Death_Back',false},['ability_b27_fearless_charge']={'Mx_Battlecry',false},['ability_b27_horsemanship']={'Mx_Charge',false},['ability_b27_mighty_strike']={'Mx_Throw',false},['ability_b27_rending_blade']={'Mx_Axe_Smash',false}}},
-    shimazu_yoshihiro={idle='Idle_Loop',attack='Mx_Axe_Down',critical='Mx_Sweep',impact=0.1,
+    shimazu_yoshihiro={idle='Idle_Loop',attack='Mx_Axe_Down',critical='Mx_Axe_Down',impact=0.1,contact=0.28,critical_impact=0.1,critical_contact=0.28,
       extra={['ability_c03_iron_hammer']={'Mx_Throw',false},['ability_c03_iron_shirt']={'Mx_Battlecry',false},['ability_c03_quake_axe']={'Mx_Axe_Smash',false}}},
-    maeda_keiji={idle='Idle_Loop',attack='Mx_Spear_Thrust',critical='Mx_Sweep',impact=0.6,
+    maeda_keiji={idle='Idle_Loop',attack='Mx_Spear_Thrust',critical='Mx_Sweep',impact=0.6,contact=0.74,critical_impact=0.47,critical_contact=0.64,
       extra={death={'Mx_Death_Back',false},['ability_c05_flash_thunder']={'Mx_Channel',false},['ability_c05_matsukaze']={'Mx_Battlecry',false},['ability_c05_thunder_dance']={'Mx_Spear_Upward',false}}},
     nohime={idle='Idle_Loop',attack='Mx_Rifle_Fire',critical='Mx_Rifle_Fire',impact=0.07,
       extra={death={'Mx_Death_Back',false},['ability_a26_powder_kick']={'Mx_Kick',false},['ability_a26_scorching_bomb']={'Mx_Throw',false},['ability_a26_volley']={'Mx_Rifle_Fire',false}}},
@@ -122,11 +122,11 @@ return function(ctx)
     local profile={mesh_asset=root..'TripoV1/'..hero_id..'/'..hero_id..'.'..hero_id,scale=1.0,material_slots={},animation_assets={},
       attachments={},state_slots={idle_2='idle_2',idle_3='idle_3'}}
     local animations={idle={definition.idle,true},idle_2={'Idle_Loop',true},idle_3={'Idle_Talking_Loop',true},
-      move={'Jog_Fwd_Loop',true},attack={definition.attack,false,definition.impact},critical={definition.critical,false,definition.impact},
+      move={'Jog_Fwd_Loop',true},attack={definition.attack,false,definition.impact,definition.contact},critical={definition.critical,false,definition.critical_impact or definition.impact,definition.critical_contact},
       cast={definition.cast or'Spell_Simple_Shoot',false},hit={'Hit_Chest',false},death={'Death01',false},
       recall={'Spell_Simple_Idle_Loop',true},respawn={'Spell_Simple_Exit',false},emote={'Dance_Loop',true}}
     for slot,binding in pairs(definition.extra or{})do animations[slot]=binding end
-    for slot,binding in pairs(animations)do profile.animation_assets[slot]={asset=clip(binding[1]),loop_animation=binding[2],impact_seconds=binding[3]}end
+    for slot,binding in pairs(animations)do profile.animation_assets[slot]={asset=clip(binding[1]),loop_animation=binding[2],impact_seconds=binding[3],contact_seconds=binding[4]}end
     for state,slot in pairs(definition.state_slots or{})do profile.state_slots[state]=slot end
     if recolored[hero_id]then
       local material=hero_id..'_mat_'..recolored[hero_id]
