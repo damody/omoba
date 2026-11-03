@@ -400,6 +400,8 @@ M.STRUCK_AT={2700,2130}
 -- b20 不屈: a spell at ranks 1 and 4, in the circle of moba_hero_spotlight_casts.lua, 262 from its caster and no striker near.
 M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_tenacity={2480,2450}}
 M.HOLDS_STILL={b20_tenacity=true}
+-- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
+M.CAST_AT={c05_flash_thunder={2440,2300}}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one. c05: beside the patrol of
 -- moba_hero_spotlight_patrol.lua, watched unhurt first, then hit: the same road walked slowed.
 M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=8},c05_thunder_spear={at={2550,2000},seconds=7,wait=4}}
@@ -409,7 +411,7 @@ M.HALF_SECONDS={c05_thunder_spear=5.5,b26_kozuke_valor=4}
 M.STAND_OFF={c22_swallow_flash=330}
 -- A melee hero stands where its weapon reaches the stand-in (backend units): the stand-in no longer comes to it,
 -- and from the usual 188 the blow landed on nothing. Ranged heroes keep the usual place.
-M.WEAPON_REACH={sasaki_kojiro=130,tokugawa_ieyasu=130,yamagata_masakage=130,okuma_tomohide=120,kojima_sadaoki=120,shimazu_yoshihiro=120,maeda_toshiie=170,maeda_keiji=170}
+M.WEAPON_REACH={sasaki_kojiro=130,tokugawa_ieyasu=130,yamagata_masakage=130,okuma_tomohide=120,kojima_sadaoki=120,shimazu_yoshihiro=120,maeda_toshiie=140,maeda_keiji=140}
 -- Passives that answer to the hero's own casts: the segment casts them, it does not attack.
 M.CASTS_OWN={a12_scheme=true}
 M.LEARN_MIDWAY={b20_tenacity=true,c22_swallow_flash=true,c05_thunder_spear=true,b26_kozuke_valor=true,a14_stacked_spear=true,a26_twin_guns=true,c03_thunder_wrath=true}
@@ -461,6 +463,8 @@ function M.script(package)
     local struck=M.STRUCK_BOTH[slot.id]
     if struck then slot.struck_x,slot.struck_y=struck[1],struck[2] end
     if M.HOLDS_STILL[slot.id] then slot.holds_still=true end
+    local cast_at=M.CAST_AT[slot.id]
+    if cast_at then slot.cast_x,slot.cast_y=cast_at[1],cast_at[2] end
     local third=M.THIRD_HALF[slot.id]
     if third then slot.third_x,slot.third_y,slot.third_seconds,slot.third_wait=third.at[1],third.at[2],third.seconds,third.wait end
     if M.CASTS_OWN[slot.id] then slot.casts_own=true end
@@ -633,6 +637,20 @@ function M.issues(events)
   return issues
 end
 
+-- A channel that did not run its pulses is a segment that showed nothing of the ability.
+function M.channel_issues(run_root)
+  local issues={}
+  local file=path.join(run_root,'server','server.stdout.log')
+  if not path.is_file(file) then return issues end
+  for line in path.read(file):gmatch('[^\r\n]+') do
+    local ability,done,all,reason=line:match("AbilityChannel end .-ability='([%w_]+)' pulses=(%d+)/(%d+) reason=([%w_]+)")
+    if ability and (reason~='completed' or done~=all) then
+      issues[#issues+1]={kind='channel',ability=ability,reason=reason,pulses=done..'/'..all}
+    end
+  end
+  return issues
+end
+
 function M.encode(options,hero,run_root)
   local ffmpeg=M.ffmpeg(options)
   local seat=path.join(run_root,'p1')
@@ -675,6 +693,7 @@ function M.encode(options,hero,run_root)
     shots[#shots+1]=png
   end
   local issues=M.issues(events)
+  for _,issue in ipairs(M.channel_issues(run_root)) do issues[#issues+1]=issue end
   local report={schema_version=1,hero=hero,video=video,video_start=video_start,keyframes=shots,run=run_root,frames=#frames,
     duration_seconds=frames[#frames].t-frames[1].t,reason=#issues>0 and 'incomplete' or finished.reason,
     script_reason=finished.reason,issues=issues,casts=finished.casts,skipped=finished.skipped,
