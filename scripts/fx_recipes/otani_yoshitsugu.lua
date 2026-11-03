@@ -27,8 +27,8 @@ return {
     a12f_arc_sound = { system = "pop", sprite = "soft_glow", size = 120, life = 0.15, tint = ARCANE },
     a12f_arrow = { system = "stream", sprite = "spark_star", size = 90, life = 0.5, loop = true, face = true, tint = ARCANE,
       mesh = "arcane_arrow", ground_size = 200, ground_seconds = 20, height = 70, linger = 0.7 },
-    a12f_streak = { ground = "soft_glow", ground_size = 70, ground_seconds = 0.4, line = true, tint = ARCANE },
-    a12f_hit = { system = "pop", sprite = "soft_glow", size = 130, life = 0.2, tint = ARCANE,
+    a12f_streak = { ground = "chain_bolt", ground_size = 110, ground_seconds = 0.5, line = true, tint = ARCANE },
+    a12f_hit = { system = "pop", sprite = "blink_flash", size = 240, life = 0.3, tint = ARCANE,
       ground = "blink_flash", ground_size = 130, ground_seconds = 0.35, line = true },
     -- a12_mystic_possession: purple lightning crackling on him for the whole form
     a12t_aura = { system = "stream", sprite = "lightning", size = 170, life = 0.22, loop = true, bold = true, tint = ARCANE },
