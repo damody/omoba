@@ -216,11 +216,11 @@ M.WEAPONS = {
     strike = { system = "burst", sprite = "spark_star", size = 300, area = true, life = 0.3, ground = "shock_ring", ground_size = 240, ground_seconds = 0.3, height = 30, grow = 0.4 } },
 }
 M.ATTACKS = {
-  sasaki_kojiro = { "katana", STEEL, { sprite = "blink_flash", size = 150, ground = "shock_ring", ground_size = 210, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.35, 0.25 } },
+  sasaki_kojiro = { "katana", STEEL, { sprite = "blink_flash", size = 150, ground = "shock_ring", ground_size = 210, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { ground_size = 230, ground_roll = -30 } },
   okuma_tomohide = { "axe", { 1.0, 0.5, 0.2 }, { sprite = "flame_sheet", size = 110, ground = "shock_ring", ground_size = 240, height = 30, grow = 0.3, face_camera = false, ground_roll = false } },
   kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 }, { sprite = "spark_star", size = 170, ground = "dust_crack", ground_size = 280, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 } },
-  maeda_toshiie = { "spear", { 1.0, 0.85, 0.4 } }, maeda_keiji = { "spear", BLUE, { system = "burst", sprite = "spark_star", size = 320, area = true, life = 0.5, ground = "shock_ring", ground_size = 280, ground_seconds = 0.5, height = 30, line = false, face_camera = false } },
+  maeda_toshiie = { "spear", { 1.0, 0.85, 0.4 }, { system = "burst", sprite = "blink_flash", size = 300, area = true, life = 0.45, ground = "shock_ring", ground_size = 260, ground_seconds = 0.45, height = 30, line = false, face_camera = false } }, maeda_keiji = { "spear", BLUE, { system = "burst", sprite = "spark_star", size = 320, area = true, life = 0.5, ground = "shock_ring", ground_size = 280, ground_seconds = 0.5, height = 30, line = false, face_camera = false } },
   nohime = { "gun", { 1.0, 0.6, 0.25 } }, otani_yoshitsugu = { "arcane", ARCANE },
 }
 for hero, row in pairs(M.ATTACKS) do

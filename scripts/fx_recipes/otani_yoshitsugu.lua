@@ -27,6 +27,9 @@ return {
     a12f_arc_sound = { system = "pop", sprite = "soft_glow", size = 120, life = 0.15, tint = ARCANE },
     a12f_arrow = { system = "stream", sprite = "spark_star", size = 90, life = 0.5, loop = true, face = true, tint = ARCANE,
       mesh = "arcane_arrow", ground_size = 200, ground_seconds = 20, height = 70, linger = 0.7 },
+    a12f_streak = { ground = "soft_glow", ground_size = 70, ground_seconds = 0.4, line = true, tint = ARCANE },
+    a12f_hit = { system = "pop", sprite = "soft_glow", size = 130, life = 0.2, tint = ARCANE,
+      ground = "blink_flash", ground_size = 130, ground_seconds = 0.35, line = true },
     -- a12_mystic_possession: purple lightning crackling on him for the whole form
     a12t_aura = { system = "stream", sprite = "lightning", size = 170, life = 0.22, loop = true, bold = true, tint = ARCANE },
   },
@@ -38,7 +41,7 @@ return {
     a12_mystic_field = "only cue is a12e_vo, shared with a12_mystic_pierce: one flash and circle at cast, nothing for its seconds of duration; needs its own field cue in the package.",
     a12_awe = "a12r_burst at the point, a12r_vortex on the slowed.",
     a12_awe_t = "same a12r_burst and a12r_vortex; ground is 800 across while its damage radius is 500, since the cue passes no radius.",
-    a12_mystic_arrow = "a12f_arrow flight, a12f_arc_sound muzzle; package has no hit cue, so no burst on hit. missing_image: arrow (crescent_slash stands in).",
+    a12_mystic_arrow = "a12f_arrow flight, a12f_arc_sound muzzle; a12f_streak lights its path, a12f_hit pierces each target along the flight. missing_image: arrow (crescent_slash stands in).",
     a12_mystic_possession = "a12t_aura stream only, weakest of the kit: no cast cue of its own and spell_hint_self is shared with 4 other heroes so left alone; needs a cast cue in the package for a big body.",
   },
 }
