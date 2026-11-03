@@ -410,13 +410,13 @@ M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
 -- The stage's showcase.withheld_abilities: no rank at birth, learned in their own segment.
 -- A blow's passive would show in every attack: its segment goes after the attack, before the death (M.script).
 -- a12 奇計 counts casts, and nothing is cast after it: it stays beside the form it needs.
-M.WITHHELD={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true,c05_thunder_spear=true,a12_scheme=true}
-M.AFTER_ATTACK={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true,c05_thunder_spear=true}
+M.WITHHELD={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true,c05_thunder_spear=true,a12_scheme=true,a26_scorching_bomb=true}
+M.AFTER_ATTACK={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true,c05_thunder_spear=true,a26_scorching_bomb=true}
 -- a12 奇計 stacks on four arrows; the fifth cast, the form's 智芒乍現．遠 (slot 0), is the empowered one that stuns.
 -- Only inside the 20 s form do five casts fit in a segment, and only there can arrows fly: it stays open from R, its segments short.
 M.KEEPS_BUFFS={a12_mystic_arrow=true,a12_scheme=true}
 M.BURST={a12_mystic_arrow={5,5},a12_scheme={5,5,5,5,0}}
-M.HOLD_FOR={a12_mystic_possession=3.5,a12_mystic_arrow=3.5,a26_scorching_bomb=8}
+M.HOLD_FOR={a12_mystic_possession=3.5,a12_mystic_arrow=3.5}
 -- c03 不動戰錘: the hero stands far from the stand-in for it, and the blast is large: out before the cast.
 M.VIEW_EARLY={c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
 -- a14 on the lane stage: 衝擊槍 flies the stand-in (2800,2260) along the run into seat 10 (2800,1750), and the crash and its 350 show.
