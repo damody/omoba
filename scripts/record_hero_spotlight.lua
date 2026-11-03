@@ -401,7 +401,7 @@ M.STRUCK_AT={2700,2130}
 M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_tenacity={2480,2450}}
 M.HOLDS_STILL={b20_tenacity=true}
 -- b27 裂地刃 reaches 1000: the death's stand-ins are hit too, and at the usual cap (2) their ripples were cut off.
-M.VIEW_BACK={b27_rending_blade=2.7,a14_impact_spear=2.3,a14_divine_strike=2.3,a12_mystic_arrow=2.3,a12_scheme=2.3}
+M.VIEW_BACK={b27_rending_blade=2.7,a14_impact_spear=2.3,a14_divine_strike=2.3}
 -- Ranged: hero and stand-in stand far apart, in frame from the segment's start.
 M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
 -- The stage's showcase.withheld_abilities: no rank at birth, learned in their own segment.
@@ -409,16 +409,17 @@ M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
 -- a12 奇計 counts casts, and nothing is cast after it: it stays beside the form it needs.
 M.WITHHELD={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true,c05_thunder_spear=true,a12_scheme=true}
 M.AFTER_ATTACK={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true,c05_thunder_spear=true}
--- a12 玄滅箭 pierces the stand-in (seat 6, 2300,2640) and on into seat 8 (2900,2570). 奇計 stacks on four arrows; the fifth cast, the form's 智芒乍現．遠 (slot 0), is the empowered one that stuns.
--- Only inside the 20 s form do five casts fit in a segment, so it stays open from R.
-M.KEEPS_BUFFS={a12_scheme=true}
-M.BURST={a12_mystic_arrow={5},a12_scheme={5,5,5,5,0}}
+-- a12 奇計 stacks on four arrows; the fifth cast, the form's 智芒乍現．遠 (slot 0), is the empowered one that stuns.
+-- Only inside the 20 s form do five casts fit in a segment, and only there can arrows fly: it stays open from R, its segments short.
+M.KEEPS_BUFFS={a12_mystic_arrow=true,a12_scheme=true}
+M.BURST={a12_mystic_arrow={5,5},a12_scheme={5,5,5,5,0}}
+M.HOLD_FOR={a12_mystic_possession=3.5,a12_mystic_arrow=3.5}
 -- c03 不動戰錘: the hero stands far from the stand-in for it, and the blast is large: out before the cast.
 M.VIEW_EARLY={c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
 -- a14 on the lane stage: 衝擊槍 flies the stand-in (2800,2260) along the run into seat 10 (2800,1750), and the crash and its 350 show.
--- 神現一擊 blinks 850 through the stand-in to about y 1550. Both frames hold the hero, the target and the landing.
-M.STAND_AT={a12_mystic_arrow={2062,2668}}
-M.VIEW_AT={a14_impact_spear={2800,2075},a14_divine_strike={2800,1975},a12_mystic_arrow={2480,2620},a12_scheme={2480,2620}}
+-- 神現一擊 blinks 850 through the stand-in: straight along the run it lands on the cliff, a little aside it clears it, at about (2977,1573). Both frames hold the hero, the target and the landing.
+M.STAND_AT={a14_divine_strike={2765,2396}}
+M.VIEW_AT={a14_impact_spear={2800,2075},a14_divine_strike={2870,1985}}
 -- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
 M.CAST_AT={c05_flash_thunder={2440,2300}}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one. c05: beside the patrol of
@@ -494,6 +495,7 @@ function M.script(package)
     if M.WITHHELD[slot.id] then slot.withheld=true end
     if M.KEEPS_BUFFS[slot.id] then slot.keeps_buffs=true end
     slot.burst=M.BURST[slot.id]
+    slot.hold=M.HOLD_FOR[slot.id] or slot.hold
     local stand_at,view_at=M.STAND_AT[slot.id],M.VIEW_AT[slot.id]
     if stand_at then slot.stand_x,slot.stand_y=stand_at[1],stand_at[2] end
     if view_at then slot.view_x,slot.view_y=view_at[1],view_at[2] end
