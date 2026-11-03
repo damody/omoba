@@ -377,6 +377,7 @@ function M.ini_row(id)
   if r.ground_roll then add("GroundRoll", number(r.ground_roll)) end
   if r.fly then add("bGroundFly", "True") end
   if r.fixed_size then add("bFxFixedSize", "True") end
+  if r.no_damage_flash then add("bFxNoDamageFlash", "True") end
   return ('("%s",(%s))'):format(id, table.concat(f, ","))
 end
 
