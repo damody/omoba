@@ -401,13 +401,24 @@ M.STRUCK_AT={2700,2130}
 M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_tenacity={2480,2450}}
 M.HOLDS_STILL={b20_tenacity=true}
 -- b27 裂地刃 reaches 1000: the death's stand-ins are hit too, and at the usual cap (2) their ripples were cut off.
-M.VIEW_BACK={b27_rending_blade=2.7,a14_impact_spear=2.3,a14_divine_strike=2.3}
+M.VIEW_BACK={b27_rending_blade=2.7,a14_impact_spear=2.3,a14_divine_strike=2.3,a12_mystic_arrow=2.3,a12_scheme=2.3}
+-- Ranged: hero and stand-in stand far apart, in frame from the segment's start.
+M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
+-- The stage's showcase.withheld_abilities: no rank at birth, learned in their own segment.
+-- A blow's passive would show in every attack: its segment goes after the attack, before the death (M.script).
+-- a12 奇計 counts casts, and nothing is cast after it: it stays beside the form it needs.
+M.WITHHELD={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true,c05_thunder_spear=true,a12_scheme=true}
+M.AFTER_ATTACK={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true,c05_thunder_spear=true}
+-- a12 玄滅箭 pierces seat 2 and on into seat 7. 奇計 stacks on four arrows; the fifth cast, the form's 智芒乍現．遠 (slot 0), is the empowered one that stuns.
+-- Only inside the 20 s form do five casts fit in a segment, so it stays open from R.
+M.KEEPS_BUFFS={a12_scheme=true}
+M.BURST={a12_mystic_arrow={5},a12_scheme={5,5,5,5,0}}
 -- c03 不動戰錘: the hero stands far from the stand-in for it, and the blast is large: out before the cast.
 M.VIEW_EARLY={c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
 -- a14 衝擊槍 flies the stand-in (seat 2, 2300,2160) until a body stops it: from here the line runs into seat 7 (2900,2230), and the crash and its 350 show.
 -- a14 神現一擊 blinks 850 through the stand-in: from here it lands at 2300,2880, clear of the strikers and the towers. Both frames hold the hero, the target and the landing.
-M.STAND_AT={a14_impact_spear={2171,2145},a14_divine_strike={2300,2030}}
-M.VIEW_AT={a14_impact_spear={2535,2190},a14_divine_strike={2300,2455}}
+M.STAND_AT={a14_impact_spear={2171,2145},a14_divine_strike={2300,2030},a12_mystic_arrow={2160,2143}}
+M.VIEW_AT={a14_impact_spear={2535,2190},a14_divine_strike={2300,2455},a12_mystic_arrow={2510,2185},a12_scheme={2510,2185}}
 -- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
 M.CAST_AT={c05_flash_thunder={2440,2300}}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one. c05: beside the patrol of
@@ -421,7 +432,7 @@ M.STAND_OFF={c22_swallow_flash=330}
 -- and from the usual 188 the blow landed on nothing. Ranged heroes keep the usual place.
 M.WEAPON_REACH={sasaki_kojiro=130,tokugawa_ieyasu=130,yamagata_masakage=130,okuma_tomohide=120,kojima_sadaoki=120,shimazu_yoshihiro=120,maeda_toshiie=140,maeda_keiji=140}
 -- Passives that answer to the hero's own casts: the segment casts them, it does not attack.
-M.CASTS_OWN={a12_scheme=true}
+M.CASTS_OWN={}
 M.LEARN_MIDWAY={b20_tenacity=true,c22_swallow_flash=true,c05_thunder_spear=true,b26_kozuke_valor=true,a14_stacked_spear=true,a26_twin_guns=true,c03_thunder_wrath=true}
 -- A blow that lands this far ahead of the caster: stand there, and the first one lands on the stand-in.
 function M.forward_offset(doc,id)
@@ -479,7 +490,10 @@ function M.script(package)
     slot.view=M.view_radius(doc,slot.id);slot.hold=M.hold_seconds(doc,slot.id)
     if M.LEARN_MIDWAY[slot.id] then slot.learn_midway=true end
     slot.stand_off=M.STAND_OFF[slot.id] or M.forward_offset(doc,slot.id) or M.WEAPON_REACH[package.hero]
-    if M.VIEW_EARLY[slot.id] then slot.view_early=true end
+    if M.VIEW_EARLY[slot.id] or M.FRAMED_HEROES[package.hero or ''] then slot.view_early=true end
+    if M.WITHHELD[slot.id] then slot.withheld=true end
+    if M.KEEPS_BUFFS[slot.id] then slot.keeps_buffs=true end
+    slot.burst=M.BURST[slot.id]
     local stand_at,view_at=M.STAND_AT[slot.id],M.VIEW_AT[slot.id]
     if stand_at then slot.stand_x,slot.stand_y=stand_at[1],stand_at[2] end
     if view_at then slot.view_x,slot.view_y=view_at[1],view_at[2] end
@@ -502,6 +516,10 @@ function M.script(package)
   -- The death ends the recording: only the base stage has the enemies that strike it down.
   local stage=M.recipe_for(package)
   if stage==M.RECIPE or stage==M.LANE_RECIPE or stage==M.PATROL_RECIPE or stage==M.CASTS_RECIPE then
+    local after_attack={}
+    for index=#slots,1,-1 do
+      if M.AFTER_ATTACK[slots[index].id] then table.insert(after_attack,1,table.remove(slots,index)) end
+    end
     for _,show in ipairs(M.BODY_SHOWS) do
       if show.kind=='attack' and M.WEAPON_REACH[package.hero] then
         local closer={}
@@ -516,6 +534,9 @@ function M.script(package)
         show=moved
       end
       slots[#slots+1]=show
+      if show.kind=='attack' then
+        for _,slot in ipairs(after_attack) do slots[#slots+1]=slot end
+      end
     end
   end
   return {schema=1,hero=package.hero,hero_name=package.hero_name,title=package.title,
