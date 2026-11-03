@@ -2468,6 +2468,7 @@ fn intent_value(world: &FixtureWorld, intent: Option<renderer_input::Intent>) ->
         }
         renderer_input::Intent::HoldPosition(value) => json!({"kind": "HoldPosition", "queued": value.queued}),
         renderer_input::Intent::Stop(_) => json!({"kind": "Stop"}),
+        renderer_input::Intent::ShowcaseResetHero(_) => json!({"kind": "ShowcaseResetHero"}),
         renderer_input::Intent::CombatPreferences(value) => json!({"kind": "CombatPreferences",
             "schema_version": value.schema_version, "acquisition": value.acquisition, "idle_auto_attack": value.idle_auto_attack}),
         renderer_input::Intent::InputScheme(value) => json!({"kind":"InputScheme","schema_version":value.schema_version,"scheme":value.scheme}),

@@ -290,8 +290,9 @@ pub fn drain_pending_moves(world: &mut World) {
                 continue;
             }
         };
-        // Summon orders are not the hero's own orders (command_restriction.rs).
-        if !matches!(req.kind, PendingHeroCommandKind::OwnedSummonOrder {..})
+        // Summon orders are not the hero's own orders (command_restriction.rs), and a segment
+        // change is the stage's: it is what lifts a stun.
+        if !matches!(req.kind, PendingHeroCommandKind::OwnedSummonOrder {..} | PendingHeroCommandKind::ShowcaseResetHero)
             && super::command_restriction::restricted(world, hero) {
             log::info!("HeroCommand ignored pid={} hero={:?} reason=command_restricted", req.owner_pid, hero);
             continue;
@@ -302,6 +303,12 @@ pub fn drain_pending_moves(world: &mut World) {
                 match super::summon_orders::apply(world,req.owner_pid,hero,&order) {
                     Err(reason)=>log::info!("OwnedSummonOrder rejected pid={} reason={}",req.owner_pid,reason),
                     Ok(())=>log::info!("OwnedSummonOrder applied pid={} operation={} ability='{}'",req.owner_pid,order.operation,order.ability),
+                }
+                continue;
+            }
+            PendingHeroCommandKind::ShowcaseResetHero => {
+                if !crate::runtime::showcase_reset_hero(world, hero) {
+                    log::info!("ShowcaseResetHero refused pid={} reason=no_showcase_stage", req.owner_pid);
                 }
                 continue;
             }

@@ -39,6 +39,7 @@ pub fn player_input_to_renderer_intent(input: &PlayerInput) -> Option<Intent> {
         }),
         Action::HoldPosition(value) => Intent::HoldPosition(*value),
         Action::Stop(_) => Intent::Stop(proto::Stop {}),
+        Action::ShowcaseResetHero(_) => Intent::ShowcaseResetHero(proto::ShowcaseResetHero {}),
         Action::InputScheme(value) => {
             crate::runtime::input_scheme_transport::validate_update(value).ok()?;
             Intent::InputScheme(*value)

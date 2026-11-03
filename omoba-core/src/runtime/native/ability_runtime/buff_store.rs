@@ -850,6 +850,11 @@ impl BuffStore {
         for key in keys {self.remove_entry(source,&key);}
     }
 
+    /// Zones `source` left running on their own leases (a source's retirement keeps them).
+    pub fn cancel_independent_zones(&mut self,source:Entity) {
+        self.independent_zones.retain(|(owner,_),_|*owner!=source);
+    }
+
     pub fn can_schedule_independent_zones(&self,source:Entity,keys:&[&str])->bool {
         use super::damage_zone::{MAX_INDEPENDENT_ZONES,MAX_INDEPENDENT_ZONES_PER_SOURCE};
         if keys.len()>MAX_INDEPENDENT_ZONES_PER_SOURCE || self.next_zone_lease.checked_add(keys.len() as u64).is_none()

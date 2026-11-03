@@ -739,6 +739,47 @@ fn summon_priority_formal_60hz_active_host_destination_prevents_lateral_aggro_st
     assert_eq!(run(),run());
 }
 
+/// The stage's reset through the real input: a learned passive and its rank stay, its stats still
+/// count; a real spell's status on the hero goes, and so does a held seat's; a real match refuses it.
+#[test]
+fn showcase_reset_input_keeps_a_learned_passive_and_clears_the_last_segments_statuses() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::ShowcaseConfig;
+    let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
+    let run=|stage:bool| {
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+            players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)],
+            ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+            showcase:stage.then(||ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2000]),(6,[2300,2600])].into(),
+                hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],
+                refill_players:Default::default()})};
+        let (mut config,_)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;
+        let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+        d.step(&mut w,[]).unwrap();
+        let of=|w:&World,id:u32|w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
+        let (hero,other)=(of(&w,1),of(&w,6));
+        let slot=w.read_storage::<Hero>().get(hero).unwrap().abilities.iter().position(|id|id=="b20_tenacity");
+        let slot=slot.unwrap() as u32;
+        let rank=|w:&World|w.read_storage::<Hero>().get(hero).unwrap().get_ability_level("b20_tenacity");
+        if stage {
+            let unlearned=rank(&w);
+            d.step(&mut w,[(1,upgrade(slot))]).unwrap();
+            d.step(&mut w,[]).unwrap();
+            assert_eq!(rank(&w),unlearned+1,"learned");
+            assert!(w.read_resource::<BuffStore>().has(hero,"b20_tenacity"),"its marker");
+        }
+        let learned=rank(&w);
+        for unit in [hero,other] {w.write_resource::<BuffStore>().add(unit,"test_slow",Fixed64::from_i32(30),serde_json::json!({"move_speed_bonus":-512,"__aggregation_family":"generic_ability_slow"}));}
+        d.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::ShowcaseResetHero(omoba_core::game_proto::ShowcaseResetHero {}))})]).unwrap();
+        d.step(&mut w,[]).unwrap();
+        let buffs=w.read_resource::<BuffStore>();
+        (buffs.has(hero,"test_slow"),buffs.has(other,"test_slow"),buffs.has(hero,"b20_tenacity"),rank(&w)==learned)
+    };
+    assert_eq!(run(true),(false,false,true,true),"on a stage: the statuses go, the passive and its rank stay");
+    assert_eq!(run(false),(true,true,true,true),"a real match refuses it");
+}
+
 /// A held seat does not fight back, melee or ranged: the hero attacking it from next to it takes
 /// nothing. The same seat's scheduled casts still land, and a strike seat still hits. Hold Position
 /// alone stops attacks, so `gap` runs with no order and no think at all: the moments a seat has none,

@@ -720,6 +720,56 @@ mod tests {
         assert_eq!(idle(&p,2),(true,false),"no stage");
     }
     #[test]
+    fn a_showcase_reset_clears_timed_statuses_of_the_hero_and_held_seats_and_a_real_match_refuses_it() {
+        use crate::runtime::ability_runtime::{BuffStore,buff_store::PERMANENT_BUFF_DURATION};
+        use crate::runtime::native::cast_windup::{AbilityWindups,Windup};
+        let run = |p:RoleBotMatchPlan| {
+            let (config,_) = p.compile(1,SimulationTickProfile::Production60Hz).unwrap();
+            let pool = crate::runtime::StateInitializer::create_thread_pool();
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+            setup_single_lane_match(&mut world, config).unwrap();
+            world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Playing;
+            let of = |world:&specs::World,id:u32| world.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
+            let (hero,held,free) = (of(&world,1),of(&world,2),of(&world,6));
+            for unit in [hero,held,free] {
+                let mut buffs = world.write_resource::<crate::runtime::BuffStore>();
+                buffs.add(unit,"test_slow",Fixed64::from_i32(9),serde_json::json!({"move_speed_bonus":-256}));
+                buffs.add(unit,"stun",Fixed64::from_i32(9),serde_json::json!({}));
+                buffs.add(unit,"test_passive",PERMANENT_BUFF_DURATION,serde_json::json!({"__passive":true,"level":2,"physical_armor_bonus":1024}));
+                buffs.add(unit,"test_timed_passive",Fixed64::from_i32(9),serde_json::json!({"__passive":true}));
+                buffs.add(unit,"test_item",PERMANENT_BUFF_DURATION,serde_json::json!({"physical_armor_bonus":1024}));
+            }
+            let mut windups = AbilityWindups::default();
+            windups.0.insert(hero, Windup { skill_id:"a34_frost_bolt".into(), target:crate::runtime::native::scripting::SkillTarget::None,
+                origin:Vec2::ZERO, remaining:Fixed64::ONE, rank:1, interrupt_on_damage:false, last_tick:0, anchored:true });
+            world.insert(windups);
+            world.write_storage::<Hero>().get_mut(hero).unwrap().ability_levels.insert("test_rank".into(),3);
+            world.write_resource::<crate::comp::PendingMoveQueue>().requests.push(crate::comp::PendingHeroCommand { admitted_correlation:0,
+                owner_pid:1, queued:false, kind:crate::comp::PendingHeroCommandKind::ShowcaseResetHero });
+            crate::runtime::native::game_processor::drain_pending_moves(&mut world);
+            let buffs = world.read_resource::<BuffStore>();
+            let rows = |unit| ["test_slow","stun","test_passive","test_timed_passive","test_item"].map(|row|buffs.has(unit,row));
+            let result = (rows(hero),rows(held),rows(free),world.read_resource::<AbilityWindups>().0.contains_key(&hero),
+                world.read_storage::<Hero>().get(hero).unwrap().ability_levels.get("test_rank").copied());
+            drop(buffs);
+            result
+        };
+        let cleared = [false,false,true,true,true];
+        let all = [true;5];
+        // Seat 2 is held. Seat 6 is not: it is neither the sender's hero nor a held seat.
+        let mut stage = showcase_plan();
+        stage.showcase.as_mut().unwrap().hold_players = [2].into();
+        let (hero,held,free,winding,rank) = run(stage);
+        assert_eq!(hero,cleared,"the hero (a stun does not stop it)");
+        assert_eq!(held,cleared,"a held seat");
+        assert_eq!(free,all,"a seat that is not held");
+        assert!(!winding,"its cast ended");
+        assert_eq!(rank,Some(3),"ranks stay");
+        // A real match: nothing changes.
+        let (hero,held,free,winding,_) = run(RoleBotMatchPlan { showcase:None, ..showcase_plan() });
+        assert_eq!((hero,held,free,winding),(all,all,all,true),"refused without a stage");
+    }
+    #[test]
     fn showcase_refills_are_rejected_off_the_roster_and_absent_from_real_plans() {
         let mut off = showcase_plan(); off.showcase.as_mut().unwrap().refill_players = [9].into();
         let (config,_) = off.compile(1,SimulationTickProfile::Production60Hz).unwrap();

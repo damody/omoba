@@ -868,7 +868,7 @@ pub struct CombatPreferencesProjection {
 pub struct PlayerInput {
     #[prost(
         oneof = "player_input::Action",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30, 31"
     )]
     pub action: ::core::option::Option<player_input::Action>,
 }
@@ -934,8 +934,14 @@ pub mod player_input {
         OwnedSummonOrder(super::OwnedSummonOrder),
         #[prost(message, tag = "30")]
         SummonCommand(super::SummonCommandInput),
+        #[prost(message, tag = "31")]
+        ShowcaseResetHero(super::ShowcaseResetHero),
     }
 }
+/// A recorded demonstration's segment change: the sender's hero and the stage's held seats lose what
+/// the last segment put on them. Refused off a showcase stage.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ShowcaseResetHero {}
 /// 沙箱/測試：直接生成一隻指定種類的 creep（BTD6 沙箱「發送氣球」對應）。
 /// emitter_index 是 creep_emiters BTreeMap 的排序位置（決定性順序）。
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
@@ -2666,7 +2672,7 @@ pub struct RendererInput {
     pub disclosure_epoch: u64,
     #[prost(
         oneof = "renderer_input::Intent",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30, 31"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30, 31, 32"
     )]
     pub intent: ::core::option::Option<renderer_input::Intent>,
 }
@@ -2714,6 +2720,8 @@ pub mod renderer_input {
         Direction(super::RendererDirectionIntent),
         #[prost(message, tag = "31")]
         SummonCommand(super::SummonCommandInput),
+        #[prost(message, tag = "32")]
+        ShowcaseResetHero(super::ShowcaseResetHero),
     }
 }
 /// Local renderer intent. No sender/team/room/run, nonce, canonical actor or clock.

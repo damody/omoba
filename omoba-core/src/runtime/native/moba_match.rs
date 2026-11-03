@@ -1429,6 +1429,7 @@ pub fn single_lane_input_action_allowed(input: &crate::runtime::PlayerInput) -> 
                 | I::AttackTarget(_)
                 | I::HoldPosition(_)
                 | I::Stop(_)
+                | I::ShowcaseResetHero(_)
                 | I::CastAbility(_)
                 | I::UpgradeAbility(_)
                 | I::ItemUse(_)
@@ -1975,6 +1976,34 @@ fn run_showcase_casts(world: &mut World, state: &MobaMatch) {
         if !inside { schedule.0.remove(&index); }
         else { schedule.0.entry(index).or_insert(state.elapsed); }
     }
+}
+
+/// A recorded demonstration's segment change: `hero` and the stage's held seats lose every timed
+/// status (whoever applied it, delayed and scheduled effects among them) and their running casts,
+/// channels and ground zones. What a passive or an item gives stays: a learned passive's marker
+/// (`__passive`) and every permanent row. Ranks and cooldowns stay too. False off a showcase stage,
+/// on a team replica among them (settled once here; icons follow the authority's snapshot).
+pub fn showcase_reset_hero(world: &mut World, hero: Entity) -> bool {
+    let units: Vec<Entity> = {
+        let Some(state) = world.try_fetch::<MobaMatch>() else { return false };
+        let Some(showcase) = state.config.showcase.as_ref() else { return false };
+        state.heroes.iter().filter(|slot| slot.entity == Some(hero) || showcase.hold_players.contains(&slot.player_id))
+            .filter_map(|slot| slot.entity).collect()
+    };
+    for unit in units {
+        super::cast_windup::cancel(world, unit);
+        super::cast_approach::clear(world, unit);
+        let mut buffs = world.write_resource::<crate::runtime::BuffStore>();
+        buffs.cancel_damage_zones(unit);
+        buffs.cancel_independent_zones(unit);
+        let mut timed: Vec<String> = buffs.iter_for(unit)
+            .filter(|(_, entry)| entry.remaining != crate::runtime::ability_runtime::buff_store::PERMANENT_BUFF_DURATION
+                && entry.payload.get("__passive") != Some(&serde_json::Value::Bool(true)))
+            .map(|(id, _)| id.to_owned()).collect();
+        timed.sort();
+        for id in timed { buffs.remove(unit, &id); }
+    }
+    true
 }
 
 fn run_showcase_refills(world: &mut World, state: &MobaMatch) {

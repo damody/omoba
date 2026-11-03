@@ -179,7 +179,7 @@ impl InputBridge {
             }
         }
         let mut secure_target = None;
-        if matches!(renderer_input.intent, Some(renderer_input::Intent::HoldPosition(_)) | Some(renderer_input::Intent::Stop(_)) | Some(renderer_input::Intent::SummonCommand(_)))
+        if matches!(renderer_input.intent, Some(renderer_input::Intent::HoldPosition(_)) | Some(renderer_input::Intent::Stop(_)) | Some(renderer_input::Intent::SummonCommand(_)) | Some(renderer_input::Intent::ShowcaseResetHero(_)))
             && !self.commands_enabled { return reject(renderer_input.request_id, "COMMAND_PROTOCOL_UNAVAILABLE"); }
         let is_upgrade = matches!(renderer_input.intent, Some(renderer_input::Intent::AbilityUpgrade(_)));
         if is_upgrade {
@@ -261,6 +261,7 @@ impl InputBridge {
             }
             Some(renderer_input::Intent::HoldPosition(value)) => player_input::Action::HoldPosition(value.clone()),
             Some(renderer_input::Intent::Stop(_)) => player_input::Action::Stop(omoba_core::game_proto::Stop {}),
+            Some(renderer_input::Intent::ShowcaseResetHero(_)) => player_input::Action::ShowcaseResetHero(omoba_core::game_proto::ShowcaseResetHero {}),
             Some(renderer_input::Intent::CombatPreferences(value)) => player_input::Action::CombatPreferences(value),
             Some(renderer_input::Intent::InputScheme(value)) => player_input::Action::InputScheme(value),
             Some(renderer_input::Intent::Direction(value)) => {
@@ -524,7 +525,7 @@ fn validate_intent_shape(intent: Option<&renderer_input::Intent>) -> Result<(), 
             return omoba_core::runtime::ward_transport::admit_ward_placement(
                 value.slot, value.x_raw, value.y_raw).map(|_| ());
         }
-        Some(renderer_input::Intent::HoldPosition(_)) | Some(renderer_input::Intent::Stop(_)) => return Ok(()),
+        Some(renderer_input::Intent::HoldPosition(_)) | Some(renderer_input::Intent::Stop(_)) | Some(renderer_input::Intent::ShowcaseResetHero(_)) => return Ok(()),
         Some(renderer_input::Intent::ItemBuy(value)) => return
             omoba_core::runtime::shop_transport::item_id_for_catalog(value.catalog_id)
                 .map(|_| ()).ok_or("INVALID_ITEM_CATALOG_ID"),

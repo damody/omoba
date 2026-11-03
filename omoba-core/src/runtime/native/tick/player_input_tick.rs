@@ -282,6 +282,13 @@ fn route_input(
                 owner_pid:player_id,queued:a.queued,kind:PendingHeroCommandKind::HoldPosition,
             });
         }
+        Some(PlayerInputEnum::ShowcaseResetHero(_)) => {
+            move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,
+                owner_pid: player_id,
+                queued: false,
+                kind: PendingHeroCommandKind::ShowcaseResetHero,
+            });
+        }
         Some(PlayerInputEnum::Stop(_)) => {
             move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,
                 owner_pid: player_id,

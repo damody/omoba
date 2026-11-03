@@ -281,6 +281,7 @@ pub fn sanitize_accepted_action(
             (crate::runtime::summon_transport::ACTION_KIND,Some(id),Some(generation))
         }
         Action::Stop(_) => (21, None, None),
+        Action::ShowcaseResetHero(_) => (31, None, None),
         Action::HoldPosition(_) => (20, None, None),
         Action::Recall(_) => (19, None, None),
         Action::NoOp(_) => (1, None, None),

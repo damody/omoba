@@ -1101,7 +1101,7 @@ impl SpecsDisclosedWorldStepper {
             }
             // A shop input is acknowledged as accepted, but its actual result
             // is settled once by authority. Never buy, sell, or undo in this replica.
-            if matches!(input.action, Some(Action::ItemBuy(_) | Action::ItemSell(_) | Action::ShopUndo(_) | Action::CombatPreferences(_))) {
+            if matches!(input.action, Some(Action::ItemBuy(_) | Action::ItemSell(_) | Action::ShopUndo(_) | Action::CombatPreferences(_) | Action::ShowcaseResetHero(_))) {
                 continue;
             }
             let correlation = u32::try_from(accepted.input_id).unwrap_or(0);

@@ -528,6 +528,8 @@ pub enum PendingHeroCommandKind {
     HoldPosition,
     /// One-shot clear. It never becomes a persistent `HeroCommand`.
     Stop,
+    /// One-shot, a showcase stage only (moba_match::showcase_reset_hero).
+    ShowcaseResetHero,
     MoveTo { pos: SimVec2 },
     AttackMove { pos: SimVec2 },
     AttackTarget { target_entity_id: u32 },
