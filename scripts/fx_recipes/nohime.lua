@@ -13,8 +13,8 @@ return {
       mesh = "rocket", ground_size = 180, ground_seconds = 0.5, height = 70, launch = 300 },
     a26e_smoke = { system = "pop", sprite = "smoke_sheet", size = 240, life = 0.6,
       ground = "dust_crack", ground_size = 130, ground_seconds = 0.5, line = true },
-    -- a26_twin_guns: a crit's flash
-    a26r_crit_gesture = { system = "pop", sprite = "twin_muzzle", size = 280, life = 0.26, tint = { 1.0, 0.2, 0.01 } },
+    -- a26_twin_guns: on a crit two flames leave the muzzle along her aim. Its image has its own colours.
+    a26r_crit_gesture = { ground = "twin_muzzle", ground_size = 240, ground_seconds = 0.24, height = 110, lead = 256, grow = 0.7, face_camera = 0.85 },
     -- a26_scorching_bomb
     a26t_voice = { system = "pop", sprite = "spark_star", size = 280, life = 0.45, tint = ORANGE,
       ground = "arcane_circle", ground_size = 340, ground_seconds = 0.5, grow = 0.4 },
