@@ -402,6 +402,8 @@ M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_
 M.HOLDS_STILL={b20_tenacity=true}
 -- b27 裂地刃 reaches 1000: the death's stand-ins are hit too, and at the usual cap (2) their ripples were cut off.
 M.VIEW_BACK={b27_rending_blade=2.7}
+-- c03 不動戰錘: the hero stands far from the stand-in for it, and the blast is large: out before the cast.
+M.VIEW_EARLY={c03_iron_hammer=true}
 -- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
 M.CAST_AT={c05_flash_thunder={2440,2300}}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one. c05: beside the patrol of
@@ -417,6 +419,17 @@ M.WEAPON_REACH={sasaki_kojiro=130,tokugawa_ieyasu=130,yamagata_masakage=130,okum
 -- Passives that answer to the hero's own casts: the segment casts them, it does not attack.
 M.CASTS_OWN={a12_scheme=true}
 M.LEARN_MIDWAY={b20_tenacity=true,c22_swallow_flash=true,c05_thunder_spear=true,b26_kozuke_valor=true,a14_stacked_spear=true,a26_twin_guns=true,c03_thunder_wrath=true}
+-- A blow that lands this far ahead of the caster: stand there, and the first one lands on the stand-in.
+function M.forward_offset(doc,id)
+  for _,ability in ipairs(doc and doc.abilities or {}) do
+    if ability.id==id and type(ability.values)=='table' then
+      local value=ability.values.forward_offset
+      if type(value)=='table' then value=value[1] end
+      if type(value)=='number' then return value end
+    end
+  end
+end
+
 function M.view_radius(doc,id)
   if M.NO_VIEW[id] then return nil end
   for _,ability in ipairs(doc and doc.abilities or {}) do
@@ -461,7 +474,8 @@ function M.script(package)
   for _,slot in ipairs(package.slots) do
     slot.view=M.view_radius(doc,slot.id);slot.hold=M.hold_seconds(doc,slot.id)
     if M.LEARN_MIDWAY[slot.id] then slot.learn_midway=true end
-    slot.stand_off=M.STAND_OFF[slot.id] or M.WEAPON_REACH[package.hero]
+    slot.stand_off=M.STAND_OFF[slot.id] or M.forward_offset(doc,slot.id) or M.WEAPON_REACH[package.hero]
+    if M.VIEW_EARLY[slot.id] then slot.view_early=true end
     local struck=M.STRUCK_BOTH[slot.id]
     if struck then slot.struck_x,slot.struck_y=struck[1],struck[2] end
     if M.HOLDS_STILL[slot.id] then slot.holds_still=true end

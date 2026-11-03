@@ -219,7 +219,7 @@ M.ATTACKS = {
   sasaki_kojiro = { "katana", STEEL, { sprite = "blink_flash", size = 150, ground = "shock_ring", ground_size = 210, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { ground_size = 230, ground_roll = -30 } },
   okuma_tomohide = { "axe", { 1.0, 0.3, 0.03 }, { sprite = "flame_sheet", size = 60, ground = "shock_ring", ground_size = 170, height = 30, grow = 0.3, face_camera = false, ground_roll = false } },
   kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 }, { sprite = "spark_star", size = 170, ground = "dust_crack", ground_size = 280, height = false, face_camera = false, ground_roll = false } },
-  shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 } },
+  shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 }, { sprite = "spark_star", size = 190 } },
   maeda_toshiie = { "spear", { 1.0, 0.62, 0.05 }, { system = "burst", sprite = "spark_star", size = 230, area = true, life = 0.4, ground = "crescent_slash", ground_size = 340, ground_seconds = 0.4, height = 80, line = false, grow = 0.5, face_camera = 0.7 } }, maeda_keiji = { "spear", BLUE, { system = "burst", sprite = "spark_star", size = 110, life = 0.25, ground = "shock_ring", ground_size = 150, ground_seconds = 0.25, height = 30, line = false, face_camera = false } },
   nohime = { "gun", { 1.0, 0.6, 0.25 } }, otani_yoshitsugu = { "arcane", ARCANE },
 }
@@ -256,7 +256,7 @@ M.MESH_SOURCE = "omfue/SourceArt/Structures/TripoStaticV1"
 M.MESHES = {
   throw_axe = {}, rocket = {}, cannon_shell = {}, arcane_arrow = {}, thunder_spear = {}, spear_head = {}, swallow = { tilt = -90 },
   rock_chunk = {}, fire_bomb = {}, earth_crown = {}, shock_dome = { translucent = true },
-  war_hammer = { roll = 90 }, fissure_blade = { roll = 90 }, iron_bell = { roll = 90 }, fire_wings = { roll = 90 }, thunder_sword = { roll = 90 }, war_banner = { roll = 90 },
+  war_hammer = { roll = 90 }, fissure_blade = { roll = 90 }, iron_bell = { roll = 90, translucent = true }, fire_wings = { roll = 90 }, thunder_sword = { roll = 90 }, war_banner = { roll = 90 },
 }
 function M.material(prefix, image) return ("%s/Instances/%s_fx_%s.%s_fx_%s"):format(M.ROOT, prefix, image, prefix, image) end
 function M.system(name) return ("%s/Systems/NS_fx_%s.NS_fx_%s"):format(M.ROOT, name, name) end
