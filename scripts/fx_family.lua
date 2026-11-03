@@ -56,6 +56,8 @@ M.IMAGES = {
   cut_cross = { gain = 1.0 },
   bolt_fork = { gain = 1.8 },
   quake_burst = { gain = 1.0 },
+  heal_cross = { gain = 1.0 },
+  heal_rise = { gain = 1.0 },
 }
 
 -- main: takes the cue's image, size and life. The rest keep their own (their colour still follows the cue).
@@ -131,8 +133,8 @@ M.RECIPES = {
   c22w_voice = { system = "burst", sprite = "swallow", size = 210, life = 0.5, tint = STEEL },
   c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, bold = true, tint = STEEL,
     ground = "vortex", ground_size = 480, ground_seconds = 1.5 },
-  c22t_thunder_clap = { system = "pop", sprite = "cut_cross", size = 520, life = 0.7, tint = STEEL,
-    ground = "soft_glow", ground_size = 500, ground_seconds = 1.1, grow = 0.08 },
+  c22t_thunder_clap = { system = "pop", sprite = "cut_cross", size = 520, life = 1.8, tint = STEEL,
+    ground = "soft_glow", ground_size = 500, ground_seconds = 1.4, grow = 0.08 },
   -- A26 濃姬: gunpowder fire and smoke
   a26w_hit_explosion = { look = "explosion_small" },
   a26e_smoke = { system = "burst", sprite = "smoke_sheet", size = 150, life = 0.8 },
@@ -232,7 +234,7 @@ M.ATTACKS = {
   kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 }, { sprite = "spark_star", size = 170, ground = "dust_crack", ground_size = 280, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 }, { sprite = "spark_star", size = 190 } },
   maeda_toshiie = { "spear", { 1.0, 0.62, 0.05 }, { sprite = "spark_star", size = 70, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust", ground_size = 200, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } }, maeda_keiji = { "spear", BLUE, { sprite = "spark_star", size = 70, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust_blue", ground_size = 200, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } },
-  nohime = { "gun", { 1.0, 0.6, 0.25 }, { system = "pop", sprite = "blink_flash", size = 220, life = 0.22, ground = "shock_ring", ground_size = 200, ground_seconds = 0.25, height = 30, grow = 0.4, face_camera = false } }, otani_yoshitsugu = { "arcane", ARCANE },
+  nohime = { "gun", { 1.0, 0.6, 0.25 }, { system = "pop", sprite = "blink_flash", size = 220, life = 0.22, ground = "shock_ring", ground_size = 200, ground_seconds = 0.25, height = 30, grow = 0.4, face_camera = false } }, otani_yoshitsugu = { "arcane", ARCANE, { size = 170, area = false, ground_size = 180 } },
 }
 for hero, row in pairs(M.ATTACKS) do
   for part, recipe in pairs(M.WEAPONS[row[1]]) do
