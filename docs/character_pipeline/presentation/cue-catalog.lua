@@ -10499,6 +10499,19 @@ return {
         },
       },
     },
+    a12d_stack = {
+      assets = {},
+      kind = "effect",
+      placeholder = "generic",
+      uses = {
+        {
+          doc = "A12",
+          entry = "a12_scheme",
+          kind = "effect",
+          where = "on_ability_executed in if.otherwise cue",
+        },
+      },
+    },
     a12e_heal_number = {
       assets = {
         {

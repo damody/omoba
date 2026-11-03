@@ -119,7 +119,8 @@ return function(ctx)
                     otherwise = {
                       { op = "set_state", var = "a12d_count", value = "$trigger_at - 1" },
                     } },
-                } },
+                  },
+                  otherwise = { { op = "cue", id = "a12d_stack", at = "self" } } },
                 { op = "set_display_stacks", status = "a12d_mark", to = "self", count = "state.a12d_count" },
               } },
           },
