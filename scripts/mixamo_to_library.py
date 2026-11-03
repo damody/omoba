@@ -6,7 +6,7 @@ import bpy
 from math import radians
 from mathutils import Matrix, Quaternion
 
-library_fbx, tpose_fbx, clip_fbx, out_fbx, first_kept, last_kept, yaw_degrees, wrist_degrees = sys.argv[sys.argv.index('--') + 1:]
+library_fbx, tpose_fbx, clip_fbx, out_fbx, first_kept, last_kept, yaw_degrees, wrist_degrees, return_after = sys.argv[sys.argv.index('--') + 1:]
 
 PAIRS = [('pelvis', 'Hips'), ('spine_01', 'Spine'), ('spine_02', 'Spine1'), ('spine_03', 'Spine2'), ('neck_01', 'Neck'), ('Head', 'Head')]
 for side, name in (('l', 'Left'), ('r', 'Right')):
@@ -66,6 +66,8 @@ for pb in library.pose.bones:
 yaw = Matrix.Rotation(radians(float(yaw_degrees)), 4, 'Z')
 order = sorted(PAIRS, key=lambda row: len(library.pose.bones[row[0]].parent_recursive))
 frames = 0
+return_after = int(return_after)
+opening, held = {}, {}
 for frame in range(first, last + 1):
     bpy.context.scene.frame_set(frame)
     bpy.context.view_layer.update()
@@ -81,6 +83,16 @@ for frame in range(first, last + 1):
         at = pb.matrix.translation.copy()
         if bone == 'pelvis':
             at = pelvis_t + (world.translation - hips_t) * ratio
+        if frame == first:
+            opening[bone] = (rotation.copy(), at.copy())
+        if return_after and frame - first == return_after:
+            held[bone] = (rotation.copy(), at.copy())
+        if return_after and frame - first > return_after:
+            t = (frame - first - return_after) / (last - first - return_after)
+            t = t * t * (3 - 2 * t)
+            rotation = held[bone][0].slerp(opening[bone][0], t)
+            if bone == 'pelvis':
+                at = held[bone][1].lerp(opening[bone][1], t)
         pb.matrix = Matrix.Translation(at) @ rotation.to_matrix().to_4x4()
         bpy.context.view_layer.update()
     for pb in library.pose.bones:
