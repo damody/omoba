@@ -739,6 +739,54 @@ fn summon_priority_formal_60hz_active_host_destination_prevents_lateral_aggro_st
     assert_eq!(run(),run());
 }
 
+/// A held seat does not fight back, melee or ranged: the hero attacking it from next to it takes
+/// nothing. The same seat's scheduled casts still land, and a strike seat still hits.
+#[test]
+fn showcase_held_seat_does_not_fight_back_but_casts_and_a_striker_still_hit() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::{ShowcaseCast,ShowcaseCastTarget,ShowcaseConfig};
+    let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
+    // Life the hero lost in 8 s of attacking the seat, and life the seat lost.
+    let run=|stand_in:&str,strike:bool,casts:Vec<ShowcaseCast>| {
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+            players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,stand_in,BotRole::Mid,true)],
+            ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+            showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2500]),(6,[2300,2600])].into(),
+                hold_players:[6].into(),strike_players:if strike {[6].into()} else {Default::default()},hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts,patrols:vec![],
+                refill_players:Default::default()})};
+        let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;
+        let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+        assert!(w.read_resource::<MobaMatch>().config.game_rules.is_some(),"the retaliation rules are on");
+        d.step(&mut w,[]).unwrap();
+        let of=|w:&World,id:u32|w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
+        let (hero,other)=(of(&w,1),of(&w,6));
+        w.write_resource::<BuffStore>().add(hero,"test_no_regen",Fixed64::from_i32(10_000),serde_json::json!({"health_regen_percentage":-1024}));
+        w.write_resource::<BuffStore>().add(other,"test_no_regen",Fixed64::from_i32(10_000),serde_json::json!({"health_regen_percentage":-1024}));
+        {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(hero).unwrap();p.mhp=Fixed64::from_i32(500_000);p.hp=p.mhp;}
+        let hp=|w:&World,unit|w.read_storage::<CProperty>().get(unit).unwrap().hp;
+        let (hero_start,other_start)=(hp(&w,hero),hp(&w,other));
+        for tick in 0..8*60 {
+            let mut inputs=role_bot_inputs(&w,&bots).unwrap();
+            if tick==0 {inputs.push((1,PlayerInput {action:Some(PlayerInputEnum::AttackTarget(omoba_core::game_proto::AttackTarget {target_id:other.id(),queued:false}))}));}
+            d.step(&mut w,inputs).unwrap();
+            let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,t,0);
+        }
+        (hero_start-hp(&w,hero),other_start-hp(&w,other))
+    };
+    for stand_in in ["date_masamune","saika_magoichi"] {
+        let (taken,dealt)=run(stand_in,false,vec![]);
+        assert!(dealt>Fixed64::ZERO,"{stand_in}: the hero hit it");
+        assert_eq!(taken,Fixed64::ZERO,"{stand_in}: it fought back");
+        let (taken,_)=run(stand_in,true,vec![]);
+        assert!(taken>Fixed64::ZERO,"{stand_in}: a strike seat still hits");
+    }
+    let (taken,dealt)=run("date_masamune",false,vec![ShowcaseCast {player:6,ability:"b04_fire_blast".into(),rank:1,target:ShowcaseCastTarget::PlayerPoint {player:1},
+        first_seconds:1,when_near:None,every_seconds:3}]);
+    assert!(dealt>Fixed64::ZERO);
+    assert!(taken>Fixed64::ZERO,"its casts still land");
+}
+
 /// A strike seat stays by its place, melee and ranged: it keeps hitting a hero in reach of that place,
 /// walking up if it has to; a hero out of it is let go, and the seat walks back and stops hitting.
 #[test]

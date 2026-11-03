@@ -703,6 +703,23 @@ mod tests {
         assert!(matches!(order(2750,2449),Some(PlayerInputEnum::HoldPosition(_))|None),"holds");
     }
     #[test]
+    fn a_held_seat_holds_fire_unless_it_strikes_and_a_real_seat_is_untouched() {
+        let idle = |p:&RoleBotMatchPlan,player:u32| { let (config,_) = p.compile(1,SimulationTickProfile::Production60Hz).unwrap();
+            let pool = crate::runtime::StateInitializer::create_thread_pool();
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+            setup_single_lane_match(&mut world, config).unwrap();
+            let state = world.read_resource::<MobaMatch>();
+            let slot = state.heroes.iter().find(|slot|slot.player_id==player).unwrap();
+            (slot.combat_preferences().idle_auto_attack(), state.showcase_holds_fire(slot.entity.unwrap())) };
+        let mut p = showcase_plan();
+        p.showcase.as_mut().unwrap().strike_players = [6].into();
+        assert_eq!(idle(&p,2),(false,true),"held");
+        assert_eq!(idle(&p,6),(true,false),"held and striking");
+        assert_eq!(idle(&p,1),(true,false),"the hero");
+        p.showcase = None;
+        assert_eq!(idle(&p,2),(true,false),"no stage");
+    }
+    #[test]
     fn showcase_refills_are_rejected_off_the_roster_and_absent_from_real_plans() {
         let mut off = showcase_plan(); off.showcase.as_mut().unwrap().refill_players = [9].into();
         let (config,_) = off.compile(1,SimulationTickProfile::Production60Hz).unwrap();

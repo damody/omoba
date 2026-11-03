@@ -225,6 +225,7 @@ impl<'a> System<'a> for Sys {
                                 // Idle: answer a recent attacker in attack range first (authority,
                                 // retaliation.rs), otherwise the nearest enemy in range.
                                 _ => match match_state.filter(|state| state.config.game_rules.is_some()).zip(tr.retaliation.as_deref())
+                                    .filter(|(state, _)| !state.showcase_holds_fire(e))
                                     .and_then(|(state, hits)| super::super::retaliation::attacker(hits, e, state.elapsed))
                                     .filter(|attacker| tr.pos.get(*attacker)
                                         .is_some_and(|at| within_attack_reach(pos.0, at.0, attack_range,

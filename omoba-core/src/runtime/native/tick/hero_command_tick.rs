@@ -277,7 +277,7 @@ fn auto_engage(
         .and_then(omoba_template_ids::active_hero_stats).and_then(|stats| stats.acquisition_range);
     let acquisition_range = own.unwrap_or(Fixed64::from_i32(rules.hero_acquisition_range.min(i32::MAX as u32) as i32))
         .max(attack_range);
-    let attacker = data.retaliation.as_deref()
+    let attacker = data.retaliation.as_deref().filter(|_| !state.showcase_holds_fire(entity))
         .and_then(|hits| super::super::retaliation::attacker(hits, entity, state.elapsed))
         .filter(|attacker| matches!(assess_direct_target(acquisition, entity, *attacker),
             Some(DirectStatus::Legal { position }) if acquisition.reaches(entity, pos, *attacker, position, acquisition_range)));

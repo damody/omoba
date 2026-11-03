@@ -474,7 +474,8 @@ pub struct ShowcaseConfig {
     #[serde(default)]
     pub placements: BTreeMap<u32, [i32; 2]>,
     /// Bot seats that stand still: no role-bot decisions and a Hold Position
-    /// command on every life, so they never chase.
+    /// command on every life, so they never chase. Unless also in `strike_players` they never
+    /// attack either, hit or not, so a basic attack demonstration shows only the hero's own attack.
     #[serde(default)]
     pub hold_players: BTreeSet<u32>,
     /// Held seats that also attack an enemy hero who comes within STRIKE_REACH of their placement
@@ -659,6 +660,11 @@ impl ShowcaseConfig {
     pub(crate) fn strike_center(&self, player: u32, own: Vec2) -> Vec2 {
         self.placements.get(&player).filter(|_| !self.patrols.iter().any(|patrol| patrol.player == player))
             .map_or(own, |[x, y]| Vec2::new(Fixed64::from_i32(*x), Fixed64::from_i32(*y)))
+    }
+    /// A held seat that is not a striker: no idle attack (its preference, set up with the stage)
+    /// and no answer to a hit.
+    fn holds_fire(&self, player_id: u32) -> bool {
+        self.hold_players.contains(&player_id) && !self.strike_players.contains(&player_id)
     }
     fn holds(config: &SingleLaneConfig, player_id: u32) -> bool {
         config.showcase.as_ref().is_some_and(|showcase| showcase.hold_players.contains(&player_id))
@@ -1092,6 +1098,11 @@ impl MobaMatch {
         Ok(())
     }
 
+    /// A showcase seat that does not fight back (ShowcaseConfig::holds_fire).
+    pub(crate) fn showcase_holds_fire(&self, unit: Entity) -> bool {
+        self.config.showcase.as_ref().is_some_and(|showcase| self.heroes.iter()
+            .any(|slot| slot.entity == Some(unit) && showcase.holds_fire(slot.player_id)))
+    }
     pub(crate) fn combat_preferences_for_source(&self, owner: u32, source: Entity)
         -> Option<crate::runtime::combat_controls::OwnerCombatPreferences> {
         let mut slots = self.heroes.iter().filter(|slot| slot.player_id == owner);
@@ -1845,6 +1856,14 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         .filter(|(_, cast)| cast.when_near.is_none())
         .map(|(index, cast)| (index, Fixed64::from_i32(cast.first_seconds as i32))).collect()));
     world.insert(ShowcasePatrolLegs::default());
+    if let Some(showcase) = state.config.showcase.clone() {
+        use crate::runtime::combat_controls::{AttackAcquisition, CombatPreferenceUpdate, OwnerCombatPreferences};
+        for slot in state.heroes.iter_mut().filter(|slot| showcase.holds_fire(slot.player_id)) {
+            slot.combat_preferences = OwnerCombatPreferences::try_from_raw(CombatPreferenceUpdate { owner_id: slot.player_id,
+                acquisition_raw: AttackAcquisition::Hero.raw(), idle_auto_attack: false, champion_only_direct: false })
+                .expect("validated MOBA roster owner");
+        }
+    }
     refresh_showcase_corpses(world, true);
     *world.write_resource::<GameMode>() = GameMode::Moba;
     world.write_resource::<MasterSeed>().0 = state.config.seed;
