@@ -501,6 +501,11 @@ pub struct ShowcaseConfig {
     /// movement slow on a moving target, by ordinary move orders at the seat's own speed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub patrols: Vec<ShowcasePatrol>,
+    /// Seats back at full life whenever no living enemy strike seat is within STRIKE_REACH, so a
+    /// long demonstration cannot end its hero early; next to one it loses life and dies as usual.
+    /// Playing and unpaused only, and a life only: the dead and the dying wait for their respawn.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub refill_players: BTreeSet<u32>,
 }
 
 /// One held seat's walk: from its placement to `b`, then between `a` and `b` for the whole match.
@@ -611,7 +616,7 @@ impl ShowcaseConfig {
             && (1000..=100_000).contains(&self.hold_hp_permille)
             && self.strike_players.is_subset(&self.hold_players)
             && self.placements.keys().chain(self.hold_players.iter()).chain(self.start_items.keys())
-                .chain(self.strike_players.iter())
+                .chain(self.strike_players.iter()).chain(self.refill_players.iter())
                 .chain(self.props.iter().map(|prop| &prop.team_of)).all(|id| players.contains(id))
             // Purchases, not slots (E490): a combined item is bought after its components, which the
             // shop consumes; a full inventory refuses the stage when the items are granted.
@@ -1946,6 +1951,25 @@ fn run_showcase_casts(world: &mut World, state: &MobaMatch) {
     }
 }
 
+fn run_showcase_refills(world: &mut World, state: &MobaMatch) {
+    let Some(showcase) = state.config.showcase.as_ref().filter(|showcase| !showcase.refill_players.is_empty()) else { return };
+    if state.phase != MobaMatchPhase::Playing || world.read_resource::<GamePause>().is_paused { return; }
+    let positions = world.read_storage::<Pos>();
+    let mut properties = world.write_storage::<CProperty>();
+    let reach = Fixed64::from_i32(ShowcaseConfig::STRIKE_REACH);
+    for slot in state.heroes.iter().filter(|slot| showcase.refill_players.contains(&slot.player_id) && !slot.lethal_pending) {
+        let Some(entity) = slot.entity else { continue };
+        let Some(own) = positions.get(entity) else { continue };
+        if !properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO && p.hp < p.mhp) { continue; }
+        let struck = state.heroes.iter().filter(|striker| striker.side != slot.side && showcase.strike_players.contains(&striker.player_id))
+            .filter_map(|striker| striker.entity)
+            .filter(|striker| properties.get(*striker).is_some_and(|p| p.hp > Fixed64::ZERO))
+            .any(|striker| positions.get(striker).is_some_and(|pos| (pos.0 - own.0).length_squared() <= reach * reach));
+        if struck { continue; }
+        if let Some(property) = properties.get_mut(entity) { property.hp = property.mhp; }
+    }
+}
+
 fn refresh_showcase_corpses(world: &mut World, now: bool) {
     use super::scripting::parallel_world_adapter::RetiredPositions;
     let Some(corpses) = world.try_fetch::<ShowcaseCorpses>().filter(|corpses| !corpses.0.is_empty()).map(|corpses| corpses.0.clone()) else { return };
@@ -2522,6 +2546,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
     // The stage's bodies (E630) stay findable in every phase, warmup and pause included.
     refresh_showcase_corpses(world, false);
     run_showcase_casts(world, &state);
+    run_showcase_refills(world, &state);
     // An inactive tick must overwrite the previous active controls too.
     state.input_step = Some(crate::runtime::input_scheme::InputSchemeStepSnapshot {
         tick: world.read_resource::<Tick>().0, rows: BTreeMap::new(),

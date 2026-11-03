@@ -739,6 +739,82 @@ fn summon_priority_formal_60hz_active_host_destination_prevents_lateral_aggro_st
     assert_eq!(run(),run());
 }
 
+/// A refill seat: real strikes take its life and kill it once; away from the striker it is full again
+/// the moment it is out of reach; the dead stay dead until the ordinary respawn.
+#[test]
+fn showcase_refill_seat_loses_life_and_dies_in_reach_and_is_full_again_out_of_it() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::ShowcaseConfig;
+    let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
+    let plan=|refill:bool| RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+        players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)],
+        ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2000]),(6,[2300,2600])].into(),
+            hold_players:[6].into(),strike_players:[6].into(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],
+            refill_players:if refill {[1].into()} else {Default::default()}})};
+    let top=Fixed64::from_i32(50_000);
+    let start=|refill:bool| {
+        let (mut config,bots)=plan(refill).compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;
+        let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+        d.step(&mut w,[]).unwrap();
+        let hero=w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==1).unwrap().entity.unwrap();
+        w.write_resource::<BuffStore>().add(hero,"test_no_regen",Fixed64::from_i32(10_000),serde_json::json!({"health_regen_percentage":-1024}));
+        {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(hero).unwrap();p.mhp=top;p.hp=Fixed64::from_i32(25_000);}
+        (w,d,bots,hero)
+    };
+    fn steps(w:&mut World,d:&mut SimulationDriver,bots:&RoleBotConfig,ticks:u32,each:&mut dyn FnMut(&World)) {
+        for _ in 0..ticks {
+            let inputs=role_bot_inputs(w,bots).unwrap();
+            d.step(w,inputs).unwrap();
+            let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(w,t,0);
+            each(w);
+        }
+    }
+    let hp=move |w:&World,hero:specs::Entity|w.read_storage::<CProperty>().get(hero).unwrap().hp;
+    let put=|w:&mut World,hero:specs::Entity,y:i32|w.write_storage::<Pos>().get_mut(hero).unwrap().0=omoba_sim::Vec2::new(Fixed64::from_i32(2300),Fixed64::from_i32(y));
+
+    // Not named: half life stays half, a hit stays taken.
+    let (mut w,mut d,bots,hero)=start(false);
+    steps(&mut w,&mut d,&bots,60,&mut |_|{});
+    assert_eq!(hp(&w,hero),Fixed64::from_i32(25_000),"no refill without the recipe");
+
+    // Named. Out of reach: full.
+    let (mut w,mut d,bots,hero)=start(true);
+    steps(&mut w,&mut d,&bots,3,&mut |_|{});
+    assert_eq!(hp(&w,hero),top,"out of reach");
+    // In reach: real strikes, and life only ever goes down.
+    put(&mut w,hero,2500);
+    let mut last=top;
+    steps(&mut w,&mut d,&bots,10*60,&mut |w|{let now=hp(w,hero);assert!(now<=last,"refilled in reach: {last:?} to {now:?}");last=now;});
+    assert!(last<top,"the striker hit it in 10 s");
+    // Out of reach again (a shot already flying may land first): full.
+    put(&mut w,hero,2000);
+    steps(&mut w,&mut d,&bots,60,&mut |_|{});
+    assert_eq!(hp(&w,hero),top,"out of reach again");
+    // In reach on a sliver: the strike kills it, once.
+    put(&mut w,hero,2500);
+    w.write_storage::<CProperty>().get_mut(hero).unwrap().hp=Fixed64::ONE;
+    let slot=|w:&World|{let state=w.read_resource::<MobaMatch>();let s=state.heroes.iter().find(|slot|slot.player_id==1).unwrap();(s.entity,s.deaths,s.respawn_at)};
+    let mut ticks=0;
+    while slot(&w).1==0 {
+        ticks+=1;assert!(ticks<30*60,"never died in reach");
+        steps(&mut w,&mut d,&bots,1,&mut |_|{});
+    }
+    // Dead: no life back before the ordinary respawn, then a life at the fountain, out of reach and full.
+    ticks=0;
+    while slot(&w).0.is_none()||slot(&w).2.is_some() {
+        if let Some(entity)=slot(&w).0 {assert!(hp(&w,entity)<=Fixed64::ZERO,"a life back before the respawn");}
+        assert_eq!(slot(&w).1,1,"died once");
+        ticks+=1;assert!(ticks<180*60,"never respawned");
+        steps(&mut w,&mut d,&bots,1,&mut |_|{});
+    }
+    let reborn=slot(&w).0.unwrap();
+    steps(&mut w,&mut d,&bots,5*60,&mut |_|{});
+    assert_eq!(slot(&w).1,1,"still one death");
+    assert!(hp(&w,reborn)>Fixed64::ZERO);
+}
+
 /// A patrolling stand-in walks the ordinary way, so a slow shows on it: the same leg takes longer,
 /// and it keeps going back and forth for as long as the stage runs. Without a patrol it stays put.
 #[test]
@@ -750,7 +826,7 @@ fn showcase_stand_in_patrol_takes_longer_over_the_same_leg_when_slowed() {
         players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)],
         ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
         showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2000,2400]),(6,[2800,1900])].into(),
-            hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols})};
+            hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols,refill_players:Default::default()})};
     let walk=vec![ShowcasePatrol {player:6,a:[2800,1900],b:[2800,2500]}];
     // Ticks at which the seat stood at b and back at a, and where it ended, over 40 s.
     let run=|patrols:Vec<ShowcasePatrol>,slow:bool| {
@@ -802,7 +878,7 @@ fn showcase_stand_in_spell_in_a_circle_hurts_less_after_the_hero_learns_magic_re
         showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
             hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],
             casts:vec![ShowcaseCast {player:6,ability:"b04_fire_blast".into(),rank:1,target:ShowcaseCastTarget::PlayerPoint {player:1},
-                first_seconds:0,when_near:Some([2300,2400,100]),every_seconds:3}],patrols:vec![]})};
+                first_seconds:0,when_near:Some([2300,2400,100]),every_seconds:3}],patrols:vec![],refill_players:Default::default()})};
     // Life lost in each window; `learn`: the hero learns B20R at 5 s. It walks out of the circle at 11 s.
     let run=|learn:bool| {
         let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();

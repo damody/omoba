@@ -416,7 +416,7 @@ mod tests {
             player(6,2,"murakami_yoshikiyo",BotRole::Mid,true)];
         p.showcase = Some(ShowcaseConfig { start_level:6, minion_waves:false,
             placements:[(1,[2300,2400]),(2,[2050,2400]),(6,[2750,2400])].into(),
-            hold_players:[2,6].into(), strike_players:Default::default(), hold_hp_permille:5000, start_items:Default::default(), props:Vec::new(), casts:Vec::new(), patrols:Vec::new() });
+            hold_players:[2,6].into(), strike_players:Default::default(), hold_hp_permille:5000, start_items:Default::default(), props:Vec::new(), casts:Vec::new(), patrols:Vec::new(), refill_players:Default::default() });
         p
     }
     /// Player 6 (omatsu) learns frost bolt to rank 2 and casts it at player 1.
@@ -602,6 +602,76 @@ mod tests {
         unknown["showcase"]["patrols"][0]["speed"] = serde_json::json!(5);
         assert!(serde_json::from_value::<RoleBotMatchPlan>(unknown).is_err(), "unknown patrol fields fail closed");
         assert!(serde_json::to_value(showcase_plan()).unwrap()["showcase"].get("patrols").is_none(), "a stage without patrols stays as it was");
+    }
+    #[test]
+    fn a_refill_seat_is_full_again_only_out_of_a_living_enemy_strikers_reach() {
+        let mut staged = showcase_plan();
+        { let stage = staged.showcase.as_mut().unwrap();
+          stage.strike_players = [6].into(); stage.refill_players = [1].into();
+          stage.placements.insert(6,[2750,2400]); stage.placements.insert(2,[2300,2400]); }
+        // The seat at (x,2400) on half life (or `life`) after one tick: whether it is full, and its life.
+        struct Stage { world:specs::World, tick:u64, seat:specs::Entity, striker:specs::Entity }
+        impl Stage {
+            fn new(plan:&RoleBotMatchPlan) -> Self {
+                let (config,_) = plan.compile(1,SimulationTickProfile::Production60Hz).unwrap();
+                let pool = crate::runtime::StateInitializer::create_thread_pool();
+                let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+                setup_single_lane_match(&mut world, config).unwrap();
+                { let mut state = world.write_resource::<MobaMatch>(); state.phase = MobaMatchPhase::Playing; let warmup = state.config.warmup; state.elapsed = warmup; }
+                world.write_resource::<crate::comp::DeltaTime>().0 = Fixed64::from_raw(16);
+                let of = |world:&specs::World,id:u32| world.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
+                let (seat,striker) = (of(&world,1),of(&world,6));
+                { let mut properties = world.write_storage::<CProperty>(); let p = properties.get_mut(seat).unwrap(); p.mhp = Fixed64::from_i32(1000); }
+                let tick = world.read_resource::<crate::comp::Tick>().0;
+                Stage { tick, world, seat, striker }
+            }
+            fn at(&mut self,x:i32,life:i32) -> Fixed64 {
+                self.world.write_storage::<Pos>().get_mut(self.seat).unwrap().0 = Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(2400));
+                self.world.write_storage::<CProperty>().get_mut(self.seat).unwrap().hp = Fixed64::from_i32(life);
+                self.tick += 1;
+                self.world.write_resource::<crate::comp::Tick>().0 = self.tick;
+                begin_moba_match_tick(&mut self.world);
+                self.world.read_storage::<CProperty>().get(self.seat).unwrap().hp
+            }
+        }
+        let full = Fixed64::from_i32(1000);
+        let mut stage = Stage::new(&staged);
+        // Next to the striker (2750): up to and including its reach no refill, one past it a refill.
+        assert!(stage.at(2650,500) < full, "within reach");
+        assert!(stage.at(2450,500) < full, "at the reach");
+        assert_eq!(stage.at(2449,500), full, "one past the reach");
+        // The allied seat 2 stands right there; it would not strike this seat, were it a striker.
+        { let mut allied = staged.clone(); allied.showcase.as_mut().unwrap().hold_players.insert(2); allied.showcase.as_mut().unwrap().strike_players = [2].into();
+          assert_eq!(Stage::new(&allied).at(2300,500), full, "an ally's reach is no danger"); }
+        // The dead: nothing brings back a life at zero, and a lethal hit waiting for its death stays.
+        assert_eq!(stage.at(2000,0), Fixed64::ZERO, "the dead stay dead");
+        { let mut state = stage.world.write_resource::<MobaMatch>(); state.heroes.iter_mut().find(|slot|slot.player_id==1).unwrap().lethal_pending = true; }
+        assert!(stage.at(2000,500) < full, "a lethal hit pending");
+        { let mut state = stage.world.write_resource::<MobaMatch>(); state.heroes.iter_mut().find(|slot|slot.player_id==1).unwrap().lethal_pending = false; }
+        // A dead striker is no danger.
+        let striker = stage.striker;
+        stage.world.write_storage::<CProperty>().get_mut(striker).unwrap().hp = Fixed64::ZERO;
+        assert_eq!(stage.at(2650,500), full, "a dead striker");
+        // Paused, or off the Playing phase: nothing.
+        let mut stage = Stage::new(&staged);
+        stage.world.write_resource::<GamePause>().is_paused = true;
+        assert!(stage.at(2000,500) < full, "paused");
+        stage.world.write_resource::<GamePause>().is_paused = false;
+        stage.world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Warmup;
+        assert!(stage.at(2000,500) < full, "warmup");
+        // A stage that does not name the seat leaves it alone.
+        let mut unnamed = staged.clone(); unnamed.showcase.as_mut().unwrap().refill_players.clear();
+        assert!(Stage::new(&unnamed).at(2000,500) < full, "not named");
+        assert!(Stage::new(&showcase_plan()).at(2000,500) < full, "a stage without it");
+    }
+    #[test]
+    fn showcase_refills_are_rejected_off_the_roster_and_absent_from_real_plans() {
+        let mut off = showcase_plan(); off.showcase.as_mut().unwrap().refill_players = [9].into();
+        let (config,_) = off.compile(1,SimulationTickProfile::Production60Hz).unwrap();
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        assert!(setup_single_lane_match(&mut world, config).is_err(), "off the roster");
+        assert!(serde_json::to_value(showcase_plan()).unwrap()["showcase"].get("refill_players").is_none(), "a stage without it stays as it was");
     }
     #[test]
     fn a_bot_hero_winding_up_its_own_cast_gets_no_new_order() {
