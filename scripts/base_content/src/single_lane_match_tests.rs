@@ -780,6 +780,46 @@ fn showcase_reset_input_keeps_a_learned_passive_and_clears_the_last_segments_sta
     assert_eq!(run(false),(true,true,true,true),"a real match refuses it");
 }
 
+/// An enemy inside the hero's acquisition range but out of its attack range does not break a channel:
+/// the idle engage waits for the channel to end, and starts after it.
+#[test]
+fn a_channel_is_not_broken_by_the_heros_own_idle_engage() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::ShowcaseConfig;
+    let seat=|player_id:u32,team_id:u32,hero:&str,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role:BotRole::Mid,lane:"mid".into(),bot};
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+        players:vec![seat(1,1,"maeda_keiji",false),seat(6,2,"date_masamune",true)],
+        ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2800])].into(),
+            hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],refill_players:Default::default()})};
+    let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+    config.warmup=Fixed64::ZERO;
+    let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+    d.step(&mut w,[]).unwrap();
+    let of=|w:&World,id:u32|w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
+    let (hero,other)=(of(&w,1),of(&w,6));
+    let slot=w.read_storage::<Hero>().get(hero).unwrap().abilities.iter().position(|id|id=="c05_flash_thunder").unwrap() as u32;
+    let other_at=w.read_storage::<Pos>().get(other).unwrap().0;
+    let other_start=w.read_storage::<CProperty>().get(other).unwrap().hp;
+    let (mut channel_ticks,mut origin,mut after)=(0,None,None);
+    for tick in 0..4*60 {
+        let mut inputs=role_bot_inputs(&w,&bots).unwrap();
+        if tick==0 {inputs.push((1,upgrade(slot)));}
+        if tick==1 {inputs.push((1,PlayerInput {action:Some(PlayerInputEnum::CastAbility(CastAbility {ability_index:slot,target_entity:None,
+            target_pos:Some(Vec2I {x:other_at.x.raw() as i32,y:other_at.y.raw() as i32})}))}));}
+        d.step(&mut w,inputs).unwrap();
+        let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,t,0);
+        let at=w.read_storage::<Pos>().get(hero).unwrap().0;
+        if w.read_resource::<BuffStore>().has(hero,"ability_channel") {
+            channel_ticks+=1;
+            assert_eq!(*origin.get_or_insert(at),at,"the hero moved during its channel, tick {tick}");
+        } else if origin.is_some() {after=Some(at);}
+    }
+    assert!(channel_ticks>=85,"the channel ran its 1.5 s: {channel_ticks} ticks");
+    assert!(w.read_storage::<CProperty>().get(other).unwrap().hp<other_start,"its pulse landed");
+    assert_ne!(after,origin,"the hero engages once the channel is over");
+}
+
 /// A held seat does not fight back, melee or ranged: the hero attacking it from next to it takes
 /// nothing. The same seat's scheduled casts still land, and a strike seat still hits. Hold Position
 /// alone stops attacks, so `gap` runs with no order and no think at all: the moments a seat has none,

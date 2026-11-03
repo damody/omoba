@@ -266,6 +266,9 @@ fn auto_engage(
     if queue.active.is_some() || !queue.queued.is_empty()
         || !data.properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO)
         || data.casts.as_ref().is_some_and(|casts| casts.0.contains_key(&entity))
+        // Moving ends a channel; the engage waits for it, as hero_tick's attack does.
+        || data.buff_store.has(entity, super::super::ability_channel::STATUS)
+        || data.buff_store.has(entity, super::super::recovery_channel::STATUS)
         || super::super::cast_windup::hero_recalling(data.moba.as_deref(), data.disclosed_recalls.as_deref(), &data.owners, entity) {
         return queue;
     }
