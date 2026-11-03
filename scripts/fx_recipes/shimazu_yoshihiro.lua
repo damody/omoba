@@ -10,7 +10,7 @@ return {
     c03w_iron_glow = { system = "stream", sprite = "spark_star", size = 85, life = 0.4, loop = true, tint = STEEL },
     -- c03_quake_axe: the axe swing, then dust and a cracked ground
     c03e_vo = { system = "pop", sprite = "crescent_slash", size = 430, life = 0.24, tint = RED },
-    c03e_thunder_clap = { system = "burst", sprite = "rock", size = 90, life = 0.5, area = true,
+    c03e_thunder_clap = { system = "sparks", area = true,
       ground = "quake_burst", ground_size = 800, ground_seconds = 0.8, grow = 0.3 },
     c03e_move_slow = { ground = "slow_chains", ground_size = 170, ground_seconds = 1.2, tint = SLOW },
     -- c03_thunder_wrath: a purple bolt strikes the target
