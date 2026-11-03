@@ -409,16 +409,16 @@ M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
 -- a12 奇計 counts casts, and nothing is cast after it: it stays beside the form it needs.
 M.WITHHELD={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true,c05_thunder_spear=true,a12_scheme=true}
 M.AFTER_ATTACK={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true,c05_thunder_spear=true}
--- a12 玄滅箭 pierces seat 2 and on into seat 7. 奇計 stacks on four arrows; the fifth cast, the form's 智芒乍現．遠 (slot 0), is the empowered one that stuns.
+-- a12 玄滅箭 pierces the stand-in (seat 6, 2300,2640) and on into seat 8 (2900,2570). 奇計 stacks on four arrows; the fifth cast, the form's 智芒乍現．遠 (slot 0), is the empowered one that stuns.
 -- Only inside the 20 s form do five casts fit in a segment, so it stays open from R.
 M.KEEPS_BUFFS={a12_scheme=true}
 M.BURST={a12_mystic_arrow={5},a12_scheme={5,5,5,5,0}}
 -- c03 不動戰錘: the hero stands far from the stand-in for it, and the blast is large: out before the cast.
 M.VIEW_EARLY={c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
--- a14 衝擊槍 flies the stand-in (seat 2, 2300,2160) until a body stops it: from here the line runs into seat 7 (2900,2230), and the crash and its 350 show.
--- a14 神現一擊 blinks 850 through the stand-in: from here it lands at 2300,2880, clear of the strikers and the towers. Both frames hold the hero, the target and the landing.
-M.STAND_AT={a14_impact_spear={2171,2145},a14_divine_strike={2300,2030},a12_mystic_arrow={2160,2143}}
-M.VIEW_AT={a14_impact_spear={2535,2190},a14_divine_strike={2300,2455},a12_mystic_arrow={2510,2185},a12_scheme={2510,2185}}
+-- a14 on the lane stage: 衝擊槍 flies the stand-in (2800,2260) along the run into seat 10 (2800,1750), and the crash and its 350 show.
+-- 神現一擊 blinks 850 through the stand-in to about y 1550. Both frames hold the hero, the target and the landing.
+M.STAND_AT={a12_mystic_arrow={2062,2668}}
+M.VIEW_AT={a14_impact_spear={2800,2075},a14_divine_strike={2800,1975},a12_mystic_arrow={2480,2620},a12_scheme={2480,2620}}
 -- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
 M.CAST_AT={c05_flash_thunder={2440,2300}}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one. c05: beside the patrol of

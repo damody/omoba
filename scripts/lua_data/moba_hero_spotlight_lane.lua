@@ -13,5 +13,7 @@ places['2']={2620,2260}
 places['7']={2100,2230}
 places['8']={2100,2570}
 places['9']={1980,2600}
-places['10']={2320,2640}
+-- On the run: what stops the stand-in a14 衝擊槍 flies. Held, never striking, so the hero can walk up to it.
+places['10']={2800,1750}
+stage.showcase.strike_players={7,8,9}
 return stage
