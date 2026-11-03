@@ -608,6 +608,37 @@ fn stand_in_input(commands:Option<&HeroCommandQueue>,own:Vec2,place:Vec2) -> Opt
     if (own-place).length_squared()>off*off {recovery_move(commands,place)} else {hold_input(commands)}
 }
 
+/// What a held seat's scheduled casts ask now: the next learning step, else a cast that is due,
+/// whose row moves on to its next time (never, for a single cast).
+fn stand_in_cast_input(casts:&[(usize,&super::ShowcaseCast)],hero:&Hero,elapsed:Fixed64,
+    schedule:&mut super::ShowcaseCastSchedule,heroes:&[super::MobaHeroSlot],positions:&specs::ReadStorage<Pos>,
+    properties:&specs::ReadStorage<CProperty>) -> Option<PlayerInputEnum> {
+    let steps:Vec<_>=casts.iter().flat_map(|(_,cast)|(1..=cast.rank).map(|rank|
+        abilities::BotAbilityLearningStep {ability:cast.ability.clone(),rank})).collect();
+    if let Some(upgrade)=abilities::choose_upgrade(hero,&steps) {return Some(PlayerInputEnum::UpgradeAbility(upgrade));}
+    casts.iter().find_map(|(index,cast)| {
+        let next=*schedule.0.get(index)?;
+        if elapsed<next {return None;}
+        let ability_index=hero.abilities.iter().position(|id|id==&cast.ability)? as u32;
+        let living=|player:u32|heroes.iter().find(|slot|slot.player_id==player)?.entity
+            .filter(|target|properties.get(*target).is_some_and(|p|p.hp>Fixed64::ZERO));
+        let (target_entity,target_pos)=match cast.target {
+            super::ShowcaseCastTarget::None=>(None,None),
+            super::ShowcaseCastTarget::Player {player}=>(Some(living(player)?.id()),None),
+            super::ShowcaseCastTarget::PlayerPoint {player}=>{
+                let at=positions.get(living(player)?)?.0;
+                (None,Some(Vec2I {x:i32::try_from(at.x.raw()).ok()?,y:i32::try_from(at.y.raw()).ok()?}))
+            }
+            super::ShowcaseCastTarget::Point {at:[x,y]}=>{
+                let (x,y)=(Fixed64::from_i32(x).raw(),Fixed64::from_i32(y).raw());
+                (None,Some(Vec2I {x:i32::try_from(x).ok()?,y:i32::try_from(y).ok()?}))
+            }
+        };
+        schedule.0.insert(*index,if cast.every_seconds==0 {Fixed64::from_raw(i64::MAX)} else {elapsed+Fixed64::from_i32(cast.every_seconds as i32)});
+        Some(PlayerInputEnum::CastAbility(crate::game_proto::CastAbility {ability_index,target_pos,target_entity}))
+    })
+}
+
 /// The nearest living enemy hero within a striking stand-in's reach.
 fn strike_target(own:Vec2,side:Option<usize>,heroes:&[super::MobaHeroSlot],positions:&specs::ReadStorage<Pos>,
     properties:&specs::ReadStorage<CProperty>) -> Option<specs::Entity> {
@@ -677,6 +708,19 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
             if let (Some([x, y]), Some(entity)) = (place, slot.and_then(|slot| slot.entity)) {
                 let alive = properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO);
                 if let (true, Some(own)) = (alive, positions.get(entity)) {
+                    let casts: Vec<_> = state.config.showcase.iter().flat_map(|showcase| showcase.casts.iter().enumerate())
+                        .filter(|(_, cast)| cast.player == assignment.player_id).collect();
+                    if !casts.is_empty() {
+                        // Its own cast is running: any new order, Hold Position too, would cancel it (E187).
+                        if windups.as_ref().is_some_and(|windups| windups.0.contains_key(&entity))
+                            || super::super::ability_channel::is_active_for_owner(world, entity, assignment.player_id) { continue; }
+                        let mut schedule = world.write_resource::<super::ShowcaseCastSchedule>();
+                        let action = heroes.get(entity).and_then(|hero| stand_in_cast_input(&casts, hero, state.elapsed, &mut schedule, &state.heroes, &positions, &properties));
+                        if let Some(action) = action {
+                            inputs.push((assignment.player_id, PlayerInput { action: Some(action) }));
+                            continue;
+                        }
+                    }
                     if state.config.showcase.as_ref().is_some_and(|showcase| showcase.strike_players.contains(&assignment.player_id)) {
                         if let Some(target) = strike_target(own.0, slot.map(|slot| slot.side), &state.heroes, &positions, &properties) {
                             if !commands.get(entity).is_some_and(|q| matches!(q.active, Some(HeroCommand::AttackTarget { target: old, .. }) if old == target)) {

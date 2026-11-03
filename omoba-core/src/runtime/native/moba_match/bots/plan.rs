@@ -416,8 +416,95 @@ mod tests {
             player(6,2,"murakami_yoshikiyo",BotRole::Mid,true)];
         p.showcase = Some(ShowcaseConfig { start_level:6, minion_waves:false,
             placements:[(1,[2300,2400]),(2,[2050,2400]),(6,[2750,2400])].into(),
-            hold_players:[2,6].into(), strike_players:Default::default(), hold_hp_permille:5000, start_items:Default::default(), props:Vec::new() });
+            hold_players:[2,6].into(), strike_players:Default::default(), hold_hp_permille:5000, start_items:Default::default(), props:Vec::new(), casts:Vec::new() });
         p
+    }
+    /// Player 6 (omatsu) learns frost bolt to rank 2 and casts it at player 1.
+    fn casting_plan(first_seconds:u32,every_seconds:u32) -> RoleBotMatchPlan {
+        let mut p = showcase_plan();
+        p.players[2].hero = "omatsu".into();
+        p.showcase.as_mut().unwrap().casts = vec![ShowcaseCast { player:6, ability:"a34_frost_bolt".into(), rank:2,
+            target:ShowcaseCastTarget::Player { player:1 }, first_seconds, when_near:None, every_seconds }];
+        p
+    }
+    /// Player 6's inputs for think ticks, its hero set to `rank`, the clock at each of `seconds`.
+    fn stand_in_actions(plan:&RoleBotMatchPlan,rank:i32,seconds:&[i32]) -> Vec<Option<PlayerInputEnum>> {
+        let (config,bots) = plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        setup_single_lane_match(&mut world, config).unwrap();
+        world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Playing;
+        let entity = world.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==6).unwrap().entity.unwrap();
+        if rank>0 { world.write_storage::<Hero>().get_mut(entity).unwrap().ability_levels.insert("a34_frost_bolt".into(),rank); }
+        seconds.iter().map(|at| {
+            world.write_resource::<MobaMatch>().elapsed = Fixed64::from_i32(*at);
+            let tick = bots.think_interval_ticks;
+            world.write_resource::<crate::comp::Tick>().0 = tick;
+            crate::runtime::run_committed_visibility_wave_b(&mut world, tick, 0);
+            super::role_bot_inputs(&world,&bots).unwrap().into_iter().find(|(player,_)|*player==6).and_then(|(_,input)|input.action)
+        }).collect()
+    }
+    #[test]
+    fn a_stand_in_learns_then_casts_on_its_schedule_only() {
+        let every = casting_plan(10,15);
+        let learning = stand_in_actions(&every,0,&[1]);
+        assert!(matches!(learning[0], Some(PlayerInputEnum::UpgradeAbility(_))), "learns first: {learning:?}");
+        let casts = stand_in_actions(&every,2,&[9,10,11,24,25,26,40]);
+        let cast_at:Vec<bool> = casts.iter().map(|action|matches!(action,Some(PlayerInputEnum::CastAbility(_)))).collect();
+        assert_eq!(cast_at, [false,true,false,false,true,false,true], "{casts:?}");
+        // The named hero is the target, and between casts the seat holds as before.
+        let target = { let (config,_) = every.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+            let pool = crate::runtime::StateInitializer::create_thread_pool();
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+            setup_single_lane_match(&mut world, config).unwrap();
+            let id = world.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==1).unwrap().entity.unwrap().id(); id };
+        assert!(matches!(&casts[1], Some(PlayerInputEnum::CastAbility(cast)) if cast.target_entity==Some(target) && cast.target_pos.is_none()));
+        assert!(!casts.iter().any(|action|matches!(action,Some(PlayerInputEnum::MoveTo(_)|PlayerInputEnum::AttackTarget(_)))), "it never leaves its place: {casts:?}");
+        // every_seconds 0 is one cast.
+        let once = stand_in_actions(&casting_plan(10,0),2,&[10,25]);
+        assert!(matches!(once[0],Some(PlayerInputEnum::CastAbility(_))) && !matches!(once[1],Some(PlayerInputEnum::CastAbility(_))), "{once:?}");
+    }
+    #[test]
+    fn a_stand_in_whose_cast_is_running_gets_no_order() {
+        use super::super::super::super::cast_windup::{AbilityWindups,Windup};
+        let (config,bots) = casting_plan(10,15).compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        setup_single_lane_match(&mut world, config).unwrap();
+        world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Playing;
+        let entity = world.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==6).unwrap().entity.unwrap();
+        let mut windups = AbilityWindups::default();
+        windups.0.insert(entity, Windup { skill_id:"a34_frost_bolt".into(), target:crate::runtime::native::scripting::SkillTarget::None,
+            origin:Vec2::ZERO, remaining:Fixed64::ONE, rank:1, interrupt_on_damage:false, last_tick:0, anchored:true });
+        world.insert(windups);
+        world.write_storage::<HeroCommandQueue>().insert(entity, HeroCommandQueue::default()).unwrap();
+        let tick = bots.think_interval_ticks;
+        world.write_resource::<crate::comp::Tick>().0 = tick;
+        crate::runtime::run_committed_visibility_wave_b(&mut world, tick, 0);
+        assert!(!super::role_bot_inputs(&world,&bots).unwrap().iter().any(|(player,_)|*player==6));
+    }
+    #[test]
+    fn showcase_casts_are_rejected_off_the_stage_and_absent_from_real_plans() {
+        let refused = |p:RoleBotMatchPlan| { let (config,_) = p.compile(1,SimulationTickProfile::Production60Hz).unwrap();
+            let pool = crate::runtime::StateInitializer::create_thread_pool();
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+            setup_single_lane_match(&mut world, config).is_err() };
+        assert!(!refused(casting_plan(10,15)), "control");
+        let edit = |change:&dyn Fn(&mut ShowcaseCast)| { let mut p = casting_plan(10,15); change(&mut p.showcase.as_mut().unwrap().casts[0]); p };
+        assert!(refused(edit(&|cast| cast.player = 1)), "not a held seat");
+        assert!(refused(edit(&|cast| cast.ability = "b20_tenacity".into())), "not in the seat's kit");
+        assert!(refused(edit(&|cast| cast.rank = 0)), "rank 0");
+        assert!(refused(edit(&|cast| cast.rank = 99)), "above its levels");
+        assert!(refused(edit(&|cast| cast.target = ShowcaseCastTarget::Player { player:9 })), "target off the roster");
+        assert!(refused(edit(&|cast| cast.target = ShowcaseCastTarget::Point { at:[600_000,0] })), "outside the world");
+        assert!(refused(edit(&|cast| cast.first_seconds = 3601)), "past the longest stage");
+        assert!(!refused(edit(&|cast| cast.when_near = Some([2300,2400,100]))), "a circle around the target player");
+        assert!(refused(edit(&|cast| cast.when_near = Some([2300,2400,0]))), "an empty circle");
+        assert!(refused(edit(&|cast| { cast.when_near = Some([2300,2400,100]); cast.target = ShowcaseCastTarget::Point { at:[1,1] }; })), "a circle watches a player");
+        let mut unknown = serde_json::to_value(casting_plan(10,15)).unwrap();
+        unknown["showcase"]["casts"][0]["damage"] = serde_json::json!(5);
+        assert!(serde_json::from_value::<RoleBotMatchPlan>(unknown).is_err(), "unknown cast fields fail closed");
+        assert!(serde_json::to_value(showcase_plan()).unwrap()["showcase"].get("casts").is_none(), "a stage without casts stays as it was");
     }
     #[test]
     fn a_bot_hero_winding_up_its_own_cast_gets_no_new_order() {

@@ -739,6 +739,52 @@ fn summon_priority_formal_60hz_active_host_destination_prevents_lateral_aggro_st
     assert_eq!(run(),run());
 }
 
+/// A stand-in's spell, cast while the hero stands in a circle, shows B20R's magic resistance: the
+/// same spell hurts less once learned, on a schedule shorter than its cooldown, and stops outside.
+#[test]
+fn showcase_stand_in_spell_in_a_circle_hurts_less_after_the_hero_learns_magic_resistance() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::{ShowcaseCast,ShowcaseCastTarget,ShowcaseConfig};
+    let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+        players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)],
+        ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
+            hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],
+            casts:vec![ShowcaseCast {player:6,ability:"b04_fire_blast".into(),rank:1,target:ShowcaseCastTarget::PlayerPoint {player:1},
+                first_seconds:0,when_near:Some([2300,2400,100]),every_seconds:3}]})};
+    // Life lost in each window; `learn`: the hero learns B20R at 5 s. It walks out of the circle at 11 s.
+    let run=|learn:bool| {
+        let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;
+        let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+        d.step(&mut w,[]).unwrap();
+        let hero=w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==1).unwrap().entity.unwrap();
+        let slot=w.read_storage::<Hero>().get(hero).unwrap().abilities.iter().position(|id|id=="b20_tenacity").unwrap() as u32;
+        w.write_resource::<BuffStore>().add(hero,"test_no_regen",Fixed64::from_i32(100),serde_json::json!({"health_regen_percentage":-1024}));
+        {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(hero).unwrap();p.mhp=Fixed64::from_i32(50_000);p.hp=Fixed64::from_i32(50_000);}
+        let mut marks=vec![Fixed64::from_i32(50_000)];
+        for tick in 1..=(17*60) {
+            let mut inputs=role_bot_inputs(&w,&bots).unwrap();
+            if learn && tick==5*60 {inputs.push((1,upgrade(slot)));}
+            if tick==11*60 {w.write_storage::<Pos>().get_mut(hero).unwrap().0=omoba_sim::Vec2::new(Fixed64::from_i32(2300),Fixed64::from_i32(2000));}
+            d.step(&mut w,inputs).unwrap();
+            let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,t,0);
+            if [2,5,8,11,17].contains(&(tick/60)) && tick%60==0 {marks.push(w.read_storage::<CProperty>().get(hero).unwrap().hp);}
+        }
+        marks.windows(2).map(|pair|pair[0]-pair[1]).collect::<Vec<_>>()
+    };
+    let plain=run(false);
+    assert!(plain[0]>Fixed64::ZERO,"the spell did no damage: {plain:?}");
+    assert!(plain[1..4].iter().all(|taken|*taken==plain[0]),"nothing learned, the same spell every 3 s (its cooldown is 15): {plain:?}");
+    assert_eq!(plain[4],Fixed64::ZERO,"no cast once the hero left the circle: {plain:?}");
+    let learned=run(true);
+    assert_eq!(&learned[..2],&plain[..2],"before learning");
+    assert!(learned[2]*Fixed64::from_i32(100)<=plain[2]*Fixed64::from_i32(95),"{plain:?} without, {learned:?} with B20R");
+    assert_eq!(learned[3],learned[2]);
+    assert_eq!(learned[4],Fixed64::ZERO);
+}
+
 #[test]
 fn channel_bot_authored_recipe_formal_60hz_safe_start_four_ranks_and_paired_replay() {
     use omoba_core::runtime::native::moba_match::bots::*;

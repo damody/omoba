@@ -493,6 +493,52 @@ pub struct ShowcaseConfig {
     /// allied non-hero unit at its point, b23 亡靈之契 a body near the caster).
     #[serde(default)]
     pub props: Vec<ShowcaseProp>,
+    /// Held seats' scheduled casts: what a demonstration needs thrown at its hero (a passive's
+    /// magic resistance shows on a real spell), by the ordinary learn and cast rules.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub casts: Vec<ShowcaseCast>,
+}
+
+/// One held seat's scheduled cast. The seat learns the ability up to `rank` through the normal
+/// upgrade input. The schedule replaces the ability's cooldown (the stage clears it every tick);
+/// range and every other cast rule stay the authority's.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShowcaseCast {
+    pub player: u32,
+    pub ability: String,
+    pub rank: u8,
+    pub target: ShowcaseCastTarget,
+    /// Match seconds of the first cast, warmup included; a cast due in warmup is made when play
+    /// starts. Unused with `when_near`.
+    #[serde(default)]
+    pub first_seconds: u32,
+    /// [x, y, radius]: the schedule runs from when the target player's hero walks into this circle
+    /// and stops when it leaves, so a recording times the cast by walking there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when_near: Option<[i32; 3]>,
+    /// Seconds between casts; 0 casts once (once per entry with `when_near`).
+    #[serde(default)]
+    pub every_seconds: u32,
+}
+
+/// When each cast is next due, by cast index. `begin_moba_match_tick` opens a `when_near` cast's row
+/// on entering its circle and closes it on leaving; the seat's decision moves it on when it casts
+/// (a tick's delta time varies, so seconds cannot be read back from the clock alone). No row: not due.
+#[derive(Clone, Debug, Default)]
+pub struct ShowcaseCastSchedule(pub BTreeMap<usize, Fixed64>);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ShowcaseCastTarget {
+    /// No target (a self or instant ability).
+    None,
+    /// That player's hero, where it stands; no cast while it is dead.
+    Player { player: u32 },
+    /// The point where that player's hero stands (an ability cast on a point); no cast while it is dead.
+    PlayerPoint { player: u32 },
+    /// A world position.
+    Point { at: [i32; 2] },
 }
 
 /// One stage prop (E630), placed once when the match is set up.
@@ -535,6 +581,8 @@ impl ShowcaseConfig {
     pub(crate) const STRIKE_REACH: i32 = 300;
     const MAX_START_PURCHASES: usize = 64;
     const MAX_PROPS: usize = 16;
+    const MAX_CASTS: usize = 16;
+    const MAX_CAST_SECONDS: u32 = 3600;
     const MAX_PLACEMENT: i64 = omoba_sim::terrain::MAX_GEOMETRY_RAW / omoba_sim::fixed::SCALE;
     pub fn is_valid(&self, players: &BTreeSet<u32>) -> bool {
         let in_world = |[x, y]: &[i32; 2]| [x, y].iter().all(|v| v.unsigned_abs() as i64 <= Self::MAX_PLACEMENT);
@@ -552,6 +600,27 @@ impl ShowcaseConfig {
             // E630: a few props, inside the world.
             && self.props.len() <= Self::MAX_PROPS
             && self.props.iter().all(|prop| in_world(&prop.at))
+            && self.casts.len() <= Self::MAX_CASTS
+            && self.casts.iter().all(|cast| self.hold_players.contains(&cast.player)
+                && self.placements.contains_key(&cast.player)
+                && cast.first_seconds <= Self::MAX_CAST_SECONDS && cast.every_seconds <= Self::MAX_CAST_SECONDS
+                && match &cast.target {
+                    ShowcaseCastTarget::None => cast.when_near.is_none(),
+                    ShowcaseCastTarget::Player { player } | ShowcaseCastTarget::PlayerPoint { player } => players.contains(player),
+                    ShowcaseCastTarget::Point { at } => in_world(at) && cast.when_near.is_none(),
+                }
+                && cast.when_near.is_none_or(|[x, y, radius]| in_world(&[x, y]) && radius > 0 && i64::from(radius) <= Self::MAX_PLACEMENT))
+    }
+    /// Each cast's ability is in its seat's kit, and the stage's level learns it up to its rank.
+    fn casts_fit(&self, hero_of: impl Fn(u32) -> Option<String>) -> bool {
+        self.casts.iter().all(|cast| {
+            let Some(hero) = hero_of(cast.player).and_then(|hero| omoba_template_ids::hero_by_name(&hero)) else { return false };
+            let Some(ability) = omoba_template_ids::hero_abilities(hero)
+                .iter().find(|id| id.as_str() == cast.ability) else { return false };
+            let Some(def) = omoba_template_ids::active_ability_const(*ability) else { return false };
+            cast.rank >= 1 && cast.rank <= def.max_level && def.levels.get(usize::from(cast.rank) - 1)
+                .is_some_and(|level| self.start_level >= i32::from(level.required_hero_level))
+        })
     }
     fn holds(config: &SingleLaneConfig, player_id: u32) -> bool {
         config.showcase.as_ref().is_some_and(|showcase| showcase.hold_players.contains(&player_id))
@@ -1457,6 +1526,9 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         let roster: BTreeSet<u32> = config.players.iter().copied()
             .chain(config.additional_players.iter().map(|player| player.player_id)).collect();
         if !showcase.is_valid(&roster) {return Err(err_msg("invalid showcase stage"));}
+        let hero_of = |player: u32| config.players.iter().position(|id| *id == player).map(|side| config.heroes[side].clone())
+            .or_else(|| config.additional_players.iter().find(|seat| seat.player_id == player).map(|seat| seat.hero.clone()));
+        if !showcase.casts_fit(hero_of) {return Err(err_msg("a showcase cast is not in its seat's kit at the stage's level"));}
     }
     if !config.tower_focus_rules.is_valid() {return Err(err_msg("invalid tower focus rules"));}
     if !config.death_streak_rules.is_valid() {return Err(err_msg("invalid death streak rules"));}
@@ -1731,6 +1803,9 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
     // Last, so every other setup entity keeps its id (E630).
     let corpses = spawn_showcase_props(world, &state);
     world.insert(ShowcaseCorpses(corpses));
+    world.insert(ShowcaseCastSchedule(state.config.showcase.iter().flat_map(|showcase| showcase.casts.iter().enumerate())
+        .filter(|(_, cast)| cast.when_near.is_none())
+        .map(|(index, cast)| (index, Fixed64::from_i32(cast.first_seconds as i32))).collect()));
     refresh_showcase_corpses(world, true);
     *world.write_resource::<GameMode>() = GameMode::Moba;
     world.write_resource::<MasterSeed>().0 = state.config.seed;
@@ -1820,6 +1895,30 @@ fn spawn_showcase_props(world: &mut World, state: &MobaMatch) -> Vec<(Entity, Ve
 /// Rewrites the stage bodies' removal records (E630) at setup (`now`) and every
 /// [`ShowcaseCorpses::REFRESH_TICKS`]: a dead selector (`include_dead`) only finds a body removed
 /// within its look-back, so the stage's bodies stay for the whole match.
+/// The match is out of the world here: `begin_moba_match_tick` holds it.
+fn run_showcase_casts(world: &mut World, state: &MobaMatch) {
+    let Some(casts) = state.config.showcase.as_ref().map(|showcase| &showcase.casts).filter(|casts| !casts.is_empty()) else { return };
+    let hero_of = |player: u32| state.heroes.iter().find(|slot| slot.player_id == player).and_then(|slot| slot.entity);
+    let positions = world.read_storage::<Pos>();
+    let properties = world.read_storage::<CProperty>();
+    let mut heroes = world.write_storage::<Hero>();
+    let mut schedule = world.write_resource::<ShowcaseCastSchedule>();
+    for (index, cast) in casts.iter().enumerate() {
+        if let Some(hero) = hero_of(cast.player).and_then(|entity| heroes.get_mut(entity)) {
+            hero.ability_cooldowns.remove(&cast.ability);
+            hero.ability_cooldown_totals.remove(&cast.ability);
+        }
+        let Some([x, y, radius]) = cast.when_near else { continue };
+        let (ShowcaseCastTarget::Player { player } | ShowcaseCastTarget::PlayerPoint { player }) = cast.target else { continue };
+        let center = Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y));
+        let radius = Fixed64::from_i32(radius);
+        let inside = hero_of(player).is_some_and(|entity| properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO)
+            && positions.get(entity).is_some_and(|pos| (pos.0 - center).length_squared() <= radius * radius));
+        if !inside { schedule.0.remove(&index); }
+        else { schedule.0.entry(index).or_insert(state.elapsed); }
+    }
+}
+
 fn refresh_showcase_corpses(world: &mut World, now: bool) {
     use super::scripting::parallel_world_adapter::RetiredPositions;
     let Some(corpses) = world.try_fetch::<ShowcaseCorpses>().filter(|corpses| !corpses.0.is_empty()).map(|corpses| corpses.0.clone()) else { return };
@@ -2395,6 +2494,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
     };
     // The stage's bodies (E630) stay findable in every phase, warmup and pause included.
     refresh_showcase_corpses(world, false);
+    run_showcase_casts(world, &state);
     // An inactive tick must overwrite the previous active controls too.
     state.input_step = Some(crate::runtime::input_scheme::InputSchemeStepSnapshot {
         tick: world.read_resource::<Tick>().0, rows: BTreeMap::new(),
