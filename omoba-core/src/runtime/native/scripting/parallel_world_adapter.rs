@@ -1851,7 +1851,20 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
 
     fn get_buff_payload(&self, e: EntityHandle, buff_id: RStr<'_>) -> ROption<abi_stable::std_types::RString> {
         Self::handle_to_entity(e)
-            .and_then(|ent| self.source_buffs(ent).get(ent, buff_id.as_str()).map(|b| b.payload.to_string().into()))
+            .and_then(|ent| {
+                // A unit variable written earlier in this event reads back: a cast's passive runs
+                // before its on_cast (E267), and the on_cast acts on what the passive just set.
+                if buff_id.as_str().starts_with(super::super::unit_var::PREFIX) {
+                    for outcome in self.outcomes.iter().rev() {
+                        match outcome {
+                            Outcome::AddBuff {target,buff_id:id,payload,..} if *target==ent && id.as_str()==buff_id.as_str() => return Some(payload.to_string().into()),
+                            Outcome::ScriptRemoveBuff {target,buff_id:id} if *target==ent && id.as_str()==buff_id.as_str() => return None,
+                            _ => {}
+                        }
+                    }
+                }
+                self.source_buffs(ent).get(ent, buff_id.as_str()).map(|b| b.payload.to_string().into())
+            })
             .into()
     }
 
@@ -3229,6 +3242,25 @@ mod tests {
             "blocked movement returns current overlay position, not stale cache");
         assert!(matches!(adapter.finish().as_slice(),[Outcome::ScriptSetPos {entity:actual,pos}]
             if *actual==entity && *pos==target));
+    }
+
+    #[test]
+    fn a_unit_variable_written_in_this_event_reads_back_and_other_buffs_wait_for_settlement() {
+        let mut world=world_for_adapter_tests();
+        let (entity,other)=(world.create_entity().build(),world.create_entity().build());
+        let cache=ParallelAdapterCache::new(&world,123);
+        let mut adapter=ParallelWorldAdapter::new(&cache,entity);
+        let (handle,other_handle)=(ParallelWorldAdapter::entity_to_handle(entity),ParallelWorldAdapter::entity_to_handle(other));
+        let var=RStr::from_str("unit_var:x");
+        let plain=RStr::from_str("plain");
+        adapter.add_stat_buff(handle,var,Fixed64::ONE,RStr::from_str(r#"{"n":1}"#));
+        adapter.add_stat_buff(handle,var,Fixed64::ONE,RStr::from_str(r#"{"n":2}"#));
+        adapter.add_stat_buff(handle,plain,Fixed64::ONE,RStr::from_str(r#"{"n":3}"#));
+        assert_eq!(adapter.get_buff_payload(handle,var).into_option().map(|s|s.to_string()),Some(r#"{"n":2}"#.to_string()),"the last write");
+        assert!(adapter.get_buff_payload(other_handle,var).is_none(),"another unit's own");
+        assert!(adapter.get_buff_payload(handle,plain).is_none(),"only unit variables read back");
+        adapter.remove_buff(handle,var);
+        assert!(adapter.get_buff_payload(handle,var).is_none(),"cleared");
     }
 
     #[test]

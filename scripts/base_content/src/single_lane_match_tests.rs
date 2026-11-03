@@ -13643,6 +13643,69 @@ pub(crate) mod live_soak_replica_parity {
             "q {refunded:?} vs unrefunded {unrefunded:?}");
         assert_eq!(h.cooldown_total(&q,Fixed64::from_i32(10)),Some(Fixed64::from_i32(10)),"admitted total kept");
     }
+    /// A12D: the fifth cast is itself the empowered one. Its passive runs before the ability's
+    /// on_cast (E267) in the same event, and the on_cast reads what the passive just wrote: Flash
+    /// of Insight stuns for its rank's duration, and the knockback with `stun = false` keeps it.
+    #[test]
+    fn otani_fifth_cast_is_empowered_by_the_passive_it_fires() {
+        use omoba_core::runtime::native::unit_var::{Spec,VarValue};
+        let run=|count:i32| {
+            let (mut w,mut driver)=world(SingleLaneConfig {mana_enabled:true,heroes:["otani_yoshitsugu".into(),"training_luminary".into()],
+                ..three_lane_config()},SimulationTickProfile::Production60Hz);
+            driver.step(&mut w,[]).unwrap();
+            let [hero,enemy]=hero_pair(&w);
+            let slot={
+                let mut heroes=w.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=12;
+                h.ability_levels.insert("a12_insight_flash".into(),4);
+                if let Some(pool)=h.mana_pool.as_mut() {let max=pool.maximum();*pool=omoba_core::runtime::ability_runtime::ManaPool::new(max,max).unwrap();}
+                h.abilities.iter().position(|id|id=="a12_insight_flash").unwrap() as u32
+            };
+            let at=w.read_storage::<Pos>().get(hero).unwrap().0+omoba_sim::Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO);
+            w.write_storage::<Pos>().get_mut(enemy).unwrap().0=at;
+            {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(enemy).unwrap();p.mhp=Fixed64::from_i32(100000);p.hp=p.mhp;}
+            let spec=Spec {key:"a12:a12d_count".into(),value:VarValue::Num(Fixed64::from_i32(count)),hero:true};
+            w.write_resource::<BuffStore>().add(hero,&spec.buff_id(),Fixed64::from_i32(600),spec.payload());
+            let state=|w:&specs::World|w.read_resource::<BuffStore>().iter_for(hero).find_map(|(key,entry)|
+                Spec::from_buff(key,&entry.payload).filter(|s|s.key=="a12:a12d_empowered").map(|s|s.value));
+            assert_ne!(state(&w),Some(VarValue::Num(Fixed64::ONE)),"not empowered before the cast");
+            let mut sent=false;let mut stun=Fixed64::ZERO;
+            for _ in 0..60 {
+                let inputs=if sent {vec![]} else {sent=true;vec![(1,cast(slot,None))]};
+                driver.step(&mut w,inputs).unwrap();
+                if w.read_storage::<Hero>().get(hero).unwrap().get_cooldown("a12_insight_flash")>Fixed64::ZERO {
+                    stun=w.read_resource::<BuffStore>().get(enemy,"stun").map_or(Fixed64::ZERO,|b|b.remaining);break;
+                }
+            }
+            assert!(w.read_storage::<Hero>().get(hero).unwrap().get_cooldown("a12_insight_flash")>Fixed64::ZERO,"it was cast");
+            // knockback rooted it; the stun is still there one tick later
+            driver.step(&mut w,[]).unwrap();
+            let held=w.read_resource::<BuffStore>().has(enemy,"stun");
+            (stun,held,state(&w))
+        };
+        let (stun,held,left)=run(4);
+        assert!(stun>Fixed64::from_i32(2)-Fixed64::from_raw(128)&&stun<=Fixed64::from_i32(2),"rank 4 stuns for 2s: {stun:?}");
+        assert!(held,"the knockback kept the stun");
+        assert_eq!(left,Some(VarValue::Num(Fixed64::ZERO)),"the cast spent the empowerment");
+        let (stun,held,_)=run(0);
+        assert_eq!((stun,held),(Fixed64::ZERO,false),"the first cast does not stun");
+    }
+    /// A12D through whole casts, empowered ones included: both team replicas follow it.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only full-match soak (E180): run with --release")]
+    fn otani_empowered_casts_keep_team_replicas_identical() {
+        let schedule=|tick:u32,_:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            match tick {
+                t if t%600==6=>vec![(1,attack_move(b)),(2,attack_move(a))],
+                t if t>6 && t%60==10=>vec![(1,cast(0,None))],
+                t if t>6 && t%60==30=>vec![(1,cast_at(1,b)),(1,cast(1,None))],
+                t if t>6 && t%60==50=>vec![(1,cast_at(2,b)),(1,cast(2,None))],
+                _=>vec![],
+            }
+        };
+        let report=soak_report(["otani_yoshitsugu","training_luminary"],2400,&schedule);
+        assert!(report.mismatches.is_empty(),"{:#?}",report.mismatches);
+        assert!(report.casts_of(0,"a12_insight_flash")>=2,"it was cast: {:?}",report.casts);
+    }
     /// H04/H05/H06: every built slot (tether settle, global buff, point blast,
     /// area ally heal, toggle orb, self buffs, stealth, fang lines, blink and
     /// cast-stacking passive) cast at or near the enemy hero; both team replicas
