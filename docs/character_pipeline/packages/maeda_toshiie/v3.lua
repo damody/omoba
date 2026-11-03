@@ -140,6 +140,7 @@ return function(ctx)
             { op = "dodge_projectiles", of = "caster" },
             { op = "let", name = "dir", value = "direction(caster, target)" },
             { op = "if", cond = "not target.is_magic_immune", actions = {
+              { op = "cue", id = "a14e_hit", at = "target", to = "offset(caster, dir, $blink_range)" },
               { op = "apply_status", status = "a14e_stun", to = "target" },
               { op = "damage", to = "target", type = "magical", amount = "$damage", require_source_alive = false, flags = { "no_amplify" } },
             } },

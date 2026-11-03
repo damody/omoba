@@ -6882,6 +6882,7 @@ return {
     },
     ["particles/items_fx/blink_dagger_start_sparkles.vpcf"] = {
       cues = {
+        "a14e_hit",
         "a14e_blink_sparkles",
       },
       kind = "particle",
@@ -11122,7 +11123,7 @@ return {
     a14e_blink_sparkles = {
       assets = {
         {
-          confidence = "medium",
+          confidence = "low",
           entry = "a14_divine_strike",
           kind = "particle",
           path = "particles/items_fx/blink_dagger_start_sparkles.vpcf",
@@ -11136,6 +11137,26 @@ return {
           entry = "a14_divine_strike",
           kind = "effect",
           where = "on_cast cue",
+        },
+      },
+    },
+    a14e_hit = {
+      assets = {
+        {
+          confidence = "low",
+          entry = "a14_divine_strike",
+          kind = "particle",
+          path = "particles/items_fx/blink_dagger_start_sparkles.vpcf",
+          ref = "vscripts/heroes/A_Oda/A14.lua:130",
+        },
+      },
+      kind = "effect",
+      uses = {
+        {
+          doc = "A14",
+          entry = "a14_divine_strike",
+          kind = "effect",
+          where = "on_cast in if cue",
         },
       },
     },

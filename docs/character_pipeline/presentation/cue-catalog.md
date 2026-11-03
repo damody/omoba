@@ -4,7 +4,7 @@
 
 ## 總計
 
-- v3 文件用到的 cue：1092 個。對到原作資產的有 916 個（high 221、medium 345、low 350），其餘 176 個使用通用佔位特效（`placeholder = "generic"`，音效為 `"generic_sound"`）。
+- v3 文件用到的 cue：1093 個。對到原作資產的有 917 個（high 221、medium 344、low 352），其餘 176 個使用通用佔位特效（`placeholder = "generic"`，音效為 `"generic_sound"`）。
 - 條目出處範圍內的原作資產：852 個（粒子 560、音效 292），其中 642 個已對到 cue。
 - 信心：
   - **high**：狀態的 cue 對到 notes 寫的原作 modifier 的 EffectName。
@@ -18,7 +18,7 @@
 
 | kind | cue 數 |
 |---|---|
-| effect | 388 |
+| effect | 389 |
 | aura | 285 |
 | sound | 271 |
 | projectile | 78 |
