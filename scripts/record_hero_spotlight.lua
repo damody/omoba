@@ -628,12 +628,18 @@ function M.encode(options,hero,run_root)
   local ffmpeg=M.ffmpeg(options)
   local seat=path.join(run_root,'p1')
   local frames_dir=path.join(seat,'spotlight-frames-p1')
-  local frames=M.read_frames(path.join(frames_dir,'frames.jsonl'))
   local events=M.read_trace(path.join(seat,'autopilot-p1.jsonl'))
   local finished
   for _,event in ipairs(events) do if event.event=='spotlight_finished' then finished=event end end
-  assert(finished,'the renderer never finished the spotlight; see '..path.join(seat,'autopilot-p1.jsonl'))
   local out=path.absolute(path.join(options.output,hero),b.root)
+  if not finished or not path.is_file(path.join(frames_dir,'frames.jsonl')) then
+    -- The renderer writes frames.jsonl as it finishes: cut off before that, there is nothing to encode.
+    local issues=M.issues(events)
+    issues[#issues+1]={kind='cut_off',reason='the renderer did not finish the spotlight before the time box of '..tostring(options.max_seconds)..' s retired it'}
+    json.write(path.join(out,'spotlight.json'),{schema_version=1,hero=hero,run=run_root,reason='incomplete',script_reason='cut_off',issues=issues,keyframes={},observer=M.observer(run_root)},true)
+    error('spotlight '..hero..': incomplete, no video; see '..path.join(out,'spotlight.json'),0)
+  end
+  local frames=M.read_frames(path.join(frames_dir,'frames.jsonl'))
   path.mkdir_p(path.join(out,'keyframes'))
   -- Keyframes describe this run only: never leave an earlier run's frames beside them.
   for name in lfs.dir(path.join(out,'keyframes')) do
@@ -674,6 +680,13 @@ function M.record(options,hero,index)
   local package=M.load_package(b.root,hero)
   local out=path.absolute(path.join(options.output,hero),b.root)
   path.mkdir_p(out)
+  -- An earlier run's report and video must not pass for this run's, whatever becomes of it.
+  os.remove(path.join(out,'spotlight.json'))
+  local video=path.join(out,hero..'_spotlight.mp4')
+  if path.is_file(video) then
+    os.remove(video..'.previous')
+    assert(os.rename(video,video..'.previous'))
+  end
   local script=path.join(out,'spotlight-script.json')
   json.write(script,M.script(package),true)
   local run_root=path.join(out,'run-'..os.date('%Y%m%d-%H%M%S'))
