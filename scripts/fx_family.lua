@@ -376,6 +376,7 @@ function M.ini_row(id)
   if r.face_camera then add("GroundFaceCamera", number(r.face_camera)) end
   if r.ground_roll then add("GroundRoll", number(r.ground_roll)) end
   if r.fly then add("bGroundFly", "True") end
+  if r.fixed_size then add("bFxFixedSize", "True") end
   return ('("%s",(%s))'):format(id, table.concat(f, ","))
 end
 

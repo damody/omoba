@@ -383,6 +383,10 @@ end
 -- The radius an ability's effect covers, from its package values (exact key, its highest level).
 -- Their radius is not something on the ground to show: the camera stays close.
 M.NO_VIEW={c05_matsukaze=true,c05_flash_thunder=true}
+-- Passives seen only in numbers and pace: attacks without them, then learned, then the same attacks (the renderer's LearnMidway).
+-- Passives that answer to the hero's own casts: the segment casts them, it does not attack.
+M.CASTS_OWN={a12_scheme=true}
+M.LEARN_MIDWAY={c22_swallow_flash=true,c05_thunder_spear=true,b26_kozuke_valor=true,a14_stacked_spear=true,a26_twin_guns=true,c03_thunder_wrath=true}
 function M.view_radius(doc,id)
   if M.NO_VIEW[id] then return nil end
   for _,ability in ipairs(doc and doc.abilities or {}) do
@@ -424,7 +428,12 @@ function M.script(package)
     end
   end
   local doc=package.hero and M.v3_document(b.root,package.hero)
-  for _,slot in ipairs(package.slots) do slot.view=M.view_radius(doc,slot.id);slot.hold=M.hold_seconds(doc,slot.id);slots[#slots+1]=slot end
+  for _,slot in ipairs(package.slots) do
+    slot.view=M.view_radius(doc,slot.id);slot.hold=M.hold_seconds(doc,slot.id)
+    if M.LEARN_MIDWAY[slot.id] then slot.learn_midway=true end
+    if M.CASTS_OWN[slot.id] then slot.casts_own=true end
+    slots[#slots+1]=slot
+  end
   -- What needs an ability still active has its turn while it is.
   for index=1,#slots-1 do
     if slots[index+1].after==slots[index].id and slots[index].hold then slots[index].hold=math.min(slots[index].hold,M.BASE_HOLD) end

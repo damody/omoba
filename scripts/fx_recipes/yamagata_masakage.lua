@@ -13,7 +13,7 @@ return {
     b20e_thunderclap = { system = "burst", sprite = "rock", size = 460, life = 0.5, area = true, tint = { 1.0, 0.5, 0.15 },
       mesh = "earth_crown", ground_size = 420, ground_seconds = 0.9, grow = 0.3 },
     -- R 赤備猛攻: every half second rocks burst outward (leaving the model visible) and red cracks fill the radius
-    b20t_epicenter = { system = "pop", sprite = "rock", size = 110, life = 0.3, tint = { 1.0, 0.2, 0.1 } },
+    b20t_epicenter = { system = "pop", sprite = "rock", size = 110, fixed_size = true, life = 0.3, tint = { 1.0, 0.2, 0.1 } },
   },
   notes = {
     b20_rock_rush = "body on b20w_pick_sound (throw) and b20w_rock (flight); no landing cue, so rocks hit without a burst and the point shows nothing; b20w_stun has no cue either",

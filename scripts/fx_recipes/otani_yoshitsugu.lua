@@ -36,7 +36,7 @@ return {
   notes = {
     a12_insight_flash = "a12w_glow (at caster, always plays) carries it; a12w_burst only on visible enemies; the empowered stun a12w_stun has no cue.",
     a12_insight_flash_t = "a12w_hide_ring at the point; a12w_vo flare at the caster; a12w_t_stun has no cue.",
-    a12_scheme = "plays no cue at all: passive stacks and the empowered state have no visual.",
+    a12_scheme = "a12d_stack on himself for each stack, a12d_ready when the next cast is strengthened (package_cues).",
     a12_mystic_pierce = "a12e_vo at cast, a12e_heal_number / a12e_mana_number on procs; the 10 s buff itself has no status cue.",
     a12_mystic_field = "only cue is a12e_vo, shared with a12_mystic_pierce: one flash and circle at cast, nothing for its seconds of duration; needs its own field cue in the package.",
     a12_awe = "a12r_burst at the point, a12r_vortex on the slowed.",
