@@ -217,7 +217,7 @@ M.WEAPONS = {
 }
 M.ATTACKS = {
   sasaki_kojiro = { "katana", STEEL, { sprite = "blink_flash", size = 150, ground = "shock_ring", ground_size = 210, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { ground_size = 230, ground_roll = -30 } },
-  okuma_tomohide = { "axe", { 1.0, 0.5, 0.2 }, { sprite = "flame_sheet", size = 110, ground = "shock_ring", ground_size = 240, height = 30, grow = 0.3, face_camera = false, ground_roll = false } },
+  okuma_tomohide = { "axe", { 1.0, 0.3, 0.03 }, { sprite = "flame_sheet", size = 60, ground = "shock_ring", ground_size = 170, height = 30, grow = 0.3, face_camera = false, ground_roll = false } },
   kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 }, { sprite = "spark_star", size = 170, ground = "dust_crack", ground_size = 280, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 } },
   maeda_toshiie = { "spear", { 1.0, 0.62, 0.05 }, { system = "burst", sprite = "spark_star", size = 230, area = true, life = 0.4, ground = "crescent_slash", ground_size = 340, ground_seconds = 0.4, height = 80, line = false, grow = 0.5, face_camera = 0.7 } }, maeda_keiji = { "spear", BLUE, { system = "burst", sprite = "spark_star", size = 320, area = true, life = 0.5, ground = "shock_ring", ground_size = 280, ground_seconds = 0.5, height = 30, line = false, face_camera = false } },

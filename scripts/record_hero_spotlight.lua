@@ -38,6 +38,9 @@ M.TREE_RECIPE='scripts/lua_data/moba_hero_spotlight_trees.lua'
 -- non-hero unit at its point, B23 亡靈之契 a body near the caster; item_spotlight.AIM `props`) is
 -- shown on the prop stage: the base stage plus an allied creep and a body.
 M.PROPS_RECIPE='scripts/lua_data/moba_hero_spotlight_props.lua'
+-- A hero whose passive slows a walker: the base stage plus a patrol out of every other segment's view.
+M.PATROL_RECIPE='scripts/lua_data/moba_hero_spotlight_patrol.lua'
+M.PATROL_HEROES={maeda_keiji=true}
 function M.recipe_for(package)
   local tree,props=false,package.props==true
   for _,slot in ipairs(package.slots) do
@@ -47,6 +50,7 @@ function M.recipe_for(package)
   assert(not (tree and props),(package.hero or 'hero')..' needs both the tree stage and the prop stage (no stage has both yet)')
   if tree then return M.TREE_RECIPE end
   if props then return M.PROPS_RECIPE end
+  if M.PATROL_HEROES[package.hero or ''] then return M.PATROL_RECIPE end
   return M.LANE_HEROES[package.hero or ''] and M.LANE_RECIPE or M.RECIPE
 end
 M.DEFAULT_FFMPEG='target/tools/ffmpeg/ffmpeg.exe'
@@ -384,6 +388,18 @@ end
 -- Their radius is not something on the ground to show: the camera stays close.
 M.NO_VIEW={c05_matsukaze=true,c05_flash_thunder=true}
 -- Passives seen only in numbers and pace: attacks without them, then learned, then the same attacks (the renderer's LearnMidway).
+-- Where only seat 7 of the death's strikers is within STRIKE_REACH (224; seat 9 at 335), clear of the
+-- demonstration's stand-in: no other segment changes.
+M.STRUCK_AT={2700,2130}
+-- c05 雷鳴豪槍: its slowed attacks, at ranks 1 and 4.
+M.STRUCK_BOTH={c05_thunder_spear=true}
+-- A third half at the top rank. b26: the restore is a 17% chance, hence the long one. c05: beside the patrol of
+-- moba_hero_spotlight_patrol.lua, watched unhurt first, then hit: the same road walked slowed.
+M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=10},c05_thunder_spear={at={3300,2400},seconds=8,wait=5}}
+-- Where a reach is the point (backend units from the stand-in): c22 燕閃 reaches 228 at rank 1 and 378 at rank 4.
+M.STAND_OFF={c22_swallow_flash=330}
+-- Its attacks after that reach land from far off: the attack segment stands where the blade visibly connects.
+M.ATTACK_STAND_OFF={sasaki_kojiro=130}
 -- Passives that answer to the hero's own casts: the segment casts them, it does not attack.
 M.CASTS_OWN={a12_scheme=true}
 M.LEARN_MIDWAY={c22_swallow_flash=true,c05_thunder_spear=true,b26_kozuke_valor=true,a14_stacked_spear=true,a26_twin_guns=true,c03_thunder_wrath=true}
@@ -431,6 +447,10 @@ function M.script(package)
   for _,slot in ipairs(package.slots) do
     slot.view=M.view_radius(doc,slot.id);slot.hold=M.hold_seconds(doc,slot.id)
     if M.LEARN_MIDWAY[slot.id] then slot.learn_midway=true end
+    slot.stand_off=M.STAND_OFF[slot.id]
+    if M.STRUCK_BOTH[slot.id] then slot.struck_x,slot.struck_y=M.STRUCK_AT[1],M.STRUCK_AT[2] end
+    local third=M.THIRD_HALF[slot.id]
+    if third then slot.third_x,slot.third_y,slot.third_seconds,slot.third_wait=third.at[1],third.at[2],third.seconds,third.wait end
     if M.CASTS_OWN[slot.id] then slot.casts_own=true end
     slots[#slots+1]=slot
   end
@@ -440,8 +460,14 @@ function M.script(package)
   end
   -- The death ends the recording: only the base stage has the enemies that strike it down.
   local stage=M.recipe_for(package)
-  if stage==M.RECIPE or stage==M.LANE_RECIPE then
+  if stage==M.RECIPE or stage==M.LANE_RECIPE or stage==M.PATROL_RECIPE then
     for _,show in ipairs(M.BODY_SHOWS) do
+      if show.kind=='attack' and M.ATTACK_STAND_OFF[package.hero] then
+        local closer={}
+        for key,value in pairs(show) do closer[key]=value end
+        closer.stand_off=M.ATTACK_STAND_OFF[package.hero]
+        show=closer
+      end
       if show.kind=='death' and stage==M.LANE_RECIPE then
         local moved={}
         for key,value in pairs(show) do moved[key]=value end
