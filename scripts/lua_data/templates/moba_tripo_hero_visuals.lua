@@ -18,11 +18,11 @@ return function(ctx)
     -- The spear is strapped across the back: empty-handed sword swings read as spear thrusts at MOBA distance.
     honda_tadakatsu={idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.65},
     sanada_yukimura={idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.65},
-    inahime={idle='Idle_Loop',attack='Spell_Simple_Shoot',critical='Spell_Simple_Shoot',impact=0.3},
-    tamako={idle='Idle_Loop',attack='Spell_Simple_Shoot',critical='Spell_Simple_Shoot',impact=0.3},
+    inahime={idle='Idle_Loop',attack='Mx_Throw_Short',critical='Mx_Throw_Short',impact=0.6},
+    tamako={idle='Idle_Loop',attack='Mx_Throw_Short',critical='Mx_Throw_Short',impact=0.6},
     -- A raised casting hand at rest leaves her cast/attack indistinguishable from idle (NativeHeroPoseSanity).
-    omatsu={idle='Idle_Loop',attack='Spell_Simple_Shoot',critical='Spell_Simple_Shoot',impact=0.3},
-    oichi={idle='Idle_Talking_Loop',attack='Spell_Simple_Shoot',critical='Spell_Simple_Shoot',impact=0.3},
+    omatsu={idle='Idle_Loop',attack='Mx_Throw_Short',critical='Mx_Throw_Short',impact=0.6},
+    oichi={idle='Idle_Talking_Loop',attack='Mx_Throw_Short',critical='Mx_Throw_Short',impact=0.6},
     -- Empty-handed H3.1 rig (finger metacarpals; explicit retarget chains in its manifest).
     tokugawa_ieyasu={idle='Idle_Loop',attack='Mx_Sword_Inward',critical='Mx_Sword_Outward',impact=0.6,
       extra={death={'Mx_Death_Back',false},['ability_a01_heaven_net']={'Mx_Throw',false},['ability_a01_mikawa_valor']={'Mx_Charge',false},['ability_a01_thunder_blade']={'Mx_Sword_Slash',false},['ability_a01_tosho_gongen']={'Mx_Cast_Two',false}}},
@@ -32,7 +32,7 @@ return function(ctx)
       extra={['ability_b26_blood_fury']={'Mx_Battlecry',false},['ability_b26_charging_wave']={'Mx_Channel',false},['ability_b26_release_wave']={'Mx_Axe_Smash',false},['ability_b26_unstoppable']={'Mx_Charge',false}}},
     sasaki_kojiro={idle='Idle_Loop',attack='Mx_Sword_Inward',critical='Mx_Sword_Outward',impact=0.6,
       extra={['ability_c22_dream_mist']={'Mx_Sword_Draw',false},['ability_c22_flying_swallow']={'Mx_Sword_Slash',false},['ability_c22_ganryu']={'Mx_Battlecry',false},['ability_c22_swallow_nest']={'Mx_Cast_Two',false}}},
-    otani_yoshitsugu={idle='Idle_Loop',attack='Spell_Simple_Shoot',critical='Spell_Simple_Shoot',impact=0.3,
+    otani_yoshitsugu={idle='Idle_Loop',attack='Mx_Throw_Short',critical='Mx_Throw_Short',impact=0.6,
       extra={death={'Mx_Death_Back',false},['ability_a12_awe']={'Mx_Cast_Two',false},['ability_a12_insight_flash']={'Mx_Cast_Two',false},['ability_a12_mystic_arrow']={'Mx_Throw',false},['ability_a12_mystic_pierce']={'Mx_Battlecry',false},['ability_a12_mystic_possession']={'Mx_Channel',false}}},
     maeda_toshiie={idle='Idle_Loop',attack='Mx_Spear_Thrust',critical='Mx_Sweep',impact=0.6,
       extra={['ability_a14_divine_strike']={'Mx_Spear_Upward',false},['ability_a14_impact_spear']={'Mx_Sweep',false},['ability_a14_spear_fury']={'Mx_Battlecry',false}}},
@@ -46,7 +46,7 @@ return function(ctx)
       extra={death={'Mx_Death_Back',false},['ability_a26_powder_kick']={'Mx_Kick',false},['ability_a26_scorching_bomb']={'Mx_Throw',false},['ability_a26_volley']={'Mx_Rifle_Fire',false}}},
     -- Lane minions (templates/world_units.lua): weapons hang on their backs like the heroes'.
     minion_ashigaru={idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.5},
-    minion_archer={idle='Idle_Loop',attack='Spell_Simple_Shoot',critical='Spell_Simple_Shoot',impact=0.3},
+    minion_archer={idle='Idle_Loop',attack='Mx_Throw_Short',critical='Mx_Throw_Short',impact=0.6},
     minion_siege={idle='Idle_Loop',attack='Punch_Cross',critical='Punch_Cross',impact=0.4},
     -- Neutral jungle camps (templates/world_units.lua): kappa members, tengu guardians, oni epic.
     jungle_kappa={idle='Idle_Loop',attack='Punch_Cross',critical='Punch_Cross',impact=0.4},

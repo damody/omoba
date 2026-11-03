@@ -28,6 +28,7 @@ local CLIPS={
   Mx_Charge={'Charge',0,100},
   Mx_Kick='Standing Melee Attack Kick Ver. 1',
   Mx_Throw='Throw',
+  Mx_Throw_Short={'Throw',8,44},
   Mx_Cast_Two={'Two Hand Spell Casting',0,75},
   Mx_Channel={'Standing 2H Magic Attack 03',0,90},
   Mx_Death_Back='Standing React Death Backward',
