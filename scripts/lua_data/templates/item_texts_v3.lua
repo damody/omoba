@@ -2467,6 +2467,16 @@ local data = {
     },
     kind = "item",
     max_level = 1,
+    owner_values = {
+      healing_totem = {
+        {
+          name = "aura_radius",
+          ranks = { "700" },
+          raw = { 716800 },
+          unit = "dist",
+        },
+      },
+    },
     schema = "3.3",
     source_id = "item_glass_mitsutomo",
     stat_lines = {
@@ -2866,6 +2876,16 @@ local data = {
     },
     kind = "item",
     max_level = 1,
+    owner_values = {
+      healing_totem = {
+        {
+          name = "aura_radius",
+          ranks = { "700" },
+          raw = { 716800 },
+          unit = "dist",
+        },
+      },
+    },
     schema = "3.3",
     source_id = "item_healing_totem",
     statuses = {

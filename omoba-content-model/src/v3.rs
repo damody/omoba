@@ -35,6 +35,10 @@ pub struct V3Block {
     pub charges_on_rank_up: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub values: Vec<V3Value>,
+    /// Values of unit templates this entry's text quotes, by template id: the catalog lists no
+    /// template owners, so the entry carries them.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub owner_values: BTreeMap<String, Vec<V3Value>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub info: Vec<V3Ref>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -259,6 +263,9 @@ pub fn validate_block(block: &V3Block, kind: &str, max_level: u8) -> Result<(), 
     if block.max_level != max_level || max_level == 0 { return Err(format!("{owner}: max_level must equal the row's {max_level}")); }
     if block.source_id.is_empty() || block.source_id.len() > 128 { return Err(format!("{owner}: source_id is required")); }
     let names = check_values(&block.values, max_level, &owner)?;
+    for (template, values) in &block.owner_values {
+        check_values(values, max_level, &format!("{owner} quoted {template}"))?;
+    }
     for r in block.info.iter().chain(&block.stat_lines) {
         if r.field.as_deref().is_some_and(|f| !INFO_FIELDS.contains(&f)) { return Err(format!("{owner}: unknown info field")); }
         match (&r.value, &r.expr) {

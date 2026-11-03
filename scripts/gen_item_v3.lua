@@ -151,6 +151,25 @@ function M.build(shelf, docs, partial, scripted)
         else
           seen[row.id] = d.path
           local block = compiled.items[item.id]
+          -- A text can quote a value of a unit template (the totem's aura radius). The game's catalog has
+          -- no template owners, so the item carries the values it quotes.
+          local quoted = {}
+          for _, text in pairs(block.text or {}) do
+            for _, piece in ipairs(text.pieces or {}) do
+              local owner = piece.owner and compiled.owner_values[piece.owner]
+              if owner and owner.kind == "template" then
+                quoted[piece.owner] = quoted[piece.owner] or {}
+                quoted[piece.owner][piece.value] = true
+              end
+            end
+          end
+          for owner, names in pairs(quoted) do
+            block.owner_values = block.owner_values or {}
+            block.owner_values[owner] = {}
+            for _, value in ipairs(compiled.owner_values[owner].values) do
+              if names[value.name] then table.insert(block.owner_values[owner], value) end
+            end
+          end
           local mapped = {}
           for _, value in ipairs(block.values or {}) do
             if value.v2_key then
