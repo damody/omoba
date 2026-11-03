@@ -48,6 +48,14 @@ M.IMAGES = {
   -- Drawn by scratch code, not generated: a shape that has to read against the ground, so its colours stay as drawn.
   spear_thrust = { rot = -1.571, gain = 1.0 },
   spear_thrust_blue = { rot = -1.571, gain = 1.0 },
+  -- Drawn the same way, light bodies that take the cue's tint: one shape per skill.
+  stack_spears = { gain = 1.3 },
+  axe_cleave = { gain = 1.3 },
+  twin_muzzle = { gain = 1.4 },
+  iai_cut = { gain = 1.5 },
+  cut_cross = { gain = 1.5 },
+  bolt_fork = { gain = 1.8 },
+  quake_ripple = { gain = 1.1 },
 }
 
 -- main: takes the cue's image, size and life. The rest keep their own (their colour still follows the cue).
@@ -111,7 +119,7 @@ M.RECIPES = {
   -- C22 佐佐木小次郎: steel blue sword light; swallows and a thunder clap
   c22d_hand_glow = { system = "stream", sprite = "spark_star", size = 70, life = 0.5, loop = true, tint = STEEL },
   c22d_return_projectile = { look = "line", tint = STEEL },
-  c22d_cast_sound = { system = "burst", sprite = "lightning", size = 420, life = 0.5, tint = STEEL,
+  c22d_cast_sound = { system = "burst", sprite = "blink_flash", size = 420, life = 0.5, tint = STEEL,
     ground = "shock_ring", ground_size = 460, ground_seconds = 0.5, grow = 0.2 },
   c22e_voice = { system = "pop", sprite = "crescent_slash", size = 340, life = 0.3, tint = STEEL },
   c22e_swallow = { system = "stream", sprite = "soft_glow", size = 50, life = 0.5, loop = true, face = true, tint = STEEL,
@@ -123,8 +131,8 @@ M.RECIPES = {
   c22w_voice = { system = "burst", sprite = "swallow", size = 210, life = 0.5, tint = STEEL },
   c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, bold = true, tint = STEEL,
     ground = "vortex", ground_size = 480, ground_seconds = 1.5 },
-  c22t_thunder_clap = { system = "burst", sprite = "lightning", size = 520, life = 0.9, tint = STEEL, area = true,
-    ground = "shock_ring", ground_size = 500, ground_seconds = 1.1, grow = 0.08 },
+  c22t_thunder_clap = { system = "pop", sprite = "cut_cross", size = 560, life = 0.7, tint = STEEL, area = true,
+    ground = "soft_glow", ground_size = 500, ground_seconds = 1.1, grow = 0.08 },
   -- A26 濃姬: gunpowder fire and smoke
   a26w_hit_explosion = { look = "explosion_small" },
   a26e_smoke = { system = "burst", sprite = "smoke_sheet", size = 150, life = 0.8 },
@@ -219,8 +227,8 @@ M.WEAPONS = {
     strike = { system = "burst", sprite = "spark_star", size = 300, area = true, life = 0.3, ground = "shock_ring", ground_size = 240, ground_seconds = 0.3, height = 30, grow = 0.4 } },
 }
 M.ATTACKS = {
-  sasaki_kojiro = { "katana", STEEL, { sprite = "blink_flash", size = 150, ground = "shock_ring", ground_size = 210, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { ground_size = 230, ground_roll = -30 } },
-  okuma_tomohide = { "axe", { 1.0, 0.3, 0.03 }, { sprite = "flame_sheet", size = 60, ground = "shock_ring", ground_size = 170, height = 30, grow = 0.3, face_camera = false, ground_roll = false } },
+  sasaki_kojiro = { "katana", STEEL, { system = "pop", sprite = "iai_cut", size = 380, life = 0.24, ground = "soft_glow", ground_size = 150, ground_seconds = 0.2, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { ground_size = 230, ground_roll = -30 } },
+  okuma_tomohide = { "axe", { 1.0, 0.4, 0.05 }, { system = "pop", sprite = "axe_cleave", size = 340, life = 0.28, ground = "shock_ring", ground_size = 170, height = 30, grow = 0.3, face_camera = false, ground_roll = false } },
   kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 }, { sprite = "spark_star", size = 170, ground = "dust_crack", ground_size = 280, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 }, { sprite = "spark_star", size = 190 } },
   maeda_toshiie = { "spear", { 1.0, 0.62, 0.05 }, { sprite = "spark_star", size = 70, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust", ground_size = 200, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } }, maeda_keiji = { "spear", BLUE, { sprite = "spark_star", size = 70, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust_blue", ground_size = 200, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } },

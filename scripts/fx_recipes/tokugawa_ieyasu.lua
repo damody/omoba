@@ -12,9 +12,9 @@ return {
     a01e_vo = { system = "pop", sprite = "net", size = 460, life = 0.35, tint = GOLD },
     a01e_net = { system = "stream", sprite = "net", size = 170, life = 0.4, loop = true, tint = GOLD },
     -- E 雷霆刃: a lightning discharge at the cast and on a proc, a bolt on everyone struck
-    a01r_vo = { system = "burst", sprite = "lightning", size = 620, life = 0.45, tint = BLUE,
+    a01r_vo = { system = "pop", sprite = "bolt_fork", size = 620, life = 0.45, tint = BLUE,
       ground = "shock_ring", ground_size = 1100, ground_seconds = 0.5, grow = 0.15 },
-    a01r_thunder_sound = { system = "pop", sprite = "lightning", size = 380, life = 0.28, tint = BLUE,
+    a01r_thunder_sound = { system = "pop", sprite = "bolt_fork", size = 420, life = 0.28, tint = BLUE,
       ground = "shock_ring", ground_size = 620, ground_seconds = 0.35, grow = 0.2 },
     a01r_lightning = { system = "pop", sprite = "blink_flash", size = 140, life = 0.2, tint = BLUE,
       mesh = "thunder_sword", ground_size = 280, ground_seconds = 0.6, grow = 0.4, face_viewer = true },

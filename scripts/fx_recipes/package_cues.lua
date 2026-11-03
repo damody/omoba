@@ -12,5 +12,5 @@ return { recipes = {
   a12d_stack = { system = "pop", sprite = "arcane_circle", size = 240, life = 0.5, tint = { 0.7, 0.35, 1.0 } },
   a12d_ready = { system = "burst", sprite = "spark_star", size = 210, life = 0.5, tint = GOLD,
     ground = "arcane_circle", ground_size = 300, ground_seconds = 0.6, grow = 0.4 },
-  a14r_stack_hit = { system = "pop", sprite = "iron_shield", size = 200, life = 0.3, tint = GOLD, ground = "shock_ring", ground_size = 260, ground_seconds = 0.35, height = 30, grow = 0.5 },
+  a14r_stack_hit = { system = "pop", sprite = "stack_spears", size = 300, life = 0.36, tint = GOLD, ground = "shock_ring", ground_size = 260, ground_seconds = 0.35, height = 30, grow = 0.5 },
 } }
