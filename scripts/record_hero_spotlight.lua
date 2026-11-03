@@ -398,7 +398,7 @@ M.STRUCK_BOTH={c05_thunder_spear=true}
 -- moba_hero_spotlight_patrol.lua, watched unhurt first, then hit: the same road walked slowed.
 M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=8},c05_thunder_spear={at={2550,2000},seconds=5,wait=4}}
 -- Struck for this long the hero lives: seat 7 took 17 hits and 14 s to kill c05 at 164 a hit (out of its reach refill_players makes it whole).
-M.HALF_SECONDS={c05_thunder_spear=4,b26_kozuke_valor=4}
+M.HALF_SECONDS={c05_thunder_spear=5.5,b26_kozuke_valor=4}
 -- Where a reach is the point (backend units from the stand-in): c22 燕閃 reaches 228 at rank 1 and 378 at rank 4.
 M.STAND_OFF={c22_swallow_flash=330}
 -- A melee hero stands where its weapon reaches the stand-in (backend units): the stand-in no longer comes to it,
