@@ -117,6 +117,7 @@ return function(ctx)
           damage = { 180, 280, 380, 480, unit = "dmg", damage_type = "magical", source = "kv:AbilityDamage" },
           stun = { 0.8, 1.2, 1.6, 2, unit = "s", source = "kv:Duration" },
           blink_range = { 850, unit = "dist", source = "kv:max_blink_range" },
+          arrive_delay = { 0.2, unit = "s", hidden = true, source = "design:到達特效等模型到位才出現（只影響演出）" },
         },
         text = {
           zh_TW = { name = "神現一擊",
@@ -146,7 +147,7 @@ return function(ctx)
             } },
             { op = "cue", id = "a14e_blink_sparkles", at = "caster", to = "target" },
             { op = "teleport", who = "caster", to = "offset(caster, dir, $blink_range)" },
-            { op = "cue", id = "a14e_arrive", at = "caster" },
+            { op = "delay", time = "$arrive_delay", actions = { { op = "cue", id = "a14e_arrive", at = "caster" } } },
           },
         },
         coverage = "expressible", confidence = "high",

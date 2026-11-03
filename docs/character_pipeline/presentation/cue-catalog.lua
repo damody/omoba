@@ -11142,7 +11142,7 @@ return {
           doc = "A14",
           entry = "a14_divine_strike",
           kind = "effect",
-          where = "on_cast cue",
+          where = "on_cast in delay cue",
         },
       },
     },
