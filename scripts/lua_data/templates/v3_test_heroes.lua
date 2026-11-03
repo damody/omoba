@@ -12408,6 +12408,7 @@ local data = {
       description = "閃避所有飛來的投射物，對目標敵人造成 180/280/380/480 魔法傷害並暈眩 0.8/1.2/1.6/2 秒，然後沿著朝目標的方向瞬移到 850 遠處（穿過目標）。",
       display_name = "神現一擊",
       extras = {
+        arrive_delay = { 0.2, 0.2, 0.2, 0.2 },
         blink_range = { 850.0, 850.0, 850.0, 850.0 },
         cast_point = { 0.3, 0.3, 0.3, 0.3 },
         cast_range = { 700.0, 700.0, 700.0, 700.0 },
@@ -12499,6 +12500,13 @@ local data = {
           },
         },
         values = {
+          {
+            hidden = true,
+            name = "arrive_delay",
+            ranks = { "0.2", "0.2", "0.2", "0.2" },
+            raw = { 205, 205, 205, 205 },
+            unit = "s",
+          },
           {
             name = "blink_range",
             ranks = { "850", "850", "850", "850" },
