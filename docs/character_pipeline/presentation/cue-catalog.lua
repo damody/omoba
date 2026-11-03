@@ -11133,6 +11133,19 @@ return {
         },
       },
     },
+    a14e_arrive = {
+      assets = {},
+      kind = "effect",
+      placeholder = "generic",
+      uses = {
+        {
+          doc = "A14",
+          entry = "a14_divine_strike",
+          kind = "effect",
+          where = "on_cast cue",
+        },
+      },
+    },
     a14e_blink_sparkles = {
       assets = {
         {

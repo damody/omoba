@@ -146,6 +146,7 @@ return function(ctx)
             } },
             { op = "cue", id = "a14e_blink_sparkles", at = "caster", to = "target" },
             { op = "teleport", who = "caster", to = "offset(caster, dir, $blink_range)" },
+            { op = "cue", id = "a14e_arrive", at = "caster" },
           },
         },
         coverage = "expressible", confidence = "high",

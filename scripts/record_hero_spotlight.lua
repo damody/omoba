@@ -401,9 +401,13 @@ M.STRUCK_AT={2700,2130}
 M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_tenacity={2480,2450}}
 M.HOLDS_STILL={b20_tenacity=true}
 -- b27 裂地刃 reaches 1000: the death's stand-ins are hit too, and at the usual cap (2) their ripples were cut off.
-M.VIEW_BACK={b27_rending_blade=2.7}
+M.VIEW_BACK={b27_rending_blade=2.7,a14_impact_spear=2.3,a14_divine_strike=2.3}
 -- c03 不動戰錘: the hero stands far from the stand-in for it, and the blast is large: out before the cast.
-M.VIEW_EARLY={c03_iron_hammer=true}
+M.VIEW_EARLY={c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
+-- a14 衝擊槍 flies the stand-in (seat 2, 2300,2160) until a body stops it: from here the line runs into seat 7 (2900,2230), and the crash and its 350 show.
+-- a14 神現一擊 blinks 850 through the stand-in: from here it lands at 2300,2880, clear of the strikers and the towers. Both frames hold the hero, the target and the landing.
+M.STAND_AT={a14_impact_spear={2171,2145},a14_divine_strike={2300,2030}}
+M.VIEW_AT={a14_impact_spear={2535,2190},a14_divine_strike={2300,2455}}
 -- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
 M.CAST_AT={c05_flash_thunder={2440,2300}}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one. c05: beside the patrol of
@@ -476,6 +480,9 @@ function M.script(package)
     if M.LEARN_MIDWAY[slot.id] then slot.learn_midway=true end
     slot.stand_off=M.STAND_OFF[slot.id] or M.forward_offset(doc,slot.id) or M.WEAPON_REACH[package.hero]
     if M.VIEW_EARLY[slot.id] then slot.view_early=true end
+    local stand_at,view_at=M.STAND_AT[slot.id],M.VIEW_AT[slot.id]
+    if stand_at then slot.stand_x,slot.stand_y=stand_at[1],stand_at[2] end
+    if view_at then slot.view_x,slot.view_y=view_at[1],view_at[2] end
     local struck=M.STRUCK_BOTH[slot.id]
     if struck then slot.struck_x,slot.struck_y=struck[1],struck[2] end
     if M.HOLDS_STILL[slot.id] then slot.holds_still=true end
