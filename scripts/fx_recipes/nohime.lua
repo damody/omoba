@@ -14,7 +14,7 @@ return {
     a26e_smoke = { system = "pop", sprite = "smoke_sheet", size = 240, life = 0.6,
       ground = "dust_crack", ground_size = 130, ground_seconds = 0.5, line = true },
     -- a26_twin_guns: on a crit two flames leave the muzzle along her aim. Its image has its own colours.
-    a26r_crit_gesture = { ground = "twin_muzzle", ground_size = 240, ground_seconds = 0.24, height = 110, lead = 256, grow = 0.7, face_camera = 0.85 },
+    a26r_crit_gesture = { ground = "twin_muzzle", ground_size = 200, ground_seconds = 0.24, height = 80, launch = 170, grow = 0.7, face_camera = 0.85 },
     -- a26_scorching_bomb
     a26t_voice = { system = "pop", sprite = "spark_star", size = 280, life = 0.45, tint = ORANGE,
       ground = "arcane_circle", ground_size = 340, ground_seconds = 0.5, grow = 0.4 },
