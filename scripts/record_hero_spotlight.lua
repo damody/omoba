@@ -41,7 +41,10 @@ M.PROPS_RECIPE='scripts/lua_data/moba_hero_spotlight_props.lua'
 -- A hero struck or slowing a walker in its passive: the base stage plus a patrol out of every other segment's view,
 -- and whole again whenever no striker reaches it (refill_players).
 M.PATROL_RECIPE='scripts/lua_data/moba_hero_spotlight_patrol.lua'
-M.PATROL_HEROES={maeda_keiji=true,okuma_tomohide=true}
+M.PATROL_HEROES={maeda_keiji=true,okuma_tomohide=true,tokugawa_ieyasu=true}
+-- A hero whose passive answers to a spell: the base stage plus seat 6's scheduled casts in one circle.
+M.CASTS_RECIPE='scripts/lua_data/moba_hero_spotlight_casts.lua'
+M.CASTS_HEROES={yamagata_masakage=true}
 function M.recipe_for(package)
   local tree,props=false,package.props==true
   for _,slot in ipairs(package.slots) do
@@ -52,6 +55,7 @@ function M.recipe_for(package)
   if tree then return M.TREE_RECIPE end
   if props then return M.PROPS_RECIPE end
   if M.PATROL_HEROES[package.hero or ''] then return M.PATROL_RECIPE end
+  if M.CASTS_HEROES[package.hero or ''] then return M.CASTS_RECIPE end
   return M.LANE_HEROES[package.hero or ''] and M.LANE_RECIPE or M.RECIPE
 end
 M.DEFAULT_FFMPEG='target/tools/ffmpeg/ffmpeg.exe'
@@ -392,8 +396,10 @@ M.NO_VIEW={c05_matsukaze=true,c05_flash_thunder=true}
 -- Where only seat 7 of the death's strikers is within STRIKE_REACH (224; seat 9 at 335), clear of the
 -- demonstration's stand-in: no other segment changes.
 M.STRUCK_AT={2700,2130}
--- c05 雷鳴豪槍: its slowed attacks, at ranks 1 and 4.
-M.STRUCK_BOTH={c05_thunder_spear=true}
+-- c05 雷鳴豪槍: its slowed attacks, at ranks 1 and 4. a01D 乘勢: mana and life back under a striker's hits (mana off: life only).
+-- b20 不屈: a spell at ranks 1 and 4, in the circle of moba_hero_spotlight_casts.lua, 262 from its caster and no striker near.
+M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_tenacity={2480,2450}}
+M.HOLDS_STILL={b20_tenacity=true}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one. c05: beside the patrol of
 -- moba_hero_spotlight_patrol.lua, watched unhurt first, then hit: the same road walked slowed.
 M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=8},c05_thunder_spear={at={2550,2000},seconds=7,wait=4}}
@@ -406,7 +412,7 @@ M.STAND_OFF={c22_swallow_flash=330}
 M.WEAPON_REACH={sasaki_kojiro=130,tokugawa_ieyasu=130,yamagata_masakage=130,okuma_tomohide=120,kojima_sadaoki=120,shimazu_yoshihiro=120,maeda_toshiie=170,maeda_keiji=170}
 -- Passives that answer to the hero's own casts: the segment casts them, it does not attack.
 M.CASTS_OWN={a12_scheme=true}
-M.LEARN_MIDWAY={c22_swallow_flash=true,c05_thunder_spear=true,b26_kozuke_valor=true,a14_stacked_spear=true,a26_twin_guns=true,c03_thunder_wrath=true}
+M.LEARN_MIDWAY={b20_tenacity=true,c22_swallow_flash=true,c05_thunder_spear=true,b26_kozuke_valor=true,a14_stacked_spear=true,a26_twin_guns=true,c03_thunder_wrath=true}
 function M.view_radius(doc,id)
   if M.NO_VIEW[id] then return nil end
   for _,ability in ipairs(doc and doc.abilities or {}) do
@@ -452,7 +458,9 @@ function M.script(package)
     slot.view=M.view_radius(doc,slot.id);slot.hold=M.hold_seconds(doc,slot.id)
     if M.LEARN_MIDWAY[slot.id] then slot.learn_midway=true end
     slot.stand_off=M.STAND_OFF[slot.id] or M.WEAPON_REACH[package.hero]
-    if M.STRUCK_BOTH[slot.id] then slot.struck_x,slot.struck_y=M.STRUCK_AT[1],M.STRUCK_AT[2] end
+    local struck=M.STRUCK_BOTH[slot.id]
+    if struck then slot.struck_x,slot.struck_y=struck[1],struck[2] end
+    if M.HOLDS_STILL[slot.id] then slot.holds_still=true end
     local third=M.THIRD_HALF[slot.id]
     if third then slot.third_x,slot.third_y,slot.third_seconds,slot.third_wait=third.at[1],third.at[2],third.seconds,third.wait end
     if M.CASTS_OWN[slot.id] then slot.casts_own=true end
@@ -465,7 +473,7 @@ function M.script(package)
   end
   -- The death ends the recording: only the base stage has the enemies that strike it down.
   local stage=M.recipe_for(package)
-  if stage==M.RECIPE or stage==M.LANE_RECIPE or stage==M.PATROL_RECIPE then
+  if stage==M.RECIPE or stage==M.LANE_RECIPE or stage==M.PATROL_RECIPE or stage==M.CASTS_RECIPE then
     for _,show in ipairs(M.BODY_SHOWS) do
       if show.kind=='attack' and M.WEAPON_REACH[package.hero] then
         local closer={}
