@@ -29,6 +29,7 @@ M.SLOT_OF_ACTION={Q=0,W=1,E=2,R=3,extra1=4,extra2=5}
 M.RECIPE='scripts/lua_data/moba_hero_spotlight.lua'
 -- A hero whose abilities cross a long way: the stand-ins line up along the open top lane.
 M.LANE_RECIPE='scripts/lua_data/moba_hero_spotlight_lane.lua'
+M.LANE_DEATH_AT={2100,2400}
 M.LANE_HEROES={maeda_toshiie=true}
 -- A hero with a tree-target ability is shown on the nobu map, which has trees (D21: every ability
 -- is demonstrated).
@@ -427,7 +428,15 @@ function M.script(package)
   -- The death ends the recording: only the base stage has the enemies that strike it down.
   local stage=M.recipe_for(package)
   if stage==M.RECIPE or stage==M.LANE_RECIPE then
-    for _,show in ipairs(M.BODY_SHOWS) do slots[#slots+1]=show end
+    for _,show in ipairs(M.BODY_SHOWS) do
+      if show.kind=='death' and stage==M.LANE_RECIPE then
+        local moved={}
+        for key,value in pairs(show) do moved[key]=value end
+        moved.at=M.LANE_DEATH_AT
+        show=moved
+      end
+      slots[#slots+1]=show
+    end
   end
   return {schema=1,hero=package.hero,hero_name=package.hero_name,title=package.title,
     timing=json.object({caption_lead=1.5,hold=4.5,passive=9}),slots=slots}
