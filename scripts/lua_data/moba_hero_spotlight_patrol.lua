@@ -24,12 +24,12 @@ return {schema_version=1,map_id='three_lane_quick_training',think_hz=5,mana_enab
   },
   -- Level 16 learns every ultimate (asai's extra slot requires 16); 30x stand-in hit points
   -- survive summons and empowered attacks for the whole demonstration.
-  showcase={start_level=16,minion_waves=false,hold_players={2,6,7,8,9,10},strike_players={7,8,9},patrols={{player=10,a={3400,2000},b={3400,2800}}},hold_hp_permille=30000,
+  showcase={start_level=16,minion_waves=false,hold_players={2,6,7,8,9,10},strike_players={7,8,9},patrols={{player=10,a={2000,1500},b={2800,1500}}},hold_hp_permille=30000,
     -- +x is down on screen and the caption covers the bottom: stand-ins left and right (y),
     -- 240 apart, clear of the north river brush (y 2700+). 240 keeps every published cast range
     -- in reach (B06 連牙炎突 is 250: at 280 its spotlight was skipped, E163) and stays outside
     -- the melee stand-ins' 128 attack range.
     placements={['1']={2300,2400},['2']={2300,2160},['6']={2300,2640},
       -- Either side of where the hero falls: nothing between it and the camera.
-      ['7']={2900,2230},['8']={2900,2570},['9']={3030,2190},['10']={3400,2000}}},
+      ['7']={2900,2230},['8']={2900,2570},['9']={3030,2190},['10']={2000,1500}}},
 }

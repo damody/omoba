@@ -395,7 +395,9 @@ M.STRUCK_AT={2700,2130}
 M.STRUCK_BOTH={c05_thunder_spear=true}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one. c05: beside the patrol of
 -- moba_hero_spotlight_patrol.lua, watched unhurt first, then hit: the same road walked slowed.
-M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=10},c05_thunder_spear={at={3300,2400},seconds=8,wait=5}}
+M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=8},c05_thunder_spear={at={2300,1700},seconds=8,wait=5}}
+-- The hero loses most of its life to these: shown after every other ability, or a later one finds it dead (E's B26 at R).
+M.SHOWN_LAST={b26_kozuke_valor=true,c05_thunder_spear=true}
 -- Where a reach is the point (backend units from the stand-in): c22 燕閃 reaches 228 at rank 1 and 378 at rank 4.
 M.STAND_OFF={c22_swallow_flash=330}
 -- Its attacks after that reach land from far off: the attack segment stands where the blade visibly connects.
@@ -444,6 +446,7 @@ function M.script(package)
     end
   end
   local doc=package.hero and M.v3_document(b.root,package.hero)
+  local shown_last={}
   for _,slot in ipairs(package.slots) do
     slot.view=M.view_radius(doc,slot.id);slot.hold=M.hold_seconds(doc,slot.id)
     if M.LEARN_MIDWAY[slot.id] then slot.learn_midway=true end
@@ -452,8 +455,9 @@ function M.script(package)
     local third=M.THIRD_HALF[slot.id]
     if third then slot.third_x,slot.third_y,slot.third_seconds,slot.third_wait=third.at[1],third.at[2],third.seconds,third.wait end
     if M.CASTS_OWN[slot.id] then slot.casts_own=true end
-    slots[#slots+1]=slot
+    if M.SHOWN_LAST[slot.id] then shown_last[#shown_last+1]=slot else slots[#slots+1]=slot end
   end
+  for _,slot in ipairs(shown_last) do slots[#slots+1]=slot end
   -- What needs an ability still active has its turn while it is.
   for index=1,#slots-1 do
     if slots[index+1].after==slots[index].id and slots[index].hold then slots[index].hold=math.min(slots[index].hold,M.BASE_HOLD) end
