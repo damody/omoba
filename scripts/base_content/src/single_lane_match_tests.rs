@@ -739,6 +739,63 @@ fn summon_priority_formal_60hz_active_host_destination_prevents_lateral_aggro_st
     assert_eq!(run(),run());
 }
 
+/// A strike seat stays by its place, melee and ranged: it keeps hitting a hero in reach of that place,
+/// walking up if it has to; a hero out of it is let go, and the seat walks back and stops hitting.
+#[test]
+fn showcase_strike_seat_lets_a_hero_go_outside_its_place_and_walks_back() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::ShowcaseConfig;
+    let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
+    for striker in ["date_masamune","saika_magoichi"] {
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+            players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,striker,BotRole::Mid,true)],
+            ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+            showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,1800]),(6,[2300,2600])].into(),
+                hold_players:[6].into(),strike_players:[6].into(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],
+                refill_players:Default::default()})};
+        let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;
+        let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+        d.step(&mut w,[]).unwrap();
+        let of=|w:&World,id:u32|w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
+        let (hero,stand_in)=(of(&w,1),of(&w,6));
+        w.write_resource::<BuffStore>().add(hero,"test_no_regen",Fixed64::from_i32(10_000),serde_json::json!({"health_regen_percentage":-1024}));
+        {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(hero).unwrap();p.mhp=Fixed64::from_i32(500_000);p.hp=p.mhp;}
+        // The hero holds, so its own attacks do not walk it back in.
+        d.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::HoldPosition(omoba_core::game_proto::HoldPosition {queued:false}))})]).unwrap();
+        let hp=|w:&World|w.read_storage::<CProperty>().get(hero).unwrap().hp;
+        let place=omoba_sim::Vec2::new(Fixed64::from_i32(2300),Fixed64::from_i32(2600));
+        let off_place=|w:&World|(w.read_storage::<Pos>().get(stand_in).unwrap().0-place).length();
+        let put=|w:&mut World,y:i32|w.write_storage::<Pos>().get_mut(hero).unwrap().0=omoba_sim::Vec2::new(Fixed64::from_i32(2300),Fixed64::from_i32(y));
+        fn steps(w:&mut World,d:&mut SimulationDriver,bots:&RoleBotConfig,ticks:u32) {
+            for _ in 0..ticks {
+                let inputs=role_bot_inputs(w,bots).unwrap();
+                d.step(w,inputs).unwrap();
+                let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(w,t,0);
+            }
+        }
+        // In reach of its place, 250 off: hit, the melee seat walking up for it.
+        put(&mut w,2350);
+        let before=hp(&w);
+        steps(&mut w,&mut d,&bots,6*60);
+        assert!(hp(&w)<before,"{striker}: in reach, not hit");
+        let walked=off_place(&w);
+        if striker=="date_masamune" {assert!(walked>Fixed64::from_i32(60),"{striker}: did not walk up: {walked:?}");}
+        // Out of its reach, though within reach of where a walked-up seat stands: let go.
+        put(&mut w,2200);
+        steps(&mut w,&mut d,&bots,4*60);
+        assert!(off_place(&w)<=Fixed64::from_i32(60),"{striker}: did not walk back: {:?}",off_place(&w));
+        let before=hp(&w);
+        steps(&mut w,&mut d,&bots,5*60);
+        assert_eq!(hp(&w),before,"{striker}: still hit out of reach");
+        assert!(off_place(&w)<=Fixed64::from_i32(60),"{striker}: left its place again");
+        // Back in reach: hit again.
+        put(&mut w,2400);
+        steps(&mut w,&mut d,&bots,6*60);
+        assert!(hp(&w)<before,"{striker}: back in reach, not hit");
+    }
+}
+
 /// A refill seat: real strikes take its life and kill it once; away from the striker it is full again
 /// the moment it is out of reach; the dead stay dead until the ordinary respawn.
 #[test]

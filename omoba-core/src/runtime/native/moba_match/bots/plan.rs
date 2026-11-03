@@ -652,6 +652,13 @@ mod tests {
         let striker = stage.striker;
         stage.world.write_storage::<CProperty>().get_mut(striker).unwrap().hp = Fixed64::ZERO;
         assert_eq!(stage.at(2650,500), full, "a dead striker");
+        // A striker off its place: danger is by its place, the reach it strikes in, not where it stands.
+        let mut stage = Stage::new(&staged);
+        let striker = stage.striker;
+        let off = |stage:&mut Stage,x:i32| stage.world.write_storage::<Pos>().get_mut(striker).unwrap().0 = Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(2400));
+        off(&mut stage,2000);
+        assert_eq!(stage.at(2000,500), full, "next to a striker walking back, out of its place's reach");
+        assert!(stage.at(2650,500) < full, "in its place's reach, the striker elsewhere");
         // Paused, or off the Playing phase: nothing.
         let mut stage = Stage::new(&staged);
         stage.world.write_resource::<GamePause>().is_paused = true;
@@ -663,6 +670,37 @@ mod tests {
         let mut unnamed = staged.clone(); unnamed.showcase.as_mut().unwrap().refill_players.clear();
         assert!(Stage::new(&unnamed).at(2000,500) < full, "not named");
         assert!(Stage::new(&showcase_plan()).at(2000,500) < full, "a stage without it");
+    }
+    #[test]
+    fn a_strike_seat_measures_its_reach_from_its_place_and_lets_go_outside_it() {
+        let mut p = showcase_plan();
+        { let stage = p.showcase.as_mut().unwrap(); stage.strike_players = [6].into(); stage.placements.insert(6,[2750,2400]); }
+        let (config,bots) = p.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        setup_single_lane_match(&mut world, config).unwrap();
+        world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Playing;
+        let of = |world:&specs::World,id:u32| world.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
+        let (seat,hero) = (of(&world,6),of(&world,1));
+        world.write_storage::<HeroCommandQueue>().insert(seat, HeroCommandQueue::default()).unwrap();
+        let tick = bots.think_interval_ticks;
+        world.write_resource::<crate::comp::Tick>().0 = tick;
+        let mut order = |seat_x:i32,hero_x:i32| {
+            let at = |x:i32| Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(2400));
+            world.write_storage::<Pos>().get_mut(seat).unwrap().0 = at(seat_x);
+            world.write_storage::<Pos>().get_mut(hero).unwrap().0 = at(hero_x);
+            crate::runtime::run_committed_visibility_wave_b(&mut world, tick, 0);
+            super::role_bot_inputs(&world,&bots).unwrap().into_iter().find(|(player,_)|*player==6).and_then(|(_,input)|input.action)
+        };
+        let back = Vec2I {x:Fixed64::from_i32(2750).raw() as i32,y:Fixed64::from_i32(2400).raw() as i32};
+        assert!(matches!(order(2750,2650),Some(PlayerInputEnum::AttackTarget(_))),"in reach, from its place");
+        // Walked up for its attack, off its place: a hero still in reach of the place is still attacked...
+        assert!(matches!(order(2500,2450),Some(PlayerInputEnum::AttackTarget(_))),"at the reach");
+        assert!(matches!(order(2000,2650),Some(PlayerInputEnum::AttackTarget(_))),"far from the seat, in reach of the place");
+        // ...a hero past it is let go, however close to the seat, and the seat walks back.
+        assert!(matches!(order(2500,2449),Some(PlayerInputEnum::MoveTo(MoveTo {target:Some(target),..})) if target==back),"past the reach");
+        // At its place it holds rather than attacks a hero out of reach.
+        assert!(matches!(order(2750,2449),Some(PlayerInputEnum::HoldPosition(_))|None),"holds");
     }
     #[test]
     fn showcase_refills_are_rejected_off_the_roster_and_absent_from_real_plans() {

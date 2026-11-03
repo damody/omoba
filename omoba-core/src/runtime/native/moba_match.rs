@@ -477,8 +477,9 @@ pub struct ShowcaseConfig {
     /// command on every life, so they never chase.
     #[serde(default)]
     pub hold_players: BTreeSet<u32>,
-    /// Held seats that also attack an enemy hero who comes within STRIKE_REACH of them: how a
-    /// spotlight shows the demonstrated hero's death, by the ordinary attack and death rules.
+    /// Held seats that also attack an enemy hero who comes within STRIKE_REACH of their placement
+    /// (of where they stand, on a patrol): how a spotlight shows the demonstrated hero's death, by
+    /// the ordinary attack and death rules. A hero who leaves it is let go and the seat walks back.
     #[serde(default)]
     pub strike_players: BTreeSet<u32>,
     /// Hit points of a held hero, per mille of its normal value, so a whole
@@ -501,8 +502,8 @@ pub struct ShowcaseConfig {
     /// movement slow on a moving target, by ordinary move orders at the seat's own speed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub patrols: Vec<ShowcasePatrol>,
-    /// Seats back at full life whenever no living enemy strike seat is within STRIKE_REACH, so a
-    /// long demonstration cannot end its hero early; next to one it loses life and dies as usual.
+    /// Seats back at full life whenever they are out of every living enemy strike seat's reach, so a
+    /// long demonstration cannot end its hero early; in one's reach it loses life and dies as usual.
     /// Playing and unpaused only, and a life only: the dead and the dying wait for their respawn.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub refill_players: BTreeSet<u32>,
@@ -652,6 +653,12 @@ impl ShowcaseConfig {
             cast.rank >= 1 && cast.rank <= def.max_level && def.levels.get(usize::from(cast.rank) - 1)
                 .is_some_and(|level| self.start_level >= i32::from(level.required_hero_level))
         })
+    }
+    /// Where a strike seat measures STRIKE_REACH from: its place, so an attack it walks up for does
+    /// not carry its reach along after the hero. A patrol has no place: where it stands now.
+    pub(crate) fn strike_center(&self, player: u32, own: Vec2) -> Vec2 {
+        self.placements.get(&player).filter(|_| !self.patrols.iter().any(|patrol| patrol.player == player))
+            .map_or(own, |[x, y]| Vec2::new(Fixed64::from_i32(*x), Fixed64::from_i32(*y)))
     }
     fn holds(config: &SingleLaneConfig, player_id: u32) -> bool {
         config.showcase.as_ref().is_some_and(|showcase| showcase.hold_players.contains(&player_id))
@@ -1962,9 +1969,10 @@ fn run_showcase_refills(world: &mut World, state: &MobaMatch) {
         let Some(own) = positions.get(entity) else { continue };
         if !properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO && p.hp < p.mhp) { continue; }
         let struck = state.heroes.iter().filter(|striker| striker.side != slot.side && showcase.strike_players.contains(&striker.player_id))
-            .filter_map(|striker| striker.entity)
-            .filter(|striker| properties.get(*striker).is_some_and(|p| p.hp > Fixed64::ZERO))
-            .any(|striker| positions.get(striker).is_some_and(|pos| (pos.0 - own.0).length_squared() <= reach * reach));
+            .filter_map(|striker| striker.entity.map(|entity| (striker.player_id, entity)))
+            .filter(|(_, striker)| properties.get(*striker).is_some_and(|p| p.hp > Fixed64::ZERO))
+            .any(|(player, striker)| positions.get(striker).is_some_and(|pos|
+                (showcase.strike_center(player, pos.0) - own.0).length_squared() <= reach * reach));
         if struck { continue; }
         if let Some(property) = properties.get_mut(entity) { property.hp = property.mhp; }
     }
