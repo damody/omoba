@@ -190,6 +190,11 @@
 | 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_war_banner | tokugawa R（a01t_vo） | 25 | 375 | 23980 | `1f48d21b-7d2d-48f7-ad1c-bbfd43a83a05` | 1388 面，靜態，匯出 FBX 0 點 |
 | 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_spear_head | toshiie Q（a14w_spear_cast） | 25 | 400 | 23955 | `9ebeb1a1-6fe3-4ec3-b802-dd273889ce3d` | 1208 面，靜態，匯出 FBX 0 點 |
 | 2026-11-03 | Tripo（單張圖、H3.1、512） | fx_iron_bell | shimazu Q（c03w_vo） | 25 | 425 | 23930 | `46852dae-614d-4b69-a129-6a07e144e8fa` | 1347 面，靜態，匯出 FBX 0 點 |
+| 2026-11-04 | Tripo（單張圖、H3.1、512） | fx_rope_net | tokugawa W（a01e_net_land） | 25 | 450 | 20535 | `8ad243fc-ba0f-4366-96e0-79c316bd474f` | 1470 面的網格撐不起網孔，成品是破碎實心片，未採用 |
+| 2026-11-04 | Tripo（單張圖、H3.1、512） | fx_tower_shield | kojima E（b27r_model_grow） | 25 | 475 | 20510 | `52335c43-fda4-482c-805d-4779d3979b43` | 1340 面，靜態，匯出 FBX 0 點 |
+| 2026-11-04 | Tripo（單張圖、H3.1、512） | fx_oni_mask | okuma W（b26e_voice） | 25 | 500 | 20485 | `d3f409a8-b015-4908-8056-583c40558ce3` | 1396 面，靜態，匯出 FBX 0 點 |
+| 2026-11-04 | Tripo（單張圖、H3.1、512） | fx_wind_spiral | keiji Q（c05w_vo） | 25 | 525 | 20460 | `b33e71c4-378a-4d49-9cf8-73210438f29c` | 1416 面，靜態，匯出 FBX 0 點 |
+| 2026-11-04 | Tripo（單張圖、H3.1、512） | fx_fury_spear | toshiie R（a14t_title） | 25 | 550 | 20435 | `f1a19e3c-bb68-4e00-b4e9-dd931a0fc3f6` | 1500 面，靜態，匯出 FBX 0 點 |
 
 ## 待決定
 
