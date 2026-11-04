@@ -59,7 +59,7 @@ M.IMAGES = {
   heal_cross = { gain = 1.0 },
   heal_rise = { gain = 1.0 },
   powder_ring = { gain = 1.0 },
-  crack_quake = { gain = 1.0 }, possession_sigil = { gain = 1.0 }, possession_flare = { gain = 1.0 }, arcane_wisp = { gain = 1.0 }, blink_trace = { gain = 1.0 }, thrust_star = { gain = 1.0 }, arc_fork = { gain = 1.0 }, crack_red = { gain = 1.0 }, crack_earth = { gain = 1.0 }, crack_gold = { gain = 1.0 }, crack_hammer = { gain = 1.0 },
+  arcane_bolt = { gain = 1.0 }, crack_quake = { gain = 1.0 }, possession_sigil = { gain = 1.0 }, possession_flare = { gain = 1.0 }, arcane_wisp = { gain = 1.0 }, blink_trace = { gain = 1.0 }, thrust_star = { gain = 1.0 }, arc_fork = { gain = 1.0 }, crack_red = { gain = 1.0 }, crack_earth = { gain = 1.0 }, crack_gold = { gain = 1.0 }, crack_hammer = { gain = 1.0 },
   heal_cross_soft = { gain = 1.0 }, mist_cuts = { gain = 1.0 }, heal_cross_solid = { gain = 1.0 },
   pistol_flare = { rot = -1.571, gain = 1.0 },
   pistol_shot = { rot = -1.571, gain = 1.0 },
@@ -230,8 +230,8 @@ M.WEAPONS = {
   gun = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.14,
       ground = "spark_star", ground_size = 90, ground_seconds = 0.2, height = 70, fly = true },
     strike = { system = "burst", sprite = "shock_ring", size = 170, life = 0.3, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
-  arcane = { swing = { system = "pop", sprite = "soft_glow", size = 90, life = 0.16, ground = "soft_glow", ground_size = 110, ground_seconds = 0.26, height = 70, fly = true },
-    strike = { system = "burst", sprite = "spark_star", size = 300, area = true, life = 0.3, ground = "shock_ring", ground_size = 240, ground_seconds = 0.3, height = 30, grow = 0.4 } },
+  arcane = { swing = { system = "pop", sprite = "soft_glow", size = 60, life = 0.14, ground = "arcane_bolt", ground_size = 170, ground_seconds = 0.26, height = 70, fly = true, face_camera = 0.5 },
+    strike = { system = "burst", sprite = "spark_star", size = 170, life = 0.28, ground = "shock_ring", ground_size = 170, ground_fixed = true, ground_seconds = 0.26, height = 30, grow = 0.4 } },
 }
 M.ATTACKS = {
   sasaki_kojiro = { "katana", STEEL, { system = "pop", sprite = "iai_cut", size = 380, life = 0.24, ground = "soft_glow", ground_size = 150, ground_seconds = 0.2, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { ground_size = 230, ground_roll = -30 } },
