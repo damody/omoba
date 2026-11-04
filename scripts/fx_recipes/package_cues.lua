@@ -9,6 +9,10 @@ return { recipes = {
   a01d_restore = { system = "pop", sprite = "heal_cross", size = 190, life = 0.5, tint = GREEN },
   b20r_restore = { system = "burst", sprite = "heal_ring", size = 190, life = 0.4, tint = GREEN },
   b26r_restore = { system = "pop", sprite = "heal_rise", size = 210, life = 0.6, tint = GREEN, no_damage_flash = true },
+  -- The stand-ins' own hits: small, so they never cover the hero being shown.
+  b01r_hit = { system = "pop", sprite = "spark_star", size = 70, fixed_size = true, life = 0.18, tint = GOLD },
+  b04e_impact = { system = "pop", sprite = "blink_flash", size = 90, fixed_size = true, life = 0.2, tint = ARCANE },
+  b04e_blast = { system = "sparks", tint = ARCANE },
   a12d_stack = { system = "pop", sprite = "arcane_circle", size = 240, life = 0.5, tint = { 0.7, 0.35, 1.0 } },
   a12d_ready = { system = "burst", sprite = "spark_star", size = 210, life = 0.5, tint = GOLD,
     ground = "arcane_circle", ground_size = 300, ground_seconds = 0.6, grow = 0.4 },

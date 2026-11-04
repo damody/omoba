@@ -415,8 +415,8 @@ M.AFTER_ATTACK={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true
 -- a12 奇計 stacks on four arrows; the fifth cast, the form's 智芒乍現．遠 (slot 0), is the empowered one that stuns.
 -- Only inside the 20 s form do five casts fit in a segment, and only there can arrows fly: it stays open from R, its segments short.
 M.KEEPS_BUFFS={a12_mystic_arrow=true,a12_scheme=true}
--- b20 強韌 restores after each cast of his: Q and W in its own segment show it.
-M.BURST={a12_mystic_arrow={5,5},a12_scheme={5,5,5,5,0},b20_tenacity={0,1}}
+-- b20 強韌 restores after each cast of his: Q in its own segment shows it (W's crown overflows at this close camera).
+M.BURST={a12_mystic_arrow={5,5},a12_scheme={5,5,5,5,0},b20_tenacity={0}}
 M.HOLD_FOR={a12_mystic_possession=3.5,a12_mystic_arrow=3.5}
 -- c03 不動戰錘: the hero stands far from the stand-in for it, and the blast is large: out before the cast.
 M.VIEW_EARLY={c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
