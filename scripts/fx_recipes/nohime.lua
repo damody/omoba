@@ -15,7 +15,7 @@ return {
     -- a26_twin_guns: on a crit one flame leaves the pistol that fired. The cue comes at the windup's start; the shot is 0.2 s on, less with her attack speed. Its image has its own colours.
     a26r_crit_gesture = { ground = "pistol_flare", ground_size = 120, ground_fixed = true, ground_seconds = 0.22, lead = 30, launch = 100, from_hand = true, delay = 0.15, grow = 0.6, face_camera = 0.85 },
     -- a26_scorching_bomb
-    a26t_voice = { system = "pop", sprite = "spark_star", size = 280, life = 0.45, tint = ORANGE,
+    a26t_voice = { system = "pop", sprite = "spark_star", size = 280, life = 0.45, tint = ORANGE, also = { "fx_layer_oozutsu_cannon" },
       ground = "arcane_circle", ground_size = 340, ground_seconds = 0.5, grow = 0.4 },
     a26t_bomb_arcana = { system = "stream", sprite = "flame_sheet", size = 60, life = 0.3, loop = true, face = true,
       mesh = "fire_bomb", ground_size = 90, ground_seconds = 20, height = 110, spin = 360 },

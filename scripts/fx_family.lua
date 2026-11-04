@@ -111,7 +111,7 @@ M.RECIPES = {
   -- C22 佐佐木小次郎: steel blue sword light; swallows and a thunder clap
   c22d_hand_glow = { system = "stream", sprite = "spark_star", size = 70, life = 0.5, loop = true, tint = STEEL },
   c22d_return_projectile = { look = "line", tint = STEEL },
-  c22d_cast_sound = { system = "burst", sprite = "blink_flash", size = 420, life = 0.5, tint = STEEL,
+  c22d_cast_sound = { system = "burst", sprite = "blink_flash", size = 420, life = 0.5, tint = STEEL, also = { "fx_layer_giant_nodachi" },
     ground = "shock_ring", ground_size = 460, ground_seconds = 0.5, grow = 0.2 },
   c22e_voice = { system = "pop", sprite = "crescent_slash", size = 340, life = 0.3, tint = STEEL },
   c22e_swallow = { system = "stream", sprite = "soft_glow", size = 50, life = 0.5, loop = true, face = true, tint = STEEL,
@@ -244,6 +244,8 @@ M.RECIPES.fx_layer_possession_flare = { ground = "possession_flare", ground_size
 M.RECIPES.fx_layer_possession_embers = { system = "burst", sprite = "spark_star", size = 60, life = 0.6, tint = { 0.5, 0.1, 1.0 }, delay = 0.1 }
 M.RECIPES.fx_layer_quake_sparks = { system = "sparks", tint = { 1.0, 0.45, 0.1 }, delay = 0.06 }
 M.RECIPES.fx_layer_powder_sparks = { system = "sparks", tint = { 1.0, 0.5, 0.08 }, delay = 0.05 }
+M.RECIPES.fx_layer_giant_nodachi = { mesh = "giant_nodachi", ground_size = 240, ground_seconds = 0.9, lead = 130, grow = 0.2 }
+M.RECIPES.fx_layer_oozutsu_cannon = { mesh = "oozutsu_cannon", ground_size = 170, ground_seconds = 0.5, lead = 120, grow = 0.4 }
 M.RECIPES.fx_layer_powder_keg = { mesh = "powder_keg", ground_size = 80, ground_seconds = 0.6, lead = 170, grow = 0.8 }
 M.RECIPES.fx_layer_mana_motes = { system = "sparks", tint = { 0.25, 0.55, 1.0 }, delay = 0.08 }
 
@@ -269,7 +271,7 @@ M.MESH_SOURCE = "omfue/SourceArt/Structures/TripoStaticV1"
 -- roll = 90 shows that side to whatever the cue faces (face_viewer); tilt: about its long axis, before the roll.
 M.MESHES = {
   throw_axe = {}, rocket = {}, cannon_shell = {}, arcane_arrow = {}, thunder_spear = {}, spear_head = {}, swallow = { tilt = -90 },
-  medicine_inro = {}, armor_plate = {}, powder_keg = {}, rock_chunk = {}, fire_bomb = {}, earth_crown = {}, shock_dome = { translucent = true },
+  giant_nodachi = {}, oozutsu_cannon = {}, medicine_inro = {}, armor_plate = {}, powder_keg = {}, rock_chunk = {}, fire_bomb = {}, earth_crown = {}, shock_dome = { translucent = true },
   war_hammer = { roll = 90 }, fissure_blade = { roll = 90 }, iron_bell = { roll = 90, translucent = true }, fire_wings = { roll = 90 }, thunder_sword = { roll = 90 }, war_banner = { roll = 90 },
   tower_shield = { roll = -90 }, oni_mask = { roll = -90 }, fury_spear = { roll = 90 }, wind_spiral = {},
   -- Named by CueOverrides rows or kept for later, no recipe here at the moment.
