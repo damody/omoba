@@ -75,7 +75,7 @@ local ok,err=xpcall(function()
   -- A growing generated set may add rigs; every rig already registered must be byte-for-byte unchanged.
   local old=j.read(registry_file);local rows={};for _,row in ipairs(registry.assets)do rows[row.id]=row end
   for _,row in ipairs(old.assets or{})do assert(replaced[row.id] or extends(row,rows[row.id]),'registered rig changed; use a new asset version: '..tostring(row.id))end
-  for package,sha in pairs(old.package_sha256 or{})do assert(replaced_package(package) or registry.package_sha256[package]==sha,'registered package changed: '..package)end
+  for package,sha in pairs(old.package_sha256 or{})do assert(replaced_package(package) or importer.from_text(package) or registry.package_sha256[package]==sha,'registered package changed: '..package)end
   if j.encode(old)~=j.encode(registry)then j.write(registry_file,registry,true)end
  else p.mkdir_p(p.parent(registry_file));j.write(registry_file,registry,false)end
  report.source_registry=registry_file;report.source_registry_sha256=h.sha256(registry_file)

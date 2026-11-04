@@ -98,6 +98,10 @@ function M.validate(root,set_id,project_dir)
  end
  return {schema=M.schema,coordinate_policy=M.coordinate_policy,assets=assets,licenses=licenses,manifest_sha256=h.sha256(file)}
 end
+-- A material built from text is rebuilt from omfue/DShader, so its bytes pin nothing.
+function M.from_text(package)
+ return p.is_file(p.join(b.root,'omfue/DShader',package:sub(#'/Game/'+1)..'.dss'))
+end
 function M.verify_result(plan,result)
  assert(result.schema=='omoba.character-source-result.v1'and result.success==true and result.error=='','commandlet failed')
  assert(result.coordinate_policy==M.coordinate_policy,'source coordinate policy differs')
@@ -129,7 +133,7 @@ function M.verify_result(plan,result)
     and not obj.object_path:find('..',1,true)and not objects[obj.object_path],'object path escaped job ownership')
    objects[obj.object_path]=true;assert(count[obj.class]~=nil,'unexpected imported class');count[obj.class]=count[obj.class]+1
    local package,name=obj.object_path:match('^(.-)%.([A-Za-z0-9_]+)$');assert(package and package:match('/([A-Za-z0-9_]+)$')==name)
-   assert(not package_seen[package],'multiple imported exports share one package');package_seen[package]=true;packages[#packages+1]=package
+   assert(not package_seen[package],'multiple imported exports share one package');package_seen[package]=true;if not M.from_text(package)then packages[#packages+1]=package end
    if obj.class=='Skeleton'then skeleton=obj.object_path
    elseif obj.class=='SkeletalMesh'then assert(obj.bones==a.bones and type(obj.height_cm)=='number'and obj.height_cm>=50 and obj.height_cm<=500);mesh_skeleton=obj.skeleton
    elseif obj.class=='StaticMesh'then assert(set.static and type(obj.height_cm)=='number'and obj.height_cm>0
