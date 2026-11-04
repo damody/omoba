@@ -10,8 +10,8 @@ return {
     c03w_iron_glow = { system = "stream", sprite = "spark_star", size = 85, life = 0.4, loop = true, tint = STEEL },
     -- c03_quake_axe: the axe swing, then dust and a cracked ground
     c03e_vo = { system = "pop", sprite = "crescent_slash", size = 430, life = 0.24, tint = RED },
-    c03e_thunder_clap = { system = "burst", sprite = "rock", size = 150, fixed_size = true, life = 0.5,
-      ground = "crack_quake", ground_size = 760, ground_fixed = true, ground_seconds = 0.8, grow = 0.3, also = { "fx_layer_quake_sparks" } },
+    c03e_thunder_clap = { system = "burst", sprite = "rock", size = 65, fixed_size = true, life = 0.45,
+      ground = "crack_quake", ground_size = 760, ground_fixed = true, ground_seconds = 0.65, grow = 0.3, also = { "fx_layer_quake_sparks" } },
     c03e_move_slow = { ground = "slow_chains", ground_size = 170, ground_seconds = 1.2, tint = SLOW },
     -- c03_thunder_wrath: a purple bolt strikes the target
     c03r_thunder = { system = "pop", sprite = "lightning", size = 480, life = 0.3, tint = PURPLE,
@@ -21,7 +21,7 @@ return {
     -- It faces the viewer and does not tumble: end on, a hammer reads as a barrel.
     -- It comes down on each of the package's blows (interval 0.6 s), at the point the blow lands.
     c03t_hammer = { mesh = "war_hammer", ground_size = 170, fly = true, lead = 300, face_viewer = true, bounce = 130, bounce_seconds = 0.6, pivot = 60 },
-    c03t_hammer_hit = { system = "burst", sprite = "rock", size = 130, fixed_size = true, life = 0.45,
+    c03t_hammer_hit = { system = "burst", sprite = "rock", size = 65, fixed_size = true, life = 0.45,
       ground = "crack_hammer", ground_size = 420, ground_fixed = true, ground_seconds = 0.5, grow = 0.3 },
   },
   notes = {
