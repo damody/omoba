@@ -14,7 +14,7 @@ local model=require('character_retarget')
 -- clip returns to its first pose: a clip that holds the blade behind the body would otherwise show it pointing away until the
 -- next swing. The sixth is the contact or release in seconds (contact in moba_tripo_hero_visuals), where the body is held closest to the
 -- unit's front (mixamo_to_library.py keeps it there). The seventh narrows how far the chest may turn away from that moment,
--- in degrees: a cast or throw has no swing to keep.
+-- in degrees: a cast or throw has no swing to keep. The eighth turns the arms by itself (degrees from the source clip): a gun stays on target.
 local CLIPS={
   Mx_Sword_Slash={'Great Sword Slash',6,42,0,0,0.64},
   Mx_Sword_Inward={'Stable Sword Inward Slash',18,54,0,22,0.59},
@@ -25,7 +25,7 @@ local CLIPS={
   Mx_Sweep={'Standing Melee Attack Horizontal',11,47,0,0,0.58},
   Mx_Spear_Thrust={'Bayonet Stab',10,46,50,0,0.74},
   Mx_Spear_Upward={'Upward Thrust',nil,nil,0,0,0.73,25},
-  Mx_Rifle_Fire={'Firing Rifle',nil,nil,0,0,0.07,25},
+  Mx_Rifle_Fire={'Firing Rifle',nil,nil,0,0,0.07,25,-28},
   Mx_Battlecry={'Standing Taunt Battlecry',0,65,0,0,0.5,25},
   Mx_Charge={'Charge',0,100,0,0,0.33,25},
   Mx_Kick={'Standing Melee Attack Kick Ver. 1',nil,nil,0,0,0.67,25},
@@ -53,7 +53,7 @@ for _,name in ipairs(names)do
   local source=p.join(input,entry[1]..'.fbx');assert(p.is_file(source),'missing '..source)
   local out=p.join(baked,name..'.fbx')
   if not(options['--reuse-baked'] and p.is_file(out)) then
-  local result=r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out,tostring(entry[2]or''),tostring(entry[3]or''),tostring(entry[4]or 0),tostring(entry[5]or 0),tostring(entry[6]or -1),tostring(entry[7]or 0)},{cwd=b.root,check=false})
+  local result=r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out,tostring(entry[2]or''),tostring(entry[3]or''),tostring(entry[4]or 0),tostring(entry[5]or 0),tostring(entry[6]or -1),tostring(entry[7]or 0),tostring(entry[8]or'')},{cwd=b.root,check=false})
   assert(result.exit_code==0 and p.is_file(out),'bake failed: '..name..'\n'..tostring(result.stdout):sub(-1500))
   end
   added[#added+1]={name=name,fbx=out}

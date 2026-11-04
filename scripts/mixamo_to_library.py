@@ -10,7 +10,7 @@ import bpy
 from math import atan2, degrees, radians, tanh
 from mathutils import Matrix, Quaternion, Vector
 
-library_fbx, tpose_fbx, clip_fbx, out_fbx, first_kept, last_kept, wrist_degrees, return_after, contact_seconds, body_limit = sys.argv[sys.argv.index('--') + 1:]
+library_fbx, tpose_fbx, clip_fbx, out_fbx, first_kept, last_kept, wrist_degrees, return_after, contact_seconds, body_limit, arms_turn = sys.argv[sys.argv.index('--') + 1:]
 
 PAIRS = [('pelvis', 'Hips'), ('spine_01', 'Spine'), ('spine_02', 'Spine1'), ('spine_03', 'Spine2'), ('neck_01', 'Neck'), ('Head', 'Head')]
 for side, name in (('l', 'Left'), ('r', 'Right')):
@@ -75,6 +75,7 @@ CONTACT_CHEST_LIMIT, CONTACT_PELVIS_LIMIT = 12.0, 12.0
 CONTACT_FRAMES, CONTACT_BLEND_FRAMES = 2, 6
 BACK_SPINE = {'spine_01': 1 / 3, 'spine_02': 2 / 3}
 LEG_BONES = {b for b, _ in PAIRS if b.split('_')[0] in ('thigh', 'calf', 'foot', 'ball')}
+ARM_BONES = {b for b, _ in PAIRS if b.split('_')[0] in ('clavicle', 'upperarm', 'lowerarm', 'hand', 'thumb', 'index', 'middle', 'ring', 'pinky')}
 contact_frame = float(contact_seconds) * 30 if float(contact_seconds) >= 0 else None
 
 
@@ -151,6 +152,9 @@ for frame in range(first, last + 1):
         if bone not in LEG_BONES:
             share = 0.0 if bone == 'pelvis' else BACK_SPINE.get(bone, 1.0)
             fix = pelvis_fix + (chest_fix - pelvis_fix) * share
+            if arms_turn != '' and bone in ARM_BONES:
+                # A gun aims where the arms point, whatever the body does: keep them on the target.
+                fix = float(arms_turn) - yaw_degrees
             rotation = Quaternion((0, 0, 1), radians(fix)) @ rotation
         at = pb.matrix.translation.copy()
         if bone == 'pelvis':
