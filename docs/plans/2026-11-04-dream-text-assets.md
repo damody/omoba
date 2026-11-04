@@ -74,10 +74,54 @@
 | 上一節列出的旗標和覆寫 | 見上 |
 | `.dfm` 自訂模組 | 這個引擎無法生成；目前沒有用到 |
 
-## 切換前還要做
+## 切換第一批（2026-11-04）
 
-1. 把 `.dfs` 的 `Name=` 和 `.dsi`、`.dss` 的資產路徑改成原資產；原資產需要先刪除或標記成外掛產生，否則會被拒絕覆寫（DSH8242）。
-2. 和線 C 協調 `Content/Omoba/VFX/Fx/**`，並決定 `fx_family.lua` 的去留。
-3. 實機錄影比對畫面。
+範圍：`Content/Omoba/VFX/Fx/**` 以外、沒有被雜湊鎖定的 81 個材質與 instance，加上 `Omoba/VFX/CueShapes` 的 6 個 Niagara 系統。文字來源在 `omfue/DShader/`、`omfue/DFX/`，這些資產從此以文字為準。
+
+流程（`scripts/dream_switch.lua`，只在影子執行）：標記 `DreamShader.SourceFile`（`OmDreamAdopt`）、`compile -All -Force` 覆寫原資產、比對前後屬性；CueShapes 用 `fx build -All -Force`。原資產沒有刪除，放回前確認都在 git 且未修改，可還原。放回時持有 `live_match` 鎖，寫入前再比對一次，live 自快照後沒有變動。
+
+| 檢查 | 結果 |
+|---|---|
+| 屬性比對（當時含 Fx 共 271 個） | 271 相同；實質差異 0；等於父預設值而省略的覆寫 4；僅貼圖順序不同 7 |
+| `bUsedWithMeshDeformer` | 重建後 `M_SaikaMagoichi`、`M_SaikaMagoichi_Accent` 為 True |
+| CueShapes 建置 | 6 個，0 錯誤，20 警告 |
+| 錄影比對（同一份內容快照，切換前後） | 佐佐木（近戰）、大谷（法系）顏色與特效相同，只有取樣時間差；未做逐像素量測 |
+| 實機局是否寫檔 | 錄影後影子 Content、DShader、DFX 無新檔 |
+| 完整 cook（影子，`-SkipZenStore`） | exit 0，3881 個 package，0 錯誤，2 警告；271 行 `[Cook] Generated`，但 Content 無檔案變動；cook 產物 3317 個 .uasset 無 Dream 字串 |
+| Game target | 沒有 Dream 模組 |
+| 放回 | 先放回 320 個檔案（160 資產、154 + 6 原始碼），`land_to_live` 的 codegen、UBT 通過，寫入後逐檔相同；之後還原 73 個，見下節 |
+| 還原後 | `build_ue_moba` exit 0；`shader check` 81 份 0 錯誤 |
+
+反編譯遺失旗標的檢查：`dream_switch.lua` 比對資產的 `bUsedWith*` 與文字，缺少就失敗，加 `--fix-flags` 才會補。
+
+### 放回後的失敗與修復
+
+第一次放回了 154 個材質，`build_ue_moba` 在地圖材質步驟失敗（`managed biome material changed: jungle`）。這些資產的雜湊被匯入工具鎖定，覆寫後檢查不再相符。`land_to_live` 和 `check_live_consistent --ubt` 都通過，抓不到這類問題，放回資產後要跑真正的 `build_ue_moba`。
+
+修復：73 個資產還原成原檔，對應的 `DShader` 原始碼撤掉。之後切換前先跑 `dream_assets.lua pinned [--filter 樣式]`，`dream_switch.lua` 也會拒絕被鎖定的資產。
+
+### 不轉換
+
+| 資產 | 數量 | 鎖定位置 | 原因 |
+|---|---:|---|---|
+| `Omoba/Characters/TripoV1/**/tripo_mat_*` | 26 | `TripoV1/source-registry.json` | 匯入時產生；`import_character_sources` 要求位元組不變，否則報 `registered package changed` |
+| `Omoba/Structures/TripoStaticV1/**/tripo_mat_*` | 40 | `TripoStaticV1/source-registry.json` | 同上 |
+| `Omoba/MapBiomesV1/M_*` | 3 | `MapBiomesV1/provenance.json` | `ue_map_biome_materials` 檢查雜湊，`build_ue_moba` 會失敗 |
+| `Omoba/WorldSurfacesV1/M_*` | 4 | `MapBiomesV1/provenance.json` | 記錄在同一份 provenance |
+
+這 73 個留在原有流程。`OmGenerated`、`DreamSources` 的快照裡仍有它們的文字，只供查閱。
+
+### 注意事項
+
+- 其他產生工具（`character_materials`、`build_world_model_assets`、`build_presentation_materials`、`combat_visual_assets` 等）重跑時可能覆寫已切換的資產，還沒有逐一確認，也沒有檢查擋住。
+- `OmFxFamilyBuilder` 的 `-shapes=` 模式會覆寫 CueShapes，與 `DFX/` 不一致。`-fx-family` 只寫 `VFX/Fx`，不受影響。
+- 在互動式編輯器裡，DreamShader bridge 的啟動掃描與 `bAutoCompileOnSave` 可能重建來源雜湊過期的材質。commandlet、cook、遊戲不會經過 bridge。
+- `M_OmFxSprite`、`M_OmFxGround` 在 `VFX/Fx`，不在這批；影子裡含 Fx 的試轉驗過 instance 沒有變色或缺材質，第二批要重新轉換。
+- 沒有跑完整 `BuildCookRun` 打包，只跑 cook 與 target 模組檢查。
+
+## 還沒做
+
+1. 第二批 `Content/Omoba/VFX/Fx/**`：等第一批穩定、線 C 空出來，重新反編譯，經 `pinned` 預檢後切換。目前 125 個都沒有被鎖定。
+2. 決定 `fx_family.lua` 的去留。
 
 另外發現：`fx_family.lua` 的 `AddVelocity.Velocity Speed Scale` 很可能沒有作用，已告知線 C。

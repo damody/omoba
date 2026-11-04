@@ -121,7 +121,7 @@ function M.remove_tree(dir, deps)
   assert(d.lfs.rmdir(dir))
 end
 
-local function build(d, root, project, staging, binaries, base_content)
+local function build(d, root, project, staging, binaries, base_content, content)
   d.path.mkdir_p(staging)
   for _, name in ipairs(entries(d.lfs, root)) do
     if not M.SKIP_REPO[name] and d.path.is_directory(d.path.join(root, name)) then
@@ -133,7 +133,7 @@ local function build(d, root, project, staging, binaries, base_content)
   for _, name in ipairs(entries(d.lfs, project)) do
     local live = d.path.join(project, name)
     if d.path.is_directory(live) then
-      if not M.SKIP_PROJECT[name] then link(d, d.path.join(snapshot_project, name), live) end
+      if not M.SKIP_PROJECT[name] then link(d, d.path.join(snapshot_project, name), name == 'Content' and content or live) end
     elseif name:match('%.uproject$') then
       copy_file(live, d.path.join(snapshot_project, name), d.lfs)
     end
@@ -238,6 +238,10 @@ function M.prepare(root, deps, options)
   local base_content = options and options.base_content
   local digest = base_content and d.sha256(base_content):lower()
   local project = d.path.join(root, 'omfue')
+  -- OM_UE_RUN_CONTENT runs a shadow's own Content instead of live's, to look at rebuilt assets before they land.
+  local content = os.getenv('OM_UE_RUN_CONTENT')
+  content = content and content ~= '' and d.path.absolute(content, root) or nil
+  if content then digest = (digest or '') .. '|content=' .. content end
   local binaries = (options and options.binaries) or os.getenv('OM_UE_RUN_BINARIES')
   binaries = binaries and binaries ~= '' and d.path.absolute(binaries, root) or project
   assert(d.path.is_directory(d.path.join(binaries, 'Plugins')), 'run snapshot binaries project has no Plugins: ' .. binaries)
@@ -261,7 +265,7 @@ function M.prepare(root, deps, options)
       if not ok then d.log('[ue-run-snapshot] could not clear incomplete ' .. snapshot .. ': ' .. tostring(err)) end
     end
     local staging = snapshot .. '.partial-' .. os.time() .. '-' .. math.random(0, 999999)
-    build(d, root, project, staging, binaries, base_content)
+    build(d, root, project, staging, binaries, base_content, content)
     seed_target_info(d, project, d.path.join(staging, 'omfue'))
     -- A build that relinked a DLL while we copied makes the copy inconsistent: retry.
     if M.key(binaries, d, digest) == key then

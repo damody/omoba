@@ -1,6 +1,10 @@
 -- Text sources of the project's Niagara systems and materials: DreamFX (DFX/) and DreamShader (DShader/) commandlets.
 --
 --   tools\lua\lua.exe scripts\dream_assets.lua [--project DIR] [--ue-root PATH] {fx|shader} VERB [-Option[=value] ...]
+--   tools\lua\lua.exe scripts\dream_assets.lua pinned [--filter LUA_PATTERN]
+--
+--   pinned  materials and Niagara systems that a tracked file pins by SHA-256 (source-registry.json, provenance.json, ...).
+--           Their owner refuses them once their bytes change, so they cannot become text. Exit 1 when the filter finds any.
 --
 --   fx      build [-File=F|-All] [-Force]   verify   lint   decompile -Decompile=ASSET [-Out=F]
 --           decompile-all -Path=/Game/...   coverage -Path=   asset-diff -Path=   mirror-diff -Path=
@@ -24,6 +28,7 @@ M.COMMANDLET={fx='DreamFX',shader='DreamShader'}
 M.SAVES={fx={build=true,['decompile-all']=true,['mirror-diff']=true},shader={compile=true}}
 -- A package's asset registry section names its asset's class in full; nothing else in it does.
 M.MATERIAL_CLASSES={'MaterialInstanceConstant','MaterialFunctionMaterialLayerBlend','MaterialFunctionMaterialLayer','MaterialFunction','Material'}
+M.SYSTEM_CLASS='/Script/Niagara.NiagaraSystem\0'
 M.FLAGS={'-unattended','-nop4','-nosplash','-nopause','-NoSound','-NoLiveCoding','-nullrhi'}
 
 function M.parse(argv)
@@ -84,6 +89,98 @@ function M.material_assets(content)
   return assets
 end
 
+-- Package path -> where it is pinned, for FILES {package path -> uasset file}. A pin names the bytes (the asset's SHA-256
+-- anywhere in a tracked or new file outside docs and Saved) or the package (a package_sha256 key or package_file row, which
+-- still pins an asset that has already drifted from it).
+function M.pinned(root,files)
+  local b=require('_bootstrap')
+  local h,r,j=b.lib('hash'),b.lib('process'),b.lib('json')
+  local omfue=root..'/omfue'
+  local by_sha,found={},{}
+  local function pin(package,where)
+    found[package]=found[package] or {}
+    found[package][where]=true
+  end
+  local shas={}
+  for package,file in pairs(files) do
+    local sha=h.sha256(file)
+    by_sha[sha]=by_sha[sha] or {}
+    table.insert(by_sha[sha],package)
+    shas[#shas+1]=sha
+  end
+  if #shas==0 then return found end
+  local list=root..'/target/dream-pinned-shas.txt'
+  local f=assert(io.open(list,'wb'));f:write(table.concat(shas,'\n'),'\n');f:close()
+  for _,repo in ipairs{{root,{'.',':!docs',':!target'}},{omfue,{'.',':!Saved'}}} do
+    local args={'grep','--untracked','-o','-F','-f',list,'--'}
+    for _,v in ipairs(repo[2]) do args[#args+1]=v end
+    local result=r.run('git',args,{cwd=repo[1],check=false})
+    for line in (result.stdout or ''):gmatch('[^\r\n]+') do
+      local where,sha=line:match('^(.*):(%x+)$')
+      for _,package in ipairs(by_sha[sha] or {}) do pin(package,where) end
+    end
+  end
+  os.remove(list)
+  local tracked=r.run('git',{'ls-files','Content'},{cwd=omfue,check=false}).stdout or ''
+  for rel in tracked:gmatch('[^\r\n]+') do
+    if rel:match('%.json$') then
+      local g=assert(io.open(omfue..'/'..rel,'rb'));local text=g:read('a');g:close()
+      if text:find('package_sha256',1,true) or text:find('package_file',1,true) then
+        local value=j.decode(text)
+        for package in pairs(value.package_sha256 or {}) do if files[package] then pin(package,rel) end end
+        for _,row in ipairs(value.materials or {}) do
+          local package=type(row)=='table' and row.package_file and row.package_file:match('^omfue/Content/(.*)%.uasset$')
+          if package and files['/Game/'..package] then pin('/Game/'..package,rel) end
+        end
+      end
+    end
+  end
+  return found
+end
+
+-- Every material and Niagara system under CONTENT: package path -> file.
+function M.text_candidates(content)
+  local lfs=require('lfs')
+  local files={}
+  for _,asset in ipairs(M.material_assets(content)) do
+    local package=asset:match('^(.-)%.')
+    files[package]=content..package:sub(#'/Game'+1)..'.uasset'
+  end
+  local function walk(dir)
+    for entry in lfs.dir(dir) do
+      if entry~='.' and entry~='..' then
+        local full=dir..'/'..entry
+        if lfs.attributes(full,'mode')=='directory' then walk(full)
+        elseif entry:match('%.uasset$') then
+          local f=assert(io.open(full,'rb'));local data=f:read('a');f:close()
+          if data:find(M.SYSTEM_CLASS,1,true) then files['/Game'..full:sub(#content+1):gsub('%.uasset$','')]=full end
+        end
+      end
+    end
+  end
+  walk(content)
+  return files
+end
+
+function M.report_pinned(root,filter)
+  local files={}
+  for package,file in pairs(M.text_candidates(root..'/omfue/Content')) do
+    if not filter or package:match(filter) then files[package]=file end
+  end
+  local found,names,count=M.pinned(root,files),{},0
+  for package in pairs(files) do count=count+1 end
+  for package in pairs(found) do names[#names+1]=package end
+  table.sort(names)
+  for _,package in ipairs(names) do
+    local where={}
+    for file in pairs(found[package]) do where[#where+1]=file end
+    table.sort(where)
+    print(package..'\t'..table.concat(where,', '))
+  end
+  print(('[dream-assets] %d checked, %d pinned'):format(count,#names))
+  return #names==0 and 0 or 1
+end
+
 function M.decompile_all(options,project,run,p)
   local assets=M.material_assets(p.join(project,'Content'):gsub('\\','/'))
   local done,failed=0,{}
@@ -105,6 +202,10 @@ end
 function M.main(argv)
   local b=require('_bootstrap')
   local p,r=b.lib('path'),b.lib('process')
+  if argv[1]=='pinned' then
+    local filter=argv[2]=='--filter' and assert(argv[3],'--filter needs a pattern') or nil
+    return M.report_pinned((b.root:gsub('\\','/')),filter)
+  end
   local options=M.parse(argv)
   local project=options.project and p.absolute(options.project) or p.join(b.root,'omfue')
   local uproject=p.join(project,'om.uproject')
