@@ -21,13 +21,13 @@
 | tokugawa_ieyasu | R | 三河之勇 | `a01t_ring` | 地:shock_ring | 橙 | 貼地 | 3 | 需人工 |
 | tokugawa_ieyasu | R | 三河之勇 | `a01t_vo` | banner_rally | 橙 | 面向鏡頭，無方向 | 1 | 需人工 |
 | tokugawa_ieyasu | R | 三河之勇 | `spell_hint_self` | 地:arcane_circle | 紫 | 貼地 | 2 | 需人工 |
-| tokugawa_ieyasu | X | 天下之勢 | `a01d_restore` | heal_ring | 綠 | 面向鏡頭，無方向 | 3 | 治療：符合 |
+| tokugawa_ieyasu | X | 天下之勢 | `a01d_restore` | heal_cross | 綠 | 面向鏡頭，無方向 | 1 | 治療：符合 |
 | yamagata_masakage | Q | 暈眩 | `b20w_pick_sound` | rock+地:dust_crack | 橙 | 面向鏡頭＋貼地 | 2 | 需人工 |
 | yamagata_masakage | Q | 暈眩 | `b20w_rock` | (sparks) | 橙 | 飛向目標，圖不轉向 | 1 | 需人工 |
 | yamagata_masakage | Q | 暈眩 | `b20w_rock_land` | rock+地:dust_crack | 未指定（貼圖原色） | 面向鏡頭＋貼地 | 2 | 需人工 |
 | yamagata_masakage | W | 暈眩 | `b20e_burrow` | smoke_sheet+地:dust_crack | 未指定（貼圖原色） | 面向鏡頭＋貼地 | 2 | 需人工 |
 | yamagata_masakage | W | 暈眩 | `b20e_thunderclap` | shock_ring | 橙 | 面向鏡頭，無方向 | 1 | 需人工 |
-| yamagata_masakage | E | 強韌 | `b20r_restore` | heal_ring | 紅 | 面向鏡頭，無方向 | 3 | 治療：不符 |
+| yamagata_masakage | E | 強韌 | `b20r_restore` | heal_ring | 綠 | 面向鏡頭，無方向 | 1 | 治療：符合 |
 | yamagata_masakage | R | 赤備猛攻 | `b20t_epicenter` | blink_flash | 紅 | 面向鏡頭，無方向 | 7 | 需人工 |
 | yamagata_masakage | R | 赤備猛攻 | `move_slow` | 地:slow_chains | 藍 | 貼地 | 3 | 需人工 |
 | okuma_tomohide | Q | 蓄力波（蓄力） | `b26d_thunder_clap` | shock_ring+地:shock_ring | 橙 | 面向鏡頭＋貼地 | 2 | 需人工 |
@@ -40,7 +40,7 @@
 | okuma_tomohide | W | 血性狂怒 | `b26e_model_scale_up` | blink_flash | 紅 | 面向鏡頭，無方向 | 7 | 需人工 |
 | okuma_tomohide | W | 血性狂怒 | `b26e_status_effect` | spark_star | 紅 | 面向鏡頭，無方向 | 9 | 需人工 |
 | okuma_tomohide | W | 血性狂怒 | `b26e_voice` | flame_sheet+地:shock_ring | 紅 | 面向鏡頭＋貼地 | 3 | 需人工 |
-| okuma_tomohide | E | 上野武勇 | `b26r_restore` | heal_ring | 紅 | 面向鏡頭，無方向 | 3 | 治療：不符 |
+| okuma_tomohide | E | 上野武勇 | `b26r_restore` | heal_rise | 綠 | 面向鏡頭，無方向 | 1 | 治療：符合 |
 | okuma_tomohide | R | 當者披靡 | `b26t_burst` | flame_sheet | 未指定（貼圖原色） | 面向鏡頭，無方向 | 4 | 需人工 |
 | okuma_tomohide | R | 當者披靡 | `b26t_voice_roar` | flame_sheet+地:shock_ring | 橙 | 面向鏡頭＋貼地 | 3 | 需人工 |
 | okuma_tomohide | R | 當者披靡 | `b26t_wings` | flame_sheet | 紅 | 面向鏡頭，無方向 | 4 | 需人工 |
@@ -121,7 +121,7 @@
 | shimazu_yoshihiro | Q | 鐵布衫 | `c03w_iron_glow` | spark_star | 青藍 | 面向鏡頭，無方向 | 9 | 需人工 |
 | shimazu_yoshihiro | Q | 鐵布衫 | `c03w_vo` | iron_shield | 青藍 | 面向鏡頭，無方向 | 1 | 需人工 |
 | shimazu_yoshihiro | W | 震地斧緩速 | `c03e_move_slow` | 地:slow_chains | 藍 | 貼地 | 3 | 需人工 |
-| shimazu_yoshihiro | W | 震地斧緩速 | `c03e_thunder_clap` | rock+地:quake_ripple | 橙 | 面向鏡頭＋貼地 | 1 | 需人工 |
+| shimazu_yoshihiro | W | 震地斧緩速 | `c03e_thunder_clap` | (sparks)+地:quake_burst | 未指定（貼圖原色） | 貼地 | 1 | 需人工 |
 | shimazu_yoshihiro | W | 震地斧緩速 | `c03e_vo` | crescent_slash | 紅 | 面向鏡頭，無方向 | 5 | 需人工 |
 | shimazu_yoshihiro | E | 暴雷暈眩 | `c03r_thunder` | lightning+地:blink_flash | 紫 | 面向鏡頭＋貼地 | 3 | 雷：符合 |
 | shimazu_yoshihiro | R | 不動戰錘暈眩 | `c03t_hammer` |  | 未指定（貼圖原色） | 飛向目標，圖不轉向 | 2 | 需人工 |
@@ -140,7 +140,7 @@
 | maeda_keiji | R | 瞬雷閃引導 | `c05t_eclipse_area` | lightning+地:shock_ring | 藍 | 面向鏡頭＋貼地 | 3 | 雷：符合 |
 | maeda_keiji | R | 瞬雷閃引導 | `c05t_vo` | lightning+地:vortex | 藍 | 面向鏡頭＋貼地 | 1 | 雷：符合 |
 
-共 129 個 cue，造型獨特 35 個；顏色字樣不符 8 個；沒有 cue 的招 1 個。
+共 129 個 cue，造型獨特 38 個；顏色字樣不符 6 個；沒有 cue 的招 1 個。
 
 ## 共用最多的造型
 
@@ -154,8 +154,8 @@
 - `blink_flash+地:shock_ring`（3 招）：sasaki_kojiro X、otani_yoshitsugu Q、maeda_toshiie W
 - `flame_sheet+地:dust_crack`（3 招）：nohime Q、nohime R、shimazu_yoshihiro R
 - `flame_sheet+地:shock_ring`（3 招）：okuma_tomohide Q、okuma_tomohide W、okuma_tomohide R
-- `heal_ring`（3 招）：tokugawa_ieyasu X、yamagata_masakage E、okuma_tomohide E
 - `lightning+地:blink_flash`（3 招）：shimazu_yoshihiro E、maeda_keiji W、maeda_keiji R
 - `lightning+地:shock_ring`（3 招）：maeda_toshiie R、maeda_keiji W、maeda_keiji R
 - `spark_star+地:arcane_circle`（3 招）：otani_yoshitsugu W、otani_yoshitsugu X、nohime R
 - `地:shock_ring`（3 招）：tokugawa_ieyasu R、nohime R、maeda_keiji R
+- `地:slow_chains`（3 招）：yamagata_masakage R、kojima_sadaoki R、shimazu_yoshihiro W
