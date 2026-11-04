@@ -108,6 +108,31 @@
 
 做法：Niagara 在影子裡刪除原資產後從零建，再放回。從零建之後再重建不會累積（已實測）。放回前必須跑 `dream_niagara_sim.lua`，`fx asset-diff` 看不出這個問題。
 
+### asset-diff 的 54 個同名不同值
+
+12 個系統，全部從文字從零重建後，與原資產做粒子模擬比對。
+
+| 類別 | 數量 | 影響畫面 |
+|---|---:|---|
+| 編輯器資料路徑（`EditorData`、`EditorParameters`） | 34 | 否，執行時不使用 |
+| `GravityForce.Gravity` 的負零（-0→0） | 10 | 否，數值相等 |
+| 被隱藏的輸入 `AddVelocity.Velocity Speed Scale` | 5 | 否 |
+| FromPoint 模式的 `AddVelocity.Velocity` | 3 | 否 |
+| `LifeCycleMode=System` 下的 `Loop Duration` | 2 | 否 |
+
+| 比對 | 渲染器設定 | 粒子數 | 屬性值 | 差異 |
+|---|---:|---:|---:|---:|
+| 6 個 `NS_shape_*`（live） | 902 | 960 | 22776 | 0 |
+| 6 個 `NS_fx_*`（影子，fix135 之前的版本） | 406 | 420 | 6168 | 0 |
+
+模擬比對涵蓋 60 幀（2 秒）、預設 User 參數、CPU 粒子。沒有涵蓋：比 2 秒更長的行為、非預設的 `Tint`、`Size`、`Life`，以及實際畫面。實際畫面由切換前後的錄影比對。
+
+曲線 DI 改名（`Scale Alpha.FloatCurve`→`FloatFromCurve.FloatCurve`）的疑慮也由這項比對排除：取樣結果相同。
+
+### 影子檢查
+
+`dream_shadow.lua` 解析連結後判斷；`Content`、`DShader`、`DFX` 連到 live，或內含任何連結，都拒絕。`dream_switch`、`dream_roundtrip`、`dream_assets --project` 的寫入動詞都會檢查。以 `target/ue-shadow-c` 實測全部被拒絕，沒有寫入檔案。
+
 ### 放回後的失敗與修復
 
 第一次放回了 154 個材質，`build_ue_moba` 在地圖材質步驟失敗（`managed biome material changed: jungle`）。這些資產的雜湊被匯入工具鎖定，覆寫後檢查不再相符。`land_to_live` 和 `check_live_consistent --ubt` 都通過，抓不到這類問題，放回資產後要跑真正的 `build_ue_moba`。
