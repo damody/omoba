@@ -79,7 +79,7 @@ function M.main(argv)
     return 0
   elseif verb=='build' then
     local result=r.run(p.join(dir,'tools/lua/lua.exe'),{p.join(dir,'scripts/build_ue_moba.lua')},{cwd=dir,check=false,label='clone build'})
-    print(result.stdout or '')
+    print(result.stdout or '');print(result.stderr or '')
     print('build exit '..tostring(result.exit_code))
     return result.exit_code
   elseif verb=='record' then
@@ -88,7 +88,7 @@ function M.main(argv)
       local lock <close> =machine_lock.acquire(root,'live_match',{run=dir,label='dream-clone-record',wait_seconds=3600,grace_seconds=1800})
       local result=r.run(p.join(dir,'tools/lua/lua.exe'),{p.join(dir,'scripts/record_hero_spotlight.lua'),'--hero',assert(options.hero,'--hero is required'),
         '--output',p.absolute(assert(options.output,'--output is required'),b.root),'--port',options.port or '58471','--no-build'},{cwd=dir,check=false,label='clone record'})
-      print(result.stdout or '')
+      print(result.stdout or '');print(result.stderr or '')
       print('record exit '..tostring(result.exit_code))
       return result.exit_code
     end
