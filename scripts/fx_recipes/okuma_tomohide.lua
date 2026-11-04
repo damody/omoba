@@ -6,9 +6,9 @@ return {
     -- Q 蓄力波: a swirl at the cast, fire at the feet while charging, a fire pulse every second, explosions on enemies
     b26w_voice = { system = "pop", sprite = "vortex", size = 520, life = 0.5, tint = FIRE,
       ground = "vortex", ground_size = 700, ground_seconds = 0.6, grow = 0.3 },
-    b26w_charge_fire = { system = "stream", sprite = "flame_sheet", size = 120, life = 0.5, loop = true, bold = true },
-    b26w_charge_pulse = { system = "burst", sprite = "flame_sheet", size = 220, life = 0.4, tint = FIRE,
-      ground = "shock_ring", ground_size = 1000, ground_seconds = 0.45, grow = 0.15 },
+    b26w_charge_fire = { system = "stream", sprite = "flame_ember", size = 85, life = 0.5, loop = true, bold = true },
+    b26w_charge_pulse = { system = "burst", sprite = "flame_ember", size = 150, life = 0.4,
+      ground = "ring_thin_fire", ground_size = 620, ground_fixed = true, ground_seconds = 0.45, grow = 0.15 },
     b26w_fire_explode = { system = "sparks", tint = FIRE },
     b26w_slow_overhead = { system = "stream", sprite = "slow_chains", size = 80, life = 0.3, loop = true, alpha = 0.35, tint = BLUE },
     -- The closing shockwave, whichever way the charge ends
