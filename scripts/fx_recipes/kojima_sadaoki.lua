@@ -4,7 +4,7 @@ return {
   recipes = {
     -- b27_horsemanship: dust kicked up as he surges, then red motes while it lasts
     b27w_vo = { system = "burst", sprite = "smoke_sheet", size = 340, life = 0.5,
-      ground = "shock_ring", ground_size = 640, ground_seconds = 0.45, grow = 0.2 },
+      ground = "shock_ring", ground_size = 420, ground_fixed = true, ground_seconds = 0.4, grow = 0.3, tint = { 0.62, 0.46, 0.3 }, alpha = 0.55 },
     b27w_armlet_glow = { system = "stream", sprite = "spark_star", size = 90, life = 0.4, loop = true, tint = RED },
     -- b27_mighty_strike: throw swing, spinning axe in flight, chop on the target
     b27e_vo = { system = "pop", sprite = "crescent_slash", size = 340, life = 0.26, tint = GOLD },

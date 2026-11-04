@@ -8,7 +8,7 @@ return {
     a26w_hit_explosion = { system = "burst", sprite = "flame_sheet", size = 230, life = 0.4,
       ground = "dust_crack", ground_size = 240, ground_seconds = 0.35, grow = 0.5 },
     -- a26_powder_kick: powder trailing Mx_Spin_Kick's turn (0.7 s, counter-clockwise), then the blast
-    a26e_voice = { ground = "powder_swirl", ground_size = 340, ground_fixed = true, ground_seconds = 0.7, height = 45, delay = 0.1 },
+    a26e_voice = { ground = "powder_swirl", ground_size = 280, ground_fixed = true, ground_seconds = 0.7, height = 45, delay = 0.1, tint = { 1.0, 0.55, 0.18 } },
     a26e_rocket_sound = { system = "pop", sprite = "smoke_sheet", size = 120, fixed_size = true, life = 0.7,
       ground = "powder_blast", ground_size = 600, area = true, ground_seconds = 0.5, grow = 0.35, also = { "fx_layer_powder_sparks" } },
     a26e_smoke = { system = "sparks", tint = ORANGE },
