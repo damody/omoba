@@ -3,10 +3,10 @@
 local FIRE, BLOOD, BLUE = { 1.0, 0.55, 0.08 }, { 1.0, 0.2, 0.1 }, { 0.12, 0.5, 1.0 }
 return {
   recipes = {
-    -- Q 蓄力波: a swirl at the cast, fire at the feet while charging, a fire pulse every second, explosions on enemies
+    -- Q 蓄力波: a swirl at the cast, sparks as the charge starts, a thin fire ring every second, explosions on enemies
     b26w_voice = { system = "pop", sprite = "vortex", size = 520, life = 0.5, tint = FIRE,
       ground = "vortex", ground_size = 700, ground_seconds = 0.6, grow = 0.3 },
-    b26w_charge_fire = { system = "stream", sprite = "spark_star", size = 28, life = 0.6, loop = true, bold = true, tint = { 1.0, 0.42, 0.06 } },
+    b26w_charge_fire = { system = "sparks", tint = FIRE },
     b26w_charge_pulse = { system = "sparks", tint = FIRE,
       ground = "ring_thin_fire", ground_size = 620, ground_fixed = true, ground_seconds = 0.45, grow = 0.15 },
     b26w_fire_explode = { system = "sparks", tint = FIRE },
