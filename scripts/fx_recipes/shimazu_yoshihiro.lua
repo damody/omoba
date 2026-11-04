@@ -6,12 +6,12 @@ return {
     c03w_vo = { system = "pop", sprite = "iron_shield", size = 460, life = 0.45, tint = STEEL,
       mesh = "iron_bell", ground_size = 200, ground_seconds = 0.7, grow = 0.5, mesh_opacity = 0.45 },
     c03w_grow = { system = "burst", sprite = "spark_star", size = 260, life = 0.4, tint = STEEL,
-      ground = "iron_shield", ground_size = 240 },
+      ground = "iron_shield", ground_size = 200, alpha = 0.5 },
     c03w_iron_glow = { system = "stream", sprite = "spark_star", size = 85, life = 0.4, loop = true, tint = STEEL },
     -- c03_quake_axe: the axe swing, then dust and a cracked ground
     c03e_vo = { system = "pop", sprite = "crescent_slash", size = 430, life = 0.24, tint = RED },
-    c03e_thunder_clap = { system = "sparks", area = true,
-      ground = "quake_burst", ground_size = 800, ground_seconds = 0.8, grow = 0.3 },
+    c03e_thunder_clap = { system = "burst", sprite = "rock", size = 150, fixed_size = true, life = 0.5,
+      ground = "crack_quake", ground_size = 760, ground_fixed = true, ground_seconds = 0.8, grow = 0.3, also = { "fx_layer_quake_sparks" } },
     c03e_move_slow = { ground = "slow_chains", ground_size = 170, ground_seconds = 1.2, tint = SLOW },
     -- c03_thunder_wrath: a purple bolt strikes the target
     c03r_thunder = { system = "pop", sprite = "lightning", size = 480, life = 0.3, tint = PURPLE,
