@@ -4,7 +4,7 @@ return {
   recipes = {
     -- c05_matsukaze: a whirlwind on cast, cyan motes while it lasts
     c05w_vo = { system = "sparks", tint = CYAN,
-      mesh = "wind_spiral", ground_size = 230, ground_seconds = 0.9, grow = 0.4, spin = 360 },
+      mesh = "wind_spiral", ground_size = 210, ground_seconds = 0.9, grow = 0.4, spin_up = 540 },
     c05w_armlet = { system = "stream", sprite = "spark_star", size = 85, life = 0.4, loop = true, tint = CYAN },
     -- c05_thunder_dance: lightning erupts around him, a bolt to each enemy, a burst on each hit
     c05e_cast_sound = { system = "burst", sprite = "lightning", size = 560, life = 0.4, tint = BLUE,

@@ -59,6 +59,9 @@ M.IMAGES = {
   heal_cross = { gain = 1.0 },
   heal_rise = { gain = 1.0 },
   powder_ring = { gain = 1.0 },
+  pistol_flare = { rot = -1.571, gain = 1.0 },
+  pistol_shot = { rot = -1.571, gain = 1.0 },
+  powder_swirl = { gain = 1.0, spin = 8.98 },
 }
 
 -- main: takes the cue's image, size and life. The rest keep their own (their colour still follows the cue).
@@ -247,6 +250,9 @@ for hero, row in pairs(M.ATTACKS) do
   end
 end
 
+-- Her shots leave from the pistol firing now (OmUnitActor::IsFiringLeftHand), at the height she holds it.
+M.RECIPES.fx_swing_nohime.from_hand, M.RECIPES.fx_swing_nohime.height = true, 105
+
 -- Abilities whose every look is in the recipes above.
 M.FX_ABILITIES = {
   "a01_tosho_gongen", "a01_heaven_net", "a01_thunder_blade", "a01_mikawa_valor", "a01_realm_momentum",
@@ -271,7 +277,7 @@ M.MESHES = {
   throw_axe = {}, rocket = {}, cannon_shell = {}, arcane_arrow = {}, thunder_spear = {}, spear_head = {}, swallow = { tilt = -90 },
   rock_chunk = {}, fire_bomb = {}, earth_crown = {}, shock_dome = { translucent = true },
   war_hammer = { roll = 90 }, fissure_blade = { roll = 90 }, iron_bell = { roll = 90, translucent = true }, fire_wings = { roll = 90 }, thunder_sword = { roll = 90 }, war_banner = { roll = 90 },
-  tower_shield = { roll = 90 }, oni_mask = { roll = 90 }, fury_spear = { roll = 90 }, wind_spiral = {},
+  tower_shield = { roll = -90 }, oni_mask = { roll = -90 }, fury_spear = { roll = 90 }, wind_spiral = {},
 }
 function M.material(prefix, image) return ("%s/Instances/%s_fx_%s.%s_fx_%s"):format(M.ROOT, prefix, image, prefix, image) end
 function M.system(name) return ("%s/Systems/NS_fx_%s.NS_fx_%s"):format(M.ROOT, name, name) end
@@ -376,6 +382,12 @@ function M.ini_row(id)
   elseif r.ground then add("Ground", '"' .. M.material("MIG", r.ground) .. '"') end
   if r.spin then add("GroundSpin", number(r.spin)) end
   if r.tilt then add("GroundTilt", number(r.tilt)) end
+  if r.spin_up then add("GroundSpinUp", number(r.spin_up)) end
+  if r.face_blend then add("GroundFaceViewerBlend", number(r.face_blend)) end
+  if r.from_hand then add("bFromFiringHand", "True") end
+  if r.ground_fixed then add("bGroundFixedSize", "True") end
+  if r.delay then add("CueDelaySeconds", number(r.delay)) end
+  if r.repeat_count then add("CueRepeatCount", tostring(r.repeat_count)); add("CueRepeatSeconds", number(r.repeat_seconds)); add("CueRepeatYaw", number(r.repeat_yaw)) end
   if r.launch then add("GroundLaunchCm", number(r.launch * M.WORLD_CM)) end
   if r.lead then add("GroundLeadCm", number(r.lead * M.WORLD_CM)) end
   if r.linger then add("GroundLingerSeconds", number(r.linger)) end

@@ -2,18 +2,18 @@
 local ORANGE = { 1.0, 0.55, 0.08 }
 return {
   recipes = {
-    -- a26_volley: muzzle flashes and a wave at her reach, then a blast on each enemy
-    a26w_flak_sound = { system = "pop", sprite = "blink_flash", size = 200, life = 0.25, tint = ORANGE,
-      ground = "shock_ring", ground_size = 1200, area = true, ground_seconds = 0.45, grow = 0.2 },
+    -- a26_volley: four shots through Mx_Pistols_Volley's clockwise turn (0.2 s apart, front, right, back, left, right pistol first), then a blast on each enemy
+    a26w_flak_sound = { ground = "pistol_shot", ground_size = 190, ground_fixed = true, ground_seconds = 0.22, height = 105, launch = 480, from_hand = true, delay = 0.2,
+      face_camera = 0.85, repeat_count = 4, repeat_seconds = 0.2, repeat_yaw = 90 },
     a26w_hit_explosion = { system = "burst", sprite = "flame_sheet", size = 230, life = 0.4,
       ground = "dust_crack", ground_size = 240, ground_seconds = 0.35, grow = 0.5 },
-    -- a26_powder_kick: the kick's arc, then the powder blast
-    a26e_voice = { system = "pop", sprite = "crescent_slash", size = 300, life = 0.25, tint = ORANGE },
+    -- a26_powder_kick: powder trailing Mx_Spin_Kick's turn (0.7 s, counter-clockwise), then the blast
+    a26e_voice = { ground = "powder_swirl", ground_size = 340, ground_fixed = true, ground_seconds = 0.7, height = 45, delay = 0.1 },
     a26e_rocket_sound = { system = "pop", sprite = "smoke_sheet", size = 120, fixed_size = true, life = 0.7,
       ground = "powder_ring", ground_size = 600, area = true, ground_seconds = 0.6, grow = 0.3 },
     a26e_smoke = { system = "sparks", tint = ORANGE },
-    -- a26_twin_guns: on a crit two flames leave the muzzle along her aim. Its image has its own colours.
-    a26r_crit_gesture = { ground = "twin_muzzle", ground_size = 200, ground_seconds = 0.24, height = 80, launch = 170, grow = 0.7, face_camera = 0.85 },
+    -- a26_twin_guns: on a crit one flame leaves the pistol that fired. Its image has its own colours.
+    a26r_crit_gesture = { ground = "pistol_flare", ground_size = 150, ground_fixed = true, ground_seconds = 0.22, height = 105, launch = 110, from_hand = true, grow = 0.6, face_camera = 0.85 },
     -- a26_scorching_bomb
     a26t_voice = { system = "pop", sprite = "spark_star", size = 280, life = 0.45, tint = ORANGE,
       ground = "arcane_circle", ground_size = 340, ground_seconds = 0.5, grow = 0.4 },

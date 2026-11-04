@@ -15,10 +15,10 @@ return {
     a14e_arrive = { system = "burst", sprite = "blink_flash", size = 260, life = 0.35, tint = GOLD,
       ground = "shock_ring", ground_size = 420, ground_seconds = 0.5, grow = 0.2 },
     -- a14_spear_fury: thunder at the cast, then lightning on him while it lasts
-    a14t_vo = { system = "burst", sprite = "spark_star", size = 480, life = 0.5, tint = BLUE,
+    a14t_vo = { system = "burst", sprite = "spark_star", size = 260, life = 0.5, tint = BLUE,
       ground = "shock_ring", ground_size = 900, ground_seconds = 0.55, grow = 0.15 },
     a14t_title = { system = "pop", sprite = "blink_flash", size = 170, life = 0.3, tint = BLUE,
-      mesh = "fury_spear", ground_size = 300, ground_seconds = 1.0, grow = 0.25, face_viewer = true },
+      mesh = "fury_spear", ground_size = 200, ground_seconds = 1.0, grow = 0.5, lead = 65, launch = 75, face_blend = 0.5 },
     a14t_lightning = { system = "stream", sprite = "lightning", size = 130, life = 0.22, loop = true, tint = BLUE },
   },
   notes = {
