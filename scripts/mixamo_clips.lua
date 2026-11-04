@@ -21,7 +21,7 @@ local CLIPS={
   Mx_Sword_Outward={'Stable Sword Outward Slash',8,44,0,0,0.87},
   Mx_Sword_Draw={'Withdrawing Sword',nil,nil,0,0,0.9,25},
   Mx_Axe_Down={'Standing Melee Attack Downward',19,43,45,18,0.28},
-  Mx_Axe_Smash={'Great Sword Downward Slash',nil,nil,0,0,0.57,25},
+  Mx_Axe_Smash={'Great Sword Downward Slash',nil,nil,0,0,0.67,25},
   Mx_Sweep={'Standing Melee Attack Horizontal',11,47,0,0,0.58},
   Mx_Spear_Thrust={'Bayonet Stab',10,46,50,0,0.74},
   Mx_Spear_Upward={'Upward Thrust',nil,nil,0,0,0.73,25},
@@ -35,6 +35,15 @@ local CLIPS={
   Mx_Channel={'Standing 2H Magic Attack 03',0,90,0,0,1.0,25},
   Mx_Death_Back='Standing React Death Backward',
   -- No Mixamo file: built on the library's own pistol aim.
+  -- Both hands on the axe (two_hand_clip.py), built on clips above or the library's: bake those first.
+  Mx_Axe2_Swing={generated='scripts/two_hand_clip.py',source='Mx_Axe_Smash',mode='swing'},
+  Mx_Axe2_Slash={generated='scripts/two_hand_clip.py',source='Mx_Sword_Slash',mode='swing'},
+  Mx_Axe2_Idle={generated='scripts/two_hand_clip.py',source='library:Idle_Loop',mode='hold'},
+  Mx_Axe2_Jog={generated='scripts/two_hand_clip.py',source='library:Jog_Fwd_Loop',mode='hold'},
+  Mx_Axe2_Hit={generated='scripts/two_hand_clip.py',source='library:Hit_Chest',mode='hold'},
+  Mx_Axe2_Battlecry={generated='scripts/two_hand_clip.py',source='Mx_Battlecry',mode='hold'},
+  Mx_Axe2_Channel={generated='scripts/two_hand_clip.py',source='Mx_Channel',mode='hold'},
+  Mx_Axe2_Charge={generated='scripts/two_hand_clip.py',source='Mx_Charge',mode='hold'},
   Mx_Pistol_Fire_R={generated='scripts/pistols_clip.py',mode='fire_r'},
   Mx_Pistol_Fire_L={generated='scripts/pistols_clip.py',mode='fire_l'},
   Mx_Pistols_Volley={generated='scripts/pistols_clip.py',mode='volley'},
@@ -59,7 +68,10 @@ for _,name in ipairs(names)do
   local source=entry[1] and p.join(input,entry[1]..'.fbx');assert(entry.generated or p.is_file(source),'missing '..tostring(source))
   local out=p.join(baked,name..'.fbx')
   if not(options['--reuse-baked'] and p.is_file(out)) then
-  local result=entry.generated and r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,entry.generated),'--',library,out,entry.mode},{cwd=b.root,check=false})
+  local generated={'-b','--python-exit-code','1','-P',p.join(b.root,entry.generated or''),'--',library}
+  if entry.source then generated[#generated+1]=entry.source end
+  generated[#generated+1]=out;generated[#generated+1]=entry.mode
+  local result=entry.generated and r.run(blender,generated,{cwd=b.root,check=false})
     or r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out,tostring(entry[2]or''),tostring(entry[3]or''),tostring(entry[4]or 0),tostring(entry[5]or 0),tostring(entry[6]or -1),tostring(entry[7]or 0),tostring(entry[8]or''),tostring(entry.speed or 1),entry.spin or''},{cwd=b.root,check=false})
   assert(result.exit_code==0 and p.is_file(out),'bake failed: '..name..'\n'..tostring(result.stdout):sub(-1500))
   end

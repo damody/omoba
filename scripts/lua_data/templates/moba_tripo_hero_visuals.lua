@@ -28,18 +28,18 @@ return function(ctx)
       extra={death={'Mx_Death_Back',false},['ability_a01_heaven_net']={'Mx_Throw',false},['ability_a01_mikawa_valor']={'Mx_Charge',false},['ability_a01_thunder_blade']={'Mx_Sword_Slash',false},['ability_a01_tosho_gongen']={'Mx_Cast_Two',false}}},
     yamagata_masakage={idle='Idle_Loop',cast='Mx_Throw_Short',attack='Mx_Sword_Inward',critical='Mx_Sword_Slash',impact=0.3,contact=0.59,critical_impact=0.47,critical_contact=0.64,
       extra={['ability_b20_red_charge']={'Mx_Battlecry',false},['ability_b20_rock_rush']={'Mx_Throw',false},['ability_b20_ruin_wave']={'Mx_Axe_Smash',false}}},
-    okuma_tomohide={idle='Idle_Loop',cast='Mx_Throw_Short',attack='Mx_Axe_Down',critical='Mx_Axe_Down',impact=0.1,contact=0.28,critical_impact=0.1,critical_contact=0.28,
-      extra={['ability_b26_blood_fury']={'Mx_Battlecry',false},['ability_b26_charging_wave']={'Mx_Channel',false},['ability_b26_release_wave']={'Mx_Axe_Smash',false},['ability_b26_unstoppable']={'Mx_Charge',false}}},
+    okuma_tomohide={idle='Mx_Axe2_Idle',idle_2='Mx_Axe2_Idle',idle_3='Mx_Axe2_Idle',move='Mx_Axe2_Jog',hit='Mx_Axe2_Hit',cast='Mx_Axe2_Slash',attack='Mx_Axe2_Swing',critical='Mx_Axe2_Swing',impact=0.5,contact=0.67,critical_impact=0.5,critical_contact=0.67,
+      extra={['ability_b26_blood_fury']={'Mx_Axe2_Battlecry',false},['ability_b26_charging_wave']={'Mx_Axe2_Channel',false},['ability_b26_release_wave']={'Mx_Axe2_Swing',false},['ability_b26_unstoppable']={'Mx_Axe2_Charge',false}}},
     sasaki_kojiro={idle='Idle_Loop',cast='Mx_Throw_Short',attack='Mx_Sword_Inward',critical='Mx_Sword_Outward',impact=0.3,contact=0.59,critical_impact=0.72,critical_contact=0.87,
       extra={['ability_c22_dream_mist']={'Mx_Sword_Draw',false},['ability_c22_flying_swallow']={'Mx_Sword_Slash',false},['ability_c22_ganryu']={'Mx_Battlecry',false},['ability_c22_swallow_nest']={'Mx_Cast_Two',false}}},
     otani_yoshitsugu={idle='Idle_Loop',cast='Mx_Throw_Short',attack='Mx_Throw_Short',critical='Mx_Throw_Short',impact=0.6,
       extra={death={'Mx_Death_Back',false},['ability_a12_awe']={'Mx_Cast_Two',false},['ability_a12_insight_flash']={'Mx_Cast_Two',false},['ability_a12_mystic_arrow']={'Mx_Throw',false},['ability_a12_mystic_pierce']={'Mx_Battlecry',false},['ability_a12_mystic_possession']={'Mx_Channel',false}}},
     maeda_toshiie={idle='Idle_Loop',cast='Mx_Throw_Short',attack='Mx_Spear_Thrust',critical='Mx_Sweep',impact=0.6,contact=0.74,critical_impact=0.35,critical_contact=0.58,
       extra={['ability_a14_divine_strike']={'Mx_Spear_Upward',false},['ability_a14_impact_spear']={'Mx_Sweep',false},['ability_a14_spear_fury']={'Mx_Battlecry',false}}},
-    kojima_sadaoki={idle='Idle_Loop',cast='Mx_Throw_Short',attack='Mx_Axe_Down',critical='Mx_Axe_Down',impact=0.1,contact=0.28,critical_impact=0.1,critical_contact=0.28,
-      extra={death={'Mx_Death_Back',false},['ability_b27_fearless_charge']={'Mx_Battlecry',false},['ability_b27_horsemanship']={'Mx_Charge',false},['ability_b27_mighty_strike']={'Mx_Throw',false},['ability_b27_rending_blade']={'Mx_Axe_Smash',false}}},
-    shimazu_yoshihiro={idle='Idle_Loop',cast='Mx_Throw_Short',attack='Mx_Axe_Down',critical='Mx_Axe_Down',impact=0.1,contact=0.28,critical_impact=0.1,critical_contact=0.28,
-      extra={['ability_c03_iron_hammer']={'Mx_Throw',false},['ability_c03_iron_shirt']={'Mx_Battlecry',false},['ability_c03_quake_axe']={'Mx_Axe_Smash',false}}},
+    kojima_sadaoki={idle='Mx_Axe2_Idle',idle_2='Mx_Axe2_Idle',idle_3='Mx_Axe2_Idle',move='Mx_Axe2_Jog',hit='Mx_Axe2_Hit',cast='Mx_Axe2_Slash',attack='Mx_Axe2_Swing',critical='Mx_Axe2_Swing',impact=0.5,contact=0.67,critical_impact=0.5,critical_contact=0.67,
+      extra={death={'Mx_Death_Back',false},['ability_b27_fearless_charge']={'Mx_Axe2_Battlecry',false},['ability_b27_horsemanship']={'Mx_Axe2_Charge',false},['ability_b27_mighty_strike']={'Mx_Axe2_Slash',false},['ability_b27_rending_blade']={'Mx_Axe2_Swing',false}}},
+    shimazu_yoshihiro={idle='Mx_Axe2_Idle',idle_2='Mx_Axe2_Idle',idle_3='Mx_Axe2_Idle',move='Mx_Axe2_Jog',hit='Mx_Axe2_Hit',cast='Mx_Axe2_Slash',attack='Mx_Axe2_Swing',critical='Mx_Axe2_Swing',impact=0.5,contact=0.67,critical_impact=0.5,critical_contact=0.67,
+      extra={['ability_c03_iron_hammer']={'Mx_Axe2_Slash',false},['ability_c03_iron_shirt']={'Mx_Axe2_Battlecry',false},['ability_c03_quake_axe']={'Mx_Axe2_Swing',false}}},
     maeda_keiji={idle='Idle_Loop',cast='Mx_Throw_Short',attack='Mx_Spear_Thrust',critical='Mx_Sweep',impact=0.6,contact=0.74,critical_impact=0.35,critical_contact=0.58,
       extra={death={'Mx_Death_Back',false},['ability_c05_flash_thunder']={'Mx_Channel',false},['ability_c05_matsukaze']={'Mx_Battlecry',false},['ability_c05_thunder_dance']={'Mx_Spear_Upward',false}}},
     nohime={idle='Idle_Loop',cast='Mx_Pistol_Fire_R',attack='Mx_Pistol_Fire_R',critical='Mx_Pistol_Fire_R',impact=0.2,
@@ -78,11 +78,12 @@ return function(ctx)
     sasaki_kojiro={mesh='weapon_katana',hand='hand_r',length=1.15,grip=-0.40,center_z=6.0,flip=true},
     tokugawa_ieyasu={mesh='weapon_katana',hand='hand_r',length=0.95,grip=-0.40,center_z=6.0,flip=true},
     yamagata_masakage={mesh='weapon_katana',hand='hand_r',length=0.95,grip=-0.40,center_z=6.0,flip=true},
-    okuma_tomohide={mesh='weapon_war_axe',hand='hand_r',length=1.1,grip=-0.35,center_z=20.4},
+    -- Held in both hands (Mx_Axe2_*): the right fist is up the haft, the head on its thumb side, with room for the left below it.
+    okuma_tomohide={mesh='weapon_war_axe',hand='hand_r',length=1.1,grip=-0.15,center_z=20.4,flip=true},
     maeda_toshiie={mesh='weapon_jumonji',hand='hand_r',length=1.7,grip=-0.15,center_z=10.3,flip=true},
     maeda_keiji={mesh='weapon_tonbokiri',hand='hand_r',length=2.2,grip=-0.15,center_z=3.3,flip=true},
-    kojima_sadaoki={mesh='weapon_war_axe',hand='hand_r',length=1.1,grip=-0.35,center_z=20.4},
-    shimazu_yoshihiro={mesh='weapon_war_axe',hand='hand_r',length=1.25,grip=-0.35,center_z=20.4},
+    kojima_sadaoki={mesh='weapon_war_axe',hand='hand_r',length=1.1,grip=-0.15,center_z=20.4,flip=true},
+    shimazu_yoshihiro={mesh='weapon_war_axe',hand='hand_r',length=1.25,grip=-0.15,center_z=20.4,flip=true},
     -- A pistol in each hand, fired in turn (attack_left, Mx_Pistol_Fire_R and _L).
     nohime={mesh='weapon_matchlock',hand='hand_r',length=0.45,grip=-0.30,center_z=13.3,along='fingers',both_hands=true},
   }
@@ -122,9 +123,9 @@ return function(ctx)
     end
     local profile={mesh_asset=root..'TripoV1/'..hero_id..'/'..hero_id..'.'..hero_id,scale=1.0,material_slots={},animation_assets={},
       attachments={},state_slots={idle_2='idle_2',idle_3='idle_3'}}
-    local animations={idle={definition.idle,true},idle_2={'Idle_Loop',true},idle_3={'Idle_Talking_Loop',true},
-      move={'Jog_Fwd_Loop',true},attack={definition.attack,false,definition.impact,definition.contact},critical={definition.critical,false,definition.critical_impact or definition.impact,definition.critical_contact},
-      cast={definition.cast or'Spell_Simple_Shoot',false},hit={'Hit_Chest',false},death={'Death01',false},
+    local animations={idle={definition.idle,true},idle_2={definition.idle_2 or'Idle_Loop',true},idle_3={definition.idle_3 or'Idle_Talking_Loop',true},
+      move={definition.move or'Jog_Fwd_Loop',true},attack={definition.attack,false,definition.impact,definition.contact},critical={definition.critical,false,definition.critical_impact or definition.impact,definition.critical_contact},
+      cast={definition.cast or'Spell_Simple_Shoot',false},hit={definition.hit or'Hit_Chest',false},death={'Death01',false},
       recall={'Spell_Simple_Idle_Loop',true},respawn={'Spell_Simple_Exit',false},emote={'Dance_Loop',true}}
     for slot,binding in pairs(definition.extra or{})do animations[slot]=binding end
     for slot,binding in pairs(animations)do profile.animation_assets[slot]={asset=clip(binding[1]),loop_animation=binding[2],impact_seconds=binding[3],contact_seconds=binding[4]}end
