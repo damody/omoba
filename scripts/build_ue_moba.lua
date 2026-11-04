@@ -248,7 +248,7 @@ end
 -- First: a clean clone has only the sources, and the steps below verify what they build.
 run_stage('ensure text-owned assets',platform.lua_executable,{
   path.join(root,'scripts/dream_assets.lua'),'ensure','--ue-root',engine_root,
-},root)
+},root,build_lock and build_lock:env() or nil)
 run_stage('ensure public map biome materials',platform.lua_executable,{
   path.join(root,'scripts/ue_map_biome_materials.lua'),'--ue-root',engine_root,'--ensure',
 },root)
