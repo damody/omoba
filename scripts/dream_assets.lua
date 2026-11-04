@@ -3,7 +3,9 @@
 --   tools\lua\lua.exe scripts\dream_assets.lua [--project DIR] [--ue-root PATH] {fx|shader} VERB [-Option[=value] ...]
 --   tools\lua\lua.exe scripts\dream_assets.lua pinned [--filter LUA_PATTERN]
 --   tools\lua\lua.exe scripts\dream_assets.lua owned [--project DIR]
+--   tools\lua\lua.exe scripts\dream_assets.lua ensure [--project DIR] [--ue-root PATH]
 --
+--   ensure  rebuilds what is missing or older than its source, then runs owned. A clean clone has only the sources.
 --   owned   every source under DShader/ and DFX/ has its asset, still marked as built from text, and none was overwritten by
 --           another tool. A tool that replaces such an asset drops the mark; one that loads and resaves it keeps the mark but
 --           is recorded by OmDreamGuard. Exit 1 when any is missing, unmarked or overwritten and not yet restored.
@@ -185,6 +187,33 @@ function M.report_pinned(root,filter)
   return #names==0 and 0 or 1
 end
 
+-- Sources of PROJECT whose asset is missing or older than the source: tool ('shader' or 'fx') -> count.
+function M.stale(project)
+  local lfs=require('lfs')
+  local stale={shader=0,fx=0}
+  local function walk(tool,base,dir)
+    for entry in lfs.dir(dir) do
+      if entry~='.' and entry~='..' and entry~='.dreampass' then
+        local full=dir..'/'..entry
+        local attributes=lfs.attributes(full)
+        if attributes.mode=='directory' then walk(tool,base,full)
+        else
+          local rel=full:sub(#base+2);rel=rel:match('^(.+)%.dss$') or rel:match('^(.+)%.dsi$') or rel:match('^(.+)%.dfs$')
+          if rel then
+            local asset=lfs.attributes(project..'/Content/'..rel..'.uasset')
+            if not asset or asset.modification<attributes.modification then stale[tool]=stale[tool]+1 end
+          end
+        end
+      end
+    end
+  end
+  for _,kind in ipairs{{'shader','DShader'},{'fx','DFX'}} do
+    local base=project..'/'..kind[2]
+    if lfs.attributes(base,'mode')=='directory' then walk(kind[1],base,base) end
+  end
+  return stale
+end
+
 -- The text-owned assets of PROJECT that are missing or lost their mark, and how many there are.
 function M.unowned(project)
   local lfs=require('lfs')
@@ -254,6 +283,29 @@ function M.main(argv)
   if argv[1]=='pinned' then
     local filter=argv[2]=='--filter' and assert(argv[3],'--filter needs a pattern') or nil
     return M.report_pinned((b.root:gsub('\\','/')),filter)
+  end
+  if argv[1]=='ensure' then
+    local passed,given={},nil
+    local i=2
+    while i<=#argv do
+      if argv[i]=='--project' then i=i+1;given=assert(argv[i],'--project needs a directory')
+      elseif argv[i]=='--ue-root' then i=i+1;passed[#passed+1]='--ue-root';passed[#passed+1]=assert(argv[i],'--ue-root needs a path')
+      else error('unknown ensure argument: '..argv[i]) end
+      i=i+1
+    end
+    if given then table.insert(passed,1,given);table.insert(passed,1,'--project') end
+    local project=given and p.absolute(given,b.root) or p.join(b.root,'omfue')
+    local stale=M.stale((project:gsub('\\','/')))
+    print(('[dream-assets] %d material and %d Niagara assets to rebuild'):format(stale.shader,stale.fx))
+    local function build(tool,verb,...)
+      local args={table.unpack(passed)}
+      args[#args+1]=tool;args[#args+1]=verb
+      for _,v in ipairs{...} do args[#args+1]=v end
+      assert(M.main(args)==0,tool..' '..verb..' failed')
+    end
+    if stale.shader>0 then build('shader','compile','-All') end
+    if stale.fx>0 then build('fx','build','-All') end
+    return M.main(given and {'owned','--project',given} or {'owned'})
   end
   if argv[1]=='owned' then
     local project=argv[2]=='--project' and p.absolute(assert(argv[3],'--project needs a directory'),b.root) or p.join(b.root,'omfue')

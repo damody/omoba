@@ -251,8 +251,8 @@ run_stage('ensure public map biome materials',platform.lua_executable,{
 run_stage('ensure verified CC0 match voice',platform.lua_executable,{
   path.join(root,'scripts/import_moba_voice.lua'),'--ue-root',engine_root,'--ensure',
 },root)
-run_stage('verify text-owned assets',platform.lua_executable,{
-  path.join(root,'scripts/dream_assets.lua'),'owned',
+run_stage('ensure text-owned assets',platform.lua_executable,{
+  path.join(root,'scripts/dream_assets.lua'),'ensure','--ue-root',engine_root,
 },root)
 verify_stage_consistency()
 if engine_plan.initialize then assert(os.remove(bootstrap_marker), 'cannot retire source-engine bootstrap checkpoint') end
