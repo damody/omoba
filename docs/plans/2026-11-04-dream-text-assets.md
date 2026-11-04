@@ -212,6 +212,23 @@
 無法判定：
 - 慶次 E 第三次：鏡頭換到另一處，兩邊取樣的格子裡，只有切換後一格看得到閃電，沒有同相位可比。
 
+## 停止追蹤與重新 clone 驗證
+
+omfue e22daa97 停止追蹤 250 個 `.uasset`（`scripts/dream_untrack.lua` 列的；正好 250 筆刪除），主 repo 53bbbdfb 指向它。deb2bd99 的訊息說已停止追蹤，實際只提交了 `.gitignore`：`git commit -- 路徑` 比的是工作目錄，檔案還在就沒有變更。共用索引也可能被其他 session 的提交改動，這次改用臨時索引建立 commit，再比對舊值更新分支。
+
+`target/e187/clone2`：HEAD 53bbbdfb、`git ls-files` 不含這 250 個、磁碟上 0 個、沒有 BpGeneratorUltimate 的 `Binaries`，也沒有複製任何建置產物。
+
+| 步驟 | 結果 |
+|---|---|
+| `build_ue_moba` | exit 0，2549 秒；UBT 把 BpGeneratorUltimate 也編出來 |
+| ensure | 重建 240 個材質、12 個 Niagara，252 個由文字建成（多的 2 個是線 C 新增的 `MIG_mesh_*`） |
+| `run_moba_split_local --build-only` | exit 0，823 秒（`build_ue_moba` 不建 server 和 client runtime） |
+| 實錄 `sasaki_kojiro` | record 0，持 root 的 `live_match`；只手動補了 `target/tools/ffmpeg` |
+
+clone 後 OmGenerated 和 `om_bridge.h` 共 24 個檔案顯示已修改：23 個只差行尾，`om_codegen_manifest.json` 的 137 行是絕對路徑。
+
+待處理（不擋主線）：引擎路徑寫死 `D:/UE5.8`；`om_codegen_manifest.json` 含絕對路徑；文字檔 checkout 後是 CRLF；`hud-assets-v1.json` 重建時順序會變；孤兒圖片繼續留著。
+
 ## 還沒做
 
 Tripo 的 66 個材質、停止追蹤 `.uasset`、完整 cook 驗收。
