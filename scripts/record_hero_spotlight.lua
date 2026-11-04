@@ -432,7 +432,7 @@ M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=8},c05_thunder_spear={at=
 -- Struck for this long the hero lives: seat 7 took 17 hits and 14 s to kill c05 at 164 a hit (out of its reach refill_players makes it whole).
 M.HALF_SECONDS={c05_thunder_spear=5.5,b26_kozuke_valor=4}
 -- Where a reach is the point (backend units from the stand-in): c22 燕閃 reaches 228 at rank 1 and 378 at rank 4.
-M.STAND_OFF={c22_swallow_flash=330}
+M.STAND_OFF={c22_swallow_flash=330,c03_iron_hammer=420}
 -- A melee hero stands where its weapon reaches the stand-in (backend units): the stand-in no longer comes to it,
 -- and from the usual 188 the blow landed on nothing. Ranged heroes keep the usual place.
 M.WEAPON_REACH={sasaki_kojiro=130,tokugawa_ieyasu=130,yamagata_masakage=130,okuma_tomohide=120,kojima_sadaoki=120,shimazu_yoshihiro=120,maeda_toshiie=140,maeda_keiji=140}

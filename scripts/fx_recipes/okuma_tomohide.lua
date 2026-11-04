@@ -21,7 +21,7 @@ return {
     -- W 血性狂怒: blood-red flames and a ring, a flash as he grows, red motes while it lasts.
     -- b26e_model_scale_up has an 8 s duration, which a ground image would take: no ground on it.
     b26e_voice = { system = "pop", sprite = "blink_flash", size = 160, life = 0.25, tint = BLOOD,
-      mesh = "oni_mask", ground_size = 85, ground_seconds = 0.9, height = 115, grow = 0.5, face_viewer = true },
+      mesh = "oni_mask", ground_size = 60, ground_seconds = 0.9, height = 65, face_viewer = true },
     b26e_model_scale_up = { system = "pop", sprite = "blink_flash", size = 240, life = 0.3, tint = BLOOD },
     b26e_status_effect = { system = "stream", sprite = "spark_star", size = 80, life = 0.35, loop = true, tint = BLOOD },
     -- R 當者披靡: a roar of fire, huge wings flaring, then fire at the feet for the duration

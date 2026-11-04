@@ -21,8 +21,8 @@ return {
     -- It faces the viewer and does not tumble: end on, a hammer reads as a barrel.
     -- It comes down on each of the package's blows (interval 0.6 s), at the point the blow lands.
     c03t_hammer = { mesh = "war_hammer", ground_size = 170, fly = true, lead = 300, face_viewer = true, bounce = 130, bounce_seconds = 0.6, pivot = 60 },
-    c03t_hammer_hit = { system = "burst", sprite = "flame_sheet", size = 420, life = 0.5,
-      ground = "dust_crack", ground_size = 900, ground_seconds = 0.45, grow = 0.3 },
+    c03t_hammer_hit = { system = "burst", sprite = "rock", size = 130, fixed_size = true, life = 0.45,
+      ground = "dust_crack", ground_size = 420, ground_fixed = true, ground_seconds = 0.45, grow = 0.3 },
   },
   notes = {
     c03_iron_shirt = "c03w_vo shield flare + c03w_grow sparks and follow-ground; c03w_iron_glow stream for the buff. Blocking enemy debuffs is correct behaviour.",

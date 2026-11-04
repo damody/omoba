@@ -15,8 +15,9 @@ return {
     b27r_vo = { ground = "banner_rally", ground_size = 240, ground_fixed = true, ground_seconds = 0.8, grow = 0.4 },
     b27r_model_grow = { mesh = "tower_shield", ground_size = 160, ground_seconds = 0.9, grow = 0.6, lead = 55, launch = 85, face_blend = 0.5 },
     b27r_b15w3_aura = { system = "stream", sprite = "spark_star", size = 85, life = 0.4, loop = true, tint = GOLD },
-    -- b27_rending_blade: a giant blade comes down, the earth breaks around him
-    b27t_vo = { system = "pop", sprite = "crescent_slash", size = 880, life = 0.32, tint = GOLD },
+    -- b27_rending_blade: a giant blade comes down, the earth breaks across his whole reach
+    b27t_vo = { system = "pop", sprite = "crescent_slash", size = 480, life = 0.3, tint = GOLD,
+      ground = "dust_crack", ground_size = 1500, area = true, ground_seconds = 1.3, grow = 0.25 },
     b27t_slam = { system = "burst", sprite = "rock", size = 120, fixed_size = true, life = 0.5,
       mesh = "fissure_blade", ground_size = 300, ground_seconds = 1.1, grow = 0.2, face_viewer = true },
     b27t_screen_shake = { system = "burst", sprite = "spark_star", size = 220, life = 0.35, tint = GOLD,
