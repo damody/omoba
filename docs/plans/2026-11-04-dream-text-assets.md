@@ -91,6 +91,7 @@
 | Game target | 沒有 Dream 模組 |
 | 放回 | 先放回 320 個檔案（160 資產、154 + 6 原始碼），`land_to_live` 的 codegen、UBT 通過，寫入後逐檔相同；之後還原 73 個，見下節 |
 | 還原後 | `build_ue_moba` exit 0；`shader check` 81 份 0 錯誤 |
+| 放回後 live 錄影 | 佐佐木、大谷與影子切換版對照：角色、地面材質與特效顏色無異常，沒有缺材質；特效出現時間點有取樣差異。目視抽樣，未做逐像素量測 |
 
 反編譯遺失旗標的檢查：`dream_switch.lua` 比對資產的 `bUsedWith*` 與文字，缺少就失敗，加 `--fix-flags` 才會補。
 
@@ -109,7 +110,7 @@
 | `Omoba/MapBiomesV1/M_*` | 3 | `MapBiomesV1/provenance.json` | `ue_map_biome_materials` 檢查雜湊，`build_ue_moba` 會失敗 |
 | `Omoba/WorldSurfacesV1/M_*` | 4 | `MapBiomesV1/provenance.json` | 記錄在同一份 provenance |
 
-這 73 個留在原有流程。`OmGenerated`、`DreamSources` 的快照裡仍有它們的文字，只供查閱。
+這 73 個留在原有流程。`omfue/DreamSources` 的快照裡仍有它們的文字，只供查閱。
 
 ### 注意事項
 
