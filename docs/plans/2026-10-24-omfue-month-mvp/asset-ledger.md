@@ -196,6 +196,9 @@
 | 2026-11-04 | Tripo（單張圖、H3.1、512） | fx_wind_spiral | keiji Q（c05w_vo） | 25 | 525 | 20460 | `b33e71c4-378a-4d49-9cf8-73210438f29c` | 1416 面，靜態，匯出 FBX 0 點 |
 | 2026-11-04 | Tripo（單張圖、H3.1、512） | fx_fury_spear | toshiie R（a14t_title） | 25 | 550 | 20435 | `f1a19e3c-bb68-4e00-b4e9-dd931a0fc3f6` | 1500 面，靜態，匯出 FBX 0 點 |
 | 2026-11-04 | Tripo（單張圖、H3.1、512） | weapon_flintlock | 濃姬雙手槍（左右共用） | 25 | 575 | 20410 | `a67be971-fe4f-4a43-ade1-270c8f4d8d9f` | 1460 面，靜態，匯出 FBX 0 點 |
+| 2026-11-04 | Tripo（單張圖、H3.1、512） | fx_earth_spikes | yamagata W（試做） | 25 | 600 | 20115 | `c3e306dd-0d81-4eba-9b32-a36b8d820897` | 1374 面，靜態，匯出 FBX 0 點 |
+| 2026-11-04 | Tripo（單張圖、H3.1、512） | fx_powder_keg | nohime W（試做） | 25 | 625 | 20090 | `b1d27aa3-bbb1-474a-8b27-ded6673255e0` | 1393 面，靜態，匯出 FBX 0 點 |
+| 2026-11-04 | Tripo（單張圖、H3.1、512） | fx_stone_shards | kojima W（試做） | 25 | 650 | 20065 | `793b922e-0903-4c9c-b7c5-a70e5ac7e246` | 1408 面，靜態，匯出 FBX 0 點 |
 
 ## 待決定
 
