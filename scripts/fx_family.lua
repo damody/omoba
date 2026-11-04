@@ -245,8 +245,7 @@ M.RECIPES.fx_layer_possession_embers = { system = "burst", sprite = "spark_star"
 M.RECIPES.fx_layer_quake_sparks = { system = "sparks", tint = { 1.0, 0.45, 0.1 }, delay = 0.06 }
 M.RECIPES.fx_layer_powder_sparks = { system = "sparks", tint = { 1.0, 0.5, 0.08 }, delay = 0.05 }
 M.RECIPES.fx_layer_powder_keg = { mesh = "powder_keg", ground_size = 80, ground_seconds = 0.6, lead = 170, grow = 0.8 }
-M.RECIPES.fx_layer_medicine_inro = { mesh = "medicine_inro", ground_size = 110, ground_seconds = 1.1, height = 130, grow = 0.5, face_viewer = true }
-M.RECIPES.fx_layer_armor_plate = { mesh = "armor_plate", ground_size = 110, ground_seconds = 0.7, height = 70, grow = 0.6, face_viewer = true }
+M.RECIPES.fx_layer_medicine_inro = { mesh = "medicine_inro", ground_size = 150, ground_seconds = 0.55, height = 75, lead = 60, grow = 0.3, face_viewer = true }
 M.RECIPES.fx_layer_mana_motes = { system = "sparks", tint = { 0.25, 0.55, 1.0 }, delay = 0.08 }
 
 -- Abilities whose every look is in the recipes above.
