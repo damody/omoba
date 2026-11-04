@@ -9,7 +9,8 @@ return {
     -- c05_thunder_dance: lightning erupts around him, a bolt to each enemy, a burst on each hit
     c05e_cast_sound = { system = "sparks", tint = { 0.5, 0.8, 1.0 } },
     c05e_bolt = { ground = "arc_fork", ground_size = 340, ground_seconds = 20, height = 90, face = true, linger = 0.12 },
-    c05e_impact = { system = "pop", sprite = "blink_flash", size = 90, fixed_size = true, life = 0.2, tint = { 0.5, 0.8, 1.0 } },
+    c05e_impact = { system = "pop", sprite = "blink_flash", size = 90, fixed_size = true, life = 0.2, tint = { 0.5, 0.8, 1.0 },
+      ground = "arc_fork", ground_size = 120, ground_seconds = 0.28, height = 90, line = true, from_caster = true },
     -- c05_thunder_spear: a bolt along the thrust and a flash on the spear, then the target crackles
     c05r_chain_lightning = { system = "pop", sprite = "lightning", size = 320, life = 0.22, tint = BLUE,
       ground = "chain_bolt", ground_size = 150, ground_seconds = 0.3, line = true },

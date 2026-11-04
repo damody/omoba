@@ -407,6 +407,7 @@ function M.ini_row(id)
   if r.ground_seconds then add("GroundSeconds", number(r.ground_seconds)) end
   if r.grow then add("GroundGrow", number(r.grow)) end
   if r.line then add("bGroundLine", "True") end
+  if r.from_caster then add("bGroundFromCaster", "True") end
   if r.height then add("GroundHeightCm", number(r.height * M.WORLD_CM)) end
   if r.face_camera then add("GroundFaceCamera", number(r.face_camera)) end
   if r.ground_roll then add("GroundRoll", number(r.ground_roll)) end
