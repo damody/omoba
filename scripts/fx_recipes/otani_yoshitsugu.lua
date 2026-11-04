@@ -12,7 +12,7 @@ return {
     a12w_hide_ring = { system = "burst", sprite = "vortex", size = 480, life = 0.55, tint = ARCANE,
       ground = "vortex", ground_size = 1000, ground_seconds = 0.8 },
     -- shared by a12_mystic_pierce and a12_mystic_field: crackling power and a circle at the field's size
-    a12e_vo = { system = "burst", sprite = "lightning", size = 380, life = 0.45, tint = ARCANE,
+    a12e_vo = { system = "burst", sprite = "spark_star", size = 170, life = 0.45, tint = ARCANE,
       ground = "arcane_circle", ground_size = 800, ground_seconds = 0.9, grow = 0.3 },
     a12e_heal_number = { system = "pop", sprite = "heal_ring", size = 240, life = 0.4, tint = GREEN,
       ground = "heal_ring", ground_size = 220, ground_seconds = 0.45, grow = 0.5 },
@@ -20,8 +20,8 @@ return {
       ground = "arcane_circle", ground_size = 220, ground_seconds = 0.45, grow = 0.5 },
     -- shared by a12_awe and a12_awe_t
     a12r_vo = { system = "pop", sprite = "arcane_circle", size = 260, life = 0.35, tint = ARCANE },
-    a12r_burst = { system = "burst", sprite = "vortex", size = 540, life = 0.6, tint = ARCANE,
-      ground = "vortex", ground_size = 800, ground_seconds = 0.8, grow = 0.3 },
+    a12r_burst = { system = "burst", sprite = "spark_star", size = 220, life = 0.5, tint = ARCANE,
+      ground = "vortex", ground_size = 800, ground_seconds = 0.8, grow = 0.3, alpha = 0.6 },
     a12r_vortex = { system = "stream", sprite = "vortex", size = 90, life = 0.25, loop = true, tint = ARCANE },
     -- a12_mystic_arrow
     a12f_arc_sound = { system = "pop", sprite = "soft_glow", size = 120, life = 0.15, tint = ARCANE },
