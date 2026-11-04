@@ -260,7 +260,7 @@ function M.unowned(project)
       local now=file and lfs.attributes(project..'/'..file)
       if now and not reported[file] and now.size==tonumber(size) and math.abs(now.modification-tonumber(time))<=2 then
         reported[file]=true
-        bad[#bad+1]=file..' (overwritten by another tool; restore it: git -C omfue restore -- '..file..')'
+        bad[#bad+1]=file..' (overwritten by another tool; delete it and run dream_assets.lua ensure)'
       end
     end
     record:close()
