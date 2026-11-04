@@ -4,15 +4,12 @@ return {
   recipes = {
     -- c05_matsukaze: a whirlwind on cast, cyan motes while it lasts
     c05w_vo = { system = "sparks", tint = CYAN,
-      mesh = "wind_spiral", ground_size = 110, ground_seconds = 0.9, grow = 0.6, spin_up = 540 },
+      mesh = "wind_spiral", ground_size = 62, ground_seconds = 0.9, grow = 0.6, spin_up = 540 },
     c05w_armlet = { system = "stream", sprite = "spark_star", size = 85, life = 0.4, loop = true, tint = CYAN },
     -- c05_thunder_dance: lightning erupts around him, a bolt to each enemy, a burst on each hit
-    c05e_cast_sound = { system = "burst", sprite = "lightning", size = 300, fixed_size = true, life = 0.32, tint = BLUE,
-      ground = "shock_ring", ground_size = 420, ground_seconds = 0.45, grow = 0.3 },
-    c05e_bolt = { system = "stream", sprite = "lightning", size = 50, life = 0.22, loop = true, face = true, tint = BLUE,
-      mesh = "thunder_spear", ground_size = 220, ground_seconds = 20, height = 90, linger = 0.3 },
-    c05e_impact = { system = "burst", sprite = "lightning", size = 270, life = 0.3, tint = BLUE,
-      ground = "blink_flash", ground_size = 240, ground_seconds = 0.25, height = 20, grow = 0.4 },
+    c05e_cast_sound = { system = "sparks", tint = { 0.5, 0.8, 1.0 } },
+    c05e_bolt = { ground = "arc_fork", ground_size = 90, ground_seconds = 0.3, line = true },
+    c05e_impact = { system = "pop", sprite = "blink_flash", size = 90, fixed_size = true, life = 0.2, tint = { 0.5, 0.8, 1.0 } },
     -- c05_thunder_spear: a bolt along the thrust and a flash on the spear, then the target crackles
     c05r_chain_lightning = { system = "pop", sprite = "lightning", size = 320, life = 0.22, tint = BLUE,
       ground = "chain_bolt", ground_size = 150, ground_seconds = 0.3, line = true },
