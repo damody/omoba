@@ -95,6 +95,19 @@
 
 反編譯遺失旗標的檢查：`dream_switch.lua` 比對資產的 `bUsedWith*` 與文字，缺少就失敗，加 `--fix-flags` 才會補。
 
+### Niagara 必須從零建
+
+`dream_niagara_sim.lua` 以固定種子和步長執行原資產與重建版，比對粒子數、每幀屬性範圍和渲染器設定。對照組（同一資產跑兩次）差異 0，方法可重現。
+
+| 比對 | 粒子數 | 屬性值 | 結論 |
+|---|---|---|---|
+| 第一批 CueShapes（在既有資產上重建） | 116 筆不同 | 1856 筆不同 | `NS_shape_slash`、`NS_shape_trail` 的 ribbon 粒子數是 2 倍 |
+| 修復後，live，共 960 筆粒子數、22776 筆屬性值 | 0 | 0 | 相同 |
+
+原因：原資產的 event handler 有非零 usage id，DreamFX 在既有資產上重建時會另外加一個 zero-id handler，同一事件被處理兩次。`77fb8874` 放回的這兩個系統有這個問題，已修復。
+
+做法：Niagara 在影子裡刪除原資產後從零建，再放回。從零建之後再重建不會累積（已實測）。放回前必須跑 `dream_niagara_sim.lua`，`fx asset-diff` 看不出這個問題。
+
 ### 放回後的失敗與修復
 
 第一次放回了 154 個材質，`build_ue_moba` 在地圖材質步驟失敗（`managed biome material changed: jungle`）。這些資產的雜湊被匯入工具鎖定，覆寫後檢查不再相符。`land_to_live` 和 `check_live_consistent --ubt` 都通過，抓不到這類問題，放回資產後要跑真正的 `build_ue_moba`。
