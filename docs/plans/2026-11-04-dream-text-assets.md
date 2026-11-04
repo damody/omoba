@@ -145,22 +145,38 @@
 |---|---:|---|---|
 | `Omoba/Characters/TripoV1/**/tripo_mat_*` | 26 | `TripoV1/source-registry.json` | 匯入時產生；`import_character_sources` 要求位元組不變，否則報 `registered package changed` |
 | `Omoba/Structures/TripoStaticV1/**/tripo_mat_*` | 40 | `TripoStaticV1/source-registry.json` | 同上 |
-| `Omoba/MapBiomesV1/M_*` | 3 | `MapBiomesV1/provenance.json` | `ue_map_biome_materials` 檢查雜湊，`build_ue_moba` 會失敗 |
-| `Omoba/WorldSurfacesV1/M_*` | 4 | `MapBiomesV1/provenance.json` | 記錄在同一份 provenance |
-
-這 73 個留在原有流程。`omfue/DreamSources` 的快照裡仍有它們的文字，只供查閱。
+這 66 個留在原有流程。`MapBiomesV1`、`WorldSurfacesV1` 的 7 個材質已切換成文字，`ue_map_biome_materials` 對有來源的材質不再檢查雜湊。`omfue/DreamSources` 的快照裡仍有它們的文字，只供查閱。
 
 ### 注意事項
 
 - 其他產生工具（`character_materials`、`build_world_model_assets`、`build_presentation_materials`、`combat_visual_assets` 等）重跑時可能覆寫已切換的資產，還沒有逐一確認，也沒有檢查擋住。
 - `OmFxFamilyBuilder` 的 `-shapes=` 模式會覆寫 CueShapes，與 `DFX/` 不一致。`-fx-family` 只寫 `VFX/Fx`，不受影響。
 - 在互動式編輯器裡，DreamShader bridge 的啟動掃描與 `bAutoCompileOnSave` 可能重建來源雜湊過期的材質。commandlet、cook、遊戲不會經過 bridge。
-- `M_OmFxSprite`、`M_OmFxGround` 在 `VFX/Fx`，不在這批；影子裡含 Fx 的試轉驗過 instance 沒有變色或缺材質，第二批要重新轉換。
+- （第一批時）`M_OmFxSprite`、`M_OmFxGround` 在 `VFX/Fx`，不在這批；影子裡含 Fx 的試轉驗過 instance 沒有變色或缺材質，第二批要重新轉換。
 - 沒有跑完整 `BuildCookRun` 打包，只跑 cook 與 target 模組檢查。
+
+## 第二批：`VFX/Fx`
+
+153 個資產改由文字建成（共 248 個）：
+
+| 資產 | 數量 | 來源 |
+|---|---:|---|
+| `M_OmFxSprite`、`M_OmFxGround`、`M_OmFxMeshTranslucent` | 3 | `DShader/Omoba/VFX/Fx/*.dss`，反編譯 |
+| `MI_fx_*`、`MIG_fx_*`、`MIG_mesh_*` | 144 | `DShader/Omoba/VFX/Fx/Instances/*.dsi`，由 `fx_family.lua` 的 `IMAGES`、`MESHES` 產生，`--check` 檢查是否過期 |
+| `NS_fx_*` | 6 | `DFX/Omoba/VFX/Fx/Systems/*.dfs`，反編譯，直接編輯 |
+
+`T_fx_*`、`T_mesh_*`（84 個）是貼圖，繼續由 PNG 匯入、留在版控。`-run=OmCueVfx -fx-family=` 只匯入圖片，像素相同就不動。
+
+`fx_family.lua` 拿掉 `SYSTEMS` 內容，改讀 `DFX` 目錄的檔名，避免兩份來源。圖片產生器放到 `scripts/fx_images/`：`gen_wave2.lua` 重現 36 張、`gen_thrust.lua` 重現 2 張，都逐位元組相同；其餘 22 張是生成圖，PNG 就是來源。
+
+驗證（影子）：147 個材質與 instance 相同；6 個 Niagara 從零重建，406 設定、420 粒子數、6168 屬性值 0 差異；248 個都由文字建成；153 個都沒有被鎖定。同一英雄（`sasaki_kojiro`）live 與影子各錄一段，目視相同，沒有逐像素量測。
+
+配方表裡沒有、`DefaultGame.ini` 或資產仍有的 5 組（`axe_cleave`、`mist_bands`、`quake_ripple`、`earth_spikes`、`stone_shards`）一併收進表裡，沒有刪除。
+
+放回必須持有 `live_match`：實錄局的執行副本會開著 live 的 `.uasset`，沒有鎖時寫入會 `Permission denied`（`land_to_live` 這時整批不寫入）。
 
 ## 還沒做
 
-1. 第二批 `Content/Omoba/VFX/Fx/**`：等第一批穩定、線 C 空出來，重新反編譯，經 `pinned` 預檢後切換。目前 125 個都沒有被鎖定。
-2. 決定 `fx_family.lua` 的去留。
+Tripo 的 66 個材質、停止追蹤 `.uasset`、完整 cook 驗收。
 
 另外發現：`fx_family.lua` 的 `AddVelocity.Velocity Speed Scale` 很可能沒有作用，已告知線 C。

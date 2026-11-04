@@ -2,11 +2,13 @@
 -- the combat visual pool, with every cue's look as data. Scopes, durations and damage shapes come from the
 -- package values at run time (the cue's radius and duration); nothing here repeats them.
 --
---   tools\lua\lua.exe scripts\fx_family.lua --spec OUT.json       write the commandlet spec
+--   tools\lua\lua.exe scripts\fx_family.lua --apply               import new images, write the instances' text, rebuild what changed
+--   tools\lua\lua.exe scripts\fx_family.lua --spec OUT.json       write the commandlet spec (images to import)
 --   tools\lua\lua.exe scripts\fx_family.lua --ini INI             merge the recipes into CueOverrides of INI
---   tools\lua\lua.exe scripts\fx_family.lua --check               every recipe names known images and systems
+--   tools\lua\lua.exe scripts\fx_family.lua --check               every recipe names known images and systems, the instances' text is current
 --
--- Then: UnrealEditor-Cmd <project> -run=OmCueVfx -fx-family=OUT.json (assets under /Game/Omoba/VFX/Fx).
+-- Text is the source of the assets under /Game/Omoba/VFX/Fx: the materials under omfue/DShader, the Niagara systems under omfue/DFX,
+-- the instances generated here from M.IMAGES and M.MESHES. Images are the one binary input (-run=OmCueVfx -fx-family=OUT.json).
 local source = debug.getinfo(1, "S").source:sub(2)
 local scripts_dir = assert(source:match("^(.*)[/\\]"))
 package.path = scripts_dir .. "/?.lua;" .. package.path
@@ -17,8 +19,8 @@ local path = b.lib("path")
 local M = {}
 M.ROOT = "/Game/Omoba/VFX/Fx"
 M.ART = "omfue/SourceArt/CueReferences/gen-cue-"
-local E = "/Niagara/DefaultAssets/Templates/Emitters/"
-local function emitter(name) return E .. name .. "." .. name end
+M.INSTANCES = "omfue/DShader/Omoba/VFX/Fx/Instances"
+M.SYSTEMS_DIR = "omfue/DFX/Omoba/VFX/Fx/Systems"
 
 -- Reviewed images (scripts/generated_art.lua, kind cue). rot turns the image so its top is the direction
 -- of travel's +X; spin (radians a second) is for flat images only.
@@ -65,35 +67,16 @@ M.IMAGES = {
   pistol_flare = { rot = -1.571, gain = 1.0 },
   pistol_shot = { rot = -1.571, gain = 1.0 },
   powder_swirl = { gain = 1.0, spin = 8.98 },
+  -- Named by CueOverrides rows or kept for later, no recipe here at the moment.
+  axe_cleave = { gain = 1.0 }, mist_bands = { gain = 1.0, spin = 0.9 }, quake_ripple = { gain = 0.35 },
 }
 
--- main: takes the cue's image, size and life. The rest keep their own (their colour still follows the cue).
--- Spray in world centimetres: a hero stands about 14,000 tall (a recipe's sizes are in backend units, M.WORLD_CM).
-local function SPARKS(count)
-  return { ["SpawnBurst_Instantaneous.Spawn Count"] = count, ["AddVelocity.Velocity Speed Scale"] = 120,
-    ["InitializeParticle.Uniform Sprite Size Min"] = 180, ["InitializeParticle.Uniform Sprite Size Max"] = 520,
-    ["InitializeParticle.Lifetime Min"] = 0.25, ["InitializeParticle.Lifetime Max"] = 0.55 }
+-- A recipe names a Niagara system by its source file, NS_fx_<name>.dfs.
+M.SYSTEMS = {}
+for entry in require("lfs").dir(path.join(b.root, M.SYSTEMS_DIR)) do
+  local name = entry:match("^NS_fx_(.+)%.dfs$")
+  if name then M.SYSTEMS[name] = true end
 end
-M.SYSTEMS = {
-  -- explosion: a few flipbook puffs thrown outward, with sparks
-  burst = { { template = emitter("SimpleSpriteBurst"), main = true,
-      set = { ["SpawnBurst_Instantaneous.Spawn Count"] = 5 } },
-    { template = emitter("OmnidirectionalBurst"), set = SPARKS(14) } },
-  -- one image that flares and fades: flash, glow, lightning strike
-  pop = { { template = emitter("SimpleSpriteBurst"), main = true,
-      set = { ["SpawnBurst_Instantaneous.Spawn Count"] = 1 } } },
-  -- sparks alone, for a small hit
-  sparks = { { template = emitter("OmnidirectionalBurst"), set = SPARKS(18) } },
-  -- keeps emitting while it lasts: a trail behind a flight, smoke, motes around a unit
-  -- fire with volume: many flipbook tongues thrown out and rising, not one flat image
-  blaze = { { template = emitter("OmnidirectionalBurst"), main = true,
-      set = { ["SpawnBurst_Instantaneous.Spawn Count"] = 14, ["AddVelocity.Velocity Speed Scale"] = 45, ["GravityForce.Gravity"] = { 0, 0, 9000 } } } },
-  -- a few thin images around a unit for as long as a status lasts: the hero stays in sight
-  aura = { { template = emitter("Fountain"), main = true,
-      set = { ["SpawnRate.SpawnRate"] = 9, ["GravityForce.Gravity"] = { 0, 0, 0 }, ["AddVelocity.Velocity Speed Scale"] = 10, ["ShapeLocation.Sphere Radius"] = 5000 } } },
-  stream = { { template = emitter("Fountain"), main = true,
-      set = { ["SpawnRate.SpawnRate"] = 40, ["GravityForce.Gravity"] = { 0, 0, 0 }, ["AddVelocity.Velocity Speed Scale"] = 8, ["ShapeLocation.Sphere Radius"] = 4500 } } },
-}
 
 -- Looks shared by many cues: fields of a recipe, overridden by the cue's own row.
 M.LOOKS = {
@@ -289,6 +272,8 @@ M.MESHES = {
   powder_keg = {}, rock_chunk = {}, fire_bomb = {}, earth_crown = {}, shock_dome = { translucent = true },
   war_hammer = { roll = 90 }, fissure_blade = { roll = 90 }, iron_bell = { roll = 90, translucent = true }, fire_wings = { roll = 90 }, thunder_sword = { roll = 90 }, war_banner = { roll = 90 },
   tower_shield = { roll = -90 }, oni_mask = { roll = -90 }, fury_spear = { roll = 90 }, wind_spiral = {},
+  -- Named by CueOverrides rows or kept for later, no recipe here at the moment.
+  earth_spikes = {}, stone_shards = {},
 }
 function M.material(prefix, image) return ("%s/Instances/%s_fx_%s.%s_fx_%s"):format(M.ROOT, prefix, image, prefix, image) end
 function M.system(name) return ("%s/Systems/NS_fx_%s.NS_fx_%s"):format(M.ROOT, name, name) end
@@ -343,23 +328,84 @@ local function sorted(t)
 end
 
 function M.spec(root)
-  local textures, systems = {}, {}
+  local textures = {}
   for _, id in ipairs(sorted(M.IMAGES)) do
-    local row = { id = "fx_" .. id, file = (root and (root .. "/") or "") .. M.ART .. "fx_" .. id .. ".png" }
-    for k, v in pairs(M.IMAGES[id]) do row[k] = v end
-    textures[#textures + 1] = row
+    textures[#textures + 1] = { id = "fx_" .. id, file = (root and (root .. "/") or "") .. M.ART .. "fx_" .. id .. ".png" }
   end
-  for _, id in ipairs(sorted(M.SYSTEMS)) do systems[#systems + 1] = { id = id, emitters = M.SYSTEMS[id] } end
   local meshes = {}
   for _, id in ipairs(sorted(M.MESHES)) do
     local name = "fx_" .. id
-    meshes[#meshes + 1] = { id = "mesh_" .. id, translucent = M.MESHES[id].translucent, file = ("%s%s/%s/%s.fbm/%s_basecolor.PNG"):format(root and (root .. "/") or "", M.MESH_SOURCE, name, name, name) }
+    meshes[#meshes + 1] = { id = "mesh_" .. id, file = ("%s%s/%s/%s.fbm/%s_basecolor.PNG"):format(root and (root .. "/") or "", M.MESH_SOURCE, name, name, name) }
   end
-  return { schema = "omoba.fx-family.v1", textures = textures, systems = systems, meshes = meshes }
+  return { schema = "omoba.fx-family.v1", textures = textures, meshes = meshes }
+end
+
+-- The instances' text: DShader/Omoba/VFX/Fx/Instances/<name>.dsi -> source. A material has only the parameters its parent declares.
+local SPRITE_KEYS, GROUND_KEYS = { "Cols", "Rot", "Black", "Mono", "Gain", "Soft" }, { "Cols", "Rot", "Black", "Mono", "Gain", "Spin" }
+local function instance_text(name, parent, texture, row, keys)
+  local lines = { "/// @name " .. M.ROOT .. "/Instances/" .. name, ('#pragma instance(Parent = "%s/%s")'):format(M.ROOT, parent), "" }
+  for _, key in ipairs(keys) do
+    local value = row[key:lower()]
+    if value then lines[#lines + 1] = ("uniform float %s = %s;"):format(key, ("%.7g"):format(value)) end
+  end
+  lines[#lines + 1] = ("/// @default %s/Textures/%s.%s"):format(M.ROOT, texture, texture)
+  lines[#lines + 1] = "uniform Texture2D Tex;"
+  return table.concat(lines, "\n") .. "\n"
+end
+function M.instances()
+  local files = {}
+  for id, row in pairs(M.IMAGES) do
+    files["MI_fx_" .. id] = instance_text("MI_fx_" .. id, "M_OmFxSprite", "T_fx_" .. id, row, SPRITE_KEYS)
+    files["MIG_fx_" .. id] = instance_text("MIG_fx_" .. id, "M_OmFxGround", "T_fx_" .. id, row, GROUND_KEYS)
+  end
+  for id, row in pairs(M.MESHES) do
+    files["MIG_mesh_" .. id] = instance_text("MIG_mesh_" .. id, row.translucent and "M_OmFxMeshTranslucent" or "M_OmFxMesh", "T_mesh_" .. id, row, {})
+  end
+  return files
+end
+
+-- Instance sources that differ from M.instances(), and those it no longer has: name -> text, or false to remove.
+function M.stale_instances(dir)
+  local lfs = require("lfs")
+  local stale, wanted = {}, M.instances()
+  for name, text in pairs(wanted) do
+    if not path.is_file(path.join(dir, name .. ".dsi")) or path.read(path.join(dir, name .. ".dsi"), true) ~= text then stale[name] = text end
+  end
+  for entry in lfs.dir(dir) do
+    local name = entry:match("^(.+)%.dsi$")
+    if name and not wanted[name] then stale[name] = false end
+  end
+  return stale
+end
+
+-- Imports images whose pixels changed (an unchanged one is left alone), writes the text, rebuilds what is older than its text.
+function M.apply()
+  local process = b.lib("process")
+  local dream = require("dream_assets")
+  local project = path.join(b.root, "omfue")
+  local spec = path.join(b.root, "target/fx-family/spec.json")
+  path.mkdir_p(path.parent(spec))
+  json.write(spec, M.spec(b.root), true)
+  do
+    local lock <close> = require("build_lock").acquire(b.root, "fx_family --apply")
+    local args = { path.join(project, "om.uproject"), "-run=OmCueVfx", "-fx-family=" .. spec }
+    for _, flag in ipairs(dream.FLAGS) do args[#args + 1] = flag end
+    assert(process.run("D:/UE5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe", args, { cwd = project, check = false, label = "fx images" }).exit_code == 0, "image import failed")
+  end
+  local dir = path.join(b.root, M.INSTANCES)
+  local count = 0
+  for name, text in pairs(M.stale_instances(dir)) do
+    local file = path.join(dir, name .. ".dsi")
+    if text then path.write(file, text, true, true) else assert(os.remove(file), file) end
+    count = count + 1
+  end
+  print(count .. " instance source(s) changed")
+  return dream.main({ "ensure" })
 end
 
 function M.check()
   local problems = {}
+  for name in pairs(M.stale_instances(path.join(b.root, M.INSTANCES))) do problems[#problems + 1] = name .. ": text is out of date, run --apply" end
   for _, id in ipairs(sorted(M.RECIPES)) do
     local r = M.resolve(id)
     if r.system and not M.SYSTEMS[r.system] then problems[#problems + 1] = id .. ": system " .. r.system end
@@ -476,6 +522,8 @@ if arg and arg[0] and arg[0]:match("fx_family%.lua$") then
     elseif arg[i] == "--ini" then
       local file = assert(arg[i + 1], "--ini INI")
       path.write(file, (M.merge_ini(path.read(file, true))), true, true); i = i + 2
+    elseif arg[i] == "--apply" then
+      os.exit(M.apply())
     elseif arg[i] == "--check" then
       local problems = M.check()
       for _, p in ipairs(problems) do print(p) end
