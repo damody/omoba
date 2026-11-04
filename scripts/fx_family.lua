@@ -244,8 +244,8 @@ M.RECIPES.fx_layer_possession_flare = { ground = "possession_flare", ground_size
 M.RECIPES.fx_layer_possession_embers = { system = "burst", sprite = "spark_star", size = 60, life = 0.6, tint = { 0.5, 0.1, 1.0 }, delay = 0.1 }
 M.RECIPES.fx_layer_quake_sparks = { system = "sparks", tint = { 1.0, 0.45, 0.1 }, delay = 0.06 }
 M.RECIPES.fx_layer_powder_sparks = { system = "sparks", tint = { 1.0, 0.5, 0.08 }, delay = 0.05 }
-M.RECIPES.fx_layer_giant_nodachi = { mesh = "giant_nodachi", ground_size = 240, ground_seconds = 0.9, lead = 130, grow = 0.2 }
-M.RECIPES.fx_layer_oozutsu_cannon = { mesh = "oozutsu_cannon", ground_size = 170, ground_seconds = 0.5, lead = 120, grow = 0.4 }
+M.RECIPES.fx_layer_giant_nodachi = { mesh = "giant_nodachi", ground_size = 170, ground_seconds = 0.9, lead = 130, launch = 131, grow = 0.2 }
+M.RECIPES.fx_layer_oozutsu_cannon = { mesh = "oozutsu_cannon", ground_size = 170, ground_seconds = 0.5, lead = 130, launch = 131, grow = 0.4 }
 M.RECIPES.fx_layer_powder_keg = { mesh = "powder_keg", ground_size = 80, ground_seconds = 0.6, lead = 170, grow = 0.8 }
 M.RECIPES.fx_layer_mana_motes = { system = "sparks", tint = { 0.25, 0.55, 1.0 }, delay = 0.08 }
 
