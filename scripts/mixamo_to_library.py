@@ -75,7 +75,7 @@ CONTACT_CHEST_LIMIT, CONTACT_PELVIS_LIMIT = 12.0, 12.0
 CONTACT_FRAMES, CONTACT_BLEND_FRAMES = 2, 6
 BACK_SPINE = {'spine_01': 1 / 3, 'spine_02': 2 / 3}
 LEG_BONES = {b for b, _ in PAIRS if b.split('_')[0] in ('thigh', 'calf', 'foot', 'ball')}
-ARM_BONES = {b for b, _ in PAIRS if b.split('_')[0] in ('clavicle', 'upperarm', 'lowerarm', 'hand', 'thumb', 'index', 'middle', 'ring', 'pinky')}
+ARM_BONES = {b for b, _ in PAIRS if b.split('_')[0] in ('upperarm', 'lowerarm', 'hand', 'thumb', 'index', 'middle', 'ring', 'pinky')}
 contact_frame = float(contact_seconds) * 30 if float(contact_seconds) >= 0 else None
 
 
