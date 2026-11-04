@@ -369,7 +369,7 @@ function M.stale_instances(dir)
   local lfs = require("lfs")
   local stale, wanted = {}, M.instances()
   for name, text in pairs(wanted) do
-    if not path.is_file(path.join(dir, name .. ".dsi")) or path.read(path.join(dir, name .. ".dsi"), true) ~= text then stale[name] = text end
+    if not path.is_file(path.join(dir, name .. ".dsi")) or path.read(path.join(dir, name .. ".dsi"), true):gsub("\r\n", "\n") ~= text then stale[name] = text end
   end
   for entry in lfs.dir(dir) do
     local name = entry:match("^(.+)%.dsi$")
