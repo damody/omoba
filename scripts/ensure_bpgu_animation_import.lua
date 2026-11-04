@@ -8,11 +8,14 @@ local path = bootstrap.lib('path')
 local located = require('bpgu_plugin').locate(bootstrap.root, path)
 local plugin, version = located.dir, located.version
 assert(located.engine == '5.8.0', 'BpGeneratorUltimate ' .. version .. ' is not built for UE 5.8')
--- An installed (precompiled) package is never rebuilt by UBT, so a source patch would
--- have no effect: record it and leave the plugin untouched.
+-- An installed (precompiled) package with its binaries is not rebuilt by UBT, so a source patch
+-- would have no effect: record it and leave the plugin untouched.
 if located.installed then
-  assert(path.is_file(path.join(plugin, 'Binaries', 'Win64', 'UnrealEditor-UECPTools.dll')),
-    'installed BpGeneratorUltimate ' .. version .. ' has no UECPTools binary; cannot verify animation import support')
+  -- Binaries/ is not in version control: a clean clone has none, and UBT builds them from the tracked sources.
+  if not path.is_file(path.join(plugin, 'Binaries', 'Win64', 'UnrealEditor-UECPTools.dll')) then
+    print('[moba-ue] BpGeneratorUltimate ' .. version .. ' has no binaries yet; UBT builds them from its sources')
+    return
+  end
   print('[moba-ue] recognized precompiled BpGeneratorUltimate ' .. version .. ' for UE 5.8; source patch not applied, animation import requires MCP verification')
   return
 end
