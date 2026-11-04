@@ -230,7 +230,7 @@ M.WEAPONS = {
   gun = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.14,
       ground = "spark_star", ground_size = 90, ground_seconds = 0.2, height = 70, fly = true },
     strike = { system = "burst", sprite = "shock_ring", size = 170, life = 0.3, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
-  arcane = { swing = { system = "pop", sprite = "soft_glow", size = 60, life = 0.14, ground = "arcane_bolt", ground_size = 170, ground_seconds = 0.26, height = 70, fly = true, face_camera = 0.5 },
+  arcane = { swing = { system = "pop", sprite = "soft_glow", size = 60, life = 0.14, ground = "arcane_bolt", ground_size = 120, ground_seconds = 0.26, height = 70, fly = true, face_camera = 0.5 },
     strike = { system = "burst", sprite = "spark_star", size = 170, life = 0.28, ground = "shock_ring", ground_size = 170, ground_fixed = true, ground_seconds = 0.26, height = 30, grow = 0.4 } },
 }
 M.ATTACKS = {
