@@ -2,10 +2,11 @@
 --
 --   tools\lua\lua.exe scripts\dream_assets.lua [--project DIR] [--ue-root PATH] {fx|shader} VERB [-Option[=value] ...]
 --   tools\lua\lua.exe scripts\dream_assets.lua pinned [--filter LUA_PATTERN]
---   tools\lua\lua.exe scripts\dream_assets.lua owned
+--   tools\lua\lua.exe scripts\dream_assets.lua owned [--project DIR]
 --
---   owned   every source under DShader/ and DFX/ has its asset, still marked as built from text. A tool that replaces such an
---           asset drops the mark. Exit 1 when any is missing or unmarked.
+--   owned   every source under DShader/ and DFX/ has its asset, still marked as built from text, and none was overwritten by
+--           another tool. A tool that replaces such an asset drops the mark; one that loads and resaves it keeps the mark but
+--           is recorded by OmDreamGuard. Exit 1 when any is missing, unmarked or overwritten and not yet restored.
 --   pinned  materials and Niagara systems that a tracked file pins by SHA-256 (source-registry.json, provenance.json, ...).
 --           Their owner refuses them once their bytes change, so they cannot become text. Exit 1 when the filter finds any.
 --
@@ -211,6 +212,20 @@ function M.unowned(project)
     local base=project..'/'..kind[1]
     if lfs.attributes(base,'mode')=='directory' then walk(base,kind[2],base) end
   end
+  -- A recorded overwrite counts until the file changes again, which restoring it does.
+  local record=io.open(project..'/Saved/DreamGuard/overwritten.txt','rb')
+  if record then
+    local reported={}
+    for line in record:lines() do
+      local file,size,time=line:match('^([^\t]+)\t(%d+)\t(%d+)')
+      local now=file and lfs.attributes(project..'/'..file)
+      if now and not reported[file] and now.size==tonumber(size) and math.abs(now.modification-tonumber(time))<=2 then
+        reported[file]=true
+        bad[#bad+1]=file..' (overwritten by another tool; restore it: git -C omfue restore -- '..file..')'
+      end
+    end
+    record:close()
+  end
   table.sort(bad)
   return bad,count
 end
@@ -241,7 +256,9 @@ function M.main(argv)
     return M.report_pinned((b.root:gsub('\\','/')),filter)
   end
   if argv[1]=='owned' then
-    local bad,count=M.unowned((p.join(b.root,'omfue'):gsub('\\','/')))
+    local project=argv[2]=='--project' and p.absolute(assert(argv[3],'--project needs a directory'),b.root) or p.join(b.root,'omfue')
+    assert(p.is_file(p.join(project,'om.uproject')),'no project: '..project)
+    local bad,count=M.unowned((project:gsub('\\','/')))
     for _,line in ipairs(bad) do print(line) end
     print(('[dream-assets] %d text-owned, %d not built from text'):format(count,#bad))
     return #bad==0 and 0 or 1
