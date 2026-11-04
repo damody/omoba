@@ -50,7 +50,9 @@ local ok,err=xpcall(function()
   packages[file]={sha256=h.sha256(file),mtime=p.attributes(file).modification}
  end;report.packages=packages
  report.second=run('second',plan,true);assert(report.second.imported==0 and report.second.saved==0 and report.second.verified==#plan.materials);unchanged(packages)
- x=copy();x.materials[1].linear_rgb[2]=0.25;run('reject-managed-signature',x,false);unchanged(packages)
+ -- A material built from text ignores the plan's values: only its source changes it.
+ local text_owned=p.is_file(p.join(b.root,'omfue/DShader/Omoba/PresentationMaterialsV1/M_SaikaCloth.dss'))
+ x=copy();x.materials[1].linear_rgb[2]=0.25;run('reject-managed-signature',x,text_owned);unchanged(packages)
  report.negative_cases=#cases+1;report.success=true
 end,debug.traceback)
 report.error=ok and''or tostring(err)
