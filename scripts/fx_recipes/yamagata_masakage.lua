@@ -10,7 +10,7 @@ return {
     -- W 壞毀波: a dust column and cracked ground, rocks and a shockwave over the area
     b20e_burrow = { system = "burst", sprite = "rock", size = 150, fixed_size = true, life = 0.5, tint = EARTH,
       ground = "crack_earth", ground_size = 420, ground_seconds = 0.8, grow = 0.3 },
-    b20e_thunderclap = { system = "burst", sprite = "shock_ring", size = 460, life = 0.5, area = true, tint = { 1.0, 0.5, 0.15 },
+    b20e_thunderclap = { system = "sparks", tint = { 1.0, 0.5, 0.15 },
       mesh = "earth_crown", ground_size = 270, ground_seconds = 0.7, grow = 0.4 },
     -- R 赤備猛攻: every half second rocks burst outward (leaving the model visible) and red cracks fill the radius
     b20t_epicenter = { system = "burst", sprite = "rock", size = 110, fixed_size = true, life = 0.5, tint = { 1.0, 0.25, 0.1 },
