@@ -16,13 +16,13 @@ local model=require('character_retarget')
 -- unit's front (mixamo_to_library.py keeps it there). The seventh narrows how far the chest may turn away from that moment,
 -- in degrees: a cast or throw has no swing to keep. The eighth turns the arms by itself (degrees from the source clip): a gun stays on target.
 local CLIPS={
-  Mx_Sword_Slash={'Great Sword Slash',6,42,0,0,0.64},
+  Mx_Sword_Slash={'Great Sword Slash',6,42,0,0,0.64,25},
   Mx_Sword_Inward={'Stable Sword Inward Slash',18,54,0,22,0.59},
   Mx_Sword_Outward={'Stable Sword Outward Slash',8,44,0,0,0.87},
   Mx_Sword_Draw={'Withdrawing Sword',nil,nil,0,0,0.9,25},
   Mx_Axe_Down={'Standing Melee Attack Downward',19,43,45,18,0.28},
   Mx_Axe_Smash={'Great Sword Downward Slash',nil,nil,0,0,0.67,25},
-  Mx_Sweep={'Standing Melee Attack Horizontal',11,47,0,0,0.58},
+  Mx_Sweep={'Standing Melee Attack Horizontal',11,47,0,0,0.58,25},
   Mx_Spear_Thrust={'Bayonet Stab',10,46,50,0,0.74},
   Mx_Spear_Upward={'Upward Thrust',nil,nil,0,0,0.73,25},
   Mx_Rifle_Fire={'Firing Rifle',nil,nil,0,0,0.07,25,-20},
