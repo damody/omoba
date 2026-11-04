@@ -9,29 +9,30 @@ local model=require('character_retarget')
 
 -- Clip name in moba_tripo_hero_visuals -> the Mixamo file's name, with the frames kept when the motion runs long.
 -- Swings keep 36 frames (1.2 s) around the fastest moment of the hand, so a fast attack cycle still reads and
--- the contact lands at 0.6 s (impact in moba_tripo_hero_visuals). The fourth value turns a clip authored side-on
--- (degrees about up), so at the contact the head, chest and hand are all within about 30 degrees of the unit's front:
--- the body faces the target, not only the hand. The sixth is the kept frame after which the clip returns to its first
--- pose: a clip that holds the blade behind the body would otherwise show it pointing away until the next swing. The fifth tilts
--- the right wrist (degrees, pinky side toward the fingers): a rifle stab's fist would otherwise hold a spear upright.
+-- the contact lands at 0.6 s (impact in moba_tripo_hero_visuals). The fourth value tilts the right wrist (degrees, pinky side
+-- toward the fingers): a rifle stab's fist would otherwise hold a spear upright. The fifth is the kept frame after which the
+-- clip returns to its first pose: a clip that holds the blade behind the body would otherwise show it pointing away until the
+-- next swing. The sixth is the contact or release in seconds (contact in moba_tripo_hero_visuals), where the body is held closest to the
+-- unit's front (mixamo_to_library.py keeps it there). The seventh narrows how far the chest may turn away from that moment,
+-- in degrees: a cast or throw has no swing to keep.
 local CLIPS={
-  Mx_Sword_Slash={'Great Sword Slash',6,42,-47},
-  Mx_Sword_Inward={'Stable Sword Inward Slash',18,54,32,0,22},
-  Mx_Sword_Outward={'Stable Sword Outward Slash',8,44,-34},
-  Mx_Sword_Draw='Withdrawing Sword',
-  Mx_Axe_Down={'Standing Melee Attack Downward',19,43,-55,45,18},
-  Mx_Axe_Smash='Great Sword Downward Slash',
-  Mx_Sweep={'Standing Melee Attack Horizontal',11,47,-35},
-  Mx_Spear_Thrust={'Bayonet Stab',10,46,39,50},
-  Mx_Spear_Upward='Upward Thrust',
-  Mx_Rifle_Fire='Firing Rifle',
-  Mx_Battlecry={'Standing Taunt Battlecry',0,65,25},
-  Mx_Charge={'Charge',0,100},
-  Mx_Kick='Standing Melee Attack Kick Ver. 1',
-  Mx_Throw='Throw',
-  Mx_Throw_Short={'Throw',8,44},
-  Mx_Cast_Two={'Two Hand Spell Casting',0,75},
-  Mx_Channel={'Standing 2H Magic Attack 03',0,90},
+  Mx_Sword_Slash={'Great Sword Slash',6,42,0,0,0.64},
+  Mx_Sword_Inward={'Stable Sword Inward Slash',18,54,0,22,0.59},
+  Mx_Sword_Outward={'Stable Sword Outward Slash',8,44,0,0,0.87},
+  Mx_Sword_Draw={'Withdrawing Sword',nil,nil,0,0,0.9,25},
+  Mx_Axe_Down={'Standing Melee Attack Downward',19,43,45,18,0.28},
+  Mx_Axe_Smash={'Great Sword Downward Slash',nil,nil,0,0,0.57,25},
+  Mx_Sweep={'Standing Melee Attack Horizontal',11,47,0,0,0.58},
+  Mx_Spear_Thrust={'Bayonet Stab',10,46,50,0,0.74},
+  Mx_Spear_Upward={'Upward Thrust',nil,nil,0,0,0.73,25},
+  Mx_Rifle_Fire={'Firing Rifle',nil,nil,0,0,0.07,25},
+  Mx_Battlecry={'Standing Taunt Battlecry',0,65,0,0,0.5,25},
+  Mx_Charge={'Charge',0,100,0,0,0.33,25},
+  Mx_Kick={'Standing Melee Attack Kick Ver. 1',nil,nil,0,0,0.67,25},
+  Mx_Throw={'Throw',nil,nil,0,0,0.9,25},
+  Mx_Throw_Short={'Throw',8,44,0,0,0.6,25},
+  Mx_Cast_Two={'Two Hand Spell Casting',0,75,0,0,0.6,25},
+  Mx_Channel={'Standing 2H Magic Attack 03',0,90,0,0,1.0,25},
   Mx_Death_Back='Standing React Death Backward',
 }
 
@@ -52,7 +53,7 @@ for _,name in ipairs(names)do
   local source=p.join(input,entry[1]..'.fbx');assert(p.is_file(source),'missing '..source)
   local out=p.join(baked,name..'.fbx')
   if not(options['--reuse-baked'] and p.is_file(out)) then
-  local result=r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out,tostring(entry[2]or''),tostring(entry[3]or''),tostring(entry[4]or 0),tostring(entry[5]or 0),tostring(entry[6]or 0)},{cwd=b.root,check=false})
+  local result=r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out,tostring(entry[2]or''),tostring(entry[3]or''),tostring(entry[4]or 0),tostring(entry[5]or 0),tostring(entry[6]or -1),tostring(entry[7]or 0)},{cwd=b.root,check=false})
   assert(result.exit_code==0 and p.is_file(out),'bake failed: '..name..'\n'..tostring(result.stdout):sub(-1500))
   end
   added[#added+1]={name=name,fbx=out}

@@ -1,12 +1,16 @@
 # Run by Blender (scripts/mixamo_clips.lua): one Mixamo clip onto the CC0 animation library's skeleton, so the
 # existing retargeters take it to every Tripo rig. World rotation of each bone relative to each rig's own T-pose;
 # the pelvis follows at the leg-length ratio. Nothing but the motion comes across.
+#
+# A Mixamo swing turns the whole body through 150 degrees or more, so a constant turn can only point it at the target for
+# a moment. The feet set the clip's constant turn; the pelvis, spine and everything above then keep their swing only
+# inside a limit of the unit's front, tightest at the contact. The arms keep their motion relative to the chest.
 import sys
 import bpy
-from math import radians
-from mathutils import Matrix, Quaternion
+from math import atan2, degrees, radians, tanh
+from mathutils import Matrix, Quaternion, Vector
 
-library_fbx, tpose_fbx, clip_fbx, out_fbx, first_kept, last_kept, yaw_degrees, wrist_degrees, return_after = sys.argv[sys.argv.index('--') + 1:]
+library_fbx, tpose_fbx, clip_fbx, out_fbx, first_kept, last_kept, wrist_degrees, return_after, contact_seconds, body_limit = sys.argv[sys.argv.index('--') + 1:]
 
 PAIRS = [('pelvis', 'Hips'), ('spine_01', 'Spine'), ('spine_02', 'Spine1'), ('spine_03', 'Spine2'), ('neck_01', 'Neck'), ('Head', 'Head')]
 for side, name in (('l', 'Left'), ('r', 'Right')):
@@ -52,6 +56,7 @@ pelvis_t = library.pose.bones['pelvis'].matrix.translation.copy()
 use(source_t, t_action, int(t_action.frame_range[0]))
 source_t_world = {m: (source_t.matrix_world @ source_t.pose.bones['mixamorig:' + m].matrix).to_quaternion() for _, m in PAIRS}
 hips_t = (source_t.matrix_world @ source_t.pose.bones['mixamorig:Hips'].matrix).translation.copy()
+shoulders_t = (source_t.matrix_world @ source_t.pose.bones['mixamorig:RightArm'].matrix).translation - (source_t.matrix_world @ source_t.pose.bones['mixamorig:LeftArm'].matrix).translation
 ratio = pelvis_t.z / hips_t.z
 print(f'OM_MIXAMO frames {first}-{last} leg ratio {ratio:.5f}')
 
@@ -63,7 +68,65 @@ for pb in library.pose.bones:
     pb.rotation_mode = 'QUATERNION'
     pb.matrix_basis = Matrix.Identity(4)
 
-yaw = Matrix.Rotation(radians(float(yaw_degrees)), 4, 'Z')
+# Degrees: how far from the unit's front the chest and the pelvis may turn, away from the contact and within CONTACT_FRAMES of it.
+CHEST_LIMIT, PELVIS_LIMIT = 40.0, 30.0
+PELVIS_SHARE_OF_CHEST = 0.6
+CONTACT_CHEST_LIMIT, CONTACT_PELVIS_LIMIT = 12.0, 12.0
+CONTACT_FRAMES, CONTACT_BLEND_FRAMES = 2, 6
+BACK_SPINE = {'spine_01': 1 / 3, 'spine_02': 2 / 3}
+LEG_BONES = {b for b, _ in PAIRS if b.split('_')[0] in ('thigh', 'calf', 'foot', 'ball')}
+contact_frame = float(contact_seconds) * 30 if float(contact_seconds) >= 0 else None
+
+
+def world_bone(name):
+    return source.matrix_world @ source.pose.bones['mixamorig:' + name].matrix
+
+
+def azimuth(vector):
+    return degrees(atan2(vector.y, vector.x))
+
+
+def wrapped(angle):
+    return (angle + 180.0) % 360.0 - 180.0
+
+
+def turn_from_t_pose(name):
+    # About up, from the bone's sideways axis: bending forward leaves it level, where a forward axis would point at the floor.
+    across = world_bone(name).to_quaternion() @ source_t_world[name].inverted() @ Vector((1, 0, 0))
+    return azimuth(across)
+
+
+def shoulders_turn():
+    # The line across the shoulders is what reads as the body's direction, raised arms included.
+    return azimuth(world_bone('RightArm').translation - world_bone('LeftArm').translation) - azimuth(shoulders_t)
+
+
+def soft_limit(angle, limit):
+    return limit * tanh(angle / limit)
+
+
+def limit_at(frame_offset, wide, tight):
+    if contact_frame is None:
+        return wide
+    t = (abs(frame_offset - contact_frame) - CONTACT_FRAMES) / CONTACT_BLEND_FRAMES
+    t = min(max(t, 0.0), 1.0)
+    return tight + (wide - tight) * t * t * (3 - 2 * t)
+
+
+# The feet settle the clip's turn: the stance stays planted however the upper body moves.
+stance = Vector((0.0, 0.0, 0.0))
+for frame in range(first, last + 1):
+    bpy.context.scene.frame_set(frame)
+    bpy.context.view_layer.update()
+    for name in ('LeftFoot', 'RightFoot'):
+        across = world_bone(name).to_quaternion() @ source_t_world[name].inverted() @ Vector((1, 0, 0))
+        stance += Vector((across.x, across.y, 0.0))
+yaw_degrees = -azimuth(stance)
+yaw = Matrix.Rotation(radians(yaw_degrees), 4, 'Z')
+print(f'OM_MIXAMO stance yaw {yaw_degrees:+.1f}')
+wide_chest, wide_pelvis = CHEST_LIMIT, PELVIS_LIMIT
+if float(body_limit) > 0:
+    wide_chest, wide_pelvis = float(body_limit), float(body_limit) * PELVIS_SHARE_OF_CHEST
 order = sorted(PAIRS, key=lambda row: len(library.pose.bones[row[0]].parent_recursive))
 frames = 0
 return_after = int(return_after)
@@ -71,6 +134,11 @@ opening, held = {}, {}
 for frame in range(first, last + 1):
     bpy.context.scene.frame_set(frame)
     bpy.context.view_layer.update()
+    offset = frame - first
+    pelvis_turn = wrapped(turn_from_t_pose('Hips') + yaw_degrees)
+    chest_turn = wrapped(shoulders_turn() + yaw_degrees)
+    pelvis_fix = soft_limit(pelvis_turn, limit_at(offset, wide_pelvis, CONTACT_PELVIS_LIMIT)) - pelvis_turn
+    chest_fix = soft_limit(chest_turn, limit_at(offset, wide_chest, CONTACT_CHEST_LIMIT)) - chest_turn
     for bone, name in order:
         pb = library.pose.bones[bone]
         world = yaw @ source.matrix_world @ source.pose.bones['mixamorig:' + name].matrix
@@ -80,6 +148,10 @@ for frame in range(first, last + 1):
             across = at_bone('Pinky1') - at_bone('Index1')
             along = at_bone('Middle1') - world.translation
             rotation = Quaternion(across.cross(along).normalized(), radians(float(wrist_degrees))) @ rotation
+        if bone not in LEG_BONES:
+            share = 0.0 if bone == 'pelvis' else BACK_SPINE.get(bone, 1.0)
+            fix = pelvis_fix + (chest_fix - pelvis_fix) * share
+            rotation = Quaternion((0, 0, 1), radians(fix)) @ rotation
         at = pb.matrix.translation.copy()
         if bone == 'pelvis':
             at = pelvis_t + (world.translation - hips_t) * ratio
