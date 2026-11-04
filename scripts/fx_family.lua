@@ -60,7 +60,7 @@ M.IMAGES = {
   heal_rise = { gain = 1.0 },
   powder_ring = { gain = 1.0 },
   crack_earth = { gain = 1.0 }, crack_gold = { gain = 1.0 }, crack_hammer = { gain = 1.0 },
-  heal_cross_soft = { gain = 1.0 }, mist_cuts = { gain = 1.0 }, mist_bands = { gain = 1.0, spin = 0.9 }, heal_cross_solid = { gain = 1.0 },
+  heal_cross_soft = { gain = 1.0 }, mist_cuts = { gain = 1.0 }, heal_cross_solid = { gain = 1.0 },
   pistol_flare = { rot = -1.571, gain = 1.0 },
   pistol_shot = { rot = -1.571, gain = 1.0 },
   powder_swirl = { gain = 1.0, spin = 8.98 },
@@ -139,7 +139,7 @@ M.RECIPES = {
   c22w_voice = { system = "burst", sprite = "swallow", size = 210, life = 0.5, tint = STEEL },
   c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, bold = true, tint = STEEL,
     ground = "vortex", ground_size = 480, ground_seconds = 1.5 },
-  c22t_thunder_clap = { system = "pop", sprite = "cut_cross", size = 380, fixed_size = true, life = 0.35, tint = STEEL, also = { "fx_layer_mist_cuts", "fx_layer_mist_bands" } },
+  c22t_thunder_clap = { system = "pop", sprite = "cut_cross", size = 380, fixed_size = true, life = 0.35, tint = STEEL, also = { "fx_layer_mist_cuts" } },
   -- A26 濃姬: gunpowder fire and smoke
   a26w_hit_explosion = { look = "explosion_small" },
   a26e_smoke = { system = "burst", sprite = "smoke_sheet", size = 150, life = 0.8 },
@@ -256,7 +256,6 @@ M.RECIPES.fx_swing_nohime.from_hand, M.RECIPES.fx_swing_nohime.height = true, ni
 
 -- Layers other cues play through `also`: no package names them.
 M.RECIPES.fx_layer_mist_cuts = { ground = "mist_cuts", ground_size = 1500, area = true, ground_seconds = 0.7, grow = 0.75 }
-M.RECIPES.fx_layer_mist_bands = { ground = "mist_bands", ground_size = 1200, area = true, ground_seconds = 1.2, grow = 0.7, delay = 0.12 }
 M.RECIPES.fx_layer_green_motes = { system = "sparks", tint = { 0.2, 1.0, 0.4 }, delay = 0.08 }
 
 -- Abilities whose every look is in the recipes above.
