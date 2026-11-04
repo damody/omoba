@@ -81,7 +81,7 @@ function M.options(args)
       local hero=assert(args[i],'--hero requires a hero id')
       assert(hero:match('^[%w_]+$'),'--hero requires a hero id')
       options.heroes[#options.heroes+1]=hero
-    elseif key=='--output' or key=='--ffmpeg' or key=='--ue-root' or key=='--run' then
+    elseif key=='--output' or key=='--ffmpeg' or key=='--ue-root' or key=='--run' or key=='--packaged-game' then
       i=i+1;options[key:sub(3):gsub('%-','_')]=assert(args[i],key..' requires a value')
     elseif key=='--port' then
       i=i+1;options.port=assert(math.tointeger(tonumber(args[i] or '')),'--port must be an integer')
@@ -780,6 +780,7 @@ function M.record(options,hero,index)
   local args={'--recipe',M.recipe_for(package),'--hero','1='..hero,'--autopilot','spotlight','--spotlight-script',script,
     '--resolution','1920x1080','--max-seconds',tostring(options.max_seconds),'--port',tostring(M.run_port(options,index or 1)),'--output',run_root,'--ue-root',options.ue_root}
   if options.no_build then args[#args+1]='--no-build' end
+  if options.packaged_game then args[#args+1]='--packaged-game';args[#args+1]=options.packaged_game end
   -- A batch of heroes queues with whatever else holds the machine, not fails.
   args[#args+1]='--wait-live-lock';args[#args+1]='1800'
   split.run(split.options(args))
