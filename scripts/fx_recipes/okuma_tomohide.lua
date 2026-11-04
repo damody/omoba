@@ -7,7 +7,7 @@ return {
     b26w_voice = { system = "pop", sprite = "vortex", size = 520, life = 0.5, tint = FIRE,
       ground = "vortex", ground_size = 700, ground_seconds = 0.6, grow = 0.3 },
     b26w_charge_fire = { system = "stream", sprite = "flame_ember", size = 85, life = 0.5, loop = true, bold = true },
-    b26w_charge_pulse = { system = "burst", sprite = "flame_ember", size = 150, life = 0.4,
+    b26w_charge_pulse = { system = "sparks", tint = FIRE,
       ground = "ring_thin_fire", ground_size = 620, ground_fixed = true, ground_seconds = 0.45, grow = 0.15 },
     b26w_fire_explode = { system = "sparks", tint = FIRE },
     b26w_slow_overhead = { system = "stream", sprite = "slow_chains", size = 80, life = 0.3, loop = true, alpha = 0.35, tint = BLUE },
