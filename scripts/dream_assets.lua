@@ -2,7 +2,10 @@
 --
 --   tools\lua\lua.exe scripts\dream_assets.lua [--project DIR] [--ue-root PATH] {fx|shader} VERB [-Option[=value] ...]
 --   tools\lua\lua.exe scripts\dream_assets.lua pinned [--filter LUA_PATTERN]
+--   tools\lua\lua.exe scripts\dream_assets.lua owned
 --
+--   owned   every source under DShader/ and DFX/ has its asset, still marked as built from text. A tool that replaces such an
+--           asset drops the mark. Exit 1 when any is missing or unmarked.
 --   pinned  materials and Niagara systems that a tracked file pins by SHA-256 (source-registry.json, provenance.json, ...).
 --           Their owner refuses them once their bytes change, so they cannot become text. Exit 1 when the filter finds any.
 --
@@ -181,6 +184,37 @@ function M.report_pinned(root,filter)
   return #names==0 and 0 or 1
 end
 
+-- The text-owned assets of PROJECT that are missing or lost their mark, and how many there are.
+function M.unowned(project)
+  local lfs=require('lfs')
+  local bad,count={},0
+  local function walk(base,mark,dir)
+    for entry in lfs.dir(dir) do
+      if entry~='.' and entry~='..' and entry~='.dreampass' then
+        local full=dir..'/'..entry
+        if lfs.attributes(full,'mode')=='directory' then walk(base,mark,full)
+        else
+          local rel=full:sub(#base+2);rel=rel:match('^(.+)%.dss$') or rel:match('^(.+)%.dsi$') or rel:match('^(.+)%.dfs$')
+          if rel then
+            count=count+1
+            local f=io.open(project..'/Content/'..rel..'.uasset','rb')
+            local data=f and f:read('a')
+            if f then f:close() end
+            if not data then bad[#bad+1]=rel..' (missing)'
+            elseif not data:find(mark,1,true) then bad[#bad+1]=rel..' (not built from its source)' end
+          end
+        end
+      end
+    end
+  end
+  for _,kind in ipairs{{'DShader','DreamShader.SourceFile'},{'DFX','DreamFX.SourcePath'}} do
+    local base=project..'/'..kind[1]
+    if lfs.attributes(base,'mode')=='directory' then walk(base,kind[2],base) end
+  end
+  table.sort(bad)
+  return bad,count
+end
+
 function M.decompile_all(options,project,run,p)
   local assets=M.material_assets(p.join(project,'Content'):gsub('\\','/'))
   local done,failed=0,{}
@@ -205,6 +239,12 @@ function M.main(argv)
   if argv[1]=='pinned' then
     local filter=argv[2]=='--filter' and assert(argv[3],'--filter needs a pattern') or nil
     return M.report_pinned((b.root:gsub('\\','/')),filter)
+  end
+  if argv[1]=='owned' then
+    local bad,count=M.unowned((p.join(b.root,'omfue'):gsub('\\','/')))
+    for _,line in ipairs(bad) do print(line) end
+    print(('[dream-assets] %d text-owned, %d not built from text'):format(count,#bad))
+    return #bad==0 and 0 or 1
   end
   local options=M.parse(argv)
   local project=options.project and p.absolute(options.project) or p.join(b.root,'omfue')
