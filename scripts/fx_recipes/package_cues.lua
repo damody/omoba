@@ -7,7 +7,7 @@ return { recipes = {
     mesh = "spear_head", ground_size = 220, ground_seconds = 0.3, height = 30, launch = 500 },
   a12t_cast = { system = "pop", sprite = "soft_glow", size = 110, fixed_size = true, life = 0.25, tint = { 0.5, 0.1, 1.0 },
       ground = "possession_sigil", ground_size = 250, ground_fixed = true, ground_seconds = 0.8, grow = 0.75, also = { "fx_layer_possession_flare", "fx_layer_possession_embers" } },
-  a01d_restore = { ground = "heal_cross_soft", ground_size = 170, ground_fixed = true, ground_seconds = 0.75, grow = 0.6, also = { "fx_layer_green_motes" } },
+  a01d_restore = { ground = "mana_rune", ground_size = 190, ground_fixed = true, ground_seconds = 0.55, grow = 0.6, also = { "fx_layer_mana_motes" } },
   b20r_restore = { system = "burst", sprite = "heal_ring", size = 190, life = 0.4, tint = GREEN },
   b26r_restore = { system = "pop", sprite = "heal_rise", size = 210, life = 0.6, tint = GREEN, no_damage_flash = true },
   -- The stand-ins' own hits: small, so they never cover the hero being shown.

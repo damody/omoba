@@ -59,7 +59,7 @@ M.IMAGES = {
   heal_cross = { gain = 1.0 },
   heal_rise = { gain = 1.0 },
   powder_ring = { gain = 1.0 },
-  powder_blast = { gain = 1.0 }, arcane_bolt = { gain = 1.0 }, crack_quake = { gain = 1.0 }, possession_sigil = { gain = 1.0 }, possession_flare = { gain = 1.0 }, arcane_wisp = { gain = 1.0 }, blink_trace = { gain = 1.0 }, thrust_star = { gain = 1.0 }, arc_fork = { gain = 1.0 }, crack_red = { gain = 1.0 }, crack_earth = { gain = 1.0 }, crack_gold = { gain = 1.0 }, crack_hammer = { gain = 1.0 },
+  mana_rune = { gain = 1.0 }, blast_flare = { gain = 1.0 }, powder_blast = { gain = 1.0 }, arcane_bolt = { gain = 1.0 }, crack_quake = { gain = 1.0 }, possession_sigil = { gain = 1.0 }, possession_flare = { gain = 1.0 }, arcane_wisp = { gain = 1.0 }, blink_trace = { gain = 1.0 }, thrust_star = { gain = 1.0 }, arc_fork = { gain = 1.0 }, crack_red = { gain = 1.0 }, crack_earth = { gain = 1.0 }, crack_gold = { gain = 1.0 }, crack_hammer = { gain = 1.0 },
   heal_cross_soft = { gain = 1.0 }, mist_cuts = { gain = 1.0 }, heal_cross_solid = { gain = 1.0 },
   pistol_flare = { rot = -1.571, gain = 1.0 },
   pistol_shot = { rot = -1.571, gain = 1.0 },
@@ -225,7 +225,7 @@ M.WEAPONS = {
     strike = { system = "burst", sprite = "spark_star", size = 190, life = 0.3, ground = "crescent_slash", ground_size = 280, ground_seconds = 0.28, height = 80, grow = 0.5, face_camera = 0.7 } },
   axe = { swing = { ground = "crescent_slash", ground_size = 230, ground_seconds = 0.2, height = 110, grow = 0.6, face_camera = 0.9, ground_roll = 90 },
     strike = { system = "burst", sprite = "rock", size = 200, life = 0.4, ground = "crescent_slash", ground_size = 300, ground_seconds = 0.3, height = 90, grow = 0.4, face_camera = 0.9, ground_roll = 90 } },
-  spear = { swing = { ground = "chain_bolt", ground_size = 90, ground_seconds = 0.2, line = true },
+  spear = { swing = { ground = "chain_bolt", ground_size = 90, ground_seconds = 0.2, line = true, no_trail = true },
     strike = { system = "pop", sprite = "spark_star", size = 200, life = 0.26, ground = "chain_bolt", ground_size = 200, ground_seconds = 0.24, height = 80, line = false, grow = 0.5, face_camera = 0.7 } },
   gun = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.14,
       ground = "spark_star", ground_size = 90, ground_seconds = 0.2, height = 70, fly = true },
@@ -262,7 +262,7 @@ M.RECIPES.fx_layer_quake_sparks = { system = "sparks", tint = { 1.0, 0.45, 0.1 }
 M.RECIPES.fx_layer_powder_sparks = { system = "sparks", tint = { 1.0, 0.5, 0.08 }, delay = 0.05 }
 M.RECIPES.fx_layer_powder_keg = { mesh = "powder_keg", ground_size = 80, ground_seconds = 0.6, lead = 55, grow = 0.8 }
 M.RECIPES.fx_layer_stone_shards = { mesh = "stone_shards", ground_size = 110, ground_seconds = 0.45, height = 50, grow = 0.6, spin_up = 300 }
-M.RECIPES.fx_layer_green_motes = { system = "sparks", tint = { 0.2, 1.0, 0.4 }, delay = 0.08 }
+M.RECIPES.fx_layer_mana_motes = { system = "sparks", tint = { 0.25, 0.55, 1.0 }, delay = 0.08 }
 
 -- Abilities whose every look is in the recipes above.
 M.FX_ABILITIES = {
@@ -399,6 +399,7 @@ function M.ini_row(id)
   if r.spin_up then add("GroundSpinUp", number(r.spin_up)) end
   if r.face_blend then add("GroundFaceViewerBlend", number(r.face_blend)) end
   if r.from_hand then add("bFromFiringHand", "True") end
+  if r.no_trail then add("bNoWeaponTrail", "True") end
   if r.ground_fixed then add("bGroundFixedSize", "True") end
   if r.delay then add("CueDelaySeconds", number(r.delay)) end
   if r.repeat_count then add("CueRepeatCount", tostring(r.repeat_count)); add("CueRepeatSeconds", number(r.repeat_seconds)); add("CueRepeatYaw", number(r.repeat_yaw)) end

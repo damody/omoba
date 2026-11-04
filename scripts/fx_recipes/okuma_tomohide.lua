@@ -12,12 +12,12 @@ return {
     b26w_fire_explode = { system = "burst", sprite = "flame_sheet", size = 190, life = 0.45, tint = FIRE },
     b26w_slow_overhead = { system = "stream", sprite = "slow_chains", size = 80, life = 0.3, loop = true, alpha = 0.35, tint = BLUE },
     -- The closing shockwave, whichever way the charge ends
-    b26d_thunder_clap = { system = "pop", sprite = "shock_ring", size = 600, life = 0.35, tint = FIRE,
-      ground = "shock_ring", ground_size = 1000, ground_seconds = 0.5, grow = 0.15 },
-    b26w_shockwave = { system = "burst", sprite = "flame_sheet", size = 240, life = 0.5, tint = FIRE,
-      mesh = "shock_dome", ground_size = 270, ground_seconds = 0.45, grow = 0.4, mesh_opacity = 0.35 },
+    b26d_thunder_clap = { system = "pop", sprite = "shock_ring", size = 280, life = 0.3, tint = FIRE,
+      ground = "shock_ring", ground_size = 1000, ground_seconds = 0.5, grow = 0.15, alpha = 0.5 },
+    b26w_shockwave = { system = "burst", sprite = "flame_sheet", size = 170, life = 0.45, tint = FIRE,
+      ground = "blast_flare", ground_size = 420, ground_fixed = true, ground_seconds = 0.45, grow = 0.4 },
     -- D 釋放蓄力波: a flash, then the two cues above
-    b26d_voice = { system = "pop", sprite = "blink_flash", size = 420, life = 0.25, tint = FIRE },
+    b26d_voice = { system = "pop", sprite = "blink_flash", size = 240, life = 0.22, tint = FIRE },
     -- W 血性狂怒: blood-red flames and a ring, a flash as he grows, red motes while it lasts.
     -- b26e_model_scale_up has an 8 s duration, which a ground image would take: no ground on it.
     b26e_voice = { system = "pop", sprite = "blink_flash", size = 160, life = 0.25, tint = BLOOD,
