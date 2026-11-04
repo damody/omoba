@@ -58,6 +58,7 @@ M.IMAGES = {
   quake_burst = { gain = 1.0 },
   heal_cross = { gain = 1.0 },
   heal_rise = { gain = 1.0 },
+  powder_ring = { gain = 1.0 },
 }
 
 -- main: takes the cue's image, size and life. The rest keep their own (their colour still follows the cue).

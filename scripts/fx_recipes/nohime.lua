@@ -4,15 +4,14 @@ return {
   recipes = {
     -- a26_volley: muzzle flashes and a wave at her reach, then a blast on each enemy
     a26w_flak_sound = { system = "pop", sprite = "blink_flash", size = 200, life = 0.25, tint = ORANGE,
-      mesh = "cannon_shell", ground_size = 110, ground_seconds = 0.45, height = 70, launch = 260 },
+      ground = "shock_ring", ground_size = 1200, area = true, ground_seconds = 0.45, grow = 0.2 },
     a26w_hit_explosion = { system = "burst", sprite = "flame_sheet", size = 230, life = 0.4,
       ground = "dust_crack", ground_size = 240, ground_seconds = 0.35, grow = 0.5 },
     -- a26_powder_kick: the kick's arc, then the powder blast
     a26e_voice = { system = "pop", sprite = "crescent_slash", size = 300, life = 0.25, tint = ORANGE },
-    a26e_rocket_sound = { system = "burst", sprite = "flame_sheet", size = 480, life = 0.5,
-      mesh = "rocket", ground_size = 180, ground_seconds = 0.5, height = 70, launch = 300 },
-    a26e_smoke = { system = "pop", sprite = "smoke_sheet", size = 240, life = 0.6,
-      ground = "dust_crack", ground_size = 130, ground_seconds = 0.5, line = true },
+    a26e_rocket_sound = { system = "pop", sprite = "smoke_sheet", size = 120, fixed_size = true, life = 0.7,
+      ground = "powder_ring", ground_size = 600, area = true, ground_seconds = 0.6, grow = 0.3 },
+    a26e_smoke = { system = "sparks", tint = ORANGE },
     -- a26_twin_guns: on a crit two flames leave the muzzle along her aim. Its image has its own colours.
     a26r_crit_gesture = { ground = "twin_muzzle", ground_size = 200, ground_seconds = 0.24, height = 80, launch = 170, grow = 0.7, face_camera = 0.85 },
     -- a26_scorching_bomb
