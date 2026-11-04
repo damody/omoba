@@ -31,7 +31,7 @@ return {
     a12f_hit = { system = "pop", sprite = "blink_flash", size = 240, life = 0.3, tint = ARCANE,
       ground = "blink_flash", ground_size = 130, ground_seconds = 0.35, line = true },
     -- a12_mystic_possession: purple lightning crackling on him for the whole form
-    a12t_aura = { system = "stream", sprite = "arcane_wisp", size = 22, life = 0.4, loop = true, tint = { 1, 1, 1 } },
+    a12t_aura = { system = "stream", sprite = "spark_star", size = 45, life = 0.4, loop = true, tint = ARCANE },
   },
   notes = {
     a12_insight_flash = "a12w_glow (at caster, always plays) carries it; a12w_burst only on visible enemies; the empowered stun a12w_stun has no cue.",
