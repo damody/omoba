@@ -417,7 +417,7 @@ M.AFTER_ATTACK={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true
 M.KEEPS_BUFFS={a12_mystic_arrow=true,a12_scheme=true}
 -- b20 強韌 restores after each cast of his: Q in its own segment shows it (W's crown overflows at this close camera).
 M.BURST={a12_mystic_arrow={5,5},a12_scheme={5,5,5,5,0},b20_tenacity={0}}
-M.HOLD_FOR={a12_mystic_possession=3.5,a12_mystic_arrow=3.5}
+M.HOLD_FOR={a12_mystic_possession=3.5,a12_mystic_arrow=3.5,b27_rending_blade=3.2,c22_dream_mist=2.8}
 -- c03 不動戰錘: the hero stands far from the stand-in for it, and the blast is large: out before the cast.
 M.VIEW_EARLY={c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
 -- a14 on the lane stage: 衝擊槍 flies the stand-in (2800,2260) along the run into seat 10 (2800,1750), and the crash and its 350 show.

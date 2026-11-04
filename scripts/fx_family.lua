@@ -239,12 +239,12 @@ end
 M.RECIPES.fx_swing_nohime.from_hand, M.RECIPES.fx_swing_nohime.height = true, nil
 
 -- Layers other cues play through `also`: no package names them.
-M.RECIPES.fx_layer_mist_cuts = { ground = "mist_cuts", ground_size = 1500, area = true, ground_seconds = 0.7, grow = 0.75 }
+M.RECIPES.fx_layer_mist_cuts = { ground = "mist_cuts", ground_size = 1500, area = true, ground_seconds = 1.3, grow = 0.4 }
 M.RECIPES.fx_layer_possession_flare = { ground = "possession_flare", ground_size = 300, ground_fixed = true, ground_seconds = 0.55, grow = 0.45, delay = 0.05 }
 M.RECIPES.fx_layer_possession_embers = { system = "burst", sprite = "spark_star", size = 60, life = 0.6, tint = { 0.5, 0.1, 1.0 }, delay = 0.1 }
 M.RECIPES.fx_layer_quake_sparks = { system = "sparks", tint = { 1.0, 0.45, 0.1 }, delay = 0.06 }
 M.RECIPES.fx_layer_powder_sparks = { system = "sparks", tint = { 1.0, 0.5, 0.08 }, delay = 0.05 }
-M.RECIPES.fx_layer_powder_keg = { mesh = "powder_keg", ground_size = 80, ground_seconds = 0.6, lead = 85, grow = 0.8 }
+M.RECIPES.fx_layer_powder_keg = { mesh = "powder_keg", ground_size = 80, ground_seconds = 1.0, lead = 85, grow = 0.5 }
 M.RECIPES.fx_layer_mana_motes = { system = "sparks", tint = { 0.25, 0.55, 1.0 }, delay = 0.08 }
 
 -- Abilities whose every look is in the recipes above.
