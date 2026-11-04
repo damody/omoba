@@ -85,7 +85,7 @@ return function(ctx)
     kojima_sadaoki={mesh='weapon_war_axe',hand='hand_r',length=1.1,grip=-0.15,center_z=20.4,flip=true},
     shimazu_yoshihiro={mesh='weapon_war_axe',hand='hand_r',length=1.25,grip=-0.15,center_z=20.4,flip=true},
     -- A pistol in each hand, fired in turn (attack_left, Mx_Pistol_Fire_R and _L).
-    nohime={mesh='weapon_matchlock',hand='hand_r',length=0.45,grip=-0.30,center_z=13.3,along='fingers',both_hands=true},
+    nohime={mesh='weapon_flintlock',hand='hand_r',length=0.32,grip=-0.32,center_z=20,along='fingers',both_hands=true},
   }
   -- Hand frame of the generated UE5 Mannequin rig: fingers along -Y, the fist's bar axis along +Z (hand_r)
   -- or -Z (hand_l). The weapon's X axis runs through the fist (pitch +-90) and its grip point sits in the palm.

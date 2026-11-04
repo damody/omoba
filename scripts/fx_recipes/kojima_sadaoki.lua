@@ -12,7 +12,7 @@ return {
     b27e_hit_sound = { system = "burst", sprite = "crescent_slash", size = 340, life = 0.4, tint = GOLD,
       ground = "dust_crack", ground_size = 400, ground_seconds = 0.45, grow = 0.4 },
     -- b27_fearless_charge: fire at his feet; a shield thrust out before him; gold motes for the duration
-    b27r_vo = { ground = "banner_rally", ground_size = 300, ground_fixed = true, ground_seconds = 0.8, grow = 0.4 },
+    b27r_vo = { ground = "banner_rally", ground_size = 240, ground_fixed = true, ground_seconds = 0.8, grow = 0.4 },
     b27r_model_grow = { mesh = "tower_shield", ground_size = 160, ground_seconds = 0.9, grow = 0.6, lead = 55, launch = 85, face_blend = 0.5 },
     b27r_b15w3_aura = { system = "stream", sprite = "spark_star", size = 85, life = 0.4, loop = true, tint = GOLD },
     -- b27_rending_blade: a giant blade comes down, the earth breaks around him

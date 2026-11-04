@@ -234,7 +234,7 @@ M.WEAPONS = {
 }
 M.ATTACKS = {
   sasaki_kojiro = { "katana", STEEL, { system = "pop", sprite = "iai_cut", size = 380, life = 0.24, ground = "soft_glow", ground_size = 150, ground_seconds = 0.2, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { ground_size = 230, ground_roll = -30 } },
-  okuma_tomohide = { "axe", { 1.0, 0.13, 0.01 }, { system = false, sprite = false, size = false, life = false, ground = "axe_arc", ground_size = 190, ground_seconds = 0.26, height = 84, lead = -40, grow = 0.7, face_camera = 0.85, ground_roll = false } },
+  okuma_tomohide = { "axe", { 1.0, 0.13, 0.01 }, { system = false, sprite = false, size = false, life = false, ground = "axe_arc", ground_size = 135, ground_seconds = 0.26, height = 70, lead = -40, grow = 0.7, face_camera = 0.85, ground_roll = false } },
   kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 }, { sprite = "spark_star", size = 170, ground = "dust_crack", ground_size = 280, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 }, { sprite = "spark_star", size = 190 } },
   maeda_toshiie = { "spear", { 1.0, 0.62, 0.05 }, { sprite = "spark_star", size = 70, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust", ground_size = 200, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } }, maeda_keiji = { "spear", BLUE, { sprite = "spark_star", size = 70, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust_blue", ground_size = 200, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } },
@@ -250,8 +250,8 @@ for hero, row in pairs(M.ATTACKS) do
   end
 end
 
--- Her shots leave from the pistol firing now (OmUnitActor::IsFiringLeftHand), at the height she holds it.
-M.RECIPES.fx_swing_nohime.from_hand, M.RECIPES.fx_swing_nohime.height = true, 105
+-- Her shots leave from the muzzle of the pistol firing now (OmUnitActor::IsFiringLeftHand), at its own height.
+M.RECIPES.fx_swing_nohime.from_hand, M.RECIPES.fx_swing_nohime.height = true, nil
 
 -- Abilities whose every look is in the recipes above.
 M.FX_ABILITIES = {
