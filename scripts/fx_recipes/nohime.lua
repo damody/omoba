@@ -12,8 +12,8 @@ return {
     a26e_rocket_sound = { system = "pop", sprite = "smoke_sheet", size = 120, fixed_size = true, life = 0.7,
       ground = "powder_ring", ground_size = 600, area = true, ground_seconds = 0.6, grow = 0.3 },
     a26e_smoke = { system = "sparks", tint = ORANGE },
-    -- a26_twin_guns: on a crit one flame leaves the pistol that fired. Its image has its own colours.
-    a26r_crit_gesture = { ground = "pistol_flare", ground_size = 120, ground_fixed = true, ground_seconds = 0.22, lead = 45, launch = 110, from_hand = true, grow = 0.6, face_camera = 0.85 },
+    -- a26_twin_guns: on a crit one flame leaves the pistol that fired. The cue comes at the windup's start; the shot is 0.2 s on, less with her attack speed. Its image has its own colours.
+    a26r_crit_gesture = { ground = "pistol_flare", ground_size = 120, ground_fixed = true, ground_seconds = 0.22, lead = 30, launch = 100, from_hand = true, delay = 0.15, grow = 0.6, face_camera = 0.85 },
     -- a26_scorching_bomb
     a26t_voice = { system = "pop", sprite = "spark_star", size = 280, life = 0.45, tint = ORANGE,
       ground = "arcane_circle", ground_size = 340, ground_seconds = 0.5, grow = 0.4 },
