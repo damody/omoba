@@ -295,6 +295,9 @@ impl<'a> System<'a> for Sys {
                                     let angle_diff = normalize_angle(desired - new_rad).abs();
                                     if committed_impact || angle_diff < MOVE_ANGLE_THRESHOLD {
                                         if matches!(attack_phase, AttackPhaseStep::Ready) {
+                                            // This branch doesn't run again until the impact: a turn left over
+                                            // here would hold the body off target for the whole windup, then snap.
+                                            *facing = Facing::from_rad_f32(desired);
                                             let (windup, backswing) = start_attack_windup(
                                                 &mut atk.asd_count,
                                                 effective_interval,
@@ -402,6 +405,20 @@ mod explicit_target_tests {
             assert_eq!(attack_direction(delta, 1.25), 1.25);
         }
         assert_eq!(attack_direction(vek::Vec2::new(0.0, 5.0), 1.25), std::f32::consts::FRAC_PI_2);
+    }
+
+    #[test]
+    fn the_body_points_at_the_target_from_the_start_of_the_windup() {
+        use crate::comp::{Facing, TurnSpeed};
+        use specs::WorldExt;
+        let mut fix = CombatFixture::legacy();
+        let target = fix.spawn_units(IndexedBody::Creep, 1, 2, 100);
+        // 25 degrees off, inside what starts an attack without turning first, and no turn this tick.
+        fix.world.write_storage::<Facing>().insert(fix.hero, Facing::from_rad_f32(25f32.to_radians())).unwrap();
+        fix.world.write_storage::<TurnSpeed>().insert(fix.hero, TurnSpeed(omoba_sim::Fixed64::ZERO)).unwrap();
+        assert_eq!(fix.attack_targets(), vec![target]);
+        let facing = fix.world.read_storage::<Facing>().get(fix.hero).copied().unwrap();
+        assert!(facing.rad_f32().abs() < 0.01, "still {} rad off the target", facing.rad_f32());
     }
 
     #[test]
