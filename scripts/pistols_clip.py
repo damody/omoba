@@ -2,19 +2,24 @@
 # The one-pistol aim's right arm is mirrored onto the left, the body is turned to the unit's front and the guns levelled;
 # fire_r and fire_l raise one gun and fire it at the impact (impact_seconds in moba_tripo_hero_visuals), the attack alternating
 # them (AOmAnimatedUnitActor::SelectNativeAnimationSlot); volley turns on the spot, a shot to the front, right, back and left.
+# ready keeps a source clip's body with the guns held low and forward; the shots start and end in that hold, so standing,
+# running and firing follow each other without the arms jumping (nothing blends between clips at runtime).
 import sys
 import bpy
 from math import atan2, degrees, radians, sin, pi
 from mathutils import Matrix, Quaternion, Vector
 
-library_fbx, out_fbx, mode = sys.argv[sys.argv.index('--') + 1:]
+library_fbx, *source, out_fbx, mode = sys.argv[sys.argv.index('--') + 1:]
 
-FRAMES = 30 if mode == 'volley' else 18
+FRAMES = 30 if mode == 'volley' else 24
 # Frame of each shot, its hand and the body's turn when it fires (degrees about up: clockwise from above, the order front, right, back, left).
-SHOTS = {'fire_r': [(6, 'r', 0.0)], 'fire_l': [(6, 'l', 0.0)],
+SHOTS = {'fire_r': [(6, 'r', 0.0)], 'fire_l': [(6, 'l', 0.0)], 'ready': [(6, 'r', 0.0)],
          'volley': [(6, 'r', 0.0), (12, 'l', -90.0), (18, 'r', -180.0), (24, 'l', -270.0)]}[mode]
-RECOIL_RISE_FRAMES, RECOIL_FALL_FRAMES = (2, 3) if mode == 'volley' else (3, 8)
-LOWERED_DEGREES = -10.0
+RECOIL_RISE_FRAMES, RECOIL_FALL_FRAMES = (2, 3) if mode == 'volley' else (3, 5)
+# The frame the guns start back down to the hold.
+LOWER_FROM = 26 if mode == 'volley' else 15
+# The hold: how far each part of the arm drops from the aim.
+READY_DEGREES = {'upperarm': -65.0, 'lowerarm': -25.0, 'hand': -12.0}
 RECOIL_ARM_DEGREES = 10.0
 RECOIL_HAND_DEGREES = 22.0
 # The aim holds one pistol in both hands: open the arms so each gun is ahead of its own shoulder.
@@ -50,6 +55,10 @@ def use(action):
 
 def pose():
     return {b: library.pose.bones[b].matrix.copy() for b in BONES}
+
+
+use(action_named('Idle_Loop'))
+standing = pose()
 
 
 use(action_named('A_TPose'))
@@ -103,6 +112,37 @@ def smooth(t):
     return t * t * (3 - 2 * t)
 
 
+def blend(a, b, t):
+    return a.slerp(-b if a.dot(b) < 0 else b, t)
+
+
+def aimed(bone):
+    # The bone's direction in the aim, with the body at the front and the guns level.
+    arm = bone.startswith('clavicle') or bone in RAISED
+    rotation = aim_rotation[bone] if arm else body @ aim_rotation[bone]
+    if bone in spine_share:
+        rotation = Quaternion((0, 0, 1), radians(pelvis_turn - chest_turn) * spine_share[bone]) @ rotation
+    elif bone in ('spine_03', 'neck_01', 'Head'):
+        rotation = chest @ rotation
+    if bone in HAND:
+        rotation = (level_left if bone in LEFT_ARM else level) @ rotation
+    if bone in RAISED and bone not in HAND:
+        rotation = Quaternion((0, 0, 1), radians(OPEN_ARMS_DEGREES if bone in LEFT_ARM else -OPEN_ARMS_DEGREES)) @ rotation
+    return rotation
+
+
+def held(bone):
+    part = 'hand' if bone in HAND else bone[:-2]
+    return Quaternion(across_axis, radians(READY_DEGREES[part])) @ aimed(bone) if part in READY_DEGREES else aimed(bone)
+
+
+def aiming(frame, side):
+    # How far this side's arm has come up from the hold; a single shot only raises the arm that fires.
+    if mode != 'volley' and side != SHOTS[0][1]:
+        return 0.0
+    return min(smooth(frame / (SHOTS[0][0] - 1)), 1 - smooth((frame - LOWER_FROM) / (FRAMES - 1 - LOWER_FROM)))
+
+
 order = sorted(BONES, key=lambda b: len(library.pose.bones[b].parent_recursive))
 
 def recoil_at(frame, side):
@@ -126,36 +166,47 @@ def turn_at(frame):
     return 0.0
 
 
+if mode == 'ready':
+    action = action_named(source[0][len('library:'):])
+    first, last = int(action.frame_range[0]), int(action.frame_range[1])
+    frames = []
+    library.animation_data.action = action
+    library.animation_data.action_slot = action.slots[0]
+    for frame in range(first, last + 1):
+        bpy.context.scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        frames.append(pose())
+    library.animation_data.action = baked
+    library.animation_data.action_slot = slot
+    for pb in library.pose.bones:
+        pb.matrix_basis = Matrix.Identity(4)
+    bpy.context.view_layer.update()
+    FRAMES = len(frames)
+
 for frame in range(FRAMES):
-    first_shot, first_hand, _ = SHOTS[0]
-    raised = LOWERED_DEGREES * (1 - smooth(frame / first_shot))
     spin = Quaternion((0, 0, 1), radians(turn_at(frame) if mode == 'volley' else 0.0))
     for bone in order:
-        side = 'l' if bone in LEFT_ARM else 'r'
-        recoil = recoil_at(frame, side)
-        arm_pitch = Quaternion(across_axis, radians((raised if side == first_hand and mode != 'volley' else 0.0) + recoil * RECOIL_ARM_DEGREES))
-        hand_pitch = Quaternion(across_axis, radians(recoil * RECOIL_HAND_DEGREES))
         pb = library.pose.bones[bone]
         arm = bone.startswith('clavicle') or bone in RAISED
-        rotation = aim_rotation[bone] if arm else body @ aim_rotation[bone]
-        if bone in spine_share:
-            rotation = Quaternion((0, 0, 1), radians(pelvis_turn - chest_turn) * spine_share[bone]) @ rotation
-        elif bone in ('spine_03', 'neck_01', 'Head'):
-            rotation = chest @ rotation
-        if bone in HAND:
-            rotation = (level_left if bone in LEFT_ARM else level) @ rotation
-        if bone in RAISED and bone not in HAND:
-            rotation = Quaternion((0, 0, 1), radians(OPEN_ARMS_DEGREES if bone in LEFT_ARM else -OPEN_ARMS_DEGREES)) @ rotation
-        if bone in RAISED:
-            rotation = arm_pitch @ rotation
-        if bone in HAND:
-            rotation = hand_pitch @ rotation
         at = pb.matrix.translation.copy()
-        if bone == 'pelvis':
-            at = body @ aim[bone].translation
-        rotation = spin @ rotation
-        if bone == 'pelvis':
-            at = spin @ at
+        if mode == 'ready':
+            rotation = held(bone) if arm else frames[frame][bone].to_quaternion()
+            if bone == 'pelvis':
+                at = frames[frame][bone].translation
+        else:
+            side = 'l' if bone in LEFT_ARM else 'r'
+            recoil = recoil_at(frame, side)
+            rotation = aimed(bone)
+            if bone in RAISED:
+                rotation = Quaternion(across_axis, radians(recoil * RECOIL_ARM_DEGREES)) @ rotation
+            if bone in HAND:
+                rotation = Quaternion(across_axis, radians(recoil * RECOIL_HAND_DEGREES)) @ rotation
+            rotation = spin @ rotation
+            # The arms come up from the hold and go back to it, the body from standing and back.
+            weight = aiming(frame, side if arm else SHOTS[0][1])
+            rotation = blend(held(bone) if arm else standing[bone].to_quaternion(), rotation, weight)
+            if bone == 'pelvis':
+                at = standing[bone].translation.lerp(spin @ body @ aim[bone].translation, weight)
         pb.matrix = Matrix.Translation(at) @ rotation.to_matrix().to_4x4()
         bpy.context.view_layer.update()
     for pb in library.pose.bones:

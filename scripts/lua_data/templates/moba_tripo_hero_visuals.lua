@@ -42,7 +42,7 @@ return function(ctx)
       extra={['ability_c03_iron_hammer']={'Mx_Axe2_Slash',false},['ability_c03_iron_shirt']={'Mx_Axe2_Battlecry',false},['ability_c03_quake_axe']={'Mx_Axe2_Swing',false}}},
     maeda_keiji={idle='Idle_Loop',cast='Mx_Throw_Short',attack='Mx_Spear_Thrust',critical='Mx_Sweep',impact=0.6,contact=0.74,critical_impact=0.35,critical_contact=0.58,
       extra={death={'Mx_Death_Back',false},['ability_c05_flash_thunder']={'Mx_Channel',false},['ability_c05_matsukaze']={'Mx_Battlecry',false},['ability_c05_thunder_dance']={'Mx_Spear_Upward',false}}},
-    nohime={idle='Idle_Loop',cast='Mx_Pistol_Fire_R',attack='Mx_Pistol_Fire_R',critical='Mx_Pistol_Fire_R',impact=0.2,
+    nohime={idle='Mx_Pistols_Idle',idle_2='Mx_Pistols_Idle',idle_3='Mx_Pistols_Idle',move='Mx_Pistols_Jog',hit='Mx_Pistols_Hit',cast='Mx_Pistol_Fire_R',attack='Mx_Pistol_Fire_R',critical='Mx_Pistol_Fire_R',impact=0.2,
       extra={death={'Mx_Death_Back',false},attack_left={'Mx_Pistol_Fire_L',false,0.2},critical_left={'Mx_Pistol_Fire_L',false,0.2},['ability_a26_powder_kick']={'Mx_Spin_Kick',false},['ability_a26_scorching_bomb']={'Mx_Throw',false},['ability_a26_volley']={'Mx_Pistols_Volley',false}}},
     -- Lane minions (templates/world_units.lua): weapons hang on their backs like the heroes'.
     minion_ashigaru={idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.5},

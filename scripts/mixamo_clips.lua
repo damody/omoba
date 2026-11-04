@@ -47,6 +47,9 @@ local CLIPS={
   Mx_Pistol_Fire_R={generated='scripts/pistols_clip.py',mode='fire_r'},
   Mx_Pistol_Fire_L={generated='scripts/pistols_clip.py',mode='fire_l'},
   Mx_Pistols_Volley={generated='scripts/pistols_clip.py',mode='volley'},
+  Mx_Pistols_Idle={generated='scripts/pistols_clip.py',source='library:Idle_Loop',mode='ready'},
+  Mx_Pistols_Jog={generated='scripts/pistols_clip.py',source='library:Jog_Fwd_Loop',mode='ready'},
+  Mx_Pistols_Hit={generated='scripts/pistols_clip.py',source='library:Hit_Chest',mode='ready'},
   -- Plays half as fast again so the whole kick fits a cast's first second; speed and spin (start, seconds, degrees) in mixamo_to_library.py.
   Mx_Spin_Kick={'Standing Melee Attack Kick Ver. 1',0,45,0,0,0.42,25,speed=1.5,spin='0.1,0.7,360'},
 }
