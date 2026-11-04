@@ -260,8 +260,7 @@ M.RECIPES.fx_layer_possession_flare = { ground = "possession_flare", ground_size
 M.RECIPES.fx_layer_possession_embers = { system = "burst", sprite = "spark_star", size = 60, life = 0.6, tint = { 0.5, 0.1, 1.0 }, delay = 0.1 }
 M.RECIPES.fx_layer_quake_sparks = { system = "sparks", tint = { 1.0, 0.45, 0.1 }, delay = 0.06 }
 M.RECIPES.fx_layer_powder_sparks = { system = "sparks", tint = { 1.0, 0.5, 0.08 }, delay = 0.05 }
-M.RECIPES.fx_layer_powder_keg = { mesh = "powder_keg", ground_size = 80, ground_seconds = 0.6, lead = 55, grow = 0.8 }
-M.RECIPES.fx_layer_stone_shards = { mesh = "stone_shards", ground_size = 110, ground_seconds = 0.45, height = 50, grow = 0.6, spin_up = 300 }
+M.RECIPES.fx_layer_powder_keg = { mesh = "powder_keg", ground_size = 80, ground_seconds = 0.6, lead = 85, grow = 0.8 }
 M.RECIPES.fx_layer_mana_motes = { system = "sparks", tint = { 0.25, 0.55, 1.0 }, delay = 0.08 }
 
 -- Abilities whose every look is in the recipes above.
@@ -286,7 +285,7 @@ M.MESH_SOURCE = "omfue/SourceArt/Structures/TripoStaticV1"
 -- roll = 90 shows that side to whatever the cue faces (face_viewer); tilt: about its long axis, before the roll.
 M.MESHES = {
   throw_axe = {}, rocket = {}, cannon_shell = {}, arcane_arrow = {}, thunder_spear = {}, spear_head = {}, swallow = { tilt = -90 },
-  earth_spikes = {}, powder_keg = {}, stone_shards = {}, rock_chunk = {}, fire_bomb = {}, earth_crown = {}, shock_dome = { translucent = true },
+  powder_keg = {}, rock_chunk = {}, fire_bomb = {}, earth_crown = {}, shock_dome = { translucent = true },
   war_hammer = { roll = 90 }, fissure_blade = { roll = 90 }, iron_bell = { roll = 90, translucent = true }, fire_wings = { roll = 90 }, thunder_sword = { roll = 90 }, war_banner = { roll = 90 },
   tower_shield = { roll = -90 }, oni_mask = { roll = -90 }, fury_spear = { roll = 90 }, wind_spiral = {},
 }
