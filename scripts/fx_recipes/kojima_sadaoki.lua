@@ -14,8 +14,8 @@ return {
     -- b27_fearless_charge: fire and a rally banner on cast; a gold shield under him and gold motes for the duration
     b27r_vo = { system = "burst", sprite = "flame_sheet", size = 460, life = 0.6,
       ground = "banner_rally", ground_size = 560, ground_seconds = 0.8, grow = 0.4 },
-    b27r_model_grow = { system = "pop", sprite = "iron_shield", size = 340, life = 0.4, tint = GOLD,
-      ground = "iron_shield", ground_size = 240 },
+    b27r_model_grow = { system = "pop", sprite = "spark_star", size = 140, life = 0.3, tint = GOLD,
+      mesh = "tower_shield", ground_size = 240, ground_seconds = 0.9, grow = 0.4, face_viewer = true },
     b27r_b15w3_aura = { system = "stream", sprite = "spark_star", size = 85, life = 0.4, loop = true, tint = GOLD },
     -- b27_rending_blade: a giant blade comes down, the earth breaks around him
     b27t_vo = { system = "pop", sprite = "crescent_slash", size = 880, life = 0.32, tint = GOLD },
