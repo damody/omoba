@@ -42,8 +42,8 @@ return function(ctx)
       extra={['ability_c03_iron_hammer']={'Mx_Throw',false},['ability_c03_iron_shirt']={'Mx_Battlecry',false},['ability_c03_quake_axe']={'Mx_Axe_Smash',false}}},
     maeda_keiji={idle='Idle_Loop',cast='Mx_Throw_Short',attack='Mx_Spear_Thrust',critical='Mx_Sweep',impact=0.6,contact=0.74,critical_impact=0.35,critical_contact=0.58,
       extra={death={'Mx_Death_Back',false},['ability_c05_flash_thunder']={'Mx_Channel',false},['ability_c05_matsukaze']={'Mx_Battlecry',false},['ability_c05_thunder_dance']={'Mx_Spear_Upward',false}}},
-    nohime={idle='Idle_Loop',cast='Mx_Throw_Short',attack='Mx_Rifle_Fire',critical='Mx_Rifle_Fire',impact=0.07,
-      extra={death={'Mx_Death_Back',false},['ability_a26_powder_kick']={'Mx_Kick',false},['ability_a26_scorching_bomb']={'Mx_Throw',false},['ability_a26_volley']={'Mx_Rifle_Fire',false}}},
+    nohime={idle='Idle_Loop',cast='Mx_Pistols_Fire',attack='Mx_Pistols_Fire',critical='Mx_Pistols_Fire',impact=0.2,
+      extra={death={'Mx_Death_Back',false},['ability_a26_powder_kick']={'Mx_Kick',false},['ability_a26_scorching_bomb']={'Mx_Throw',false},['ability_a26_volley']={'Mx_Pistols_Fire',false}}},
     -- Lane minions (templates/world_units.lua): weapons hang on their backs like the heroes'.
     minion_ashigaru={idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.5},
     minion_archer={idle='Idle_Loop',attack='Mx_Throw_Short',critical='Mx_Throw_Short',impact=0.6},
@@ -83,7 +83,8 @@ return function(ctx)
     maeda_keiji={mesh='weapon_tonbokiri',hand='hand_r',length=2.2,grip=-0.15,center_z=3.3,flip=true},
     kojima_sadaoki={mesh='weapon_war_axe',hand='hand_r',length=1.1,grip=-0.35,center_z=20.4},
     shimazu_yoshihiro={mesh='weapon_war_axe',hand='hand_r',length=1.25,grip=-0.35,center_z=20.4},
-    nohime={mesh='weapon_matchlock',hand='hand_r',length=1.0,grip=-0.30,center_z=13.3,along='fingers'},
+    -- A pistol in each hand (mirrored by the clip, Mx_Pistols_Fire).
+    nohime={mesh='weapon_matchlock',hand='hand_r',length=0.45,grip=-0.30,center_z=13.3,along='fingers',both_hands=true},
   }
   -- Hand frame of the generated UE5 Mannequin rig: fingers along -Y, the fist's bar axis along +Z (hand_r)
   -- or -Z (hand_l). The weapon's X axis runs through the fist (pitch +-90) and its grip point sits in the palm.
@@ -146,6 +147,12 @@ return function(ctx)
         local name=weapon.mesh..'_mat_'..weapon.material.variant
         profile.attachments[1].material_slots={[weapon.material.slot]='/Game/Omoba/Structures/TripoStaticVariantsV1/'..weapon.mesh..'/'..name..'.'..name}
       end
+    end
+    -- The left hand's bar axis is the right's reversed: the same gun upright turns over about its length.
+    if weapon and weapon.both_hands then
+      local translation=grip_transform(weapon)
+      profile.attachments[2]={id='weapon_l',bone='hand_l',mesh_asset=profile.attachments[1].mesh_asset,scale=weapon.length,
+        translation_cm={translation[1],translation[2],-translation[3]},rotation_deg={0,-90,180},normalize_reference_bone_scale=true}
     end
     -- The hero's authored size survives; the generated mesh is normalized to it at runtime.
     if previous and previous.height_world_units then profile.height_world_units=previous.height_world_units end

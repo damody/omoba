@@ -34,6 +34,8 @@ local CLIPS={
   Mx_Cast_Two={'Two Hand Spell Casting',0,75,0,0,0.6,25},
   Mx_Channel={'Standing 2H Magic Attack 03',0,90,0,0,1.0,25},
   Mx_Death_Back='Standing React Death Backward',
+  -- No Mixamo file: built on the library's own pistol aim.
+  Mx_Pistols_Fire={generated='scripts/pistols_clip.py'},
 }
 
 local options={};local i=1
@@ -50,10 +52,11 @@ local library=p.join(b.root,'omfue/SourceArt/Characters/QuaterniusV1/animation_l
 local added={}
 for _,name in ipairs(names)do
   local entry=assert(CLIPS[name],'unknown clip '..name);if type(entry)=='string' then entry={entry} end
-  local source=p.join(input,entry[1]..'.fbx');assert(p.is_file(source),'missing '..source)
+  local source=entry[1] and p.join(input,entry[1]..'.fbx');assert(entry.generated or p.is_file(source),'missing '..tostring(source))
   local out=p.join(baked,name..'.fbx')
   if not(options['--reuse-baked'] and p.is_file(out)) then
-  local result=r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out,tostring(entry[2]or''),tostring(entry[3]or''),tostring(entry[4]or 0),tostring(entry[5]or 0),tostring(entry[6]or -1),tostring(entry[7]or 0),tostring(entry[8]or'')},{cwd=b.root,check=false})
+  local result=entry.generated and r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,entry.generated),'--',library,out},{cwd=b.root,check=false})
+    or r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out,tostring(entry[2]or''),tostring(entry[3]or''),tostring(entry[4]or 0),tostring(entry[5]or 0),tostring(entry[6]or -1),tostring(entry[7]or 0),tostring(entry[8]or'')},{cwd=b.root,check=false})
   assert(result.exit_code==0 and p.is_file(out),'bake failed: '..name..'\n'..tostring(result.stdout):sub(-1500))
   end
   added[#added+1]={name=name,fbx=out}
