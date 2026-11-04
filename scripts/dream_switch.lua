@@ -1,7 +1,7 @@
 -- Makes the text under DIR/DShader and DIR/DFX build the assets at their own paths, in a shadow with its own Content.
 -- Originals stay in place: each is marked as built from its source, then overwritten by the rebuild.
 --
---   tools\lua\lua.exe scripts\dream_switch.lua --project DIR --sources omfue/DreamSources [--only LUA_PATTERN ...] [--except LUA_PATTERN ...]
+--   tools\lua\lua.exe scripts\dream_switch.lua --project DIR --sources omfue/DreamSources [--only LUA_PATTERN ...] [--except LUA_PATTERN ...] [--allow-pinned]
 --
 -- Copies the chosen sources into DIR, records every chosen asset's stored properties (Saved/DreamAssets/facts-before.txt),
 -- checks that the text keeps each usage flag the asset has, marks the assets, rebuilds, records them again
@@ -164,6 +164,7 @@ function M.main(argv)
     elseif v=='--except' then i=i+1;options.except[#options.except+1]=argv[i]
     elseif v=='--fix-flags' then options.fix_flags=true
     elseif v=='--compare-only' then options.compare_only=true
+    elseif v=='--allow-pinned' then options.allow_pinned=true
     else error('unknown argument: '..v) end
     i=i+1
   end
@@ -194,7 +195,8 @@ function M.main(argv)
   local pinned,names=dream_assets.pinned(root,candidates),{}
   for package in pairs(pinned) do names[#names+1]=package end
   table.sort(names)
-  assert(#names==0,'pinned by SHA, exclude with --except (dream_assets.lua pinned):\n'..table.concat(names,'\n'))
+  -- --allow-pinned: the owner of these has been changed to read their source instead of their bytes.
+  assert(#names==0 or options.allow_pinned,'pinned by SHA, exclude with --except (dream_assets.lua pinned):\n'..table.concat(names,'\n'))
 
   -- Materials and instances first, by source file.
   local assets,adopt,material_sources,parents={},{},{},{}

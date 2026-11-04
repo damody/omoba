@@ -173,6 +173,16 @@ function M.report_pinned(root,filter)
   for package,file in pairs(M.text_candidates(root..'/omfue/Content')) do
     if not filter or package:match(filter) then files[package]=file end
   end
+  -- An asset that already has a source has moved past its pin: its owner reads the source.
+  local function has_source(package)
+    local rel=package:gsub('^/Game/','')
+    for _,kind in ipairs{'/omfue/DShader/'..rel..'.dss','/omfue/DShader/'..rel..'.dsi','/omfue/DFX/'..rel..'.dfs'} do
+      local f=io.open(root..kind,'rb')
+      if f then f:close();return true end
+    end
+    return false
+  end
+  for package in pairs(files) do if has_source(package) then files[package]=nil end end
   local found,names,count=M.pinned(root,files),{},0
   for package in pairs(files) do count=count+1 end
   for package in pairs(found) do names[#names+1]=package end

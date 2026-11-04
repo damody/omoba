@@ -245,14 +245,15 @@ if build_executor == 'local' then
 else
   run_restart('compile OmGame', 'build')
 end
+-- First: a clean clone has only the sources, and the steps below verify what they build.
+run_stage('ensure text-owned assets',platform.lua_executable,{
+  path.join(root,'scripts/dream_assets.lua'),'ensure','--ue-root',engine_root,
+},root)
 run_stage('ensure public map biome materials',platform.lua_executable,{
   path.join(root,'scripts/ue_map_biome_materials.lua'),'--ue-root',engine_root,'--ensure',
 },root)
 run_stage('ensure verified CC0 match voice',platform.lua_executable,{
   path.join(root,'scripts/import_moba_voice.lua'),'--ue-root',engine_root,'--ensure',
-},root)
-run_stage('ensure text-owned assets',platform.lua_executable,{
-  path.join(root,'scripts/dream_assets.lua'),'ensure','--ue-root',engine_root,
 },root)
 verify_stage_consistency()
 if engine_plan.initialize then assert(os.remove(bootstrap_marker), 'cannot retire source-engine bootstrap checkpoint') end
