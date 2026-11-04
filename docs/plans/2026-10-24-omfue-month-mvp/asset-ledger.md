@@ -195,6 +195,7 @@
 | 2026-11-04 | Tripo（單張圖、H3.1、512） | fx_oni_mask | okuma W（b26e_voice） | 25 | 500 | 20485 | `d3f409a8-b015-4908-8056-583c40558ce3` | 1396 面，靜態，匯出 FBX 0 點 |
 | 2026-11-04 | Tripo（單張圖、H3.1、512） | fx_wind_spiral | keiji Q（c05w_vo） | 25 | 525 | 20460 | `b33e71c4-378a-4d49-9cf8-73210438f29c` | 1416 面，靜態，匯出 FBX 0 點 |
 | 2026-11-04 | Tripo（單張圖、H3.1、512） | fx_fury_spear | toshiie R（a14t_title） | 25 | 550 | 20435 | `f1a19e3c-bb68-4e00-b4e9-dd931a0fc3f6` | 1500 面，靜態，匯出 FBX 0 點 |
+| 2026-11-04 | Tripo（單張圖、H3.1、512） | weapon_flintlock | 濃姬雙手槍（左右共用） | 25 | 575 | 20410 | `a67be971-fe4f-4a43-ade1-270c8f4d8d9f` | 1460 面，靜態，匯出 FBX 0 點 |
 
 ## 待決定
 
