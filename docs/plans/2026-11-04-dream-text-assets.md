@@ -175,6 +175,14 @@
 
 放回必須持有 `live_match`：實錄局的執行副本會開著 live 的 `.uasset`，沒有鎖時寫入會 `Permission denied`（`land_to_live` 這時整批不寫入）。
 
+## 純文字 clone 預演
+
+`scripts/dream_clone_verify.lua`：clone HEAD 與子模組，刪掉 248 個文字擁有的 `.uasset`，`build_ue_moba` 成功，實錄 `sasaki_kojiro` 一局正常。沒有動版控設定。
+
+停止追蹤前要解決：`Plugins/BpGeneratorUltimate_1.7.3/Binaries` 被 gitignore，乾淨 clone 沒有它就無法建置。
+
+預演找到：`build_ue_moba` 的 ensure 會等自己持有的 build 鎖而卡死（已修）；錄影需要 `target/tools/ffmpeg`；`build_ue_moba` 不建 server，要另外跑 `run_moba_split_local --build-only`。
+
 ## 還沒做
 
 Tripo 的 66 個材質、停止追蹤 `.uasset`、完整 cook 驗收。
