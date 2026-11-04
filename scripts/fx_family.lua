@@ -244,7 +244,9 @@ M.RECIPES.fx_layer_possession_flare = { ground = "possession_flare", ground_size
 M.RECIPES.fx_layer_possession_embers = { system = "burst", sprite = "spark_star", size = 60, life = 0.6, tint = { 0.5, 0.1, 1.0 }, delay = 0.1 }
 M.RECIPES.fx_layer_quake_sparks = { system = "sparks", tint = { 1.0, 0.45, 0.1 }, delay = 0.06 }
 M.RECIPES.fx_layer_powder_sparks = { system = "sparks", tint = { 1.0, 0.5, 0.08 }, delay = 0.05 }
-M.RECIPES.fx_layer_powder_keg = { mesh = "powder_keg", ground_size = 80, ground_seconds = 1.0, lead = 85, grow = 0.5 }
+M.RECIPES.fx_layer_powder_keg = { mesh = "powder_keg", ground_size = 80, ground_seconds = 0.6, lead = 170, grow = 0.8 }
+M.RECIPES.fx_layer_medicine_inro = { mesh = "medicine_inro", ground_size = 110, ground_seconds = 1.1, height = 130, grow = 0.5, face_viewer = true }
+M.RECIPES.fx_layer_armor_plate = { mesh = "armor_plate", ground_size = 110, ground_seconds = 0.7, height = 70, grow = 0.6, face_viewer = true }
 M.RECIPES.fx_layer_mana_motes = { system = "sparks", tint = { 0.25, 0.55, 1.0 }, delay = 0.08 }
 
 -- Abilities whose every look is in the recipes above.
@@ -269,7 +271,7 @@ M.MESH_SOURCE = "omfue/SourceArt/Structures/TripoStaticV1"
 -- roll = 90 shows that side to whatever the cue faces (face_viewer); tilt: about its long axis, before the roll.
 M.MESHES = {
   throw_axe = {}, rocket = {}, cannon_shell = {}, arcane_arrow = {}, thunder_spear = {}, spear_head = {}, swallow = { tilt = -90 },
-  powder_keg = {}, rock_chunk = {}, fire_bomb = {}, earth_crown = {}, shock_dome = { translucent = true },
+  medicine_inro = {}, armor_plate = {}, powder_keg = {}, rock_chunk = {}, fire_bomb = {}, earth_crown = {}, shock_dome = { translucent = true },
   war_hammer = { roll = 90 }, fissure_blade = { roll = 90 }, iron_bell = { roll = 90, translucent = true }, fire_wings = { roll = 90 }, thunder_sword = { roll = 90 }, war_banner = { roll = 90 },
   tower_shield = { roll = -90 }, oni_mask = { roll = -90 }, fury_spear = { roll = 90 }, wind_spiral = {},
   -- Named by CueOverrides rows or kept for later, no recipe here at the moment.
