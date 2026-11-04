@@ -256,8 +256,8 @@ M.RECIPES.fx_swing_nohime.from_hand, M.RECIPES.fx_swing_nohime.height = true, ni
 
 -- Layers other cues play through `also`: no package names them.
 M.RECIPES.fx_layer_mist_cuts = { ground = "mist_cuts", ground_size = 1500, area = true, ground_seconds = 0.7, grow = 0.75 }
-M.RECIPES.fx_layer_possession_flare = { ground = "possession_flare", ground_size = 560, ground_fixed = true, ground_seconds = 0.55, grow = 0.45, delay = 0.05 }
-M.RECIPES.fx_layer_possession_embers = { system = "burst", sprite = "arcane_wisp", size = 200, life = 0.6, tint = { 1, 1, 1 }, delay = 0.1 }
+M.RECIPES.fx_layer_possession_flare = { ground = "possession_flare", ground_size = 300, ground_fixed = true, ground_seconds = 0.55, grow = 0.45, delay = 0.05 }
+M.RECIPES.fx_layer_possession_embers = { system = "burst", sprite = "arcane_wisp", size = 45, life = 0.6, tint = { 1, 1, 1 }, delay = 0.1 }
 M.RECIPES.fx_layer_green_motes = { system = "sparks", tint = { 0.2, 1.0, 0.4 }, delay = 0.08 }
 
 -- Abilities whose every look is in the recipes above.
