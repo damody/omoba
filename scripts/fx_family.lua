@@ -59,6 +59,8 @@ M.IMAGES = {
   heal_cross = { gain = 1.0 },
   heal_rise = { gain = 1.0 },
   powder_ring = { gain = 1.0 },
+  crack_earth = { gain = 1.0 }, crack_gold = { gain = 1.0 }, crack_hammer = { gain = 1.0 },
+  mist_cuts = { gain = 1.0 }, mist_bands = { gain = 1.0, spin = 0.9 }, heal_cross_solid = { gain = 1.0 },
   pistol_flare = { rot = -1.571, gain = 1.0 },
   pistol_shot = { rot = -1.571, gain = 1.0 },
   powder_swirl = { gain = 1.0, spin = 8.98 },
@@ -137,8 +139,7 @@ M.RECIPES = {
   c22w_voice = { system = "burst", sprite = "swallow", size = 210, life = 0.5, tint = STEEL },
   c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, bold = true, tint = STEEL,
     ground = "vortex", ground_size = 480, ground_seconds = 1.5 },
-  c22t_thunder_clap = { system = "pop", sprite = "cut_cross", size = 520, life = 1.8, tint = STEEL,
-    ground = "soft_glow", ground_size = 500, ground_seconds = 1.4, grow = 0.08 },
+  c22t_thunder_clap = { system = "pop", sprite = "cut_cross", size = 380, fixed_size = true, life = 0.35, tint = STEEL, also = { "fx_layer_mist_cuts", "fx_layer_mist_bands" } },
   -- A26 濃姬: gunpowder fire and smoke
   a26w_hit_explosion = { look = "explosion_small" },
   a26e_smoke = { system = "burst", sprite = "smoke_sheet", size = 150, life = 0.8 },
@@ -162,7 +163,7 @@ M.RECIPES = {
   -- B20 山縣昌景: rocks and the shattered ground
   b20e_burrow = { ground = "dust_crack", ground_size = 460, ground_seconds = 0.7, grow = 0.5 },
   b20e_thunderclap = { look = "shockwave", ground_size = 520, tint = GOLD },
-  b20t_epicenter = { system = "burst", sprite = "smoke_sheet", size = 130, life = 0.6, ground = "dust_crack", ground_size = 460, ground_seconds = 0.45, grow = 0.3 },
+  b20t_epicenter = { system = "burst", sprite = "rock", size = 110, fixed_size = true, life = 0.5, tint = { 1.0, 0.45, 0.1 }, ground = "crack_earth", ground_size = 360, ground_seconds = 0.5, grow = 0.3 },
   b20w_rock = { ground = "rock", ground_size = 110, ground_seconds = 0.7, height = 80, fly = true, system = "sparks" },
   -- B26 大熊朝秀: fire charging and bursting
   b26d_thunder_clap = { look = "shockwave", tint = { 1.0, 0.5, 0.15 } },
@@ -252,6 +253,11 @@ end
 
 -- Her shots leave from the muzzle of the pistol firing now (OmUnitActor::IsFiringLeftHand), at its own height.
 M.RECIPES.fx_swing_nohime.from_hand, M.RECIPES.fx_swing_nohime.height = true, nil
+
+-- Layers other cues play through `also`: no package names them.
+M.RECIPES.fx_layer_mist_cuts = { ground = "mist_cuts", ground_size = 1500, area = true, ground_seconds = 0.7, grow = 0.75 }
+M.RECIPES.fx_layer_mist_bands = { ground = "mist_bands", ground_size = 1500, area = true, ground_seconds = 1.5, grow = 0.55, delay = 0.12 }
+M.RECIPES.fx_layer_green_motes = { system = "sparks", tint = { 0.2, 1.0, 0.4 }, delay = 0.08 }
 
 -- Abilities whose every look is in the recipes above.
 M.FX_ABILITIES = {
@@ -382,6 +388,7 @@ function M.ini_row(id)
   elseif r.ground then add("Ground", '"' .. M.material("MIG", r.ground) .. '"') end
   if r.spin then add("GroundSpin", number(r.spin)) end
   if r.tilt then add("GroundTilt", number(r.tilt)) end
+  if r.also then add("CueAlso", '("' .. table.concat(r.also, '","') .. '")') end
   if r.spin_up then add("GroundSpinUp", number(r.spin_up)) end
   if r.face_blend then add("GroundFaceViewerBlend", number(r.face_blend)) end
   if r.from_hand then add("bFromFiringHand", "True") end

@@ -6,7 +6,7 @@ return { recipes = {
   a14w_spear_cast = { system = "pop", sprite = "chain_bolt", size = 180, life = 0.25, tint = GOLD,
     mesh = "spear_head", ground_size = 220, ground_seconds = 0.3, height = 30, launch = 500 },
   a12t_cast = { system = "burst", sprite = "soft_glow", size = 150, life = 0.4, tint = ARCANE, ground = "shock_ring", ground_size = 420, ground_seconds = 0.6, grow = 0.2 },
-  a01d_restore = { system = "pop", sprite = "heal_cross", size = 190, life = 0.5, tint = GREEN },
+  a01d_restore = { system = "pop", sprite = "heal_cross_solid", size = 170, fixed_size = true, life = 0.5, also = { "fx_layer_green_motes" } },
   b20r_restore = { system = "burst", sprite = "heal_ring", size = 190, life = 0.4, tint = GREEN },
   b26r_restore = { system = "pop", sprite = "heal_rise", size = 210, life = 0.6, tint = GREEN, no_damage_flash = true },
   -- The stand-ins' own hits: small, so they never cover the hero being shown.
