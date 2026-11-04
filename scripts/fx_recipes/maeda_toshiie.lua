@@ -3,8 +3,8 @@ local GOLD, BLUE = { 1.0, 0.55, 0.08 }, { 0.12, 0.5, 1.0 }
 return {
   recipes = {
     -- a14_impact_spear: the landing crash
-    a14w_impact = { system = "burst", sprite = "spark_star", size = 420, life = 0.45, tint = GOLD,
-      ground = "dust_crack", ground_size = 700, ground_seconds = 0.6, grow = 0.25 },
+    a14w_impact = { system = "burst", sprite = "spark_star", size = 170, fixed_size = true, life = 0.4, tint = GOLD,
+      ground = "thrust_star", ground_size = 520, ground_fixed = true, ground_seconds = 0.5, grow = 0.35, face_camera = 0.7 },
     a14w_move_slow = { system = "stream", sprite = "slow_chains", size = 90, life = 0.25, loop = true, tint = BLUE },
     -- a14_divine_strike: a bolt from him to the target; the burst is attached, so it goes with him through the blink
     a14e_blink_sparkles = { system = "burst", sprite = "blink_flash", size = 440, life = 0.4, tint = GOLD,

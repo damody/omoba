@@ -59,7 +59,7 @@ M.IMAGES = {
   heal_cross = { gain = 1.0 },
   heal_rise = { gain = 1.0 },
   powder_ring = { gain = 1.0 },
-  arc_fork = { gain = 1.0 }, crack_red = { gain = 1.0 }, crack_earth = { gain = 1.0 }, crack_gold = { gain = 1.0 }, crack_hammer = { gain = 1.0 },
+  thrust_star = { gain = 1.0 }, arc_fork = { gain = 1.0 }, crack_red = { gain = 1.0 }, crack_earth = { gain = 1.0 }, crack_gold = { gain = 1.0 }, crack_hammer = { gain = 1.0 },
   heal_cross_soft = { gain = 1.0 }, mist_cuts = { gain = 1.0 }, heal_cross_solid = { gain = 1.0 },
   pistol_flare = { rot = -1.571, gain = 1.0 },
   pistol_shot = { rot = -1.571, gain = 1.0 },
@@ -238,7 +238,7 @@ M.ATTACKS = {
   okuma_tomohide = { "axe", { 1.0, 0.13, 0.01 }, { system = false, sprite = false, size = false, life = false, ground = "axe_arc", ground_size = 135, ground_seconds = 0.26, height = 70, lead = -40, grow = 0.7, face_camera = 0.85, ground_roll = false } },
   kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 }, { sprite = "spark_star", size = 170, ground = "dust_crack", ground_size = 280, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 }, { sprite = "spark_star", size = 190 } },
-  maeda_toshiie = { "spear", { 1.0, 0.62, 0.05 }, { sprite = "spark_star", size = 70, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust", ground_size = 200, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } }, maeda_keiji = { "spear", BLUE, { sprite = "spark_star", size = 70, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust_blue", ground_size = 200, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } },
+  maeda_toshiie = { "spear", { 1.0, 0.62, 0.05 }, { sprite = "spark_star", size = 120, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust", ground_size = 260, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } }, maeda_keiji = { "spear", BLUE, { sprite = "spark_star", size = 70, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust_blue", ground_size = 200, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } },
   nohime = { "gun", { 1.0, 0.6, 0.25 }, { system = "pop", sprite = "blink_flash", size = 220, life = 0.22, ground = "shock_ring", ground_size = 200, ground_seconds = 0.25, height = 30, grow = 0.4, face_camera = false } }, otani_yoshitsugu = { "arcane", ARCANE, { size = 170, area = false, ground_size = 180 } },
 }
 for hero, row in pairs(M.ATTACKS) do
