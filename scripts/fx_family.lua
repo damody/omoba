@@ -60,7 +60,7 @@ M.IMAGES = {
   heal_rise = { gain = 1.0 },
   powder_ring = { gain = 1.0 },
   crack_earth = { gain = 1.0 }, crack_gold = { gain = 1.0 }, crack_hammer = { gain = 1.0 },
-  mist_cuts = { gain = 1.0 }, mist_bands = { gain = 1.0, spin = 0.9 }, heal_cross_solid = { gain = 1.0 },
+  heal_cross_soft = { gain = 1.0 }, mist_cuts = { gain = 1.0 }, mist_bands = { gain = 1.0, spin = 0.9 }, heal_cross_solid = { gain = 1.0 },
   pistol_flare = { rot = -1.571, gain = 1.0 },
   pistol_shot = { rot = -1.571, gain = 1.0 },
   powder_swirl = { gain = 1.0, spin = 8.98 },
@@ -256,7 +256,7 @@ M.RECIPES.fx_swing_nohime.from_hand, M.RECIPES.fx_swing_nohime.height = true, ni
 
 -- Layers other cues play through `also`: no package names them.
 M.RECIPES.fx_layer_mist_cuts = { ground = "mist_cuts", ground_size = 1500, area = true, ground_seconds = 0.7, grow = 0.75 }
-M.RECIPES.fx_layer_mist_bands = { ground = "mist_bands", ground_size = 1500, area = true, ground_seconds = 1.5, grow = 0.55, delay = 0.12 }
+M.RECIPES.fx_layer_mist_bands = { ground = "mist_bands", ground_size = 1200, area = true, ground_seconds = 1.2, grow = 0.7, delay = 0.12 }
 M.RECIPES.fx_layer_green_motes = { system = "sparks", tint = { 0.2, 1.0, 0.4 }, delay = 0.08 }
 
 -- Abilities whose every look is in the recipes above.
@@ -388,6 +388,8 @@ function M.ini_row(id)
   elseif r.ground then add("Ground", '"' .. M.material("MIG", r.ground) .. '"') end
   if r.spin then add("GroundSpin", number(r.spin)) end
   if r.tilt then add("GroundTilt", number(r.tilt)) end
+  if r.scatter then add("GroundScatterCm", number(r.scatter * M.WORLD_CM)) end
+  if r.scatter_size then add("GroundScatterSize", number(r.scatter_size)) end
   if r.also then add("CueAlso", '("' .. table.concat(r.also, '","') .. '")') end
   if r.spin_up then add("GroundSpinUp", number(r.spin_up)) end
   if r.face_blend then add("GroundFaceViewerBlend", number(r.face_blend)) end
