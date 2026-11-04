@@ -59,7 +59,7 @@ M.IMAGES = {
   heal_cross = { gain = 1.0 },
   heal_rise = { gain = 1.0 },
   powder_ring = { gain = 1.0 },
-  thrust_star = { gain = 1.0 }, arc_fork = { gain = 1.0 }, crack_red = { gain = 1.0 }, crack_earth = { gain = 1.0 }, crack_gold = { gain = 1.0 }, crack_hammer = { gain = 1.0 },
+  blink_trace = { gain = 1.0 }, thrust_star = { gain = 1.0 }, arc_fork = { gain = 1.0 }, crack_red = { gain = 1.0 }, crack_earth = { gain = 1.0 }, crack_gold = { gain = 1.0 }, crack_hammer = { gain = 1.0 },
   heal_cross_soft = { gain = 1.0 }, mist_cuts = { gain = 1.0 }, heal_cross_solid = { gain = 1.0 },
   pistol_flare = { rot = -1.571, gain = 1.0 },
   pistol_shot = { rot = -1.571, gain = 1.0 },
