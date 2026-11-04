@@ -404,7 +404,7 @@ M.STRUCK_AT={2700,2130}
 M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_tenacity={2480,2450}}
 M.HOLDS_STILL={b20_tenacity=true}
 -- b27 裂地刃 reaches 1000: the death's stand-ins are hit too, and at the usual cap (2) their ripples were cut off.
-M.VIEW_BACK={b27_rending_blade=2.7,a14_impact_spear=2.3,a14_divine_strike=2.3,a12_mystic_arrow=1.35,a12_scheme=1.35}
+M.VIEW_BACK={b27_rending_blade=2.7,a14_impact_spear=1.6,a14_divine_strike=1.6,a12_mystic_arrow=1.35,a12_scheme=1.35}
 -- Ranged: hero and stand-in stand far apart, in frame from the segment's start.
 M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
 -- The stage's showcase.withheld_abilities: no rank at birth, learned in their own segment.
@@ -426,11 +426,10 @@ M.STAND_AT={a14_divine_strike={2765,2396}}
 M.VIEW_AT={a14_impact_spear={2800,2075},a14_divine_strike={2870,1985},a12_mystic_arrow={2300,2640},a12_scheme={2300,2640}}
 -- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
 M.CAST_AT={c05_flash_thunder={2440,2300}}
--- A third half at the top rank. b26: the restore is a 17% chance, hence the long one. c05: beside the patrol of
--- moba_hero_spotlight_patrol.lua, watched unhurt first, then hit: the same road walked slowed.
-M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=8},c05_thunder_spear={at={2550,2000},seconds=7,wait=4}}
+-- A third half at the top rank. b26: the restore is a 17% chance, hence the long one.
+M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=8}}
 -- Struck for this long the hero lives: seat 7 took 17 hits and 14 s to kill c05 at 164 a hit (out of its reach refill_players makes it whole).
-M.HALF_SECONDS={c05_thunder_spear=5.5,b26_kozuke_valor=4}
+M.HALF_SECONDS={c05_thunder_spear=4,b26_kozuke_valor=4}
 -- Where a reach is the point (backend units from the stand-in): c22 燕閃 reaches 228 at rank 1 and 378 at rank 4.
 M.STAND_OFF={c22_swallow_flash=330,c03_iron_hammer=420}
 -- A melee hero stands where its weapon reaches the stand-in (backend units): the stand-in no longer comes to it,
