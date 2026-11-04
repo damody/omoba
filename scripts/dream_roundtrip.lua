@@ -165,7 +165,7 @@ function M.main(argv)
   for i=2,#argv do if argv[i]=='--project' then project=argv[i+1] end end
   assert(project,'--project DIR is required: this rewrites sources and needs a shadow with its own Content')
   project=p.absolute(project):gsub('\\','/')
-  assert(project~=(b.root..'/omfue'):gsub('\\','/'),'not on live omfue')
+  require('dream_shadow').require_own(p.absolute(project))
   local decompiled=project..'/DShader/Decompiled/'
   local pairs_path=project..'/Saved/DreamAssets/material-pairs.txt'
   local facts_path=project..'/Saved/DreamAssets/material-facts.txt'

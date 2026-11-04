@@ -169,7 +169,7 @@ function M.main(argv)
   end
   assert(options.project and options.sources,'--project and --sources are required')
   local project=p.absolute(options.project):gsub('\\','/')
-  assert(project~=(b.root..'/omfue'):gsub('\\','/'),'a shadow project only: this rewrites assets')
+  require('dream_shadow').require_own(project)
   local sources=p.absolute(options.sources):gsub('\\','/')
   local saved=project..'/Saved/DreamAssets/'
   p.mkdir_p(saved)

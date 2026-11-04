@@ -267,6 +267,7 @@ function M.main(argv)
   local project=options.project and p.absolute(options.project) or p.join(b.root,'omfue')
   local uproject=p.join(project,'om.uproject')
   assert(p.is_file(uproject),'no project: '..uproject)
+  if options.project and M.SAVES[options.tool][options.verb] then require('dream_shadow').require_own(project) end
   local editor=p.join(options.ue_root or 'D:/UE5.8','Engine/Binaries/Win64/UnrealEditor-Cmd.exe')
   local log=p.join(project,'Saved/DreamAssets',options.tool..'-'..options.verb..'-'..os.date('%Y%m%d-%H%M%S')..'.log')
   p.mkdir_p(p.parent(log))
