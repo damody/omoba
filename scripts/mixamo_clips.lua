@@ -35,7 +35,11 @@ local CLIPS={
   Mx_Channel={'Standing 2H Magic Attack 03',0,90,0,0,1.0,25},
   Mx_Death_Back='Standing React Death Backward',
   -- No Mixamo file: built on the library's own pistol aim.
-  Mx_Pistols_Fire={generated='scripts/pistols_clip.py'},
+  Mx_Pistol_Fire_R={generated='scripts/pistols_clip.py',mode='fire_r'},
+  Mx_Pistol_Fire_L={generated='scripts/pistols_clip.py',mode='fire_l'},
+  Mx_Pistols_Volley={generated='scripts/pistols_clip.py',mode='volley'},
+  -- Plays half as fast again so the whole kick fits a cast's first second; speed and spin (start, seconds, degrees) in mixamo_to_library.py.
+  Mx_Spin_Kick={'Standing Melee Attack Kick Ver. 1',0,45,0,0,0.42,25,speed=1.5,spin='0.1,0.7,360'},
 }
 
 local options={};local i=1
@@ -55,8 +59,8 @@ for _,name in ipairs(names)do
   local source=entry[1] and p.join(input,entry[1]..'.fbx');assert(entry.generated or p.is_file(source),'missing '..tostring(source))
   local out=p.join(baked,name..'.fbx')
   if not(options['--reuse-baked'] and p.is_file(out)) then
-  local result=entry.generated and r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,entry.generated),'--',library,out},{cwd=b.root,check=false})
-    or r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out,tostring(entry[2]or''),tostring(entry[3]or''),tostring(entry[4]or 0),tostring(entry[5]or 0),tostring(entry[6]or -1),tostring(entry[7]or 0),tostring(entry[8]or'')},{cwd=b.root,check=false})
+  local result=entry.generated and r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,entry.generated),'--',library,out,entry.mode},{cwd=b.root,check=false})
+    or r.run(blender,{'-b','--python-exit-code','1','-P',p.join(b.root,'scripts/mixamo_to_library.py'),'--',library,p.join(input,'T-Pose.fbx'),source,out,tostring(entry[2]or''),tostring(entry[3]or''),tostring(entry[4]or 0),tostring(entry[5]or 0),tostring(entry[6]or -1),tostring(entry[7]or 0),tostring(entry[8]or''),tostring(entry.speed or 1),entry.spin or''},{cwd=b.root,check=false})
   assert(result.exit_code==0 and p.is_file(out),'bake failed: '..name..'\n'..tostring(result.stdout):sub(-1500))
   end
   added[#added+1]={name=name,fbx=out}

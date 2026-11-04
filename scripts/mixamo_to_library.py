@@ -10,7 +10,7 @@ import bpy
 from math import atan2, degrees, radians, tanh
 from mathutils import Matrix, Quaternion, Vector
 
-library_fbx, tpose_fbx, clip_fbx, out_fbx, first_kept, last_kept, wrist_degrees, return_after, contact_seconds, body_limit, arms_turn = sys.argv[sys.argv.index('--') + 1:]
+library_fbx, tpose_fbx, clip_fbx, out_fbx, first_kept, last_kept, wrist_degrees, return_after, contact_seconds, body_limit, arms_turn, speed, spin = sys.argv[sys.argv.index('--') + 1:]
 
 PAIRS = [('pelvis', 'Hips'), ('spine_01', 'Spine'), ('spine_02', 'Spine1'), ('spine_03', 'Spine2'), ('neck_01', 'Neck'), ('Head', 'Head')]
 for side, name in (('l', 'Left'), ('r', 'Right')):
@@ -131,11 +131,19 @@ if float(body_limit) > 0:
 order = sorted(PAIRS, key=lambda row: len(library.pose.bones[row[0]].parent_recursive))
 frames = 0
 return_after = int(return_after)
+speed = float(speed)
+# A turn the clip is about, on top of everything: seconds it starts, seconds it takes, degrees (+ = counter-clockwise from above), around the left foot.
+spin_start, spin_seconds, spin_degrees = (float(v) for v in spin.split(',')) if spin else (0.0, 1.0, 0.0)
 opening, held = {}, {}
-for frame in range(first, last + 1):
-    bpy.context.scene.frame_set(frame)
+for frame in range(first, first + int((last - first) / speed) + 1):
+    source_frame = first + (frame - first) * speed
+    bpy.context.scene.frame_set(int(source_frame), subframe=source_frame - int(source_frame))
     bpy.context.view_layer.update()
     offset = frame - first
+    spin_t = min(max((offset / 30 - spin_start) / spin_seconds, 0.0), 1.0)
+    spin_now = Quaternion((0, 0, 1), radians(spin_degrees * spin_t * spin_t * (3 - 2 * spin_t)))
+    foot = yaw @ world_bone('LeftFoot').translation
+    pivot = pelvis_t + (foot - hips_t) * ratio
     pelvis_turn = wrapped(turn_from_t_pose('Hips') + yaw_degrees)
     chest_turn = wrapped(shoulders_turn() + yaw_degrees)
     pelvis_fix = soft_limit(pelvis_turn, limit_at(offset, wide_pelvis, CONTACT_PELVIS_LIMIT)) - pelvis_turn
@@ -169,6 +177,10 @@ for frame in range(first, last + 1):
             rotation = held[bone][0].slerp(opening[bone][0], t)
             if bone == 'pelvis':
                 at = held[bone][1].lerp(opening[bone][1], t)
+        if spin_degrees:
+            rotation = spin_now @ rotation
+            if bone == 'pelvis':
+                at = pivot + spin_now @ (at - pivot)
         pb.matrix = Matrix.Translation(at) @ rotation.to_matrix().to_4x4()
         bpy.context.view_layer.update()
     for pb in library.pose.bones:

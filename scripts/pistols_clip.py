@@ -1,17 +1,20 @@
 # Run by Blender (scripts/mixamo_clips.lua): the library has no two-pistol motion, so this builds one on its own skeleton.
 # The one-pistol aim's right arm is mirrored onto the left, the body is turned to the unit's front and the guns levelled;
-# the clip raises both guns to the aim, then both recoil together at the impact (impact_seconds in moba_tripo_hero_visuals).
+# fire_r and fire_l raise one gun and fire it at the impact (impact_seconds in moba_tripo_hero_visuals), the attack alternating
+# them (AOmAnimatedUnitActor::SelectNativeAnimationSlot); volley turns on the spot, a shot to the front, right, back and left.
 import sys
 import bpy
 from math import atan2, degrees, radians, sin, pi
 from mathutils import Matrix, Quaternion, Vector
 
-library_fbx, out_fbx = sys.argv[sys.argv.index('--') + 1:]
+library_fbx, out_fbx, mode = sys.argv[sys.argv.index('--') + 1:]
 
-FRAMES = 18
-IMPACT_FRAME = 6
-RECOIL_PEAK_FRAME = 9
-LOWERED_DEGREES = -30.0
+FRAMES = 30 if mode == 'volley' else 18
+# Frame of each shot, its hand and the body's turn when it fires (degrees about up: clockwise from above, the order front, right, back, left).
+SHOTS = {'fire_r': [(6, 'r', 0.0)], 'fire_l': [(6, 'l', 0.0)],
+         'volley': [(6, 'r', 0.0), (12, 'l', -90.0), (18, 'r', -180.0), (24, 'l', -270.0)]}[mode]
+RECOIL_RISE_FRAMES, RECOIL_FALL_FRAMES = (2, 3) if mode == 'volley' else (3, 8)
+LOWERED_DEGREES = -10.0
 RECOIL_ARM_DEGREES = 10.0
 RECOIL_HAND_DEGREES = 22.0
 # The aim holds one pistol in both hands: open the arms so each gun is ahead of its own shoulder.
@@ -85,7 +88,7 @@ level = (straight @ finger).rotation_difference(front)
 level_left = (MIRROR @ level.to_matrix() @ MIRROR).to_quaternion()
 across_axis = front.cross(Vector((0, 0, 1)))
 
-baked = bpy.data.actions.new(name='Armature|Armature|Mx_Pistols_Fire')
+baked = bpy.data.actions.new(name='Armature|Armature|' + out_fbx.replace('\\', '/').split('/')[-1][:-4])
 library.animation_data.action = baked
 slot = baked.slots.new(id_type='OBJECT', name=library.name)
 library.animation_data.action_slot = slot
@@ -101,17 +104,37 @@ def smooth(t):
 
 
 order = sorted(BONES, key=lambda b: len(library.pose.bones[b].parent_recursive))
+
+def recoil_at(frame, side):
+    recoil = 0.0
+    for shot, hand, _ in SHOTS:
+        if hand != side or frame < shot:
+            continue
+        if frame < shot + RECOIL_RISE_FRAMES:
+            recoil = max(recoil, sin((frame - shot) / RECOIL_RISE_FRAMES * pi / 2))
+        else:
+            recoil = max(recoil, 1 - smooth((frame - shot - RECOIL_RISE_FRAMES) / RECOIL_FALL_FRAMES))
+    return recoil
+
+
+def turn_at(frame):
+    # Holds each shot's direction, then swings to the next; the last swing comes round to the front again.
+    stops = [(shot, turn) for shot, _, turn in SHOTS] + [(FRAMES - 1, -360.0)]
+    for (start, turn), (end, next_turn) in zip(stops, stops[1:]):
+        if frame <= end:
+            return turn + (next_turn - turn) * smooth((frame - start) / (end - start))
+    return 0.0
+
+
 for frame in range(FRAMES):
-    raised = LOWERED_DEGREES * (1 - smooth(frame / IMPACT_FRAME))
-    if frame < IMPACT_FRAME:
-        recoil = 0.0
-    elif frame < RECOIL_PEAK_FRAME:
-        recoil = sin((frame - IMPACT_FRAME) / (RECOIL_PEAK_FRAME - IMPACT_FRAME) * pi / 2)
-    else:
-        recoil = 1 - smooth((frame - RECOIL_PEAK_FRAME) / (FRAMES - 1 - RECOIL_PEAK_FRAME))
-    arm_pitch = Quaternion(across_axis, radians(raised + recoil * RECOIL_ARM_DEGREES))
-    hand_pitch = Quaternion(across_axis, radians(recoil * RECOIL_HAND_DEGREES))
+    first_shot, first_hand, _ = SHOTS[0]
+    raised = LOWERED_DEGREES * (1 - smooth(frame / first_shot))
+    spin = Quaternion((0, 0, 1), radians(turn_at(frame) if mode == 'volley' else 0.0))
     for bone in order:
+        side = 'l' if bone in LEFT_ARM else 'r'
+        recoil = recoil_at(frame, side)
+        arm_pitch = Quaternion(across_axis, radians((raised if side == first_hand and mode != 'volley' else 0.0) + recoil * RECOIL_ARM_DEGREES))
+        hand_pitch = Quaternion(across_axis, radians(recoil * RECOIL_HAND_DEGREES))
         pb = library.pose.bones[bone]
         arm = bone.startswith('clavicle') or bone in RAISED
         rotation = aim_rotation[bone] if arm else body @ aim_rotation[bone]
@@ -130,6 +153,9 @@ for frame in range(FRAMES):
         at = pb.matrix.translation.copy()
         if bone == 'pelvis':
             at = body @ aim[bone].translation
+        rotation = spin @ rotation
+        if bone == 'pelvis':
+            at = spin @ at
         pb.matrix = Matrix.Translation(at) @ rotation.to_matrix().to_4x4()
         bpy.context.view_layer.update()
     for pb in library.pose.bones:
