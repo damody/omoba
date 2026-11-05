@@ -466,14 +466,25 @@ function M.view_radius(doc,id)
 end
 
 -- A skill's segment lasts as long as the skill, so what it leaves does not run into the next segment.
-M.BASE_HOLD,M.MAX_HOLD=4.5,8
+M.BASE_HOLD,M.MAX_HOLD,M.MAX_CHANNEL_HOLD=4.5,8,22
+local function longest(value)
+  if type(value)=='number' then return value end
+  local most=0
+  if type(value)=='table' then for _,level in ipairs(value) do if type(level)=='number' then most=math.max(most,level) end end end
+  return most
+end
+-- A channel runs out its whole channel time (the segment's stop order cancels it, E: c01 本能寺 and
+-- a23 落火 stopped at 4 s of 5.2 and 4): the cast point and the channel, a second to spare.
 function M.hold_seconds(doc,id)
   for _,ability in ipairs(doc and doc.abilities or {}) do
     if ability.id==id and type(ability.values)=='table' then
-      local value,most=ability.values.duration,0
-      if type(value)=='number' then most=value end
-      if type(value)=='table' then for _,level in ipairs(value) do if type(level)=='number' then most=math.max(most,level) end end end
-      if most+0.5>M.BASE_HOLD then return math.min(most+0.5,M.MAX_HOLD) end
+      local most=longest(ability.values.duration)+0.5
+      local channel=longest(ability.values.channel_time)
+      if channel>0 then
+        most=math.max(most,longest(ability.values.cast_point)+channel+1)
+        if most>M.BASE_HOLD then return math.min(most,M.MAX_CHANNEL_HOLD) end
+      end
+      if most>M.BASE_HOLD then return math.min(most,M.MAX_HOLD) end
     end
   end
 end
