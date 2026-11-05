@@ -4,7 +4,7 @@ return {
   recipes = {
     -- c05_matsukaze: a whirlwind on cast, cyan motes while it lasts
     c05w_vo = { system = "sparks", tint = CYAN,
-      mesh = "wind_spiral", ground_size = 170, ground_seconds = 0.9, grow = 0.6, spin_up = 540 },
+      mesh = "wind_spiral", mesh_opacity = 0.55, ground_size = 170, ground_seconds = 0.9, grow = 0.6, spin_up = 540 },
     c05w_armlet = { system = "stream", sprite = "ramp_pops", size = 85, life = 0.4, loop = true, tint = CYAN },
     -- c05_thunder_dance: lightning erupts around him, a bolt to each enemy, a burst on each hit
     c05e_cast_sound = { system = "sparks", tint = { 0.1, 0.4, 1.0 } },
@@ -12,7 +12,7 @@ return {
     c05e_impact = { system = "pop", sprite = "ramp_hit", size = 110, fixed_size = true, life = 0.22, tint = { 0.1, 0.4, 1.0 },
       ground = "arc_fork", ground_size = 170, ground_seconds = 0.35, height = 60, line = true, from_caster = true },
     -- c05_thunder_spear: a bolt along the thrust and a flash on the spear, then the target crackles
-    c05r_chain_lightning = { tint = { 0.3, 0.55, 1.0 },
+    c05r_chain_lightning = { tint = { 0.08, 0.3, 1.0 },
       ground = "zigzag_bolt", ground_size = 340, ground_seconds = 0.5, height = 70, line = true },
     c05r_tempest = { system = "stream", sprite = "lightning", size = 210, life = 0.3, loop = true, tint = BLUE },
     -- c05_flash_thunder: charge under him, the landing mark, the strike
