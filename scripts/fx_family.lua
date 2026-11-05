@@ -281,7 +281,7 @@ M.MESHES = {
   throw_axe = {}, rocket = {}, cannon_shell = {}, arcane_arrow = {}, thunder_spear = {}, spear_head = {}, swallow = { tilt = -90 },
   giant_nodachi = {}, oozutsu_cannon = {}, medicine_inro = {}, armor_plate = {}, powder_keg = {}, rock_chunk = {}, fire_bomb = {}, earth_crown = {}, shock_dome = { translucent = true },
   war_hammer = { roll = 90 }, fissure_blade = { roll = 90 }, iron_bell = { roll = 90, translucent = true }, fire_wings = { roll = 90 }, thunder_sword = { roll = 90 }, war_banner = { roll = 90 },
-  tower_shield = { roll = -90 }, oni_mask = { roll = -90 }, gunbai_fan = { roll = -90 }, fury_spear = { roll = 90 }, wind_spiral = {},
+  tower_shield = { roll = -90 }, oni_mask = { roll = -90 }, gunbai_fan = { roll = -90 }, gunsen_fan = { roll = -90 }, fury_spear = { roll = 90 }, wind_spiral = {},
   -- Named by CueOverrides rows or kept for later, no recipe here at the moment.
   earth_spikes = {}, stone_shards = {},
 }
