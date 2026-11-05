@@ -24,7 +24,7 @@ return {
     c05t_blink_start = { system = "pop", sprite = "ramp_hit", size = 170, life = 0.25, tint = BLUE,
       ground = "ramp_thin_ring", ground_size = 240, ground_seconds = 0.3, grow = 0.5 },
     c05t_eclipse_area = { system = "pop", sprite = "lightning", size = 640, area = true, life = 0.5, tint = BLUE,
-      ground = "ramp_blast", ground_size = 640, area = true, ground_fixed = true, ground_seconds = 0.5, grow = 0.4 },
+      ground = "ramp_blast_deep", ground_size = 640, area = true, ground_fixed = true, ground_seconds = 0.5, grow = 0.4 },
     c05t_blink_end = { system = "pop", sprite = "ramp_star", size = 210, life = 0.35, tint = BLUE,
       ground = "ramp_thin_ring", ground_size = 480, ground_fixed = true, ground_seconds = 0.5, grow = 0.3 },
   },

@@ -104,6 +104,31 @@ shapes.ramp_crack_deep = function(x, y)
   local a, h = shapes.ramp_crack(x, y)
   return a, h * 0.6
 end
+-- A swallow flying up: a slim body, wings swept back to points, a forked tail. Soft along every edge, hot along the spine.
+shapes.ramp_swallow = function(x, y)
+  local ax = math.abs(x)
+  local body = 0
+  local by = (y - 0.12) / 0.5
+  if by > -1 and by < 1 then body = math.exp(-(ax / (0.085 * math.sqrt(1 - by * by) + 0.004)) ^ 2) end
+  local wing = 0
+  if ax < 0.88 then
+    local u = ax / 0.88
+    wing = math.exp(-((y - (0.26 - 0.62 * u ^ 1.4)) / (0.14 * (1 - u) ^ 0.8 + 0.006)) ^ 2)
+  end
+  local tail = 0
+  if y < -0.3 and y > -0.88 then
+    local u = (-0.3 - y) / 0.58
+    tail = math.exp(-((ax - 0.2 * u) / (0.04 * (1 - u) + 0.005)) ^ 2)
+  end
+  local v = math.max(body, wing, tail)
+  return clamp(v * 1.7), clamp(v ^ 2 * (0.32 + 0.3 * (1 - ax)) + 0.55 * body ^ 3 * smooth(0, 0.5, y))
+end
+-- A cooler blast: a strong tint stays deep through it, and white is only a small core.
+shapes.ramp_blast_deep = function(x, y)
+  local a, h = shapes.ramp_blast(x, y)
+  local d = math.sqrt(x * x + y * y)
+  return a, clamp(h * 0.55 + math.exp(-(d / 0.09) ^ 2))
+end
 -- A thrown spear pointing up: a broad head with a hot point, a collar, a shaft; dark along every edge.
 shapes.ramp_spear = function(x, y)
   if y < -0.95 or y > 0.95 then return 0, 0 end

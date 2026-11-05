@@ -60,7 +60,7 @@ M.IMAGES = {
   bolt_fork = { gain = 1.8 }, zigzag_bolt = { gain = 1.0 }, sword_wave = { rot = -1.571, gain = 1.0 }, pulse_ring = { gain = 1.0 },
   -- Ramp: red is heat, green is opacity, the cue's tint is the colour (scripts/fx_images/gen_ramp_set.lua).
   ramp_hit = { gain = 1.0, black = 0, ramp = 1 }, ramp_pops = { gain = 1.0, black = 0, ramp = 1 }, ramp_star = { gain = 1.0, black = 0, ramp = 1 }, ramp_tracer = { rot = -1.571, gain = 1.0, black = 0, ramp = 1 },
-  ramp_slash = { gain = 1.0, black = 0, ramp = 1 }, ramp_crack = { gain = 1.0, black = 0, ramp = 1 }, ramp_crack_deep = { gain = 1.0, black = 0, ramp = 1 }, ramp_mist_cuts = { gain = 1.0, black = 0, ramp = 1 }, ramp_spear = { rot = -1.571, gain = 1.0, black = 0, ramp = 1 }, ramp_rays = { gain = 1.0, black = 0, ramp = 1 }, ramp_blast = { gain = 1.0, black = 0, ramp = 1 }, ramp_mark = { gain = 1.0, black = 0, ramp = 1 },
+  ramp_slash = { gain = 1.0, black = 0, ramp = 1 }, ramp_swallow = { rot = -1.571, gain = 1.0, black = 0, ramp = 1 }, ramp_blast_deep = { gain = 1.0, black = 0, ramp = 1 }, ramp_crack = { gain = 1.0, black = 0, ramp = 1 }, ramp_crack_deep = { gain = 1.0, black = 0, ramp = 1 }, ramp_mist_cuts = { gain = 1.0, black = 0, ramp = 1 }, ramp_spear = { rot = -1.571, gain = 1.0, black = 0, ramp = 1 }, ramp_rays = { gain = 1.0, black = 0, ramp = 1 }, ramp_blast = { gain = 1.0, black = 0, ramp = 1 }, ramp_mark = { gain = 1.0, black = 0, ramp = 1 },
   ramp_ring_marks = { gain = 1.0, black = 0, ramp = 1 }, ramp_thin_ring = { gain = 1.0, black = 0, ramp = 1 }, ramp_band = { gain = 1.0, black = 0, ramp = 1 },
   -- Halo: brightness is opacity and the hue stays full, so a fade stays coloured over a bright ground (scripts/fx_images/gen_glow_set.lua).
   glow_tracer = { rot = -1.571, gain = 1.0, black = 0 }, glow_comet = { rot = -1.571, gain = 1.0, black = 0 }, glow_hit = { gain = 1.0, black = 0 }, glow_mark = { gain = 1.0, black = 0 }, glow_crit = { gain = 1.0, black = 0 }, glow_pops = { gain = 1.0, black = 0 }, glow_scorch = { gain = 1.0, black = 0 },
@@ -122,7 +122,7 @@ M.RECIPES = {
     ground = "ramp_thin_ring", ground_size = 460, ground_seconds = 0.45, grow = 0.2 },
   c22e_voice = { system = "pop", sprite = "ramp_slash", size = 200, life = 0.28, tint = { 0.04, 0.22, 0.95 } },
   c22e_swallow = { system = "stream", sprite = "soft_glow", size = 50, life = 0.5, loop = true, face = true, tint = { 0.04, 0.22, 0.95 },
-    mesh = "swallow", ground_size = 190, ground_seconds = 20, height = 90 },
+    ground = "ramp_swallow", ground_size = 190, ground_seconds = 20, height = 90, face_camera = 0.75 },
   c22e_impact = { system = "pop", sprite = "ramp_hit", size = 140, life = 0.25, tint = { 0.04, 0.22, 0.95 },
     ground = "ramp_slash", ground_size = 240, ground_seconds = 0.28, height = 10, grow = 0.75, face_camera = 0.75, front = 120, ground_roll = -25 },
   c22r_crit_sound = { system = "pop", sprite = "ramp_star", size = 170, life = 0.25, tint = { 0.04, 0.22, 0.95 },
@@ -292,10 +292,10 @@ M.MESH_SOURCE = "omfue/SourceArt/Structures/TripoStaticV1"
 -- Its origin is at its foot: height is where its foot is, 0 for what stands on the ground.
 -- roll = 90 shows that side to whatever the cue faces (face_viewer); tilt: about its long axis, before the roll.
 M.MESHES = {
-  throw_axe = {}, rocket = {}, cannon_shell = {}, arcane_arrow = {}, thunder_spear = {}, spear_head = {}, swallow = { tilt = -90 },
-  giant_nodachi = {}, oozutsu_cannon = {}, medicine_inro = {}, armor_plate = {}, powder_keg = {}, rock_chunk = {}, fire_bomb = {}, earth_crown = {}, shock_dome = { translucent = true },
-  war_hammer = { roll = 90 }, fissure_blade = { roll = 90 }, iron_bell = { roll = 90, translucent = true }, fire_wings = { roll = 90 }, thunder_sword = { roll = 90 }, war_banner = { roll = 90 },
-  tower_shield = { roll = -90 }, oni_mask = { roll = -90 }, gunbai_fan = { roll = -90 }, gunsen_fan = { roll = -90 }, fury_spear = { roll = 90 }, wind_spiral = {},
+  throw_axe = {}, rocket = {}, cannon_shell = {}, arcane_arrow = { shade = 1.7, spec = 0.45 }, thunder_spear = {}, spear_head = {}, swallow = { tilt = -90 },
+  giant_nodachi = {}, oozutsu_cannon = {}, medicine_inro = {}, armor_plate = {}, powder_keg = {}, rock_chunk = {}, fire_bomb = {}, earth_crown = { sat = 0.65, shade = 1.5, spec = 0.2 }, shock_dome = { translucent = true },
+  war_hammer = { roll = 90, sat = 0.6, shade = 1.6, spec = 0.6 }, fissure_blade = { roll = 90 }, iron_bell = { roll = 90, translucent = true }, fire_wings = { roll = 90 }, thunder_sword = { roll = 90 }, war_banner = { roll = 90 },
+  tower_shield = { roll = -90 }, oni_mask = { roll = -90 }, gunbai_fan = { roll = -90 }, gunsen_fan = { roll = -90 }, fury_spear = { roll = 90 }, wind_spiral = { sat = 1.2, shade = 1.9 },
   -- Named by CueOverrides rows or kept for later, no recipe here at the moment.
   earth_spikes = {}, stone_shards = {},
 }
@@ -383,7 +383,7 @@ function M.instances()
     files["MIG_fx_" .. id] = instance_text("MIG_fx_" .. id, "M_OmFxGround", "T_fx_" .. id, row, GROUND_KEYS)
   end
   for id, row in pairs(M.MESHES) do
-    files["MIG_mesh_" .. id] = instance_text("MIG_mesh_" .. id, row.translucent and "M_OmFxMeshTranslucent" or "M_OmFxMesh", "T_mesh_" .. id, row, {})
+    files["MIG_mesh_" .. id] = instance_text("MIG_mesh_" .. id, row.translucent and "M_OmFxMeshTranslucent" or "M_OmFxMesh", "T_mesh_" .. id, row, { "Sat", "Shade", "Spec" })
   end
   return files
 end
