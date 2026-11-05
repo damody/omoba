@@ -128,7 +128,7 @@ M.RECIPES = {
   c22r_crit_sound = { system = "pop", sprite = "ramp_star", size = 170, life = 0.25, tint = { 0.04, 0.22, 0.95 },
     ground = "ramp_slash", ground_size = 240, ground_seconds = 0.28, height = 10, grow = 0.75, face_camera = 0.75, front = 120, ground_roll = 60 },
   c22w_voice = { system = "pop", sprite = "ramp_swallow", size = 200, life = 0.4, tint = { 0.04, 0.22, 0.95 }, also = { "fx_layer_nest_ring" } },
-  c22w_swallow_ring = { system = "orbit", sprite = "ramp_swallow", size = 130, life = 1.2, loop = true, tint = { 0.04, 0.22, 0.95 } },
+  c22w_swallow_ring = { system = "orbit", sprite = "ramp_swallow", size = 115, life = 1.2, loop = true, tint = { 0.04, 0.22, 0.95 } },
   c22t_thunder_clap = { system = "pop", sprite = "ramp_star", size = 200, fixed_size = true, life = 0.3, tint = { 0.04, 0.22, 0.95 }, also = { "fx_layer_mist_cuts" } },
   -- A26 濃姬: gunpowder fire and smoke
   a26w_hit_explosion = { look = "explosion_small" },
