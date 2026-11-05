@@ -328,6 +328,29 @@ clone 後 OmGenerated 和 `om_bridge.h` 共 24 個檔案顯示已修改：23 個
 
 **引擎路徑。** `platform.ue_root(given)`：`--ue-root`、`UE_5_8_ROOT`、`UE_ROOT`、`UE_5_7_ROOT`，預設 `D:/UE5.8`。工具都改用它，`moba_role_launch`、`run_2player_ue`、`run_ue` 原本就先讀環境變數再搜尋常見路徑，維持不動。實測 `UE_5_8_ROOT` 會改變 `dream_switch` 的編輯器路徑；沒有在另一個引擎路徑上實跑建置。
 
+## 全量 clone 複驗（clone5）
+
+`target/e187/clone5`，HEAD 9bbd0ec5、omfue 0843b08c。貼圖與文字擁有的資產磁碟上 0 個，也沒有 BpGeneratorUltimate 的 `Binaries`；只手動補了 `target/tools`。
+
+| 步驟 | 結果 |
+|---|---|
+| `build_ue_moba` | exit 0，1426 秒 |
+| ensure | 匯入 122 張貼圖，重建 379 個材質、12 個 Niagara，391 個由文字建成，0 個不是 |
+| `run_moba_split_local --build-only` | exit 0，515 秒 |
+| 實錄 `okuma_tomohide` | record 0，9 次施放，略過 0 |
+| `git status` | 主 repo 與 omfue 在 `build_ue_moba`、build-only、錄影之後都是 0 筆 |
+
+「clone 後的收尾」留下的全量驗證到此完成，`om_bridge.h` 這次由真正的 cbindgen 產生，manifest 沒有絕對路徑。沒有發現缺檔，沒有補提交。
+
+畫面比對（`okuma_tomohide_run-20261105-160625` 對 clone5，對照圖 `target/e187/cmp-clone5/`，肉眼，沒有逐像素量測）：
+
+- R 火翼：施放後 0.15～2.0 秒六個時間點，光芒、展翼、顏色、形狀都沒看出差異。
+- 普攻斬痕：同一招峰值的弧形、橘色、地面圈都沒看出差異。兩邊都有一條細黃線，clone5 取樣到的那一幀較長，這個長度差異沒有判定原因。
+- 敵人動作與施放時間差約 0.7 秒，比的是各自相對施放的時間點。
+- `b26r_restore` 5 對 9 次、`b01r_hit` 6 對 7 次。遊戲內容自參考影片之後沒有改；live 的大熊錄影 `b26r_restore` 本來就在 4～10 次之間，判定為局間差異，沒有查觸發條件。
+
+只錄了大熊，其他九位沒有比對。
+
 ## 還沒做
 
 材質與特效已全部處理。RustBP 藍圖與音效未處理，範圍不含。孤兒圖片繼續留著。
