@@ -244,7 +244,7 @@ M.RECIPES.fx_swing_sasaki_kojiro = { ground = "sword_wave", ground_size = 230, g
 -- A passive has no cast: the renderer plays this as the spotlight learns it (AOmUnitActor::PlayNamedCue).
 M.RECIPES.fx_learn_c22_swallow_flash = { system = "burst", sprite = "crescent_slash", size = 340, life = 0.5, tint = STEEL, ground = "shock_ring", ground_size = 320, ground_fixed = true, ground_seconds = 0.6, grow = 0.4 }
 M.RECIPES.fx_layer_nest_ring = { ground = "shock_ring", ground_size = 420, ground_fixed = true, ground_seconds = 0.5, grow = 0.35, tint = STEEL }
-M.RECIPES.fx_learn_b26_kozuke_valor = { system = "burst", sprite = "heal_rise", size = 320, life = 0.7, tint = { 0.1, 0.9, 0.25 }, ground = "ring_thin_fire", ground_size = 340, ground_fixed = true, ground_seconds = 0.6, grow = 0.3 }
+M.RECIPES.fx_learn_b26_kozuke_valor = { system = "burst", sprite = "heal_rise", size = 230, life = 0.7, tint = { 0.1, 0.9, 0.25 }, ground = "shock_ring", ground_size = 340, ground_fixed = true, ground_seconds = 0.6, grow = 0.3 }
 M.RECIPES.fx_layer_mist_cuts = { ground = "mist_cuts", ground_size = 1500, area = true, ground_seconds = 1.3, grow = 0.4 }
 M.RECIPES.fx_layer_possession_flare = { ground = "possession_flare", ground_size = 300, ground_fixed = true, ground_seconds = 0.55, grow = 0.45, delay = 0.05 }
 M.RECIPES.fx_layer_possession_embers = { system = "burst", sprite = "spark_star", size = 60, life = 0.6, tint = { 0.5, 0.1, 1.0 }, delay = 0.1 }
