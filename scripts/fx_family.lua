@@ -118,8 +118,8 @@ M.RECIPES = {
     mesh = "swallow", ground_size = 190, ground_seconds = 20, height = 90 },
   c22e_impact = { system = "burst", sprite = "crescent_slash", size = 340, area = true, life = 0.5, tint = STEEL,
     ground = "blink_flash", ground_size = 340, ground_seconds = 0.4, height = 30, grow = 0.4 },
-  c22r_crit_sound = { system = "pop", sprite = "blink_flash", size = 150, life = 0.2, tint = GOLD,
-    ground = "crescent_slash", ground_size = 300, ground_seconds = 0.22, height = 90, grow = 0.5, face_camera = 0.9, ground_roll = 60 },
+  c22r_crit_sound = { system = "pop", sprite = "cut_cross", size = 340, life = 0.28, tint = GOLD,
+    ground = "crescent_slash", ground_size = 420, ground_seconds = 0.28, height = 90, grow = 0.5, face_camera = 0.9, ground_roll = 60 },
   c22w_voice = { system = "burst", sprite = "swallow", size = 210, life = 0.5, tint = STEEL },
   c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, bold = true, tint = STEEL,
     ground = "vortex", ground_size = 480, ground_seconds = 1.5 },
@@ -218,7 +218,7 @@ M.WEAPONS = {
     strike = { system = "burst", sprite = "spark_star", size = 170, life = 0.28, ground = "shock_ring", ground_size = 170, ground_fixed = true, ground_seconds = 0.26, height = 30, grow = 0.4 } },
 }
 M.ATTACKS = {
-  sasaki_kojiro = { "katana", STEEL, { system = "pop", sprite = "iai_cut", size = 380, life = 0.24, ground = "soft_glow", ground_size = 150, ground_seconds = 0.2, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { ground_size = 230, ground_roll = -30 } },
+  sasaki_kojiro = { "katana", { 0.05, 0.3, 1.0 }, { system = "pop", sprite = "iai_cut", size = 380, life = 0.24, ground = "soft_glow", ground_size = 150, ground_seconds = 0.2, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { ground_size = 230, ground_roll = -30 } },
   okuma_tomohide = { "axe", { 1.0, 0.13, 0.01 }, { system = false, sprite = false, size = false, life = false, ground = "axe_arc", ground_size = 135, ground_seconds = 0.26, height = 70, lead = -40, grow = 0.7, face_camera = 0.85, ground_roll = false } },
   kojima_sadaoki = { "axe", { 1.0, 0.75, 0.3 }, { sprite = "spark_star", size = 170, ground = "dust_crack", ground_size = 280, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.25, 0.12 }, { sprite = "spark_star", size = 190 } },
