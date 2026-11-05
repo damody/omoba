@@ -383,6 +383,48 @@ pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,
     choose_cast_with_control_observation(hero,role,team,own,health,seen,policies,focus,defer_offense,immobilized,cost,regen,relocation_clear,|_|None,&|_|false,&|_|0,&|_,_|None,&|_,_|false,&|_,_|0)
 }
 
+/// How far past its cast range a tree-target ability looks for a tree to walk to.
+pub(super) const TREE_APPROACH_SEARCH:i32=600;
+/// Short of the cast range the bot stands, so the arrival is in range.
+const TREE_APPROACH_MARGIN:i32=3;
+
+/// Where to stand for a ready tree-target ability with no tree in its range: a face of the nearest
+/// standing tree within the search, at the cast range from its centre (the authority measures to
+/// the centre; a tree blocks an axis square, so a face is the closest a body gets). On nobu the
+/// lanes never passed that close and B22 自然之力／木靈展勢 were never cast.
+pub(super) fn tree_approach(hero:&Hero,team:u32,own:Vec2,seen:&[SeenUnit],policies:&[BotAbilityPolicy],
+    cost:impl Fn(&str,u8)->Option<Fixed64>,tree_near:&dyn Fn(Vec2,Fixed64)->Option<Vec2>,
+    reachable:&dyn Fn(Vec2)->bool) -> Option<Vec2> {
+    for policy in policies {
+        let BotAbilityIntent::NearestTree {enemy_radius}=policy.intent else {continue;};
+        let Some(slot)=hero.abilities.iter().position(|id|id==&policy.ability) else {continue;};
+        if slot>=crate::runtime::HERO_ABILITY_SLOTS {continue;}
+        if !hero.can_use_ability(&policy.ability) || !hero.cast_ready(&policy.ability) {continue;}
+        let owner_rank=hero.get_ability_level(&policy.ability);
+        if !(1..=255).contains(&owner_rank) {continue;}
+        let Some(def)=omoba_template_ids::ability_by_name(&policy.ability).and_then(omoba_template_ids::active_ability_const) else {continue;};
+        let Some(level)=def.levels.get((owner_rank-1) as usize) else {continue;};
+        if !def.targets_tree || level.range<=Fixed64::ZERO {continue;}
+        if let Some(pool)=&hero.mana_pool {
+            let Some(required)=cost(&policy.ability,owner_rank as u8) else {continue;};
+            if required<Fixed64::ZERO || required>pool.current() {continue;}
+        }
+        let radius=Fixed64::from_i32(enemy_radius as i32);
+        if enemy_radius>0 && !seen.iter().any(|unit|unit.hp_raw>0 && unit.team!=team && unit.team!=0 && unit.kind==1
+            && (unit.position-own).length_squared()<=radius*radius) {continue;}
+        // A tree in range is the cast's own (choose_cast).
+        if tree_near(own,level.range).is_some_and(|tree|(tree-own).length_squared()<=level.range*level.range) {continue;}
+        let Some(tree)=tree_near(own,level.range+Fixed64::from_i32(TREE_APPROACH_SEARCH)) else {continue;};
+        let stand=level.range-Fixed64::from_i32(TREE_APPROACH_MARGIN);
+        if stand<=Fixed64::ZERO {continue;}
+        let mut faces=[Vec2::new(stand,Fixed64::ZERO),Vec2::new(-stand,Fixed64::ZERO),
+            Vec2::new(Fixed64::ZERO,stand),Vec2::new(Fixed64::ZERO,-stand)].map(|offset|tree+offset);
+        faces.sort_by_key(|face|((*face-own).length_squared().raw(),face.x.raw(),face.y.raw()));
+        if let Some(face)=faces.into_iter().find(|face|reachable(*face)) {return Some(face);}
+    }
+    None
+}
+
 pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:u32,own:Vec2,health:&CProperty,
     seen:&[SeenUnit],policies:&[BotAbilityPolicy],focus:Option<u64>,defer_offense:bool,immobilized:bool,
     cost:impl Fn(&str,u8)->Option<Fixed64>,regen:impl Fn(&str,Fixed64)->Option<(Fixed64,Fixed64)>,
@@ -907,6 +949,21 @@ mod tests {
         assert_eq!(decide(0,&[],&|_,_|None),None,"no tree, no cast");
         let beyond=Vec2::new(reach,Fixed64::from_i32(40));
         assert_eq!(decide(0,&[],&|_,_|Some(beyond)),None,"a tree whose centre is out of the cast range");
+        // Out of range: walk to the tree's nearest reachable face, at the cast range from its centre.
+        let policy=[BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:ability.into(),intent:BotAbilityIntent::NearestTree {enemy_radius:0}}];
+        let far=Vec2::new(Fixed64::from_i32(600),Fixed64::from_i32(40));
+        let stand=reach-Fixed64::from_i32(TREE_APPROACH_MARGIN);
+        let only_far=|_:Vec2,within:Fixed64|(within>reach).then_some(far);
+        let approach=|reachable:&dyn Fn(Vec2)->bool|tree_approach(&hero,1,Vec2::ZERO,&[],&policy,|_,_|None,&only_far,reachable);
+        assert_eq!(approach(&|_|true),Some(far-Vec2::new(stand,Fixed64::ZERO)),"the face toward the hero");
+        let west=far-Vec2::new(stand,Fixed64::ZERO);
+        assert_eq!(approach(&|p|p!=west),Some(far+Vec2::new(Fixed64::ZERO,-stand)),"the next reachable face");
+        assert_eq!(approach(&|_|false),None,"no reachable face");
+        assert_eq!(tree_approach(&hero,1,Vec2::ZERO,&[],&policy,|_,_|None,&near,&|_|true),None,"a tree in range is cast at, not walked to");
+        assert_eq!(tree_approach(&hero,1,Vec2::ZERO,&[],&policy,|_,_|None,&|_,_|None,&|_|true),None,"no tree near");
+        let waits=[BotAbilityPolicy {intent:BotAbilityIntent::NearestTree {enemy_radius:500},..policy[0].clone()}];
+        assert_eq!(tree_approach(&hero,1,Vec2::ZERO,&[],&waits,|_,_|None,&only_far,&|_|true),None,"no enemy hero about");
+        assert!(tree_approach(&hero,1,Vec2::ZERO,&[enemy],&waits,|_,_|None,&only_far,&|_|true).is_some());
         assert_eq!(decide(500,&[],&near),None,"no enemy hero about");
         assert_eq!(decide(500,&[enemy],&near),Some(at),"an enemy hero within the radius");
         assert!(validate_policies(&[BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:ability.into(),intent:BotAbilityIntent::NearestTree {enemy_radius:0}}]).is_ok());

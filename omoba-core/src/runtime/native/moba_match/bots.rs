@@ -979,6 +979,23 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 inputs.push((slot.player_id,PlayerInput {action:Some(PlayerInputEnum::CastAbility(cast))}));
                 continue;
             }
+            // A ready tree-target ability with no tree in range walks to the nearest tree first.
+            if !immobilized && !defer_offense && !recovery_wait && !buffs.as_ref().is_some_and(|store|store.is_silenced(entity)) {
+                let face=abilities::tree_approach(hero,team,own.position,seen,&policies,|id,rank| {
+                    let definition=abilities.as_ref()?.get(id)?;
+                    let multiplier=crate::runtime::ability_runtime::UnitStats::from_refs(
+                        buffs.as_ref()?,false).checked_mana_cost_mult(entity)?;
+                    crate::runtime::ability_runtime::checked_mana_cost(
+                        definition.get_level_data(rank)?.mana_cost,multiplier).ok()
+                },&|from,reach|crate::runtime::native::tree_cut::standing_tree_near(&regions,from,reach),
+                &|point|crate::runtime::native::tick::hero_command_tick::static_travel_reachable(own.position,point,radius,&regions));
+                if let Some(face)=face {
+                    if let Some(action)=recovery_move(commands.get(entity),face) {
+                        inputs.push((slot.player_id,PlayerInput {action:Some(action)}));
+                    }
+                    continue;
+                }
+            }
         }
         if recovery_wait {
             if let Some(action)=blocked_recovery_hold {
