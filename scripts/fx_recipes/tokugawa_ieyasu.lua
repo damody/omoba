@@ -5,9 +5,9 @@ local GOLD, GREEN, BLUE = { 1.0, 0.55, 0.08 }, { 0.1, 0.9, 0.25 }, { 0.12, 0.5, 
 return {
   recipes = {
     -- Q 東照權現: healing rings thrown out over the whole area, sparkles on each ally
-    a01w_holy_bolt = { system = "burst", sprite = "heal_ring", size = 340, life = 0.55, tint = GREEN,
+    a01w_holy_bolt = { system = "burst", sprite = "heal_ring", size = 460, life = 0.55, tint = GREEN,
       ground = "heal_ring", ground_size = 1100, ground_seconds = 0.7, grow = 0.25 },
-    a01w_healing_ring = { system = "burst", sprite = "spark_star", size = 110, life = 0.45, tint = GREEN },
+    a01w_healing_ring = { system = "burst", sprite = "spark_star", size = 180, life = 0.45, tint = GREEN },
     -- W 天羅地網: the net flung at the cast, a net clinging to each rooted enemy while the root lasts
     a01e_vo = { system = "pop", sprite = "net", size = 340, life = 0.35, tint = { 0.85, 0.55, 0.14 } },
     a01e_net = { system = "stream", sprite = "net", size = 170, life = 0.4, loop = true, tint = GOLD },
