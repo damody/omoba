@@ -102,7 +102,36 @@ function M.sweep(root,options)
       end
     end
   end
+  -- The training maps have no trees: heroes with a tree-target ability also play on nobu.
+  local trees=M.tree_heroes(root)
+  local output=path.join(base,'nobu')
+  if #trees>0 and not options.batch and not path.is_file(path.join(output,'report.json')) then
+    local attempt=1
+    while path.exists(output) do attempt=attempt+1;output=path.join(base,'nobu-'..attempt) end
+    local args={path.join(root,'scripts','verify_m6_batch.lua'),'--recipes','nobu','--matches',tostring(options.matches),
+      '--parallel',tostring(options.parallel),'--output',output,'--heroes',table.concat(trees,',')}
+    if built then args[#args+1]='--no-build' end
+    local started=os.time()
+    local result=process.run(lua,args,{cwd=root,check=false,label='nobu'})
+    print(('nobu exit %s %ds'):format(tostring(result.exit_code),os.time()-started))
+    if result.exit_code~=0 then print(tostring(result.stderr or ''):sub(-1500)) end
+  end
   return 0
+end
+
+-- Heroes whose package has a tree-target ability (`target = { type = "tree"`).
+function M.tree_heroes(root)
+  local heroes={}
+  local dir=path.join(root,'docs','character_pipeline','packages')
+  for hero in lfs.dir(dir) do
+    local file=path.join(dir,hero,'v3.lua')
+    if hero:sub(1,1)~='.' and path.is_file(file) then
+      local f=assert(io.open(file,'rb'));local text=f:read('a');f:close()
+      if text:find('target%s*=%s*{%s*type%s*=%s*"tree"') then heroes[#heroes+1]=hero end
+    end
+  end
+  table.sort(heroes)
+  return heroes
 end
 
 -- abilities[hero][ability]={casts,inputs,damage}, attack[hero]=damage outside any ability, from the match
@@ -117,7 +146,7 @@ function M.match_evidence(root,run)
     if group:sub(1,1)~='.' and path.is_file(path.join(dir,'report.json')) then
       out.groups=out.groups+1
       for file in lfs.dir(dir) do
-        if file:match('^quick.*%-%d+%.json$') then
+        if file:match('^quick.*%-%d+%.json$') or file:match('^nobu%-%d+%.json$') then
           local ok,report=pcall(json.read,path.join(dir,file))
           if ok and report.success then
             out.matches=out.matches+1
