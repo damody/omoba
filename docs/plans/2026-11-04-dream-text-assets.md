@@ -143,9 +143,9 @@
 
 | 資產 | 數量 | 鎖定位置 | 原因 |
 |---|---:|---|---|
-| `Omoba/Characters/TripoV1/**/tripo_mat_*` | 26 | `TripoV1/source-registry.json` | 匯入時產生；`import_character_sources` 要求位元組不變，否則報 `registered package changed` |
+| `Omoba/Characters/TripoV1/**/tripo_mat_*` | 26 | `TripoV1/source-registry.json` | 當時的判斷；後來已轉換，見「Tripo 材質」 |
 | `Omoba/Structures/TripoStaticV1/**/tripo_mat_*` | 40 | `TripoStaticV1/source-registry.json` | 同上 |
-這 66 個留在原有流程。`MapBiomesV1`、`WorldSurfacesV1` 的 7 個材質已切換成文字，`ue_map_biome_materials` 對有來源的材質不再檢查雜湊。`omfue/DreamSources` 的快照裡仍有它們的文字，只供查閱。
+這 66 個當時留在原有流程。`MapBiomesV1`、`WorldSurfacesV1` 的 7 個材質已切換成文字，`ue_map_biome_materials` 對有來源的材質不再檢查雜湊。`omfue/DreamSources` 的快照裡仍有它們的文字，只供查閱。
 
 ### 注意事項
 
@@ -229,8 +229,61 @@ clone 後 OmGenerated 和 `om_bridge.h` 共 24 個檔案顯示已修改：23 個
 
 待處理（不擋主線）：引擎路徑寫死 `D:/UE5.8`；`om_codegen_manifest.json` 含絕對路徑；文字檔 checkout 後是 CRLF；`hud-assets-v1.json` 重建時順序會變；孤兒圖片繼續留著。
 
+## Tripo 材質
+
+73 個 `tripo_mat_*`（線 C 新增後從 66 變 73）改由文字建成，共 325 個。
+
+工具改動：registry 拿掉這 73 個的 `package_sha256`；`import_character_sources` 與 `OmCharacterSourceImportCommandlet` 看到有來源的材質就不檢查、不存檔；`OmCharacterRetargetCommandlet` 也不再把它們記進 Meta 與雜湊。
+
+驗證：
+- `dream_switch`：73 個切換前後相同。
+- live `build_ue_moba` 通過；`tripo_v1`、`tripo_static_v1` 匯入通過，第二次沒有存任何檔；`date_masamune` 實跑 retarget 通過，資產沒變。
+- 打包 package3：BuildCookRun 成功，3958 個套件，73 個材質都在 utoc 裡，沒有 Dream。打包版實錄濃姬，材質與道具正常。
+
+與線 C 基準片的比對（10 位，每位 6 招、施放後 0.4 秒；對照圖在 `target/e187/cmp-tripo/`，不進版控）：
+
+| 項目 | 結果 |
+|---|---|
+| 施放順序 | 10 位都相同 |
+| 身體、道具、材質 | 都沒看出差異（肉眼，沒有逐像素量測） |
+| 特效 | 只有約 0.1 秒的相位差；大熊 R、島津 E 加密取樣後同一階段一致 |
+| 小島死亡段 | 倒地時間差 0.6 秒、面向不同，受戰鬥隨機影響；材質相同 |
+| `OM_CUE`（有 log 的 6 位） | 種類相同；山縣次數全同，另外 5 位是爆擊、命中或回復次數差 1～4 次 |
+| `OM_CUE`（大熊、慶次、利家、島津） | 無法判定：基準沒有 log |
+
+停止追蹤：omfue 0878d7ae（`.gitignore`）、26e08a17（正好 73 筆刪除），主 repo 00ab9d78。重新 clone：
+
+`target/e187/clone3`：HEAD 00ab9d78，`git ls-files` 不含這 73 個，磁碟上 0 個，也沒有 BpGeneratorUltimate 的 `Binaries`；只手動補了 `target/tools`。
+
+| 步驟 | 結果 |
+|---|---|
+| `build_ue_moba` | exit 0，2304 秒 |
+| ensure | 重建 313 個材質、12 個 Niagara，325 個由文字建成 |
+| `run_moba_split_local --build-only` | exit 0，907 秒 |
+| 實錄 `nohime` | record 0，持 root 的 `live_match`，材質與道具正常 |
+| 重建後 | 磁碟上 73 個，`git status` 不列它們；另有 24 個已修改檔案，和上一次相同（行尾、manifest 絕對路徑） |
+
+新匯入的 Tripo 模型，材質先照舊是二進位、留在版控，registry 也照舊鎖 SHA。要轉成文字時整批做：`dream_switch`、放回、拿掉 `package_sha256`、`dream_untrack`。
+
+## 仍是二進位的資產
+
+由文字建成的 `.uasset` 共 325 個，都已停止追蹤。omfue `Content` 仍追蹤約 3165 個 `.uasset`／`.umap`，加上 899 張 PNG；下面是粗略分類（依路徑與檔名，不是逐一確認）：
+
+| 類別 | 數量 | 能否文字化 |
+|---|---:|---|
+| 角色動畫 | 約 2240 | 不能重現：來源是動畫資料 |
+| 角色其他（模型、骨架、材質 instance 等） | 約 433 | 模型與骨架不能重現；其餘未逐一確認 |
+| 建築 | 118 | Tripo 模型與貼圖，不能重現 |
+| RustBP 藍圖 | 107 | 未評估 |
+| VFX 貼圖與網格 | 88 | 由 PNG 或網格匯入，來源仍是二進位 |
+| UI | 74 | 未評估 |
+| OmGenerated | 36 | 未評估 |
+| 角色貼圖 | 28 | 不能重現 |
+| 音效 | 17 | 不能重現 |
+| 其他（地圖等） | 22 | 未評估 |
+
 ## 還沒做
 
-Tripo 的 66 個材質、停止追蹤 `.uasset`、完整 cook 驗收。
+待處理（不擋主線）見「停止追蹤與重新 clone 驗證」。
 
 另外發現：`fx_family.lua` 的 `AddVelocity.Velocity Speed Scale` 很可能沒有作用，已告知線 C。
