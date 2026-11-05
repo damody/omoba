@@ -13,7 +13,6 @@ package.path=assert(source:match('^(.*)[/\\]'))..'/?.lua;'..package.path
 local M={}
 
 M.SUBMODULES={'omb','specs','log4rs','erps','omfue'}
-M.ENGINE='D:/UE5.8'
 
 -- The .uasset of every source under PROJECT's DShader/ and DFX/.
 function M.text_owned(lfs,project)

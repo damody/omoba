@@ -9,7 +9,7 @@ local source=debug.getinfo(1,'S').source:sub(2)
 package.path=assert(source:match('^(.*)[/\\]'))..'/?.lua;'..package.path
 local M={}
 
-M.EDITOR='D:/UE5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe'
+M.EDITOR=require('_bootstrap').lib('platform').ue_root()..'/Engine/Binaries/Win64/UnrealEditor-Cmd.exe'
 M.IGNORED={MergeId=true,OuterEmitterVersion=true}
 M.TOLERANCE=1e-3
 

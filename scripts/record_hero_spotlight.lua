@@ -68,7 +68,7 @@ M.DEFAULT_PORT=57461
 M.FFMPEG_SOURCE='BtbN FFmpeg-Builds (github.com/BtbN/FFmpeg-Builds/releases, ffmpeg-master-latest-win64-gpl.zip) or gyan.dev'
 
 function M.options(args)
-  local options={heroes={},output='target/spotlight',ffmpeg=M.DEFAULT_FFMPEG,ue_root='D:/UE5.8',fps=30,max_seconds=300,port=M.DEFAULT_PORT}
+  local options={heroes={},output='target/spotlight',ffmpeg=M.DEFAULT_FFMPEG,ue_root=require('_bootstrap').lib('platform').ue_root(),fps=30,max_seconds=300,port=M.DEFAULT_PORT}
   local i=1
   while i<=#args do
     local key=args[i]

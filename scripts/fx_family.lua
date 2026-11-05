@@ -395,7 +395,7 @@ function M.image_assets(root)
 end
 
 -- Imports images whose pixels changed; an unchanged one is left alone. A clean clone has only the sources.
-function M.import_images(project, flags)
+function M.import_images(project, flags, ue_root)
   local process = b.lib("process")
   local spec = path.join(b.root, "target/fx-family/spec.json")
   path.mkdir_p(path.parent(spec))
@@ -404,7 +404,7 @@ function M.import_images(project, flags)
     local lock <close> = require("build_lock").acquire(b.root, "fx_family images")
     local args = { path.join(project, "om.uproject"), "-run=OmCueVfx", "-fx-family=" .. spec }
     for _, flag in ipairs(flags) do args[#args + 1] = flag end
-    assert(process.run("D:/UE5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe", args, { cwd = project, check = false, label = "fx images" }).exit_code == 0, "image import failed")
+    assert(process.run(b.lib("platform").ue_root(ue_root) .. "/Engine/Binaries/Win64/UnrealEditor-Cmd.exe", args, { cwd = project, check = false, label = "fx images" }).exit_code == 0, "image import failed")
   end
 end
 
@@ -420,12 +420,12 @@ function M.stale_images(project)
   return stale
 end
 
-function M.ensure_images(project, flags)
+function M.ensure_images(project, flags, ue_root)
   local lfs = require("lfs")
   local stale = M.stale_images(project)
   print(("[fx-family] %d images to import"):format(#stale))
   if #stale == 0 then return end
-  M.import_images(project, flags)
+  M.import_images(project, flags, ue_root)
   for _, row in ipairs(stale) do
     local file = project .. "/" .. row.asset
     assert(lfs.attributes(file), "not imported: " .. file)

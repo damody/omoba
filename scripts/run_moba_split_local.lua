@@ -13,7 +13,7 @@ local lfs=require('lfs')
 local M={}
 
 function M.options(args)
-  local options={recipe='scripts/lua_data/moba_two_player.lua',ue_root='D:/UE5.8',no_build=false,admit_timeout_ms=3*3600*1000,heroes={},netem_outages={}}
+  local options={recipe='scripts/lua_data/moba_two_player.lua',ue_root=require('_bootstrap').lib('platform').ue_root(),no_build=false,admit_timeout_ms=3*3600*1000,heroes={},netem_outages={}}
   local i=1
   while i<=#args do
     local key=args[i]

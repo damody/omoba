@@ -136,7 +136,7 @@ if arg and arg[0] and arg[0]:match('consistent_build%.lua$') then
     print('Builds release omobab/moba-config, release client runtime and the Unreal bridge/game, repeating the whole set until no input changed during a pass.')
     return
   end
-  local ue_root='D:/UE5.8'
+  local ue_root=require('_bootstrap').lib('platform').ue_root()
   for index=1,#arg do if arg[index]=='--ue-root' then ue_root=assert(arg[index+1],'--ue-root requires a path') end end
   M.run({ue_root=ue_root})
 end

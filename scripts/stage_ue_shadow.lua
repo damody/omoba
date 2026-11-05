@@ -287,7 +287,7 @@ function M.main(argv,deps)
   if options.sync then M.sync(project,d,{discard_edits=options.discard_edits}) end
   M.stage(project,d)
   if options.build then
-    M.build(project,d.path.absolute(options.ue_root or os.getenv('UE_5_8_ROOT') or os.getenv('UE_ROOT') or 'D:/UE5.8'),d)
+    M.build(project,d.path.absolute(require('_bootstrap').lib('platform').ue_root(options.ue_root)),d)
   end
   d.log('[ue-shadow] ready: set OM_UE_RUN_BINARIES='..project..' for launches that should run it')
 end

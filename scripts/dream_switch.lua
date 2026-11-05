@@ -13,7 +13,7 @@ local M={}
 M.IGNORED={ParameterStateId=true,ExpressionCollection=true,EditorOnlyData=true}
 -- Recomputed from the graph whenever the material is next built.
 M.DERIVED={bCanMaskedBeAssumedOpaque=true}
-M.EDITOR='D:/UE5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe'
+M.EDITOR=require('_bootstrap').lib('platform').ue_root()..'/Engine/Binaries/Win64/UnrealEditor-Cmd.exe'
 
 local function read(path)
   local f=io.open(path,'rb')

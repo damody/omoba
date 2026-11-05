@@ -177,7 +177,7 @@ function M.main(argv)
     for line in io.lines(pairs_path) do local a,c=line:match('^(.-)\t(.*)$');list[#list+1]=a;list[#list+1]=c end
     local list_path=project..'/Saved/DreamAssets/material-list.txt'
     write(list_path,table.concat(list,'\n')..'\n')
-    local editor='D:/UE5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe'
+    local editor=require('_bootstrap').lib('platform').ue_root()..'/Engine/Binaries/Win64/UnrealEditor-Cmd.exe'
     local result=r.run(editor,{project..'/om.uproject','-run=OmMaterialFacts','-List='..list_path,'-Out='..facts_path,
       '-unattended','-nop4','-nosplash','-nopause','-NoSound','-NoLiveCoding','-nullrhi'},{cwd=project,check=false,label='material facts'})
     return result.exit_code or 1

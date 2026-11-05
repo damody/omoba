@@ -356,7 +356,7 @@ function M.check(plan,need,d)
     end
   end
   if need.ubt then
-    local ue_root=d.ue_root or os.getenv('UE_5_8_ROOT') or os.getenv('UE_ROOT') or 'D:/UE5.8'
+    local ue_root=require('_bootstrap').lib('platform').ue_root(d.ue_root)
     d.shadow.build(shadow,d.path.absolute(ue_root,d.root),{root=d.root,log=d.log,process=d.process})
   end
 end

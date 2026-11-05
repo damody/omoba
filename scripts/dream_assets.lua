@@ -224,6 +224,51 @@ function M.stale(project)
   return stale
 end
 
+-- Assets version control ignores that nothing rebuilds: a clone would not have them. FILES is what is ignored, relative to PROJECT;
+-- OWNED has what the sources and the image list build.
+function M.orphans(files,owned)
+  local found={}
+  for _,file in ipairs(files) do
+    if not owned[file] then
+      found[#found+1]=file..' (ignored by version control with no source: list it in fx_family.lua IMAGES or MESHES, add its source under DShader/ or DFX/, or delete it)'
+    end
+  end
+  table.sort(found)
+  return found
+end
+
+-- What PROJECT's .gitignore block ignores, on disk.
+function M.ignored_assets(project)
+  local lfs=require('lfs')
+  local untrack=require('dream_untrack')
+  local files={}
+  for _,dir in ipairs(untrack.WHOLE) do
+    if lfs.attributes(project..'/'..dir,'mode')=='directory' then
+      for entry in lfs.dir(project..'/'..dir) do
+        if entry:match('%.uasset$') then files[#files+1]=dir..'/'..entry end
+      end
+    end
+  end
+  local ignore=io.open(project..'/.gitignore','rb')
+  if ignore then
+    local text=ignore:read('a');ignore:close()
+    local first=text:find(untrack.BEGIN,1,true)
+    local last=first and text:find(untrack.END,first,true)
+    for line in (first and last and text:sub(first,last-1) or ''):gmatch('[^\r\n]+') do
+      if line:match('%.uasset$') and not line:find('*',1,true) and lfs.attributes(project..'/'..line) then files[#files+1]=line end
+    end
+  end
+  return files
+end
+
+-- Everything the sources under PROJECT and the image list build, relative to PROJECT.
+function M.owned_assets(project)
+  local owned={}
+  for _,file in ipairs(require('dream_clone_verify').text_owned(require('lfs'),project)) do owned[file:sub(#project+2)]=true end
+  for _,row in ipairs(require('fx_family').image_assets()) do owned[row.asset]=true end
+  return owned
+end
+
 -- The text-owned assets of PROJECT that are missing or lost their mark, and how many there are.
 function M.unowned(project)
   local lfs=require('lfs')
@@ -295,18 +340,18 @@ function M.main(argv)
     return M.report_pinned((b.root:gsub('\\','/')),filter)
   end
   if argv[1]=='ensure' then
-    local passed,given={},nil
+    local passed,given,ue_root={},nil,nil
     local i=2
     while i<=#argv do
       if argv[i]=='--project' then i=i+1;given=assert(argv[i],'--project needs a directory')
-      elseif argv[i]=='--ue-root' then i=i+1;passed[#passed+1]='--ue-root';passed[#passed+1]=assert(argv[i],'--ue-root needs a path')
+      elseif argv[i]=='--ue-root' then i=i+1;ue_root=assert(argv[i],'--ue-root needs a path');passed[#passed+1]='--ue-root';passed[#passed+1]=ue_root
       else error('unknown ensure argument: '..argv[i]) end
       i=i+1
     end
     if given then table.insert(passed,1,given);table.insert(passed,1,'--project') end
     local project=given and p.absolute(given,b.root) or p.join(b.root,'omfue')
     -- First: the instances name these images.
-    require('fx_family').ensure_images((project:gsub('\\','/')),M.FLAGS)
+    require('fx_family').ensure_images((project:gsub('\\','/')),M.FLAGS,ue_root)
     local stale=M.stale((project:gsub('\\','/')))
     print(('[dream-assets] %d material and %d Niagara assets to rebuild'):format(stale.shader,stale.fx))
     local function build(tool,verb,...)
@@ -323,6 +368,8 @@ function M.main(argv)
     local project=argv[2]=='--project' and p.absolute(assert(argv[3],'--project needs a directory'),b.root) or p.join(b.root,'omfue')
     assert(p.is_file(p.join(project,'om.uproject')),'no project: '..project)
     local bad,count=M.unowned((project:gsub('\\','/')))
+    local forward=project:gsub('\\','/')
+    for _,line in ipairs(M.orphans(M.ignored_assets(forward),M.owned_assets(forward))) do bad[#bad+1]=line end
     for _,line in ipairs(bad) do print(line) end
     print(('[dream-assets] %d text-owned, %d not built from text'):format(count,#bad))
     return #bad==0 and 0 or 1
@@ -332,7 +379,7 @@ function M.main(argv)
   local uproject=p.join(project,'om.uproject')
   assert(p.is_file(uproject),'no project: '..uproject)
   if options.project and M.SAVES[options.tool][options.verb] then require('dream_shadow').require_own(project) end
-  local editor=p.join(options.ue_root or 'D:/UE5.8','Engine/Binaries/Win64/UnrealEditor-Cmd.exe')
+  local editor=p.join(b.lib('platform').ue_root(options.ue_root),'Engine/Binaries/Win64/UnrealEditor-Cmd.exe')
   local log=p.join(project,'Saved/DreamAssets',options.tool..'-'..options.verb..'-'..os.date('%Y%m%d-%H%M%S')..'.log')
   p.mkdir_p(p.parent(log))
   -- A shadow's assets are its own: only live needs the lock.

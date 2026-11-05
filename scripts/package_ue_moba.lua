@@ -24,7 +24,7 @@ M.REQUIRED={
 }
 
 function M.options(args)
-  local options={ue_root='D:/UE5.8',config='Development'}
+  local options={ue_root=require('_bootstrap').lib('platform').ue_root(),config='Development'}
   local i=1
   while i<=#args do
     local key=args[i]

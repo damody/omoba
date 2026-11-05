@@ -105,7 +105,7 @@ if mode == 'verify' then
     time.sleep_ms(VERIFY_RETRY_MS)
   end
 end
-local engine_root = path.absolute(ue_root or os.getenv('UE_5_8_ROOT') or os.getenv('UE_ROOT') or os.getenv('UE_5_7_ROOT') or 'D:/UE5.8')
+local engine_root = path.absolute(platform.ue_root(ue_root))
 local editor_exe = path.join(engine_root, 'Engine/Binaries/Win64/UnrealEditor.exe')
 local engine_build = path.join(engine_root, 'Engine/Build/BatchFiles/Build.bat')
 local bootstrap_marker = path.join(omfue,'Saved/BuildTemp/source-engine-bootstrap.json')
@@ -164,7 +164,7 @@ end
 
 local function start_editor()
   require('ue_binary_preflight').require_ready(
-    ue_root or os.getenv('UE_5_8_ROOT') or os.getenv('UE_ROOT') or os.getenv('UE_5_7_ROOT') or 'D:/UE5.8',
+    platform.ue_root(ue_root),
     path.join(omfue, 'om.uproject'))
   local stdout = path.join(omfue, 'Saved', 'Logs', 'moba_restart_start_stdout.log')
   local stderr = path.join(omfue, 'Saved', 'Logs', 'moba_restart_start_stderr.log')
