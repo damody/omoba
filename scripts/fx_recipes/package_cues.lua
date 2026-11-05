@@ -9,7 +9,7 @@ return { recipes = {
       ground = "possession_sigil", ground_size = 250, ground_fixed = true, ground_seconds = 0.8, grow = 0.75, also = { "fx_layer_possession_flare", "fx_layer_possession_embers" } },
   a01d_restore = { ground = "mana_rune", ground_size = 190, ground_fixed = true, ground_seconds = 0.55, grow = 0.6, also = { "fx_layer_mana_motes" } },
   b20r_restore = { system = "burst", sprite = "heal_ring", size = 190, life = 0.4, tint = GREEN },
-  b26r_restore = { system = "pop", sprite = "heal_rise", size = 210, life = 0.6, tint = GREEN, no_damage_flash = true },
+  b26r_restore = { system = "pop", sprite = "heal_rise", size = 340, life = 0.8, tint = GREEN, no_damage_flash = true },
   -- The stand-ins' own hits: small, so they never cover the hero being shown.
   -- The ring every cast draws: small and quick, so it does not stand between the skills.
   cast = { system = "pop", sprite = "blink_flash", size = 70, fixed_size = true, life = 0.12, tint = { 0.45, 0.8, 0.9 },

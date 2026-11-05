@@ -25,7 +25,7 @@ return {
     b26e_model_scale_up = { system = "pop", sprite = "blink_flash", size = 240, life = 0.3, tint = BLOOD },
     b26e_status_effect = { system = "stream", sprite = "spark_star", size = 80, life = 0.35, loop = true, tint = BLOOD },
     -- R 當者披靡: a roar of fire, huge wings flaring, then fire at the feet for the duration
-    b26t_voice_roar = { system = "burst", sprite = "flame_sheet", size = 620, life = 0.6, tint = FIRE,
+    b26t_voice_roar = { system = "burst", sprite = "flame_sheet", size = 440, life = 0.6, tint = FIRE,
       ground = "shock_ring", ground_size = 1000, ground_seconds = 0.6, grow = 0.15 },
     b26t_burst = { system = "pop", sprite = "fire_wings", size = 900, life = 0.6,
       mesh = "fire_wings", ground_size = 200, ground_seconds = 1.1, height = 40, grow = 0.5, face_viewer = true },
