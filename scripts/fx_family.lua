@@ -60,7 +60,7 @@ M.IMAGES = {
   bolt_fork = { gain = 1.8 }, zigzag_bolt = { gain = 1.0 }, sword_wave = { rot = -1.571, gain = 1.0 }, pulse_ring = { gain = 1.0 },
   -- Ramp: red is heat, green is opacity, the cue's tint is the colour (scripts/fx_images/gen_ramp_set.lua).
   ramp_hit = { gain = 1.0, black = 0, ramp = 1 }, ramp_pops = { gain = 1.0, black = 0, ramp = 1 }, ramp_star = { gain = 1.0, black = 0, ramp = 1 }, ramp_tracer = { rot = -1.571, gain = 1.0, black = 0, ramp = 1 },
-  ramp_slash = { gain = 1.0, black = 0, ramp = 1 }, ramp_spear = { rot = -1.571, gain = 1.0, black = 0, ramp = 1 }, ramp_rays = { gain = 1.0, black = 0, ramp = 1 }, ramp_blast = { gain = 1.0, black = 0, ramp = 1 }, ramp_mark = { gain = 1.0, black = 0, ramp = 1 },
+  ramp_slash = { gain = 1.0, black = 0, ramp = 1 }, ramp_mist_cuts = { gain = 1.0, black = 0, ramp = 1 }, ramp_spear = { rot = -1.571, gain = 1.0, black = 0, ramp = 1 }, ramp_rays = { gain = 1.0, black = 0, ramp = 1 }, ramp_blast = { gain = 1.0, black = 0, ramp = 1 }, ramp_mark = { gain = 1.0, black = 0, ramp = 1 },
   ramp_ring_marks = { gain = 1.0, black = 0, ramp = 1 }, ramp_thin_ring = { gain = 1.0, black = 0, ramp = 1 }, ramp_band = { gain = 1.0, black = 0, ramp = 1 },
   -- Halo: brightness is opacity and the hue stays full, so a fade stays coloured over a bright ground (scripts/fx_images/gen_glow_set.lua).
   glow_tracer = { rot = -1.571, gain = 1.0, black = 0 }, glow_comet = { rot = -1.571, gain = 1.0, black = 0 }, glow_hit = { gain = 1.0, black = 0 }, glow_mark = { gain = 1.0, black = 0 }, glow_crit = { gain = 1.0, black = 0 }, glow_pops = { gain = 1.0, black = 0 }, glow_scorch = { gain = 1.0, black = 0 },
@@ -116,20 +116,20 @@ M.RECIPES = {
   a12t2 = { look = "flight_glow", tint = ARCANE },
   a12t_aura = { look = "aura_ground", tint = ARCANE },
   -- C22 佐佐木小次郎: steel blue sword light; swallows and a thunder clap
-  c22d_hand_glow = { system = "stream", sprite = "spark_star", size = 70, life = 0.5, loop = true, tint = STEEL },
-  c22d_return_projectile = { look = "line", tint = STEEL },
-  c22d_cast_sound = { system = "burst", sprite = "blink_flash", size = 420, life = 0.5, tint = STEEL, also = { "fx_layer_giant_nodachi" },
-    ground = "shock_ring", ground_size = 460, ground_seconds = 0.5, grow = 0.2 },
-  c22e_voice = { system = "pop", sprite = "crescent_slash", size = 340, life = 0.3, tint = STEEL },
-  c22e_swallow = { system = "stream", sprite = "soft_glow", size = 50, life = 0.5, loop = true, face = true, tint = STEEL,
+  c22d_hand_glow = { system = "stream", sprite = "ramp_pops", size = 70, life = 0.5, loop = true, tint = { 0.04, 0.22, 0.95 } },
+  c22d_return_projectile = { look = "line", tint = { 0.04, 0.22, 0.95 } },
+  c22d_cast_sound = { system = "pop", sprite = "ramp_rays", size = 210, life = 0.35, tint = { 0.04, 0.22, 0.95 }, also = { "fx_layer_giant_nodachi" },
+    ground = "ramp_thin_ring", ground_size = 460, ground_seconds = 0.45, grow = 0.2 },
+  c22e_voice = { system = "pop", sprite = "ramp_slash", size = 200, life = 0.28, tint = { 0.04, 0.22, 0.95 } },
+  c22e_swallow = { system = "stream", sprite = "soft_glow", size = 50, life = 0.5, loop = true, face = true, tint = { 0.04, 0.22, 0.95 },
     mesh = "swallow", ground_size = 190, ground_seconds = 20, height = 90 },
-  c22e_impact = { system = "burst", sprite = "crescent_slash", size = 340, area = true, life = 0.5, tint = STEEL,
-    ground = "blink_flash", ground_size = 340, ground_seconds = 0.4, height = 30, grow = 0.4 },
-  c22r_crit_sound = { system = "pop", sprite = "cut_cross", size = 340, life = 0.28, tint = GOLD,
-    ground = "crescent_slash", ground_size = 420, ground_seconds = 0.28, height = 90, grow = 0.5, face_camera = 0.9, ground_roll = 60 },
-  c22w_voice = { system = "burst", sprite = "swallow", size = 340, life = 0.5, tint = STEEL, also = { "fx_layer_nest_ring" }, ground = "vortex", ground_size = 480, ground_seconds = 0.9, grow = 0.3 },
-  c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, bold = true, tint = STEEL },
-  c22t_thunder_clap = { system = "pop", sprite = "cut_cross", size = 380, fixed_size = true, life = 0.35, tint = STEEL, also = { "fx_layer_mist_cuts" } },
+  c22e_impact = { system = "pop", sprite = "ramp_hit", size = 140, life = 0.25, tint = { 0.04, 0.22, 0.95 },
+    ground = "ramp_slash", ground_size = 240, ground_seconds = 0.28, height = 10, grow = 0.75, face_camera = 0.75, front = 120, ground_roll = -25 },
+  c22r_crit_sound = { system = "pop", sprite = "ramp_star", size = 170, life = 0.25, tint = { 0.04, 0.22, 0.95 },
+    ground = "ramp_slash", ground_size = 240, ground_seconds = 0.28, height = 10, grow = 0.75, face_camera = 0.75, front = 120, ground_roll = 60 },
+  c22w_voice = { system = "pop", sprite = "swallow", size = 200, life = 0.4, tint = { 0.04, 0.22, 0.95 }, also = { "fx_layer_nest_ring" } },
+  c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, bold = true, tint = { 0.04, 0.22, 0.95 } },
+  c22t_thunder_clap = { system = "pop", sprite = "ramp_star", size = 200, fixed_size = true, life = 0.3, tint = { 0.04, 0.22, 0.95 }, also = { "fx_layer_mist_cuts" } },
   -- A26 濃姬: gunpowder fire and smoke
   a26w_hit_explosion = { look = "explosion_small" },
   a26e_smoke = { system = "burst", sprite = "smoke_sheet", size = 150, life = 0.8 },
@@ -224,7 +224,7 @@ M.WEAPONS = {
     strike = { system = "burst", sprite = "spark_star", size = 110, life = 0.28, ground = "shock_ring", ground_size = 120, ground_fixed = true, ground_seconds = 0.26, height = 30, grow = 0.4 } },
 }
 M.ATTACKS = {
-  sasaki_kojiro = { "katana", { 0.05, 0.3, 1.0 }, { system = "pop", sprite = "iai_cut", size = 380, life = 0.24, ground = "soft_glow", ground_size = 150, ground_seconds = 0.2, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", { 1.0, 0.5, 0.04 }, { system = false, sprite = false, size = false, life = false, ground = "ramp_slash", ground_size = 240, ground_seconds = 0.28, height = 10, grow = 0.75, face_camera = 0.75, front = 150, ground_roll = 15 } }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { sprite = "rock", size = 130, life = 0.35, ground_size = 230, ground_roll = -30 } },
+  sasaki_kojiro = { "katana", { 0.05, 0.3, 1.0 }, { system = "pop", sprite = "iai_cut", size = 380, life = 0.24, ground = "ramp_hit", ground_size = 110, ground_seconds = 0.2, height = 60, grow = 0.6, face_camera = 0.75, front = 100 } }, tokugawa_ieyasu = { "katana", { 1.0, 0.5, 0.04 }, { system = false, sprite = false, size = false, life = false, ground = "ramp_slash", ground_size = 240, ground_seconds = 0.28, height = 10, grow = 0.75, face_camera = 0.75, front = 150, ground_roll = 15 } }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { sprite = "rock", size = 130, life = 0.35, ground_size = 230, ground_roll = -30 } },
   okuma_tomohide = { "axe", { 1.0, 0.28, 0.02 }, { system = "pop", sprite = "ramp_hit", size = 130, life = 0.25, ground = "ramp_slash", ground_size = 230, ground_seconds = 0.28, height = 10, grow = 0.75, face_camera = 0.75, front = 150, ground_roll = 15 } },
   kojima_sadaoki = { "axe", { 1.0, 0.55, 0.08 }, { sprite = "spark_star", size = 170, ground = "crack_gold", ground_size = 300, ground_fixed = true, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.12, 0.05 }, { sprite = "spark_star", size = 190, ground_size = 200 } },
@@ -248,20 +248,20 @@ M.RECIPES.fx_swing_nohime.ground, M.RECIPES.fx_swing_nohime.ground_size = "glow_
 -- Layers other cues play through `also`: no package names them.
 -- His blade light flies to what it strikes: at his longer reach the blow visibly crosses the gap.
 M.RECIPES.fx_swing_near_sasaki_kojiro = { ground = "iai_cut", ground_size = 170, ground_seconds = 0.2, height = 90, grow = 0.6, face_camera = 0.7, tint = { 0.15, 0.45, 1.0 } }
-M.RECIPES.fx_swing_sasaki_kojiro = { ground = "sword_wave", ground_size = 180, ground_seconds = 0.2, height = 90, fly = true, face_camera = 0.7, tint = { 1, 1, 1 } }
+M.RECIPES.fx_swing_sasaki_kojiro = { ground = "sword_wave", ground_size = 180, ground_seconds = 0.2, height = 90, fly = true, face_camera = 0.7, tint = { 0.04, 0.22, 0.95 } }
 -- A passive has no cast: the renderer plays this as the spotlight learns it (AOmUnitActor::PlayNamedCue).
-M.RECIPES.fx_learn_c22_swallow_flash = { system = "burst", sprite = "crescent_slash", size = 340, life = 0.5, tint = STEEL, ground = "shock_ring", ground_size = 320, ground_fixed = true, ground_seconds = 0.6, grow = 0.4 }
+M.RECIPES.fx_learn_c22_swallow_flash = { system = "pop", sprite = "ramp_star", size = 190, life = 0.4, tint = { 0.04, 0.22, 0.95 }, ground = "ramp_thin_ring", ground_size = 320, ground_fixed = true, ground_seconds = 0.5, grow = 0.4 }
 M.RECIPES.fx_swing_tokugawa_ieyasu.tint = { 1.0, 0.5, 0.06 }
 M.RECIPES.fx_layer_spear_glow = { ground = "ramp_tracer", ground_size = 480, ground_seconds = 0.5, height = 60, launch = 500, front = 120, tint = { 1.0, 0.5, 0.04 } }
 -- A crit, on the unit that took it (OmUnitActor::OnCriticalHitCue).
 M.RECIPES.fx_crit = { tint = { 1, 1, 1 }, ground = "glow_crit", ground_size = 300, ground_seconds = 0.35, height = 70, grow = 0.6, face_camera = 0.85 }
 M.RECIPES.fx_layer_blast_scorch = { ground = "glow_scorch", ground_size = 420, ground_fixed = true, ground_seconds = 1.4, grow = 0.8 }
 M.RECIPES.fx_layer_kick_ring = { ground = "glow_thin_ring", ground_size = 600, area = true, ground_fixed = true, ground_seconds = 0.4, grow = 0.6, tint = { 1.0, 0.5, 0.08 } }
-M.RECIPES.fx_layer_nest_ring = { ground = "shock_ring", ground_size = 420, ground_fixed = true, ground_seconds = 0.5, grow = 0.35, tint = STEEL }
+M.RECIPES.fx_layer_nest_ring = { ground = "ramp_thin_ring", ground_size = 420, ground_fixed = true, ground_seconds = 0.5, grow = 0.35, tint = { 0.04, 0.22, 0.95 } }
 M.RECIPES.fx_learn_b26_kozuke_valor = { system = "pop", sprite = "ramp_star", size = 190, life = 0.4, tint = { 1.0, 0.2, 0.015 }, ground = "ramp_thin_ring", ground_size = 340, ground_fixed = true, ground_seconds = 0.5, grow = 0.3 }
 M.RECIPES.fx_learn_b20_tenacity = { system = "burst", sprite = "heal_ring", size = 300, life = 0.6, tint = { 0.1, 0.9, 0.25 }, ground = "shock_ring", ground_size = 340, ground_fixed = true, ground_seconds = 0.6, grow = 0.4 }
 M.RECIPES.fx_learn_c03_thunder_wrath = { system = "pop", sprite = "lightning", size = 340, life = 0.35, tint = { 0.5, 0.1, 1.0 }, ground = "shock_ring", ground_size = 340, ground_fixed = true, ground_seconds = 0.6, grow = 0.4 }
-M.RECIPES.fx_layer_mist_cuts = { ground = "mist_cuts", ground_size = 1500, area = true, ground_seconds = 1.3, grow = 0.4 }
+M.RECIPES.fx_layer_mist_cuts = { ground = "ramp_mist_cuts", ground_size = 1500, area = true, ground_seconds = 1.3, grow = 0.4, tint = { 0.04, 0.22, 0.95 } }
 M.RECIPES.fx_layer_possession_flare = { ground = "possession_flare", ground_size = 300, ground_fixed = true, ground_seconds = 0.55, grow = 0.45, delay = 0.05 }
 M.RECIPES.fx_layer_possession_embers = { system = "burst", sprite = "spark_star", size = 60, life = 0.6, tint = { 0.5, 0.1, 1.0 }, delay = 0.1 }
 M.RECIPES.fx_layer_quake_sparks = { system = "sparks", tint = { 1.0, 0.45, 0.1 }, delay = 0.06 }

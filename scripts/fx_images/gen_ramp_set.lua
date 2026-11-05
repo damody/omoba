@@ -60,6 +60,24 @@ shapes.ramp_tracer = function(x, y)
   local a = math.exp(-(x / w) ^ 2) * smooth(0, 0.7, t) ^ 1.2
   return clamp(a * 1.5), clamp(a * mix(0.25, 0.9, t))
 end
+-- Sword cuts swirling out over a wide area: each thin, pointed at both ends, bright on its outer edge.
+shapes.ramp_mist_cuts = function(x, y)
+  local d, ang = polar(x, y)
+  local alpha, heat = 0, 0
+  for i = 0, 8 do
+    local a0 = i * 2 * pi / 9 + 0.5 * math.sin(i * 5.1)
+    local r0 = i % 3 == 0 and 0.42 or i % 3 == 1 and 0.62 or 0.8
+    local t = math.atan(math.sin(ang - a0), math.cos(ang - a0)) / 0.62
+    if t > -1 and t < 1 then
+      local span = 1 - t * t
+      local r = d - (r0 + 0.07 * t)
+      local v = (r > 0 and math.exp(-(r / (0.012 * span + 0.002)) ^ 2) or math.exp(r / (0.05 * span + 0.003))) * smooth(0, 0.25, span)
+      alpha = math.max(alpha, clamp(v * 1.3) ^ 1.1)
+      heat = math.max(heat, clamp(v ^ 2 * (0.4 + 0.45 * span)))
+    end
+  end
+  return alpha, heat
+end
 -- A thrown spear pointing up: a broad head with a hot point, a collar, a shaft; dark along every edge.
 shapes.ramp_spear = function(x, y)
   if y < -0.95 or y > 0.95 then return 0, 0 end
