@@ -240,6 +240,7 @@ M.RECIPES.fx_swing_nohime.ground, M.RECIPES.fx_swing_nohime.ground_size = "twin_
 
 -- Layers other cues play through `also`: no package names them.
 -- His blade light flies to what it strikes: at his longer reach the blow visibly crosses the gap.
+M.RECIPES.fx_swing_near_sasaki_kojiro = { ground = "iai_cut", ground_size = 170, ground_seconds = 0.2, height = 90, grow = 0.6, face_camera = 0.7, tint = { 1, 1, 1 } }
 M.RECIPES.fx_swing_sasaki_kojiro = { ground = "sword_wave", ground_size = 180, ground_seconds = 0.2, height = 90, fly = true, face_camera = 0.7, tint = { 1, 1, 1 } }
 -- A passive has no cast: the renderer plays this as the spotlight learns it (AOmUnitActor::PlayNamedCue).
 M.RECIPES.fx_learn_c22_swallow_flash = { system = "burst", sprite = "crescent_slash", size = 340, life = 0.5, tint = STEEL, ground = "shock_ring", ground_size = 320, ground_fixed = true, ground_seconds = 0.6, grow = 0.4 }
