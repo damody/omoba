@@ -427,7 +427,7 @@ M.VIEW_AT={c05_flash_thunder={2520,2390},a14_impact_spear={2800,2075},a14_divine
 -- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
 M.CAST_AT={c05_flash_thunder={2440,2300}}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one.
-M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=9}}
+M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=6}}
 -- Struck for this long the hero lives: seat 7 took 17 hits and 14 s to kill c05 at 164 a hit (out of its reach refill_players makes it whole).
 M.HALF_SECONDS={c22_swallow_flash=4.5,c05_thunder_spear=4,b26_kozuke_valor=0.6}
 -- Where a reach is the point (backend units from the stand-in): c22 燕閃 reaches 228 at rank 1 and 378 at rank 4.
