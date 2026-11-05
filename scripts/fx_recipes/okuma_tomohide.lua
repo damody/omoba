@@ -1,6 +1,6 @@
 -- B26 大熊朝秀: fire orange; blood red for the fury. Slows in blue.
 -- Status cues (SyncStatusCue) draw EITHER the system (centred at the feet) OR the ground image: rows here carry the system.
-local FIRE, BLOOD, BLUE = { 1.0, 0.42, 0.03 }, { 0.95, 0.1, 0.05 }, { 0.12, 0.5, 1.0 }
+local FIRE, BLOOD, BLUE = { 1.0, 0.2, 0.015 }, { 0.8, 0.02, 0.01 }, { 0.12, 0.5, 1.0 }
 return {
   recipes = {
     -- Q 蓄力波: a swirl at the cast, sparks as the charge starts, a thin fire ring every second, explosions on enemies
