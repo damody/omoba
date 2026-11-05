@@ -92,7 +92,7 @@ shapes.glow_pops = function(x, y)
     local d = math.sqrt((x - s[1]) ^ 2 + (y - s[2]) ^ 2) / s[3]
     local v = 1 - smooth(0.6, 1, d)
     if v > a then a = v end
-    local heat = clamp((1 - d) * 1.1)
+    local heat = clamp((1 - d) * 0.75)
     if heat > h then h = heat end
   end
   return a, h
@@ -103,7 +103,7 @@ shapes.glow_crit = function(x, y)
   local spike = math.max(0, math.cos(ang * 4 + 0.4)) ^ 6
   local edge = 0.3 + 0.1 * noise(ang, 5.2) + 0.62 * spike
   local body = 1 - smooth(edge * 0.75, edge, d)
-  return body, clamp((1 - d / edge) * 0.62 + math.exp(-(d / 0.07) ^ 2))
+  return body, clamp((1 - d / edge) * 0.36 + math.exp(-(d / 0.07) ^ 2))
 end
 -- What a blast leaves: a burnt patch, embers at its edge.
 shapes.glow_scorch = function(x, y)
