@@ -265,25 +265,51 @@ clone 後 OmGenerated 和 `om_bridge.h` 共 24 個檔案顯示已修改：23 個
 
 新匯入的 Tripo 模型，材質先照舊是二進位、留在版控，registry 也照舊鎖 SHA。要轉成文字時整批做：`dream_switch`、放回、拿掉 `package_sha256`、`dream_untrack`。
 
+## 特效貼圖
+
+89 個 `T_fx_*`、`T_mesh_*`（`VFX/Fx/Textures`）停止追蹤，由版控裡的 PNG 匯入。全部都在 `fx_family.lua` 的 `IMAGES`、`MESHES`，PNG 也都在版控。之前文件寫 84、88 是當時的數量。
+
+驗證：在沒有 Content 的影子裡從 PNG 重新匯入，和版控裡的檔案比對。89 個大小都相同，每個只差 6 段（20、32、16、32、16、16 位元組，最多 132 位元組），都落在檔案前約 3.8 KB，是 hash 與 GUID 的長度。其餘逐位元相同，包含壓縮後的來源像素與匯入設定（sRGB、LODGroup、壓縮、Address、NeverStream）。
+
+工具：`dream_assets.lua ensure` 先跑 `fx_family.ensure_images`，貼圖缺檔或 PNG 較新才匯入，之後才建材質，因為 instance 引用這些貼圖。`.gitignore` 整個資料夾忽略；已被追蹤的貼圖不在 `fx_family.lua` 時，`dream_untrack` 會報錯。沒有追蹤、也沒列在 `fx_family.lua` 的貼圖不會被擋，只被 ignore，不會重建。
+
+提交：工具 8098e96e；omfue `.gitignore` 與 9c0e7fba（正好 89 筆刪除），主 repo 958e8926。
+
+重新 clone（`target/e187/clone4`，HEAD 958e8926）：`git ls-files` 不含貼圖與 Tripo 材質，磁碟上 0 個，也沒有 BpGeneratorUltimate 的 `Binaries`；只手動補了 `target/tools`。
+
+| 步驟 | 結果 |
+|---|---|
+| `build_ue_moba` | exit 0，1639 秒 |
+| ensure | 匯入 89 張貼圖，重建 315 個材質、12 個 Niagara，327 個由文字建成 |
+| `run_moba_split_local --build-only` | exit 0，749 秒 |
+| 實錄 `nohime`、`yamagata_masakage` | 都是 record 0 |
+| 重建後 | 磁碟上 89 張，`git status` 的 Content 為 0；另有 24 個已修改檔案，都在 OmGenerated 與 OmBridge（和前兩次相同的類別，這次沒有逐檔比對內容） |
+
+畫面比對（切換前 `spot-tripo` 對 clone4，每位 6 招、施放後 0.4 秒；對照圖 `target/e187/cmp-tripo/clone4_*.jpg`，肉眼，沒有逐像素量測）：
+
+- 山縣：配方沒改過。施放順序相同，貼圖、材質沒看出差異，特效只有相位差。`OM_CUE` 種類相同，`b04e_impact`、`b04e_blast`、`cast` 次數差 2～4 次，這幾項上次比對時也有差。
+- 濃姬：施放順序相同，W 沒看出差異。普攻與 E 不一樣，是線 C 的 09162295 改了配方（橘色槍口、E 火焰加大），這兩招比對不出貼圖差異。
+
 ## 仍是二進位的資產
 
-由文字建成的 `.uasset` 共 325 個，都已停止追蹤。omfue `Content` 仍追蹤約 3165 個 `.uasset`／`.umap`，加上 899 張 PNG；下面是粗略分類（依路徑與檔名，不是逐一確認）：
+讀 3163 個受追蹤 `.uasset`／`.umap` 的註冊資料取得實際類別（`target/e187/classes.tsv`，不進版控），這是貼圖停止追蹤前的數字。**材質、材質實例、Niagara、材質函式、材質參數集都是 0 個**，沒有可再文字化的材質或特效。Plugins 下沒有受追蹤的 `.uasset`／`.umap`。
 
-| 類別 | 數量 | 能否文字化 |
-|---|---:|---|
-| 角色動畫 | 約 2240 | 不能重現：來源是動畫資料 |
-| 角色其他（模型、骨架、材質 instance 等） | 約 433 | 模型與骨架不能重現；其餘未逐一確認 |
-| 建築 | 118 | Tripo 模型與貼圖，不能重現 |
-| RustBP 藍圖 | 107 | 未評估 |
-| VFX 貼圖與網格 | 88 | 由 PNG 或網格匯入，來源仍是二進位 |
-| UI | 74 | 未評估 |
-| OmGenerated | 36 | 未評估 |
-| 角色貼圖 | 28 | 不能重現 |
-| 音效 | 17 | 不能重現 |
-| 其他（地圖等） | 22 | 未評估 |
+| 目錄 | 數量 | 實際類別 | 判定 |
+|---|---:|---|---|
+| Characters | 2701 | AnimSequence 2363、IKRigDefinition 100、SkeletalMesh 72、IKRetargeter 50、Skeleton 40、StaticMesh 15、Texture2D 61 | 不是材質或特效，不動 |
+| OmGenerated | 36 | AnimSequence 11、PhysicsAsset 10、SkeletalMesh 10、Skeleton 2、Texture2D 3 | 同上 |
+| UI | 74 | Texture2D 74 | 同上 |
+| Structures | 118 | StaticMesh 53、Texture2D 65 | 同上 |
+| WorldModelsV1、WorldSurfacesV1、Props、AuthoredAnimationsV2 | 20 | StaticMesh 9、Texture2D 7、AnimSequence 4 | 同上 |
+| 地圖 | 2 | World 1（`Map/Main.umap`）、ObjectRedirector 1（`Main.umap`） | 同上 |
+| VFX/Fx/Textures | 89 | Texture2D 89 | 已停止追蹤，見「特效貼圖」 |
+| RustBP | 107 | Blueprint 59、SkeletalMesh 13、AnimSequence 12、PhysicsAsset 10、WidgetBlueprint 9、Skeleton 2、AnimBlueprint 1、Texture2D 1 | 未處理（這次範圍不含） |
+| Audio | 17 | SoundWave 17 | 未處理（這次範圍不含） |
+
+"不動"只表示不屬於這次的材質與特效範圍，沒有判斷它們能否由其他來源重建。
 
 ## 還沒做
 
-待處理（不擋主線）見「停止追蹤與重新 clone 驗證」。
+材質與特效已全部處理。RustBP 藍圖與音效未處理，範圍不含。其餘待處理（不擋主線）見「停止追蹤與重新 clone 驗證」。
 
 另外發現：`fx_family.lua` 的 `AddVelocity.Velocity Speed Scale` 很可能沒有作用，已告知線 C。
