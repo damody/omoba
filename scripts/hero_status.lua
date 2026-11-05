@@ -161,6 +161,12 @@ function M.match_evidence(root,run)
                   local traced=type(cast.results)=='table' and cast.results.accepted or 0
                   row.casts=row.casts+math.max(cast.accepted or 0,traced)
                   row.inputs=row.inputs+(cast.inputs or 0)
+                  for result,count in pairs(type(cast.results)=='table' and cast.results or {}) do
+                    if result:match('^rejected:') then
+                      row.rejected=row.rejected or {}
+                      row.rejected[result:sub(10)]=(row.rejected[result:sub(10)] or 0)+count
+                    end
+                  end
                 end
               end
               for id,dealt in pairs(hero.ability_damage or {}) do
@@ -314,7 +320,13 @@ function M.gaps(row)
   for _,cell in ipairs(row.abilities) do
     if cell.blockers==nil then unbuilt[#unbuilt+1]=cell.id..'（未驗證）'
     elseif #cell.blockers>0 then unbuilt[#unbuilt+1]=cell.id
-    elseif is_castable(cell.kind) and row.games>0 and not (cell.evidence and cell.evidence.casts>0) then never[#never+1]=cell.id end
+    elseif is_castable(cell.kind) and row.games>0 and not (cell.evidence and cell.evidence.casts>0) then
+      -- Inputs the authority refused say why; none means the bot never tried.
+      local reasons={}
+      for reason,count in pairs(cell.evidence and cell.evidence.rejected or {}) do reasons[#reasons+1]=('%s %d'):format(reason,count) end
+      table.sort(reasons)
+      never[#never+1]=cell.id..(#reasons>0 and '（被拒 '..table.concat(reasons,'、')..'）' or '（沒有嘗試）')
+    end
   end
   if #unbuilt>0 then gaps[#gaps+1]='未產生：'..table.concat(unbuilt,'、') end
   if #never>0 then gaps[#gaps+1]='bot 未施放：'..table.concat(never,'、') end
