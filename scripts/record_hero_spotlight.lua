@@ -417,19 +417,19 @@ M.AFTER_ATTACK={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true
 M.KEEPS_BUFFS={a12_mystic_arrow=true,a12_scheme=true}
 -- b20 強韌 restores after each cast of his: Q in its own segment shows it (W's crown overflows at this close camera).
 M.BURST={a12_mystic_arrow={5,5},a12_scheme={5,5,5,5,0},b20_tenacity={0}}
-M.HOLD_FOR={a14_divine_strike=3,a12_mystic_possession=3.5,a12_mystic_arrow=3.5,b27_rending_blade=3.2,c22_dream_mist=2.8,a12_insight_flash=3.2}
+M.HOLD_FOR={b26_unstoppable=3.5,a14_divine_strike=3,a12_mystic_possession=3.5,a12_mystic_arrow=3.5,b27_rending_blade=3.2,c22_dream_mist=2.8,a12_insight_flash=3.2}
 -- c03 不動戰錘: the hero stands far from the stand-in for it, and the blast is large: out before the cast.
 M.VIEW_EARLY={c05_flash_thunder=true,c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
 -- a14 on the lane stage: 衝擊槍 flies the stand-in (2800,2260) along the run into seat 10 (2800,1750), and the crash and its 350 show.
 -- 神現一擊 blinks 850 through the stand-in: straight along the run it lands on the cliff, a little aside it clears it, at about (2977,1573). Both frames hold the hero, the target and the landing.
-M.STAND_AT={a14_divine_strike={2765,2396}}
+M.STAND_AT={b26_kozuke_valor=M.STRUCK_AT,a14_divine_strike={2765,2396}}
 M.VIEW_AT={c05_flash_thunder={2520,2390},a14_impact_spear={2800,2075},a14_divine_strike={2870,1985},a12_mystic_arrow={2300,2640},a12_scheme={2300,2640}}
 -- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
 M.CAST_AT={c05_flash_thunder={2440,2300}}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one.
-M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=8}}
+M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=9}}
 -- Struck for this long the hero lives: seat 7 took 17 hits and 14 s to kill c05 at 164 a hit (out of its reach refill_players makes it whole).
-M.HALF_SECONDS={c22_swallow_flash=4.5,c05_thunder_spear=4,b26_kozuke_valor=4}
+M.HALF_SECONDS={c22_swallow_flash=4.5,c05_thunder_spear=4,b26_kozuke_valor=0.6}
 -- Where a reach is the point (backend units from the stand-in): c22 燕閃 reaches 228 at rank 1 and 378 at rank 4.
 M.STAND_OFF={c22_swallow_flash=330,c03_iron_hammer=420}
 -- A melee hero stands where its weapon reaches the stand-in (backend units): the stand-in no longer comes to it,
@@ -545,7 +545,7 @@ function M.script(package)
     end
   end
   return {schema=1,hero=package.hero,hero_name=package.hero_name,title=package.title,
-    timing=json.object({caption_lead=1.5,hold=4.5,passive=9}),slots=slots}
+    timing=json.object({caption_lead=1.5,hold=4.5,passive=6}),slots=slots}
 end
 
 -- frames.jsonl from the renderer, sorted by frame index (workers finish out of order).
