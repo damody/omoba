@@ -84,6 +84,19 @@ shapes.glow_blast = function(x, y)
   local a = math.max(clamp(body * lick), r)
   return a, clamp((1 - smooth(0.0, edge, d)) * 0.8)
 end
+-- A volley's hits: a scatter of small round pops, each with its own hot centre.
+shapes.glow_pops = function(x, y)
+  local spots = { { -0.42, 0.34, 0.26 }, { 0.38, 0.46, 0.2 }, { 0.05, -0.05, 0.3 }, { -0.3, -0.48, 0.2 }, { 0.5, -0.32, 0.24 }, { 0.0, 0.68, 0.14 }, { -0.68, -0.08, 0.13 } }
+  local a, h = 0, 0
+  for _, s in ipairs(spots) do
+    local d = math.sqrt((x - s[1]) ^ 2 + (y - s[2]) ^ 2) / s[3]
+    local v = 1 - smooth(0.6, 1, d)
+    if v > a then a = v end
+    local heat = clamp((1 - d) * 1.1)
+    if heat > h then h = heat end
+  end
+  return a, h
+end
 -- A crit: long sharp spikes, deep red, far less white than a plain hit.
 shapes.glow_crit = function(x, y)
   local d, ang = math.sqrt(x * x + y * y), math.atan(y, x)

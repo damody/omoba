@@ -5,8 +5,8 @@ return {
     -- a26_volley: four shots through Mx_Pistols_Volley's clockwise turn (0.2 s apart, front, right, back, left, right pistol first), then a blast on each enemy
     a26w_flak_sound = { ground = "glow_tracer", ground_size = 240, ground_fixed = true, ground_seconds = 0.22, launch = 480, from_hand = true, delay = 0.2,
       face_camera = 0.85, repeat_count = 4, repeat_seconds = 0.2, repeat_yaw = 90 },
-    a26w_hit_explosion = { system = "pop", sprite = "glow_hit", size = 200, area = true, life = 0.28, tint = { 1, 1, 1 },
-      ground = "glow_mark", ground_size = 110, ground_seconds = 0.5, height = 60, grow = 0.7, face_camera = 0.8 },
+    a26w_hit_explosion = { tint = { 1, 1, 1 },
+      ground = "glow_pops", ground_size = 230, ground_seconds = 0.4, height = 70, grow = 0.6, face_camera = 0.85 },
     -- a26_powder_kick: powder trailing Mx_Spin_Kick's turn (0.7 s, counter-clockwise), then the blast
     a26e_voice = { ground = "powder_swirl", ground_size = 230, ground_fixed = true, ground_seconds = 0.7, height = 45, delay = 0.1, tint = { 1.0, 0.55, 0.18 }, also = { "fx_layer_powder_keg" } },
     a26e_rocket_sound = { system = "pop", sprite = "smoke_sheet", size = 120, fixed_size = true, life = 0.7,
