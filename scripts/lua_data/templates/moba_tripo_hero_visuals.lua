@@ -108,6 +108,15 @@ return function(ctx)
     akechi_mitsuhide='melee',
     ukita_hideie='ranged',
     shima_sakon='melee',
+    saito_yoshitatsu='melee',
+    yagyu_muneyoshi='melee',
+    kuroda_yoshitaka='ranged',
+    saito_dosan='ranged',
+    sengoku_hidehisa='melee',
+    niwa_nagahide='ranged',
+    maeno_nagayasu='ranged',
+    takeda_katsuyori='melee',
+    fuma_kotaro='ranged',
   }
   for hero,kind in pairs(first_version)do
     definitions[hero]=kind=='ranged' and {idle='Idle_Loop',attack='Spell_Simple_Shoot',critical='Spell_Simple_Shoot',impact=0.5}
