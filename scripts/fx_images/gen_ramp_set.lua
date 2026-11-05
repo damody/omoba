@@ -77,9 +77,9 @@ shapes.ramp_slash = function(x, y)
   local d, ang = polar(x, y + 0.5)
   local a0 = math.abs(ang - pi / 2)
   local span = clamp(1 - a0 / 1.25)
-  local width = 0.22 * span ^ 0.7
-  local v = math.exp(-((d - 0.92) / math.max(width, 0.005)) ^ 2) * smooth(0, 0.2, span)
-  return clamp(v * 1.6), clamp(v * (0.3 + 0.35 * span))
+  local r = d - 0.92
+  local v = (r > 0 and math.exp(-(r / (0.025 * span + 0.004)) ^ 2) or math.exp(r / (0.11 * span + 0.006))) * smooth(0, 0.2, span)
+  return clamp(v * 1.15) ^ 1.3, clamp(v ^ 2 * (0.5 + 0.5 * span))
 end
 -- Sparks thrown outward, the middle open for the body.
 shapes.ramp_rays = function(x, y)
