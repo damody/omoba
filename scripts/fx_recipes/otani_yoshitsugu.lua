@@ -5,9 +5,9 @@ return {
     -- shared by a12_insight_flash and a12_insight_flash_t: the flare at the caster
     a12w_vo = { system = "pop", sprite = "blink_flash", size = 180, life = 0.25, tint = ARCANE },
     -- a12_insight_flash: a burst of light that throws enemies out
-    a12w_glow = { system = "burst", sprite = "blink_flash", size = 460, life = 0.5, tint = ARCANE,
-      ground = "shock_ring", ground_size = 1000, ground_seconds = 0.5, grow = 0.15 },
-    a12w_burst = { system = "pop", sprite = "blink_flash", size = 240, life = 0.3, tint = ARCANE },
+    a12w_glow = { system = "burst", sprite = "blink_flash", size = 620, life = 0.7, tint = ARCANE,
+      ground = "shock_ring", ground_size = 720, ground_fixed = true, ground_seconds = 0.7, grow = 0.2 },
+    a12w_burst = { system = "pop", sprite = "blink_flash", size = 320, life = 0.45, tint = ARCANE },
     -- a12_insight_flash_t: a vortex pulling inward at the point
     a12w_hide_ring = { system = "burst", sprite = "vortex", size = 480, life = 0.55, tint = ARCANE,
       ground = "vortex", ground_size = 1000, ground_seconds = 0.8 },

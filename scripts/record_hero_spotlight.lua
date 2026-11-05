@@ -404,7 +404,7 @@ M.STRUCK_AT={2700,2130}
 M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_tenacity={2480,2450}}
 M.HOLDS_STILL={b20_tenacity=true}
 -- b27 裂地刃 reaches 1000: the death's stand-ins are hit too, and at the usual cap (2) their ripples were cut off.
-M.VIEW_BACK={a01_tosho_gongen=1.4,a01_mikawa_valor=1.4,b27_rending_blade=2.7,a26_volley=1.45,a14_impact_spear=1.45,a14_divine_strike=1.6,c05_thunder_dance=1.4,c05_flash_thunder=1.5,a12_mystic_arrow=1.35,a12_scheme=1.35}
+M.VIEW_BACK={a12_insight_flash=1.25,a01_tosho_gongen=1.4,a01_mikawa_valor=1.4,b27_rending_blade=2.7,a26_volley=1.45,a14_impact_spear=1.45,a14_divine_strike=1.6,c05_thunder_dance=1.4,c05_flash_thunder=1.5,a12_mystic_arrow=1.35,a12_scheme=1.35}
 -- Ranged: hero and stand-in stand far apart, in frame from the segment's start.
 M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
 -- The stage's showcase.withheld_abilities: no rank at birth, learned in their own segment.
@@ -417,7 +417,7 @@ M.AFTER_ATTACK={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true
 M.KEEPS_BUFFS={a12_mystic_arrow=true,a12_scheme=true}
 -- b20 強韌 restores after each cast of his: Q in its own segment shows it (W's crown overflows at this close camera).
 M.BURST={a12_mystic_arrow={5,5},a12_scheme={5,5,5,5,0},b20_tenacity={0}}
-M.HOLD_FOR={b26_unstoppable=3.5,a14_divine_strike=3,a12_mystic_possession=3.5,a12_mystic_arrow=3.5,b27_rending_blade=3.2,c22_dream_mist=2.8,a12_insight_flash=3.2}
+M.HOLD_FOR={b26_unstoppable=3.5,a14_divine_strike=3,a12_mystic_possession=3.5,a12_mystic_arrow=3.5,b27_rending_blade=3.2,c22_dream_mist=2.8,a12_insight_flash=2.8}
 -- c03 不動戰錘: the hero stands far from the stand-in for it, and the blast is large: out before the cast.
 M.VIEW_EARLY={c05_flash_thunder=true,c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
 -- a14 on the lane stage: 衝擊槍 flies the stand-in (2800,2260) along the run into seat 10 (2800,1750), and the crash and its 350 show.
@@ -434,7 +434,7 @@ M.HALF_SECONDS={c22_swallow_flash=4.5,c05_thunder_spear=4,b26_kozuke_valor=0.6}
 M.STAND_OFF={c22_swallow_flash=330,c03_iron_hammer=420}
 -- A melee hero stands where its weapon reaches the stand-in (backend units): the stand-in no longer comes to it,
 -- and from the usual 188 the blow landed on nothing. Ranged heroes keep the usual place.
-M.WEAPON_REACH={sasaki_kojiro=130,tokugawa_ieyasu=130,yamagata_masakage=130,okuma_tomohide=120,kojima_sadaoki=120,shimazu_yoshihiro=120,maeda_toshiie=140,maeda_keiji=140}
+M.WEAPON_REACH={otani_yoshitsugu=340,sasaki_kojiro=130,tokugawa_ieyasu=130,yamagata_masakage=130,okuma_tomohide=120,kojima_sadaoki=120,shimazu_yoshihiro=120,maeda_toshiie=140,maeda_keiji=140}
 -- Passives that answer to the hero's own casts: the segment casts them, it does not attack.
 M.CASTS_OWN={}
 M.LEARN_MIDWAY={b20_tenacity=true,c22_swallow_flash=true,c05_thunder_spear=true,b26_kozuke_valor=true,a14_stacked_spear=true,a26_twin_guns=true,c03_thunder_wrath=true}
@@ -545,7 +545,7 @@ function M.script(package)
     end
   end
   return {schema=1,hero=package.hero,hero_name=package.hero_name,title=package.title,
-    timing=json.object({caption_lead=1.5,hold=4.5,passive=6}),slots=slots}
+    timing=json.object({caption_lead=1.0,hold=4.5,passive=6}),slots=slots}
 end
 
 -- frames.jsonl from the renderer, sorted by frame index (workers finish out of order).

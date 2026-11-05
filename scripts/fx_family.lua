@@ -213,8 +213,8 @@ M.WEAPONS = {
   gun = { swing = { system = "pop", sprite = "spark_star", size = 110, life = 0.14,
       ground = "spark_star", ground_size = 90, ground_seconds = 0.2, height = 70, fly = true },
     strike = { system = "burst", sprite = "shock_ring", size = 170, life = 0.3, ground = "blink_flash", ground_size = 170, ground_seconds = 0.25, height = 30, grow = 0.4 } },
-  arcane = { swing = { system = "pop", sprite = "soft_glow", size = 60, life = 0.14, ground = "arcane_bolt", ground_size = 120, ground_seconds = 0.26, height = 70, fly = true, face_camera = 0.5 },
-    strike = { system = "burst", sprite = "spark_star", size = 170, life = 0.28, ground = "shock_ring", ground_size = 170, ground_fixed = true, ground_seconds = 0.26, height = 30, grow = 0.4 } },
+  arcane = { swing = { system = "pop", sprite = "soft_glow", size = 60, life = 0.14, ground = "arcane_bolt", ground_size = 85, ground_seconds = 0.26, height = 70, fly = true, face_camera = 0.5 },
+    strike = { system = "burst", sprite = "spark_star", size = 110, life = 0.28, ground = "shock_ring", ground_size = 120, ground_fixed = true, ground_seconds = 0.26, height = 30, grow = 0.4 } },
 }
 M.ATTACKS = {
   sasaki_kojiro = { "katana", { 0.05, 0.3, 1.0 }, { system = "pop", sprite = "iai_cut", size = 380, life = 0.24, ground = "soft_glow", ground_size = 150, ground_seconds = 0.2, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", GOLD }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { sprite = "rock", size = 130, life = 0.35, ground_size = 230, ground_roll = -30 } },
