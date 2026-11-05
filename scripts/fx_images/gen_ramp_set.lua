@@ -60,6 +60,18 @@ shapes.ramp_tracer = function(x, y)
   local a = math.exp(-(x / w) ^ 2) * smooth(0, 0.7, t) ^ 1.2
   return clamp(a * 1.5), clamp(a * mix(0.25, 0.9, t))
 end
+-- A thrown spear pointing up: a broad head with a hot point, a collar, a shaft; dark along every edge.
+shapes.ramp_spear = function(x, y)
+  if y < -0.95 or y > 0.95 then return 0, 0 end
+  local w
+  if y > 0.3 then w = 0.15 * math.min(1, (0.95 - y) / 0.5)
+  elseif y > 0.2 then w = 0.075
+  else w = 0.035 end
+  local e = math.abs(x) / math.max(w, 0.001)
+  local a = (1 - smooth(0.82, 1.05, e)) * smooth(-0.95, -0.7, y)
+  local h = (1 - smooth(0.25, 0.95, e)) * (y > 0.3 and mix(0.55, 1.0, (y - 0.3) / 0.65) or (y > 0.2 and 0.75 or 0.5))
+  return a, clamp(h)
+end
 -- A slash: a crescent with a thin tail at both tips, hot along its outer edge.
 shapes.ramp_slash = function(x, y)
   local d, ang = polar(x, y + 0.5)

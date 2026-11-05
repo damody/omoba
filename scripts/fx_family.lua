@@ -40,7 +40,7 @@ M.IMAGES = {
   rock = { gain = 1.2, spin = 6, soft = 150 },
   throw_axe = { gain = 1.3, spin = 18 },
   war_hammer = { rot = 1.571, gain = 1.3 },
-  fire_wings = { rot = 1.571, gain = 1.3 },
+  fire_wings = { rot = 1.571, gain = 1.3, halo = 1 },
   heal_ring = { gain = 1.3, spin = 0.6 },
   iron_shield = { gain = 1.1, spin = 0.5 },
   banner_rally = { gain = 1.2, spin = 0.4 },
@@ -60,7 +60,7 @@ M.IMAGES = {
   bolt_fork = { gain = 1.8 }, zigzag_bolt = { gain = 1.0 }, sword_wave = { rot = -1.571, gain = 1.0 }, pulse_ring = { gain = 1.0 },
   -- Ramp: red is heat, green is opacity, the cue's tint is the colour (scripts/fx_images/gen_ramp_set.lua).
   ramp_hit = { gain = 1.0, black = 0, ramp = 1 }, ramp_pops = { gain = 1.0, black = 0, ramp = 1 }, ramp_star = { gain = 1.0, black = 0, ramp = 1 }, ramp_tracer = { rot = -1.571, gain = 1.0, black = 0, ramp = 1 },
-  ramp_slash = { gain = 1.0, black = 0, ramp = 1 }, ramp_rays = { gain = 1.0, black = 0, ramp = 1 }, ramp_blast = { gain = 1.0, black = 0, ramp = 1 }, ramp_mark = { gain = 1.0, black = 0, ramp = 1 },
+  ramp_slash = { gain = 1.0, black = 0, ramp = 1 }, ramp_spear = { rot = -1.571, gain = 1.0, black = 0, ramp = 1 }, ramp_rays = { gain = 1.0, black = 0, ramp = 1 }, ramp_blast = { gain = 1.0, black = 0, ramp = 1 }, ramp_mark = { gain = 1.0, black = 0, ramp = 1 },
   ramp_ring_marks = { gain = 1.0, black = 0, ramp = 1 }, ramp_thin_ring = { gain = 1.0, black = 0, ramp = 1 }, ramp_band = { gain = 1.0, black = 0, ramp = 1 },
   -- Halo: brightness is opacity and the hue stays full, so a fade stays coloured over a bright ground (scripts/fx_images/gen_glow_set.lua).
   glow_tracer = { rot = -1.571, gain = 1.0, black = 0 }, glow_comet = { rot = -1.571, gain = 1.0, black = 0 }, glow_hit = { gain = 1.0, black = 0 }, glow_mark = { gain = 1.0, black = 0 }, glow_crit = { gain = 1.0, black = 0 }, glow_pops = { gain = 1.0, black = 0 }, glow_scorch = { gain = 1.0, black = 0 },
@@ -252,7 +252,7 @@ M.RECIPES.fx_swing_sasaki_kojiro = { ground = "sword_wave", ground_size = 180, g
 -- A passive has no cast: the renderer plays this as the spotlight learns it (AOmUnitActor::PlayNamedCue).
 M.RECIPES.fx_learn_c22_swallow_flash = { system = "burst", sprite = "crescent_slash", size = 340, life = 0.5, tint = STEEL, ground = "shock_ring", ground_size = 320, ground_fixed = true, ground_seconds = 0.6, grow = 0.4 }
 M.RECIPES.fx_swing_tokugawa_ieyasu.tint = { 1.0, 0.5, 0.06 }
-M.RECIPES.fx_layer_spear_glow = { ground = "ramp_tracer", ground_size = 420, ground_seconds = 0.6, height = 30, launch = 500, tint = { 1.0, 0.5, 0.04 } }
+M.RECIPES.fx_layer_spear_glow = { ground = "ramp_tracer", ground_size = 480, ground_seconds = 0.5, height = 60, launch = 500, front = 120, tint = { 1.0, 0.5, 0.04 } }
 -- A crit, on the unit that took it (OmUnitActor::OnCriticalHitCue).
 M.RECIPES.fx_crit = { tint = { 1, 1, 1 }, ground = "glow_crit", ground_size = 300, ground_seconds = 0.35, height = 70, grow = 0.6, face_camera = 0.85 }
 M.RECIPES.fx_layer_blast_scorch = { ground = "glow_scorch", ground_size = 420, ground_fixed = true, ground_seconds = 1.4, grow = 0.8 }
