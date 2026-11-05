@@ -57,7 +57,7 @@ M.IMAGES = {
   twin_muzzle = { rot = -1.571, gain = 1.0 },
   iai_cut = { gain = 1.0 },
   cut_cross = { gain = 1.0 },
-  bolt_fork = { gain = 1.8 }, zigzag_bolt = { gain = 1.0 }, sword_wave = { rot = -1.571, gain = 1.0 }, war_fan = { gain = 1.0 },
+  bolt_fork = { gain = 1.8 }, zigzag_bolt = { gain = 1.0 }, sword_wave = { rot = -1.571, gain = 1.0 }, pulse_ring = { gain = 1.0 }, war_fan = { gain = 1.0 },
   quake_burst = { gain = 1.0 },
   heal_cross = { gain = 1.0 },
   heal_rise = { gain = 1.0 },
@@ -217,7 +217,7 @@ M.WEAPONS = {
     strike = { system = "burst", sprite = "spark_star", size = 110, life = 0.28, ground = "shock_ring", ground_size = 120, ground_fixed = true, ground_seconds = 0.26, height = 30, grow = 0.4 } },
 }
 M.ATTACKS = {
-  sasaki_kojiro = { "katana", { 0.05, 0.3, 1.0 }, { system = "pop", sprite = "iai_cut", size = 380, life = 0.24, ground = "soft_glow", ground_size = 150, ground_seconds = 0.2, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", { 1.0, 0.66, 0.2 }, { size = 120, ground_size = 200 } }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { sprite = "rock", size = 130, life = 0.35, ground_size = 230, ground_roll = -30 } },
+  sasaki_kojiro = { "katana", { 0.05, 0.3, 1.0 }, { system = "pop", sprite = "iai_cut", size = 380, life = 0.24, ground = "soft_glow", ground_size = 150, ground_seconds = 0.2, height = 30, grow = 0.4, face_camera = false } }, tokugawa_ieyasu = { "katana", { 1.0, 0.66, 0.2 }, { size = 120, ground_size = 240 } }, yamagata_masakage = { "katana", { 1.0, 0.22, 0.06 }, { sprite = "rock", size = 130, life = 0.35, ground_size = 230, ground_roll = -30 } },
   okuma_tomohide = { "axe", { 1.0, 0.13, 0.01 }, { system = "burst", sprite = "spark_star", size = 190, life = 0.3, ground = "crescent_slash", ground_size = 240, ground_seconds = 0.26, height = 70, lead = -40, grow = 0.7, face_camera = 0.85, ground_roll = false } },
   kojima_sadaoki = { "axe", { 1.0, 0.55, 0.08 }, { sprite = "spark_star", size = 170, ground = "crack_gold", ground_size = 300, ground_fixed = true, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.12, 0.05 }, { sprite = "spark_star", size = 190, ground_size = 200 } },
@@ -240,10 +240,13 @@ M.RECIPES.fx_swing_nohime.ground, M.RECIPES.fx_swing_nohime.ground_size = "twin_
 
 -- Layers other cues play through `also`: no package names them.
 -- His blade light flies to what it strikes: at his longer reach the blow visibly crosses the gap.
-M.RECIPES.fx_swing_near_sasaki_kojiro = { ground = "iai_cut", ground_size = 170, ground_seconds = 0.2, height = 90, grow = 0.6, face_camera = 0.7, tint = { 1, 1, 1 } }
+M.RECIPES.fx_swing_near_sasaki_kojiro = { ground = "iai_cut", ground_size = 170, ground_seconds = 0.2, height = 90, grow = 0.6, face_camera = 0.7, tint = { 0.15, 0.45, 1.0 } }
 M.RECIPES.fx_swing_sasaki_kojiro = { ground = "sword_wave", ground_size = 180, ground_seconds = 0.2, height = 90, fly = true, face_camera = 0.7, tint = { 1, 1, 1 } }
 -- A passive has no cast: the renderer plays this as the spotlight learns it (AOmUnitActor::PlayNamedCue).
 M.RECIPES.fx_learn_c22_swallow_flash = { system = "burst", sprite = "crescent_slash", size = 340, life = 0.5, tint = STEEL, ground = "shock_ring", ground_size = 320, ground_fixed = true, ground_seconds = 0.6, grow = 0.4 }
+M.RECIPES.fx_swing_tokugawa_ieyasu.tint = { 1.0, 0.5, 0.06 }
+M.RECIPES.fx_layer_spear_glow = { ground = "spear_thrust", ground_size = 340, ground_seconds = 0.6, height = 30, launch = 500 }
+M.RECIPES.fx_layer_bomb_blast = { system = "pop", sprite = "blast_flare", size = 460, area = true, life = 0.5, tint = { 1, 1, 1 }, ground = "powder_ring", ground_size = 480, ground_fixed = true, ground_seconds = 0.5, height = 30, grow = 0.4 }
 M.RECIPES.fx_layer_nest_ring = { ground = "shock_ring", ground_size = 420, ground_fixed = true, ground_seconds = 0.5, grow = 0.35, tint = STEEL }
 M.RECIPES.fx_learn_b26_kozuke_valor = { system = "burst", sprite = "heal_rise", size = 230, life = 0.7, tint = { 0.1, 0.9, 0.25 }, ground = "shock_ring", ground_size = 340, ground_fixed = true, ground_seconds = 0.6, grow = 0.3 }
 M.RECIPES.fx_learn_b20_tenacity = { system = "burst", sprite = "heal_ring", size = 300, life = 0.6, tint = { 0.1, 0.9, 0.25 }, ground = "shock_ring", ground_size = 340, ground_fixed = true, ground_seconds = 0.6, grow = 0.4 }

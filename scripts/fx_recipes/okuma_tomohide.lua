@@ -8,7 +8,7 @@ return {
       ground = "vortex", ground_size = 700, ground_seconds = 0.6, grow = 0.3 },
     b26w_charge_fire = { system = "sparks", tint = FIRE },
     b26w_charge_pulse = { system = "burst", sprite = "spark_star", size = 240, life = 0.35, tint = FIRE,
-      ground = "shock_ring", ground_size = 620, ground_fixed = true, ground_seconds = 0.55, grow = 0.2 },
+      ground = "pulse_ring", ground_size = 620, ground_fixed = true, ground_seconds = 0.55, grow = 0.35 },
     b26w_fire_explode = { system = "sparks", tint = FIRE },
     b26w_slow_overhead = { system = "stream", sprite = "slow_chains", size = 80, life = 0.3, loop = true, alpha = 0.35, tint = BLUE },
     -- The closing shockwave, whichever way the charge ends

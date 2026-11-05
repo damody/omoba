@@ -22,7 +22,7 @@ return {
     a26t_small_bomb = { system = "stream", sprite = "flame_sheet", size = 35, life = 0.2, loop = true, face = true,
       mesh = "fire_bomb", ground_size = 70, ground_seconds = 20, height = 90, spin = 360 },
     a26t_overhead_bomb = { system = "stream", sprite = "spark_star", size = 50, life = 0.3, loop = true, tint = ORANGE },
-    a26t_big_explosion = { system = "burst", sprite = "flame_sheet", size = 700, life = 0.7,
+    a26t_big_explosion = { system = "burst", sprite = "flame_sheet", size = 700, life = 0.7, area = true, also = { "fx_layer_bomb_blast" },
       ground = "dust_crack", ground_size = 800, ground_seconds = 0.8, grow = 0.25 },
     a26t_small_explosion = { system = "burst", sprite = "rock", size = 130, life = 0.35, tint = ORANGE,
       ground = "dust_crack", ground_size = 260, ground_seconds = 0.35, grow = 0.4 },
