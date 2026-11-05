@@ -609,6 +609,9 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
                 if *enemy_radius>0 && !seen.iter().filter(enemy).any(|unit|unit.kind==1
                     && (unit.position-own).length_squared()<=radius*radius) {continue;}
                 let Some(tree)=tree_near(own,level.range) else {continue;};
+                // The authority measures the cast to the tree's centre (windup_target_allowed); the
+                // lookup admits a square that only reaches the range (B22 自然之力 OUT_OF_RANGE 11 of 11 on nobu).
+                if (tree-own).length_squared()>level.range*level.range {continue;}
                 let (Ok(x),Ok(y))=(i32::try_from(tree.x.raw()),i32::try_from(tree.y.raw())) else {continue;};
                 target_pos=Some(crate::runtime::Vec2I {x,y});None
             }
@@ -902,6 +905,8 @@ mod tests {
         let at=Some(crate::runtime::Vec2I {x:tree.x.raw() as i32,y:tree.y.raw() as i32});
         assert_eq!(decide(0,&[],&near),Some(at),"the nearest standing tree within the cast range");
         assert_eq!(decide(0,&[],&|_,_|None),None,"no tree, no cast");
+        let beyond=Vec2::new(reach,Fixed64::from_i32(40));
+        assert_eq!(decide(0,&[],&|_,_|Some(beyond)),None,"a tree whose centre is out of the cast range");
         assert_eq!(decide(500,&[],&near),None,"no enemy hero about");
         assert_eq!(decide(500,&[enemy],&near),Some(at),"an enemy hero within the radius");
         assert!(validate_policies(&[BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:ability.into(),intent:BotAbilityIntent::NearestTree {enemy_radius:0}}]).is_ok());
