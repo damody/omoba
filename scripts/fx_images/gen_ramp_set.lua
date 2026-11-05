@@ -130,6 +130,20 @@ shapes.ramp_blast_deep = function(x, y)
   return a, clamp(h * 0.55 + math.exp(-(d / 0.09) ^ 2))
 end
 -- A thrown spear pointing up: a broad head with a hot point, a collar, a shaft; dark along every edge.
+-- A thick jagged bolt from the left, ending in a short burst at the right: a ribbon stretched from attacker to target.
+shapes.ramp_bolt_hit = function(x, y)
+  local tri = function(t) return 2 * math.abs(t - math.floor(t + 0.5)) * 2 - 1 end
+  local c = (0.34 * tri(x * 1.9 + 0.2) + 0.16 * tri(x * 4.3 + 0.1)) * smooth(0.62, 0.3, x)
+  local e = math.abs(y - c) / 0.15
+  local bolt = (1 - smooth(0.7, 1.1, e)) * smooth(-1.0, -0.82, x) * (1 - smooth(0.6, 0.8, x))
+  local boltheat = (1 - smooth(0.1, 0.8, e)) * mix(0.6, 0.95, clamp((x + 1) / 1.6))
+  local d, ang = polar((x - 0.62) / 0.36, y)
+  local edge = 0.42 + 0.14 * noise(ang, 3.3) + 0.2 * math.max(0, math.sin(ang * 5 + 0.7)) ^ 4
+  local r = rays(ang, d, 9, 0.3, 2.7, 0.07)
+  local burst = math.max(1 - smooth(edge * 0.65, edge, d), r * 0.9)
+  local burstheat = clamp((1 - d / edge) * 0.8 + math.exp(-(d / 0.14) ^ 2))
+  return math.max(bolt, burst), bolt > burst and clamp(boltheat) or burstheat
+end
 shapes.ramp_spear = function(x, y)
   if y < -0.95 or y > 0.95 then return 0, 0 end
   local w
@@ -194,7 +208,7 @@ local function crc32(s) local c = 0xFFFFFFFF; for i = 1, #s do c = crc_table[(c 
 local function chunk(kind, data) return string.pack(">I4", #data) .. kind .. data .. string.pack(">I4", crc32(kind .. data)) end
 -- The textures are sRGB: written so the shader reads heat and opacity back as they were computed.
 local function encode(v) return math.floor(clamp(v) ^ (1 / 2.2) * 255 + 0.5) end
-local SIZES = { ramp_mist_cuts = 512, ramp_crack = 512, ramp_crack_deep = 512 }
+local SIZES = { ramp_mist_cuts = 512, ramp_crack = 512, ramp_crack_deep = 512, ramp_bolt_hit = 512 }
 for name, shape in pairs(shapes) do
   local N = SIZES[name] or N
   local rows = {}

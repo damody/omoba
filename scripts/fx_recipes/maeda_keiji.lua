@@ -13,7 +13,7 @@ return {
       ground = "arc_fork", ground_size = 170, ground_seconds = 0.35, height = 60, line = true, from_caster = true },
     -- c05_thunder_spear: a bolt along the thrust and a flash on the spear, then the target crackles
     c05r_chain_lightning = { tint = { 0.08, 0.3, 1.0 },
-      ground = "zigzag_bolt", ground_size = 340, ground_seconds = 0.5, height = 70, line = true },
+      ground = "ramp_bolt_hit", ground_size = 340, ground_seconds = 0.3, height = 70, line = true },
     c05r_tempest = { system = "stream", sprite = "lightning", size = 210, life = 0.3, loop = true, tint = BLUE },
     -- c05_flash_thunder: charge under him, the landing mark, the strike
     c05t_vo = { system = "pop", sprite = "lightning", size = 210, life = 0.3, tint = BLUE,
