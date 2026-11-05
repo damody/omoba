@@ -419,6 +419,7 @@ M.KEEPS_BUFFS={a12_mystic_arrow=true,a12_scheme=true}
 M.BURST={a12_mystic_arrow={5,5},a12_scheme={5,5,5,5,0},b20_tenacity={0}}
 M.HOLD_FOR={b20_red_charge=5,b26_unstoppable=3.5,a14_divine_strike=3,a12_mystic_possession=3.5,a12_mystic_arrow=3.5,b27_rending_blade=3.2,c22_dream_mist=2.8,a12_insight_flash=2.8}
 -- c03 不動戰錘: the hero stands far from the stand-in for it, and the blast is large: out before the cast.
+M.CAPTION_TOP={c05_flash_thunder=true}
 M.VIEW_EARLY={c05_flash_thunder=true,c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
 -- a14 on the lane stage: 衝擊槍 flies the stand-in (2800,2260) along the run into seat 10 (2800,1750), and the crash and its 350 show.
 -- 神現一擊 blinks 850 through the stand-in: straight along the run it lands on the cliff, a little aside it clears it, at about (2977,1573). Both frames hold the hero, the target and the landing.
@@ -495,6 +496,7 @@ function M.script(package)
     if M.LEARN_MIDWAY[slot.id] then slot.learn_midway=true end
     slot.stand_off=M.STAND_OFF[slot.id] or M.forward_offset(doc,slot.id) or M.WEAPON_REACH[package.hero]
     if M.VIEW_EARLY[slot.id] or M.FRAMED_HEROES[package.hero or ''] then slot.view_early=true end
+    if M.CAPTION_TOP[slot.id] then slot.caption_top=true end
     if M.WITHHELD[slot.id] then slot.withheld=true end
     if M.KEEPS_BUFFS[slot.id] then slot.keeps_buffs=true end
     slot.burst=M.BURST[slot.id]
