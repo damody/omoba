@@ -1,5 +1,5 @@
--- gen_glow_set.lua DIR: the glow images: a white-hot core, saturated rim, edges that fade out. Written for materials with Halo = 1:
--- brightness is opacity and the hue stays full, so a fade stays coloured over a bright ground. Uncompressed PNG, no libraries.
+-- gen_glow_set.lua DIR: the glow images. Two kinds. HALO ones are for materials with Halo = 1: brightness is opacity and the hue stays full, so a fade stays coloured over a bright ground.
+-- The others keep the plain material: a small white core, saturated body and a dark red rim that holds the outline on a bright ground. Uncompressed PNG, no libraries.
 local dir = assert(arg[1])
 local N = 512
 local pi = math.pi
@@ -37,26 +37,26 @@ local shapes = {}
 shapes.glow_tracer = function(x, y)
   local t = (y + 0.95) / 1.85
   if t < 0 or t > 1 then return 0, 0 end
-  local w = mix(0.018, 0.08, smooth(0, 0.85, t)) * (1 - smooth(0.9, 1, t) * 0.8)
+  local w = mix(0.03, 0.11, smooth(0, 0.85, t)) * (1 - smooth(0.9, 1, t) * 0.8)
   local a = math.exp(-(x / w) ^ 2) * smooth(0, 0.7, t) ^ 1.2
-  return a, clamp(a * mix(0.3, 1.0, t))
+  return a, clamp(a * mix(0.25, 0.8, t))
 end
 -- A crit's shot: a round hot head and a licking tail.
 shapes.glow_comet = function(x, y)
   local head = math.exp(-((x * x + (y - 0.45) ^ 2) / 0.06))
   local t = clamp((0.5 - y) / 1.4)
-  local w = mix(0.2, 0.01, t) * (0.8 + 0.2 * math.sin(y * 18))
+  local w = mix(0.2, 0.03, t) * (0.8 + 0.2 * math.sin(y * 18))
   local tail = y < 0.5 and math.exp(-(x / w) ^ 2) * (1 - t) ^ 1.3 or 0
   local a = math.max(head, tail * 0.9)
-  return clamp(a * 1.3), clamp(head * 1.0 + tail * 0.4)
+  return clamp(a * 1.3), clamp(head * 0.55 + tail * 0.25)
 end
 -- A hit: small and bright where it touches, thin rays out.
 shapes.glow_hit = function(x, y)
   local d, ang = math.sqrt(x * x + y * y), math.atan(y, x)
-  local core = math.exp(-(d / 0.2) ^ 2)
-  local r = rays(ang, d, 11, 0.12, 1.3, 0.05)
-  local a = math.max(core, r * 0.95, math.exp(-(d / 0.42) ^ 2) * 0.35)
-  return a, clamp(core * 1.1 + r * 0.3)
+  local edge = 0.36 + 0.2 * noise(ang, 2.1) + 0.2 * math.max(0, math.sin(ang * 7 + 1)) ^ 4
+  local body = 1 - smooth(edge * 0.8, edge, d)
+  local r = rays(ang, d, 11, 0.3, 1.3, 0.05)
+  return math.max(body, r * 0.9), clamp((1 - d / edge) * 1.05)
 end
 -- The small burn mark left on what was hit: a broken ring of embers.
 shapes.glow_mark = function(x, y)
@@ -82,13 +82,29 @@ shapes.glow_blast = function(x, y)
   local lick = 1 + 0.25 * math.sin(ang * 9 + d * 14) * smooth(0.2, 0.6, d)
   local r = rays(ang, d, 14, 0.5, 2.2, 0.03) * 0.8
   local a = math.max(clamp(body * lick), r)
-  return a, clamp((1 - smooth(0.0, edge, d)) * 0.95)
+  return a, clamp((1 - smooth(0.0, edge, d)) * 0.8)
+end
+-- A crit: long sharp spikes, deep red, far less white than a plain hit.
+shapes.glow_crit = function(x, y)
+  local d, ang = math.sqrt(x * x + y * y), math.atan(y, x)
+  local spike = math.max(0, math.cos(ang * 4 + 0.4)) ^ 6
+  local edge = 0.3 + 0.1 * noise(ang, 5.2) + 0.62 * spike
+  local body = 1 - smooth(edge * 0.75, edge, d)
+  return body, clamp((1 - d / edge) * 0.62 + math.exp(-(d / 0.07) ^ 2))
+end
+-- What a blast leaves: a burnt patch, embers at its edge.
+shapes.glow_scorch = function(x, y)
+  local d, ang = math.sqrt(x * x + y * y), math.atan(y, x)
+  local edge = 0.62 + 0.25 * noise(ang, 3.3)
+  local burn = (1 - smooth(edge * 0.7, edge, d)) * 0.6
+  local embers = math.exp(-((d - edge * 0.85) / 0.04) ^ 2) * (0.5 + 0.5 * math.sin(ang * 23))
+  return math.max(burn, embers), embers * 0.5
 end
 -- An area's edge: separate marks, a faint line between them. White, for the cue's tint.
 shapes.glow_ring_marks = function(x, y)
   local d, ang = math.sqrt(x * x + y * y), math.atan(y, x)
   local dash = smooth(0.25, 0.45, math.cos(ang * 16) * 0.5 + 0.5)
-  local a = math.exp(-((d - 0.94) / 0.03) ^ 2) * mix(0.14, 1, dash)
+  local a = math.exp(-((d - 0.93) / 0.045) ^ 2) * mix(0.45, 1, dash)
   return a, 1
 end
 -- A thin line round an area. White, for the cue's tint.
@@ -101,6 +117,8 @@ local crc_table = {}
 for i = 0, 255 do local c = i; for _ = 1, 8 do c = (c & 1) ~= 0 and (0xEDB88320 ~ (c >> 1)) or (c >> 1) end; crc_table[i] = c end
 local function crc32(s) local c = 0xFFFFFFFF; for i = 1, #s do c = crc_table[(c ~ s:byte(i)) & 255] ~ (c >> 8) end; return (c ~ 0xFFFFFFFF) & 0xFFFFFFFF end
 local function chunk(kind, data) return string.pack(">I4", #data) .. kind .. data .. string.pack(">I4", crc32(kind .. data)) end
+-- Halo materials read brightness as opacity, so their low heat stays as it is. The rest go dark at the rim.
+local HALO = { glow_spark_burst = true, glow_thin_ring = true }
 local function encode(v) return math.floor(clamp(v) ^ (1 / 2.2) * 255 + 0.5) end
 for name, shape in pairs(shapes) do
   local rows = {}
@@ -110,6 +128,7 @@ for name, shape in pairs(shapes) do
       local a, h = shape((px + 0.5) / N * 2 - 1, 1 - (py + 0.5) / N * 2)
       a = clamp(a)
       local r, g, b = heat_hue(clamp(h))
+      if not HALO[name] then local v = mix(0.45, 1, smooth(0, 0.3, clamp(h))); r, g, b = r * v, g * v, b * v end
       row[#row + 1] = string.char(encode(r * a), encode(g * a), encode(b * a), encode(a))
     end
     rows[#rows + 1] = table.concat(row)

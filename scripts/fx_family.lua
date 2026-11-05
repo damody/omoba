@@ -59,8 +59,8 @@ M.IMAGES = {
   cut_cross = { gain = 1.0 },
   bolt_fork = { gain = 1.8 }, zigzag_bolt = { gain = 1.0 }, sword_wave = { rot = -1.571, gain = 1.0 }, pulse_ring = { gain = 1.0 },
   -- Halo: brightness is opacity and the hue stays full, so a fade stays coloured over a bright ground (scripts/fx_images/gen_glow_set.lua).
-  glow_tracer = { rot = -1.571, gain = 1.0, black = 0, halo = 1 }, glow_comet = { rot = -1.571, gain = 1.0, black = 0, halo = 1 }, glow_hit = { gain = 1.0, black = 0, halo = 1 }, glow_mark = { gain = 1.0, black = 0, halo = 1 },
-  glow_spark_burst = { gain = 1.0, black = 0, halo = 1 }, glow_blast = { gain = 1.0, black = 0, halo = 1 }, glow_ring_marks = { gain = 1.0, black = 0, halo = 1 }, glow_thin_ring = { gain = 1.0, black = 0, halo = 1 }, war_fan = { gain = 1.0 },
+  glow_tracer = { rot = -1.571, gain = 1.0, black = 0 }, glow_comet = { rot = -1.571, gain = 1.0, black = 0 }, glow_hit = { gain = 1.0, black = 0 }, glow_mark = { gain = 1.0, black = 0 }, glow_crit = { gain = 1.0, black = 0 }, glow_scorch = { gain = 1.0, black = 0 },
+  glow_spark_burst = { gain = 1.0, black = 0, halo = 1 }, glow_blast = { gain = 1.0, black = 0 }, glow_ring_marks = { gain = 1.0, black = 0 }, glow_thin_ring = { gain = 1.0, black = 0, halo = 1 }, war_fan = { gain = 1.0 },
   quake_burst = { gain = 1.0 },
   heal_cross = { gain = 1.0 },
   heal_rise = { gain = 1.0 },
@@ -225,7 +225,7 @@ M.ATTACKS = {
   kojima_sadaoki = { "axe", { 1.0, 0.55, 0.08 }, { sprite = "spark_star", size = 170, ground = "crack_gold", ground_size = 300, ground_fixed = true, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.12, 0.05 }, { sprite = "spark_star", size = 190, ground_size = 200 } },
   maeda_toshiie = { "spear", { 1.0, 0.62, 0.05 }, { sprite = "spark_star", size = 120, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust", ground_size = 260, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } }, maeda_keiji = { "spear", BLUE, { sprite = "spark_star", size = 110, life = 0.22, tint = BLUE, ground = "blink_flash", ground_size = 170, ground_fixed = true, ground_seconds = 0.26, height = 80, line = false, grow = 0.4, face_camera = 0.7 } },
-  nohime = { "gun", { 1.0, 0.6, 0.25 }, { system = "pop", sprite = "glow_hit", size = 120, life = 0.2, tint = { 1, 1, 1 }, ground = "glow_mark", ground_size = 90, ground_seconds = 0.35, height = 60, grow = 0.7, face_camera = 0.8 } }, otani_yoshitsugu = { "arcane", ARCANE, { size = 170, area = false, ground_size = 180 } },
+  nohime = { "gun", { 1.0, 0.6, 0.25 }, { system = "pop", sprite = "glow_hit", size = 260, area = true, life = 0.28, tint = { 1, 1, 1 }, ground = "glow_mark", ground_size = 90, ground_seconds = 0.35, height = 60, grow = 0.7, face_camera = 0.8 } }, otani_yoshitsugu = { "arcane", ARCANE, { size = 170, area = false, ground_size = 180 } },
 }
 for hero, row in pairs(M.ATTACKS) do
   for part, recipe in pairs(M.WEAPONS[row[1]]) do
@@ -249,6 +249,8 @@ M.RECIPES.fx_swing_sasaki_kojiro = { ground = "sword_wave", ground_size = 180, g
 M.RECIPES.fx_learn_c22_swallow_flash = { system = "burst", sprite = "crescent_slash", size = 340, life = 0.5, tint = STEEL, ground = "shock_ring", ground_size = 320, ground_fixed = true, ground_seconds = 0.6, grow = 0.4 }
 M.RECIPES.fx_swing_tokugawa_ieyasu.tint = { 1.0, 0.5, 0.06 }
 M.RECIPES.fx_layer_spear_glow = { ground = "spear_thrust", ground_size = 340, ground_seconds = 0.6, height = 30, launch = 500 }
+M.RECIPES.fx_strike_crit_nohime = { system = "pop", sprite = "glow_crit", size = 380, area = true, life = 0.35, tint = { 1, 1, 1 }, ground = "glow_mark", ground_size = 120, ground_seconds = 0.45, height = 60, grow = 0.7, face_camera = 0.8 }
+M.RECIPES.fx_layer_blast_scorch = { ground = "glow_scorch", ground_size = 420, ground_fixed = true, ground_seconds = 1.4, grow = 0.8 }
 M.RECIPES.fx_layer_kick_ring = { ground = "glow_thin_ring", ground_size = 600, area = true, ground_fixed = true, ground_seconds = 0.4, grow = 0.6, tint = { 1.0, 0.5, 0.08 } }
 M.RECIPES.fx_layer_nest_ring = { ground = "shock_ring", ground_size = 420, ground_fixed = true, ground_seconds = 0.5, grow = 0.35, tint = STEEL }
 M.RECIPES.fx_learn_b26_kozuke_valor = { system = "burst", sprite = "heal_rise", size = 230, life = 0.7, tint = { 0.1, 0.9, 0.25 }, ground = "shock_ring", ground_size = 340, ground_fixed = true, ground_seconds = 0.6, grow = 0.3 }
