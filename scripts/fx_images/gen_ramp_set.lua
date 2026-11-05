@@ -71,9 +71,9 @@ shapes.ramp_mist_cuts = function(x, y)
     if t > -1 and t < 1 then
       local span = 1 - t * t
       local r = d - (r0 + 0.07 * t)
-      local v = (r > 0 and math.exp(-(r / (0.012 * span + 0.002)) ^ 2) or math.exp(r / (0.05 * span + 0.003))) * smooth(0, 0.25, span)
-      alpha = math.max(alpha, clamp(v * 1.3) ^ 1.1)
-      heat = math.max(heat, clamp(v ^ 2 * (0.4 + 0.45 * span)))
+      local v = (r > 0 and math.exp(-(r / (0.01 * span + 0.002)) ^ 2) or math.exp(r / (0.06 * span + 0.003))) * smooth(0, 0.25, span)
+      alpha = math.max(alpha, clamp(v * 2.4))
+      heat = math.max(heat, clamp(v ^ 3 * (0.35 + 0.5 * span) + 0.3 * v))
     end
   end
   return alpha, heat
@@ -143,7 +143,9 @@ local function crc32(s) local c = 0xFFFFFFFF; for i = 1, #s do c = crc_table[(c 
 local function chunk(kind, data) return string.pack(">I4", #data) .. kind .. data .. string.pack(">I4", crc32(kind .. data)) end
 -- The textures are sRGB: written so the shader reads heat and opacity back as they were computed.
 local function encode(v) return math.floor(clamp(v) ^ (1 / 2.2) * 255 + 0.5) end
+local SIZES = { ramp_mist_cuts = 512 }
 for name, shape in pairs(shapes) do
+  local N = SIZES[name] or N
   local rows = {}
   for py = 0, N - 1 do
     local row = { "\0" }
