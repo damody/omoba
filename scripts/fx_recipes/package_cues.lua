@@ -17,7 +17,7 @@ return { recipes = {
   b01r_hit = { system = "pop", sprite = "spark_star", size = 70, fixed_size = true, life = 0.18, tint = GOLD },
   b04e_impact = { system = "pop", sprite = "blink_flash", size = 90, fixed_size = true, life = 0.2, tint = ARCANE },
   b04e_blast = { system = "sparks", tint = ARCANE },
-  a12d_stack = { ground = "war_fan", ground_size = 240, ground_fixed = true, ground_seconds = 0.7, height = 150, face_camera = 0.9, grow = 0.25 },
+  a12d_stack = { mesh = "gunbai_fan", ground_size = 170, ground_seconds = 0.5, lead = 90, launch = 91, height = 80, grow = 0.15, face_viewer = true },
   a12d_ready = { system = "burst", sprite = "spark_star", size = 360, life = 0.6, tint = GOLD,
     ground = "shock_ring", ground_size = 520, ground_fixed = true, ground_seconds = 0.7, grow = 0.4 },
   a14r_stack_hit = { system = "pop", sprite = "stack_spears", size = 300, life = 0.36, tint = { 1.0, 0.42, 0.02 }, ground = "shock_ring", ground_size = 260, ground_seconds = 0.35, height = 30, grow = 0.5 },
