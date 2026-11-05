@@ -57,7 +57,7 @@ M.IMAGES = {
   twin_muzzle = { rot = -1.571, gain = 1.0 },
   iai_cut = { gain = 1.0 },
   cut_cross = { gain = 1.0 },
-  bolt_fork = { gain = 1.8 }, zigzag_bolt = { gain = 1.0 }, sword_wave = { rot = -1.571, gain = 1.0 },
+  bolt_fork = { gain = 1.8 }, zigzag_bolt = { gain = 1.0 }, sword_wave = { rot = -1.571, gain = 1.0 }, war_fan = { gain = 1.0 },
   quake_burst = { gain = 1.0 },
   heal_cross = { gain = 1.0 },
   heal_rise = { gain = 1.0 },
