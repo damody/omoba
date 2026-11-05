@@ -54,9 +54,9 @@ end
 shapes.glow_hit = function(x, y)
   local d, ang = math.sqrt(x * x + y * y), math.atan(y, x)
   local edge = 0.36 + 0.2 * noise(ang, 2.1) + 0.2 * math.max(0, math.sin(ang * 7 + 1)) ^ 4
-  local body = 1 - smooth(edge * 0.8, edge, d)
+  local body = 1 - smooth(edge * 0.6, edge, d)
   local r = rays(ang, d, 11, 0.3, 1.3, 0.05)
-  return math.max(body, r * 0.9), clamp((1 - d / edge) * 1.05)
+  return math.max(body, r * 0.9), clamp((1 - d / edge) * 0.8 + math.exp(-(d / 0.08) ^ 2))
 end
 -- The small burn mark left on what was hit: a broken ring of embers.
 shapes.glow_mark = function(x, y)
@@ -104,7 +104,7 @@ end
 shapes.glow_ring_marks = function(x, y)
   local d, ang = math.sqrt(x * x + y * y), math.atan(y, x)
   local dash = smooth(0.25, 0.45, math.cos(ang * 16) * 0.5 + 0.5)
-  local a = math.exp(-((d - 0.93) / 0.045) ^ 2) * mix(0.45, 1, dash)
+  local a = math.exp(-((d - 0.94) / 0.03) ^ 2) * mix(0.3, 1, dash)
   return a, 1
 end
 -- A thin line round an area. White, for the cue's tint.
