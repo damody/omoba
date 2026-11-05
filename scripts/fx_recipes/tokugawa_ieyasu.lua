@@ -5,7 +5,7 @@ local GOLD, GREEN, BLUE = { 1.0, 0.55, 0.08 }, { 0.1, 0.9, 0.25 }, { 0.12, 0.5, 
 return {
   recipes = {
     -- Q 東照權現: healing rings thrown out over the whole area, sparkles on each ally
-    a01w_holy_bolt = { system = "pop", sprite = "ramp_rays", size = 340, area = true, life = 0.5, tint = GREEN,
+    a01w_holy_bolt = { system = "pop", sprite = "ramp_blast", size = 300, area = true, life = 0.55, tint = GREEN,
       ground = "ramp_thin_ring", ground_size = 1100, ground_seconds = 0.7, grow = 0.25 },
     a01w_healing_ring = { system = "pop", sprite = "ramp_pops", size = 190, life = 0.45, tint = GREEN },
     -- W 天羅地網: the net flung at the cast, a net clinging to each rooted enemy while the root lasts
@@ -21,7 +21,7 @@ return {
     -- R 三河之勇: banners thrown up at the cast, a large banner on the ground while it lasts
     a01t_vo = { system = "pop", sprite = "ramp_star", size = 210, life = 0.45, tint = GOLD,
       mesh = "war_banner", ground_size = 210, ground_seconds = 2.5, grow = 0.5, face_viewer = true },
-    a01t_banner = { ground = "banner_rally", ground_size = 300, ground_seconds = 1.2, tint = GOLD },
+    a01t_banner = { ground = "ramp_thin_ring", ground_size = 300, ground_seconds = 1.2, tint = GOLD },
     -- Worn by every ally in the passive aura, creeps included and for as long as they stay: ground only, on purpose.
     a01t_ring = { ground = "shock_ring", ground_size = 110, ground_seconds = 1.2, tint = GOLD },
   },
