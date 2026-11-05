@@ -12,7 +12,7 @@ return {
     c05e_impact = { system = "pop", sprite = "soft_glow", size = 60, fixed_size = true, life = 0.2, tint = { 0.5, 0.8, 1.0 },
       ground = "arc_fork", ground_size = 170, ground_seconds = 0.35, height = 60, line = true, from_caster = true },
     -- c05_thunder_spear: a bolt along the thrust and a flash on the spear, then the target crackles
-    c05r_chain_lightning = { system = "pop", sprite = "soft_glow", size = 70, life = 0.2, tint = { 1, 1, 1 },
+    c05r_chain_lightning = { tint = { 1, 1, 1 },
       ground = "zigzag_bolt", ground_size = 340, ground_seconds = 0.3, height = 70, line = true },
     c05r_tempest = { system = "stream", sprite = "lightning", size = 210, life = 0.3, loop = true, tint = BLUE },
     -- c05_flash_thunder: charge under him, the landing mark, the strike

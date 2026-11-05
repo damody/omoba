@@ -404,7 +404,7 @@ M.STRUCK_AT={2700,2130}
 M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_tenacity={2480,2450}}
 M.HOLDS_STILL={b20_tenacity=true}
 -- b27 裂地刃 reaches 1000: the death's stand-ins are hit too, and at the usual cap (2) their ripples were cut off.
-M.VIEW_BACK={b27_rending_blade=2.7,a26_volley=1.45,a14_impact_spear=1.45,a14_divine_strike=1.6,c05_thunder_dance=1.4,c05_flash_thunder=1.6,a12_mystic_arrow=1.35,a12_scheme=1.35}
+M.VIEW_BACK={b27_rending_blade=2.7,a26_volley=1.45,a14_impact_spear=1.45,a14_divine_strike=1.6,c05_thunder_dance=1.4,c05_flash_thunder=1.5,a12_mystic_arrow=1.35,a12_scheme=1.35}
 -- Ranged: hero and stand-in stand far apart, in frame from the segment's start.
 M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
 -- The stage's showcase.withheld_abilities: no rank at birth, learned in their own segment.
@@ -423,7 +423,7 @@ M.VIEW_EARLY={c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
 -- a14 on the lane stage: 衝擊槍 flies the stand-in (2800,2260) along the run into seat 10 (2800,1750), and the crash and its 350 show.
 -- 神現一擊 blinks 850 through the stand-in: straight along the run it lands on the cliff, a little aside it clears it, at about (2977,1573). Both frames hold the hero, the target and the landing.
 M.STAND_AT={a14_divine_strike={2765,2396}}
-M.VIEW_AT={a14_impact_spear={2800,2075},a14_divine_strike={2870,1985},a12_mystic_arrow={2300,2640},a12_scheme={2300,2640}}
+M.VIEW_AT={c05_flash_thunder={2600,2280},a14_impact_spear={2800,2075},a14_divine_strike={2870,1985},a12_mystic_arrow={2300,2640},a12_scheme={2300,2640}}
 -- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
 M.CAST_AT={c05_flash_thunder={2440,2300}}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one.
