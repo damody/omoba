@@ -1,27 +1,27 @@
 -- B27 kojima_sadaoki: gold axe and cracked earth; red for the horsemanship surge.
-local GOLD, RED, SLOW = { 1.0, 0.55, 0.08 }, { 1.0, 0.2, 0.1 }, { 0.08, 0.3, 1.0 }
+local GOLD, RED, SLOW = { 1.0, 0.38, 0.02 }, { 0.9, 0.04, 0.01 }, { 0.08, 0.3, 1.0 }
 return {
   recipes = {
     -- b27_horsemanship: a red burst as he surges, then red motes while it lasts
-    b27w_vo = { system = "burst", sprite = "spark_star", size = 300, life = 0.5,
-      ground = "shock_ring", ground_size = 420, ground_fixed = true, ground_seconds = 0.4, grow = 0.3, tint = RED, alpha = 0.8 },
-    b27w_armlet_glow = { system = "stream", sprite = "spark_star", size = 90, life = 0.4, loop = true, tint = RED },
+    b27w_vo = { system = "pop", sprite = "ramp_star", size = 170, life = 0.3,
+      ground = "ramp_thin_ring", ground_size = 420, ground_fixed = true, ground_seconds = 0.4, grow = 0.3, tint = RED },
+    b27w_armlet_glow = { system = "stream", sprite = "ramp_pops", size = 85, life = 0.4, loop = true, tint = RED },
     -- b27_mighty_strike: throw swing, spinning axe in flight, chop on the target
-    b27e_vo = { system = "pop", sprite = "crescent_slash", size = 340, life = 0.26, tint = GOLD },
+    b27e_vo = { system = "pop", sprite = "ramp_slash", size = 210, life = 0.26, tint = GOLD },
     b27e_axe = { face = true, mesh = "throw_axe", ground_size = 110, ground_seconds = 20, height = 110, spin = 1080 },
-    b27e_hit_sound = { system = "burst", sprite = "crescent_slash", size = 340, life = 0.4, tint = GOLD,
-      ground = "dust_crack", ground_size = 400, ground_seconds = 0.45, grow = 0.4 },
+    b27e_hit_sound = { system = "pop", sprite = "ramp_hit", size = 150, life = 0.3, tint = GOLD,
+      ground = "ramp_crack", ground_size = 300, ground_seconds = 0.45, grow = 0.4 },
     -- b27_fearless_charge: fire at his feet; a shield thrust out before him; gold motes for the duration
-    b27r_vo = { ground = "banner_rally", ground_size = 240, ground_fixed = true, ground_seconds = 0.8, grow = 0.4 },
+    b27r_vo = { ground = "ramp_rays", ground_size = 240, ground_fixed = true, ground_seconds = 0.5, grow = 0.5, tint = GOLD },
     b27r_model_grow = { mesh = "tower_shield", ground_size = 160, ground_seconds = 0.9, grow = 0.6, lead = 55, launch = 85, face_blend = 0.5 },
-    b27r_b15w3_aura = { system = "stream", sprite = "spark_star", size = 85, life = 0.4, loop = true, tint = GOLD },
+    b27r_b15w3_aura = { system = "stream", sprite = "ramp_pops", size = 85, life = 0.4, loop = true, tint = GOLD },
     -- b27_rending_blade: a giant blade comes down, the earth breaks across his whole reach
-    b27t_vo = { system = "pop", sprite = "crescent_slash", size = 480, life = 0.3, tint = GOLD,
-      ground = "crack_gold", ground_size = 1500, area = true, ground_seconds = 2.4, grow = 0.15 },
-    b27t_slam = { system = "burst", sprite = "rock", size = 120, fixed_size = true, life = 0.5,
+    b27t_vo = { system = "pop", sprite = "ramp_slash", size = 210, life = 0.3, tint = GOLD,
+      ground = "ramp_crack", ground_size = 1300, area = true, ground_seconds = 2.4, grow = 0.15 },
+    b27t_slam = { system = "pop", sprite = "ramp_hit", size = 170, fixed_size = true, life = 0.3, tint = GOLD,
       mesh = "fissure_blade", ground_size = 300, ground_seconds = 2.0, grow = 0.12, face_viewer = true },
-    b27t_screen_shake = { system = "burst", sprite = "spark_star", size = 220, life = 0.35, tint = GOLD,
-      ground = "shock_ring", ground_size = 300, ground_seconds = 0.4, grow = 0.3 },
+    b27t_screen_shake = { system = "pop", sprite = "ramp_star", size = 180, life = 0.3, tint = GOLD,
+      ground = "ramp_thin_ring", ground_size = 300, ground_seconds = 0.4, grow = 0.3 },
     b27t_move_slow = { ground = "slow_chains", ground_size = 170, ground_seconds = 1.2, tint = SLOW },
   },
   notes = {
