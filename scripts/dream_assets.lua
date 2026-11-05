@@ -305,6 +305,8 @@ function M.main(argv)
     end
     if given then table.insert(passed,1,given);table.insert(passed,1,'--project') end
     local project=given and p.absolute(given,b.root) or p.join(b.root,'omfue')
+    -- First: the instances name these images.
+    require('fx_family').ensure_images((project:gsub('\\','/')),M.FLAGS)
     local stale=M.stale((project:gsub('\\','/')))
     print(('[dream-assets] %d material and %d Niagara assets to rebuild'):format(stale.shader,stale.fx))
     local function build(tool,verb,...)

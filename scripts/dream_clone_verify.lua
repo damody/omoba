@@ -1,4 +1,4 @@
--- Rehearses a clone that holds only the text of the text-owned assets, with nothing from the working tree: what is committed,
+-- Rehearses a clone that holds only the sources of the assets built from them, with nothing from the working tree: what is committed,
 -- minus those .uasset files. It finds what such a clone lacks (a submodule, an untracked input, a hard-coded path).
 --
 --   tools\lua\lua.exe scripts\dream_clone_verify.lua clone  --dir DIR   clone HEAD and its submodules from the local repositories, no network
@@ -71,6 +71,7 @@ function M.main(argv)
     return 0
   elseif verb=='strip' then
     local files=M.text_owned(lfs,dir..'/omfue')
+    for _,row in ipairs(require('fx_family').image_assets()) do files[#files+1]=dir..'/omfue/'..row.asset end
     local removed=0
     for _,file in ipairs(files) do
       if lfs.attributes(file) then assert(os.remove(file),file);removed=removed+1 end

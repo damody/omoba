@@ -381,20 +381,62 @@ function M.stale_instances(dir)
   return stale
 end
 
--- Imports images whose pixels changed (an unchanged one is left alone), writes the text, rebuilds what is older than its text.
-function M.apply()
+-- Every image asset, relative to the project, with its source file. The source and these settings (OmFxFamilyBuilder) are all
+-- an asset holds: a reimport differs only in its GUIDs and saved hash.
+function M.image_assets(root)
+  local rows = {}
+  local spec = M.spec(root)
+  for _, field in ipairs({ "textures", "meshes" }) do
+    for _, row in ipairs(spec[field]) do
+      rows[#rows + 1] = { asset = "Content/Omoba/VFX/Fx/Textures/T_" .. row.id .. ".uasset", source = row.file }
+    end
+  end
+  return rows
+end
+
+-- Imports images whose pixels changed; an unchanged one is left alone. A clean clone has only the sources.
+function M.import_images(project, flags)
   local process = b.lib("process")
-  local dream = require("dream_assets")
-  local project = path.join(b.root, "omfue")
   local spec = path.join(b.root, "target/fx-family/spec.json")
   path.mkdir_p(path.parent(spec))
   json.write(spec, M.spec(b.root), true)
   do
-    local lock <close> = require("build_lock").acquire(b.root, "fx_family --apply")
+    local lock <close> = require("build_lock").acquire(b.root, "fx_family images")
     local args = { path.join(project, "om.uproject"), "-run=OmCueVfx", "-fx-family=" .. spec }
-    for _, flag in ipairs(dream.FLAGS) do args[#args + 1] = flag end
+    for _, flag in ipairs(flags) do args[#args + 1] = flag end
     assert(process.run("D:/UE5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe", args, { cwd = project, check = false, label = "fx images" }).exit_code == 0, "image import failed")
   end
+end
+
+-- Images whose asset is missing or older than the source. Importing leaves an unchanged asset's time alone, so it touches them.
+function M.stale_images(project)
+  local lfs = require("lfs")
+  local stale = {}
+  for _, row in ipairs(M.image_assets(b.root)) do
+    local asset = lfs.attributes(project .. "/" .. row.asset, "modification")
+    local image = assert(lfs.attributes(row.source, "modification"), row.source)
+    if not asset or asset < image then stale[#stale + 1] = row end
+  end
+  return stale
+end
+
+function M.ensure_images(project, flags)
+  local lfs = require("lfs")
+  local stale = M.stale_images(project)
+  print(("[fx-family] %d images to import"):format(#stale))
+  if #stale == 0 then return end
+  M.import_images(project, flags)
+  for _, row in ipairs(stale) do
+    local file = project .. "/" .. row.asset
+    assert(lfs.attributes(file), "not imported: " .. file)
+    lfs.touch(file)
+  end
+end
+
+-- Imports images, writes the text, rebuilds what is older than its text.
+function M.apply()
+  local dream = require("dream_assets")
+  M.import_images(path.join(b.root, "omfue"), dream.FLAGS)
   local dir = path.join(b.root, M.INSTANCES)
   local count = 0
   for name, text in pairs(M.stale_instances(dir)) do

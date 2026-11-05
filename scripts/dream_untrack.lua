@@ -1,5 +1,5 @@
--- Stops version control tracking the assets built from text: they come back from DShader/ and DFX/ (dream_assets.lua ensure,
--- the first asset step of build_ue_moba). History is untouched and the files stay on disk.
+-- Stops version control tracking the assets built from text: they come back from DShader/, DFX/ and the images fx_family.lua lists
+-- (dream_assets.lua ensure, the first asset step of build_ue_moba). History is untouched and the files stay on disk.
 --
 --   tools\lua\lua.exe scripts\dream_untrack.lua           what would change
 --   tools\lua\lua.exe scripts\dream_untrack.lua --apply   write the .gitignore block and git rm --cached, staged only: commit them yourself
@@ -12,7 +12,7 @@ local M={}
 M.BEGIN='# Built from text (scripts/dream_untrack.lua): run build_ue_moba after a clone'
 M.END='# End of assets built from text'
 -- Everything directly in these is text, so a new asset there needs no new line.
-M.WHOLE={'Content/Omoba/VFX/Fx','Content/Omoba/VFX/Fx/Instances','Content/Omoba/VFX/Fx/Systems'}
+M.WHOLE={'Content/Omoba/VFX/Fx','Content/Omoba/VFX/Fx/Instances','Content/Omoba/VFX/Fx/Systems','Content/Omoba/VFX/Fx/Textures'}
 
 -- The .gitignore text with the block replaced.
 function M.ignore_text(text,files)
@@ -41,6 +41,9 @@ function M.main(argv)
   local omfue=(p.join(b.root,'omfue'):gsub('\\','/'))
   local files={}
   for _,file in ipairs(require('dream_clone_verify').text_owned(lfs,omfue)) do files[#files+1]=file:sub(#omfue+2) end
+  local known={}
+  for _,row in ipairs(require('fx_family').image_assets()) do files[#files+1]=row.asset;known[row.asset]=true end
+  table.sort(files)
   local missing={}
   for _,file in ipairs(files) do if not lfs.attributes(omfue..'/'..file) then missing[#missing+1]=file end end
   assert(#missing==0,'no file on disk, run dream_assets.lua ensure first:\n'..table.concat(missing,'\n'))
@@ -51,6 +54,10 @@ function M.main(argv)
   end
   local tracked={}
   for line in git({'ls-files','Content'}):gmatch('[^\r\n]+') do tracked[line]=true end
+  -- The Textures line ignores the whole folder: an image without a source would be lost.
+  for line in pairs(tracked) do
+    assert(not line:match('^Content/Omoba/VFX/Fx/Textures/') or known[line],'not in fx_family.lua: '..line)
+  end
   local list={}
   for _,file in ipairs(files) do if tracked[file] then list[#list+1]=file end end
   print(('%d assets built from text, %d still tracked'):format(#files,#list))
