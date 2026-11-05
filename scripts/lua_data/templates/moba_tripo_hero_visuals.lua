@@ -98,11 +98,27 @@ return function(ctx)
     return {palm[1]-s*w.center_z,palm[2],palm[3]+s*gx},{-90,0,0}
   end
 
+  -- First-version bodies: shared library clips only, melee or ranged by the hero's attack range.
+  local first_version={
+    tachibana_ginchiyo='melee',
+    inaba_ittetsu='ranged',
+    kakizaki_kageie='melee',
+    torii_mototada='ranged',
+    sakuma_morimasa='melee',
+    akechi_mitsuhide='melee',
+    ukita_hideie='ranged',
+    shima_sakon='melee',
+  }
+  for hero,kind in pairs(first_version)do
+    definitions[hero]=kind=='ranged' and {idle='Idle_Loop',attack='Spell_Simple_Shoot',critical='Spell_Simple_Shoot',impact=0.5}
+      or {idle='Idle_Loop',attack='Sword_Attack',critical='Sword_Attack',impact=0.65}
+  end
   -- Heroes whose Tripo rig and retargeted clips are imported and verified.
   local imported={saika_magoichi=true,date_masamune=true,omatsu=true,oichi=true,inahime=true,asai_nagamasa=true,
     murakami_yoshikiyo=true,tamako=true,honda_tadakatsu=true,sanada_yukimura=true,tokugawa_ieyasu=true,
     yamagata_masakage=true,okuma_tomohide=true,sasaki_kojiro=true,otani_yoshitsugu=true,maeda_toshiie=true,nohime=true,kojima_sadaoki=true,shimazu_yoshihiro=true,maeda_keiji=true,minion_ashigaru=true,minion_archer=true,minion_siege=true,
     jungle_kappa=true,jungle_tengu=true,jungle_oni=true}
+  for hero in pairs(first_version)do imported[hero]=true end
   -- Build-time colour variants (manifest recolor block, scripts/recolor_characters.lua) whose texture and
   -- material are imported: the variant material replaces the body's single section. Oichi's pale pink
   -- read as white beside Omatsu at MOBA distance.
