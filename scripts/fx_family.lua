@@ -57,7 +57,7 @@ M.IMAGES = {
   twin_muzzle = { rot = -1.571, gain = 1.0 },
   iai_cut = { gain = 1.0 },
   cut_cross = { gain = 1.0 },
-  bolt_fork = { gain = 1.8 }, zigzag_bolt = { gain = 1.0 },
+  bolt_fork = { gain = 1.8 }, zigzag_bolt = { gain = 1.0 }, sword_wave = { rot = -1.571, gain = 1.0 },
   quake_burst = { gain = 1.0 },
   heal_cross = { gain = 1.0 },
   heal_rise = { gain = 1.0 },
@@ -120,9 +120,9 @@ M.RECIPES = {
     ground = "blink_flash", ground_size = 340, ground_seconds = 0.4, height = 30, grow = 0.4 },
   c22r_crit_sound = { system = "pop", sprite = "cut_cross", size = 340, life = 0.28, tint = GOLD,
     ground = "crescent_slash", ground_size = 420, ground_seconds = 0.28, height = 90, grow = 0.5, face_camera = 0.9, ground_roll = 60 },
-  c22w_voice = { system = "burst", sprite = "swallow", size = 210, life = 0.5, tint = STEEL },
+  c22w_voice = { system = "burst", sprite = "swallow", size = 340, life = 0.5, tint = STEEL, ground = "shock_ring", ground_size = 420, ground_fixed = true, ground_seconds = 0.5, grow = 0.35 },
   c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, bold = true, tint = STEEL,
-    ground = "vortex", ground_size = 480, ground_seconds = 1.5 },
+    ground = "vortex", ground_size = 480, ground_seconds = 0.9, grow = 0.3 },
   c22t_thunder_clap = { system = "pop", sprite = "cut_cross", size = 380, fixed_size = true, life = 0.35, tint = STEEL, also = { "fx_layer_mist_cuts" } },
   -- A26 濃姬: gunpowder fire and smoke
   a26w_hit_explosion = { look = "explosion_small" },
@@ -240,6 +240,10 @@ M.RECIPES.fx_swing_nohime.from_hand, M.RECIPES.fx_swing_nohime.height = true, ni
 M.RECIPES.fx_swing_nohime.ground, M.RECIPES.fx_swing_nohime.ground_size = "twin_muzzle", 170
 
 -- Layers other cues play through `also`: no package names them.
+-- His blade light flies to what it strikes: at his longer reach the blow visibly crosses the gap.
+M.RECIPES.fx_swing_sasaki_kojiro = { ground = "sword_wave", ground_size = 230, ground_seconds = 0.2, height = 90, fly = true, face_camera = 0.7, tint = { 1, 1, 1 } }
+-- A passive has no cast: the renderer plays this as the spotlight learns it (AOmUnitActor::PlayNamedCue).
+M.RECIPES.fx_learn_c22_swallow_flash = { system = "burst", sprite = "crescent_slash", size = 340, life = 0.5, tint = STEEL, ground = "shock_ring", ground_size = 320, ground_fixed = true, ground_seconds = 0.6, grow = 0.4 }
 M.RECIPES.fx_layer_mist_cuts = { ground = "mist_cuts", ground_size = 1500, area = true, ground_seconds = 1.3, grow = 0.4 }
 M.RECIPES.fx_layer_possession_flare = { ground = "possession_flare", ground_size = 300, ground_fixed = true, ground_seconds = 0.55, grow = 0.45, delay = 0.05 }
 M.RECIPES.fx_layer_possession_embers = { system = "burst", sprite = "spark_star", size = 60, life = 0.6, tint = { 0.5, 0.1, 1.0 }, delay = 0.1 }
