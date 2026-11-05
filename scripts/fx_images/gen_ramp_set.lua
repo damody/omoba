@@ -99,6 +99,11 @@ shapes.ramp_crack = function(x, y)
   end
   return alpha, heat
 end
+-- The same fissures, cooler: a strong tint stays deep along them.
+shapes.ramp_crack_deep = function(x, y)
+  local a, h = shapes.ramp_crack(x, y)
+  return a, h * 0.6
+end
 -- A thrown spear pointing up: a broad head with a hot point, a collar, a shaft; dark along every edge.
 shapes.ramp_spear = function(x, y)
   if y < -0.95 or y > 0.95 then return 0, 0 end
@@ -164,7 +169,7 @@ local function crc32(s) local c = 0xFFFFFFFF; for i = 1, #s do c = crc_table[(c 
 local function chunk(kind, data) return string.pack(">I4", #data) .. kind .. data .. string.pack(">I4", crc32(kind .. data)) end
 -- The textures are sRGB: written so the shader reads heat and opacity back as they were computed.
 local function encode(v) return math.floor(clamp(v) ^ (1 / 2.2) * 255 + 0.5) end
-local SIZES = { ramp_mist_cuts = 512, ramp_crack = 512 }
+local SIZES = { ramp_mist_cuts = 512, ramp_crack = 512, ramp_crack_deep = 512 }
 for name, shape in pairs(shapes) do
   local N = SIZES[name] or N
   local rows = {}
