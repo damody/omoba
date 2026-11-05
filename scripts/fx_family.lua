@@ -559,7 +559,8 @@ function M.merge_ini(text)
   return before .. "(" .. table.concat(out, ",") .. ")" .. table.concat(abilities) .. after, nl
 end
 
-if arg and arg[0] and arg[0]:match("fx_family%.lua$") then
+-- Run, not required: dream_assets requires this module while arg[0] still names it.
+if (...) ~= "fx_family" and arg and arg[0] and arg[0]:match("fx_family%.lua$") then
   local i = 1
   while arg[i] do
     if arg[i] == "--spec" then
