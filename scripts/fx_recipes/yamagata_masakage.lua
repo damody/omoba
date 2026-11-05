@@ -14,7 +14,7 @@ return {
       mesh = "earth_crown", ground_size = 270, ground_seconds = 0.7, grow = 0.4 },
     -- R 赤備猛攻: every half second rocks burst outward (leaving the model visible) and red cracks fill the radius
     b20t_epicenter = { system = "burst", sprite = "rock", size = 110, fixed_size = true, life = 0.5, tint = { 1.0, 0.25, 0.1 },
-      ground = "crack_red", ground_size = 720, ground_fixed = true, ground_seconds = 0.55, grow = 0.45 },
+      ground = "crack_red", ground_size = 1000, ground_fixed = true, ground_seconds = 0.7, grow = 0.45 },
   },
   notes = {
     b20_rock_rush = "body on b20w_pick_sound (throw) and b20w_rock (flight); no landing cue, so rocks hit without a burst and the point shows nothing; b20w_stun has no cue either",
