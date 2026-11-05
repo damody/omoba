@@ -20,5 +20,5 @@ return { recipes = {
   a12d_stack = { mesh = "gunsen_fan", ground_size = 150, ground_seconds = 0.5, lead = 80, launch = 81, height = 50, grow = 0.75, delay = 0.25, face_viewer = true },
   a12d_ready = { system = "pop", sprite = "ramp_star", size = 180, life = 0.4, tint = { 1.0, 0.3, 0.02 },
     ground = "ramp_thin_ring", ground_size = 520, ground_fixed = true, ground_seconds = 0.5, grow = 0.4 },
-  a14r_stack_hit = { system = "pop", sprite = "stack_spears", size = 300, life = 0.36, tint = { 1.0, 0.42, 0.02 }, ground = "ramp_band", ground_size = 200, ground_seconds = 0.35, height = 30, grow = 0.5 },
+  a14r_stack_hit = { system = "pop", sprite = "ramp_hit", size = 130, life = 0.25, tint = { 1.0, 0.42, 0.02 }, ground = "ramp_spear", ground_size = 240, ground_seconds = 0.32, height = 110, grow = 0.7, face_camera = 0.85, front = 120, ground_roll = 90 },
 } }

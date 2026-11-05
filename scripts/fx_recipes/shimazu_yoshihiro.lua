@@ -14,8 +14,8 @@ return {
       ground = "ramp_crack", ground_size = 420, ground_fixed = true, ground_seconds = 0.9, grow = 0.4, tint = RED, also = { "fx_layer_quake_sparks" } },
     c03e_move_slow = { ground = "slow_chains", ground_size = 170, ground_seconds = 1.2, tint = SLOW },
     -- c03_thunder_wrath: a purple bolt strikes the target
-    c03r_thunder = { system = "pop", sprite = "lightning", size = 480, life = 0.3, tint = PURPLE,
-      ground = "ramp_rays", ground_size = 190, ground_seconds = 0.3, height = 20, grow = 0.5 },
+    c03r_thunder = { system = "pop", sprite = "lightning", size = 340, area = true, life = 0.35, tint = PURPLE,
+      ground = "ramp_rays", ground_size = 180, ground_seconds = 0.32, height = 40, grow = 0.6, face_camera = 0.75, front = 170 },
     -- c03_iron_hammer: a hammer flares at the start and marches; fire and cracks at every tick
     -- Each blow lands 300 ahead of where the hammer would start, so it flies that far ahead and meets them.
     -- It faces the viewer and does not tumble: end on, a hammer reads as a barrel.

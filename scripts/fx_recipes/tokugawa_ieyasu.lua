@@ -20,7 +20,7 @@ return {
       mesh = "thunder_sword", ground_size = 280, ground_seconds = 0.6, grow = 0.4, face_viewer = true },
     -- R 三河之勇: banners thrown up at the cast, a large banner on the ground while it lasts
     a01t_vo = { system = "pop", sprite = "ramp_star", size = 210, life = 0.45, tint = GOLD,
-      mesh = "war_banner", ground_size = 210, ground_seconds = 2.5, grow = 0.5, face_viewer = true },
+      mesh = "war_banner", ground_size = 170, ground_seconds = 1.6, grow = 0.5, face_viewer = true, lead = -90 },
     a01t_banner = { ground = "ramp_thin_ring", ground_size = 300, ground_seconds = 1.2, tint = GOLD },
     -- Worn by every ally in the passive aura, creeps included and for as long as they stay: ground only, on purpose.
     a01t_ring = { ground = "shock_ring", ground_size = 110, ground_seconds = 1.2, tint = GOLD },

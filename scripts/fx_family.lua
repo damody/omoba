@@ -127,8 +127,8 @@ M.RECIPES = {
     ground = "ramp_slash", ground_size = 240, ground_seconds = 0.28, height = 10, grow = 0.75, face_camera = 0.75, front = 120, ground_roll = -25 },
   c22r_crit_sound = { system = "pop", sprite = "ramp_star", size = 170, life = 0.25, tint = { 0.04, 0.22, 0.95 },
     ground = "ramp_slash", ground_size = 240, ground_seconds = 0.28, height = 10, grow = 0.75, face_camera = 0.75, front = 120, ground_roll = 60 },
-  c22w_voice = { system = "pop", sprite = "swallow", size = 200, life = 0.4, tint = { 0.04, 0.22, 0.95 }, also = { "fx_layer_nest_ring" } },
-  c22w_swallow_ring = { system = "stream", sprite = "swallow", size = 130, life = 1.1, loop = true, bold = true, tint = { 0.04, 0.22, 0.95 } },
+  c22w_voice = { system = "pop", sprite = "ramp_swallow", size = 200, life = 0.4, tint = { 0.04, 0.22, 0.95 }, also = { "fx_layer_nest_ring" } },
+  c22w_swallow_ring = { system = "stream", sprite = "ramp_swallow", size = 130, life = 1.1, loop = true, bold = true, tint = { 0.04, 0.22, 0.95 } },
   c22t_thunder_clap = { system = "pop", sprite = "ramp_star", size = 200, fixed_size = true, life = 0.3, tint = { 0.04, 0.22, 0.95 }, also = { "fx_layer_mist_cuts" } },
   -- A26 濃姬: gunpowder fire and smoke
   a26w_hit_explosion = { look = "explosion_small" },
@@ -267,7 +267,7 @@ M.RECIPES.fx_layer_possession_embers = { system = "burst", sprite = "ramp_pops",
 M.RECIPES.fx_layer_quake_sparks = { system = "sparks", tint = { 1.0, 0.45, 0.1 }, delay = 0.06 }
 M.RECIPES.fx_layer_powder_sparks = { system = "sparks", tint = { 1.0, 0.5, 0.08 }, delay = 0.05 }
 M.RECIPES.fx_layer_giant_nodachi = { mesh = "giant_nodachi", ground_size = 150, ground_seconds = 0.9, lead = 70, launch = 71, grow = 0.2 }
-M.RECIPES.fx_layer_oozutsu_cannon = { mesh = "oozutsu_cannon", ground_size = 170, ground_seconds = 0.5, lead = 130, launch = 131, grow = 0.4 }
+M.RECIPES.fx_layer_oozutsu_cannon = { mesh = "oozutsu_cannon", ground_size = 190, ground_seconds = 0.5, lead = 130, launch = 131, grow = 0.4, face_viewer = true }
 M.RECIPES.fx_layer_powder_keg = { mesh = "powder_keg", ground_size = 80, ground_seconds = 0.6, lead = 170, grow = 0.8 }
 M.RECIPES.fx_layer_mana_motes = { system = "sparks", tint = { 0.25, 0.55, 1.0 }, delay = 0.08 }
 
@@ -293,8 +293,8 @@ M.MESH_SOURCE = "omfue/SourceArt/Structures/TripoStaticV1"
 -- roll = 90 shows that side to whatever the cue faces (face_viewer); tilt: about its long axis, before the roll.
 M.MESHES = {
   throw_axe = {}, rocket = {}, cannon_shell = {}, arcane_arrow = { shade = 1.7, spec = 0.45 }, thunder_spear = {}, spear_head = {}, swallow = { tilt = -90 },
-  giant_nodachi = {}, oozutsu_cannon = {}, medicine_inro = {}, armor_plate = {}, powder_keg = {}, rock_chunk = {}, fire_bomb = {}, earth_crown = { sat = 0.88, shade = 1.7, spec = 0.12 }, shock_dome = { translucent = true },
-  war_hammer = { roll = 90, sat = 0.6, shade = 1.6, spec = 0.6 }, fissure_blade = { roll = 90 }, iron_bell = { roll = 90, translucent = true }, fire_wings = { roll = 90 }, thunder_sword = { roll = 90 }, war_banner = { roll = 90 },
+  giant_nodachi = {}, oozutsu_cannon = { roll = 90, sat = 0.9, shade = 1.6, spec = 0.5 }, medicine_inro = {}, armor_plate = {}, powder_keg = {}, rock_chunk = {}, fire_bomb = {}, earth_crown = { sat = 0.88, shade = 1.7, spec = 0.12 }, shock_dome = { translucent = true },
+  war_hammer = { roll = 90, sat = 0.6, shade = 1.6, spec = 0.6 }, fissure_blade = { roll = 90 }, iron_bell = { roll = 90, translucent = true }, fire_wings = { roll = 90 }, thunder_sword = { roll = 90 }, war_banner = { roll = 90, sat = 1.1, shade = 1.8, spec = 0.25 },
   tower_shield = { roll = -90, sat = 0.85, shade = 1.6, spec = 0.4 }, oni_mask = { roll = -90 }, gunbai_fan = { roll = -90 }, gunsen_fan = { roll = -90 }, fury_spear = { roll = 90 }, wind_spiral = { sat = 1.2, shade = 1.9 },
   -- Named by CueOverrides rows or kept for later, no recipe here at the moment.
   earth_spikes = {}, stone_shards = {},
