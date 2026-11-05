@@ -228,7 +228,7 @@ M.ATTACKS = {
   okuma_tomohide = { "axe", { 1.0, 0.13, 0.01 }, { system = "burst", sprite = "spark_star", size = 190, life = 0.3, ground = "crescent_slash", ground_size = 240, ground_seconds = 0.26, height = 70, lead = -40, grow = 0.7, face_camera = 0.85, ground_roll = false } },
   kojima_sadaoki = { "axe", { 1.0, 0.55, 0.08 }, { sprite = "spark_star", size = 170, ground = "crack_gold", ground_size = 300, ground_fixed = true, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.12, 0.05 }, { sprite = "spark_star", size = 190, ground_size = 200 } },
-  maeda_toshiie = { "spear", { 1.0, 0.62, 0.05 }, { sprite = "spark_star", size = 120, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust", ground_size = 260, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } }, maeda_keiji = { "spear", BLUE, { sprite = "spark_star", size = 110, life = 0.22, tint = BLUE, ground = "blink_flash", ground_size = 170, ground_fixed = true, ground_seconds = 0.26, height = 80, line = false, grow = 0.4, face_camera = 0.7 } },
+  maeda_toshiie = { "spear", { 1.0, 0.5, 0.04 }, { system = "pop", sprite = "ramp_hit", size = 120, life = 0.2, ground = "ramp_tracer", ground_size = 260, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } }, maeda_keiji = { "spear", BLUE, { sprite = "spark_star", size = 110, life = 0.22, tint = BLUE, ground = "blink_flash", ground_size = 170, ground_fixed = true, ground_seconds = 0.26, height = 80, line = false, grow = 0.4, face_camera = 0.7 } },
   nohime = { "gun", { 1.0, 0.6, 0.25 }, { system = false, sprite = false, size = false, life = false, tint = { 1, 1, 1 }, ground = "glow_hit", ground_size = 150, ground_seconds = 0.26, height = 60, grow = 0.7, face_camera = 0.85 } }, otani_yoshitsugu = { "arcane", ARCANE, { size = 170, area = false, ground_size = 180 } },
 }
 for hero, row in pairs(M.ATTACKS) do
@@ -252,7 +252,7 @@ M.RECIPES.fx_swing_sasaki_kojiro = { ground = "sword_wave", ground_size = 180, g
 -- A passive has no cast: the renderer plays this as the spotlight learns it (AOmUnitActor::PlayNamedCue).
 M.RECIPES.fx_learn_c22_swallow_flash = { system = "burst", sprite = "crescent_slash", size = 340, life = 0.5, tint = STEEL, ground = "shock_ring", ground_size = 320, ground_fixed = true, ground_seconds = 0.6, grow = 0.4 }
 M.RECIPES.fx_swing_tokugawa_ieyasu.tint = { 1.0, 0.5, 0.06 }
-M.RECIPES.fx_layer_spear_glow = { ground = "spear_thrust", ground_size = 340, ground_seconds = 0.6, height = 30, launch = 500 }
+M.RECIPES.fx_layer_spear_glow = { ground = "ramp_tracer", ground_size = 420, ground_seconds = 0.6, height = 30, launch = 500, tint = { 1.0, 0.5, 0.04 } }
 -- A crit, on the unit that took it (OmUnitActor::OnCriticalHitCue).
 M.RECIPES.fx_crit = { tint = { 1, 1, 1 }, ground = "glow_crit", ground_size = 300, ground_seconds = 0.35, height = 70, grow = 0.6, face_camera = 0.85 }
 M.RECIPES.fx_layer_blast_scorch = { ground = "glow_scorch", ground_size = 420, ground_fixed = true, ground_seconds = 1.4, grow = 0.8 }
