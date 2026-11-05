@@ -404,7 +404,7 @@ M.STRUCK_AT={2700,2130}
 M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_tenacity={2480,2450}}
 M.HOLDS_STILL={b20_tenacity=true}
 -- b27 裂地刃 reaches 1000: the death's stand-ins are hit too, and at the usual cap (2) their ripples were cut off.
-M.VIEW_BACK={b27_rending_blade=2.7,a14_impact_spear=1.45,a14_divine_strike=1.6,c05_thunder_dance=1.4,a12_mystic_arrow=1.35,a12_scheme=1.35}
+M.VIEW_BACK={b27_rending_blade=2.7,a26_volley=1.45,a14_impact_spear=1.45,a14_divine_strike=1.6,c05_thunder_dance=1.4,a12_mystic_arrow=1.35,a12_scheme=1.35}
 -- Ranged: hero and stand-in stand far apart, in frame from the segment's start.
 M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
 -- The stage's showcase.withheld_abilities: no rank at birth, learned in their own segment.
