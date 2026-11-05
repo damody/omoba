@@ -271,7 +271,7 @@ clone 後 OmGenerated 和 `om_bridge.h` 共 24 個檔案顯示已修改：23 個
 
 驗證：在沒有 Content 的影子裡從 PNG 重新匯入，和版控裡的檔案比對。89 個大小都相同，每個只差 6 段（20、32、16、32、16、16 位元組，最多 132 位元組），都落在檔案前約 3.8 KB，是 hash 與 GUID 的長度。其餘逐位元相同，包含壓縮後的來源像素與匯入設定（sRGB、LODGroup、壓縮、Address、NeverStream）。
 
-工具：`dream_assets.lua ensure` 先跑 `fx_family.ensure_images`，貼圖缺檔或 PNG 較新才匯入，之後才建材質，因為 instance 引用這些貼圖。`.gitignore` 整個資料夾忽略；已被追蹤的貼圖不在 `fx_family.lua` 時，`dream_untrack` 會報錯。沒有追蹤、也沒列在 `fx_family.lua` 的貼圖不會被擋，只被 ignore，不會重建。
+工具：`dream_assets.lua ensure` 先跑 `fx_family.ensure_images`，貼圖缺檔或 PNG 較新才匯入，之後才建材質，因為 instance 引用這些貼圖。`.gitignore` 整個資料夾忽略；已被追蹤的貼圖不在 `fx_family.lua` 時，`dream_untrack` 會報錯。沒有追蹤、也沒列在 `fx_family.lua` 的貼圖，現在由 `dream_assets owned` 擋下，見「clone 後的收尾」。
 
 提交：工具 8098e96e；omfue `.gitignore` 與 9c0e7fba（正好 89 筆刪除），主 repo 958e8926。
 
@@ -308,8 +308,28 @@ clone 後 OmGenerated 和 `om_bridge.h` 共 24 個檔案顯示已修改：23 個
 
 "不動"只表示不屬於這次的材質與特效範圍，沒有判斷它們能否由其他來源重建。
 
+## clone 後的收尾
+
+提交：omfue 9f957102，工具 74975141 與 6cfc9efe，主 repo 7cabb9d6。
+
+**未登記的 ignore 資產。** `dream_assets owned` 檢查 `.gitignore` 區塊的整個資料夾與明列檔案：磁碟上有、但不在 `fx_family.lua` 或 `DShader`／`DFX` 來源裡，就失敗並列出檔案。`build_ue_moba` 的 ensure 會跑它。`scripts/tests/dream_orphans_test.lua` 測判定，另用只有一張未登記貼圖的臨時專案實跑過，exit 1。
+
+**clone 後固定出現的 24 個已修改檔案。** 用 sparse clone 重現並逐檔比對：
+
+| 檔案 | 原因 | 修正 |
+|---|---|---|
+| OmGenerated 22 個 | 內容相同。checkout 寫 CRLF、產生器寫 LF，大小不同，git 不比內容就報已修改 | `.gitattributes` 固定 `text eol=lf` |
+| `om_bridge.h` 1 個 | sparse 驗證時以 live 產生的檔案代替 cbindgen，這個重現沒有單獨證明機制；重現前後都只見行尾差異 | 同上 |
+| `om_codegen_manifest.json` 1 個 | 137 行絕對路徑，`lua_input_hash` 也混入路徑 | 改成相對 `scripts/lua_data` 的路徑；hash 用相對路徑並把 CRLF 正規化。`content_hash` 不含它，marker 不變 |
+
+驗證：`core.autocrlf` 為 true 與 false 各一個 sparse clone（含 `om_bridge.h`），重新產生後 `git status` 都是 0 筆。`om_codegen` 測試通過，新增 `manifest_does_not_depend_on_the_checkout`。這次沒有跑全量 clone；上一次全量 clone 的已修改檔案只有這 24 個。
+
+**HUD 清單不需要改。** 看了 `sync_ue_hud_manifest_labels` 與 `ue_hud_portrait_coverage`：寫入內容只經 `ipairs`，JSON 鍵已排序，沒有變更時不寫入。上一次全量 clone 的 Content 也是 0 筆已修改。先前「順序會變」的記錄沒有重現。
+
+**引擎路徑。** `platform.ue_root(given)`：`--ue-root`、`UE_5_8_ROOT`、`UE_ROOT`、`UE_5_7_ROOT`，預設 `D:/UE5.8`。工具都改用它，`moba_role_launch`、`run_2player_ue`、`run_ue` 原本就先讀環境變數再搜尋常見路徑，維持不動。實測 `UE_5_8_ROOT` 會改變 `dream_switch` 的編輯器路徑；沒有在另一個引擎路徑上實跑建置。
+
 ## 還沒做
 
-材質與特效已全部處理。RustBP 藍圖與音效未處理，範圍不含。其餘待處理（不擋主線）見「停止追蹤與重新 clone 驗證」。
+材質與特效已全部處理。RustBP 藍圖與音效未處理，範圍不含。孤兒圖片繼續留著。
 
 另外發現：`fx_family.lua` 的 `AddVelocity.Velocity Speed Scale` 很可能沒有作用，已告知線 C。
