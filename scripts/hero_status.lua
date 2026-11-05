@@ -248,7 +248,13 @@ function M.collect(root,options)
         end
       end
       local ok,script=pcall(spotlight.load_package,root,package)
-      if ok then row.script={shown=#script.slots,unshown=script.unshown or {}}
+      if ok then
+        -- A summon's passive has no key to press: it runs while the summon is out.
+        local unshown={}
+        for _,u in ipairs(script.unshown or {}) do
+          if u.reason~='summon passive' then unshown[#unshown+1]=u end
+        end
+        row.script={shown=#script.slots,unshown=unshown}
       else row.script={error=tostring(script):match('[^\n]*')} end
       rows[#rows+1]=row
     end

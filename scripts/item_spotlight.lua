@@ -48,6 +48,8 @@ M.AIM = {
   self_recovery = { team = "self", target = "none" },
   -- A tree-target cast (B22 自然之力): shown on the tree stage (record_hero_spotlight.TREE_RECIPE).
   nearest_tree = { team = "tree", target = "point" },
+  -- A self cast that needs its status on an enemy around (C25 落櫻散華: bleeding): its segment follows the attacks.
+  self_area_status = { team = "self", target = "none" },
   -- A cast whose own condition needs a stage prop (E630), shown on the prop stage
   -- (record_hero_spotlight.PROPS_RECIPE): C19 奇襲 at an allied non-hero unit (the renderer aims
   -- at the nearest allied creep or building, "ally_anchor"); B23 亡靈之契 near a body.

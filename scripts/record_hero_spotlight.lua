@@ -411,7 +411,7 @@ M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
 -- A blow's passive would show in every attack: its segment goes after the attack, before the death (M.script).
 -- a12 奇計 counts casts, and nothing is cast after it: it stays beside the form it needs.
 M.WITHHELD={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true,c05_thunder_spear=true,a12_scheme=true,a26_scorching_bomb=true,b20_tenacity=true}
-M.AFTER_ATTACK={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true,c05_thunder_spear=true,a26_scorching_bomb=true,b20_tenacity=true}
+M.AFTER_ATTACK={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true,c05_thunder_spear=true,a26_scorching_bomb=true,b20_tenacity=true,c25_falling_sakura=true}
 -- a12 奇計 stacks on four arrows; the fifth cast, the form's 智芒乍現．遠 (slot 0), is the empowered one that stuns.
 -- Only inside the 20 s form do five casts fit in a segment, and only there can arrows fly: it stays open from R, its segments short.
 M.KEEPS_BUFFS={a12_mystic_arrow=true,a12_scheme=true}
