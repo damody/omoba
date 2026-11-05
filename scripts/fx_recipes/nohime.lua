@@ -13,7 +13,7 @@ return {
       ground = "powder_blast", ground_size = 600, area = true, ground_seconds = 0.5, grow = 0.35, also = { "fx_layer_powder_sparks" } },
     a26e_smoke = { system = "sparks", tint = ORANGE },
     -- a26_twin_guns: on a crit one flame leaves the pistol that fired. The cue comes at the windup's start; the shot is 0.2 s on, less with her attack speed. Its image has its own colours.
-    a26r_crit_gesture = { ground = "pistol_flare", ground_size = 180, ground_fixed = true, ground_seconds = 0.28, lead = 30, launch = 100, from_hand = true, delay = 0.15, grow = 0.6, face_camera = 0.85 },
+    a26r_crit_gesture = { ground = "pistol_flare", ground_size = 240, ground_fixed = true, ground_seconds = 0.3, lead = 30, launch = 300, from_hand = true, delay = 0.15, grow = 0.6, face_camera = 0.85, tint = { 1.0, 0.22, 0.12 } },
     -- a26_scorching_bomb
     a26t_voice = { system = "pop", sprite = "spark_star", size = 280, life = 0.45, tint = ORANGE, also = { "fx_layer_oozutsu_cannon" },
       ground = "arcane_circle", ground_size = 340, ground_seconds = 0.5, grow = 0.4 },
