@@ -37,9 +37,9 @@ local shapes = {}
 shapes.glow_tracer = function(x, y)
   local t = (y + 0.95) / 1.85
   if t < 0 or t > 1 then return 0, 0 end
-  local w = mix(0.012, 0.05, smooth(0, 0.85, t)) * (1 - smooth(0.9, 1, t) * 0.8)
+  local w = mix(0.018, 0.08, smooth(0, 0.85, t)) * (1 - smooth(0.9, 1, t) * 0.8)
   local a = math.exp(-(x / w) ^ 2) * smooth(0, 0.7, t) ^ 1.2
-  return a, clamp(a * mix(0.45, 1.25, t))
+  return a, clamp(a * mix(0.3, 1.0, t))
 end
 -- A crit's shot: a round hot head and a licking tail.
 shapes.glow_comet = function(x, y)
@@ -48,7 +48,7 @@ shapes.glow_comet = function(x, y)
   local w = mix(0.2, 0.01, t) * (0.8 + 0.2 * math.sin(y * 18))
   local tail = y < 0.5 and math.exp(-(x / w) ^ 2) * (1 - t) ^ 1.3 or 0
   local a = math.max(head, tail * 0.9)
-  return clamp(a * 1.3), clamp(head * 1.2 + tail * 0.55)
+  return clamp(a * 1.3), clamp(head * 1.0 + tail * 0.4)
 end
 -- A hit: small and bright where it touches, thin rays out.
 shapes.glow_hit = function(x, y)
@@ -56,7 +56,7 @@ shapes.glow_hit = function(x, y)
   local core = math.exp(-(d / 0.2) ^ 2)
   local r = rays(ang, d, 11, 0.12, 1.3, 0.05)
   local a = math.max(core, r * 0.95, math.exp(-(d / 0.42) ^ 2) * 0.35)
-  return a, clamp(core * 1.1 + r * 0.5)
+  return a, clamp(core * 1.1 + r * 0.3)
 end
 -- The small burn mark left on what was hit: a broken ring of embers.
 shapes.glow_mark = function(x, y)
@@ -69,10 +69,10 @@ end
 -- A kick's powder: sparks thrown outward, the middle left open for the body.
 shapes.glow_spark_burst = function(x, y)
   local d, ang = math.sqrt(x * x + y * y), math.atan(y, x)
-  local r = rays(ang, d, 26, 0.3, 4.1, 0.035)
-  local haze = math.exp(-((d - 0.4) / 0.2) ^ 2) * 0.28
+  local r = rays(ang, d, 26, 0.3, 4.1, 0.05)
+  local haze = math.exp(-((d - 0.4) / 0.2) ^ 2) * 0.18
   local a = math.max(r, haze)
-  return a, clamp(r * 0.85 * (1.15 - d * 0.7) + 0.12)
+  return a, clamp(r * 0.5 * (1.15 - d * 0.7) + 0.1)
 end
 -- An ultimate's fireball: lobed, hot in the middle, soft red at the rim.
 shapes.glow_blast = function(x, y)
@@ -82,19 +82,19 @@ shapes.glow_blast = function(x, y)
   local lick = 1 + 0.25 * math.sin(ang * 9 + d * 14) * smooth(0.2, 0.6, d)
   local r = rays(ang, d, 14, 0.5, 2.2, 0.03) * 0.8
   local a = math.max(clamp(body * lick), r)
-  return a, clamp((1 - smooth(0.0, edge, d)) * 1.15)
+  return a, clamp((1 - smooth(0.0, edge, d)) * 0.95)
 end
 -- An area's edge: separate marks, a faint line between them. White, for the cue's tint.
 shapes.glow_ring_marks = function(x, y)
   local d, ang = math.sqrt(x * x + y * y), math.atan(y, x)
   local dash = smooth(0.25, 0.45, math.cos(ang * 16) * 0.5 + 0.5)
-  local a = math.exp(-((d - 0.94) / 0.022) ^ 2) * mix(0.14, 1, dash)
+  local a = math.exp(-((d - 0.94) / 0.03) ^ 2) * mix(0.14, 1, dash)
   return a, 1
 end
 -- A thin line round an area. White, for the cue's tint.
 shapes.glow_thin_ring = function(x, y)
   local d = math.sqrt(x * x + y * y)
-  return math.exp(-((d - 0.93) / 0.018) ^ 2) + math.exp(-((d - 0.88) / 0.07) ^ 2) * 0.22, 1
+  return math.exp(-((d - 0.93) / 0.028) ^ 2) + math.exp(-((d - 0.88) / 0.07) ^ 2) * 0.22, 1
 end
 
 local crc_table = {}

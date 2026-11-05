@@ -225,7 +225,7 @@ M.ATTACKS = {
   kojima_sadaoki = { "axe", { 1.0, 0.55, 0.08 }, { sprite = "spark_star", size = 170, ground = "crack_gold", ground_size = 300, ground_fixed = true, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.12, 0.05 }, { sprite = "spark_star", size = 190, ground_size = 200 } },
   maeda_toshiie = { "spear", { 1.0, 0.62, 0.05 }, { sprite = "spark_star", size = 120, life = 0.2, tint = { 1, 1, 1 }, ground = "spear_thrust", ground_size = 260, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } }, maeda_keiji = { "spear", BLUE, { sprite = "spark_star", size = 110, life = 0.22, tint = BLUE, ground = "blink_flash", ground_size = 170, ground_fixed = true, ground_seconds = 0.26, height = 80, line = false, grow = 0.4, face_camera = 0.7 } },
-  nohime = { "gun", { 1.0, 0.6, 0.25 }, { system = "pop", sprite = "glow_hit", size = 120, life = 0.2, tint = { 1, 1, 1 }, ground = "glow_mark", ground_size = 90, ground_seconds = 0.35, height = 90, grow = 0.7, face_camera = 0.8 } }, otani_yoshitsugu = { "arcane", ARCANE, { size = 170, area = false, ground_size = 180 } },
+  nohime = { "gun", { 1.0, 0.6, 0.25 }, { system = "pop", sprite = "glow_hit", size = 120, life = 0.2, tint = { 1, 1, 1 }, ground = "glow_mark", ground_size = 90, ground_seconds = 0.35, height = 60, grow = 0.7, face_camera = 0.8 } }, otani_yoshitsugu = { "arcane", ARCANE, { size = 170, area = false, ground_size = 180 } },
 }
 for hero, row in pairs(M.ATTACKS) do
   for part, recipe in pairs(M.WEAPONS[row[1]]) do
