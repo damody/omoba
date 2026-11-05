@@ -229,7 +229,7 @@ M.ATTACKS = {
   kojima_sadaoki = { "axe", { 1.0, 0.55, 0.08 }, { sprite = "spark_star", size = 170, ground = "crack_gold", ground_size = 300, ground_fixed = true, height = false, face_camera = false, ground_roll = false } },
   shimazu_yoshihiro = { "axe", { 1.0, 0.09, 0.015 }, { system = "pop", sprite = "ramp_hit", size = 130, life = 0.25, ground = "ramp_slash", ground_size = 230, ground_seconds = 0.28, height = 10, grow = 0.75, face_camera = 0.75, front = 150, ground_roll = 15 } },
   maeda_toshiie = { "spear", { 1.0, 0.5, 0.04 }, { system = "pop", sprite = "ramp_hit", size = 120, life = 0.2, ground = "ramp_tracer", ground_size = 260, ground_seconds = 0.3, height = 70, lead = -125, line = false, grow = 0.85, face_camera = 0.85 } }, maeda_keiji = { "spear", BLUE, { sprite = "spark_star", size = 110, life = 0.22, tint = BLUE, ground = "blink_flash", ground_size = 170, ground_fixed = true, ground_seconds = 0.26, height = 80, line = false, grow = 0.4, face_camera = 0.7 } },
-  nohime = { "gun", { 1.0, 0.6, 0.25 }, { system = false, sprite = false, size = false, life = false, tint = { 1, 1, 1 }, ground = "glow_hit", ground_size = 150, ground_seconds = 0.26, height = 60, grow = 0.7, face_camera = 0.85 } }, otani_yoshitsugu = { "arcane", ARCANE, { size = 170, area = false, ground_size = 180 } },
+  nohime = { "gun", { 1.0, 0.6, 0.25 }, { system = false, sprite = false, size = false, life = false, tint = { 1, 1, 1 }, ground = "glow_hit", ground_size = 150, ground_seconds = 0.26, height = 60, grow = 0.7, face_camera = 0.85 } }, otani_yoshitsugu = { "arcane", { 0.3, 0.02, 0.85 }, { system = "pop", sprite = "ramp_hit", size = 120, life = 0.25, area = false, ground = "ramp_thin_ring", ground_size = 150, ground_seconds = 0.25, height = false, grow = 0.6 } },
 }
 for hero, row in pairs(M.ATTACKS) do
   for part, recipe in pairs(M.WEAPONS[row[1]]) do
@@ -263,7 +263,7 @@ M.RECIPES.fx_learn_b20_tenacity = { system = "burst", sprite = "heal_ring", size
 M.RECIPES.fx_learn_c03_thunder_wrath = { system = "pop", sprite = "ramp_star", size = 190, life = 0.4, tint = { 0.35, 0.02, 0.95 }, ground = "ramp_thin_ring", ground_size = 340, ground_fixed = true, ground_seconds = 0.5, grow = 0.4 }
 M.RECIPES.fx_layer_mist_cuts = { ground = "ramp_mist_cuts", ground_size = 1500, area = true, ground_seconds = 1.3, grow = 0.4, tint = { 0.04, 0.22, 0.95 } }
 M.RECIPES.fx_layer_possession_flare = { ground = "possession_flare", ground_size = 300, ground_fixed = true, ground_seconds = 0.55, grow = 0.45, delay = 0.05 }
-M.RECIPES.fx_layer_possession_embers = { system = "burst", sprite = "spark_star", size = 60, life = 0.6, tint = { 0.5, 0.1, 1.0 }, delay = 0.1 }
+M.RECIPES.fx_layer_possession_embers = { system = "burst", sprite = "ramp_pops", size = 60, life = 0.6, tint = { 0.3, 0.02, 0.85 }, delay = 0.1 }
 M.RECIPES.fx_layer_quake_sparks = { system = "sparks", tint = { 1.0, 0.45, 0.1 }, delay = 0.06 }
 M.RECIPES.fx_layer_powder_sparks = { system = "sparks", tint = { 1.0, 0.5, 0.08 }, delay = 0.05 }
 M.RECIPES.fx_layer_giant_nodachi = { mesh = "giant_nodachi", ground_size = 150, ground_seconds = 0.9, lead = 70, launch = 71, grow = 0.2 }
