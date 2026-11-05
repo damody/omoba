@@ -134,14 +134,14 @@ function M.match_evidence(root,run)
                   row.inputs=row.inputs+(cast.inputs or 0)
                 end
               end
-              local spent=0
               for id,dealt in pairs(hero.ability_damage or {}) do
                 local row=rows[id] or {casts=0,inputs=0,damage=0}
                 rows[id]=row
                 row.damage=row.damage+(dealt.damage or 0)
-                spent=spent+(dealt.damage or 0)
               end
-              out.attack[hero.hero]=(out.attack[hero.hero] or 0)+math.max((hero.damage or 0)-spent,0)
+              -- Basic attacks carry no ability tag (moba_headless DamageTrace).
+              local untagged=hero.ability_damage and hero.ability_damage['(untagged)']
+              out.attack[hero.hero]=(out.attack[hero.hero] or 0)+(untagged and untagged.damage or 0)
             end
           else
             out.failed[#out.failed+1]=group..'/'..file
@@ -314,7 +314,7 @@ function M.render(data)
   add('- **上架**：內容目錄的英雄列不是 `test_only`、不是墓碑，且有 `source_ref`（等於 `omoba_template_ids::hero_playable`）。')
   add('- **已產生**：這位英雄的招式裡，`v3_rust.lua` 沒有 blocker 的數量。')
   add('- **Q／W／E／R／其他**：headless 對局裡這招的實際施放次數（每個座位都算）。`被動` 無法施放，沒有驗證它的效果；`**0**` 是 bot 這幾局沒有施放，不等於放不出來；`未驗證` 是這次沒有這位英雄的對局。')
-  add('- **普攻**：這幾局裡不屬於任何招式的傷害，有就是 ✓。這是間接證據，沒有單獨量普攻次數。')
+  add('- **普攻**：這幾局裡沒有招式標記的傷害（`(untagged)`），有就是 ✓。這是間接證據，沒有單獨量普攻次數。')
   add('- **Tripo**：模型是 `Content/Omoba/Characters/TripoV1/<英雄>/<英雄>.uasset`；綁定要同時有 skeleton、重定向動作、列在 `moba_tripo_hero_visuals.imported`。沒有的英雄用共用人形。`.uasset` 只查存在，沒有開啟驗證。')
   add('- **演示腳本**：`record_hero_spotlight.load_package` 排得出的段數與跳過的招。**影片**：`target/spotlight/<英雄>/` 目前有的 mp4 與日期；舊影片可能已被清理，也可能早於最新內容。')
   add('- 影片只看目前的狀態，沒有判斷內容對不對。conformance 的逐招結果目前不在表內（`target/v3-conformance` 沒有結果）。')
