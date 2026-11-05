@@ -78,6 +78,27 @@ shapes.ramp_mist_cuts = function(x, y)
   end
   return alpha, heat
 end
+-- Fissures running out from the blow: thin, jagged, hot at the middle of each line and near the centre, dark along their edges.
+shapes.ramp_crack = function(x, y)
+  local d, ang = polar(x, y)
+  local alpha, heat = 0, 0
+  local function line(a0, from, reach, width, seed)
+    if d < from or d > reach then return end
+    local along = (d - from) / (reach - from)
+    local off = d * math.sin(ang - a0 - 0.16 * math.sin(d * 13 + seed) - 0.07 * math.sin(d * 31 + seed * 2))
+    if math.cos(ang - a0) < 0 then return end
+    local w = width * (1 - along * 0.85)
+    alpha = math.max(alpha, math.exp(-(off / (w * 1.5)) ^ 2) * (1 - smooth(0.8, 1, along)))
+    heat = math.max(heat, math.exp(-(off / (w * 0.6)) ^ 2) * (0.75 - 0.4 * d) * (1 - smooth(0.6, 1, along)))
+  end
+  for i = 0, 6 do
+    local a0 = i * 2 * pi / 7 + 0.4 * math.sin(i * 3.7)
+    local reach = 0.72 + 0.23 * math.sin(i * 8.3) ^ 2
+    line(a0, 0.03, reach, 0.028, i * 1.9)
+    line(a0 + (i % 2 == 0 and 0.42 or -0.42), reach * 0.42, reach * 0.85, 0.016, i * 2.7 + 1)
+  end
+  return alpha, heat
+end
 -- A thrown spear pointing up: a broad head with a hot point, a collar, a shaft; dark along every edge.
 shapes.ramp_spear = function(x, y)
   if y < -0.95 or y > 0.95 then return 0, 0 end
@@ -143,7 +164,7 @@ local function crc32(s) local c = 0xFFFFFFFF; for i = 1, #s do c = crc_table[(c 
 local function chunk(kind, data) return string.pack(">I4", #data) .. kind .. data .. string.pack(">I4", crc32(kind .. data)) end
 -- The textures are sRGB: written so the shader reads heat and opacity back as they were computed.
 local function encode(v) return math.floor(clamp(v) ^ (1 / 2.2) * 255 + 0.5) end
-local SIZES = { ramp_mist_cuts = 512 }
+local SIZES = { ramp_mist_cuts = 512, ramp_crack = 512 }
 for name, shape in pairs(shapes) do
   local N = SIZES[name] or N
   local rows = {}
