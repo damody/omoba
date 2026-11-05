@@ -404,7 +404,7 @@ M.STRUCK_AT={2700,2130}
 M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_tenacity={2480,2450}}
 M.HOLDS_STILL={b20_tenacity=true}
 -- b27 裂地刃 reaches 1000: the death's stand-ins are hit too, and at the usual cap (2) their ripples were cut off.
-M.VIEW_BACK={b27_rending_blade=2.7,a14_impact_spear=1.6,a14_divine_strike=1.6,a12_mystic_arrow=1.35,a12_scheme=1.35}
+M.VIEW_BACK={b27_rending_blade=2.7,a14_impact_spear=1.45,a14_divine_strike=1.6,c05_thunder_dance=1.4,a12_mystic_arrow=1.35,a12_scheme=1.35}
 -- Ranged: hero and stand-in stand far apart, in frame from the segment's start.
 M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
 -- The stage's showcase.withheld_abilities: no rank at birth, learned in their own segment.
@@ -417,7 +417,7 @@ M.AFTER_ATTACK={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true
 M.KEEPS_BUFFS={a12_mystic_arrow=true,a12_scheme=true}
 -- b20 強韌 restores after each cast of his: Q in its own segment shows it (W's crown overflows at this close camera).
 M.BURST={a12_mystic_arrow={5,5},a12_scheme={5,5,5,5,0},b20_tenacity={0}}
-M.HOLD_FOR={a12_mystic_possession=3.5,a12_mystic_arrow=3.5,b27_rending_blade=3.2,c22_dream_mist=2.8,a12_insight_flash=3.2}
+M.HOLD_FOR={a14_divine_strike=3,a12_mystic_possession=3.5,a12_mystic_arrow=3.5,b27_rending_blade=3.2,c22_dream_mist=2.8,a12_insight_flash=3.2}
 -- c03 不動戰錘: the hero stands far from the stand-in for it, and the blast is large: out before the cast.
 M.VIEW_EARLY={c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
 -- a14 on the lane stage: 衝擊槍 flies the stand-in (2800,2260) along the run into seat 10 (2800,1750), and the crash and its 350 show.
