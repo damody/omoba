@@ -88,14 +88,14 @@ shapes.ramp_crack = function(x, y)
     local off = d * math.sin(ang - a0 - 0.16 * math.sin(d * 13 + seed) - 0.07 * math.sin(d * 31 + seed * 2))
     if math.cos(ang - a0) < 0 then return end
     local w = width * (1 - along * 0.85)
-    alpha = math.max(alpha, math.exp(-(off / (w * 1.5)) ^ 2) * (1 - smooth(0.8, 1, along)))
-    heat = math.max(heat, math.exp(-(off / (w * 0.6)) ^ 2) * (0.75 - 0.4 * d) * (1 - smooth(0.6, 1, along)))
+    alpha = math.max(alpha, clamp(math.exp(-(off / (w * 1.5)) ^ 2) * 2.2) * (1 - smooth(0.8, 1, along)))
+    heat = math.max(heat, math.exp(-(off / (w * 0.6)) ^ 2) * (0.85 - 0.35 * d) * (1 - smooth(0.7, 1, along)))
   end
   for i = 0, 6 do
     local a0 = i * 2 * pi / 7 + 0.4 * math.sin(i * 3.7)
     local reach = 0.72 + 0.23 * math.sin(i * 8.3) ^ 2
-    line(a0, 0.03, reach, 0.028, i * 1.9)
-    line(a0 + (i % 2 == 0 and 0.42 or -0.42), reach * 0.42, reach * 0.85, 0.016, i * 2.7 + 1)
+    line(a0, 0.03, reach, 0.052, i * 1.9)
+    line(a0 + (i % 2 == 0 and 0.42 or -0.42), reach * 0.42, reach * 0.85, 0.03, i * 2.7 + 1)
   end
   return alpha, heat
 end

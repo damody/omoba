@@ -254,7 +254,7 @@ M.RECIPES.fx_learn_c22_swallow_flash = { system = "pop", sprite = "ramp_star", s
 M.RECIPES.fx_swing_tokugawa_ieyasu.tint = { 1.0, 0.5, 0.06 }
 M.RECIPES.fx_layer_spear_glow = { ground = "ramp_tracer", ground_size = 480, ground_seconds = 0.5, height = 60, launch = 500, front = 120, tint = { 1.0, 0.5, 0.04 } }
 -- A crit, on the unit that took it (OmUnitActor::OnCriticalHitCue).
-M.RECIPES.fx_crit = { tint = { 1, 1, 1 }, ground = "glow_crit", ground_size = 300, ground_seconds = 0.35, height = 70, grow = 0.6, face_camera = 0.85 }
+M.RECIPES.fx_crit = { tint = { 1, 1, 1 }, ground = "glow_crit", ground_size = 180, ground_seconds = 0.35, height = 70, grow = 0.6, face_camera = 0.85 }
 M.RECIPES.fx_layer_blast_scorch = { ground = "glow_scorch", ground_size = 420, ground_fixed = true, ground_seconds = 1.4, grow = 0.8 }
 M.RECIPES.fx_layer_kick_ring = { ground = "glow_thin_ring", ground_size = 600, area = true, ground_fixed = true, ground_seconds = 0.4, grow = 0.6, tint = { 1.0, 0.5, 0.08 } }
 M.RECIPES.fx_layer_nest_ring = { ground = "ramp_thin_ring", ground_size = 420, ground_fixed = true, ground_seconds = 0.5, grow = 0.35, tint = { 0.04, 0.22, 0.95 } }
