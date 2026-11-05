@@ -17,7 +17,7 @@ return {
     b27r_b15w3_aura = { system = "stream", sprite = "ramp_pops", size = 85, life = 0.4, loop = true, tint = GOLD },
     -- b27_rending_blade: a giant blade comes down, the earth breaks across his whole reach
     b27t_vo = { system = "pop", sprite = "ramp_slash", size = 210, life = 0.3, tint = GOLD,
-      ground = "ramp_crack", ground_size = 1300, area = true, ground_seconds = 2.4, grow = 0.15 },
+      ground = "ramp_crack_deep", ground_size = 1300, area = true, ground_seconds = 2.4, grow = 0.15 },
     b27t_slam = { system = "pop", sprite = "ramp_hit", size = 170, fixed_size = true, life = 0.3, tint = GOLD,
       mesh = "fissure_blade", ground_size = 300, ground_seconds = 2.0, grow = 0.12, face_viewer = true },
     b27t_screen_shake = { system = "pop", sprite = "ramp_star", size = 180, life = 0.3, tint = GOLD,
