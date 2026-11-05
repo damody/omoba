@@ -12,21 +12,21 @@ return {
     c05e_impact = { system = "pop", sprite = "soft_glow", size = 60, fixed_size = true, life = 0.2, tint = { 0.5, 0.8, 1.0 },
       ground = "arc_fork", ground_size = 170, ground_seconds = 0.35, height = 60, line = true, from_caster = true },
     -- c05_thunder_spear: a bolt along the thrust and a flash on the spear, then the target crackles
-    c05r_chain_lightning = { system = "pop", sprite = "lightning", size = 320, life = 0.22, tint = BLUE,
-      ground = "arc_fork", ground_size = 260, ground_seconds = 0.4, height = 70, line = true },
+    c05r_chain_lightning = { system = "pop", sprite = "lightning", size = 160, life = 0.22, tint = { 1, 1, 1 },
+      ground = "zigzag_bolt", ground_size = 300, ground_seconds = 0.3, height = 70, line = true },
     c05r_tempest = { system = "stream", sprite = "lightning", size = 210, life = 0.3, loop = true, tint = BLUE },
     -- c05_flash_thunder: charge under him, the landing mark, the strike
     c05t_vo = { system = "burst", sprite = "lightning", size = 380, life = 0.35, tint = BLUE,
       ground = "vortex", ground_size = 460, ground_seconds = 1.4, grow = 0.3 },
-    c05t_aoe_hint = { ground = "shock_ring", ground_seconds = 1.5, tint = BLUE, alpha = 0.55 },
+    c05t_aoe_hint = { ground = "shock_ring", ground_size = 460, ground_fixed = true, ground_seconds = 1.5, tint = BLUE, alpha = 0.55 },
     -- Both hints play for the viewer; the warning colour over the blue circle reads as the skill changing.
     c05t_aoe_hint_enemy = { ground = "shock_ring", ground_seconds = 0.8, tint = WARN, alpha = 0.01 },
     c05t_blink_start = { system = "pop", sprite = "lightning", size = 640, life = 0.3, tint = BLUE,
       ground = "blink_flash", ground_size = 420, ground_seconds = 0.35 },
     c05t_eclipse_area = { system = "pop", sprite = "lightning", size = 950, life = 0.5, tint = BLUE,
-      ground = "shock_ring", ground_seconds = 0.6, grow = 0.15 },
+      ground = "shock_ring", ground_size = 520, ground_fixed = true, ground_seconds = 0.6, grow = 0.15 },
     c05t_blink_end = { system = "burst", sprite = "lightning", size = 520, life = 0.45, tint = BLUE,
-      ground = "shock_ring", ground_size = 700, ground_seconds = 0.6, grow = 0.3 },
+      ground = "shock_ring", ground_size = 480, ground_fixed = true, ground_seconds = 0.6, grow = 0.3 },
   },
   notes = {
     c05_matsukaze = "c05w_vo whirlwind burst + c05w_armlet stream for the buff.",
