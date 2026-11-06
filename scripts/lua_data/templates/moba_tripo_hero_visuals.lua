@@ -155,6 +155,22 @@ return function(ctx)
     ii_naomasa='melee',
     nene='ranged',
     yamamoto_kansuke='melee',
+    matsuhime='ranged',
+    kato_kiyomasa='melee',
+    katakura_kagetsuna='melee',
+    ise_hime='ranged',
+    kosokabe_chikayasu='melee',
+    chacha='melee',
+    hashiba_hideyoshi='ranged',
+    mogami_yoshihime='ranged',
+    zuiryuin_nisshu='ranged',
+    momochi_sandayu='melee',
+    hachisuka_masakatsu='melee',
+    imagawa_yoshimoto='ranged',
+    matsunaga_hisahide='ranged',
+    tachibana_dosetsu='ranged',
+    hattori_hanzo='melee',
+    ashikaga_yoshiaki='ranged',
   }
   for hero,kind in pairs(first_version)do
     definitions[hero]=kind=='ranged' and {idle='Idle_Loop',attack='Spell_Simple_Shoot',critical='Spell_Simple_Shoot',impact=0.5}
