@@ -27,6 +27,8 @@ local M = {}
 
 M.PREPARE_GRACE_S = 300
 M.POLL_MS = 2000
+-- A release waits this long for its attached processes to end, then stops them and waits again.
+M.RELEASE_WAIT_MS, M.RELEASE_POLL_MS = 15000, 200
 M.TOKEN_ENV = {live_match = 'OMOBA_LIVE_MATCH_LOCK', performance = 'OMOBA_PERFORMANCE_LOCK'}
 M.SCHEMA = 'omoba-machine-lock/1'
 
@@ -146,6 +148,24 @@ function Guard:release()
   local d = self.deps
   local owner = read_json(d, d.path.join(self.dir, 'owner.json'))
   if owner and owner.token == self.token then
+    -- The next holder starts as soon as the lock is gone: this holder's processes end first, or
+    -- they still hold its ports (a spotlight server kept 57461 one second past the release and
+    -- the next run's authority could not bind it, ishikawa_kazumasa 20261106-084624).
+    local function any_alive()
+      for _, record in ipairs(attached(d, self.dir)) do
+        local ok, alive = pcall(d.process.owned_alive, record)
+        if ok and alive then return record end
+      end
+    end
+    local started = d.time.monotonic_ms()
+    while any_alive() and d.time.monotonic_ms() - started < M.RELEASE_WAIT_MS do d.time.sleep_ms(M.RELEASE_POLL_MS) end
+    if d.process.stop_owned then
+      for _, record in ipairs(attached(d, self.dir)) do
+        local ok, alive = pcall(d.process.owned_alive, record)
+        if ok and alive then pcall(d.process.stop_owned, record) end
+      end
+      while any_alive() and d.time.monotonic_ms() - started < 2 * M.RELEASE_WAIT_MS do d.time.sleep_ms(M.RELEASE_POLL_MS) end
+    end
     remove_dir(d, self.dir)
     history(d, self.dir, {event = 'released', run = owner.run, label = owner.label, token = owner.token})
   end

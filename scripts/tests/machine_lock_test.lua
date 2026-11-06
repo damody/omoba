@@ -122,6 +122,25 @@ local successor = lock.acquire(root, 'live_match', {run = 'D:/runs/successor'}, 
 check(successor.token ~= real.token, 'an exited holder process frees the lock')
 successor:release()
 
+-- A release ends its own attached processes before the lock goes (a server still bound to its
+-- port made the next run's authority fail, 20261106-084624).
+do
+  local stopped = {}
+  local ending = {
+    process = {validate_owned = process.validate_owned, owned_alive = function(record) return alive[record.pid] == true end,
+      stop_owned = function(record) stopped[#stopped + 1] = record.pid; alive[record.pid] = nil end},
+    getenv = function() return nil end, now = function() return clock end, log = function() end,
+  }
+  local saved_wait = lock.RELEASE_WAIT_MS
+  lock.RELEASE_WAIT_MS = 50
+  local holder = lock.acquire(root, 'live_match', {run = 'D:/runs/ending'}, ending)
+  holder:attach(record(41), 'server')
+  alive[41] = true
+  holder:release()
+  check(#stopped == 1 and stopped[1] == 41 and not path.is_directory(dir_of), 'a release stops its live attached process, then frees the lock')
+  lock.RELEASE_WAIT_MS = saved_wait
+end
+
 local function rm(target)
   for name in lfs.dir(target) do
     if name ~= '.' and name ~= '..' then
