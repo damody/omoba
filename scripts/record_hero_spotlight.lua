@@ -23,6 +23,9 @@ M.DEATH_AT={3000,2400}
 M.TREE_DEATH_AT={-700,-600}
 -- An ability only castable during another is shown right after it, or that one has run out by its turn.
 M.SHOWN_AFTER={a12_mystic_arrow='a12_mystic_possession'}
+-- Shown first, so it has run out by the death: b14 臨時夜晚 (up to 75 s) makes 片倉 invisible at night,
+-- and the held enemies never struck him (katakura_kagetsuna 20261106-123207: death_not_shown).
+M.SHOWN_FIRST={b14_temporary_night=true}
 M.BODY_SHOWS={
   {kind='attack',name='普通攻擊',line='對敵方連續普攻',team='enemy'},
   {kind='death',name='死亡',line='被敵方擊倒',team='self',at=M.DEATH_AT},
@@ -516,6 +519,9 @@ end
 
 function M.script(package)
   local slots={}
+  for index=#package.slots,1,-1 do
+    if M.SHOWN_FIRST[package.slots[index].id] then table.insert(package.slots,1,table.remove(package.slots,index)) end
+  end
   for moved,after in pairs(M.SHOWN_AFTER) do
     local from,to
     for index,row in ipairs(package.slots) do
