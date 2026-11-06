@@ -67,6 +67,7 @@
 | D18 | **每完成一件事就 commit。** 各工作線做完一項（land_to_live 通過、驗收完成）就立刻 commit，只 commit 自己這項動到的檔案：`git add <檔案>` 後用 `git commit -F <訊息檔> -- <檔案…>`，不要 `git add -A`、不要 commit 別人改到一半的檔案。submodule（omb、omfue）先在 submodule 內 commit，再回主 repo 一起 commit gitlink。不 push。不提交 target/、DLL/EXE/PDB、docs/acceptance、ref/、安裝檔、__pycache__ 與產生的 Rust。遇到 `.git/index.lock` 就等幾秒重試，不要刪鎖。訊息用繁體中文，最後一行 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` | 使用者 2026-10-30 |
 | D19 | **遇到問題一律用通用解修正。** 找出根本原因，修在共用層（產生器、kit、規則層、host、工具腳本），讓同類問題一起解決；不准用只對單一英雄、招式、局或測試有效的特例、寫死值、跳過、放寬檢查或重試繞過；conformance 差異不准用 known_differences 或放寬比對消掉。只能特例處理時（如 D7 獨特 hook）要在 errors.md 寫明為什麼沒有通用解 | 使用者 2026-10-30 |
 | D20 | **只停自己的程序。** 多條工作線共用同一台機器；停止背景工作只能用自己的 task ID 或自己記下的 PID。禁止按程序名稱殺程序（taskkill /IM、Stop-Process -Name 等），因為會中斷別的線的 cargo、UBT、實機局。 | 主 session 2026-10-31（conformance 誤殺全機 cargo 後） |
+| D22 | **舊版技能組也要實作（取代 D2 的「`_old`、`_20` 不做」）。** 原作 85 位英雄有 `_old` 技能（367 招），10 位另有 `_20`（50 招）。每個版本做成一位獨立的可選英雄：id `<hero>_old`／`<hero>_v20`，顯示名「<名>（舊版）」／「<名>（2.0）」，沿用本體的 Tripo 模型、綁定與動作，不另花 Tripo 點數；技能照原作該版本還原，走同一條 v3 package → 產生 Rust → hero DLL 的管線，數值單一來源。來源缺描述的招式照 KV 與腳本還原並標註。完成條件與 97 位相同：上架、全部招式產生、bot 實際施放、演示影片含四招＋普攻＋死亡 | 使用者 2026-11-06 23:10 |
 | D21 | **先不管平衡，重點是功能正確、功能完整、效能好。** 勝率與 KDA 偏差不再當成調查目標；批次與實機局的驗收以施放被拒、從沒施放、observer mismatch、小兵 facing violation、錯誤與效能（server tick、UE frame time、建置時間）為準。勝率異常只在它指向功能 bug 時才追。 | 使用者 2026-10-31 20:06 |
 
 ## 3. 目標架構
