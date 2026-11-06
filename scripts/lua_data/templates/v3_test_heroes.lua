@@ -99076,9 +99076,11 @@ local data = {
         { cast_time = 0, cooldown = 0, mana_cost = 0, range = 0, required_hero_level = 18 },
       },
       max_level = 3,
+      pierces_magic_immunity = true,
       target_type = "none",
       ue = { native_only = true },
       v3 = {
+        ability_flags = { "pierce_magic_immune" },
         bot = { kind = "none", reason = "passive", source = "derived" },
         coverage = "expressible",
         info = {

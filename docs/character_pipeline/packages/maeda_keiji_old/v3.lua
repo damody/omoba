@@ -193,6 +193,9 @@ return function(ctx)
         },
         target = { type = "none" },
         requires = { hero_level = "$required_level" },
+        -- npc/C_Neutral/C05.txt:653 AbilityUnitTargetFlags MAGIC_IMMUNE_ENEMIES; the debuff is the target's own
+        -- (ApplyDataDrivenModifier(target, target, ...), C05.lua:256), so spell immunity does not keep it off
+        flags = { "pierce_magic_immune" },
         statuses = {
           { id = "c05t_old_debuff", duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "debuff",
             text = {
