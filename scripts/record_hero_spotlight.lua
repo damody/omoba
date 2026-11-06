@@ -483,7 +483,9 @@ function M.hold_seconds(doc,id)
   for _,ability in ipairs(doc and doc.abilities or {}) do
     if ability.id==id and type(ability.values)=='table' then
       local most=longest(ability.values.duration)+0.5
-      local channel=longest(ability.values.channel_time)
+      -- The channel's length is the value its cast names (b25 阿修羅地獄: "$duration").
+      local named=type(ability.cast)=='table' and type(ability.cast.channel_time)=='string' and ability.cast.channel_time:match('^%$([%w_]+)$')
+      local channel=longest(ability.values[named or 'channel_time'])
       if channel>0 then
         most=math.max(most,longest(ability.values.cast_point)+channel+1)
         if most>M.BASE_HOLD then return math.min(most,M.MAX_CHANNEL_HOLD) end
