@@ -289,7 +289,11 @@ function M.collect(root,options)
         for _,u in ipairs(script.unshown or {}) do
           if u.reason~='summon passive' then unshown[#unshown+1]=u end
         end
-        row.script={shown=#script.slots,unshown=unshown}
+        -- The script itself (record_hero_spotlight.script): the attacks and the death are its last segments.
+        local body={}
+        local okscript,full=pcall(spotlight.script,script)
+        for _,slot in ipairs(okscript and full.slots or {}) do if slot.kind=='attack' or slot.kind=='death' then body[slot.kind]=true end end
+        row.script={shown=#script.slots,unshown=unshown,attack=body.attack==true,death=body.death==true}
       else row.script={error=tostring(script):match('[^\n]*')} end
       rows[#rows+1]=row
     end
@@ -340,6 +344,11 @@ function M.gaps(row)
     for _,u in ipairs(row.script.unshown) do ids[#ids+1]=u.id..'（'..u.reason..'）' end
     gaps[#gaps+1]='演示跳招：'..table.concat(ids,'、')
   end
+  if not row.script.error and not (row.script.attack and row.script.death) then
+    local missing={}
+    if not row.script.attack then missing[#missing+1]='普攻' end; if not row.script.death then missing[#missing+1]='死亡' end
+    gaps[#gaps+1]='演示缺'..table.concat(missing,'、')..'段'
+  end
   if (row.video.skipped or 0)>0 then gaps[#gaps+1]=('上次錄影略過 %d 招'):format(row.video.skipped) end
   if not row.video.mp4 then gaps[#gaps+1]='無演示影片' end
   return gaps
@@ -369,7 +378,7 @@ function M.render(data)
       if row.total>0 and row.done==row.total then all_built=all_built+1 end
       if row.video.mp4 then videos=videos+1 end
       if row.tripo.mesh and row.tripo.skeleton and row.tripo.clips>0 and row.tripo.imported then tripo=tripo+1 end
-      if not row.script.error and #row.script.unshown==0 then script_full=script_full+1 end
+      if not row.script.error and #row.script.unshown==0 and row.script.attack and row.script.death then script_full=script_full+1 end
       if row.games>0 then seen=seen+1 end
       gaps_of[row.package]=M.gaps(row)
       for _,cell in ipairs(row.abilities) do
@@ -385,7 +394,7 @@ function M.render(data)
   add(('| 有對局施放資料 | %d |'):format(seen))
   add(('| 這幾局 bot 沒施放的招式 | %d |'):format(never))
   add(('| Tripo 模型與綁定齊全 | %d |'):format(tripo))
-  add(('| 演示腳本不跳招 | %d |'):format(script_full))
+  add(('| 演示腳本不跳招且有普攻、死亡 | %d |'):format(script_full))
   add(('| 目前有演示影片 | %d |'):format(videos))
   add('')
   local m=data.matches

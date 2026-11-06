@@ -19,6 +19,8 @@ M.HEROES={'tokugawa_ieyasu','yamagata_masakage','okuma_tomohide','sasaki_kojiro'
 -- After the abilities: basic attacks on the stand-in, then the hero's real death. DEATH_AT is where the
 -- base stage's held enemies stand (scripts/lua_data/moba_hero_spotlight.lua).
 M.DEATH_AT={3000,2400}
+-- The tree stage's held enemies stand at the same offsets from its demonstrator (moba_hero_spotlight_trees.lua).
+M.TREE_DEATH_AT={-700,-600}
 -- An ability only castable during another is shown right after it, or that one has run out by its turn.
 M.SHOWN_AFTER={a12_mystic_arrow='a12_mystic_possession'}
 M.BODY_SHOWS={
@@ -404,7 +406,8 @@ M.STRUCK_AT={2700,2130}
 M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_tenacity={2480,2450}}
 M.HOLDS_STILL={b20_tenacity=true}
 -- b27 裂地刃 reaches 1000: the death's stand-ins are hit too, and at the usual cap (2) their ripples were cut off.
-M.VIEW_BACK={c03_iron_hammer=1.3,a26_powder_kick=1.5,a26_scorching_bomb=1.7,b20_ruin_wave=1.35,b20_red_charge=1.35,a12_insight_flash=1.25,a01_tosho_gongen=1.4,a01_mikawa_valor=1.4,b27_rending_blade=2.7,a26_volley=1.45,a14_impact_spear=1.45,a14_divine_strike=1.6,c05_thunder_dance=1.4,c05_flash_thunder=1.5,a12_mystic_arrow=1.45,a12_scheme=1.45}
+-- a13 替身術 swaps with an illusion 影分身 left on its 900 circle (1058 from the hero): in view, nothing to walk to.
+M.VIEW_BACK={a13_substitution=2.9,c03_iron_hammer=1.3,a26_powder_kick=1.5,a26_scorching_bomb=1.7,b20_ruin_wave=1.35,b20_red_charge=1.35,a12_insight_flash=1.25,a01_tosho_gongen=1.4,a01_mikawa_valor=1.4,b27_rending_blade=2.7,a26_volley=1.45,a14_impact_spear=1.45,a14_divine_strike=1.6,c05_thunder_dance=1.4,c05_flash_thunder=1.5,a12_mystic_arrow=1.45,a12_scheme=1.45}
 -- Ranged: hero and stand-in stand far apart, in frame from the segment's start.
 M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
 -- The stage's showcase.withheld_abilities: no rank at birth, learned in their own segment.
@@ -417,7 +420,8 @@ M.AFTER_ATTACK={c03_thunder_wrath=true,a14_stacked_spear=true,a26_twin_guns=true
 M.KEEPS_BUFFS={a12_mystic_arrow=true,a12_scheme=true}
 -- b20 強韌 restores after each cast of his: Q in its own segment shows it (W's crown overflows at this close camera).
 M.BURST={a12_mystic_arrow={5,5},a12_scheme={5,5,5,5,0},b20_tenacity={0}}
-M.HOLD_FOR={b20_red_charge=5,b26_unstoppable=3.5,a14_divine_strike=3,a12_mystic_possession=3.5,a12_mystic_arrow=3.5,b27_rending_blade=3.2,c22_dream_mist=2.8,a12_insight_flash=2.8}
+-- a13 影分身's illusions last 5 s: 替身術 has its turn while they do (they were gone by it at 4.5).
+M.HOLD_FOR={a13_shadow_illusion=1.5,b20_red_charge=5,b26_unstoppable=3.5,a14_divine_strike=3,a12_mystic_possession=3.5,a12_mystic_arrow=3.5,b27_rending_blade=3.2,c22_dream_mist=2.8,a12_insight_flash=2.8}
 -- c03 不動戰錘: the hero stands far from the stand-in for it, and the blast is large: out before the cast.
 M.CAPTION_TOP={c05_flash_thunder=true}
 M.VIEW_EARLY={c05_flash_thunder=true,c03_iron_hammer=true,a14_impact_spear=true,a14_divine_strike=true}
@@ -557,7 +561,11 @@ function M.script(package)
   end
   -- The death ends the recording: only the base stage has the enemies that strike it down.
   local stage=M.recipe_for(package)
-  if stage==M.RECIPE or stage==M.LANE_RECIPE or stage==M.LINE_RECIPE or stage==M.PATROL_RECIPE or stage==M.CASTS_RECIPE then
+  -- Every stage shows the attacks on its enemy stand-in; the death needs the held enemies at DEATH_AT,
+  -- which the prop stage keeps from the base one (c18 松姬, a19 伊勢姬 had neither) and the tree stage
+  -- places at the same offsets (TREE_DEATH_AT).
+  if stage==M.RECIPE or stage==M.LANE_RECIPE or stage==M.LINE_RECIPE or stage==M.PATROL_RECIPE or stage==M.CASTS_RECIPE
+    or stage==M.PROPS_RECIPE or stage==M.TREE_RECIPE then
     local after_attack={}
     for index=#slots,1,-1 do
       if M.AFTER_ATTACK[slots[index].id] then table.insert(after_attack,1,table.remove(slots,index)) end
@@ -569,10 +577,10 @@ function M.script(package)
         closer.stand_off=M.WEAPON_REACH[package.hero]
         show=closer
       end
-      if show.kind=='death' and stage==M.LANE_RECIPE then
+      if show.kind=='death' and (stage==M.LANE_RECIPE or stage==M.TREE_RECIPE) then
         local moved={}
         for key,value in pairs(show) do moved[key]=value end
-        moved.at=M.LANE_DEATH_AT
+        moved.at=stage==M.TREE_RECIPE and M.TREE_DEATH_AT or M.LANE_DEATH_AT
         show=moved
       end
       slots[#slots+1]=show
