@@ -1518,7 +1518,7 @@ end
 -- actions
 ---------------------------------------------------------------------------
 local ACTION_FIELDS = {
-  chain = set({ "op", "from", "first", "jumps", "radius", "interval", "team", "types", "flags", "where", "allow_repeat", "order", "actions", "cue", "as" }),
+  chain = set({ "op", "from", "first", "jumps", "radius", "interval", "team", "types", "flags", "where", "allow_repeat", "order", "actions", "on_end", "cue", "as" }),
   -- chain's internal candidate gathering (the for_each it lowers to)
   __chain_cand = set({ "op", "of" }),
   -- passive.orb_slot's claim / release (the toggle's entries)
@@ -3126,21 +3126,44 @@ function Gen:action(a, ctx, ind)
     local bctx = { owner = ctx.owner, scope = body_scope, event = false }
     local jumps = self:value(a.jumps, sctx, "num")
     local interval = a.interval ~= nil and self:value(a.interval, sctx, "num") or "Fixed64::ZERO"
-    b = b .. sline("let " .. it .. " = if " .. jump .. " == Fixed64::ONE { " .. prev .. " } else {")
-      .. sline("    let mut cand: Vec<EntityHandle> = Vec::new();") .. pick
-      .. sline(string.format("    match cx.chain_next(%s, %s, cand, ability_kit::ChainOrder::%s, %s) { Some(u) => u, None => return Ok(()) }",
-        token, prev, order, a.allow_repeat == true and "true" or "false"))
-      .. sline("};")
-      .. sline("let jumps = " .. jumps .. ";") .. sline("let interval = " .. interval .. ";")
-      -- the hit table outlives every remaining jump
-      .. sline("cx.chain_mark(" .. token .. ", " .. it .. ", (jumps + Fixed64::from_i32(2)) * interval + Fixed64::ONE)?;")
+    local pick_next = string.format("cx.chain_next(%s, %s, cand, ability_kit::ChainOrder::%s, %s)",
+      token, prev, order, a.allow_repeat == true and "true" or "false")
+    local ends = a.on_end ~= nil and #a.on_end > 0
+    if ends then
+      -- on_end: when the bolt would jump next and cannot (no candidate, or out of jumps), one
+      -- interval after its last hit; `it` is the unit hit last, `jump` that hit's number
+      local end_scope = scope_child(sc)
+      local last = self:bind(end_scope, a.as or "it", "unit")
+      local last_jump = self:bind(end_scope, "jump", "num")
+      end_scope.names[a.as or "it"].used = true; end_scope.names.jump.used = true
+      local on_end = self:actions(a.on_end, { owner = ctx.owner, scope = end_scope, event = false }, "        ")
+      b = b .. sline("let jumps = " .. jumps .. ";") .. sline("let interval = " .. interval .. ";")
+        .. sline("let " .. it .. " = if " .. jump .. " == Fixed64::ONE { Some(" .. prev .. ") } else if " .. jump
+          .. " > jumps + Fixed64::ONE { None } else {")
+        .. sline("    let mut cand: Vec<EntityHandle> = Vec::new();") .. pick
+        .. sline("    " .. pick_next)
+        .. sline("};")
+        .. sline("let Some(" .. it .. ") = " .. it .. " else {")
+        .. sline("    let " .. last .. " = " .. prev .. ";") .. sline("    let " .. last_jump .. " = " .. jump .. " - Fixed64::ONE;")
+        .. on_end .. sline("    return Ok(());") .. sline("};")
+    else
+      b = b .. sline("let " .. it .. " = if " .. jump .. " == Fixed64::ONE { " .. prev .. " } else {")
+        .. sline("    let mut cand: Vec<EntityHandle> = Vec::new();") .. pick
+        .. sline("    match " .. pick_next .. " { Some(u) => u, None => return Ok(()) }")
+        .. sline("};")
+        .. sline("let jumps = " .. jumps .. ";") .. sline("let interval = " .. interval .. ";")
+    end
+    -- the hit table outlives every remaining jump
+    b = b .. sline("cx.chain_mark(" .. token .. ", " .. it .. ", (jumps + Fixed64::from_i32(2)) * interval + Fixed64::ONE)?;")
     -- the next jump first (the body may end the cast), with this hit's captures
     local after = self:actions(a.actions, bctx, "    ")
     local cue = a.cue ~= nil and self:action({ op = "cue", id = a.cue, at = "chain_src_", to = a.as or "it" }, bctx, "    ") or ""
-    b = b .. sline("if " .. jump .. " <= jumps {") .. sline("    let mut next = args.to_vec();")
+    -- with on_end the last hit schedules one more step, the one that ends the bolt; a unit gone
+    -- from the world leaves the bolt where it was
+    b = b .. sline("if " .. jump .. " <= jumps" .. (ends and " + Fixed64::ONE" or "") .. " {") .. sline("    let mut next = args.to_vec();")
       .. sline("    next[1] = ability_kit::arg_num(" .. jump .. " + Fixed64::ONE);")
       .. sline("    next[2] = ability_kit::arg_unit(" .. it .. ");")
-      .. sline("    next[3] = ability_kit::arg_point(cx.pos(" .. it .. ")?);")
+      .. sline("    next[3] = ability_kit::arg_point(" .. (ends and ("cx.pos(" .. it .. ").unwrap_or(" .. src .. ")") or ("cx.pos(" .. it .. ")?")) .. ");")
       .. sline("    let owner = cx.caster;")
       .. sline(string.format("    cx.schedule(owner, ID, %d, interval, &next)?;", step)) .. sline("}")
       .. cue .. after

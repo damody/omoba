@@ -106,4 +106,32 @@ test('a taunt status taunts through cx.taunt and its removal ends it', function(
   assert(has(text, 'cx.end_taunt(from)?;'), 'removing the status ends the taunt')
 end)
 
+test('chain on_end runs once when the bolt cannot jump, with the last unit and its jump', function()
+  local h
+  for _, x in ipairs(sources.heroes(b.root)) do if x.path:find('matsunaga_hisahide', 1, true) then h = x end end
+  local doc = assert(v3.load_file(assert(h, 'matsunaga_hisahide').path))
+  local chain, ab
+  local function find(list, owner)
+    for _, a in ipairs(list or {}) do
+      if type(a) == 'table' then
+        if a.op == 'chain' then chain, ab = a, owner end
+        for _, k in ipairs({ 'actions', 'otherwise' }) do find(a[k], owner) end
+      end
+    end
+  end
+  for _, x in ipairs(doc.abilities) do for _, list in pairs(x.events or {}) do find(list, x) end end
+  assert(chain, 'a chain')
+  chain.on_end = { { op = 'if', cond = 'jump > 1', actions = {
+    { op = 'damage', to = 'it', type = 'magical', amount = '$base_damage * jump' } } } }
+  doc.abilities = { ab }
+  local files = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'x' })
+  local text = assert(files['src/generated/' .. ab.id .. '.rs'], ab.id .. ' generates')
+  assert(has(text, ' > jumps + Fixed64::ONE { None } else {'), 'out of jumps ends the bolt')
+  assert(has(text, ' - Fixed64::ONE;'), 'the end jump is the last hit')
+  assert(has(text, '<= jumps + Fixed64::ONE {'), 'the last hit schedules the end')
+  assert(has(text, '.unwrap_or('), 'a unit gone keeps the bolt where it was')
+  local _, damages = text:gsub('cx%.damage', '')
+  assert(damages >= 3, 'the end body deals its damage (' .. damages .. ')')
+end)
+
 print(('%d tests passed'):format(count))

@@ -506,7 +506,7 @@ V.ACTIONS = {
   -- B28T: a bouncing chain; each chain has its own hit set
   chain = { from = "any!", first = "unit!", jumps = "expr!", radius = "expr!", interval = "expr", team = "enum:enemy|ally|both|any!",
     types = "list:enum:hero|creep|building|summon|ward|neutral|boss|illusion|all", flags = "list:flag", where = "cond",
-    take_while = "cond", allow_repeat = "bool", order = "enum:nearest|random|id", actions = "actions!", projectile_speed = "expr",
+    take_while = "cond", allow_repeat = "bool", order = "enum:nearest|random|id", actions = "actions!", on_end = "actions", projectile_speed = "expr",
     cue = "cue", as = "name" },
   set_base_max_hp = { to = "unit!", value = "expr!" },
   set_time_of_day = { mode = "enum:day|night!", duration = "expr" },

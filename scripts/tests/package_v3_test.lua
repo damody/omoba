@@ -457,6 +457,11 @@ test('chain_binds_it_and_take_while', function()
   clean(push(doc(), { op = 'chain', from = 'caster', first = 'caster', jumps = '$radius', radius = '$radius', team = 'enemy',
     take_while = 'not it.is_invisible', actions = { { op = 'damage', to = 'it', type = 'pure', amount = '$damage' } } }))
 end)
+test('chain_on_end_binds_it_and_jump', function()
+  clean(push(doc(), { op = 'chain', from = 'caster', first = 'caster', jumps = '$radius', radius = '$radius', team = 'enemy',
+    actions = { { op = 'damage', to = 'it', type = 'pure', amount = '$damage' } },
+    on_end = { { op = 'damage', to = 'it', type = 'pure', amount = '$damage * jump' } } }))
+end)
 
 -- behavior IR (M3, v3_ir.lua)
 local IR = dofile(path.join(tools, 'v3_ir.lua'))
