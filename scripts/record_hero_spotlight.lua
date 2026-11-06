@@ -736,6 +736,9 @@ function M.issues(events)
         or (event.cooldown or 0)>0 and ('on cooldown %.1f s'):format(event.cooldown) or 'refused until its time ran out'
       local ability=event.ability~=nil and event.ability~='' and event.ability or names[event.slot] or '?'
       issues[#issues+1]={kind='skipped',slot=event.slot,ability=ability,reason=why,tick=event.tick}
+    elseif event.event=='spotlight_finished' and event.reason and event.reason~='complete' then
+      -- A recording that ended early (death_not_shown: the death segment ran out, 片倉 20261106-123207).
+      issues[#issues+1]={kind='finished',reason=event.reason,tick=event.tick}
     elseif event.event=='spotlight_hero_down' then
       issues[#issues+1]={kind='hero_down',slot=event.slot,ability=names[event.slot] or '?',reason='hero downed outside the death segment',t=event.t}
     end

@@ -350,6 +350,12 @@ function M.gaps(row)
     gaps[#gaps+1]='演示缺'..table.concat(missing,'、')..'段'
   end
   if (row.video.skipped or 0)>0 then gaps[#gaps+1]=('上次錄影略過 %d 招'):format(row.video.skipped) end
+  -- The report's issues: skips, a hero downed early, a channel cut short, a recording that ended early.
+  local issues={}
+  for _,issue in ipairs(type(row.video.issues)=='table' and row.video.issues or {}) do
+    if issue.kind~='skipped' then issues[#issues+1]=tostring(issue.ability or issue.kind)..'（'..tostring(issue.reason)..'）' end
+  end
+  if #issues>0 then gaps[#gaps+1]='上次錄影問題：'..table.concat(issues,'、') end
   if not row.video.mp4 then gaps[#gaps+1]='無演示影片' end
   return gaps
 end
