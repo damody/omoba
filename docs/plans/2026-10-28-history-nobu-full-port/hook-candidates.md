@@ -186,3 +186,11 @@ A 類 57 項、B 類 62 項。
 ### A 直接補的產生器寫法
 
 routine 裡的 `delay`、多個 `periodic`、被動的 `on_deal_damage_pre`、`set_base_max_hp`（hero_command）、`modify_cooldown` 沒寫 amount 時用自己的冷卻、C08 的層數宣告（v3 資料）。
+
+## D22 舊版技能組（工作線 D，2026-11-07）
+
+依主 session 指示照 D7 做成 hook，E 線上架時接上。
+
+| 招式 | 英雄 | hook | 做法 |
+|---|---|---|---|
+| `a13_old_chain_sickle`（A13E_old） | A13 hattori_hanzo_old | `a13_old_chain_sickle_hook` | 原作 `A13E_old = A13E`，同一個路徑投射物機制；沿用本體 `scripts/heroes/hattori_hanzo/src/hooks/a13_chain_sickle.rs`，傷害類型改純粹。手寫檔放 `scripts/heroes/hattori_hanzo_old/src/hooks/a13_old_chain_sickle.rs` |

@@ -81,7 +81,7 @@ return function(ctx)
           zh_TW = { name = "一刀．閃瞬",
             body = "瞬移到指定敵人所在位置並斬擊，造成 {damage} 魔法傷害。可以對魔法免疫的敵人施放，但只瞬移、不造成傷害。" },
           en = { name = "Flash Cut",
-            body = "Blinks to the target enemy and strikes, dealing {damage} magic damage. Can be cast on magic-immune enemies, but then only blinks without dealing damage." },
+            body = "Blinks to the target enemy and strikes, dealing {damage} magic damage. Can be cast on spell-immune enemies, but then only blinks without dealing damage." },
         },
         target = { type = "unit", range = "$cast_range", team = "enemy", types = BASIC },
         cast = { cast_point = "$cast_point", ignore_backswing = true },

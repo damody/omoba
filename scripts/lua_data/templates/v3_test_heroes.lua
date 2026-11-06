@@ -68446,14 +68446,14 @@ local data = {
         },
         text = {
           en = {
-            body = "Blinks to the target enemy and strikes, dealing {damage} magic damage. Can be cast on magic-immune enemies, but then only blinks without dealing damage.",
+            body = "Blinks to the target enemy and strikes, dealing {damage} magic damage. Can be cast on spell-immune enemies, but then only blinks without dealing damage.",
             name = "Flash Cut",
             pieces = {
               { text = "Blinks to the target enemy and strikes, dealing " },
               { value = "damage" },
-              { text = " magic damage. Can be cast on magic-immune enemies, but then only blinks without dealing damage." },
+              { text = " magic damage. Can be cast on spell-immune enemies, but then only blinks without dealing damage." },
             },
-            rendered = "Blinks to the target enemy and strikes, dealing 200/300/400/500 magic damage. Can be cast on magic-immune enemies, but then only blinks without dealing damage.",
+            rendered = "Blinks to the target enemy and strikes, dealing 200/300/400/500 magic damage. Can be cast on spell-immune enemies, but then only blinks without dealing damage.",
           },
           zh_TW = {
             body = "瞬移到指定敵人所在位置並斬擊，造成 {damage} 魔法傷害。可以對魔法免疫的敵人施放，但只瞬移、不造成傷害。",

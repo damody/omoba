@@ -53,6 +53,7 @@ return {
     swiftness_calm = { source = "modifier_UntakeDamage（npc/npc_items_custom_load.txt:12840,12991）；pilot_b、I4 宣告，remove_status tags 讀取" },
     reito_lantern_lockout = { source = "modifier_arc_reito_lantern_cd（npc/npc_items_custom_load.txt:10852,13287）；pilot_a、I2 宣告，pilot_a 以 has_status_tag 讀取" },
     flame_armor_aura = { source = "modifier_flame_armor_aura（npc/npc_items_custom_load.txt:3045,6625,11319；vscripts/items/Addon_Items/item_flame_armor.lua）；I0、I4 宣告並讀取" },
+    flame_armor_debuff = { source = "modifier_flame_armor_debuff／debuff2（npc/npc_items_custom_load.txt；items/batch_I0.lua 宣告）；vscripts/heroes/A_Oda/A20.lua:610-613 A20T_old 以名稱保留" },
     go_home = { source = "modifier_wantgohome／modifier_gohomelua（vscripts/items/Addon_Items/item_tpscroll.lua:9-21）；vscripts/items/Addon_Items/item_soul_adder.lua:34-36 移除" },
   },
   item_tags = {
