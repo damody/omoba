@@ -6,7 +6,9 @@
 -- For each package whose v3 document is a variant (source.variant old / v20) and whose every
 -- ability is generated Rust: its crate scripts/heroes/<package> (v3_rust.lua scaffold), its row in
 -- scripts/hero_dlls.lua and its playable entry in scripts/v3_test_heroes.lua, then
--- templates/v3_test_heroes.lua regenerated. A package that is not ready is reported and left out.
+-- templates/v3_test_heroes.lua regenerated, and its rlib linked into base_content's tests (Cargo.toml
+-- dev-dependencies and the test manifest in src/lib.rs, as the base heroes are). A package that is
+-- not ready is reported and left out.
 -- --all takes every variant package not yet in the game. The shadow files are under
 -- target/hero-variants/<time>/; --dry-run stops before land_to_live. --with adds a file of the same
 -- batch, e.g. a variant's hand-written hook (scripts/heroes/<package>/src/hooks/<id>.rs).
@@ -31,6 +33,23 @@ local function append_to_list(body,opening,text)
   if crlf then text=text:gsub('\r?\n','\r\n') end
   local nl=crlf and '\r\n' or '\n'
   return body:sub(1,close-1)..nl..text..body:sub(close)
+end
+
+-- insert `text` (LF lines) after the last line matching `pattern`, keeping CRLF
+local function append_after_last(body,pattern,text)
+  local crlf=body:find('\r\n',1,true)~=nil
+  local last
+  local pos=1
+  while true do
+    local s,e=body:find(pattern,pos)
+    if not s then break end
+    last=e;pos=e+1
+  end
+  assert(last,'no line matching '..pattern)
+  local eol=body:find('\n',last,true) or #body
+  if crlf then text=text:gsub('\r?\n','\r\n') end
+  local nl=crlf and '\r\n' or '\n'
+  return body:sub(1,eol)..text..nl..body:sub(eol+1)
 end
 
 local function rust()
@@ -101,6 +120,8 @@ function M.run(options)
   local shadow=path.join(b.root,'target','hero-variants',os.date('%Y%m%d-%H%M%S'))
   local files={
     dlls={live='scripts/hero_dlls.lua'},
+    cargo={live='scripts/base_content/Cargo.toml'},
+    lib={live='scripts/base_content/src/lib.rs'},
     heroes={live='scripts/v3_test_heroes.lua'},
     out={live='scripts/lua_data/templates/v3_test_heroes.lua'},
   }
@@ -109,6 +130,7 @@ function M.run(options)
     copy(path.join(b.root,f.live),f.src);copy(path.join(b.root,f.live),f.base)
   end
   local dlls,heroes=read(files.dlls.src),read(files.heroes.src)
+  local cargo,lib=read(files.cargo.src),read(files.lib.src)
   local changes={}
   local r=rust()
   for _,row in ipairs(ready) do
@@ -117,6 +139,15 @@ function M.run(options)
     end
     if not heroes:find('package = "'..row.package..'"',1,true) then
       heroes=append_to_list(heroes,'local HEROES = {',('  { package = "%s", playable = true },'):format(row.package))
+    end
+    -- base_content's tests link every hero rlib (FC tests learn the variant's abilities)
+    local impl=row.crate..'_impl'
+    if not cargo:find('\n'..impl..' = ',1,true) then
+      cargo=append_after_last(cargo,'\nhero_[%w_]+_impl = { path = "../heroes/[%w_]+" }',('%s = { path = "../heroes/%s" }'):format(impl,row.package))
+    end
+    if not lib:find(impl..'::units()',1,true) then
+      lib=append_after_last(lib,'\n *v%.extend%(hero_[%w_]+_impl::units%(%)%);','        v.extend('..impl..'::units());')
+      lib=append_after_last(lib,'\n *v%.extend%(hero_[%w_]+_impl::abilities%(%)%);','        v.extend('..impl..'::abilities());')
     end
     if not path.is_directory(path.join(b.root,'scripts','heroes',row.package)) then
       local out=path.join(shadow,'crates')
@@ -130,7 +161,7 @@ function M.run(options)
       end
     end
   end
-  write(files.dlls.src,dlls);write(files.heroes.src,heroes)
+  write(files.dlls.src,dlls);write(files.heroes.src,heroes);write(files.cargo.src,cargo);write(files.lib.src,lib)
   -- regenerate templates/v3_test_heroes.lua from the shadow list, against the shadow hero_dlls
   local script=read(files.heroes.src)
   local function rep(a,c) local i,j=script:find(a,1,true);assert(i,'v3_test_heroes.lua: '..a);script=script:sub(1,i-1)..c..script:sub(j+1) end
