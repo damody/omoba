@@ -1970,7 +1970,8 @@ fn spawn_showcase_props(world: &mut World, state: &MobaMatch) -> Vec<(Entity, Ve
                         td_layer: None,
                     })
                     .with(faction(side as u8, team))
-                    .with(ReplicationScope { kind: ReplicationScopeKind::OwnerTeam, owner_team: Some(team) })
+                    // Public: an enemy prop (c06_old 殺人越貨's creep) is on the demonstrator's view too.
+                    .with(ReplicationScope { kind: ReplicationScopeKind::Public, owner_team: None })
                     .with(Pos(at))
                     .with(Facing(omoba_sim::Angle::ZERO))
                     .with(property(Fixed64::from_i32(HP), Fixed64::ZERO))

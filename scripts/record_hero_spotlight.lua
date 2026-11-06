@@ -49,6 +49,9 @@ M.PROPS_RECIPE='scripts/lua_data/moba_hero_spotlight_props.lua'
 -- and whole again whenever no striker reaches it (refill_players).
 M.PATROL_RECIPE='scripts/lua_data/moba_hero_spotlight_patrol.lua'
 M.PATROL_HEROES={maeda_keiji=true,okuma_tomohide=true,tokugawa_ieyasu=true}
+-- An enemy unit-target cast that only works on a non-hero unit (its hook leaves a hero with the effect
+-- alone): aimed at the prop stage's enemy creep (team enemy_anchor, the renderer's EnemyAnchor).
+M.ENEMY_ANCHOR={c06_old_murder_and_loot=true}
 -- A hero whose passive answers to a spell: the base stage plus seat 6's scheduled casts in one circle.
 M.CASTS_RECIPE='scripts/lua_data/moba_hero_spotlight_casts.lua'
 M.CASTS_HEROES={yamagata_masakage=true}
@@ -56,7 +59,7 @@ function M.recipe_for(package)
   local tree,props=false,package.props==true
   for _,slot in ipairs(package.slots) do
     if slot.team=='tree' then tree=true end
-    if slot.team=='ally_anchor' then props=true end
+    if slot.team=='ally_anchor' or slot.team=='enemy_anchor' then props=true end
   end
   assert(not (tree and props),(package.hero or 'hero')..' needs both the tree stage and the prop stage (no stage has both yet)')
   if tree then return M.TREE_RECIPE end
@@ -183,6 +186,7 @@ function M.load_v3_package(root,hero)
     local team='self'
     local target=kind=='passive' or (bot and aim[bot.kind])
     if target~=true then team=target and target.team end
+    if team=='enemy' and M.ENEMY_ANCHOR[id] then team='enemy_anchor' end
     if not team then
       -- A bot kind the spotlight cannot aim yet is left out and listed, not a failed script for the
       -- hero (E616). ally_anchor_point and self_area_corpses are aimed on the prop stage (E630).
@@ -734,7 +738,7 @@ function M.issues(events)
       -- A follow-up whose enabler was not shown carries its reason and no level or cooldown; a
       -- summon's slot is the summon's, so its own ability name wins over the hero slot's.
       local why=event.reason=='enabler_not_shown' and ('its enabler %s was not shown'):format(tostring(event.after))
-        or event.reason or event.level==0 and 'not learned or not castable at its turn (level 0)'
+        or event.reason or event.level==0 and (event.summon and 'its summon does not offer it (level 0)' or 'not learned or not castable at its turn (level 0)')
         or (event.cooldown or 0)>0 and ('on cooldown %.1f s'):format(event.cooldown) or 'refused until its time ran out'
       local ability=event.ability~=nil and event.ability~='' and event.ability or names[event.slot] or '?'
       issues[#issues+1]={kind='skipped',slot=event.slot,ability=ability,reason=why,tick=event.tick}
