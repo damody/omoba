@@ -493,6 +493,21 @@ function M.hold_seconds(doc,id)
   end
 end
 
+-- The shortest cooldown over the ability's levels (the recording learns its top rank).
+function M.cooldown_seconds(doc,id)
+  for _,ability in ipairs(doc and doc.abilities or {}) do
+    if ability.id==id and type(ability.values)=='table' then
+      local value,least=ability.values.cooldown,nil
+      if type(value)=='number' then return value end
+      for _,level in ipairs(type(value)=='table' and value or {}) do
+        if type(level)=='number' then least=math.min(least or level,level) end
+      end
+      return least or 0
+    end
+  end
+  return 0
+end
+
 function M.script(package)
   local slots={}
   for moved,after in pairs(M.SHOWN_AFTER) do
@@ -516,6 +531,9 @@ function M.script(package)
     if M.KEEPS_BUFFS[slot.id] then slot.keeps_buffs=true end
     slot.burst=M.BURST[slot.id]
     slot.hold=M.HOLD_FOR[slot.id] or slot.hold
+    -- A both-teams cast is shown on the enemy and then the ally: the second waits for the first's
+    -- cooldown, so one longer than a segment shows only the enemy (c17 光之鎖 9 s, 極光守護 87 s).
+    if slot.team=='both' and M.cooldown_seconds(doc,slot.id)>M.BASE_HOLD then slot.team='enemy' end
     local stand_at,view_at=M.STAND_AT[slot.id],M.VIEW_AT[slot.id]
     if stand_at then slot.stand_x,slot.stand_y=stand_at[1],stand_at[2] end
     if view_at then slot.view_x,slot.view_y=view_at[1],view_at[2] end
@@ -695,8 +713,13 @@ function M.issues(events)
   end
   for _,event in ipairs(events) do
     if event.event=='spotlight_skipped' then
-      local why=event.level==0 and 'not learned or not castable at its turn (level 0)' or event.cooldown>0 and ('on cooldown %.1f s'):format(event.cooldown) or 'refused until its time ran out'
-      issues[#issues+1]={kind='skipped',slot=event.slot,ability=names[event.slot] or '?',reason=why,tick=event.tick}
+      -- A follow-up whose enabler was not shown carries its reason and no level or cooldown; a
+      -- summon's slot is the summon's, so its own ability name wins over the hero slot's.
+      local why=event.reason=='enabler_not_shown' and ('its enabler %s was not shown'):format(tostring(event.after))
+        or event.reason or event.level==0 and 'not learned or not castable at its turn (level 0)'
+        or (event.cooldown or 0)>0 and ('on cooldown %.1f s'):format(event.cooldown) or 'refused until its time ran out'
+      local ability=event.ability~=nil and event.ability~='' and event.ability or names[event.slot] or '?'
+      issues[#issues+1]={kind='skipped',slot=event.slot,ability=ability,reason=why,tick=event.tick}
     elseif event.event=='spotlight_hero_down' then
       issues[#issues+1]={kind='hero_down',slot=event.slot,ability=names[event.slot] or '?',reason='hero downed outside the death segment',t=event.t}
     end
