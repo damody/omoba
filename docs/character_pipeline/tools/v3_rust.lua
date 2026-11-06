@@ -3136,11 +3136,11 @@ function Gen:action(a, ctx, ind)
     local ends = a.on_end ~= nil and #a.on_end > 0
     if ends then
       -- on_end: when the bolt would jump next and cannot (no candidate, or out of jumps), one
-      -- interval after its last hit; `it` is the unit hit last, `jump` that hit's number
+      -- interval after its last hit; `it` is the unit hit last, `jump` that hit's number (each `_`
+      -- when the end body does not read it)
       local end_scope = scope_child(sc)
       local last = self:bind(end_scope, a.as or "it", "unit")
       local last_jump = self:bind(end_scope, "jump", "num")
-      end_scope.names[a.as or "it"].used = true; end_scope.names.jump.used = true
       local on_end = self:actions(a.on_end, { owner = ctx.owner, scope = end_scope, event = false }, "        ")
       b = b .. sline("let jumps = " .. jumps .. ";") .. sline("let interval = " .. interval .. ";")
         .. sline("let " .. it .. " = if " .. jump .. " == Fixed64::ONE { Some(" .. prev .. ") } else if " .. jump

@@ -108,7 +108,7 @@ end)
 
 test('remove_status max_elapsed removes only the young statuses through the kit', function()
   local h
-  for _, x in ipairs(sources.heroes(b.root)) do if x.path:find('imagawa_yoshimoto', 1, true) then h = x end end
+  for _, x in ipairs(sources.heroes(b.root)) do if x.package == 'imagawa_yoshimoto' then h = x end end
   local doc = assert(v3.load_file(assert(h, 'imagawa_yoshimoto').path))
   local hit, ab
   local function find(list, owner)
@@ -131,7 +131,7 @@ end)
 
 test('chain on_end runs once when the bolt cannot jump, with the last unit and its jump', function()
   local h
-  for _, x in ipairs(sources.heroes(b.root)) do if x.path:find('matsunaga_hisahide', 1, true) then h = x end end
+  for _, x in ipairs(sources.heroes(b.root)) do if x.package == 'matsunaga_hisahide' then h = x end end
   local doc = assert(v3.load_file(assert(h, 'matsunaga_hisahide').path))
   local chain, ab
   local function find(list, owner)
@@ -155,6 +155,29 @@ test('chain on_end runs once when the bolt cannot jump, with the last unit and i
   assert(has(text, '.unwrap_or('), 'a unit gone keeps the bolt where it was')
   local _, damages = text:gsub('cx%.damage', '')
   assert(damages >= 3, 'the end body deals its damage (' .. damages .. ')')
+end)
+
+test('chain on_end that reads neither it nor jump binds them unused', function()
+  local h
+  for _, x in ipairs(sources.heroes(b.root)) do if x.package == 'matsunaga_hisahide' then h = x end end
+  local doc = assert(v3.load_file(assert(h, 'matsunaga_hisahide').path))
+  local chain, ab
+  local function find(list, owner)
+    for _, a in ipairs(list or {}) do
+      if type(a) == 'table' then
+        if a.op == 'chain' then chain, ab = a, owner end
+        for _, k in ipairs({ 'actions', 'otherwise' }) do find(a[k], owner) end
+      end
+    end
+  end
+  for _, x in ipairs(doc.abilities) do for _, list in pairs(x.events or {}) do find(list, x) end end
+  assert(chain, 'a chain')
+  chain.on_end = { { op = 'damage', to = 'caster', type = 'magical', amount = '$base_damage' } }
+  doc.abilities = { ab }
+  local files = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'x' })
+  local text = assert(files['src/generated/' .. ab.id .. '.rs'], ab.id .. ' generates')
+  assert(has(text, 'let _l_it = l_chain_prev_;'), 'the unread end unit')
+  assert(has(text, 'let _l_jump = l_jump - Fixed64::ONE;'), 'the unread end jump')
 end)
 
 print(('%d tests passed'):format(count))
