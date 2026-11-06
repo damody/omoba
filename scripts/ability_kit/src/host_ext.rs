@@ -44,6 +44,12 @@ impl Cx<'_, '_> {
         self.unit_num(u, omb_script_abi::ext::unit_attr::GOLD)
     }
 
+    /// v3 `unit.gold_bounty` (Dota GetGoldBounty): the gold `u`'s death pays its killer (unit
+    /// attribute `gold_bounty`); 0 for a hero.
+    pub fn gold_bounty_of(&mut self, u: EntityHandle) -> Fixed64 {
+        self.unit_num(u, omb_script_abi::ext::unit_attr::GOLD_BOUNTY)
+    }
+
     /// v3 `create_pickup` with a gold `on_pickup` (C06T 豪奪的金袋, 原作 item_money): a body at
     /// `at` that the nearest hero `who` allows ("any", "allies", "enemies" of the caster's team)
     /// takes within 150, gaining the whole-gold part of `gold`; `killable` lets one hit destroy it;

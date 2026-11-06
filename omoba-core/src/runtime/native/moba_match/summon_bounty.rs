@@ -36,6 +36,34 @@ mod tests {
 
     fn death(ent: Entity) -> Outcome { Outcome::Death { pos: Vec2::ZERO, ent } }
 
+    /// Unit attribute `gold_bounty`: a summon its bounty, a jungle body its definition's gold, a
+    /// lane creep the map's lane creep gold (no original rules), a hero none.
+    #[test]
+    fn a_units_gold_bounty_is_what_its_death_pays() {
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        world.insert(TowerTemplateRegistry::default());
+        setup_single_lane_match(&mut world, SingleLaneConfig { warmup: Fixed64::ZERO, ..Default::default() }).unwrap();
+        let hero = world.read_resource::<MobaMatch>().heroes[0].entity.unwrap();
+        let faction = world.read_storage::<Faction>().get(hero).unwrap().clone();
+        let mut body = SummonedUnit::new_fixed(hero, None);
+        body.bounty = (40, 25);
+        let summon = world.create_entity().with(body).with(faction).with(Pos(Vec2::ZERO)).build();
+        let mut state = world.remove::<MobaMatch>().unwrap();
+        state.spawn_wave(&mut world);
+        world.insert(state);
+        let state = world.read_resource::<MobaMatch>();
+        let bounty = |entity| unit_gold_bounty(&state, &world.read_storage::<Creep>(), Some(&world.read_storage::<SummonedUnit>()), entity);
+        assert_eq!(bounty(summon), 40);
+        assert_eq!(bounty(hero), 0);
+        let camp = state.jungle_camps.iter().find_map(|camp| camp.entity.map(|entity| (entity, camp.definition.gold)));
+        if let Some((entity, gold)) = camp { assert_eq!(bounty(entity), gold, "a jungle body"); }
+        let creep = state.units.iter().find(|(_, unit)| unit.role == LaneRole::Creep)
+            .and_then(|(key, _)| (&world.entities()).join().find(|e| entity_key(*e) == *key));
+        let creep = creep.expect("a wave spawned");
+        assert_eq!(bounty(creep), state.config.lane_creep_gold, "a lane creep");
+    }
+
     #[test]
     fn an_enemy_kill_of_a_summon_pays_its_bounty_once_and_an_own_team_kill_pays_none() {
         let pool = crate::runtime::StateInitializer::create_thread_pool();

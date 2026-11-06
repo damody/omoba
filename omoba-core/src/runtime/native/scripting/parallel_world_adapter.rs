@@ -929,6 +929,10 @@ impl<'a> ParallelWorldAdapter<'a> {
                 .map(|record|record.launch_physical*record.critical.unwrap_or(Fixed64::ONE))),
             name::ATTACK_EFFECT_MULTIPLIER=>num(&|e|self.cache.scripted_multipliers.as_ref().and_then(|rows|rows.of(e,self.cache.tick.0))
                 .or_else(||self.cache.attacks.as_ref()?.0.get(&e).map(|record|record.effect_multiplier))),
+            name::GOLD_BOUNTY=>num(&|e|{
+                let gold=super::super::moba_match::unit_gold_bounty(self.cache.moba.as_deref()?,&self.cache.creep,self.cache.summoned.as_ref(),e);
+                Some(Fixed64::from_i32(i32::try_from(gold).unwrap_or(i32::MAX)))
+            }),
             name::GOLD=>num(&|e|{
                 let pools=self.cache.gold.as_ref()?;
                 pools.get(e).map(|pool|pool.0).or_else(||{

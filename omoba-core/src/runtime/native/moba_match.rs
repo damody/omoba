@@ -1461,6 +1461,21 @@ fn entity_key(entity: Entity) -> u64 {
     (u64::from(entity.id()) << 32) | u64::from(entity.gen().id() as u32)
 }
 
+/// The gold a unit's death pays its killer (unit attribute `gold_bounty`, Dota GetGoldBounty):
+/// a lane creep its minion type's (the last-hit gold), a jungle body its definition's, a summon its
+/// bounty; 0 for heroes and anything else (a hero kill's gold depends on streaks and assists).
+pub(crate) fn unit_gold_bounty(state:&MobaMatch,creeps:&specs::ReadStorage<'_,Creep>,
+    summoned:Option<&specs::ReadStorage<'_,SummonedUnit>>,entity:Entity)->u32 {
+    if state.units.get(&entity_key(entity)).is_some_and(|unit|unit.role==LaneRole::Creep) {
+        return match state.config.game_rules {
+            Some(rules)=>creeps.get(entity).and_then(|creep|rules.lane_minion(&creep.name)).map_or(0,|row|row.gold),
+            None=>state.config.lane_creep_gold,
+        };
+    }
+    if let Some(body)=state.jungle_camps.iter().find_map(|camp|camp.body(entity)) {return body.definition.gold;}
+    summoned.and_then(|rows|rows.get(entity)).map_or(0,|summon|summon.bounty.0)
+}
+
 fn faction(side: u8, team: u32) -> Faction {
     Faction::new(
         if side == 0 {

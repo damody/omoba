@@ -194,6 +194,10 @@ pub mod unit_attr {
     /// `Num`: whole gold in the pool of the unit's player (one pool per player, FC-129～131: no
     /// reliable / unreliable split); 0 when the world keeps none for it (an enemy on a team replica).
     pub const GOLD: &str = "gold";
+    /// `Num`: the gold the unit's death pays its killer (Dota GetGoldBounty): a lane creep's (its
+    /// minion type's), a jungle body's or a summon's bounty; 0 for a hero (its kill gold depends on
+    /// streaks and assists), for anything else and outside a MOBA match.
+    pub const GOLD_BOUNTY: &str = "gold_bounty";
     /// `Bool`: v3 `has_tag(unit, "boss" | "dummy" | "summon" | "neutral" | "fountain" | "general")`,
     /// the name after `tag:` (e.g. `"tag:boss"`). A map boss carries the boss tag; a training dummy
     /// is a dummy; a summon is a unit some unit summoned (an illusion included) or a summon

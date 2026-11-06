@@ -64,6 +64,9 @@ impl MobaJungleCamp {
     pub(super) fn invulnerable(&self)->bool {
         self.returning && (self.hard_reset || self.definition.soft_reset_seconds==0)
     }
+    pub(super) fn body(&self,entity:Entity)->Option<&Self> {
+        if self.entity==Some(entity) {Some(self)}else{self.members.iter().find(|m|m.entity==Some(entity))}
+    }
     fn body_mut(&mut self,entity:Entity)->Option<&mut Self> {
         if self.entity==Some(entity) {Some(self)}else{self.members.iter_mut().find(|m|m.entity==Some(entity))}
     }
