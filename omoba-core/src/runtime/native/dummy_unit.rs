@@ -3,7 +3,8 @@
 //! （game_processor `commit_summoned_spawn`）不建立 TAttack、碰撞半徑為 0，並在整個存活時間掛上
 //! [`STATES`]：不受傷害、不會被普攻或單位技能選到、範圍選取也選不到（無敵）、不擋其他單位、
 //! 擁有者不能下指令、不顯示血條、不上小地圖。模板給了生命（例如可以被打掉的尖刺）時只掛 [`BREAKABLE_STATES`]：
-//! 照常可以被攻擊、選取與擊殺，仍不擋路、不聽指令。呈現只播 cue，不顯示模型（前端讀 `SummonStats::dummy`）。
+//! 照常可以被攻擊、選取與擊殺，仍不擋路；聽不聽擁有者的指令由建立它的 create_unit control 決定
+//! （"none" 加上 command_restricted；A36 地刺陷阱 control = "owner"，擁有者選取它施放引爆）。呈現只播 cue，不顯示模型（前端讀 `SummonStats::dummy`）。
 use omoba_sim::Fixed64;
 use specs::Entity;
 use super::rules::vocab::state;
@@ -14,7 +15,7 @@ pub const STATES: [&str; 7] = [state::INVULNERABLE, state::UNSELECTABLE, state::
     state::NO_HEALTHBAR, state::NOT_ON_MINIMAP, super::ability_runtime::NO_UNIT_COLLISION];
 
 /// The states of a dummy with life: it can be attacked, selected and killed.
-pub const BREAKABLE_STATES: [&str; 2] = [state::COMMAND_RESTRICTED, super::ability_runtime::NO_UNIT_COLLISION];
+pub const BREAKABLE_STATES: [&str; 1] = [super::ability_runtime::NO_UNIT_COLLISION];
 
 /// A summon template a spawn admits: a dummy (its zero body is checked by the catalog), or a
 /// body with life that never attacks (`no_attack`, E546: C16 鬼影) or attacks at a positive
@@ -86,6 +87,7 @@ mod tests {
         assert!(STATES.iter().all(|id| buffs.has(holder, id)));
         assert!(!buffs.has(spike, state::INVULNERABLE) && !buffs.has(spike, state::UNSELECTABLE), "a dummy with life can be hit");
         assert!(BREAKABLE_STATES.iter().all(|id| buffs.has(spike, id)));
+        assert!(!buffs.has(spike, state::COMMAND_RESTRICTED), "its create_unit control decides its owner's orders");
         let mut stats = *omoba_template_ids::summon_by_name("dummy").and_then(omoba_template_ids::active_summon_stats).unwrap();
         hold_base_stats(&mut buffs, holder, &stats);
         assert!(!buffs.has(holder, BASE_ROW), "nothing to hold");
