@@ -7,5 +7,8 @@ local source=debug.getinfo(1,'S').source:sub(2)
 local dir=assert(source:match('^(.*)[/\\]'))
 local stage=assert(loadfile(dir..'/moba_hero_spotlight.lua'))()
 stage.map_id='nobu'
-stage.showcase.placements={['1']={-1400,-600},['2']={-1400,-840},['6']={-1400,-360}}
+-- The death's four held enemies at the base stage's offsets from the demonstrator (+600..+730 down,
+-- 170..210 either side), around record_hero_spotlight.TREE_DEATH_AT (-700,-600).
+stage.showcase.placements={['1']={-1400,-600},['2']={-1400,-840},['6']={-1400,-360},
+  ['7']={-800,-770},['8']={-800,-430},['9']={-670,-810},['10']={-670,-390}}
 return stage
