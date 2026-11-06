@@ -22,3 +22,6 @@
 [submodule "erps"]
 	path = erps
 	url = https://github.com/damody/Elo-Ranking-Pairing-System.git
+[submodule "omfgodot"]
+	path = omfgodot
+	url = https://github.com/damody/omfgodot.git
