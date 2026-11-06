@@ -171,6 +171,12 @@ return function(ctx)
     tachibana_dosetsu='ranged',
     hattori_hanzo='melee',
     ashikaga_yoshiaki='ranged',
+    mochizuki_chiyome='melee',
+    kato_danzo='melee',
+    kobayakawa_takakage='melee',
+    akiyama_nobutomo='melee',
+    taigen_sessai='ranged',
+    ishikawa_goemon='melee',
   }
   for hero,kind in pairs(first_version)do
     definitions[hero]=kind=='ranged' and {idle='Idle_Loop',attack='Spell_Simple_Shoot',critical='Spell_Simple_Shoot',impact=0.5}
