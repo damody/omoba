@@ -117,6 +117,13 @@ pub struct BuffEntry {
     zone_clock: i64,
     /// When this row was last applied, in the store's own count (LATEST_FAMILY_PREFIX).
     applied: u64,
+    /// Seconds since the row was created; a refresh keeps it (Dota GetElapsedTime).
+    elapsed: Fixed64,
+}
+
+impl BuffEntry {
+    /// Seconds since the row was created, refreshes included.
+    pub fn elapsed(&self) -> Fixed64 { self.elapsed }
 }
 
 /// Canonical persistent lifetime used by stat buffs and snapshots. Explicit removal still applies.
@@ -377,6 +384,7 @@ impl BuffStore {
                         periodic_remainder: 0,
                         zone_clock: 0,
                         applied,
+                        elapsed: Fixed64::ZERO,
                     },
                 );
                 for k in &new_keys {
@@ -952,6 +960,7 @@ impl BuffStore {
         let mut to_drop: Vec<(Entity, String)> = Vec::new();
         for (e, entity_buffs) in self.buffs.iter_mut() {
             for (id, v) in entity_buffs.iter_mut() {
+                v.elapsed += dt;
                 if v.remaining==PERMANENT_BUFF_DURATION {continue;}
                 v.remaining -= dt;
                 if v.remaining <= Fixed64::ZERO {

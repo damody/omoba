@@ -1127,6 +1127,13 @@ impl Cx<'_, '_> {
     /// `exclude_tags` (statuses carrying one of them stay); the host reads statuses' tags from the
     /// compiled catalog.
     pub fn remove_statuses_tagged(&mut self, from: EntityHandle, filter: StatusFilter<'_>, tags: &[&str], exclude_tags: &[&str]) -> Res {
+        self.remove_statuses_younger(from, filter, tags, exclude_tags, None)
+    }
+
+    /// [`Cx::remove_statuses_tagged`] with v3 `max_elapsed`: only statuses applied less than that
+    /// many seconds ago (a refresh keeps the first application, Dota GetElapsedTime); `None` any age.
+    pub fn remove_statuses_younger(&mut self, from: EntityHandle, filter: StatusFilter<'_>, tags: &[&str], exclude_tags: &[&str],
+        max_elapsed: Option<Fixed64>) -> Res {
         use omoba_core::runtime::native::dispel::{Purge, PurgeMode, PurgeSpec, SourceTeam, PURGE_BUFF};
         if !from.is_valid() { return Ok(()); }
         let (mode, side) = match filter.dispel {
@@ -1147,6 +1154,7 @@ impl Cx<'_, '_> {
             "any" => SourceTeam::Any, "enemy" => SourceTeam::Enemy, "ally" => SourceTeam::Ally,
             _ => return Err("v3: unknown team_of_source"),
         };
+        if max_elapsed.is_some_and(|t| t <= Fixed64::ZERO) { return Ok(()); }
         let limit = match filter.limit {
             None => None,
             Some(n) if n <= Fixed64::ZERO => return Ok(()),
@@ -1154,7 +1162,8 @@ impl Cx<'_, '_> {
         };
         let spec = PurgeSpec { mode, side, team, except: filter.except.iter().map(|s| (*s).to_owned()).collect(),
             states: filter.states.iter().map(|s| (*s).to_owned()).collect(), limit,
-            tags: tags.iter().map(|s| (*s).to_owned()).collect(), exclude_tags: exclude_tags.iter().map(|s| (*s).to_owned()).collect() };
+            tags: tags.iter().map(|s| (*s).to_owned()).collect(), exclude_tags: exclude_tags.iter().map(|s| (*s).to_owned()).collect(),
+            max_elapsed };
         self.world.add_stat_buff(from, RStr::from_str(PURGE_BUFF), Fixed64::ONE, RStr::from_str(&spec.payload().to_string()));
         Ok(())
     }

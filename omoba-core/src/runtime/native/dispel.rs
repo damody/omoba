@@ -425,6 +425,9 @@ pub struct PurgeSpec {
     pub tags: Vec<String>,
     /// `exclude_tags`: statuses carrying one of these tags stay.
     pub exclude_tags: Vec<String>,
+    /// `max_elapsed`: only statuses applied less than this many seconds ago (refreshes keep the
+    /// first application); `None` any age.
+    pub max_elapsed: Option<omoba_sim::Fixed64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -441,6 +444,7 @@ impl PurgeSpec {
             "team": match self.team { SourceTeam::Any => "any", SourceTeam::Enemy => "enemy", SourceTeam::Ally => "ally" },
             "except": self.except, "states": self.states, "limit": self.limit,
             "tags": self.tags, "exclude_tags": self.exclude_tags,
+            "max_elapsed": self.max_elapsed.map(|t| t.raw()),
         } })
     }
     pub fn from_payload(buff_id: &str, duration: omoba_sim::Fixed64, payload: &Value) -> Option<Self> {
@@ -456,6 +460,8 @@ impl PurgeSpec {
             except: strings("except")?, states: strings("states")?,
             limit: match row.get("limit")? { Value::Null => None, n => Some(u32::try_from(n.as_u64()?).ok()?) },
             tags: strings("tags")?, exclude_tags: strings("exclude_tags")?,
+            max_elapsed: match row.get("max_elapsed") { None | Some(Value::Null) => None,
+                Some(n) => Some(omoba_sim::Fixed64::from_raw(n.as_i64().filter(|raw| *raw > 0)?)) },
         };
         (spec.except.len() <= 32 && spec.tags.len() <= 16 && spec.exclude_tags.len() <= 16 && spec.states.len() <= 8 && spec.states.iter().all(|s| is_control(s))).then_some(spec)
     }
@@ -517,6 +523,7 @@ pub fn purge_with(registry: &Registry, world: &World, entity: Entity, spec: &Pur
             let control = is_control(id) || control_row.is_some();
             if id.starts_with("__") && control_row.is_none() { return false; }
             if *id == super::magic_immunity::BUFF { return false; }
+            if spec.max_elapsed.is_some_and(|max| entry.elapsed() >= max) { return false; }
             if !spec.states.is_empty() {
                 let holds = if is_control(id) { spec.states.iter().any(|s| s == id) }
                     else { controls_of(&entry.payload).iter().any(|c| spec.states.iter().any(|s| s == c)) };
@@ -874,7 +881,7 @@ mod tests {
         let has = |world: &World, id: &str| world.read_resource::<BuffStore>().has(hero, id);
         let spec = |tags: &[&str], exclude: &[&str]| PurgeSpec { mode: PurgeMode::All, side: None, team: SourceTeam::Any,
             except: Vec::new(), states: Vec::new(), limit: None,
-            tags: tags.iter().map(|s| s.to_string()).collect(), exclude_tags: exclude.iter().map(|s| s.to_string()).collect() };
+            tags: tags.iter().map(|s| s.to_string()).collect(), exclude_tags: exclude.iter().map(|s| s.to_string()).collect(), max_elapsed: None };
         put(&world);
         assert_eq!(purge_with(&registry, &world, hero, &spec(&["perceive_wine"], &[])), 1);
         assert!(!has(&world, "t_wine:3:0") && has(&world, "t_aura") && has(&world, "t_plain"));
@@ -883,6 +890,42 @@ mod tests {
         assert!(has(&world, "t_aura"));
         let round = spec(&["a"], &["b"]);
         assert_eq!(PurgeSpec::from_payload(PURGE_BUFF, Fixed64::ONE, &round.payload()), Some(round));
+    }
+
+    /// `max_elapsed` (B27 old, GetElapsedTime() < 0.1): only statuses applied less than that long
+    /// ago go, a refresh keeping the first application; with tags, a protected one just applied
+    /// goes and an older one stays.
+    #[test]
+    fn purges_only_statuses_younger_than_max_elapsed() {
+        let doc = json!({"abilities": [{"v3": {"statuses": [
+            {"id": "z_old", "dispel": "basic", "visibility": "buff", "tags": ["guarded"]},
+            {"id": "z_new", "dispel": "basic", "visibility": "buff", "tags": ["guarded"]},
+            {"id": "z_refreshed", "dispel": "basic", "visibility": "buff", "tags": ["guarded"]}]}}]});
+        let registry = Registry::from_catalog(&doc);
+        let mut world = World::new();
+        world.register::<Faction>();
+        world.insert(BuffStore::new());
+        let hero = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        let tenth = Fixed64::from_raw(102);
+        {
+            let mut buffs = world.write_resource::<BuffStore>();
+            buffs.add(hero, "z_old", Fixed64::from_i32(5), json!({}));
+            buffs.add(hero, "z_refreshed", Fixed64::from_i32(5), json!({}));
+            buffs.tick(Fixed64::from_raw(205));
+            buffs.add(hero, "z_refreshed", Fixed64::from_i32(5), json!({}));
+            buffs.add(hero, "z_new", Fixed64::from_i32(5), json!({}));
+            buffs.tick(Fixed64::from_raw(17));
+            assert_eq!(buffs.get(hero, "z_refreshed").unwrap().elapsed(), Fixed64::from_raw(222), "a refresh keeps the age");
+        }
+        let spec = PurgeSpec { mode: PurgeMode::All, side: None, team: SourceTeam::Any, except: Vec::new(), states: Vec::new(),
+            limit: None, tags: vec!["guarded".into()], exclude_tags: Vec::new(), max_elapsed: Some(tenth) };
+        assert_eq!(purge_with(&registry, &world, hero, &spec), 1);
+        let buffs = world.read_resource::<BuffStore>();
+        assert!(!buffs.has(hero, "z_new") && buffs.has(hero, "z_old") && buffs.has(hero, "z_refreshed"));
+        assert_eq!(PurgeSpec::from_payload(PURGE_BUFF, Fixed64::ONE, &spec.payload()), Some(spec.clone()));
+        let mut bad = spec.payload();
+        bad[PURGE_KEY]["max_elapsed"] = json!(0);
+        assert_eq!(PurgeSpec::from_payload(PURGE_BUFF, Fixed64::ONE, &bad), None, "a non-positive age");
     }
 
     #[test]
@@ -910,7 +953,7 @@ mod tests {
         let left = |world: &World| { let mut v: Vec<String> = world.read_resource::<BuffStore>().iter_for(hero).map(|(k, _)| k.to_owned()).collect(); v.sort(); v };
         let spec = |mode, team, except: &[&str], states: &[&str], limit| PurgeSpec { mode, side: None, team,
             except: except.iter().map(|s| s.to_string()).collect(), states: states.iter().map(|s| s.to_string()).collect(), limit,
-            tags: Vec::new(), exclude_tags: Vec::new() };
+            tags: Vec::new(), exclude_tags: Vec::new(), max_elapsed: None };
         put(&world);
         assert_eq!(purge_with(&registry, &world, hero, &spec(PurgeMode::All, SourceTeam::Enemy, &[], &[], None)), 4,
             "enemy slow, the undispellable mark, the stun and its row; the own haste stays");
