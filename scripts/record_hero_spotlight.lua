@@ -410,7 +410,7 @@ M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_
 M.HOLDS_STILL={b20_tenacity=true}
 -- b27 裂地刃 reaches 1000: the death's stand-ins are hit too, and at the usual cap (2) their ripples were cut off.
 -- a13 替身術 swaps with an illusion 影分身 left on its 900 circle (1058 from the hero): in view, nothing to walk to.
-M.VIEW_BACK={a13_substitution=2.9,c03_iron_hammer=1.3,a26_powder_kick=1.5,a26_scorching_bomb=1.7,b20_ruin_wave=1.35,b20_red_charge=1.35,a12_insight_flash=1.25,a01_tosho_gongen=1.4,a01_mikawa_valor=1.4,b27_rending_blade=2.7,a26_volley=1.45,a14_impact_spear=1.45,a14_divine_strike=1.6,c05_thunder_dance=1.4,c05_flash_thunder=1.5,a12_mystic_arrow=1.45,a12_scheme=1.45}
+M.VIEW_BACK={b22_force_of_nature=1.3,b22_wood_spirit=1.3,a13_substitution=2.9,c03_iron_hammer=1.3,a26_powder_kick=1.5,a26_scorching_bomb=1.7,b20_ruin_wave=1.35,b20_red_charge=1.35,a12_insight_flash=1.25,a01_tosho_gongen=1.4,a01_mikawa_valor=1.4,b27_rending_blade=2.7,a26_volley=1.45,a14_impact_spear=1.45,a14_divine_strike=1.6,c05_thunder_dance=1.4,c05_flash_thunder=1.5,a12_mystic_arrow=1.45,a12_scheme=1.45}
 -- Ranged: hero and stand-in stand far apart, in frame from the segment's start.
 M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
 -- The stage's showcase.withheld_abilities: no rank at birth, learned in their own segment.
@@ -431,7 +431,9 @@ M.VIEW_EARLY={c05_flash_thunder=true,c03_iron_hammer=true,a14_impact_spear=true,
 -- a14 on the lane stage: 衝擊槍 flies the stand-in (2800,2260) along the run into seat 10 (2800,1750), and the crash and its 350 show.
 -- 神現一擊 blinks 850 through the stand-in: straight along the run it lands on the cliff, a little aside it clears it, at about (2977,1573). Both frames hold the hero, the target and the landing.
 M.STAND_AT={b26_kozuke_valor=M.STRUCK_AT,a14_divine_strike={2765,2396}}
-M.VIEW_AT={c05_flash_thunder={2520,2390},a14_impact_spear={2800,2075},a14_divine_strike={2870,1985},a12_mystic_arrow={2300,2550},a12_scheme={2300,2550}}
+-- b22 on the tree stage: the trees stand 107-235 below the hero (-1400,-600), under the caption when the
+-- view frames the hero and the stand-in (taigen_sessai 20261106-153704: 16 times outside the view).
+M.VIEW_AT={b22_force_of_nature={-1510,-540},b22_wood_spirit={-1510,-540},c05_flash_thunder={2520,2390},a14_impact_spear={2800,2075},a14_divine_strike={2870,1985},a12_mystic_arrow={2300,2550},a12_scheme={2300,2550}}
 -- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
 -- a36 地刺陷阱: under the stand-in it arms in 1.5 s and the stand-in sets it off (trigger 250) before
 -- 引爆's turn; here, on the hero's row toward the stand-in, it is 350 from the stand-in and 110 from
