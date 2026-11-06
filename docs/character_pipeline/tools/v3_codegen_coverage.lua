@@ -69,7 +69,7 @@ function M.scan(root)
     if name:match("%.lua$") then
       local doc = P.load_file(dir .. "/" .. name)
       if doc and #P.validate_doc(doc) == 0 then
-        local ok, files_or_err, report = pcall(R.generate, doc, { root = root, rules = rules, package = name:gsub("%.lua$", "") })
+        local ok, files_or_err, report = pcall(R.generate, doc, { root = root, rules = rules, package = name:gsub("%.lua$", ""), catalog = R.content_catalog(root) })
         if ok then for _, e in ipairs(report.entries) do out.items[#out.items + 1] = e end
         else out.problems[#out.problems + 1] = name .. ": " .. tostring(files_or_err) end
       end
