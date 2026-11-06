@@ -40,7 +40,10 @@ fn interrupt_reason(entities:&specs::world::EntitiesRes,props:&specs::ReadStorag
     else if buffs.is_silenced(caster) {Some("silenced")}
     else if positions.get(caster).is_none_or(|p|p.0!=cast.origin) {Some("moved")}
     else if recalling(caster) {Some("recall")}
-    else if heroes.get(caster).is_none_or(|h|h.get_ability_level(&cast.skill_id)!=i32::from(cast.rank)) {Some("rank")}
+    // A non-hero casts at its unit ability's rank (unit_abilities, E529): a36 地刺陷阱's 引爆
+    // (cast point 0.1) was ended "rank" every time, as no Hero holds it.
+    else if heroes.get(caster).map(|h|h.get_ability_level(&cast.skill_id))
+        .or_else(||super::unit_abilities::level(buffs,caster,&cast.skill_id).map(i32::from))!=Some(i32::from(cast.rank)) {Some("rank")}
     else if matches!(cast.target,SkillTarget::Entity(target) if !entities.is_alive(target)
         || props.get(target).is_none_or(|p|p.hp<=Fixed64::ZERO)) {Some("target_lost")}
     else {None}
@@ -296,6 +299,20 @@ mod tests {
         let mut casts=AbilityWindups::default();casts.0.insert(caster,Windup {skill_id:"fixture".into(),
             target:SkillTarget::None,origin:Vec2::ZERO,remaining:Fixed64::from_raw(512),rank:1,interrupt_on_damage:false,last_tick:0,anchored:false});
         (world,caster,casts)
+    }
+    #[test]
+    fn a_unit_ability_windup_of_a_non_hero_releases_at_its_rank() {
+        let (mut world,_,_)=fixture();
+        let unit=world.create_entity().with(Pos(Vec2::ZERO))
+            .with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        let windup=Windup {skill_id:"a36_detonate".into(),target:SkillTarget::None,origin:Vec2::ZERO,
+            remaining:Fixed64::from_raw(102),rank:2,interrupt_on_damage:false,last_tick:0,anchored:false};
+        let run=|world:&mut World|{let mut casts=AbilityWindups::default();casts.start(unit,windup.clone());
+            world.write_resource::<Tick>().0+=1;casts.advance(world,Fixed64::ONE).len()};
+        assert_eq!(run(&mut world),0,"no unit ability held: ended");
+        world.write_resource::<super::super::BuffStore>().add(unit,&super::super::unit_abilities::row_id("a36_detonate"),
+            Fixed64::from_i32(60),super::super::unit_abilities::payload("a36_detonate",2).unwrap());
+        assert_eq!(run(&mut world),1,"held at the windup's rank: released");
     }
     #[test]
     fn an_unreleased_windup_leaves_an_interrupted_trace_row_with_its_reason() {
