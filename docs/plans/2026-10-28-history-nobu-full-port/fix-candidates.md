@@ -305,7 +305,7 @@ datadriven modifier 的 Properties 不會乘上 StackCount，所以腳本疊的�
 
 **測試**：fix_candidates 的測試要英雄上架後才能載入（`learned(<package>, …)`），變體英雄由 E 線上架後，D 依本表逐項補測試，並在 `check_fixed_quirk` 接上；目前全部是「已改 v3 文件，測試待上架後補」。
 
-還不能修、保留 pending 或 fix_candidate 的項目：伊勢姬（舊版）心靈控制的「暫時換隊伍、交給施法者操作」（缺 host 支援，A 線已轉 B 線；瀕死判斷照 FC-024 已修），以及小島貞興（舊版）法術護盾淨化時連同剛套上不到 0.1 秒的受保護狀態一起移除（`remove_status` 依已存在時間篩選，同樣等 B 線）。風魔小太郎（舊版）四方導雷的回打已用 A 線的 `chain.on_end`（3064fce3）寫成。
+還不能修、保留 pending 或 fix_candidate 的項目：伊勢姬（舊版）心靈控制的「暫時換隊伍、交給施法者操作」（缺 host 支援，A 線已轉 B 線；瀕死判斷照 FC-024 已修）。小島貞興（舊版）法術護盾淨化時連同剛套上不到 0.1 秒的受保護狀態一起移除，已用 A 線的 `remove_status.max_elapsed`（151ece8a）寫成。風魔小太郎（舊版）四方導雷的回打已用 A 線的 `chain.on_end`（3064fce3）寫成。
 
 | 編號 | 英雄 | 文件 · 招式 | 原作實際行為與修法 |
 |---|---|---|---|

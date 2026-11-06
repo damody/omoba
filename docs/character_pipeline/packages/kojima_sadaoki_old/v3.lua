@@ -125,6 +125,8 @@ return function(ctx)
             source = "script:vscripts/heroes/B_Unified/B27.lua:17 StartIntervalThink(0.2)" },
           purge_delay = { 0.01, unit = "s", hidden = true,
             source = "script:vscripts/heroes/B_Unified/B27.lua:40 Timers:CreateTimer(0.01)" },
+          protected_grace = { 0.1, unit = "s", hidden = true,
+            source = "script:vscripts/heroes/B_Unified/B27.lua:48-53 GetElapsedTime() < 0.1" },
         },
         text = {
           zh_TW = { name = "法術護盾",
@@ -160,6 +162,9 @@ return function(ctx)
                   } },
                   { op = "delay", time = "$purge_delay", actions = {
                     { op = "if", cond = "exists(self)", actions = {
+                      -- B27.lua:48-53: a protected status is purged too while it is under protected_grace old
+                      { op = "remove_status", from = "self", dispel = "all", team_of_source = "enemy",
+                        tags = { "cleanse_protected" }, max_elapsed = "$protected_grace" },
                       { op = "remove_status", from = "self", dispel = "all", team_of_source = "enemy",
                         exclude_tags = { "cleanse_protected" } },
                       { op = "if", cond = "stacks(self, b27r_old_shield) > 1",
@@ -191,12 +196,7 @@ return function(ctx)
             } },
           },
         },
-        coverage = "pending", confidence = "medium",
-        pending = {
-          { what = "淨化時也要移除「受保護但剛套上不到 0.1 秒」的敵方狀態",
-            why = "vscripts/heroes/B_Unified/B27.lua:48-53：_G.EXCLUDE_MODIFIER_NAME 名單內的狀態平常保留，但 GetElapsedTime() < 0.1 時照樣移除（例如同一招帶來的變青蛙）",
-            gap = "remove_status 加 max_elapsed（只移除已存在時間小於某值的狀態），或可寫 where 條件讀 status.elapsed" },
-        },
+        coverage = "expressible", confidence = "medium",
         quirks = {
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B27.lua:27-37",
             text = "OnTakeDamage 的變數名稱顛倒（attacker = event.unit 是受害者、victim = event.attacker 是攻擊者），實際條件是：受害者是貞興、攻擊者是敵人、不是反射傷害、傷害類型不是物理（純粹傷害也算）。普通攻擊不觸發。" },
