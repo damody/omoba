@@ -347,9 +347,23 @@ return function(ctx)
   for _, hero in ipairs(ctx.include('templates/v3_test_heroes.lua').heroes or {}) do heroes[#heroes + 1] = hero end
   -- Generated Tripo bodies (templates/moba_tripo_hero_visuals.lua) replace any earlier native visual,
   -- including a borrowed CC0 rig or legacy render model, once the hero's rig and clips are imported.
+  -- A skill-set variant (variant_of, D22) wears its base hero's body, rig and clips; an ability's
+  -- own cast clip goes to the variant's ability in the same loadout slot.
   local tripo_visuals=ctx.include('templates/moba_tripo_hero_visuals.lua')
+  local by_id={};for _,hero in ipairs(heroes)do by_id[hero.id]=hero end
   for _,hero in ipairs(heroes)do
-    local profile=tripo_visuals.profile(hero.id,hero.ue and hero.ue.native_visual)
+    local base=hero.variant_of and by_id[hero.variant_of]
+    if hero.variant_of then assert(base,('hero %s is a variant of unknown hero %s'):format(hero.id,hero.variant_of)) end
+    -- Its select title and story are the base hero's unless its document gives its own.
+    if base then hero.title=hero.title or base.title;hero.background=hero.background or base.background end
+  end
+  for _,hero in ipairs(heroes)do
+    local profile=tripo_visuals.profile(hero.variant_of or hero.id,hero.ue and hero.ue.native_visual)
+    local base=profile and hero.variant_of and by_id[hero.variant_of]
+    for i,ability in ipairs(base and hero.abilities or{})do
+      local clip=base.abilities[i] and profile.animation_assets['ability_'..base.abilities[i]]
+      if ability~='' and clip then profile.animation_assets['ability_'..ability]=clip end
+    end
     if profile then
       local ue={};for key,value in pairs(hero.ue or{})do ue[key]=value end
       ue.native_visual=profile;hero.ue=ue

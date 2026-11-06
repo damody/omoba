@@ -883,10 +883,18 @@ impl HeroSourceStats {
 
 /// Every hero in the game is a source hero or explicitly test-only. A playable hero names exactly
 /// one roster hero (`<roster name>@<roster commit>:<id>`), each roster hero at most once; a hero
-/// with neither marker, or both, fails the content build.
+/// with neither marker, or both, fails the content build. A skill-set variant (`variant_of`, D22)
+/// names its base's roster hero, which stays claimed by the base.
 pub(crate) fn validate_hero_sources(heroes:&[HeroEntry],roster:Option<&HeroSourceRoster>)->Result<(),String> {
     let mut claimed=BTreeSet::new();
     for hero in heroes.iter().filter(|hero|!hero.tombstone) {
+        if let Some(base)=&hero.variant_of {
+            let of=heroes.iter().find(|other|!other.tombstone && &other.id==base)
+                .ok_or_else(||format!("hero '{}' is a variant of '{base}', which is not a hero",hero.id))?;
+            if of.variant_of.is_some() || hero.source_ref.is_none() || of.source_ref!=hero.source_ref {
+                return Err(format!("hero '{}': a variant names its base '{base}' source_ref, and the base is no variant",hero.id));
+            }
+        }
         if let Some(id)=&hero.source_stats {
             if !hero.test_only {return Err(format!("hero '{}': source_stats is for test_only heroes (a playable hero uses source_ref)",hero.id));}
             let entry=roster.and_then(|roster|roster.heroes.iter().find(|entry|&entry.id==id))
@@ -909,7 +917,7 @@ pub(crate) fn validate_hero_sources(heroes:&[HeroEntry],roster:Option<&HeroSourc
                 };
                 // A playable hero takes its stats from the source unit; they must be complete.
                 entry.stats.validate(id).map_err(|error|format!("hero '{}': {error}",hero.id))?;
-                if !claimed.insert(id.to_owned()) {
+                if hero.variant_of.is_none() && !claimed.insert(id.to_owned()) {
                     return Err(format!("source hero '{id}' is claimed by more than one hero (second: '{}')",hero.id));
                 }
             }
@@ -3056,6 +3064,23 @@ mod tests {
                 _ => unreachable!(),
             }
             assert!(validate_hero_sources(&[source.clone()],Some(&broken)).is_err(),"source stats case {case}");
+        }
+        // A skill-set variant shares its base's source hero; it may not borrow another's or chain.
+        let mut variant = source.clone();
+        variant.common.id = "saika_magoichi_old".into();
+        variant.common.variant_of = Some("saika_magoichi".into());
+        validate_hero_sources(&[source.clone(),variant.clone()],Some(&roster)).unwrap();
+        for case in 0..4 {
+            let (a, mut v) = (source.clone(), variant.clone());
+            match case {
+                0 => v.common.variant_of = Some("missing_hero".into()),
+                1 => v.common.source_ref = Some(format!("history_nobu@{commit}:B02")),
+                2 => v.common.variant_of = None,                                          // then a second claim
+                3 => { let mut w = v.clone(); w.common.id = "w".into(); w.common.variant_of = Some(v.common.id.clone());
+                       assert!(validate_hero_sources(&[a.clone(),v.clone(),w],Some(&roster)).is_err(),"variant of a variant"); continue; }
+                _ => unreachable!(),
+            }
+            assert!(validate_hero_sources(&[a,v],Some(&roster)).is_err(),"variant case {case}");
         }
         let mut no_start = roster.clone();
         no_start.heroes.iter_mut().find(|entry|entry.id=="B01").unwrap().stats.starting_mana = None;

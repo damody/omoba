@@ -112,6 +112,8 @@ local HEROES = {
   { package = "kobayakawa_takakage", playable = true },
   { package = "akiyama_nobutomo", playable = true },
   { package = "ishikawa_goemon", playable = true },
+  -- D22: the skill-set variants, each its own hero (<base>_old, <base>_v20; variant_of below)
+  { package = "asai_nagamasa_old", playable = true },
 }
 
 -- v3 hero slots in the MOBA loadout order (Q W E R, then the D slot)
@@ -167,6 +169,22 @@ local function check_playable(entry, doc)
   assert(listed, entry.package .. ": playable, but scripts/hero_dlls.lua does not list heroes/" .. entry.package)
 end
 
+-- D22: a document whose source.variant is not "current" is another skill set of the hero in
+-- packages/<base>; its package is <base>_<variant> (asai_nagamasa_old, ..._v20).
+local VARIANT_LABEL = { old = "舊版", v20 = "2.0" }
+local function variant_of(package, doc)
+  local kind = doc.source and doc.source.variant
+  if kind == nil or kind == "current" then return nil end
+  assert(VARIANT_LABEL[kind], package .. ": unknown source.variant " .. tostring(kind))
+  local base = package:match("^(.+)_" .. kind .. "$")
+  assert(base, package .. ": a " .. kind .. " skill set is the package <base hero>_" .. kind)
+  local base_doc = load_doc(base)
+  assert(((base_doc.source or {}).variant or "current") == "current", package .. ": its base " .. base .. " is not a current document")
+  assert(doc.hero.source_id == base_doc.hero.source_id,
+    package .. ": hero.source_id must be the base's " .. tostring(base_doc.hero.source_id) .. " (its unit stats)")
+  return base, base_doc
+end
+
 local function build(entry)
   local doc = load_doc(entry.package)
   if entry.playable then check_playable(entry, doc) end
@@ -215,10 +233,16 @@ local function build(entry)
     list[i] = slots[i] or ""
     loadout[i] = slots[i] and ranks[i] or 0
   end
-  local name = doc.hero.text.zh_TW.name
+  -- A skill-set variant (D22): its own hero, named after its base hero, wearing the base's body and
+  -- art (variant_of); text the document leaves out is the base's.
+  local variant, base_doc = variant_of(entry.package, doc)
+  local own = doc.hero.text and doc.hero.text.zh_TW or {}
+  local base_text = base_doc and base_doc.hero.text.zh_TW or {}
+  local name = own.name or (base_doc and (base_text.name .. "（" .. VARIANT_LABEL[doc.source.variant] .. "）"))
+  assert(name, entry.package .. ": the document has no hero.text.zh_TW.name")
   -- a playable hero's select title and background come from its document (hero.text.zh_TW)
   local title, background = "v3 測試英雄", name .. "（schema v3 產生的 Rust；測試用）"
-  if entry.playable then title, background = doc.hero.text.zh_TW.title, doc.hero.text.zh_TW.background end
+  if entry.playable then title, background = own.title or base_text.title, own.background or base_text.background end
   local hero = {
     id = entry.package,
     -- Not selectable or in a match: tests and conformance only, until it is playable.
@@ -228,6 +252,7 @@ local function build(entry)
     authored_package = entry.package,
     -- its abilities register through scripts/heroes/<package> (gen_hero_registry.lua skips it)
     v3_crate = entry.package,
+    variant_of = variant,
     ue = { native_only = true },
     display_name = name,
     title = title,

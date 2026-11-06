@@ -143,4 +143,6 @@ return {
   {hero='tamako',package='hero_c15',dir='heroes/tamako'},
   -- B04: every ability generated, conformance 0 fail; handlers deleted
   {hero='date_masamune',package='hero_b04',dir='heroes/date_masamune'},
+  -- D22 skill-set variants: each its own hero and DLL (packages/<hero>_old, _v20)
+  {hero='asai_nagamasa_old',package='hero_b08_old',dir='heroes/asai_nagamasa_old'},
 }

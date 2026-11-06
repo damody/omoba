@@ -87,6 +87,32 @@ do
  local hs2,ms2=fresh();ms2.entries[1].placeholder=false
  check(not pcall(M.validate,hs2,ms2,image),'placeholder flag must be exactly true when present')
 end
+-- Skill-set variants (D22) show their base hero's art: a copy of an authored row, or the base's nobu file.
+do
+ local hs,ms=fresh()
+ hs[#hs+1]={id='hero_alpha_old',display_name='Hero alpha (old)',variant_of='hero_alpha'}
+ hs[#hs+1]={id='hero_beta_old',display_name='Hero beta (old)',variant_of='hero_beta'}
+ local nobu={portrait={hero_beta='nobu-hero-hero_beta.png'},sources={portrait={hero_beta='nobu'}}}
+ local added=M.placeholder_entries(hs,ms,nobu)
+ local rows={};for _,row in ipairs(ms.entries)do rows[row.id]=row end
+ check(#added==2 and rows.hero_alpha_old.file=='alpha.png'and rows.hero_alpha_old.art_of=='hero_alpha'and not rows.hero_alpha_old.placeholder,'variant copies its base authored portrait')
+ check(rows.hero_beta_old.file=='nobu-hero-hero_beta.png'and rows.hero_beta_old.source=='nobu'and rows.hero_beta_old.art_of=='hero_beta','variant takes its base nobu portrait')
+ check(M.validate(hs,ms,image)==5,'borrowed portraits validate beside their bases')
+ rows.hero_alpha_old.art_of='hero_gamma'
+ check(not pcall(M.validate,hs,ms,image),'a portrait cannot borrow from a hero that is not its base')
+ rows.hero_alpha_old.art_of='hero_alpha';ms.entries[1].file='alpha2.png'
+ check(#M.placeholder_entries(hs,ms,nobu)==0 and rows.hero_alpha_old.file=='alpha2.png','a borrowed row follows its base')
+ local heroes={{id='hero_alpha',display_name='A',abilities={'alpha_q','alpha_w'}},{id='hero_alpha_old',display_name='A old',variant_of='hero_alpha',abilities={'alpha_old_q','alpha_old_w'}}}
+ local abilities={{id='alpha_q',display_name='Q'},{id='alpha_w',display_name='W'},{id='alpha_old_q',display_name='Old Q'},{id='alpha_old_w',display_name='Old W'}}
+ local icons={ability={alpha_q='nobu-ability-alpha_q.png',alpha_old_w='nobu-ability-alpha_old_w.png'},sources={ability={alpha_q='nobu',alpha_old_w='nobu'}}}
+ local am={schemaVersion=1,entries={}}
+ M.ability_placeholder_entries(heroes,abilities,am,icons)
+ local ar={};for _,row in ipairs(am.entries)do ar[row.id]=row end
+ check(ar.alpha_old_q.file=='nobu-ability-alpha_q.png'and ar.alpha_old_q.art_of=='alpha_q','variant ability takes the icon of its base ability in the same slot')
+ check(ar.alpha_old_w.file=='nobu-ability-alpha_old_w.png'and ar.alpha_old_w.art_of==nil,'an own nobu icon wins over the base')
+ check(ar.alpha_w.placeholder==true,'a base without art stays a placeholder')
+ check(M.validate_abilities(heroes,abilities,am,image)==4,'borrowed ability icons validate')
+end
 -- Hero ability icons: atlas, packaged per-ability texture, or the declared placeholder.
 do
  local function kit()

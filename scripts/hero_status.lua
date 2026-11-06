@@ -19,6 +19,16 @@ M.OUT='docs/plans/2026-10-28-history-nobu-full-port/all-heroes-status.md'
 M.RUNS='target/hero-status/runs'
 M.GROUP=10
 
+-- The skill-set versions (D22): package <base>_<suffix>, its own hero wearing the base's body.
+M.VARIANTS={{suffix='old',title='舊版技能組'},{suffix='v20',title='2.0 版技能組'}}
+-- package -> its base hero's package and the version suffix; nil for a base hero
+function M.base_of(package,is_package)
+  for _,variant in ipairs(M.VARIANTS) do
+    local base=package:match('^(.+)_'..variant.suffix..'$')
+    if base and is_package[base] then return base,variant.suffix end
+  end
+end
+
 -- The batches as m6-waves.md lists them: that order is the plan everything else refers to. v3_waves.lua
 -- would now give a somewhat different order, because the documents changed since. Heroes the plan does
 -- not list come first as batch 0 (the ten it started from) or last.
@@ -51,6 +61,24 @@ function M.batches(root)
     end
   end
   table.sort(batches[1].heroes)
+  -- D22: the skill-set variants (<hero>_old, <hero>_v20) follow, one section per version, in their
+  -- base heroes' order.
+  local is_package,order,n={},{},0
+  for _,hero in ipairs(sources) do is_package[hero.package]=true end
+  for _,batch in ipairs(batches) do for _,package in ipairs(batch.heroes) do n=n+1;order[package]=n end end
+  for _,variant in ipairs(M.VARIANTS) do
+    local list={}
+    for _,hero in ipairs(sources) do
+      local base,kind=M.base_of(hero.package,is_package)
+      if kind==variant.suffix and not placed[hero.package] then list[#list+1]=hero.package;placed[hero.package]=true end
+    end
+    table.sort(list,function(a,b)
+      local x,y=order[(M.base_of(a,is_package))] or math.huge,order[(M.base_of(b,is_package))] or math.huge
+      if x~=y then return x<y end
+      return a<b
+    end)
+    if #list>0 then batches[#batches+1]={index=#batches,heroes=list,variant=variant} end
+  end
   local rest={}
   for _,hero in ipairs(sources) do if not placed[hero.package] then rest[#rest+1]=hero.package end end
   table.sort(rest)
@@ -254,16 +282,20 @@ function M.collect(root,options)
   local matches=M.match_evidence(root,run)
   local spotlight=require('record_hero_spotlight')
   local batches,source_of=M.batches(root)
+  local is_package={}
+  for package in pairs(source_of) do is_package[package]=true end
   local out={batches={},run=run,matches=matches,problems=problems}
   for _,batch in ipairs(batches) do
     local rows={}
     for _,package in ipairs(batch.heroes) do
       local hero=heroes[package]
       local row={package=package,source=source_of[package],hero=hero,slots={},others={},abilities={}}
+      -- A variant wears its base hero's Tripo body (templates/heroes.lua variant_of).
+      row.base=hero and hero.variant_of or M.base_of(package,is_package)
       row.listed=hero~=nil and not hero.test_only and not hero.tombstone and hero.source_ref~=nil
       row.dll=dlls[package]~=nil
       row.ue=recipe:find(package,1,true)~=nil
-      row.tripo=M.tripo(root,package,imported)
+      row.tripo=M.tripo(root,row.base or package,imported)
       row.video=M.video(root,package)
       row.games=matches.games[package] or 0
       row.attack=matches.attack[package]
@@ -272,7 +304,16 @@ function M.collect(root,options)
       if report then for _,entry in ipairs(report.entries) do blockers[entry.id]=entry.blockers end end
       local cast=matches.abilities[package] or {}
       row.total,row.done=0,0
-      for index,id in ipairs(hero and hero.abilities or {}) do
+      -- A hero not in the content yet is counted from its document's entries (the generator's report).
+      row.report=report~=nil
+      local ids,kinds={},{}
+      if hero then ids=hero.abilities or {}
+      elseif report then
+        for _,entry in ipairs(report.entries) do
+          if entry.kind=='ability' or entry.kind==nil then ids[#ids+1]=entry.id end
+        end
+      end
+      for index,id in ipairs(ids) do
         if id~='' then
           local ability=abilities[id]
           local cell={id=id,index=index,kind=ability and ability.ability_type or '?',blockers=blockers[id],evidence=cast[id]}
@@ -297,7 +338,7 @@ function M.collect(root,options)
       else row.script={error=tostring(script):match('[^\n]*')} end
       rows[#rows+1]=row
     end
-    out.batches[#out.batches+1]={index=batch.index,unplanned=batch.unplanned,rows=rows}
+    out.batches[#out.batches+1]={index=batch.index,unplanned=batch.unplanned,variant=batch.variant,rows=rows}
   end
   return out
 end
@@ -318,6 +359,7 @@ end
 function M.gaps(row)
   local gaps={}
   if not row.listed then gaps[#gaps+1]='未上架' end
+  if not row.report then gaps[#gaps+1]='v3 文件無法產生 Rust（見產生器問題）' end
   if not row.dll then gaps[#gaps+1]='hero_dlls 未列' end
   if not row.ue then gaps[#gaps+1]='UE 目錄無此英雄' end
   local unbuilt,never={},{}
@@ -366,7 +408,7 @@ function M.render(data)
   add('# 全部英雄狀態表');add('')
   add('由 `tools\\lua\\lua.exe scripts\\hero_status.lua` 從程式與實際資料產生，不要手改；重跑就更新。');add('')
   add('**怎麼讀**');add('')
-  add('- **批次**：`m6-waves.md` 的順序。第 0 批是規劃開始前就有的十位。')
+  add('- **批次**：`m6-waves.md` 的順序。第 0 批是規劃開始前就有的十位。舊版與 2.0 版技能組（`<英雄>_old`、`<英雄>_v20`）排在最後，順序跟本體一樣；Tripo 一欄看的是本體的模型。')
   add('- **上架**：內容目錄的英雄列不是 `test_only`、不是墓碑，且有 `source_ref`（等於 `omoba_template_ids::hero_playable`）。')
   add('- **已產生**：這位英雄的招式裡，`v3_rust.lua` 沒有 blocker 的數量。')
   add('- **Q／W／E／R／其他**：headless 對局裡這招的實際施放次數（每個座位都算）。`被動` 無法施放，沒有驗證它的效果；`**0**` 是 bot 這幾局沒有施放，不等於放不出來；`未驗證` 是這次沒有這位英雄的對局。')
@@ -375,33 +417,40 @@ function M.render(data)
   add('- **演示腳本**：`record_hero_spotlight.load_package` 排得出的段數與跳過的招。**影片**：`target/spotlight/<英雄>/` 目前有的 mp4 與日期；舊影片可能已被清理，也可能早於最新內容。')
   add('- 影片只看目前的狀態，沒有判斷內容對不對。conformance 的逐招結果目前不在表內（`target/v3-conformance` 沒有結果）。')
   add('')
-  local total,listed,all_built,videos,tripo,script_full,seen,never=0,0,0,0,0,0,0,0
+  -- Counted apart: the base heroes, the skill-set variants (D22), and everyone.
+  local KEYS={'total','listed','all_built','seen','never','tripo','script_full','videos','done'}
+  local counts={base={},variant={},all={}}
+  for _,c in pairs(counts) do for _,k in ipairs(KEYS) do c[k]=0 end end
   local gaps_of={}
   for _,batch in ipairs(data.batches) do
     for _,row in ipairs(batch.rows) do
-      total=total+1
-      if row.listed then listed=listed+1 end
-      if row.total>0 and row.done==row.total then all_built=all_built+1 end
-      if row.video.mp4 then videos=videos+1 end
-      if row.tripo.mesh and row.tripo.skeleton and row.tripo.clips>0 and row.tripo.imported then tripo=tripo+1 end
-      if not row.script.error and #row.script.unshown==0 and row.script.attack and row.script.death then script_full=script_full+1 end
-      if row.games>0 then seen=seen+1 end
+      local hit={}
+      hit.total=true
+      hit.listed=row.listed
+      hit.all_built=row.total>0 and row.done==row.total
+      hit.videos=row.video.mp4~=nil
+      hit.tripo=row.tripo.mesh and row.tripo.skeleton and row.tripo.clips>0 and row.tripo.imported
+      hit.script_full=not row.script.error and #row.script.unshown==0 and row.script.attack and row.script.death
+      hit.seen=row.games>0
       gaps_of[row.package]=M.gaps(row)
+      hit.done=#gaps_of[row.package]==0
+      local never=0
       for _,cell in ipairs(row.abilities) do
         if row.games>0 and cell.blockers and #cell.blockers==0 and is_castable(cell.kind) and not (cell.evidence and cell.evidence.casts>0) then never=never+1 end
+      end
+      for _,c in ipairs({counts[batch.variant and 'variant' or 'base'],counts.all}) do
+        for _,k in ipairs(KEYS) do if k~='never' and hit[k] then c[k]=c[k]+1 end end
+        c.never=c.never+never
       end
     end
   end
   add('## 總計');add('')
-  add('| 項目 | 數量 |');add('|---|---:|')
-  add(('| 英雄 | %d |'):format(total))
-  add(('| 上架 | %d |'):format(listed))
-  add(('| 全部招式都已產生 | %d |'):format(all_built))
-  add(('| 有對局施放資料 | %d |'):format(seen))
-  add(('| 這幾局 bot 沒施放的招式 | %d |'):format(never))
-  add(('| Tripo 模型與綁定齊全 | %d |'):format(tripo))
-  add(('| 演示腳本不跳招且有普攻、死亡 | %d |'):format(script_full))
-  add(('| 目前有演示影片 | %d |'):format(videos))
+  add('「變體」是舊版與 2.0 版技能組（D22），各自是一位可選英雄。');add('')
+  add('| 項目 | 本體 | 變體 | 合計 |');add('|---|---:|---:|---:|')
+  local LABELS={{'total','英雄'},{'listed','上架'},{'all_built','全部招式都已產生'},{'seen','有對局施放資料'},
+    {'never','這幾局 bot 沒施放的招式'},{'tripo','Tripo 模型與綁定齊全'},{'script_full','演示腳本不跳招且有普攻、死亡'},
+    {'videos','目前有演示影片'},{'done','「缺什麼」是空的（完成）'}}
+  for _,l in ipairs(LABELS) do add(('| %s | %d | %d | %d |'):format(l[2],counts.base[l[1]],counts.variant[l[1]],counts.all[l[1]])) end
   add('')
   local m=data.matches
   add(('對局資料：run `%s`，%d 組，%d 局完成，%d 局未完成。'):format(tostring(data.run),m.groups,m.matches,#m.failed))
@@ -409,7 +458,7 @@ function M.render(data)
   if #data.problems>0 then add('');add('產生器問題：'..table.concat(data.problems,'；')) end
   add('')
   for _,batch in ipairs(data.batches) do
-    add(batch.unplanned and '## 未列入批次' or ('## 第 %d 批'):format(batch.index));add('')
+    add(batch.variant and ('## '..batch.variant.title) or batch.unplanned and '## 未列入批次' or ('## 第 %d 批'):format(batch.index));add('')
     add('| 編號 | 英雄 | 上架 | 已產生 | Q | W | E | R | 其他 | 普攻 | Tripo | 綁定 | 演示腳本 | 影片 | 缺什麼 |')
     add('|---|---|---|---:|---:|---:|---:|---:|---|---|---|---|---|---|---|')
     for _,row in ipairs(batch.rows) do

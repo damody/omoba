@@ -1169,6 +1169,10 @@ pub struct HeroDefinition {
     /// roster id whose unit stats it uses, attribute conversion included. It stays unplayable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_stats: Option<String>,
+    /// Another skill set of a hero (D22: `<hero>_old`, `<hero>_v20`): the hero whose source unit,
+    /// body and art it shares. It is a hero of its own; the source hero stays its base's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant_of: Option<String>,
 }
 
 /// Q, W, E, R. Every hero has these slots.
