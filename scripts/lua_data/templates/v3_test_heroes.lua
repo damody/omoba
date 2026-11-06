@@ -85214,7 +85214,7 @@ local data = {
       v3 = {
         ability_flags = { "pierce_magic_immune" },
         bot = { kind = "enemy_unit", source = "derived" },
-        coverage = "pending",
+        coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
           { field = "mana_cost", value = "mana_cost" },

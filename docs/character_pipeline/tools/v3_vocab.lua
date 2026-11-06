@@ -228,7 +228,7 @@ V.STATS = set({
   "true_strike_chance", "bash_chance", "invisibility_level", "detection_level", "model_scale",
 })
 V.STATES = set({
-  "stun", "root", "silence", "disarm", "mute", "hex", "frozen", "command_restricted", "sleep", "taunt", "fear",
+  "stun", "root", "silence", "disarm", "mute", "hex", "frozen", "command_restricted", "sleep", "taunt", "mind_control", "fear",
   "invulnerable", "magic_immune", "attack_immune", "out_of_game", "untargetable_by_spells",
   "invisible", "unselectable", "no_healthbar", "not_on_minimap", "no_unit_collision", "flying",
   "cannot_miss", "evade_disabled", "passives_disabled", "blind", "low_attack_priority", "provides_vision",

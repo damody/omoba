@@ -13706,6 +13706,57 @@ pub(crate) mod live_soak_replica_parity {
         assert!(report.mismatches.is_empty(),"{:#?}",report.mismatches);
         assert!(report.casts_of(0,"a12_insight_flash")>=2,"it was cast: {:?}",report.casts);
     }
+    /// B23T_old 心靈控制（縮小版，D22 範圍決定）：敵方英雄在狀態期間算伊勢姬的隊伍、拒絕原玩家的
+    /// 指令並原地攻擊移動，render 隊伍照舊；時間到換回原隊伍。
+    #[test]
+    fn ise_hime_old_mind_control_moves_the_target_to_her_team_until_it_ends() {
+        let (mut w,mut driver)=world(SingleLaneConfig {mana_enabled:true,heroes:["ise_hime_old".into(),"training_luminary".into()],
+            ..three_lane_config()},SimulationTickProfile::Production60Hz);
+        driver.step(&mut w,[]).unwrap();
+        let [hero,enemy]=hero_pair(&w);
+        let slot={
+            let mut heroes=w.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=12;
+            h.ability_levels.insert("b23_old_mind_control".into(),1);
+            if let Some(pool)=h.mana_pool.as_mut() {let max=pool.maximum();*pool=omoba_core::runtime::ability_runtime::ManaPool::new(max,max).unwrap();}
+            h.abilities.iter().position(|id|id=="b23_old_mind_control").unwrap() as u32
+        };
+        let at=w.read_storage::<Pos>().get(hero).unwrap().0+omoba_sim::Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO);
+        w.write_storage::<Pos>().get_mut(enemy).unwrap().0=at;
+        {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(enemy).unwrap();p.mhp=Fixed64::from_i32(100000);p.hp=p.mhp;}
+        let team=|w:&specs::World,e|w.read_storage::<omoba_core::runtime::Faction>().get(e).unwrap().team_id;
+        let (home,hers)=(team(&w,enemy),team(&w,hero));
+        assert_ne!(home,hers);
+        let mut sent=false;let mut cast_at=None;
+        for tick in 0..60 {
+            let inputs=if sent {vec![]} else {sent=true;vec![(1,live_soak_replica_parity::cast(slot,Some(enemy)))]};
+            driver.step(&mut w,inputs).unwrap();
+            if w.read_storage::<Hero>().get(hero).unwrap().get_cooldown("b23_old_mind_control")>Fixed64::ZERO {cast_at=Some(tick);break;}
+        }
+        assert!(cast_at.is_some(),"it was cast");
+        driver.step(&mut w,[]).unwrap();
+        assert_eq!(team(&w,enemy),hers,"on her team while controlled");
+        assert!(omoba_core::runtime::native::command_restriction::restricted(&w,enemy),"its own orders are refused");
+        assert_eq!(omoba_core::runtime::native::mind_control::home_team(&w,enemy),Some(home),"it renders on its own team");
+        for _ in 0..5*60+10 {driver.step(&mut w,[]).unwrap();}
+        assert_eq!(team(&w,enemy),home,"back on its own team after 5 s");
+        assert!(!omoba_core::runtime::native::command_restriction::restricted(&w,enemy));
+    }
+    /// B23T_old 心靈控制：兩隊 replica 每 tick 都和 authority 一致（受控英雄換隊再換回）。
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only full-match soak (E180): run with --release")]
+    fn ise_hime_old_mind_control_keeps_team_replicas_identical() {
+        let schedule=|tick:u32,pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            match tick {
+                t if t%600==6=>vec![(1,attack_move(b)),(2,attack_move(a))],
+                t if t>6 && t%300==20=>vec![(1,cast(3,Some(pair[1])))],
+                t if t>6 && t%60==40=>vec![(2,attack_move(a))],
+                _=>vec![],
+            }
+        };
+        let report=soak_report(["ise_hime_old","training_luminary"],3000,&schedule);
+        assert!(report.mismatches.is_empty(),"{:#?}",report.mismatches);
+        assert!(report.casts_of(0,"b23_old_mind_control")>=1,"it was cast: {:?}",report.casts);
+    }
     /// H04/H05/H06: every built slot (tether settle, global buff, point blast,
     /// area ally heal, toggle orb, self buffs, stealth, fang lines, blink and
     /// cast-stacking passive) cast at or near the enemy hero; both team replicas

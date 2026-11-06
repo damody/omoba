@@ -379,7 +379,7 @@ return function(ctx)
               zh_TW = { name = "心靈控制", body = "被伊勢姬控制，暫時屬於她的隊伍。" },
               en = { name = "Mind Control", body = "Controlled by Ise-hime and temporarily on her team." },
             },
-            reveal = "public", cue = "b23t_old_control",
+            reveal = "public", cue = "b23t_old_control", states = { "mind_control" },
             triggers = {
               periodic = { interval = "$check_interval", actions = {
                 { op = "if", cond = "not alive(caster)", actions = {
@@ -402,7 +402,7 @@ return function(ctx)
                   } },
                 } },
             },
-            notes = "原作 modifier_B23T_old：Passive 0、IsHidden 0、IsDebuff 0；OnTakeDamage 執行 B23T_old_OnTakeDamage（依 FC-024 改成結算前判定）。沒寫 IsPurgable，暫定 basic；驅散只移除 modifier，換隊由 Timer 檢查 target.B23T_old 決定（見 quirks）。" },
+            notes = "原作 modifier_B23T_old：Passive 0、IsHidden 0、IsDebuff 0；OnTakeDamage 執行 B23T_old_OnTakeDamage（依 FC-024 改成結算前判定）。沒寫 IsPurgable，暫定 basic；驅散只移除 modifier，換隊由 Timer 檢查 target.B23T_old 決定（見 quirks）。state mind_control 是 host 的縮小版心靈控制（omoba-core mind_control.rs，見 assumptions.md）：host 那一列不隨驅散移除，同原作驅散不結束控制。" },
           { id = "b23t_old_rescue", duration = "$rescue_invuln", stacking = "refresh", dispel = "none", visibility = "buff",
             text = {
               zh_TW = { name = "無敵", body = "心靈控制解除時短暫無敵。" },
@@ -420,21 +420,18 @@ return function(ctx)
               duration = "select(target.is_magic_immune, $duration * $immune_ratio, $duration)" },
           },
         },
-        coverage = "pending", confidence = "low",
-        pending = {
-          { what = "把目標暫時換到施法者隊伍並交給施法者操作，狀態結束時換回原隊伍與原控制者",
-            why = "vscripts/heroes/B_Unified/B23.lua:405-425：SetControllableByPlayer(施法者玩家) 與 SetTeam(施法者隊伍)，0.1 秒 Timer 在施法者死亡、時間到或 target.B23T_old 被清除時 SetTeam(原隊伍)、SetControllableByPlayer(原玩家)",
-            gap = "新增 action 或狀態欄位（例如狀態 `control = { team = \"caster\", controller = \"caster\" }`，結束時還原），選取、仇恨與擊殺歸屬依新隊伍計算" },
-        },
+        coverage = "expressible", confidence = "low",
         quirks = {
           { policy = "fixed", ref = "vscripts/heroes/B_Unified/B23.lua:428-447",
-            text = "FC-024（比照本體 D13 修正：致死傷害在結算前判定，取消這一筆、生命設為 1、解除控制、0.15 秒無敵，之後由伊勢姬造成 100 純粹傷害擊殺）。原作：OnTakeDamage 在扣血之後以 damage > GetHealth() 比較：致死的一擊已經殺死單位（仍在伊勢姬隊伍時死亡），救不到；反而是大於剩餘生命的非致死重擊（約超過受擊前生命一半）才觸發：生命設為 1、解除控制、0.15 秒無敵，之後受到伊勢姬 100 純粹傷害（AMHC，伊勢姬已死則不傷害），通常因此死亡、擊殺算伊勢姬。設計意圖推定是「致命傷害時先還給原隊伍再由伊勢姬擊殺」，改用 on_take_damage_pre 以 event.damage.lethal 判定並 modify_damage cancel。換隊與交還控制仍待詞彙（見 pending），所以「還給原隊伍」目前只以移除控制狀態表達。" },
+            text = "FC-024（比照本體 D13 修正：致死傷害在結算前判定，取消這一筆、生命設為 1、解除控制、0.15 秒無敵，之後由伊勢姬造成 100 純粹傷害擊殺）。原作：OnTakeDamage 在扣血之後以 damage > GetHealth() 比較：致死的一擊已經殺死單位（仍在伊勢姬隊伍時死亡），救不到；反而是大於剩餘生命的非致死重擊（約超過受擊前生命一半）才觸發：生命設為 1、解除控制、0.15 秒無敵，之後受到伊勢姬 100 純粹傷害（AMHC，伊勢姬已死則不傷害），通常因此死亡、擊殺算伊勢姬。設計意圖推定是「致命傷害時先還給原隊伍再由伊勢姬擊殺」，改用 on_take_damage_pre 以 event.damage.lethal 判定並 modify_damage cancel。「還給原隊伍」以移除控制狀態表達（state mind_control 隨之結束，host 換回原隊伍）。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B23.lua:413-425",
             text = "控制結束的條件是 Timer 每 0.1 秒檢查：伊勢姬死亡、累計時間到、或 target.B23T_old 被清除（只有上面的重擊處理會清）。modifier 被驅散不會結束控制（換隊照舊，直到時間到）；資料以狀態表達控制期間，驅散差異記在這裡。" },
           { policy = "as_source", ref = "resource/addon_tchinese.txt:3239",
             text = "原作說明寫 7/10/13 秒，實際 KV duration 5/7/9；說明寫「無法操作中立野怪」，但 KV 目標是 ENEMY、HERO | BASIC，腳本也沒有排除中立，推定中立野怪照樣可以被控制（未實測）。可以指定魔免敵人（MAGIC_IMMUNE_ENEMIES），時間減半。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B23.lua:391-393",
             text = "學大招時把{@b23_old_undead_pact}設為大招等級 + 1。" },
+          { policy = "port_adaptation", ref = "vscripts/heroes/B_Unified/B23.lua:405-425",
+            text = "範圍決定（主線 2026-11-07，不是 bug 繞過）：縮小版心靈控制。目標在狀態期間算伊勢姬的隊伍（敵我判定、索敵、塔與選取都依新隊伍），英雄拒絕原玩家的指令並由 host AI 原地攻擊移動；伊勢姬不能操作它，控制者、視野、資訊與擊殺歸屬照原隊伍。原作是 SetTeam 加 SetControllableByPlayer 交給伊勢姬操作。完整版日後另開，見 assumptions.md。" },
           { policy = "note", text = "控制特效（b23t_old 粒子，CP2 = 時間）只是呈現，改用狀態 cue。KV 沒寫 AbilityCastPoint 以外的前搖（0）。" },
         },
         provenance = { "npc/B_Unified/B23.txt:863-925", "vscripts/heroes/B_Unified/B23.lua:391-447", "resource/addon_tchinese.txt:3238-3239" },

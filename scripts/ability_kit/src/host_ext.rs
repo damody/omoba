@@ -394,6 +394,25 @@ impl Cx<'_, '_> {
         Ok(())
     }
 
+    /// v3 state `mind_control` (B23T_old 心靈控制, reduced scope): `to` holds the status
+    /// `mind_control` for `duration` and counts as `by`'s team meanwhile; a hero refuses its owner's
+    /// orders and attacks what is hostile to it (omoba-core mind_control.rs).
+    pub fn mind_control(&mut self, to: EntityHandle, by: EntityHandle, duration: Fixed64) -> Res {
+        use omoba_core::runtime::native::mind_control;
+        if !to.is_valid() || !by.is_valid() || duration <= Fixed64::ZERO { return Ok(()); }
+        let payload = mind_control::payload(by.id, by.gen as i32);
+        self.world.add_stat_buff(to, RStr::from_str(mind_control::BUFF), duration, RStr::from_str(&payload.to_string()));
+        Ok(())
+    }
+
+    /// Removing a v3 status with the state `mind_control` ends the control it holds.
+    pub fn end_mind_control(&mut self, from: EntityHandle) -> Res {
+        use omoba_core::runtime::native::mind_control;
+        if !from.is_valid() { return Ok(()); }
+        self.world.remove_buff(from, RStr::from_str(mind_control::BUFF));
+        Ok(())
+    }
+
     /// Removing a v3 status with the state `taunt` ends the taunt it holds (its attack order stays).
     pub fn end_taunt(&mut self, from: EntityHandle) -> Res {
         use omoba_core::runtime::native::taunt;

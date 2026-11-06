@@ -13,8 +13,8 @@
 //! last one ends. The replica applies that batch right after its own matching
 //! `process_outcomes`, so both worlds read equal state in every later phase.
 //! A rebase seeds the same statuses from the owner-only buff visual baseline.
-//! A taunt or forced move from an enemy restricts the hero's orders the same way (E643): the row
-//! carries the longest such restriction, which the replica holds as [`RESTRICTED`].
+//! A taunt, mind control or forced move from an enemy restricts the hero's orders the same way
+//! (E643): the row carries the longest such restriction, which the replica holds as [`RESTRICTED`].
 use std::collections::BTreeMap;
 
 use omb_script_abi::buff_ids::BuffId;
@@ -54,7 +54,7 @@ impl OwnerControlRow {
             .filter(|(remaining, total)| *remaining > 0 && remaining <= total && *total <= MAX_REMAINING_RAW)
             .unwrap_or((0, 0)));
         let restricted = buffs.iter_for(entity)
-            .filter(|(id, entry)| *id == super::taunt::BUFF
+            .filter(|(id, entry)| *id == super::taunt::BUFF || *id == super::mind_control::BUFF
                 || (id.ends_with(super::forced_move::SUFFIX) && entry.payload.get(super::forced_move::KEY).is_some()))
             .map(|(_, entry)| entry.remaining.raw().clamp(0, MAX_REMAINING_RAW)).max().unwrap_or(0);
         Self { controls, channels, restricted }

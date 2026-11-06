@@ -299,7 +299,7 @@ pub fn remove_status_with(registry: &Registry, world: &World, entity: Entity, id
 }
 
 /// v3 `remove_on = { "owner_death" }`: when `dead` dies, the statuses it applied with that rule go
-/// (with the shared states only they held), and so does every taunt it imposed. Call while `dead`
+/// (with the shared states only they held), and so does every taunt and mind control it imposed. Call while `dead`
 /// is still alive in the world (before the batch deletes it).
 pub fn remove_owned_by(world: &World, dead: Entity) {
     remove_owned_by_with(registry(), world, dead)
@@ -314,6 +314,7 @@ pub fn remove_owned_by_with(registry: &Registry, world: &World, dead: Entity) {
         for entity in (&entities).join() {
             for (id, entry) in buffs.iter_for(entity) {
                 let owned = id == super::taunt::BUFF && super::taunt::taunter(world, &entry.payload) == Some(dead)
+                    || id == super::mind_control::BUFF && super::mind_control::controller(world, &entry.payload) == Some(dead)
                     || (!id.starts_with("__") && applier(world, id, &entry.payload) == Some(dead)
                         && std::iter::once(id).chain(registry.status_ids(id)).any(|s| registry.owner_death.contains(s)));
                 if owned { doomed.push((entity, id.to_owned())); }

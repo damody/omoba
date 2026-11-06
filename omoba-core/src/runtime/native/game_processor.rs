@@ -3821,6 +3821,7 @@ pub fn process_outcomes(
         }
     }
     emit_committed_actor_state(world, projection_tick, committed_vitals, committed_cooldowns, committed_charges);
+    super::mind_control::settle(world);
     super::owner_control::settle_batch(world);
 
     // The dead (Outcome::Death) and leaked go here, not through EntityRemoved: their last
@@ -7095,6 +7096,12 @@ fn handle_add_buff(
     if buff_id==super::taunt::BUFF && payload.get(super::taunt::KEY).is_some() {
         world.write_resource::<BuffStore>().add(target,&buff_id,duration,payload.clone());
         if world.read_resource::<BuffStore>().has(target,&buff_id) {super::taunt::order(world,target,&payload);}
+        return Ok(());
+    }
+    // Mind control: stored as the status, then the holder joins its controller's team (mind_control.rs).
+    if buff_id==super::mind_control::BUFF && payload.get(super::mind_control::KEY).is_some() {
+        world.write_resource::<BuffStore>().add(target,&buff_id,duration,payload.clone());
+        if world.read_resource::<BuffStore>().has(target,&buff_id) {super::mind_control::take(world,target,&payload);}
         return Ok(());
     }
     // v3 status.forced_move (E464): stored as the status's row, then a hero holder is ordered there.

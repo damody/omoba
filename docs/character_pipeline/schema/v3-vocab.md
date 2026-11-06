@@ -328,7 +328,7 @@ stat 運算子（`{ op, value, when, per_stack }`）：`add`、`max`、`min`、`
 
 ## 控制與狀態旗標（states）
 
-`attack_immune`、`attack_slow_immune`、`blind`、`block_disabled`、`break`、`cannot_be_healed`、`cannot_be_magic_immune`、`cannot_miss`、`command_restricted`、`disarm`、`evade_disabled`、`fear`、`flying`、`flying_for_pathing`、`frozen`、`hex`、`hidden`、`ignore_collision_trees`、`invisible`、`invulnerable`、`low_attack_priority`、`magic_immune`、`melee_attack`、`mute`、`no_attack`、`no_cast`、`no_healthbar`、`no_unit_collision`、`not_on_minimap`、`out_of_game`、`passives_disabled`、`physical_immune`、`provides_vision`、`ranged_attack`、`revealed`、`root`、`silence`、`sleep`、`stun`、`taunt`、`true_sight`、`unselectable`、`untargetable_by_spells`
+`attack_immune`、`attack_slow_immune`、`blind`、`block_disabled`、`break`、`cannot_be_healed`、`cannot_be_magic_immune`、`cannot_miss`、`command_restricted`、`disarm`、`evade_disabled`、`fear`、`flying`、`flying_for_pathing`、`frozen`、`hex`、`hidden`、`ignore_collision_trees`、`invisible`、`invulnerable`、`low_attack_priority`、`magic_immune`、`melee_attack`、`mind_control`、`mute`、`no_attack`、`no_cast`、`no_healthbar`、`no_unit_collision`、`not_on_minimap`、`out_of_game`、`passives_disabled`、`physical_immune`、`provides_vision`、`ranged_attack`、`revealed`、`root`、`silence`、`sleep`、`stun`、`taunt`、`true_sight`、`unselectable`、`untargetable_by_spells`
 
 ## 選取
 

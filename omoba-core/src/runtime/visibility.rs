@@ -1361,10 +1361,10 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             let canonical_id = ((entity.gen().id() as u32 as u64) << 32) | u64::from(entity.id());
             // Ability projectiles carry their launch team; flight state stays private.
             let flight = ability_projectiles.as_ref().and_then(|rows| rows.0.get(&entity));
-            let team = flight.map(|state| state.team).unwrap_or_else(|| factions
-                .get(entity)
-                .map(|faction| faction.team_id.max(0) as u32)
-                .unwrap_or(0));
+            // A mind-controlled unit renders on its own team (mind_control.rs).
+            let team = flight.map(|state| state.team).unwrap_or_else(|| crate::runtime::native::mind_control::home_team(world, entity)
+                .or_else(|| factions.get(entity).map(|faction| faction.team_id))
+                .map_or(0, |team| team.max(0) as u32));
             let scope = scopes.get(entity).copied().unwrap_or(ReplicationScope {
                 kind: ReplicationScopeKind::Vision,
                 owner_team: Some(team),

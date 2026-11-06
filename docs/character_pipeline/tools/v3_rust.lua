@@ -1354,7 +1354,7 @@ local function emit_statuses(m, root)
     local buffs, payload = {}, {}
     for _, st in ipairs(s.states or {}) do
       local e = voc.states[st]
-      if st == "taunt" then -- cx.taunt next to every apply (Gen:taunting)
+      if st == "taunt" or st == "mind_control" then -- cx.taunt / cx.mind_control next to every apply (Gen:host_state)
       elseif not e then p[#p + 1] = "state:" .. st
       elseif e.buff then buffs[#buffs + 1] = rust_str(e.buff)
       else payload[#payload + 1] = string.format("(StatKey::%s, %d)", e.payload, e.raw) end
@@ -1940,19 +1940,29 @@ end
 
 -- whether a declared status holds the state `taunt` (host taunt.rs through cx.taunt)
 function Gen:taunts(status)
+  return self:host_state(status) == "taunt"
+end
+
+-- The host-held state a declared status carries, `taunt` (taunt.rs, cx.taunt) or `mind_control`
+-- (mind_control.rs, cx.mind_control): every apply also calls cx.<state>(to, by, duration), every
+-- remove_status cx.end_<state>(from).
+local HOST_STATES = { "taunt", "mind_control" }
+function Gen:host_state(status)
   local so = status and self.m.statuses[status]
-  if not so then return false end
-  for _, st in ipairs(so.def.states or {}) do if st == "taunt" then return true end end
-  return false
+  if not so then return nil end
+  for _, st in ipairs(so.def.states or {}) do
+    for _, h in ipairs(HOST_STATES) do if st == h then return h end end
+  end
+  return nil
 end
 
 -- apply_status of a taunting status: every apply in the code also taunts `to`, the applier taunting
 -- (`source` for apply_status_from, else the caster); removing it ends the taunt.
-local function with_taunt(code, call, by)
+local function with_taunt(code, call, by, state)
   local found = false
   local out = code:gsub("([ \t]*)(cx%." .. call .. "%b()%?;)(\r?\n)", function(ws, stmt, nl)
     found = true
-    return ws .. stmt .. nl .. ws .. "cx.taunt(to, " .. by .. ", duration)?;" .. nl
+    return ws .. stmt .. nl .. ws .. "cx." .. state .. "(to, " .. by .. ", duration)?;" .. nl
   end)
   return out, found
 end
@@ -2200,21 +2210,22 @@ function Gen:action(a, ctx, ind)
     body = body .. pad .. "}" ..  "\n"
     return closing ..  "\n" .. body .. ind .. "}" ..  "\n"
   end
-  if (a.op == "apply_status" or a.op == "remove_status") and not a.__taunt and self:taunts(a.status) then
+  local host_state = (a.op == "apply_status" or a.op == "remove_status") and not a.__taunt and self:host_state(a.status)
+  if host_state then
     local inner = {}
     for key, v in pairs(a) do inner[key] = v end
     inner.__taunt = true
     local code = self:action(inner, ctx, ind)
     if code == "" then return code end
     if a.op == "remove_status" then
-      local out, found = code:gsub("([ \t]*)(cx%.remove_status%(from, [^\n]-%?;)(\r?\n)", "%1%2%3%1cx.end_taunt(from)?;%3")
-      if found == 0 then self:block("state:taunt removal") end
+      local out, found = code:gsub("([ \t]*)(cx%.remove_status%(from, [^\n]-%?;)(\r?\n)", "%1%2%3%1cx.end_" .. host_state .. "(from)?;%3")
+      if found == 0 then self:block("state:" .. host_state .. " removal") end
       return out
     end
     local n1, n2
-    code, n1 = with_taunt(code, "apply_status_from", "source")
-    code, n2 = with_taunt(code, "apply_status", "cx.caster")
-    if not (n1 or n2) then self:block("state:taunt on this apply form") end
+    code, n1 = with_taunt(code, "apply_status_from", "source", host_state)
+    code, n2 = with_taunt(code, "apply_status", "cx.caster", host_state)
+    if not (n1 or n2) then self:block("state:" .. host_state .. " on this apply form") end
     -- remove_on ends the status row; the host does not end its taunt with it
     return code
   end
