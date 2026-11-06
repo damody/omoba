@@ -2025,9 +2025,17 @@ pub fn showcase_reset_hero(world: &mut World, hero: Entity) -> bool {
         let mut buffs = world.write_resource::<crate::runtime::BuffStore>();
         buffs.cancel_damage_zones(unit);
         buffs.cancel_independent_zones(unit);
+        // A passive's periodic check is a timed scheduled row whose "started" marker is permanent, and
+        // learning again never restarts it: keep those rows, or the check stops for good (片倉's night
+        // shadow stayed on in daylight and the death's strikers never saw him).
+        let periodic: Vec<String> = buffs.iter_for(unit)
+            .filter_map(|(id, _)| id.strip_prefix(super::unit_var::PREFIX)?.strip_suffix(":periodic")
+                .and_then(|key| key.rsplit(':').next()).map(|ability| format!("{}{ability}:", super::scheduled_effect::PREFIX)))
+            .collect();
         let mut timed: Vec<String> = buffs.iter_for(unit)
             .filter(|(_, entry)| entry.remaining != crate::runtime::ability_runtime::buff_store::PERMANENT_BUFF_DURATION
                 && entry.payload.get("__passive") != Some(&serde_json::Value::Bool(true)))
+            .filter(|(id, _)| !periodic.iter().any(|prefix| id.starts_with(prefix.as_str())))
             .map(|(id, _)| id.to_owned()).collect();
         timed.sort();
         for id in timed { buffs.remove(unit, &id); }
