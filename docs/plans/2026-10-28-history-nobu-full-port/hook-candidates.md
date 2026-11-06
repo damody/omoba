@@ -194,3 +194,4 @@ routine 裡的 `delay`、多個 `periodic`、被動的 `on_deal_damage_pre`、`s
 | 招式 | 英雄 | hook | 做法 |
 |---|---|---|---|
 | `a13_old_chain_sickle`（A13E_old） | A13 hattori_hanzo_old | `a13_old_chain_sickle_hook` | 原作 `A13E_old = A13E`，同一個路徑投射物機制；沿用本體 `scripts/heroes/hattori_hanzo/src/hooks/a13_chain_sickle.rs`，傷害類型改純粹。手寫檔放 `scripts/heroes/hattori_hanzo_old/src/hooks/a13_old_chain_sickle.rs` |
+| `c06_old_murder_and_loot`（C06E_old） | C06 ishikawa_goemon_old | `c06e_old_murder_and_loot_hook` | 給錢量要讀目標的金錢賞金，詞彙沒有這個屬性；整招由 hook 執行（殺死非英雄目標、給四倍賞金，FC-151）。本體沒有可沿用的 hook。手寫檔放 `scripts/heroes/ishikawa_goemon_old/src/hooks/c06_old_murder_and_loot.rs`；詞彙之後若加單位賞金屬性可改回純資料 |
