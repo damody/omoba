@@ -97,6 +97,16 @@ local function latest_run(root,given)
   return best
 end
 
+-- One verify_m6_batch run, its output in OUTPUT.stdout.log / .stderr.log as it goes: a batch that waits
+-- (memory admission before its build, 20261106 b10g1 waited 6 h on 12 GB of 16) shows why while it runs.
+-- A spawned process gives no exit code here: the run passed when it wrote OUTPUT/report.json.
+local function run_batch(lua,root,args,output)
+  local pid=process.spawn(lua,args,{cwd=root,stdout=output..'.stdout.log',stderr=output..'.stderr.log'})
+  while not process.wait(pid,60000) do end
+  local stderr=path.is_file(output..'.stderr.log') and path.read(output..'.stderr.log') or ''
+  return path.is_file(path.join(output,'report.json')) and 0 or 1,stderr
+end
+
 function M.sweep(root,options)
   local run=options.run or os.date('%Y%m%d-%H%M%S')
   local base=path.join(root,M.RUNS,run)
@@ -123,9 +133,10 @@ function M.sweep(root,options)
           args[#args+1]='--heroes';args[#args+1]=table.concat(heroes,',')
           if built then args[#args+1]='--no-build' end
           local started=os.time()
-          local result=process.run(lua,args,{cwd=root,check=false,label=name})
-          print(('%s exit %s %ds'):format(name,tostring(result.exit_code),os.time()-started))
-          if result.exit_code~=0 then print(tostring(result.stderr or ''):sub(-1500)) else built=true end
+          print(name..': '..output..'.stdout.log')
+          local code,stderr=run_batch(lua,root,args,output)
+          print(('%s exit %s %ds'):format(name,tostring(code),os.time()-started))
+          if code~=0 then print(stderr:sub(-1500)) else built=true end
         end
       end
     end
@@ -140,9 +151,10 @@ function M.sweep(root,options)
       '--parallel',tostring(options.parallel),'--output',output,'--heroes',table.concat(trees,',')}
     if built then args[#args+1]='--no-build' end
     local started=os.time()
-    local result=process.run(lua,args,{cwd=root,check=false,label='nobu'})
-    print(('nobu exit %s %ds'):format(tostring(result.exit_code),os.time()-started))
-    if result.exit_code~=0 then print(tostring(result.stderr or ''):sub(-1500)) end
+    print('nobu: '..output..'.stdout.log')
+    local code,stderr=run_batch(lua,root,args,output)
+    print(('nobu exit %s %ds'):format(tostring(code),os.time()-started))
+    if code~=0 then print(stderr:sub(-1500)) end
   end
   return 0
 end
