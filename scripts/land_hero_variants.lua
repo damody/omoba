@@ -1,7 +1,7 @@
 -- Puts skill-set variant heroes (D22: packages/<hero>_old, <hero>_v20) in the game, in one
 -- land_to_live batch:
 --
---   tools\lua\lua.exe scripts\land_hero_variants.lua [--hero PACKAGE ...] [--all] [--with SRC=LIVE ...] [--dry-run]
+--   tools\lua\lua.exe scripts\land_hero_variants.lua [--hero PACKAGE ...] [--all [--except PACKAGE ...]] [--with SRC=LIVE ...] [--dry-run]
 --
 -- For each package whose v3 document is a variant (source.variant old / v20) and whose every
 -- ability is generated Rust: its crate scripts/heroes/<package> (v3_rust.lua scaffold), its row in
@@ -85,7 +85,11 @@ function M.pending()
 end
 
 function M.run(options)
-  local packages=options.all and M.pending() or options.heroes
+  local packages=options.heroes
+  if options.all then
+    packages={}
+    for _,package in ipairs(M.pending()) do if not options.except[package] then packages[#packages+1]=package end end
+  end
   assert(#packages>0,'no variant packages to land (--hero PACKAGE or --all)')
   local rows=M.inspect(packages)
   local ready={}
@@ -149,12 +153,13 @@ function M.run(options)
 end
 
 function M.main(argv)
-  local options={heroes={}}
+  local options={heroes={},except={}}
   local i=1
   while i<=#argv do
     local key=argv[i]
-    if key=='--hero' then options.heroes[#options.heroes+1]=assert(argv[i+1],'--hero needs a package');i=i+1
+    if key=='--hero' then options.heroes[#options.heroes+1]=assert(argv[i+1],'--hero needs a package'):match('^%s*(.-)%s*$');i=i+1
     elseif key=='--all' then options.all=true
+    elseif key=='--except' then options.except[assert(argv[i+1],'--except needs a package')]=true;i=i+1
     elseif key=='--with' then
       local extra=assert(argv[i+1],'--with needs SRC=LIVE');assert(extra:find('=',1,true),'--with needs SRC=LIVE')
       options.with=options.with or {};options.with[#options.with+1]=extra;i=i+1

@@ -1,0 +1,18 @@
+[package]
+name = "hero_b23_old"
+version = "0.1.0"
+edition = "2021"
+description = "hero_b23_old.dll: exports hero_b23_old_impl's manifest (M3')"
+
+[lib]
+name = "hero_b23_old"
+crate-type = ["cdylib"]
+
+[dependencies]
+abi_stable = "0.11"
+hero_b23_old_impl = { path = ".." }
+
+[features]
+default = []
+runtime-lua-content = ["hero_b23_old_impl/runtime-lua-content"]
+compiled-content-only = ["hero_b23_old_impl/compiled-content-only"]
