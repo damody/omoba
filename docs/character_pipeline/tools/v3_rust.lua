@@ -1532,7 +1532,7 @@ local ACTION_FIELDS = {
   apply_status = set({ "op", "status", "to", "duration", "source", "stacks", "vars" }),
   -- exclude_source_tags, source_is, source_ability, min_duration, min_remaining: the host does not
   -- judge status sources or durations yet (line B), so they stay blocked
-  remove_status = set({ "op", "status", "from", "dispel", "only", "team_of_source", "except", "states", "limit", "tags", "exclude_tags" }),
+  remove_status = set({ "op", "status", "from", "dispel", "only", "team_of_source", "except", "states", "limit", "tags", "exclude_tags", "max_elapsed" }),
   damage = set({ "op", "to", "amount", "type", "require_source_alive", "flags", "source", "credit" }),
   teleport = set({ "op", "who", "to", "find_clear_space", "max_distance" }),
   redirect_motion = set({ "op", "who", "toward", "speed" }),
@@ -2374,9 +2374,14 @@ function Gen:action(a, ctx, ind)
     local filter = "ability_kit::StatusFilter { dispel: " .. opt_str(a.dispel) .. ", only: " .. opt_str(a.only)
       .. ", team_of_source: " .. rust_str(a.team_of_source or "any") .. ", except: &[" .. table.concat(except, ", ")
       .. "], states: &[" .. table.concat(states, ", ") .. "], limit: " .. limit .. " }"
+    local function list(t) local o = {} for _, x in ipairs(t or {}) do o[#o + 1] = rust_str(x) end return "&[" .. table.concat(o, ", ") .. "]" end
+    if a.max_elapsed ~= nil then
+      -- only statuses applied less than this many seconds ago (line B 58790026; a refresh keeps the first)
+      return line("{") .. line("    let from = " .. from .. ";") .. line("    let max_elapsed = " .. self:value(a.max_elapsed, ctx, "num") .. ";")
+        .. line("    cx.remove_statuses_younger(from, " .. filter .. ", " .. list(a.tags) .. ", " .. list(a.exclude_tags) .. ", Some(max_elapsed))?;") .. line("}")
+    end
     if a.tags ~= nil or a.exclude_tags ~= nil then
       -- by the statuses' catalog tags (host reads them)
-      local function list(t) local o = {} for _, x in ipairs(t or {}) do o[#o + 1] = rust_str(x) end return "&[" .. table.concat(o, ", ") .. "]" end
       return line("{") .. line("    let from = " .. from .. ";")
         .. line("    cx.remove_statuses_tagged(from, " .. filter .. ", " .. list(a.tags) .. ", " .. list(a.exclude_tags) .. ")?;") .. line("}")
     end
@@ -2400,7 +2405,7 @@ function Gen:action(a, ctx, ind)
       return line("{") .. line("    let from = " .. from .. ";") .. line("    let count = " .. count .. ";")
         .. line("    for _ in 0..count { cx.remove_status_instance(from, " .. st .. ")?; }") .. line("}")
     end
-    for _, k in ipairs({ "dispel", "only", "team_of_source", "except", "states", "limit" }) do
+    for _, k in ipairs({ "dispel", "only", "team_of_source", "except", "states", "limit", "max_elapsed" }) do
       if a[k] ~= nil then self:block("action:remove_status.status with " .. k) end
     end
     local from = self:value(a.from, ctx, "unit")

@@ -452,7 +452,7 @@ V.ACTIONS = {
     vars = "table", as = "name" },
   remove_status = { from = "unit!", status = "status", dispel = "enum:basic|strong|all_debuffs|all_buffs|all",
     team_of_source = "enum:enemy|ally|any", tags = "list:name", min_remaining = "expr", limit = "expr",
-    except = "list:status", exclude_tags = "list:name", min_duration = "expr", states = "list:state_flag",
+    except = "list:status", exclude_tags = "list:name", min_duration = "expr", max_elapsed = "expr", states = "list:state_flag",
     only = "enum:debuffs|buffs", exclude_source_tags = "list:name", source_ability = "name",
     -- every listed condition must hold for a status to be removed (v3.2)
     source_is = "list:enum:has_ability|no_ability|alive|gone" },
