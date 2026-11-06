@@ -1115,6 +1115,25 @@ fn check_fixed_quirk(s: &Value) -> Option<Verdict> {
         "104" => fix_candidates::fc104_b15_flame_arrow_is_off_after_a_death,
         "110" => fix_candidates::fc110_c07_magic_shield_is_off_after_a_death,
         "133" => fix_candidates::fc133_a32f_is_off_after_a_death,
+        // D22 variants (§10)
+        "136" => fix_candidates::fc136_c01t_old_fireballs_deal_damage,
+        "137" => fix_candidates::fc137_c25w_old_spin_slash_hits,
+        "138" => fix_candidates::fc138_c25e_old_dagger_stuns_and_hits,
+        "139" => fix_candidates::fc139_c25r_old_dazzle_burns_mana_by_chance,
+        "140" => fix_candidates::fc140_c25t_old_bleeds_every_tick,
+        "141" => fix_candidates::fc141_c25d_old_blinks_and_strikes,
+        "142" => fix_candidates::fc142_a28e_old_heals_each_target_once,
+        "143" | "144" => fix_candidates::fc144_a07t_old_casts_the_old_abilities_for_free,
+        "145" => fix_candidates::fc145_a07r_20_crits,
+        "146" | "147" => fix_candidates::fc147_a07t_20_casts_the_20_abilities_for_free,
+        "148" => fix_candidates::fc148_b15e_20_flame_arrow_adds_damage,
+        "149" | "150" => fix_candidates::fc150_a02w_old_stays_on_and_poisons,
+        "151" => fix_candidates::fc151_c06e_old_kills_and_loots,
+        "152" | "153" | "154" => fix_candidates::fc154_a03t_old_fawn_at_its_rank,
+        "155" => fix_candidates::fc155_c04t_old_shields_an_ally,
+        "156" => fix_candidates::fc156_c04e_20_pulse_has_its_fixed_damage,
+        "157" => fix_candidates::fc157_c04r_20_dragged_units_fly_for_pathing,
+        "158" => fix_candidates::fc158_c04d_20_shields_an_ally,
         _ => return Some(Verdict::Unsupported(format!("FC-{fc} is fixed but has no test here yet"))),
     };
     match std::panic::catch_unwind(test) {
@@ -6328,6 +6347,606 @@ mod fix_candidates {
         let copies = run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(run.caster)
             .filter(|(k, _)| omoba_core::runtime::native::dispel::runtime_id_matches("c24t_resolve", k) && !k.contains(':')).count();
         assert_eq!(copies, 1, "{copies} copies of c24t_resolve on a self cast");
+    }
+
+    // D22 skill-set variants (fix-candidates.md §10, FC-136 to FC-158): the source called functions
+    // or read keys the variant does not have; each test checks the design intent the fix stands for.
+
+    /// The magical part (before defenses) of every hit the entry's script dealt `unit`.
+    fn magic_hits(run: &Run, entry: &str, unit: specs::Entity) -> Vec<f64> {
+        use omoba_core::runtime::native::damage_trace::{DamageTrace, DamageTraceResult};
+        let trace = run.world.read_resource::<DamageTrace>();
+        let hits = trace.0.iter().filter(|r| r.ability == entry && r.target == unit && r.result == DamageTraceResult::Applied)
+            .map(|r| real(r.before.1)).collect();
+        hits
+    }
+
+    /// FC-141: C25D_old blinks onto the target and strikes it once for `$damage` (the source's
+    /// RunScript named a function that does not exist: no blink, no damage).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc141_c25d_old_blinks_and_strikes() {
+        const ENTRY: &str = "c25_old_flash_slash";
+        let mut run = learned("chacha_old", ENTRY, 1, false);
+        let (caster, enemy) = (run.caster, run.enemy);
+        let at = run.target_at;
+        let cast = run.cast("unit", value(ENTRY, 1, "cast_point").unwrap() + 0.5, None).unwrap();
+        assert!(cast.accepted, "{ENTRY} not cast{}", cast.why());
+        run.step(3);
+        let off = real((pos_of(&run, caster) - at).length());
+        assert!(off <= 80.0, "{ENTRY} left her {off:.0} from the target (no blink)");
+        let hits = magic_hits(&run, ENTRY, enemy);
+        let damage = value(ENTRY, 1, "damage").unwrap();
+        assert_eq!(hits.len(), 1, "{ENTRY}: {} hits on the target, expected one of {damage} ({hits:?})", hits.len());
+        assert!((hits[0] - damage).abs() < 1.0, "{ENTRY}: a hit of {:.1}, expected {damage}", hits[0]);
+    }
+
+    /// The magical part of every hit any script dealt `unit` (a routine's hits are traced under
+    /// its owner).
+    fn magic_hits_any(run: &Run, unit: specs::Entity) -> Vec<(String, f64)> {
+        use omoba_core::runtime::native::damage_trace::{DamageTrace, DamageTraceResult};
+        let trace = run.world.read_resource::<DamageTrace>();
+        let hits = trace.0.iter().filter(|r| r.target == unit && r.result == DamageTraceResult::Applied && r.before.1 > Fixed64::ZERO)
+            .map(|r| (r.ability.clone(), real(r.before.1))).collect();
+        hits
+    }
+
+    fn all_near(hits: &[f64], want: f64) -> bool { !hits.is_empty() && hits.iter().all(|h| (h - want).abs() < 1.0) }
+
+    /// FC-136: C01T_old's fireballs deal `$damage` (the body's C01T_Damage) to enemies and
+    /// `$building_pct` of it to buildings (the source read a key the old version lacks: 0).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc136_c01t_old_fireballs_deal_damage() {
+        const ENTRY: &str = "c01_old_honnoji";
+        for rank in 1..=3 {
+            let mut run = learned("akechi_mitsuhide_old", ENTRY, rank, false);
+            let enemy = run.enemy;
+            let x = real(run.target_at.x) as i32;
+            let tower = seen_body(&mut run, x + 50, true);
+            run.step(2);
+            let cast = run.cast("point", 0.5, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            run.step(ticks(value(ENTRY, rank, "channel_time").unwrap() + 1.0));
+            let damage = value(ENTRY, rank, "damage").unwrap();
+            let on_enemy = magic_hits(&run, ENTRY, enemy);
+            assert!(all_near(&on_enemy, damage), "rank {rank}: fireball hits on the enemy {on_enemy:?}, each expected {damage}");
+            let building = damage * value(ENTRY, rank, "building_pct").unwrap() / 100.0;
+            let on_tower = magic_hits(&run, ENTRY, tower);
+            assert!(all_near(&on_tower, building), "rank {rank}: fireball hits on the building {on_tower:?}, each expected {building}");
+        }
+    }
+
+    /// FC-137: C25W_old hits the enemies within `$radius` for `$damage` (the source's RunScript
+    /// named a function that does not exist: no effect at all).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc137_c25w_old_spin_slash_hits() {
+        const ENTRY: &str = "c25_old_spin_slash";
+        for rank in 1..=4 {
+            let mut run = learned("chacha_old", ENTRY, rank, false);
+            let enemy = run.enemy;
+            let cast = run.cast("none", value(ENTRY, rank, "cast_point").unwrap() + 0.5, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            run.step(3);
+            let damage = value(ENTRY, rank, "damage").unwrap();
+            let hits = magic_hits(&run, ENTRY, enemy);
+            assert!(hits.len() == 1 && all_near(&hits, damage), "rank {rank}: hits {hits:?}, expected one of {damage}");
+        }
+    }
+
+    /// FC-138: C25E_old's dagger flies to the target, stuns it and deals `$damage` (the source
+    /// called a function that does not exist: no dagger).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc138_c25e_old_dagger_stuns_and_hits() {
+        const ENTRY: &str = "c25_old_dagger_throw";
+        for rank in 1..=4 {
+            let mut run = learned("chacha_old", ENTRY, rank, false);
+            let enemy = run.enemy;
+            let cast = run.cast("unit", value(ENTRY, rank, "cast_point").unwrap() + 0.5, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            let mut stunned = false;
+            for _ in 0..ticks(1.5) {
+                run.step(1);
+                if !magic_hits(&run, ENTRY, enemy).is_empty() { stunned = holds(&run, enemy, "c25e_old_stun"); break; }
+            }
+            let damage = value(ENTRY, rank, "damage").unwrap();
+            let hits = magic_hits(&run, ENTRY, enemy);
+            assert!(hits.len() == 1 && all_near(&hits, damage), "rank {rank}: dagger hits {hits:?}, expected one of {damage}");
+            assert!(stunned, "rank {rank}: the dagger's hit did not stun ({})", holding(&run, enemy));
+        }
+    }
+
+    /// FC-139: C25R_old blinds and, with `$burn_chance`, burns `$mana_burn` of the target's mana (the
+    /// source never burned any).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc139_c25r_old_dazzle_burns_mana_by_chance() {
+        const ENTRY: &str = "c25_old_dazzle";
+        let rank = 2;
+        let burn = value(ENTRY, rank, "mana_burn").unwrap();
+        let chance = value(ENTRY, rank, "burn_chance").unwrap() / 100.0;
+        let mut run = learned("chacha_old", ENTRY, rank, false);
+        let (caster, enemy) = (run.caster, run.enemy);
+        let enemy_mana = |run: &Run| run.world.read_storage::<Hero>().get(enemy).and_then(|h| h.mana_pool.as_ref().map(|p| real(p.current())));
+        assert!(enemy_mana(&run).is_some(), "the enemy hero has no mana pool");
+        let casts = 40;
+        let mut burns = Vec::new();
+        for i in 0..casts {
+            {
+                let mut heroes = run.world.write_storage::<Hero>();
+                let h = heroes.get_mut(caster).unwrap();
+                h.ability_cooldowns.clear();
+                if let Some(pool) = h.mana_pool.as_mut() { let max = pool.maximum(); *pool = omoba_core::runtime::ability_runtime::ManaPool::new(max, max).unwrap(); }
+                if let Some(pool) = heroes.get_mut(enemy).unwrap().mana_pool.as_mut() { let max = pool.maximum(); *pool = omoba_core::runtime::ability_runtime::ManaPool::new(max, max).unwrap(); }
+            }
+            let cast = run.cast("unit", value(ENTRY, rank, "cast_point").unwrap() + 0.5, None).unwrap();
+            assert!(cast.accepted, "cast {i}: {ENTRY} not cast{}", cast.why());
+            assert!(holds(&run, enemy, "c25r_old_blind"), "cast {i}: no c25r_old_blind on the target");
+            let lost = run.world.read_storage::<Hero>().get(enemy).and_then(|h| h.mana_pool.as_ref().map(|p| real(p.maximum()) - real(p.current()))).unwrap();
+            if lost > 1.0 { burns.push(lost); }
+        }
+        assert!(burns.iter().all(|b| (b - burn).abs() < 5.0), "burns {burns:?}, each expected {burn}");
+        let share = burns.len() as f64 / casts as f64;
+        assert!(!burns.is_empty() && burns.len() < casts, "{} of {casts} casts burned mana, expected about {chance}", burns.len());
+        assert!((share - chance).abs() <= 0.2, "{} of {casts} casts burned mana ({share:.2}), expected about {chance}", burns.len());
+    }
+
+    /// FC-140: C25T_old bleeds the target: right away and every `$tick` seconds for `$duration`, a
+    /// stun and `$damage` (the source called functions that do not exist: only the passive worked).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc140_c25t_old_bleeds_every_tick() {
+        const ENTRY: &str = "c25_old_bloodletting";
+        for rank in 1..=3 {
+            let mut run = learned("chacha_old", ENTRY, rank, false);
+            let enemy = run.enemy;
+            let cast = run.cast("unit", value(ENTRY, rank, "cast_point").unwrap() + 0.5, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            run.step(1);
+            assert!(holds(&run, enemy, "c25t_old_bleeding"), "rank {rank}: no c25t_old_bleeding ({})", holding(&run, enemy));
+            assert!(holds(&run, enemy, "c25t_old_stun"), "rank {rank}: the bleed's first tick did not stun");
+            let duration = value(ENTRY, rank, "duration").unwrap();
+            let tick = ticks(value(ENTRY, rank, "tick").unwrap());
+            let mut at = Vec::new();
+            let mut seen = magic_hits(&run, ENTRY, enemy).len();
+            for t in 0..ticks(duration + 1.0) {
+                run.step(1);
+                let now = magic_hits(&run, ENTRY, enemy).len();
+                if now > seen { at.push(t); seen = now; }
+            }
+            let damage = value(ENTRY, rank, "damage").unwrap();
+            let hits = magic_hits(&run, ENTRY, enemy);
+            let expected = (duration / value(ENTRY, rank, "tick").unwrap()) as usize;
+            assert!(all_near(&hits, damage), "rank {rank}: bleed hits {hits:?}, each expected {damage}");
+            assert_eq!(hits.len(), expected, "rank {rank}: {} bleed hits in {duration} s, expected {expected} (later ones at ticks {at:?})", hits.len());
+            for pair in at.windows(2) { assert!((pair[1] - pair[0]).abs_diff(tick) <= 2, "rank {rank}: bleed ticks {at:?}, expected {tick} apart"); }
+            assert!(!holds(&run, enemy, "c25t_old_bleeding"), "rank {rank}: still bleeding after {duration} s");
+        }
+    }
+
+    /// An allied body that counts as a creep (a bare body is of no unit class).
+    fn as_creep(run: &mut Run, unit: specs::Entity) {
+        run.world.write_storage::<omoba_core::Creep>().insert(unit, omoba_core::Creep {
+            name: "v3_conformance_ally".into(), label: None, path: String::new(), pidx: 0, path_remaining_distance: Fixed64::ZERO,
+            block_tower: None, status: omoba_core::CreepStatus::Stop, td_layer: None,
+        }).unwrap();
+        run.world.write_storage::<omoba_core::Unit>().insert(unit,
+            omoba_core::Unit::new("v3_conformance_creep".into(), "v3_conformance_creep".into(), omoba_core::UnitType::Creep)).unwrap();
+    }
+
+    /// FC-142: A28E_old heals each target of its wind once, `$heal` (the source healed twice).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc142_a28e_old_heals_each_target_once() {
+        const ENTRY: &str = "a28_old_healing_wind";
+        for rank in 1..=4 {
+            let s = json!({"entry": ENTRY, "rank": rank, "expect": [], "given": [{"kind": "learned", "entry": ENTRY, "rank": rank},
+                {"kind": "target_unit", "team": "ally", "types": ["creep"]}]});
+            let mut run = setup("hashiba_hideyoshi_old", &s).unwrap();
+            let (caster, first) = (run.caster, run.target);
+            assert_ne!(caster, first);
+            as_creep(&mut run, first);
+            let team = run.world.read_storage::<Faction>().get(caster).map(|f| f.team_id).unwrap();
+            let x = real(run.target_at.x) as i32;
+            let second = spawn_body(&mut run.world, x + 150, isolated_skill_origin_y(), team, 800, None);
+            as_creep(&mut run, second);
+            for unit in [first, second] { set_life(&mut run, unit, 1_000.0); }
+            run.low_ally = true;
+            run.step(2);
+            let cast = run.cast("unit", value(ENTRY, rank, "cast_point").unwrap() + 0.5, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            let before = (real(run.target_hp), 1_000.0);
+            // The first target was healed as the cast landed: measured from the life the cast set.
+            run.step(ticks(value(ENTRY, rank, "jump_delay").unwrap() * value(ENTRY, rank, "jump_count").unwrap() + 1.0));
+            let heal = value(ENTRY, rank, "heal").unwrap();
+            let healed = (life(&run, first) - before.0, life(&run, second) - before.1);
+            assert!((healed.0 - heal).abs() < 1.0, "rank {rank}: the first target healed {:.1}, expected {heal} once", healed.0);
+            assert!((healed.1 - heal).abs() < 1.0, "rank {rank}: the next target healed {:.1}, expected {heal} once", healed.1);
+        }
+    }
+
+    /// FC-143/144 (old) and FC-146/147 (2.0): A07T casts the learned Unscathed and Red Thunder at
+    /// their levels for free, their cooldowns as they were (the source looked for A07W, which the
+    /// variant lacks, and stopped); an unlearned one is not cast.
+    fn awakening_casts_both_for_free(hero: &str, ult: &str, w: &str, guard: &str, e: &str, mark: &str, burst: Option<&str>) {
+        for learned_both in [true, false] {
+            let mut run = learned(hero, ult, 1, false);
+            let (caster, enemy) = (run.caster, run.enemy);
+            const LEFT: i32 = 5;
+            if learned_both {
+                let mut heroes = run.world.write_storage::<Hero>();
+                let h = heroes.get_mut(caster).unwrap();
+                for id in [w, e] {
+                    h.ability_levels.insert(id.to_owned(), 1);
+                    h.ability_cooldowns.insert(id.to_owned(), Fixed64::from_i32(LEFT));
+                }
+            }
+            let cast = run.cast("none", 0.5, None).unwrap();
+            assert!(cast.accepted, "{ult} not cast{}", cast.why());
+            run.step(2);
+            let cost = value(ult, 1, "mana_cost").unwrap();
+            assert!((cast.mana_spent - cost).abs() < 1.0, "{ult} spent {:.1} mana, its own cost is {cost} (learned {learned_both})", cast.mana_spent);
+            let hits: Vec<f64> = magic_hits_any(&run, enemy).into_iter().map(|(_, h)| h).collect();
+            if learned_both {
+                assert!(holds(&run, caster, guard), "{ult} did not cast {w}: no {guard} ({})", holding(&run, caster));
+                assert!(holds(&run, enemy, mark), "{ult} did not cast {e}: no {mark} on the enemy ({})", holding(&run, enemy));
+                let damage = value(e, 1, "damage").unwrap();
+                assert!(hits.len() == 1 && all_near(&hits, damage), "{e} through {ult}: hits {hits:?}, expected one of {damage}");
+                for id in [w, e] {
+                    let left = run.hero(|h| real(h.get_cooldown(id)));
+                    assert!(left <= LEFT as f64 + 0.05 && left >= LEFT as f64 - 0.5, "{id}'s cooldown is {left:.2} s after {ult}, it had {LEFT} s");
+                }
+                if let Some(burst) = burst {
+                    let left = run.hero(|h| real(h.get_cooldown(burst)));
+                    assert!(left <= 0.0, "{burst} went on cooldown ({left:.2} s) through {ult}'s free {e}");
+                }
+            } else {
+                assert!(!holds(&run, caster, guard), "{ult} cast an unlearned {w}");
+                assert!(!holds(&run, enemy, mark) && hits.is_empty(), "{ult} cast an unlearned {e} (hits {hits:?})");
+            }
+        }
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc144_a07t_old_casts_the_old_abilities_for_free() {
+        awakening_casts_both_for_free("honda_tadakatsu_old", "a07_old_mightiest_awakening", "a07_old_unscathed", "a07w_old_guard",
+            "a07_old_red_thunder", "a07e_old_stun", None);
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc147_a07t_20_casts_the_20_abilities_for_free() {
+        awakening_casts_both_for_free("honda_tadakatsu_v20", "a07_v20_mightiest_awakening", "a07_v20_unscathed", "a07w_20_guard",
+            "a07_v20_red_thunder", "a07e_20_slow", Some("a07_v20_thunder_burst"));
+    }
+
+    /// FC-145: A07R_20 crits with `$crit_chance` for `$crit_multiplier` (the source read a key the
+    /// 2.0 version lacks: never a crit), at most `$crit_pity` attacks in a row without one.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc145_a07r_20_crits() {
+        const ENTRY: &str = "a07_v20_shattering_spear";
+        for rank in [1, 4] {
+            let mut run = learned("honda_tadakatsu_v20", ENTRY, rank, true);
+            let mult = value(ENTRY, rank, "crit_multiplier").unwrap() / 100.0;
+            let pity = value(ENTRY, rank, "crit_pity").unwrap() as usize;
+            let chance = value(ENTRY, rank, "crit_chance").unwrap() / 100.0;
+            let body = seen_body(&mut run, 120, false);
+            attack_order(&mut run, body);
+            let hp = |run: &Run| real(run.world.read_storage::<CProperty>().get(body).unwrap().hp);
+            let mut previous = hp(&run);
+            let mut hits = Vec::new();
+            for _ in 0..ticks(120.0) {
+                run.step(1);
+                let now = hp(&run);
+                if now < previous { hits.push(previous - now); }
+                previous = now;
+                if hits.len() >= 80 { break; }
+            }
+            assert!(hits.len() >= 40, "rank {rank}: only {} attacks landed", hits.len());
+            let plain = hits.iter().cloned().fold(f64::INFINITY, f64::min);
+            let crits: Vec<bool> = hits.iter().map(|h| *h > plain * (1.0 + mult) / 2.0).collect();
+            let top = hits.iter().zip(&crits).filter(|(_, c)| !**c).map(|(h, _)| *h).fold(0.0, f64::max);
+            for (h, _) in hits.iter().zip(&crits).filter(|(_, c)| **c) {
+                assert!(*h >= plain * mult - 1.0 && *h <= top * mult + 1.0, "rank {rank}: a crit of {h:.1}, plain hits {plain:.1}..{top:.1}, multiplier {mult}");
+            }
+            let count = crits.iter().filter(|c| **c).count();
+            assert!(count > 0, "rank {rank}: no crit in {} attacks", hits.len());
+            let share = count as f64 / hits.len() as f64;
+            assert!(share >= chance - 0.15 && share <= chance + 0.25, "rank {rank}: {count} crits in {} attacks ({share:.2}), chance {chance:.3}", hits.len());
+            let (mut run_length, mut longest) = (0, 0);
+            for crit in &crits { if *crit { run_length = 0 } else { run_length += 1; longest = longest.max(run_length); } }
+            assert!(longest <= pity, "rank {rank}: {longest} attacks in a row without a crit; at most {pity}");
+        }
+    }
+
+    /// FC-148: B15E_20 on, each attack that lands deals `$damage` more magic damage, buildings
+    /// included (the source's hit called the illusion's function and errored: never any).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc148_b15e_20_flame_arrow_adds_damage() {
+        const ENTRY: &str = "b15_v20_flame_arrow";
+        for rank in [1, 4] {
+            for building in [false, true] {
+                let mut run = learned("imagawa_yoshimoto_v20", ENTRY, rank, false);
+                let cast = run.cast("none", 0.5, None).unwrap();
+                assert!(cast.accepted, "rank {rank}: {ENTRY} not turned on{}", cast.why());
+                assert!(holds(&run, run.caster, "b15e_20_orb"), "rank {rank}: on without b15e_20_orb");
+                let body = seen_body(&mut run, 300, building);
+                attack_order(&mut run, body);
+                run.step(ticks(8.0));
+                let damage = value(ENTRY, rank, "damage").unwrap();
+                let hits = magic_hits(&run, ENTRY, body);
+                assert!(hits.len() >= 3 && all_near(&hits, damage), "rank {rank}, building {building}: flame arrow hits {hits:?}, each expected {damage}");
+            }
+        }
+    }
+
+    /// FC-149/150: A02W_old stays on while Inahime attacks: each attack at a unit costs
+    /// `$mana_per_attack` and poisons it (the source's orb check always failed: off at the next
+    /// attack). Short of that mana it turns off and that attack does not poison.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc150_a02w_old_stays_on_and_poisons() {
+        const ENTRY: &str = "a02_old_venom_arrow";
+        let rank = 4;
+        let per = value(ENTRY, rank, "mana_per_attack").unwrap();
+        let poisons = |run: &Run, unit: specs::Entity| run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(unit)
+            .filter(|(key, _)| omoba_core::runtime::native::dispel::runtime_id_matches("a02w_old_poison", key)).count();
+        let mut run = learned("inahime_old", ENTRY, rank, false);
+        let cast = run.cast("none", 0.5, None).unwrap();
+        assert!(cast.accepted, "{ENTRY} not turned on{}", cast.why());
+        assert!(holds(&run, run.caster, "a02w_old_orb"), "on without a02w_old_orb");
+        let body = seen_body(&mut run, 300, false);
+        attack_order(&mut run, body);
+        let (mut previous, mut spent) = (run.mana(), 0.0);
+        for _ in 0..ticks(6.0) {
+            run.step(1);
+            let now = run.mana();
+            if now < previous - 0.01 { spent += previous - now; }
+            previous = now;
+        }
+        assert!(holds(&run, run.caster, "a02w_old_orb"), "{ENTRY} turned itself off while attacking");
+        let rows = poisons(&run, body);
+        assert!(rows >= 3, "{rows} poisons on the body after 6 s of attacks");
+        assert!((spent - per * rows as f64).abs() <= per + 0.5, "{spent:.1} mana spent for {rows} poisoned attacks of {per}");
+
+        // Short of the mana: off at the next attack, and that attack does not poison.
+        let mut run = learned("inahime_old", ENTRY, rank, false);
+        assert!(run.cast("none", 0.5, None).unwrap().accepted, "{ENTRY} not turned on");
+        // Held at 1 mana (her regeneration would refill it before the first windup).
+        let low = |run: &mut Run| if let Some(pool) = run.world.write_storage::<Hero>().get_mut(run.caster).and_then(|h| h.mana_pool.as_mut()) {
+            *pool = omoba_core::runtime::ability_runtime::ManaPool::new(Fixed64::ONE, pool.maximum()).unwrap();
+        };
+        let body = seen_body(&mut run, 300, false);
+        let full = life(&run, body);
+        low(&mut run);
+        attack_order(&mut run, body);
+        let mut off = false;
+        for _ in 0..ticks(3.0) {
+            low(&mut run);
+            run.step(1);
+            if !holds(&run, run.caster, "a02w_old_orb") { off = true; break; }
+        }
+        assert!(off, "{ENTRY} stayed on short of {per} mana ({:.1}; the body lost {:.1} life)", run.mana(), full - life(&run, body));
+        run.step(ticks(2.0));
+        assert_eq!(poisons(&run, body), 0, "an attack short of mana poisoned");
+    }
+
+    /// The gold one team's replica is told for the unit; None when the team does not see it.
+    fn replica_gold(run: &Run, team: u32, unit: specs::Entity) -> Option<i32> {
+        let runtime = run.world.read_resource::<TeamProjectionRuntime>();
+        let canonical = omoba_core::runtime::stable_fact::canonical_entity_id(unit);
+        let (identity, _) = runtime.communication_disclosure(team)?;
+        let replica = identity.disclosed_mappings().into_iter()
+            .find(|(key, _)| (u64::from(key.generation) << 32 | u64::from(key.id)) == canonical)?.1.replica_id.get();
+        let bytes = runtime.expected_component_bytes(team, replica, omoba_core::runtime::visibility::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID)?;
+        serde_json::from_slice::<Gold>(&bytes).ok().map(|g| g.0)
+    }
+
+    /// FC-151: C06E_old kills a non-hero target and pays `$bounty_mult` times its gold bounty, the
+    /// kill its bounty once more (the source sent an undeclared order first and errored: no kill,
+    /// no gold). The caster's own team replica shows the same gold as the authority.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc151_c06e_old_kills_and_loots() {
+        const ENTRY: &str = "c06_old_murder_and_loot";
+        const BOUNTY: u32 = 40;
+        for rank in [1, 4] {
+            let mut run = learned("ishikawa_goemon_old", ENTRY, rank, false);
+            let (caster, enemy) = (run.caster, run.enemy);
+            let x = real(run.target_at.x) as i32;
+            let body = seen_body(&mut run, x, false);
+            let mut summon = SummonedUnit::new_fixed(enemy, None);
+            summon.bounty = (BOUNTY, 25);
+            run.world.write_storage::<SummonedUnit>().insert(body, summon).unwrap();
+            run.world.write_storage::<omoba_core::Unit>().insert(body,
+                omoba_core::Unit::new("v3_conformance_summon".into(), "v3_conformance_summon".into(), omoba_core::UnitType::Creep)).unwrap();
+            run.world.write_storage::<Bounty>().remove(body);
+            let away = pos_of(&run, enemy) + omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(1500));
+            move_unit(&mut run, enemy, away);
+            run.target = body;
+            run.target_at = pos_of(&run, body);
+            set_gold(&mut run, caster, 1000);
+            run.step(3);
+            let team = run.world.read_storage::<Faction>().get(caster).map(|f| f.team_id.max(0) as u32).unwrap();
+            let seen_before = replica_gold(&run, team, caster);
+            assert_eq!(seen_before, Some(gold_of(&run, caster)), "rank {rank}: the own team's replica gold before the cast");
+            let cast = run.cast("unit", value(ENTRY, rank, "cast_point").unwrap() + 0.5, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            run.step(5);
+            assert!(!living(&run, body), "rank {rank}: the target did not die");
+            let mult = value(ENTRY, rank, "bounty_mult").unwrap() as i32;
+            let gained = gold_of(&run, caster) - 1000;
+            assert_eq!(gained, BOUNTY as i32 * mult + BOUNTY as i32, "rank {rank}: gold gained for a target of bounty {BOUNTY}: {mult} times it and the kill's own");
+            let seen = replica_gold(&run, team, caster);
+            assert_eq!(seen, Some(gold_of(&run, caster)), "rank {rank}: the own team's replica gold after the loot, the authority {}", gold_of(&run, caster));
+        }
+        // A hero target: nothing.
+        let mut run = learned("ishikawa_goemon_old", ENTRY, 1, false);
+        let (caster, enemy) = (run.caster, run.enemy);
+        set_gold(&mut run, caster, 1000);
+        let cast = run.cast("unit", value(ENTRY, 1, "cast_point").unwrap() + 0.5, None).unwrap();
+        run.step(5);
+        assert!(living(&run, enemy), "{ENTRY} killed a hero (accepted {})", cast.accepted);
+        assert_eq!(gold_of(&run, caster), 1000, "{ENTRY} at a hero paid gold");
+    }
+
+    /// FC-152 to FC-154: A03T_old's fawn has `$deer_hp` life and lives `$deer_life` seconds at
+    /// each rank (the source read one level too high: 3000/4000/4000 and 60/70/70).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc154_a03t_old_fawn_at_its_rank() {
+        use specs::Join;
+        const ENTRY: &str = "a03_old_giant_gu";
+        for rank in 1..=3 {
+            let mut run = learned("ishikawa_kazumasa_old", ENTRY, rank, false);
+            let cast = run.cast("none", value(ENTRY, rank, "cast_point").unwrap() + 0.5, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            run.step(2);
+            let deer: Vec<specs::Entity> = (&run.world.entities(), &run.world.read_storage::<ScriptUnitTag>()).join()
+                .filter(|(_, t)| of_template(&t.unit_id, "a03_old_deer")).map(|(e, _)| e).collect();
+            assert_eq!(deer.len(), 1, "rank {rank}: {} fawns", deer.len());
+            let deer = deer[0];
+            let hp = value(ENTRY, rank, "deer_hp").unwrap();
+            let (now, max) = run.world.read_storage::<CProperty>().get(deer).map(|p| (real(p.hp), real(p.mhp))).unwrap();
+            assert!((max - hp).abs() < 1.0 && (now - max).abs() < 1.0, "rank {rank}: the fawn has {now:.0} of {max:.0} life, expected {hp}");
+            let lives = value(ENTRY, rank, "deer_life").unwrap();
+            run.step(ticks(lives - 1.0));
+            assert!(living(&run, deer), "rank {rank}: the fawn was gone before {lives} s");
+            run.step(ticks(2.0));
+            assert!(!living(&run, deer), "rank {rank}: the fawn outlived {lives} s");
+        }
+    }
+
+    /// FC-155 (C04T_old) and FC-158 (C04D_20): a magic shield of `$shield` for `$duration` on an
+    /// allied hero or on herself (the source's modifier was not on the ability and the script then
+    /// errored: no shield).
+    fn magic_shield_on_an_ally(hero: &str, entry: &str, status: &str, ranks: std::ops::RangeInclusive<usize>) {
+        for rank in ranks {
+            for team in ["ally", "self"] {
+                let s = json!({"entry": entry, "rank": rank, "expect": [], "given": [{"kind": "learned", "entry": entry, "rank": rank},
+                    {"kind": "target_unit", "team": team, "types": ["hero"]}]});
+                let mut run = setup(hero, &s).unwrap();
+                let (caster, ally) = (run.caster, run.target);
+                assert_eq!(team == "self", caster == ally);
+                let side = run.world.read_storage::<Faction>().get(caster).map(|f| f.team_id).unwrap();
+                let foe = spawn_body(&mut run.world, 3000, isolated_skill_origin_y(), side + 1, 800, None);
+                run.world.write_storage::<Faction>().insert(foe, Faction::new(FactionType::Player, side + 1)).unwrap();
+                let cast = run.cast("unit", 0.5, None).unwrap();
+                assert!(cast.accepted, "rank {rank} on {team}: {entry} not cast{}", cast.why());
+                assert!(holds(&run, ally, status), "rank {rank} on {team}: no {status} ({})", holding(&run, ally));
+                let shield = value(entry, rank, "shield").unwrap();
+                let duration = value(entry, rank, "duration").unwrap();
+                let left = absorb_left(&run, ally, status).unwrap_or(0.0);
+                assert!((left - shield).abs() <= 1.0, "rank {rank} on {team}: the shield holds {left:.1}, the document says {shield}");
+                let lasts = remaining(&run, ally, status).unwrap_or(0.0);
+                assert!(lasts <= duration + 0.05 && lasts >= duration - 0.5, "rank {rank} on {team}: {status} has {lasts:.2} s, expected {duration}");
+                // A lethal magic hit within it: absorbed; a physical hit is not.
+                set_life(&mut run, ally, 10.0);
+                hit(&mut run, foe, ally, 0, (shield * 0.8) as i32, 0);
+                assert!(living(&run, ally), "rank {rank} on {team}: a magic hit within {status} killed");
+                assert!((life(&run, ally) - 10.0).abs() <= 2.0, "rank {rank} on {team}: life 10 -> {:.1} under a magic hit the shield holds", life(&run, ally));
+                set_life(&mut run, ally, 40_000.0);
+                hit(&mut run, foe, ally, 300, 0, 0);
+                assert!(life(&run, ally) < 40_000.0 - 50.0, "rank {rank} on {team}: {status} absorbed a physical hit");
+                if rank == 1 && team == "ally" {
+                    let mut run = setup(hero, &s).unwrap();
+                    let ally = run.target;
+                    assert!(run.cast("unit", 0.5, None).unwrap().accepted);
+                    run.step(ticks(duration - 1.0));
+                    assert!(holds(&run, ally, status), "{status} ended before {duration} s");
+                    run.step(ticks(2.0));
+                    assert!(!holds(&run, ally, status), "{status} still on after {duration} s");
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc155_c04t_old_shields_an_ally() {
+        magic_shield_on_an_ally("izumo_no_okuni_old", "c04_old_witch_dance", "c04t_old_shield", 1..=3);
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc158_c04d_20_shields_an_ally() {
+        magic_shield_on_an_ally("izumo_no_okuni_v20", "c04_v20_guardian_dance", "c04d_20_shield", 1..=1);
+    }
+
+    /// FC-156: C04E_20's pulse deals `$damage` plus the max-life share (the source read a key the
+    /// 2.0 version lacks: no fixed part). Two bodies of different max life give the share and the
+    /// fixed part; one alone takes `$single_mult` of it.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc156_c04e_20_pulse_has_its_fixed_damage() {
+        const ENTRY: &str = "c04_v20_withering_step";
+        let rank = 1;
+        let mut run = learned("izumo_no_okuni_v20", ENTRY, rank, false);
+        let enemy = run.enemy;
+        let away = pos_of(&run, enemy) + omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(3000));
+        move_unit(&mut run, enemy, away);
+        run.target_at = away; // every cast puts its target back where it stood
+        let (small, big) = (seen_body(&mut run, 200, false), seen_body(&mut run, -200, false));
+        for (unit, max) in [(small, 2_000), (big, 6_000)] {
+            let mut properties = run.world.write_storage::<CProperty>();
+            let p = properties.get_mut(unit).unwrap();
+            p.mhp = Fixed64::from_i32(max);
+            p.hp = p.mhp;
+        }
+        run.step(2);
+        let cast = run.cast("none", value(ENTRY, rank, "cast_point").unwrap() + 0.5, None).unwrap();
+        assert!(cast.accepted, "{ENTRY} not turned on{}", cast.why());
+        assert!(holds(&run, run.caster, "c04e_20_dance"), "on without c04e_20_dance");
+        run.step(ticks(value(ENTRY, rank, "tick").unwrap() + 0.3));
+        let (a, b) = (magic_hits(&run, ENTRY, small), magic_hits(&run, ENTRY, big));
+        assert!(!a.is_empty() && !b.is_empty(), "no pulse hit both bodies (small {a:?}, big {b:?})");
+        let share = (b[0] - a[0]) / 4_000.0;
+        let fixed_part = a[0] - 2_000.0 * share;
+        let damage = value(ENTRY, rank, "damage").unwrap();
+        assert!((fixed_part - damage).abs() < 1.0, "a pulse's fixed part is {fixed_part:.2} (hits {:.1} on 2000 life, {:.1} on 6000), expected {damage}", a[0], b[0]);
+        assert!(share >= value(ENTRY, rank, "hp_pct").unwrap() / 100.0 - 1e-6, "a max-life share of {share:.5}");
+        // One body alone in the pulse: the single-target multiplier on the whole of it.
+        let gone = pos_of(&run, big) + omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(3000));
+        move_unit(&mut run, big, gone);
+        run.world.insert(omoba_core::runtime::native::damage_trace::DamageTrace::default());
+        run.step(ticks(value(ENTRY, rank, "tick").unwrap() + 0.1));
+        let alone = magic_hits(&run, ENTRY, small);
+        let single = (damage + 2_000.0 * share) * value(ENTRY, rank, "single_mult").unwrap() / 100.0;
+        let others: Vec<String> = run.world.read_resource::<omoba_core::runtime::native::damage_trace::DamageTrace>().0.iter()
+            .filter(|r| r.ability == ENTRY && r.target != small).map(|r| format!("{:?}:{:.1}", r.target, real(r.before.1))).collect();
+        assert!(all_near(&alone, single), "alone in the pulse: hits {alone:?}, expected {single:.1} (others hit: {others:?})");
+    }
+
+    /// FC-157: C04R_20 drags the enemies to the point and gives them `$phase_time` of phase and
+    /// flying for pathing (the source's modifier was not on the ability: phase only).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc157_c04r_20_dragged_units_fly_for_pathing() {
+        const ENTRY: &str = "c04_v20_gathering_dance";
+        let rank = 1;
+        let mut run = learned("izumo_no_okuni_v20", ENTRY, rank, false);
+        let enemy = run.enemy;
+        let point = run.target_at + omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(150));
+        run.aim = Some(point);
+        let cast = run.cast("point", value(ENTRY, rank, "cast_point").unwrap() + 0.5, None).unwrap();
+        assert!(cast.accepted, "{ENTRY} not cast{}", cast.why());
+        let off = real((pos_of(&run, enemy) - point).length());
+        assert!(off <= 5.0, "the enemy stands {off:.1} from the point after the drag");
+        let flying = |run: &Run| omoba_core::runtime::native::rules::world::flying_for_pathing(&run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>(), enemy);
+        let phased = |run: &Run| run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().has(enemy, omoba_core::runtime::ability_runtime::NO_UNIT_COLLISION);
+        assert!(holds(&run, enemy, "c04r_20_phased"), "no c04r_20_phased on the dragged enemy ({})", holding(&run, enemy));
+        assert!(flying(&run), "the dragged enemy does not fly for pathing ({})", holding(&run, enemy));
+        assert!(phased(&run), "the dragged enemy has no unit collision still");
+        let damage = value(ENTRY, rank, "damage").unwrap();
+        let hits = magic_hits(&run, ENTRY, enemy);
+        assert!(hits.len() == 1 && all_near(&hits, damage), "drag hits {hits:?}, expected one of {damage}");
+        run.step(ticks(value(ENTRY, rank, "phase_time").unwrap() + 0.2));
+        assert!(!flying(&run), "still flying for pathing after the phase time");
     }
 }
 #[test]

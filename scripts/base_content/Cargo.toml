@@ -131,6 +131,39 @@ hero_c08_impl = { path = "../heroes/kato_danzo" }
 hero_c18_impl = { path = "../heroes/kobayakawa_takakage" }
 hero_b24_impl = { path = "../heroes/akiyama_nobutomo" }
 hero_c06_impl = { path = "../heroes/ishikawa_goemon" }
+# D22 skill-set variants (hero_dlls.lua), linked like the other hero DLLs
+hero_b08_old_impl = { path = "../heroes/asai_nagamasa_old" }
+hero_a21_old_impl = { path = "../heroes/zuiryuin_nisshu_old" }
+hero_a13_old_impl = { path = "../heroes/hattori_hanzo_old" }
+hero_c06_old_impl = { path = "../heroes/ishikawa_goemon_old" }
+hero_c02_old_impl = { path = "../heroes/akechi_hidemitsu_old" }
+hero_c01_old_impl = { path = "../heroes/akechi_mitsuhide_old" }
+hero_b07_old_impl = { path = "../heroes/ashikaga_yoshiaki_old" }
+hero_b21_old_impl = { path = "../heroes/baba_nobufusa_old" }
+hero_c25_old_impl = { path = "../heroes/chacha_old" }
+hero_c20_old_impl = { path = "../heroes/chosokabe_motochika_old" }
+hero_b04_old_impl = { path = "../heroes/date_masamune_old" }
+hero_a09_old_impl = { path = "../heroes/hachisuka_masakatsu_old" }
+hero_a28_old_impl = { path = "../heroes/hashiba_hideyoshi_old" }
+hero_a28_v20_impl = { path = "../heroes/hashiba_hideyoshi_v20" }
+hero_a10_old_impl = { path = "../heroes/hirate_masahide_old" }
+hero_a33_old_impl = { path = "../heroes/honda_masanobu_old" }
+hero_a07_old_impl = { path = "../heroes/honda_tadakatsu_old" }
+hero_a07_v20_impl = { path = "../heroes/honda_tadakatsu_v20" }
+hero_b25_old_impl = { path = "../heroes/honganji_kennyo_old" }
+hero_a06_old_impl = { path = "../heroes/ii_naomasa_old" }
+hero_b15_old_impl = { path = "../heroes/imagawa_yoshimoto_old" }
+hero_b15_v20_impl = { path = "../heroes/imagawa_yoshimoto_v20" }
+hero_a02_old_impl = { path = "../heroes/inahime_old" }
+hero_b23_old_impl = { path = "../heroes/ise_hime_old" }
+hero_a29_old_impl = { path = "../heroes/ishida_mitsunari_old" }
+hero_a03_old_impl = { path = "../heroes/ishikawa_kazumasa_old" }
+hero_c04_old_impl = { path = "../heroes/izumo_no_okuni_old" }
+hero_c04_v20_impl = { path = "../heroes/izumo_no_okuni_v20" }
+hero_b30_old_impl = { path = "../heroes/kakizaki_kageie_old" }
+hero_b35_old_impl = { path = "../heroes/kamiizumi_nobutsuna_old" }
+hero_c16_old_impl = { path = "../heroes/kashin_koji_old" }
+hero_b14_old_impl = { path = "../heroes/katakura_kagetsuna_old" }
 # items.dll's scripts (M7), linked like a launch loads them
 items_impl = { path = "../items" }
 prost = "0.13"
