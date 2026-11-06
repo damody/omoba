@@ -114,6 +114,7 @@ local HEROES = {
   { package = "ishikawa_goemon", playable = true },
   -- D22: the skill-set variants, each its own hero (<base>_old, <base>_v20; variant_of below)
   { package = "asai_nagamasa_old", playable = true },
+  { package = "zuiryuin_nisshu_old", playable = true },
 }
 
 -- v3 hero slots in the MOBA loadout order (Q W E R, then the D slot)

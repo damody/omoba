@@ -1,14 +1,15 @@
 -- Puts skill-set variant heroes (D22: packages/<hero>_old, <hero>_v20) in the game, in one
 -- land_to_live batch:
 --
---   tools\lua\lua.exe scripts\land_hero_variants.lua [--hero PACKAGE ...] [--all] [--dry-run]
+--   tools\lua\lua.exe scripts\land_hero_variants.lua [--hero PACKAGE ...] [--all] [--with SRC=LIVE ...] [--dry-run]
 --
 -- For each package whose v3 document is a variant (source.variant old / v20) and whose every
 -- ability is generated Rust: its crate scripts/heroes/<package> (v3_rust.lua scaffold), its row in
 -- scripts/hero_dlls.lua and its playable entry in scripts/v3_test_heroes.lua, then
 -- templates/v3_test_heroes.lua regenerated. A package that is not ready is reported and left out.
 -- --all takes every variant package not yet in the game. The shadow files are under
--- target/hero-variants/<time>/; --dry-run stops before land_to_live.
+-- target/hero-variants/<time>/; --dry-run stops before land_to_live. --with adds a file of the same
+-- batch, e.g. a variant's hand-written hook (scripts/heroes/<package>/src/hooks/<id>.rs).
 local source=debug.getinfo(1,'S').source:sub(2)
 local scripts_dir=assert(source:match('^(.*)[/\\]'))
 package.path=scripts_dir..'/?.lua;'..package.path
@@ -136,6 +137,7 @@ function M.run(options)
   write(runner,script)
   process.run(b.lib('platform').lua_executable,{runner},{cwd=b.root,label='v3_test_heroes'})
   for _,f in pairs(files) do changes[#changes+1]=f.src..'='..f.live..'@'..f.base end
+  for _,extra in ipairs(options.with or {}) do changes[#changes+1]=extra end
   table.sort(changes)
   local args={path.join(b.root,'scripts','land_to_live.lua')}
   for _,c in ipairs(changes) do args[#args+1]='--change';args[#args+1]=c end
@@ -153,6 +155,9 @@ function M.main(argv)
     local key=argv[i]
     if key=='--hero' then options.heroes[#options.heroes+1]=assert(argv[i+1],'--hero needs a package');i=i+1
     elseif key=='--all' then options.all=true
+    elseif key=='--with' then
+      local extra=assert(argv[i+1],'--with needs SRC=LIVE');assert(extra:find('=',1,true),'--with needs SRC=LIVE')
+      options.with=options.with or {};options.with[#options.with+1]=extra;i=i+1
     elseif key=='--dry-run' then options.dry_run=true
     else error('unknown argument: '..key) end
     i=i+1
