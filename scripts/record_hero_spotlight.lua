@@ -427,10 +427,10 @@ M.STAND_AT={b26_kozuke_valor=M.STRUCK_AT,a14_divine_strike={2765,2396}}
 M.VIEW_AT={c05_flash_thunder={2520,2390},a14_impact_spear={2800,2075},a14_divine_strike={2870,1985},a12_mystic_arrow={2300,2550},a12_scheme={2300,2550}}
 -- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
 -- a36 地刺陷阱: under the stand-in it arms in 1.5 s and the stand-in sets it off (trigger 250) before
--- 引爆's turn; here, between the hero and the ally, it is 447 from the stand-in, 215 from the hero and
--- 89 from the ally (its click selects the trap, not the ally), and 引爆's 500 still reaches the stand-in.
--- (2150,2330) above the hero was outside the view (20261106-081119); below, the caption covers it.
-M.CAST_AT={c05_flash_thunder={2440,2300},a36_spike_trap={2380,2200}}
+-- 引爆's turn; here, on the hero's row toward the stand-in, it is 350 from the stand-in and 110 from
+-- the hero, and 引爆's 500 still reaches the stand-in. The view frames the hero left and the stand-in
+-- right: (2150,2330) above and (2380,2200) toward the ally were outside it (20261106-081119, -083158).
+M.CAST_AT={c05_flash_thunder={2440,2300},a36_spike_trap={2300,2290}}
 -- A third half at the top rank. b26: the restore is a 17% chance, hence the long one.
 M.THIRD_HALF={b26_kozuke_valor={at=M.STRUCK_AT,seconds=4.5}}
 -- Struck for this long the hero lives: seat 7 took 17 hits and 14 s to kill c05 at 164 a hit (out of its reach refill_players makes it whole).
