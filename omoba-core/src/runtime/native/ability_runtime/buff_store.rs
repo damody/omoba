@@ -139,6 +139,8 @@ pub struct BuffStore {
     independent_zones:BTreeMap<(Entity,String),super::damage_zone::IndependentDamageZone>,
     next_zone_lease:u64,
     next_applied:u64,
+    /// The rows the last `tick` retired by expiry, (entity, id) sorted.
+    just_expired: Vec<(Entity, String)>,
     /// Rows marked for status events (status_event::KEY) that left their holder, with how
     /// (status_event EXPIRED / REMOVED / CLEARED), in the order they left. Drained by the script
     /// dispatch; transient, not part of the replicated state. The last field is the duration the
@@ -812,6 +814,12 @@ impl BuffStore {
         slows.sort();for id in slows{self.remove(entity,&id);}
     }
 
+    /// Whether the last `tick` retired `entity`'s row `id` by expiry (not a removal): a periodic step
+    /// due at that same instant still runs (a status's last tick at expiry, like periodic damage).
+    pub fn expired_last_tick(&self, entity: Entity, id: &str) -> bool {
+        self.just_expired.binary_search_by(|(e, k)| (e.id(), e.gen().id(), k.as_str()).cmp(&(entity.id(), entity.gen().id(), id))).is_ok()
+    }
+
     /// 倒數所有 buff 並回傳過期的 `(Entity, buff_id, payload)` 清單。
     /// 呼叫端可依 payload 內容決定是否廣播（例：payload 含 move_speed_bonus
     /// 表示這是移速影響類 buff，要發 creep/S 還原訊息）。
@@ -953,6 +961,7 @@ impl BuffStore {
     }
 
     pub fn tick(&mut self, dt: Fixed64) -> Vec<(Entity, String, Value)> {
+        self.just_expired.clear();
         if dt<=Fixed64::ZERO {return Vec::new();}
         for entry in self.independent_zones.values_mut(){entry.age+=dt.min(entry.remaining);entry.remaining-=dt.min(entry.remaining);}
         let mut expired = Vec::new();
@@ -969,6 +978,7 @@ impl BuffStore {
             }
         }
         to_drop.sort_by(|(a,ak),(b,bk)|(a.id(),a.gen().id(),ak).cmp(&(b.id(),b.gen().id(),bk)));
+        self.just_expired = to_drop.clone();
         for (e, id) in to_drop {
             if let Some(entry) = self.remove_entry(e, &id) {
                 self.record_status_end(e, &id, &entry.payload, crate::runtime::native::status_event::EXPIRED, Fixed64::ZERO);

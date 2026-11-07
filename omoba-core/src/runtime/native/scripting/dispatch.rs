@@ -1019,6 +1019,7 @@ fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_
         let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
         let handle = ParallelWorldAdapter::entity_to_handle(owner);
         let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, owner, ordinal_base + ordinal as u64);
+        adapter.hold_statuses_through_expiry();
         let mut world_dyn = world_dyn_of(&mut adapter);
         let args: abi_stable::std_types::RVec<_> = spec.args.iter().copied().collect();
         let result = catch_unwind(AssertUnwindSafe(|| script.on_scheduled(handle, spec.scheduled(), args, &mut world_dyn)));

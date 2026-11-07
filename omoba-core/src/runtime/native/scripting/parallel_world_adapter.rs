@@ -223,6 +223,8 @@ pub struct ParallelWorldAdapter<'a> {
     random_request_base: u64,
     outcomes: Vec<Outcome>,
     overlay_pos: HashMap<Entity, Vec2>,
+    /// A due scheduled step: statuses that expired in this tick still count as held.
+    held_through_expiry: bool,
     cast_succeeded: bool,
     /// v3 `refund { cooldown = true }` (ext REFUND, E455): this cast's cooldown does not start.
     refund_cooldown: bool,
@@ -667,6 +669,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             random_request_base: stable_invocation_ordinal.saturating_mul(1024),
             outcomes: Vec::new(),
             overlay_pos: HashMap::new(),
+            held_through_expiry: false,
             cast_succeeded: false,
             refund_cooldown: false,
             cast_rejection: None,
@@ -1056,6 +1059,10 @@ impl<'a> ParallelWorldAdapter<'a> {
         });
         overridden.or_else(|| omoba_template_ids::summon_by_name(unit_id).and_then(omoba_template_ids::active_summon_stats).map(|stats| stats.hp))
     }
+    /// For a scheduled step due now: a status that expired in this very tick still counts as held,
+    /// so a periodic trigger whose interval divides the duration ticks once more at expiry (Dota
+    /// thinks before the modifier is destroyed; the v3 periodic contract, 火計之書 5 x 80).
+    pub fn hold_statuses_through_expiry(&mut self) { self.held_through_expiry = true; }
     pub fn mark_hook_panicked(&mut self) { self.hook_panicked = true; }
     pub fn hook_panicked(&self) -> bool { self.hook_panicked }
     pub fn has_mana_changes(&self) -> bool { !self.mana_dirty.is_empty() }
@@ -1464,7 +1471,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
 
     fn has_buff(&self, target: EntityHandle, buff_id: RStr<'_>) -> bool {
         Self::handle_to_entity(target)
-            .map(|ent| self.source_buffs(ent).has(ent, buff_id.as_str()))
+            .map(|ent| self.source_buffs(ent).has(ent, buff_id.as_str())
+                || (self.held_through_expiry && self.source_buffs(ent).expired_last_tick(ent, buff_id.as_str())))
             .unwrap_or(false)
     }
 

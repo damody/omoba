@@ -8,4 +8,4 @@
 4. **迴旋裂斬（C25W_old）**：`C25.lua:200-233`。半徑是施法距離 200；只打看得見的敵人（FOW_VISIBLE）。
 5. **短刃投擲（C25E_old）**：`C25.lua:246-277`。Timer 每幀前進 35，換算速度約 1050（30Hz），寫成不可閃避的追蹤投射物（design_intent）。
 6. **炫目（C25R_old）**：`C25.lua:235-244`。25% 機率 ReduceMana（寫成 burn_mana，不造成傷害）。
-7. **放血之術（C25T_old）**：`C25.lua:280-327`。腳本寫死 12 秒（KV 12.1 未用）；OnCreated 與每 2 秒各一跳，共六跳（12 秒到期那刻是否再跳依時序）。每跳不論魔免都暈眩 1 秒並給視野，非魔免才傷害並 Stop；茶茶死亡後改以信使 caster.donkey 為來源繼續傷害，寫 `require_source_alive = false`。腳本 0.1 秒 Timer 以剩餘時間重套，寫成 `reapply_if_removed`。被動加攻 40/50/60 寫在名為 "Properties" 的 Passive modifier。
+7. **放血之術（C25T_old）**：`C25.lua:280-327`。腳本寫死 12 秒（KV 12.1 未用）；OnCreated 與每 2 秒各一跳；到期那一刻的週期跳照樣生效（規則層統一語意，同火計之書；原作 KV duration 12.1 也是要接住第 12 秒那跳），共七跳。每跳不論魔免都暈眩 1 秒並給視野，非魔免才傷害並 Stop；茶茶死亡後改以信使 caster.donkey 為來源繼續傷害，寫 `require_source_alive = false`。腳本 0.1 秒 Timer 以剩餘時間重套，寫成 `reapply_if_removed`。被動加攻 40/50/60 寫在名為 "Properties" 的 Passive modifier。

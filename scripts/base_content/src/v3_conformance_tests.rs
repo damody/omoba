@@ -6519,7 +6519,7 @@ mod fix_candidates {
         assert!((share - chance).abs() <= 0.2, "{} of {casts} casts burned mana ({share:.2}), expected about {chance}", burns.len());
     }
 
-    /// FC-140: C25T_old bleeds the target: right away and every `$tick` seconds for `$duration`, a
+    /// FC-140: C25T_old bleeds the target: right away and every `$tick` seconds through `$duration`, a
     /// stun and `$damage` (the source called functions that do not exist: only the passive worked).
     #[test]
     #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
@@ -6544,7 +6544,9 @@ mod fix_candidates {
             }
             let damage = value(ENTRY, rank, "damage").unwrap();
             let hits = magic_hits(&run, ENTRY, enemy);
-            let expected = (duration / value(ENTRY, rank, "tick").unwrap()) as usize;
+            // The first tick at once and one every `$tick` through the expiry: a periodic tick due
+            // at the moment the status ends still lands (the source's KV duration is 12.1 s to catch it).
+            let expected = (duration / value(ENTRY, rank, "tick").unwrap()) as usize + 1;
             assert!(all_near(&hits, damage), "rank {rank}: bleed hits {hits:?}, each expected {damage}");
             assert_eq!(hits.len(), expected, "rank {rank}: {} bleed hits in {duration} s, expected {expected} (later ones at ticks {at:?})", hits.len());
             for pair in at.windows(2) { assert!((pair[1] - pair[0]).abs_diff(tick) <= 2, "rank {rank}: bleed ticks {at:?}, expected {tick} apart"); }
@@ -7731,7 +7733,6 @@ mod fix_candidates {
     /// `$max_guardians` (the source added one too many). Every guardian flies at the enemy hero
     /// once he comes near: one hit of `$guardian_damage` each.
     #[test]
-    #[ignore = "FC-182 known fail: ability.cast_range reads 0 outside a cast (Cx::new has no cast_range), so the guardians never find a target; A/B fix, then remove this"]
     pub(super) fn fc182_a35e_old_recast_adds_its_count() {
         use omoba_core::runtime::native::unit_var::{Spec, VarValue};
         const ENTRY: &str = "a35_old_flame_guardians";
