@@ -414,7 +414,7 @@ mod tests {
         p.map_id = "three_lane_quick_training".into();
         p.players = vec![player(1,1,"saika_magoichi",BotRole::Mid,false),player(2,1,"murakami_yoshikiyo",BotRole::Support,true),
             player(6,2,"murakami_yoshikiyo",BotRole::Mid,true)];
-        p.showcase = Some(ShowcaseConfig { start_level:6, minion_waves:false,
+        p.showcase = Some(ShowcaseConfig { start_level:6, minion_waves:false, night:false,
             placements:[(1,[2300,2400]),(2,[2050,2400]),(6,[2750,2400])].into(),
             hold_players:[2,6].into(), strike_players:Default::default(), hold_hp_permille:5000, start_items:Default::default(), props:Vec::new(), casts:Vec::new(), patrols:Vec::new(), refill_players:Default::default(),withheld_abilities:Default::default() });
         p
@@ -449,6 +449,24 @@ mod tests {
         let elapsed = world.read_resource::<MobaMatch>().elapsed;
         assert!(seat(&world,1).respawn_at.is_some_and(|at| at > elapsed + Fixed64::from_i32(ShowcaseConfig::HELD_RESPAWN_SECONDS)),
             "the demonstrator keeps the level table's respawn");
+    }
+    /// A night stage is night from the first tick to the end of the longest match; a stage without
+    /// it has no night (C06D_old 盜賊藏匿術 casts only at night, E-line variant sweep).
+    #[test]
+    fn showcase_night_stage_is_night_for_the_whole_match() {
+        let night = |on:bool| {
+            let mut plan = showcase_plan();
+            plan.showcase.as_mut().unwrap().night = on;
+            let (config,_) = plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+            let pool = crate::runtime::StateInitializer::create_thread_pool();
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+            setup_single_lane_match(&mut world, config).unwrap();
+            let start = crate::runtime::native::rules::world::is_night(&world);
+            world.write_resource::<MobaMatch>().elapsed = Fixed64::from_i32(ShowcaseConfig::NIGHT_SECONDS - 1);
+            (start, crate::runtime::native::rules::world::is_night(&world))
+        };
+        assert_eq!(night(true), (true, true));
+        assert_eq!(night(false), (false, false));
     }
     /// Player 6 (omatsu) learns frost bolt to rank 2 and casts it at player 1.
     fn casting_plan(first_seconds:u32,every_seconds:u32) -> RoleBotMatchPlan {

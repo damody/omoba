@@ -470,6 +470,11 @@ pub struct ShowcaseConfig {
     /// Lane minion waves; off keeps the stage clear.
     #[serde(default)]
     pub minion_waves: bool,
+    /// The whole match is night (`game.is_night`): a verification stage for the abilities only a
+    /// night allows (C06D_old 盜賊藏匿術 needs one, and the game has no day and night cycle). The
+    /// authority discloses it every tick like any night (rules::world::NIGHT_METRIC_ID).
+    #[serde(default)]
+    pub night: bool,
     /// First-life positions in world units, by player id. A respawn uses the fountain.
     #[serde(default)]
     pub placements: BTreeMap<u32, [i32; 2]>,
@@ -612,6 +617,8 @@ impl ShowcaseConfig {
     fn default_hold_hp_permille() -> u32 { 1000 }
     pub(crate) const STRIKE_REACH: i32 = 300;
     const MAX_START_PURCHASES: usize = 64;
+    /// A night stage's night: as long as the longest match (and a set_time_of_day night's cap).
+    pub const NIGHT_SECONDS: i32 = 3600;
     const MAX_PROPS: usize = 16;
     const MAX_CASTS: usize = 16;
     const MAX_CAST_SECONDS: u32 = 3600;
@@ -1827,6 +1834,9 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
                 slot.hero.add_moba_experience(missing, state.config.game_rules.as_ref());
             }
         }
+    }
+    if state.config.showcase.as_ref().is_some_and(|showcase| showcase.night) {
+        super::rules::world::start_temporary_night(world, Fixed64::from_i32(ShowcaseConfig::NIGHT_SECONDS));
     }
     if let Some(withheld) = state.config.showcase.as_ref().map(|showcase| showcase.withheld_abilities.clone()) {
         for slot in state.heroes.iter_mut().filter(|slot| slot.player_id == ShowcaseConfig::DEMONSTRATOR) {
