@@ -81566,7 +81566,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "none", reason = "bot radius_key `radius` has no per-rank numbers", source = "derived" },
+        bot = { kind = "self_engage", source = "derived", threat_radius = 900 },
         coverage = "expressible",
         info = {
           { field = "mana_cost", value = "mana_cost" },

@@ -123,7 +123,7 @@ end
 local function walk(t, on_action, on_selector, doc, seen, owner, args)
   if type(t) ~= "table" then return end
   if type(t.op) == "string" then on_action(t, owner, args) end
-  if type(t.shape) == "string" then on_selector(t) end
+  if type(t.shape) == "string" then on_selector(t, owner) end
   if t.op == "call" and type(t.routine) == "string" and doc and doc.routines and doc.routines[t.routine] then
     seen = seen or {}
     if not seen[t.routine] then
@@ -175,14 +175,19 @@ function M.facts(def, castable, doc)
   end
   -- the cast's own selectors decide the aim; status triggers (on-hit cleaves, auras) only add facts
   -- a routine names this entry's own value `$<id>.<name>` (b09_old_earth_rupture's bursts): the
-  -- same value as `$<name>`, the extra the executor reads
-  local function selector(s)
+  -- same value as `$<name>`, the extra the executor reads. A plain `$<name>` in a routine another
+  -- entry owns is that entry's value (a07_v20_mightiest_awakening calls a07_v20_unscathed's burst):
+  -- named `$<owner>.<name>`, it is no radius of this entry.
+  local function selector(s, by)
     local owner, name
     if type(s.radius) == "string" then owner, name = s.radius:match("^%s*%$([%a_][%w_]*)%.([%a_][%w_]*)%s*$") end
-    if owner and owner == def.id then
+    local plain = value_name(s.radius)
+    local radius = (owner and owner == def.id and "$" .. name)
+      or (plain and by and by ~= def.id and "$" .. by .. "." .. plain) or nil
+    if radius then
       local own = {}
       for k, v in pairs(s) do own[k] = v end
-      own.radius = "$" .. name
+      own.radius = radius
       s = own
     end
     f.selectors[#f.selectors + 1] = s

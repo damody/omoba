@@ -5,6 +5,7 @@
 --   * a splash around what a linear projectile hits is not the aim; the projectile's line is.
 --   * a circle around several hit points is filtered by the radius around each (C04R_old 死亡之舞).
 --   * a move with no cast range hits around where it lands (C19R_old 奇襲's slow): aimed there.
+--   * a plain `$name` in another entry's routine is that entry's value (A07T_20 calls A07W_20's burst).
 package.path='docs/character_pipeline/tools/?.lua;scripts/?.lua;'..package.path
 local bot=require('v3_bot')
 local pv=require('package_v3')
@@ -21,6 +22,8 @@ h=hint('izumo_no_okuni_old','c04_old_dance_of_death')
 assert(h.kind=='enemy_point' and h.radius_key=='radius','死亡之舞: the radius around each burst, got '..h.kind)
 h=hint('matsuhime_old','c19_old_surprise_raid')
 assert(h.kind=='global_enemy_point' and h.radius_key=='slow_radius','奇襲: a teleport anywhere, aimed where its slow lands, got '..h.kind)
+h=hint('honda_tadakatsu_v20','a07_v20_mightiest_awakening')
+assert(h.kind=='self_engage',"無雙覺醒: the burst it calls has 不傷's radius, not its own, got "..h.kind)
 h=hint('ise_hime','b23_soul_feast')
 assert(h.kind=='self_area' and h.radius_key=='radius','魂食: a no-target channel keeps self_area, got '..h.kind)
 print('v3_bot_point_aim_test: ok')
