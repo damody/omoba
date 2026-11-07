@@ -52,6 +52,26 @@ M.PATROL_HEROES={maeda_keiji=true,okuma_tomohide=true,tokugawa_ieyasu=true}
 -- An enemy unit-target cast that only works on a non-hero unit (its hook leaves a hero with the effect
 -- alone): aimed at the prop stage's enemy creep (team enemy_anchor, the renderer's EnemyAnchor).
 M.ENEMY_ANCHOR={c06_old_murder_and_loot=true}
+-- A unit prop is clicked as a unit target: a hero closer than this to it took the click (c06_old's
+-- creep 114 from seat 7). Measured from every seat's place on the stage.
+M.PROP_HERO_CLEARANCE=400
+-- The unit props of a stage closer than PROP_HERO_CLEARANCE to a seat's place, as messages.
+function M.prop_clearance_errors(stage)
+  local errors={}
+  local showcase=stage.showcase or {}
+  for index,prop in ipairs(showcase.props or {}) do
+    if prop.kind=='unit' then
+      for seat,at in pairs(showcase.placements or {}) do
+        local distance=math.sqrt((prop.at[1]-at[1])^2+(prop.at[2]-at[2])^2)
+        if distance<M.PROP_HERO_CLEARANCE then
+          errors[#errors+1]=('unit prop %d at %d,%d is %.0f from seat %s (needs %d)'):format(index,prop.at[1],prop.at[2],distance,seat,M.PROP_HERO_CLEARANCE)
+        end
+      end
+    end
+  end
+  table.sort(errors)
+  return errors
+end
 -- A hero whose passive answers to a spell: the base stage plus seat 6's scheduled casts in one circle.
 M.CASTS_RECIPE='scripts/lua_data/moba_hero_spotlight_casts.lua'
 M.CASTS_HEROES={yamagata_masakage=true}
@@ -63,7 +83,11 @@ function M.recipe_for(package)
   end
   assert(not (tree and props),(package.hero or 'hero')..' needs both the tree stage and the prop stage (no stage has both yet)')
   if tree then return M.TREE_RECIPE end
-  if props then return M.PROPS_RECIPE end
+  if props then
+    local errors=M.prop_clearance_errors(assert(loadfile(M.PROPS_RECIPE))())
+    assert(#errors==0,M.PROPS_RECIPE..': '..table.concat(errors,'; '))
+    return M.PROPS_RECIPE
+  end
   if M.PATROL_HEROES[package.hero or ''] then return M.PATROL_RECIPE end
   if M.LINE_HEROES[package.hero or ''] then return M.LINE_RECIPE end
   if M.CASTS_HEROES[package.hero or ''] then return M.CASTS_RECIPE end
