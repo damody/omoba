@@ -103,6 +103,17 @@ local function approach(target, def, f)
   if unranged(target, def) and not reach and f.point_radius then
     return { kind = "global_enemy_point", radius_key = f.point_radius, min_targets = M.DEFAULTS.min_targets }
   end
+  -- no cast range and no cap, and the move hits around where it lands (c19_old_surprise_raid
+  -- slows enemies around the caster after its teleport): aimed at revealed enemy heroes there;
+  -- approach_enemy_point needs a cast range
+  if unranged(target, def) and not reach then
+    for _, s in ipairs(f.selectors) do
+      local r = value_name(s.radius)
+      if s.shape == "circle" and r and (s.from == nil or s.from == "caster" or s.from == "point") and (s.team == nil or s.team == "enemy") then
+        return { kind = "global_enemy_point", radius_key = r, min_targets = M.DEFAULTS.min_targets }
+      end
+    end
+  end
   return { kind = "approach_enemy_point", min_distance = M.DEFAULTS.approach, reach_key = reach }
 end
 
