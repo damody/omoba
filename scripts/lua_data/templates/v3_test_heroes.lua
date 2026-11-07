@@ -42101,6 +42101,7 @@ local data = {
         damage = { 250.0, 350.0, 450.0, 550.0 },
         distance = { 1500.0, 1500.0, 1500.0, 1500.0 },
         radius = { 500.0, 500.0, 500.0, 500.0 },
+        shape_width = { 300.0, 300.0, 300.0, 300.0 },
         slow = { 30.0, 30.0, 30.0, 30.0 },
         slow_time = { 3.0, 3.0, 3.0, 3.0 },
         speed = { 1400.0, 1400.0, 1400.0, 1400.0 },
@@ -42115,9 +42116,10 @@ local data = {
       },
       max_level = 4,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "width", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -56869,7 +56871,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", note = "channel without a recovery or area rule", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_area", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -70418,6 +70420,7 @@ local data = {
         per_volley = { 4.0, 4.0, 4.0 },
         required_level = { 6.0, 12.0, 18.0 },
         right_angle = { -90.0, -90.0, -90.0 },
+        shape_width = { 200.0, 200.0, 200.0 },
         side_offset = { 300.0, 300.0, 300.0 },
         sound_delay = { 2.0, 2.0, 2.0 },
         speed = { 2000.0, 2000.0, 2000.0 },
@@ -70437,10 +70440,11 @@ local data = {
       max_level = 3,
       pierces_magic_immunity = true,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "enemy_point", min_targets = 1, radius_key = "splash_radius", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "collision_radius", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -73706,6 +73710,7 @@ local data = {
         channel_time = { 1.0, 1.0, 1.0, 1.0 },
         damage = { 150.0, 200.0, 250.0, 300.0 },
         radius = { 300.0, 300.0, 300.0, 300.0 },
+        shape_width = { 600.0, 600.0, 600.0, 600.0 },
         speed = { 2500.0, 2500.0, 2500.0, 2500.0 },
         wave_interval = { 0.4, 0.4, 0.4, 0.4 },
         wave_slots = { 4.0, 4.0, 4.0, 4.0 },
@@ -73720,9 +73725,10 @@ local data = {
       },
       max_level = 4,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", note = "channel without a recovery or area rule", source = "derived", threat_radius = 900 },
+        bot = { kind = "enemy_line", line_width = "radius", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -79369,6 +79375,7 @@ local data = {
         distance = { 2000.0, 2000.0, 2000.0, 2000.0 },
         per_sec = { 6.0, 7.0, 8.0, 9.0 },
         right_angle = { 90.0, 90.0, 90.0, 90.0 },
+        shape_width = { 400.0, 400.0, 400.0, 400.0 },
         speed = { 700.0, 700.0, 700.0, 700.0 },
         splash_radius = { 200.0, 200.0, 200.0, 200.0 },
         width = { 500.0, 500.0, 500.0, 500.0 },
@@ -79382,9 +79389,10 @@ local data = {
       },
       max_level = 4,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_area", min_targets = 1, radius_key = "splash_radius", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "collision_radius", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -81882,6 +81890,7 @@ local data = {
         distance = { 1400.0, 1400.0, 1400.0, 1400.0 },
         half = { 0.5, 0.5, 0.5, 0.5 },
         right_angle = { 90.0, 90.0, 90.0, 90.0 },
+        shape_width = { 200.0, 200.0, 200.0, 200.0 },
         spawn_interval = { 0.14, 0.14, 0.14, 0.14 },
         speed = { 600.0, 600.0, 600.0, 600.0 },
         splash_radius = { 200.0, 200.0, 200.0, 200.0 },
@@ -81896,9 +81905,10 @@ local data = {
       },
       max_level = 4,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_area", min_targets = 1, radius_key = "splash_radius", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "collision_radius", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -85063,7 +85073,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", note = "channel without a recovery or area rule", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_area", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "radius" },
@@ -117665,7 +117675,7 @@ local data = {
       target_type = "point",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_line", min_targets = 1, note = "point skill without an area: aimed at the nearest enemy", source = "derived" },
+        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },
@@ -126540,6 +126550,7 @@ local data = {
         one_second = { 1.0, 1.0, 1.0, 1.0 },
         rate = { 11.0, 12.0, 13.0, 14.0 },
         right_angle = { 90.0, 90.0, 90.0, 90.0 },
+        shape_width = { 200.0, 200.0, 200.0, 200.0 },
         spawn_interval = { 0.0909090909, 0.0833333333, 0.0769230769, 0.0714285714 },
         speed_max = { 1200.0, 1200.0, 1200.0, 1200.0 },
         speed_min = { 300.0, 300.0, 300.0, 300.0 },
@@ -126555,10 +126566,11 @@ local data = {
       max_level = 4,
       pierces_magic_immunity = true,
       target_type = "point",
+      targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
         ability_flags = { "pierce_magic_immune" },
-        bot = { kind = "self_area", min_targets = 1, radius_key = "splash_radius", source = "derived" },
+        bot = { kind = "enemy_line", line_width = "collision_radius", line_width_scale = 2, min_targets = 1, source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },

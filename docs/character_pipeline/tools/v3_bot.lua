@@ -163,7 +163,19 @@ function M.facts(def, castable, doc)
     end
   end
   -- the cast's own selectors decide the aim; status triggers (on-hit cleaves, auras) only add facts
-  local function selector(s) f.selectors[#f.selectors + 1] = s end
+  -- a routine names this entry's own value `$<id>.<name>` (b09_old_earth_rupture's bursts): the
+  -- same value as `$<name>`, the extra the executor reads
+  local function selector(s)
+    local owner, name
+    if type(s.radius) == "string" then owner, name = s.radius:match("^%s*%$([%a_][%w_]*)%.([%a_][%w_]*)%s*$") end
+    if owner and owner == def.id then
+      local own = {}
+      for k, v in pairs(s) do own[k] = v end
+      own.radius = "$" .. name
+      s = own
+    end
+    f.selectors[#f.selectors + 1] = s
+  end
   walk(castable.events, action, selector, doc)
   for _, s in ipairs(def.statuses or {}) do walk(s.triggers, action, function() end, doc) end
   -- a radius the cast checks around its target point (count_in_radius(point, $x, ...))
@@ -330,12 +342,16 @@ function M.derive(def, kind_of_entry, doc)
       return { kind = unranged(target, def) and "global_enemy_point" or "enemy_point", radius_key = channel_area, min_targets = D.min_targets }
     end
     if f.heal_self then return { kind = "self_channel_recovery", below_hp_per_mille = D.heal_below, threat_radius = D.threat } end
-    for _, s in ipairs(f.selectors) do
-      local r = value_name(s.radius)
-      -- a channel around the caster: the executor's self_area takes a channeled cast (line B)
-      if s.shape == "circle" and r then return { kind = "self_area", radius_key = r, min_targets = D.min_targets } end
+    -- any other channel aimed at a point (b31_old_quiet_as_forest's arrow barrage) is aimed like
+    -- a point skill below: self_area and self_engage take no target
+    if target.type ~= "point" then
+      for _, s in ipairs(f.selectors) do
+        local r = value_name(s.radius)
+        -- a channel around the caster: the executor's self_area takes a channeled cast (line B)
+        if s.shape == "circle" and r then return { kind = "self_area", radius_key = r, min_targets = D.min_targets } end
+      end
+      return { kind = "self_engage", threat_radius = D.engage, note = "channel without a recovery or area rule" }
     end
-    return { kind = "self_engage", threat_radius = D.engage, note = "channel without a recovery or area rule" }
   end
   local t = target.type or "none"
   local team = target.team or "enemy"
@@ -381,7 +397,10 @@ function M.derive(def, kind_of_entry, doc)
     end
     for _, s in ipairs(f.selectors) do
       local r = value_name(s.radius)
-      if s.shape == "circle" and r then return { kind = unranged(target, def) and "global_enemy_point" or "enemy_point", radius_key = r, min_targets = D.min_targets } end
+      -- a splash around what a linear projectile hits (from `it`) is not where the cast aims:
+      -- the projectile's line is (b31_old_quiet_as_forest)
+      local splash = s.from == "it" and #f.lines > 0
+      if s.shape == "circle" and r and not splash then return { kind = unranged(target, def) and "global_enemy_point" or "enemy_point", radius_key = r, min_targets = D.min_targets } end
     end
     if f.summon then return { kind = "summon_near_enemy", threat_radius = D.threat } end
     if f.move then return approach(target, def, f) end
