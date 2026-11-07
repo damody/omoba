@@ -87380,7 +87380,7 @@ local data = {
       target_type = "point",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "enemy_line", min_targets = 1, note = "point skill without an area: aimed at the nearest enemy", source = "derived" },
+        bot = { kind = "enemy_point", min_targets = 1, radius_key = "radius", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "cast_range", value = "cast_range" },

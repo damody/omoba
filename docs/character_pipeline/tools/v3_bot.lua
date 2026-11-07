@@ -400,6 +400,11 @@ function M.derive(def, kind_of_entry, doc)
       -- a splash around what a linear projectile hits (from `it`) is not where the cast aims:
       -- the projectile's line is (b31_old_quiet_as_forest)
       local splash = s.from == "it" and #f.lines > 0
+      -- a circle wide enough for several hit points, filtered by the radius around each
+      -- (c04_old_dance_of_death: `distance(it, p1) <= $radius or ...`): that radius is the area
+      if not r and type(s.where) == "string" then
+        r = s.where:match("distance%(%s*it%s*,%s*[%a_][%w_]*%s*%)%s*<=%s*%$([%a_][%w_]*)")
+      end
       if s.shape == "circle" and r and not splash then return { kind = unranged(target, def) and "global_enemy_point" or "enemy_point", radius_key = r, min_targets = D.min_targets } end
     end
     if f.summon then return { kind = "summon_near_enemy", threat_radius = D.threat } end
