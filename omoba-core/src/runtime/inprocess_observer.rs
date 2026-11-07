@@ -153,7 +153,8 @@ pub fn first_divergence(tick: u64, team: u32, authority: &crate::runtime::Disclo
     for id in ids {
         let (a, r) = (authority.entities.get(&id), replica.entities.get(&id));
         let schemas: BTreeSet<u32> = a.into_iter().chain(r).flat_map(|e| e.components.keys().copied()).collect();
-        for schema in schemas {
+        // Baseline-only (owner_script_rows): a replica keeps the bytes its new life read; no hash has them.
+        for schema in schemas.into_iter().filter(|schema| *schema != crate::runtime::native::owner_script_rows::SCHEMA_ID) {
             let (x, y) = (a.and_then(|e| e.components.get(&schema)), r.and_then(|e| e.components.get(&schema)));
             if x != y { return ObserverDivergence { tick, team, entity: id, schema, authority: x.is_some(), replica: y.is_some(),
                 authority_bytes: x.cloned().unwrap_or_default(), replica_bytes: y.cloned().unwrap_or_default(),
