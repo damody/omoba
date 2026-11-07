@@ -196,6 +196,37 @@ hero_a25_old_impl = { path = "../heroes/oda_nobunaga_old" }
 hero_c17_old_impl = { path = "../heroes/oichi_old" }
 hero_a34_old_impl = { path = "../heroes/omatsu_old" }
 hero_a34_v20_impl = { path = "../heroes/omatsu_v20" }
+hero_c13_old_impl = { path = "../heroes/ryuzoji_takanobu_old" }
+hero_b01_old_impl = { path = "../heroes/saika_magoichi_old" }
+hero_a11_old_impl = { path = "../heroes/saito_dosan_old" }
+hero_b03_old_impl = { path = "../heroes/saito_tomonobu_old" }
+hero_c14_old_impl = { path = "../heroes/saito_yoshitatsu_old" }
+hero_a05_old_impl = { path = "../heroes/sakai_tadatsugu_old" }
+hero_a08_old_impl = { path = "../heroes/sakakibara_yasumasa_old" }
+hero_b09_old_impl = { path = "../heroes/sanada_masayuki_old" }
+hero_b06_old_impl = { path = "../heroes/sanada_yukimura_old" }
+hero_c22_old_impl = { path = "../heroes/sasaki_kojiro_old" }
+hero_a17_old_impl = { path = "../heroes/sassa_narimasa_old" }
+hero_a22_old_impl = { path = "../heroes/sengoku_hidehisa_old" }
+hero_a27_old_impl = { path = "../heroes/shibata_katsuie_old" }
+hero_a35_old_impl = { path = "../heroes/shima_sakon_old" }
+hero_c03_old_impl = { path = "../heroes/shimazu_yoshihiro_old" }
+hero_c07_old_impl = { path = "../heroes/tachibana_dosetsu_old" }
+hero_c09_old_impl = { path = "../heroes/tachibana_ginchiyo_old" }
+hero_c11_old_impl = { path = "../heroes/tachibana_muneshige_old" }
+hero_c11_v20_impl = { path = "../heroes/tachibana_muneshige_v20" }
+hero_b22_old_impl = { path = "../heroes/taigen_sessai_old" }
+hero_b34_old_impl = { path = "../heroes/takeda_katsuyori_old" }
+hero_b31_old_impl = { path = "../heroes/takeda_shingen_old" }
+hero_a04_old_impl = { path = "../heroes/takenaka_shigeharu_old" }
+hero_a32_old_impl = { path = "../heroes/takigawa_kazumasu_old" }
+hero_c15_old_impl = { path = "../heroes/tamako_old" }
+hero_a01_old_impl = { path = "../heroes/tokugawa_ieyasu_old" }
+hero_b32_old_impl = { path = "../heroes/uesugi_kenshin_old" }
+hero_b32_v20_impl = { path = "../heroes/uesugi_kenshin_v20" }
+hero_b19_old_impl = { path = "../heroes/usami_sadamitsu_old" }
+hero_c24_old_impl = { path = "../heroes/yagyu_muneyoshi_old" }
+hero_b20_old_impl = { path = "../heroes/yamagata_masakage_old" }
 # items.dll's scripts (M7), linked like a launch loads them
 items_impl = { path = "../items" }
 prost = "0.13"
