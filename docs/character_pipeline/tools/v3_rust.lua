@@ -666,9 +666,13 @@ function Gen:expr(node, ctx)
       if parts[1] == "mana_cost" and id and self.entry.def.cost and self.entry.def.cost.mana ~= nil then
         return self:value(self.entry.def.cost.mana, { owner = self.entry, scope = scope_child(nil), event = false }, "num"), "num"
       end
-      -- the cast range of this rank plus the bonuses the caster holds (原作 GetCastRange)
+      -- the cast range of this rank plus the bonuses the caster holds (原作 GetCastRange); outside
+      -- the cast (a status period, a delay) the host gives no cast range: this rank's target.range
       if parts[1] == "cast_range" then
-        return "(cx.cast_range.unwrap_or(Fixed64::ZERO) + { let u = cx.caster; cx.unit_num(u, ability_kit::unit_attr::CAST_RANGE_BONUS) })", "num"
+        local def = self.entry and self.entry.kind == "ability" and self.entry.def
+        local declared = def and def.target and def.target.range ~= nil
+          and self:value(def.target.range, { owner = self.entry, scope = scope_child(nil), event = false }, "num") or "Fixed64::ZERO"
+        return "(match cx.cast_range { Some(r) => r, None => " .. declared .. " } + { let u = cx.caster; cx.unit_num(u, ability_kit::unit_attr::CAST_RANGE_BONUS) })", "num"
       end
     end
     if base.k == "id" and base.name == "rules" and not scope_find(ctx.scope, "rules") then
@@ -2953,13 +2957,31 @@ function Gen:action(a, ctx, ind)
     if not mine(a.team) then self:block("action:create_unit.team:" .. tostring(a.team)) end
     local at = self:value(a.at, ctx, "point")
     local life = a.lifetime ~= nil and self:value(a.lifetime, ctx, "num") or "Fixed64::ZERO"
+    -- the kit takes a lifetime of at most an hour (create_unit_for): a longer one known here fails
+    -- every cast, so it blocks (a lasting unit leaves lifetime out)
+    local ref = type(a.lifetime) == "string" and a.lifetime:match("^%s*%$([%w_]+)%s*$")
+    local raws = type(a.lifetime) == "number" and { a.lifetime * 1024 } or nil
+    if ref then
+      local _, o = find(self.m, ctx.owner, nil, ref)
+      local row = o and self.m.rows[o.id] and self.m.rows[o.id][ref]
+      raws = row and row.raw
+    end
+    for _, r in ipairs(raws or {}) do
+      if r > 3600 * 1024 then self:block("action:create_unit.lifetime over 3600 s (leave it out for a lasting unit)"); break end
+    end
     local s = line("{")
     if owner_code then s = s .. line("    let owner = " .. owner_code .. ";") end
-    if a.count ~= nil then
+    -- count: that many units, one by one (the overrides, abilities and statuses each); one unit
+    -- binds `as`, so with `as` the count must be 1
+    if a.count ~= nil and a.as then
       s = s .. line("    let count = " .. self:value(a.count, ctx, "num") .. ";")
         .. line('    if count != Fixed64::ONE { return Err("v3: create_unit makes one unit at a time"); }')
     end
     s = s .. line("    let at = " .. at .. ";") .. line("    let lifetime = " .. life .. ";")
+    if a.count ~= nil and not a.as then
+      return s .. line("    let count = usize::try_from(ability_kit::floor(" .. self:value(a.count, ctx, "num") .. ").raw() >> 10).unwrap_or(0).min(ability_kit::MAX_REPEAT);")
+        .. line("    for _ in 0..count {") .. line("        " .. make .. ";") .. line("    }") .. line("}")
+    end
     if a.as then
       local marker = self:bind(ctx.scope, a.as, "unit")
       -- the binding lives after the block: hoist it

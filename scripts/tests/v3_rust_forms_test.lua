@@ -180,4 +180,41 @@ test('chain on_end that reads neither it nor jump binds them unused', function()
   assert(has(text, 'let _l_jump = l_jump - Fixed64::ONE;'), 'the unread end jump')
 end)
 
+test('ability.cast_range outside the cast falls back to this rank of target.range', function()
+  local t = some(function(s) return has(s, 'match cx.cast_range { Some(r) => r, None => super::values::') end)
+  assert(t, 'a cast range read with its declared range')
+  assert(not some(function(s) return has(s, 'cx.cast_range.unwrap_or(') end), 'no read falls back to zero alone')
+end)
+
+local function saika_corps()
+  local h
+  for _, x in ipairs(sources.heroes(b.root)) do if x.package == 'saika_magoichi' then h = x end end
+  local doc = assert(v3.load_file(assert(h, 'saika_magoichi').path))
+  local ab, make
+  for _, x in ipairs(doc.abilities) do
+    for _, a in ipairs((x.events or {}).on_cast or {}) do if a.op == 'create_unit' then ab, make = x, a end end
+  end
+  assert(ab, 'a create_unit')
+  return doc, ab, make
+end
+
+test('create_unit count without as makes that many units one by one', function()
+  local doc, ab, make = saika_corps()
+  make.as = nil
+  local files = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'x' })
+  local text = assert(files['src/generated/' .. ab.id .. '.rs'], ab.id .. ' generates')
+  assert(has(text, '.min(ability_kit::MAX_REPEAT);'), 'the count, bounded')
+  assert(has(text, 'for _ in 0..count {'), 'the loop')
+  assert(not has(text, 'makes one unit at a time'), 'no runtime refusal')
+end)
+
+test('create_unit lifetime over an hour blocks at generation', function()
+  local doc, ab, make = saika_corps()
+  make.lifetime = 3601
+  local _, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'x' })
+  local blockers
+  for _, e in ipairs(report.entries) do if e.id == ab.id then blockers = table.concat(e.blockers, '; ') end end
+  assert(blockers and blockers:find('create_unit.lifetime over 3600 s', 1, true), 'the blocker: ' .. tostring(blockers))
+end)
+
 print(('%d tests passed'):format(count))
