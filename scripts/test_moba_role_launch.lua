@@ -70,13 +70,15 @@ test('shared pre-match selections preserve recipe and reject ownership ambiguity
     {player_id=1,team_id=1,role='top',hero='old',bot=false},
     {player_id=2,team_id=1,role='mid',hero='old',bot=false},
     {player_id=3,team_id=2,role='top',hero='old',bot=true}}}
-  local options=launch.options({'--hero','2=training_luminary','--hero','1=training_luminary'})
+  -- One hero per team (E164): two humans of team 1 pick different heroes; the other team may repeat one.
+  local options=launch.options({'--hero','2=date_masamune','--hero','1=murakami_yoshikiyo'})
   local selected=launch.select_heroes(recipe,options.hero_selections)
-  assert(selected.players[1].hero=='training_luminary' and selected.players[2].hero=='training_luminary')
+  assert(selected.players[1].hero=='murakami_yoshikiyo' and selected.players[2].hero=='date_masamune')
+  rejects(function() launch.select_heroes(recipe,{[1]='murakami_yoshikiyo',[2]='murakami_yoshikiyo'}) end)
   assert(selected.players[1].team_id==1 and selected.players[1].role=='top')
   assert(recipe.players[1].hero=='old' and selected.players[3].hero=='old')
-  rejects(function() launch.select_heroes(recipe,{[3]='training_luminary'}) end)
-  rejects(function() launch.select_heroes(recipe,{[4]='training_luminary'}) end)
+  rejects(function() launch.select_heroes(recipe,{[3]='murakami_yoshikiyo'}) end)
+  rejects(function() launch.select_heroes(recipe,{[4]='murakami_yoshikiyo'}) end)
   rejects(function() launch.select_heroes(recipe,{[1]='bad/name'}) end)
   for _,args in ipairs({{'--hero'},{'--hero','0=x'},{'--hero','4294967296=x'},
       {'--hero','1=x','--hero','01=y'},{'--hero','1=bad/name'}}) do
@@ -87,6 +89,8 @@ end)
 test('fixed Lua + full TOML + production Rust configuration preflight',function()
   local options=launch.options({'--prepare-only','--output',path.join(root,'single')})
   plan=launch.prepare(options,process)
+  assert(plan.shader_warmup==true) -- real launches warm the DDC; fake renderers below never render.
+  plan.shader_warmup=false
   assert(plan.human_count==1 and plan.bot_count==9 and plan.tick_rate_hz==60)
   assert(#plan.clients==1 and plan.clients[1].player_id==1 and plan.clients[1].team_id==1)
   assert(plan.scope=='prepared-not-launched' and plan.profile=='release')
@@ -100,6 +104,22 @@ test('fixed Lua + full TOML + production Rust configuration preflight',function(
   assert(plan.content_mode=='compiled-content-only' and plan.server.env.OMB_LUA_CONTENT=='0')
   assert(plan.clients[1].runtime.env.OMB_LUA_CONTENT=='0' and plan.clients[1].unreal.env.OMB_LUA_CONTENT=='0')
   assert(path.read(plan.config):match('LUA_CONTENT%s*=%s*false'))
+  -- E124: server, runtime and config all load this run's own base_content copy.
+  local run_scripts=path.join(plan.output,'artifacts','scripts')
+  assert(plan.base_content.dll==path.join(run_scripts,'base_content.dll') and path.is_file(plan.base_content.dll))
+  assert(plan.server.env.OMB_SCRIPTS_DIR==run_scripts and plan.server.env.OMB_DLL_PATH==plan.base_content.dll)
+  assert(plan.clients[1].runtime.env.OMB_SCRIPTS_DIR==run_scripts)
+  -- M3': the whole script DLL set, listed with digests the host checks, for UE too.
+  assert(plan.clients[1].unreal.env.OMB_SCRIPTS_DIR==run_scripts)
+  assert(path.is_file(path.join(run_scripts,'scripts-manifest.json')))
+  assert(#plan.base_content.script_modules==#require('script_dlls').modules() and #plan.base_content.script_modules_hash==64)
+  for _,module in ipairs(plan.base_content.script_modules) do assert(path.is_file(path.join(run_scripts,module.file)),module.file) end
+  -- E125: server and runtime run from keyed copies, never the locked build output.
+  local run_bin=path.join(b.root,'target','run-bin')
+  assert(plan.run_binaries and plan.server.exe:find(run_bin,1,true)==1 and plan.clients[1].runtime.exe:find(run_bin,1,true)==1)
+  for _,key in ipairs({'DLL_PATH','SCRIPTS_DIR'}) do
+    assert(path.read(plan.config):match('\n'..key..'%s*=%s*[^\n]*artifacts'),key..' points at the run copy')
+  end
   assert(plan.clients[1].presentation=='127.0.0.1:57062')
   local locked=json.read(plan.selection_report)
   assert(locked.schema_version==1 and locked.ready and locked.finalized and #locked.seats==10)
@@ -107,23 +127,23 @@ test('fixed Lua + full TOML + production Rust configuration preflight',function(
   local catalog=json.read(plan.hero_catalog)
   assert(catalog.schema_version==1 and catalog.catalog_data_hash==locked.catalog_data_hash)
   local found=false
-  for _,hero in ipairs(catalog.heroes) do if hero.hero=='training_ranger' then found=true;assert(#hero.abilities==4) end end
+  for _,hero in ipairs(catalog.heroes) do if hero.hero=='tamako' then found=true;assert(#hero.abilities==4) end end
   assert(found,'compiled selectable hero missing')
   rejects(function() launch.prepare(options,process) end)
 end)
 
 test('hero selections flow into server plan; unknown catalog names fail before launch',function()
-  local selected=launch.prepare(launch.options({'--prepare-only','--hero','1=training_ranger',
+  local selected=launch.prepare(launch.options({'--prepare-only','--hero','1=tamako',
     '--output',path.join(root,'selected')}),process)
   assert(#selected.human_heroes==1 and selected.human_heroes[1].player_id==1)
-  assert(selected.human_heroes[1].hero=='training_ranger')
-  assert(path.read(selected.config):find('training_ranger',1,true))
+  assert(selected.human_heroes[1].hero=='tamako')
+  assert(path.read(selected.config):find('tamako',1,true))
   local saved=json.read(selected.recipe_json)
-  assert(saved.players[1].hero=='training_ranger' and saved.players[1].bot==false)
-  local replay=launch.prepare(launch.options({'--recipe',selected.recipe_json,'--hero','1=training_vanguard',
+  assert(saved.players[1].hero=='tamako' and saved.players[1].bot==false)
+  local replay=launch.prepare(launch.options({'--recipe',selected.recipe_json,'--hero','1=asai_nagamasa',
     '--output',path.join(root,'json-selected')}),process)
-  assert(replay.human_heroes[1].hero=='training_vanguard')
-  assert(json.read(selected.recipe_json).players[1].hero=='training_ranger','source JSON changed')
+  assert(replay.human_heroes[1].hero=='asai_nagamasa')
+  assert(json.read(selected.recipe_json).players[1].hero=='tamako','source JSON changed')
   rejects(function() launch.prepare(launch.options({'--hero','1=unknown_selection_hero',
     '--output',path.join(root,'unknown-hero')}),process) end)
   assert(path.read(base,true)==original)
@@ -149,6 +169,7 @@ end)
 test('original child cleanup is reverse order, waited, and failures propagated',function()
   local function execute(fail_stop)
     local copied=json.decode(json.encode(plan))
+    copied.content_hash=nil -- lifecycle only; the renderer content check is tested on its own
     copied.output=path.mkdir_p(path.join(root,fail_stop and 'cleanup-failure' or 'cleanup-success'))
     copied.server.exe=b.lib('platform').lua_executable
     copied.clients[1].runtime.exe=copied.server.exe
@@ -176,6 +197,7 @@ end)
 test('reused server/runtime/renderer and partial startup retain exact ownership',function()
   for _,mode in ipairs({'server-reused','runtime-reused','renderer-reused','partial-spawn'}) do
     local copied=json.decode(json.encode(plan))
+    copied.content_hash=nil -- lifecycle only; the renderer content check is tested on its own
     copied.output=path.mkdir_p(path.join(root,mode))
     copied.server.exe=b.lib('platform').lua_executable
     copied.clients[1].runtime.exe=copied.server.exe
@@ -223,5 +245,11 @@ test('arguments fail closed; production Rust rejects invalid recipe',function()
   path.write(fixture,'return {schema_version=1,map_id="unknown",think_hz=5,players={}}')
   rejects(function() launch.prepare(launch.options({'--recipe',fixture,'--output',path.join(root,'invalid')}),process) end)
   assert(path.read(base,true)==original)
+end)
+test('packaged game accepts the archive, its Windows directory or the exe',function()
+  local archive=path.join(root,'packaged-archive');local windows=path.mkdir_p(path.join(archive,'Windows'))
+  local exe=path.join(windows,'OmGame.exe');path.write(exe,'fixture')
+  assert(launch.packaged_game(archive)==exe and launch.packaged_game(windows)==exe and launch.packaged_game(exe)==exe)
+  rejects(function() launch.packaged_game(path.join(root,'missing-archive')) end)
 end)
 print(('role launch functionality: %d/%d passed; no server/runtime/Unreal processes launched'):format(tests,tests))

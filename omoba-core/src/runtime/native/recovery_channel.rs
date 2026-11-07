@@ -12,7 +12,11 @@ pub(crate) struct Spec {pub amount:Fixed64,pub duration:Fixed64,pub interval:Fix
 pub(crate) fn ability_spec(def:&crate::ability_meta::AbilityDef,rank:&crate::ability_meta::AbilityLevelData)->Result<Option<Spec>,()> {
     use crate::ability_meta::{HostAbilityExecution,CastType,TargetType,AbilityType};
     let Some(HostAbilityExecution::RecoveryChannelSelf {amount_key,duration_key,interval_key})=&def.host_execution
-        else{return if def.cast_type==CastType::Channeled {Err(())}else{Ok(None)};};
+        else{
+            // A pulse channel is also channeled; it is not a malformed recovery channel.
+            let pulse=matches!(def.host_execution,Some(HostAbilityExecution::PulseChannel {..}));
+            return if def.cast_type==CastType::Channeled && !pulse {Err(())}else{Ok(None)};
+        };
     if def.cast_type!=CastType::Channeled || def.target_type!=TargetType::None
         || !matches!(def.ability_type,AbilityType::Active|AbilityType::Ultimate) || rank.cast_time!=0.0 {return Err(());}
     let value=|key:&str|->Result<Fixed64,()>{

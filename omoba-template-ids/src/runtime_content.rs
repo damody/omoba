@@ -339,6 +339,18 @@ impl RuntimeContent {
                 if runtime.cleanses_allies!=compiled.cleanses_allies {
                     return Err("MOBA ally cleanse execution differs from compiled content; rebuild all peers".into());
                 }
+                if runtime.pierces_magic_immunity!=compiled.pierces_magic_immunity {
+                    return Err("MOBA magic immunity piercing differs from compiled content; rebuild all peers".into());
+                }
+                if runtime.targets_tree!=compiled.targets_tree {
+                    return Err("MOBA tree targeting differs from compiled content; rebuild all peers".into());
+                }
+                if runtime.targets_heroes_only!=compiled.targets_heroes_only {
+                    return Err("MOBA hero-only targeting differs from compiled content; rebuild all peers".into());
+                }
+                if runtime.requires_status!=compiled.requires_status {
+                    return Err("MOBA cast status requirement differs from compiled content; rebuild all peers".into());
+                }
                 if runtime.recovery_channel!=compiled.recovery_channel
                     || (runtime.recovery_channel.is_some() && (runtime.cast_type!=compiled.cast_type || runtime.target_type!=compiled.target_type)) {
                     return Err("MOBA recovery channel execution differs from compiled content; rebuild all peers".into());
@@ -525,6 +537,8 @@ impl RuntimeContent {
             ensure_id("hero", raw, &entry.id, hero_id_str(HeroId(raw)))?;
             let mut abilities = Vec::new();
             for ability in &entry.abilities {
+                // An empty slot keeps the next one in place (build.rs emits the same AbilityId(0)).
+                if omoba_content_model::is_empty_ability_slot(ability) { abilities.push(AbilityId(0)); continue; }
                 let id = ability_by_name(ability).ok_or_else(|| {
                     format!(
                         "hero '{}' references unknown ability '{}'",
@@ -572,6 +586,48 @@ impl RuntimeContent {
                     crate::lua_content::SummonTargetPriorityEntry::Nearest=>crate::SummonTargetPriority::Nearest,
                     crate::lua_content::SummonTargetPriorityEntry::OwnerFocus=>crate::SummonTargetPriority::OwnerFocus,
                 },
+                immobile: entry.immobile,
+                damage_per_owner_level: fixed64(entry.damage_per_owner_level),
+                owner_death: match entry.owner_death {
+                    crate::lua_content::SummonOwnerDeathEntry::Persist=>crate::SummonOwnerDeath::Persist,
+                    crate::lua_content::SummonOwnerDeathEntry::Expire=>crate::SummonOwnerDeath::Expire,
+                },
+                invulnerable: entry.invulnerable,
+                dummy: entry.dummy,
+                bounty_gold: entry.bounty_gold,
+                bounty_xp: entry.bounty_xp,
+                acquisition_range: fixed64(entry.acquisition_range.max(entry.attack_range)),
+                ai: match entry.ai {
+                    crate::lua_content::SummonAiEntry::Guard=>crate::SummonAi::Guard,
+                    // A chase summon is flown by the host (E406), as build.rs `rust_variant`.
+                    crate::lua_content::SummonAiEntry::Idle|crate::lua_content::SummonAiEntry::ChaseTarget=>crate::SummonAi::Idle,
+                },
+                projectile_speed: fixed64(if entry.projectile_speed > 0.0 { entry.projectile_speed } else { 900.0 }),
+                attack_damage_type: match entry.attack_damage_type {
+                    crate::lua_content::SummonDamageTypeEntry::Physical=>crate::SummonDamageType::Physical,
+                    crate::lua_content::SummonDamageTypeEntry::Magical=>crate::SummonDamageType::Magical,
+                    crate::lua_content::SummonDamageTypeEntry::Pure=>crate::SummonDamageType::Pure,
+                },
+                no_attack: entry.no_attack,
+                ward: entry.ward,
+                hp_regen: fixed64(entry.hp_regen),
+                night_vision_bonus: fixed64(if entry.night_vision_radius > 0.0 { entry.night_vision_radius - entry.vision_radius } else { 0.0 }),
+                turn_speed: fixed64(entry.turn_speed()),
+                mana: fixed64(entry.mana),
+                mana_regen: fixed64(entry.mana_regen),
+                flying: entry.flying,
+                blocks_pathing: entry.blocks_pathing,
+                building: entry.building,
+                chase: entry.chase.as_ref().map(|c| &*leak(crate::SummonChaseConst {
+                    speed: fixed64(c.speed), max_distance: fixed64(c.max_distance),
+                    teleport_back_distance: fixed64(c.teleport_back_distance), reach_radius: fixed64(c.reach_radius),
+                    anchor_owner: c.anchor == "owner", retarget_owner_target: c.retarget == "owner_target",
+                    turn_degrees: c.turn_degrees.round() as u16, turn_every_frames: c.turn_every_frames,
+                    snap_degrees: c.snap_degrees.round() as u16,
+                    random_retarget_per_mille: crate::lua_content::SummonChaseEntry::per_mille(c.random_retarget_chance),
+                    wander_return_per_mille: crate::lua_content::SummonChaseEntry::per_mille(c.wander_return_chance),
+                    reach_ability: leak_str(c.reach_ability.clone()),
+                })),
             })))
         })?;
         let summon_display = build_indexed(&manifest.summons, "summon", |raw, entry| {
@@ -696,7 +752,7 @@ struct ContentShape {
     mana_regen_per_second: u32,
     base_recovery_mana_per_second: u32,
     moba_map_catalog_json: String,
-    hero_moba_loadouts: Vec<(String, [u8; 4], u8)>,
+    hero_moba_loadouts: Vec<(String, [u8; omoba_content_model::HERO_ABILITY_SLOTS], u8)>,
     ability_rank_requirements: Vec<(String, u16, Vec<(u8,bool)>)>,
     ability_aim_previews:Vec<(String,String)>,
     ability_recovery_channels:Vec<(String,(String,String,String))>,
@@ -1289,6 +1345,10 @@ fn build_hero_stats(entry: &HeroEntry) -> Result<HeroStats, String> {
             hp_per_level: fixed64(entry.level_growth.hp_per_level),
             mana_per_level: fixed64(entry.level_growth.mana_per_level),
         },
+        base_attack_time: entry.base_attack_time.map(fixed64),
+        health_regen: fixed64(entry.health_regen),
+        mana_regen: fixed64(entry.mana_regen),
+        acquisition_range: entry.acquisition_range.map(fixed64),
     })
 }
 
@@ -1444,6 +1504,11 @@ fn ability_const_from_entry(entry: &AbilityEntry) -> Result<AbilityConst, String
     }
     Ok(AbilityConst {
         cleanses_allies: entry.effects.iter().any(|effect|matches!(effect,omoba_content_model::AbilityEffect::CleanseAlly {})),
+        pierces_magic_immunity: entry.pierces_magic_immunity,
+        targets_tree: entry.targets_tree,
+        targets_heroes_only: entry.targets_heroes_only,
+        requires_status: entry.requires_status.clone().map(leak_str),
+        auto_learn: entry.auto_learn,
         ability_type: ability_type(&entry.ability_type)?,
         cast_type: cast_type(&entry.cast_type)?,
         target_type: target_type(&entry.target_type)?,
@@ -1457,6 +1522,18 @@ fn ability_const_from_entry(entry: &AbilityEntry) -> Result<AbilityConst, String
                 Some(crate::RecoveryChannelConst {amount_key:leak_str(amount_key.clone()),duration_key:leak_str(duration_key.clone()),interval_key:leak_str(interval_key.clone())}),
             _=>None,
         },
+        pulse_channel: entry.channel.as_ref().map(|channel|crate::PulseChannelConst {
+            anchor:match channel.anchor {omoba_content_model::ChannelAnchor::SelfOrigin=>0,omoba_content_model::ChannelAnchor::Point=>1,omoba_content_model::ChannelAnchor::Unit=>2},
+            interval_key:leak_str(channel.interval_key.clone()),pulses_key:leak_str(channel.pulses_key.clone()),
+            radius_key:channel.radius_key.clone().map(leak_str)}),
+        charges: entry.charges.as_ref().map(|charges|crate::ChargesConst {
+            max_key:leak_str(charges.max_key.clone()),recharge_key:leak_str(charges.recharge_key.clone())}),
+        attack_orb: entry.attack_orb.as_ref().map(|orb|crate::AttackOrbConst {
+            mana_per_attack_key:leak_str(orb.mana_per_attack_key.clone()),amount_key:leak_str(orb.amount_key.clone()),
+            damage_kind:match orb.damage_kind {omoba_content_model::EffectDamageKind::Physical=>0,omoba_content_model::EffectDamageKind::Magical=>1,omoba_content_model::EffectDamageKind::Pure=>2},
+            move_slow_key:orb.move_slow_key.clone().map(leak_str),attack_slow_key:orb.attack_slow_key.clone().map(leak_str),
+            slow_duration_key:orb.slow_duration_key.clone().map(leak_str)}),
+        cast_cooldown_refund_key: entry.cast_cooldown_refund.as_ref().map(|refund|leak_str(refund.seconds_key.clone())),
         aim_preview_signature: leak_str(omoba_content_model::ability_aim_preview_signature(entry)?),
         icon: leak_str(entry.icon.clone()),
         description: leak_str(entry.description.clone()),
@@ -1960,13 +2037,13 @@ mod tests {
         let mut content = load_content(root).unwrap();
         let before = ContentShape::from_manifest(&content.manifest, &content.stories);
         content.manifest.heroes.iter_mut().find(|hero| hero.id == "training_luminary").unwrap()
-            .common.moba_loadout = omoba_content_model::MobaLoadout { ranks: [0;4], skill_points: 1 };
+            .common.moba_loadout = omoba_content_model::MobaLoadout { ranks: [0;crate::HERO_ABILITY_SLOTS], skill_points: 1 };
         let after = ContentShape::from_manifest(&content.manifest, &content.stories);
         assert!(after.ensure_compatible_with(&before).unwrap_err().contains("MOBA hero loadout changed"));
         let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
         let id = crate::hero_by_name("training_luminary").unwrap();
         let loadout = runtime.hero_stats[usize::from(id.0)].unwrap().moba_loadout;
-        assert_eq!((loadout.ranks,loadout.skill_points),([0;4],1));
+        assert_eq!((loadout.ranks,loadout.skill_points),([0;crate::HERO_ABILITY_SLOTS],1));
         assert!(runtime.validate_moba_catalog().unwrap_err().contains("hero loadout differs"));
     }
 

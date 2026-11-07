@@ -217,11 +217,16 @@ fn route_input(
             // 僅確認 - 保持活動心跳，沒有副作用。
         }
         Some(PlayerInputEnum::OwnedSummonOrder(order)) => {
-            if super::super::summon_orders::decode(&order).is_err() {return;}
+            // Each step of a summon order names itself in the log (E627).
+            if let Err(reason)=super::super::summon_orders::decode(&order) {
+                log::info!("OwnedSummonOrder dropped pid={} tick={} operation={} reason={}",player_id,tick,order.operation,reason);
+                return;
+            }
             let count=move_q.requests.iter().filter(|pending|pending.owner_pid==player_id
                 && matches!(&pending.kind,PendingHeroCommandKind::OwnedSummonOrder {..})).count();
-            if count>=32 {return;}
-            move_q.requests.push(crate::comp::PendingHeroCommand {owner_pid:player_id,queued:false,
+            if count>=32 {log::info!("OwnedSummonOrder dropped pid={} tick={} reason=queue_full",player_id,tick);return;}
+            log::info!("OwnedSummonOrder queued pid={} tick={} operation={} ability='{}'",player_id,tick,order.operation,order.ability);
+            move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,owner_pid:player_id,queued:false,
                 kind:PendingHeroCommandKind::OwnedSummonOrder {order}});
         }
         // Client references must be resolved by the authenticated edge first.
@@ -246,7 +251,7 @@ fn route_input(
                 omoba_sim::Fixed64::from_raw(x as i64),
                 omoba_sim::Fixed64::from_raw(y as i64),
             );
-            move_q.requests.push(crate::comp::PendingHeroCommand {
+            move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,
                 owner_pid: player_id,
                 queued: m.queued,
                 kind: PendingHeroCommandKind::MoveTo { pos },
@@ -266,19 +271,26 @@ fn route_input(
                 omoba_sim::Fixed64::from_raw(x as i64),
                 omoba_sim::Fixed64::from_raw(y as i64),
             );
-            move_q.requests.push(crate::comp::PendingHeroCommand {
+            move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,
                 owner_pid: player_id,
                 queued: a.queued,
                 kind: PendingHeroCommandKind::AttackMove { pos },
             });
         }
         Some(PlayerInputEnum::HoldPosition(a)) => {
-            move_q.requests.push(crate::comp::PendingHeroCommand {
+            move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,
                 owner_pid:player_id,queued:a.queued,kind:PendingHeroCommandKind::HoldPosition,
             });
         }
+        Some(PlayerInputEnum::ShowcaseResetHero(_)) => {
+            move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,
+                owner_pid: player_id,
+                queued: false,
+                kind: PendingHeroCommandKind::ShowcaseResetHero,
+            });
+        }
         Some(PlayerInputEnum::Stop(_)) => {
-            move_q.requests.push(crate::comp::PendingHeroCommand {
+            move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,
                 owner_pid: player_id,
                 queued: false,
                 kind: PendingHeroCommandKind::Stop,
@@ -292,7 +304,7 @@ fn route_input(
                 a.target_id,
                 a.queued,
             );
-            move_q.requests.push(crate::comp::PendingHeroCommand {
+            move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,
                 owner_pid: player_id,
                 queued: a.queued,
                 kind: PendingHeroCommandKind::AttackTarget {
@@ -344,6 +356,7 @@ fn route_input(
                 target_pos,
                 target_entity: c.target_entity,
                 owner_pid: player_id,
+                correlation: admitted_correlation,
             });
         }
         Some(PlayerInputEnum::UpgradeAbility(u)) => {
@@ -356,6 +369,7 @@ fn route_input(
             ability_q.requests.push(crate::comp::PendingAbilityUpgrade {
                 ability_index: u.ability_index,
                 owner_pid: player_id,
+                correlation: admitted_correlation,
             });
         }
         Some(PlayerInputEnum::TowerPlace(t)) => {

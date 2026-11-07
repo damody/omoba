@@ -73,6 +73,26 @@ pub enum FactKind {
     AttackAvoided = 36,
     CriticalHit = 37,
     DisclosedAttackRange = 38,
+    /// G-2 stored uses after a settled spend, for disclosed opponents only.
+    CommittedCharge = 39,
+    /// Own-team controls and channel statuses after one outcome batch (split16).
+    OwnerControl = 40,
+    /// Own-team unit: whether the opposing team has it disclosed now (E312, v3 `is_visible_to`).
+    EnemySight = 41,
+    /// A visible hero's derived attributes (totals and attribute max HP) after the authority's settle,
+    /// for replicas that do not receive its inventory (E374).
+    CommittedAttributes = 42,
+    /// A visible hero's ability in each slot (a swap_abilities changes them on the authority,
+    /// whose scripts an opposing replica does not run; E401).
+    CommittedAbilitySlots = 43,
+    /// A disclosed unit's target state bits (magic immune, unselectable, invulnerable; E460) this
+    /// step; an empty payload once it has none (EVENT ONLY, team_projector; E541).
+    TargetState = 44,
+    /// A disclosed non-hero's unit abilities and cooldowns (unit_abilities, E531) this step; an
+    /// empty payload once it has none (EVENT ONLY, team_projector; E541).
+    UnitAbilities = 45,
+    /// A script's presentation cue (team_projector projects it on what the team sees).
+    Cue = 46,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -109,12 +129,25 @@ pub enum ObservableFact {
     OwnerShopUndo { team: u32, state: crate::runtime::shop_undo_wire::OwnerShopUndoProjection },
     CommittedEconomy { source: u64, state: crate::runtime::native::economy_projection::CommittedEconomyState },
     CommittedEquipmentStats { source: u64, hp_raw: i64, max_hp_raw: i64, speed_raw: i64, armor_raw: i64, attack_raw: i64 },
+    /// Public derived values only (what the attribute panel shows); never the items behind them.
+    CommittedAttributes { source: u64, strength_raw: i64, agility_raw: i64, intelligence_raw: i64, attribute_hp_raw: i64,
+        /// The base points under those totals: a settled base stat change (v3 modify_stat permanent).
+        base: [i32; 3] },
+    /// The compiled ability id (`AbilityId`, 0 = empty slot) in each of a visible hero's slots.
+    CommittedAbilitySlots { source: u64, abilities: Vec<u16> },
     /// Final, already-disclosable state after an authority-owned settlement.
     CommittedVitals { source: u64, hp_raw: i64, max_hp_raw: i64 },
     CommittedCooldown { source: u64, slot: u32, remaining_raw: i64 },
+    /// Full stored-use state of one slot (G-2); the owning team predicts its own.
+    CommittedCharge { source: u64, slot: u32, charges: u16, max: u16, recharge_raw: i64, remaining_raw: i64 },
+    /// Own-team hero controls and channel statuses after outcome batch `batch`.
+    OwnerControl { source: u64, batch: u8, row: crate::runtime::native::owner_control::OwnerControlRow },
+    /// The opposing team has `source` disclosed (`true`) or not, for `source`'s own team only.
+    EnemySight { source: u64, seen: bool },
     CommittedAttack { source: u64, elapsed_raw: i64, sequence: u32, phase: u8 },
     CommittedProgression { source: u64, level: i32, experience: i32, experience_to_next: i32, skill_points: i32 },
-    CommittedAbilityRanks { source: u64, ranks: [i32; 4] },
+    /// One rank per slot: four for a Q-R hero, five when it has the extra action slot.
+    CommittedAbilityRanks { source: u64, ranks: Vec<i32> },
     CommittedMana { source: u64, state: crate::runtime::ability_runtime::CommittedManaState },
     /// A visible actor is prioritizing movement, without disclosing its
     /// destination, input, or any entity target.
@@ -177,6 +210,21 @@ pub enum ObservableFact {
     AbilityArea {
         source:u64, team:u32, ability_id:u64, rank:u32,
         x_raw:i64, y_raw:i64, radius_raw:i64, duration_raw:i64,
+    },
+    /// Where a successful cast (or item use) landed, for the one-shot cues played there: a unit
+    /// or a ground point. Only teams that see the target receive it, and the caster's identity
+    /// rides along only for teams that see the caster (team_projector).
+    AbilityTarget {
+        source: u64, ability_id: u64, rank: u32,
+        target: Option<u64>, point: Option<(i64, i64)>,
+    },
+    /// A script's presentation cue: at a unit or a point, optionally toward another. Each team
+    /// receives only the ends it sees (team_projector).
+    Cue {
+        cue: u64, source: Option<u64>,
+        at_unit: Option<u64>, at_point: (i64, i64),
+        to_unit: Option<u64>, to_point: Option<(i64, i64)>,
+        radius_raw: i64, duration_raw: i64,
     },
     Tower {
         source: u64,

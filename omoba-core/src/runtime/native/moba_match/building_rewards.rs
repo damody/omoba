@@ -65,12 +65,14 @@ pub(crate) fn record_moba_building_damage(world:&World,source:Option<Entity>,tar
     let Some(unit)=state.units.get(&entity_key(target)) else {return};
     let is_tower=unit.role==LaneRole::Tower;
     let notice_kind=match unit.role {LaneRole::Tower=>1,LaneRole::Inhibitor=>2,LaneRole::NexusTower=>3,_=>0};
-    let layer=state.lane_tower_layers.get(unit.lane).and_then(|layers|layers.iter().position(|layer|layer[usize::from(unit.team)]==Some(target)));
+    let layer=state.tower_layer_of(unit.lane,usize::from(unit.team),target);
     let Some(bounty)=state.config.building_reward_rules.bounty(unit.role,layer) else {return};
     if unit.last_hit_retired {return;}
+    let role=unit.role;
     let victim_side=usize::from(unit.team);
     state.units.get_mut(&entity_key(target)).expect("tracked structure").last_hit_retired=true;
-    let side=jungle_credit::resolve(world,&state,source).map(|credit|credit.side).filter(|side|*side!=victim_side);
+    let credited=jungle_credit::resolve(world,&state,source).filter(|credit|credit.side!=victim_side);
+    let side=credited.map(|credit|credit.side);
     let Some(side)=side else {
         if is_tower {state.first_tower.observe(world.read_resource::<Tick>().0,entity_key(target),None,BTreeSet::new());}
         return;
@@ -88,6 +90,12 @@ pub(crate) fn record_moba_building_damage(world:&World,source:Option<Entity>,tar
     if is_tower {state.first_tower.observe(world.read_resource::<Tick>().0,entity_key(target),Some(side),local.clone());}
     if is_tower {objective_comeback::observe(world,&mut state,target,side,false);}
     objective_notice::observe(world,&mut state,target,side,notice_kind);
+    // Original rules (E187): the structure's own bounty (game_rules.lua buildings), not the
+    // training team gold and local pool.
+    if let Some(rules)=state.config.game_rules {
+        original_rewards::structure_bounty(world,&mut state,&rules,side,credited.and_then(|credit|credit.player),target,role);
+        return;
+    }
     credit(world,&mut state,side,&local,bounty);
 }
 
@@ -277,6 +285,7 @@ mod tests {
             // Death is committed by the production outcome path before respawn.
             flush(&mut world,[]);world.maintain();
             let mut state=world.remove::<MobaMatch>().unwrap();
+            state.schedule_base_structure_respawns(Fixed64::from_i32(300*life));
             state.elapsed=Fixed64::from_i32(300*life);state.tick_base_structures(&mut world);world.insert(state);
             previous=Some(target);
         }

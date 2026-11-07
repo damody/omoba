@@ -15,6 +15,7 @@ pub mod nearby_tick;
 pub mod player_input_tick;
 pub mod player_tick;
 pub mod projectile_tick;
+pub mod ability_projectile_tick;
 pub mod regen_tick;
 pub mod summon_tick;
 pub mod td_regrow_tick;

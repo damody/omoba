@@ -1,0 +1,1724 @@
+//! The surface the Rust generated from v3 documents calls (m3-rust-codegen-design.md §2.4).
+//!
+//! `docs/character_pipeline/tools/v3_rust.lua` writes one crate per hero; every ability there is
+//! straight-line Rust over [`Cx`]. The kit holds no state: statuses live in the host BuffStore,
+//! delays in the host scheduler, so a hot-reloaded DLL loses nothing (§4).
+//!
+//! Semantics follow the behavior IR interpreter they replace (omoba-core `runtime::native::ir`):
+//! - selections are the caster team's disclosed enemies, live, never the caster, sorted by entity
+//!   id; magic-immune and invulnerable units are out unless the selector includes them (E226);
+//! - damage goes through the rules layer with `DamageProfile` flags (`SPELL` scales with spell amp,
+//!   `REQUIRE_SOURCE_ALIVE` drops the packet when its source died);
+//! - a status is one `add_stat_buff` carrying its stat rows, plus a plain buff per host control state.
+use abi_stable::std_types::RSome;
+use omoba_core::runtime::native::{summon_owner_cap, dispel, ability_projectile, ally_area_restore, attack_orb, hero_command, delayed_effect, magic_immunity, reveal_zone, scheduled_effect, status_event, tether, tree_cut, unit_var};
+
+pub use abi_stable::{
+    export_root_module,
+    prefix_type::PrefixTypeTrait,
+    sabi_extern_fn,
+    sabi_trait::prelude::TD_Opaque,
+    std_types::{RBox, RErr, ROk, RResult, RStr, RString, RVec},
+};
+pub use omb_script_abi::ability::{AbilityDefFFI, AbilityScript, AbilityScript_TO};
+pub use omb_script_abi::manifest::{Manifest, Manifest_Ref, RuntimeLuaReloadResultFFI, UnitDef};
+pub use omb_script_abi::script::{UnitScript, UnitScript_TO};
+pub use omb_script_abi::stat_keys::StatKey;
+pub use omb_script_abi::types::{ChannelPulse, DamageEdit, DamageKind, DamageProfile, EntityHandle, Fixed64, ScheduleArg, Scheduled, StatusEvent, Target, Vec2};
+pub use omoba_core::runtime::native::unit_var::VarValue;
+pub use omb_script_abi::world::GameWorldDyn;
+
+/// A generated step's result: `Err` aborts the cast (the host rolls back costs).
+pub type Res = Result<(), &'static str>;
+
+/// One number per rank (raw Fixed64), rank 1 first; a rank past the table reads the last entry,
+/// like `v3_compile.lua`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Ranked<const N: usize>(pub [i64; N]);
+
+impl<const N: usize> Ranked<N> {
+    pub const fn at(&self, rank: u8) -> Fixed64 {
+        let i = if rank == 0 { 0 } else { rank as usize - 1 };
+        let i = if i >= N { N - 1 } else { i };
+        Fixed64::from_raw(self.0[i])
+    }
+}
+
+/// A status of a v3 document as the host BuffStore runs it.
+#[derive(Clone, Copy, Debug)]
+pub struct StatusDef {
+    /// The v3 id (cues, diagnostics).
+    pub id: &'static str,
+    /// The BuffStore id; `{caster}` becomes the caster's `id:gen` (per-source statuses).
+    pub runtime_id: &'static str,
+    /// Host controls held as their own buffs for the same time (`stun`, `root`, ...).
+    pub state_buffs: &'static [&'static str],
+    /// State flags carried in the status payload (`invisible` level, ...).
+    pub state_payload: &'static [(StatKey, i64)],
+    /// The ability whose `on_status_event` serves this status' triggers ("" = none).
+    pub owner: &'static str,
+    /// The status_event mask of those triggers (0 = no host callbacks).
+    pub events: u32,
+    /// v3 `status_resistance = "ignore"`: the target's status resistance does not shorten it
+    /// (the row and its host controls carry omoba-core rules::status IGNORE_STATUS_RESISTANCE).
+    pub ignore_status_resistance: bool,
+    /// v3 `unique_group`: statuses of one group give, per stat, only the strongest value
+    /// (omoba-core BuffStore aggregation family); "" = none.
+    pub family: &'static str,
+    /// v3 `scope`: `"hero"` / `"permanent"` keep the status across its hero's death (omoba-core
+    /// status_scope); "" (or `"unit"`) = it goes with the unit's statuses at death.
+    pub scope: &'static str,
+    /// The entry's document reaches magic-immune units (E667): its rows carry magic_immunity's
+    /// PIERCE_KEY on one, where they would stay off otherwise.
+    pub reaches_immune: bool,
+}
+
+/// Selection filters of a v3 selector (v3.md §6).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Select {
+    pub types: UnitTypes,
+    pub include_magic_immune: bool,
+    pub include_invulnerable: bool,
+    /// v3 flag `include_hidden`: also units in the `hidden` state. The host has no `hidden` state
+    /// yet, so nothing is excluded either way (`hidden_excluded`); a hidden state joins here.
+    pub include_hidden: bool,
+    /// v3 flag `include_illusions`: a `hero` selection also takes illusions (omoba-core state
+    /// `illusion`); without it an illusion is no hero (it is a summon).
+    pub include_illusions: bool,
+}
+
+/// Whether a selector without `include_hidden` leaves `unit` out for the `hidden` state. The host
+/// has no `hidden` state yet (no v3 document applies one), so no unit is excluded; when the state
+/// is added, its test belongs here and every selector picks it up.
+#[inline]
+pub fn hidden_excluded(_unit: EntityHandle) -> bool { false }
+
+/// The unit classes a selector admits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UnitTypes {
+    #[default]
+    All,
+    /// Everything but buildings (`hero`, `creep`, `neutral`, `summon`).
+    NonBuilding,
+    Heroes,
+    /// Buildings only (towers included).
+    Buildings,
+    /// Everything but heroes (`building`, `creep`, `neutral`, `summon`).
+    NonHero,
+}
+
+/// Damage flags of a v3 `damage` action.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Dmg {
+    pub require_source_alive: bool,
+    pub no_amplify: bool,
+}
+
+/// Who a unit-target ability admits (v3 `target`), checked before the cast program runs.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TargetSpec {
+    /// `type = "unit"`.
+    pub unit: bool,
+    /// `type = "none"`.
+    pub none: bool,
+    pub team: Option<TeamRule>,
+    pub heroes_only: bool,
+    /// `no_target_self`.
+    pub no_self: bool,
+    /// `self_cast_allowed`: a unit ability aimed at no one targets the caster.
+    pub self_cast: bool,
+    pub no_buildings: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TeamRule { Enemy, Ally, Both }
+
+/// The context of one generated program run.
+/// A row's time-of-day stats (E508): the `__when_v1` row and its top-level stats for now.
+fn put_when_row(payload: &mut serde_json::Map<String, serde_json::Value>, row: Option<(serde_json::Value, bool)>) {
+    use omoba_core::runtime::native::rules::world::{resolve_when, WHEN_KEY};
+    let Some((row, night)) = row else { return };
+    payload.insert(WHEN_KEY.into(), row);
+    resolve_when(payload, night);
+}
+
+pub struct Cx<'a, 'w> {
+    pub world: &'a mut GameWorldDyn<'w>,
+    pub caster: EntityHandle,
+    /// `self`: the holder of the status or passive the program runs for.
+    pub self_unit: EntityHandle,
+    pub target: Target,
+    pub rank: u8,
+    pub event_target: EntityHandle,
+    pub event_attacker: EntityHandle,
+    pub event_skill: Option<&'a str>,
+    /// The cast range of the level metadata (cast programs only).
+    pub cast_range: Option<Fixed64>,
+    /// State variables this run wrote (`None` = cleared): the host applies writes after the run,
+    /// so later reads of the same run see them here. Dropped with the run; the DLL keeps nothing.
+    written: std::collections::BTreeMap<(u32, u32, String), Option<VarValue>>,
+    /// Status rows this run put on (`true`) or took off (`false`): the host applies them after the
+    /// run, so a later `has_status` of the same run sees them (four fire points reaching one unit
+    /// in one pulse create its burn once, E466).
+    applied: std::collections::BTreeMap<(u32, u32, String), bool>,
+    /// Gold this run gave or took per unit: the host applies it after the run, so a later `gold`
+    /// read of the same run counts it (C06T's bags stop at the target's gold, E671).
+    pub(crate) gold_delta: std::collections::BTreeMap<(u32, u32), i64>,
+    /// `event.damage.final` and its kind (0 physical, 1 magical, 2 pure) in a damage trigger.
+    pub event_amount: Fixed64,
+    pub event_damage_kind: u8,
+    /// `StatusEvent.instance` in a status trigger: the independent instance `n` the event is for
+    /// (0 when the status is not independent). [`Cx::event_instance_id`] names that row.
+    pub event_instance: u32,
+    /// What a damage-pre trigger did to the packet (`modify_damage`); the hook returns it.
+    pub damage_edit: DamageEdit,
+    /// The stack count `put_stacks` is writing into the status payload.
+    stack_count: Option<i64>,
+    /// The time-of-day stats (v3 stat `when`, E508) the next status or passive row carries, with
+    /// whether it is night now (when.rs).
+    pub(crate) when_row: Option<(serde_json::Value, bool)>,
+    /// `cancel_cast` in `on_phase_start`: the cast does not go on.
+    pub cancelled: bool,
+}
+
+/// A host tether (omoba-core `tether`): when it expires, distance-scaled damage and a root
+/// interpolated between `root` (distance 0) and `root_far` (at `range`).
+#[derive(Clone, Copy, Debug)]
+pub struct Tether {
+    pub amount: Fixed64,
+    pub kind: DamageKind,
+    pub range: Fixed64,
+    pub root: Fixed64,
+    pub root_far: Fixed64,
+    /// Damage of `kind` when the root lands (the root status' on_created).
+    pub root_damage: Fixed64,
+    /// `edge_distance` (body edges) instead of `distance`.
+    pub edge: bool,
+    pub root_after_source_death: bool,
+    /// (ability, expire damage path, root damage path) for a test damage trace.
+    pub trace: (&'static str, &'static str, &'static str),
+}
+
+/// A generated `projectile` (host ability_projectile): flies from the caster, hits hostile units;
+/// its effects are the `on_hit` step (no damage of its own).
+#[derive(Clone, Copy, Debug)]
+pub struct Proj {
+    /// `tracking`: the unit it follows; `linear`: `None` and `aim`.
+    pub homing: Option<EntityHandle>,
+    pub aim: Vec2,
+    pub speed: Fixed64,
+    pub radius: Fixed64,
+    /// Linear travel distance.
+    pub distance: Fixed64,
+    /// Linear: units it may hit (1 = stops at the first).
+    pub max_hits: u16,
+    /// Tracking: the target may be a building.
+    pub buildings: bool,
+    pub dodgeable: bool,
+    pub vision: Option<Fixed64>,
+    pub end_radius: Option<Fixed64>,
+    /// `from` a point: the flight starts there instead of at the caster.
+    pub start: Option<Vec2>,
+    /// The flight's own presentation cue (`cue_hash` of its id).
+    pub cue: Option<u64>,
+}
+
+/// The status payload key that holds a counted status' stacks (v3 `stacking = { ... }`).
+pub const STACKS_KEY: &str = "__v3_stacks";
+
+/// The host flight of a generated `projectile` from `caster`: no damage of its own (its effects
+/// are the `on_hit` step), so the profile is a plain magical spell packet that never lands.
+pub fn projectile_spec(caster: EntityHandle, ability: &str, p: &Proj) -> Result<ability_projectile::Spec, &'static str> {
+    let (motion, distance, lifetime, max_hits) = match p.homing {
+        Some(u) => (ability_projectile::Motion::Homing { target_id: u.id, target_generation: u.gen }, Fixed64::ZERO, Fixed64::from_i32(30), 1),
+        None => {
+            let life = (div(p.distance, p.speed)? + Fixed64::ONE).min(Fixed64::from_i32(30));
+            (ability_projectile::Motion::Linear { aim: p.aim }, p.distance, life, p.max_hits.clamp(1, ability_projectile::MAX_HITS))
+        }
+    };
+    let spec = ability_projectile::Spec { source_id: caster.id, source_generation: caster.gen, ability: ability.to_owned(),
+        motion, speed: p.speed, radius: p.radius, distance, lifetime, max_hits,
+        wall: ability_projectile::WallPolicy::Pass, target_lost: ability_projectile::TargetLostPolicy::Expire,
+        caster_death: ability_projectile::CasterDeathPolicy::Continue, amount: Fixed64::ZERO, kind: DamageKind::Magical,
+        // a profile needs a damage type bit (DamageProfile::from_bits); SPELL alone is no profile
+        profile: DamageProfile::ENERGY.bits() | DamageProfile::SPELL.bits(), slow: None, control: None, dot: None,
+        buildings: p.buildings && p.homing.is_some(), forced: None };
+    if spec.valid() { Ok(spec) } else { Err("v3: invalid projectile") }
+}
+
+/// The FNV-1a of a v3 cue id, the same as the host's `stable_content_fact_id`.
+pub const fn cue_hash(id: &str) -> u64 {
+    let bytes = id.as_bytes();
+    let mut hash = 0xcbf29ce484222325u64;
+    let mut index = 0;
+    while index < bytes.len() {
+        hash = (hash ^ bytes[index] as u64).wrapping_mul(0x100000001b3);
+        index += 1;
+    }
+    hash
+}
+
+/// One end of a cue event.
+#[derive(Clone, Copy, Debug)]
+pub enum CueTo { Unit(EntityHandle), Point(Vec2) }
+
+impl From<EntityHandle> for CueTo { fn from(unit: EntityHandle) -> Self { Self::Unit(unit) } }
+impl From<Vec2> for CueTo { fn from(point: Vec2) -> Self { Self::Point(point) } }
+
+/// The prefix the host gives an item use reported as a cast (`item:<id>`).
+const ITEM_SKILL_PREFIX: &str = "item:";
+
+impl<'a, 'w> Cx<'a, 'w> {
+    pub fn new(world: &'a mut GameWorldDyn<'w>, caster: EntityHandle, target: Target, rank: u8) -> Self {
+        Self { world, caster, self_unit: caster, target, rank, event_target: EntityHandle::INVALID,
+            event_attacker: EntityHandle::INVALID, event_skill: None, cast_range: None, written: Default::default(), applied: Default::default(), gold_delta: Default::default(),
+            event_amount: Fixed64::ZERO, event_damage_kind: 0, event_instance: 0, damage_edit: DamageEdit::KEEP,
+            stack_count: None, when_row: None, cancelled: false }
+    }
+
+    /// The context of a cast: the target checks of the IR interpreter (rank, caster alive, target
+    /// team and class, cast range from the level metadata) before the program runs.
+    pub fn cast(world: &'a mut GameWorldDyn<'w>, caster: EntityHandle, target: Target, level: u8, max_level: u8,
+        spec: TargetSpec, level_data_json: &str) -> Result<Self, &'static str> {
+        if level == 0 || level > max_level { return Err("v3: invalid rank"); }
+        if spec.none && !matches!(target, Target::None) { return Err("v3: the ability takes no target"); }
+        let mut cx = Self::new(world, caster, target, level);
+        if !cx.alive(caster) { return Err("v3: caster is not alive"); }
+        let data: omoba_core::ability_meta::AbilityLevelData =
+            serde_json::from_str(level_data_json).map_err(|_| "v3: invalid level metadata")?;
+        let cast_range = (data.range.is_finite() && data.range > 0.0 && data.range <= 10_000.0)
+            .then(|| Fixed64::from_raw((f64::from(data.range) * 1024.0).round() as i64));
+        cx.cast_range = cast_range;
+        if let (Target::None, true, true) = (&cx.target, spec.unit, spec.self_cast) { cx.target = Target::Entity(caster); }
+        let at = match cx.target {
+            Target::Point(point) => Some(point),
+            Target::Entity(unit) => {
+                if !cx.alive(unit) { return Err("v3: target is not alive"); }
+                if spec.no_self && unit == caster { return Err("v3: the ability cannot target its caster"); }
+                if spec.heroes_only && (cx.world.is_building(unit) || !cx.is_hero(unit)) { return Err("v3: the target is not a hero"); }
+                if spec.no_buildings && cx.world.is_building(unit) { return Err("v3: the target is a building"); }
+                if let Some(team) = spec.team {
+                    let same = match (cx.world.faction_of(caster).into_option(), cx.world.faction_of(unit).into_option()) {
+                        (Some(a), Some(b)) => Some(a == b),
+                        _ => None,
+                    };
+                    let admitted = matches!((team, same), (TeamRule::Ally, Some(true)) | (TeamRule::Enemy, Some(false)) | (TeamRule::Both, Some(_)));
+                    if !admitted { return Err("v3: the target is not on an admitted team"); }
+                }
+                Some(cx.pos(unit)?)
+            }
+            Target::None => { if spec.unit { return Err("v3: the ability needs a unit target"); } None }
+        };
+        // A cast released from a windup had its range judged when the windup began (host
+        // dispatch); judging again here would split a team replica from the authority.
+        let released = matches!(cx.world.ext(omb_script_abi::ext::op::CAST_RELEASED, abi_stable::std_types::RSlice::from_slice(&[])).into_result(),
+            Ok(omb_script_abi::ext::ExtValue::Bool(true)));
+        // a cast range of 0 has no limit (a point or unit cast at any distance, like the host's
+        // range-0 channel and Dota's 0 cast range)
+        let unlimited = data.range == 0.0;
+        if let (Some(at), false, false) = (at, released, unlimited) {
+            let range = cast_range.ok_or("v3: invalid cast range")?;
+            let origin = cx.pos(caster)?;
+            if !omoba_sim::terrain::point_in_swept_circle(at, origin, origin, range) { return Err("v3: target outside cast range"); }
+        }
+        Ok(cx)
+    }
+
+    /// The context of a passive trigger on `owner` (the holder is `self` and the caster).
+    pub fn passive(world: &'a mut GameWorldDyn<'w>, owner: EntityHandle, rank: u8) -> Self {
+        Self::new(world, owner, Target::None, rank)
+    }
+
+    // ---- roots -------------------------------------------------------------------------------
+
+    /// `target` of a unit cast; the invalid handle otherwise.
+    pub fn target_unit(&self) -> EntityHandle {
+        match self.target { Target::Entity(e) => e, _ => EntityHandle::INVALID }
+    }
+
+    /// `point` of a point (or direction) cast; a unit cast aims at the unit's position.
+    pub fn target_point(&self) -> Result<Vec2, &'static str> {
+        match self.target {
+            Target::Point(p) => Ok(p),
+            Target::Entity(e) => self.pos(e),
+            Target::None => Err("v3: the cast has no point"),
+        }
+    }
+
+    /// `direction` of a direction cast: caster -> the aimed point, unit length.
+    pub fn target_direction(&self) -> Result<Vec2, &'static str> {
+        Ok((self.target_point()? - self.pos(self.caster)?).normalized())
+    }
+
+    // ---- unit reads --------------------------------------------------------------------------
+
+    pub fn pos(&self, u: EntityHandle) -> Result<Vec2, &'static str> {
+        self.world.get_pos(u).into_option().ok_or("v3: unit without a position")
+    }
+
+    pub fn alive(&self, u: EntityHandle) -> bool {
+        u.is_valid() && self.world.is_alive(u) && self.world.get_hp(u).into_option().is_some_and(|hp| hp > Fixed64::ZERO)
+    }
+
+    #[inline]
+    pub fn attack(&self, u: EntityHandle) -> Fixed64 { self.world.get_final_atk(u) }
+    #[inline]
+    pub fn armor(&self, u: EntityHandle) -> Fixed64 { self.world.get_final_armor(u) }
+    /// Seconds left of `status` on `u` (0: not on it).
+    pub fn status_remaining(&self, u: EntityHandle, status: &StatusDef) -> Fixed64 {
+        self.world.get_buff_remaining(u, RStr::from_str(&self.runtime_id(status)))
+    }
+    /// `random(lo, hi)`: uniform in [lo, hi) from the host RNG.
+    /// `random_int(lo, hi)`: a whole number in [lo, hi] (both ends floored), each as likely.
+    pub fn random_int(&mut self, lo: Fixed64, hi: Fixed64) -> Fixed64 {
+        let (lo, hi) = (floor(lo), floor(hi));
+        if hi <= lo { return lo; }
+        (lo + floor(self.random(Fixed64::ZERO, hi - lo + Fixed64::ONE))).min(hi)
+    }
+    #[inline]
+    pub fn random(&mut self, lo: Fixed64, hi: Fixed64) -> Fixed64 { lo + (hi - lo) * self.world.rand_unit() }
+    #[inline]
+    pub fn hp(&self, u: EntityHandle) -> Fixed64 { self.world.get_hp(u).into_option().unwrap_or(Fixed64::ZERO) }
+    #[inline]
+    pub fn max_hp(&self, u: EntityHandle) -> Fixed64 { self.world.get_max_hp(u).into_option().unwrap_or(Fixed64::ZERO) }
+    #[inline]
+    pub fn mana(&self, u: EntityHandle) -> Fixed64 { self.world.current_mana(u) }
+    /// v3 `is_template(u, t)`: `u` was made from template `t` (its host unit id; create_unit's).
+    pub fn is_template(&self, u: EntityHandle, template: &str) -> bool {
+        u.is_valid() && self.world.unit_id_of(u).into_option().is_some_and(|id| id.as_str() == template)
+    }
+    /// v3 `clear_slow_pool { of }`: `of` loses its movement slows (omoba-core ally_cleanse
+    /// self_slow_cleanse); stuns, roots and silences stay.
+    pub fn clear_slow_pool(&mut self, of: EntityHandle) -> Res {
+        use omoba_core::runtime::native::ally_cleanse;
+        if !of.is_valid() { return Ok(()); }
+        let packet = ally_cleanse::self_slow_payload(of.id, of.gen).to_string();
+        self.world.add_stat_buff(of, RStr::from_str(ally_cleanse::SELF_SLOW_BUFF), Fixed64::ONE, RStr::from_str(&packet));
+        Ok(())
+    }
+    /// v3 `remove_unit`: `to` leaves the world without dying (host script_kill silent: no bounty,
+    /// no death events). A hero cannot be removed.
+    pub fn remove_unit(&mut self, to: EntityHandle) -> Res {
+        if !self.exists(to) { return Ok(()); }
+        if self.is_hero(to) { return Err("v3: remove_unit of a hero"); }
+        self.kill(to, true)
+    }
+    /// `who` turns to direction `dir` (no turn for a zero vector); a unit this cast created may
+    /// be turned too (v3 `create_unit.facing`).
+    pub fn face_dir(&mut self, who: EntityHandle, dir: Vec2) {
+        if !who.is_valid() || (dir.x == Fixed64::ZERO && dir.y == Fixed64::ZERO) { return; }
+        self.world.set_facing(who, omoba_sim::trig::atan2(dir.y, dir.x));
+    }
+    /// v3 `face`: `who` turns toward `at` (no turn when it stands there).
+    pub fn face(&mut self, who: EntityHandle, at: Vec2) -> Res {
+        if !who.is_valid() { return Ok(()); }
+        let d = at - self.pos(who)?;
+        if d.x == Fixed64::ZERO && d.y == Fixed64::ZERO { return Ok(()); }
+        self.world.set_facing(who, omoba_sim::trig::atan2(d.y, d.x));
+        Ok(())
+    }
+    /// v3 `spend_mana`: `from` pays `amount` for `ability`, at most the mana it has (its
+    /// `on_mana_spent` sees the payment).
+    pub fn spend_mana(&mut self, from: EntityHandle, amount: Fixed64, ability: &str) -> Res {
+        if !from.is_valid() { return Ok(()); }
+        let amount = amount.min(self.mana(from));
+        if amount <= Fixed64::ZERO { return Ok(()); }
+        let _ = self.world.spend_mana(from, amount, RStr::from_str(ability));
+        Ok(())
+    }
+    #[inline]
+    pub fn is_building(&self, u: EntityHandle) -> bool { self.world.is_building(u) }
+    /// `hp_pct`: hp / max_hp (0 without a maximum).
+    pub fn hp_pct(&self, u: EntityHandle) -> Fixed64 {
+        let max = self.max_hp(u);
+        if max <= Fixed64::ZERO { Fixed64::ZERO } else { self.hp(u) / max }
+    }
+    /// `forward`: the unit's facing as a unit vector.
+    pub fn forward(&self, u: EntityHandle) -> Vec2 {
+        let a = self.world.get_facing(u);
+        Vec2::new(omoba_sim::trig::cos(a), omoba_sim::trig::sin(a))
+    }
+    /// Whether `u` is of the unit classes `types` names.
+    /// `select`'s classes: its types, and an illusion for heroes with `include_illusions`.
+    pub fn of_select(&self, u: EntityHandle, select: Select) -> bool {
+        self.of_types(u, select.types) || (select.include_illusions && select.types == UnitTypes::Heroes
+            && self.world.has_buff(u, RStr::from_str(omoba_core::runtime::native::rules::vocab::state::ILLUSION)))
+    }
+    pub fn of_types(&self, u: EntityHandle, types: UnitTypes) -> bool {
+        let building = self.world.is_building(u);
+        match types {
+            UnitTypes::All => true,
+            UnitTypes::NonBuilding => !building,
+            UnitTypes::Heroes => !building && self.is_hero(u),
+            UnitTypes::Buildings => building,
+            UnitTypes::NonHero => building || !self.is_hero(u),
+        }
+    }
+    /// `exists`: a reference to a unit still in the world (dead units included).
+    #[inline]
+    pub fn exists(&self, u: EntityHandle) -> bool { u.is_valid() && self.world.get_pos(u).into_option().is_some() }
+    #[inline]
+    pub fn is_magic_immune(&self, u: EntityHandle) -> bool { self.world.has_buff(u, RStr::from_str(magic_immunity::BUFF)) }
+
+    /// Whether `u` passes `select` as a selector candidate does (`units_in_circle`): alive, of its
+    /// types, not invulnerable unless included; magic immunity keeps out only the caster's
+    /// enemies. v3 `aura` filters the host's receivers with it.
+    pub fn admits(&self, u: EntityHandle, select: Select) -> bool {
+        self.alive(u) && self.of_select(u, select) && (select.include_invulnerable || !self.world.has_buff(u, RStr::from_str("invulnerable")))
+            && (select.include_hidden || !hidden_excluded(u))
+            && (select.include_magic_immune || !self.is_magic_immune(u) || !self.is_enemy(self.caster, u))
+    }
+
+    /// v3 `is_hero_id(u, id)`: `u` is the hero of this template id.
+    pub fn is_hero_named(&self, u: EntityHandle, template: &str) -> bool {
+        self.world.unit_id_of(u).into_option().is_some_and(|id| {
+            let id = id.as_str();
+            id.strip_prefix("hero_").unwrap_or(id) == template
+        })
+    }
+
+    /// A hero by its template id (MOBA spawns) or the legacy `hero_<template id>` script tag.
+    pub fn is_hero(&self, u: EntityHandle) -> bool {
+        self.world.unit_id_of(u).into_option().and_then(|id| {
+            let id = id.as_str();
+            omoba_template_ids::hero_by_name(id.strip_prefix("hero_").unwrap_or(id))
+        }).is_some()
+    }
+
+    /// Opaque combat teams: both known and different.
+    pub fn is_enemy(&self, a: EntityHandle, b: EntityHandle) -> bool {
+        match (self.world.faction_of(a).into_option(), self.world.faction_of(b).into_option()) {
+            (Some(x), Some(y)) => x != y,
+            _ => false,
+        }
+    }
+
+    /// v3 `is_ally(a, b)`: both on the same known team (a unit is its own ally).
+    pub fn is_ally(&self, a: EntityHandle, b: EntityHandle) -> bool {
+        match (self.world.faction_of(a).into_option(), self.world.faction_of(b).into_option()) {
+            (Some(x), Some(y)) => x == y,
+            _ => false,
+        }
+    }
+
+    /// v3 `edge_distance(a, b)`: the gap between the two units' collision circles (0 once they touch).
+    pub fn edge_distance(&mut self, a: EntityHandle, b: EntityHandle) -> Result<Fixed64, &'static str> {
+        use omb_script_abi::ext::unit_attr::COLLISION_RADIUS;
+        let gap = distance(self.pos(a)?, self.pos(b)?) - self.unit_num(a, COLLISION_RADIUS) - self.unit_num(b, COLLISION_RADIUS);
+        Ok(gap.max(Fixed64::ZERO))
+    }
+
+    pub fn has_status(&self, u: EntityHandle, status: &StatusDef) -> bool {
+        let id = self.runtime_id(status);
+        if let Some(on) = self.applied.get(&(u.id, u.gen, id.clone())) { return *on; }
+        self.world.has_buff(u, RStr::from_str(&id))
+    }
+
+    /// v3 `status_source(u, status)`: who applied the status `u` holds (the payload's
+    /// `source_entity_id/gen`; an independent status: its earliest live instance). One applied in
+    /// this run and not yet committed is this run's caster. `INVALID` when `u` holds none.
+    pub fn status_source(&self, u: EntityHandle, status: &StatusDef) -> EntityHandle {
+        let id = self.runtime_id(status);
+        match self.applied.get(&(u.id, u.gen, id.clone())) {
+            Some(false) => return EntityHandle::INVALID,
+            Some(true) if !self.world.has_buff(u, RStr::from_str(&id)) => return self.caster,
+            _ => {}
+        }
+        let read = |key: &str| self.world.get_buff_payload(u, RStr::from_str(key)).into_option()
+            .and_then(|p| payload_source(p.as_str()));
+        if let Some(source) = read(&id) { return source; }
+        let count = self.state_num(u, &format!("__inst:{id}"), Fixed64::ZERO).raw() >> 10;
+        (1..=count.clamp(0, 4096)).find_map(|n| read(&format!("{id}#{n}"))).unwrap_or(EntityHandle::INVALID)
+    }
+
+    // ---- the triggering ability (`event.ability`) ------------------------------------------------
+
+    /// The triggering skill: a passive hook's (`event_skill`), else a status hook's
+    /// `on_ability_executed` (host EVENT_ABILITY_ATTR, line B 94d609ce). An item is `item:<id>`.
+    fn event_skill_id(&mut self) -> Option<String> {
+        match self.event_skill { Some(k) => Some(k.to_owned()), None => self.event_ability_id() }
+    }
+
+    /// `is_item(event.ability, item_x)`.
+    pub fn event_is_item(&mut self, item: &str) -> bool {
+        let id = item.strip_prefix("item_").unwrap_or(item);
+        self.event_skill_id().as_deref().and_then(|k| k.strip_prefix(ITEM_SKILL_PREFIX)) == Some(id)
+    }
+
+    /// `is_ability(event.ability, a)`.
+    #[inline]
+    pub fn event_is_ability(&mut self, ability: &str) -> bool { self.event_skill_id().as_deref() == Some(ability) }
+
+    /// `has_tag(event.ability, item)`.
+    #[inline]
+    pub fn event_is_any_item(&mut self) -> bool { self.event_skill_id().is_some_and(|k| k.starts_with(ITEM_SKILL_PREFIX)) }
+
+    /// `has_tag(event.ability, toggle)`: an authored toggle ability.
+    pub fn event_is_toggle(&mut self) -> bool {
+        use omoba_template_ids::AbilityTypeC;
+        self.event_skill_id().filter(|k| !k.starts_with(ITEM_SKILL_PREFIX))
+            .and_then(|k| omoba_template_ids::ability_by_name(&k)).and_then(omoba_template_ids::active_ability_const)
+            .is_some_and(|c| c.ability_type == AbilityTypeC::Toggle)
+    }
+
+    // ---- selection -----------------------------------------------------------------------------
+
+    /// Enemies of the caster's team within `radius` of `center`, as `for_each` walks them.
+    pub fn enemies_in_circle(&self, center: Vec2, radius: Fixed64, select: Select) -> Vec<EntityHandle> {
+        let mut units: Vec<EntityHandle> = self.world.query_enemies_in_range(center, radius, self.caster).into_iter()
+            .filter(|e| *e != self.caster && self.alive(*e))
+            .filter(|e| self.of_select(*e, select))
+            .filter(|e| select.include_magic_immune || !self.is_magic_immune(*e))
+            .filter(|e| select.include_invulnerable || !self.world.has_buff(*e, RStr::from_str("invulnerable")))
+            .filter(|e| select.include_hidden || !hidden_excluded(*e))
+            .collect();
+        units.sort_by_key(|e| (e.id, e.gen));
+        units.dedup();
+        units
+    }
+
+    /// `order = "nearest"`: nearest to `center` first, ties in id order (the sort is stable).
+    pub fn nearest_first(&self, units: &mut [EntityHandle], center: Vec2) {
+        units.sort_by_key(|e| self.pos(*e).map(|p| distance(center, p).raw()).unwrap_or(i64::MAX));
+    }
+
+    /// Selector `shape = "segment"` (E576): the circle a circle selection of the segment
+    /// `from`..`to` of width `width` takes before [`Cx::within_segment`] filters it; it holds
+    /// every unit whose body reaches the segment.
+    pub fn segment_bounds(from: Vec2, to: Vec2, width: Fixed64) -> (Vec2, Fixed64) {
+        let half = Fixed64::from_raw(512);
+        let center = Vec2::new((from.x + to.x) * half, (from.y + to.y) * half);
+        let margin = Fixed64::from_i32(omoba_core::runtime::native::comp::phys::MAX_COLLISION_RADIUS as i32);
+        (center, distance(from, to) * half + width.max(Fixed64::ZERO) * half + margin)
+    }
+
+    /// Whether `u`'s body reaches the segment `from`..`to` of width `width`: its centre within
+    /// half the width plus its collision radius of the segment (edges, like attack reach E555).
+    pub fn within_segment(&mut self, u: EntityHandle, from: Vec2, to: Vec2, width: Fixed64) -> bool {
+        use omb_script_abi::ext::unit_attr::COLLISION_RADIUS;
+        let Ok(p) = self.pos(u) else { return false };
+        let reach = width.max(Fixed64::ZERO) * Fixed64::from_raw(512) + self.unit_num(u, COLLISION_RADIUS);
+        segment_distance(p, from, to) <= reach
+    }
+    /// Selector `order = "random"`: the units in a random order (the host's deterministic
+    /// random stream, so every replica draws the same order).
+    pub fn shuffle(&mut self, units: &mut [EntityHandle]) {
+        for i in (1..units.len()).rev() {
+            let span = Fixed64::from_i32(i32::try_from(i + 1).unwrap_or(i32::MAX));
+            let j = usize::try_from((self.world.rand_unit() * span).raw() >> 10).unwrap_or(0).min(i);
+            units.swap(i, j);
+        }
+    }
+
+    // ---- effects -------------------------------------------------------------------------------
+
+    /// A status' BuffStore id for this caster.
+    /// `{caster}` becomes the caster's `id:gen`, `{rank}` this context's rank (a status kept per
+    /// rank, A07R and B29E).
+    pub fn runtime_id(&self, status: &StatusDef) -> String {
+        let mut id = status.runtime_id.to_owned();
+        if id.contains("{caster}") { id = id.replace("{caster}", &format!("{}:{}", self.caster.id, self.caster.gen)); }
+        if id.contains("{rank}") { id = id.replace("{rank}", &self.rank.to_string()); }
+        id
+    }
+
+    /// `apply_status`: the stat rows (StatKey, runtime raw) ride in the status payload.
+    /// `apply_status` with `source` as the applier (its `{caster}` id, its status events' source).
+    pub fn apply_status_from(&mut self, source: EntityHandle, to: EntityHandle, status: &StatusDef, duration: Fixed64,
+        stats: &[(StatKey, i64)], slow: Option<Fixed64>) -> Res {
+        let caster = self.caster;
+        self.caster = source;
+        let r = self.apply_status_slowed(to, status, duration, stats, slow);
+        self.caster = caster;
+        r
+    }
+
+    /// `apply_status` whose stats include `slow_pct` (a fraction): the slow is a second row
+    /// `<runtime id>:slow` in the host's generic ability slow family (strongest wins, slow
+    /// resistance applies), with the same duration.
+    pub fn apply_status_slowed(&mut self, to: EntityHandle, status: &StatusDef, duration: Fixed64, stats: &[(StatKey, i64)],
+        slow: Option<Fixed64>) -> Res {
+        self.apply_status(to, status, duration, stats)?;
+        if let Some(slow) = slow.filter(|s| *s > Fixed64::ZERO) {
+            if !to.is_valid() { return Ok(()); }
+            let id = format!("{}:slow", self.runtime_id(status));
+            let pierces = self.status_pierces(to, status);
+            self.add_slow_row(to, &id, duration, slow, pierces);
+        }
+        Ok(())
+    }
+
+    /// `apply_status_instance` whose stats include `slow_pct`: the instance's own slow row
+    /// `<runtime id>#<n>:slow` (the same family as [`Cx::apply_status_slowed`]) lasting as long as the
+    /// instance; the host removes it with its instance.
+    pub fn apply_status_instance_slowed(&mut self, to: EntityHandle, status: &StatusDef, duration: Fixed64, stats: &[(StatKey, i64)],
+        slow: Option<Fixed64>) -> Result<u32, &'static str> {
+        let instance = self.apply_status_instance(to, status, duration, stats)?;
+        if let Some(slow) = slow.filter(|s| *s > Fixed64::ZERO) {
+            if to.is_valid() && instance > 0 {
+                let id = format!("{}#{instance}:slow", self.runtime_id(status));
+                let pierces = self.status_pierces(to, status);
+                self.add_slow_row(to, &id, duration, slow, pierces);
+            }
+        }
+        Ok(instance)
+    }
+
+    fn add_slow_row(&mut self, to: EntityHandle, id: &str, duration: Fixed64, slow: Fixed64, pierces: bool) {
+        let duration = if duration == Self::FOREVER { Fixed64::from_raw(i64::from(i32::MAX)) } else { duration };
+        let mut payload = serde_json::json!({ "move_speed_bonus": -slow.min(Fixed64::ONE).raw(), "__aggregation_family": "generic_ability_slow" });
+        if pierces { payload[magic_immunity::PIERCE_KEY] = 1.into(); }
+        self.world.add_stat_buff(to, RStr::from_str(id), duration, RStr::from_str(&payload.to_string()));
+    }
+
+    /// The stack count of `status` on `u` (a status without counted stacks counts 1; none: 0).
+    pub fn stacks(&self, u: EntityHandle, status: &StatusDef) -> Fixed64 {
+        let id = self.runtime_id(status);
+        match self.world.get_buff_payload(u, RStr::from_str(&id)).into_option() {
+            None => Fixed64::ZERO,
+            Some(p) => {
+                let n = serde_json::from_str::<serde_json::Value>(p.as_str()).ok()
+                    .and_then(|v| v.get(STACKS_KEY).and_then(serde_json::Value::as_i64)).unwrap_or(1);
+                Fixed64::from_i32(n.clamp(0, i64::from(i32::MAX)) as i32)
+            }
+        }
+    }
+
+    /// Put `status` on `to` with `stacks` stacks: the stats are `flat` plus `per_stack` times the
+    /// stacks; `duration` `None` keeps the time it has left (a new status: `fallback`). Zero or
+    /// fewer stacks remove it (v3 `set_stacks`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn put_stacks(&mut self, to: EntityHandle, status: &StatusDef, duration: Option<Fixed64>, fallback: Fixed64,
+        stacks: Fixed64, flat: &[(StatKey, i64)], per_stack: &[(StatKey, i64)], slow: Option<Fixed64>) -> Res {
+        if !to.is_valid() { return Ok(()); }
+        let n = (floor(stacks).raw() >> 10).clamp(0, i64::from(i32::MAX));
+        if n <= 0 { return self.remove_status(to, status); }
+        let id = self.runtime_id(status);
+        let duration = match duration {
+            Some(d) => d,
+            None => {
+                let left = self.world.get_buff_remaining(to, RStr::from_str(&id));
+                if self.world.has_buff(to, RStr::from_str(&id)) && left > Fixed64::ZERO { left } else { fallback }
+            }
+        };
+        let mut stats: Vec<(StatKey, i64)> = flat.to_vec();
+        for (key, raw) in per_stack {
+            match stats.iter_mut().find(|(k, _)| k == key) {
+                Some(row) => row.1 = row.1.saturating_add(raw.saturating_mul(n)),
+                None => stats.push((*key, raw.saturating_mul(n))),
+            }
+        }
+        self.stack_count = Some(n);
+        let r = self.apply_status_slowed(to, status, duration, &stats, slow);
+        self.stack_count = None;
+        r
+    }
+
+    /// v3 `set_display_stacks`: the stack number `to`'s `status` shows (and `status.stacks` reads)
+    /// becomes `count` (floored, at least 0); the status keeps its time left and its `stats`.
+    /// Nothing when `to` does not hold it.
+    pub fn set_display_stacks(&mut self, to: EntityHandle, status: &StatusDef, count: Fixed64, stats: &[(StatKey, i64)]) -> Res {
+        if !to.is_valid() || !self.has_status(to, status) { return Ok(()); }
+        let left = self.world.get_buff_remaining(to, RStr::from_str(&self.runtime_id(status)));
+        if left <= Fixed64::ZERO { return Ok(()); }
+        self.stack_count = Some((floor(count).raw() >> 10).clamp(0, i64::from(i32::MAX)));
+        let r = self.apply_status(to, status, left, stats);
+        self.stack_count = None;
+        r
+    }
+
+    pub fn apply_status(&mut self, to: EntityHandle, status: &StatusDef, duration: Fixed64, stats: &[(StatKey, i64)]) -> Res {
+        if !to.is_valid() { return Ok(()); }
+        let id = self.runtime_id(status);
+        self.apply_status_keyed(to, status, id, duration, stats)
+    }
+
+    /// The BuffStore id of the row a status trigger runs for: the independent instance
+    /// `<runtime id>#<n>` when the event names one (`event_instance`), else the status' runtime id.
+    /// `remove_status` of "this instance" and reads of its own payload use it.
+    pub fn event_instance_id(&self, status: &StatusDef) -> String {
+        let id = self.runtime_id(status);
+        if self.event_instance == 0 { id } else { format!("{id}#{}", self.event_instance) }
+    }
+
+    /// `stacking = "independent"`: each apply is its own row `<runtime id>#<n>` with its own expiry;
+    /// `n` counts this holder's instances of the status (a unit_var), from 1, never reused, so the
+    /// smallest live `n` is the earliest instance.
+    /// Returns the new instance's `n` (0 when `to` is gone): its triggers run as that instance
+    /// (`event_instance`, [`Cx::has_status_instance`]).
+    pub fn apply_status_instance(&mut self, to: EntityHandle, status: &StatusDef, duration: Fixed64, stats: &[(StatKey, i64)]) -> Result<u32, &'static str> {
+        if !to.is_valid() { return Ok(0); }
+        let base = self.runtime_id(status);
+        let counter = format!("__inst:{base}");
+        let n = self.state_num(to, &counter, Fixed64::ZERO) + Fixed64::ONE;
+        self.set_state_num(to, &counter, n, false)?;
+        let instance = u32::try_from(n.raw() >> 10).map_err(|_| "v3: status instance count out of range")?;
+        self.apply_status_keyed(to, status, format!("{base}#{instance}"), duration, stats)?;
+        Ok(instance)
+    }
+
+    /// A status's periodic clock starts on `holder`: a fresh token in the holder's state under the
+    /// status row (`__chain:<runtime id>`). Two starts of one row in the same tick (two appliers
+    /// before the first apply is committed) each write theirs; [`Cx::chain_current`] lets only the
+    /// last one's chain go on, so the row ticks once per interval (E335).
+    pub fn start_chain(&mut self, holder: EntityHandle, status: &StatusDef) -> Result<Fixed64, &'static str> {
+        let token = self.random(Fixed64::ONE, Fixed64::from_i32(1 << 20));
+        let key = format!("__chain:{}", self.runtime_id(status));
+        self.set_state_num(holder, &key, token, false)?;
+        Ok(token)
+    }
+
+    /// Whether `token` is the holder's current periodic clock of the status row.
+    pub fn chain_current(&self, holder: EntityHandle, status: &StatusDef, token: Fixed64) -> bool {
+        let key = format!("__chain:{}", self.runtime_id(status));
+        self.state_num(holder, &key, Fixed64::ZERO) == token
+    }
+
+    /// Whether `u` still holds instance `n` of an independent status (`n` 0: the plain row).
+    pub fn has_status_instance(&self, u: EntityHandle, status: &StatusDef, n: u32) -> bool {
+        if n == 0 { return self.has_status(u, status); }
+        self.world.has_buff(u, RStr::from_str(&format!("{}#{n}", self.runtime_id(status))))
+    }
+
+    fn apply_status_keyed(&mut self, to: EntityHandle, status: &StatusDef, id: String, duration: Fixed64, stats: &[(StatKey, i64)]) -> Res {
+        // v3 `immune_to` on the holder (E445): none of the status's rows go on.
+        if self.status_immune(to, status) { return Ok(()); }
+        self.applied.insert((to.id, to.gen, id.clone()), true);
+        // An attack orb (`attack_orb:<ability>`): the host attack orb settles its hits (content `attack_orb`).
+        if let Some(ability) = id.strip_prefix("attack_orb:") {
+            let duration = if duration == Self::FOREVER { Fixed64::from_raw(i64::from(i32::MAX)) } else { duration };
+            self.world.add_stat_buff(to, RStr::from_str(&id), duration, RStr::from_str(&attack_orb::payload(ability).to_string()));
+            return Ok(());
+        }
+        let mut payload = serde_json::Map::new();
+        for (key, raw) in stats.iter().chain(status.state_payload) { payload.insert(key.as_str().into(), (*raw).into()); }
+        if let Some(n) = self.stack_count { payload.insert(STACKS_KEY.into(), n.into()); }
+        put_when_row(&mut payload, self.when_row.take());
+        if !status.family.is_empty() {
+            use omoba_core::runtime::native::ability_runtime::buff_store::AGGREGATION_FAMILY_KEY;
+            payload.insert(AGGREGATION_FAMILY_KEY.into(), status.family.into());
+        }
+        if let Some(scope) = omoba_core::runtime::native::status_scope::marker(status.scope) {
+            payload.insert(omoba_core::runtime::native::status_scope::KEY.into(), scope.into());
+        }
+
+        if status.events != 0 {
+            let spec = status_event::Spec { ability: status.owner.to_owned(), level: self.rank.max(1), status: status.id.to_owned(),
+                source: self.caster, mask: status.events }.checked().ok_or("v3: invalid status events")?;
+            payload.insert(status_event::KEY.into(), spec.row());
+        }
+        // A status that is only a host control held under its own id (`stun` as stun) is that control.
+        let host_state = payload.is_empty() && status.state_buffs.contains(&id.as_str());
+        let pierces = self.status_pierces(to, status);
+        if pierces { payload.insert(magic_immunity::PIERCE_KEY.into(), 1.into()); }
+        if status.ignore_status_resistance {
+            payload.insert(omoba_core::runtime::native::rules::status::IGNORE_STATUS_RESISTANCE.into(), true.into());
+        }
+        if !host_state {
+            // Its full duration: an illusion copying it with status_duration = original (omoba-core illusion).
+            payload.insert(omoba_core::runtime::native::illusion::DURATION_KEY.into(), duration.raw().into());
+            // The applier (omoba-core dispel: a `hidden` status goes by who applied it).
+            payload.insert("source_entity_id".into(), self.caster.id.into());
+            payload.insert("source_entity_gen".into(), self.caster.gen.into());
+            self.world.add_stat_buff(to, RStr::from_str(&id), duration, RStr::from_str(&serde_json::Value::Object(payload).to_string()));
+        }
+        for buff in status.state_buffs {
+            if status.ignore_status_resistance || pierces {
+                let mut row = serde_json::Map::new();
+                if status.ignore_status_resistance { row.insert(omoba_core::runtime::native::rules::status::IGNORE_STATUS_RESISTANCE.into(), true.into()); }
+                if pierces { row.insert(magic_immunity::PIERCE_KEY.into(), 1.into()); }
+                if pierces && *buff == magic_immunity::BUFF {
+                    row.insert("source_entity_id".into(), self.caster.id.into());
+                    row.insert("source_entity_gen".into(), self.caster.gen.into());
+                }
+                self.world.add_stat_buff(to, RStr::from_str(buff), duration, RStr::from_str(&serde_json::Value::Object(row).to_string()));
+            } else {
+                self.world.add_buff(to, RStr::from_str(buff), duration);
+            }
+        }
+        // A shared host state (`stun`, `disarm`, `physical_immune`… one key for every status) also leaves
+        // this status's source row, so a dispel judges it by its own class and removing the status
+        // takes the states only it held (omoba-core dispel::CONTROL_SOURCE_PREFIX, dispel::remove_status).
+        let controls: Vec<&str> = status.state_buffs.to_vec();
+        if !controls.is_empty() {
+            // an independent instance `<runtime id>#<n>` holds its own row `__ctl:<status id>#<n>`
+            // with its own duration (line B 94aadadf: dispel reads the status without `#n`)
+            let instance = id.rsplit_once('#').map(|(_, n)| n).filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+            let row = match instance {
+                Some(n) => format!("{}{}#{}", dispel::CONTROL_SOURCE_PREFIX, status.id, n),
+                None => format!("{}{}", dispel::CONTROL_SOURCE_PREFIX, status.id),
+            };
+            let mut source = dispel::control_source_payload(&controls);
+            if pierces { source[magic_immunity::PIERCE_KEY] = 1.into(); }
+            self.world.add_stat_buff(to, RStr::from_str(&row), duration, RStr::from_str(&source.to_string()));
+        }
+        Ok(())
+    }
+
+    /// Whether the status's rows land through magic immunity on `to`: its entry reaches such units,
+    /// or the unit puts it on itself; only asked of a unit that is immune or is becoming so.
+    fn status_pierces(&self, to: EntityHandle, status: &StatusDef) -> bool {
+        (status.reaches_immune || to == self.caster)
+            && (status.state_buffs.contains(&magic_immunity::BUFF) || self.is_magic_immune(to))
+    }
+
+    /// A status with no expiry (no `duration`).
+    pub const FOREVER: Fixed64 = Fixed64::from_raw(i64::MAX);
+
+    pub fn remove_status(&mut self, from: EntityHandle, status: &StatusDef) -> Res {
+        if !from.is_valid() { return Ok(()); }
+        let id = self.runtime_id(status);
+        self.applied.insert((from.id, from.gen, id.clone()), false);
+        self.world.remove_buff(from, RStr::from_str(&id));
+        // the slow row of a status with slow_pct (apply_status_slowed) and its forced move (force_move)
+        for row in [format!("{id}:slow"), omoba_core::runtime::native::forced_move::row(&id)] {
+            if self.world.has_buff(from, RStr::from_str(&row)) { self.world.remove_buff(from, RStr::from_str(&row)); }
+        }
+        Ok(())
+    }
+
+    /// v3 `status.forced_move = { toward }` (E464): the status's row on `to` forcing it toward `at`
+    /// for `duration` (omoba-core forced_move: a hero holder is ordered there and refuses its owner's
+    /// orders until the row ends); it goes with the status.
+    pub fn force_move(&mut self, to: EntityHandle, status: &StatusDef, at: Vec2, duration: Fixed64) -> Res {
+        use omoba_core::runtime::native::forced_move;
+        if !to.is_valid() { return Ok(()); }
+        let duration = if duration == Self::FOREVER { Fixed64::from_raw(i64::from(i32::MAX)) } else { duration };
+        let id = forced_move::row(&self.runtime_id(status));
+        self.world.add_stat_buff(to, RStr::from_str(&id), duration, RStr::from_str(&forced_move::payload(at).to_string()));
+        Ok(())
+    }
+
+    /// `damage { source }`: another unit deals it (credit and spell amplification are that unit's).
+    pub fn damage_from(&mut self, source: EntityHandle, to: EntityHandle, amount: Fixed64, kind: DamageKind, flags: Dmg) -> Res {
+        if !source.is_valid() { return Ok(()); }
+        let me = self.caster;
+        self.caster = source;
+        let r = self.damage(to, amount, kind, flags);
+        self.caster = me;
+        r
+    }
+
+    /// `teleport`: `who` to `to` (no clear-space search), at most `max` from where it is.
+    pub fn teleport(&mut self, who: EntityHandle, to: Vec2, max: Option<Fixed64>) -> Res {
+        if !who.is_valid() || !self.exists(who) { return Ok(()); }
+        let to = match max {
+            Some(max) => {
+                let from = self.pos(who)?;
+                if distance(from, to) > max { offset(from, direction(from, to), max) } else { to }
+            }
+            None => to,
+        };
+        self.world.set_pos(who, to);
+        Ok(())
+    }
+
+    /// `random_point(center, min, max)`: distance uniform in [min, max], direction uniform
+    /// (Dota `RandomVector(RandomInt(min, max))`), from the host RNG.
+    pub fn random_point(&mut self, center: Vec2, min: Fixed64, max: Fixed64) -> Vec2 {
+        let (lo, hi) = if min <= max { (min, max) } else { (max, min) };
+        let d = lo + (hi - lo) * self.world.rand_unit();
+        let ticks = ((self.world.rand_unit().raw() * i64::from(omoba_sim::trig::TAU_TICKS)) >> 10) as i32;
+        let a = omoba_sim::trig::Angle::from_ticks(ticks);
+        center + Vec2::new(omoba_sim::trig::cos(a), omoba_sim::trig::sin(a)) * d
+    }
+
+    /// `damage` dealt by `cx.caster`: the caster of a cast, the learner of a passive, the applier
+    /// of a status in its triggers (v3.md §4, the source's KV `Damage` / `ApplyDamage` attacker;
+    /// E450: not the status holder).
+    pub fn damage(&mut self, to: EntityHandle, amount: Fixed64, kind: DamageKind, flags: Dmg) -> Res {
+        if !to.is_valid() || amount <= Fixed64::ZERO || amount > Fixed64::from_i32(1_000_000) { return Ok(()); }
+        let mut profile = DamageProfile::NORMAL;
+        if flags.require_source_alive { profile = profile.union(DamageProfile::REQUIRE_SOURCE_ALIVE); }
+        // The source dealt it with an inflictor: spell amplification scales it (v3.md §5.1).
+        if !flags.require_source_alive && !flags.no_amplify { profile = profile.union(DamageProfile::SPELL); }
+        self.world.deal_damage(to, amount, kind, profile, RSome(self.caster));
+        Ok(())
+    }
+
+    /// `heal` with the caster as the healer (the host applies heal amplification).
+    pub fn heal(&mut self, to: EntityHandle, amount: Fixed64) -> Res {
+        if to.is_valid() && amount > Fixed64::ZERO { self.world.heal(to, amount); }
+        Ok(())
+    }
+
+    pub fn restore_mana(&mut self, to: EntityHandle, amount: Fixed64) -> Res {
+        if to.is_valid() && amount > Fixed64::ZERO { self.world.restore_mana(to, amount); }
+        Ok(())
+    }
+
+    /// `create_unit` of one summoned template at `at`; the host relocates a blocked point.
+    /// `lifetime` 0 (no `lifetime` written) is a permanent summon until something kills it, as the
+    /// host's summon settlement reads 0; at most an hour (summon_settlement lifetime bounds).
+    pub fn create_unit(&mut self, template: &str, at: Vec2, lifetime: Fixed64) -> Result<EntityHandle, &'static str> {
+        let caster = self.caster;
+        self.create_unit_for(caster, template, at, lifetime)
+    }
+
+    /// [`Cx::create_unit`] owned by `owner` instead of the caster (v3 `create_unit.owner`, e.g.
+    /// `caster_hero` in a summon's trigger, E500): its team, owner order and summon limits.
+    pub fn create_unit_for(&mut self, owner: EntityHandle, template: &str, at: Vec2, lifetime: Fixed64) -> Result<EntityHandle, &'static str> {
+        if lifetime < Fixed64::ZERO || lifetime > Fixed64::from_i32(3600) { return Err("v3: invalid unit lifetime"); }
+        let unit = self.world.spawn_summoned_unit(at, RStr::from_str(template), owner, lifetime);
+        if !unit.is_valid() { return Err("v3: unit placement rejected"); }
+        Ok(unit)
+    }
+
+    /// `create_unit { limit_per_owner, over_limit = "remove_oldest" }` (after the create_unit): the
+    /// caster keeps at most `limit` live summons of `template`, the earliest beyond it leaving
+    /// (omoba-core summon_owner_cap, E418).
+    pub fn limit_summons(&mut self, template: &str, limit: Fixed64) -> Res {
+        let caster = self.caster;
+        self.limit_summons_of(caster, template, limit, false)
+    }
+
+    /// [`Cx::limit_summons`] for the summons of `owner`; `reject` (v3 `over_limit = "reject"`,
+    /// E500) keeps the earliest `limit` instead, so the new one beyond it leaves at once.
+    pub fn limit_summons_of(&mut self, owner: EntityHandle, template: &str, limit: Fixed64, reject: bool) -> Res {
+        let limit = limit.raw() >> 10;
+        let limit = usize::try_from(limit).ok().filter(|limit| (1..=summon_owner_cap::MAX_CAP).contains(limit))
+            .ok_or("v3: invalid limit_per_owner")?;
+        let payload = if reject { summon_owner_cap::reject_payload(template, limit) } else { summon_owner_cap::limit_payload(template, limit) };
+        self.world.add_stat_buff(owner, RStr::from_str(summon_owner_cap::LIMIT_BUFF), Fixed64::ONE, RStr::from_str(&payload.to_string()));
+        Ok(())
+    }
+
+    /// v3 `set_time_of_day { mode = "night", duration }` (the whole map is night for `duration`
+    /// seconds, overlaps keeping the later end) or `mode = "day"` (the night ends now); a one-shot
+    /// packet on the caster (omoba-core rules::world, E453).
+    /// A night without a duration (`Fixed64::ZERO`, E501; 原作 SetTimeOfDay to a fixed point of
+    /// the clock) lasts until a day call, at most an hour: this game has no day cycle to end it.
+    pub fn set_time_of_day(&mut self, night: bool, duration: Fixed64) -> Res {
+        use omoba_core::runtime::native::rules::world::{time_of_day_payload, TIME_OF_DAY_BUFF};
+        let duration = if night && duration == Fixed64::ZERO { Fixed64::from_i32(3600) } else { duration };
+        if night && (duration <= Fixed64::ZERO || duration > Fixed64::from_i32(3600)) { return Err("v3: set_time_of_day duration out of range"); }
+        self.world.add_stat_buff(self.caster, RStr::from_str(TIME_OF_DAY_BUFF), Fixed64::ONE,
+            RStr::from_str(&time_of_day_payload(night, if night { duration } else { Fixed64::ZERO }).to_string()));
+        Ok(())
+    }
+
+    /// `reveal`: a sight circle owned by the caster (`all_teams`: every team sees it).
+    pub fn reveal(&mut self, at: Vec2, radius: Fixed64, duration: Fixed64, all_teams: bool, follow: Option<EntityHandle>) -> Res {
+        let sight = reveal_zone::sight_payload(self.caster.id, self.caster.gen, at, radius, all_teams,
+            follow.map(|u| (u.id, u.gen))).ok_or("v3: invalid reveal")?;
+        self.world.add_stat_buff(self.caster, RStr::from_str(reveal_zone::BUFF), duration, RStr::from_str(&sight.to_string()));
+        Ok(())
+    }
+
+    /// A presentation cue. Only an area cue reaches the client today (the host explosion); the id
+    /// is kept for the cue table (m6-ue-presentation-contract.md).
+    pub fn cue(&mut self, _id: &'static str, at: Vec2, radius: Option<Fixed64>) {
+        if let Some(radius) = radius {
+            if radius > Fixed64::ZERO && radius <= Fixed64::from_i32(10_000) {
+                self.world.emit_explosion(at, radius, Fixed64::from_raw(204));
+            }
+        }
+    }
+
+    /// A presentation cue event: `at` a unit or a point, optionally toward another. Reads no state
+    /// and changes none; `radius` also keeps the host's area ring through `cue` / `cue_on`.
+    pub fn cue_event(&mut self, id: &'static str, at: CueTo, to: Option<CueTo>, radius: Option<Fixed64>, duration: Option<Fixed64>) {
+        use omb_script_abi::ext::{op, ExtArg as A};
+        let end = |end: CueTo| match end { CueTo::Unit(unit) => A::Unit(unit), CueTo::Point(point) => A::Point(point) };
+        let args = [A::Num(Fixed64::from_raw(cue_hash(id) as i64)), A::Unit(self.self_unit), end(at),
+            to.map_or(A::Bool(false), end), A::Num(radius.unwrap_or(Fixed64::ZERO)), A::Num(duration.unwrap_or(Fixed64::ZERO))];
+        // Presentation never fails a program.
+        let _ = self.world.ext(op::CUE, abi_stable::std_types::RSlice::from_slice(&args));
+        match at {
+            CueTo::Unit(unit) => self.cue_on(id, unit, radius),
+            CueTo::Point(point) => self.cue(id, point, radius),
+        }
+    }
+
+    /// A cue at a unit; nothing when the unit has no position.
+    pub fn cue_on(&mut self, id: &'static str, at: EntityHandle, radius: Option<Fixed64>) {
+        if let Ok(p) = self.pos(at) { self.cue(id, p, radius); }
+    }
+
+    /// A `for_each` over allies whose body only restores a share of each one's maximum HP / mana:
+    /// the host ally_area_restore selects the live allies at settlement (the IR's AllyRestore).
+    /// Centred on the caster the radius is its own reach; elsewhere the cast range bounds it.
+    #[allow(clippy::too_many_arguments)]
+    /// `center_unit`: the unit the selection is centred on, when it is one.
+    pub fn ally_restore(&mut self, center: Vec2, center_unit: Option<EntityHandle>, radius: Fixed64, hp: Fixed64, mana: Fixed64,
+        direct: bool, exclude_buildings: bool) -> Res {
+        let cast_range = if center_unit == Some(self.caster) { radius } else { self.cast_range.ok_or("v3: restore without a cast range")? };
+        let spec = ally_area_restore::Spec { exclude_buildings, direct,
+            ..ally_area_restore::Spec::new(self.caster.id, self.caster.gen, center, radius, hp, mana, cast_range) }
+            .checked().ok_or("v3: invalid ally restore")?;
+        self.world.add_stat_buff(self.caster, RStr::from_str(ally_area_restore::BUFF), Fixed64::ONE,
+            RStr::from_str(&spec.payload().to_string()));
+        Ok(())
+    }
+
+    /// `tether` from the caster to `to` under the BuffStore id `id` (`{caster}`: the caster's `id:gen`).
+    pub fn tether(&mut self, to: EntityHandle, id: &str, duration: Fixed64, t: Tether) -> Res {
+        let link = tether::Spec { root_far: t.root_far, root_damage: t.root_damage, edge: t.edge,
+            root_after_source_death: t.root_after_source_death,
+            ..tether::Spec::new(self.caster.id, self.caster.gen, t.amount, t.kind, t.root, t.range) }
+            .checked().ok_or("v3: invalid tether")?;
+        let id = id.replace("{caster}", &format!("{}:{}", self.caster.id, self.caster.gen));
+        let mut payload = link.payload();
+        if self.damage_trace_enabled() { payload = tether::with_trace(payload, t.trace.0, t.trace.1, t.trace.2); }
+        self.world.add_stat_buff(to, RStr::from_str(&id), duration, RStr::from_str(&payload.to_string()));
+        Ok(())
+    }
+
+    /// `delay`: the host delayed_effect row on the caster (`delayed_effect:<ability>:<step>`); when it
+    /// expires the host calls the ability's `on_delayed_effect` with this rank, step and anchor.
+    /// One pending row per (caster, ability, step): scheduling the same step again restarts it.
+    pub fn delay(&mut self, ability: &str, step: u16, time: Fixed64, anchor: Vec2) -> Res {
+        if !delayed_effect::valid_delay(time) { return Err("v3: invalid delay"); }
+        let spec = delayed_effect::Spec { ability: ability.to_owned(), level: self.rank, index: step, point: anchor }
+            .checked().ok_or("v3: invalid delayed effect")?;
+        self.world.add_stat_buff(self.caster, RStr::from_str(&spec.buff_id()), time, RStr::from_str(&spec.payload().to_string()));
+        Ok(())
+    }
+
+    // ---- hero component commands (omoba-core hero_command) --------------------------------------
+
+    fn hero_command(&mut self, unit: EntityHandle, cmd: hero_command::Command) -> Res {
+        if !unit.is_valid() { return Ok(()); }
+        self.world.add_stat_buff(unit, RStr::from_str(hero_command::BUFF), Fixed64::ONE, RStr::from_str(&cmd.payload().to_string()));
+        Ok(())
+    }
+    /// `modify_cooldown { mode = start | set }`.
+    pub fn cooldown_start(&mut self, unit: EntityHandle, ability: &str, seconds: Fixed64) -> Res {
+        self.hero_command(unit, hero_command::Command::CooldownStart { ability: ability.to_owned(), seconds: seconds.max(Fixed64::ZERO) })
+    }
+    /// v3 `modify_cooldown { item | item_tag, mode = "start", amount }` (E501): every slot of
+    /// `unit`'s inventory holding `item` (a catalog id or a v3 item id) cools down for exactly
+    /// `seconds`. An `item_tag` is the generator's list of the tagged items, one call each.
+    pub fn item_cooldown_start(&mut self, unit: EntityHandle, item: &str, seconds: Fixed64) -> Res {
+        self.hero_command(unit, hero_command::Command::ItemCooldownStart { item: item.to_owned(), seconds: seconds.max(Fixed64::ZERO) })
+    }
+    /// `modify_cooldown { mode = reduce }`.
+    pub fn cooldown_reduce(&mut self, unit: EntityHandle, ability: &str, seconds: Fixed64) -> Res {
+        self.hero_command(unit, hero_command::Command::CooldownReduce { ability: ability.to_owned(), seconds: seconds.max(Fixed64::ZERO) })
+    }
+    /// `modify_cooldown { mode = end }`.
+    pub fn cooldown_end(&mut self, unit: EntityHandle, ability: &str) -> Res {
+        self.hero_command(unit, hero_command::Command::CooldownEnd { ability: ability.to_owned() })
+    }
+    /// `set_ability_level`.
+    pub fn set_ability_level(&mut self, unit: EntityHandle, ability: &str, level: Fixed64) -> Res {
+        let level = (floor(level).raw() >> 10).clamp(0, 100) as i32;
+        self.hero_command(unit, hero_command::Command::Level { ability: ability.to_owned(), level })
+    }
+    /// `set_health` (原作 SetHealth: no damage or heal event).
+    pub fn set_health(&mut self, unit: EntityHandle, value: Fixed64) -> Res {
+        self.hero_command(unit, hero_command::Command::Health { value: value.max(Fixed64::ZERO) })
+    }
+    /// `issue_order` stop / hold / move / attack_move of `unit` (a hero), as its owner's order.
+    pub fn order(&mut self, unit: EntityHandle, kind: hero_command::OrderKind, at: Vec2) -> Res {
+        let raw = |v: Fixed64| i32::try_from(v.raw()).map_err(|_| "v3: order point out of range");
+        let at = match kind { hero_command::OrderKind::Stop | hero_command::OrderKind::Hold => (0, 0), _ => (raw(at.x)?, raw(at.y)?) };
+        self.hero_command(unit, hero_command::Command::Order { kind, at })
+    }
+    /// `issue_order follow` (E489, 原作 MoveToNPC): `unit` (a summon) walks to `target` and keeps
+    /// following it until another order replaces this one; a hero does not take it.
+    pub fn order_follow(&mut self, unit: EntityHandle, target: EntityHandle) -> Res {
+        if !target.is_valid() { return Ok(()); }
+        self.hero_command(unit, hero_command::Command::OrderFollow { target: (target.id, target.gen as i32) })
+    }
+    /// `issue_order attack` with `queue` (E495): a hero attacks `target` after what it is doing
+    /// and what is queued; a summon without an order of its own attacks it now.
+    pub fn order_attack_queued(&mut self, unit: EntityHandle, target: EntityHandle) -> Res {
+        if !target.is_valid() { return Ok(()); }
+        self.hero_command(unit, hero_command::Command::OrderAttackQueued { target: (target.id, target.gen as i32) })
+    }
+    /// `order_attack`: `unit` (a hero) attacks `target` as if its owner ordered it; not locked.
+    pub fn order_attack(&mut self, unit: EntityHandle, target: EntityHandle) -> Res {
+        if !target.is_valid() { return Ok(()); }
+        self.hero_command(unit, hero_command::Command::OrderAttack { target: (target.id, target.gen as i32) })
+    }
+
+    // ---- damage before it lands (omoba-core scripting::damage_pre) -------------------------------
+
+    /// `modify_damage { multiplier }`: multipliers of one hook compound; a cancel stays a cancel.
+    pub fn damage_multiply(&mut self, factor: Fixed64) {
+        let e = self.damage_edit;
+        self.damage_edit = match e.mode {
+            DamageEdit::CANCEL => e,
+            DamageEdit::MULTIPLY => DamageEdit { mode: DamageEdit::MULTIPLY, value: e.value * factor.max(Fixed64::ZERO) },
+            DamageEdit::SET => DamageEdit { mode: DamageEdit::SET, value: e.value * factor.max(Fixed64::ZERO) },
+            _ => DamageEdit { mode: DamageEdit::MULTIPLY, value: factor.max(Fixed64::ZERO) },
+        };
+    }
+    /// `modify_damage { set }`: the damage becomes at most `value`.
+    pub fn damage_set(&mut self, value: Fixed64) {
+        if self.damage_edit.mode != DamageEdit::CANCEL { self.damage_edit = DamageEdit { mode: DamageEdit::SET, value: value.max(Fixed64::ZERO) }; }
+    }
+    /// `modify_damage { cancel = true }`.
+    #[inline]
+    pub fn damage_cancel(&mut self) { self.damage_edit = DamageEdit { mode: DamageEdit::CANCEL, value: Fixed64::ZERO }; }
+
+    // ---- unit state variables (omoba-core unit_var) --------------------------------------------
+
+    /// The value of state variable `key` on `u`: what this run wrote, else the host row, else
+    /// `None` (the generated code falls back to the declared `init`).
+    pub fn state(&self, u: EntityHandle, key: &str) -> Option<VarValue> {
+        if let Some(v) = self.written.get(&(u.id, u.gen, key.to_owned())) { return *v; }
+        let id = format!("{}{key}", unit_var::PREFIX);
+        let payload = self.world.get_buff_payload(u, RStr::from_str(&id)).into_option()?;
+        let payload: serde_json::Value = serde_json::from_str(payload.as_str()).ok()?;
+        unit_var::Spec::from_buff(&id, &payload).map(|s| s.value)
+    }
+    pub fn state_num(&self, u: EntityHandle, key: &str, init: Fixed64) -> Fixed64 {
+        match self.state(u, key) { Some(VarValue::Num(v)) => v, _ => init }
+    }
+    pub fn state_bool(&self, u: EntityHandle, key: &str, init: bool) -> bool {
+        match self.state(u, key) { Some(VarValue::Num(v)) => v != Fixed64::ZERO, _ => init }
+    }
+    pub fn state_unit(&self, u: EntityHandle, key: &str) -> EntityHandle {
+        match self.state(u, key) { Some(VarValue::Unit(v)) => v, _ => EntityHandle::INVALID }
+    }
+    /// `set_state`: `hero` keeps it across the hero's death (v3 scope `hero`).
+    pub fn set_state(&mut self, u: EntityHandle, key: &str, value: VarValue, hero: bool) -> Res {
+        let spec = unit_var::Spec { key: key.to_owned(), value, hero }.checked().ok_or("v3: invalid state variable")?;
+        self.world.add_stat_buff(u, RStr::from_str(&spec.buff_id()), Self::FOREVER, RStr::from_str(&spec.payload().to_string()));
+        self.written.insert((u.id, u.gen, key.to_owned()), Some(value));
+        Ok(())
+    }
+    #[inline]
+    pub fn set_state_num(&mut self, u: EntityHandle, key: &str, v: Fixed64, hero: bool) -> Res { self.set_state(u, key, VarValue::Num(v), hero) }
+    pub fn set_state_bool(&mut self, u: EntityHandle, key: &str, v: bool, hero: bool) -> Res {
+        self.set_state(u, key, VarValue::Num(if v { Fixed64::ONE } else { Fixed64::ZERO }), hero)
+    }
+    #[inline]
+    pub fn set_state_unit(&mut self, u: EntityHandle, key: &str, v: EntityHandle, hero: bool) -> Res { self.set_state(u, key, VarValue::Unit(v), hero) }
+    /// `clear_state`: back to the declared `init`.
+    pub fn clear_state(&mut self, u: EntityHandle, key: &str) -> Res {
+        if !unit_var::valid_key(key) { return Err("v3: invalid state variable"); }
+        self.world.remove_buff(u, RStr::from_str(&format!("{}{key}", unit_var::PREFIX)));
+        self.written.insert((u.id, u.gen, key.to_owned()), None);
+        Ok(())
+    }
+
+    // ---- projectiles (omoba-core ability_projectile) --------------------------------------------
+
+    /// Launch `p` from the caster; each hit schedules `on_hit` (step, captures) of `ability` with the
+    /// unit hit and the impact point appended.
+    pub fn projectile(&mut self, ability: &str, p: Proj, on_hit: Option<(u16, &[ScheduleArg])>) -> Res {
+        self.projectile_ended(ability, p, on_hit, None)
+    }
+
+    /// [`Cx::projectile`] that also schedules `on_end` (step, captures) once, with the end point
+    /// appended, when the flight retires.
+    pub fn projectile_ended(&mut self, ability: &str, p: Proj, on_hit: Option<(u16, &[ScheduleArg])>,
+        on_end: Option<(u16, &[ScheduleArg])>) -> Res {
+        self.projectile_launch(ability, p, on_hit, on_end, None)
+    }
+
+    /// v3 `projectile { kind = "linear", team = "any", where = "it == u" }` (E586, B24R): a linear
+    /// [`Cx::projectile_ended`] that hits only `only`, whatever its team. Nothing when `only` is
+    /// gone; a homing flight already hits only its target.
+    pub fn projectile_only(&mut self, ability: &str, p: Proj, only: EntityHandle, on_hit: Option<(u16, &[ScheduleArg])>,
+        on_end: Option<(u16, &[ScheduleArg])>) -> Res {
+        if !only.is_valid() { return Ok(()); }
+        if p.homing.is_some() { return Err("v3: projectile only is a linear flight"); }
+        self.projectile_launch(ability, p, on_hit, on_end, Some(only))
+    }
+
+    fn projectile_launch(&mut self, ability: &str, p: Proj, on_hit: Option<(u16, &[ScheduleArg])>,
+        on_end: Option<(u16, &[ScheduleArg])>, only: Option<EntityHandle>) -> Res {
+        if p.homing.is_some_and(|u| !u.is_valid()) { return Ok(()); }
+        let caster = self.caster;
+        let spec = projectile_spec(caster, ability, &p)?;
+        let lifetime = spec.lifetime;
+        let mut payload = spec.payload();
+        if p.dodgeable && p.homing.is_some() { payload = ability_projectile::with_dodgeable(payload); }
+        if let Some(v) = p.vision { payload = ability_projectile::with_vision(payload, v); }
+        if let (Some(e), None) = (p.end_radius, p.homing) { payload = ability_projectile::with_end_radius(payload, e); }
+        if let Some(at) = p.start { payload = ability_projectile::with_start(payload, at); }
+        if let Some(cue) = p.cue { payload = ability_projectile::with_cue(payload, cue); }
+        if let Some(only) = only { payload = ability_projectile::with_only(payload, only.id, only.gen); }
+        if let Some((step, args)) = on_hit {
+            let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
+            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec() }
+                .checked().ok_or("v3: invalid on_hit")?;
+            payload = ability_projectile::with_on_hit(payload, &template);
+        }
+        if let Some((step, args)) = on_end {
+            let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
+            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec() }
+                .checked().ok_or("v3: invalid on_end")?;
+            payload = ability_projectile::with_on_end(payload, &template);
+        }
+        self.world.add_stat_buff(caster, RStr::from_str(ability_projectile::BUFF), lifetime, RStr::from_str(&payload.to_string()));
+        Ok(())
+    }
+
+    // ---- schedules (omoba-core scheduled_effect) ------------------------------------------------
+
+    /// Schedule `on_scheduled(step, args)` of `ability` on `owner` after `after` seconds; returns
+    /// the instance (cancel with [`Cx::cancel_schedule`]). The instance comes from the host RNG.
+    pub fn schedule(&mut self, owner: EntityHandle, ability: &str, step: u16, after: Fixed64, args: &[ScheduleArg]) -> Result<u32, &'static str> {
+        if !scheduled_effect::valid_delay(after) { return Err("v3: invalid schedule delay"); }
+        let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
+        let spec = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank, step, instance, args: args.to_vec() }
+            .checked().ok_or("v3: invalid schedule")?;
+        self.world.add_stat_buff(owner, RStr::from_str(&spec.buff_id()), scheduled_effect::Spec::lifetime(after),
+            RStr::from_str(&spec.payload().to_string()));
+        Ok(instance)
+    }
+    pub fn cancel_schedule(&mut self, owner: EntityHandle, ability: &str, step: u16, instance: u32) {
+        let id = format!("{}{ability}:{instance}:{step}", scheduled_effect::PREFIX);
+        self.world.remove_buff(owner, RStr::from_str(&id));
+    }
+
+    /// The anchor a delay keeps when it captures nothing: the cast point, else the caster.
+    pub fn default_anchor(&self) -> Result<Vec2, &'static str> {
+        match self.target { Target::Point(p) => Ok(p), _ => self.pos(self.caster) }
+    }
+
+    /// `destroy_trees`: every map tree whose point lies within `radius` of `at` falls at the next
+    /// match tick and stands again 300 s later (omoba-core tree_cut, E242; 原作
+    /// GridNav:DestroyTreesAroundPoint). A map without trees ignores it.
+    pub fn destroy_trees(&mut self, at: Vec2, radius: Fixed64) -> Res {
+        if radius <= Fixed64::ZERO { return Ok(()); }
+        let radius = radius.min(Fixed64::from_i32(tree_cut::MAX_RADIUS));
+        self.world.add_stat_buff(self.caster, RStr::from_str(tree_cut::BUFF), Fixed64::ONE,
+            RStr::from_str(&tree_cut::payload(at, radius).to_string()));
+        Ok(())
+    }
+
+    /// v3 `destroy_tree`: the tree target (its centre, E403) falls like `destroy_trees`.
+    pub fn destroy_tree(&mut self, at: Vec2) -> Res {
+        self.destroy_trees(at, Fixed64::from_i32(tree_cut::SINGLE_TREE_RADIUS))
+    }
+
+    /// v3 `regrow_trees` (原作 GridNav:RegrowAllTrees): every fallen tree stands again at the next
+    /// match tick, unless a unit body stands on it (omoba-core tree_cut, E403).
+    pub fn regrow_trees(&mut self) -> Res {
+        self.world.add_stat_buff(self.caster, RStr::from_str(tree_cut::BUFF), Fixed64::ONE,
+            RStr::from_str(&tree_cut::regrow_payload().to_string()));
+        Ok(())
+    }
+
+    /// The learn marker of a passive with owner triggers (`{"level": rank}` under the ability id).
+    pub fn learn_marker(&mut self, id: &str) -> Res {
+        let payload = format!("{{\"level\":{}}}", self.rank);
+        self.world.add_stat_buff(self.caster, RStr::from_str(id), Self::FOREVER, RStr::from_str(&payload));
+        Ok(())
+    }
+
+    #[inline]
+    pub fn has_buff(&self, u: EntityHandle, id: &str) -> bool { self.world.has_buff(u, RStr::from_str(id)) }
+
+    /// The learner's marker of passive `id` (stats, rank `level`), listening to the passive's
+    /// triggers through status_event (`mask`, 0 = none): its holder's damage, attacks, the damage
+    /// before it lands.
+    pub fn passive_marker(&mut self, id: &str, stats: &[(StatKey, i64)], mask: u32) -> Res {
+        let mut payload = serde_json::Map::new();
+        for (key, raw) in stats { payload.insert(key.as_str().into(), (*raw).into()); }
+        put_when_row(&mut payload, self.when_row.take());
+        payload.insert("level".into(), self.rank.into());
+        // A learned passive: v3 `break` turns its stats and events off (omoba-core BuffStore::stat_rows).
+        payload.insert("__passive".into(), true.into());
+        if mask != 0 {
+            let spec = status_event::Spec { ability: id.to_owned(), level: self.rank.max(1), status: id.to_owned(), source: self.caster, mask }
+                .checked().ok_or("v3: invalid passive events")?;
+            payload.insert(status_event::KEY.into(), spec.row());
+        }
+        self.world.add_stat_buff(self.caster, RStr::from_str(id), Self::FOREVER, RStr::from_str(&serde_json::Value::Object(payload).to_string()));
+        Ok(())
+    }
+
+    /// The rank of passive `id` its marker on `u` carries (0: not learned on this life).
+    /// An item passive's marker ([`Cx::passive_marker`] made with its first copy) leaves with its
+    /// last copy: its events stop, its periodic clock ends at its next tick.
+    pub fn remove_passive_marker(&mut self, id: &str) {
+        let holder = self.caster;
+        self.world.remove_buff(holder, RStr::from_str(id));
+    }
+
+    pub fn learned_rank(&self, u: EntityHandle, id: &str) -> u8 {
+        self.world.get_buff_payload(u, RStr::from_str(id)).into_option()
+            .and_then(|p| serde_json::from_str::<serde_json::Value>(p.as_str()).ok())
+            .and_then(|v| v.get("level").and_then(serde_json::Value::as_u64))
+            .and_then(|l| u8::try_from(l).ok()).unwrap_or(0)
+    }
+
+    /// `chance { p }`: true with probability `p` (a fraction) from the host RNG.
+    #[inline]
+    pub fn chance(&mut self, p: Fixed64) -> bool { self.world.rand_unit() < p }
+
+    /// The passive stats buff on the learner, carrying its rank (`level`).
+    pub fn passive_stats(&mut self, id: &str, stats: &[(StatKey, i64)]) -> Res {
+        let mut payload = serde_json::Map::new();
+        for (key, raw) in stats { payload.insert(key.as_str().into(), (*raw).into()); }
+        put_when_row(&mut payload, self.when_row.take());
+        payload.insert("level".into(), self.rank.into());
+        self.world.add_stat_buff(self.caster, RStr::from_str(id), Self::FOREVER, RStr::from_str(&serde_json::Value::Object(payload).to_string()));
+        Ok(())
+    }
+}
+
+// ---- auras (v3 `aura`, omoba-core `aura`) -------------------------------------------------------
+
+/// The match time between two aura pulses: a receiver holds the aura's status `linger +
+/// AURA_PERIOD`, so the next pulse renews it while it stays in range.
+pub const AURA_PERIOD: Fixed64 = omoba_core::runtime::native::aura::PERIOD;
+
+/// The emitter name of aura `name` set up by `source` (`name:id:gen`): `on_aura` reads the source
+/// back with [`aura_source`] and applies the aura's status as that unit.
+pub fn aura_key(name: &str, source: EntityHandle) -> String { format!("{name}:{}:{}", source.id, source.gen) }
+
+/// `(name, source)` of an emitter name [`aura_key`] wrote.
+pub fn aura_source(key: &str) -> Option<(&str, EntityHandle)> {
+    let mut parts = key.rsplitn(3, ':');
+    let gen = parts.next()?.parse().ok()?;
+    let id = parts.next()?.parse().ok()?;
+    Some((parts.next()?, EntityHandle { id, gen }))
+}
+
+// ---- numbers (v3 expressions) -----------------------------------------------------------------
+
+/// `a / b`; division by zero aborts the program.
+pub fn div(a: Fixed64, b: Fixed64) -> Result<Fixed64, &'static str> {
+    if b == Fixed64::ZERO { Err("v3: division by zero") } else { Ok(a / b) }
+}
+
+/// Percent points of a fraction (stat rows in percent points).
+#[inline]
+pub fn percent_points(v: Fixed64) -> i64 { v.raw().saturating_mul(100) }
+
+/// `offset(p, dir, distance)`.
+#[inline]
+pub fn offset(p: Vec2, dir: Vec2, distance: Fixed64) -> Vec2 { p + dir * distance }
+
+/// `direction(a, b)`: unit vector from a to b (zero when they coincide).
+#[inline]
+pub fn direction(a: Vec2, b: Vec2) -> Vec2 { (b - a).normalized() }
+
+/// The most runs of a `repeat` without an interval (a bound on `while` loops).
+pub const MAX_REPEAT: usize = 10_000;
+
+/// A captured number for a schedule.
+pub fn arg_num(v: Fixed64) -> ScheduleArg {
+    ScheduleArg { kind: scheduled_effect::ARG_NUM, num: v, unit: EntityHandle::INVALID, point: Vec2::ZERO }
+}
+/// A captured unit for a schedule.
+pub fn arg_unit(u: EntityHandle) -> ScheduleArg {
+    ScheduleArg { kind: scheduled_effect::ARG_UNIT, num: Fixed64::ZERO, unit: u, point: Vec2::ZERO }
+}
+/// A captured point for a schedule.
+pub fn arg_point(p: Vec2) -> ScheduleArg {
+    ScheduleArg { kind: scheduled_effect::ARG_POINT, num: Fixed64::ZERO, unit: EntityHandle::INVALID, point: p }
+}
+/// Argument `i` of a schedule as a number / unit / point (a missing or other-kind argument is
+/// zero / invalid).
+pub fn arg_as_num(args: &[ScheduleArg], i: usize) -> Fixed64 {
+    args.get(i).filter(|a| a.kind == scheduled_effect::ARG_NUM).map_or(Fixed64::ZERO, |a| a.num)
+}
+pub fn arg_as_unit(args: &[ScheduleArg], i: usize) -> EntityHandle {
+    args.get(i).filter(|a| a.kind == scheduled_effect::ARG_UNIT).map_or(EntityHandle::INVALID, |a| a.unit)
+}
+pub fn arg_as_point(args: &[ScheduleArg], i: usize) -> Vec2 {
+    args.get(i).filter(|a| a.kind == scheduled_effect::ARG_POINT).map_or(Vec2::ZERO, |a| a.point)
+}
+
+/// An angle in degrees (v3: every angle is in degrees) as the host's angle.
+pub fn degrees(d: Fixed64) -> omoba_sim::trig::Angle {
+    let ticks = (i128::from(d.raw()) * i128::from(omoba_sim::trig::TAU_TICKS) / (360 * 1024)).rem_euclid(i128::from(omoba_sim::trig::TAU_TICKS));
+    omoba_sim::trig::Angle::from_ticks(ticks as i32)
+}
+#[inline]
+pub fn sin_deg(d: Fixed64) -> Fixed64 { omoba_sim::trig::sin(degrees(d)) }
+#[inline]
+pub fn cos_deg(d: Fixed64) -> Fixed64 { omoba_sim::trig::cos(degrees(d)) }
+/// `polar(center, angle, distance)`: angle 0 along +x, counterclockwise.
+pub fn polar(center: Vec2, angle: Fixed64, dist: Fixed64) -> Vec2 {
+    center + Vec2::new(cos_deg(angle), sin_deg(angle)) * dist
+}
+
+/// `angle_between(a, b)`: the unsigned angle between two directions, in degrees (0..=180), on the
+/// host's angle ticks (omoba_sim::trig, the facing every replica turns by).
+pub fn angle_between(a: Vec2, b: Vec2) -> Fixed64 {
+    let ta = omoba_sim::trig::atan2(a.y, a.x).ticks();
+    let tb = omoba_sim::trig::atan2(b.y, b.x).ticks();
+    let turn = omoba_sim::trig::TAU_TICKS;
+    let d = (ta - tb).rem_euclid(turn);
+    let d = d.min(turn - d);
+    Fixed64::from_raw(i64::from(d) * 360 * 1024 / i64::from(turn))
+}
+
+/// The point a fraction `t` of the way from `a` to `b`.
+#[inline]
+pub fn lerp_point(a: Vec2, b: Vec2, t: Fixed64) -> Vec2 { a + (b - a) * t }
+
+/// `distance(a, b)`.
+#[inline]
+pub fn distance(a: Vec2, b: Vec2) -> Fixed64 { (b - a).length() }
+
+/// The distance from `p` to the segment `a`..`b` (to `a` when the segment is a point).
+pub fn segment_distance(p: Vec2, a: Vec2, b: Vec2) -> Fixed64 {
+    let ab = b - a;
+    let len2 = ab.length_squared();
+    if len2 <= Fixed64::ZERO { return distance(p, a); }
+    let t = ((p - a).dot(ab) / len2).max(Fixed64::ZERO).min(Fixed64::ONE);
+    distance(p, Vec2::new(a.x + ab.x * t, a.y + ab.y * t))
+}
+
+// `floor(x)`, `ceil(x)` (toward -inf / +inf), `abs(x)`, `clamp(x, lo, hi)`.
+/// `rotate(v, degrees)`: `v` turned counter-clockwise.
+pub fn rotate(v: Vec2, degrees: Fixed64) -> Vec2 {
+    let (s, c) = (sin_deg(degrees), cos_deg(degrees));
+    Vec2::new(v.x * c - v.y * s, v.x * s + v.y * c)
+}
+/// `a % b`: the remainder with the sign of `b` (a − floor(a / b) × b); `b = 0` aborts the program.
+pub fn rem(a: Fixed64, b: Fixed64) -> Result<Fixed64, &'static str> {
+    Ok(a - floor(div(a, b)?) * b)
+}
+#[inline]
+pub fn floor(x: Fixed64) -> Fixed64 { Fixed64::from_raw(x.raw() - x.raw().rem_euclid(omoba_sim::fixed::SCALE)) }
+#[inline]
+pub fn ceil(x: Fixed64) -> Fixed64 { let f = floor(x); if f == x { f } else { f + Fixed64::ONE } }
+#[inline]
+pub fn abs(x: Fixed64) -> Fixed64 { if x < Fixed64::ZERO { -x } else { x } }
+#[inline]
+pub fn clamp(x: Fixed64, lo: Fixed64, hi: Fixed64) -> Fixed64 { x.max(lo).min(hi) }
+
+/// A generated script behind the DLL boundary: a panic in any hook never unwinds into the host
+/// (that aborts the process). `execute` returns it as an error; the other hooks log it through the
+/// world (level 4 = error) and do nothing.
+pub struct Guarded<S>(pub S);
+
+fn panic_text(e: Box<dyn std::any::Any + Send>) -> String {
+    e.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| e.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panic".into())
+}
+
+macro_rules! guarded_hook {
+    ($self:ident, $world:ident, $name:literal, $call:expr) => {{
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $call));
+        match r {
+            Ok(v) => v,
+            Err(e) => {
+                let msg = format!("[{}] {} panicked: {}", $self.0.ability_id().as_str(), $name, panic_text(e));
+                $world.log_at(4, RStr::from_str(&msg));
+                Default::default()
+            }
+        }
+    }};
+}
+
+impl<S: AbilityScript> AbilityScript for Guarded<S> {
+    fn ability_id(&self) -> RStr<'_> { self.0.ability_id() }
+    fn execute(&self, caster: EntityHandle, target: Target, level: u8, level_data_json: RStr<'_>, world: &mut GameWorldDyn<'_>)
+        -> RResult<(), RString> {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.0.execute(caster, target, level, level_data_json, world))) {
+            Ok(r) => r,
+            Err(e) => RErr(format!("v3: {} execute panicked: {}", self.0.ability_id().as_str(), panic_text(e)).into()),
+        }
+    }
+    fn on_tick(&self, caster: EntityHandle, target: Target, elapsed: Fixed64, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_tick", self.0.on_tick(caster, target, elapsed, world))
+    }
+    fn on_learn(&self, caster: EntityHandle, new_level: u8, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_learn", self.0.on_learn(caster, new_level, world))
+    }
+    fn on_attack_hit(&self, owner: EntityHandle, attacker: EntityHandle, victim: EntityHandle, level: u8, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_attack_hit", self.0.on_attack_hit(owner, attacker, victim, level, world))
+    }
+    fn on_channel_pulse(&self, caster: EntityHandle, target: Target, pulse: omb_script_abi::types::ChannelPulse, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_channel_pulse", self.0.on_channel_pulse(caster, target, pulse, world))
+    }
+    fn execute_disclosed(&self, caster: EntityHandle, target: Target, level: u8, level_data_json: RStr<'_>, world: &mut GameWorldDyn<'_>,
+        disclosure: &omb_script_abi::world::DisclosureQueryDyn<'_>) -> RResult<(), RString> {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.0.execute_disclosed(caster, target, level, level_data_json, world, disclosure))) {
+            Ok(r) => r,
+            Err(e) => RErr(format!("v3: {} execute panicked: {}", self.0.ability_id().as_str(), panic_text(e)).into()),
+        }
+    }
+    fn on_attack_launch(&self, attacker: EntityHandle, target: EntityHandle, level: u8, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_attack_launch", self.0.on_attack_launch(attacker, target, level, world))
+    }
+    fn on_delayed_effect(&self, caster: EntityHandle, effect: omb_script_abi::types::ChannelPulse, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_delayed_effect", self.0.on_delayed_effect(caster, effect, world))
+    }
+    fn on_scheduled(&self, owner: EntityHandle, at: Scheduled, args: RVec<ScheduleArg>, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_scheduled", self.0.on_scheduled(owner, at, args, world))
+    }
+    fn on_status_event(&self, holder: EntityHandle, status: RStr<'_>, event: StatusEvent, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_status_event", self.0.on_status_event(holder, status, event, world))
+    }
+    fn on_damage_pre(&self, holder: EntityHandle, status: RStr<'_>, event: StatusEvent, world: &mut GameWorldDyn<'_>)
+        -> omb_script_abi::types::DamageEdit {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.0.on_damage_pre(holder, status, event, world))) {
+            Ok(v) => v,
+            Err(e) => {
+                let msg = format!("[{}] on_damage_pre panicked: {}", self.0.ability_id().as_str(), panic_text(e));
+                world.log_at(4, RStr::from_str(&msg));
+                omb_script_abi::types::DamageEdit::KEEP
+            }
+        }
+    }
+    fn on_channel_end(&self, caster: EntityHandle, target: Target, end: omb_script_abi::types::ChannelPulse, interrupted: bool,
+        world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_channel_end", self.0.on_channel_end(caster, target, end, interrupted, world))
+    }
+    fn on_channel_start(&self, caster: EntityHandle, target: Target, start: omb_script_abi::types::ChannelPulse,
+        world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_channel_start", self.0.on_channel_start(caster, target, start, world))
+    }
+    fn on_equip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_equip", self.0.on_equip(owner, world))
+    }
+    fn on_unequip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_unequip", self.0.on_unequip(owner, world))
+    }
+    fn on_aura(&self, holder: EntityHandle, aura: RStr<'_>, level: u8, receivers: RVec<EntityHandle>, world: &mut GameWorldDyn<'_>) {
+        guarded_hook!(self, world, "on_aura", self.0.on_aura(holder, aura, level, receivers, world))
+    }
+    /// A panicking phase start cancels the cast.
+    fn on_phase_start(&self, caster: EntityHandle, target: Target, level: u8, world: &mut GameWorldDyn<'_>) -> bool {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.0.on_phase_start(caster, target, level, world))) {
+            Ok(v) => v,
+            Err(e) => {
+                let msg = format!("[{}] on_phase_start panicked: {}", self.0.ability_id().as_str(), panic_text(e));
+                world.log_at(4, RStr::from_str(&msg));
+                false
+            }
+        }
+    }
+}
+
+/// One manifest entry built under catch_unwind: a panic is reported on stderr and the entry is
+/// left out (the build-time catalog check keeps this from happening for content reasons).
+pub fn guard_ffi(f: impl FnOnce() -> Option<AbilityDefFFI>) -> Option<AbilityDefFFI> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(v) => v,
+        Err(e) => { eprintln!("[ability_kit] a generated ability failed to register: {}", panic_text(e)); None }
+    }
+}
+
+/// The `def_json` of a generated ability: the catalog's metadata of that id (like base_content's
+/// `build_ability_ffi`), so costs, cooldowns and targeting stay the catalog's.
+pub fn ability_ffi<S: AbilityScript + 'static>(id: &str, script: S) -> AbilityDefFFI {
+    let def = crate::metadata::ability_def(id).unwrap_or_else(|| panic!("{id}: not in the compiled catalog"));
+    let def_json = serde_json::to_string(&def).expect("AbilityDef serializes");
+    AbilityDefFFI { def_json: def_json.into(), script: AbilityScript_TO::from_value(Guarded(script), TD_Opaque) }
+}
+
+/// [`ability_ffi`] for an ability a document declares beside its items (a sub ability of an item):
+/// `None` when the compiled catalog does not have it (it registers nothing, instead of panicking
+/// across the DLL boundary).
+pub fn ability_ffi_opt<S: AbilityScript + 'static>(id: &str, script: S) -> Option<AbilityDefFFI> {
+    let def = crate::metadata::ability_def(id)?;
+    let def_json = serde_json::to_string(&def).expect("AbilityDef serializes");
+    Some(AbilityDefFFI { def_json: def_json.into(), script: AbilityScript_TO::from_value(Guarded(script), TD_Opaque) })
+}
+
+/// The `def_json` of a generated item script: the shop catalog's item (`kind = item`); `None`
+/// for an item the catalog does not have (it registers nothing).
+pub fn item_ffi<S: AbilityScript + 'static>(id: &str, passive: bool, script: S) -> Option<AbilityDefFFI> {
+    let def = crate::metadata::item_def(id, passive)?;
+    let def_json = serde_json::to_string(&def).expect("AbilityDef serializes");
+    Some(AbilityDefFFI { def_json: def_json.into(), script: AbilityScript_TO::from_value(Guarded(script), TD_Opaque) })
+}
+
+#[cfg(test)]
+mod aura_tests {
+    use super::*;
+
+    /// Directions a quarter and a half turn apart; the order and a full turn do not matter.
+    #[test]
+    fn angle_between_is_unsigned_degrees() {
+        let east = Vec2::new(Fixed64::ONE, Fixed64::ZERO);
+        let north = Vec2::new(Fixed64::ZERO, Fixed64::ONE);
+        let west = Vec2::new(-Fixed64::ONE, Fixed64::ZERO);
+        assert_eq!(angle_between(east, north), Fixed64::from_i32(90));
+        assert_eq!(angle_between(north, east), Fixed64::from_i32(90));
+        assert_eq!(angle_between(east, west), Fixed64::from_i32(180));
+        assert_eq!(angle_between(east, east), Fixed64::ZERO);
+    }
+
+    /// The emitter name carries its source back to on_aura; a name without one is not an emitter.
+    #[test]
+    fn aura_key_round_trips_its_source() {
+        let source = EntityHandle { id: 61, gen: 3 };
+        let key = aura_key("b06t_aura", source);
+        assert_eq!(key, "b06t_aura:61:3");
+        assert_eq!(aura_source(&key), Some(("b06t_aura", source)));
+        assert_eq!(aura_source("passive"), None);
+        assert_eq!(aura_source("passive:x:1"), None);
+        assert_eq!(AURA_PERIOD, omoba_core::runtime::native::aura::PERIOD);
+    }
+}
+
+/// The applier a status payload records (`source_entity_id/gen`, written by every status row).
+fn payload_source(payload: &str) -> Option<EntityHandle> {
+    let value: serde_json::Value = serde_json::from_str(payload).ok()?;
+    let part = |key: &str| value.get(key).and_then(serde_json::Value::as_u64).and_then(|n| u32::try_from(n).ok());
+    Some(EntityHandle { id: part("source_entity_id")?, gen: part("source_entity_gen")? }).filter(EntityHandle::is_valid)
+}
+
+#[cfg(test)]
+mod segment_tests {
+    use super::*;
+
+    /// A point beside the segment is its perpendicular distance away; past an end, the distance
+    /// to that end; the bounds circle holds the whole widened segment.
+    #[test]
+    fn segment_distance_and_bounds() {
+        let s = Fixed64::from_i32;
+        let (a, b) = (Vec2::new(s(0), s(0)), Vec2::new(s(400), s(0)));
+        assert_eq!(segment_distance(Vec2::new(s(200), s(30)), a, b), s(30));
+        assert_eq!(segment_distance(Vec2::new(s(-30), s(40)), a, b), s(50));
+        assert_eq!(segment_distance(Vec2::new(s(430), s(-40)), a, b), s(50));
+        assert_eq!(segment_distance(Vec2::new(s(3), s(4)), a, a), s(5), "a point segment");
+        let (center, radius) = Cx::segment_bounds(a, b, s(100));
+        assert_eq!(center, Vec2::new(s(200), s(0)));
+        assert!(radius >= s(250), "half the length plus half the width, and a body's margin");
+    }
+}
+
+#[cfg(test)]
+mod status_source_tests {
+    use super::*;
+
+    /// A status row's applier comes back from its payload; a row without one names nobody.
+    #[test]
+    fn a_status_payload_names_its_applier() {
+        assert_eq!(payload_source(r#"{"source_entity_id":7,"source_entity_gen":2,"armor":3}"#), Some(EntityHandle { id: 7, gen: 2 }));
+        assert_eq!(payload_source(r#"{"armor":3}"#), None);
+        assert_eq!(payload_source(r#"{"source_entity_id":7}"#), None);
+        assert_eq!(payload_source("not json"), None);
+    }
+}
+
+#[cfg(test)]
+mod select_tests {
+    use super::*;
+
+    /// v3 `include_hidden` is carried by every selector, and with no `hidden` state in the host
+    /// nothing is excluded without it: the flag must not change a selection until that state exists.
+    #[test]
+    fn include_hidden_changes_nothing_until_the_host_has_a_hidden_state() {
+        assert!(!Select::default().include_hidden);
+        for id in 0..64 { assert!(!hidden_excluded(EntityHandle { id, gen: 1 })); }
+    }
+}
+
+#[cfg(test)]
+mod projectile_tests {
+    use super::*;
+
+    fn caster() -> EntityHandle { EntityHandle { id: 3, gen: 1 } }
+    fn proj(homing: Option<EntityHandle>) -> Proj {
+        Proj { homing, aim: Vec2::new(Fixed64::from_i32(600), Fixed64::ZERO), speed: Fixed64::from_i32(900), radius: Fixed64::ZERO,
+            distance: Fixed64::from_i32(600), max_hits: 1, buildings: false, dodgeable: true, vision: None, end_radius: None, start: None }
+    }
+
+    /// A tracking bolt with no radius (A34W) and a linear wave (A34R) are valid host flights.
+    #[test]
+    fn generated_flights_are_valid_host_projectiles() {
+        let homing = projectile_spec(caster(), "a34_frost_bolt", &proj(Some(EntityHandle { id: 9, gen: 1 }))).expect("homing");
+        assert_eq!((homing.distance, homing.max_hits), (Fixed64::ZERO, 1));
+        let linear = projectile_spec(caster(), "a34_frost_breath", &Proj { max_hits: 64, ..proj(None) }).expect("linear");
+        assert_eq!(linear.max_hits, 64);
+        assert!(DamageProfile::from_bits(linear.profile).is_some(), "a profile with a type bit");
+        assert!(projectile_spec(caster(), "a34_frost_breath", &Proj { speed: Fixed64::ZERO, ..proj(None) }).is_err(), "no speed");
+    }
+}

@@ -4,15 +4,28 @@ package.path=assert(source:match('^(.*)[/\\]'))..'/?.lua;'..package.path
 local b=require('_bootstrap')
 local path,hash=b.lib('path'),b.lib('hash')
 local M={}
-function M.bindings(root)
+-- PROJECT is the Unreal project whose plugin binaries a launch will run: by default the one
+-- OM_UE_RUN_BINARIES names (E116: a session's shadow build, copied into the run snapshot),
+-- otherwise live omfue. A build that just staged live omfue passes it explicitly.
+function M.bindings(root,project)
+  local env=os.getenv('OM_UE_RUN_BINARIES')
+  project=project or (env and env~='' and path.absolute(env,root)) or path.join(root,'omfue')
+  local plugin=path.join(project,'Plugins/OmRuntime/Binaries/Win64')
   return {
-    {role='bridge',built=path.join(root,'omfue/bridge/target/debug/om_bridge.dll'),
-      copies={path.join(root,'omfue/Plugins/OmRuntime/Binaries/Win64/om_bridge.dll')}},
-    {role='base_content',built=path.join(root,'scripts/target/debug/base_content.dll'),
-      copies={path.join(root,'scripts/base_content.dll'),
-        path.join(root,'omfue/Plugins/OmRuntime/Binaries/Win64/base_content.dll')}},
+    -- The same build directories the stage copied from (ue_bridge_stage.rust_target, E333).
+    {role='bridge',built=path.join(require('ue_bridge_stage').rust_target(root,'omfue','bridge','target'),'debug','om_bridge.dll'),
+      copies={path.join(plugin,'om_bridge.dll')}},
+    -- Only the copy the Unreal project loads (E319). The shared scripts/base_content.dll is
+    -- still staged for dev runs and gen-docs, but other sessions copy their own builds over it
+    -- (AGENTS.md gen-docs steps), and no launch reads it (E124); checking it failed whole UE
+    -- launches whenever another session staged a release build during this build.
+    {role='base_content',built=path.join(require('ue_bridge_stage').rust_target(root,'scripts','target'),'debug','base_content.dll'),
+      copies={path.join(plugin,'base_content.dll')}},
   }
 end
+-- A build checks these right after staging. A launch does not (E124): it runs its own
+-- base_content copy (run_artifacts.lua) and checks the project's bridge against its stage
+-- record (ue_bridge_stage.verify_launch), so another session's rebuild never blocks it.
 function M.verify(bindings,dependencies)
   dependencies=dependencies or {is_file=path.is_file,sha256=hash.sha256}
   local report={schema_version=1,scope='artifact-copy-consistency',artifacts={}}

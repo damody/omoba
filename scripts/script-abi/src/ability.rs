@@ -16,11 +16,11 @@
 //! 施法者目前等級的 `AbilityLevelData` — 也避免了
 //! StableAbi 在 `extra: HashMap<String, Value>` 欄位上。
 
-use crate::types::{EntityHandle, Fixed64, Target};
-use crate::world::GameWorldDyn;
+use crate::types::{ChannelPulse, DamageEdit, EntityHandle, Fixed64, ScheduleArg, Scheduled, StatusEvent, Target};
+use crate::world::{DisclosureQueryDyn, GameWorldDyn};
 use abi_stable::{
     sabi_trait,
-    std_types::{RBox, RResult, RStr, RString},
+    std_types::{RBox, RResult, RStr, RString, RVec},
     StableAbi,
 };
 
@@ -77,6 +77,162 @@ pub trait AbilityScript: Send + Sync {
         _level: u8,
         _world: &mut GameWorldDyn<'_>,
     ) {
+    }
+
+    /// One pulse of a host-owned channel (G-2). The host has already
+    /// validated the caster and anchor and charged nothing for this pulse;
+    /// only effects may be applied here. The default forwards to `on_tick`
+    /// with `pulse.elapsed`, so a script that only implements `on_tick`
+    /// still receives every pulse.
+    fn on_channel_pulse(
+        &self,
+        caster: EntityHandle,
+        target: Target,
+        pulse: ChannelPulse,
+        world: &mut GameWorldDyn<'_>,
+    ) {
+        self.on_tick(caster, target, pulse.elapsed, world)
+    }
+
+    /// Cast entry the host actually calls. Handlers whose target selection
+    /// must match team replicas (fogged units excluded before any cap)
+    /// override this and use `disclosure`; the default is plain `execute`.
+    fn execute_disclosed(
+        &self,
+        caster: EntityHandle,
+        target: Target,
+        level: u8,
+        level_data_json: RStr<'_>,
+        world: &mut GameWorldDyn<'_>,
+        _disclosure: &DisclosureQueryDyn<'_>,
+    ) -> RResult<(), RString> {
+        self.execute(caster, target, level, level_data_json, world)
+    }
+
+    /// A hero's ordinary attack launched (source datadriven `OnAttack`: the
+    /// projectile leaves, not the hit). The host polls every learned ability of
+    /// the attacker (any type, e.g. an ultimate whose buff is active) with its
+    /// rank; handlers gate on their own buff. Default no-op.
+    fn on_attack_launch(
+        &self,
+        _attacker: EntityHandle,
+        _target: EntityHandle,
+        _level: u8,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
+    /// A delayed effect this ability scheduled came due (omoba-core
+    /// `delayed_effect`: a caster buff `delayed_effect:<ability>:<index>` that
+    /// expired naturally). `effect.level`, `effect.index` and `effect.anchor`
+    /// are what was scheduled; `total`/`elapsed` are zero. Like a channel
+    /// pulse, only effects may be applied. Default: nothing.
+    fn on_delayed_effect(
+        &self,
+        _caster: EntityHandle,
+        _effect: ChannelPulse,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
+    /// A schedule this ability made came due (omoba-core `scheduled_effect`, the generated
+    /// code's `delay`／`repeat`): `at` and `args` are what was scheduled on `owner`. Like a
+    /// delayed effect, only effects may be applied. Default: nothing.
+    fn on_scheduled(
+        &self,
+        _owner: EntityHandle,
+        _at: Scheduled,
+        _args: RVec<ScheduleArg>,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
+    /// An event of a status this ability applied (omoba-core `status_event`): `status` is its v3
+    /// id, `holder` the unit it is (or was) on. Only effects may be applied. Default: nothing.
+    fn on_status_event(
+        &self,
+        _holder: EntityHandle,
+        _status: RStr<'_>,
+        _event: StatusEvent,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
+    /// Before a damage packet lands (omoba-core `scripting::damage_pre`): a status this ability
+    /// applied listens on the source (`event.kind` 8) or the target (7). `event.amount` is the
+    /// packet's current total, `event.other` the other unit. The edit applies before the next
+    /// hook; effects applied here settle with the next outcome batch. Default: keep.
+    fn on_damage_pre(
+        &self,
+        _holder: EntityHandle,
+        _status: RStr<'_>,
+        _event: StatusEvent,
+        _world: &mut GameWorldDyn<'_>,
+    ) -> DamageEdit {
+        DamageEdit::KEEP
+    }
+
+    /// v3 `on_channel_end`: a host pulse channel of this ability (omoba-core `ability_channel`)
+    /// ended, after its last pulse (`interrupted` false) or cut short by stun, silence, death,
+    /// movement, recall, a new order or a lost anchor (`interrupted` true). `end.index` is the
+    /// pulses fired, `end.anchor` the anchor's last point. Like a pulse, only effects may be
+    /// applied. Default: nothing.
+    fn on_channel_end(
+        &self,
+        _caster: EntityHandle,
+        _target: Target,
+        _end: ChannelPulse,
+        _interrupted: bool,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
+    /// v3 `on_cast` of a channeled ability: its host pulse channel (omoba-core `ability_channel`)
+    /// was accepted and started. `start.index` is 0 and `start.anchor` the anchor point. Like a
+    /// pulse, only effects may be applied. Default: nothing.
+    fn on_channel_start(
+        &self,
+        _caster: EntityHandle,
+        _target: Target,
+        _start: ChannelPulse,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
+    /// v3 item `passive.triggers.on_created`: `owner` gained a copy of this item (omoba-core
+    /// `item_equip`, once per copy). Only effects may be applied. Default: nothing.
+    fn on_equip(&self, _owner: EntityHandle, _world: &mut GameWorldDyn<'_>) {}
+
+    /// v3 item `passive.triggers.on_removed` (and `remove_on = unequip`): `owner` lost a copy of
+    /// this item. Only effects may be applied. Default: nothing.
+    fn on_unequip(&self, _owner: EntityHandle, _world: &mut GameWorldDyn<'_>) {}
+
+    /// v3 `aura` pulse (omoba-core `aura`): `holder`'s emitter `aura` of this ability, at `level`,
+    /// with the living units in its radius on its team, nearest first. The generated code filters
+    /// them (types, flags, where) and applies the aura's status. Like a pulse, only effects may be
+    /// applied. Default: nothing.
+    fn on_aura(
+        &self,
+        _holder: EntityHandle,
+        _aura: RStr<'_>,
+        _level: u8,
+        _receivers: RVec<EntityHandle>,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
+    /// v3 `on_phase_start`: a cast of this ability begins, once it is admitted (before its windup,
+    /// or right before `execute` when it has none). False cancels the cast (v3 `cancel_cast`)
+    /// with nothing charged; the hook's own effects stand either way. Only effects may be
+    /// applied. Default: go on.
+    fn on_phase_start(
+        &self,
+        _caster: EntityHandle,
+        _target: Target,
+        _level: u8,
+        _world: &mut GameWorldDyn<'_>,
+    ) -> bool {
+        true
     }
 }
 

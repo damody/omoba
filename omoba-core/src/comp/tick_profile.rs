@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-use crate::comp::perf_window::{self, PerfEmit, PerfWindow};
+use crate::comp::perf_window::{self, PerfEmit, PerfWindow, TickPhaseWindows};
 
 #[derive(Default)]
 pub struct TickProfile {
@@ -28,7 +28,15 @@ pub struct TickProfile {
     /// Formal MOBA compute window. Independent of the debug phase counters above.
     formal_window: PerfWindow,
     formal_enable_logged: bool,
+    /// Formal per-phase windows (`tick_phase`) and the system-time window base.
+    formal_phases: TickPhaseWindows,
+    system_base: BTreeMap<&'static str, (u64, u128)>,
+    system_window_ticks: u64,
+    system_window_started: Option<std::time::Instant>,
 }
+
+/// Heaviest systems reported per 60 formal ticks.
+pub const SYSTEM_TIME_TOP: usize = 8;
 
 #[derive(Default, Clone, Copy)]
 pub struct VariantStat {
@@ -106,6 +114,26 @@ impl TickProfile {
             .record(compute_ns)
             .map(|closed| perf_window::format_tick_compute(&closed));
         emit
+    }
+
+    /// One formal tick's phase laps; returns the `OM_PERF` lines to log (phase
+    /// windows that closed, plus the heaviest systems every 60 ticks).
+    pub fn record_formal_tick_phases(&mut self, phases: &[(&'static str, u128)]) -> Vec<String> {
+        let mut lines = self.formal_phases.record_tick(phases);
+        let now = std::time::Instant::now();
+        let started = *self.system_window_started.get_or_insert(now);
+        self.system_window_ticks += 1;
+        if self.system_window_ticks >= perf_window::PERF_WINDOW_SAMPLES {
+            let current: BTreeMap<&'static str, (u64, u128)> = self.system_stats.lock()
+                .map(|stats| stats.iter().map(|(name, stat)| (*name, (stat.count, stat.ns))).collect())
+                .unwrap_or_default();
+            lines.extend(perf_window::format_system_times(&self.system_base, &current, self.system_window_ticks,
+                now.saturating_duration_since(started).as_nanos(), SYSTEM_TIME_TOP));
+            self.system_base = current;
+            self.system_window_ticks = 0;
+            self.system_window_started = Some(now);
+        }
+        lines
     }
 
     pub fn reset_formal_window(&mut self) {
@@ -269,6 +297,21 @@ impl TickProfile {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn formal_tick_phases_emit_phase_windows_and_heaviest_systems_every_60_ticks() {
+        let mut profile = TickProfile::default();
+        let mut lines = Vec::new();
+        for tick in 0..60u64 {
+            profile.record_system("Creep_sys", 1000 + u128::from(tick));
+            lines.extend(profile.record_formal_tick_phases(&[("dispatcher", 2000), ("team_projection", 500)]));
+        }
+        assert_eq!(lines.iter().filter(|line| line.contains("\"metric\":\"tick_phase\"")).count(), 2);
+        assert!(lines.iter().any(|line| line.contains("\"metric\":\"system_time\"") && line.contains("\"system\":\"Creep_sys\"") && line.contains("\"count\":60")));
+        lines.clear();
+        for _ in 0..59 { lines.extend(profile.record_formal_tick_phases(&[("dispatcher", 2000)])); }
+        assert!(lines.is_empty(), "nothing until the next 60th tick");
+    }
+
     use super::*;
 
     #[test]

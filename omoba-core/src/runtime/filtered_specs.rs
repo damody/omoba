@@ -252,11 +252,13 @@ impl FilteredReplicaWorldBuilder {
         world.insert(ExternalEffectInjectionQueue::default());
         world.insert(ReplicaPhaseTrace::default());
         world.insert(DisclosedMovementPriority::default());
+        world.insert(crate::runtime::native::owner_control::OwnerControlInjections::default());
         world.insert(crate::runtime::input_scheme::DirectionalStepPlan::default());
         world.insert(crate::runtime::input_scheme::AdmittedDirectionalSteps::default());
         world.insert(DisclosedAttackabilityGate::default());
         world.insert(DisclosedWardCandidates::default());
         world.insert(crate::runtime::summoner_transport::DisclosedSummonerAuthority(start.team_id));
+        world.insert(crate::runtime::native::cast_windup::FormalCastRules);
         world.insert(crate::runtime::summoner_transport::disclosed_summoner_projection_from_metadata(
             &start.team_private_metadata,
         ));
@@ -277,6 +279,10 @@ impl FilteredReplicaWorldBuilder {
                 *world.write_resource::<crate::runtime::BlockedRegions>() = regions;
             }
         }
+        // A map with trees: the fallen set the start's regions carry (E242).
+        let map = crate::runtime::moba_map_layout::decode(&start.public_metadata).ok().flatten();
+        let trees = crate::runtime::native::tree_cut::replica_trees(map, &world.read_resource::<crate::runtime::BlockedRegions>());
+        if let Some(trees) = trees { world.insert(trees); }
         // The shared dispatcher always schedules damage processing. Campaign
         // initialization normally installs this queue, but a filtered world
         // intentionally skips campaign/story spawning and must install the
@@ -313,6 +319,16 @@ pub struct SpecsDisclosedWorldStepper {
 }
 
 impl SpecsDisclosedWorldStepper {
+    /// Owner inputs this replica's last steps rejected under the authority's
+    /// own admission rules, as (input id, code). Drained on read.
+    pub fn take_owner_command_rejections(&mut self, player_id: u32) -> Vec<(u32, &'static str)> {
+        self.filtered
+            .world
+            .try_fetch_mut::<crate::runtime::native::command_outcome::OwnerCommandOutcomes>()
+            .map(|mut outcomes| outcomes.take_for(player_id))
+            .unwrap_or_default()
+    }
+
     pub fn inject_test_only_position_fault(&mut self) -> bool {
         use specs::Join;
         let mut positions = self.filtered.world.write_storage::<crate::runtime::Pos>();
@@ -351,6 +367,15 @@ impl SpecsDisclosedWorldStepper {
         disclosed: &DisclosedReplicaWorld,
     ) -> Result<(), ReplicaRuntimeError> {
         self.synchronize_specs_membership(disclosed)
+    }
+
+    /// Indices of the map trees that are down in this replica (E242), ascending; None on a map
+    /// without destructible trees.
+    pub fn fallen_trees(&self) -> Option<Vec<u32>> {
+        self.filtered
+            .world
+            .try_fetch::<crate::runtime::native::tree_cut::ReplicaTrees>()
+            .map(|trees| trees.fallen.iter().copied().collect())
     }
 
     /// Read-only copy of the roster installed at bootstrap and refreshed by
@@ -430,6 +455,19 @@ impl SpecsDisclosedWorldStepper {
         &mut self,
         disclosed: &DisclosedReplicaWorld,
     ) -> Result<(), ReplicaRuntimeError> {
+        self.synchronize_specs_membership_after_inputs(disclosed, &BTreeSet::new())
+    }
+
+    /// INPUT_TARGETS: replica ids targeted by this frame's accepted inputs. The
+    /// authority keeps such a target disclosed one more frame when it was deleted
+    /// during the step (visibility input_grace, E175); when this replica's own step
+    /// settled the same death, the local entity is already gone (E190). It stays
+    /// gone: its disclosed row is not written back, and the next frame retires it.
+    fn synchronize_specs_membership_after_inputs(
+        &mut self,
+        disclosed: &DisclosedReplicaWorld,
+        input_targets: &BTreeSet<u64>,
+    ) -> Result<(), ReplicaRuntimeError> {
         self.filtered
             .world
             .write_resource::<DisclosedAttackabilityGate>()
@@ -455,6 +493,8 @@ impl SpecsDisclosedWorldStepper {
                 if let Some(mut buffs) = self.filtered.world.try_fetch_mut::<crate::runtime::ability_runtime::BuffStore>() {
                     buffs.remove_all_for(entry.entity);
                 }
+                // Already deleted by this replica's own step (a graced input target, E190).
+                if !self.filtered.world.entities().is_alive(entry.entity) { continue; }
                 self.filtered
                     .world
                     .delete_entity(entry.entity)
@@ -470,6 +510,11 @@ impl SpecsDisclosedWorldStepper {
                 return Err(ReplicaRuntimeError::ComponentNotAllowlisted);
             }
             if let Some(entry) = self.filtered.entities.0.get_mut(&state.replica_id) {
+                if !self.filtered.world.entities().is_alive(entry.entity) {
+                    // Any other locally deleted, still disclosed entity is a divergence.
+                    if !input_targets.contains(&state.replica_id) { return Err(ReplicaRuntimeError::MalformedBaseline); }
+                    continue;
+                }
                 entry.disclosure_epoch = state.disclosure_epoch;
                 entry.authority_revision = state.authority_revision;
                 self.filtered
@@ -509,6 +554,12 @@ impl SpecsDisclosedWorldStepper {
                         authority_revision: state.authority_revision,
                     },
                 );
+                // A new local life (bootstrap, rebase or reveal) starts from the
+                // owner-only baseline: exact controls and channel statuses (split16).
+                if let Some(visual) = state.components.get(&crate::runtime::buff_visual_state::SCHEMA_ID)
+                    .and_then(|bytes| crate::runtime::buff_visual_state::BuffVisualSnapshot::decode(bytes)) {
+                    crate::runtime::native::owner_control::seed_from_visual(&self.filtered.world, entity, &visual);
+                }
             }
             self.synchronize_gameplay_components(state)?;
         }
@@ -652,6 +703,11 @@ impl SpecsDisclosedWorldStepper {
                 return Err(ReplicaRuntimeError::MalformedBaseline);
             }
         }
+        if let Some(bytes) = state.components.get(&crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID) {
+            if crate::runtime::visibility::decode_disclosed_enemy_sight(bytes).is_none() {
+                return Err(ReplicaRuntimeError::MalformedBaseline);
+            }
+        }
         if let Some(bytes) = state
             .components
             .get(&crate::runtime::DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID)
@@ -744,6 +800,10 @@ impl SpecsDisclosedWorldStepper {
             crate::runtime::DISCLOSED_TURN_SPEED_COMPONENT_SCHEMA_ID,
             TurnSpeed
         );
+        restore_json_component!(crate::runtime::native::unit_mana::SCHEMA_ID, crate::runtime::native::unit_mana::UnitMana);
+        if crate::runtime::native::unit_abilities::registered(&self.filtered.world) {
+            restore_json_component!(crate::runtime::native::unit_abilities::SCHEMA_ID, crate::runtime::native::unit_abilities::UnitAbilityState);
+        }
         restore_json_component!(
             crate::runtime::DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID,
             CollisionRadius
@@ -762,6 +822,21 @@ impl SpecsDisclosedWorldStepper {
             crate::runtime::DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID,
             crate::runtime::ScriptUnitTag
         );
+        // A disclosed lane structure is a building on the replica too (E170): scripts that skip
+        // buildings (`is_building`, ally_area_restore exclude_buildings, point_blast) decide the
+        // same on the authority and every team replica.
+        // So is a disclosed summon whose template is a building (E428).
+        let building_summon = self.filtered.world.read_storage::<crate::runtime::ScriptUnitTag>().get(entity)
+            .and_then(|tag| omoba_template_ids::summon_by_name(&tag.unit_id))
+            .and_then(omoba_template_ids::active_summon_stats)
+            .is_some_and(|stats| stats.building);
+        if building_summon || state.components.contains_key(&crate::runtime::DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID) {
+            self.filtered
+                .world
+                .write_storage::<crate::runtime::IsBuilding>()
+                .insert(entity, crate::runtime::IsBuilding)
+                .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+        }
         let structure_denied = state
             .components
             .get(&crate::runtime::DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID)
@@ -813,6 +888,10 @@ impl SpecsDisclosedWorldStepper {
             .filtered
             .world
             .read_storage::<crate::runtime::TurnSpeed>();
+        let unit_manas = crate::runtime::native::unit_mana::registered(&self.filtered.world)
+            .then(|| self.filtered.world.read_storage::<crate::runtime::native::unit_mana::UnitMana>());
+        let unit_abilities = crate::runtime::native::unit_abilities::registered(&self.filtered.world)
+            .then(|| self.filtered.world.read_storage::<crate::runtime::native::unit_abilities::UnitAbilityState>());
         let collision_radii = self
             .filtered
             .world
@@ -880,6 +959,8 @@ impl SpecsDisclosedWorldStepper {
                 turn_speeds,
                 crate::runtime::DISCLOSED_TURN_SPEED_COMPONENT_SCHEMA_ID
             );
+            if let Some(unit_manas) = &unit_manas { export_json_component!(unit_manas, crate::runtime::native::unit_mana::SCHEMA_ID); }
+            if let Some(unit_abilities) = &unit_abilities { export_json_component!(unit_abilities, crate::runtime::native::unit_abilities::SCHEMA_ID); }
             export_json_component!(
                 collision_radii,
                 crate::runtime::DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID
@@ -1020,7 +1101,7 @@ impl SpecsDisclosedWorldStepper {
             }
             // A shop input is acknowledged as accepted, but its actual result
             // is settled once by authority. Never buy, sell, or undo in this replica.
-            if matches!(input.action, Some(Action::ItemBuy(_) | Action::ItemSell(_) | Action::ShopUndo(_) | Action::CombatPreferences(_))) {
+            if matches!(input.action, Some(Action::ItemBuy(_) | Action::ItemSell(_) | Action::ShopUndo(_) | Action::CombatPreferences(_) | Action::ShowcaseResetHero(_))) {
                 continue;
             }
             let correlation = u32::try_from(accepted.input_id).unwrap_or(0);
@@ -1087,6 +1168,14 @@ impl SpecsDisclosedWorldStepper {
         &mut self, world: &mut DisclosedReplicaWorld,
         injections: &StepInjections, resource_allowlist: &BTreeSet<u32>, profiled: bool,
     ) -> Result<Option<crate::comp::fixed_step_detail::FixedStepDetail>, ReplicaRuntimeError> {
+        // M3' ② dev hot reload: the authority swapped these DLLs before stepping this tick.
+        for swap in &injections.script_module_swaps {
+            crate::scripting::loader::apply_hot_swap(&mut self.script_registry, &mut self.filtered.world, swap)
+                .map_err(|error| {
+                    log::error!("[scripting] replica hot swap failed: {error}");
+                    ReplicaRuntimeError::GameplayStep
+                })?;
+        }
         let preparation_started = profiled.then(Instant::now);
         let cpu_start = if profiled { crate::comp::process_cpu::process_cpu_ns() } else { None };
         let mut detail = profiled.then(crate::comp::fixed_step_detail::FixedStepDetail::default);
@@ -1127,6 +1216,17 @@ impl SpecsDisclosedWorldStepper {
             return Err(ReplicaRuntimeError::MalformedBaseline);
         }
         let fixed_raw = lane_delta.unwrap_or(fixed_raw);
+        // Tree changes disclosed for this step, before any movement (E242).
+        let hud: Vec<&[u8]> = injections.public_events.iter()
+            .filter(|event| event.event_kind == crate::runtime::FactKind::Hud as u32)
+            .map(|event| event.sanitized_payload.as_slice()).collect();
+        crate::runtime::native::tree_cut::apply_disclosed(&self.filtered.world, &hud)
+            .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+        // Pathing blockers disclosed for this step (E426), after the trees.
+        crate::runtime::native::unit_blockers::apply_disclosed(&self.filtered.world, &hud)
+            .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+        // The public night (E453): `game.is_night` reads the same on every peer.
+        crate::runtime::native::rules::world::apply_disclosed(&mut self.filtered.world, &hud);
         let gameplay_active = fixed_raw != 0;
         self.filtered
             .world
@@ -1198,6 +1298,18 @@ impl SpecsDisclosedWorldStepper {
             .world
             .write_resource::<DisclosedMovementPriority>()
             .0 = priorities;
+        // Own-team control rows, applied after the matching outcome batch (split16).
+        let mut controls = Vec::new();
+        for event in &injections.public_events {
+            if event.event_kind != crate::runtime::FactKind::OwnerControl as u32 { continue; }
+            let (batch, row) = crate::runtime::native::owner_control::OwnerControlRow::decode(&event.sanitized_payload)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let id = event.subject.as_ref().ok_or(ReplicaRuntimeError::UnknownEntity)?.value;
+            // A subject this replica does not hold cannot affect its gameplay.
+            let Some(entity) = self.filtered.entities.0.get(&id).map(|row| row.entity) else { continue };
+            controls.push((entity, batch, row));
+        }
+        self.filtered.world.write_resource::<crate::runtime::native::owner_control::OwnerControlInjections>().0 = controls;
         self.filtered
             .world
             .write_resource::<AcceptedInputInjectionQueue>()
@@ -1240,12 +1352,18 @@ impl SpecsDisclosedWorldStepper {
                 .filter(|(_, faction, owner, _)| recalling_owners.contains(&(faction.team_id as u32, owner.player_id)))
                 .map(|(_, _, owner, _)| owner.player_id).collect()
         };
+        self.filtered.world.insert(super::native::cast_windup::DisclosedRecallingOwners(owners.iter().copied().collect()));
         self.filtered.world.write_resource::<crate::runtime::PendingHeroCommandClearQueue>()
             .requests.extend(owners);
 
         if let (Some(start), Some(detail)) = (preparation_started, detail.as_mut()) {
             detail.preparation_ns = start.elapsed().as_nanos();
         }
+        // The tick-start positions the authority captured too (approach to cast, E210).
+        crate::runtime::native::cast_approach::capture_tick_start(&mut self.filtered.world);
+        // Item passives from the inventories committed by the previous tick, as the authority
+        // settles them at the start of begin_moba_match_tick (E353).
+        crate::runtime::native::game_processor::settle_inventory_modifiers(&mut self.filtered.world);
         run_deterministic_gameplay_phases(&mut |phase| -> Result<(), ReplicaRuntimeError> {
             let phase_started = Instant::now();
             self.filtered
@@ -1302,9 +1420,15 @@ impl SpecsDisclosedWorldStepper {
                     crate::runtime::drain_pending_moves(&mut self.filtered.world)
                 }
                 P::PreScriptOutcomes | P::PostScriptOutcomes => {
+                    if crate::runtime::native::game_processor::publishes_cues(&self.filtered.world) {
+                        self.filtered.world.insert(crate::runtime::native::game_processor::ReplicaDropsCues);
+                    }
                     let mut sink = crate::runtime::RuntimeEventVecSink::default();
-                    crate::runtime::process_outcomes(&mut self.filtered.world, &mut sink)
-                        .map_err(|_| ReplicaRuntimeError::GameplayStep)?;
+                    // The damage pipeline reaches on_damage_pre hooks through the registry (damage_pre).
+                    self.filtered.world.insert(std::mem::take(&mut self.script_registry));
+                    let settled = crate::runtime::process_outcomes(&mut self.filtered.world, &mut sink);
+                    self.script_registry = self.filtered.world.remove::<ScriptRegistry>().unwrap_or_default();
+                    settled.map_err(|_| ReplicaRuntimeError::GameplayStep)?;
                 }
                 P::TowerUpgrades => {
                     crate::runtime::drain_pending_tower_upgrades(&mut self.filtered.world)
@@ -1374,10 +1498,14 @@ impl SpecsDisclosedWorldStepper {
             .0
             .clear();
         apply_authoritative_movement_outcomes(self, injections)?;
+        // Replayed learn hooks leave the heroes' cooldowns as disclosed (E582).
+        crate::runtime::native::game_processor::restore_relearn_cooldowns(&mut self.filtered.world);
+        crate::runtime::native::cast_windup::anchor_started_windups(&self.filtered.world);
         self.export_gameplay_components(world)?;
         apply_disclosed_events(world, injections)?;
         apply_disclosed_summoner_projection(self, injections);
-        self.synchronize_specs_membership(world)?;
+        let input_targets = injections.accepted_inputs.iter().filter_map(|input| input.target.as_ref().map(|id| id.value)).collect();
+        self.synchronize_specs_membership_after_inputs(world, &input_targets)?;
         if let (Some(start), Some(detail)) = (finalization_started, detail.as_mut()) {
             detail.finalization_ns = start.elapsed().as_nanos();
             detail.process_cpu_ns = crate::comp::process_cpu::process_cpu_delta(
@@ -1443,6 +1571,25 @@ fn apply_committed_economy_and_equipment(
     injections: &StepInjections,
 ) -> Result<(), ReplicaRuntimeError> {
     for event in &injections.public_events {
+        // E541: the step's target state / unit abilities, or none (an empty payload).
+        let step_schema = if event.event_kind == crate::runtime::FactKind::TargetState as u32 {
+            Some(crate::runtime::DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID)
+        } else if event.event_kind == crate::runtime::FactKind::UnitAbilities as u32 {
+            Some(crate::runtime::native::unit_abilities::SCHEMA_ID)
+        } else { None };
+        if let Some(schema) = step_schema {
+            let valid = event.sanitized_payload.is_empty() || if schema == crate::runtime::DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID {
+                crate::runtime::visibility::decode_disclosed_target_state(&event.sanitized_payload).is_some()
+            } else {
+                serde_json::from_slice::<crate::runtime::native::unit_abilities::UnitAbilityState>(&event.sanitized_payload).is_ok()
+            };
+            if !valid { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            if event.sanitized_payload.is_empty() { entity.components.remove(&schema); }
+            else { entity.components.insert(schema, event.sanitized_payload.clone()); }
+            continue;
+        }
         if event.event_kind==crate::runtime::FactKind::DisclosedCombatRelation as u32 {
             crate::runtime::decode_disclosed_combat_relation(&event.sanitized_payload)
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
@@ -1525,10 +1672,12 @@ fn apply_authoritative_movement_outcomes(
     stepper: &mut SpecsDisclosedWorldStepper,
     injections: &StepInjections,
 ) -> Result<(), ReplicaRuntimeError> {
+    let settled = post_step_movers(injections);
     for event in &injections.public_events {
         if (event.event_kind != crate::runtime::FactKind::Movement as u32
             && event.event_kind != crate::runtime::FactKind::PreStepMovement as u32)
             || event.sanitized_payload.len() < 16
+            || superseded_pre_step(&settled, event)
         {
             continue;
         }
@@ -1569,12 +1718,87 @@ fn apply_authoritative_movement_outcomes(
     Ok(())
 }
 
+/// CommittedAbilitySlots: the ability in each slot (0 = empty).
+fn decode_ability_slots(payload: &[u8]) -> Result<Vec<String>, ReplicaRuntimeError> {
+    if payload.len() % 2 != 0
+        || !(crate::runtime::LEGACY_HERO_ABILITY_SLOTS..=crate::runtime::HERO_ABILITY_SLOTS).contains(&(payload.len() / 2)) {
+        return Err(ReplicaRuntimeError::MalformedBaseline);
+    }
+    (0..payload.len() / 2).map(|slot| {
+        let raw = u16::from_le_bytes([payload[slot * 2], payload[slot * 2 + 1]]);
+        if raw == 0 { return Ok(String::new()); }
+        let id = omoba_template_ids::AbilityId(raw);
+        // An unknown id is a malformed fact, never a debug assertion (try_ability_id_str).
+        let name = omoba_template_ids::try_ability_id_str(id).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+        if name.is_empty() || omoba_template_ids::ability_by_name(name) != Some(id) { return Err(ReplicaRuntimeError::MalformedBaseline); }
+        Ok(name.to_owned())
+    }).collect()
+}
+
+/// A swap the authority made takes the slot here too, and the ability swapped in takes the
+/// swapped-out one's rank when it has none (ability_slots::swap). Adopting the same slots twice
+/// changes nothing.
+/// The same tick's slots first (E407 for ranks, E606 for cooldowns and charges): a slot fact
+/// names the ability in that slot as the authority ends the tick, so a swap this tick must not
+/// put the swapped-in ability's cooldown on the one it hid (原作 A12T copies A12R's cooldown onto
+/// its replacement in the tick it swaps). Fact kinds sort cooldowns before slots.
+fn adopt_same_tick_slots(hero: &mut crate::runtime::Hero, injections: &StepInjections, id: u64) -> Result<(), ReplicaRuntimeError> {
+    if let Some(slots_event) = injections.public_events.iter().find(|other|
+        other.event_kind == crate::runtime::FactKind::CommittedAbilitySlots as u32
+            && other.subject.as_ref().map_or(0, |subject| subject.value) == id) {
+        adopt_ability_slots(hero, decode_ability_slots(&slots_event.sanitized_payload)?)?;
+    }
+    Ok(())
+}
+
+/// A hidden-slot cooldown's ability (Hero::committed_slot, E615): a ranked ability of the hero's
+/// (no slot holds it on the authority); an unranked or unknown one is a malformed fact.
+fn hidden_ability(hero: &crate::runtime::Hero, raw: u32) -> Result<String, ReplicaRuntimeError> {
+    let id = omoba_template_ids::AbilityId(u16::try_from(raw).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?);
+    let name = omoba_template_ids::try_ability_id_str(id).filter(|name| !name.is_empty()).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+    if hero.get_ability_level(name) <= 0 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+    Ok(name.to_owned())
+}
+
+fn adopt_ability_slots(hero: &mut crate::runtime::Hero, names: Vec<String>) -> Result<(), ReplicaRuntimeError> {
+    if hero.abilities.len() > names.len() { return Err(ReplicaRuntimeError::MalformedBaseline); }
+    // Past the four Q-R slots the authority sends exactly the slots its hero has: a slot it
+    // granted there (ability_slots::SlotSpec, E578) is a slot here too.
+    if names.len() > crate::runtime::LEGACY_HERO_ABILITY_SLOTS {
+        while hero.abilities.len() < names.len() { hero.abilities.push(String::new()); }
+    }
+    for (slot, name) in names.into_iter().enumerate().take(hero.abilities.len()) {
+        if hero.abilities[slot] == name { continue; }
+        let rank = hero.get_ability_level(&hero.abilities[slot]);
+        hero.inherit_swapped_rank(&name, rank);
+        let old = std::mem::replace(&mut hero.abilities[slot], name);
+        hero.release_granted_rank(slot, &old);
+    }
+    Ok(())
+}
+
+/// The units a step's post-step Movement fact places (E594): the lane step's PreStepMovement of
+/// the same unit (it walked, then a pull or a set_pos moved it) is superseded, whatever order the
+/// facts come in (the fact kinds sort Movement first).
+fn post_step_movers(injections: &StepInjections) -> std::collections::BTreeSet<u64> {
+    injections.public_events.iter()
+        .filter(|event| event.event_kind == crate::runtime::FactKind::Movement as u32 && event.sanitized_payload.len() >= 16)
+        .filter_map(|event| event.subject.as_ref().map(|id| id.value)).collect()
+}
+
+fn superseded_pre_step(settled: &std::collections::BTreeSet<u64>, event: &crate::game_proto::TeamPublicEvent) -> bool {
+    event.event_kind == crate::runtime::FactKind::PreStepMovement as u32
+        && event.subject.as_ref().is_some_and(|id| settled.contains(&id.value))
+}
+
 fn apply_disclosed_events(
     world: &mut DisclosedReplicaWorld,
     injections: &StepInjections,
 ) -> Result<(), ReplicaRuntimeError> {
-    apply_committed_economy_and_equipment(world, injections)?;
+    let settled = post_step_movers(injections);
     for event in &injections.public_events {
+        // Presentation only, and a cue's unit may be gone by now: it never touches the replica.
+        if event.event_kind==crate::runtime::FactKind::Cue as u32 { continue; }
         if event.event_kind==crate::runtime::FactKind::OwnerBuffVisual as u32 {
             crate::runtime::buff_visual_state::BuffVisualSnapshot::decode(&event.sanitized_payload).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let id=event.subject.as_ref().map_or(0,|id|id.value);
@@ -1587,6 +1811,14 @@ fn apply_disclosed_events(
                 .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
             let id = event.subject.as_ref().map_or(0, |id| id.value);
             let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            // A summon's mana (unit_mana) rides its own component; it always has a pool.
+            if let Some(bytes) = entity.components.get_mut(&crate::runtime::native::unit_mana::SCHEMA_ID) {
+                let mut mana: crate::runtime::native::unit_mana::UnitMana = serde_json::from_slice(bytes)
+                    .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+                mana.pool = state.0.ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+                *bytes = crate::runtime::visibility::canonical_disclosed_json(&mana);
+                continue;
+            }
             let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes)
@@ -1596,17 +1828,30 @@ fn apply_disclosed_events(
         }
         if event.event_kind == crate::runtime::FactKind::CommittedAbilityRanks as u32 {
             let payload=&event.sanitized_payload;
-            if payload.len()!=16 {return Err(ReplicaRuntimeError::MalformedBaseline);}
+            // Four ranks, or five/six for a hero that owns the extra action slots.
+            if payload.len()%4!=0 || !(crate::runtime::LEGACY_HERO_ABILITY_SLOTS..=crate::runtime::HERO_ABILITY_SLOTS).contains(&(payload.len()/4)) {
+                return Err(ReplicaRuntimeError::MalformedBaseline);
+            }
             let id=event.subject.as_ref().map_or(0,|id|id.value);
             let entity=world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
             let bytes=entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let mut hero:crate::runtime::Hero=serde_json::from_slice(bytes)
                 .map_err(|_|ReplicaRuntimeError::MalformedBaseline)?;
-            let ranks:[i32;4]=std::array::from_fn(|slot|
-                i32::from_le_bytes(payload[slot*4..slot*4+4].try_into().unwrap()));
+            // The same tick's slots first (E407): the ranks are per slot as the authority ends the
+            // tick, so a swap this tick must not put the swapped-in ability's rank on the one it hid.
+            if let Some(slots_event)=injections.public_events.iter().find(|other|
+                other.event_kind==crate::runtime::FactKind::CommittedAbilitySlots as u32
+                    && other.subject.as_ref().map_or(0,|subject|subject.value)==id) {
+                adopt_ability_slots(&mut hero,decode_ability_slots(&slots_event.sanitized_payload)?)?;
+            }
+            let slots=payload.len()/4;
+            if hero.abilities.len()>slots {return Err(ReplicaRuntimeError::MalformedBaseline);}
+            let ranks:Vec<i32>=(0..slots).map(|slot|
+                i32::from_le_bytes(payload[slot*4..slot*4+4].try_into().unwrap())).collect();
             for (slot,rank) in ranks.iter().enumerate() {
-                if let Some(ability)=hero.abilities.get(slot) {
+                // An empty slot ("") is never learned: like a slot past the row, its rank is 0.
+                if let Some(ability)=hero.abilities.get(slot).filter(|ability|!ability.is_empty()) {
                     let def=omoba_template_ids::ability_by_name(ability)
                         .and_then(omoba_template_ids::active_ability_const)
                         .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
@@ -1614,11 +1859,47 @@ fn apply_disclosed_events(
                 } else if *rank!=0 {return Err(ReplicaRuntimeError::MalformedBaseline);}
             }
             for (slot,rank) in ranks.iter().enumerate() {
-                if let Some(ability)=hero.abilities.get(slot) {
+                if let Some(ability)=hero.abilities.get(slot).filter(|ability|!ability.is_empty()) {
+                    // An unlearned ability the authority holds no rank for (a swapped-in or D/F
+                    // ability, E579) stays without one here: rank 0 reads the same either way.
+                    if *rank==0 && !hero.ability_levels.contains_key(ability) {continue;}
                     hero.ability_levels.insert(ability.clone(),*rank);
                 }
             }
             *bytes=crate::runtime::visibility::canonical_disclosed_json(&hero);
+        }
+        // A visible hero's slots (E401): a swap the authority made takes the slot here too, and the
+        // ability swapped in takes the swapped-out one's rank when it has none (ability_slots::swap).
+        if event.event_kind == crate::runtime::FactKind::CommittedAbilitySlots as u32 {
+            let names = decode_ability_slots(&event.sanitized_payload)?;
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            adopt_ability_slots(&mut hero, names)?;
+            *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);
+        }
+        // A visible hero's derived attributes: a replica without its inventory takes them as they
+        // are (attributes.rs skips deriving them, E374).
+        if event.event_kind == crate::runtime::FactKind::CommittedAttributes as u32 {
+            let payload = &event.sanitized_payload;
+            if payload.len() != 44 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let raw = |offset| i64::from_le_bytes(payload[offset..offset + 8].try_into().unwrap());
+            let values = [raw(0), raw(8), raw(16), raw(24)];
+            if values.iter().any(|value| *value < 0) { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let point = |offset| i32::from_le_bytes(payload[offset..offset + 4].try_into().unwrap());
+            let base = [point(32), point(36), point(40)];
+            if base.iter().any(|value| *value < 0) { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            hero.attribute_totals = [values[0], values[1], values[2]].map(omoba_sim::Fixed64::from_raw);
+            hero.attribute_hp = omoba_sim::Fixed64::from_raw(values[3]);
+            [hero.strength, hero.agility, hero.intelligence] = base;
+            *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);
         }
         if event.event_kind == crate::runtime::FactKind::CommittedProgression as u32 {
             let payload = &event.sanitized_payload;
@@ -1666,6 +1947,16 @@ fn apply_disclosed_events(
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             *value=event.sanitized_payload.clone();
         }
+        if event.event_kind == crate::runtime::FactKind::EnemySight as u32 {
+            if crate::runtime::visibility::decode_disclosed_enemy_sight(&event.sanitized_payload).is_none() {
+                return Err(ReplicaRuntimeError::MalformedBaseline);
+            }
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let value = entity.components.get_mut(&crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            *value = event.sanitized_payload.clone();
+        }
         if event.event_kind == crate::runtime::FactKind::CommittedIncomingDamage as u32 {
             let raw = i64::from_le_bytes(event.sanitized_payload.as_slice().try_into()
                 .map_err(|_|ReplicaRuntimeError::MalformedBaseline)?);
@@ -1692,23 +1983,52 @@ fn apply_disclosed_events(
                 property[offset..offset + 8].copy_from_slice(&raw.to_be_bytes());
             }
         }
-        if event.event_kind == crate::runtime::FactKind::CommittedCooldown as u32 {
-            if event.sanitized_payload.len() != 12 { return Err(ReplicaRuntimeError::MalformedBaseline); }
-            let slot = u32::from_le_bytes(event.sanitized_payload[0..4].try_into().unwrap()) as usize;
-            let raw = i64::from_le_bytes(event.sanitized_payload[4..12].try_into().unwrap());
-            if slot > 3 || raw < 0 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+        if event.event_kind == crate::runtime::FactKind::CommittedCharge as u32 {
+            let p = &event.sanitized_payload;
+            if p.len() != 24 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let slot = u32::from_le_bytes(p[0..4].try_into().unwrap()) as usize;
+            let charges = u16::from_le_bytes(p[4..6].try_into().unwrap());
+            let max = u16::from_le_bytes(p[6..8].try_into().unwrap());
+            let recharge = i64::from_le_bytes(p[8..16].try_into().unwrap());
+            let remaining = i64::from_le_bytes(p[16..24].try_into().unwrap());
+            if slot >= crate::runtime::HERO_ABILITY_SLOTS || max == 0 || max > 10 || charges > max || recharge <= 0 || remaining < 0 || remaining > recharge
+                || (charges == max) != (remaining == 0) { return Err(ReplicaRuntimeError::MalformedBaseline); }
             let id = event.subject.as_ref().map_or(0, |id| id.value);
             let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
             let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            adopt_same_tick_slots(&mut hero, injections, id)?;
             let ability = hero.abilities.get(slot).ok_or(ReplicaRuntimeError::MalformedBaseline)?.clone();
-            hero.start_cooldown(&ability, omoba_sim::Fixed64::from_raw(raw));
+            hero.ability_charges.insert(ability, crate::runtime::comp::AbilityChargeState {
+                charges, max, recharge: omoba_sim::Fixed64::from_raw(recharge), remaining: omoba_sim::Fixed64::from_raw(remaining) });
+            *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);
+        }
+        if event.event_kind == crate::runtime::FactKind::CommittedCooldown as u32 {
+            if event.sanitized_payload.len() != 12 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let slot = u32::from_le_bytes(event.sanitized_payload[0..4].try_into().unwrap());
+            let raw = i64::from_le_bytes(event.sanitized_payload[4..12].try_into().unwrap());
+            let hidden = slot & crate::runtime::Hero::HIDDEN_ABILITY_SLOT != 0;
+            if (!hidden && slot as usize >= crate::runtime::HERO_ABILITY_SLOTS) || raw < 0 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            adopt_same_tick_slots(&mut hero, injections, id)?;
+            let ability = if hidden {
+                // A ranked ability no slot holds, by its id (E615).
+                hidden_ability(&hero, slot & !crate::runtime::Hero::HIDDEN_ABILITY_SLOT)?
+            } else {
+                hero.abilities.get(slot as usize).ok_or(ReplicaRuntimeError::MalformedBaseline)?.clone()
+            };
+            hero.commit_cooldown(&ability, omoba_sim::Fixed64::from_raw(raw));
             *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);
         }
         if (event.event_kind == crate::runtime::FactKind::Movement as u32
             || event.event_kind == crate::runtime::FactKind::PreStepMovement as u32)
             && event.sanitized_payload.len() >= 16
+            && !superseded_pre_step(&settled, event)
         {
             let target = event.subject.as_ref().map_or(0, |id| id.value);
             let entity = world
@@ -1742,6 +2062,10 @@ fn apply_disclosed_events(
             }
         }
     }
+    // Last: the end-of-tick hero snapshot follows every authority-only settlement
+    // (base recovery, item stats), so it supersedes this tick's in-tick rows
+    // (CommittedVitals right after damage, PROP effects) for the same hero.
+    apply_committed_economy_and_equipment(world, injections)?;
     Ok(())
 }
 
@@ -1846,6 +2170,51 @@ mod input_scheme_step_tests {
         assert!(expected>0);
         assert_eq!(replica.canonical_team_hash().as_slice(),next.post_step.unwrap().hash_checkpoint.unwrap().canonical_team_hash.as_slice());
     }
+    /// The owner replica decodes its own accepted cast and rejects it under the
+    /// authority's admission rule, keyed by the same input id.
+    #[test]
+    fn owner_replica_reports_authority_cast_rejection_by_input_id() {
+        let mut fix=crate::runtime::native::combat_acquisition::test_support::CombatFixture::legacy();
+        fix.owner(7);
+        {
+            let mut heroes=fix.world.write_storage::<Hero>();let hero=heroes.get_mut(fix.hero).unwrap();
+            hero.abilities=vec!["q_probe".into(),"w_probe".into(),"e_probe".into(),"r_probe".into()];
+            hero.ability_levels.clear();hero.ability_levels.insert("q_probe".into(),1);
+            hero.ability_cooldowns.insert("q_probe".into(),omoba_sim::Fixed64::from_i32(9));
+        }
+        let property=crate::runtime::visibility::encode_disclosed_property(fix.world.read_storage::<CProperty>().get(fix.hero).unwrap());
+        let attack=crate::runtime::visibility::canonical_disclosed_json(fix.world.read_storage::<TAttack>().get(fix.hero).unwrap());
+        let hero_json=crate::runtime::visibility::canonical_disclosed_json(fix.world.read_storage::<Hero>().get(fix.hero).unwrap());
+        let render=encode_demo_render_state(DemoRenderState {x_raw:0,y_raw:0,team_id:1,kind:1,owner_player_id:7});
+        let components=vec![(DEMO_RENDER_COMPONENT_SCHEMA_ID,render),(DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID,property),
+            (DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID,attack),(DISCLOSED_HERO_COMPONENT_SCHEMA_ID,hero_json)];
+        let allow=secure_replica_component_allowlist();let empty=std::collections::BTreeSet::new();
+        let canonical=(1_u64<<32)|55;let visible=std::collections::BTreeSet::from([canonical]);
+        let mut projector=TeamViewProjector::new(1,TeamProjectorConfig {hash_checkpoint_interval_ticks:1,..Default::default()});
+        let start=projector.build_team_game_start(1,30,0);
+        let mut replica=SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start,allow.clone(),empty.clone()).unwrap();
+        let mut stepper=SpecsDisclosedWorldStepper::from_start(&start,allow,empty);
+        let reveal=crate::runtime::visibility::VisibilityTransition::Reveal {canonical_id:canonical,effective_tick:1,
+            baseline:crate::runtime::visibility::encode_disclosed_baseline(&components)};
+        let first=projector.build_frame_with_inputs(1,1,&visible,vec![reveal],&[],&ProjectionDependencyGraph::default(),vec![]).unwrap().frame;
+        replica.apply_frame(first,&mut stepper).unwrap();
+        stepper.bootstrap_membership(replica.world()).unwrap();
+        let render_id=*replica.world().entities.keys().next().unwrap();
+        let cast=|input_id:u64,slot:u32| {
+            let payload=crate::game_proto::PlayerInput {action:Some(crate::game_proto::player_input::Action::CastAbility(
+                crate::game_proto::CastAbility {ability_index:slot,..Default::default()}))};
+            crate::game_proto::TeamAcceptedInput {player_id:7,input_id,action_kind:3,
+                actor:Some(crate::game_proto::ReplicaEntityId {value:render_id}),target:None,
+                sanitized_payload:payload.encode_to_vec(),stable_sub_index:0}
+        };
+        stepper.inject_accepted_inputs(&StepInjections {accepted_inputs:vec![cast(61,3),cast(62,0)],..Default::default()}).unwrap();
+        crate::comp::run_now::<crate::tick::player_input_tick::Sys>(&stepper.filtered.world);
+        crate::runtime::drain_pending_ability_casts(&mut stepper.filtered.world);
+        assert_eq!(stepper.take_owner_command_rejections(7),
+            vec![(61,crate::runtime::native::command_outcome::NOT_LEARNED),(62,crate::runtime::native::command_outcome::ON_COOLDOWN)]);
+        assert!(stepper.take_owner_command_rejections(7).is_empty(),"drained on read");
+    }
+
     #[test]
     fn input_scheme_filtered_mode_reset_and_direction_begin_keep_distinct_attack_policy() {
         for reset in [false,true] {
@@ -2059,6 +2428,30 @@ mod committed_actor_state_tests {
         assert!(apply_disclosed_events(&mut world, &event(FactKind::AttackVisual, idle)).is_err());
     }
 
+    /// E541 (demo10 observer-mismatch-after-rebase): a target state gained or lost within a
+    /// disclosed life reaches the replica in the step's event; an empty payload removes it.
+    #[test]
+    fn target_state_and_unit_abilities_follow_the_step_events() {
+        use crate::runtime::{DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID as TARGET, encode_disclosed_target_state};
+        use crate::runtime::native::unit_abilities::{SCHEMA_ID as ABILITIES, UnitAbilityRow, UnitAbilityState};
+        let mut world = world();
+        let immune = encode_disclosed_target_state(crate::runtime::TARGET_STATE_MAGIC_IMMUNE).unwrap();
+        apply_disclosed_events(&mut world, &event(FactKind::TargetState, immune.clone())).unwrap();
+        assert_eq!(world.entities[&1].components.get(&TARGET), Some(&immune), "gained");
+        apply_disclosed_events(&mut world, &event(FactKind::TargetState, Vec::new())).unwrap();
+        assert!(!world.entities[&1].components.contains_key(&TARGET), "lost");
+        let before = world.clone();
+        assert!(apply_disclosed_events(&mut world, &event(FactKind::TargetState, vec![1, 9])).is_err());
+        assert_eq!(world, before);
+        let shown = UnitAbilityState { abilities: vec![UnitAbilityRow { ability: "a36_detonate".into(), level: 1, cooldown_raw: 2048 }] };
+        let bytes = crate::runtime::visibility::canonical_disclosed_json(&shown);
+        apply_disclosed_events(&mut world, &event(FactKind::UnitAbilities, bytes.clone())).unwrap();
+        assert_eq!(world.entities[&1].components.get(&ABILITIES), Some(&bytes));
+        assert!(apply_disclosed_events(&mut world, &event(FactKind::UnitAbilities, b"{".to_vec())).is_err());
+        apply_disclosed_events(&mut world, &event(FactKind::UnitAbilities, Vec::new())).unwrap();
+        assert!(!world.entities[&1].components.contains_key(&ABILITIES));
+    }
+
     #[test]
     fn channel_visual_state_absolute_updates_clear_and_require_live_baseline() {
         use crate::runtime::channel_visual_state::{ChannelVisualState,SCHEMA_ID};
@@ -2153,6 +2546,143 @@ mod committed_actor_state_tests {
                 fields.into_iter().flat_map(i32::to_le_bytes).collect())).is_err());
             assert_eq!(world, before);
         }
+    }
+
+    /// E401: an opposing hero's swap_abilities reaches the replica: the swapped-in ability takes the
+    /// slot and, having no rank, the swapped-out one's; unknown ids change nothing.
+    #[test]
+    fn committed_ability_slots_follow_the_authoritys_swaps() {
+        let mut world=world();
+        apply_disclosed_events(&mut world,&event(FactKind::CommittedAbilityRanks,
+            [2i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect())).unwrap();
+        let id=|name:&str|omoba_template_ids::ability_by_name(name).unwrap().raw();
+        let slots=|first:u16|event(FactKind::CommittedAbilitySlots,[first,0,0,0].into_iter().flat_map(u16::to_le_bytes).collect());
+        apply_disclosed_events(&mut world,&slots(id("lumen_touch"))).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities,vec!["lumen_touch"]);
+        assert_eq!((hero.get_ability_level("lumen_touch"),hero.get_ability_level("lumen_bolt")),(2,2));
+        let once=world.clone();
+        apply_disclosed_events(&mut world,&slots(id("lumen_touch"))).unwrap();
+        assert_eq!(world,once,"idempotent");
+        apply_disclosed_events(&mut world,&slots(id("lumen_bolt"))).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities,vec!["lumen_bolt"],"swapped back");
+        let before=world.clone();
+        for bad in [slots(u16::MAX),event(FactKind::CommittedAbilitySlots,vec![0;7]),event(FactKind::CommittedAbilitySlots,vec![0;2])] {
+            assert!(apply_disclosed_events(&mut world,&bad).is_err());
+            assert_eq!(world,before);
+        }
+    }
+
+    #[test]
+    fn a_swap_and_its_ranks_in_one_tick_leave_the_hidden_ability_its_own_rank() {
+        // E407: the authority swaps lumen_bolt (rank 2) for lumen_touch (already rank 1) and the
+        // tick's facts come ranks (25) before slots (43). The slot's rank is lumen_touch's.
+        let mut world=world();
+        apply_disclosed_events(&mut world,&event(FactKind::CommittedAbilityRanks,
+            [2i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect())).unwrap();
+        let id=|name:&str|omoba_template_ids::ability_by_name(name).unwrap().raw();
+        let mut tick=event(FactKind::CommittedAbilityRanks,[1i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect());
+        tick.public_events.extend(event(FactKind::CommittedAbilitySlots,
+            [id("lumen_touch"),0,0,0].into_iter().flat_map(u16::to_le_bytes).collect()).public_events);
+        apply_disclosed_events(&mut world,&tick).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities,vec!["lumen_touch"]);
+        assert_eq!((hero.get_ability_level("lumen_touch"),hero.get_ability_level("lumen_bolt")),(1,2));
+    }
+
+    /// E610: a one-level ability swapped in under a rank-2 one (B24's b24_shatter for
+    /// b24_earth_prison) takes rank 1, the rank the authority sends for its slot; the hidden one
+    /// keeps rank 2.
+    #[test]
+    fn a_swapped_in_ability_inherits_at_most_its_own_max_level() {
+        let mut world=world();
+        apply_disclosed_events(&mut world,&event(FactKind::CommittedAbilityRanks,
+            [2i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect())).unwrap();
+        let id=|name:&str|omoba_template_ids::ability_by_name(name).unwrap().raw();
+        let mut tick=event(FactKind::CommittedAbilityRanks,[1i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect());
+        tick.public_events.extend(event(FactKind::CommittedAbilitySlots,
+            [id("b24_shatter"),0,0,0].into_iter().flat_map(u16::to_le_bytes).collect()).public_events);
+        apply_disclosed_events(&mut world,&tick).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities,vec!["b24_shatter"]);
+        assert_eq!((hero.get_ability_level("b24_shatter"),hero.get_ability_level("lumen_bolt")),(1,2));
+        let mut authority=Hero::default();
+        authority.inherit_swapped_rank("b24_shatter",2);
+        assert_eq!(authority.get_ability_level("b24_shatter"),1,"the authority's swap caps it the same way");
+    }
+
+    /// E611: the replica predicted another stolen F ability (C08's pick is random) than the one
+    /// the authority's slot names; the replaced grant leaves no rank behind.
+    #[test]
+    fn a_replaced_granted_slot_leaves_no_rank_behind() {
+        let mut world=world();
+        let id=|name:&str|omoba_template_ids::ability_by_name(name).unwrap().raw();
+        let slots=|fifth:&str|event(FactKind::CommittedAbilitySlots,
+            [id("lumen_bolt"),0,0,0,id(fifth)].into_iter().flat_map(u16::to_le_bytes).collect());
+        apply_disclosed_events(&mut world,&slots("b29_quake_axe")).unwrap();
+        apply_disclosed_events(&mut world,&event(FactKind::CommittedAbilityRanks,
+            [2i32,0,0,0,1].into_iter().flat_map(i32::to_le_bytes).collect())).unwrap();
+        apply_disclosed_events(&mut world,&slots("b29_ground_slam")).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities[4],"b29_ground_slam");
+        assert!(!hero.ability_levels.contains_key("b29_quake_axe"),"{:?}",hero.ability_levels);
+        assert_eq!((hero.get_ability_level("b29_ground_slam"),hero.get_ability_level("lumen_bolt")),(1,2));
+    }
+
+    /// E615: a cast that swaps its own ability out (原作 A13 影惑 → 替身) commits that ability's
+    /// cooldown by its id past Hero::HIDDEN_ABILITY_SLOT; an unranked id is malformed.
+    #[test]
+    fn a_cooldown_of_an_ability_no_slot_holds_goes_to_that_ability() {
+        let mut world=world();
+        apply_disclosed_events(&mut world,&event(FactKind::CommittedAbilityRanks,
+            [2i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect())).unwrap();
+        let id=|name:&str|omoba_template_ids::ability_by_name(name).unwrap().raw();
+        let hidden=|name:&str|Hero::HIDDEN_ABILITY_SLOT|u32::from(id(name));
+        let cooldown=|slot:u32|event(FactKind::CommittedCooldown,[slot.to_le_bytes().to_vec(),7441i64.to_le_bytes().to_vec()].concat());
+        let mut tick=cooldown(hidden("lumen_bolt"));
+        tick.public_events.extend(event(FactKind::CommittedAbilitySlots,
+            [id("lumen_touch"),0,0,0].into_iter().flat_map(u16::to_le_bytes).collect()).public_events);
+        apply_disclosed_events(&mut world,&tick).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities,vec!["lumen_touch"]);
+        assert_eq!((hero.get_cooldown("lumen_bolt").raw(),hero.get_cooldown("lumen_touch").raw()),(7441,0));
+        assert_eq!(hero.committed_slot("lumen_bolt"),Some(hidden("lumen_bolt")),"the authority names it the same way");
+        assert_eq!(hero.committed_slot("lumen_touch"),Some(0));
+        let before=world.clone();
+        assert!(apply_disclosed_events(&mut world,&cooldown(hidden("b24_shatter"))).is_err(),"an unranked ability");
+        assert_eq!(world,before);
+    }
+
+    /// E606: a swap and a cooldown of its slot in one tick (cooldowns 18 sort before slots 43): the
+    /// cooldown is the swapped-in ability's, and the hidden one keeps its own (原作 A12T).
+    #[test]
+    fn a_swap_and_its_slots_cooldown_in_one_tick_go_to_the_swapped_in_ability() {
+        let mut world=world();
+        let id=|name:&str|omoba_template_ids::ability_by_name(name).unwrap().raw();
+        let mut tick=event(FactKind::CommittedCooldown,[0u32.to_le_bytes().to_vec(),7441i64.to_le_bytes().to_vec()].concat());
+        tick.public_events.extend(event(FactKind::CommittedAbilitySlots,
+            [id("lumen_touch"),0,0,0].into_iter().flat_map(u16::to_le_bytes).collect()).public_events);
+        apply_disclosed_events(&mut world,&tick).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities,vec!["lumen_touch"]);
+        assert_eq!(hero.get_cooldown("lumen_touch").raw(),7441);
+        assert_eq!(hero.get_cooldown("lumen_bolt").raw(),0,"the hidden ability keeps its own");
+    }
+
+    /// E579: an unlearned ability swapped in (no rank on the authority) gets no rank key from a
+    /// rank 0 here either, so the replica's hero matches the authority's.
+    #[test]
+    fn an_unlearned_swapped_in_ability_gets_no_rank_key() {
+        let mut world=world();
+        let id=|name:&str|omoba_template_ids::ability_by_name(name).unwrap().raw();
+        let mut tick=event(FactKind::CommittedAbilityRanks,[0i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect());
+        tick.public_events.extend(event(FactKind::CommittedAbilitySlots,
+            [id("lumen_touch"),0,0,0].into_iter().flat_map(u16::to_le_bytes).collect()).public_events);
+        apply_disclosed_events(&mut world,&tick).unwrap();
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.abilities,vec!["lumen_touch"]);
+        assert!(!hero.ability_levels.contains_key("lumen_touch"),"no key the authority does not hold");
     }
 
     #[test]
@@ -2280,7 +2810,7 @@ mod canonical_json_tests {
         assert!(detail.preparation_ns > 0);
         assert!(detail.finalization_ns > 0);
         let dispatcher = detail.dispatcher.expect("concrete dispatcher profile");
-        assert_eq!(dispatcher.jobs.unwrap().observed_jobs, 18);
+        assert_eq!(dispatcher.jobs.unwrap().observed_jobs, 19);
         assert!(dispatcher.residual_ns(detail.phases_ns[DeterministicGameplayPhase::Dispatcher as usize]).is_some());
         assert_eq!(plain.filtered.world.read_resource::<ReplicaPhaseTrace>().0,
             measured.filtered.world.read_resource::<ReplicaPhaseTrace>().0);
@@ -2385,9 +2915,76 @@ mod canonical_json_tests {
         assert!(moba_damage_allowed(&stepper.filtered.world, specs_entity(7)));
         assert!(!moba_damage_allowed(&stepper.filtered.world, specs_entity(5)));
         assert!(!moba_damage_allowed(&stepper.filtered.world, specs_entity(6)));
+        {
+            // E170: disclosed lane structures are buildings on the replica, other units are not.
+            let buildings = stepper.filtered.world.read_storage::<crate::runtime::IsBuilding>();
+            assert!(buildings.get(specs_entity(5)).is_some() && buildings.get(specs_entity(6)).is_some());
+            for id in [1, 2, 3, 4, 7] { assert!(buildings.get(specs_entity(id)).is_none(), "entity {id}"); }
+        }
         disclosed.entities.get_mut(&2).unwrap().components.insert(
             DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID, vec![1, 9, 0, 0, 0, 2, 1, 1]);
         assert!(stepper.bootstrap_membership(&disclosed).is_err());
+    }
+
+    /// E190: the authority keeps a target of this frame's accepted input disclosed one
+    /// frame after it was deleted during the step (input_grace). When this replica's own
+    /// step settled the same death, the entity stays deleted (no write into a dead entity,
+    /// no resurrection) and the next frame retires it; any other locally deleted entity
+    /// that is still disclosed remains a divergence.
+    #[test]
+    fn graced_input_target_deleted_by_the_replica_step_stays_deleted_until_retired() {
+        use crate::runtime::*;
+        use specs::{Join, WorldExt};
+        let start = crate::game_proto::TeamGameStart { tick_rate_hz: 60, global_seed: 7, ..Default::default() };
+        let render = encode_demo_render_state(DemoRenderState { x_raw: 0, y_raw: 0, team_id: 2, kind: 2, owner_player_id: 0 });
+        let mut property = vec![0u8; 40];
+        property[..8].copy_from_slice(&(100i64 * 1024).to_be_bytes());
+        property[8..16].copy_from_slice(&(100i64 * 1024).to_be_bytes());
+        let disclosed = || {
+            let mut world = DisclosedReplicaWorld::default();
+            for id in [1u64, 2] {
+                world.entities.insert(id, ReplicaEntityState { replica_id: id, disclosure_epoch: 1, entity_kind: 2, authority_revision: 1,
+                    components: BTreeMap::from([(DEMO_RENDER_COMPONENT_SCHEMA_ID, render.clone()),
+                        (DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID, property.clone())]) });
+            }
+            world
+        };
+        let booted = |world: &DisclosedReplicaWorld| {
+            let mut stepper = SpecsDisclosedWorldStepper::from_start(&start, secure_replica_component_allowlist(), std::collections::BTreeSet::new());
+            stepper.bootstrap_membership(world).unwrap();
+            stepper
+        };
+        let kill = |stepper: &mut SpecsDisclosedWorldStepper, id: u64| {
+            let entity = stepper.filtered.entities.0[&id].entity;
+            stepper.filtered.world.delete_entity(entity).unwrap();
+            stepper.filtered.world.maintain();
+            entity
+        };
+        let targets = |ids: &[u64]| ids.iter().copied().collect::<std::collections::BTreeSet<u64>>();
+
+        let mut world = disclosed();
+        let mut stepper = booted(&world);
+        let dead = kill(&mut stepper, 1);
+        let alive = stepper.filtered.entities.0[&2].entity;
+        let count = |stepper: &SpecsDisclosedWorldStepper| stepper.filtered.world.entities().join().count();
+        let before = count(&stepper);
+        stepper.synchronize_specs_membership_after_inputs(&world, &targets(&[1])).unwrap();
+        assert_eq!(stepper.filtered.entities.0[&1].entity, dead, "the graced row keeps its mapping");
+        assert!(!stepper.filtered.world.is_alive(dead), "and is not resurrected");
+        assert_eq!(count(&stepper), before, "no new local entity");
+        assert!(stepper.filtered.world.read_storage::<CProperty>().get(alive).is_some(), "other rows still synchronize");
+        // Next frame: the authority hides it; the mapping retires without a second delete.
+        world.entities.remove(&1);
+        stepper.synchronize_specs_membership_after_inputs(&world, &targets(&[])).unwrap();
+        assert!(!stepper.filtered.entities.0.contains_key(&1));
+        assert_eq!(count(&stepper), before);
+
+        // Not a target of this frame's inputs: a local death the authority did not settle.
+        let world = disclosed();
+        let mut stepper = booted(&world);
+        kill(&mut stepper, 2);
+        assert!(matches!(stepper.synchronize_specs_membership_after_inputs(&world, &targets(&[1])),
+            Err(ReplicaRuntimeError::MalformedBaseline)));
     }
 
     #[test]
@@ -2469,6 +3066,20 @@ mod canonical_json_tests {
         assert_eq!(positions.get(entity).unwrap().0.x.raw(), 123);
         assert_eq!(positions.get(entity).unwrap().0.y.raw(), -456);
         assert_eq!(facings.get(entity).unwrap().0.ticks(), 1024);
+        drop((positions, facings));
+
+        // E594: a unit that walked (PreStepMovement) and was then pulled (Movement) the same step
+        // ends where the pull put it, though the walk comes after in the step's facts.
+        let fact = |kind: FactKind, x: i64| TeamPublicEvent { event_kind: kind as u32, subject: Some(ReplicaEntityId { value: replica_id }),
+            sanitized_payload: [x.to_le_bytes(), 0_i64.to_le_bytes()].concat(), stable_sub_index: 0 };
+        let injections = StepInjections {
+            public_events: vec![fact(FactKind::Movement, 900), fact(FactKind::PreStepMovement, 50)],
+            ..StepInjections::default()
+        };
+        super::apply_authoritative_movement_outcomes(&mut stepper, &injections).unwrap();
+        assert_eq!(stepper.filtered.world.read_storage::<Pos>().get(entity).unwrap().0.x.raw(), 900);
+        assert!(super::superseded_pre_step(&super::post_step_movers(&injections), &injections.public_events[1]));
+        assert!(!super::superseded_pre_step(&super::post_step_movers(&injections), &injections.public_events[0]));
     }
 }
 

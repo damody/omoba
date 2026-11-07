@@ -1379,7 +1379,10 @@ function M.run(options)
     return report
   end
   local state = {}
-  local profile = path.join(b.root, 'omfue', 'Saved', 'Controls', '1', 'profile.json')
+  -- The editor keeps player 1's controls inside this run's evidence (isolate_controls below); the
+  -- player's own Saved/Controls is never captured or rewritten, so a key the user changes meanwhile
+  -- survives the run (E141).
+  local profile = path.join(b.root, 'omfue', 'Saved', 'Automation', 'OwnedViewportIpc', run_id, 'controls', '1', 'profile.json')
   local profile_existed = path.is_file(profile)
   local profile_bytes = profile_existed and path.read(profile, true) or nil
   local workflow_path
@@ -1395,7 +1398,9 @@ function M.run(options)
     path.mkdir_p(parent)
     local evidence = path.join(parent, run_id)
     assert(not path.exists(evidence), 'evidence directory must be a fresh path')
-    local project = path.join(b.root, 'omfue')
+    -- Unreal runs from a binaries snapshot, never live omfue, so the user's own build can
+    -- relink the DLLs while this runs (E116).
+    local project = require('ue_run_snapshot').prepare(b.root).project_dir
     local editor = path.join(path.absolute(options.ue_root), 'Engine', 'Binaries', 'Win64', 'UnrealEditor-Cmd.exe')
     assert(path.is_file(editor), 'UnrealEditor-Cmd.exe is missing')
     assert(path.is_file(path.join(project, 'om.uproject')), 'om.uproject is missing')
@@ -1424,6 +1429,16 @@ function M.run(options)
     report.live_catalog_identity_hash = startup.content_catalog_identity_hash
     report.live_map_catalog_hash = startup.moba_map_catalog_hash
     report.live_address = startup.address
+    -- The renderer's bridge rejects a runtime whose content hash differs from its own and the
+    -- run then times out with no frame (E130). The fixture is rebuilt for every run; the
+    -- bridge only when the frontend is built, so refuse a stale bridge here with the reason.
+    local bridge = path.join(project, require('ue_bridge_stage').DLL)
+    local bridge_content = path.is_file(bridge) and require('run_artifacts').content_hash(bridge)
+    report.bridge_content_hash = bridge_content or nil
+    assert(not bridge_content or bridge_content == startup.content_hash:lower(),
+      ('renderer bridge content %s differs from the fixture content %s: the bridge would reject the fixture '..
+       'and no frame would arrive. Build the frontend (build_ue_moba) or run a shadow build that matches '..
+       '(stage_ue_shadow.lua + OM_UE_RUN_BINARIES): %s'):format(bridge_content or '?', startup.content_hash, bridge))
     if report.foundation_summary == 'present'
         and type(report.foundation_content_hash) == 'string'
         and type(report.foundation_map_catalog_hash) == 'string' then
@@ -1435,6 +1450,8 @@ function M.run(options)
     local _, editor_owned = process.spawn_owned(editor, {
       path.join(project, 'om.uproject'),
       '-unattended', '-nop4', '-NoSound', '-NoLiveCoding', '-d3d12',
+      require('ue_desktop').args()[1], -- off the user's desktop unless OM_OWN_DESKTOP=1 (E114)
+      require('ue_desktop').isolate_controls({}, path.join(evidence, 'controls'))[1], -- never the player's profile (E141)
       '-om-team=1', '-om-native-content', '-om-renderer-fixture',
       options.record_video and '-om-owned-video' or '-om-owned-video-disabled',
       '-om-owned-phase=' .. phase,

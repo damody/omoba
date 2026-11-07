@@ -7,9 +7,13 @@ local content='omfue/Content/Omoba/MapBiomesV1'
 local receipt='omfue/Saved/BuildTemp/map-biome-materials.json'
 local ids={'jungle','bank','river'}
 local textures={grass='omfue/Content/Omoba/WorldSurfacesV1/T_grass.uasset',stone='omfue/Content/Omoba/WorldSurfacesV1/T_stone.uasset'}
+-- A material with a source under DShader/ is rebuilt from it, so its bytes pin nothing.
+local function from_text(root,id)
+ return p.is_file(p.join(root,'omfue/DShader/Omoba/MapBiomesV1/M_'..id..'.dss'))
+end
 local function current(root)
  local state={producer_sha256=h.sha256(p.join(root,producer)),materials={},textures={}}
- for _,id in ipairs(ids)do state.materials[id]=h.sha256(p.join(root,content,'M_'..id..'.uasset'))end
+ for _,id in ipairs(ids)do state.materials[id]=from_text(root,id)and'text'or h.sha256(p.join(root,content,'M_'..id..'.uasset'))end
  for id,file in pairs(textures)do state.textures[id]=h.sha256(p.join(root,file))end
  return state
 end
@@ -19,7 +23,7 @@ local function provenance(root)
  for _,row in ipairs(value.materials)do
   assert((row.id=='jungle'or row.id=='bank'or row.id=='river')and not seen[row.id],'invalid biome material ID');seen[row.id]=true
   local file=content..'/M_'..row.id..'.uasset';assert(row.package_file==file,'invalid biome package path')
-  assert(h.sha256(p.join(root,file))==row.sha256,'managed biome material changed: '..row.id)
+  assert(from_text(root,row.id)or h.sha256(p.join(root,file))==row.sha256,'managed biome material changed: '..row.id)
  end
  return value
 end

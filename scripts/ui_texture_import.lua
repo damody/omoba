@@ -6,6 +6,13 @@ local hash = require('tools.lua.lib.hash')
 
 local M = {}
 local EXPECTED_EDGE = 1254
+-- Accepted original generators. A "mixed" manifest names the tool on every asset.
+M.tools = {['builtin-image_gen'] = true, ['grok-build-image_gen'] = true}
+
+local function check_tool(manifest, asset)
+  assert(manifest.tool ~= 'mixed' or asset.tool ~= nil, 'mixed manifest asset must name its tool')
+  assert(M.tools[asset.tool or manifest.tool], 'manifest asset tool is not an accepted original generator')
+end
 
 M.kinds = {
   item = {
@@ -15,6 +22,8 @@ M.kinds = {
     file_matches_content = true,
     reject_charges = true,
     label = 'name',
+    schema = 'omoba.ui-texture-assets.v1',
+    max_assets = 64, max_catalog = 64,
   },
   trinket = {
     catalog = 'scripts/lua_data/templates/moba_trinkets.lua',
@@ -23,6 +32,25 @@ M.kinds = {
     file_matches_content = false,
     reject_charges = false,
     label = 'display_name',
+    schema = 'omoba.ui-texture-assets.v1',
+    max_assets = 64, max_catalog = 64,
+  },
+  -- Hero ability icons. The catalog id is the 1-based include position in
+  -- templates/abilities.lua, which is also the generated ability numeric id the
+  -- commandlet verifies. The manifest may cover a subset (legacy atlas tiles
+  -- still serve older abilities); HUD coverage owns "every hero ability has art".
+  ability = {
+    include = 'templates/abilities.lua',
+    destination = '/Game/Omoba/UI/Abilities',
+    stage = 'omfue/Content/Omoba/UI/Abilities/Source',
+    manifest = 'omfue/Content/Omoba/UI/Abilities/Source/manifest.json',
+    file_matches_content = true,
+    reject_charges = false,
+    label = 'display_name',
+    schema = 'omoba.ability-icon-assets.v1',
+    partial = true,
+    require_provenance = true,
+    max_assets = 512, max_catalog = 65535,
   },
 }
 
@@ -52,7 +80,9 @@ local function normalize(value)
   return text
 end
 
-function M.durable_manifest(root)
+function M.durable_manifest(root, kind)
+  local spec = kind and assert(M.kinds[kind], 'unknown ui texture kind')
+  if spec and spec.manifest then return path.join(root, spec.manifest) end
   return path.join(root, 'omfue/Content/Omoba/UI/trinket-icon-assets-v1.json')
 end
 
@@ -86,6 +116,15 @@ end
 
 local function authored_rows(root, kind)
   local spec = assert(M.kinds[kind], 'unknown ui texture kind')
+  if spec.include then
+    local context = require('content_builder').new(path.join(root, 'scripts/lua_data'))
+    local rows = {}
+    for index, row in ipairs(context.include(spec.include)) do
+      rows[index] = {catalog_id = index, id = row.id, [spec.label] = row[spec.label]}
+    end
+    assert(#rows > 0 and #rows <= spec.max_catalog, 'authored catalog is empty or too large')
+    return rows, spec
+  end
   local chunk, err = loadfile(path.join(root, spec.catalog))
   assert(chunk, err)
   local builder = assert(chunk(), 'catalog did not return a builder')
@@ -106,18 +145,19 @@ function M.validate(options)
   local manifest_path = path.absolute(assert(options.manifest, 'manifest path is required'), root)
   assert(not escapes(manifest_path), 'manifest path cannot contain a parent segment')
   local manifest = json.read(manifest_path)
-  assert(manifest.schema == 'omoba.ui-texture-assets.v1', 'unsupported ui texture manifest schema')
+  local kind_spec = assert(M.kinds[kind], 'unknown ui texture kind')
+  assert(manifest.schema == kind_spec.schema, 'unsupported ui texture manifest schema')
   assert(manifest.kind == kind, 'manifest kind does not match the requested catalog')
-  assert(manifest.tool == 'builtin-image_gen', 'ui texture manifest tool is not the original generator')
+  assert(manifest.tool == 'mixed' or M.tools[manifest.tool], 'ui texture manifest tool is not an original generator')
   assert(type(manifest.status) == 'string' and manifest.status ~= '', 'ui texture manifest status is missing')
   assert(manifest.status ~= 'imported', 'source manifest cannot claim the texture is imported')
-  assert(type(manifest.assets) == 'table' and #manifest.assets > 0 and #manifest.assets <= 64, 'ui texture asset list is invalid')
+  assert(type(manifest.assets) == 'table' and #manifest.assets > 0 and #manifest.assets <= kind_spec.max_assets, 'ui texture asset list is invalid')
   local candidate_dir = path.absolute(options.candidate_dir or path.parent(manifest_path), root)
   assert(M.inside_project(root, candidate_dir), 'candidate png directory is outside the project: ' .. candidate_dir)
   local authored, spec = authored_rows(root, kind)
   local by_catalog, by_id = {}, {}
   for _, row in ipairs(authored) do
-    assert(whole(row.catalog_id, 1, 64), 'authored catalog id is out of bounds')
+    assert(whole(row.catalog_id, 1, spec.max_catalog), 'authored catalog id is out of bounds')
     assert(identifier(row.id), 'authored content id is invalid')
     assert(type(row[spec.label]) == 'string' and row[spec.label] ~= '', 'authored display name is missing')
     assert(not by_catalog[row.catalog_id] and not by_id[row.id], 'authored catalog identity is duplicated')
@@ -125,12 +165,18 @@ function M.validate(options)
     by_catalog[row.catalog_id] = row
     by_id[row.id] = row
   end
-  assert(#manifest.assets == #authored, 'manifest assets must cover the authored catalog exactly')
+  if not spec.partial then assert(#manifest.assets == #authored, 'manifest assets must cover the authored catalog exactly') end
   local seen_catalog, seen_id, seen_dest, assets = {}, {}, {}, {}
   for _, asset in ipairs(manifest.assets) do
     assert(type(asset) == 'table', 'manifest asset is not an object')
     assert(asset.item_id == nil, 'ui texture manifest cannot use an item id')
-    assert(whole(asset.catalog_id, 1, 64), 'manifest catalog id is out of bounds')
+    check_tool(manifest, asset)
+    assert(whole(asset.catalog_id, 1, spec.max_catalog), 'manifest catalog id is out of bounds')
+    if spec.require_provenance then
+      assert(type(asset.prompt) == 'string' and asset.prompt ~= '', 'manifest prompt provenance is missing')
+      assert(type(asset.visual_review) == 'string' and asset.visual_review ~= '', 'manifest visual review is missing')
+      assert(type(asset.tool) == 'string' and asset.tool ~= '', 'manifest asset must name its generator')
+    end
     assert(identifier(asset.content_id), 'manifest content id is invalid')
     assert(flat_png(asset.file), 'manifest file must be a flat png name')
     if spec.file_matches_content then
@@ -165,8 +211,10 @@ function M.validate(options)
       object_path = object_path, destination_path = spec.destination,
     }
   end
-  for catalog_id in pairs(by_catalog) do
-    assert(seen_catalog[catalog_id], 'authored catalog row has no texture: ' .. catalog_id)
+  if not spec.partial then
+    for catalog_id in pairs(by_catalog) do
+      assert(seen_catalog[catalog_id], 'authored catalog row has no texture: ' .. catalog_id)
+    end
   end
   table.sort(assets, function(a, b) return a.catalog_id < b.catalog_id end)
   return {
@@ -237,11 +285,42 @@ function M.commandlet_plan(plan)
   return {schema = plan.schema, kind = plan.kind, assets = assets}
 end
 
-function M.publish_registry_resource(registry_text, kind, content_id, object_path)
+-- Ability icons: a missing row is appended and a declared placeholder row is
+-- converted into the packaged single-tile row; authored atlas art is never replaced.
+local function publish_ability_row(registry, content_id, object_path, display_name)
+  local target
+  for _, entry in ipairs(registry.entries) do
+    if entry.kind == 'ability' and entry.id == content_id then
+      assert(not target, 'registry content id is duplicated: ' .. content_id)
+      target = entry
+    end
+  end
+  if target and target.resource ~= nil then
+    assert(target.resource == object_path, 'registry resource differs and was not overwritten: ' .. content_id)
+    return false
+  end
+  if target then
+    assert(target.placeholder == true, 'registry ability has authored atlas art and was not overwritten: ' .. content_id)
+  else
+    target = {kind = 'ability', id = content_id}
+    registry.entries[#registry.entries + 1] = target
+  end
+  target.placeholder = nil
+  target.file, target.columns, target.rows, target.tile = content_id .. '.png', 1, 1, 0
+  target.resource = object_path
+  if display_name ~= nil then target.displayName = display_name end
+  return true
+end
+
+function M.publish_registry_resource(registry_text, kind, content_id, object_path, display_name)
   assert(type(registry_text) == 'string' and registry_text ~= '', 'registry text is missing')
   assert(object_path == M.object_path(kind, content_id), 'registry resource is not the catalog object path')
   local registry = json.decode(registry_text)
   assert(type(registry) == 'table' and type(registry.entries) == 'table', 'registry entries are missing')
+  if kind == 'ability' then
+    if not publish_ability_row(registry, content_id, object_path, display_name) then return registry_text, false end
+    return json.encode(registry), true
+  end
   local target
   for _, entry in ipairs(registry.entries) do
     assert(type(entry) == 'table', 'registry entry is not an object')

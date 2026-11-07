@@ -1,6 +1,9 @@
 //! One-shot presentation payloads contain replica identity only, never a hidden source.
 pub const MAX_DAMAGE_CUES_PER_SNAPSHOT: usize = 1024;
 pub const MAX_PRESENTATION_CUES_PER_SNAPSHOT: usize = MAX_DAMAGE_CUES_PER_SNAPSHOT;
+/// A committed item use is published as a successful cast of `item:<shelf id>` (same projection
+/// as a hero ability: only teams that see the user); the renderer plays the item's own cues.
+pub const ITEM_CAST_PREFIX: &str = "item:";
 
 /// Stable fact identity shared by native event production and catalog lookup.
 /// This intentionally preserves the existing FNV-1a wire identity.
@@ -17,6 +20,8 @@ pub enum PresentationCue {
     Damage(DamagePresentationCue),
     Ability(AbilityPresentationCue),
     AbilityArea(AbilityAreaPresentationCue),
+    AbilityTarget(AbilityTargetPresentationCue),
+    Cue(CuePresentationCue),
     ProjectileImpact(ProjectileImpactPresentationCue),
     AttackAvoided(AttackAvoidedPresentationCue),
     CriticalHit(CriticalHitPresentationCue),
@@ -27,6 +32,8 @@ impl PresentationCue {
         DamagePresentationCue::decode(bytes).map(Self::Damage)
             .or_else(|| AbilityPresentationCue::decode(bytes).map(Self::Ability))
             .or_else(|| AbilityAreaPresentationCue::decode(bytes).map(Self::AbilityArea))
+            .or_else(|| AbilityTargetPresentationCue::decode(bytes).map(Self::AbilityTarget))
+            .or_else(|| CuePresentationCue::decode(bytes).map(Self::Cue))
             .or_else(|| ProjectileImpactPresentationCue::decode(bytes).map(Self::ProjectileImpact))
             .or_else(|| AttackAvoidedPresentationCue::decode(bytes).map(Self::AttackAvoided))
             .or_else(|| CriticalHitPresentationCue::decode(bytes).map(Self::CriticalHit))
@@ -38,27 +45,30 @@ impl PresentationCue {
     }
 
     pub fn tick(self) -> u64 {
-        match self { Self::Damage(cue) => cue.tick, Self::Ability(cue) => cue.tick, Self::AbilityArea(cue) => cue.cast.tick, Self::ProjectileImpact(cue) => cue.tick, Self::AttackAvoided(cue) => cue.tick, Self::CriticalHit(cue)=>cue.tick }
+        match self { Self::Damage(cue) => cue.tick, Self::Ability(cue) => cue.tick, Self::AbilityArea(cue) => cue.cast.tick, Self::AbilityTarget(cue) => cue.tick, Self::Cue(cue) => cue.tick, Self::ProjectileImpact(cue) => cue.tick, Self::AttackAvoided(cue) => cue.tick, Self::CriticalHit(cue)=>cue.tick }
     }
 
-    /// The only live entity dependency of the current safe payload formats.
-    pub fn disclosed_entity(self) -> (u64, u64) {
-        match self {
+    /// The only live entity dependency of the current safe payload formats; none for a cue at a
+    /// ground point (its caster, when disclosed, is extra identity, not the anchor).
+    pub fn disclosed_entity(self) -> Option<(u64, u64)> {
+        Some(match self {
             Self::Damage(cue) => (cue.target_id, cue.disclosure_epoch),
             Self::Ability(cue) => (cue.caster_id, cue.disclosure_epoch),
             Self::AbilityArea(cue) => (cue.cast.caster_id, cue.cast.disclosure_epoch),
+            Self::AbilityTarget(cue) => return (cue.target_id != 0).then_some((cue.target_id, cue.target_epoch)),
+            Self::Cue(cue) => return (cue.at_id != 0).then_some((cue.at_id, cue.at_epoch)),
             Self::ProjectileImpact(cue) => (cue.target_id, cue.disclosure_epoch),
             Self::AttackAvoided(cue) => (cue.target_id, cue.disclosure_epoch),
             Self::CriticalHit(cue)=>(cue.target_id,cue.disclosure_epoch),
-        }
+        })
     }
 
     pub fn encode(self) -> Vec<u8> {
-        match self { Self::Damage(cue) => cue.encode(), Self::Ability(cue) => cue.encode(), Self::AbilityArea(cue) => cue.encode(), Self::ProjectileImpact(cue) => cue.encode(), Self::AttackAvoided(cue) => cue.encode(), Self::CriticalHit(cue)=>cue.encode() }
+        match self { Self::Damage(cue) => cue.encode(), Self::Ability(cue) => cue.encode(), Self::AbilityArea(cue) => cue.encode(), Self::AbilityTarget(cue) => cue.encode(), Self::Cue(cue) => cue.encode(), Self::ProjectileImpact(cue) => cue.encode(), Self::AttackAvoided(cue) => cue.encode(), Self::CriticalHit(cue)=>cue.encode() }
     }
 
     pub fn from_public_event(tick:u64, event:&crate::game_proto::TeamPublicEvent,
-        live_epoch:impl FnOnce(u64)->Option<u64>) -> Option<(u64,Self)> {
+        live_epoch:impl Fn(u64)->Option<u64>) -> Option<(u64,Self)> {
         if event.event_kind == crate::runtime::FactKind::ProjectileImpact as u32 {
             ProjectileImpactPresentationCue::from_public_event(tick,event,live_epoch).map(|(id,cue)|(id,Self::ProjectileImpact(cue)))
         } else if event.event_kind == crate::runtime::FactKind::CriticalHit as u32 {
@@ -67,7 +77,201 @@ impl PresentationCue {
             AttackAvoidedPresentationCue::from_public_event(tick,event,live_epoch).map(|(id,cue)|(id,Self::AttackAvoided(cue)))
         } else if event.sanitized_payload.starts_with(b"APC1") {
             AbilityAreaPresentationCue::from_public_event(tick,event,live_epoch).map(|(id,cue)|(id,Self::AbilityArea(cue)))
+        } else if event.event_kind == crate::runtime::FactKind::Cue as u32 {
+            CuePresentationCue::from_public_event(tick,event,live_epoch).map(|(id,cue)|(id,Self::Cue(cue)))
+        } else if event.sanitized_payload.starts_with(b"ATG1") {
+            AbilityTargetPresentationCue::from_public_event(tick,event,live_epoch).map(|(id,cue)|(id,Self::AbilityTarget(cue)))
         } else { AbilityPresentationCue::from_public_event(tick,event,live_epoch).map(|(id,cue)|(id,Self::Ability(cue))) }
+    }
+}
+
+/// Where a successful cast (or item use) landed, for the one-shot cues played at the target: a
+/// disclosed unit, or a ground point the team sees. The caster is identified only to a team that
+/// sees it; otherwise `caster_id` is 0 and only the target-side effect plays.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AbilityTargetPresentationCue {
+    pub tick: u64,
+    pub ability_id: u64,
+    pub rank: u32,
+    pub caster_id: u64,
+    pub caster_epoch: u64,
+    pub target_id: u64,
+    pub target_epoch: u64,
+    pub point: Option<(i64, i64)>,
+}
+
+impl AbilityTargetPresentationCue {
+    fn valid(self) -> bool {
+        let epoch = |id: u64, epoch: u64| if id == 0 { epoch == 0 } else { (1..=u64::from(u32::MAX)).contains(&epoch) };
+        self.ability_id != 0 && self.rank <= i32::MAX as u32
+            && epoch(self.caster_id, self.caster_epoch) && epoch(self.target_id, self.target_epoch)
+            && match self.point {
+                Some((x, y)) => self.target_id == 0 && AbilityPresentationCue::valid_point(x, y),
+                None => self.target_id != 0,
+            }
+    }
+
+    /// CASTER is the caster's replica id for a team that sees it, else 0; POINT is the ground
+    /// point of a point-targeted cast (a unit target is the event's subject).
+    pub fn public_payload(ability_id: u64, rank: u32, caster: u64, point: Option<(i64, i64)>) -> Vec<u8> {
+        let mut bytes = b"ATG1".to_vec();
+        bytes.extend(ability_id.to_le_bytes()); bytes.extend(rank.to_le_bytes()); bytes.extend(caster.to_le_bytes());
+        bytes.push(u8::from(point.is_some()));
+        let (x, y) = point.unwrap_or_default();
+        bytes.extend(x.to_le_bytes()); bytes.extend(y.to_le_bytes());
+        bytes
+    }
+
+    pub fn from_public_event(tick: u64, event: &crate::game_proto::TeamPublicEvent,
+        live_epoch: impl Fn(u64) -> Option<u64>) -> Option<(u64, Self)> {
+        let bytes = &event.sanitized_payload;
+        if event.event_kind != crate::runtime::FactKind::Ability as u32 || bytes.len() != 41 || &bytes[..4] != b"ATG1" { return None; }
+        let caster = u64::from_le_bytes(bytes[16..24].try_into().ok()?);
+        // A caster no longer disclosed here is simply not named.
+        let (caster_id, caster_epoch) = match (caster != 0).then(|| live_epoch(caster)).flatten() {
+            Some(epoch) => (caster, epoch),
+            None => (0, 0),
+        };
+        let at_point = match bytes[24] { 0 => false, 1 => true, _ => return None };
+        let (target_id, target_epoch, point) = if at_point {
+            (0, 0, Some((i64::from_le_bytes(bytes[25..33].try_into().ok()?), i64::from_le_bytes(bytes[33..41].try_into().ok()?))))
+        } else {
+            let target = event.subject.as_ref()?.value;
+            (target, live_epoch(target)?, None)
+        };
+        let cue = Self { tick, ability_id: u64::from_le_bytes(bytes[4..12].try_into().ok()?),
+            rank: u32::from_le_bytes(bytes[12..16].try_into().ok()?), caster_id, caster_epoch, target_id, target_epoch, point };
+        cue.valid().then_some((presentation_effect_id(tick, event.stable_sub_index)?, cue))
+    }
+
+    pub fn encode(self) -> Vec<u8> {
+        let mut bytes = b"ATC1".to_vec();
+        for value in [self.tick, self.ability_id] { bytes.extend(value.to_le_bytes()); }
+        bytes.extend(self.rank.to_le_bytes());
+        for value in [self.caster_id, self.caster_epoch, self.target_id, self.target_epoch] { bytes.extend(value.to_le_bytes()); }
+        bytes.push(u8::from(self.point.is_some()));
+        let (x, y) = self.point.unwrap_or_default();
+        bytes.extend(x.to_le_bytes()); bytes.extend(y.to_le_bytes());
+        bytes
+    }
+
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != 73 || &bytes[..4] != b"ATC1" { return None; }
+        let word = |at: usize| -> Option<u64> { Some(u64::from_le_bytes(bytes[at..at + 8].try_into().ok()?)) };
+        let point = match bytes[56] {
+            0 => None,
+            1 => Some((i64::from_le_bytes(bytes[57..65].try_into().ok()?), i64::from_le_bytes(bytes[65..73].try_into().ok()?))),
+            _ => return None,
+        };
+        let cue = Self { tick: word(4)?, ability_id: word(12)?, rank: u32::from_le_bytes(bytes[20..24].try_into().ok()?),
+            caster_id: word(24)?, caster_epoch: word(32)?, target_id: word(40)?, target_epoch: word(48)?, point };
+        cue.valid().then_some(cue)
+    }
+}
+
+/// One end of a cue on the wire: a replica id, or a raw Fixed64 ground point.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CueEnd { Unit(u64), Point(i64, i64) }
+
+/// A script's cue as this client's team may see it: `at` is a unit or a point, `to` optional;
+/// ids of 0 are not named here. `cue` is the FNV-1a of the v3 cue id (`stable_content_fact_id`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CuePresentationCue {
+    pub tick: u64,
+    pub cue: u64,
+    pub source_id: u64,
+    pub source_epoch: u64,
+    pub at_id: u64,
+    pub at_epoch: u64,
+    pub at_point: Option<(i64, i64)>,
+    pub to_id: u64,
+    pub to_epoch: u64,
+    pub to_point: Option<(i64, i64)>,
+    pub radius_raw: i64,
+    pub duration_raw: i64,
+}
+
+impl CuePresentationCue {
+    const WIRE_LEN: usize = 4 + 8 + 8 + 2 + 16 + 16 + 8 + 8;
+    const STORED_LEN: usize = 4 + 8 * 8 + 2 + 16 + 16 + 8 + 8;
+
+    fn valid(self) -> bool {
+        let epoch = |id: u64, epoch: u64| if id == 0 { epoch == 0 } else { (1..=u64::from(u32::MAX)).contains(&epoch) };
+        let point = |point: Option<(i64, i64)>| point.is_none_or(|(x, y)| AbilityPresentationCue::valid_point(x, y));
+        self.cue != 0 && self.radius_raw >= 0 && self.duration_raw >= 0
+            && epoch(self.source_id, self.source_epoch) && epoch(self.at_id, self.at_epoch) && epoch(self.to_id, self.to_epoch)
+            && (self.at_id != 0) != self.at_point.is_some() && (self.to_id == 0 || self.to_point.is_none())
+            && point(self.at_point) && point(self.to_point)
+    }
+
+    /// The fields a team may read, in replica ids.
+    pub fn public_payload(cue: u64, source: u64, at: CueEnd, to: Option<CueEnd>, radius_raw: i64, duration_raw: i64) -> Vec<u8> {
+        fn end(bytes: &mut Vec<u8>, end: Option<CueEnd>) {
+            let (a, b) = match end { Some(CueEnd::Unit(id)) => (id as i64, 0), Some(CueEnd::Point(x, y)) => (x, y), None => (0, 0) };
+            bytes.extend(a.to_le_bytes()); bytes.extend(b.to_le_bytes());
+        }
+        fn tag(end: Option<CueEnd>) -> u8 { match end { None => 0, Some(CueEnd::Unit(_)) => 1, Some(CueEnd::Point(..)) => 2 } }
+        let mut bytes = Vec::with_capacity(Self::WIRE_LEN);
+        bytes.extend(b"CUE1"); bytes.extend(cue.to_le_bytes()); bytes.extend(source.to_le_bytes());
+        bytes.push(tag(Some(at))); bytes.push(tag(to));
+        end(&mut bytes, Some(at)); end(&mut bytes, to);
+        bytes.extend(radius_raw.to_le_bytes()); bytes.extend(duration_raw.to_le_bytes());
+        bytes
+    }
+
+    pub fn from_public_event(tick: u64, event: &crate::game_proto::TeamPublicEvent,
+        live_epoch: impl Fn(u64) -> Option<u64>) -> Option<(u64, Self)> {
+        let bytes = &event.sanitized_payload;
+        if event.event_kind != crate::runtime::FactKind::Cue as u32 || bytes.len() != Self::WIRE_LEN || &bytes[..4] != b"CUE1" { return None; }
+        let word = |at: usize| -> Option<i64> { Some(i64::from_le_bytes(bytes[at..at + 8].try_into().ok()?)) };
+        let source = word(12)? as u64;
+        let (source_id, source_epoch) = match (source != 0).then(|| live_epoch(source)).flatten() {
+            Some(epoch) => (source, epoch),
+            None => (0, 0),
+        };
+        let (at_id, at_epoch, at_point) = match bytes[20] {
+            1 => { let id = word(22)? as u64; (id, live_epoch(id)?, None) }
+            2 => (0, 0, Some((word(22)?, word(30)?))),
+            _ => return None,
+        };
+        // A `to` unit gone by now only loses the direction.
+        let (to_id, to_epoch, to_point) = match bytes[21] {
+            0 => (0, 0, None),
+            1 => { let id = word(38)? as u64; live_epoch(id).map_or((0, 0, None), |epoch| (id, epoch, None)) }
+            2 => (0, 0, Some((word(38)?, word(46)?))),
+            _ => return None,
+        };
+        let cue = Self { tick, cue: word(4)? as u64, source_id, source_epoch, at_id, at_epoch, at_point,
+            to_id, to_epoch, to_point, radius_raw: word(54)?, duration_raw: word(62)? };
+        cue.valid().then_some((presentation_effect_id(tick, event.stable_sub_index)?, cue))
+    }
+
+    pub fn encode(self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(Self::STORED_LEN);
+        bytes.extend(b"CUC1");
+        for value in [self.tick, self.cue, self.source_id, self.source_epoch, self.at_id, self.at_epoch, self.to_id, self.to_epoch] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.push(u8::from(self.at_point.is_some())); bytes.push(u8::from(self.to_point.is_some()));
+        for point in [self.at_point, self.to_point] {
+            let (x, y) = point.unwrap_or_default();
+            bytes.extend(x.to_le_bytes()); bytes.extend(y.to_le_bytes());
+        }
+        bytes.extend(self.radius_raw.to_le_bytes()); bytes.extend(self.duration_raw.to_le_bytes());
+        bytes
+    }
+
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != Self::STORED_LEN || &bytes[..4] != b"CUC1" { return None; }
+        let word = |at: usize| -> Option<u64> { Some(u64::from_le_bytes(bytes[at..at + 8].try_into().ok()?)) };
+        let point = |flag: u8, at: usize| -> Option<Option<(i64, i64)>> {
+            match flag { 0 => Some(None), 1 => Some(Some((word(at)? as i64, word(at + 8)? as i64))), _ => None }
+        };
+        let cue = Self { tick: word(4)?, cue: word(12)?, source_id: word(20)?, source_epoch: word(28)?,
+            at_id: word(36)?, at_epoch: word(44)?, to_id: word(52)?, to_epoch: word(60)?,
+            at_point: point(bytes[68], 70)?, to_point: point(bytes[69], 86)?,
+            radius_raw: word(102)? as i64, duration_raw: word(110)? as i64 };
+        cue.valid().then_some(cue)
     }
 }
 
@@ -408,6 +612,32 @@ pub fn presentation_effect_id(tick: u64, sub_index: u32) -> Option<u64> {
 mod tests {
     use super::*;
     #[test]
+    fn cast_target_cue_round_trips_and_anchors_only_on_a_unit() {
+        let unit = crate::game_proto::TeamPublicEvent {
+            event_kind: crate::runtime::FactKind::Ability as u32,
+            subject: Some(crate::game_proto::ReplicaEntityId { value: 42 }),
+            sanitized_payload: AbilityTargetPresentationCue::public_payload(77, 2, 7, None), stable_sub_index: 3,
+        };
+        let (id, cue) = PresentationCue::from_public_event(17, &unit, |id| (id == 42 || id == 7).then_some(5)).unwrap();
+        assert_eq!(id, presentation_effect_id(17, 3).unwrap());
+        let PresentationCue::AbilityTarget(target) = cue else { panic!("a cast target cue") };
+        assert_eq!((target.caster_id, target.caster_epoch, target.target_id, target.target_epoch), (7, 5, 42, 5));
+        assert_eq!(cue.disclosed_entity(), Some((42, 5)));
+        assert_eq!(PresentationCue::decode(&cue.encode()), Some(cue));
+        // The caster gone from this view: still the target's cue, without a caster.
+        let (_, cue) = PresentationCue::from_public_event(17, &unit, |id| (id == 42).then_some(5)).unwrap();
+        let PresentationCue::AbilityTarget(target) = cue else { panic!() };
+        assert_eq!(target.caster_id, 0);
+        // The target gone: nothing.
+        assert!(PresentationCue::from_public_event(17, &unit, |id| (id == 7).then_some(5)).is_none());
+        // A ground point depends on no unit.
+        let ground = crate::game_proto::TeamPublicEvent { subject: None,
+            sanitized_payload: AbilityTargetPresentationCue::public_payload(77, 2, 0, Some((1024, -2048))), ..unit };
+        let (_, cue) = PresentationCue::from_public_event(17, &ground, |_| None).unwrap();
+        assert_eq!(cue.disclosed_entity(), None);
+        assert_eq!(PresentationCue::decode(&cue.encode()), Some(cue));
+    }
+    #[test]
     fn critical_hit_cue_is_strict_target_local_and_not_damage() {
         let mut event = crate::game_proto::TeamPublicEvent {
             event_kind: crate::runtime::FactKind::CriticalHit as u32,
@@ -415,7 +645,7 @@ mod tests {
             sanitized_payload: b"CRT1".to_vec(), stable_sub_index: 2,
         };
         let (id, cue) = PresentationCue::from_public_event(17, &event, |_| Some(3)).unwrap();
-        assert_eq!(cue.disclosed_entity(), (4, 3));
+        assert_eq!(cue.disclosed_entity(), Some((4, 3)));
         let bytes = cue.encode();
         assert_eq!(bytes.len(), 28);
         assert_eq!(PresentationCue::from_effect(id, &bytes, 17), Some(cue));
@@ -447,7 +677,7 @@ mod tests {
             sanitized_payload: b"AVD1".to_vec(), stable_sub_index: 2,
         };
         let (id, cue) = PresentationCue::from_public_event(17, &event, |_| Some(3)).unwrap();
-        assert_eq!(cue.disclosed_entity(), (4, 3));
+        assert_eq!(cue.disclosed_entity(), Some((4, 3)));
         let bytes = cue.encode();
         assert_eq!(bytes.len(), 28);
         assert_eq!(PresentationCue::from_effect(id, &bytes, 17), Some(cue));
@@ -478,7 +708,7 @@ mod tests {
             sanitized_payload: b"HIT1".to_vec(), stable_sub_index: 2,
         };
         let (id, cue) = PresentationCue::from_public_event(17, &event, |_| Some(3)).unwrap();
-        assert_eq!(cue.disclosed_entity(), (4, 3));
+        assert_eq!(cue.disclosed_entity(), Some((4, 3)));
         let bytes = cue.encode();
         assert_eq!(bytes.len(), 28);
         assert_eq!(PresentationCue::from_effect(id, &bytes, 17), Some(cue));

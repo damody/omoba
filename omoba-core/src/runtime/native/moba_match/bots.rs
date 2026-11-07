@@ -1,17 +1,19 @@
 //! Opt-in role bots. The planner has no ECS/authority access; its perception is
 //! constructed only from the team's committed disclosure set and payloads.
 use super::*;
+use crate::runtime::combat_controls::within_attack_reach;
 use crate::runtime::native::item::ItemRegistry;
 use crate::runtime::{AttackMove, AttackTarget, MoveTo, PlayerInput, PlayerInputEnum, Vec2I};
 use crate::runtime::visibility::{decode_demo_render_state, decode_disclosed_components, decode_disclosed_health,
-    TeamVisibilityRuntime, DEMO_RENDER_COMPONENT_SCHEMA_ID, DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID};
+    decode_disclosed_presentation_identity, TeamVisibilityRuntime, DEMO_RENDER_COMPONENT_SCHEMA_ID,
+    DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID, DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BotRole { Top, Mid, Carry, Support, Jungle }
 
 mod plan;
-pub use plan::{RoleBotMatchPlan, RoleBotPlayerPlan};
+pub use plan::{HeroAdmission, RoleBotMatchPlan, RoleBotPlayerPlan};
 mod abilities;
 pub use abilities::{BotAbilityIntent, BotAbilityPolicy, BotAbilityLearningStep};
 mod sustain;
@@ -76,7 +78,16 @@ impl RoleBotConfig {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct SeenUnit { canonical_id: u64, position: Vec2, team: u32, kind: u8, owner_player_id: u32, hp_raw: i64, max_hp_raw:i64 }
+struct SeenUnit { canonical_id: u64, position: Vec2, team: u32, kind: u8, owner_player_id: u32, hp_raw: i64, max_hp_raw:i64,
+    /// Attack range of a disclosed attacking structure (kind 4); zero for everything else.
+    threat: Fixed64,
+    /// Disclosed CollisionRadius for edge-to-edge attack reach; zero when not disclosed (E555).
+    radius: Fixed64 }
+
+/// Bots stay this far beyond an unescorted structure's attack range (1100 for the 650 training tower).
+const STRUCTURE_ALERT_MARGIN:i32=450;
+/// Structures whose kind is unknown keep the training tower range.
+const DEFAULT_STRUCTURE_THREAT:i32=650;
 
 fn disclosed_threat(own:Vec2,team:u32,seen:&[SeenUnit],radius:u32) -> bool {
     let radius=Fixed64::from_i32(radius as i32);
@@ -90,7 +101,9 @@ fn disclosed_identity(entity: Entity) -> u64 {
 }
 
 /// No remembered ghosts, hidden HP, enemy command queues, aggro or respawn timers.
-fn disclosed_units(runtime: &TeamVisibilityRuntime, team: u32) -> Vec<SeenUnit> {
+/// `threat` gives a disclosed structure's attack range (public: what the structure is); a structure
+/// that never attacks (soldier camp) is an objective like the base (kind 5), not a tower.
+fn disclosed_units(runtime: &TeamVisibilityRuntime, team: u32, threat: impl Fn(u64)->Option<Fixed64>) -> Vec<SeenUnit> {
     runtime.teams.get(&team).into_iter().flat_map(|state| state.index.current.iter())
         .filter_map(|&canonical_id| {
             let components = decode_disclosed_components(runtime.latest_disclosed_baseline_by_canonical.get(&canonical_id)?)?;
@@ -100,10 +113,79 @@ fn disclosed_units(runtime: &TeamVisibilityRuntime, team: u32) -> Vec<SeenUnit> 
                 let (role,attackable)=crate::runtime::visibility::decode_disclosed_structure(bytes)?;
                 if !attackable {6} else if role==1 {4} else {5}
             } else {render.kind};
+            let range=if kind==4 {threat(canonical_id).unwrap_or(Fixed64::from_i32(DEFAULT_STRUCTURE_THREAT))} else {Fixed64::ZERO};
+            let kind=if kind==4 && range<=Fixed64::ZERO {5} else {kind};
+            let radius=components.get(&crate::runtime::DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID)
+                .and_then(|bytes|serde_json::from_slice::<CollisionRadius>(bytes).ok())
+                .map_or(Fixed64::ZERO,|radius|radius.0.max(Fixed64::ZERO));
             Some(SeenUnit { canonical_id,
                 position: Vec2::new(Fixed64::from_raw(render.x_raw), Fixed64::from_raw(render.y_raw)),
-                team: render.team_id, kind, owner_player_id:render.owner_player_id, hp_raw,max_hp_raw })
+                team: render.team_id, kind, owner_player_id:render.owner_player_id, hp_raw,max_hp_raw, threat:range, radius })
         }).collect()
+}
+
+/// Whether the owner `player` has a live disclosed summon of `need.template` (its presentation
+/// identity) within `need.within` edge distance of `own` (E648). Its own team's units are always
+/// disclosed to it (E645), so this reads the committed disclosure like every other bot choice.
+fn owns_disclosed_summon(runtime:&TeamVisibilityRuntime,seen:&[SeenUnit],own:&SeenUnit,player:u32,
+    need:&abilities::BotCasterSummon)->bool {
+    seen.iter().any(|u| u.canonical_id!=own.canonical_id && u.team==own.team && u.owner_player_id==player && u.hp_raw>0
+        && need.within.is_none_or(|within| {
+            let reach=Fixed64::from_i32(within as i32)+own.radius+u.radius;
+            (u.position-own.position).length_squared()<=reach*reach
+        })
+        && runtime.latest_disclosed_baseline_by_canonical.get(&u.canonical_id)
+            .and_then(|bytes|decode_disclosed_components(bytes))
+            .and_then(|components|components.get(&DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID)
+                .and_then(|bytes|decode_disclosed_presentation_identity(bytes)).map(|id|id==need.template))
+            .unwrap_or(false))
+}
+
+/// Disclosed bodies whose presentation identity is a boss camp's unit (E187 §5.4). The identity is
+/// public (what the unit is); the boss tag is public map data.
+fn disclosed_boss_ids(runtime:&TeamVisibilityRuntime,team:u32,bosses:&[&str])->Vec<u64> {
+    if bosses.is_empty() {return Vec::new();}
+    runtime.teams.get(&team).into_iter().flat_map(|state|state.index.current.iter()).filter(|&&canonical_id| {
+        runtime.latest_disclosed_baseline_by_canonical.get(&canonical_id)
+            .and_then(|bytes|decode_disclosed_components(bytes))
+            .and_then(|components|components.get(&DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID)
+                .and_then(|bytes|decode_disclosed_presentation_identity(bytes)).map(|id|bosses.contains(&id)))
+            .unwrap_or(false)
+    }).copied().collect()
+}
+
+/// The jungle patrol (E187 §5.4). On a map whose camps declare sides, the side's own camps
+/// (no boss) in a nearest-neighbour tour from the camp nearest `home`, so the jungler farms its own
+/// jungle instead of crossing the map to the enemy's or to the bosses; ties keep authoring order.
+/// Other maps keep the ring of every camp in authoring order. Camp homes, sides and tags are
+/// public map data; no camp state is read. On a sided map only the camps `beats` admits are
+/// toured (E252: a level-one jungler fed 50 deaths a match to a 3,582 HP camp).
+fn jungle_patrol_points(camps:&[MobaJungleCamp],side:usize,home:Vec2,beats:impl Fn(&MobaJungleCamp)->bool)->Vec<Vec2> {
+    let point=|camp:&MobaJungleCamp|Vec2::new(Fixed64::from_i32(camp.definition.position.0),Fixed64::from_i32(camp.definition.position.1));
+    if !camps.iter().any(|camp|camp.definition.side.is_some()) {return camps.iter().map(point).collect();}
+    let mut own:Vec<Vec2>=camps.iter().filter(|camp|usize::from(camp.definition.side.unwrap_or(u8::MAX))==side
+        && !camp.definition.has_tag(omoba_template_ids::MobaUnitTag::Boss) && beats(camp)).map(point).collect();
+    let mut tour=Vec::with_capacity(own.len());let mut at=home;
+    while let Some((index,_))=own.iter().enumerate().min_by_key(|(index,p)|((**p-at).length_squared().raw(),*index)) {
+        at=own.remove(index);tour.push(at);
+    }
+    tour
+}
+
+/// A camp's authored strength (E252): total HP and total damage per second of its leader and
+/// members, from the public template (no growth, timer or aggro is read).
+fn camp_strength(camp:&omoba_template_ids::MobaJungleConst)->(i128,i128) {
+    let dps=|damage:i32,interval_ms:i32|i128::from(damage.max(0))*1000*1024/i128::from(interval_ms.max(1));
+    camp.members.iter().fold((i128::from(camp.hp),dps(camp.damage,camp.attack_interval_ms)),|(hp,rate),member|
+        (hp+i128::from(member.hp),rate+dps(member.damage,member.attack_interval_ms.unwrap_or(camp.attack_interval_ms))))
+}
+
+/// Whether a hero of `hp` health dealing `dps` (raw per second) kills the camp before it kills
+/// the hero, both trading at full rate: camp HP / hero DPS < hero HP / camp DPS (E252). The bot
+/// reads only its own hero's health and attack; spells and items are a safety margin.
+fn beats_camp(camp:&omoba_template_ids::MobaJungleConst,hp:Fixed64,dps:Fixed64)->bool {
+    let (camp_hp,camp_dps)=camp_strength(camp);
+    camp_hp*1024*camp_dps < i128::from(hp.raw())*i128::from(dps.raw())
 }
 
 fn public_control_priority(bytes:&[u8])->Option<u8> {
@@ -117,6 +199,28 @@ fn disclosed_control_priority(runtime:&TeamVisibilityRuntime,team:u32,identity:u
     if !runtime.teams.get(&team)?.index.current.contains(&identity){return None;}
     let components=decode_disclosed_components(runtime.latest_disclosed_baseline_by_canonical.get(&identity)?)?;
     public_control_priority(components.get(&crate::runtime::buff_visual_state::SCHEMA_ID)?)
+}
+
+/// A disclosed unit's public targeting states (E460); none when it shows none or is not disclosed.
+/// Whether a disclosed unit shows `status` (E605): an own-team unit's every icon, another team's
+/// public ones only (buff_visual_state, as the team projector discloses them).
+fn disclosed_status(runtime:&TeamVisibilityRuntime,team:u32,identity:u64,status:&str)->bool {
+    let Some(id)=omoba_template_ids::buff_by_name(status) else {return false;};
+    if !runtime.teams.get(&team).is_some_and(|state|state.index.current.contains(&identity)) {return false;}
+    let Some(components)=runtime.latest_disclosed_baseline_by_canonical.get(&identity).and_then(|bytes|decode_disclosed_components(bytes)) else {return false;};
+    let own=components.get(&DEMO_RENDER_COMPONENT_SCHEMA_ID).and_then(|bytes|decode_demo_render_state(bytes)).is_some_and(|render|render.team_id==team);
+    if !own && !omoba_template_ids::buff_is_public(id) {return false;}
+    components.get(&crate::runtime::buff_visual_state::SCHEMA_ID)
+        .and_then(|bytes|crate::runtime::buff_visual_state::BuffVisualSnapshot::decode(bytes))
+        .is_some_and(|snapshot|snapshot.buffs.0.iter().any(|(row,_)|*row==id.raw()))
+}
+
+fn disclosed_target_states(runtime:&TeamVisibilityRuntime,team:u32,identity:u64)->u8 {
+    if !runtime.teams.get(&team).is_some_and(|state|state.index.current.contains(&identity)) {return 0;}
+    runtime.latest_disclosed_baseline_by_canonical.get(&identity).and_then(|bytes|decode_disclosed_components(bytes))
+        .and_then(|components|components.get(&crate::runtime::DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID)
+            .and_then(|bytes|crate::runtime::decode_disclosed_target_state(bytes)))
+        .unwrap_or(0)
 }
 
 /// Bot assignment and explicit equipment are the opt-in. Read owner slots only;
@@ -135,20 +239,20 @@ enum Decision { Attack(u64), Advance(Vec2), Escort(Vec2), ApproachStructure(Vec2
 
 /// A visible living wave is an opportunity signal, not proof of tower aggro.
 fn disclosed_wave_at_tower(team:u32,tower:&SeenUnit,seen:&[SeenUnit])->bool {
-    let radius=Fixed64::from_i32(650);
+    // An allied creep inside the structure's own attack range draws its fire.
+    // Edge to edge, as the structure's own attack test (E555).
     seen.iter().any(|u|u.kind==2 && u.team==team && u.hp_raw>0
-        && (u.position-tower.position).length_squared()<=radius*radius)
+        && within_attack_reach(tower.position,u.position,tower.threat,tower.radius,u.radius))
 }
 
 /// A hero inside the tower alert and still within creep aggro of the front
 /// allied creep zones that wave outside tower range. Step one aggro radius
 /// behind the front creep on the public tower-to-creep ray. Missing, dead,
-/// enemy, or distant creeps stay on Hold; the 650 gate still owns Attack.
+/// enemy, or distant creeps stay on Hold; the structure's range gate still owns Attack.
 fn yield_behind_wave(team:u32,own:Vec2,seen:&[SeenUnit])->Option<Vec2> {
-    let alert=Fixed64::from_i32(1100);
     let nearby=Fixed64::from_i32(700);
     let tower=seen.iter().filter(|u|u.kind==4 && u.team!=team && u.team!=0 && u.hp_raw>0
-        && (u.position-own).length_squared()<=alert*alert
+        && (u.position-own).length_squared()<=structure_alert(u)*structure_alert(u)
         && !disclosed_wave_at_tower(team,u,seen))
         .min_by_key(|u|((u.position-own).length_squared().raw(),u.canonical_id))?;
     let own_dist=(tower.position-own).length();
@@ -162,17 +266,19 @@ fn yield_behind_wave(team:u32,own:Vec2,seen:&[SeenUnit])->Option<Vec2> {
     Some(creep.position+step*nearby)
 }
 
+fn structure_alert(tower:&SeenUnit)->Fixed64 {tower.threat+Fixed64::from_i32(STRUCTURE_ALERT_MARGIN)}
+
 fn yield_or_hold(team:u32,own:Vec2,seen:&[SeenUnit])->Decision {
     yield_behind_wave(team,own,seen).map(Decision::YieldBehind).unwrap_or(Decision::Hold)
 }
 
 /// Current-hit farming priority, not a promise about future projectile impact.
 /// Missing observation is unknown, never an invented zero incoming modifier.
-fn carry_last_hit_target(team:u32,own:Vec2,seen:&[SeenUnit],damage:Fixed64,range:Fixed64,
+fn carry_last_hit_target(team:u32,own:Vec2,seen:&[SeenUnit],damage:Fixed64,range:Fixed64,own_radius:Fixed64,
     incoming:impl Fn(u64)->Option<Fixed64>)->Option<u64> {
     if damage<=Fixed64::ZERO || range<=Fixed64::ZERO {return None;}
     seen.iter().filter(|u|u.kind==2 && u.team!=0 && u.team!=team && u.hp_raw>0
-        && (u.position-own).length_squared()<=range*range)
+        && within_attack_reach(own,u.position,range,own_radius,u.radius))
         .filter(|u|incoming(u.canonical_id).is_some_and(|bonus| {
             crate::runtime::ability_runtime::unit_stats::settle_damage_packet(
                 damage,Fixed64::ZERO,Fixed64::ZERO,bonus).raw()>=u.hp_raw
@@ -202,13 +308,37 @@ fn jungle_assist_target(player:u32,team:u32,own:Vec2,seen:&[SeenUnit]) -> Option
     heroes.iter().filter(|u|u.team!=team
         && (u.position-own).length_squared()<=radius_squared)
         .filter(|target|{
+            // An allied structure the enemy stands at counts as an ally (E585: defending a tower).
+            let structures=seen.iter().filter(|u|matches!(u.kind,4|5) && u.team==team && u.hp_raw>0
+                && (u.position-target.position).length_squared()<=radius_squared).count();
             let allies=heroes.iter().filter(|u|u.team==team
-                && u.owner_player_id!=player && (u.position-target.position).length_squared()<=radius_squared).count();
+                && u.owner_player_id!=player && (u.position-target.position).length_squared()<=radius_squared).count()+structures;
             let enemies=heroes.iter().filter(|u|u.team!=team
                 && (u.position-target.position).length_squared()<=radius_squared).count();
             allies>0 && allies.saturating_add(1)>=enemies
         }).min_by_key(|u|(u.hp_raw,(u.position-own).length_squared().raw(),u.canonical_id))
         .map(|u|u.canonical_id)
+}
+
+/// How near an allied hero or structure an enemy hero must be for the jungler to go help (E585).
+const JUNGLE_RESPONSE_RADIUS:i32=1200;
+/// How far the jungler goes to help.
+const JUNGLE_RESPONSE_REACH:i32=3500;
+
+/// E585: an enemy hero near an allied hero (not the jungler) or an allied structure, within the
+/// jungler's reach: the jungler heads there, nearest first; the assist then takes the fight.
+fn jungle_response_destination(player:u32,team:u32,own:Vec2,seen:&[SeenUnit],
+    mut reachable:impl FnMut(Vec2)->bool)->Option<Vec2> {
+    let near=Fixed64::from_i32(JUNGLE_RESPONSE_RADIUS);let reach=Fixed64::from_i32(JUNGLE_RESPONSE_REACH);
+    // Within the assist radius jungle_assist_target already judges the fight (numbers, allies).
+    let assist=Fixed64::from_i32(550);
+    let guarded:Vec<Vec2>=seen.iter().filter(|u|u.team==team && u.hp_raw>0
+        && ((u.kind==1 && u.owner_player_id!=player) || matches!(u.kind,4|5))).map(|u|u.position).collect();
+    let mut threats:Vec<_>=seen.iter().filter(|u|u.kind==1 && u.team!=team && u.team!=0 && u.hp_raw>0
+        && (u.position-own).length_squared()<=reach*reach && (u.position-own).length_squared()>assist*assist
+        && guarded.iter().any(|p|(*p-u.position).length_squared()<=near*near)).collect();
+    threats.sort_by_key(|u|((u.position-own).length_squared().raw(),u.canonical_id));
+    threats.into_iter().take(MAX_TRAVEL_ROUTE_QUERIES).find(|u|reachable(u.position)).map(|u|u.position)
 }
 
 fn jungle_farm_target(own:Vec2,seen:&[SeenUnit])->Option<u64> {
@@ -273,9 +403,8 @@ fn decide_excluding(role:BotRole,team:u32,own:Vec2,destination:Vec2,seen:&[SeenU
     }
     // Do not fall back to AttackMove into an observed unescorted tower while
     // waiting outside the ordinary target-selection radius.
-    let approach=Fixed64::from_i32(1100);
     if seen.iter().any(|u|u.kind==4 && u.team!=team && u.team!=0
-        && u.hp_raw>0 && (u.position-own).length_squared()<=approach*approach
+        && u.hp_raw>0 && (u.position-own).length_squared()<=structure_alert(u)*structure_alert(u)
         && !disclosed_wave_at_tower(team,u,seen)) {return yield_or_hold(team,own,seen);}
     Decision::Advance(destination)
 }
@@ -316,6 +445,13 @@ fn role_decision_with_focus(assignment:&BotAssignment,team:u32,own:Vec2,destinat
 
 fn role_decision_excluding(assignment:&BotAssignment,team:u32,own:Vec2,destination:Vec2,
     seen:&[SeenUnit],focus:Option<u64>,mut reachable:impl FnMut(Vec2)->bool,excluded:&[u64])->Decision {
+    // A jungler not already fighting a hero leaves its camp to help (E585).
+    if assignment.role==BotRole::Jungle && excluded.is_empty()
+        && !focus.is_some_and(|id|seen.iter().any(|u|u.canonical_id==id && u.kind==1)) {
+        if let Some(point)=jungle_response_destination(assignment.player_id,team,own,seen,&mut reachable) {
+            return Decision::Escort(point);
+        }
+    }
     if let Some(target)=focus.filter(|id|!excluded.contains(id)) {return Decision::Attack(target);}
     let decision = decide_excluding(assignment.role,team,own,destination,seen,excluded);
     if let Decision::YieldBehind(point)=decision {
@@ -342,7 +478,7 @@ fn role_decision_excluding(assignment:&BotAssignment,team:u32,own:Vec2,destinati
 /// Failed chase candidates are decision-local. Preserve the full disclosure for
 /// wave/threat reasoning; excluding an attack must not hide an unescorted tower.
 fn navigable_combat_decision(assignment:&BotAssignment,team:u32,own:Vec2,destination:Vec2,
-    seen:&[SeenUnit],focus:Option<u64>,range:Fixed64,mut reachable:impl FnMut(Vec2)->bool)->Decision {
+    seen:&[SeenUnit],focus:Option<u64>,range:Fixed64,own_radius:Fixed64,mut reachable:impl FnMut(Vec2)->bool)->Decision {
     let mut excluded=Vec::with_capacity(MAX_TRAVEL_ROUTE_QUERIES);
     for _ in 0..MAX_TRAVEL_ROUTE_QUERIES {
         let decision=role_decision_excluding(assignment,team,own,destination,seen,focus,
@@ -353,7 +489,8 @@ fn navigable_combat_decision(assignment:&BotAssignment,team:u32,own:Vec2,destina
         if let Some(target)=seen.iter().find(|u|u.canonical_id==id) {
             // Ordinary attacks do not require line of sight. Only out-of-range
             // chase uses public terrain, matching the authority command planner.
-            if range>Fixed64::ZERO && ((target.position-own).length_squared()<=range*range
+            // Zero range is a missing attack, not melee contact. In range is edge to edge (E555).
+            if range>Fixed64::ZERO && (within_attack_reach(own,target.position,range,own_radius,target.radius)
                 || reachable(target.position)) {return decision;}
         }
         excluded.push(id);
@@ -424,9 +561,109 @@ fn reachable_travel_destination(points:impl IntoIterator<Item=Vec2>,own:Vec2,
     None
 }
 
+/// The policies whose ability the owner may cast now. v3 set_ability_active(false) (原作
+/// SetActivated) is the owner's own state; admission refuses such an ability, so it is never
+/// picked (E433). A policy's caster status precondition (v3 requires.has_status / not_status,
+/// E619) holds now too, and so does its summon precondition (`owns_summon`, E648). Borrowed unless
+/// one is left out.
+fn castable_policies<'a>(policies:&'a [BotAbilityPolicy],buffs:Option<&crate::runtime::ability_runtime::BuffStore>,
+    entity:specs::Entity,owns_summon:impl Fn(&abilities::BotCasterSummon)->bool) -> std::borrow::Cow<'a,[BotAbilityPolicy]> {
+    let inactive=|policy:&BotAbilityPolicy|policy.caster_summon.as_ref().is_some_and(|summon|!owns_summon(summon))
+        || buffs.is_some_and(|store|
+        crate::runtime::native::ability_slots::inactive(store,entity,&policy.ability)
+            || policy.caster_status.as_ref().is_some_and(|id|!store.has(entity,id))
+            || policy.caster_no_status.as_ref().is_some_and(|id|store.has(entity,id)));
+    if !policies.iter().any(inactive) {return policies.into();}
+    policies.iter().filter(|policy|!inactive(policy)).cloned().collect::<Vec<_>>().into()
+}
+
+/// How long a bot holds off a cast that ended without its effect (E596: c25_falling_sakura with no
+/// bleeding enemy in range cancels itself; re-sending it every think only floods rejections).
+pub(super) const FAILED_CAST_BACKOFF_SECONDS: i32 = 2;
+
+fn backoff_ticks(dt:Fixed64) -> u64 {
+    if dt<=Fixed64::ZERO {return 0;}
+    (i64::from(FAILED_CAST_BACKOFF_SECONDS) * omoba_sim::fixed::SCALE / dt.raw()).max(0) as u64
+}
+
+/// The policies whose ability did not fail for this hero within the backoff.
+fn without_failed<'a>(policies:std::borrow::Cow<'a,[BotAbilityPolicy]>,
+    failed:Option<&crate::runtime::native::game_processor::FailedCasts>,entity:specs::Entity,tick:u64,backoff:u64)
+    -> std::borrow::Cow<'a,[BotAbilityPolicy]> {
+    let Some(failed)=failed else {return policies;};
+    let held=|policy:&BotAbilityPolicy|failed.0.get(&(entity,policy.ability.clone()))
+        .is_some_and(|at|tick.saturating_sub(*at)<backoff);
+    if !policies.iter().any(held) {return policies;}
+    policies.iter().filter(|policy|!held(policy)).cloned().collect::<Vec<_>>().into()
+}
+
 fn hold_input(commands:Option<&HeroCommandQueue>) -> Option<PlayerInputEnum> {
     if commands.is_some_and(|q|q.active==Some(HeroCommand::HoldPosition) && q.queued.is_empty()) {return None;}
     Some(PlayerInputEnum::HoldPosition(crate::game_proto::HoldPosition {queued:false}))
+}
+
+/// A held showcase stand-in: back to its place when pushed more than 60 off it, else Hold Position.
+fn stand_in_input(commands:Option<&HeroCommandQueue>,own:Vec2,place:Vec2) -> Option<PlayerInputEnum> {
+    let off=Fixed64::from_i32(60);
+    if (own-place).length_squared()>off*off {recovery_move(commands,place)} else {hold_input(commands)}
+}
+
+/// What a held seat's scheduled casts ask now: the next learning step, else a cast that is due,
+/// whose row moves on to its next time (never, for a single cast).
+fn stand_in_cast_input(casts:&[(usize,&super::ShowcaseCast)],hero:&Hero,elapsed:Fixed64,
+    schedule:&mut super::ShowcaseCastSchedule,heroes:&[super::MobaHeroSlot],positions:&specs::ReadStorage<Pos>,
+    properties:&specs::ReadStorage<CProperty>) -> Option<PlayerInputEnum> {
+    let steps:Vec<_>=casts.iter().flat_map(|(_,cast)|(1..=cast.rank).map(|rank|
+        abilities::BotAbilityLearningStep {ability:cast.ability.clone(),rank})).collect();
+    if let Some(upgrade)=abilities::choose_upgrade(hero,&steps) {return Some(PlayerInputEnum::UpgradeAbility(upgrade));}
+    casts.iter().find_map(|(index,cast)| {
+        let next=*schedule.0.get(index)?;
+        if elapsed<next {return None;}
+        let ability_index=hero.abilities.iter().position(|id|id==&cast.ability)? as u32;
+        let living=|player:u32|heroes.iter().find(|slot|slot.player_id==player)?.entity
+            .filter(|target|properties.get(*target).is_some_and(|p|p.hp>Fixed64::ZERO));
+        let (target_entity,target_pos)=match cast.target {
+            super::ShowcaseCastTarget::None=>(None,None),
+            super::ShowcaseCastTarget::Player {player}=>(Some(living(player)?.id()),None),
+            super::ShowcaseCastTarget::PlayerPoint {player}=>{
+                let at=positions.get(living(player)?)?.0;
+                (None,Some(Vec2I {x:i32::try_from(at.x.raw()).ok()?,y:i32::try_from(at.y.raw()).ok()?}))
+            }
+            super::ShowcaseCastTarget::Point {at:[x,y]}=>{
+                let (x,y)=(Fixed64::from_i32(x).raw(),Fixed64::from_i32(y).raw());
+                (None,Some(Vec2I {x:i32::try_from(x).ok()?,y:i32::try_from(y).ok()?}))
+            }
+        };
+        schedule.0.insert(*index,if cast.every_seconds==0 {Fixed64::from_raw(i64::MAX)} else {elapsed+Fixed64::from_i32(cast.every_seconds as i32)});
+        Some(PlayerInputEnum::CastAbility(crate::game_proto::CastAbility {ability_index,target_pos,target_entity}))
+    })
+}
+
+/// A patrolling stand-in: on along its leg, turning round once its move has ended at the leg's end.
+/// A push or a cast only delays the leg, and the walk replaces the way back to its place.
+fn patrol_input(player:u32,patrol:&super::ShowcasePatrol,commands:Option<&HeroCommandQueue>,own:Vec2,
+    legs:&mut super::ShowcasePatrolLegs) -> Option<PlayerInputEnum> {
+    let point=|[x,y]:[i32;2]|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+    let mut heading=point(if legs.0.contains(&player) {patrol.a} else {patrol.b});
+    let moving=commands.is_some_and(|q|matches!(q.active,Some(HeroCommand::MoveTo {pos}) if pos==heading));
+    let near=Fixed64::from_i32(60);
+    if !moving && (own-heading).length_squared()<=near*near {
+        if !legs.0.remove(&player) {legs.0.insert(player);}
+        heading=point(if legs.0.contains(&player) {patrol.a} else {patrol.b});
+    }
+    recovery_move(commands,heading)
+}
+
+/// The living enemy hero within a striking stand-in's reach of `center` nearest to it.
+fn strike_target(center:Vec2,side:Option<usize>,heroes:&[super::MobaHeroSlot],positions:&specs::ReadStorage<Pos>,
+    properties:&specs::ReadStorage<CProperty>) -> Option<specs::Entity> {
+    let reach=Fixed64::from_i32(super::ShowcaseConfig::STRIKE_REACH);
+    heroes.iter().filter(|hero|Some(hero.side)!=side).filter_map(|hero|hero.entity)
+        .filter(|entity|properties.get(*entity).is_some_and(|p|p.hp>Fixed64::ZERO))
+        .filter_map(|entity|positions.get(entity).map(|pos|(entity,(pos.0-center).length_squared())))
+        .filter(|(_,distance)|*distance<=reach*reach)
+        .min_by_key(|(entity,distance)|(*distance,entity.id()))
+        .map(|(entity,_)|entity)
 }
 
 fn recovery_move(commands:Option<&HeroCommandQueue>,destination:Vec2) -> Option<PlayerInputEnum> {
@@ -459,18 +696,87 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
     let registry = world.try_fetch::<ItemRegistry>();
     let abilities = world.try_fetch::<crate::runtime::ability_runtime::AbilityRegistry>();
     let buffs = world.try_fetch::<crate::runtime::ability_runtime::BuffStore>();
+    let windups = world.try_fetch::<super::super::cast_windup::AbilityWindups>();
+    let failed = world.try_fetch::<crate::runtime::native::game_processor::FailedCasts>();
+    let retired = world.try_fetch::<crate::runtime::native::scripting::parallel_world_adapter::RetiredPositions>();
+    let failed_backoff = backoff_ticks(world.read_resource::<crate::runtime::DeltaTime>().0);
     // Decode a team perception once per think, not once per hero.
-    let perceptions = state.config.teams.map(|team|disclosed_units(&visibility,team));
+    let perceptions = state.config.teams.map(|team|disclosed_units(&visibility,team,|id|{
+        let entity=world.entities().entity(id as u32);
+        (disclosed_identity(entity)==id).then(||state.structure_threat(entity)).flatten()
+    }));
+    // E187 §5.4: on a map with sided camps the jungler leaves the bosses alone (the bots have no
+    // notion of being strong enough for them): they leave its farm, focus and cast targets.
+    let sided_camps=state.jungle_camps.iter().any(|camp|camp.definition.side.is_some());
+    let boss_units:Vec<&str>=if sided_camps {state.jungle_camps.iter()
+        .filter(|camp|camp.definition.has_tag(omoba_template_ids::MobaUnitTag::Boss)).map(|camp|camp.definition.unit).collect()} else {Vec::new()};
+    let disclosed_bosses=state.config.teams.map(|team|disclosed_boss_ids(&visibility,team,&boss_units));
     let mut inputs = Vec::new();
+    let positions = world.read_storage::<Pos>();
     for assignment in &config.assignments {
+        // A held showcase seat stands still: no attack, cast, shop or learning input. Pushed off its
+        // place (a knockback) it walks back and holds there again (E390), so a demonstration's next
+        // cast still finds it on screen; it moves nowhere else unless the recipe gives it a patrol.
+        if super::ShowcaseConfig::holds(&state.config, assignment.player_id) {
+            let place = state.config.showcase.as_ref().and_then(|showcase| showcase.placements.get(&assignment.player_id));
+            let slot = state.heroes.iter().find(|s| s.player_id == assignment.player_id);
+            if let (Some([x, y]), Some(entity)) = (place, slot.and_then(|slot| slot.entity)) {
+                let alive = properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO);
+                if let (true, Some(own)) = (alive, positions.get(entity)) {
+                    let casts: Vec<_> = state.config.showcase.iter().flat_map(|showcase| showcase.casts.iter().enumerate())
+                        .filter(|(_, cast)| cast.player == assignment.player_id).collect();
+                    if !casts.is_empty() {
+                        // Its own cast is running: any new order, Hold Position too, would cancel it (E187).
+                        if windups.as_ref().is_some_and(|windups| windups.0.contains_key(&entity))
+                            || super::super::ability_channel::is_active_for_owner(world, entity, assignment.player_id) { continue; }
+                        let mut schedule = world.write_resource::<super::ShowcaseCastSchedule>();
+                        let action = heroes.get(entity).and_then(|hero| stand_in_cast_input(&casts, hero, state.elapsed, &mut schedule, &state.heroes, &positions, &properties));
+                        if let Some(action) = action {
+                            inputs.push((assignment.player_id, PlayerInput { action: Some(action) }));
+                            continue;
+                        }
+                    }
+                    if let Some(showcase) = state.config.showcase.as_ref().filter(|showcase| showcase.strike_players.contains(&assignment.player_id)) {
+                        if let Some(target) = strike_target(showcase.strike_center(assignment.player_id, own.0), slot.map(|slot| slot.side), &state.heroes, &positions, &properties) {
+                            if !commands.get(entity).is_some_and(|q| matches!(q.active, Some(HeroCommand::AttackTarget { target: old, .. }) if old == target)) {
+                                inputs.push((assignment.player_id, PlayerInput { action: Some(
+                                    PlayerInputEnum::AttackTarget(AttackTarget { target_id: target.id(), queued: false })) }));
+                            }
+                            continue;
+                        }
+                    }
+                    if let Some(patrol) = state.config.showcase.iter().flat_map(|showcase| showcase.patrols.iter()).find(|patrol| patrol.player == assignment.player_id) {
+                        let mut legs = world.write_resource::<super::ShowcasePatrolLegs>();
+                        if let Some(action) = patrol_input(assignment.player_id, patrol, commands.get(entity), own.0, &mut legs) {
+                            inputs.push((assignment.player_id, PlayerInput { action: Some(action) }));
+                        }
+                        continue;
+                    }
+                    let place = Vec2::new(Fixed64::from_i32(*x), Fixed64::from_i32(*y));
+                    if let Some(action) = stand_in_input(commands.get(entity), own.0, place) {
+                        inputs.push((assignment.player_id, PlayerInput { action: Some(action) }));
+                    }
+                }
+            }
+            continue;
+        }
         let slot = state.heroes.iter().find(|s| s.player_id == assignment.player_id).expect("validated roster");
         let Some(entity) = slot.entity else { continue; };
         // Own health is owner-visible; never inspect opponents' ECS health.
         if !properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO) { continue; }
+        // The owner's own cast windup (E187): any new order would cancel it before release, so a
+        // 0.2 s windup re-ordered every 0.2 s think never released and never started its cooldown.
+        if windups.as_ref().is_some_and(|windups|windups.0.contains_key(&entity)) { continue; }
         if state.is_recalling(entity)
-            || super::super::recovery_channel::is_active_for_owner(world,entity,slot.player_id) { continue; }
+            || super::super::recovery_channel::is_active_for_owner(world,entity,slot.player_id)
+            || super::super::ability_channel::is_active_for_owner(world,entity,slot.player_id) { continue; }
         let team = state.config.teams[slot.side];
         let seen = &perceptions[slot.side];
+        let without_bosses:Vec<SeenUnit>;
+        let seen:&[SeenUnit]=if assignment.role==BotRole::Jungle && !disclosed_bosses[slot.side].is_empty() {
+            without_bosses=seen.iter().filter(|u|!disclosed_bosses[slot.side].contains(&u.canonical_id)).copied().collect();
+            &without_bosses
+        } else {seen};
         let Some(own) = seen.iter().find(|u| u.canonical_id == disclosed_identity(entity)) else { continue; };
         // Only typed owner cleanses may precede the stunned-owner wait.
         // Authority retains its existing no-order-replacement cleanse contract.
@@ -489,9 +795,26 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
         if buffs.as_ref().is_some_and(|store|store.is_stunned(entity)) { continue; }
         let immobilized=buffs.as_ref().is_some_and(|store|store.is_rooted(entity));
         let recall_blocked=buffs.as_ref().is_some_and(|store|super::recall_control_blocked(store,entity));
-        let home=state.routes[assignment.lane][slot.side][0];
+        let home=state.bot_home(assignment.lane,slot.side);
+        // E252: a jungler on a sided map tours only the own camps its hero beats (own maximum
+        // health and attack against the camp's public template); while it beats none it plays
+        // its lane like a mid laner and farms no camp. Items and casts keep the jungle role.
+        let jungle_points=(assignment.role==BotRole::Jungle).then(|| {
+            let hp=properties.get(entity).map_or(Fixed64::ZERO,|p|p.mhp);
+            let dps=match (attacks.get(entity),buffs.as_ref()) {
+                (Some(attack),Some(store))=>{
+                    let stats=crate::runtime::ability_runtime::UnitStats::from_refs(store,false);
+                    let interval=stats.final_attack_interval(attack.asd.v,entity).max(Fixed64::from_raw(1));
+                    stats.final_atk(attack.atk_physic.v,entity)/interval
+                }
+                _=>Fixed64::ZERO,
+            };
+            jungle_patrol_points(&state.jungle_camps,slot.side,home,|camp|beats_camp(&camp.definition,hp,dps))
+        });
+        let laning=BotAssignment {role:BotRole::Mid,..*assignment};
+        let combat_assignment=if sided_camps && jungle_points.as_ref().is_some_and(Vec::is_empty) {&laning} else {assignment};
         let radius=radii.get(entity).map(|r|r.0).unwrap_or_else(||CollisionRadius::default().0);
-        let shop_radius=Fixed64::from_i32(super::super::shop::MOBA_SHOP_RADIUS);
+        let shop_radius=super::super::shop::shop_radius(&state);
         let purchase=match (inventories.get(entity),gold.get(entity),registry.as_ref()) {
             (Some(inventory),Some(balance),Some(registry))=>items::choose_purchase(assignment.role,&config.item_builds,registry,inventory,balance),
             _=>None,
@@ -519,10 +842,17 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 silenced:store.is_silenced(entity),
                 attack_windup:attacks.get(entity).is_some_and(|attack|attack.attack_phase==crate::runtime::AttackSequencePhase::Windup),
                 attack_range:attacks.get(entity).map(|attack|stats.final_attack_range(attack.range.v,entity)).unwrap_or(Fixed64::ZERO),
+                own_radius:own.radius,
             };
             if let Some(item_slot)=items::choose_active(assignment.role,&config.item_builds,registry,inventory,
                 own.position,team,seen,&observation) {
                 inputs.push((slot.player_id,items::active_input(item_slot)));
+                continue;
+            }
+            // Unit and point actives on disclosed targets (E336).
+            if let Some(input)=items::choose_targeted_active(assignment.role,&config.item_builds,registry,inventory,
+                own.position,team,seen,&observation).and_then(|(item_slot,target)|items::targeted_input(item_slot,target)) {
+                inputs.push((slot.player_id,input));
                 continue;
             }
         }
@@ -534,8 +864,8 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                     sustain::Recovery::Recall=>if recall_blocked {recovery_wait=true;None} else {Some(PlayerInputEnum::Recall(crate::game_proto::Recall {}))},
                     sustain::Recovery::Hold=>hold_input(commands.get(entity)),
                     sustain::Recovery::Retreat(home)=>if immobilized {recovery_wait=true;None} else if
-                        crate::runtime::native::tick::hero_command_tick::static_next_waypoint(
-                            own.position,home,radius,&regions).is_none() {
+                        !crate::runtime::native::tick::hero_command_tick::static_travel_reachable(
+                            own.position,home,radius,&regions) {
                         // Public terrain may make even a valid home unreachable.
                         // Allow defensive casts first, then cancel stale aggression
                         // with a deduplicated hold. Re-evaluate next think; no blacklist.
@@ -556,7 +886,7 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
             continue;
         }
         // Compute once for normal attack and all offensive ability intentions.
-        let focus=role_combat_focus(assignment,team,own.position,seen);
+        let focus=role_combat_focus(combat_assignment,team,own.position,seen);
         let active_target=commands.get(entity).and_then(|q|match q.active {
             Some(HeroCommand::AttackTarget {target,..})=>Some(disclosed_identity(target)),_=>None,
         });
@@ -575,10 +905,10 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                     // currently killable creep. No target ECS reads here.
                     let winding=if attack.attack_phase==crate::runtime::AttackSequencePhase::Windup {
                         seen.iter().find(|u|Some(u.canonical_id)==active_target).and_then(|u|
-                            carry_last_hit_target(team,own.position,std::slice::from_ref(u),damage,range,incoming))
+                            carry_last_hit_target(team,own.position,std::slice::from_ref(u),damage,range,own.radius,incoming))
                     } else {None};
-                    let candidate=winding.or_else(||carry_last_hit_target(team,own.position,seen,damage,range,incoming));
-                    let interval=attack.asd.v/stats.final_attack_speed_mult(entity).max(Fixed64::from_raw(10));
+                    let candidate=winding.or_else(||carry_last_hit_target(team,own.position,seen,damage,range,own.radius,incoming));
+                    let interval=stats.base_attack_interval(attack.asd.v,entity)/stats.final_attack_speed_mult(entity).max(Fixed64::from_raw(10));
                     (candidate,reserve_last_hit_attack(attack,interval,active_target,candidate))
                 },_ => (None,false),
             }
@@ -589,9 +919,12 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 continue;
             }
             // Silence blocks spells, not ordinary attacks or skill learning.
+            let policies=castable_policies(&config.ability_policies,buffs.as_deref(),entity,
+                |need|owns_disclosed_summon(&visibility,seen,own,slot.player_id,need));
+            let policies=without_failed(policies,failed.as_deref(),entity,tick,failed_backoff);
             let cast = if buffs.as_ref().is_some_and(|store|store.is_silenced(entity)) {None} else {
                 abilities::choose_cast_with_control_observation(hero,assignment.role,team,own.position,
-                properties.get(entity).expect("validated owner health"),seen,&config.ability_policies,focus,defer_offense || recovery_wait,
+                properties.get(entity).expect("validated owner health"),seen,&policies,focus,defer_offense || recovery_wait,
                 immobilized,|id,rank| {
                     // Only this authorized owner's resources; targets still come
                     // exclusively from the committed team disclosure above.
@@ -623,7 +956,20 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                     let radius=radii.get(entity).map(|r|r.0).unwrap_or(Fixed64::from_i32(30));
                     !crate::runtime::native::tick::hero_move_tick::path_hits_regions(
                         own.position,point,radius,&regions)
-                },|identity|disclosed_control_priority(&visibility,team,identity))
+                },|identity|disclosed_control_priority(&visibility,team,identity),
+                // The owner's own statuses only (a toggle's on-marker, E263; a v3 status by its
+                // id, whatever row the catalog keeps it on, E472).
+                &|status|buffs.as_ref().is_some_and(|store|store.has(entity,status)
+                    || store.iter_for(entity).any(|(key,entry)|entry.remaining>Fixed64::ZERO
+                        && crate::runtime::native::dispel::registry().statuses_of(key).contains(&status))),
+                &|identity|disclosed_target_states(&visibility,team,identity),
+                // Public map state: the standing trees (tree_cut, E473).
+                &|from,reach|crate::runtime::native::tree_cut::standing_tree_near(&regions,from,reach),
+                // A disclosed unit's status by its icon (another team's public ones only, E605).
+                &|identity,status|disclosed_status(&visibility,team,identity,status),
+                // Corpses: the combat units of either team that died here in the last minute (E605).
+                &|center,radius|retired.as_ref().map_or(0,|rows|rows.units_in_range(center,radius,
+                    tick.saturating_sub(crate::runtime::native::scripting::parallel_world_adapter::RetiredPositions::KEEP_TICKS)).len()))
             };
             if let Some(cast) = cast {
                 if let Some(id)=cast.target_entity {
@@ -632,6 +978,23 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 }
                 inputs.push((slot.player_id,PlayerInput {action:Some(PlayerInputEnum::CastAbility(cast))}));
                 continue;
+            }
+            // A ready tree-target ability with no tree in range walks to the nearest tree first.
+            if !immobilized && !defer_offense && !recovery_wait && !buffs.as_ref().is_some_and(|store|store.is_silenced(entity)) {
+                let face=abilities::tree_approach(hero,team,own.position,seen,&policies,|id,rank| {
+                    let definition=abilities.as_ref()?.get(id)?;
+                    let multiplier=crate::runtime::ability_runtime::UnitStats::from_refs(
+                        buffs.as_ref()?,false).checked_mana_cost_mult(entity)?;
+                    crate::runtime::ability_runtime::checked_mana_cost(
+                        definition.get_level_data(rank)?.mana_cost,multiplier).ok()
+                },&|from,reach|crate::runtime::native::tree_cut::standing_tree_near(&regions,from,reach),
+                &|point|crate::runtime::native::tick::hero_command_tick::static_travel_reachable(own.position,point,radius,&regions));
+                if let Some(face)=face {
+                    if let Some(action)=recovery_move(commands.get(entity),face) {
+                        inputs.push((slot.player_id,PlayerInput {action:Some(action)}));
+                    }
+                    continue;
+                }
             }
         }
         if recovery_wait {
@@ -642,11 +1005,8 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
         }
         // Static camp locations are public map data. Keep the formal movement
         // destination until arrival; never consult hidden camp timers/state.
-        let destination = if assignment.role == BotRole::Jungle {
-            let points: Vec<_> = state.jungle_camps.iter().map(|camp| {
-                let (x,y) = camp.definition.position;
-                Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y))
-            }).collect();
+        let destination = if combat_assignment.role == BotRole::Jungle {
+            let points = jungle_points.clone().unwrap_or_default();
             let active = commands.get(entity).and_then(|q| match q.active {
                 Some(HeroCommand::AttackMove {pos}) => Some(pos), _ => None,
             });
@@ -665,9 +1025,9 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 .final_attack_range(attack.range.v,entity),
             _=>Fixed64::ZERO,
         };
-        let action = match navigable_combat_decision(assignment, team, own.position, destination, seen, attack_focus,attack_range,
-            |point| !immobilized && crate::runtime::native::tick::hero_command_tick::static_next_waypoint(
-                own.position,point,radius,&regions).is_some()) {
+        let action = match navigable_combat_decision(combat_assignment, team, own.position, destination, seen, attack_focus,attack_range,own.radius,
+            |point| !immobilized && crate::runtime::native::tick::hero_command_tick::static_travel_reachable(
+                own.position,point,radius,&regions)) {
             Decision::Hold => {
                 let Some(action)=hold_input(commands.get(entity)) else {continue;};
                 action
@@ -681,13 +1041,10 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
             }
             Decision::Advance(destination) => {
                 if immobilized {continue;}
-                let reachable=|point|crate::runtime::native::tick::hero_command_tick::static_next_waypoint(
-                    own.position,point,radius,&regions).is_some();
-                let destination=if assignment.role==BotRole::Jungle {
-                    let points:Vec<_>=state.jungle_camps.iter().map(|camp| {
-                        let (x,y)=camp.definition.position;
-                        Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y))
-                    }).collect();
+                let reachable=|point|crate::runtime::native::tick::hero_command_tick::static_travel_reachable(
+                    own.position,point,radius,&regions);
+                let destination=if combat_assignment.role==BotRole::Jungle {
+                    let points=jungle_points.clone().unwrap_or_default();
                     reachable_patrol_destination(&points,own.position,destination,reachable)
                 } else {
                     reachable_lane_destination(&state.routes[assignment.lane][slot.side],own.position,destination,reachable)
@@ -705,8 +1062,8 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
             Decision::Escort(destination) => {
                 if immobilized && destination!=own.position {continue;}
                 let action=if destination==own.position ||
-                    crate::runtime::native::tick::hero_command_tick::static_next_waypoint(
-                        own.position,destination,radius,&regions).is_none() {hold_input(commands.get(entity))}
+                    !crate::runtime::native::tick::hero_command_tick::static_travel_reachable(
+                        own.position,destination,radius,&regions) {hold_input(commands.get(entity))}
                     else {recovery_move(commands.get(entity),destination)};
                 let Some(action)=action else {continue;};
                 action
@@ -750,6 +1107,72 @@ mod tests {
         loadout.set_slot(0,Some("other_cleanse".into())).unwrap();assert_eq!(choose_summoner_control_cleanse(1,&loadout,Some(&catalog),true),Some(0));
         loadout.set_slot(0,None).unwrap();loadout.set_slot(1,Some("unknown".into())).unwrap();assert!(choose_summoner_control_cleanse(1,&loadout,Some(&catalog),true).is_none());
     }
+    /// E187 §5.4: on nobu the jungler tours its own side's camps (nearest first from home, then
+    /// the nearest remaining one), never a boss or a shared corner camp; maps without sided camps
+    /// keep the ring of every camp in authoring order.
+    #[test]
+    fn nobu_jungle_patrol_tours_its_own_side_camps_and_skips_the_bosses() {
+        let point=|(x,y):(i32,i32)|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        let map=omoba_template_ids::moba_map_by_name("nobu").unwrap();
+        let camps:Vec<_>=map.jungle_camps.iter().copied().map(MobaJungleCamp::new).collect();
+        for side in 0..2 {
+            let home=point(omoba_template_ids::moba_team_point(map.fountains,side).unwrap());
+            let tour=jungle_patrol_points(&camps,side,home,|_|true);
+            let mut own:Vec<_>=map.jungle_camps.iter().filter(|c|c.side==Some(side as u8)).map(|c|point(c.position)).collect();
+            assert_eq!(tour.len(),11);
+            assert!(map.jungle_camps.iter().filter(|c|c.has_tag(omoba_template_ids::MobaUnitTag::Boss) || c.side!=Some(side as u8))
+                .all(|c|!tour.contains(&point(c.position))),"no boss, shared or enemy camp");
+            let mut at=home;
+            for stop in &tour {
+                let nearest=*own.iter().min_by_key(|p|(**p-at).length_squared().raw()).unwrap();
+                assert_eq!(*stop,nearest);own.retain(|p|*p!=nearest);at=*stop;
+            }
+        }
+        let training=omoba_template_ids::moba_map_by_name("three_lane_training").unwrap();
+        let camps:Vec<_>=training.jungle_camps.iter().copied().map(MobaJungleCamp::new).collect();
+        assert_eq!(jungle_patrol_points(&camps,1,p(0),|_|false),training.jungle_camps.iter().map(|c|point(c.position)).collect::<Vec<_>>(),
+            "maps without sided camps tour every camp");
+    }
+    /// E252: a jungler tours only the camps its own health and attack beat at full trade; a
+    /// level-one hero beats none of nobu's, so it lanes; a strong one tours the easy camps first.
+    #[test]
+    fn nobu_junglers_tour_only_the_camps_their_hero_beats() {
+        let map=omoba_template_ids::moba_map_by_name("nobu").unwrap();
+        let camps:Vec<_>=map.jungle_camps.iter().copied().map(MobaJungleCamp::new).collect();
+        let f=Fixed64::from_i32;
+        let home=Vec2::new(f(7445),f(-7518));
+        // A level-one hero: 1,400 HP, about 30 damage per second.
+        assert!(jungle_patrol_points(&camps,0,home,|c|beats_camp(&c.definition,f(1400),f(30))).is_empty());
+        // The easiest camp (3 x 926 HP, about 92 per second): 2,778 HP x 92 against 2,500 HP x 150.
+        let easy=camps.iter().find(|c|c.definition.side==Some(0) && c.definition.members.len()==2
+            && camp_strength(&c.definition).0==2778).expect("the assassins' camp");
+        assert!(beats_camp(&easy.definition,f(2500),f(150)));
+        assert!(!beats_camp(&easy.definition,f(1400),f(30)));
+        let strong=jungle_patrol_points(&camps,0,home,|c|beats_camp(&c.definition,f(2500),f(150)));
+        let all=jungle_patrol_points(&camps,0,home,|_|true);
+        assert!(!strong.is_empty() && strong.len()<all.len(),"some camps, not every camp: {} of {}",strong.len(),all.len());
+        assert!(strong.iter().all(|p|all.contains(p)));
+        // Strength is symmetric: both sides admit the same number of camps.
+        let away=Vec2::new(f(-7391),f(7203));
+        assert_eq!(jungle_patrol_points(&camps,1,away,|c|beats_camp(&c.definition,f(2500),f(150))).len(),strong.len());
+    }
+    /// E187 §5.4: a boss is recognized by its disclosed presentation identity only while the team
+    /// currently sees it; other identities and stale payloads are not bosses.
+    #[test]
+    fn disclosed_bosses_are_the_current_bodies_with_a_boss_identity() {
+        let identity=|id:&str|encode_disclosed_baseline(&[(DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID,
+            crate::runtime::visibility::encode_disclosed_presentation_identity(id).unwrap())]);
+        let mut runtime=TeamVisibilityRuntime::default();runtime.ensure_team(1);runtime.ensure_team(2);
+        for id in [7,8,9] {runtime.teams.get_mut(&1).unwrap().index.current.insert(id);}
+        runtime.latest_disclosed_baseline_by_canonical.insert(7,identity("north_epic_guardian"));
+        runtime.latest_disclosed_baseline_by_canonical.insert(8,identity("neutral_130_wild_bear"));
+        runtime.latest_disclosed_baseline_by_canonical.insert(9,vec![0;4]);
+        runtime.latest_disclosed_baseline_by_canonical.insert(10,identity("south_epic_guardian"));
+        let bosses=["north_epic_guardian","south_epic_guardian"];
+        assert_eq!(disclosed_boss_ids(&runtime,1,&bosses),vec![7]);
+        assert!(disclosed_boss_ids(&runtime,2,&bosses).is_empty());
+        assert!(disclosed_boss_ids(&runtime,1,&[]).is_empty());
+    }
     #[test]
     fn bot_cleanse_observation_uses_only_current_public_canonical_buff_status() {
         use crate::runtime::buff_visual_state::{BuffVisualSnapshot,BuffVisualState};
@@ -769,7 +1192,7 @@ mod tests {
         let assignment=BotAssignment {player_id:1,role:BotRole::Mid,lane:0,escort_player_id:None};
         let seen=[unit(1,300,2,1,100),unit(2,400,2,1,100)];
         let choose=|range,admit:&mut dyn FnMut(Vec2)->bool|navigable_combat_decision(
-            &assignment,1,p(0),p(900),&seen,Some(1),range,admit);
+            &assignment,1,p(0),p(900),&seen,Some(1),range,Fixed64::ZERO,admit);
         let mut queried=Vec::new();
         assert_eq!(choose(Fixed64::from_i32(100),&mut |point| {queried.push(point);point==p(400)}),Decision::Attack(2));
         assert_eq!(queried,vec![p(300),p(400)]);
@@ -785,15 +1208,15 @@ mod tests {
         let seen:Vec<_>=(1..=MAX_TRAVEL_ROUTE_QUERIES as u64+4).map(|id|unit(id,200+id as i32*10,2,2,100)).collect();
         let mut queries=0;
         assert_eq!(navigable_combat_decision(&assignment,1,p(0),p(900),&seen,None,
-            Fixed64::from_i32(100), |_| {queries+=1;false}),Decision::Hold);
+            Fixed64::from_i32(100),Fixed64::ZERO, |_| {queries+=1;false}),Decision::Hold);
         assert_eq!(queries,MAX_TRAVEL_ROUTE_QUERIES);
         let creep=unit(1,200,2,2,100);let tower=unit(2,300,2,4,100);
         assert_eq!(navigable_combat_decision(&assignment,1,p(0),p(900),&[creep,tower],None,
-            Fixed64::from_i32(100), |_|false),Decision::Hold,"failed creep cannot hide unescorted tower");
+            Fixed64::from_i32(100),Fixed64::ZERO, |_|false),Decision::Hold,"failed creep cannot hide unescorted tower");
         let jungle=BotAssignment {role:BotRole::Jungle,..assignment};
         let camps=[unit(1,200,0,3,100),unit(2,300,0,3,100)];
         assert_eq!(navigable_combat_decision(&jungle,1,p(0),p(900),&camps,Some(1),
-            Fixed64::from_i32(100),|point|point==p(300)),Decision::Attack(2));
+            Fixed64::from_i32(100),Fixed64::ZERO,|point|point==p(300)),Decision::Attack(2));
     }
 
     #[test]
@@ -838,7 +1261,7 @@ mod tests {
     #[test]
     fn role_bot_jungle_farm_focus_keeps_area_skill_on_current_disclosed_camp() {
         let assignment=BotAssignment {player_id:1,role:BotRole::Jungle,lane:0,escort_player_id:None};
-        let near=SeenUnit {canonical_id:7,position:p(100),team:0,kind:3,owner_player_id:0,hp_raw:100,max_hp_raw:100};
+        let near=SeenUnit {canonical_id:7,position:p(100),team:0,kind:3,owner_player_id:0,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let far=SeenUnit {canonical_id:8,position:p(600),..near};
         let cluster=SeenUnit {canonical_id:9,position:p(610),..near};
         let seen=[near,far,cluster];
@@ -849,7 +1272,7 @@ mod tests {
         hero.abilities=vec!["ranger_volley".into()];hero.ability_levels.insert("ranger_volley".into(),1);
         let hp=CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),
             msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
-        let policy=BotAbilityPolicy {ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {
+        let policy=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {
             radius_key:"radius".into(),min_targets:1}};
         let cast=abilities::choose_cast_with_resources(&hero,BotRole::Jungle,1,p(0),&hp,
             &seen,&[policy.clone()],focus,|_,_|None,|_,_|None).unwrap();
@@ -862,6 +1285,99 @@ mod tests {
         for invalid in [SeenUnit {hp_raw:0,..near},SeenUnit {team:1,..near},SeenUnit {kind:2,..near}] {
             assert_eq!(role_combat_focus(&assignment,1,p(0),&[invalid]),None);
         }
+    }
+    /// E596: a cast that ended without its effect waits out the backoff, for that hero only.
+    #[test]
+    fn a_bot_holds_off_a_cast_that_failed() {
+        use crate::runtime::native::game_processor::FailedCasts;
+        let mut world=World::new();
+        let (hero,other)=(world.create_entity().build(),world.create_entity().build());
+        let policy=|ability:&str|BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:ability.into(),intent:BotAbilityIntent::EnemyHero};
+        let policies=vec![policy("c25_falling_sakura"),policy("strike")];
+        let mut failed=FailedCasts::default();
+        failed.0.insert((hero,"c25_falling_sakura".into()),100);
+        let backoff=backoff_ticks(Fixed64::ONE/Fixed64::from_i32(60));
+        assert_eq!(backoff,120);
+        let names=|entity,tick|without_failed(policies.as_slice().into(),Some(&failed),entity,tick,backoff)
+            .iter().map(|policy|policy.ability.clone()).collect::<Vec<_>>();
+        assert_eq!(names(hero,150),vec!["strike"]);
+        assert_eq!(names(hero,220),vec!["c25_falling_sakura","strike"],"after the backoff");
+        assert_eq!(names(other,150),vec!["c25_falling_sakura","strike"],"another hero's failure");
+    }
+
+    /// E433: an ability its owner set inactive (a05_counter_stance until it re-arms) is never picked.
+    #[test]
+    fn a_bot_skips_an_ability_its_hero_set_inactive() {
+        use crate::runtime::native::ability_slots::{apply, ActiveSpec, ACTIVE_BUFF};
+        let mut world=crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+        let mut row=Hero::default();row.abilities=vec!["stance".into(),"strike".into()];
+        let hero=world.create_entity().with(row).build();
+        let policy=|ability:&str|BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:ability.into(),intent:BotAbilityIntent::EnemyHero};
+        let policies=vec![policy("stance"),policy("strike")];
+        let names=|world:&World|castable_policies(&policies,Some(&world.read_resource::<crate::runtime::ability_runtime::BuffStore>()),hero,|_|true)
+            .iter().map(|policy|policy.ability.clone()).collect::<Vec<_>>();
+        assert!(matches!(castable_policies(&policies,None,hero,|_|true),std::borrow::Cow::Borrowed(_)));
+        assert_eq!(names(&world),vec!["stance","strike"]);
+        apply(&mut world,hero,ACTIVE_BUFF,Fixed64::ONE,&ActiveSpec {ability:"stance".into(),active:false}.payload());
+        assert_eq!(names(&world),vec!["strike"]);
+        apply(&mut world,hero,ACTIVE_BUFF,Fixed64::ONE,&ActiveSpec {ability:"stance".into(),active:true}.payload());
+        assert_eq!(names(&world),vec!["stance","strike"]);
+    }
+    /// E619: a policy's caster status precondition (v3 requires.has_status / not_status) holds
+    /// before the bot picks it (原作 A12 秘矢 only in a12t_form).
+    #[test]
+    fn a_bot_casts_only_while_its_caster_status_precondition_holds() {
+        let mut world=crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+        let mut row=Hero::default();row.abilities=vec!["arrow".into(),"strike".into()];
+        let hero=world.create_entity().with(row).build();
+        let arrow=BotAbilityPolicy {caster_status:Some("a12t_form".into()),caster_no_status:None,caster_summon:None,ability:"arrow".into(),intent:BotAbilityIntent::EnemyHero};
+        let strike=BotAbilityPolicy {caster_status:None,caster_no_status:Some("a12t_form".into()),caster_summon:None,ability:"strike".into(),intent:BotAbilityIntent::EnemyHero};
+        let policies=vec![arrow,strike];
+        let names=|world:&World|castable_policies(&policies,Some(&world.read_resource::<crate::runtime::ability_runtime::BuffStore>()),hero,|_|true)
+            .iter().map(|policy|policy.ability.clone()).collect::<Vec<_>>();
+        assert_eq!(names(&world),vec!["strike"],"no form: only the one that needs its absence");
+        world.write_resource::<crate::runtime::ability_runtime::BuffStore>().add(hero,"a12t_form",Fixed64::from_i32(5),serde_json::json!({}));
+        assert_eq!(names(&world),vec!["arrow"],"in form");
+        let json=serde_json::to_value(&policies[0]).unwrap();
+        assert_eq!(json["caster_status"],"a12t_form");
+        let plain:BotAbilityPolicy=serde_json::from_value(serde_json::json!({"ability":"strike","intent":{"kind":"enemy_hero"}})).unwrap();
+        assert!(plain.caster_status.is_none() && plain.caster_no_status.is_none(),"absent fields default");
+        assert!(serde_json::to_value(&plain).unwrap().get("caster_status").is_none(),"and are not written");
+    }
+    /// E648: a policy that needs the caster's own live summon (原作 B16 相移: its moon within 1000)
+    /// is picked only while the caster's team disclosure holds one of that template that close.
+    #[test]
+    fn a_bot_casts_only_while_its_own_summon_precondition_holds() {
+        use crate::runtime::visibility::{encode_demo_render_state, encode_disclosed_baseline, encode_disclosed_presentation_identity, DemoRenderState};
+        let unit=|id:u64,x:i32,team:u32,player:u32|SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
+            team,kind:4,owner_player_id:player,hp_raw:1024,max_hp_raw:1024,threat:Fixed64::ZERO,radius:Fixed64::from_i32(20)};
+        let mut runtime=TeamVisibilityRuntime::default();
+        for (id,template) in [(2,"b16d_moon"),(3,"b16d_moon"),(4,"other_pet")] {
+            let render=DemoRenderState {x_raw:0,y_raw:0,team_id:1,kind:4,owner_player_id:1};
+            runtime.latest_disclosed_baseline_by_canonical.insert(id,encode_disclosed_baseline(&[
+                (DEMO_RENDER_COMPONENT_SCHEMA_ID,encode_demo_render_state(render)),
+                (DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID,encode_disclosed_presentation_identity(template).unwrap())]));
+        }
+        let own=unit(1,0,1,1);
+        let need=|within|abilities::BotCasterSummon {template:"b16d_moon".into(),within};
+        let owns=|seen:&[SeenUnit],within|owns_disclosed_summon(&runtime,seen,&own,1,&need(within));
+        assert!(owns(&[own,unit(2,900,1,1)],Some(1000)),"its moon within 1000");
+        assert!(owns(&[own,unit(2,1030,1,1)],Some(1000)),"edge to edge: 1030 minus both radii");
+        assert!(!owns(&[own,unit(2,1050,1,1)],Some(1000)),"too far");
+        assert!(owns(&[own,unit(2,5000,1,1)],None),"any distance without within");
+        assert!(!owns(&[own,unit(3,100,1,2)],None),"an ally's moon is not the caster's");
+        assert!(!owns(&[own,unit(4,100,1,1)],None),"another template");
+        assert!(!owns(&[own,SeenUnit {hp_raw:0,..unit(2,100,1,1)}],None),"a dead moon");
+        assert!(!owns(&[own],None),"no moon");
+        let phase=BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:Some(need(Some(1000))),
+            ability:"phase".into(),intent:BotAbilityIntent::EnemyHero};
+        let hero=specs::World::new().create_entity().build();
+        assert!(castable_policies(std::slice::from_ref(&phase),None,hero,|_|false).is_empty());
+        assert_eq!(castable_policies(std::slice::from_ref(&phase),None,hero,|_|true).len(),1);
+        let json=serde_json::to_value(&phase).unwrap();
+        assert_eq!(json["caster_summon"],serde_json::json!({"template":"b16d_moon","within":1000}));
+        assert_eq!(serde_json::from_value::<BotAbilityPolicy>(json).unwrap().caster_summon,phase.caster_summon);
+        assert_eq!(abilities::validate_policies(&[BotAbilityPolicy {caster_summon:Some(need(Some(0))),..phase.clone()}]),Err("invalid bot caster summon"));
     }
     #[test]
     fn role_bot_lane_route_keeps_corners_and_rejoins_segments_without_clock_state() {
@@ -928,7 +1444,7 @@ mod tests {
         assert_eq!(decide(BotRole::Jungle,1,p(0),p(900),&[tower,base]),Decision::Hold);
         assert_eq!(decide(BotRole::Jungle,1,p(0),p(900),&[tower,base,wave]),Decision::Attack(4));
         assert!(carry_last_hit_target(1,p(0),&[tower,base],Fixed64::from_i32(100),
-            Fixed64::from_i32(550),|_|Some(Fixed64::ZERO)).is_none());
+            Fixed64::from_i32(550),Fixed64::ZERO,|_|Some(Fixed64::ZERO)).is_none());
     }
 
     #[test]
@@ -1091,27 +1607,46 @@ mod tests {
         let killable=unit(2,100,2,2,40);
         let incoming=|id|Some(if id==1 {-Fixed64::ONE} else {Fixed64::ZERO});
         assert_eq!(carry_last_hit_target(1,p(0),&[immune,killable],Fixed64::from_i32(45),
-            Fixed64::from_i32(550),incoming),Some(2));
+            Fixed64::from_i32(550),Fixed64::ZERO,incoming),Some(2));
         assert_eq!(carry_last_hit_target(1,p(0),&[killable,immune],Fixed64::from_i32(45),
-            Fixed64::from_i32(550),incoming),Some(2));
+            Fixed64::from_i32(550),Fixed64::ZERO,incoming),Some(2));
         assert_eq!(carry_last_hit_target(1,p(0),&[killable],Fixed64::from_i32(45),
-            Fixed64::from_i32(550),|_|None),None);
+            Fixed64::from_i32(550),Fixed64::ZERO,|_|None),None);
         for invalid in [SeenUnit {team:1,..killable},SeenUnit {team:0,..killable},
             SeenUnit {kind:1,..killable},SeenUnit {hp_raw:0,..killable},
             SeenUnit {position:p(551),..killable}] {
             assert_eq!(carry_last_hit_target(1,p(0),&[invalid],Fixed64::from_i32(45),
-                Fixed64::from_i32(550),incoming),None);
+                Fixed64::from_i32(550),Fixed64::ZERO,incoming),None);
         }
     }
     use crate::runtime::visibility::{encode_demo_render_state, encode_disclosed_baseline, DemoRenderState, TeamVisibilityState};
     fn p(x: i32) -> Vec2 { Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO) }
+    #[test]
+    fn structure_safety_follows_each_structures_own_attack_range() {
+        // E187: original towers reach 800 and general towers 1100; soldier camps never attack.
+        let near=|threat:i32,x:i32|SeenUnit {threat:Fixed64::from_i32(threat),..unit(4,x,2,4,100)};
+        // Training range 650: 1101 away is outside the 1100 alert, 1100 inside it (unchanged behaviour).
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(5000),&[near(650,1101)]),Decision::Advance(p(5000)));
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(5000),&[near(650,1100)]),Decision::Hold);
+        // A general tower's 1100 range holds the hero back at 1500, outside the old fixed alert.
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(5000),&[near(1100,1500)]),Decision::Hold);
+        // An allied creep inside that range (not within the old 650) draws its fire: attack.
+        let wave=unit(8,600,1,2,100);
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(5000),&[near(1100,500),wave]),Decision::Attack(4));
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(5000),&[near(650,500),SeenUnit {position:p(1251),..wave}]),Decision::Hold);
+        // A disclosed structure that never attacks is an objective (kind 5), not a tower.
+        let mut runtime=TeamVisibilityRuntime::default();let _=&mut runtime;
+        let camp=SeenUnit {kind:5,threat:Fixed64::ZERO,..unit(5,400,2,5,100)};
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(5000),&[camp]),Decision::Attack(5));
+    }
     fn baseline(render:Vec<u8>,hp:i64) -> Vec<u8> {
         encode_disclosed_baseline(&[(DEMO_RENDER_COMPONENT_SCHEMA_ID,render),
             (DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID,[hp,Fixed64::from_i32(100).raw(),0,0,0]
                 .into_iter().flat_map(i64::to_be_bytes).collect())])
     }
     fn unit(id:u64,x:i32,team:u32,kind:u8,hp:i32) -> SeenUnit {
-        SeenUnit {canonical_id:id,position:p(x),team,kind,owner_player_id:0,hp_raw:Fixed64::from_i32(hp).raw(),max_hp_raw:100*1024}
+        SeenUnit {canonical_id:id,position:p(x),team,kind,owner_player_id:0,hp_raw:Fixed64::from_i32(hp).raw(),max_hp_raw:100*1024,
+            threat:if kind==4 {Fixed64::from_i32(DEFAULT_STRUCTURE_THREAT)} else {Fixed64::ZERO},radius:Fixed64::ZERO}
     }
     #[test]
     fn role_bots_identity_uses_visibility_generation_layout() {
@@ -1135,13 +1670,13 @@ mod tests {
         let render = |x| encode_demo_render_state(DemoRenderState { x_raw: p(x).x.raw(), y_raw: 0, team_id: 2, kind: 1, owner_player_id: 9 });
         runtime.latest_disclosed_baseline_by_canonical.insert(7, baseline(render(100),10));
         runtime.latest_disclosed_baseline_by_canonical.insert(8, baseline(render(1),1)); // hidden nearest enemy
-        let first = decide(BotRole::Mid,1,p(0),p(900),&disclosed_units(&runtime,1));
+        let first = decide(BotRole::Mid,1,p(0),p(900),&disclosed_units(&runtime,1,|_|None));
         assert_eq!(first, Decision::Attack(7));
         runtime.latest_disclosed_baseline_by_canonical.insert(8,baseline(render(500),50));
-        assert_eq!(first, decide(BotRole::Mid,1,p(0),p(900),&disclosed_units(&runtime,1)));
+        assert_eq!(first, decide(BotRole::Mid,1,p(0),p(900),&disclosed_units(&runtime,1,|_|None)));
         runtime.teams.get_mut(&1).unwrap().index.current.clear();
-        assert_eq!(decide(BotRole::Mid,1,p(0),p(900),&disclosed_units(&runtime,1)), Decision::Advance(p(900)));
-        assert!(disclosed_units(&runtime,2).is_empty());
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(900),&disclosed_units(&runtime,1,|_|None)), Decision::Advance(p(900)));
+        assert!(disclosed_units(&runtime,2,|_|None).is_empty());
     }
     #[test]
     fn role_bots_targets_are_role_specific_and_order_independent() {
@@ -1228,15 +1763,43 @@ mod tests {
         runtime.ensure_team(1); runtime.teams.get_mut(&1).unwrap().index.current.insert(7);
         let render=encode_demo_render_state(DemoRenderState {x_raw:0,y_raw:0,team_id:2,kind:2,owner_player_id:0});
         runtime.latest_disclosed_baseline_by_canonical.insert(7,baseline(render.clone(),1));
-        assert_eq!(disclosed_units(&runtime,1).len(),1);
+        assert_eq!(disclosed_units(&runtime,1,|_|None).len(),1);
         for bytes in [baseline(render.clone(),-1),baseline(render.clone(),Fixed64::from_i32(101).raw()),
             encode_disclosed_baseline(&[(DEMO_RENDER_COMPONENT_SCHEMA_ID,render.clone())]),
             encode_disclosed_baseline(&[(DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID,vec![0;40]),
                 (DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID,vec![0;40])]),vec![255;4]] {
             runtime.latest_disclosed_baseline_by_canonical.insert(7,bytes);
-            assert!(disclosed_units(&runtime,1).is_empty());
+            assert!(disclosed_units(&runtime,1,|_|None).is_empty());
         }
         let mut trailing=baseline(render,1); trailing.push(0);
         assert!(decode_disclosed_components(&trailing).is_none());
+    }
+}
+
+#[cfg(test)]
+mod jungle_response_tests {
+    use super::*;
+    fn p(x:i32)->Vec2 {Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO)}
+    fn unit(id:u64,x:i32,team:u32,kind:u8,owner:u32)->SeenUnit {
+        SeenUnit {canonical_id:id,position:p(x),team,kind,owner_player_id:owner,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO,radius:Fixed64::ZERO}
+    }
+
+    /// E585: an enemy hero near an allied hero or tower within reach draws the jungler; one near
+    /// only the jungler itself, out of reach, or unreachable does not.
+    #[test]
+    fn a_jungler_goes_to_an_enemy_hero_at_an_ally_or_tower() {
+        let me=unit(1,0,1,1,5);
+        let ally=unit(2,2000,1,1,6);
+        let enemy=unit(3,2500,2,1,7);
+        assert_eq!(jungle_response_destination(5,1,p(0),&[me,ally,enemy],|_|true),Some(p(2500)));
+        let tower=unit(4,3000,1,4,0);
+        assert_eq!(jungle_response_destination(5,1,p(0),&[me,tower,enemy],|_|true),Some(p(2500)),"defending a tower");
+        assert_eq!(jungle_response_destination(5,1,p(0),&[me,enemy],|_|true),None,"no one to help");
+        let far=unit(3,5000,2,1,7);let far_ally=unit(2,4800,1,1,6);
+        assert_eq!(jungle_response_destination(5,1,p(0),&[me,far_ally,far],|_|true),None,"out of reach");
+        assert_eq!(jungle_response_destination(5,1,p(0),&[me,ally,enemy],|_|false),None,"unreachable");
+        // An enemy at an allied tower is an assist target, the tower its ally.
+        let close=unit(3,300,2,1,7);let home=unit(4,500,1,4,0);
+        assert_eq!(jungle_assist_target(5,1,p(0),&[me,close,home]),Some(3));
     }
 }

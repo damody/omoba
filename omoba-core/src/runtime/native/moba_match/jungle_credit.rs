@@ -63,6 +63,8 @@ mod tests {
         let (hero,ally)={let mut state=world.write_resource::<MobaMatch>();state.phase=MobaMatchPhase::Playing;
             (state.heroes[0].entity.unwrap(),state.heroes[2].entity.unwrap())};
         for entity in [hero,ally] {world.write_storage::<Gold>().get_mut(entity).unwrap().0=0;}
+        // The bosses appear on the match clock (E187); these fixtures fight them at the start.
+        spawn_waiting_jungle_camps_for_test(&mut world);
         (world,hero,ally)
     }
     fn npc(world:&mut World,player:Option<u32>,parent:Option<Entity>)->Entity {
@@ -105,12 +107,13 @@ mod tests {
         let (mut world,hero,ally)=fixture();let source=npc(&mut world,Some(1),None);let target=objective(&world);
         record_moba_death(&mut world,hero);flush(&mut world,vec![damage(source,target,100_000)]);
         assert_eq!(world.read_resource::<MobaMatch>().heroes[0].gold.0,150);
-        assert_eq!((world.read_resource::<MobaMatch>().heroes[0].hero.level,world.read_resource::<MobaMatch>().heroes[0].hero.experience),(3,80));
+        // The south epic guardian gives the original 150 XP (E187).
+        assert_eq!((world.read_resource::<MobaMatch>().heroes[0].hero.level,world.read_resource::<MobaMatch>().heroes[0].hero.experience),(2,50));
         assert!(world.read_resource::<BuffStore>().has(ally,"objective_guard"));
         let mut state=world.remove::<MobaMatch>().unwrap();state.elapsed=Fixed64::from_i32(30);state.spawn_hero(&mut world,0);
         let next=state.heroes[0].entity.unwrap();objective_buffs::synchronize(&world,&mut state,Fixed64::ZERO);world.insert(state);
         assert_eq!(world.read_storage::<Gold>().get(next).unwrap().0,150);
-        assert_eq!((world.read_storage::<Hero>().get(next).unwrap().level,world.read_storage::<Hero>().get(next).unwrap().experience),(3,80));
+        assert_eq!((world.read_storage::<Hero>().get(next).unwrap().level,world.read_storage::<Hero>().get(next).unwrap().experience),(2,50));
         assert!(world.read_resource::<BuffStore>().has(next,"objective_guard"));
     }
     #[test]

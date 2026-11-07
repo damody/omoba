@@ -251,7 +251,7 @@ impl<'a> System<'a> for Sys {
                                                 for di in
                                                     tr.searcher.search_collidable(p_vek, q_r, 16)
                                                 {
-                                                    if di.e == self_entity {
+                                                    if di.e == self_entity || tr.buff_store.ignores_unit_collision(di.e) {
                                                         continue;
                                                     }
                                                     let Some(other_r) =

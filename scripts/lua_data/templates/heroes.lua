@@ -13,16 +13,6 @@ return function(ctx)
         "rain_iron_cannon",
         "three_stage_technique",
       },
-      strength = 18,
-      agility = 28,
-      intelligence = 16,
-      primary_attribute = "agility",
-      attack_range = 900.0,
-      base_damage = 52,
-      base_armor = 1.5,
-      base_hp = 580,
-      base_mana = 300,
-      move_speed = 320.0,
       turn_speed = 720.0,
       render = {
         render_mode = "model_3d",
@@ -208,14 +198,6 @@ return function(ctx)
           fallback_policy = "UseGenericState",
         },
       },
-      level_growth = {
-        strength_per_level = 1.8,
-        agility_per_level = 3.2,
-        intelligence_per_level = 1.6,
-        damage_per_level = 2.8,
-        hp_per_level = 58.0,
-        mana_per_level = 26.0,
-      },
     },
     {
       id = "date_masamune",
@@ -230,28 +212,12 @@ return function(ctx)
         "flame_assault",
         "matchlock_gun",
       },
-      strength = 26,
-      agility = 22,
-      intelligence = 14,
-      primary_attribute = "strength",
-      attack_range = 250.0,
-      base_damage = 60,
-      base_armor = 2.5,
-      base_hp = 680,
-      base_mana = 240,
-      move_speed = 310.0,
       turn_speed = 200.0,
-      level_growth = {
-        strength_per_level = 3.0,
-        agility_per_level = 1.8,
-        intelligence_per_level = 1.4,
-        damage_per_level = 3.2,
-        hp_per_level = 68.0,
-        mana_per_level = 22.0,
-      },
     },
     {
       id = "training_luminary",
+      -- Not a source hero: automated tests and fixtures only, never selectable or in a match.
+      test_only = true,
       ue = { native_only = true },
       display_name = "晨光導師",
       title = "技能範本英雄",
@@ -310,12 +276,119 @@ return function(ctx)
   line.abilities={'lumen_ray','lumen_touch','lumen_lance','lumen_mend'}
   line.ue={native_only=true,native_visual=native_visuals.training_luminary}
   heroes[#heroes+1]=line
+  -- Append-only G-1 loadout: homing and piercing linear ability projectiles.
+  local frost={};for key,value in pairs(source)do frost[key]=value end
+  frost.id='training_frost_mage';frost.display_name='晨光霜彈師';frost.title='飛行投射物配裝'
+  frost.background='使用通用技能投射物（追蹤寒霜彈與直線貫穿飛槍）的晨光術士配裝。'
+  frost.abilities={'lumen_frost_bolt','lumen_frost_lance','lumen_venom_orb','lumen_sentry'}
+  frost.ue={native_only=true,native_visual=native_visuals.training_luminary}
+  heroes[#heroes+1]=frost
+  -- Append-only G-2 loadout: point and unit pulse channels.
+  local channeler={};for key,value in pairs(source)do channeler[key]=value end
+  channeler.id='training_channeler';channeler.display_name='晨光引導者';channeler.title='引導技配裝'
+  channeler.background='使用通用引導技（地點震波與單體牽引）的晨光術士配裝。'
+  channeler.abilities={'lumen_bolt','lumen_tether','lumen_lance','lumen_tremor'}
+  channeler.ue={native_only=true,native_visual=native_visuals.training_luminary}
+  heroes[#heroes+1]=channeler
+  -- Append-only G-4 loadout: forced displacement (pull hook, knockback) and true sight.
+  local grappler={};for key,value in pairs(source)do grappler[key]=value end
+  grappler.id='training_grappler';grappler.display_name='晨光鉤索者';grappler.title='強制位移與偵測配裝'
+  grappler.background='使用通用強制位移（直線鉤鎖拉近與單體震退）與顯形範圍的晨光術士配裝。'
+  grappler.abilities={'lumen_hook','lumen_repulse','lumen_flare','lumen_mend'}
+  grappler.ue={native_only=true,native_visual=native_visuals.training_luminary}
+  heroes[#heroes+1]=grappler
   for _,hero in ipairs(heroes)do
     local profile=native_visuals[hero.id]
     if profile then
       -- Apprentice/support are shallow gameplay clones; give each a separate Unreal settings table.
       local ue={};for key,value in pairs(hero.ue or{})do ue[key]=value end
       ue.native_visual=profile;hero.ue=ue
+    end
+  end
+  -- @hero_author:authored-include (scripts/hero_author.lua build): packages are
+  -- appended after every hand-written hero; updates only replace slot entries.
+  do
+    local authored = ctx.include('templates/authored_heroes.lua')
+    for _, hero in ipairs(authored.heroes or {}) do heroes[#heroes + 1] = hero end
+    for _, hero in ipairs(heroes) do
+      local update = (authored.hero_updates or {})[hero.id]
+      if update then
+        assert(update.rust_module == hero.rust_module, hero.id .. ': authored update rust_module mismatch')
+        local list = {}
+        for i, id in ipairs(hero.abilities or {}) do list[i] = id end
+        -- Slots 5 and 6 are the optional extra action slots (D, F).
+        for i = 1, 6 do if update.abilities_by_slot[i] then list[i] = update.abilities_by_slot[i] end end
+        -- An unused slot before a used one (F without D) stays in place as the empty id "".
+        local top = 0
+        for i = 1, 6 do if list[i] then top = i end end
+        for i = 1, top do list[i] = list[i] or "" end
+        -- Replaced abilities stay registered (gen_hero_registry reads
+        -- retained_abilities) so legacy content keeps its handlers and tests.
+        local kept, in_list = {}, {}
+        for _, id in ipairs(list) do if id ~= "" then in_list[id] = true end end
+        for _, id in ipairs(hero.retained_abilities or {}) do if not in_list[id] then kept[#kept + 1] = id; in_list[id] = true end end
+        for _, id in ipairs(hero.abilities or {}) do if not in_list[id] then kept[#kept + 1] = id; in_list[id] = true end end
+        hero.abilities = list
+        hero.retained_abilities = kept
+        -- Birth ranks follow the replaced slots; other slots keep the hero's own.
+        local loadout = hero.moba_loadout or {}
+        local base = loadout.ranks or { 1, 1, 1, 1 }
+        local ranks = {}
+        -- One rank per slot the hero has; an empty slot is never learned.
+        for i = 1, math.max(#list, 4) do ranks[i] = list[i] == "" and 0 or (update.ranks_by_slot or {})[i] or base[i] or 0 end
+        hero.moba_loadout = { ranks = ranks, skill_points = update.skill_points or loadout.skill_points or 0 }
+        -- The package that updates a hand-written hero carries its source hero.
+        if update.source_ref then hero.source_ref = update.source_ref end
+      end
+    end
+  end
+  -- v3 test heroes (scripts/v3_test_heroes.lua): test_only heroes whose package is only a v3
+  -- document, appended after the authored ones; their unit stats come from `source_stats`.
+  for _, hero in ipairs(ctx.include('templates/v3_test_heroes.lua').heroes or {}) do heroes[#heroes + 1] = hero end
+  -- Generated Tripo bodies (templates/moba_tripo_hero_visuals.lua) replace any earlier native visual,
+  -- including a borrowed CC0 rig or legacy render model, once the hero's rig and clips are imported.
+  -- A skill-set variant (variant_of, D22) wears its base hero's body, rig and clips; an ability's
+  -- own cast clip goes to the variant's ability in the same loadout slot.
+  local tripo_visuals=ctx.include('templates/moba_tripo_hero_visuals.lua')
+  local by_id={};for _,hero in ipairs(heroes)do by_id[hero.id]=hero end
+  for _,hero in ipairs(heroes)do
+    local base=hero.variant_of and by_id[hero.variant_of]
+    if hero.variant_of then assert(base,('hero %s is a variant of unknown hero %s'):format(hero.id,hero.variant_of)) end
+    -- Its select title and story are the base hero's unless its document gives its own.
+    if base then hero.title=hero.title or base.title;hero.background=hero.background or base.background end
+  end
+  for _,hero in ipairs(heroes)do
+    local profile=tripo_visuals.profile(hero.variant_of or hero.id,hero.ue and hero.ue.native_visual)
+    local base=profile and hero.variant_of and by_id[hero.variant_of]
+    for i,ability in ipairs(base and hero.abilities or{})do
+      local clip=base.abilities[i] and profile.animation_assets['ability_'..base.abilities[i]]
+      if ability~='' and clip then profile.animation_assets['ability_'..ability]=clip end
+    end
+    if profile then
+      local ue={};for key,value in pairs(hero.ue or{})do ue[key]=value end
+      ue.native_visual=profile;hero.ue=ue
+    end
+  end
+  -- Every hero without its own character art (no native mesh, no legacy render model) gets the
+  -- shared humanoid fallback instead of the diagnostic box; Editor art replaces it.
+  local shared_fallback=ctx.include('templates/moba_shared_hero_fallback.lua')
+  for _,hero in ipairs(heroes)do
+    local visual=hero.ue and hero.ue.native_visual
+    local rendered=hero.render and hero.render.model and hero.render.model~=''
+    if not rendered and not (visual and (visual.mesh_asset or visual.static_mesh_asset)) then
+      local ue={};for key,value in pairs(hero.ue or{})do ue[key]=value end
+      ue.native_visual=shared_fallback.profile(hero.id,visual);hero.ue=ue
+    end
+  end
+  -- Playable heroes take these from their source unit (templates/hero_source_stats.lua, applied in
+  -- templates.lua). Authoring them here would be dead data that silently disagrees with the source.
+  local SOURCE_OWNED = { 'primary_attribute', 'strength', 'agility', 'intelligence', 'base_hp', 'base_mana',
+    'base_armor', 'base_damage', 'attack_range', 'move_speed', 'base_attack_time', 'health_regen', 'mana_regen', 'level_growth' }
+  for _, hero in ipairs(heroes) do
+    if hero.source_ref and not hero.tombstone then
+      for _, field in ipairs(SOURCE_OWNED) do
+        assert(hero[field] == nil, ("hero '%s' authors %s, which its source unit provides (%s)"):format(hero.id, field, hero.source_ref))
+      end
     end
   end
   return heroes

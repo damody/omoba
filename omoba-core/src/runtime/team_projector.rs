@@ -190,6 +190,7 @@ pub struct TeamViewProjector {
     identity: TeamIdentityState,
     config: TeamProjectorConfig,
     pending_reveals: VecDeque<VisibilityTransition>,
+    flight_cues: FlightCues,
     pending_rebase_chunks: VecDeque<Vec<u8>>,
     hash_entities: BTreeMap<u64, (u64, u32, BTreeMap<u32, Vec<u8>>)>,
     pending_component_repairs: VecDeque<ComponentRepair>,
@@ -199,12 +200,26 @@ pub struct TeamViewProjector {
     latest_external_property_by_replica: BTreeMap<u64, Vec<u8>>,
     fog_grid: Option<crate::runtime::fog_grid::AuthorityFogGrid>,
     pending_fog_event: Option<TeamPublicEvent>,
+    /// This tick's committed view: a cast's ground-point target is projected on the team's vision.
+    point_view: Option<std::sync::Arc<crate::runtime::visibility::WaveBReadView>>,
+    /// This frame's runtime facts per replica id, already in the team form (runtime_fact_state).
+    runtime_facts: BTreeMap<u64, Vec<u8>>,
+    /// Replica ids whose step-changing component (target state, unit abilities) the last step
+    /// sent, per event kind: the step it goes away sends one empty event (E541).
+    shown_step_components: BTreeMap<u32, BTreeSet<u64>>,
     prepared_mode: Option<AuthoritativeModePresentation>,
+    /// M3' ② script DLLs the authority swapped before this tick (dev hot reload).
+    pending_script_swaps: Vec<crate::game_proto::ScriptModuleSwap>,
     combat_preferences: Option<crate::game_proto::CombatPreferencesProjection>,
     /// Last step's owner-undo hash material. Empty before the first frame and
     /// whenever that step had no owner-undo fact. The next bootstrap and rebase
     /// carry this vector; they do not recompute it from private ledger state.
     retained_owner_undo_material: Vec<u8>,
+    /// Recent checkpoint views as cheap per-component digests, so an observer
+    /// mismatch can name the diverging (entity, schema) instead of a bare hash.
+    expected_digests: std::collections::VecDeque<(u64, Vec<ComponentDigestRow>)>,
+    /// Full expected components of the last few checkpoints, for mismatch diagnostics.
+    expected_snapshots: std::collections::VecDeque<(u64, ComponentBytes)>,
 }
 
 #[derive(Default)]
@@ -217,6 +232,8 @@ pub struct TeamProjectionRuntime {
     pub latest_rebases: BTreeMap<u32, RecoveryRebaseBundle>,
     pending_rebase_outbound: BTreeMap<u32, PendingRebaseOutbound>,
     pub pending_accepted_inputs: Vec<CanonicalAcceptedInput>,
+    /// Wall-clock ns of the latest projection per team (diagnostics only).
+    pub last_projection_ns: BTreeMap<u32, u128>,
 }
 
 impl TeamProjectionRuntime {
@@ -226,10 +243,125 @@ impl TeamProjectionRuntime {
         self.projectors.get(&team_id).map(|projector| (&projector.identity, projector.view_epoch))
     }
 
+    /// Gameplay input fog rule shared by authority admission and projection:
+    /// an input may name only an entity its team's replica can resolve. A team
+    /// without a projector (non-selective modes) keeps every target.
+    pub fn target_disclosed(&self, team_id: u32, canonical: u64) -> bool {
+        self.projectors.get(&team_id).map_or(true, |projector| replica_proto(&projector.identity, canonical).is_some())
+    }
+
+    /// Full admission fog rule: the target must be disclosed to the team's
+    /// replica and actually sighted at the latest wave B (not merely kept by
+    /// a previous tick's input grace).
+    pub fn input_target_admissible(&self, visibility: &crate::runtime::TeamVisibilityRuntime, team_id: u32, canonical: u64) -> bool {
+        self.target_disclosed(team_id, canonical)
+            && visibility.teams.get(&team_id).map_or(true, |state| state.sighted.contains(&canonical))
+    }
+
     /// Owned copies so the authority drain can release this borrow before admission.
     pub fn communication_disclosures(&self) -> Vec<(u32, u64, TeamIdentityState)> {
         self.projectors.iter().map(|(team_id, projector)| (*team_id, projector.view_epoch, projector.identity.clone())).collect()
     }
+}
+
+/// Server input acceptance shared by omb and replica parity harnesses: the
+/// action kind and named target of one input. The target and other host-local
+/// identities are stripped from the payload replicas receive. `None` refuses
+/// the input (an unsealed client payload).
+pub fn sanitize_accepted_action(
+    action: &mut crate::game_proto::player_input::Action,
+) -> Option<(u32, Option<u32>, Option<u32>)> {
+    use crate::game_proto::player_input::Action;
+    Some(match action {
+        Action::SummonCommand(_) => return None, // unsealed client payload
+        Action::OwnedSummonOrder(value) => {
+            let (_,summon)=crate::runtime::summon_transport::validate_authority(value).ok()?;
+            let id=summon as u32;let generation=(summon>>32)as u32;
+            crate::runtime::summon_transport::redact(value).ok()?;
+            (crate::runtime::summon_transport::ACTION_KIND,Some(id),Some(generation))
+        }
+        Action::Stop(_) => (21, None, None),
+        Action::ShowcaseResetHero(_) => (31, None, None),
+        Action::HoldPosition(_) => (20, None, None),
+        Action::Recall(_) => (19, None, None),
+        Action::NoOp(_) => (1, None, None),
+        Action::MoveTo(_) => (2, None, None),
+        Action::AttackTarget(value) => {
+            let id = value.target_id;
+            value.target_id = 0;
+            (3, Some(id), None)
+        }
+        Action::CastAbility(value) => {
+            let id = value.target_entity.take();
+            (4, id, None)
+        }
+        Action::TowerPlace(_) => (5, None, None),
+        Action::TowerUpgrade(value) => {
+            let id = value.tower_entity_id;
+            value.tower_entity_id = 0;
+            (6, Some(id), None)
+        }
+        Action::TowerSell(value) => {
+            let id = value.tower_entity_id;
+            value.tower_entity_id = 0;
+            (7, Some(id), None)
+        }
+        Action::ItemUse(value) => {
+            let id = value.target_entity.take();
+            let generation = value.target_generation.take();
+            value.owner_entity = None;
+            value.owner_generation = None;
+            (8, id, generation)
+        }
+        Action::StartRound(_) => (9, None, None),
+        Action::ItemBuy(_) => (17, None, None),
+        Action::ItemSell(_) => (18, None, None),
+        Action::ShopUndo(_) => (crate::runtime::shop_undo_wire::SHOP_UNDO_ACTION_KIND, None, None),
+        Action::UpgradeAbility(_) => (10, None, None),
+        Action::AttackMove(_) => (11, None, None),
+        Action::SetTowerTargetPriority(value) => {
+            let id = value.tower_entity_id;
+            value.tower_entity_id = 0;
+            (12, Some(id), None)
+        }
+        Action::TogglePause(_) => (13, None, None),
+        Action::ToggleGameSpeed(_) => (14, None, None),
+        Action::DebugSpawnCreep(_) => (15, None, None),
+        Action::TowerAbilityCast(value) => {
+            let id = value.tower_entity_id;
+            value.tower_entity_id = 0;
+            (16, Some(id), None)
+        }
+        Action::SummonerCast(_) => (22, None, None),
+        Action::WardPlacement(_) => (25, None, None),
+        Action::CombatPreferences(_) => (26, None, None),
+        Action::InputScheme(_) => (27, None, None),
+        Action::Direction(value) => {
+            value.source=None;value.sealed_source=0;
+            (crate::runtime::direction_transport::ACTION_KIND,None,None)
+        }
+    })
+}
+
+/// Canonical id of an accepted input's named target. An explicit generation is
+/// the exact life (a dead life is not replaced by the recycled index); without
+/// one the current index is used. The outer `None` refuses the whole input.
+pub fn resolve_accepted_target(world: &specs::World, index: Option<u32>, generation: Option<u32>) -> Option<Option<u64>> {
+    use specs::WorldExt;
+    let entities = world.entities();
+    let target = match (index, generation) {
+        (Some(id), Some(generation)) => i32::try_from(generation).ok().filter(|gen| *gen > 0).and_then(|gen| {
+            let entity = specs::world::Entity::new(id, specs::world::Generation::new(gen));
+            entities.is_alive(entity).then(|| crate::runtime::canonical_entity_id(entity))
+        }),
+        (Some(id), None) => {
+            let entity = entities.entity(id);
+            entities.is_alive(entity).then(|| crate::runtime::canonical_entity_id(entity))
+        }
+        (None, _) => None,
+    };
+    if (index.is_some() || generation.is_some()) && target.is_none() { return None; }
+    Some(target)
 }
 
 #[derive(Clone, Debug)]
@@ -426,6 +558,11 @@ pub fn run_team_projection_after_wave_b(
     let authoritative_game_mode = world
         .try_fetch::<crate::runtime::native::comp::GameMode>()
         .map(|mode| *mode);
+    // M3' ②: the swaps the authority applied before this tick, announced in every team frame.
+    let script_swaps = world
+        .try_fetch::<crate::scripting::loader::ScriptSwapsThisTick>()
+        .map(|swaps| swaps.0.clone())
+        .unwrap_or_default();
     let combat_projections: BTreeMap<_, _> = world.try_fetch::<crate::runtime::MobaMatch>().map(|match_state| {
         visibility.teams.iter().filter_map(|(team, visibility_state)| {
             crate::runtime::combat_transport::project(&match_state, *team, &visibility_state.index.current, 1)
@@ -455,6 +592,7 @@ pub fn run_team_projection_after_wave_b(
     let pending_inputs = std::mem::take(&mut runtime.pending_accepted_inputs);
     let mut rebases = BTreeMap::new();
     for (team, state) in &visibility.teams {
+        let team_started = std::time::Instant::now();
         let transitions = visibility
             .last_transitions
             .get(team)
@@ -478,6 +616,7 @@ pub fn run_team_projection_after_wave_b(
             if view.tick != committed.tick { return Err(ProjectionError::InvalidFog("fog barrier tick mismatch")); }
             projector.sample_authority_fog(geometry, view)?;
         }
+        projector.point_view = visibility.latest_read_view.clone().filter(|view| view.tick == committed.tick);
         if let Some((resume_sequence, view_epoch)) = pending_rebases.get(team) {
             let view_epoch = (*view_epoch).max(projector.view_epoch);
             // Recovery requests may refer to the frame where divergence was
@@ -521,6 +660,7 @@ pub fn run_team_projection_after_wave_b(
             rebases.insert(*team, bundle);
         }
         projector.prepare_authoritative_mode(authoritative_game_mode);
+        projector.pending_script_swaps = script_swaps.clone();
         let frame = projector.build_frame_with_undo_settlements(
             server_tick,
             committed.tick,
@@ -544,6 +684,7 @@ pub fn run_team_projection_after_wave_b(
             );
         }
         frames.insert(*team, frame);
+        runtime.last_projection_ns.insert(*team, team_started.elapsed().as_nanos());
     }
     runtime.latest_frames = frames;
     for (team_id, bundle) in &rebases {
@@ -615,6 +756,7 @@ impl TeamViewProjector {
             identity: TeamIdentityState::new(team_id),
             config,
             pending_reveals: VecDeque::new(),
+            flight_cues: FlightCues::new(),
             pending_rebase_chunks: VecDeque::new(),
             hash_entities: BTreeMap::new(),
             pending_component_repairs: VecDeque::new(),
@@ -624,9 +766,15 @@ impl TeamViewProjector {
             latest_external_property_by_replica: BTreeMap::new(),
             fog_grid: None,
             pending_fog_event: None,
+            point_view: None,
+            runtime_facts: BTreeMap::new(),
+            shown_step_components: BTreeMap::new(),
             prepared_mode: None,
+            pending_script_swaps: Vec::new(),
             combat_preferences: None,
             retained_owner_undo_material: Vec::new(),
+            expected_digests: std::collections::VecDeque::new(),
+            expected_snapshots: std::collections::VecDeque::new(),
         }
     }
 
@@ -699,6 +847,7 @@ impl TeamViewProjector {
         visible: &BTreeSet<u64>,
         baselines: &BTreeMap<u64, Vec<u8>>,
     ) {
+        let mut raw_facts = Vec::new();
         for canonical_id in visible {
             let Some(mapping) = self.identity.replica_for(unpack_canonical(*canonical_id)) else {
                 continue;
@@ -709,7 +858,13 @@ impl TeamViewProjector {
             if let Some((epoch, kind, components)) =
                 self.hash_entities.get_mut(&mapping.replica_id.get())
             {
-                let next_components = team_safe_components(baseline, self.team_id);
+                let (next_components, facts) = team_safe_components_with_facts(baseline, self.team_id);
+                if let Some(facts) = facts {
+                    let own = next_components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
+                        .and_then(|bytes| crate::runtime::decode_demo_render_state(bytes))
+                        .is_some_and(|state| state.team_id == self.team_id);
+                    raw_facts.push((mapping.replica_id.get(), own, facts));
+                }
                 // This is the server-side expected view used by checkpoint
                 // validation, not a per-tick state replication path. Visible
                 // entities continue through player-view lockstep; only an
@@ -725,6 +880,18 @@ impl TeamViewProjector {
                 }
             }
         }
+        // A tether reaches this team only while its source is disclosed to it too.
+        let source_of = |canonical: u64| {
+            if !visible.contains(&canonical) { return None; }
+            let mapping = self.identity.replica_for(unpack_canonical(canonical))?;
+            self.hash_entities.contains_key(&mapping.replica_id.get())
+                .then_some((mapping.replica_id.get(), mapping.disclosure_epoch))
+        };
+        let team_facts: BTreeMap<u64, Vec<u8>> = raw_facts.into_iter().filter_map(|(replica_id, own, bytes)| {
+            let state = crate::runtime::runtime_fact_state::RuntimeFactState::decode(&bytes)?;
+            Some((replica_id, state.for_team(self.team_id, own, source_of)?.encode()?))
+        }).collect();
+        self.runtime_facts = team_facts;
     }
 
     pub fn enqueue_visible_demo_repairs(
@@ -924,6 +1091,8 @@ impl TeamViewProjector {
             owner_ward_projection: Vec::new(),
             owner_ward_envelope: None,
             combat_preferences: self.combat_preferences.clone(),
+            // Per-player rejoin secret; stamped by the transport on each unicast join.
+            resume_token: Vec::new(),
         }
     }
 
@@ -1036,6 +1205,12 @@ impl TeamViewProjector {
             &undo_material,
             self.combat_preferences.as_ref(),
         );
+        if replica_tick % self.config.hash_checkpoint_interval_ticks.max(1) == 0 {
+            if self.expected_digests.len() >= EXPECTED_DIGEST_TICKS { self.expected_digests.pop_front(); }
+            self.expected_digests.push_back((replica_tick, component_digest_rows(&self.hash_entities)));
+            if self.expected_snapshots.len() >= EXPECTED_SNAPSHOT_TICKS { self.expected_snapshots.pop_front(); }
+            self.expected_snapshots.push_back((replica_tick, component_bytes(&self.hash_entities)));
+        }
         let post_step = PostStep {
             component_repairs: self.pending_component_repairs.drain(..).collect(),
             entity_replaces: self.pending_entity_replaces.drain(..).collect(),
@@ -1070,6 +1245,7 @@ impl TeamViewProjector {
             padding: Vec::new(),
             authoritative_mode: self.prepared_mode.take(),
             combat_preferences: self.combat_preferences.clone(),
+            script_module_swaps: std::mem::take(&mut self.pending_script_swaps),
         };
         self.sequence = self.sequence.saturating_add(1);
         // Reserve the following revision for post-step authoritative repairs.
@@ -1098,8 +1274,9 @@ impl TeamViewProjector {
                     effective_tick,
                     baseline,
                 } => {
-                    let baseline = if decode_safe_components_for_hash(&baseline)
-                        .contains_key(&crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID)
+                    let components = decode_safe_components_for_hash(&baseline);
+                    let baseline = if components.contains_key(&crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID)
+                        || components.contains_key(&crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID)
                     {
                         crate::runtime::visibility::encode_disclosed_baseline(
                             &team_safe_components(&baseline, self.team_id).into_iter().collect::<Vec<_>>())
@@ -1288,7 +1465,13 @@ impl TeamViewProjector {
                 fact.key.local_ordinal,
             )
         });
+        let mut cues_seen: Vec<(u64, crate::runtime::presentation_cue::CueEnd)> = Vec::new();
         for fact in ordered {
+            // Control rows exist only for this team's own heroes.
+            if matches!(fact.fact, ObservableFact::OwnerControl { .. } | ObservableFact::EnemySight { .. })
+                && !matches!(fact.audience, FactAudience::Team(value) if value == self.team_id) {
+                continue;
+            }
             if let ObservableFact::OwnerEconomy { team, .. } | ObservableFact::OwnerShopUndo { team, .. } = &fact.fact {
                 if *team != self.team_id || !matches!(fact.audience, FactAudience::Team(value) if value == self.team_id) {
                     continue;
@@ -1302,14 +1485,26 @@ impl TeamViewProjector {
                     continue;
                 }
             }
-            // Our team's cooldowns remain deterministic gameplay from its
-            // accepted inputs. Only disclosed opponents need settled state.
-            if let ObservableFact::CommittedCooldown { source, .. } = &fact.fact {
-                if self.identity.replica_for(unpack_canonical(*source))
-                    .and_then(|mapping| self.hash_entities.get(&mapping.replica_id.get()))
-                    .and_then(|(_, _, components)| components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID))
-                    .and_then(|bytes| crate::runtime::decode_demo_render_state(bytes))
-                    .is_some_and(|render| render.team_id == self.team_id) {
+            // Settled cooldowns and charges reach every team that sees the hero, its own included: a
+            // hook the authority alone runs (a channel an opposing effect ended, its on_channel_end
+            // resetting the cooldown) changes them where our replica cannot (E401). Where our
+            // replica predicted the same value, applying it changes nothing.
+            // A cue is projected end by end on this team's sight.
+            if let ObservableFact::Cue { .. } = &fact.fact {
+                if is_flight_cue(fact) { continue; }
+                let view = self.point_view.as_deref();
+                let team = self.team_id;
+                project_cue(fact, visible, &self.identity, &|x, y| view.is_some_and(|view|
+                    crate::runtime::fog_grid::team_sees_point(view, team,
+                        omoba_sim::Vec2::new(omoba_sim::Fixed64::from_raw(x), omoba_sim::Fixed64::from_raw(y)))),
+                    &mut cues_seen, &mut public_events);
+                continue;
+            }
+            // A cast's ground-point target reaches only the teams whose vision covers the point.
+            if let ObservableFact::AbilityTarget { target: None, point: Some((x, y)), .. } = &fact.fact {
+                let point = omoba_sim::Vec2::new(omoba_sim::Fixed64::from_raw(*x), omoba_sim::Fixed64::from_raw(*y));
+                if !self.point_view.as_deref().is_some_and(|view|
+                    crate::runtime::fog_grid::team_sees_point(view, self.team_id, point)) {
                     continue;
                 }
             }
@@ -1322,6 +1517,24 @@ impl TeamViewProjector {
             );
         }
         if let Some(event) = self.pending_fog_event.take() { public_events.push(event); }
+        for (&id, bytes) in &self.runtime_facts {
+            if !self.hash_entities.contains_key(&id) { continue; }
+            public_events.push(TeamPublicEvent { event_kind: crate::runtime::runtime_fact_state::EVENT_KIND,
+                subject: Some(ProtoReplicaEntityId { value: id }), sanitized_payload: bytes.clone(), stable_sub_index: 0 });
+        }
+        // Components that change within a disclosed life (E541): this step's bytes while present,
+        // one empty event when gone, so the replica never keeps a stale copy from its baseline.
+        for (kind, schema) in [(crate::runtime::FactKind::TargetState, crate::runtime::DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID),
+            (crate::runtime::FactKind::UnitAbilities, crate::runtime::native::unit_abilities::SCHEMA_ID)] {
+            let shown = self.shown_step_components.entry(kind as u32).or_default();
+            let mut now = BTreeSet::new();
+            for (&id, (_, _, components)) in &self.hash_entities {
+                let payload = match components.get(&schema) { Some(bytes) => { now.insert(id); bytes.clone() }, None if shown.contains(&id) => Vec::new(), None => continue };
+                public_events.push(TeamPublicEvent { event_kind: kind as u32, subject: Some(ProtoReplicaEntityId { value: id }),
+                    sanitized_payload: payload, stable_sub_index: 0 });
+            }
+            *shown = now;
+        }
         for (&id, (_, _, components)) in &self.hash_entities {
             if let Some(range)=components.get(&crate::runtime::attack_visual_state::RANGE_SCHEMA_ID){
                 public_events.push(TeamPublicEvent {event_kind:crate::runtime::FactKind::DisclosedAttackRange as u32,subject:Some(ProtoReplicaEntityId {value:id}),sanitized_payload:range.clone(),stable_sub_index:0});
@@ -1343,6 +1556,7 @@ impl TeamViewProjector {
                     subject:Some(ProtoReplicaEntityId {value:id}),sanitized_payload:state.clone(),stable_sub_index:0});
             }
         }
+        advance_flight_cues(&mut self.flight_cues, facts, visible, &self.identity, &mut cues_seen, &mut public_events);
         public_events.sort_by_key(|event| {
             (
                 event.event_kind,
@@ -1445,6 +1659,87 @@ fn assign_presentation_ordinals(public: &mut [TeamPublicEvent], external: &mut [
     }
 }
 
+/// Cues one team receives in a tick.
+const MAX_TEAM_CUES_PER_TICK: usize = 64;
+
+/// A cue's public event. An end this team does not see is never named. When the `at` end is hidden
+/// but the `to` end shows, the cue plays there alone: a hidden caster's bolt still lands on a visible
+/// victim, and nothing says where it came from.
+fn project_cue(
+    ordered: &OrderedFact,
+    visible: &BTreeSet<u64>,
+    identity: &TeamIdentityState,
+    sees_point: &dyn Fn(i64, i64) -> bool,
+    seen: &mut Vec<(u64, crate::runtime::presentation_cue::CueEnd)>,
+    public: &mut Vec<TeamPublicEvent>,
+) {
+    use crate::runtime::presentation_cue::{CueEnd, CuePresentationCue};
+    let ObservableFact::Cue { cue, source, at_unit, at_point, to_unit, to_point, radius_raw, duration_raw } = &ordered.fact else { return };
+    if seen.len() >= MAX_TEAM_CUES_PER_TICK { return; }
+    let end = |unit: &Option<u64>, point: Option<(i64, i64)>| -> Option<CueEnd> {
+        match unit {
+            Some(id) => visible.contains(id).then(|| replica_proto(identity, *id)).flatten().map(|replica| CueEnd::Unit(replica.value)),
+            None => point.filter(|(x, y)| sees_point(*x, *y)).map(|(x, y)| CueEnd::Point(x, y)),
+        }
+    };
+    let at = end(at_unit, Some(*at_point));
+    let to = end(to_unit, *to_point);
+    let (at, to) = match (at, to) {
+        (Some(at), to) => (at, to),
+        (None, Some(to)) => (to, None),
+        (None, None) => return,
+    };
+    // The same cue at the same place this tick reads as one.
+    if seen.contains(&(*cue, at)) { return; }
+    seen.push((*cue, at));
+    let source = source.filter(|id| visible.contains(id)).and_then(|id| replica_proto(identity, id)).map_or(0, |replica| replica.value);
+    public.push(TeamPublicEvent {
+        event_kind: ordered.key.fact_kind as u32,
+        subject: None,
+        sanitized_payload: CuePresentationCue::public_payload(*cue, source, at, to, *radius_raw, *duration_raw),
+        stable_sub_index: ordered.key.local_ordinal,
+    });
+}
+
+/// A flight's launch cue per projectile, and whether this team's current disclosure of it has played it.
+type FlightCues = BTreeMap<u64, (OrderedFact, bool)>;
+const MAX_TEAM_FLIGHT_CUES: usize = 512;
+
+fn is_flight_cue(ordered: &OrderedFact) -> bool {
+    matches!(ordered.fact, ObservableFact::Cue { at_unit: Some(_), .. })
+        && ordered.key.local_ordinal >= crate::runtime::native::ability_projectile::FLIGHT_CUE_ORDINAL_BASE
+}
+
+/// The body of a flight is drawn on the flight's own entity, and a team only has that entity once it
+/// is disclosed: some ticks after the launch, or mid flight when the flight comes into sight. So the
+/// launch cue waits here until the flight retires and plays on each disclosure.
+fn advance_flight_cues(
+    held: &mut FlightCues,
+    facts: &[OrderedFact],
+    visible: &BTreeSet<u64>,
+    identity: &TeamIdentityState,
+    seen: &mut Vec<(u64, crate::runtime::presentation_cue::CueEnd)>,
+    public: &mut Vec<TeamPublicEvent>,
+) {
+    for fact in facts {
+        if let (true, ObservableFact::Cue { at_unit: Some(flight), .. }) = (is_flight_cue(fact), &fact.fact) {
+            if held.len() < MAX_TEAM_FLIGHT_CUES { held.insert(*flight, (fact.clone(), false)); }
+        }
+    }
+    for fact in facts {
+        if let ObservableFact::Projectile { source, active: false, .. } = &fact.fact { held.remove(source); }
+    }
+    for (flight, (fact, played)) in held.iter_mut() {
+        if !visible.contains(flight) || replica_proto(identity, *flight).is_none() {
+            *played = false;
+        } else if !*played {
+            let before = public.len();
+            project_cue(fact, visible, identity, &|_, _| false, seen, public);
+            *played = public.len() > before;
+        }
+    }
+}
+
 fn project_fact(
     ordered: &OrderedFact,
     visible: &BTreeSet<u64>,
@@ -1459,6 +1754,28 @@ fn project_fact(
     // cannot anchor it, even if an inconsistent visibility set contains them.
     if matches!(ordered.fact, ObservableFact::ProjectileImpact { .. } | ObservableFact::AttackAvoided { .. } | ObservableFact::CriticalHit { .. })
         && (!target_visible || target.and_then(|id| replica_proto(identity, id)).is_none()) {
+        return;
+    }
+    // Where a cast landed: projected on the target, never on the caster. A unit target must be
+    // disclosed to this team (a ground point was checked against its vision by the caller); the
+    // caster's identity rides along only when this team sees the caster, else it stays 0.
+    if let ObservableFact::AbilityTarget { source: caster, ability_id, rank, target: target_unit, point } = &ordered.fact {
+        let subject = match target_unit {
+            Some(id) => match visible.contains(id).then(|| replica_proto(identity, *id)).flatten() {
+                Some(replica) => Some(replica),
+                None => return,
+            },
+            None if point.is_some() => None,
+            None => return,
+        };
+        let caster_replica = visible.contains(caster).then(|| replica_proto(identity, *caster)).flatten().map_or(0, |replica| replica.value);
+        public.push(TeamPublicEvent {
+            event_kind: ordered.key.fact_kind as u32,
+            subject,
+            sanitized_payload: crate::runtime::presentation_cue::AbilityTargetPresentationCue::public_payload(
+                *ability_id, *rank, caster_replica, if target_unit.is_some() { None } else { *point }),
+            stable_sub_index: ordered.key.local_ordinal,
+        });
         return;
     }
     // Ability payload identifies the caster's skill, not a target-only impact.
@@ -1508,6 +1825,8 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
         ObservableFact::AttackAvoided { target } => (None, Some(*target), b"AVD1".to_vec()),
         ObservableFact::CriticalHit {target}=>(None,Some(*target),b"CRT1".to_vec()),
         ObservableFact::CommittedMana { source, state } => (Some(*source), None, state.encode()),
+        ObservableFact::OwnerControl { source, batch, row } => (Some(*source), None, row.encode(*batch)),
+        ObservableFact::EnemySight { source, seen } => (Some(*source), None, crate::runtime::visibility::encode_disclosed_enemy_sight(*seen)),
         ObservableFact::CommittedAbilityRanks { source, ranks } => {
             for rank in ranks { payload.extend(rank.to_le_bytes()); }
             (Some(*source), None, payload)
@@ -1517,6 +1836,15 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
         ObservableFact::CommittedEconomy { source, state } => (Some(*source), None, state.encode()),
         ObservableFact::CommittedEquipmentStats { source, hp_raw, max_hp_raw, speed_raw, armor_raw, attack_raw } => {
             for value in [hp_raw, max_hp_raw, speed_raw, armor_raw, attack_raw] { payload.extend(value.to_le_bytes()); }
+            (Some(*source), None, payload)
+        }
+        ObservableFact::CommittedAttributes { source, strength_raw, agility_raw, intelligence_raw, attribute_hp_raw, base } => {
+            for value in [strength_raw, agility_raw, intelligence_raw, attribute_hp_raw] { payload.extend(value.to_le_bytes()); }
+            for value in base { payload.extend(value.to_le_bytes()); }
+            (Some(*source), None, payload)
+        }
+        ObservableFact::CommittedAbilitySlots { source, abilities } => {
+            for id in abilities { payload.extend(id.to_le_bytes()); }
             (Some(*source), None, payload)
         }
         ObservableFact::CommittedProgression { source, level, experience, experience_to_next, skill_points } => {
@@ -1544,6 +1872,15 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
         }
         ObservableFact::CommittedCooldown { source, slot, remaining_raw } => {
             payload.extend(slot.to_le_bytes());
+            payload.extend(remaining_raw.to_le_bytes());
+            (Some(*source), None, payload)
+        }
+        ObservableFact::CommittedCharge { source, slot, charges, max, recharge_raw, remaining_raw } => {
+            // 24 bytes LE: slot u32, charges u16, max u16, recharge i64, remaining i64.
+            payload.extend(slot.to_le_bytes());
+            payload.extend(charges.to_le_bytes());
+            payload.extend(max.to_le_bytes());
+            payload.extend(recharge_raw.to_le_bytes());
             payload.extend(remaining_raw.to_le_bytes());
             (Some(*source), None, payload)
         }
@@ -1617,6 +1954,9 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
             payload.push(u8::from(*active));
             (Some(*source), Some(*target), payload)
         }
+        // Projected on its own (project_fact) before this table is consulted.
+        ObservableFact::AbilityTarget { source, target, .. } => (Some(*source), *target, payload),
+        ObservableFact::Cue { source, .. } => (*source, None, payload),
         ObservableFact::AbilityArea {source, team, ability_id,rank,x_raw,y_raw,radius_raw,duration_raw} => {
             if *team == 0 || *team != viewer_team {return (None,None,Vec::new());}
             payload = crate::runtime::presentation_cue::AbilityAreaPresentationCue::public_payload(
@@ -1765,11 +2105,32 @@ fn expected_team_hash(
 }
 
 fn team_safe_components(bytes: &[u8], team: u32) -> BTreeMap<u32, Vec<u8>> {
+    team_safe_components_with_facts(bytes, team).0
+}
+
+/// The team-safe components plus the raw runtime facts, which never reach a replica baseline
+/// (the projector re-sends them per team, runtime_fact_state).
+fn team_safe_components_with_facts(bytes: &[u8], team: u32) -> (BTreeMap<u32, Vec<u8>>, Option<Vec<u8>>) {
     let mut components = decode_safe_components_for_hash(bytes);
+    let facts = components.remove(&crate::runtime::runtime_fact_state::SCHEMA_ID);
     let owns=components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
         .and_then(|bytes|crate::runtime::decode_demo_render_state(bytes))
         .is_some_and(|state|state.team_id==team && state.owner_player_id!=0);
-    if !owns {components.remove(&crate::runtime::buff_visual_state::SCHEMA_ID);}
+    // Another team sees only the public statuses' icons (v3 `reveal = "public"`, E216); the owner team sees all.
+    if !owns {
+        let schema = crate::runtime::buff_visual_state::SCHEMA_ID;
+        match components.get(&schema).map(|bytes| crate::runtime::buff_visual_state::public_snapshot(bytes)) {
+            Some(Some(public)) => { components.insert(schema, public); }
+            Some(None) => { components.remove(&schema); }
+            None => {}
+        }
+    }
+    if components.contains_key(&crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID) {
+        let own_team = components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
+            .and_then(|bytes| crate::runtime::decode_demo_render_state(bytes))
+            .is_some_and(|state| state.team_id == team);
+        if !own_team { components.remove(&crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID); }
+    }
     if components.contains_key(&crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID) {
         let owned = components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
             .and_then(|bytes| crate::runtime::decode_demo_render_state(bytes))
@@ -1782,7 +2143,7 @@ fn team_safe_components(bytes: &[u8], team: u32) -> BTreeMap<u32, Vec<u8>> {
             }
         }
     }
-    components
+    (components, facts)
 }
 
 fn decode_safe_components_for_hash(bytes: &[u8]) -> BTreeMap<u32, Vec<u8>> {
@@ -1922,20 +2283,68 @@ pub fn sanitize_hidden_aoe_effect(
     }
 }
 
+/// The metadata a team bootstrap carries besides `build_team_bootstraps`' own (E553): the
+/// compiled map identity and the current blocked regions (public), and the team's summoner
+/// projection (team-private). Every bootstrap producer adds these, the server and the
+/// in-process observer alike; a replica started without them navigates and places summons
+/// with no terrain.
+pub fn attach_bootstrap_metadata(world: &World, starts: &mut BTreeMap<u32, TeamGameStart>) {
+    let blocked = crate::runtime::encode_public_blocked_regions(&world.read_resource::<crate::runtime::BlockedRegions>());
+    let state = world.try_fetch::<crate::runtime::MobaMatch>();
+    let map = state.as_ref().and_then(|state| state.config.map_id.as_deref())
+        .and_then(omoba_template_ids::moba_map_by_name).map(crate::runtime::moba_map_layout::encode);
+    for start in starts.values_mut() {
+        if let Some(map) = &map { start.public_metadata.push(map.clone()); }
+        start.public_metadata.push(crate::game_proto::DeterministicMetadata {
+            namespace: crate::runtime::PUBLIC_BLOCKED_REGIONS_NAMESPACE.into(),
+            key: crate::runtime::PUBLIC_BLOCKED_REGIONS_KEY.into(),
+            schema_version: 1,
+            value: blocked.clone(),
+        });
+        if let Some(state) = state.as_ref() {
+            if state.config.teams.contains(&start.team_id) {
+                start.team_private_metadata.push(crate::runtime::summoner_projection_metadata(state, start.team_id));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod ability_cue_projection_tests {
     use super::*;
 
     #[test]
-    fn buff_visual_state_baseline_is_owner_team_only() {
-        use crate::runtime::buff_visual_state::{BuffVisualState,SCHEMA_ID};
+    fn enemy_sight_reaches_only_the_units_own_team() {
+        // E312: the opposing team never holds the enemy sight of a unit (it is its own sight).
+        let schema=crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID;
         for owner in [0,7] {
             let bytes=crate::runtime::encode_disclosed_baseline(&[
                 (crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID,crate::runtime::encode_demo_render_state(
                     crate::runtime::DemoRenderState {x_raw:0,y_raw:0,team_id:1,kind:1,owner_player_id:owner})),
-                (SCHEMA_ID,BuffVisualState(vec![]).encode().unwrap())]);
-            assert_eq!(team_safe_components(&bytes,1).contains_key(&SCHEMA_ID),owner!=0);
-            assert!(!team_safe_components(&bytes,2).contains_key(&SCHEMA_ID));
+                (schema,crate::runtime::encode_disclosed_enemy_sight(true))]);
+            assert_eq!(team_safe_components(&bytes,1).get(&schema),Some(&vec![1,1]),"owner {owner}");
+            assert!(!team_safe_components(&bytes,2).contains_key(&schema),"owner {owner}");
+        }
+    }
+
+    #[test]
+    fn buff_visual_state_shows_every_icon_to_the_owner_team_and_public_ones_to_others() {
+        use crate::runtime::buff_visual_state::{BuffVisualState,SCHEMA_ID};
+        // E216: stun is public (every v3 status held as `stun`); a hand-written icon no v3 status declares is not.
+        let stun=omoba_template_ids::buff_by_name("stun").unwrap();
+        assert!(omoba_template_ids::buff_is_public(stun));
+        let private=(1..u16::MAX).map(omoba_template_ids::BuffId).find(|id|omoba_template_ids::buff_id_str(*id)!=""
+            && !omoba_template_ids::buff_is_public(*id)).expect("a non-public buff");
+        let state=BuffVisualState(vec![(stun.raw(),1024),(private.raw(),2048)]);
+        let public=BuffVisualState(vec![(stun.raw(),1024)]).encode().unwrap();
+        for owner in [0,7] {
+            let bytes=crate::runtime::encode_disclosed_baseline(&[
+                (crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID,crate::runtime::encode_demo_render_state(
+                    crate::runtime::DemoRenderState {x_raw:0,y_raw:0,team_id:1,kind:1,owner_player_id:owner})),
+                (SCHEMA_ID,state.encode().unwrap())]);
+            let own=team_safe_components(&bytes,1);
+            assert_eq!(own.get(&SCHEMA_ID),Some(&if owner!=0 {state.encode().unwrap()} else {public.clone()}),"owner {owner}");
+            assert_eq!(team_safe_components(&bytes,2).get(&SCHEMA_ID),Some(&public),"the other team sees the public icon only");
         }
     }
 
@@ -1997,13 +2406,59 @@ mod ability_cue_projection_tests {
                 else {BuffVisualSnapshot {buffs:BuffVisualState(vec![(id,remaining)]),channel_totals:vec![(id,3072)]}};
             let bytes=state.encode().unwrap();let baseline=crate::runtime::encode_disclosed_baseline(&[
                 (crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID,crate::runtime::encode_demo_render_state(crate::runtime::DemoRenderState {x_raw:0,y_raw:0,team_id:1,kind:1,owner_player_id:7})),(SCHEMA_ID,bytes.clone())]);
-            assert!(team_safe_components(&baseline,1).contains_key(&SCHEMA_ID));assert!(!team_safe_components(&baseline,2).contains_key(&SCHEMA_ID));
+            // recovery_channel is no v3 status: the other team gets the empty public snapshot.
+            assert!(team_safe_components(&baseline,1).contains_key(&SCHEMA_ID));
+            assert_eq!(team_safe_components(&baseline,2).get(&SCHEMA_ID),Some(&BuffVisualState(vec![]).encode().unwrap()));
             let visible=BTreeSet::from([source]);projector.refresh_expected_visible_components(tick,&visible,&BTreeMap::from([(source,baseline)]));
             let step=projector.build_step(tick,&visible,&[],vec![],&[],&[]).unwrap();
             let events:Vec<_>=step.public_events.iter().filter(|event|event.event_kind==crate::runtime::FactKind::OwnerBuffVisual as u32).collect();assert_eq!(events.len(),1);assert_eq!(events[0].sanitized_payload,bytes);
         }
         projector.hash_entities.clear();let hidden=projector.build_step(4,&BTreeSet::new(),&[],vec![],&[],&[]).unwrap();
         assert!(!hidden.public_events.iter().any(|event|event.event_kind==crate::runtime::FactKind::OwnerBuffVisual as u32));
+    }
+
+    #[test]
+    fn runtime_facts_reach_each_team_as_events_never_as_replica_components() {
+        use crate::runtime::runtime_fact_state::{LinkFact, RuntimeFactState, ZoneFact, EVENT_KIND, SCHEMA_ID};
+        let render = |team_id| (crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID, crate::runtime::encode_demo_render_state(
+            crate::runtime::DemoRenderState { x_raw: 0, y_raw: 0, team_id, kind: 3, owner_player_id: 0 }));
+        let (caster, target) = ((1u64 << 32) | 7, (1u64 << 32) | 8);
+        let zone_buff = omoba_template_ids::buff_by_name("ground_damage_zone").unwrap().raw();
+        // The caster (team 1) holds a zone and is an illusion; its target is tethered to it.
+        let caster_facts = RuntimeFactState { zones: vec![ZoneFact { key: 5, buff: zone_buff, center: (0, 0), end: (0, 0), radius_raw: 1024 }],
+            links: vec![], illusion: true }.encode().unwrap();
+        let target_facts = RuntimeFactState { links: vec![LinkFact { key: 6, source: caster, source_epoch: 0 }], ..Default::default() }.encode().unwrap();
+        let baselines = BTreeMap::from([
+            (caster, crate::runtime::encode_disclosed_baseline(&[render(1), (SCHEMA_ID, caster_facts)])),
+            (target, crate::runtime::encode_disclosed_baseline(&[render(2), (SCHEMA_ID, target_facts)])),
+        ]);
+        let view = |team: u32, visible: &[u64]| {
+            let mut projector = TeamViewProjector::new(team, TeamProjectorConfig::default());
+            let mut ids = BTreeMap::new();
+            for canonical in visible {
+                let mapping = projector.identity.disclose(unpack_canonical(*canonical)).unwrap();
+                projector.hash_entities.insert(mapping.replica_id.get(), (mapping.disclosure_epoch, 0, BTreeMap::new()));
+                ids.insert(*canonical, (mapping.replica_id.get(), mapping.disclosure_epoch));
+            }
+            let visible: BTreeSet<u64> = visible.iter().copied().collect();
+            projector.refresh_expected_visible_components(1, &visible, &baselines);
+            assert!(projector.hash_entities.values().all(|(_, _, components)| !components.contains_key(&SCHEMA_ID)),
+                "the raw facts never reach a replica baseline or checkpoint");
+            let step = projector.build_step(1, &visible, &[], vec![], &[], &[]).unwrap();
+            let facts: BTreeMap<u64, RuntimeFactState> = step.public_events.iter().filter(|e| e.event_kind == EVENT_KIND)
+                .map(|e| (e.subject.as_ref().unwrap().value, RuntimeFactState::decode(&e.sanitized_payload).unwrap())).collect();
+            (facts, ids)
+        };
+        let (own, ids) = view(1, &[caster, target]);
+        assert!(own[&ids[&caster].0].illusion, "the owner team knows its illusion");
+        assert_eq!(own[&ids[&caster].0].zones.len(), 1);
+        let link = own[&ids[&target].0].links[0];
+        assert_eq!((link.source, link.source_epoch), ids[&caster], "the tether source as this team's replica");
+        let (enemy, enemy_ids) = view(2, &[caster, target]);
+        assert!(!enemy[&enemy_ids[&caster].0].illusion, "another team never learns which unit is an illusion");
+        assert_ne!(enemy[&enemy_ids[&caster].0].zones[0].key, own[&ids[&caster].0].zones[0].key, "keys never correlate across teams");
+        let (hidden, hidden_ids) = view(2, &[target]);
+        assert!(!hidden.contains_key(&hidden_ids[&target].0), "a tether whose source is hidden is not sent");
     }
 
     #[test]
@@ -2085,6 +2540,211 @@ mod ability_cue_projection_tests {
         projector.hash_entities.clear();
         let hidden=projector.build_step(4,&BTreeSet::new(),&[],vec![],&[],&[]).unwrap();
         assert!(!hidden.public_events.iter().any(|event|event.event_kind==crate::runtime::FactKind::ChannelVisual as u32));
+    }
+
+    fn cue_fact(at_unit: Option<u64>, at_point: (i64, i64), to_unit: Option<u64>, to_point: Option<(i64, i64)>) -> OrderedFact {
+        use crate::runtime::{FactKind, FactOrderingKey, FactPhase};
+        OrderedFact {
+            key: FactOrderingKey {tick:17, phase:FactPhase::PostStep, canonical_source_order:1, local_ordinal:(1<<24)+1, fact_kind:FactKind::Cue},
+            audience: FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.to_owned()),
+            fact: ObservableFact::Cue {cue: 99, source: at_unit, at_unit, at_point, to_unit, to_point, radius_raw: 2048, duration_raw: 1024},
+        }
+    }
+
+    #[test]
+    fn cue_names_only_the_ends_a_team_sees() {
+        use crate::runtime::presentation_cue::CuePresentationCue as Cue;
+        let caster_key = CanonicalEntityKey { id: 7, generation: 1 };
+        let target_key = CanonicalEntityKey { id: 42, generation: 1 };
+        let caster = (1u64 << 32) | 7;
+        let target = (1u64 << 32) | 42;
+        let mut identity = TeamIdentityState::new(2);
+        let caster_replica = identity.disclose(caster_key).unwrap().replica_id.get();
+        let target_replica = identity.disclose(target_key).unwrap().replica_id.get();
+        let project = |fact: &OrderedFact, visible: &[u64], points: bool| {
+            let (mut seen, mut public) = (Vec::new(), Vec::new());
+            project_cue(fact, &visible.iter().copied().collect(), &identity, &|_, _| points, &mut seen, &mut public);
+            public.iter().map(|event| Cue::from_public_event(17, event, |_| Some(1)).unwrap().1).collect::<Vec<_>>()
+        };
+        let line = cue_fact(Some(caster), (0, 0), Some(target), None);
+        // Both seen: the whole line, the numbers from the package.
+        let both = project(&line, &[caster, target], false);
+        assert_eq!((both[0].at_id, both[0].to_id, both[0].source_id), (caster_replica, target_replica, caster_replica));
+        assert_eq!((both[0].radius_raw, both[0].duration_raw), (2048, 1024));
+        // A hidden caster's bolt lands on the visible victim alone; nothing names the caster.
+        let hidden_caster = project(&line, &[target], false);
+        assert_eq!((hidden_caster[0].at_id, hidden_caster[0].to_id, hidden_caster[0].source_id), (target_replica, 0, 0));
+        // A hidden target loses the direction only.
+        let hidden_target = project(&line, &[caster], false);
+        assert_eq!((hidden_target[0].at_id, hidden_target[0].to_id), (caster_replica, 0));
+        // Neither end: nothing at all.
+        assert!(project(&line, &[], true).is_empty());
+        // A ground point under fog reaches nobody, and a fogged `to` point is not named.
+        let ground = cue_fact(None, (1024, 2048), None, Some((4096, 4096)));
+        assert!(project(&ground, &[], false).is_empty());
+        let seen_ground = project(&ground, &[], true);
+        assert_eq!((seen_ground[0].at_point, seen_ground[0].to_point), (Some((1024, 2048)), Some((4096, 4096))));
+        let unit_to_fogged_point = cue_fact(Some(caster), (0, 0), None, Some((4096, 4096)));
+        assert_eq!(project(&unit_to_fogged_point, &[caster], false)[0].to_point, None);
+    }
+
+    #[test]
+    fn cues_merge_at_one_place_and_stop_at_the_team_bound() {
+        let key = CanonicalEntityKey { id: 7, generation: 1 };
+        let caster = (1u64 << 32) | 7;
+        let mut identity = TeamIdentityState::new(2);
+        identity.disclose(key).unwrap();
+        let visible = BTreeSet::from([caster]);
+        let (mut seen, mut public) = (Vec::new(), Vec::new());
+        let fact = cue_fact(Some(caster), (0, 0), None, None);
+        for _ in 0..3 { project_cue(&fact, &visible, &identity, &|_, _| false, &mut seen, &mut public); }
+        assert_eq!(public.len(), 1, "the same cue at the same place is one effect");
+        for x in 0..200 {
+            let fact = cue_fact(None, (x * 1024, 0), None, None);
+            project_cue(&fact, &visible, &identity, &|_, _| true, &mut seen, &mut public);
+        }
+        assert_eq!(public.len(), MAX_TEAM_CUES_PER_TICK);
+    }
+
+    #[test]
+    fn flight_cue_plays_when_its_flight_is_disclosed_and_stops_with_the_flight() {
+        use crate::runtime::presentation_cue::CuePresentationCue as Cue;
+        use crate::runtime::native::ability_projectile::FLIGHT_CUE_ORDINAL_BASE;
+        let flight = (1u64 << 32) | 42;
+        let mut launch = cue_fact(Some(flight), (0, 0), None, None);
+        launch.key.local_ordinal = FLIGHT_CUE_ORDINAL_BASE + 42;
+        let retire = OrderedFact { key: launch.key.clone(), audience: launch.audience.clone(),
+            fact: ObservableFact::Projectile { source: flight, target: None, effect_id: 0, active: false } };
+        let mut identity = TeamIdentityState::new(2);
+        let mut held = FlightCues::new();
+        let step = |held: &mut FlightCues, identity: &TeamIdentityState, facts: &[OrderedFact], visible: &[u64]| {
+            let (mut seen, mut public) = (Vec::new(), Vec::new());
+            advance_flight_cues(held, facts, &visible.iter().copied().collect(), identity, &mut seen, &mut public);
+            public
+        };
+        // Launch tick: the entity is not disclosed to anybody yet, and nothing leaks.
+        assert!(step(&mut held, &identity, std::slice::from_ref(&launch), &[]).is_empty());
+        assert!(step(&mut held, &identity, &[], &[flight]).is_empty(), "sight without a replica id names nothing");
+        // Disclosed: it plays once, on the flight's replica.
+        let replica = identity.disclose(CanonicalEntityKey { id: 42, generation: 1 }).unwrap().replica_id.get();
+        let played = step(&mut held, &identity, &[], &[flight]);
+        assert_eq!(Cue::from_public_event(17, &played[0], |_| Some(1)).unwrap().1.at_id, replica);
+        assert!(step(&mut held, &identity, &[], &[flight]).is_empty(), "once per disclosure");
+        // Out of sight and back mid flight: the new actor gets its body again.
+        assert!(step(&mut held, &identity, &[], &[]).is_empty());
+        assert_eq!(step(&mut held, &identity, &[], &[flight]).len(), 1);
+        // Retired, even on the tick it launched: nothing stays behind.
+        assert!(step(&mut held, &identity, std::slice::from_ref(&retire), &[flight]).is_empty());
+        assert!(held.is_empty());
+        assert!(step(&mut held, &identity, &[launch.clone(), retire.clone()], &[flight]).is_empty());
+        assert!(held.is_empty());
+        // A flight never counts as an ordinary cue, and the held rows are bounded.
+        assert!(is_flight_cue(&launch) && !is_flight_cue(&cue_fact(Some(flight), (0, 0), None, None)));
+        let many: Vec<_> = (0..MAX_TEAM_FLIGHT_CUES as u64 + 9).map(|id| {
+            let mut row = launch.clone();
+            row.fact = ObservableFact::Cue { at_unit: Some(id), cue: 99, source: None, at_point: (0, 0),
+                to_unit: None, to_point: None, radius_raw: 0, duration_raw: 0 };
+            row
+        }).collect();
+        step(&mut held, &identity, &many, &[]);
+        assert_eq!(held.len(), MAX_TEAM_FLIGHT_CUES);
+    }
+
+    #[test]
+    fn cue_payload_round_trips_and_rejects_bad_input() {
+        use crate::runtime::presentation_cue::{CueEnd, CuePresentationCue as Cue, PresentationCue};
+        let event = |payload: Vec<u8>| TeamPublicEvent { event_kind: crate::runtime::FactKind::Cue as u32, subject: None,
+            sanitized_payload: payload, stable_sub_index: (1 << 24) + 2 };
+        let good = event(Cue::public_payload(99, 5, CueEnd::Unit(6), Some(CueEnd::Point(1024, -2048)), 2048, 1024));
+        let (id, cue) = Cue::from_public_event(17, &good, |_| Some(3)).unwrap();
+        assert_eq!(id >> 32, 17);
+        assert_eq!(Cue::decode(&cue.encode()), Some(cue));
+        assert!(matches!(PresentationCue::from_effect(id, &cue.encode(), 17), Some(PresentationCue::Cue(_))));
+        // An `at` unit no longer known plays nowhere and is no error.
+        assert!(Cue::from_public_event(17, &good, |_| None).is_none());
+        // A cue with no id, a negative radius, or a cut payload is refused.
+        assert!(Cue::from_public_event(17, &event(Cue::public_payload(0, 0, CueEnd::Point(0, 0), None, 0, 0)), |_| Some(1)).is_none());
+        assert!(Cue::from_public_event(17, &event(Cue::public_payload(9, 0, CueEnd::Point(0, 0), None, -1, 0)), |_| Some(1)).is_none());
+        assert!(Cue::from_public_event(17, &event(vec![b'C', b'U', b'E', b'1']), |_| Some(1)).is_none());
+    }
+
+    fn cast_target_fact(caster: u64, target: Option<u64>, point: Option<(i64, i64)>) -> OrderedFact {
+        use crate::runtime::{FactKind, FactOrderingKey, FactPhase};
+        OrderedFact {
+            key: FactOrderingKey {tick:17, phase:FactPhase::PostStep, canonical_source_order:caster, local_ordinal:1, fact_kind:FactKind::Ability},
+            audience: FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.to_owned()),
+            fact: ObservableFact::AbilityTarget {source: caster, ability_id: 77, rank: 2, target, point},
+        }
+    }
+
+    #[test]
+    fn cast_target_cue_reaches_only_teams_that_see_the_target_and_names_only_a_seen_caster() {
+        use crate::runtime::presentation_cue::AbilityTargetPresentationCue as Cue;
+        let caster_key = CanonicalEntityKey { id: 7, generation: 1 };
+        let target_key = CanonicalEntityKey { id: 42, generation: 1 };
+        let caster = (u64::from(caster_key.generation) << 32) | u64::from(caster_key.id);
+        let target = (u64::from(target_key.generation) << 32) | u64::from(target_key.id);
+        let mut identity = TeamIdentityState::new(2);
+        let caster_replica = identity.disclose(caster_key).unwrap().replica_id.get();
+        let target_replica = identity.disclose(target_key).unwrap().replica_id.get();
+        let fact = cast_target_fact(caster, Some(target), None);
+        let decode = |event: &TeamPublicEvent| Cue::from_public_event(17, event, |_| Some(1)).unwrap().1;
+        let project = |identity: &TeamIdentityState, visible: &[u64]| {
+            let (mut public, mut external) = (Vec::new(), Vec::new());
+            project_fact(&fact, &visible.iter().copied().collect(), identity, &mut public, &mut external);
+            assert!(external.is_empty());
+            public
+        };
+        // Both seen: the cue plays at the target and names the caster.
+        let both = project(&identity, &[caster, target]);
+        assert_eq!(both.len(), 1);
+        assert_eq!(both[0].subject.as_ref().unwrap().value, target_replica);
+        let cue = decode(&both[0]);
+        assert_eq!((cue.caster_id, cue.target_id, cue.ability_id, cue.rank, cue.point), (caster_replica, target_replica, 77, 2, None));
+        // A hidden caster: only the target-side effect, no caster identity.
+        let target_only = project(&identity, &[target]);
+        assert_eq!(target_only.len(), 1);
+        assert_eq!(decode(&target_only[0]).caster_id, 0, "a hidden caster is never named");
+        // A team that does not see the target receives nothing, even when it sees the caster.
+        assert!(project(&identity, &[caster]).is_empty());
+        assert!(project(&identity, &[]).is_empty());
+        // A remembered (no longer disclosed) target does not anchor it either.
+        identity.remember(target_key).unwrap();
+        assert!(project(&identity, &[caster, target]).is_empty());
+    }
+
+    #[test]
+    fn cast_target_cue_at_a_ground_point_reaches_only_teams_whose_vision_covers_it() {
+        use crate::runtime::presentation_cue::AbilityTargetPresentationCue as Cue;
+        use crate::runtime::visibility::{CommittedVisionSource, WaveBReadView};
+        use omoba_sim::{Fixed64, Vec2};
+        let caster_key = CanonicalEntityKey { id: 7, generation: 1 };
+        let caster = (u64::from(caster_key.generation) << 32) | u64::from(caster_key.id);
+        let point = (100 * 1024, 0);
+        let fact = cast_target_fact(caster, None, Some(point));
+        let view = |team: u32, x: i32| std::sync::Arc::new(WaveBReadView {
+            tick: 17, entities: vec![].into(), brush_regions: Vec::new().into(), vision_occluders: vec![].into(),
+            vision_sources: vec![CommittedVisionSource { canonical_id: 99, team, position: Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO),
+                radius: Fixed64::from_i32(10), detection_level: 0, ignores_terrain: false }].into(),
+        });
+        let mut projector = TeamViewProjector::new(1, TeamProjectorConfig::default());
+        let cast_events = |step: &Step| step.public_events.iter()
+            .filter(|event| event.sanitized_payload.starts_with(b"ATG1")).cloned().collect::<Vec<_>>();
+        // Team 1 has vision on the point; the caster is not disclosed to it.
+        projector.point_view = Some(view(1, 95));
+        let seen = projector.build_step(17, &BTreeSet::new(), std::slice::from_ref(&fact), vec![], &[], &[]).unwrap();
+        let events = cast_events(&seen);
+        assert_eq!(events.len(), 1);
+        assert!(events[0].subject.is_none(), "a ground point anchors on no unit");
+        let cue = Cue::from_public_event(17, &events[0], |_| Some(1)).unwrap().1;
+        assert_eq!((cue.caster_id, cue.target_id, cue.point), (0, 0, Some(point)));
+        // Vision elsewhere, another team's vision there, or no committed view: nothing.
+        projector.point_view = Some(view(1, -95));
+        assert!(cast_events(&projector.build_step(17, &BTreeSet::new(), std::slice::from_ref(&fact), vec![], &[], &[]).unwrap()).is_empty());
+        projector.point_view = Some(view(2, 95));
+        assert!(cast_events(&projector.build_step(17, &BTreeSet::new(), std::slice::from_ref(&fact), vec![], &[], &[]).unwrap()).is_empty());
+        projector.point_view = None;
+        assert!(cast_events(&projector.build_step(17, &BTreeSet::new(), std::slice::from_ref(&fact), vec![], &[], &[]).unwrap()).is_empty());
     }
 
     #[test]
@@ -2232,5 +2892,148 @@ mod ability_cue_projection_tests {
         fact.fact = ObservableFact::Ability {source: canonical(caster), ability_id: 123, rank: 0, caster_relocation: None, target: None};
         project_fact(&fact, &BTreeSet::new(), &identity, &mut public, &mut external);
         assert!(public.is_empty() && external.is_empty());
+    }
+}
+
+/// Ticks of expected checkpoint digests retained per team for diagnostics.
+pub const EXPECTED_DIGEST_TICKS: usize = 128;
+/// Full expected snapshots kept for the exact bytes of a recent mismatch.
+pub const EXPECTED_SNAPSHOT_TICKS: usize = 4;
+
+/// Every disclosed component's bytes keyed by (replica id, schema id).
+pub type ComponentBytes = BTreeMap<(u64, u32), Vec<u8>>;
+
+pub fn component_bytes<E: ComponentSource>(entities: &BTreeMap<u64, E>) -> ComponentBytes {
+    let mut out = BTreeMap::new();
+    for (replica_id, entity) in entities {
+        for (schema_id, bytes) in entity.components() { out.insert((*replica_id, *schema_id), bytes.clone()); }
+    }
+    out
+}
+
+/// One disclosed component of a team view: (replica id, schema, FNV-1a 64 of
+/// the bytes). Carries no component content, only identity and a digest.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ComponentDigestRow { pub replica_id: u64, pub schema_id: u32, pub digest: u64 }
+
+fn fnv64(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3))
+}
+
+pub fn component_digest_rows<E>(entities: &BTreeMap<u64, E>) -> Vec<ComponentDigestRow>
+where E: ComponentSource {
+    let mut rows = Vec::new();
+    for (replica_id, entity) in entities {
+        for (schema_id, bytes) in entity.components() {
+            rows.push(ComponentDigestRow { replica_id: *replica_id, schema_id: *schema_id, digest: fnv64(bytes) });
+        }
+    }
+    rows
+}
+
+/// Both the projector's expected rows and a replica's disclosed world expose components.
+pub trait ComponentSource { fn components(&self) -> &BTreeMap<u32, Vec<u8>>; }
+impl ComponentSource for (u64, u32, BTreeMap<u32, Vec<u8>>) { fn components(&self) -> &BTreeMap<u32, Vec<u8>> { &self.2 } }
+impl ComponentSource for crate::runtime::ReplicaEntityState { fn components(&self) -> &BTreeMap<u32, Vec<u8>> { &self.components } }
+
+impl TeamProjectionRuntime {
+    /// Canonical id behind a team's disclosed replica id (diagnostics only).
+    pub fn canonical_for_replica(&self, team: u32, replica_id: u64) -> Option<u64> {
+        self.projectors.get(&team)?.identity.disclosed_mappings().into_iter()
+            .find(|(_, mapping)| mapping.replica_id.get() == replica_id)
+            .map(|(key, _)| (u64::from(key.generation) << 32) | u64::from(key.id))
+    }
+
+    /// The team view's current expected bytes for one component (diagnostics only).
+    pub fn expected_component_bytes(&self, team: u32, replica_id: u64, schema_id: u32) -> Option<&[u8]> {
+        self.projectors.get(&team)?.hash_entities.get(&replica_id)?.2.get(&schema_id).map(Vec::as_slice)
+    }
+
+    /// Exact expected bytes of one component at a retained checkpoint (diagnostics only).
+    pub fn expected_checkpoint_bytes(&self, team: u32, replica_tick: u64, replica_id: u64, schema_id: u32) -> Option<&[u8]> {
+        self.projectors.get(&team)?.expected_snapshots.iter()
+            .find(|(tick, _)| *tick == replica_tick)?.1.get(&(replica_id, schema_id)).map(Vec::as_slice)
+    }
+
+    /// Retained expected digests for `team` at checkpoint `replica_tick`.
+    pub fn expected_component_digests(&self, team: u32, replica_tick: u64) -> Option<&[ComponentDigestRow]> {
+        self.projectors.get(&team)?.expected_digests.iter()
+            .find(|(tick, _)| *tick == replica_tick).map(|(_, rows)| rows.as_slice())
+    }
+}
+
+/// Human-readable, bounded diff of expected vs observed component digests.
+/// Names only replica ids, schema ids and digests of the team's own disclosed
+/// view, never undisclosed state.
+pub fn describe_component_divergence(expected: Option<&[ComponentDigestRow]>, observed: &[ComponentDigestRow], limit: usize) -> String {
+    describe_component_divergence_with(expected, observed, limit, &|_, _| String::new())
+}
+
+/// As [`describe_component_divergence`]; `label(replica_id, schema_id)` appends
+/// host-side context (canonical id, kind, current team-view bytes) per row.
+pub fn describe_component_divergence_with(expected: Option<&[ComponentDigestRow]>, observed: &[ComponentDigestRow], limit: usize,
+    label: &dyn Fn(u64, u32) -> String) -> String {
+    let Some(expected) = expected else {
+        return format!("expected digests unavailable (older than {EXPECTED_DIGEST_TICKS} checkpoints); observed {} rows", observed.len());
+    };
+    let index = |rows: &[ComponentDigestRow]| rows.iter().map(|row| ((row.replica_id, row.schema_id), row.digest)).collect::<BTreeMap<_, _>>();
+    let (expected, observed) = (index(expected), index(observed));
+    let mut lines = Vec::new();
+    let mut total = 0usize;
+    for key in expected.keys().chain(observed.keys()).collect::<BTreeSet<_>>() {
+        let (left, right) = (expected.get(key), observed.get(key));
+        if left == right { continue; }
+        total += 1;
+        if lines.len() < limit {
+            lines.push(format!("entity={} schema=0x{:08x} expected={} observed={}{}", key.0, key.1,
+                left.map_or("absent".into(), |v| format!("{v:016x}")), right.map_or("absent".into(), |v| format!("{v:016x}")), label(key.0, key.1)));
+        }
+    }
+    format!("{total} divergent component(s); first {}: [{}]", lines.len(), lines.join("; "))
+}
+
+#[cfg(test)]
+mod component_divergence_tests {
+    use super::*;
+
+    fn row(replica_id: u64, schema_id: u32, digest: u64) -> ComponentDigestRow { ComponentDigestRow { replica_id, schema_id, digest } }
+
+    #[test]
+    fn divergence_report_lists_changed_missing_and_extra_components_up_to_limit() {
+        let expected = [row(1, 0x10, 1), row(1, 0x11, 2), row(2, 0x10, 3), row(3, 0x10, 4)];
+        let observed = [row(1, 0x10, 1), row(1, 0x11, 9), row(3, 0x10, 4), row(4, 0x10, 5)];
+        let report = describe_component_divergence(Some(&expected), &observed, 2);
+        assert!(report.starts_with("3 divergent component(s); first 2:"), "{report}");
+        assert!(report.contains("entity=1 schema=0x00000011 expected=0000000000000002 observed=0000000000000009"), "{report}");
+        assert!(report.contains("entity=2 schema=0x00000010 expected=0000000000000003 observed=absent"), "{report}");
+        assert!(!report.contains("entity=4"), "limit keeps the log bounded: {report}");
+        assert!(describe_component_divergence(Some(&expected), &expected, 16).starts_with("0 divergent"));
+        assert!(describe_component_divergence(None, &observed, 16).contains("unavailable"));
+    }
+
+    #[test]
+    fn digest_rows_cover_every_component_and_change_with_bytes() {
+        let mut entities = BTreeMap::new();
+        entities.insert(7u64, (1u64, 0u32, BTreeMap::from([(0x20u32, vec![1u8, 2]), (0x21, vec![3])])));
+        let first = component_digest_rows(&entities);
+        assert_eq!(first.len(), 2);
+        entities.get_mut(&7).unwrap().2.insert(0x21, vec![4]);
+        let second = component_digest_rows(&entities);
+        assert_eq!(first[0], second[0]);
+        assert_ne!(first[1].digest, second[1].digest);
+    }
+
+    #[test]
+    fn target_disclosure_rule_requires_a_disclosed_mapping_for_selective_teams() {
+        let mut runtime = TeamProjectionRuntime::default();
+        assert!(runtime.target_disclosed(1, 42), "non-selective teams keep targets");
+        let canonical = CanonicalEntityKey { id: 7, generation: 1 };
+        let mut projector = TeamViewProjector::new(1, TeamProjectorConfig::default());
+        projector.identity.disclose(canonical).unwrap();
+        runtime.projectors.insert(1, projector);
+        assert!(runtime.target_disclosed(1, (1u64 << 32) | 7));
+        assert!(!runtime.target_disclosed(1, (1u64 << 32) | 8));
+        runtime.projectors.get_mut(&1).unwrap().identity.remember(canonical).unwrap();
+        assert!(!runtime.target_disclosed(1, (1u64 << 32) | 7), "a remembered silhouette is not targetable");
     }
 }

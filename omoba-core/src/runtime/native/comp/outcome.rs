@@ -8,6 +8,13 @@ use crate::runtime::comp::{CProperty, Creep, CreepStatus, Faction, TAttack, TPro
 pub enum Outcome {
     /// Host-owned stationary channel, admitted with its cast resource transaction.
     ScriptRecoveryChannel { caster:Entity, owner:u32, amount:Fixed64, duration:Fixed64, interval:Fixed64 },
+    /// G-2 host-owned pulse channel, admitted with its cast resource transaction.
+    /// `level` is the rank later pulses read through `GameWorld::channel_pulse`.
+    ScriptAbilityChannel {
+        caster:Entity, owner:u32, skill_id:String, level:u8,
+        spec:crate::runtime::native::ability_channel::Spec,
+        anchor:crate::runtime::native::ability_channel::Anchor,
+    },
     /// Host-only scheduled zone. Expand at serial settlement after earlier hits,
     /// rechecking source lifetime and current target state before any cue/damage.
     DamageZonePulse { source:Entity, payload:serde_json::Value },
@@ -31,6 +38,20 @@ pub enum Outcome {
         cues: Vec<CastSettlementCue>,
         aggression_target: Option<Entity>,
     },
+    /// Host-local scripted item use (items.dll, M7): settlement commits the use (cooldown, shared
+    /// cooldowns, consumable, mana) and then the effects, or neither when the item changed.
+    ScriptItemTransaction {
+        owner: Entity,
+        owner_pid: u32,
+        slot: u32,
+        item_id: String,
+        /// The use's target (unit or raw ground point), for the cues played there.
+        target: Option<Entity>,
+        target_point: Option<(i64, i64)>,
+        outcomes: Vec<Outcome>,
+    },
+    /// Batch pre-admission result of a `ScriptCastTransaction` (host-only).
+    ScriptCastPreAdmitted { transaction: Box<Outcome>, admitted: bool },
     /// Internal completion marker inserted only after transaction admission.
     ScriptCastCommitted { caster: Entity, cues: Vec<CastSettlementCue> },
     /// Internal provenance envelope. Only damage, hit callbacks and child
@@ -73,6 +94,24 @@ pub enum Outcome {
         pos: SimVec2,
         source: Option<Entity>,
         target: Option<Entity>,
+    },
+    /// An ordinary attack's projectile arrived and was judged (rules::attack): a hit, or a miss
+    /// (`source_missed`: the attacker missed at launch; otherwise the target evaded).
+    AttackJudged {
+        attacker: Entity,
+        target: Entity,
+        projectile: Entity,
+        hit: bool,
+        source_missed: bool,
+    },
+    /// An ordinary instant attack (lane, jungle, lane towers; damage_tick): windup, launch and
+    /// judgement in one tick (rules::attack::instant). `critical` is the multiplier of a crit.
+    InstantAttack {
+        attacker: Entity,
+        target: Entity,
+        critical: Option<Fixed64>,
+        missed: bool,
+        evaded: bool,
     },
     Death {
         pos: SimVec2,
@@ -149,6 +188,17 @@ pub enum Outcome {
         radius: Fixed64,
         duration: Fixed64,
     },
+    /// A script's presentation cue (raw Fixed64 points): becomes a public fact, moves and kills nothing.
+    Cue {
+        cue: u64,
+        source: Option<Entity>,
+        at_unit: Option<Entity>,
+        at_point: (i64, i64),
+        to_unit: Option<Entity>,
+        to_point: Option<(i64, i64)>,
+        radius_raw: i64,
+        duration_raw: i64,
+    },
     ProjectileDirectional {
         pos: SimVec2,
         source: Option<Entity>,
@@ -201,6 +251,17 @@ pub enum Outcome {
         target: Entity,
         amount: Fixed64,
     },
+    /// Test damage trace only (`damage_trace.rs`): tags the next damage packet of the same
+    /// script run with its ability and v3 effect path. Settles nothing.
+    ScriptDamageTag {
+        ability: String,
+        path: String,
+    },
+    /// v3 `damage.credit`: the next damage packet of the same script run credits kills and
+    /// assists to `credit` (`rules::damage::Packet::credit`). Settles nothing.
+    ScriptDamageCredit {
+        credit: Entity,
+    },
     ScriptRemoveBuff {
         target: Entity,
         buff_id: String,
@@ -246,6 +307,11 @@ pub enum Outcome {
         ability_id: String,
         duration: Fixed64,
     },
+    /// Spend one stored use of a charge ability (G-2); admitted with its cast.
+    ScriptConsumeCharge {
+        entity: Entity,
+        ability_id: String,
+    },
     ScriptSetMana {
         entity: Entity,
         pool: crate::runtime::ability_runtime::ManaPool,
@@ -256,6 +322,11 @@ pub enum Outcome {
     },
     ScriptManaGained { entity: Entity, amount: Fixed64 },
     ScriptManaSpent { entity: Entity, amount: Fixed64, ability_id: String },
+    /// A script's spend (negative) or restore (positive) on a non-hero unit's mana (unit_mana),
+    /// settled serially so hooks of one tick add up.
+    ScriptUnitManaDelta { entity: Entity, amount: Fixed64 },
+    /// v3 `end_channel`: a script ends its unit's own channel as interrupted (ext END_CHANNEL).
+    ScriptEndChannel { entity: Entity },
     EntityRemoved {
         entity: Entity,
     },
@@ -266,6 +337,9 @@ pub enum Outcome {
     DamageWithCritical { damage:Box<Outcome> },
     /// Authority-only lease token. Damage/faction/credit come from the private book.
     IndependentDamageZonePulse { source:Entity, key:String, lease:u64 },
+    /// Authority-only ability projectile step. Hits resolve at serial settlement
+    /// from private state; `terminal` ends the flight after those hits.
+    AbilityProjectileStep { projectile:Entity, from:SimVec2, to:SimVec2, arrival:bool, terminal:bool },
 }
 
 /// The successful-cast subset of native presentation, without ABI policy handles.
@@ -278,6 +352,8 @@ pub struct CastSettlementCue {
     pub tick: u64,
     pub relocation: Option<(u32, i64, i64)>,
     pub area: Option<(u32, i64, i64, i64, i64)>,
+    #[serde(default)]
+    pub target_point: Option<(i64, i64)>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

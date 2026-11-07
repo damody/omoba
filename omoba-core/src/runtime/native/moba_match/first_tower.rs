@@ -33,6 +33,8 @@ impl FirstTowerState {
 pub(super) fn settle(world:&World,state:&mut MobaMatch) {
     if state.phase!=MobaMatchPhase::Playing || world.read_resource::<GamePause>().is_paused {return;}
     if let Some((side,local))=state.first_tower.settle() {
+        // The original game's rules have no first-tower bonus (E187).
+        if state.config.game_rules.is_some() {return;}
         let bounty=state.config.building_reward_rules.first_tower;
         building_rewards::credit(world,state,side,&local,bounty);
     }

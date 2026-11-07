@@ -11,6 +11,7 @@ use game_proto::{GameStateRequest, GameStateResponse};
 
 const TAG_GAME_STATE_REQUEST: u8 = 0x05;
 const TAG_GAME_STATE_RESPONSE: u8 = 0x06;
+const TAG_COMPRESSED: u8 = 0x80;
 
 pub struct GameClient {
     stream: KcpStream,
@@ -46,11 +47,19 @@ impl GameClient {
         let mut buf = vec![0u8; len];
         self.stream.read_exact(&mut buf).await?;
 
-        if tag != TAG_GAME_STATE_RESPONSE {
+        // The server LZ4-compresses payloads of 64+ bytes and marks the tag with 0x80.
+        let compressed = tag & TAG_COMPRESSED != 0;
+        if tag & !TAG_COMPRESSED != TAG_GAME_STATE_RESPONSE {
             anyhow::bail!("Unexpected response tag: 0x{:02x}", tag);
         }
+        let payload = if compressed {
+            lz4_flex::block::decompress_size_prepended(&buf)
+                .map_err(|error| anyhow::anyhow!("LZ4 response decode failed: {error}"))?
+        } else {
+            buf
+        };
 
-        let resp = GameStateResponse::decode(buf.as_slice())?;
+        let resp = GameStateResponse::decode(payload.as_slice())?;
         Ok(QueryResponse {
             success: resp.success,
             error: resp.error,

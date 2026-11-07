@@ -41,4 +41,9 @@ M.repo_root = assert(M.lua_directory:match('^(.*)[/\\]tools[/\\]lua$'),
   'platform.lua must be loaded from tools/lua/lib')
 M.lua_executable = M.lua_directory .. sep .. (M.is_windows and 'lua.exe' or 'lua')
 package.cpath = M.lua_directory .. sep .. '?.' .. extension .. ';' .. inherited_cpath
+-- The Unreal engine: an explicit --ue-root, else UE_5_8_ROOT, UE_ROOT or UE_5_7_ROOT, else D:/UE5.8.
+function M.ue_root(given)
+  return given or os.getenv('UE_5_8_ROOT') or os.getenv('UE_ROOT') or os.getenv('UE_5_7_ROOT') or 'D:/UE5.8'
+end
+
 return M

@@ -134,6 +134,8 @@ replaced, count = replaced:gsub('STEP_FPS%s*=%s*%d+', 'STEP_FPS = ' .. tick_rate
 assert(count == 1, "expected one STEP_FPS")
 if first_learn_smoke then
   assert(not replaced:find('AUTHENTICATED_HERO_BINDINGS',1,true), 'refusing to replace existing hero bindings')
+  -- Test-only fixture hero (born with unlearned slots): the server admits it only when told so.
+  replaced = replaced:gsub('%[server%]', '[server]\nMATCH_TEST_FIXTURE_HEROES = true', 1)
   replaced = replaced .. '\n[server.AUTHENTICATED_HERO_BINDINGS]\n"1" = "training_apprentice"\n"2" = "training_apprentice"\n'
 end
 path.write(server_game, replaced, false)
@@ -294,7 +296,7 @@ local windows = {
 
 local ok, result = xpcall(function()
   if not skip_build then
-    build_crate("base_content", { "build", "--manifest-path", "scripts/Cargo.toml", "-p", "base_content", "--features", "compiled-content-only" })
+    build_crate("script DLLs", require("script_dlls").cargo_args({ "build", "--manifest-path", "scripts/Cargo.toml" }, "compiled-content-only"))
     build_server()
     build_runtime()
   end

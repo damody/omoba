@@ -49,6 +49,8 @@ local ok, failure = xpcall(function()
     assert(json.encode({}) == "[]")
     assert(json.encode({params = json.object(), items = {}}) == [[{"items":[],"params":{}}]])
     assert(not pcall(json.decode, "{} trailing"))
+    -- E290: a decoded empty object stays an object (moba-config plans carry empty maps).
+    assert(json.encode(json.decode([[{"m":{},"a":[]}]])) == [[{"a":[],"m":{}}]])
 
     path.mkdir_p(temporary)
     local fixture = path.join(temporary, "hash.txt")

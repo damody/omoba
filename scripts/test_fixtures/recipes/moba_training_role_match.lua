@@ -1,0 +1,49 @@
+-- TEST FIXTURE (not a game recipe): ten training_luminary seats for bot tests of the test-only
+-- lumen kit. Compile it only with RoleBotMatchPlan::compile_fixture; servers refuse its heroes.
+-- The game's role recipe with source heroes is scripts/lua_data/moba_role_match.lua.
+local roles = {
+  {role='top',lane='top'}, {role='mid',lane='mid'},
+  {role='carry',lane='bottom'}, {role='support',lane='bottom'},
+  {role='jungle',lane='mid'},
+}
+local players = {}
+for team=1,2 do
+  for index,entry in ipairs(roles) do
+    players[#players+1] = {player_id=(team-1)*5+index,team_id=team,
+      hero='training_luminary',role=entry.role,lane=entry.lane,bot=true}
+  end
+end
+-- Interleaved rank goals, independent of casting priority. Already learned or
+-- level-gated steps are skipped; authority still owns point spending.
+local learning = {}
+local item_builds={
+  {role='top',items={'moba_armor','moba_boots','moba_greatsword','moba_guard_charm'}},
+  {role='mid',items={'moba_boots','moba_armor','moba_ward_charm'}},
+  {role='carry',items={'moba_greatsword','moba_boots','moba_armor','moba_strike_charm'}},
+  {role='support',items={'moba_armor','moba_boots','moba_guard_charm','moba_ward_charm'}},
+  {role='jungle',items={'moba_greatsword','moba_armor','moba_boots','moba_stride_charm'}},
+}
+for _,build in ipairs(item_builds) do
+  build.return_to_shop={min_gold=950,threat_radius=1000}
+  -- Owner resources and current disclosed threats only. Mana rule stays off
+  -- in this legacy non-mana training recipe; no runtime Lua is involved.
+  build.active_use={combat_radius=700,defend_below_hp_per_mille=500,restore_below_mana_per_mille=0}
+end
+for rank=1,4 do
+  for _,ability in ipairs({'lumen_bolt','lumen_touch','lumen_lance','lumen_mend'}) do
+    learning[#learning+1] = {ability=ability,rank=rank}
+  end
+end
+return {schema_version=1,map_id='three_lane_training',think_hz=5,players=players,
+  sustain={recall_below_hp_per_mille=350,leave_base_at_hp_per_mille=850,threat_radius=1000},
+  -- Final inventories; the owner-only planner derives duplicate recipe materials.
+  -- No spell-power item exists yet: Mid buys survivability, not fake spell scaling.
+  item_builds=item_builds,
+  ability_learning=learning,
+  ability_policies={
+    {ability='lumen_mend',intent={kind='self_heal',below_hp_per_mille=600}},
+    {ability='lumen_touch',intent={kind='self_heal',below_hp_per_mille=600}},
+    {ability='lumen_lance',intent={kind='enemy_unit'}},
+    {ability='lumen_bolt',intent={kind='enemy_unit'}},
+  },
+}

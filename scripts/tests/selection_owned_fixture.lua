@@ -8,6 +8,8 @@ function M.wrap(old)
   local api={run=old.run,validate_owned=P.validate_owned}
   function api.spawn_owned(exe,args,options)
     local pid=old.spawn(exe,args,options)
+    -- A fixture child holds whatever port it needs: launchers wait for this line (E145).
+    if options and options.stdout then path.append(options.stdout,'\nKCP listener bound on 127.0.0.1:0\n') end
     serial=serial+1
     local record=P.validate_owned({pid=pid,executable=path.absolute(exe),creation_token=tostring(133000000000000000+serial)})
     fixture.current[pid]=record;fixture.original_exe[pid]=exe

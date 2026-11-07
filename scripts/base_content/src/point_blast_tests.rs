@@ -18,7 +18,24 @@ fn fixture()->(World,Entity) {
     world.insert(TowerTemplateRegistry::default());let source=body(&mut world,p(0,0),1);(world,source)
 }
 fn spec()->PointBlast {PointBlast {range:Fixed64::from_i32(700),radius:Fixed64::from_i32(100),damage:Fixed64::from_i32(200),
-    kind:DamageKind::Magical,profile:DamageProfile::FIRE,control:None,zone:None}}
+    kind:DamageKind::Magical,profile:DamageProfile::FIRE,control:None,zone:None,buildings:true,control_first:false}}
+
+#[test]
+fn point_blast_buildings_are_hit_by_default_and_skipped_without_buildings() {
+    for (buildings,expect_tower) in [(true,true),(false,false)] {
+        let (mut world,source)=fixture();let center=p(700,0);
+        let unit=body(&mut world,center,2);let tower=body(&mut world,p(720,0),2);
+        world.write_storage::<omoba_core::IsBuilding>().insert(tower,omoba_core::IsBuilding).unwrap();
+        let cache=ParallelAdapterCache::new(&world,1);let mut adapter=ParallelWorldAdapter::new(&cache,source);
+        let mut dynworld=GameWorld_TO::from_ptr(RMut::new(&mut adapter),TD_Opaque);
+        let data=if buildings {spec()} else {spec().without_buildings()};
+        execute(&mut dynworld,ParallelWorldAdapter::entity_to_handle(source),Target::Point(center),data).unwrap();
+        drop(dynworld);let outcomes=adapter.finish();
+        let hit=|e:Entity|outcomes.iter().any(|o|matches!(o,Outcome::RawDamage {target,..} if *target==e));
+        assert!(hit(unit));
+        assert_eq!(hit(tower),expect_tower,"buildings {buildings}");
+    }
+}
 
 #[test]
 fn point_blast_exact_circle_canonical_live_hits_preserve_fire_profile_and_all_control_kinds() {

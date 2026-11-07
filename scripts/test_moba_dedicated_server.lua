@@ -16,7 +16,7 @@ test('explicit role and mutually exclusive render/client flags',function()
   for _,extra in ipairs({{'--local-player','1'},{'--interactive-selection'},
     {'--connect','192.0.2.10','--recipe','host.json','--local-player','1'},
     {'--finish-timeout-seconds','5'},{'--selection-timeout-seconds','5'},
-    {'--selection-smoke-hero','training_ranger'}}) do
+    {'--selection-smoke-hero','tamako'}}) do
     local args={'--server-only'};for _,arg in ipairs(extra) do args[#args+1]=arg end
     rejects(function() launch.options(args) end)
   end

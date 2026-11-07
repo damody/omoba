@@ -7,7 +7,9 @@ use crate::game_proto::{self as proto, player_input::Action, renderer_input::Int
 pub const PRESENTATION_MAGIC: u32 = 0x4f4d_5254;
 /// v6 carries the summoner ABI rows. v5 requires the owner shield baseline; v4 also added queued point commands.
 // v7 adds typed communication intents and local correlation, separate from gameplay.
-pub const PRESENTATION_PROTOCOL_VERSION: u32 = 12;
+// v13 adds render kind 5 (ability projectile) with the 0x464f4718 flight component.
+// v14 adds AbilityHudPresentation charge fields 9-12 (HUD schema 5).
+pub const PRESENTATION_PROTOCOL_VERSION: u32 = 14;
 pub const MAX_PRESENTATION_FRAME_BYTES: usize = 8 * 1024 * 1024;
 
 /// Convert an existing formal command into a renderer intent. Entity IDs must
@@ -37,6 +39,7 @@ pub fn player_input_to_renderer_intent(input: &PlayerInput) -> Option<Intent> {
         }),
         Action::HoldPosition(value) => Intent::HoldPosition(*value),
         Action::Stop(_) => Intent::Stop(proto::Stop {}),
+        Action::ShowcaseResetHero(_) => Intent::ShowcaseResetHero(proto::ShowcaseResetHero {}),
         Action::InputScheme(value) => {
             crate::runtime::input_scheme_transport::validate_update(value).ok()?;
             Intent::InputScheme(*value)
@@ -130,7 +133,7 @@ mod tests {
             let order = proto::OwnedSummonOrder {
                 owner_entity: 0, owner_generation: 1, summon_entity: 9,
                 summon_generation: 2, operation,
-                point: (operation == 1).then_some(proto::Vec2I { x: 120, y: 40 }),
+                point: (operation == 1).then_some(proto::Vec2I { x: 120, y: 40 }), ability: String::new(), target: None,
             };
             assert!(player_input_to_renderer_intent(&PlayerInput {
                 action: Some(Action::OwnedSummonOrder(order)),

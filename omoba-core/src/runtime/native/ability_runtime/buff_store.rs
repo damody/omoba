@@ -16,6 +16,11 @@
 //! - `__aggregation_family: string` — 同一 family 的不同 source buff 對每個 stat
 //!   只採絕對值最強者；乘法 stat 採離 1.0 最遠者。Family 依名稱排序聚合，
 //!   保持 fixed-point 計算順序確定。
+//!   例外：`generic_ability_slow` 的 `move_speed_bonus` 照原作緩速規則
+//!   （dummy.lua:816-902）——同一來源名稱只算一筆，不同來源以 1−Π(1−sᵢ)
+//!   乘法疊加（見 [`combine_ability_slows`]）；同 family 的攻速常數減速仍取最強。
+//!   例外：[`LATEST_FAMILY_PREFIX`] 開頭的 family（v3 `unique_rule = "latest"`）對每個 stat
+//!   採帶該 stat、最後套上（含重新套用）的那一列。
 
 use omb_script_abi::buff_ids::BuffId;
 use omb_script_abi::stat_keys::StatKey;
@@ -24,7 +29,44 @@ use serde_json::Value;
 use specs::Entity;
 use std::collections::{BTreeMap, HashMap};
 
-const AGGREGATION_FAMILY_KEY: &str = "__aggregation_family";
+pub const AGGREGATION_FAMILY_KEY: &str = "__aggregation_family";
+/// `unique_latest:<group>`: per stat the row applied last, not the strongest.
+pub const LATEST_FAMILY_PREFIX: &str = "unique_latest:";
+/// Ability slows (原作 `dummy.lua` `Slow`／`slow_self_passive`).
+pub const ABILITY_SLOW_FAMILY: &str = "generic_ability_slow";
+const ABILITY_MOVE_SLOW_KEY: &str = "move_speed_bonus";
+
+/// Source name of an ability slow: the ability of a `generic_slow:<ability>:..`
+/// key (原作 `target.ms_slow[keys.name]` 以技能名為鍵), else the buff id itself.
+fn ability_slow_source(name: &str) -> &str {
+    omb_script_abi::buff_ids::declarative_buff_source(name)
+        .filter(|(_, stat)| stat.is_none()).map_or(name, |(ability, _)| ability)
+}
+
+/// One move-speed slow of the ability-slow family. The same source name keeps
+/// one value (原作同名覆蓋; the strongest here, independent of HashMap order).
+/// Keeps the row applied last of a `LATEST_FAMILY_PREFIX` family, whatever the map's visit order.
+fn note_latest<'a, V>(latest: &mut BTreeMap<&'a str, (u64, V)>, family: &'a str, applied: u64, value: V) {
+    match latest.get_mut(family) {
+        Some(current) => if applied > current.0 { *current = (applied, value); },
+        None => { latest.insert(family, (applied, value)); }
+    }
+}
+
+fn note_ability_slow<'a>(slows: &mut BTreeMap<&'a str, i64>, name: &'a str, raw: i64) {
+    // A slow is a reduction in 0..=1; positive or malformed values do not slow.
+    let slow = raw.saturating_neg().clamp(0, 1024);
+    slows.entry(ability_slow_source(name)).and_modify(|old| *old = (*old).max(slow)).or_insert(slow);
+}
+
+/// 原作 `slow_self_passive`（dummy.lua:866-902）：不同來源的移速減速乘法疊加，
+/// total = 1 − Π(1 − sᵢ)。Returned as the raw (negative) `move_speed_bonus`.
+/// Sources fold in name order with truncating Q10 products, so every host
+/// computes the same value.
+pub fn combine_ability_slows(slows: &BTreeMap<&str, i64>) -> i64 {
+    let remaining = slows.values().fold(1024i128, |left, slow| left * i128::from(1024 - slow) / 1024);
+    -(1024 - remaining as i64)
+}
 
 /// Host-local item effect identity; consumers do not parse private source keys.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,7 +95,7 @@ impl ItemTimedModifier {
 /// 量化。一旦每個腳本編寫者都使用“.raw()”，我們就可以刪除它
 /// 分支（第 2 階段）。
 #[inline]
-fn read_fixed_from_payload(value: &serde_json::Value) -> Fixed64 {
+pub(crate) fn read_fixed_from_payload(value: &serde_json::Value) -> Fixed64 {
     if let Some(i) = value.as_i64() {
         // PHASE 1de.2 鎖步正確形式：原始固定 64 整數。
         Fixed64::from_raw(i as i64)
@@ -73,6 +115,15 @@ pub struct BuffEntry {
     /// Fraction of one raw damage quantum; owned by this buff lifetime.
     periodic_remainder: i64,
     zone_clock: i64,
+    /// When this row was last applied, in the store's own count (LATEST_FAMILY_PREFIX).
+    applied: u64,
+    /// Seconds since the row was created; a refresh keeps it (Dota GetElapsedTime).
+    elapsed: Fixed64,
+}
+
+impl BuffEntry {
+    /// Seconds since the row was created, refreshes included.
+    pub fn elapsed(&self) -> Fixed64 { self.elapsed }
 }
 
 /// Canonical persistent lifetime used by stat buffs and snapshots. Explicit removal still applies.
@@ -87,6 +138,14 @@ pub struct BuffStore {
     entities_by_key: HashMap<String, HashMap<Entity, u32>>,
     independent_zones:BTreeMap<(Entity,String),super::damage_zone::IndependentDamageZone>,
     next_zone_lease:u64,
+    next_applied:u64,
+    /// The rows the last `tick` retired by expiry, (entity, id) sorted.
+    just_expired: Vec<(Entity, String)>,
+    /// Rows marked for status events (status_event::KEY) that left their holder, with how
+    /// (status_event EXPIRED / REMOVED / CLEARED), in the order they left. Drained by the script
+    /// dispatch; transient, not part of the replicated state. The last field is the duration the
+    /// row had left (zero when it expired).
+    status_ended: Vec<(Entity, String, Value, u8, Fixed64)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -115,6 +174,15 @@ impl Default for MoveSpeedSums {
         }
     }
 }
+
+/// State buff id: the carrier is not an obstacle for other units' movement.
+pub const NO_UNIT_COLLISION: &str = "no_unit_collision";
+/// State buff id (v3 `revealed`, 原作 modifier_truesight on the seen unit): the carrier's
+/// invisibility does not hide it from the other teams (E392).
+pub const REVEALED: &str = "revealed";
+/// State buff id (v3 `provides_vision`, 原作 MODIFIER_STATE_PROVIDES_VISION): the other teams see
+/// the carrier itself, through fog, unless it is invisible (E392).
+pub const PROVIDES_VISION: &str = "provides_vision";
 
 impl BuffStore {
     /// Canonical time-only disclosure for the closed shared modifier families.
@@ -246,6 +314,10 @@ impl BuffStore {
     /// 由 payload 的 `slow_factor` 欄位驅動「強蓋弱」比較（見上方 Reserved
     /// 負載約定）。
     pub fn add(&mut self, entity: Entity, buff_id: &str, duration: Fixed64, payload: Value) {
+        // A magic-immune unit keeps hostile debuffs out unless they pierce (magic_immunity, E179).
+        if crate::runtime::native::magic_immunity::blocks(self, entity, buff_id, &payload) { return; }
+        // Status / slow resistance of the target (damage_immunity::resist).
+        let (duration, payload) = crate::runtime::native::damage_immunity::resist(self, entity, buff_id, duration, payload);
         if payload.get(super::damage_zone::KEY).is_some() {
             let Some(spec)=super::damage_zone::DamageZoneSpec::from_payload(&payload)else{return;};
             // An independent lease requires immutable host provenance, not just JSON.
@@ -256,9 +328,12 @@ impl BuffStore {
     }
 
     fn insert_buff(&mut self, entity: Entity, buff_id: &str, duration: Fixed64, payload: Value) {
+        let applied = self.next_applied;
+        self.next_applied += 1;
         let entity_buffs = self.buffs.entry(entity).or_default();
         match entity_buffs.get_mut(buff_id) {
             Some(e) => {
+                e.applied = applied;
                 if payload.get(super::damage_zone::KEY).is_some() {
                     e.remaining=duration;
                     e.zone_clock=0;
@@ -310,6 +385,8 @@ impl BuffStore {
                         payload,
                         periodic_remainder: 0,
                         zone_clock: 0,
+                        applied,
+                        elapsed: Fixed64::ZERO,
                     },
                 );
                 for k in &new_keys {
@@ -321,8 +398,26 @@ impl BuffStore {
 
     pub fn remove(&mut self, entity: Entity, buff_id: &str) {
         self.independent_zones.remove(&(entity,buff_id.to_owned()));
-        let _ = self.remove_entry(entity, buff_id);
+        if let Some(entry) = self.remove_entry(entity, buff_id) {
+            self.record_status_end(entity, buff_id, &entry.payload, crate::runtime::native::status_event::REMOVED, entry.remaining);
+        }
     }
+
+    fn record_status_end(&mut self, entity: Entity, buff_id: &str, payload: &Value, kind: u8, remaining: Fixed64) {
+        if payload.get(crate::runtime::native::status_event::KEY).is_some() {
+            self.status_ended.push((entity, buff_id.to_owned(), payload.clone(), kind, remaining.max(Fixed64::ZERO)));
+        }
+    }
+
+    /// The status-event rows that left their holders since the last drain (status_event), with
+    /// the duration each had left.
+    pub fn drain_status_ended(&mut self) -> Vec<(Entity, String, Value, u8, Fixed64)> {
+        std::mem::take(&mut self.status_ended)
+    }
+
+    /// Whether a status-event row left its holder since the last drain (E591): the dispatch runs
+    /// for it even when no row with status events is left.
+    pub fn any_status_ended(&self) -> bool { !self.status_ended.is_empty() }
 
     fn remove_entry(&mut self, entity: Entity, buff_id: &str) -> Option<BuffEntry> {
         let mut remove_entity = false;
@@ -354,10 +449,29 @@ impl BuffStore {
             .is_some_and(|entity_buffs| entity_buffs.contains_key(buff_id))
     }
 
+    /// Cut a buff's remaining time to `at_most` when it has more; nothing else changes.
+    pub fn shorten(&mut self, entity: Entity, buff_id: &str, at_most: Fixed64) {
+        if let Some(entry) = self.buffs.get_mut(&entity).and_then(|entity_buffs| entity_buffs.get_mut(buff_id)) {
+            if entry.remaining > at_most { entry.remaining = at_most; }
+        }
+    }
+
     pub fn get(&self, entity: Entity, buff_id: &str) -> Option<&BuffEntry> {
         self.buffs
             .get(&entity)
             .and_then(|entity_buffs| entity_buffs.get(buff_id))
+    }
+
+    /// Replaces the payload of an existing row in place (its duration and clocks stay), keeping
+    /// the key index; false without the row (v3 stat `when`, rules::world::sync_when_rows, E508).
+    pub fn rewrite_payload(&mut self, entity: Entity, buff_id: &str, payload: Value) -> bool {
+        let Some(entry) = self.buffs.get_mut(&entity).and_then(|rows| rows.get_mut(buff_id)) else { return false };
+        let old_keys: Vec<String> = Self::payload_keys(&entry.payload).map(String::from).collect();
+        entry.payload = payload;
+        let new_keys: Vec<String> = Self::payload_keys(&entry.payload).map(String::from).collect();
+        for k in &old_keys { if !new_keys.contains(k) { self.index_dec(entity, k); } }
+        for k in &new_keys { if !old_keys.contains(k) { self.index_inc(entity, k); } }
+        true
     }
 
     pub fn has_any(&self, entity: Entity) -> bool {
@@ -369,6 +483,13 @@ impl BuffStore {
     /// 清除 entity 的所有 buff（單位死亡時呼叫）。
     pub fn remove_all_for(&mut self, entity: Entity) {
         if let Some(entity_buffs) = self.buffs.remove(&entity) {
+            let mut ended: Vec<(&String, &BuffEntry)> = entity_buffs.iter()
+                .filter(|(_, entry)| entry.payload.get(crate::runtime::native::status_event::KEY).is_some()).collect();
+            ended.sort_by(|a, b| a.0.cmp(b.0));
+            let ended: Vec<(Entity, String, Value, u8, Fixed64)> = ended.into_iter()
+                .map(|(id, entry)| (entity, id.clone(), entry.payload.clone(), crate::runtime::native::status_event::CLEARED,
+                    entry.remaining.max(Fixed64::ZERO))).collect();
+            self.status_ended.extend(ended);
             for entry in entity_buffs.into_values() {
                 let keys: Vec<String> = Self::payload_keys(&entry.payload)
                     .map(String::from)
@@ -378,6 +499,18 @@ impl BuffStore {
                 }
             }
         }
+    }
+
+    /// v3 state `break` (原作 PassivesDisabled): a learned passive (a row ability_kit marks
+    /// `"__passive": true`) gives no stats and no events while its holder is broken.
+    pub fn passives_broken(&self, entity: Entity) -> bool {
+        self.has(entity, "break")
+    }
+
+    /// The rows that count for stats: every row, except learned passives while broken.
+    pub fn stat_rows(&self, entity: Entity) -> impl Iterator<Item = (&str, &BuffEntry)> {
+        let broken = self.passives_broken(entity);
+        self.iter_for(entity).filter(move |(_, entry)| !(broken && is_passive(&entry.payload)))
     }
 
     /// 迭代某單位身上所有 buff（供 creep_tick 算移速乘數等）。
@@ -395,6 +528,11 @@ impl BuffStore {
             .as_object()
             .into_iter()
             .flat_map(|m| m.keys().map(|s| s.as_str()))
+    }
+
+    /// Whether `entity` has a buff whose payload carries `key` (the reverse index, O(1)).
+    pub fn entity_has_key(&self, entity: Entity, key: &str) -> bool {
+        self.entities_by_key.get(key).is_some_and(|holders| holders.contains_key(&entity))
     }
 
     fn index_inc(&mut self, entity: Entity, key: &str) {
@@ -434,13 +572,22 @@ impl BuffStore {
         self.sum_add_key(entity, stat.as_str())
     }
 
+    /// 基礎攻擊間隔覆寫（`base_attack_time_constant`，原作 modifier 的 base_attack_time）：
+    /// 多個來源取最小的正值（與走訪順序無關）。
+    pub fn base_attack_time_override(&self, entity: Entity) -> Option<Fixed64> {
+        self.stat_rows(entity).filter_map(|(_, entry)| entry.payload.get(StatKey::BaseAttackTimeConstant.as_str()).and_then(Value::as_i64))
+            .filter(|raw| *raw > 0).min().map(Fixed64::from_raw)
+    }
+
     /// Checked aggregation for resource accounting. Preserve family strongest
     /// selection, but sum raw values in i128 so HashMap order cannot overflow.
     /// Invalid values or an unrepresentable final sum fail closed.
     pub fn checked_sum_add(&self, entity: Entity, stat: StatKey) -> Option<Fixed64> {
         let mut total=0i128;
         let mut families:BTreeMap<&str,i64>=BTreeMap::new();
-        for (_,entry) in self.iter_for(entity) {
+        let mut ability_slows:BTreeMap<&str,i64>=BTreeMap::new();
+        let mut latest:BTreeMap<&str,(u64,i64)>=BTreeMap::new();
+        for (name,entry) in self.stat_rows(entity) {
             let Some(value)=entry.payload.get(stat.as_str()) else {continue;};
             let raw=if let Some(raw)=value.as_i64() {raw} else {
                 let scaled=value.as_f64()?*1024.0;
@@ -448,7 +595,14 @@ impl BuffStore {
                 if !scaled.is_finite() || scaled< i64::MIN as f64 || scaled>=9223372036854775808.0 {return None;}
                 scaled as i64
             };
-            if let Some(family)=entry.payload.get(AGGREGATION_FAMILY_KEY).and_then(Value::as_str) {
+            let family=entry.payload.get(AGGREGATION_FAMILY_KEY).and_then(Value::as_str);
+            if family==Some(ABILITY_SLOW_FAMILY) && stat.as_str()==ABILITY_MOVE_SLOW_KEY {
+                note_ability_slow(&mut ability_slows,name,raw);continue;
+            }
+            if let Some(family)=family.filter(|family|family.starts_with(LATEST_FAMILY_PREFIX)) {
+                note_latest(&mut latest,family,entry.applied,raw);continue;
+            }
+            if let Some(family)=family {
                 families.entry(family).and_modify(|current| {
                     if raw.unsigned_abs()>current.unsigned_abs()
                         || (raw.unsigned_abs()==current.unsigned_abs() && raw>*current) {*current=raw;}
@@ -456,13 +610,17 @@ impl BuffStore {
             } else {total=total.checked_add(i128::from(raw))?;}
         }
         for raw in families.into_values() {total=total.checked_add(i128::from(raw))?;}
+        for (_,raw) in latest.into_values() {total=total.checked_add(i128::from(raw))?;}
+        total=total.checked_add(i128::from(combine_ability_slows(&ability_slows)))?;
         Some(Fixed64::from_raw(i64::try_from(total).ok()?))
     }
 
     fn sum_add_key(&self, entity: Entity, key: &str) -> Fixed64 {
         let mut total = Fixed64::ZERO;
         let mut family_values: BTreeMap<&str, Fixed64> = BTreeMap::new();
-        for (_, entry) in self.iter_for(entity) {
+        let mut ability_slows: BTreeMap<&str, i64> = BTreeMap::new();
+        let mut latest: BTreeMap<&str, (u64, Fixed64)> = BTreeMap::new();
+        for (name, entry) in self.stat_rows(entity) {
             let Some(value) = entry.payload.get(key) else {
                 continue;
             };
@@ -475,6 +633,14 @@ impl BuffStore {
                 total += value;
                 continue;
             };
+            if family == ABILITY_SLOW_FAMILY && key == ABILITY_MOVE_SLOW_KEY {
+                note_ability_slow(&mut ability_slows, name, value.raw());
+                continue;
+            }
+            if family.starts_with(LATEST_FAMILY_PREFIX) {
+                note_latest(&mut latest, family, entry.applied, value);
+                continue;
+            }
             family_values
                 .entry(family)
                 .and_modify(|current| {
@@ -489,6 +655,8 @@ impl BuffStore {
         family_values
             .into_values()
             .fold(total, |acc, value| acc + value)
+            + latest.into_values().fold(Fixed64::ZERO, |acc, (_, value)| acc + value)
+            + Fixed64::from_raw(combine_ability_slows(&ability_slows))
     }
 
     pub fn move_speed_sums(&self, entity: Entity) -> MoveSpeedSums {
@@ -511,7 +679,8 @@ impl BuffStore {
         let key = stat.as_str();
         let mut product = Fixed64::ONE;
         let mut family_values: BTreeMap<&str, Fixed64> = BTreeMap::new();
-        for (_, entry) in self.iter_for(entity) {
+        let mut latest: BTreeMap<&str, (u64, Fixed64)> = BTreeMap::new();
+        for (_, entry) in self.stat_rows(entity) {
             let Some(value) = entry.payload.get(key) else {
                 continue;
             };
@@ -524,6 +693,10 @@ impl BuffStore {
                 product *= value;
                 continue;
             };
+            if family.starts_with(LATEST_FAMILY_PREFIX) {
+                note_latest(&mut latest, family, entry.applied, value);
+                continue;
+            }
             family_values
                 .entry(family)
                 .and_modify(|current| {
@@ -537,6 +710,7 @@ impl BuffStore {
                 })
                 .or_insert(value);
         }
+        let product = latest.into_values().fold(product, |acc, (_, value)| acc * value);
         family_values
             .into_values()
             .fold(product, |acc, value| acc * value)
@@ -550,10 +724,48 @@ impl BuffStore {
 
     pub fn is_rooted(&self, entity: Entity) -> bool {
         self.has(entity, BuffId::Root.as_str()) || self.has(entity, BuffId::Stun.as_str())
+            // A forced displacement owns the position even after its stun is cleansed.
+            || self.has(entity, crate::runtime::native::forced_motion::BUFF)
+    }
+
+    /// Timed stealth granted by `invisibility_level` buffs (whole levels).
+    /// Visibility uses the higher of this and the entity's `StealthProfile`;
+    /// attacking does not reveal. Zero when no such buff is active.
+    pub fn stealth_level(&self, entity: Entity) -> u16 {
+        let raw = self.sum_add(entity, StatKey::InvisibilityLevel).raw();
+        u16::try_from((raw / 1024).max(0)).unwrap_or(u16::MAX)
+    }
+
+    /// The stealth level the other teams' sight must detect: the unit's own (`profile`) or its
+    /// statuses', none while it is [`REVEALED`].
+    pub fn visible_stealth_level(&self, entity: Entity, profile: u16) -> u16 {
+        if self.has(entity, REVEALED) { 0 } else { profile.max(self.stealth_level(entity)) }
+    }
+
+    /// The units carrying `buff_id`, in no particular order.
+    pub fn holders<'a>(&'a self, buff_id: &'a str) -> impl Iterator<Item = Entity> + 'a {
+        self.buffs.iter().filter(move |(_, rows)| rows.contains_key(buff_id)).map(|(entity, _)| *entity)
+    }
+
+    /// Other units' movement does not collide with this one while it carries
+    /// the [`NO_UNIT_COLLISION`] state buff. Terrain still blocks it.
+    pub fn ignores_unit_collision(&self, entity: Entity) -> bool {
+        self.has(entity, NO_UNIT_COLLISION)
     }
 
     pub fn is_silenced(&self, entity: Entity) -> bool {
-        self.has(entity, BuffId::Silence.as_str()) || self.has(entity, BuffId::Stun.as_str())
+        self.has(entity, BuffId::Silence.as_str()) || self.has(entity, BuffId::Stun.as_str()) || self.has(entity, "hex")
+    }
+
+    /// Cannot start an ordinary attack (rules::vocab::state DISARM; stun and hex too).
+    pub fn is_disarmed(&self, entity: Entity) -> bool {
+        self.has(entity, "disarm") || self.has(entity, BuffId::Stun.as_str()) || self.has(entity, "hex")
+    }
+
+    /// Cannot use items (rules::vocab::state MUTE; hex too). Stun does not mute: the item rules let a
+    /// controlled hero use items (self-cleanse items).
+    pub fn is_muted(&self, entity: Entity) -> bool {
+        self.has(entity, "mute") || self.has(entity, "hex")
     }
 
     /// Closed hostile slow producers only. Do not infer debuffs from a negative
@@ -592,9 +804,20 @@ impl BuffStore {
         for id in [BuffId::Stun, BuffId::Root, BuffId::Silence] {
             self.remove(entity, id.as_str());
         }
+        self.cleanse_slows(entity);
+    }
+
+    /// Removes the entity's cleanseable movement slows only.
+    pub fn cleanse_slows(&mut self, entity: Entity) {
         let mut slows:Vec<_>=self.buffs.get(&entity).into_iter().flat_map(|rows|rows.iter())
             .filter(|(name,entry)|Self::cleanseable_slow(name,entry)).map(|(name,_)|name.clone()).collect();
         slows.sort();for id in slows{self.remove(entity,&id);}
+    }
+
+    /// Whether the last `tick` retired `entity`'s row `id` by expiry (not a removal): a periodic step
+    /// due at that same instant still runs (a status's last tick at expiry, like periodic damage).
+    pub fn expired_last_tick(&self, entity: Entity, id: &str) -> bool {
+        self.just_expired.binary_search_by(|(e, k)| (e.id(), e.gen().id(), k.as_str()).cmp(&(entity.id(), entity.gen().id(), id))).is_ok()
     }
 
     /// 倒數所有 buff 並回傳過期的 `(Entity, buff_id, payload)` 清單。
@@ -615,6 +838,17 @@ impl BuffStore {
                 let entry=entries.get_mut(&key).unwrap();
                 let Some(spec)=PeriodicDamageSpec::from_payload(&entry.payload) else {continue;};
                 let elapsed=dt.min(entry.remaining).max(Fixed64::ZERO);
+                if let (Some(interval),Some(pulse))=(spec.interval,spec.pulse_amount()) {
+                    // Discrete ticks: the remainder is this buff's raw clock since its last
+                    // pulse; a pulse lands at every full interval, including one that ends
+                    // exactly at expiry (integrated before `tick` retires the entry).
+                    let clock=i128::from(entry.periodic_remainder)+i128::from(elapsed.raw());
+                    let pulses=clock/i128::from(interval.raw());
+                    entry.periodic_remainder=(clock%i128::from(interval.raw())) as i64;
+                    let Ok(raw)=i64::try_from(i128::from(pulse.raw())*pulses) else {continue;};
+                    if raw>0 {result.push(PeriodicDamageTick{target,spec,amount:Fixed64::from_raw(raw)});}
+                    continue;
+                }
                 let numerator=i128::from(spec.rate.raw())*i128::from(elapsed.raw())+i128::from(entry.periodic_remainder);
                 let Ok(raw)=i64::try_from(numerator/1024) else {continue;};
                 entry.periodic_remainder=(numerator%1024) as i64;
@@ -630,6 +864,11 @@ impl BuffStore {
             .filter(|(_,entry)|entry.payload.get(super::damage_zone::KEY).is_some()).map(|(key,_)|key.clone()).collect();
         // Source retirement clears its public status mirror, never an independent lease.
         for key in keys {self.remove_entry(source,&key);}
+    }
+
+    /// Zones `source` left running on their own leases (a source's retirement keeps them).
+    pub fn cancel_independent_zones(&mut self,source:Entity) {
+        self.independent_zones.retain(|(owner,_),_|*owner!=source);
     }
 
     pub fn can_schedule_independent_zones(&self,source:Entity,keys:&[&str])->bool {
@@ -652,7 +891,7 @@ impl BuffStore {
         self.next_zone_lease=lease;
         self.insert_buff(source,key,duration,spec.payload());
         self.independent_zones.insert((source,key.to_owned()),super::damage_zone::IndependentDamageZone {
-            spec,remaining:duration,clock:0,lease,origin,faction});
+            spec,remaining:duration,clock:0,lease,origin,faction,age:Fixed64::ZERO});
         true
     }
 
@@ -722,13 +961,15 @@ impl BuffStore {
     }
 
     pub fn tick(&mut self, dt: Fixed64) -> Vec<(Entity, String, Value)> {
+        self.just_expired.clear();
         if dt<=Fixed64::ZERO {return Vec::new();}
-        for entry in self.independent_zones.values_mut(){entry.remaining-=dt.min(entry.remaining);}
+        for entry in self.independent_zones.values_mut(){entry.age+=dt.min(entry.remaining);entry.remaining-=dt.min(entry.remaining);}
         let mut expired = Vec::new();
         // 先收集 expired，避免 retain 內動態借 self（index_dec 也要 &mut self）
         let mut to_drop: Vec<(Entity, String)> = Vec::new();
         for (e, entity_buffs) in self.buffs.iter_mut() {
             for (id, v) in entity_buffs.iter_mut() {
+                v.elapsed += dt;
                 if v.remaining==PERMANENT_BUFF_DURATION {continue;}
                 v.remaining -= dt;
                 if v.remaining <= Fixed64::ZERO {
@@ -737,8 +978,10 @@ impl BuffStore {
             }
         }
         to_drop.sort_by(|(a,ak),(b,bk)|(a.id(),a.gen().id(),ak).cmp(&(b.id(),b.gen().id(),bk)));
+        self.just_expired = to_drop.clone();
         for (e, id) in to_drop {
             if let Some(entry) = self.remove_entry(e, &id) {
+                self.record_status_end(e, &id, &entry.payload, crate::runtime::native::status_event::EXPIRED, Fixed64::ZERO);
                 expired.push((e, id, entry.payload));
             }
         }
@@ -752,6 +995,11 @@ impl BuffStore {
     pub fn is_empty(&self) -> bool {
         self.buffs.is_empty()
     }
+}
+
+/// A learned passive's marker row (ability_kit `passive_marker`).
+pub fn is_passive(payload: &Value) -> bool {
+    payload.get("__passive") == Some(&Value::Bool(true))
 }
 
 fn move_speed_sum_slot<'a>(sums: &'a mut MoveSpeedSums, key: &str) -> Option<&'a mut Fixed64> {
@@ -768,6 +1016,42 @@ fn move_speed_sum_slot<'a>(sums: &'a mut MoveSpeedSums, key: &str) -> Option<&'a
         "movespeed_max" => Some(&mut sums.max),
         "movespeed_limit" => Some(&mut sums.limit),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod latest_family_tests {
+    use super::*;
+    use specs::{Builder, World, WorldExt};
+
+    #[test]
+    fn a_latest_family_takes_the_row_applied_last_and_falls_back_when_it_ends() {
+        let mut world = World::new();
+        let e = world.create_entity().build();
+        let mut buffs = BuffStore::default();
+        let row = |armor: i64, mult: i64| serde_json::json!({
+            StatKey::PhysicalArmorBonus.as_str(): armor, StatKey::AttackSpeedMultiplier.as_str(): mult,
+            AGGREGATION_FAMILY_KEY: "unique_latest:armor_aura" });
+        let armor = |buffs: &BuffStore| buffs.sum_add(e, StatKey::PhysicalArmorBonus).raw();
+        let mult = |buffs: &BuffStore| buffs.product_mult(e, StatKey::AttackSpeedMultiplier).raw();
+        let checked = |buffs: &BuffStore| buffs.checked_sum_add(e, StatKey::PhysicalArmorBonus).unwrap().raw();
+        let time = Fixed64::from_i32(10);
+        buffs.add(e, "strong", time, row(8192, 2048));
+        buffs.add(e, "weak", time, row(1024, 1536));
+        assert_eq!((armor(&buffs), checked(&buffs), mult(&buffs)), (1024, 1024, 1536), "the weaker row was applied last");
+        buffs.add(e, "strong", time, row(8192, 2048));
+        assert_eq!((armor(&buffs), checked(&buffs), mult(&buffs)), (8192, 8192, 2048), "applying it again makes it the latest");
+        buffs.add(e, "other", time, serde_json::json!({ StatKey::PhysicalArmorBonus.as_str(): 2048 }));
+        assert_eq!(armor(&buffs), 8192 + 2048, "a row outside the family still adds");
+        buffs.remove(e, "other");
+        buffs.remove(e, "strong");
+        assert_eq!(armor(&buffs), 1024, "the row left takes over");
+        // a plain family keeps taking the strongest
+        let plain = |v: i64| serde_json::json!({ StatKey::PhysicalArmorBonus.as_str(): v, AGGREGATION_FAMILY_KEY: "unique_group:armor" });
+        buffs.remove(e, "weak");
+        buffs.add(e, "strong", time, plain(8192));
+        buffs.add(e, "weak", time, plain(1024));
+        assert_eq!(armor(&buffs), 8192);
     }
 }
 
@@ -826,6 +1110,17 @@ mod tests {
         let before=buffs.damage_zone_diagnostic();assert!(!buffs.can_schedule_independent_zones(source,&["zone"]));
         assert!(buffs.can_schedule_independent_zones(source,&[]));assert_eq!(buffs.damage_zone_diagnostic(),before);
     }
+    #[test]
+    fn break_turns_learned_passive_stats_off() {
+        let e = ent(7, 1);
+        let mut b = BuffStore::default();
+        b.add(e, "a07_strongest", Fixed64::from_raw(i64::MAX), serde_json::json!({"physical_armor_bonus": 5 * 1024, "level": 1, "__passive": true}));
+        b.add(e, "item_plate", Fixed64::ONE, serde_json::json!({"physical_armor_bonus": 3 * 1024}));
+        assert_eq!(b.sum_add(e, StatKey::PhysicalArmorBonus), Fixed64::from_i32(8));
+        b.add(e, "break", Fixed64::ONE, serde_json::json!({}));
+        assert_eq!(b.sum_add(e, StatKey::PhysicalArmorBonus), Fixed64::from_i32(3), "only the passive goes");
+    }
+
     #[test]
     fn public_damage_shield_metadata_tracks_absorption_regrant_and_expiry() {
         let entity=ent(1,1);let mut buffs=BuffStore::default();
@@ -1137,6 +1432,48 @@ mod tests {
             s.product_mult(e, StatKey::AttackSpeedMultiplier),
             Fixed64::from_raw(1280)
         );
+    }
+
+    /// 原作 dummy.lua:866-902：不同名稱的技能緩速 1−Π(1−sᵢ)；同名只算一筆；
+    /// 攻速常數減速只取最強。Insertion order never changes the result.
+    #[test]
+    fn ability_slows_stack_multiplicatively_per_source_name_like_the_source() {
+        let slow = |raw: i64| json!({"move_speed_bonus": raw, "__aggregation_family": ABILITY_SLOW_FAMILY});
+        let rows = [
+            ("generic_slow:alpha:1:1", slow(-307)),
+            ("generic_slow:beta:2:1", slow(-205)),
+            // Same source name from another caster: one entry, the strongest.
+            ("generic_slow:alpha:3:1", slow(-256)),
+            ("generic_slow:gamma:4:1", json!({(StatKey::AttackSpeedBonusConstant.as_str()): -30 * 1024, "__aggregation_family": ABILITY_SLOW_FAMILY})),
+            ("generic_slow:delta:5:1", json!({(StatKey::AttackSpeedBonusConstant.as_str()): -50 * 1024, "__aggregation_family": ABILITY_SLOW_FAMILY})),
+            ("boots", json!({"move_speed_bonus": 100})),
+        ];
+        let mut results = Vec::new();
+        for reversed in [false, true] {
+            let mut s = BuffStore::new();
+            let e = ent(1, 1);
+            let order: Vec<_> = if reversed { rows.iter().rev().collect() } else { rows.iter().collect() };
+            for (id, payload) in order { s.add(e, id, fx(5.0), payload.clone()); }
+            // 1024·(1024−307)/1024 = 717; 717·(1024−205)/1024 = 573 → slow 451; boots stay additive.
+            assert_eq!(s.sum_add(e, StatKey::MoveSpeedBonus), Fixed64::from_raw(-451 + 100));
+            assert_eq!(s.move_speed_sums(e).percentage, Fixed64::from_raw(-451 + 100));
+            assert_eq!(s.checked_sum_add(e, StatKey::MoveSpeedBonus), Some(Fixed64::from_raw(-451 + 100)));
+            assert_eq!(s.sum_add(e, StatKey::AttackSpeedBonusConstant), Fixed64::from_i32(-50), "attack slow: strongest only");
+            results.push(s.sum_add(e, StatKey::MoveSpeedBonus));
+            // A full slow stops the unit no matter what else stacks; expiry restores the product.
+            s.add(e, "generic_slow:omega:6:1", fx(1.0), slow(-1024));
+            assert_eq!(s.sum_add(e, StatKey::MoveSpeedBonus), Fixed64::from_raw(-1024 + 100));
+            s.tick(fx(1.0));
+            assert_eq!(s.sum_add(e, StatKey::MoveSpeedBonus), Fixed64::from_raw(-451 + 100));
+        }
+        assert_eq!(results[0], results[1]);
+        assert_eq!(combine_ability_slows(&BTreeMap::new()), 0);
+        // Positive or out-of-range members cannot speed up or over-slow.
+        let mut s = BuffStore::new();
+        let e = ent(2, 1);
+        s.add(e, "generic_slow:up:1:1", fx(5.0), slow(512));
+        s.add(e, "generic_slow:over:1:1", fx(5.0), slow(-4096));
+        assert_eq!(s.sum_add(e, StatKey::MoveSpeedBonus), Fixed64::from_raw(-1024));
     }
 }
 

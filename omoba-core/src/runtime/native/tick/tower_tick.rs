@@ -1,4 +1,6 @@
 use crate::comp::*;
+use crate::comp::phys::MAX_COLLISION_RADIUS;
+use crate::runtime::combat_controls::{attack_reach, within_attack_reach};
 use crate::tick::attack_phase::{
     advance_attack_phase, fixed_secs_to_ms, start_attack_windup, AttackPhaseStep,
 };
@@ -24,6 +26,7 @@ pub struct TowerRead<'a> {
     master_seed: Read<'a, MasterSeed>,
     tick: Read<'a, Tick>,
     pos: ReadStorage<'a, Pos>,
+    radii: ReadStorage<'a, CollisionRadius>,
     searcher: Read<'a, Searcher>,
     factions: ReadStorage<'a, Faction>,
     creeps: ReadStorage<'a, Creep>,
@@ -50,6 +53,7 @@ struct TowerDecisionRead<'a, 'b> {
     tick: u32,
     time1: Instant,
     pos: &'b ReadStorage<'a, Pos>,
+    radii: &'b ReadStorage<'a, CollisionRadius>,
     searcher: &'b Searcher,
     factions: &'b ReadStorage<'a, Faction>,
     creeps: &'b ReadStorage<'a, Creep>,
@@ -87,6 +91,7 @@ impl<'a> System<'a> for Sys {
             tick: tr.tick.0 as u32,
             time1: Instant::now(),
             pos: &tr.pos,
+            radii: &tr.radii,
             searcher: &*tr.searcher,
             factions: &tr.factions,
             creeps: &tr.creeps,
@@ -222,11 +227,14 @@ fn decide_tower_tick(
         let elpsed = time2.duration_since(tr.time1);
         if elpsed.as_secs_f32() < 0.05 {
             let search_n = tr.searcher.creep.count().max(1);
-            let range_f = atk.range.val().to_f32_for_render();
+            // Coarse f32 prefilter widened by both bodies; the exact edge-to-edge test follows (E555).
+            let own_radius = tr.radii.get(e).map_or(Fixed64::ZERO, |r| r.0);
+            let reach_f = attack_reach(atk.range.val(), own_radius, Fixed64::ZERO).to_f32_for_render()
+                + MAX_COLLISION_RADIUS;
             let (creeps, near_creeps) =
                 tr.searcher
                     .creep
-                    .search_nn_two_radii(pos_vek, range_f, range_f + 30., search_n);
+                    .search_nn_two_radii(pos_vek, reach_f, reach_f + 30., search_n);
 
             let my_faction = tr.factions.get(e);
             let hostile_creeps: Vec<_> = creeps
@@ -238,6 +246,8 @@ fn decide_tower_tick(
                         (_, None) => true,
                     };
                     hostile
+                        && tr.pos.get(ci.e).is_some_and(|p| within_attack_reach(pos.0, p.0, atk.range.val(),
+                            own_radius, tr.radii.get(ci.e).map_or(Fixed64::ZERO, |r| r.0)))
                         && tr
                             .creeps
                             .get(ci.e)
@@ -418,6 +428,7 @@ mod tests {
         world.register::<CProperty>();
         world.register::<TurnSpeed>();
         world.register::<crate::scripting::ScriptUnitTag>();
+        world.register::<CollisionRadius>();
         world.insert(Time::default());
         world.insert(DeltaTime(Fixed64::from_raw(512)));
         world.insert(MasterSeed::default());

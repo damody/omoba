@@ -144,6 +144,17 @@ impl ClientRuntimeConfig {
                 "secure runtime requires current selective protocol version".into(),
             ));
         }
+        // Content identity is what this binary was compiled with. Renderers reject a
+        // RuntimeReady without it, and no launcher can know it better than the
+        // binary itself; an explicit --content-hash only asserts the same value.
+        let compiled_content = omoba_template_ids::CONTENT_CATALOG_DATA_HASH;
+        if content_hash.is_empty() {
+            content_hash = compiled_content.to_owned();
+        } else if content_hash != compiled_content {
+            return Err(ClientRuntimeError::Config(format!(
+                "--content-hash {content_hash} does not match compiled content {compiled_content}"
+            )));
+        }
         if scripted_move_interval_ticks == Some(0) {
             return Err(ClientRuntimeError::Config(
                 "--scripted-move-interval-ticks must be non-zero".into(),
@@ -226,6 +237,20 @@ mod tests {
         assert!(ClientRuntimeConfig::parse(base("1", "127.0.0.1:62001", "2")).is_err());
         assert!(ClientRuntimeConfig::parse(base("1", "127.0.0.1:62001", &version)).is_ok());
         assert!(ClientRuntimeConfig::parse(base("1", "127.0.0.1:62001", "1")).is_err());
+    }
+
+    #[test]
+    fn content_identity_defaults_to_compiled_catalog_and_rejects_mismatch() {
+        let base = |extra: &[&str]| {
+            let mut args = vec!["--player-id", "1", "--team", "1", "--server", "127.0.0.1:50061",
+                "--presentation-bind", "127.0.0.1:62001"];
+            args.extend_from_slice(extra);
+            args.into_iter().map(str::to_owned).collect::<Vec<_>>()
+        };
+        let compiled = omoba_template_ids::CONTENT_CATALOG_DATA_HASH;
+        assert_eq!(ClientRuntimeConfig::parse(base(&[])).unwrap().content_hash, compiled);
+        assert_eq!(ClientRuntimeConfig::parse(base(&["--content-hash", compiled])).unwrap().content_hash, compiled);
+        assert!(ClientRuntimeConfig::parse(base(&["--content-hash", "0000000000000000"])).is_err());
     }
 
     #[test]

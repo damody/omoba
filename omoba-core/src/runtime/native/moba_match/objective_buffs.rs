@@ -49,6 +49,33 @@ pub(super) fn grant_side(world:&World,state:&mut MobaMatch,rule:MobaObjectiveBuf
     synchronize(world,state,Fixed64::ZERO);
 }
 
+/// The lease's BuffStore payload: every stat per stack times the stacks. The E187 stats (the
+/// original bosses' modifiers) appear only when set: percents become engine fractions (rounded raw),
+/// magic resistance stays in percent points like the KV MAGICAL_RESISTANCE_BONUS.
+pub(super) fn payload(rule:&MobaObjectiveBuffConst,stacks:u32,id:&str)->serde_json::Value {
+    use omb_script_abi::stat_keys::StatKey;
+    let n=i64::from(stacks);
+    let mut payload=serde_json::json!({
+        "baseattack_bonus_damage":i64::from(rule.attack_bonus)*n*1024,
+        "physical_armor_bonus":i64::from(rule.armor_bonus)*n*1024,
+        "objective_stacks":stacks,
+        "stacks":stacks,
+        "__aggregation_family":id});
+    let s=rule.stats;
+    let fraction=|percent:i32|(i64::from(percent)*1024+50)/100*n;
+    let flat=|value:i32|i64::from(value)*1024*n;
+    for (key,value) in [(StatKey::BaseDamageOutgoingPercentage,fraction(s.damage_percent)),
+        (StatKey::SpellAmplifyPercentage,fraction(s.spell_amp_percent)),
+        (StatKey::AttackSpeedBonusConstant,flat(s.attack_speed)),
+        (StatKey::MoveSpeedBonusPercentage,fraction(s.move_speed_percent)),
+        (StatKey::MagicalResistanceBonus,flat(s.magic_resistance)),
+        (StatKey::HealthRegenMaxPercentage,fraction(s.hp_regen_max_percent)),
+        (StatKey::ManaRegenConstant,flat(s.mana_regen))] {
+        if value!=0 {payload[key.as_str()]=serde_json::json!(value);}
+    }
+    payload
+}
+
 pub(super) fn retire_hero(state:&mut MobaMatch,player:u32) {
     for lease in state.objective_buffs.values_mut() {
         if lease.rule.lost_on_death {lease.eligible.remove(&player);}
@@ -70,12 +97,7 @@ pub(super) fn synchronize(world:&World,state:&mut MobaMatch,pending_tick:Fixed64
             if !buffs.has(entity,id) {
                 let remaining=lease.expires.map_or(crate::runtime::ability_runtime::buff_store::PERMANENT_BUFF_DURATION,
                     |at|Fixed64::from_raw((at-state.elapsed).raw().saturating_add(pending_tick.raw().max(0))));
-                buffs.add(entity,id,remaining,serde_json::json!({
-                    "baseattack_bonus_damage":i64::from(lease.rule.attack_bonus)*i64::from(lease.stacks)*1024,
-                    "physical_armor_bonus":i64::from(lease.rule.armor_bonus)*i64::from(lease.stacks)*1024,
-                    "objective_stacks":lease.stacks,
-                    "stacks":lease.stacks,
-                    "__aggregation_family":id}));
+                buffs.add(entity,id,remaining,payload(&lease.rule,lease.stacks,id));
             }
         }
         !expired
@@ -112,6 +134,13 @@ mod tests {
                 player_id:3,team_id:1,hero:"training_luminary".into()}],..Default::default()}).unwrap();
         let (source,ally)={let mut state=world.write_resource::<MobaMatch>();state.phase=MobaMatchPhase::Playing;
             (state.heroes[0].entity.unwrap(),state.heroes[2].entity.unwrap())};
+        // The bosses appear on the match clock (E187); these fixtures fight them at the start.
+        spawn_waiting_jungle_camps_for_test(&mut world);
+        // The stack tests respawn the stacking objective 90 s after its kill, inside its 120 s
+        // training lease; the map's (original) respawn is longer.
+        for camp in &mut world.write_resource::<MobaMatch>().jungle_camps {
+            if camp.definition.objective_rewards().any(|rule|rule.max_stacks>1) {camp.definition.respawn_seconds=90;}
+        }
         (world,source,ally)
     }
     fn target(world:&World,lost_on_death:bool)->Entity {

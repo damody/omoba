@@ -645,6 +645,10 @@ fn should_skip_scan_dir(path: &std::path::Path) -> bool {
     // not runtime/tooling inputs; do not rewrite or delete them to pass this scan.
     if path.strip_prefix(workspace_root()).is_ok_and(|relative|
         relative == std::path::Path::new("docs/acceptance")) { return true; }
+    // Agent worktrees under .claude/worktrees are other checkouts of this repo, not
+    // this checkout's runtime/tooling inputs; each is scanned from its own root.
+    if path.strip_prefix(workspace_root()).is_ok_and(|relative|
+        relative == std::path::Path::new(".claude/worktrees")) { return true; }
     let Some(name) = path.file_name() else { return false; };
     [".git", ".worktrees", "omfue", "target"]
         .iter()

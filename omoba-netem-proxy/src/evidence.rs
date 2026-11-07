@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 use crate::{
     config::{ProxyConfig, RouteConfig},
     delay::{Direction, RouteId},
+    outage::OutageEvidence,
     profile::DelayProfile,
     queue::QueueMetrics,
     NetemError, Result, TOOL_VERSION,
@@ -32,6 +33,10 @@ pub struct RouteEvidence {
     pub weights: [u64; 20],
     pub client_to_server: DirectionEvidence,
     pub server_to_client: DirectionEvidence,
+    /// Client endpoint rebinds on this route (a reconnect with a new socket).
+    pub endpoint_changes: Vec<crate::route::EndpointChange>,
+    /// NAT mappings (client endpoint -> own upstream socket) and their reclaim.
+    pub nat_flows: Vec<crate::route::NatFlowEvidence>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -50,6 +55,8 @@ pub struct DirectionEvidence {
     pub release_lateness_p99_us: u64,
     pub reordered_datagrams: u64,
     pub released_datagrams: u64,
+    /// Profile loss drops (loss_ppm); outage drops are reported per window.
+    pub lost_datagrams: u64,
     pub packets_high_watermark: usize,
     pub bytes_high_watermark: usize,
 }
@@ -67,6 +74,7 @@ pub struct ProxyEvidence {
     pub config: serde_json::Value,
     pub routes: Vec<RouteEvidence>,
     pub profile_switches: Vec<ProfileSwitch>,
+    pub outages: Vec<OutageEvidence>,
 }
 
 pub struct EvidenceState {
@@ -85,7 +93,9 @@ pub fn shared() -> SharedEvidence {
 pub async fn write(
     config: &ProxyConfig,
     state: &SharedEvidence,
-    metrics: &[(RouteId, Direction, QueueMetrics)],
+    metrics: &[(RouteId, Direction, QueueMetrics, u64)],
+    outages: &[OutageEvidence],
+    endpoint_changes: &[(RouteId, Vec<crate::route::EndpointChange>, Vec<crate::route::NatFlowEvidence>)],
 ) -> Result<()> {
     fs::create_dir_all(&config.evidence_dir)
         .map_err(|error| NetemError::Evidence(error.to_string()))?;
@@ -96,10 +106,18 @@ pub async fn write(
     let routes = config
         .routes
         .iter()
-        .map(|route| route_evidence(route, metrics))
+        .map(|route| {
+            let mut evidence = route_evidence(route, metrics);
+            let id = if route.team_id == 1 { RouteId::Team1 } else { RouteId::Team2 };
+            if let Some((_, changes, flows)) = endpoint_changes.iter().find(|(route, _, _)| *route == id) {
+                evidence.endpoint_changes = changes.clone();
+                evidence.nat_flows = flows.clone();
+            }
+            evidence
+        })
         .collect();
     let value = ProxyEvidence {
-        schema_version: 1,
+        schema_version: 2,
         tool_version: TOOL_VERSION.into(),
         rust_version: rust_version(),
         pid: std::process::id(),
@@ -116,13 +134,14 @@ pub async fn write(
             .map_err(|error| NetemError::Evidence(error.to_string()))?,
         routes,
         profile_switches: state.switches.clone(),
+        outages: outages.to_vec(),
     };
     atomic_json(&config.evidence_dir.join("proxy-evidence.json"), &value)
 }
 
 fn route_evidence(
     route: &RouteConfig,
-    metrics: &[(RouteId, Direction, QueueMetrics)],
+    metrics: &[(RouteId, Direction, QueueMetrics, u64)],
 ) -> RouteEvidence {
     let route_id = if route.team_id == 1 {
         RouteId::Team1
@@ -132,8 +151,8 @@ fn route_evidence(
     let get = |direction| {
         metrics
             .iter()
-            .find(|(id, dir, _)| *id == route_id && *dir == direction)
-            .map(|(_, _, m)| direction_evidence(m))
+            .find(|(id, dir, _, _)| *id == route_id && *dir == direction)
+            .map(|(_, _, m, lost)| DirectionEvidence { lost_datagrams: *lost, ..direction_evidence(m) })
             .unwrap_or_default()
     };
     RouteEvidence {
@@ -142,6 +161,8 @@ fn route_evidence(
         weights: route.initial_profile.weights,
         client_to_server: get(Direction::ClientToServer),
         server_to_client: get(Direction::ServerToClient),
+        endpoint_changes: Vec::new(),
+        nat_flows: Vec::new(),
     }
 }
 
@@ -173,6 +194,7 @@ fn direction_evidence(metrics: &QueueMetrics) -> DirectionEvidence {
         released_datagrams: metrics.released,
         packets_high_watermark: metrics.packets_high_watermark,
         bytes_high_watermark: metrics.bytes_high_watermark,
+        lost_datagrams: 0,
     }
 }
 fn percentile<T: Copy + Ord + Into<u64>>(values: &[T], pct: usize) -> u64 {

@@ -1,0 +1,37 @@
+-- C05 maeda_keiji: blue lightning; cyan wind for Matsukaze, red for the warning enemies see.
+local BLUE, CYAN, WARN = { 0.03, 0.18, 1.0 }, { 0.02, 0.55, 0.9 }, { 1.0, 0.1, 0.05 }
+return {
+  recipes = {
+    -- c05_matsukaze: a whirlwind on cast, cyan motes while it lasts
+    c05w_vo = { system = "sparks", tint = CYAN,
+      mesh = "wind_spiral", mesh_opacity = 0.55, ground_size = 170, ground_seconds = 0.9, grow = 0.6, spin_up = 540 },
+    c05w_armlet = { system = "stream", sprite = "ramp_pops", size = 85, life = 0.4, loop = true, tint = CYAN },
+    -- c05_thunder_dance: lightning erupts around him, a bolt to each enemy, a burst on each hit
+    c05e_cast_sound = { system = "sparks", tint = { 0.1, 0.4, 1.0 } },
+    c05e_bolt = { system = "stream", sprite = "soft_glow", size = 1, life = 0.05, loop = true, face = true, tint = { 0.1, 0.4, 1.0 } },
+    c05e_impact = { system = "pop", sprite = "ramp_hit", size = 110, fixed_size = true, life = 0.22, tint = { 0.1, 0.4, 1.0 },
+      ground = "arc_fork", ground_size = 170, ground_seconds = 0.35, height = 60, line = true, from_caster = true },
+    -- c05_thunder_spear: a bolt along the thrust and a flash on the spear, then the target crackles
+    c05r_chain_lightning = { tint = { 0.08, 0.3, 1.0 },
+      ground = "ramp_bolt_hit", ground_size = 340, ground_seconds = 0.3, height = 70, line = true },
+    c05r_tempest = { system = "stream", sprite = "lightning", size = 210, life = 0.3, loop = true, tint = BLUE },
+    -- c05_flash_thunder: charge under him, the landing mark, the strike
+    c05t_vo = { system = "pop", sprite = "lightning", size = 210, life = 0.3, tint = BLUE,
+      ground = "ramp_ring_marks", ground_size = 260, ground_seconds = 1.4, grow = 0.3 },
+    c05t_aoe_hint = { ground = "ramp_thin_ring", ground_size = 460, ground_fixed = true, ground_seconds = 1.5, tint = BLUE, alpha = 0.55 },
+    -- Both hints play for the viewer; the warning colour over the blue circle reads as the skill changing.
+    c05t_aoe_hint_enemy = { ground = "ramp_thin_ring", ground_seconds = 0.8, tint = WARN, alpha = 0.01 },
+    c05t_blink_start = { system = "pop", sprite = "ramp_hit", size = 170, life = 0.25, tint = BLUE,
+      ground = "ramp_thin_ring", ground_size = 240, ground_seconds = 0.3, grow = 0.5 },
+    c05t_eclipse_area = { system = "pop", sprite = "lightning", size = 640, area = true, life = 0.5, tint = BLUE,
+      ground = "ramp_blast_deep", ground_size = 640, area = true, ground_fixed = true, ground_seconds = 0.5, grow = 0.4 },
+    c05t_blink_end = { system = "pop", sprite = "ramp_star", size = 210, life = 0.35, tint = BLUE,
+      ground = "ramp_thin_ring", ground_size = 480, ground_fixed = true, ground_seconds = 0.5, grow = 0.3 },
+  },
+  notes = {
+    c05_matsukaze = "c05w_vo whirlwind burst + c05w_armlet stream for the buff.",
+    c05_thunder_dance = "c05e_cast_sound burst, c05e_bolt flight, c05e_impact burst. The cast cue has no radius arg: ground_size 1700 is an art fallback; adding radius to the package cue would make it exact.",
+    c05_thunder_spear = "Passive: c05r_chain_lightning on each landed attack (pop at the attacker, line to the target) + c05r_tempest stream on the slowed unit.",
+    c05_flash_thunder = "c05t_vo channel, c05t_blink_start flash, c05t_eclipse_area giant bolt (ground uses the package radius), c05t_blink_end burst. If the channel is interrupted the c05t_vo ground still runs its time. c05t_stun has no cue.",
+  },
+}

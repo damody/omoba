@@ -11,7 +11,7 @@ assert(importer.inside_project(b.root, manifest))
 assert(not importer.inside_project(b.root, path.join(b.root, '..', 'omoba-ui-texture-outside')))
 assert(not importer.inside_project(b.root, path.join(b.root, 'omfue', '..', 'scripts')))
 local plan = importer.validate({root = b.root, manifest = manifest, kind = 'trinket'})
-assert(plan.schema == 'omoba.ui-texture-import-plan.v1' and plan.kind == 'trinket' and #plan.assets == 1)
+assert(plan.schema == 'omoba.ui-texture-import-plan.v1' and plan.kind == 'trinket' and #plan.assets == #importer.authored(b.root, 'trinket'))
 local lantern = plan.assets[1]
 assert(lantern.catalog_id == 1)
 assert(lantern.content_id == 'training_scout_lantern_v1')
@@ -25,7 +25,7 @@ assert(lantern.destination_path == '/Game/Omoba/UI/Trinkets')
 assert(lantern.item_id == nil)
 assert(importer.inside_project(b.root, lantern.source_png))
 local authored = importer.authored(b.root, 'trinket')
-assert(#authored == 1 and authored[1].id == lantern.content_id and authored[1].catalog_id == 1)
+assert(#authored == #plan.assets and authored[1].id == lantern.content_id and authored[1].catalog_id == 1)
 
 local item_manifest_path = path.is_file(items.durable_manifest(b.root)) and items.durable_manifest(b.root)
   or path.join(b.root, '.ai-collab/candidates/item-icons-v1/manifest.json')
@@ -57,7 +57,7 @@ json.write(converted_path, converted, false)
 local item_plan = importer.validate({
   root = b.root, manifest = converted_path, kind = 'item', candidate_dir = path.parent(item_manifest_path),
 })
-assert(item_plan.kind == 'item' and #item_plan.assets == 11)
+assert(item_plan.kind == 'item' and #item_plan.assets == #items.authored_items(b.root))
 local by_id = {}
 for _, asset in ipairs(item_plan.assets) do
   assert(asset.destination_path == '/Game/Omoba/UI/Items')
@@ -78,6 +78,8 @@ local function rejected(mutate)
 end
 rejected(function(doc) doc.schema = 'omoba.item-icon-assets.v1' end)
 rejected(function(doc) doc.kind = 'item' end)
+rejected(function(doc) doc.tool = 'unknown-generator' end)
+rejected(function(doc) doc.assets[1].tool = nil; doc.assets[2].tool = nil end)
 rejected(function(doc) doc.status = 'imported' end)
 rejected(function(doc) doc.assets[1].sha256 = string.rep('ab', 32) end)
 rejected(function(doc) doc.assets[1].file = '../training-scout-lantern-v1.png' end)
@@ -166,6 +168,59 @@ assert(commandlet.assets[1].destination_path == nil)
 stage_plan.assets[1].destination_path = lantern.destination_path
 commandlet = importer.commandlet_plan(stage_plan)
 assert(commandlet.assets[1].destination_path == '/Game/Omoba/UI/Trinkets')
+
+-- Hero ability icons: partial manifest (atlas abilities stay), catalog id = include position.
+local ability_manifest = importer.durable_manifest(b.root, 'ability')
+assert(ability_manifest:gsub('\\', '/'):find('omfue/Content/Omoba/UI/Abilities/Source/manifest.json', 1, true))
+local ability_plan = importer.validate({root = b.root, manifest = ability_manifest, kind = 'ability'})
+local ability_rows = importer.authored(b.root, 'ability')
+assert(ability_plan.kind == 'ability' and #ability_plan.assets > 0 and #ability_plan.assets < #ability_rows)
+local ability_by_id = {}
+for index, row in ipairs(ability_rows) do assert(row.catalog_id == index); ability_by_id[row.id] = row end
+for _, asset in ipairs(ability_plan.assets) do
+  assert(asset.destination_path == '/Game/Omoba/UI/Abilities')
+  assert(asset.object_path == '/Game/Omoba/UI/Abilities/' .. asset.content_id .. '.' .. asset.content_id)
+  assert(asset.source_file == asset.content_id .. '.png')
+  assert(ability_by_id[asset.content_id].catalog_id == asset.catalog_id)
+  assert(asset.display_name == ability_by_id[asset.content_id].display_name)
+end
+local fang
+for _, asset in ipairs(ability_plan.assets) do if asset.content_id == 'b08_fang_slash' then fang = asset end end
+assert(fang and fang.display_name == '一刀．牙')
+local function ability_rejected(mutate)
+  local copy = json.decode(json.encode(json.read(ability_manifest)))
+  mutate(copy)
+  local file = path.join(fixture, 'negative-ability-manifest.json')
+  json.write(file, copy, true)
+  local ok = pcall(importer.validate, {root = b.root, manifest = file, kind = 'ability', candidate_dir = path.parent(ability_manifest)})
+  os.remove(file)
+  assert(not ok, 'invalid ability manifest was accepted')
+end
+ability_rejected(function(doc) doc.schema = 'omoba.ui-texture-assets.v1' end)
+ability_rejected(function(doc) doc.kind = 'item' end)
+ability_rejected(function(doc) doc.assets[1].prompt = nil end)
+ability_rejected(function(doc) doc.assets[1].visual_review = '' end)
+ability_rejected(function(doc) doc.assets[1].catalog_id = doc.assets[1].catalog_id + 1 end)
+ability_rejected(function(doc) doc.assets[1].content_id = 'unknown_future_spell' end)
+ability_rejected(function(doc) doc.assets[1].file = 'other.png' end)
+ability_rejected(function(doc) doc.assets[1].sha256 = string.rep('ab', 32) end)
+ability_rejected(function(doc) doc.assets[#doc.assets + 1] = doc.assets[1] end)
+-- Registry publication: a declared placeholder row converts, a missing row is appended,
+-- authored atlas art is never replaced, and a second publish is a no-op.
+local ability_registry = {schemaVersion = 1, entries = {
+  {kind = 'ability', id = fang.content_id, displayName = fang.display_name, file = 'ability-placeholder-v1.png', columns = 1, rows = 1, tile = 0, placeholder = true},
+  {kind = 'ability', id = 'sniper_mode', displayName = 'x', file = 'omoba-hud-icons-v1.png', columns = 4, rows = 4, tile = 0},
+}}
+local converted_text, converted_changed = importer.publish_registry_resource(json.encode(ability_registry), 'ability', fang.content_id, fang.object_path, fang.display_name)
+local converted_row = json.decode(converted_text).entries[1]
+assert(converted_changed and converted_row.placeholder == nil and converted_row.file == 'b08_fang_slash.png'
+  and converted_row.columns == 1 and converted_row.rows == 1 and converted_row.tile == 0 and converted_row.resource == fang.object_path)
+local again_text, again_changed = importer.publish_registry_resource(converted_text, 'ability', fang.content_id, fang.object_path, fang.display_name)
+assert(not again_changed and again_text == converted_text)
+local appended = json.decode((importer.publish_registry_resource(json.encode({schemaVersion = 1, entries = {}}), 'ability', fang.content_id, fang.object_path, fang.display_name)))
+assert(#appended.entries == 1 and appended.entries[1].kind == 'ability' and appended.entries[1].displayName == fang.display_name)
+assert(not pcall(importer.publish_registry_resource, json.encode(ability_registry), 'ability', 'sniper_mode', importer.object_path('ability', 'sniper_mode')))
+assert(not pcall(importer.publish_registry_resource, converted_text, 'ability', fang.content_id, '/Game/Omoba/UI/Items/b08_fang_slash.b08_fang_slash'))
 
 remove_tree(fixture)
 pcall(lfs.rmdir, path.join(b.root, '.ai-collab', 'ui-texture-lua-fixtures'))

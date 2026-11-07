@@ -1,6 +1,138 @@
 -- Build-time, read-only coverage of the authoring hero catalog. Unreal retains
 -- the bounded registry and image decoder as the runtime resource contract.
 local M={}
+-- Shared fallback for heroes without authored art (generated heroes start here);
+-- replacing it with authored art is an Editor-only manifest/art change.
+M.PLACEHOLDER_FILE='hero-placeholder-v1.png'
+-- Original nobu art (scripts/import_nobu_icons.lua): own files nobu-<kind>-<id>.png listed in
+-- nobu-icons-v1.json. It stands in where no art was assigned by hand (authored rows always win)
+-- and replaces the shared placeholder; rows marked source='nobu' are derived like placeholders.
+-- Generated art (scripts/generated_art.lua, gen-<kind>-<id>.png in generated-art-v1.json) fills the
+-- ids nobu has no original for, the same way, with source='generated'.
+M.NOBU_INDEX='nobu-icons-v1.json'
+M.GENERATED_INDEX='generated-art-v1.json'
+local NOBU_KIND={hero='portrait',ability='ability',item='item',loading='loading'}
+local SOURCE_PREFIX={nobu='nobu-',generated='gen-'}
+function M.art_file(source,kind,id)return assert(SOURCE_PREFIX[source],'unknown art source')..(kind=='portrait'and'hero'or kind)..'-'..id..'.png' end
+function M.nobu_file(kind,id)return M.art_file('nobu',kind,id) end
+local function derived_source(row)return row.source~=nil and SOURCE_PREFIX[row.source]~=nil end
+-- index table(s) -> {portrait={[id]=file}, ability=..., item=..., sources={[kind]={[id]='nobu'|'generated'}}};
+-- nil index -> empty. Original nobu art wins over generated art.
+function M.nobu_files(index,generated)
+ local out={portrait={},ability={},item={},loading={},sources={portrait={},ability={},item={},loading={}}}
+ if index then
+  assert(index.schema=='omoba.nobu-icons.v1'and type(index.entries)=='table','invalid nobu icon index')
+  for _,row in ipairs(index.entries)do
+   local kind=NOBU_KIND[row.kind]
+   if kind and row.status=='original'then
+    assert(row.file==M.nobu_file(kind,row.id),'nobu icon file does not match its id: '..tostring(row.id))
+    out[kind][row.id]=row.file;out.sources[kind][row.id]='nobu'
+   end
+  end
+ end
+ if generated then
+  assert(generated.schema=='omoba.generated-art.v1'and type(generated.entries)=='table','invalid generated art index')
+  for _,row in ipairs(generated.entries)do
+   local kind=NOBU_KIND[row.kind]
+   if kind then
+    assert(row.file==M.art_file('generated',kind,row.id),'generated art file does not match its id: '..tostring(row.id))
+    if not out[kind][row.id]then out[kind][row.id]=row.file;out.sources[kind][row.id]='generated' end
+   end
+  end
+ end
+ return out
+end
+local function art_source(nobu,kind,id)return nobu and nobu.sources and nobu.sources[kind][id]or'nobu' end
+local function derived_row(kind,id,name,file,nobu_file,source)
+ if nobu_file then return {kind=kind,id=id,displayName=name,file=nobu_file,columns=1,rows=1,tile=0,source=source or'nobu'}end
+ return {kind=kind,id=id,displayName=name,file=file,columns=1,rows=1,tile=0,placeholder=true}
+end
+-- A skill-set variant (`variant_of`, D22: <hero>_old, <hero>_v20) without art of its own shows its
+-- base hero's: the base's nobu or generated file, else a copy of the base's row. Such a row says
+-- whose art it is (`art_of`) and follows the base when the base's art changes.
+local function borrowed_row(kind,id,name,base,files,nobu,rows)
+ if files[base]then
+  local row=derived_row(kind,id,name,nil,files[base],art_source(nobu,kind,base));row.art_of=base;return row
+ end
+ local own=rows[base]
+ if not own or own.placeholder==true then return nil end
+ return {kind=kind,id=id,displayName=name,file=own.file,columns=own.columns,rows=own.rows,tile=own.tile,art_of=base}
+end
+function M.placeholder_entries(heroes,manifest,nobu)
+ local present,added={},{}
+ local files=nobu and nobu.portrait or{}
+ for _,row in ipairs(manifest.entries)do if row.kind=='portrait'then present[row.id]=row end end
+ -- Base heroes first, so a variant finds its base's row.
+ for pass=1,2 do
+  for _,hero in ipairs(heroes)do
+   local variant=hero.variant_of~=nil and not files[hero.id]
+   if (pass==2)==variant then
+    local row=variant and borrowed_row('portrait',hero.id,hero.display_name,hero.variant_of,files,nobu,present)
+    local old=present[hero.id]
+    if old and row and (old.art_of~=nil or old.placeholder==true)then
+     for k in pairs(old)do old[k]=nil end
+     for k,v in pairs(row)do old[k]=v end
+    elseif not old then
+     row=row or derived_row('portrait',hero.id,hero.display_name,M.PLACEHOLDER_FILE,files[hero.id],art_source(nobu,'portrait',hero.id))
+     manifest.entries[#manifest.entries+1]=row
+     added[#added+1]=hero.id;present[hero.id]=row
+    end
+   end
+  end
+ end
+ return added
+end
+-- A shared placeholder row whose id now has nobu art takes it; returns "kind:id" of each upgrade.
+function M.upgrade_placeholders(manifest,nobu)
+ local upgraded={}
+ for _,row in ipairs(manifest.entries)do
+  local file=row.placeholder==true and nobu and nobu[row.kind]and nobu[row.kind][row.id]
+  if file then
+   row.file=file;row.placeholder=nil;row.source=art_source(nobu,row.kind,row.id)
+   upgraded[#upgraded+1]=row.kind..':'..row.id
+  end
+ end
+ return upgraded
+end
+local function derived(row)return row.placeholder==true or derived_source(row)or row.art_of~=nil end
+-- Items the shop sells (not test_only engine fixtures) without art get their nobu art as a raw
+-- PNG row; imported (resource) item rows are authored and stay. Returns the added ids.
+function M.item_entries(items,manifest,nobu)
+ local present,added={},{}
+ local files=nobu and nobu.item or{}
+ for _,row in ipairs(manifest.entries)do if row.kind=='item'then present[row.id]=true end end
+ for _,item in ipairs(items)do
+  if not item.test_only and not present[item.id]and files[item.id]then
+   manifest.entries[#manifest.entries+1]={kind='item',id=item.id,displayName=item.name,file=files[item.id],columns=1,rows=1,tile=0,source=art_source(nobu,'item',item.id)}
+   added[#added+1]=item.id;present[item.id]=true
+  end
+ end
+ return added
+end
+-- nobu item rows of items the shop no longer sells (or whose art is gone) are dropped
+function M.prune_items(items,manifest,nobu)
+ local sold,kept,removed={}, {},{}
+ local files=nobu and nobu.item or{}
+ for _,item in ipairs(items)do if not item.test_only then sold[item.id]=true end end
+ for _,row in ipairs(manifest.entries)do
+  if row.kind=='item'and derived_source(row)and not(sold[row.id]and files[row.id]==row.file)then removed[#removed+1]=row.id
+  else kept[#kept+1]=row end
+ end
+ manifest.entries=kept
+ return removed
+end
+-- Placeholder (and nobu) rows are derived from the catalog, so one whose hero left the
+-- catalog (a rolled-back authoring build) is dropped; authored art still fails.
+function M.prune_placeholders(heroes,manifest)
+ local known,kept,removed={}, {},{}
+ for _,hero in ipairs(heroes)do known[hero.id]=true end
+ for _,row in ipairs(manifest.entries)do
+  if row.kind=='portrait'and derived(row)and not known[row.id]then removed[#removed+1]=row.id
+  else kept[#kept+1]=row end
+ end
+ manifest.entries=kept
+ return removed
+end
 local function integer(value,minimum,maximum)
  return type(value)=='number'and value%1==0 and value>=minimum and value<=maximum
 end
@@ -10,12 +142,12 @@ end
 function M.validate(heroes,manifest,inspect)
  assert(type(heroes)=='table'and #heroes>0 and #heroes<=512,'invalid authoring hero catalog')
  assert(type(manifest)=='table'and manifest.schemaVersion==1 and type(manifest.entries)=='table'
-  and #manifest.entries>0 and #manifest.entries<=512,'invalid HUD manifest')
+  and #manifest.entries>0 and #manifest.entries<=2048,'invalid HUD manifest')
  assert(type(inspect)=='function','portrait resource inspector required')
- local expected,seen,tiles={}, {},{}
+ local expected,seen,tiles,variants={}, {},{},{}
  for _,hero in ipairs(heroes)do
   assert(type(hero)=='table'and id(hero.id)and type(hero.display_name)=='string'and hero.display_name~=''and not expected[hero.id],'invalid or duplicate authoring hero')
-  expected[hero.id]=hero.display_name
+  expected[hero.id]=hero.display_name;variants[hero.id]=hero.variant_of
  end
  for _,row in ipairs(manifest.entries)do if row.kind=='portrait'then
   assert(id(row.id)and expected[row.id],'portrait refers to unknown hero: '..tostring(row.id))
@@ -25,7 +157,18 @@ function M.validate(heroes,manifest,inspect)
    and not row.file:find('..',1,true)and row.resource==nil,'invalid portrait file namespace: '..row.id)
   assert(integer(row.columns,1,16)and integer(row.rows,1,16)and integer(row.tile,0,row.columns*row.rows-1),'invalid portrait atlas: '..row.id)
   local tile=row.file..':'..row.columns..':'..row.rows..':'..row.tile
-  assert(not tiles[tile],'duplicate portrait tile: '..row.id);tiles[tile]=true
+  -- Only the declared shared placeholder may be reused; authored art stays one tile per hero, and a
+  -- variant's borrowed row shows its base hero's art (art_of).
+  if row.placeholder==true then
+   assert(row.file==M.PLACEHOLDER_FILE and row.columns==1 and row.rows==1 and row.tile==0,'invalid placeholder portrait: '..row.id)
+  elseif row.art_of~=nil then
+   assert(variants[row.id]==row.art_of,'portrait borrows art of a hero that is not its base: '..row.id)
+   assert(row.source==nil or(derived_source(row)and row.file==M.art_file(row.source,'portrait',row.art_of)),'invalid borrowed portrait: '..row.id)
+  else
+   assert(row.placeholder==nil,'invalid placeholder flag: '..row.id)
+   assert(row.source==nil or(derived_source(row)and row.file==M.art_file(row.source,'portrait',row.id)and row.columns==1 and row.rows==1),'invalid nobu portrait: '..row.id)
+   assert(not tiles[tile],'duplicate portrait tile: '..row.id);tiles[tile]=true
+  end
   local image=inspect(row.file)
   assert(type(image)=='table'and integer(image.width,1,4096)and integer(image.height,1,4096),'missing or invalid portrait PNG: '..row.id)
   -- Normalized atlas UVs need not be integer-pixel divisible (1254 / 4 is valid).
@@ -46,11 +189,207 @@ function M.inspect_png(file)
  local width,height=string.unpack('>I4I4',header,17)
  return {width=width,height=height,structural_check_only=true}
 end
+-- Hero ability icons. Every ability a catalog hero equips must have exactly one
+-- HUD ability row: legacy atlas tile, packaged per-ability texture (resource
+-- under /Game/Omoba/UI/Abilities, source PNG in Abilities/Source), or the
+-- declared shared placeholder. A hero ability is never silently blank.
+M.ABILITY_PLACEHOLDER_FILE='ability-placeholder-v1.png'
+M.ABILITY_RESOURCE_ROOT='/Game/Omoba/UI/Abilities'
+M.ABILITY_SOURCE_DIR='Abilities/Source'
+-- A hero's kit: its loadout, then the abilities of its own package outside the loadout (a v3
+-- `slot = "sub"` ability swapped in by its parent, e.g. a07_rouse_free) — they show in the bar too.
+local function hero_abilities(heroes,abilities)
+ local names,order,seen,by_package={},{},{},{}
+ for _,row in ipairs(abilities)do
+  names[row.id]=row.display_name
+  if row.authored_package then
+   local list=by_package[row.authored_package] or{};by_package[row.authored_package]=list;list[#list+1]=row.id
+  end
+ end
+ for _,hero in ipairs(heroes)do
+  for _,ability in ipairs(hero.abilities or{})do
+   -- "" keeps an empty slot's place (an F without a D); it equips nothing.
+   if ability~='' then
+   assert(id(ability)and names[ability],'hero '..tostring(hero.id)..' equips unknown ability: '..tostring(ability))
+   if not seen[ability]then seen[ability]=true;order[#order+1]=ability end
+   end
+  end
+ end
+ for _,hero in ipairs(heroes)do
+  for _,ability in ipairs(hero.authored_package and by_package[hero.authored_package] or{})do
+   if not seen[ability]then seen[ability]=true;order[#order+1]=ability end
+  end
+ end
+ return order,names
+end
+-- A variant hero's ability -> the base hero's ability in the same loadout slot (D22).
+local function borrowed_abilities(heroes)
+ local by_id,out={},{}
+ for _,hero in ipairs(heroes)do by_id[hero.id]=hero end
+ for _,hero in ipairs(heroes)do
+  local base=hero.variant_of and by_id[hero.variant_of]
+  for i,ability in ipairs(base and hero.abilities or{})do
+   local of=base.abilities[i]
+   if ability~=''and of and of~=''and of~=ability then out[ability]=of end
+  end
+ end
+ return out
+end
+function M.ability_placeholder_entries(heroes,abilities,manifest,nobu)
+ local order,names=hero_abilities(heroes,abilities);local present,added={}, {}
+ local files=nobu and nobu.ability or{}
+ local borrows=borrowed_abilities(heroes)
+ for _,row in ipairs(manifest.entries)do if row.kind=='ability'then present[row.id]=row end end
+ for _,ability in ipairs(order)do
+  -- A packaged base icon is an imported texture of the base's own id; only nobu or generated
+  -- files can be shared (OmHudAssetRegistry), so a borrow takes those or stays a placeholder.
+  local base=not files[ability]and borrows[ability]
+  local row=base and files[base]and borrowed_row('ability',ability,names[ability],base,files,nobu,{})
+  local old=present[ability]
+  if old and row and (old.art_of~=nil or old.placeholder==true)then
+   for k in pairs(old)do old[k]=nil end
+   for k,v in pairs(row)do old[k]=v end
+  elseif not old then
+   row=row or derived_row('ability',ability,names[ability],M.ABILITY_PLACEHOLDER_FILE,files[ability],art_source(nobu,'ability',ability))
+   manifest.entries[#manifest.entries+1]=row
+   added[#added+1]=ability;present[ability]=row
+  end
+ end
+ return added
+end
+-- Placeholder ability rows are derived from hero kits; drop one no hero equips.
+function M.prune_ability_placeholders(heroes,abilities,manifest)
+ local order=hero_abilities(heroes,abilities);local equipped,kept,removed={}, {},{}
+ for _,ability in ipairs(order)do equipped[ability]=true end
+ for _,row in ipairs(manifest.entries)do
+  if row.kind=='ability'and derived(row)and not equipped[row.id]then removed[#removed+1]=row.id
+  else kept[#kept+1]=row end
+ end
+ manifest.entries=kept
+ return removed
+end
+function M.validate_abilities(heroes,abilities,manifest,inspect)
+ assert(type(heroes)=='table'and #heroes>0 and type(abilities)=='table','invalid authoring ability catalog')
+ assert(type(manifest)=='table'and manifest.schemaVersion==1 and type(manifest.entries)=='table','invalid HUD manifest')
+ assert(type(inspect)=='function','ability resource inspector required')
+ local order,names=hero_abilities(heroes,abilities);local rows,placeholders={},{}
+ local borrows=borrowed_abilities(heroes)
+ for _,row in ipairs(manifest.entries)do if row.kind=='ability'then
+  assert(id(row.id)and names[row.id],'ability icon refers to unknown ability: '..tostring(row.id))
+  assert(not rows[row.id],'duplicate ability icon: '..row.id);rows[row.id]=row
+ end end
+ local packaged=0
+ for _,ability in ipairs(order)do
+  local row=assert(rows[ability],'missing HUD icon for hero ability: '..ability)
+  assert(row.displayName==names[ability],'stale ability display name: '..ability)
+  assert(type(row.file)=='string'and #row.file<=128 and row.file:match('^[a-z0-9_.-]+%.png$')and not row.file:find('..',1,true),'invalid ability file namespace: '..ability)
+  assert(integer(row.columns,1,16)and integer(row.rows,1,16)and integer(row.tile,0,row.columns*row.rows-1),'invalid ability atlas: '..ability)
+  local source=row.file
+  if row.placeholder==true then
+   assert(row.file==M.ABILITY_PLACEHOLDER_FILE and row.columns==1 and row.rows==1 and row.tile==0 and row.resource==nil,'invalid placeholder ability icon: '..ability)
+   placeholders[#placeholders+1]=ability
+  elseif row.art_of~=nil then
+   assert(borrows[ability]==row.art_of and derived_source(row)and row.file==M.art_file(row.source,'ability',row.art_of)
+    and row.resource==nil and row.columns==1 and row.rows==1,'invalid borrowed ability icon: '..ability)
+  else
+   assert(row.placeholder==nil,'invalid placeholder flag: '..ability)
+   assert(row.source==nil or(derived_source(row)and row.file==M.art_file(row.source,'ability',ability)and row.resource==nil
+    and row.columns==1 and row.rows==1),'invalid nobu ability icon: '..ability)
+   if row.resource~=nil then
+    assert(row.resource==M.ABILITY_RESOURCE_ROOT..'/'..ability..'.'..ability and row.file==ability..'.png'
+     and row.columns==1 and row.rows==1 and row.tile==0,'invalid packaged ability icon: '..ability)
+    source=M.ABILITY_SOURCE_DIR..'/'..row.file;packaged=packaged+1
+   end
+  end
+  local image=inspect(source)
+  assert(type(image)=='table'and integer(image.width,1,4096)and integer(image.height,1,4096),'missing or invalid ability icon PNG: '..ability)
+  assert(image.width*row.rows==image.height*row.columns,'ability icon tile is not square: '..ability)
+ end
+ return #order,placeholders,packaged
+end
+-- Tall (2:3) match loading-card art. Optional per hero: a hero without a
+-- loading row is shown with its square portrait cropped to 2:3, and the build
+-- warns. Rows never borrow another hero's file and never use the placeholder.
+M.LOADING_KIND='loading'
+-- A hero with generated loading art (generated-art-v1.json kind=loading, made before the hero is
+-- authored) gets its row when it is authored; a derived row whose hero left the catalog is removed.
+function M.loading_entries(heroes,manifest,nobu)
+ local present,added={},{}
+ local files=nobu and nobu.loading or{}
+ for _,row in ipairs(manifest.entries)do if row.kind==M.LOADING_KIND then present[row.id]=true end end
+ local rows={}
+ for _,row in ipairs(manifest.entries)do if row.kind==M.LOADING_KIND then rows[row.id]=row end end
+ for _,hero in ipairs(heroes)do
+  if not present[hero.id]and files[hero.id]then
+   local row=derived_row(M.LOADING_KIND,hero.id,hero.display_name,nil,files[hero.id],art_source(nobu,'loading',hero.id))
+   manifest.entries[#manifest.entries+1]=row
+   added[#added+1]=hero.id;present[hero.id]=true;rows[hero.id]=row
+  end
+ end
+ -- A skill-set variant without a card of its own shows its base hero's (art_of, D22).
+ for _,hero in ipairs(heroes)do
+  local base=hero.variant_of and not files[hero.id]and hero.variant_of
+  local row=base and borrowed_row(M.LOADING_KIND,hero.id,hero.display_name,base,files,nobu,rows)
+  local old=rows[hero.id]
+  if row and old and old.art_of~=nil then
+   for k in pairs(old)do old[k]=nil end
+   for k,v in pairs(row)do old[k]=v end
+  elseif row and not old then
+   manifest.entries[#manifest.entries+1]=row
+   added[#added+1]=hero.id;present[hero.id]=true;rows[hero.id]=row
+  end
+ end
+ return added
+end
+function M.prune_loading(heroes,manifest)
+ local known,kept,removed={}, {},{}
+ for _,hero in ipairs(heroes)do known[hero.id]=true end
+ for _,row in ipairs(manifest.entries)do
+  if row.kind==M.LOADING_KIND and derived_source(row)and not known[row.id]then removed[#removed+1]=row.id
+  else kept[#kept+1]=row end
+ end
+ manifest.entries=kept
+ return removed
+end
+function M.validate_loading(heroes,manifest,inspect)
+ assert(type(heroes)=='table'and #heroes>0,'invalid authoring hero catalog')
+ assert(type(manifest)=='table'and manifest.schemaVersion==1 and type(manifest.entries)=='table','invalid HUD manifest')
+ assert(type(inspect)=='function','loading art inspector required')
+ local names,order,variants={}, {},{}
+ for _,hero in ipairs(heroes)do names[hero.id]=hero.display_name;order[#order+1]=hero.id;variants[hero.id]=hero.variant_of end
+ local rows,files={}, {}
+ for _,row in ipairs(manifest.entries)do if row.kind==M.LOADING_KIND then
+  assert(id(row.id)and names[row.id],'loading art refers to unknown hero: '..tostring(row.id))
+  assert(not rows[row.id],'duplicate hero loading art: '..row.id);rows[row.id]=row
+  assert(row.displayName==names[row.id],'stale loading art display name: '..row.id)
+  assert(type(row.file)=='string'and #row.file<=128 and row.file:match('^[a-z0-9_.-]+%.png$')
+   and not row.file:find('..',1,true)and row.resource==nil and row.placeholder==nil,'invalid loading art file namespace: '..row.id)
+  -- A variant's borrowed card is its base hero's file (art_of); every other card is the hero's own.
+  if row.art_of~=nil then
+   assert(variants[row.id]==row.art_of and(row.source==nil or row.file==M.art_file(row.source,M.LOADING_KIND,row.art_of)),'invalid borrowed loading art: '..row.id)
+  else
+   assert(row.file~=M.PLACEHOLDER_FILE and not files[row.file],'loading art must be the hero own file: '..row.id);files[row.file]=true
+  end
+  assert(row.columns==1 and row.rows==1 and row.tile==0,'loading art is a single image: '..row.id)
+  local image=inspect(row.file)
+  assert(type(image)=='table'and integer(image.width,1,4096)and integer(image.height,1,4096),'missing or invalid loading art PNG: '..row.id)
+  assert(image.width*3==image.height*2,'loading art is not 2:3: '..row.id)
+ end end
+ local covered,fallback=0,{}
+ for _,hero in ipairs(order)do if rows[hero]then covered=covered+1 else fallback[#fallback+1]=hero end end
+ return covered,fallback
+end
 function M.require_ready(root)
  local b=require('_bootstrap');local p,j=b.lib('path'),b.lib('json');local lfs=require('lfs')
  local ctx=require('content_builder').new(p.join(root,'scripts/lua_data'))
  local directory=p.join(root,'omfue/Content/Omoba/UI');local file=p.join(directory,'hud-assets-v1.json')
- local size=lfs.attributes(file,'size');assert(size and size>0 and size<=256*1024,'HUD manifest missing or too large')
- return M.validate(ctx.include('templates/heroes.lua'),j.read(file),function(name)return M.inspect_png(p.join(directory,name))end)
+ local size=lfs.attributes(file,'size');assert(size and size>0 and size<=1024*1024,'HUD manifest missing or too large')
+ local manifest=j.read(file);local inspect=function(name)return M.inspect_png(p.join(directory,name))end
+ local heroes=ctx.include('templates/heroes.lua')
+ local _,placeholders=M.validate_abilities(heroes,ctx.include('templates/abilities.lua'),manifest,inspect)
+ for _,ability in ipairs(placeholders)do print('[moba-ue] WARNING HUD ability icon is the shared placeholder (no authored art): '..ability)end
+ local _,loading_fallback=M.validate_loading(heroes,manifest,inspect)
+ for _,hero in ipairs(loading_fallback)do print('[moba-ue] WARNING hero has no loading-card art; the loading screen crops its square portrait: '..hero)end
+ return M.validate(heroes,manifest,inspect)
 end
 return M

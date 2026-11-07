@@ -5,21 +5,22 @@ package.path = dir .. '/?.lua;' .. package.path
 local bootstrap = require('_bootstrap')
 local path = bootstrap.lib('path')
 
-local target = path.join(bootstrap.root, 'omfue', 'Plugins', 'BpGeneratorUltimate',
-  'Source', 'UECPTools', 'Private', 'Tools', 'ImportTools.cpp')
-if not path.is_file(target) then
-  local plugin = path.join(bootstrap.root, 'omfue', 'Plugins', 'BpGeneratorUltimate')
-  local descriptor = path.read(path.join(plugin, 'BpGeneratorUltimate.uplugin'))
-  local rules = path.read(path.join(plugin, 'Source', 'UECPTools', 'UECPTools.Build.cs'))
-  assert(descriptor:match('"Installed"%s*:%s*true') and
-    descriptor:match('"VersionName"%s*:%s*"2%.0%.6"') and
-    descriptor:match('"EngineVersion"%s*:%s*"5%.8%.0"') and
-    rules:find('bUsePrecompiled = true;', 1, true) and
-    path.is_file(path.join(plugin, 'Binaries', 'Win64', 'UnrealEditor-UECPTools.dll')),
-    'unknown or incomplete BpGeneratorUltimate package; cannot verify animation import support')
-  print('[moba-ue] recognized precompiled BpGeneratorUltimate 2.0.6 for UE 5.8; source patch unavailable, animation import requires MCP verification')
+local located = require('bpgu_plugin').locate(bootstrap.root, path)
+local plugin, version = located.dir, located.version
+assert(located.engine == '5.8.0', 'BpGeneratorUltimate ' .. version .. ' is not built for UE 5.8')
+-- An installed (precompiled) package with its binaries is not rebuilt by UBT, so a source patch
+-- would have no effect: record it and leave the plugin untouched.
+if located.installed then
+  -- Binaries/ is not in version control: a clean clone has none, and UBT builds them from the tracked sources.
+  if not path.is_file(path.join(plugin, 'Binaries', 'Win64', 'UnrealEditor-UECPTools.dll')) then
+    print('[moba-ue] BpGeneratorUltimate ' .. version .. ' has no binaries yet; UBT builds them from its sources')
+    return
+  end
+  print('[moba-ue] recognized precompiled BpGeneratorUltimate ' .. version .. ' for UE 5.8; source patch not applied, animation import requires MCP verification')
   return
 end
+local target = path.join(plugin, 'Source', 'UECPTools', 'Private', 'Tools', 'ImportTools.cpp')
+assert(path.is_file(target), 'BpGeneratorUltimate ' .. version .. ' source plugin has no ImportTools.cpp')
 local source = path.read(target)
 local marker_a = 'Factory->SetDetectImportTypeOnImport(false);'
 local marker_b = 'Animation import produced %s instead of AnimSequence'

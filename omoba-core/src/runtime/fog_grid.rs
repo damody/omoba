@@ -1,12 +1,30 @@
 //! Authority-only, bounded fog sampling from immutable Wave B geometry.
 //! Payloads contain team-local cell results, never sources or hidden entities.
 use super::{
-    native::comp::{line_of_sight, LosResult},
+    native::comp::LosResult,
     visibility::WaveBReadView,
 };
 use omoba_sim::{Fixed64, Vec2};
 
 pub const MAX_FOG_CELLS: usize = 4096;
+
+/// Whether TEAM's vision covers POINT in this committed view: a vision source in range, brush
+/// rules and line of sight. The fog grid samples its cells with it; a one-shot cue at a ground
+/// point is disclosed only to the teams it holds for (team_projector).
+pub fn team_sees_point(view: &WaveBReadView, team: u32, point: Vec2) -> bool {
+    view.vision_sources
+        .iter()
+        .filter(|source| source.team == team && source.radius.raw() > 0)
+        .any(|source| {
+            let dx = (i128::from(point.x.raw()) - i128::from(source.position.x.raw())).unsigned_abs();
+            let dy = (i128::from(point.y.raw()) - i128::from(source.position.y.raw())).unsigned_abs();
+            let radius = source.radius.raw() as u128;
+            dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)) <= radius * radius
+                && crate::runtime::brush_vision::brush_allows_vision(&view.brush_regions, source.position, point)
+                // E187 §5.5: the committed occluders' broad phase (same answer).
+                && view.vision_occluders.line_of_sight(source.position, point) == LosResult::Clear
+        })
+}
 /// Presentation-only extension; deliberately outside gameplay FactKind IDs.
 pub const FOG_GRID_EVENT_KIND: u32 = 0x4647_0001;
 pub const FOG_GRID_NAMESPACE: &str = "presentation";
@@ -25,29 +43,12 @@ pub struct FogGridGeometry {
 impl FogGridGeometry {
     /// Cover immutable compiled geometry, not hidden units or camera bounds.
     /// At most 64 cells per axis, including the closed maximum endpoint.
+    /// The extent is the map's authored playable `bounds` (E187 §5.8, nobu_map.lua: the terrain
+    /// grid), else the lanes, camps and terrain; maps without bounds keep their geometry.
     pub fn from_map(map: &omoba_template_ids::MobaMapConst) -> Result<Self, &'static str> {
-        let points = map
-            .lanes
-            .iter()
-            .flat_map(|lane| lane.waypoints.iter().copied())
-            .chain(map.jungle_camps.iter().flat_map(|camp|camp.home_positions()))
-            .chain(
-                map.terrain
-                    .iter()
-                    .flat_map(|region| [region.min, region.max]),
-            );
-        let mut bounds: Option<(i64, i64, i64, i64)> = None;
-        for (x, y) in points {
-            let x = i64::from(x) * 1024;
-            let y = i64::from(y) * 1024;
-            bounds = Some(match bounds {
-                None => (x, y, x, y),
-                Some((min_x, min_y, max_x, max_y)) => {
-                    (min_x.min(x), min_y.min(y), max_x.max(x), max_y.max(y))
-                }
-            });
-        }
-        let (min_x, min_y, max_x, max_y) = bounds.ok_or("fog map has no geometry")?;
+        let extent = map.extent().ok_or("fog map has no geometry")?;
+        let (min_x, min_y, max_x, max_y) = (i64::from(extent.min.0) * 1024, i64::from(extent.min.1) * 1024,
+            i64::from(extent.max.0) * 1024, i64::from(extent.max.1) * 1024);
         let span_x = max_x - min_x;
         let span_y = max_y - min_y;
         let cell_size_raw = ((span_x.max(span_y) + 62) / 63).max(1024);
@@ -395,21 +396,7 @@ impl AuthorityFogGrid {
         }
         for (index, state) in self.snapshot.cells.iter_mut().enumerate() {
             let point = self.snapshot.geometry.center(index);
-            let visible = view
-                .vision_sources
-                .iter()
-                .filter(|source| source.team == self.snapshot.team && source.radius.raw() > 0)
-                .any(|source| {
-                    let dx = (i128::from(point.x.raw()) - i128::from(source.position.x.raw()))
-                        .unsigned_abs();
-                    let dy = (i128::from(point.y.raw()) - i128::from(source.position.y.raw()))
-                        .unsigned_abs();
-                    let radius = source.radius.raw() as u128;
-                    dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)) <= radius * radius
-                        && crate::runtime::brush_vision::brush_allows_vision(&view.brush_regions, source.position, point)
-                        && line_of_sight(&view.vision_occluders, source.position, point)
-                            == LosResult::Clear
-                });
+            let visible = team_sees_point(view, self.snapshot.team, point);
             *state = if visible {
                 2
             } else if *state != 0 {
@@ -465,6 +452,7 @@ mod tests {
                 position: Vec2::new(Fixed64::from_i32(-15), Fixed64::from_i32(-5)),
                 radius: Fixed64::from_i32(1),
                 detection_level: 0,
+                ignores_terrain: false,
             }]
             .into(),
         }

@@ -800,7 +800,7 @@ fn command(world: &mut World, hero: Entity, command: HeroCommand) {
             target_entity_id: target.id(),
         },
     };
-    world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand {
+    world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand { admitted_correlation: 0,
         owner_pid,
         queued: false,
         kind,

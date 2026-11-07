@@ -180,7 +180,8 @@ mod tests {
 
     #[test]
     fn compiled_maps_publish_connected_branches_with_matching_capsule_bounds() {
-        for map in omoba_template_ids::MOBA_MAPS {
+        // The original nobu map has no brush (nobu-map-comparison.md §2, E187); the others share them.
+        for map in omoba_template_ids::MOBA_MAPS.iter().filter(|map|!map.brushes.is_empty()) {
             let brushes=BrushVisionRegions::from_map(map);
             let branch=map.brushes.iter().position(|b|b.id=="top_lane_brush_branch").unwrap();
             let trunk=map.brushes.iter().position(|b|b.id=="top_lane_brush").unwrap();

@@ -88,9 +88,12 @@ local ok, failure = xpcall(function()
       for _, job in ipairs(plan.jobs) do if job.asset == hero.mesh then mesh_sources[hero.skeleton] = job.source end end
     end
   end
+  local missing = planner.missing_sources(plan, function(source)
+    return path.is_file(path.absolute(source, bootstrap.root))
+  end)
+  assert(#missing == 0, planner.describe_missing(missing))
   for _, job in ipairs(plan.jobs) do
     local source = path.absolute(job.source, bootstrap.root)
-    assert(path.is_file(source), 'recipe source missing: ' .. job.source)
     source_hashes[job.source] = source_hashes[job.source] or hash.sha256(source)
   end
   for _, job in ipairs(plan.jobs) do

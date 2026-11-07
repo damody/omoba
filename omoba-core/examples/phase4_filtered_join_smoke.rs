@@ -31,6 +31,7 @@ fn main() -> Result<(), String> {
             disclosed_baseline: 0u32.to_be_bytes().to_vec(),
         }]),
         vision_occluders: Arc::from([]),
+        brush_regions: Vec::new().into(),
         vision_sources: Arc::from([]),
     };
     let mut visibility = TeamVisibilityState::new(team_id, 16);

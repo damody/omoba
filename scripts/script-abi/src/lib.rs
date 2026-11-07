@@ -8,6 +8,7 @@
 
 pub mod ability;
 pub mod buff_ids;
+pub mod ext;
 pub mod manifest;
 pub mod script;
 pub mod stat_keys;
@@ -30,7 +31,7 @@ pub mod prelude {
     pub use crate::world::{
         GameWorld, GameWorldDyn, GameWorld_TO, TowerActiveAbilityAccess,
         TowerActiveAbilityAccessDyn, TowerActiveAbilityAccess_TO, TowerCooldownAccess,
-        TowerCooldownAccessDyn, TowerCooldownAccess_TO,
+        TowerCooldownAccessDyn, TowerCooldownAccess_TO, DisclosureQuery, DisclosureQueryDyn, DisclosureQuery_TO,
     };
     pub use abi_stable::{
         rstr,

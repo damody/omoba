@@ -36,7 +36,7 @@ pub struct ReplicaValidationRecord {
 pub struct TeamInputValidationView {
     pub view_epoch: u64,
     pub replicas: BTreeMap<u64, ReplicaValidationRecord>,
-    pub visible_by_tick: BTreeMap<u64, std::collections::BTreeSet<u64>>,
+    pub visible_by_tick: BTreeMap<u64, crate::runtime::visibility::SharedVisibleSet>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -143,7 +143,7 @@ mod directional_source_tests {
         let mut view=TeamInputValidationView {view_epoch:4,..Default::default()};
         view.replicas.insert(9,ReplicaValidationRecord {canonical_id:canonical,
             disclosure_epoch:3,owner_team:Some(1)});
-        view.visible_by_tick.insert(10,[canonical].into_iter().collect());
+        view.visible_by_tick.insert(10,std::sync::Arc::new([canonical].into_iter().collect()));
         view.visible_by_tick.insert(12,Default::default());
         let mut snapshot=SecureInputValidationSnapshot::default();snapshot.teams.insert(1,view);
         assert_eq!(snapshot.validate_actor_and_resolve(1,10,actor),Ok(canonical));
@@ -166,7 +166,7 @@ mod directional_source_tests {
         for bad in [7,1_u64<<63,u64::MAX] {
             let view=snapshot.teams.get_mut(&1).unwrap();
             view.replicas.get_mut(&9).unwrap().canonical_id=bad;
-            view.visible_by_tick.insert(10,[bad].into_iter().collect());
+            view.visible_by_tick.insert(10,std::sync::Arc::new([bad].into_iter().collect()));
             assert_eq!(snapshot.validate_actor_and_resolve(1,10,actor),rejected);
         }
     }

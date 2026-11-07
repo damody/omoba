@@ -622,9 +622,12 @@ mod income_capture_tests {
                                 observed_upgrade |= hero.abilities[0].level == 2;
                             }
                         }
+                        // The server's single-lane match plays by the game rules (experience table).
+                        let rules = omoba_template_ids::GAME_RULES;
                         let mut expected = omoba_core::runtime::Hero::default();
+                        expected.experience_to_next = omoba_core::runtime::Hero::moba_experience_to_next(1, rules.as_ref());
                         expected.add_moba_experience(score.kills * omoba_template_ids::MOBA_HERO_KILL_XP
-                            + score.assists * omoba_template_ids::MOBA_HERO_ASSIST_XP);
+                            + score.assists * omoba_template_ids::MOBA_HERO_ASSIST_XP, rules.as_ref());
                         if lane_xp {
                             // Lane deaths need no player kill credit. Exact IPC
                             // values were checked against the raw authority fact

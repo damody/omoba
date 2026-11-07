@@ -9,15 +9,21 @@ function M.supported(options)
  return not (options.prepare_only or options.server_only or options.connect or options.finish_timeout_seconds
   or next(options.local_players or {}))
 end
-function M.round_args(arguments,recipe,config,output,bootstrap)
+-- BOOTSTRAP offers the next match; the bounded final round is instead a single match whose
+-- time box is FINAL_SECONDS (its planned end, not a failure).
+function M.round_args(arguments,recipe,config,output,bootstrap,final_seconds)
+ assert((bootstrap==nil)~=(final_seconds==nil),'a round is either managed or the bounded final round')
  local result={};local index=1
  while index<=#arguments do
   local key=arguments[index]
   assert(key~='--managed-session-bootstrap','managed bootstrap is coordinator-owned')
-  if key=='--recipe' or key=='--config' or key=='--output' then index=index+2
+  if key=='--recipe' or key=='--config' or key=='--output' or key=='--managed-rounds' or key=='--managed-final-round-seconds'
+   or (final_seconds and key=='--round-time-box-seconds') then index=index+2
   else result[#result+1]=key;index=index+1 end
  end
- for _,pair in ipairs({{'--recipe',recipe},{'--config',config},{'--output',output},{'--managed-session-bootstrap',bootstrap}}) do
+ local pairs_={{'--recipe',recipe},{'--config',config},{'--output',output}}
+ pairs_[#pairs_+1]=bootstrap and {'--managed-session-bootstrap',bootstrap} or {'--round-time-box-seconds',tostring(final_seconds)}
+ for _,pair in ipairs(pairs_) do
   result[#result+1]=pair[1];result[#result+1]=pair[2]
  end
  return result
@@ -51,13 +57,23 @@ function M.run(arguments,options,root,run_role)
    assert(h.sha256(recipe)==hashes.recipe and h.sha256(config)==hashes.config,'managed author snapshot changed')
    local round=p.join(root,'round-'..generation)
    assert(not p.exists(round) and require('lfs').mkdir(round),'generation directory must be new')
-   local bootstrap=p.join(round,'bootstrap.json')
-   j.write(bootstrap,{schema=require('moba_managed_control').bootstrap_schema,session_id=session,generation=generation},false)
-   local plan=assert(run_role(M.round_args(arguments,recipe,config,p.join(round,'match'),bootstrap)),'role workflow returned no plan')
+   -- The last round of a bounded session is an ordinary single match: no next-match capability,
+   -- observed for the final-round budget, then the session completes.
+   local final=options.managed_rounds and generation==options.managed_rounds
+   local bootstrap
+   if not final then
+    bootstrap=p.join(round,'bootstrap.json')
+    j.write(bootstrap,{schema=require('moba_managed_control').bootstrap_schema,session_id=session,generation=generation},false)
+   end
+   local plan=assert(run_role(M.round_args(arguments,recipe,config,p.join(round,'match'),bootstrap,
+    final and options.managed_final_round_seconds or nil)),'role workflow returned no plan')
    local next_round=plan.managed_next
+   assert(not (final and next_round),'the bounded final round cannot offer another match')
    if not next_round then
+    -- A round that outlived its time box is INCONCLUSIVE: the session stops instead of waiting.
     j.write(p.join(root,'completed.json'),{schema='omoba-managed-session-completion/1',generation=generation,
-     next_match_started=false},false)
+     next_match_started=false,bounded_final_round=final and true or false,
+     verdict=(plan.round_timed_out and not final) and 'inconclusive' or 'completed'},false)
     return plan
    end
    assert(next_round.kind=='start_selection' and next_round.session_id==session and next_round.generation==generation+1,

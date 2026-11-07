@@ -122,6 +122,62 @@ local ok, failure = xpcall(function()
   assert(before == first and first == second, "stress map generator output is not deterministic")
 
   assert_active_openspec_has_no_removed_script_refs()
+
+  local deps = require("maintained_source_deps")
+  local fixture = path.join(temp, "deps")
+  path.write(path.join(fixture, "scripts", "uses_omfx.lua"), "local p = 'omfx/data/x.png'\n-- omfx prose is fine\n", false)
+  path.write(path.join(fixture, "omfue", "codegen", "src", "lib.rs"), 'assert!(!json.contains("omfx"));\n', false)
+  local violations, stale = deps.scan(fixture)
+  assert(#violations == 1 and violations[1].file == "scripts/uses_omfx.lua" and violations[1].line == 1,
+    "maintained-source scan must flag omfx paths and ignore prose")
+  assert(#stale > 0, "maintained-source scan must report unused allowlist entries")
+  deps.assert_clean(b.root)
+
+  local hero_source = process.run(lua, { path.join(b.root, "scripts", "tests", "hero_source_index_test.lua") },
+    { cwd = b.root, check = false })
+  assert(hero_source.exit_code == 0,
+    "hero source index tests failed:\n" .. tostring(hero_source.stdout) .. tostring(hero_source.stderr))
+  local character_package = process.run(lua, { path.join(b.root, "scripts", "tests", "character_package_test.lua") },
+    { cwd = b.root, check = false })
+  assert(character_package.exit_code == 0,
+    "character package tests failed:\n" .. tostring(character_package.stdout) .. tostring(character_package.stderr))
+  local hero_author = process.run(lua, { path.join(b.root, "scripts", "tests", "hero_author_test.lua") },
+    { cwd = b.root, check = false })
+  assert(hero_author.exit_code == 0,
+    "hero author tests failed:\n" .. tostring(hero_author.stdout) .. tostring(hero_author.stderr))
+  local live = process.run(lua, { path.join(b.root, "scripts", "tests", "check_hero_live_acceptance_test.lua") },
+    { cwd = b.root, check = false })
+  assert(live.exit_code == 0,
+    "hero live acceptance checker tests failed:\n" .. tostring(live.stdout) .. tostring(live.stderr))
+  local text_patch = process.run(lua, { path.join(b.root, "scripts", "tests", "text_patch_test.lua") },
+    { cwd = b.root, check = false })
+  assert(text_patch.exit_code == 0,
+    "text patch tests failed:\n" .. tostring(text_patch.stdout) .. tostring(text_patch.stderr))
+  -- E300: error ids are taken through scripts/error_id.lua; errors.md has no duplicate id.
+  local error_ids = process.run(lua, { path.join(b.root, "scripts", "tests", "error_id_test.lua") },
+    { cwd = b.root, check = false })
+  assert(error_ids.exit_code == 0,
+    "error id tests failed:\n" .. tostring(error_ids.stdout) .. tostring(error_ids.stderr))
+  -- E347: headless batches build from their own source snapshot.
+  local snapshots = process.run(lua, { path.join(b.root, "scripts", "tests", "source_snapshot_test.lua") },
+    { cwd = b.root, check = false })
+  assert(snapshots.exit_code == 0,
+    "source snapshot tests failed:\n" .. tostring(snapshots.stdout) .. tostring(snapshots.stderr))
+  -- E357: batch heroes take lanes derived from their data.
+  local lane_roles = process.run(lua, { path.join(b.root, "scripts", "tests", "hero_lane_roles_test.lua") },
+    { cwd = b.root, check = false })
+  assert(lane_roles.exit_code == 0,
+    "hero lane role tests failed:\n" .. tostring(lane_roles.stdout) .. tostring(lane_roles.stderr))
+  -- E358: item coverage reaches every shop item without changing the derived builds.
+  local item_builds = process.run(lua, { path.join(b.root, "scripts", "tests", "bot_item_builds_test.lua") },
+    { cwd = b.root, check = false })
+  assert(item_builds.exit_code == 0,
+    "bot item build tests failed:\n" .. tostring(item_builds.stdout) .. tostring(item_builds.stderr))
+  -- E441: batch workers start only while the machine has commit to spare.
+  local memory = process.run(lua, { path.join(b.root, "scripts", "tests", "memory_admission_test.lua") },
+    { cwd = b.root, check = false })
+  assert(memory.exit_code == 0,
+    "memory admission tests failed:\n" .. tostring(memory.stdout) .. tostring(memory.stderr))
 end, debug.traceback)
 remove_tree(temp)
 if not ok then error(failure) end

@@ -21,9 +21,16 @@ return function(ctx)
     },
     towers = ctx.include("templates/towers.lua"),
     world_units = ctx.include("templates/world_units.lua"),
-    heroes = ctx.include("templates/heroes.lua"),
+    -- Playable heroes take their unit stats from the source roster (templates/hero_source_stats.lua).
+    heroes = ctx.include("templates/hero_source_stats.lua").apply(
+      ctx.include("templates/heroes.lua"), ctx.include("templates/hero_sources.lua")),
     abilities = ctx.include("templates/abilities.lua"),
-    buffs = ctx.include("templates/buffs.lua"),
+    -- Hand-written buffs, then one per visible v3 status (E218).
+    buffs = ctx.include("templates/status_buffs.lua").apply(ctx.include("templates/buffs.lua"),
+      -- the v3 test heroes (scripts/v3_test_heroes.lua) show their statuses too
+      (function() local all = {} for _, a in ipairs(ctx.include("templates/authored_heroes.lua").abilities or {}) do all[#all + 1] = a end
+        for _, a in ipairs(ctx.include("templates/v3_test_heroes.lua").abilities or {}) do all[#all + 1] = a end return all end)(),
+      ctx.include("templates/item_texts_v3.lua")),
     summons = ctx.include("templates/summons.lua"),
     creeps = ctx.include("templates/creeps.lua"),
     projectile_kinds = ctx.include("templates/projectile_kinds.lua"),
@@ -34,5 +41,15 @@ return function(ctx)
     moba_communication = ctx.include("templates/moba_communication.lua"),
     moba_economy = ctx.include("templates/moba_economy.lua"),
     moba_maps = ctx.include("templates/moba_maps.lua"),
+    -- The original nobu.vmap layout (generated, E187): the nobu map in moba_maps.lua reads it,
+    -- with its camps (§5.4, the neutral types of nobu_neutrals.lua) and trees (§5.5).
+    nobu_map = ctx.include("templates/nobu_map.lua"),
+    nobu_neutrals = ctx.include("templates/nobu_neutrals.lua"),
+    -- What one point of strength, agility and intelligence is worth (Dota 2 rules).
+    attribute_rules = ctx.include("templates/attribute_rules.lua"),
+    -- Game mode rules of the original game: gold, experience, respawn, acquisition (history_nobu).
+    game_rules = ctx.include("templates/game_rules.lua"),
+    -- Source roster every playable hero's source_ref is checked against (generated).
+    hero_sources = ctx.include("templates/hero_sources.lua"),
   }
 end

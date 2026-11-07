@@ -32,7 +32,13 @@ pub fn query_attributes(
     let value = HeroCombatAttributesPresentation {
         attack_damage_raw: stats.final_atk(attack.atk_physic.v, entity).raw(),
         physical_armor_raw: stats.final_armor(property.def_physic, entity).raw(),
-        magic_resistance_raw: stats.final_magic_resist(property.def_magic, entity).raw(),
+        // def_magic is percent (the damage paths' unit); the hero's pool is capped by the game rules.
+        magic_resistance_raw: {
+            let hundred = omoba_sim::Fixed64::from_i32(100);
+            let percent = crate::runtime::native::rules::magic_resist::hero_percent(
+                stats, entity, property.def_magic, omoba_template_ids::GAME_RULES.as_ref());
+            (percent / hundred).raw()
+        },
         move_speed_raw: stats.final_move_speed(property.msd, entity).raw(),
         attack_range_raw: stats.final_attack_range(attack.range.v, entity).raw(),
         attack_interval_raw: stats.final_attack_interval(attack.asd.v, entity).raw(),
@@ -51,7 +57,7 @@ mod tests {
 
     fn property() -> CProperty {
         CProperty { hp: Fixed64::from_i32(50), mhp: Fixed64::from_i32(100), msd: Fixed64::from_i32(300),
-            def_physic: Fixed64::from_i32(-3), def_magic: Fixed64::from_raw(256) }
+            def_physic: Fixed64::from_i32(-3), def_magic: Fixed64::from_i32(25) }
     }
 
     fn modifier() -> serde_json::Value {

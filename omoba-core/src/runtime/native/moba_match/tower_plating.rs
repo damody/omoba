@@ -24,12 +24,13 @@ impl TowerPlatingRules {
 pub(super) struct PlateLedger {entity:Entity,max_hp_raw:i64,lost:u32}
 
 pub(super) fn record(world:&World,state:&mut MobaMatch,source:Option<Entity>,target:Entity) {
-    let Some(rule)=state.config.tower_plating_rules else {return};
+    let Some(rule)=state.config.active_tower_plating_rules() else {return};
     if state.phase!=MobaMatchPhase::Playing || !rule.is_valid() || state.elapsed<Fixed64::ZERO
         || state.elapsed>=Fixed64::from_i32(rule.expires_seconds as i32) || world.read_resource::<GamePause>().is_paused {return;}
     let Some(unit)=state.units.get(&entity_key(target)).filter(|u|u.role==LaneRole::Tower && !u.last_hit_retired) else {return};
     let victim_side=usize::from(unit.team);
-    if state.lane_tower_layers.get(unit.lane).and_then(|layers|layers.first()).and_then(|layer|layer[victim_side])!=Some(target) {return;}
+    // Outer layer only: its tower, or either of a pair (E187 §5.2).
+    if state.tower_layer_of(unit.lane,victim_side,target)!=Some(0) {return;}
     let Some((hp,max_hp))=world.read_storage::<CProperty>().get(target).map(|p|(p.hp.raw(),p.mhp.raw())).filter(|(_,max)|*max>0) else {return};
     let key=entity_key(target);
     let ledger=state.tower_plates.entry(key).or_insert(PlateLedger {entity:target,max_hp_raw:max_hp,lost:0});
@@ -55,7 +56,7 @@ pub(super) fn record(world:&World,state:&mut MobaMatch,source:Option<Entity>,tar
 }
 
 pub(super) fn synchronize(world:&World,state:&MobaMatch,pending_tick:Fixed64) {
-    let active=state.config.tower_plating_rules.filter(|r|r.is_valid() && state.phase==MobaMatchPhase::Playing
+    let active=state.config.active_tower_plating_rules().filter(|r|r.is_valid() && state.phase==MobaMatchPhase::Playing
         && state.elapsed>=Fixed64::ZERO && state.elapsed<Fixed64::from_i32(r.expires_seconds as i32));
     let health=world.read_storage::<CProperty>();let mut buffs=world.write_resource::<BuffStore>();
     for ledger in state.tower_plates.values() {
@@ -70,7 +71,7 @@ pub(super) fn synchronize(world:&World,state:&MobaMatch,pending_tick:Fixed64) {
             serde_json::json!({"physical_armor_bonus":raw,"stacks":ledger.lost,"__aggregation_family":BUFF}));}
     }
     // Public state exists before any plate is broken and has no combat modifiers.
-    let outer:BTreeSet<Entity>=state.lane_tower_layers.iter().filter_map(|layers|layers.first()).flat_map(|layer|layer.iter().flatten().copied()).collect();
+    let outer:BTreeSet<Entity>=state.lane_tower_layers.iter().chain(&state.lane_tower_partners).filter_map(|layers|layers.first()).flat_map(|layer|layer.iter().flatten().copied()).collect();
     for entity in outer.iter().copied().chain(state.tower_plates.values().map(|p|p.entity)) {
         let rule=active.filter(|_|outer.contains(&entity) && world.entities().is_alive(entity)
             && state.units.get(&entity_key(entity)).is_some_and(|u|!u.last_hit_retired)

@@ -36,6 +36,14 @@ pub fn settle_damage_packet(
         * (Fixed64::ONE + damage_taken_bonus).max(Fixed64::ZERO)
 }
 
+/// The incoming-damage bonus every MOBA packet settles with (and that the
+/// victim's disclosure publishes): `damage_taken_bonus` plus the Dota
+/// `incoming_damage_percentage` (MODIFIER_PROPERTY_INCOMING_DAMAGE_PERCENTAGE,
+/// e.g. B08R −4%, C17W ally −30..−60%), both additive fractions.
+pub fn damage_taken_bonus(buffs: &BuffStore, victim: Entity) -> Fixed64 {
+    buffs.sum_add(victim, StatKey::DamageTakenBonus) + buffs.sum_add(victim, StatKey::IncomingDamagePercentage)
+}
+
 /// 單位統計聚合上下文的每個刻度快照。
 /// 建置一次，查詢 N 次－便宜（僅儲存引用）。
 pub struct UnitStats<'a> {
@@ -84,6 +92,11 @@ impl<'a> UnitStats<'a> {
             (base_eff + bonus_c) * (Fixed64::ONE + pct) + buff_bonus
         };
         self.apply_move_clamp_sums(effective, sums)
+    }
+
+    /// Spell lifesteal (v3 spell_lifesteal_pct), 0..1.
+    pub fn spell_lifesteal(&self, e: Entity) -> Fixed64 {
+        self.buffs.sum_add(e, StatKey::SpellLifesteal).clamp(Fixed64::ZERO, Fixed64::ONE)
     }
 
     fn apply_move_clamp_sums(&self, v: Fixed64, sums: super::buff_store::MoveSpeedSums) -> Fixed64 {
@@ -144,8 +157,14 @@ impl<'a> UnitStats<'a> {
 
     /// Same fixed-point interval used by the hero attack phase, including its
     /// minimum divisor. Presentation must not use a separate floating formula.
+    /// A base attack time override (`base_attack_time_constant`) replaces the unit's base.
     pub fn final_attack_interval(&self, base: Fixed64, e: Entity) -> Fixed64 {
-        base / self.final_attack_speed_mult(e).max(Fixed64::from_raw(10))
+        self.base_attack_interval(base, e) / self.final_attack_speed_mult(e).max(Fixed64::from_raw(10))
+    }
+
+    /// The unit's base attack interval, or its base attack time override (`base_attack_time_constant`).
+    pub fn base_attack_interval(&self, base: Fixed64, e: Entity) -> Fixed64 {
+        self.buffs.base_attack_time_override(e).unwrap_or(base)
     }
 
     /// 攻速倍數（乘到 base attack interval 上）。
@@ -157,7 +176,10 @@ impl<'a> UnitStats<'a> {
         if fixed > Fixed64::ZERO {
             return fixed;
         }
+        let slow_immune = self.buffs.has(e, "attack_slow_immune");
         let as_bonus = self.buffs.sum_add(e, StatKey::AttackSpeedBonusConstant);
+        // Attack slow immunity: the negative entries do not count.
+        let as_bonus = if slow_immune { as_bonus - self.negative_entries(e, StatKey::AttackSpeedBonusConstant) } else { as_bonus };
         let hundred = Fixed64::from_i32(100);
         let one_tenth = Fixed64::from_raw(102); // 0.1 in Q22.10 (102/1024 ≈ 0.0996)
         let constant_mult_raw = Fixed64::ONE + as_bonus / hundred;
@@ -167,12 +189,20 @@ impl<'a> UnitStats<'a> {
             constant_mult_raw
         };
         let extra_mult = self.buffs.product_mult(e, StatKey::AttackSpeedMultiplier);
+        let extra_mult = if slow_immune { extra_mult.max(Fixed64::ONE) } else { extra_mult };
         let v = constant_mult * extra_mult;
         if v < one_tenth {
             one_tenth
         } else {
             v
         }
+    }
+
+    /// Sum of the negative raw entries of an additive stat (attack slow immunity removes them).
+    fn negative_entries(&self, e: Entity, stat: StatKey) -> Fixed64 {
+        Fixed64::from_raw(self.buffs.iter_for(e)
+            .filter_map(|(_, entry)| entry.payload.get(stat.as_str()).and_then(serde_json::Value::as_i64))
+            .filter(|raw| *raw < 0).fold(0i64, |sum, raw| sum.saturating_add(raw)))
     }
 
     /// 射程 = base + ATTACK_RANGE_BONUS + ATTACK_RANGE_BONUS_UNIQUE，
@@ -257,13 +287,21 @@ impl<'a> UnitStats<'a> {
 
     // ================= 命中率 =================
 
+    /// The target's evasion against `attacker`'s ordinary attack: none when the attacker cannot miss.
+    pub fn evasion_against(&self, attacker: Entity, target: Entity) -> Fixed64 {
+        if self.buffs.has(attacker, "cannot_miss") { return Fixed64::ZERO; }
+        self.evasion_chance(target)
+    }
+
     pub fn evasion_chance(&self, e: Entity) -> Fixed64 {
+        if self.buffs.has(e, "evade_disabled") { return Fixed64::ZERO; }
         let v = self.buffs.sum_add(e, StatKey::EvasionConstant)
             - self.buffs.sum_add(e, StatKey::NegativeEvasionConstant);
         clamp_fx(v, Fixed64::ZERO, Fixed64::ONE)
     }
 
     pub fn miss_chance(&self, e: Entity) -> Fixed64 {
+        if self.buffs.has(e, "cannot_miss") { return Fixed64::ZERO; }
         clamp_fx(
             self.buffs.sum_add(e, StatKey::MissPercentage),
             Fixed64::ZERO,
@@ -336,7 +374,8 @@ impl<'a> UnitStats<'a> {
 
     pub fn cast_time_mult(&self, e: Entity) -> Fixed64 {
         let one_tenth = Fixed64::from_raw(102);
-        let v = Fixed64::ONE + self.buffs.sum_add(e, StatKey::CastTimePercentage);
+        let v = Fixed64::ONE + self.buffs.sum_add(e, StatKey::CastTimePercentage)
+            - self.buffs.sum_add(e, StatKey::CastPointReduction);
         if v < one_tenth {
             one_tenth
         } else {
@@ -397,10 +436,9 @@ impl<'a> UnitStats<'a> {
                 }).or_insert(raw);
             }else{values.insert((false,id),raw);}
         }
-        let mut factor=1024i64;
-        for raw in values.into_values() {
-            let Ok(next)=i64::try_from(i128::from(factor)*i128::from(raw)/1024)else{return Fixed64::ZERO;};factor=next;
-        }
+        // Boosts multiply; healing cuts take the strongest only (rules::healing, 原作 HealFilter).
+        let values=values.into_values().collect::<Vec<_>>();
+        let Some(factor)=crate::runtime::native::rules::healing::combine(&values) else {return Fixed64::ZERO;};
         let result=i128::from(amount.raw())*i128::from(factor.min(4096))/1024;
         Fixed64::from_raw(result.min(i128::from(i64::MAX)) as i64)
     }
@@ -416,8 +454,10 @@ impl<'a> UnitStats<'a> {
         let pct = self.buffs.sum_add(e, StatKey::HealthRegenPercentage);
         let amp = Fixed64::ONE + self.buffs.sum_add(e, StatKey::HpRegenAmplifyPercentage);
         let v = (base + bonus) * (Fixed64::ONE + pct) * amp;
+        // A negative total is a degeneration (原作 negative StatusHealthRegen, E499): not a heal,
+        // so healing amplification and reduction do not touch it.
         if v < Fixed64::ZERO {
-            Fixed64::ZERO
+            v
         } else {
             self.received_healing(v,e)
         }
@@ -488,8 +528,7 @@ impl<'a> UnitStats<'a> {
         pure: Fixed64,
         victim: Entity,
     ) -> Fixed64 {
-        settle_damage_packet(physical, magical, pure,
-            self.buffs.sum_add(victim, StatKey::DamageTakenBonus))
+        settle_damage_packet(physical, magical, pure, damage_taken_bonus(self.buffs, victim))
     }
 
     /// 計算 `e`（victim）承受 `raw` damage 後的 final 值（含 block / armor / resist / prevention）。
@@ -624,6 +663,41 @@ mod tests {
     use serde_json::json;
     use specs::{Builder, World, WorldExt};
 
+    /// v3 cast_point_reduction_pct. (slow_resistance_pct is the existing `slow_resistance` key:
+    /// damage_immunity::resist shrinks a slow when it is applied.)
+    #[test]
+    fn cast_point_reduction() {
+        let mut w=World::new();let e=w.create_entity().build();let mut b=BuffStore::default();
+        let cast=|b:&BuffStore|UnitStats::from_refs(b,false).cast_time_mult(e);
+        assert_eq!(cast(&b),Fixed64::ONE);
+        b.add(e,"quick",Fixed64::ONE,json!({ StatKey::CastPointReduction.as_str(): 256 }));
+        assert_eq!(cast(&b),Fixed64::from_raw(768));
+    }
+
+    /// v3 states evade_disabled, cannot_miss, attack_slow_immune, and the control predicates
+    /// disarm / mute / hex (rules::vocab::state).
+    #[test]
+    fn rule_layer_states_change_accuracy_attack_speed_and_controls() {
+        let mut w=World::new();let (a,t)=(w.create_entity().build(),w.create_entity().build());let mut b=BuffStore::default();
+        b.add(t,"dodge",Fixed64::ONE,json!({ StatKey::EvasionConstant.as_str(): 512 }));
+        b.add(a,"blinded",Fixed64::ONE,json!({ StatKey::MissPercentage.as_str(): 256 }));
+        let s=|b:&BuffStore|{let s=UnitStats::from_refs(b,false);(s.evasion_chance(t).raw(),s.evasion_against(a,t).raw(),s.miss_chance(a).raw())};
+        assert_eq!(s(&b),(512,512,256));
+        b.add(a,"cannot_miss",Fixed64::ONE,json!({}));assert_eq!(s(&b),(512,0,0),"true strike ignores evasion and blindness");
+        b.remove(a,"cannot_miss");b.add(t,"evade_disabled",Fixed64::ONE,json!({}));assert_eq!(s(&b),(0,0,256));
+        let key=StatKey::AttackSpeedBonusConstant.as_str();
+        b.add(a,"haste",Fixed64::ONE,json!({ key: 50*1024 }));b.add(a,"frost",Fixed64::ONE,json!({ key: -80*1024 }));
+        b.add(a,"cripple",Fixed64::ONE,json!({ StatKey::AttackSpeedMultiplier.as_str(): 512 }));
+        let mult=|b:&BuffStore|UnitStats::from_refs(b,false).final_attack_speed_mult(a);
+        assert!(mult(&b)<Fixed64::ONE);
+        b.add(a,"attack_slow_immune",Fixed64::ONE,json!({}));
+        assert_eq!(mult(&b),Fixed64::from_raw(1536),"only the +50 counts and the multiplier stays at 1");
+        for (state,disarmed,silenced,muted) in [("disarm",true,false,false),("mute",false,false,true),("hex",true,true,true),("stun",true,true,false)] {
+            let mut b=BuffStore::default();b.add(a,state,Fixed64::ONE,json!({}));
+            assert_eq!((b.is_disarmed(a),b.is_silenced(a),b.is_muted(a)),(disarmed,silenced,muted),"{state}");
+        }
+    }
+
     #[test]
     fn checked_mana_multiplier_preserves_discount_markup_free_family_and_legacy_float() {
         let mut w=World::new();let e=w.create_entity().build();let mut b=BuffStore::default();
@@ -735,6 +809,8 @@ mod tests {
         assert_eq!(UnitStats::from_refs(&buffs,false).hp_regen(Fixed64::from_i32(10),e),Fixed64::from_i32(10));
         buffs.remove(e,"amplify");assert_eq!(f(&buffs),Fixed64::from_i32(50));
         assert_eq!(UnitStats::from_refs(&buffs,false).hp_regen(Fixed64::from_i32(10),e),Fixed64::from_i32(5));
+        // E499: a degeneration is not a heal: the cut does not halve it.
+        assert_eq!(UnitStats::from_refs(&buffs,false).hp_regen(Fixed64::from_i32(-10),e),Fixed64::from_i32(-10));
         for value in [json!(-1),json!(4097),json!("bad"),json!(true)] {
             buffs.add(e,"invalid",Fixed64::ONE,json!({"heal_received_multiplier":value}));assert_eq!(f(&buffs),Fixed64::ZERO);
         }
@@ -792,6 +868,24 @@ mod tests {
         let stats = UnitStats::from_refs(&buffs, false);
         assert_eq!(stats.incoming_damage_packet(Fixed64::from_i32(80),
             Fixed64::ZERO, Fixed64::ZERO, victim), Fixed64::from_i32(120));
+    }
+
+    /// Dota INCOMING_DAMAGE_PERCENTAGE (B08R −4%, C17W ally −30%) settles in the
+    /// MOBA packet, additively with damage_taken_bonus.
+    #[test]
+    fn incoming_damage_percentage_reduces_settled_packets() {
+        let mut world = World::new();
+        let victim = world.create_entity().build();
+        let mut buffs = BuffStore::new();
+        buffs.add(victim, "b08_living_soul_buff", fx_huge(), json!({"incoming_damage_percentage":-41}));
+        assert_eq!(damage_taken_bonus(&buffs, victim), Fixed64::from_raw(-41));
+        let stats = UnitStats::from_refs(&buffs, false);
+        assert_eq!(stats.incoming_damage_packet(Fixed64::from_i32(1000), Fixed64::ZERO, Fixed64::ZERO, victim),
+            Fixed64::from_raw(1000 * (1024 - 41)), "−4% (Q10)");
+        buffs.add(victim, "c17_light_chain_guard:1:1", fx_huge(), json!({"incoming_damage_percentage":-307}));
+        buffs.add(victim, "item_reduction", fx_huge(), json!({"damage_taken_bonus":-256}));
+        assert_eq!(UnitStats::from_refs(&buffs, false).incoming_damage_packet(Fixed64::ZERO, Fixed64::from_i32(1000), Fixed64::ZERO, victim),
+            Fixed64::from_raw(1000 * (1024 - 41 - 307 - 256)), "sources add before the multiply");
     }
 
     fn fx_secs(seconds: f32) -> Fixed64 {

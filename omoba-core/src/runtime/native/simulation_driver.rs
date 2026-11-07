@@ -58,6 +58,28 @@ pub struct SimulationDriver {
     tick: u64,
     dispatcher: Dispatcher<'static, 'static>,
     scripts: ScriptRegistry,
+    /// Wall time spent in each stage of [`Self::step`] (E513, [`PHASES`]); wall clock only, never a
+    /// simulation input.
+    phase_ns: [u128; PHASES.len()],
+    phase_ticks: u64,
+    /// The stages of the last completed step alone.
+    last_phase_ns: [u128; PHASES.len()],
+}
+
+/// The stages of one [`SimulationDriver::step`], in order (E513 tick profile).
+pub const PHASES: [&str; 8] = ["match_begin", "systems", "drains", "outcomes_systems", "towers_scripts",
+    "outcomes_scripts", "match_finish", "facts"];
+
+/// Laps the stages of one step into the driver's totals.
+struct Laps { at: std::time::Instant, ns: [u128; PHASES.len()] }
+
+impl Laps {
+    fn new() -> Self { Self { at: std::time::Instant::now(), ns: [0; PHASES.len()] } }
+    fn lap(&mut self, phase: usize) {
+        let now = std::time::Instant::now();
+        self.ns[phase] += now.saturating_duration_since(self.at).as_nanos();
+        self.at = now;
+    }
 }
 
 impl SimulationDriver {
@@ -73,11 +95,43 @@ impl SimulationDriver {
             tick: world.read_resource::<Tick>().0,
             dispatcher: build_phase3_dispatcher()?,
             scripts,
+            phase_ns: [0; PHASES.len()],
+            phase_ticks: 0,
+            last_phase_ns: [0; PHASES.len()],
         })
+    }
+
+    /// Wall nanoseconds of each stage ([`PHASES`]) in the last completed step (a slowest-tick
+    /// breakdown, E513); zeros before the first.
+    pub fn last_step_phases(&self) -> [(&'static str, u128); PHASES.len()] {
+        std::array::from_fn(|index| (PHASES[index], self.last_phase_ns[index]))
+    }
+
+    /// Mean wall milliseconds per step of each stage, and of each ECS system the world's
+    /// [`crate::comp::TickProfile`] timed (heaviest first; systems run in parallel, so they may add
+    /// up past `systems`), over the steps so far (E513).
+    pub fn phase_report(&self, world: &World) -> serde_json::Value {
+        let ticks = self.phase_ticks.max(1) as f64;
+        let ms = |ns: u128| ns as f64 / ticks / 1e6;
+        let phases: serde_json::Map<String, serde_json::Value> = PHASES.iter().zip(self.phase_ns)
+            .map(|(name, ns)| ((*name).to_owned(), ms(ns).into())).collect();
+        let mut systems: Vec<(&'static str, u128)> = world.try_fetch::<crate::comp::TickProfile>()
+            .and_then(|profile| profile.system_stats.lock().ok().map(|stats| stats.iter().map(|(name, stat)| (*name, stat.ns)).collect()))
+            .unwrap_or_default();
+        systems.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+        let systems: Vec<serde_json::Value> = systems.into_iter()
+            .map(|(name, ns)| serde_json::json!({ "system": name, "ms_mean": ms(ns) })).collect();
+        serde_json::json!({ "ticks": self.phase_ticks, "phases_ms_mean": phases, "systems_ms_mean": systems })
     }
 
     pub fn profile(&self) -> SimulationTickProfile {
         self.profile
+    }
+
+    /// The script registry this driver runs (M3 replays swap one ability's script, see
+    /// `ScriptRegistry::replace_ability_script`).
+    pub fn scripts_mut(&mut self) -> &mut ScriptRegistry {
+        &mut self.scripts
     }
 
     pub fn tick(&self) -> u64 {
@@ -118,7 +172,10 @@ impl SimulationDriver {
             );
         }
 
-        if !crate::runtime::begin_moba_match_tick(world) {
+        let mut laps = Laps::new();
+        let active = crate::runtime::begin_moba_match_tick(world);
+        laps.lap(0);
+        if !active {
             world.write_resource::<PendingPlayerInputs>().inputs.clear();
             return Ok(SimulationTickResult {
                 tick: self.tick,
@@ -131,6 +188,7 @@ impl SimulationDriver {
         }
         self.dispatcher.dispatch(world);
         world.maintain();
+        laps.lap(1);
 
         // RuntimeEvents is the intra-tick system channel. Outcomes below are
         // returned through the same result in their exact phase order.
@@ -156,11 +214,16 @@ impl SimulationDriver {
         world.maintain();
         drain_pending_moves(world);
         world.maintain();
+        laps.lap(2);
 
         let mut sink = RuntimeEventVecSink::default();
-        process_outcomes(world, &mut sink)?;
+        world.insert(std::mem::take(&mut self.scripts));
+        let settled = process_outcomes(world, &mut sink);
+        self.scripts = world.remove::<ScriptRegistry>().unwrap_or_default();
+        settled?;
         world.maintain();
         events.append(&mut sink.events);
+        laps.lap(3);
 
         drain_pending_tower_upgrades(world);
         drain_pending_tower_ability_casts(world);
@@ -169,20 +232,30 @@ impl SimulationDriver {
         let master_seed = world.read_resource::<crate::comp::MasterSeed>().0;
         drain_pending_tower_ability_callbacks(world, &self.scripts, master_seed);
         run_script_dispatch(world, &self.scripts, master_seed, scaled_dt);
+        laps.lap(4);
 
         let mut sink = RuntimeEventVecSink::default();
-        process_outcomes(world, &mut sink)?;
+        world.insert(std::mem::take(&mut self.scripts));
+        let settled = process_outcomes(world, &mut sink);
+        self.scripts = world.remove::<ScriptRegistry>().unwrap_or_default();
+        settled?;
         world.maintain();
         events.append(&mut sink.events);
+        laps.lap(5);
 
         crate::runtime::finish_moba_match_tick(world);
         events.extend(std::mem::take(
             &mut *world.write_resource::<RuntimeEvents>(),
         ));
+        laps.lap(6);
         let facts = world
             .read_resource::<crate::runtime::ObservableFactBuffer>()
             .drain_ordered()
             .map_err(|error| err_msg(format!("headless fact reduce: {error:?}")))?;
+        laps.lap(7);
+        for (total, ns) in self.phase_ns.iter_mut().zip(laps.ns) { *total += ns; }
+        self.last_phase_ns = laps.ns;
+        self.phase_ticks += 1;
         Ok(SimulationTickResult {
             tick: self.tick,
             events,

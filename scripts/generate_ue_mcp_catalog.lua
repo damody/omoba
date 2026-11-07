@@ -3,8 +3,24 @@ local source=debug.getinfo(1,'S').source:sub(2)
 package.path=assert(source:match('^(.*)[/\\]'))..'/?.lua;'..package.path
 local b=require('_bootstrap')
 local path,lfs=b.lib('path'),require('lfs')
-local private=path.join(b.root,'omfue/Plugins/BpGeneratorUltimate/Source/UECPMCPBridge/Private')
+-- UE finds the plugin by its descriptor, not its folder name (E104): locate BpGeneratorUltimate.uplugin.
+local plugins=path.join(b.root,'omfue/Plugins')
+local plugin
+for name in lfs.dir(plugins) do
+  local candidate=path.join(plugins,name)
+  if name~='.' and name~='..' and path.is_file(path.join(candidate,'BpGeneratorUltimate.uplugin')) then
+    assert(not plugin,'more than one BpGeneratorUltimate plugin under omfue/Plugins: '..tostring(plugin)..', '..candidate)
+    plugin=candidate
+  end
+end
+assert(plugin,'BpGeneratorUltimate plugin missing under omfue/Plugins (om.uproject enables it)')
+local private=path.join(plugin,'Source/UECPMCPBridge/Private')
 local dispatch=path.join(private,'Dispatch')
+-- Only plugin builds with a static dispatch source tree (2.x) consume MCPStaticTools.inl.
+if lfs.attributes(dispatch,'mode')~='directory' then
+  print('Native MCP static dispatch catalog: '..plugin..' has no static dispatch sources; nothing to generate')
+  return
+end
 local names={}
 for file in lfs.dir(dispatch) do
   if file:match('%.cpp$') then

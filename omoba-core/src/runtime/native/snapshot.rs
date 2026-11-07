@@ -713,8 +713,8 @@ pub struct HeroStatsExt {
     pub max_mana: f32,
     pub buffs: Vec<BuffSnapshot>,
     pub inventory: [Option<String>; 6],
-    pub ability_levels: [i32; 4],
-    pub ability_ids: [Option<String>; 4],
+    pub ability_levels: [i32; crate::runtime::HERO_ABILITY_SLOTS],
+    pub ability_ids: [Option<String>; crate::runtime::HERO_ABILITY_SLOTS],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -1270,11 +1270,17 @@ pub fn extract_snapshot(
             let armor = prop
                 .map(|p| stats.final_armor(p.def_physic, entity).to_f32_for_render())
                 .unwrap_or(0.0);
+            // def_magic is percent (the damage paths' unit); a hero's is capped by the game rules.
             let magic_resist = prop
                 .map(|p| {
-                    stats
-                        .final_magic_resist(p.def_magic, entity)
-                        .to_f32_for_render()
+                    let hundred = Fixed64::from_i32(100);
+                    // A hero's pool is capped by the game rules (rules::magic_resist).
+                    let percent = if hero_storage.get(entity).is_some() {
+                        super::rules::magic_resist::hero_percent(&stats, entity, p.def_magic, omoba_template_ids::GAME_RULES.as_ref())
+                    } else {
+                        stats.final_magic_resist(p.def_magic / hundred, entity) * hundred
+                    };
+                    (percent / hundred).to_f32_for_render()
                 })
                 .unwrap_or(0.0);
             let move_speed = prop
@@ -1286,7 +1292,7 @@ pub fn extract_snapshot(
             let attack_speed_sec = atk
                 .map(|a| {
                     let asd_mult = stats.final_attack_speed_mult(entity).to_f32_for_render();
-                    let base = a.asd.v.to_f32_for_render();
+                    let base = stats.base_attack_interval(a.asd.v, entity).to_f32_for_render();
                     if asd_mult > 0.0 {
                         base / asd_mult
                     } else {
@@ -1307,10 +1313,10 @@ pub fn extract_snapshot(
                 }
             }
 
-            let mut ability_ids: [Option<String>; 4] = Default::default();
-            let mut ability_levels: [i32; 4] = [0; 4];
+            let mut ability_ids: [Option<String>; crate::runtime::HERO_ABILITY_SLOTS] = Default::default();
+            let mut ability_levels: [i32; crate::runtime::HERO_ABILITY_SLOTS] = [0; crate::runtime::HERO_ABILITY_SLOTS];
             if let Some(h) = hero_storage.get(entity) {
-                for i in 0..4 {
+                for i in 0..crate::runtime::HERO_ABILITY_SLOTS {
                     if let Some(id) = h.abilities.get(i) {
                         let lvl = h.ability_levels.get(id).copied().unwrap_or(0);
                         ability_levels[i] = lvl;
@@ -1739,11 +1745,17 @@ pub fn extract_data_for_render(
             let armor = prop
                 .map(|p| stats.final_armor(p.def_physic, entity).to_f32_for_render())
                 .unwrap_or(0.0);
+            // def_magic is percent (the damage paths' unit); a hero's is capped by the game rules.
             let magic_resist = prop
                 .map(|p| {
-                    stats
-                        .final_magic_resist(p.def_magic, entity)
-                        .to_f32_for_render()
+                    let hundred = Fixed64::from_i32(100);
+                    // A hero's pool is capped by the game rules (rules::magic_resist).
+                    let percent = if hero_storage.get(entity).is_some() {
+                        super::rules::magic_resist::hero_percent(&stats, entity, p.def_magic, omoba_template_ids::GAME_RULES.as_ref())
+                    } else {
+                        stats.final_magic_resist(p.def_magic / hundred, entity) * hundred
+                    };
+                    (percent / hundred).to_f32_for_render()
                 })
                 .unwrap_or(0.0);
             let move_speed = prop
@@ -1755,7 +1767,7 @@ pub fn extract_data_for_render(
             let attack_speed_sec = atk
                 .map(|a| {
                     let asd_mult = stats.final_attack_speed_mult(entity).to_f32_for_render();
-                    let base = a.asd.v.to_f32_for_render();
+                    let base = stats.base_attack_interval(a.asd.v, entity).to_f32_for_render();
                     if asd_mult > 0.0 {
                         base / asd_mult
                     } else {
@@ -1776,10 +1788,10 @@ pub fn extract_data_for_render(
                 }
             }
 
-            let mut ability_ids: [Option<String>; 4] = Default::default();
-            let mut ability_levels: [i32; 4] = [0; 4];
+            let mut ability_ids: [Option<String>; crate::runtime::HERO_ABILITY_SLOTS] = Default::default();
+            let mut ability_levels: [i32; crate::runtime::HERO_ABILITY_SLOTS] = [0; crate::runtime::HERO_ABILITY_SLOTS];
             if let Some(h) = hero_storage.get(entity) {
-                for i in 0..4 {
+                for i in 0..crate::runtime::HERO_ABILITY_SLOTS {
                     if let Some(id) = h.abilities.get(i) {
                         let lvl = h.ability_levels.get(id).copied().unwrap_or(0);
                         ability_levels[i] = lvl;

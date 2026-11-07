@@ -2,6 +2,7 @@ pub mod config;
 pub mod control;
 pub mod delay;
 pub mod evidence;
+pub mod outage;
 pub mod profile;
 pub mod queue;
 pub mod route;

@@ -34,11 +34,11 @@ test('bounded options fail closed and normal launches remain unbounded',function
   assert(launch.options({'--finish-timeout-seconds','1800'}).finish_timeout_seconds==1800)
   for _,args in ipairs({{'--finish-timeout-seconds','0'},{'--finish-timeout-seconds','7201'},
       {'--finish-timeout-seconds','1.5'},{'--finish-timeout-seconds','nan'},
-      {'--prepare-only','--finish-timeout-seconds','60'},{'--selection-smoke-hero','training_ranger'}}) do
+      {'--prepare-only','--finish-timeout-seconds','60'},{'--selection-smoke-hero','tamako'}}) do
     rejects(function() launch.options(args) end)
   end
   assert(launch.options({'--interactive-selection','--finish-timeout-seconds','1800',
-    '--selection-smoke-hero','training_ranger'}).selection_smoke_hero=='training_ranger')
+    '--selection-smoke-hero','tamako'}).selection_smoke_hero=='tamako')
 end)
 test('bounded launcher observes result and cleans only owned PIDs',function()
   local launch=require('moba_role_launch')

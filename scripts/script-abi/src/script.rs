@@ -91,6 +91,8 @@ pub trait UnitScript: Send + Sync {
 
     /// 對應 `MODIFIER_EVENT_ON_ATTACK_START`：攻擊動作準備發射（pre-cast）。
     /// 腳本可在此選擇 target（orb 技能），修改即將出擊的屬性。
+    /// 英雄：host 在普攻投射物發射當下（datadriven `OnAttack`，不是命中）派發，
+    /// target 是該次普攻的目標（game_processor handle_projectile）。
     fn on_attack_start(
         &self,
         _attacker: EntityHandle,

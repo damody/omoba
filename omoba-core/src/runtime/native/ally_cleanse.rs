@@ -29,6 +29,16 @@ pub fn apply(world:&mut World,target:Entity,buff_id:&str,duration:Fixed64,payloa
     if admitted(world,target,buff_id,duration,payload,None).is_none(){return false;}
     world.write_resource::<BuffStore>().cleanse_controls(target);true
 }
+/// Instant self slow cleanse: removes only the target's own movement slows (stuns, roots and
+/// silences stay). The packet names its source, which must be the target itself.
+pub const SELF_SLOW_BUFF:&str="__self_slow_cleanse";
+pub fn self_slow_payload(source_id:u32,source_generation:u32)->Value {json!({"source_id":source_id,"source_generation":source_generation})}
+pub fn apply_self_slow(world:&mut World,target:Entity,payload:&Value)->bool {
+    let source=|key:&str|payload.get(key).and_then(Value::as_u64);
+    if payload.as_object().is_none_or(|row|row.len()!=2) || source("source_id")!=Some(u64::from(target.id()))
+        || source("source_generation")!=Some(target.gen().id() as u64) || !world.entities().is_alive(target) {return false;}
+    world.write_resource::<BuffStore>().cleanse_slows(target);true
+}
 #[cfg(test)]mod tests {
     use super::*;
     #[test]fn ally_cleanse_packet_is_closed_bounded_and_instant() {
@@ -38,5 +48,17 @@ pub fn apply(world:&mut World,target:Entity,buff_id:&str,duration:Fixed64,payloa
         let mut bad=spec.payload();bad[KEY]["buffs"]=json!(["anything"]);assert!(Spec::from_payload(BUFF,Fixed64::ONE,&bad).is_none());
         let mut bad=spec.payload();bad["extra"]=json!(true);assert!(Spec::from_payload(BUFF,Fixed64::ONE,&bad).is_none());
         assert!(Spec::from_payload(BUFF,Fixed64::from_raw(1025),&spec.payload()).is_none());assert!(Spec::from_payload("stun",Fixed64::ONE,&spec.payload()).is_none());
+    }
+    #[test]fn self_slow_cleanse_removes_only_the_named_sources_own_slows() {
+        use specs::Builder;
+        let mut world=World::new();world.insert(BuffStore::new());
+        let me=world.create_entity().build();let other=world.create_entity().build();
+        let slow=json!({"move_speed_bonus":-768,"__aggregation_family":"generic_ability_slow"});
+        {let mut b=world.write_resource::<BuffStore>();b.add(me,"generic_slow:x:9:1",Fixed64::from_i32(3),slow.clone());b.add(me,"stun",Fixed64::from_i32(3),Value::Null);
+         b.add(other,"generic_slow:x:9:1",Fixed64::from_i32(3),slow);}
+        assert!(!apply_self_slow(&mut world,me,&self_slow_payload(other.id(),other.gen().id() as u32)),"source must be the target");
+        assert!(apply_self_slow(&mut world,me,&self_slow_payload(me.id(),me.gen().id() as u32)));
+        let b=world.read_resource::<BuffStore>();
+        assert!(!b.has(me,"generic_slow:x:9:1"));assert!(b.is_stunned(me),"stuns stay");assert!(b.has(other,"generic_slow:x:9:1"));
     }
 }

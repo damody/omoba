@@ -1,0 +1,402 @@
+-- A10 平手政秀（current 版，heromap_version["16"]，heromap_skill "WERDT"）— package schema v3。
+-- 原作槽位 W/E/R/T → Q/W/E/R，D 維持 D（npc/A_Oda/A10_2.txt:12-18）。沒有 v0 普查，直接由原作 KV 與腳本寫成。
+-- 開場自動學 A10D（heromap_autoskill A10 ["16"] = "D"），寫在 hero.auto_learn；之後 A10D 等級 = A10T 等級 + 1。
+-- 英雄共通的 magical_resistance（nobu 魔抗池）屬規則層，A10_precache 只是資產，都不列入。
+-- 慣例：KV 未寫 IsPurgable 的 datadriven modifier 寫 dispel = "basic"（v3.md §12.3，推定）。
+return function(ctx)
+  return {
+    schema_version = 3, kind = "hero", id = "A10",
+    source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
+    hero = {
+      source_id = "A10",
+      text = { zh_TW = { name = "平手政秀" }, en = { name = "Hirate Masahide" } },
+      auto_learn = { "a10_blink_return" },
+    },
+    unit_state = {
+      a10t_dummy = { type = "unit", reveal = "public", scope = "hero", note = "原作 caster.A10T_dummy" },
+    },
+    abilities = {
+      -------------------------------------------------------------------------
+      { id = "a10_blink_return", source_id = "A10D", slot = "D", kind = "active", max_level = 4, tags = { "basic", "movement" },
+        learnable = false,
+        values = {
+          cooldown = { 16, unit = "s", source = "kv:AbilityCooldown" },
+          mana_cost = { 150, 170, 190, 210, unit = "mana", source = "kv:AbilityManaCost" },
+          cast_point = { 0.25, unit = "s", source = "kv:AbilityCastPoint" },
+          max_range = { 550, 650, 750, 850, unit = "dist", source = "kv:max_range" },
+          duration = { 3, unit = "s", source = "kv:duration" },
+        },
+        text = {
+          zh_TW = { name = "瞬返之術",
+            body = "瞬間移動到目標地點（最遠 {max_range}，超過就停在最遠處），{duration} 秒後自動瞬移回施放時的位置；期間死亡則不會返回。無法手動學習，等級固定比{@a10_shockwave}高一級。" },
+          en = { name = "Blink and Return",
+            body = "Blinks to the target point (up to {max_range}; farther targets stop at the maximum), then blinks back to where he cast it after {duration} seconds unless he dies first. Cannot be learned manually; its level is always one higher than {@a10_shockwave}." },
+        },
+        target = { type = "point" },
+        cast = { cast_point = "$cast_point" },
+        cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
+        statuses = {
+          { id = "a10d_timer", duration = "$duration", stacking = "refresh", dispel = "none", visibility = "hidden",
+            reveal = "public",
+            triggers = { on_death = { { op = "cancel_delay", id = "a10d_return" } } },
+            notes = "原作 modifier_A10D_timer：IsHidden、IsPurgable 0；OnDeath 移除返回計時器。" },
+        },
+        events = {
+          on_cast = {
+            { op = "let", name = "origin", value = "caster.position" },
+            { op = "let", name = "dest",
+              value = "select(distance(caster, point) > $max_range, offset(caster, direction(caster, point), $max_range), point)" },
+            { op = "cue", id = "a10d_blink_start", at = "caster" },
+            { op = "teleport", who = "caster", to = "dest" },
+            { op = "apply_status", status = "a10d_timer", to = "caster" },
+            { op = "cue", id = "a10d_blink_end", at = "caster" },
+            { op = "delay", id = "a10d_return", time = "$duration", capture = { "origin" }, actions = {
+              { op = "cue", id = "a10d_blink_start", at = "caster" },
+              { op = "teleport", who = "caster", to = "origin" },
+              { op = "cue", id = "a10d_blink_end", at = "caster" },
+            } },
+          },
+        },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "as_source", ref = "npc/A_Oda/A10.txt:45",
+            text = "AbilityCastRange 0：不限施放距離，由腳本把目的地夾到 max_range（與閃爍匕首同樣寫法）；資料不設 target.range。" },
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A10.lua:23-31",
+            text = "計時器存在 caster.A10D_timer；三秒內再次施放（例如重置冷卻）會覆寫欄位但不取消前一個計時器，兩次都會返回，先返回第一次的起點再返回第二次的起點；死亡時只取消最後一個。資料以同一個 delay id 表達，重複 id 的語意待 M2 確認。" },
+          { policy = "note", ref = "npc/A_Oda/A10.txt:63-71,101-106",
+            text = "KV 的 damage 200/300/400/500 沒有使用；OnProjectileHitUnit 只是讓荒殺陣被動以本招為來源發射的投射物能結算。" },
+          { policy = "note", ref = "vscripts/heroes/A_Oda/A10.lua:20,27", text = "瞬移後掛 0.01 秒 modifier_phased 避免卡位，屬引擎細節。" },
+        },
+        provenance = { "npc/A_Oda/A10.txt:36-108", "vscripts/heroes/A_Oda/A10.lua:4-40", "vscripts/heroes/A_Oda/A10.lua:331-336" },
+      },
+      -------------------------------------------------------------------------
+      { id = "a10_phase_shift", source_id = "A10W", slot = "Q", kind = "active", max_level = 4, tags = { "basic" },
+        values = {
+          cooldown = { 25, 21, 17, 13, unit = "s", source = "kv:AbilityCooldown" },
+          mana_cost = { 110, 135, 160, 185, unit = "mana", source = "kv:AbilityManaCost" },
+          cast_range = { 800, unit = "dist", source = "kv:AbilityCastRange" },
+          cast_point = { 0.3, unit = "s", source = "kv:AbilityCastPoint" },
+          duration = { 2.5, unit = "s", source = "kv:duration" },
+          damage = { 40, 70, 110, 130, unit = "dmg", damage_type = "magical", source = "kv:damage" },
+          heal = { 200, 300, 400, 500, unit = "heal", source = "kv:heal" },
+          stun_pad = { 0.1, unit = "s", hidden = true, source = "script:vscripts/heroes/A_Oda/A10.lua:77 duration+0.1" },
+          settle_pad = { 0.05, unit = "s", hidden = true, source = "script:vscripts/heroes/A_Oda/A10.lua:82 duration + 0.05" },
+          cancel_pad = { 0.2, unit = "s", hidden = true, source = "script:vscripts/heroes/A_Oda/A10.lua:117 Timers 0.2" },
+          tap_damage = { 1, unit = "dmg", hidden = true, source = "script:vscripts/heroes/A_Oda/A10.lua:104-111 damage = 1" },
+        },
+        text = {
+          zh_TW = { name = "相移",
+            body = "讓目標英雄（敵我皆可）暈眩並無敵 {duration} 秒。結束後若目標是敵人，受到 {damage} 魔法傷害；若是友軍（包括自己），回復 {heal} 生命。" },
+          en = { name = "Phase Shift",
+            body = "Stuns the target hero (ally or enemy) and makes it invulnerable for {duration} seconds. Afterwards an enemy takes {damage} magic damage, while an ally (including himself) is healed for {heal}." },
+        },
+        target = { type = "unit", range = "$cast_range", team = "both", types = { "hero" } },
+        cast = { cast_point = "$cast_point" },
+        cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
+        statuses = {
+          { id = "a10w_stun", duration = "$duration + $stun_pad", stacking = "refresh", dispel = "basic", visibility = "hidden",
+            reveal = "public", states = { "stun" },
+            notes = "原作以 ApplyDataDrivenModifier 套引擎內建 modifier_stunned（duration + 0.1）。" },
+          { id = "a10w_phase", duration = "$duration", stacking = "refresh", dispel = "none", visibility = "buff",
+            text = {
+              zh_TW = { name = "相移", body = "暈眩並無敵，持續 {duration} 秒；結束後敵人受到 {damage} 魔法傷害，友軍回復 {heal} 生命。" },
+              en = { name = "Phase Shift", body = "Stunned and invulnerable for {duration} seconds; afterwards an enemy takes {damage} magic damage, while an ally is healed for {heal}." },
+            },
+            reveal = "public", states = { "stun", "invulnerable" }, cue = "a10w_gold_statue",
+            triggers = {
+              on_removed = {
+                { op = "delay", time = "$cancel_pad", actions = { { op = "cancel_delay", id = "a10w_settle" } } },
+              },
+            },
+            notes = "原作 modifier_A10W：IsPurgable 0、IsStunDebuff；STUNNED、INVULNERABLE。OnDestroy 0.2 秒後取消結算計時器。" },
+        },
+        events = {
+          on_cast = {
+            { op = "cue", id = "a10w_freeze_animation", at = "target", duration = "$duration" },
+            { op = "apply_status", status = "a10w_stun", to = "target" },
+            { op = "apply_status", status = "a10w_phase", to = "target" },
+            { op = "if", cond = "is_enemy(target, caster)", actions = {
+              { op = "damage", to = "target", type = "magical", amount = "$tap_damage", require_source_alive = false },
+            } },
+            { op = "cue", id = "a10w_telekinesis_sound", at = "target" },
+            { op = "delay", id = "a10w_settle", time = "$duration + $settle_pad", actions = {
+              { op = "if", cond = "is_enemy(target, caster)",
+                actions = { { op = "damage", to = "target", type = "magical", amount = "$damage", require_source_alive = false } },
+                otherwise = { { op = "heal", to = "target", amount = "$heal" } } },
+            } },
+          },
+        },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A10.lua:82-96",
+            text = "結算在無敵結束後 0.05 秒才發生，所以傷害打得到；暈眩比無敵多 0.1 秒。" },
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A10.lua:99-113",
+            text = "modifier_A10W 的 OnCreated 對敵人打一點魔法傷害，但此時目標已無敵，推定傷害被引擎擋下，沒有效果（資料照順序寫，由規則層處理無敵）。" },
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A10.lua:115-123",
+            text = "modifier_A10W 被提早移除（例如目標死亡、被強驅散）後 0.2 秒取消結算；正常到期時結算在 0.05 秒後已經發生，取消沒有作用。計時器存在 caster.A10W_timer，連續施放會互相覆寫。" },
+          { policy = "as_source", ref = "npc/A_Oda/A10.txt:117-120",
+            text = "TargetTeam BOTH、TargetType HERO：可對自己施放（友方單位指向技能預設允許自身）；flags NONE，不能指定魔免敵人。" },
+          { policy = "note", ref = "vscripts/heroes/A_Oda/A10.lua:42-67", text = "modifier_A10W_stop 只凍結動畫，屬呈現，改用 cue。" },
+        },
+        provenance = { "npc/A_Oda/A10.txt:110-198", "vscripts/heroes/A_Oda/A10.lua:42-123" },
+      },
+      -------------------------------------------------------------------------
+      { id = "a10_slaughter_array", source_id = "A10E", slot = "W", kind = "active", max_level = 4, tags = { "basic" },
+        values = {
+          cooldown = { 18, 16, 14, 12, unit = "s", source = "kv:AbilityCooldown" },
+          mana_cost = { 140, 155, 170, 185, unit = "mana", source = "kv:AbilityManaCost" },
+          cast_range = { 1000, unit = "dist", source = "kv:AbilityCastRange" },
+          cast_point = { 0.1, unit = "s", source = "kv:AbilityCastPoint" },
+          width = { 500, unit = "dist", source = "kv:radius", note = "生成線的半寬；也決定生成線在起點後方的距離（兩倍）" },
+          back_mult = { 2, unit = "ratio", hidden = true, source = "script:vscripts/heroes/A_Oda/A10.lua:151 radius * 2 * backwardVec" },
+          right_angle = { 90, unit = "deg", hidden = true, source = "script:vscripts/heroes/A_Oda/A10.lua:148 rightVec（左右對稱，方向不影響結果）" },
+          collision_radius = { 200, unit = "dist", source = "kv:collision_radius" },
+          splash_radius = { 200, unit = "dist", source = "kv:splash_radius" },
+          speed = { 1200, unit = "speed", source = "kv:speed" },
+          distance = { 2000, unit = "dist", source = "kv:distance" },
+          damage = { 40, 70, 110, 130, unit = "dmg", damage_type = "pure", source = "kv:damage" },
+          per_sec = { 6, 7, 8, 9, unit = "count", source = "kv:mount_persec" },
+          waves = { 2, unit = "count", source = "kv:duration", note = "KV 名稱是 duration，實際當成秒數迴圈次數" },
+          wave_interval = { 1, unit = "s", hidden = true, source = "script:vscripts/heroes/A_Oda/A10.lua:157 (i-1) + RandomFloat(0, 1)" },
+          echo_pct = { 40, unit = "pct", source = "script:vscripts/heroes/A_Oda/A10.lua:220-222 damageMultiplier = 0.4" },
+          two_thirds = { "2/3", unit = "ratio", hidden = true, source = "script:vscripts/heroes/A_Oda/A10.lua:193-194 collision_radius * 2/3" },
+          echo_radius = { expr = "$collision_radius * $two_thirds", unit = "dist" },
+          diag = { 0.707107, unit = "ratio", hidden = true, source = "script:vscripts/heroes/A_Oda/A10.lua:240 Vector(0.707107, 0.707107)" },
+        },
+        text = {
+          zh_TW = { name = "荒殺陣",
+            body = "從自己後方一條寬 {width} 的線上，朝目標方向連續射出劍氣：{waves} 秒內每秒 {per_sec} 道，每道以 {speed} 的速度飛行 {distance}、半徑 {collision_radius}，碰到第一個敵人就爆開，對該處 {splash_radius} 內的非建築敵人造成 {damage} 乘以（一減被碰到者的基礎魔抗）的純粹傷害。被動：施放{@a10_phase_shift}、{@a10_swap}、{@a10_shockwave}、{@a10_blink_return}時，也從該招的目標處射出同樣數量的劍氣（半徑 {echo_radius}，傷害 {echo_pct}）；{@a10_phase_shift}固定朝東北方，其他三招朝自己的方向。" },
+          en = { name = "Slaughter Array",
+            body = "Fires sword waves toward the target direction from a line {width} wide behind him: {per_sec} per second for {waves} seconds, each traveling {distance} at {speed} with radius {collision_radius} and bursting on the first enemy it touches, dealing {damage} × (one minus the touched unit's base magic resistance) pure damage to non-building enemies within {splash_radius}. Passive: casting {@a10_phase_shift}, {@a10_swap}, {@a10_shockwave} or {@a10_blink_return} also fires the same volley from that spell's target (radius {echo_radius}, {echo_pct} damage); {@a10_phase_shift} always fires toward the northeast, the other three toward Masahide." },
+        },
+        target = { type = "point", range = "$cast_range" },
+        cast = { cast_point = "$cast_point" },
+        cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
+        passive = {
+          reveal = "public", visibility = "hidden",
+          triggers = {
+            on_ability_executed = { who = "self", actions = {
+              { op = "if", cond = "is_ability(event.ability, a10_phase_shift)", actions = {
+                { op = "call", routine = "a10e_volley", args = { origin = "position(event.target)", fwd = "vec($diag, $diag)",
+                  hit_radius = "$echo_radius", mult = "$echo_pct" } },
+              } },
+              { op = "if", cond = "is_ability(event.ability, a10_swap)", actions = {
+                { op = "call", routine = "a10e_volley", args = { origin = "position(event.target)",
+                  fwd = "direction(event.target, self)", hit_radius = "$echo_radius", mult = "$echo_pct" } },
+              } },
+              { op = "if", cond = "is_ability(event.ability, a10_shockwave)", actions = {
+                { op = "call", routine = "a10e_volley", args = { origin = "event.point",
+                  fwd = "direction(event.point, self)", hit_radius = "$echo_radius", mult = "$echo_pct" } },
+              } },
+              { op = "if", cond = "is_ability(event.ability, a10_blink_return)", actions = {
+                { op = "let", name = "blink_at",
+                  value = "select(distance(self, event.point) > $a10_blink_return.max_range, offset(self, direction(self, event.point), $a10_blink_return.max_range), event.point)" },
+                { op = "call", routine = "a10e_volley", args = { origin = "blink_at",
+                  fwd = "direction(blink_at, self)", hit_radius = "$echo_radius", mult = "$echo_pct" } },
+              } },
+            } },
+          },
+        },
+        events = {
+          on_cast = {
+            { op = "cue", id = "a10e_shadow_dance_sound", at = "caster" },
+            { op = "call", routine = "a10e_volley", args = { origin = "caster.position",
+              fwd = "select(distance(caster, point) > 0, direction(caster, point), caster.forward)",
+              hit_radius = "$collision_radius", mult = "1" } },
+          },
+        },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A10.lua:218-230",
+            text = "濺射傷害的魔抗係數取『被投射物碰到的那個單位』的基礎魔抗，套用到範圍內每個單位，不是各自的魔抗；純粹傷害，魔免單位照樣受傷；建築不受傷。" },
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A10.lua:151-178",
+            text = "生成線中心在起點後方兩倍 radius（一千）處，劍氣飛 2000，所以會掃過起點前方一千距離。每道的發射時間是 (i−1) + RandomFloat(0,1)，橫向位置 RandomInt(−500, 500)。" },
+          { policy = "as_source", ref = "npc/A_Oda/A10.txt:226-234",
+            text = "DeleteOnHit 1：每道劍氣碰到第一個符合條件的單位（敵方英雄或一般單位，含魔免）就消失。" },
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A10.lua:234-271",
+            text = "被動以其他招為投射物的來源技能，命中時改走那招的 OnProjectileHitUnit（都指向 A10E_OnProjectileHitUnit），傷害讀荒殺陣的等級並乘 0.4、碰撞半徑 ×2/3。OnAbilityExecuted 在那招 OnSpellStart 之前：瞬返之術的發射點是夾過距離的目的地、方向朝施放前的位置。相移的方向固定是世界座標 (0.707, 0.707)。" },
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A10.lua:243-269",
+            text = "起點與政秀重疊時，原作改用政秀面向的反方向；資料沒有處理這個邊界（direction 為零向量時由執行器決定）。" },
+          { policy = "as_source", text = "AMHC:Damage 要求政秀存活；已發射的劍氣在政秀死亡後不再造成傷害（規則層 require_source_alive）。" },
+        },
+        provenance = { "npc/A_Oda/A10.txt:200-297", "vscripts/heroes/A_Oda/A10.lua:125-271" },
+      },
+      -------------------------------------------------------------------------
+      { id = "a10_swap", source_id = "A10R", slot = "E", kind = "active", max_level = 4, tags = { "basic", "movement" },
+        values = {
+          cooldown = { 17, unit = "s", source = "kv:AbilityCooldown" },
+          mana_cost = { 120, 140, 160, 180, unit = "mana", source = "kv:AbilityManaCost" },
+          cast_range = { 500, 650, 800, 950, unit = "dist", source = "kv:AbilityCastRange" },
+          cast_point = { 0.3, unit = "s", source = "kv:AbilityCastPoint" },
+          damage = { 205, 270, 335, 400, unit = "dmg", damage_type = "magical", source = "kv:damage_change" },
+          swap_delay = { 0.05, unit = "s", hidden = true, source = "script:vscripts/heroes/A_Oda/A10.lua:293 Timers 0.05" },
+        },
+        text = {
+          zh_TW = { name = "移形換位",
+            body = "與目標單位（敵我皆可，不能是自己）交換位置；目標是敵人時先受到 {damage} 魔法傷害，若因此死亡就不交換。" },
+          en = { name = "Swap",
+            body = "Swaps positions with the target unit (ally or enemy, not himself). An enemy first takes {damage} magic damage; if that kills it, no swap happens." },
+        },
+        target = { type = "unit", range = "$cast_range", team = "both", types = { "hero", "creep", "neutral", "summon" } },
+        cast = { cast_point = "$cast_point" },
+        cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
+        flags = { "no_target_self" },
+        events = {
+          on_cast = {
+            { op = "cue", id = "a10r_fade_bolt", at = "caster", to = "target" },
+            { op = "if", cond = "is_enemy(target, caster)", actions = {
+              { op = "damage", to = "target", type = "magical", amount = "$damage", require_source_alive = false },
+            } },
+            { op = "delay", time = "$swap_delay", actions = {
+              { op = "if", cond = "alive(target)", actions = {
+                { op = "swap_positions", a = "caster", b = "target" },
+                { op = "cue", id = "a10r_swap_sound", at = "caster" },
+              } },
+            } },
+          },
+        },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A10.lua:273-279",
+            text = "OnAbilityPhaseStart 若目標在 _G.EXCLUDE_TARGET_NAME 或是自己就 Interrupt；資料以 no_target_self 與規則層的 untargetable_by_spells 表達（不扣魔、不進冷卻，等效）。" },
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A10.lua:291-329",
+            text = "傷害在 modifier_A10R（0.1 秒）OnCreated 時打出；交換在 0.05 秒後。目標死亡時 modifier 移除並取消交換計時器，所以擊殺時不交換。交換兩邊都 FindClearSpace。" },
+          { policy = "note", ref = "npc/A_Oda/A10.txt:395-401",
+            text = "KV 的 max_range（等於施放距離）與 damage 40/70/110/130（荒殺陣的數值）沒有使用。" },
+        },
+        provenance = { "npc/A_Oda/A10.txt:299-404", "vscripts/heroes/A_Oda/A10.lua:273-329" },
+      },
+      -------------------------------------------------------------------------
+      { id = "a10_shockwave", source_id = "A10T", slot = "R", kind = "channel", max_level = 3, tags = { "ultimate", "channel" },
+        values = {
+          cooldown = { 20, 14, 8, unit = "s", source = "kv:AbilityCooldown" },
+          mana_cost = { 200, 250, 300, unit = "mana", source = "kv:AbilityManaCost" },
+          cast_range = { 1000, unit = "dist", source = "kv:AbilityCastRange" },
+          cast_point = { 0.1, unit = "s", source = "kv:AbilityCastPoint" },
+          channel_time = { 3.5, unit = "s", source = "kv:AbilityChannelTime" },
+          required_level = { 6, 12, 18, unit = "level", source = "rules:dota 大招預設 RequiredLevel 6、LevelsBetweenUpgrades 6（KV 沒寫）" },
+          radius = { 500, unit = "dist", source = "kv:radius" },
+          slow = { 15, 25, 35, unit = "pct", kv = { -15, -25, -35 }, source = "kv:msBonus",
+            source_differs = "KV 以負值表示減速（dummy.lua Slow 取負號後為百分比緩速）；slow_pct 以正值表示" },
+          building_damage = { 90, 125, 160, unit = "dmg", damage_type = "magical", source = "kv:damage_ult" },
+          quake_tick = { 1, unit = "s", source = "kv:modifier_A10T ThinkInterval@npc/A_Oda/A10.txt:505" },
+          aura_linger = { 0.5, unit = "s", hidden = true, source = "assumed:datadriven 光環預設離開後殘留 0.5 秒" },
+          reveal_radius = { 300, unit = "dist", hidden = true, source = "script:vscripts/heroes/A_Oda/A10.lua:351-352 AddFOWViewer 300" },
+          reveal_duration = { 1, unit = "s", hidden = true, source = "script:vscripts/heroes/A_Oda/A10.lua:351-352 AddFOWViewer 1" },
+          reveal_tick = { 0.5, unit = "s", hidden = true, source = "script:vscripts/heroes/A_Oda/A10.lua:360 return 0.5" },
+        },
+        text = {
+          zh_TW = { name = "震盪",
+            body = "持續施法，讓目標地點 {radius} 範圍震動：範圍內的敵方單位（含魔免）緩速 {slow}；範圍內的敵方建築每 {quake_tick} 秒受到 {building_damage} 魔法傷害。英雄與一般單位不受傷害。施法期間雙方都看得到政秀。" },
+          en = { name = "Tremor",
+            body = "Channels to shake the ground within {radius} of the target point: enemy units inside (including spell-immune ones) are slowed by {slow}, and enemy buildings inside take {building_damage} magic damage every {quake_tick} seconds. Heroes and units take no damage. Both teams can see Masahide while he channels." },
+        },
+        target = { type = "point", range = "$cast_range", aoe_radius = "$radius" },
+        cast = { cast_point = "$cast_point", channel_time = "$channel_time", interruptible = true },
+        cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
+        requires = { hero_level = "$required_level" },
+        statuses = {
+          { id = "a10t_quake", duration = "infinite", stacking = "refresh", dispel = "none", visibility = "debuff",
+            text = {
+              zh_TW = { name = "震盪", body = "身處震動範圍內：移動速度降低 {slow}；建築每 {quake_tick} 秒受到 {building_damage} 魔法傷害。離開範圍或施法結束時移除。" },
+              en = { name = "Tremor", body = "Inside the tremor: movement speed reduced by {slow}; buildings take {building_damage} magic damage every {quake_tick} seconds. Removed on leaving the area or when the channel ends." },
+            },
+            reveal = "public", tags = { "slow" }, stats = { slow_pct = "$slow" }, cue = "a10t_move_slow",
+            triggers = {
+              periodic = { interval = "$quake_tick", actions = {
+                { op = "if", cond = "self.is_building", actions = {
+                  { op = "damage", to = "self", type = "magical", amount = "$building_damage", source = "caster_hero", require_source_alive = false },
+                } },
+              } },
+            },
+            notes = "原作 modifier_A10T：光環給予、IsPurgable 0；OnCreated 寫入 ms_slow['modifier_A10T']，由全域緩速系統合成（library/common/dummy.lua:816-864）。" },
+        },
+        events = {
+          on_cast = {
+            { op = "create_unit", template = "a10t_quake_center", at = "point", control = "none", as = "center" },
+            { op = "set_state", var = "a10t_dummy", value = "center" },
+            { op = "cue", id = "a10t_earth_splitter_sound", at = "point" },
+            { op = "repeat", interval = "$reveal_tick", first = "0", ["while"] = "caster.is_channeling", actions = {
+              { op = "reveal", at = "caster", radius = "$reveal_radius", duration = "$reveal_duration", teams = "all" },
+              { op = "cue", id = "a10t_quake_particles", at = "point", radius = "$radius" },
+            } },
+          },
+          on_channel_end = {
+            { op = "if", cond = "exists(state.a10t_dummy)", actions = {
+              { op = "remove_unit", to = "state.a10t_dummy" },
+            } },
+          },
+          on_upgrade = {
+            { op = "set_ability_level", of = "caster", ability = "a10_blink_return", level = "ability.level + 1" },
+          },
+        },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A10.lua:398-413",
+            text = "damage_ult 只打建築（if target:IsBuilding()）；英雄與一般單位只被緩速。原作說明若寫成範圍傷害則與實際不符。" },
+          { policy = "as_source", ref = "npc/A_Oda/A10.txt:465-474",
+            text = "光環掛在目標點的 npc_dummy_unit（majia）上，Aura_Flags 帶 MAGIC_IMMUNE_ENEMIES，魔免單位也被緩速；建築也在 Aura_Types 內。" },
+          { policy = "design_intent", ref = "npc/A_Oda/A10.txt:505",
+            text = "建築傷害的第一跳在進入光環一秒後；引導 3.5 秒，持續待在範圍內的建築最多三跳（tick 對齊依引擎時序，照 KV 意圖）。" },
+          { policy = "as_source", ref = "npc/A_Oda/A10.txt:465-474",
+            text = "datadriven 光環沒寫殘留時間，推定引擎預設 0.5 秒（aura_linger，assumed）。" },
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A10.lua:378-396",
+            text = "引導結束（完成或被打斷）時摧毀光環並 ForceKill dummy，緩速隨光環消失（加上殘留時間）。" },
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A10.lua:331-336",
+            text = "每次升級把 A10D 設成本招等級 + 1。" },
+          { policy = "note", ref = "vscripts/heroes/A_Oda/A10.lua:349-375", text = "每 0.5 秒隨機 10～15 個地裂粒子、每秒音效，屬呈現。" },
+        },
+        provenance = { "npc/A_Oda/A10.txt:406-540", "vscripts/heroes/A_Oda/A10.lua:331-413",
+          "vscripts/library/common/dummy.lua:816-864" },
+      },
+    },
+    unit_templates = {
+      { id = "a10t_quake_center", source_id = "npc_dummy_unit",
+        text = { zh_TW = { name = "震盪中心" }, en = { name = "Tremor Center" } },
+        passive = {
+          reveal = "public",
+          states = { "invulnerable", "unselectable", "no_healthbar", "no_unit_collision", "not_on_minimap", "untargetable_by_spells" },
+          aura = { radius = "$a10_shockwave.radius", team = "enemy", types = { "hero", "creep", "neutral", "summon", "building" },
+            flags = { "include_magic_immune" }, status = "a10t_quake", linger = "$a10_shockwave.aura_linger" },
+        },
+        ai = "none", owner_death = "persist", tags = { "dummy" },
+        notes = "原作 npc_dummy_unit 加 majia（dummy 慣用的無敵、不可選取能力）；只用來掛 modifier_A10T_Aura。",
+        provenance = { "vscripts/heroes/A_Oda/A10.lua:343-346", "npc/A_Oda/A10.txt:465-474" } },
+    },
+    routines = {
+      a10e_volley = {
+        params = { origin = "point", fwd = "vec", hit_radius = "num", mult = "num" },
+        actions = {
+          { op = "let", name = "middle",
+            value = "offset(origin, fwd, -1 * $a10_slaughter_array.width * $a10_slaughter_array.back_mult)" },
+          { op = "let", name = "side", value = "rotate(fwd, $a10_slaughter_array.right_angle)" },
+          { op = "repeat", count = "$a10_slaughter_array.waves", interval = "$a10_slaughter_array.wave_interval", first = "0",
+            actions = {
+              { op = "repeat", count = "$a10_slaughter_array.per_sec", actions = {
+                { op = "delay", time = "random(0, $a10_slaughter_array.wave_interval)", capture = { "middle", "side" }, actions = {
+                  { op = "let", name = "spawn",
+                    value = "offset(middle, side, random_int(-$a10_slaughter_array.width, $a10_slaughter_array.width))" },
+                  { op = "projectile", kind = "linear", from = "spawn", direction = "fwd", speed = "$a10_slaughter_array.speed",
+                    distance = "$a10_slaughter_array.distance", radius = "hit_radius", team = "enemy",
+                    types = { "hero", "creep", "neutral", "summon" }, flags = { "include_magic_immune" }, max_hits = "1",
+                    cue = "a10e_sword_wave",
+                    on_hit = {
+                      { op = "let", name = "touched_mr", value = "it.base_magic_resist" },
+                      { op = "cue", id = "a10e_hit_burst", at = "it" },
+                      { op = "for_each",
+                        select = { from = "it", shape = "circle", radius = "$a10_slaughter_array.splash_radius", team = "enemy",
+                          types = { "hero", "creep", "neutral", "summon" }, flags = { "include_magic_immune" },
+                          where = "not it.is_building" },
+                        actions = {
+                          { op = "damage", to = "it", type = "pure",
+                            amount = "$a10_slaughter_array.damage * mult * (1 - touched_mr)" },
+                        } },
+                    } },
+                } },
+              } },
+            } },
+        },
+      },
+    },
+  }
+end

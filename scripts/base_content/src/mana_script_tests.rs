@@ -49,7 +49,7 @@ fn fixture_with_mana(ability_factory:extern "C" fn()->RVec<AbilityDefFFI>,mana_e
     let mut world=StateInitializer::setup_campaign_ecs_world(&StateInitializer::create_thread_pool());
     world.insert(TowerTemplateRegistry::default());
     let mut registry=ScriptRegistry::new();
-    registry.insert_manifest(Manifest {units,abilities:ability_factory,dev_reload_runtime_lua_content:crate::dev_reload_runtime_lua_content}.leak_into_prefix());
+    registry.insert_manifest(Manifest {units,abilities:ability_factory,dev_reload_runtime_lua_content:crate::dev_reload_runtime_lua_content,module_id:crate::module_id,content_marker:crate::content_marker,content_identity:crate::content_identity}.leak_into_prefix());
     populate_ability_registry(&mut world,&registry);world.insert(registry);
     setup_single_lane_match(&mut world,SingleLaneConfig {warmup:Fixed64::ZERO,mana_enabled,base_recovery_enabled:false,
         heroes:["training_ranger".into(),"training_luminary".into()],
@@ -61,8 +61,8 @@ fn fixture_with_mana(ability_factory:extern "C" fn()->RVec<AbilityDefFFI>,mana_e
         omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(2500));
     world.write_storage::<Hero>().get_mut(caster).unwrap().mana_pool=Some(
         ability_runtime::ManaPool::new(Fixed64::from_i32(90),Fixed64::from_i32(280)).unwrap());
-    // Heroes do not implicitly acquire unit tick hooks. This fixture explicitly
-    // binds its resource producer through the same tag used by native scripts.
+    // Dispatch binds a hero's content-id UnitScript once per life; this fixture
+    // states the binding explicitly so tests may detach it to isolate a cast.
     world.write_storage::<ScriptUnitTag>().insert(caster,ScriptUnitTag {
         unit_id:"training_ranger".into(),
     }).unwrap();

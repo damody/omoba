@@ -14,13 +14,30 @@ use omoba_sim::{Fixed64, Vec2 as SimVec2};
 use specs::{Entities, Entity, ReadStorage};
 
 use crate::runtime::combat_controls::{
-    pack_canonical_entity_id, select_attack_target_with_policy, within_raw_range, AcquisitionIntent,
-    AttackCandidate, AttackQuery, CandidateLegality, CombatPolicy, OwnerCombatPreferences,
+    attack_reach, pack_canonical_entity_id, select_attack_target_with_policy, within_attack_reach,
+    AcquisitionIntent, AttackCandidate, AttackQuery, CandidateLegality, CombatPolicy,
+    OwnerCombatPreferences,
 };
 use crate::runtime::selective::CanonicalEntityKey;
 use crate::runtime::TeamVisibilityRuntime;
 
-use super::comp::{CProperty, Faction, PlayerOwner, Pos, Searcher};
+use super::comp::phys::MAX_COLLISION_RADIUS;
+use super::comp::{CProperty, CollisionRadius, Faction, PlayerOwner, Pos, Searcher};
+
+/// A body's attack-reach radius: its `CollisionRadius`, or zero without one (E555).
+/// CollisionRadius is disclosed to team replicas, so authority and replica agree.
+pub fn body_radius(radii: &ReadStorage<'_, CollisionRadius>, entity: Entity) -> Fixed64 {
+    radii.get(entity).map_or(Fixed64::ZERO, |radius| radius.0.max(Fixed64::ZERO))
+}
+
+/// [`body_radius`] for code that holds a `World` (E555). An unregistered storage is zero.
+pub fn world_body_radius(world: &specs::World, entity: Entity) -> Fixed64 {
+    use specs::WorldExt;
+    if !world.has_value::<specs::storage::MaskedStorage<CollisionRadius>>() {
+        return Fixed64::ZERO;
+    }
+    body_radius(&world.read_storage::<CollisionRadius>(), entity)
+}
 
 /// Optional admitted owner policy. Production initialization does not insert
 /// this resource. A test or a later transport increment may.
@@ -95,6 +112,8 @@ fn authority_source_team(faction: Option<&Faction>) -> Option<u32> {
 pub struct CombatAcquisitionView<'a, 'b> {
     pub entities: &'b Entities<'a>,
     pub positions: &'b ReadStorage<'a, Pos>,
+    /// Attack reach is edge to edge (E555).
+    pub radii: &'b ReadStorage<'a, CollisionRadius>,
     pub health: &'b ReadStorage<'a, CProperty>,
     pub factions: &'b ReadStorage<'a, Faction>,
     pub owners: &'b ReadStorage<'a, PlayerOwner>,
@@ -110,6 +129,20 @@ pub struct CombatAcquisitionView<'a, 'b> {
     pub disclosed_wards: Option<&'b crate::runtime::filtered_specs::DisclosedWardCandidates>,
     pub replica_identities: &'b ReadStorage<'a, crate::runtime::ReplicaIdentity>,
     pub ward_bodies: &'b ReadStorage<'a, crate::runtime::DisclosedWardBody>,
+    /// Statuses: an `invulnerable` unit is never an attack candidate (rules::vocab). None in
+    /// fixtures without a BuffStore.
+    pub buffs: Option<&'b crate::runtime::BuffStore>,
+}
+
+impl CombatAcquisitionView<'_, '_> {
+    pub fn radius(&self, entity: Entity) -> Fixed64 {
+        body_radius(self.radii, entity)
+    }
+
+    /// Edge-to-edge attack test between two bodies at the given positions (E555).
+    pub fn reaches(&self, source: Entity, from: SimVec2, target: Entity, to: SimVec2, range: Fixed64) -> bool {
+        within_attack_reach(from, to, range, self.radius(source), self.radius(target))
+    }
 }
 
 /// One hero's request. `AttackTarget` ignores `command_point` and the local slice.
@@ -206,11 +239,13 @@ fn read_candidate(
     let gated = match view.match_state {
         Some(state) => state.current_match_target_attackable(target),
         None => view.attack_gate.map(|gate| gate.allows(target)).unwrap_or(true),
-    };
+    } && view.buffs.is_none_or(|buffs| !super::rules::vocab::invulnerable(buffs, target)
+        && !super::rules::vocab::attack_immune(buffs, target) && !super::rules::vocab::unselectable(buffs, target));
     let key = entity_key(target);
     Some(AttackCandidate {
         key,
         position,
+        radius: view.radius(target),
         legality: CandidateLegality {
             alive: health.hp > Fixed64::ZERO && gated,
             hostile,
@@ -220,17 +255,24 @@ fn read_candidate(
     })
 }
 
-fn gather_local(view: &CombatAcquisitionView<'_, '_>, source: SimVec2, range: Fixed64) -> Vec<Entity> {
+fn gather_local(
+    view: &CombatAcquisitionView<'_, '_>,
+    source: SimVec2,
+    range: Fixed64,
+    source_radius: Fixed64,
+) -> Vec<Entity> {
     let center = vek::Vec2::new(source.x.to_f32_for_render(), source.y.to_f32_for_render());
-    let radius = range.to_f32_for_render();
+    // Coarse prefilter only: widened by the largest target body so it never
+    // drops a row the exact edge-to-edge test accepts (E555).
+    let radius = attack_reach(range, source_radius, Fixed64::ZERO).to_f32_for_render() + MAX_COLLISION_RADIUS;
     let mut found = Vec::new();
     found.extend(view.searcher.hero.entities_in_radius(center, radius));
     found.extend(view.searcher.creep.entities_in_radius(center, radius));
     found.extend(view.searcher.tower.entities_in_radius(center, radius));
     if let Some(state) = view.match_state {
-        found.extend(retained_ward_candidates(view, state, source, range));
+        found.extend(retained_ward_candidates(view, state, source, range, source_radius));
     } else if let Some(index) = view.disclosed_wards {
-        found.extend(disclosed_ward_candidates(view, index, source, range));
+        found.extend(disclosed_ward_candidates(view, index, source, range, source_radius));
     }
     found.sort_by_key(|entity| (entity.id(), entity.gen().id()));
     found.dedup();
@@ -244,6 +286,7 @@ fn retained_ward_candidates(
     state: &crate::runtime::MobaMatch,
     source: SimVec2,
     range: Fixed64,
+    source_radius: Fixed64,
 ) -> Vec<Entity> {
     let mut found = Vec::new();
     for slot in &state.heroes {
@@ -255,7 +298,7 @@ fn retained_ward_candidates(
             let Some(position) = view.positions.get(entity).map(|pos| pos.0) else {
                 continue;
             };
-            if within_raw_range(source, position, range) {
+            if within_attack_reach(source, position, range, source_radius, view.radius(entity)) {
                 found.push(entity);
             }
         }
@@ -269,6 +312,7 @@ fn disclosed_ward_candidates(
     index: &crate::runtime::filtered_specs::DisclosedWardCandidates,
     source: SimVec2,
     range: Fixed64,
+    source_radius: Fixed64,
 ) -> Vec<Entity> {
     let mut found = Vec::new();
     for (entity, row) in &index.rows {
@@ -290,7 +334,7 @@ fn disclosed_ward_candidates(
         let Some(position) = view.positions.get(*entity).map(|pos| pos.0) else {
             continue;
         };
-        if within_raw_range(source, position, range) {
+        if within_attack_reach(source, position, range, source_radius, view.radius(*entity)) {
             found.push(*entity);
         }
     }
@@ -324,8 +368,9 @@ pub fn acquire(view: &CombatAcquisitionView<'_, '_>, request: AcquisitionRequest
             Some(row)
         })
     } else {
-        if request.range.raw() > 0 {
-            for entity in gather_local(view, source_position, request.range) {
+        // Range 0 is melee contact (E555).
+        if request.range.raw() >= 0 {
+            for entity in gather_local(view, source_position, request.range, view.radius(request.source)) {
                 if entity == request.source || !ward_auto_ok(view, entity) {
                     continue;
                 }
@@ -342,6 +387,11 @@ pub fn acquire(view: &CombatAcquisitionView<'_, '_>, request: AcquisitionRequest
                 }
             }
         }
+        // low_attack_priority (rules::vocab): picked only when nothing else is in reach
+        if let Some(buffs) = view.buffs {
+            let low = |key: &CanonicalEntityKey| entities_by_key.get(key).is_some_and(|e| super::rules::vocab::low_attack_priority(buffs, *e));
+            if rows.iter().any(|row| !low(&row.key)) { rows.retain(|row| !low(&row.key)); }
+        }
         None
     };
 
@@ -352,6 +402,7 @@ pub fn acquire(view: &CombatAcquisitionView<'_, '_>, request: AcquisitionRequest
             source_position,
             command_point: request.command_point,
             range: request.range,
+            source_radius: view.radius(request.source),
             intent: request.intent,
             explicit_target: explicit,
             candidates: &rows,
@@ -851,6 +902,50 @@ mod tests {
         }
     }
 
+    fn give_radius(fix: &mut CombatFixture, entity: Entity, units: i32) {
+        let _ = fix.world.write_storage::<crate::comp::CollisionRadius>()
+            .insert(entity, crate::comp::CollisionRadius(Fixed64::from_i32(units)));
+    }
+
+    #[test]
+    fn range_zero_melee_hero_attacks_an_enemy_in_contact_and_holds_its_approach() {
+        // E555: hero body 16 + creep body 20 = contact at 36 units; range 0 reaches exactly that.
+        for kind in ["hash_grid", "bvh"] {
+            let mut fix = CombatFixture::legacy();
+            fix.use_backend(kind);
+            fix.set_range_raw(0);
+            let apart = fix.spawn_raw(IndexedBody::Creep, 36 * SCALE + 1, 0, 2, 100 * SCALE);
+            give_radius(&mut fix, apart, 20);
+            assert!(fix.attack_targets().is_empty(), "{kind}: one raw unit past contact is out of reach");
+            fix.command(HeroCommand::AttackTarget { target: apart, chase_origin: None });
+            fix.ready();
+            assert!(fix.run_command().moving, "{kind}: a body just out of reach is approached");
+
+            let contact = fix.spawn_units(IndexedBody::Creep, 36, 2, 100);
+            give_radius(&mut fix, contact, 20);
+            fix.idle();
+            assert_eq!(fix.attack_targets(), vec![contact], "{kind}: idle melee hits on contact");
+            fix.command(HeroCommand::AttackTarget { target: contact, chase_origin: None });
+            assert_eq!(fix.attack_targets(), vec![contact], "{kind}: direct melee hits on contact");
+            fix.ready();
+            let observation = fix.run_command();
+            assert!(!observation.moving, "{kind}: approach stops at the attack reach");
+            assert_eq!(observation.active, Some(HeroCommand::AttackTarget { target: contact, chase_origin: None }));
+        }
+    }
+
+    #[test]
+    fn ranged_reach_counts_both_bodies_and_the_prefilter_keeps_large_targets() {
+        // Range 40 + hero 16 + tower 50 = 106 units centre to centre (E555).
+        let mut fix = CombatFixture::legacy();
+        let tower = fix.spawn_raw(IndexedBody::Tower, 106 * SCALE, 0, 2, 100 * SCALE);
+        give_radius(&mut fix, tower, 50);
+        assert_eq!(fix.attack_targets(), vec![tower]);
+        fix.world.write_storage::<Pos>().get_mut(tower).unwrap().0 =
+            Vec2::new(Fixed64::from_raw(106 * SCALE + 1), Fixed64::ZERO);
+        assert!(fix.attack_targets().is_empty());
+    }
+
     #[test]
     fn hero_index_enemy_is_acquired_without_a_creep_row() {
         let mut fix = CombatFixture::legacy();
@@ -936,12 +1031,14 @@ mod tests {
                 fix.reverse_insertion = reverse;
                 fix.set_hero_raw(10_000_001, 0);
                 fix.set_range_raw(3);
-                let boundary = fix.spawn_raw(IndexedBody::Creep, 10_000_004, 0, 2, 100 * SCALE);
+                // Edge to edge (E555): range 3 raw past the hero's 16-unit body; the creep has none.
+                let edge = 10_000_004 + 16 * SCALE;
+                let boundary = fix.spawn_raw(IndexedBody::Creep, edge, 0, 2, 100 * SCALE);
                 let (targets, observation) = attack_move(&mut fix, 10_000_001);
                 assert_eq!(targets, vec![boundary], "{kind} reverse={reverse}");
                 assert!(held(&observation), "{kind} reverse={reverse}");
 
-                let next = fix.spawn_raw(IndexedBody::Creep, 10_000_005, 0, 2, 100 * SCALE);
+                let next = fix.spawn_raw(IndexedBody::Creep, edge + 1, 0, 2, 100 * SCALE);
                 assert_eq!(fix.attack_targets(), vec![boundary], "{kind} kept the next raw unit");
                 fix.delete(boundary);
                 assert!(fix.attack_targets().is_empty(), "{kind} acquired {next:?} past the raw range");
@@ -1047,6 +1144,7 @@ mod tests {
                 position: Vec2::ZERO,
                 radius: Fixed64::from_i32(30),
                 detection_level: 0,
+                ignores_terrain: false,
             }]
             .into(),
             brush_regions: Vec::new().into(),
@@ -1152,14 +1250,15 @@ mod tests {
         let mut outside = CombatFixture::legacy();
         outside.owner(4);
         outside.admit(preferences(4, AttackAcquisition::Cursor, true, false));
-        outside.spawn_units(IndexedBody::Creep, 50, 2, 100);
+        // Past range 40 + the hero's 16-unit body (E555).
+        outside.spawn_units(IndexedBody::Creep, 66, 2, 100);
         outside.command(HeroCommand::AttackMove {
-            pos: Vec2::new(Fixed64::from_i32(48), Fixed64::ZERO),
+            pos: Vec2::new(Fixed64::from_i32(64), Fixed64::ZERO),
         });
         assert!(outside.attack_targets().is_empty());
         outside.ready();
         outside.command(HeroCommand::AttackMove {
-            pos: Vec2::new(Fixed64::from_i32(48), Fixed64::ZERO),
+            pos: Vec2::new(Fixed64::from_i32(64), Fixed64::ZERO),
         });
         assert!(!held(&outside.run_command()));
     }
@@ -1254,6 +1353,75 @@ mod tests {
     }
 
     #[test]
+    fn idle_hero_answers_a_camp_that_hits_it_but_not_while_moving() {
+        let mut fix = CombatFixture::legacy();
+        let camp = fix.spawn_units(IndexedBody::Creep, 6, 0, 100);
+        fix.world.write_storage::<Faction>().get_mut(camp).unwrap().faction_id = FactionType::HostileNeutral;
+        let creep = fix.spawn_units(IndexedBody::Creep, 4, 2, 100);
+        fix.authority();
+        fix.world.write_resource::<crate::runtime::MobaMatch>().config.game_rules = omoba_template_ids::GAME_RULES;
+        fix.commit(1, &[camp, creep]);
+        fix.idle();
+        assert_eq!(fix.attack_targets(), vec![creep], "idle acquisition never pulls a camp on its own");
+        let now = fix.world.read_resource::<crate::runtime::MobaMatch>().elapsed;
+        crate::runtime::native::retaliation::record(&mut fix.world, camp, fix.hero, now);
+        assert_eq!(fix.attack_targets(), vec![camp], "idle and hit by the camp: answer it, before the nearer creep");
+        // A move order wins: no automatic attack while moving.
+        fix.command(HeroCommand::MoveTo { pos: away_from(0) });
+        fix.ready();
+        fix.rebuild();
+        fix.world.write_storage::<crate::runtime::MoveTarget>().insert(fix.hero, crate::runtime::MoveTarget(away_from(0))).unwrap();
+        fix.world.write_resource::<Vec<Outcome>>().clear();
+        run_now::<hero_tick::Sys>(&fix.world);
+        assert!(!fix.world.read_resource::<Vec<Outcome>>().iter().any(|o| matches!(o, Outcome::AttackPhaseCue { .. })),
+            "moving: no retaliation");
+        // Stopping restores it.
+        fix.idle();
+        assert_eq!(fix.attack_targets(), vec![camp], "stopped: retaliation resumes");
+        // Out of attack range: the ordinary idle rule.
+        fix.world.write_storage::<Pos>().get_mut(camp).unwrap().0 = Vec2::new(Fixed64::from_i32(400), Fixed64::ZERO);
+        fix.rebuild();
+        assert_eq!(fix.attack_targets(), vec![creep]);
+        // The hit expires after the window.
+        fix.world.write_storage::<Pos>().get_mut(camp).unwrap().0 = Vec2::new(Fixed64::from_i32(6), Fixed64::ZERO);
+        fix.world.write_resource::<crate::runtime::MobaMatch>().elapsed =
+            now + Fixed64::from_i32(crate::runtime::native::retaliation::WINDOW_SECONDS + 1);
+        assert_eq!(fix.attack_targets(), vec![creep], "an old hit does not keep the hero on the camp");
+    }
+
+    #[test]
+    fn idle_hero_goes_after_enemies_and_attackers_within_acquisition_range() {
+        let rules = omoba_template_ids::GAME_RULES.expect("the catalog carries game_rules");
+        let acquisition = rules.hero_acquisition_range as i32;
+        let mut fix = CombatFixture::legacy();
+        let creep = fix.spawn_units(IndexedBody::Creep, acquisition - 100, 2, 100);
+        let camp = fix.spawn_units(IndexedBody::Creep, -(acquisition - 200), 0, 100);
+        fix.world.write_storage::<Faction>().get_mut(camp).unwrap().faction_id = FactionType::HostileNeutral;
+        let far = fix.spawn_units(IndexedBody::Creep, acquisition + 400, 2, 100);
+        fix.authority();
+        fix.world.write_resource::<crate::runtime::MobaMatch>().config.game_rules = Some(rules);
+        fix.commit(1, &[creep, camp, far]);
+        fix.idle();
+        let observed = fix.run_command();
+        assert_eq!(observed.active, Some(HeroCommand::AttackTarget { target: creep, chase_origin: Some(Vec2::ZERO) }),
+            "idle: the nearest enemy within acquisition range, never a camp on its own");
+        assert!(observed.moving);
+        // Hit by the camp: it is chased first.
+        fix.idle();
+        let now = fix.world.read_resource::<crate::runtime::MobaMatch>().elapsed;
+        crate::runtime::native::retaliation::record(&mut fix.world, camp, fix.hero, now);
+        assert!(matches!(fix.run_command().active, Some(HeroCommand::AttackTarget { target, .. }) if target == camp));
+        // An order wins: a move is never replaced.
+        fix.command(HeroCommand::MoveTo { pos: away_from(0) });
+        assert!(matches!(fix.run_command().active, Some(HeroCommand::MoveTo { .. })));
+        // Nothing within acquisition range: stay idle.
+        fix.delete(creep);
+        fix.delete(camp);
+        fix.idle();
+        assert_eq!(fix.run_command().active, None);
+    }
+
+    #[test]
     fn attack_move_windup_still_holds_and_dead_explicit_target_does_not() {
         let mut fix = CombatFixture::legacy();
         fix.command(HeroCommand::AttackMove { pos: away_from(0) });
@@ -1323,10 +1491,12 @@ mod tests {
             let searcher = fix.world.read_resource::<Searcher>();
             let identities = fix.world.read_storage::<crate::runtime::ReplicaIdentity>();
             let bodies = fix.world.read_storage::<crate::runtime::DisclosedWardBody>();
+            let radii = fix.world.read_storage::<crate::comp::CollisionRadius>();
             let heroes: BTreeSet<Entity> = fix.hero_rows.iter().copied().collect();
             let view = CombatAcquisitionView {
                 entities: &entities,
                 positions: &positions,
+                radii: &radii,
                 health: &health,
                 factions: &factions,
                 owners: &owners,
@@ -1339,6 +1509,7 @@ mod tests {
                 disclosed_wards: None,
                 replica_identities: &identities,
                 ward_bodies: &bodies,
+                buffs: None,
             };
             assess_direct_target(&view, fix.hero, target)
         };

@@ -46,6 +46,77 @@ pub mod projection_policy_ids {
     pub const ITEM: &str = "item.v1";
 }
 
+/// One host-owned channel pulse passed to `AbilityScript::on_channel_pulse`.
+/// `level` is the rank locked at cast; `index` counts from 1 to `total`;
+/// `elapsed` is `index * interval`; `anchor` is the pulse center (the cast
+/// origin, the cast point, or the anchored unit's current position).
+#[repr(C)]
+#[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ChannelPulse {
+    pub level: u8,
+    pub index: u16,
+    pub total: u16,
+    pub elapsed: Fixed64,
+    pub anchor: Vec2,
+}
+
+/// One `on_scheduled` call (omoba-core `scheduled_effect`): the rank, step and instance the
+/// schedule was made with.
+#[repr(C)]
+#[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Scheduled {
+    pub level: u8,
+    pub step: u16,
+    pub instance: u32,
+}
+
+/// One `on_status_event` call (omoba-core `status_event`). `kind`: 0 expired, 1 removed or
+/// dispelled, 2 the holder's buffs cleared (death), 3 the holder's attack hit `other`, 4 the
+/// holder was hit by `other`'s attack, 5 the holder took `amount` damage from `other`, 6 the holder
+/// dealt `amount` to `other`. `damage_kind` (5, 6, 7, 8): 0 physical, 1 magical, 2 pure in the low
+/// bits ([`StatusEvent::DAMAGE_TYPE_MASK`]), plus [`StatusEvent::REFLECTION`] for reflected damage.
+#[repr(C)]
+#[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq)]
+pub struct StatusEvent {
+    pub kind: u8,
+    pub level: u8,
+    pub source: EntityHandle,
+    pub other: EntityHandle,
+    pub amount: Fixed64,
+    pub damage_kind: u8,
+    /// The instance `n` of a `stacking = "independent"` status row `<runtime id>#<n>` the event is
+    /// for (each instance hears its own events); 0 for any other row.
+    pub instance: u32,
+}
+
+/// What an `on_damage_pre` hook does to the packet: `mode` 0 keeps it, 1 multiplies every damage
+/// kind by `value`, 2 lowers the total to `value` (split in proportion), 3 cancels it.
+#[repr(C)]
+#[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq)]
+pub struct DamageEdit {
+    pub mode: u8,
+    pub value: Fixed64,
+}
+
+impl DamageEdit {
+    pub const KEEP_MODE: u8 = 0;
+    pub const MULTIPLY: u8 = 1;
+    pub const SET: u8 = 2;
+    pub const CANCEL: u8 = 3;
+    pub const KEEP: Self = Self { mode: 0, value: Fixed64::ZERO };
+}
+
+/// A value captured by a schedule. `kind` 0 = `num`, 1 = `unit`, 2 = `point`; the other fields
+/// are zero / invalid.
+#[repr(C)]
+#[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ScheduleArg {
+    pub kind: u8,
+    pub num: Fixed64,
+    pub unit: EntityHandle,
+    pub point: Vec2,
+}
+
 /// 遊戲實體的不透明句柄。主機與“specs::Entity”之間進行轉換。
 #[repr(C)]
 #[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -72,6 +143,24 @@ pub enum DamageKind {
     Pure,
 }
 
+impl StatusEvent {
+    /// `damage_kind` bit: the damage was a reflection (v3 damage flag `reflection`, read as
+    /// `event.damage.is_reflection`).
+    pub const REFLECTION: u8 = 0x10;
+    /// `damage_kind` bit of a landed hit (on_take_damage / on_deal_damage / on_kill): it killed
+    /// its target (v3 `event.damage.lethal`, E452).
+    pub const LETHAL: u8 = 0x20;
+    /// `damage_kind` bit of a landed hit: it was a basic attack's damage, instant or by projectile
+    /// (v3 `event.damage.is_attack`, E475).
+    pub const ATTACK: u8 = 0x40;
+    /// The damage type part of `damage_kind`.
+    pub const DAMAGE_TYPE_MASK: u8 = 0x0f;
+    pub const fn damage_type(&self) -> u8 { self.damage_kind & Self::DAMAGE_TYPE_MASK }
+    pub const fn is_reflection(&self) -> bool { self.damage_kind & Self::REFLECTION != 0 }
+    pub const fn is_lethal(&self) -> bool { self.damage_kind & Self::LETHAL != 0 }
+    pub const fn is_attack(&self) -> bool { self.damage_kind & Self::ATTACK != 0 }
+}
+
 pub const DAMAGE_PROFILE_ABI_VERSION: u16 = 1;
 
 /// Stable TD damage compatibility mask. Bit assignments are append-only ABI.
@@ -88,10 +177,38 @@ impl DamageProfile {
     pub const NORMAL: Self = Self(1 << 5);
     pub const CRUSHING: Self = Self(1 << 6);
     pub const TRUE: Self = Self(1 << 7);
-    pub const KNOWN_BITS: u32 = (1 << 8) - 1;
+    /// The damage types above; every packet carries at least one.
+    pub const TYPE_BITS: u32 = (1 << 8) - 1;
+    /// Not a type: the packet is dealt by an ability or item (Dota's damage with an inflictor),
+    /// so the source's spell amplification scales it (E188, runtime spell_amplify.rs). Attacks
+    /// and scripts that dealt inflictor-less damage in the source (AMHC:Damage) never set it.
+    /// The settlement strips it before TD layers and presentation see the profile.
+    pub const SPELL: Self = Self(1 << 8);
+    /// Not a type: the packet is dropped when its source is no longer alive at settlement
+    /// (the source's `AMHC:Damage`, amhc.lua:540, returns without damage once the attacker is
+    /// dead; omoba-core `rules::damage`). Stripped with SPELL before TD layers and presentation.
+    pub const REQUIRE_SOURCE_ALIVE: Self = Self(1 << 9);
+    /// Not a type: v3 damage flag `ignore_armor` — the physical part ignores the target's armor
+    /// (omoba-core `rules::damage::defenses`). Stripped with SPELL.
+    pub const IGNORE_ARMOR: Self = Self(1 << 10);
+    /// Not a type: v3 damage flag `hp_removal` — life removal (a cost paid in health): shields do
+    /// not absorb it (omoba-core `handle_damage`). Stripped with SPELL.
+    pub const HP_REMOVAL: Self = Self(1 << 11);
+    /// Not a type: v3 damage flag `reflection` — damage returned to an attacker; status events
+    /// report it (`StatusEvent::REFLECTION`) so reflections do not reflect again. Stripped with SPELL.
+    pub const REFLECTION: Self = Self(1 << 12);
+    /// Not a type: v3 damage flag `no_source_bonuses` — the source deals it as the original's
+    /// dummy unit would: none of the source's bonuses (spell amplification, outgoing damage,
+    /// its on_deal_damage_pre statuses, an illusion's outgoing scale) apply, while the kill still
+    /// credits the source (omoba-core `rules::damage`). Stripped with SPELL.
+    pub const NO_SOURCE_BONUSES: Self = Self(1 << 13);
+    /// The non-type marks above.
+    pub const FLAG_BITS: u32 = Self::SPELL.0 | Self::REQUIRE_SOURCE_ALIVE.0 | Self::IGNORE_ARMOR.0 | Self::HP_REMOVAL.0
+        | Self::REFLECTION.0 | Self::NO_SOURCE_BONUSES.0;
+    pub const KNOWN_BITS: u32 = Self::TYPE_BITS | Self::FLAG_BITS;
 
     pub const fn from_bits(bits: u32) -> Option<Self> {
-        if bits != 0 && bits & !Self::KNOWN_BITS == 0 {
+        if bits & Self::TYPE_BITS != 0 && bits & !Self::KNOWN_BITS == 0 {
             Some(Self(bits))
         } else {
             None
@@ -360,7 +477,19 @@ mod tests {
     #[test]
     fn damage_profile_rejects_zero_and_unknown_bits() {
         assert_eq!(DamageProfile::from_bits(0), None);
-        assert_eq!(DamageProfile::from_bits(1 << 8), None);
+        assert_eq!(DamageProfile::from_bits(1 << 9), None);
+        // SPELL marks a typed packet; it is not a type of its own.
+        assert_eq!(DamageProfile::from_bits(DamageProfile::SPELL.bits()), None);
+        let spell = DamageProfile::ENERGY.union(DamageProfile::SPELL);
+        assert_eq!(DamageProfile::from_bits(spell.bits()), Some(spell));
+        let alive = DamageProfile::NORMAL.union(DamageProfile::REQUIRE_SOURCE_ALIVE);
+        assert_eq!(DamageProfile::from_bits(alive.bits()), Some(alive));
+        let flagged = DamageProfile::NORMAL.union(DamageProfile::IGNORE_ARMOR).union(DamageProfile::HP_REMOVAL);
+        assert_eq!(DamageProfile::from_bits(flagged.bits()), Some(flagged));
+        // 1 << 13 is NO_SOURCE_BONUSES (E393); the first unused bit is 1 << 14.
+        let plain = DamageProfile::NORMAL.union(DamageProfile::NO_SOURCE_BONUSES);
+        assert_eq!(DamageProfile::from_bits(plain.bits()), Some(plain));
+        assert_eq!(DamageProfile::from_bits(DamageProfile::NORMAL.bits() | (1 << 14)), None);
         assert_eq!(
             DamageProfile::from_bits(DamageProfile::KNOWN_BITS | (1 << 31)),
             None

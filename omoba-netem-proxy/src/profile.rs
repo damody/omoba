@@ -14,7 +14,12 @@ pub struct DelayProfile {
     pub name: String,
     pub weights: [u64; RTT_BUCKET_COUNT],
     pub total_weight: u64,
+    /// Independent datagram loss per direction, in parts per million (0 = lossless).
+    #[serde(default)]
+    pub loss_ppm: u32,
 }
+
+pub const LOSS_PPM_MAX: u32 = 200_000;
 
 impl DelayProfile {
     pub fn new(name: impl Into<String>, weights: Vec<u64>) -> Result<Self> {
@@ -37,23 +42,39 @@ impl DelayProfile {
             name: name.into(),
             weights,
             total_weight,
+            loss_ppm: 0,
         })
+    }
+
+    pub fn with_loss_ppm(mut self, loss_ppm: u32) -> Result<Self> {
+        if loss_ppm > LOSS_PPM_MAX {
+            return Err(NetemError::Config(format!("loss_ppm must be at most {LOSS_PPM_MAX}")));
+        }
+        self.loss_ppm = loss_ppm;
+        Ok(self)
     }
 
     pub fn load_custom(path: &Path) -> Result<Self> {
         #[derive(Deserialize)]
         struct Custom {
             weights: Vec<u64>,
+            #[serde(default)]
+            loss_ppm: u32,
         }
         let bytes = fs::read(path).map_err(|error| NetemError::Config(error.to_string()))?;
         let value: Custom = serde_json::from_slice(&bytes)
             .map_err(|error| NetemError::Config(error.to_string()))?;
-        Self::new("custom-20-bin", value.weights)
+        Self::new("custom-20-bin", value.weights)?.with_loss_ppm(value.loss_ppm)
     }
 
     pub fn named(name: &str) -> Result<Self> {
         let mut weights = vec![0_u64; RTT_BUCKET_COUNT];
         match name {
+            // The plan's network-matrix point: 80 ms RTT, +/-20 ms jitter, 1% loss.
+            "wan-80-20-loss1" => {
+                weights[10..].fill(1);
+                return Self::new(name, weights)?.with_loss_ppm(10_000);
+            }
             "fixed-20" => weights[0] = 1,
             "fixed-60" => weights[10] = 1,
             "fixed-100" => weights[19] = 1,

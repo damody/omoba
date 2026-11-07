@@ -15,6 +15,9 @@ const VERSION: u32 = 1;
 mod workflow_supervisor;
 mod owned_run;
 mod elevated_run;
+mod junction;
+mod png_recolor;
+mod png_square;
 
 #[cfg(windows)]
 fn monotonic_ms() -> Result<Value, String> {
@@ -26,6 +29,24 @@ fn monotonic_ms() -> Result<Value, String> {
 #[cfg(not(windows))]
 fn monotonic_ms() -> Result<Value, String> {
     Err("monotonic workflow clock is not supported on this platform; no wall-clock fallback".into())
+}
+
+// System commit and memory (E441): batch runners start a worker only while the machine has
+// commit to spare, so parallel workloads of several sessions do not exhaust it together.
+#[cfg(windows)]
+fn memory_status() -> Result<Value, String> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+    status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
+        return Err(format!("GlobalMemoryStatusEx failed: {}", std::io::Error::last_os_error()));
+    }
+    Ok(json!({"available_commit_bytes": status.ullAvailPageFile, "commit_limit_bytes": status.ullTotalPageFile,
+        "available_physical_bytes": status.ullAvailPhys, "total_physical_bytes": status.ullTotalPhys}))
+}
+#[cfg(not(windows))]
+fn memory_status() -> Result<Value, String> {
+    Err("memory_status is not supported on this platform".into())
 }
 
 #[derive(Deserialize)]
@@ -314,9 +335,37 @@ fn owned_identity_from_handle(handle: windows_sys::Win32::Foundation::HANDLE, pi
 #[cfg(windows)]
 fn inspect_owned(params: &Value) -> Result<Value, String> {
     let pid = required_u32(params, "pid")?;
+    // Optional: the creation token the caller recorded. A different one means the PID was reused.
+    let expected = if params.get("creation_token").is_some() { Some(creation_token(params)?) } else { None };
     let Some(handle) = open_owned_process(pid, false)? else { return Ok(json!({"pid":pid,"alive":false})); };
     if !owned_handle_alive(handle.0)? { return Ok(json!({"pid":pid,"alive":false})); }
+    if pid_reused(handle.0, expected) { return Ok(json!({"pid":pid,"alive":false,"reused":true})); }
     Ok(live_owned_identity(handle.0,pid)?.unwrap_or_else(||json!({"pid":pid,"alive":false})))
+}
+
+// The PID now names a different process than the one the caller recorded (E210): its creation time
+// differs. A protected process that took over the PID may refuse the image query (access denied),
+// but it still has its own creation time, so it is never mistaken for the caller's process. When the
+// time cannot be read either, this says nothing and the full identity query decides as before.
+#[cfg(windows)]
+fn pid_reused(handle: windows_sys::Win32::Foundation::HANDLE, expected: Option<u64>) -> bool {
+    match (expected, process_creation_token(handle)) {
+        (Some(expected), Some(actual)) => token_differs(expected, actual),
+        _ => false,
+    }
+}
+
+fn token_differs(expected: u64, actual: u64) -> bool { expected != actual }
+
+#[cfg(windows)]
+fn process_creation_token(handle: windows_sys::Win32::Foundation::HANDLE) -> Option<u64> {
+    use windows_sys::Win32::{Foundation::FILETIME, System::Threading::GetProcessTimes};
+    let mut creation: FILETIME = unsafe { std::mem::zeroed() };
+    let mut exit: FILETIME = unsafe { std::mem::zeroed() };
+    let mut kernel: FILETIME = unsafe { std::mem::zeroed() };
+    let mut user: FILETIME = unsafe { std::mem::zeroed() };
+    if unsafe { GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user) } == 0 { return None; }
+    Some((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
 }
 
 // A process can finish after a successful zero-duration wait but before the
@@ -343,6 +392,25 @@ mod owned_query_race_tests {
     #[test] fn failed_wait_is_not_retirement() {
         let error=settle_owned_query::<u32>(Err("access denied".into()),||Err("wait failed".into())).unwrap_err();
         assert!(error.contains("access denied") && error.contains("wait failed"));
+    }
+    #[test] fn a_different_creation_token_is_pid_reuse() {
+        assert!(super::token_differs(1, 2));
+        assert!(!super::token_differs(7, 7));
+    }
+    #[cfg(windows)]
+    #[test] fn inspect_with_a_foreign_token_reports_reuse_without_touching_the_process() {
+        let mut child = spawn_held_child();
+        let pid = child.id();
+        let own = super::inspect_owned(&serde_json::json!({"pid": pid})).expect("inspect");
+        let token: u64 = own["creation_token"].as_str().expect("token").parse().expect("number");
+        let foreign = super::inspect_owned(&serde_json::json!({"pid": pid, "creation_token": (token + 1).to_string()})).expect("inspect");
+        assert_eq!(foreign["alive"], false);
+        assert_eq!(foreign["reused"], true);
+        let same = super::inspect_owned(&serde_json::json!({"pid": pid, "creation_token": token.to_string()})).expect("inspect");
+        assert_eq!(same["alive"], true);
+        assert!(child.try_wait().expect("try_wait").is_none(), "inspection must not touch the process");
+        let _ = child.kill();
+        let _ = child.wait();
     }
     #[test] fn successful_identity_needs_no_error_recovery() {
         assert_eq!(settle_owned_query(Ok(42),||panic!("unexpected recheck")).unwrap(),Some(42));
@@ -681,6 +749,7 @@ fn stop_owned(params: &Value) -> Result<Value, String> {
     let expected = fs::canonicalize(required_str(params, "expected_exe")?).map_err(|e| e.to_string())?;
     let Some(handle) = open_owned_process(pid, true)? else { return Ok(json!({"pid":pid,"stopped":false})); };
     if !owned_handle_alive(handle.0)? { return Ok(json!({"pid":pid,"stopped":false})); }
+    if pid_reused(handle.0, Some(token)) { return Ok(json!({"pid":pid,"stopped":false,"reused":true})); }
     let Some(identity) = live_owned_identity(handle.0,pid)? else { return Ok(json!({"pid":pid,"stopped":false})); };
     let actual = fs::canonicalize(required_str(&identity, "path")?).map_err(|e| e.to_string())?;
     if actual != expected || creation_token(&identity)? != token {
@@ -1271,6 +1340,7 @@ fn dispatch(request: &Request) -> Result<Value, String> {
     match request.operation.as_str() {
         "workflow_supervise" => workflow_supervisor::supervise(&request.params),
         "workflow_member" => workflow_supervisor::member(&request.params),
+        "caller_owned" => workflow_supervisor::caller(&request.params),
         "run" => run_command(&request.params),
         "run_elevated" => elevated_run::run(&request.params),
         "spawn" => spawn(&request.params),
@@ -1281,18 +1351,24 @@ fn dispatch(request: &Request) -> Result<Value, String> {
         "cpu_capacity" => Ok(json!({"logical_cpus": std::thread::available_parallelism()
             .map_err(|e| format!("cannot query CPU capacity: {e}"))?.get()})),
         "monotonic_ms" => monotonic_ms(),
+        "memory_status" => memory_status(),
         "stop" => stop(&request.params),
         "stop_owned" => stop_owned(&request.params),
         "close_window" => close_window(&request.params),
         "close_window_owned" => close_window_owned(&request.params),
         "udp_send" => udp(&request.params),
         "sha256" => sha256(&request.params),
+        "junction_create" => junction::create(&request.params),
+        "junction_inspect" => junction::inspect(&request.params),
+        "junction_remove" => junction::remove(&request.params),
         "wait" => wait_for(&request.params),
         "wait_owned" => wait_owned(&request.params),
         "sleep" => sleep(&request.params),
         "memory_dump" => memory_dump(&request.params),
         "screenshot" => screenshot(&request.params),
         "toml_update_sections" => toml_update_sections(&request.params),
+        "png_recolor" => png_recolor::run(&request.params),
+        "png_square_icon" => png_square::run(&request.params),
         other => Err(format!("unknown operation {other}")),
     }
 }

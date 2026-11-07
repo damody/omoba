@@ -549,6 +549,58 @@ pub struct AttackTarget {
     #[prost(bool, tag = "2")]
     pub queued: bool,
 }
+/// Distinct from hero movement. References bind the current owner and summon
+/// generations; operation 1=MoveTo(point required), 2=Release(point forbidden),
+/// 3=Cast(ability required: one the summon holds as a unit ability; point for a
+/// point-target ability, target for a unit-target one, else neither). `ability`
+/// is empty for 1 and 2; `target` is only on a cast and never with a point.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OwnedSummonOrder {
+    #[prost(uint32, tag = "1")]
+    pub owner_entity: u32,
+    #[prost(uint32, tag = "2")]
+    pub owner_generation: u32,
+    #[prost(uint32, tag = "3")]
+    pub summon_entity: u32,
+    #[prost(uint32, tag = "4")]
+    pub summon_generation: u32,
+    #[prost(uint32, tag = "5")]
+    pub operation: u32,
+    #[prost(message, optional, tag = "6")]
+    pub point: ::core::option::Option<Vec2I>,
+    #[prost(string, tag = "7")]
+    pub ability: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "8")]
+    pub target: ::core::option::Option<SummonOrderTarget>,
+}
+/// A unit-target summon cast's target life (D19). Zeroed with the other lives
+/// in the ACK replicas receive.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct SummonOrderTarget {
+    #[prost(uint32, tag = "1")]
+    pub entity: u32,
+    #[prost(uint32, tag = "2")]
+    pub generation: u32,
+}
+/// Client-only opaque references. The authenticated edge converts this into
+/// OwnedSummonOrder; canonical lives never occur in this payload or an ACK.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SummonCommandInput {
+    #[prost(message, optional, tag = "1")]
+    pub owner: ::core::option::Option<SecureReplicaTarget>,
+    #[prost(message, optional, tag = "2")]
+    pub summon: ::core::option::Option<SecureReplicaTarget>,
+    #[prost(uint32, tag = "3")]
+    pub operation: u32,
+    #[prost(message, optional, tag = "4")]
+    pub point: ::core::option::Option<Vec2I>,
+    #[prost(string, tag = "5")]
+    pub ability: ::prost::alloc::string::String,
+    /// A unit-target cast's target (operation 3 only, never with a point): any
+    /// unit the team sees, resolved at the edge like a hero's unit-target cast.
+    #[prost(message, optional, tag = "6")]
+    pub target: ::core::option::Option<SecureReplicaTarget>,
+}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct AttackMove {
     /// world position to attack-move toward
@@ -832,7 +884,7 @@ pub struct CombatPreferencesProjection {
 pub struct PlayerInput {
     #[prost(
         oneof = "player_input::Action",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30, 31"
     )]
     pub action: ::core::option::Option<player_input::Action>,
 }
@@ -894,8 +946,18 @@ pub mod player_input {
         InputScheme(super::InputSchemeUpdate),
         #[prost(message, tag = "28")]
         Direction(super::HeroDirectionInput),
+        #[prost(message, tag = "29")]
+        OwnedSummonOrder(super::OwnedSummonOrder),
+        #[prost(message, tag = "30")]
+        SummonCommand(super::SummonCommandInput),
+        #[prost(message, tag = "31")]
+        ShowcaseResetHero(super::ShowcaseResetHero),
     }
 }
+/// A recorded demonstration's segment change: the sender's hero and the stage's held seats lose what
+/// the last segment put on them. Refused off a showcase stage.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ShowcaseResetHero {}
 /// 沙箱/測試：直接生成一隻指定種類的 creep（BTD6 沙箱「發送氣球」對應）。
 /// emitter_index 是 creep_emiters BTreeMap 的排序位置（決定性順序）。
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
@@ -1049,6 +1111,16 @@ pub struct JoinRequest {
     pub ward_protocol_version: u32,
     #[prost(string, tag = "21")]
     pub ward_rules_hash: ::prost::alloc::string::String,
+    /// Rejoin: the secret the server issued to this player in its last TeamGameStart.
+    /// Empty on a first join. A player that has joined before must present the
+    /// latest one; any other value is refused, so nobody can claim a held hero.
+    #[prost(bytes = "vec", tag = "22")]
+    pub resume_token: ::prost::alloc::vec::Vec<u8>,
+    /// M3': SHA-256 of the script DLL set the client loaded (omoba-core scripting::loader
+    /// script_modules_hash). A player must match the authority's set; empty only when the
+    /// authority loaded no DLL either.
+    #[prost(string, tag = "23")]
+    pub script_modules_hash: ::prost::alloc::string::String,
 }
 /// Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
 /// initial SimSnapshot to bootstrap the client.
@@ -1267,6 +1339,10 @@ pub struct TeamGameStart {
     pub owner_ward_envelope: ::core::option::Option<OwnerWardEnvelope>,
     #[prost(message, optional, tag = "37")]
     pub combat_preferences: ::core::option::Option<CombatPreferencesProjection>,
+    /// Unicast secret for this player's next rejoin (rotated on every join).
+    /// Never logged, never part of any hash.
+    #[prost(bytes = "vec", tag = "38")]
+    pub resume_token: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RevealEntity {
@@ -1588,6 +1664,22 @@ pub struct TeamTickFrame {
     pub authoritative_mode: ::core::option::Option<AuthoritativeModePresentation>,
     #[prost(message, optional, tag = "15")]
     pub combat_preferences: ::core::option::Option<CombatPreferencesProjection>,
+    /// M3' ② dev hot reload only (authority started with OMB_SCRIPT_HOT_DIR): script DLLs the
+    /// authority swapped before stepping this frame's tick. A replica swaps the same files
+    /// (same machine, absolute path, digest checked) before stepping this frame. Empty otherwise.
+    #[prost(message, repeated, tag = "16")]
+    pub script_module_swaps: ::prost::alloc::vec::Vec<ScriptModuleSwap>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ScriptModuleSwap {
+    #[prost(string, tag = "1")]
+    pub module: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub file: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub sha256: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "4")]
+    pub generation: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct TeamReplayRequest {
@@ -1961,6 +2053,61 @@ pub struct TeamPresentationSnapshot {
     >,
     #[prost(message, optional, tag = "27")]
     pub combat_preferences: ::core::option::Option<CombatPreferencesProjection>,
+    /// Indices into the compiled map's trees (MobaMapConst::trees) that are down now (E242); the
+    /// renderer draws the map's trees minus these. Public: every team sees the same trees.
+    #[prost(uint32, repeated, tag = "28")]
+    pub fallen_trees: ::prost::alloc::vec::Vec<u32>,
+    /// Runtime facts of the latest frame (runtime_fact_state): ground zones of disclosed casters,
+    /// tethers whose two ends are both disclosed, and this team's own illusions. Replayed while listed.
+    #[prost(message, repeated, tag = "29")]
+    pub ground_zones: ::prost::alloc::vec::Vec<PresentationGroundZone>,
+    #[prost(message, repeated, tag = "30")]
+    pub links: ::prost::alloc::vec::Vec<PresentationLink>,
+    #[prost(message, repeated, tag = "31")]
+    pub illusions: ::prost::alloc::vec::Vec<PresentationEntityKey>,
+    /// 0 unknown, 1 day, 2 night (public temporary_night).
+    #[prost(uint32, tag = "32")]
+    pub time_of_day: u32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct PresentationEntityKey {
+    #[prost(uint64, tag = "1")]
+    pub render_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub disclosure_epoch: u64,
+}
+/// A ground zone held by a disclosed caster: the disc at (x, y), or the capsule to (end_x, end_y).
+/// Q10 world coordinates. The key is stable for the zone's life and salted per team.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PresentationGroundZone {
+    #[prost(uint64, tag = "1")]
+    pub zone_key: u64,
+    #[prost(message, optional, tag = "2")]
+    pub source: ::core::option::Option<PresentationEntityKey>,
+    #[prost(string, tag = "3")]
+    pub cue_id: ::prost::alloc::string::String,
+    #[prost(sint64, tag = "4")]
+    pub x_raw: i64,
+    #[prost(sint64, tag = "5")]
+    pub y_raw: i64,
+    #[prost(sint64, tag = "6")]
+    pub end_x_raw: i64,
+    #[prost(sint64, tag = "7")]
+    pub end_y_raw: i64,
+    #[prost(sint64, tag = "8")]
+    pub radius_raw: i64,
+}
+/// A tether from source to target; both ends are disclosed to this team.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PresentationLink {
+    #[prost(uint64, tag = "1")]
+    pub link_key: u64,
+    #[prost(message, optional, tag = "2")]
+    pub source: ::core::option::Option<PresentationEntityKey>,
+    #[prost(message, optional, tag = "3")]
+    pub target: ::core::option::Option<PresentationEntityKey>,
+    #[prost(string, tag = "4")]
+    pub cue_id: ::prost::alloc::string::String,
 }
 /// Bounded owner+epoch+actor+renderer-request+authority-input row.
 /// phase: 1 forwarded, 2 applied to presentation, 3 transport uncertain, 4 local rejected.
@@ -2121,6 +2268,22 @@ pub struct AbilityHudPresentation {
     pub total_cooldown_raw: i64,
     #[prost(message, optional, tag = "6")]
     pub cast: ::core::option::Option<AbilityCastPresentation>,
+    /// 0 unavailable, 1 affordable, 2 short, 3 invalid
+    #[prost(uint32, tag = "7")]
+    pub mana_cost_state: u32,
+    #[prost(sint64, tag = "8")]
+    pub effective_mana_cost_raw: i64,
+    /// G-2 stored uses. max_charges 0 means an ordinary cooldown-only ability.
+    #[prost(uint32, tag = "9")]
+    pub max_charges: u32,
+    #[prost(uint32, tag = "10")]
+    pub charges: u32,
+    /// Fixed64 seconds to the next restored use; 0 when full
+    #[prost(sint64, tag = "11")]
+    pub charge_remaining_raw: i64,
+    /// Fixed64 seconds per restored use at the current rank
+    #[prost(sint64, tag = "12")]
+    pub charge_total_raw: i64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct AbilityCastPresentation {
@@ -2356,6 +2519,8 @@ pub mod runtime_session_state {
         Stalled = 2,
         ServerDisconnected = 3,
         Terminated = 4,
+        /// Link lost; the runtime keeps retrying the same match until it ends or the player gives up.
+        Reconnecting = 5,
     }
     impl State {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -2369,6 +2534,7 @@ pub mod runtime_session_state {
                 Self::Stalled => "STALLED",
                 Self::ServerDisconnected => "SERVER_DISCONNECTED",
                 Self::Terminated => "TERMINATED",
+                Self::Reconnecting => "RECONNECTING",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2379,6 +2545,7 @@ pub mod runtime_session_state {
                 "STALLED" => Some(Self::Stalled),
                 "SERVER_DISCONNECTED" => Some(Self::ServerDisconnected),
                 "TERMINATED" => Some(Self::Terminated),
+                "RECONNECTING" => Some(Self::Reconnecting),
                 _ => None,
             }
         }
@@ -2521,7 +2688,7 @@ pub struct RendererInput {
     pub disclosure_epoch: u64,
     #[prost(
         oneof = "renderer_input::Intent",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30, 31, 32"
     )]
     pub intent: ::core::option::Option<renderer_input::Intent>,
 }
@@ -2567,6 +2734,10 @@ pub mod renderer_input {
         InputScheme(super::InputSchemeUpdate),
         #[prost(message, tag = "30")]
         Direction(super::RendererDirectionIntent),
+        #[prost(message, tag = "31")]
+        SummonCommand(super::SummonCommandInput),
+        #[prost(message, tag = "32")]
+        ShowcaseResetHero(super::ShowcaseResetHero),
     }
 }
 /// Local renderer intent. No sender/team/room/run, nonce, canonical actor or clock.

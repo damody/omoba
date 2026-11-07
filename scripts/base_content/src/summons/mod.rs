@@ -7,3 +7,6 @@
 pub mod saika_gunner;
 
 pub use saika_gunner::SaikaGunner;
+pub mod emplacement;
+pub mod chaser;
+pub mod generic;

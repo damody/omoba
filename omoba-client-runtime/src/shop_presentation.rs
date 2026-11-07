@@ -133,6 +133,19 @@ pub fn settled_inputs(
     results
 }
 
+/// `APPLIED_TO_PRESENTATION` only means "admitted into this step". When this
+/// replica's step rejected the same input under the authority's admission
+/// rules, the result becomes `(id, false, code)` with a `command_outcome` code.
+pub fn apply_owner_rejections(results: &mut [(u32, bool, &'static str)], rejections: &[(u32, &'static str)]) {
+    for row in results.iter_mut() {
+        if row.1 && row.2 == "APPLIED_TO_PRESENTATION" {
+            if let Some((_, code)) = rejections.iter().find(|(id, _)| *id == row.0) {
+                *row = (row.0, false, code);
+            }
+        }
+    }
+}
+
 pub fn undo_result_name(code: u32) -> &'static str {
     match code {
         0 => "UNDO_SETTLED",
@@ -900,6 +913,13 @@ mod tests {
             settled_inputs(&frame, 7),
             [(2, true, "APPLIED_TO_PRESENTATION")]
         );
+        // Admitted is not applied: a replica-observed rejection wins, by input id only.
+        let mut rejected = settled_inputs(&frame, 7);
+        apply_owner_rejections(&mut rejected, &[(9, "ON_COOLDOWN"), (2, "NOT_LEARNED")]);
+        assert_eq!(rejected, [(2, false, "NOT_LEARNED")]);
+        let mut untouched = vec![(1, false, "SHOP_INSUFFICIENT_GOLD")];
+        apply_owner_rejections(&mut untouched, &[(1, "ON_COOLDOWN")]);
+        assert_eq!(untouched, [(1, false, "SHOP_INSUFFICIENT_GOLD")], "settled shop results keep their own code");
         frame.step.as_mut().unwrap().public_events =
             vec![event(7, 1, 10), event(8, 3, 10), event(7, 4, 11)];
         assert_eq!(

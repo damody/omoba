@@ -6,7 +6,7 @@ use omoba_core::game_proto::{
 use crate::replica_host::ReplicaHost;
 
 trait InputView {
-    fn owned_summon_command(&self,_player_id:u32,_render_id:u64,_operation:u32,_point:Option<Vec2I>)->Option<PlayerInput>{None}
+    fn owned_summon_command(&self,_player_id:u32,_render_id:u64,_operation:u32,_point:Option<Vec2I>,_ability:&str,_target:Option<u64>)->Option<PlayerInput>{None}
     fn combat_preferences_available(&self, player_id: u32) -> bool;
     fn input_scheme_for_owner(&self, player_id: u32) -> Option<omoba_core::runtime::input_scheme_transport::AdmittedOwnerInputScheme>;
     fn view_epoch(&self) -> u64;
@@ -20,8 +20,8 @@ trait InputView {
 }
 
 impl InputView for ReplicaHost {
-    fn owned_summon_command(&self,player_id:u32,render_id:u64,operation:u32,point:Option<Vec2I>)->Option<PlayerInput> {
-        self.owned_summon_command(player_id,render_id,operation,point)
+    fn owned_summon_command(&self,player_id:u32,render_id:u64,operation:u32,point:Option<Vec2I>,ability:&str,target:Option<u64>)->Option<PlayerInput> {
+        self.owned_summon_command(player_id,render_id,operation,point,ability,target)
     }
     fn owned_hero_reference(&self, player_id:u32) -> Option<omoba_core::game_proto::SecureReplicaTarget> {
         ReplicaHost::owned_hero_reference(self,player_id)
@@ -179,7 +179,7 @@ impl InputBridge {
             }
         }
         let mut secure_target = None;
-        if matches!(renderer_input.intent, Some(renderer_input::Intent::HoldPosition(_)) | Some(renderer_input::Intent::Stop(_)) | Some(renderer_input::Intent::SummonCommand(_)))
+        if matches!(renderer_input.intent, Some(renderer_input::Intent::HoldPosition(_)) | Some(renderer_input::Intent::Stop(_)) | Some(renderer_input::Intent::SummonCommand(_)) | Some(renderer_input::Intent::ShowcaseResetHero(_)))
             && !self.commands_enabled { return reject(renderer_input.request_id, "COMMAND_PROTOCOL_UNAVAILABLE"); }
         let is_upgrade = matches!(renderer_input.intent, Some(renderer_input::Intent::AbilityUpgrade(_)));
         if is_upgrade {
@@ -237,7 +237,8 @@ impl InputBridge {
             Some(renderer_input::Intent::SummonCommand(value)) => {
                 if renderer_input.request_id==0 {return reject(0,"INVALID_SUMMON_REQUEST");}
                 let id=value.summon.as_ref().and_then(|r|r.replica_entity_id.as_ref()).map_or(0,|r|r.value);
-                let Some(expected)=replica.owned_summon_command(configured_player_id,id,value.operation,value.point) else {
+                let target=value.target.as_ref().map(|r|r.replica_entity_id.as_ref().map_or(0,|r|r.value));
+                let Some(expected)=replica.owned_summon_command(configured_player_id,id,value.operation,value.point,&value.ability,target) else {
                     return reject(renderer_input.request_id,"SUMMON_SOURCE_UNAVAILABLE");
                 };
                 let supplied=PlayerInput{action:Some(player_input::Action::SummonCommand(value))};
@@ -261,6 +262,7 @@ impl InputBridge {
             }
             Some(renderer_input::Intent::HoldPosition(value)) => player_input::Action::HoldPosition(value.clone()),
             Some(renderer_input::Intent::Stop(_)) => player_input::Action::Stop(omoba_core::game_proto::Stop {}),
+            Some(renderer_input::Intent::ShowcaseResetHero(_)) => player_input::Action::ShowcaseResetHero(omoba_core::game_proto::ShowcaseResetHero {}),
             Some(renderer_input::Intent::CombatPreferences(value)) => player_input::Action::CombatPreferences(value),
             Some(renderer_input::Intent::InputScheme(value)) => player_input::Action::InputScheme(value),
             Some(renderer_input::Intent::Direction(value)) => {
@@ -514,7 +516,7 @@ fn validate_intent_shape(intent: Option<&renderer_input::Intent>) -> Result<(), 
             omoba_core::runtime::direction_transport::validate_renderer(value).map(|_|()),
         Some(renderer_input::Intent::Communication(_)) => return Err("COMMUNICATION_IS_NOT_GAMEPLAY"),
         Some(renderer_input::Intent::AbilityUpgrade(value)) => return
-            if value.ability_index<4 {Ok(())} else {Err("INVALID_ABILITY_SLOT")},
+            if (value.ability_index as usize) < omoba_core::runtime::HERO_ABILITY_SLOTS {Ok(())} else {Err("INVALID_ABILITY_SLOT")},
         Some(renderer_input::Intent::Recall(_)) => return Ok(()),
         Some(renderer_input::Intent::SummonerCast(value)) => {
             return omoba_core::runtime::summoner_transport::admit_summoner_cast(
@@ -524,7 +526,7 @@ fn validate_intent_shape(intent: Option<&renderer_input::Intent>) -> Result<(), 
             return omoba_core::runtime::ward_transport::admit_ward_placement(
                 value.slot, value.x_raw, value.y_raw).map(|_| ());
         }
-        Some(renderer_input::Intent::HoldPosition(_)) | Some(renderer_input::Intent::Stop(_)) => return Ok(()),
+        Some(renderer_input::Intent::HoldPosition(_)) | Some(renderer_input::Intent::Stop(_)) | Some(renderer_input::Intent::ShowcaseResetHero(_)) => return Ok(()),
         Some(renderer_input::Intent::ItemBuy(value)) => return
             omoba_core::runtime::shop_transport::item_id_for_catalog(value.catalog_id)
                 .map(|_| ()).ok_or("INVALID_ITEM_CATALOG_ID"),
@@ -535,7 +537,7 @@ fn validate_intent_shape(intent: Option<&renderer_input::Intent>) -> Result<(), 
         Some(renderer_input::Intent::MoveTo(value)) => (value.x_raw, value.y_raw),
         Some(renderer_input::Intent::AttackMove(value)) => (value.x_raw, value.y_raw),
         Some(renderer_input::Intent::AbilityCast(value)) => {
-            if value.ability_index >= 4 {
+            if value.ability_index as usize >= omoba_core::runtime::HERO_ABILITY_SLOTS {
                 return Err("INVALID_ABILITY_SLOT");
             }
             (value.x_raw, value.y_raw)
@@ -759,7 +761,7 @@ mod tests {
             omoba_core::game_proto::SummonerCastIntent { slot: 4, x_raw: None, y_raw: None }));
         assert_rejected(bridge.validate_view(one_sided, 7, &view), "INVALID_SUMMONER_SLOT");
         let qwer = request(&view, renderer_input::Intent::AbilityCast(
-            omoba_core::game_proto::AbilityCastIntent { ability_index: 5, ..Default::default() }));
+            omoba_core::game_proto::AbilityCastIntent { ability_index: omoba_core::runtime::HERO_ABILITY_SLOTS as u32, ..Default::default() }));
         assert_rejected(bridge.validate_view(qwer, 7, &view), "INVALID_ABILITY_SLOT");
         assert_eq!(bridge.next_input_id, 43);
     }
@@ -775,11 +777,12 @@ mod tests {
         assert_rejected(bridge.validate_view(input.clone(), 8, &view), "INVALID_OWNER");
         let mut stale = input.clone(); stale.disclosure_epoch += 1;
         assert_rejected(bridge.validate_view(stale, 7, &view), "STALE_DISCLOSURE_EPOCH");
-        let mut invalid = input.clone(); invalid.intent = Some(renderer_input::Intent::AbilityUpgrade(AbilityUpgradeIntent { ability_index: 4 }));
+        let mut invalid = input.clone(); invalid.intent = Some(renderer_input::Intent::AbilityUpgrade(AbilityUpgradeIntent { ability_index: omoba_core::runtime::HERO_ABILITY_SLOTS as u32 }));
         assert_rejected(bridge.validate_view(invalid, 7, &view), "INVALID_ABILITY_SLOT");
         let mut zero = input.clone(); zero.request_id = 0;
         assert!(matches!(bridge.validate_view(zero, 7, &view), InputDecision::Rejected { request_id: 0, code: "INVALID_UPGRADE_REQUEST_ID" }));
-        for slot in 0..4 {
+        // Slots 4 and 5 are the extra action slots (D, F); the authority rejects one a hero lacks.
+        for slot in 0..6 {
             let mut valid = input.clone();
             valid.request_id += u64::from(slot);
             valid.intent = Some(renderer_input::Intent::AbilityUpgrade(AbilityUpgradeIntent { ability_index: slot }));
@@ -795,7 +798,7 @@ mod tests {
         let mut conflict = input;
         conflict.intent = Some(renderer_input::Intent::AbilityUpgrade(AbilityUpgradeIntent { ability_index: 1 }));
         assert_rejected(bridge.validate_view(conflict, 7, &view), "CONFLICTING_UPGRADE_REQUEST_ID");
-        assert_eq!(bridge.allocate_input_id(), Ok(5));
+        assert_eq!(bridge.allocate_input_id(), Ok(7), "six upgrades took input ids 1..=6");
     }
 
     #[test]
@@ -1514,7 +1517,7 @@ mod tests {
         for (intent, code) in [
             (
                 renderer_input::Intent::AbilityCast(AbilityCastIntent {
-                    ability_index: 4,
+                    ability_index: omoba_core::runtime::HERO_ABILITY_SLOTS as u32,
                     ..Default::default()
                 }),
                 "INVALID_ABILITY_SLOT",

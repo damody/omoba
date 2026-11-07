@@ -1,0 +1,32 @@
+return function(ctx)
+  return {
+    schema_version = 2,
+    capabilities = {
+      { id = "damage_kind_immunity", status = "supported",
+        override_reason = "本批新增的通用能力（E163）：omoba-core damage_immunity.rs 在 handle_damage 依 absolute_no_damage_{physical,magical,pure} 把該種類傷害歸零" },
+      { id = "damage_to_heal_conversion", status = "supported",
+        override_reason = "本批新增的通用能力（E163）：同一結算點依 absorb_{physical,magical,pure}_as_heal 比例把傷害轉為回復" },
+      { id = "status_resistance", status = "supported",
+        override_reason = "本批新增的通用能力（E163）：BuffStore::add 依目標的 status_resistance 縮短暈眩、定身、沉默、技能減速與技能 DoT 的持續時間" },
+      { id = "slow_resistance", status = "supported",
+        override_reason = "本批新增的通用能力（E163）：BuffStore::add 依目標的 slow_resistance 減弱技能減速的移速降低量" },
+      { id = "self_slow_cleanse", status = "supported",
+        override_reason = "本批新增的通用 host 封包（E163）：ally_cleanse::SELF_SLOW_BUFF 只移除自己的移動減速" },
+      { id = "damage_reduction", status = "supported",
+        override_reason = "既有 StatKey::DamageTakenBonus（傷害封包結算時套用）" },
+      { id = "cleave_on_attack", status = "supported",
+        override_reason = "英雄 UnitScript on_attack_hit（hero_unit_hooks）＋get_final_atk＋query_enemies_in_range，不需新 host 能力" },
+      { id = "timed_stat_buff", status = "supported" },
+      { id = "aoe_circle", status = "supported" },
+      { id = "unit_damage", status = "supported" },
+      { id = "slow_debuff", status = "supported" },
+      { id = "permanent_stat_bonus", status = "supported" },
+      { id = "proc_chance", status = "supported" },
+      { id = "hero_unit_hooks", status = "supported" },
+      { id = "heal", status = "supported" },
+      { id = "extra_action_slot", status = "supported" },
+    },
+    kit_status = "supported",
+    catalog_ready = false,
+  }
+end

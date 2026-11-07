@@ -152,3 +152,78 @@ fn point_circle_rejects_ambiguous_executable_geometry_and_empty_dimension_keys()
         ability.aim_geometry=Some(geometry);assert!(validate_ability_progression(&ability).is_err());
     }
 }
+
+#[test]
+fn declared_targeting_shape_publishes_only_unpublished_point_footprints() {
+    // A Rust-handler point ability with range 0 (direction kind) and a package circle.
+    let mut quake:AbilityDefinition=serde_json::from_value(serde_json::json!({
+        "id":"handler_leap","ability_type":"active","cast_type":"instant","target_type":"point",
+        "max_level":2,"levels":[{"range":0},{"range":0}],"extras":{"shape_radius":[500,550]},
+        "targeting_shape":{"kind":"circle","radius_key":"shape_radius"}})).unwrap();
+    validate_ability_progression(&quake).unwrap();
+    let preview=ability_aim_preview(&quake).unwrap();
+    assert_eq!(preview.ranks.iter().map(|r|r.point_radius).collect::<Vec<_>>(),vec![500.,550.]);
+    assert!(preview.shape_declared_only&&!preview.requires_movement);
+    // Lines publish a width, cones a half angle; both stay presentation-only.
+    quake.extras.insert("shape_width".into(),vec![340.,340.]);
+    quake.targeting_shape=Some(AbilityTargetingShape::Line{width_key:"shape_width".into()});
+    let line=ability_aim_preview(&quake).unwrap();
+    assert!(line.ranks.iter().all(|r|r.path_width==340.&&r.point_radius==0.)&&!line.requires_movement);
+    quake.extras.insert("shape_half_angle".into(),vec![0.5,0.5]);
+    quake.targeting_shape=Some(AbilityTargetingShape::Cone{half_angle_key:"shape_half_angle".into()});
+    assert!(ability_aim_preview(&quake).unwrap().ranks.iter().all(|r|r.cone_half_angle_ticks>0));
+    // Non-point targets never publish a point footprint.
+    let mut aura=quake.clone();aura.target_type="none".into();
+    aura.targeting_shape=Some(AbilityTargetingShape::Circle{radius_key:"shape_radius".into()});
+    let aura_preview=ability_aim_preview(&aura).unwrap();
+    assert!(aura_preview.ranks.iter().all(|r|r.point_radius==0.)&&!aura_preview.shape_declared_only);
+    // A gameplay contract keeps priority: the declared shape never overrides it.
+    let mut gameplay=fixture();gameplay.extras.insert("shape_radius".into(),vec![999.,999.]);
+    gameplay.targeting_shape=Some(AbilityTargetingShape::Circle{radius_key:"shape_radius".into()});
+    let kept=ability_aim_preview(&gameplay).unwrap();
+    assert!(kept.ranks.iter().all(|r|r.point_radius==0.)&&kept.ranks[0].path_width==150.&&!kept.shape_declared_only);
+    // Incomplete or non-positive declared dimensions are rejected.
+    for bad_value in [0.0,-1.0,f32::NAN,10_001.0] {
+        let mut bad=aura.clone();bad.extras.get_mut("shape_radius").unwrap()[1]=bad_value;
+        assert!(validate_ability_progression(&bad).is_err(),"radius {bad_value}");
+    }
+    let mut bad=aura.clone();bad.extras.get_mut("shape_radius").unwrap().pop();assert!(validate_ability_progression(&bad).is_err());
+    let mut bad=aura;bad.targeting_shape=Some(AbilityTargetingShape::Cone{half_angle_key:"shape_radius".into()});
+    assert!(validate_ability_progression(&bad).is_err(),"cone half angle beyond pi/2");
+}
+
+#[test]
+fn host_point_areas_publish_reveal_and_point_channel_radii() {
+    let reveal:AbilityDefinition=serde_json::from_value(serde_json::json!({
+        "id":"flare","ability_type":"active","cast_type":"instant","target_type":"point","max_level":2,
+        "levels":[{"range":1000},{"range":1000}],"extras":{"flare_radius":[450,470],"flare_time":[4,5]},
+        "effects":[{"kind":"reveal_area","radius_key":"flare_radius","duration_key":"flare_time"}]})).unwrap();
+    let preview=ability_aim_preview(&reveal).unwrap();
+    assert_eq!(preview.ranks.iter().map(|r|r.point_radius).collect::<Vec<_>>(),vec![450.,470.]);
+    assert!(!preview.shape_declared_only,"a host reveal area is a gameplay footprint");
+    let channel:AbilityDefinition=serde_json::from_value(serde_json::json!({
+        "id":"tremor","ability_type":"active","cast_type":"channeled","target_type":"point","max_level":1,
+        "levels":[{"range":700}],"extras":{"wave_interval":[0.25],"wave_count":[12],"wave_radius":[340],"shape_radius":[999]},
+        "channel":{"anchor":"point","interval_key":"wave_interval","pulses_key":"wave_count","radius_key":"wave_radius"},
+        "targeting_shape":{"kind":"circle","radius_key":"shape_radius"}})).unwrap();
+    let preview=ability_aim_preview(&channel).unwrap();
+    assert_eq!(preview.ranks[0].point_radius,340.,"the host channel radius wins over a declared shape");
+    assert!(!preview.shape_declared_only);
+}
+
+#[test]
+fn targeting_reach_publishes_a_range_free_leap_distance_and_rejects_ranged_or_partial_reach() {
+    let leap:AbilityDefinition=serde_json::from_value(serde_json::json!({
+        "id":"arbitrary_leap", "ability_type":"active", "cast_type":"instant", "target_type":"point",
+        "max_level":2, "levels":[{"range":0},{"range":0}],
+        "extras":{"shape_radius":[500,500],"dash_max_distance":[300,350]},
+        "targeting_shape":{"kind":"circle","radius_key":"shape_radius"},"targeting_reach_key":"dash_max_distance"})).unwrap();
+    validate_ability_progression(&leap).unwrap();
+    let preview=ability_aim_preview(&leap).unwrap();
+    assert_eq!((preview.ranks[0].clamp_range,preview.ranks[1].clamp_range),(300.,350.));
+    assert_eq!(preview.ranks[1].point_radius,500.,"the footprint stays the declared circle");
+    let mut ranged=leap.clone();ranged.levels[1].range=600.;assert!(validate_ability_progression(&ranged).is_err(),"a cast range already bounds the cast");
+    let mut unit=leap.clone();unit.target_type="unit".into();assert!(validate_ability_progression(&unit).is_err());
+    let mut partial=leap.clone();partial.extras.get_mut("dash_max_distance").unwrap().pop();assert!(validate_ability_progression(&partial).is_err());
+    let mut missing=leap;missing.targeting_reach_key=Some("absent".into());assert!(validate_ability_progression(&missing).is_err());
+}

@@ -10,7 +10,10 @@ use serde_json::json;
 // before replica combat runs. Earlier peers cannot predict that selection.
 // Version 11 also hashes the persistent input scheme and stable hero profile identity.
 // Version14 admits opaque summon commands and redacted notification-only ACKs.
-pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 15;
+// Version 16 discloses ability projectile flight components (G-1); v15 peers cannot decode them.
+// Version 17 discloses Hero.ability_charges (G-2 stored uses) and admits ScriptConsumeCharge.
+// Version 18 adds the CommittedCharge fact (39) for opponents' stored uses.
+pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 18;
 pub const SELECTIVE_LOCKSTEP_PROTOCOL_V2: u32 = SELECTIVE_LOCKSTEP_PROTOCOL_VERSION;
 
 /// Only these protobuf message types may cross the secure V2 player boundary.
@@ -96,7 +99,7 @@ mod selective_version_tests {
             supported_protocols: vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION],
             secure_fog_required: true,
         };
-        assert_eq!(SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 15);
+        assert_eq!(SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 18);
         assert_eq!(request.resolve(None), Ok(MatchProtocol::SelectiveV2));
         request.requested_protocol = 7;
         request.supported_protocols = vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION - 1];

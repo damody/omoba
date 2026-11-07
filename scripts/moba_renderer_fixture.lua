@@ -75,7 +75,7 @@ end
 
 local function binary_path()
   local name = platform.is_windows and 'omoba-renderer-fixture.exe' or 'omoba-renderer-fixture'
-  return path.join(b.root, 'omoba-client-runtime', 'target', 'debug', name)
+  return require('run_artifacts').rust_binary(b.root, 'omoba-client-runtime', 'debug', name)
 end
 
 local function valid_run_id(value)
@@ -147,8 +147,11 @@ local function spawn_fixture(run_id, evidence, lifetime, shutdown, ownership)
   assert(path.is_directory(path.parent(evidence)), 'evidence parent directory must already exist')
   assert(not path.exists(shutdown), 'shutdown file must not exist before start')
   assert(not path.exists(ownership), 'ownership file already exists for this run id')
-  local exe = binary_path()
-  assert(path.is_file(exe), 'fixture binary is missing; run the build command first')
+  local built = binary_path()
+  assert(path.is_file(built), 'fixture binary is missing; run the build command first')
+  -- Run a copy: a running fixture locked target/debug and other sessions' builds failed (E125).
+  local name = built:match('([^/\\]+)$')
+  local exe = require('run_artifacts').stage_binaries(b.root, {{name = name, source = built}}).files[name]
   local parent = path.parent(evidence)
   local stdout = path.join(parent, run_id .. '.stdout.log')
   local stderr = path.join(parent, run_id .. '.stderr.log')

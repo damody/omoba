@@ -25,7 +25,7 @@ fn public_range_formal_60hz_authority_filtered_snapshots_pause_expiry_and_replay
             let result=d.step(&mut w,[]).unwrap();project_tick(&mut w,result);
             let a=extract_snapshot(&mut w,d.tick() as u32,std::sync::Arc::new(Vec::new()),std::sync::Arc::new(Vec::new()),std::sync::Arc::new(Vec::new()),Vec::new(),Vec::new());let b=extract_data_for_render(&mut w,d.tick() as u32,vec![],vec![]);
             for snapshot in [&a,&b]{assert_eq!(snapshot.entities.iter().find(|e|e.entity_id==actor.id()).unwrap().attack_range,expected as f32);assert_eq!(snapshot.entities.iter().find(|e|e.entity_id==tower.id()).unwrap().attack_range,tower_base.to_f32_for_render());}
-            let seed=w.read_resource::<MobaMatch>().config.seed;let starts=w.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(d.tick()+1,60,seed);let start=&starts[&1];assert_eq!(start.protocol_version,15);
+            let seed=w.read_resource::<MobaMatch>().config.seed;let starts=w.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(d.tick()+1,60,seed);let start=&starts[&1];assert_eq!(start.protocol_version,18);
             let allow=TeamProjectorConfig::default().component_allowlist;let replica=SelectiveReplicaRuntime::bootstrap_from_team_game_start(start,allow.clone(),std::collections::BTreeSet::new()).unwrap();let mut stepper=SpecsDisclosedWorldStepper::from_start(start,allow,std::collections::BTreeSet::new());stepper.bootstrap_membership(replica.world()).unwrap();
             let row=replica.world().entities.iter().find(|(_,r)|r.components.get(&DEMO_RENDER_COMPONENT_SCHEMA_ID).and_then(|b|decode_demo_render_state(b)).is_some_and(|r|r.x_raw==0&&r.y_raw==i64::from(y)*1024&&r.kind==if camp{3}else{2})).expect("visible NPC baseline");
             let bytes=&row.1.components[&omoba_core::runtime::attack_visual_state::RANGE_SCHEMA_ID];assert_eq!(omoba_core::runtime::attack_visual_state::decode_range(bytes),Some(Fixed64::from_i32(expected)));assert!(row.1.components.values().all(|b|!String::from_utf8_lossy(b).contains("private_range")));
@@ -64,7 +64,7 @@ fn npc_attack_formal_60hz_committed_recovery_modifier_expiry_range_pause_and_rep
         d.step(&mut w,[]).unwrap();let [hero,enemy]=hero_pair(&w);w.write_storage::<Gold>().get_mut(hero).unwrap().0=5000;
         d.step(&mut w,[(1,PlayerInput{action:Some(PlayerInputEnum::ItemBuy(ItemBuy{item_id:"moba_binding_charm".into()}))})]).unwrap();
         let y=isolated_skill_origin_y();for e in [hero,enemy]{set_hold(&mut w,e);disarm_attack(&mut w,e);}place_hero(&mut w,hero,150,y);place_hero(&mut w,enemy,10000,y);
-        let actor=if camp_target {let (entity,members)={let mut s=w.write_resource::<MobaMatch>();let c=&mut s.jungle_camps[0];c.definition.position=(0,y);c.definition.leash_radius=5000;c.definition.attack_range=100;c.definition.attack_interval_seconds=2;for body in &mut c.members{body.definition.position=(0,y);} (c.entity.unwrap(),c.members.iter().filter_map(|b|b.entity).collect::<Vec<_>>())};for e in members{place_hero(&mut w,e,10000,y);}entity
+        let actor=if camp_target {let (entity,members)={let mut s=w.write_resource::<MobaMatch>();let c=&mut s.jungle_camps[0];c.definition.position=(0,y);c.definition.leash_radius=5000;c.definition.attack_range=100;c.definition.attack_interval_seconds=2;c.definition.attack_interval_ms=2000;for body in &mut c.members{body.definition.position=(0,y);} (c.entity.unwrap(),c.members.iter().filter_map(|b|b.entity).collect::<Vec<_>>())};for e in members{place_hero(&mut w,e,10000,y);}entity
         }else{(&w.entities(),&w.read_storage::<Creep>(),&w.read_storage::<Faction>()).join().filter(|(_,c,f)|f.team_id==2&&c.path.starts_with("__moba_lane_")).min_by_key(|(e,_,_)|e.id()).map(|(e,_,_)|e).unwrap()};
         place_hero(&mut w,actor,0,y);w.write_storage::<Unit>().get_mut(actor).unwrap().attack_range=Fixed64::from_i32(100);
         for e in [actor,hero]{{let mut props=w.write_storage::<CProperty>();let p=props.get_mut(e).unwrap();p.hp=Fixed64::from_i32(5000);p.mhp=p.hp;}if let Some(u)=w.write_storage::<Unit>().get_mut(e){u.current_hp=5000;u.max_hp=5000;}}
@@ -358,7 +358,7 @@ mod owned_summon_orders_formal {
             let reference=|id|SecureReplicaTarget{replica_entity_id:Some(ReplicaEntityId{value:id}),view_epoch:Some(ViewEpoch{value:4}),disclosure_epoch:Some(DisclosureEpoch{value:3})};
             let mut view=TeamInputValidationView{view_epoch:4,..Default::default()};
             for (id,entity) in [(9,owner),(12,summon)] {view.replicas.insert(id,ReplicaValidationRecord{canonical_id:omoba_core::runtime::canonical_entity_id(entity),disclosure_epoch:3,owner_team:Some(1)});}
-            view.visible_by_tick.insert(d.tick(),view.replicas.values().map(|r|r.canonical_id).collect());
+            view.visible_by_tick.insert(d.tick(),std::sync::Arc::new(view.replicas.values().map(|r|r.canonical_id).collect()));
             let mut snapshot=SecureInputValidationSnapshot::default();snapshot.teams.insert(1,view);
             let target=origin+omoba_sim::Vec2::new(Fixed64::from_i32(600),Fixed64::ZERO);
             let client=summon_transport::client_from_references(reference(9),reference(12),1,Some(Vec2I{x:target.x.raw()as i32,y:target.y.raw()as i32})).unwrap();
@@ -378,12 +378,15 @@ mod owned_summon_orders_formal {
         };assert_eq!(run(),run());
     }
     fn fixture()->(World,SimulationDriver,specs::Entity,specs::Entity,specs::Entity) {
-        let (mut w,mut d)=world(SingleLaneConfig {heroes:["saika_magoichi".into(),"training_luminary".into()],
+        let (mut w,mut d)=legacy_world(SingleLaneConfig {heroes:["saika_magoichi".into(),"training_luminary".into()],
             mana_enabled:true,base_recovery_enabled:false,wave_interval:Fixed64::from_i32(10000),..fast_config()},SimulationTickProfile::Production60Hz);
         d.step(&mut w,[]).unwrap();let [owner,enemy]=hero_pair(&w);let y=isolated_skill_origin_y();
         for entity in [owner,enemy]{set_hold(&mut w,entity);disarm_attack(&mut w,entity);}
         place_hero(&mut w,owner,0,y);place_hero(&mut w,enemy,10000,y);
-        {let mut heroes=w.write_storage::<Hero>();let hero=heroes.get_mut(owner).unwrap();let max=hero.moba_mana_capacity().unwrap();hero.mana_pool=Some(ability_runtime::ManaPool::full(max).unwrap());}
+        // A full pool at the hero's real capacity, attribute mana included (E172).
+        {let max={let buffs=w.read_resource::<BuffStore>();let heroes=w.read_storage::<Hero>();
+                ability_runtime::UnitStats::from_refs(&buffs,false).checked_mana_capacity(heroes.get(owner).unwrap().moba_mana_capacity().unwrap(),owner).unwrap()};
+            w.write_storage::<Hero>().get_mut(owner).unwrap().mana_pool=Some(ability_runtime::ManaPool::full(max).unwrap());}
         d.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::CastAbility(CastAbility {ability_index:1,target_entity:None,target_pos:Some(Vec2I{x:0,y:y*1024})}))})]).unwrap();
         for _ in 0..30{d.step(&mut w,[]).unwrap();}
         let summons:Vec<_>=(&w.entities(),&w.read_storage::<SummonedUnit>()).join().map(|(entity,_)|entity).collect();assert_eq!(summons.len(),2);
@@ -393,7 +396,7 @@ mod owned_summon_orders_formal {
     fn message(owner:specs::Entity,summon:specs::Entity,operation:u32,point:Option<omoba_sim::Vec2>)->omoba_core::game_proto::OwnedSummonOrder {
         omoba_core::game_proto::OwnedSummonOrder {owner_entity:owner.id(),owner_generation:owner.gen().id()as u32,
             summon_entity:summon.id(),summon_generation:summon.gen().id()as u32,operation,
-            point:point.map(|p|Vec2I{x:p.x.raw()as i32,y:p.y.raw()as i32})}
+            point:point.map(|p|Vec2I{x:p.x.raw()as i32,y:p.y.raw()as i32}),ability:String::new(),target:None}
     }
     fn input(message:omoba_core::game_proto::OwnedSummonOrder)->(u32,PlayerInput){(1,PlayerInput {action:Some(PlayerInputEnum::OwnedSummonOrder(message))})}
     #[test]
@@ -402,8 +405,11 @@ mod owned_summon_orders_formal {
             let (mut w,mut d,owner,summon,_)=fixture();let origin=w.read_storage::<Pos>().get(owner).unwrap().0;
             // Mixed authority fixture: retain real summoned combatants and start
             // the existing real recovery skill to verify separate actor scope.
-            {let mut heroes=w.write_storage::<Hero>();let hero=heroes.get_mut(owner).unwrap();hero.abilities[3]="apprentice_mend".into();hero.ability_levels.insert("apprentice_mend".into(),1);
-                let max=hero.moba_mana_capacity().unwrap();hero.mana_pool=Some(ability_runtime::ManaPool::full(max).unwrap());}
+            {let mut heroes=w.write_storage::<Hero>();let hero=heroes.get_mut(owner).unwrap();hero.abilities[3]="apprentice_mend".into();hero.ability_levels.insert("apprentice_mend".into(),1);}
+            // Full at the real capacity, attribute mana included (E172).
+            {let max={let buffs=w.read_resource::<BuffStore>();let heroes=w.read_storage::<Hero>();
+                    ability_runtime::UnitStats::from_refs(&buffs,false).checked_mana_capacity(heroes.get(owner).unwrap().moba_mana_capacity().unwrap(),owner).unwrap()};
+                w.write_storage::<Hero>().get_mut(owner).unwrap().mana_pool=Some(ability_runtime::ManaPool::full(max).unwrap());}
             w.write_storage::<CProperty>().get_mut(owner).unwrap().hp=Fixed64::from_i32(50);
             w.write_resource::<BuffStore>().add(owner,"order_fixture_no_regen",Fixed64::from_i32(100),serde_json::json!({"health_regen_percentage":-1024,"mana_regen_percentage":-1024,"mana_regen_total_percentage":-1024}));
             d.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::CastAbility(CastAbility {ability_index:3,target_entity:None,target_pos:None}))})]).unwrap();
@@ -499,9 +505,10 @@ mod authored_recovery_skill {
         use omoba_core::runtime::native::moba_match::bots::*;
         let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
         let output=std::process::Command::new(root.join("tools/lua/lua.exe")).current_dir(&root)
-            .args(["-e",r#"local j=require('tools.lua.lib.json');print(j.encode(assert(loadfile('scripts/lua_data/moba_archetype_match.lua'))()))"#]).output().unwrap();
-        assert!(output.status.success());let recipe:RoleBotMatchPlan=serde_json::from_slice(&output.stdout).unwrap();
-        recipe.compile(43,SimulationTickProfile::Production60Hz).unwrap();
+            .args(["-e",r#"local j=require('tools.lua.lib.json');print(j.encode(assert(loadfile('scripts/test_fixtures/recipes/moba_training_archetype_match.lua'))()))"#]).output().unwrap();
+        assert!(output.status.success(),"the authored recipe must load (a tree without scripts/test_fixtures cannot): {}",String::from_utf8_lossy(&output.stderr));
+        let recipe:RoleBotMatchPlan=serde_json::from_slice(&output.stdout).unwrap();
+        recipe.compile_fixture(43,SimulationTickProfile::Production60Hz).unwrap();
         let support=recipe.item_builds.iter().find(|b|b.role==BotRole::Support).unwrap();assert!(support.items.iter().any(|id|id=="moba_recovery_charm"));assert_eq!(support.active_use.unwrap().channel_below_hp_per_mille,600);
         for interrupted in [false,true] {let run=|| {
             let (mut w,mut d,hero)=fixture();let [_,enemy]=hero_pair(&w);let mut bots=bots(&[1]);
@@ -641,7 +648,7 @@ mod authored_recovery_skill {
 fn summon_focus_formal_60hz_owner_attack_and_stop_select_real_shots_and_replay() {
     use specs::Builder;
     let run=|| {
-        let (mut w,mut driver)=world(SingleLaneConfig {heroes:["saika_magoichi".into(),"training_luminary".into()],
+        let (mut w,mut driver)=legacy_world(SingleLaneConfig {heroes:["saika_magoichi".into(),"training_luminary".into()],
             base_recovery_enabled:false,wave_interval:Fixed64::from_i32(10000),..fast_config()},SimulationTickProfile::Production60Hz);
         driver.step(&mut w,[]).unwrap();let [caster,enemy]=hero_pair(&w);
         let origin=omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(isolated_skill_origin_y()));
@@ -689,7 +696,7 @@ fn summon_focus_formal_60hz_owner_attack_and_stop_select_real_shots_and_replay()
 #[test]
 fn summon_priority_formal_60hz_active_host_destination_prevents_lateral_aggro_step_and_replays() {
     let run=|| {
-        let (mut w,mut driver)=world(SingleLaneConfig {heroes:["saika_magoichi".into(),"training_luminary".into()],
+        let (mut w,mut driver)=legacy_world(SingleLaneConfig {heroes:["saika_magoichi".into(),"training_luminary".into()],
             wave_interval:Fixed64::from_i32(10000),..fast_config()},SimulationTickProfile::Production60Hz);
         driver.step(&mut w,[]).unwrap();let [caster,enemy]=hero_pair(&w);
         let origin=omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(isolated_skill_origin_y()));
@@ -732,13 +739,427 @@ fn summon_priority_formal_60hz_active_host_destination_prevents_lateral_aggro_st
     assert_eq!(run(),run());
 }
 
+/// The stage's reset through the real input: a learned passive and its rank stay, its stats still
+/// count; a real spell's status on the hero goes, and so does a held seat's; a real match refuses it.
+#[test]
+fn showcase_reset_input_keeps_a_learned_passive_and_clears_the_last_segments_statuses() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::ShowcaseConfig;
+    let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
+    let run=|stage:bool| {
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+            players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)],
+            ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+            showcase:stage.then(||ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2000]),(6,[2300,2600])].into(),
+                hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],
+                refill_players:Default::default(),withheld_abilities:Default::default()})};
+        let (mut config,_)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;
+        let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+        d.step(&mut w,[]).unwrap();
+        let of=|w:&World,id:u32|w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
+        let (hero,other)=(of(&w,1),of(&w,6));
+        let slot=w.read_storage::<Hero>().get(hero).unwrap().abilities.iter().position(|id|id=="b20_tenacity");
+        let slot=slot.unwrap() as u32;
+        let rank=|w:&World|w.read_storage::<Hero>().get(hero).unwrap().get_ability_level("b20_tenacity");
+        if stage {
+            let unlearned=rank(&w);
+            d.step(&mut w,[(1,upgrade(slot))]).unwrap();
+            d.step(&mut w,[]).unwrap();
+            assert_eq!(rank(&w),unlearned+1,"learned");
+            assert!(w.read_resource::<BuffStore>().has(hero,"b20_tenacity"),"its marker");
+        }
+        let learned=rank(&w);
+        for unit in [hero,other] {w.write_resource::<BuffStore>().add(unit,"test_slow",Fixed64::from_i32(30),serde_json::json!({"move_speed_bonus":-512,"__aggregation_family":"generic_ability_slow"}));}
+        d.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::ShowcaseResetHero(omoba_core::game_proto::ShowcaseResetHero {}))})]).unwrap();
+        d.step(&mut w,[]).unwrap();
+        let buffs=w.read_resource::<BuffStore>();
+        (buffs.has(hero,"test_slow"),buffs.has(other,"test_slow"),buffs.has(hero,"b20_tenacity"),rank(&w)==learned)
+    };
+    assert_eq!(run(true),(false,false,true,true),"on a stage: the statuses go, the passive and its rank stay");
+    assert_eq!(run(false),(true,true,true,true),"a real match refuses it");
+}
+
+/// A withheld ability: the demonstrated seat starts without it with a skill point for it and learns
+/// it through the upgrade input, an auto-learned one included. Every other seat keeps its birth rank.
+#[test]
+fn showcase_withheld_ability_starts_unlearned_for_the_demonstrator_alone_and_is_learned_later() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::ShowcaseConfig;
+    let seat=|player_id:u32,team_id:u32,hero:&str,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role:BotRole::Mid,lane:"mid".into(),bot};
+    // The hero's rank and skill points, and the same of the enemy seat with the same hero: at the
+    // start, after 2 s (auto-learn has run), after one upgrade and after a second one.
+    let run=|hero:&str,ability:&str,withheld:bool| {
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+            players:vec![seat(1,1,hero,false),seat(6,2,hero,true)],
+            ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+            showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
+                hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],refill_players:Default::default(),
+                // One list for every hero of a stage: the other ids are ignored.
+                withheld_abilities:if withheld {[ability.to_owned(),"a26_twin_guns".to_owned()].into()} else {Default::default()}})};
+        let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;
+        let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+        d.step(&mut w,[]).unwrap();
+        let of=|w:&World,id:u32|w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
+        let state=|w:&World,id:u32|{let heroes=w.read_storage::<Hero>();let hero=heroes.get(of(w,id)).unwrap();(hero.get_ability_level(ability),hero.skill_points)};
+        let slot=w.read_storage::<Hero>().get(of(&w,1)).unwrap().abilities.iter().position(|id|id==ability).unwrap() as u32;
+        let mut marks=vec![(state(&w,1),state(&w,6))];
+        for tick in 0..240 {
+            let mut inputs=role_bot_inputs(&w,&bots).unwrap();
+            if tick==120 || tick==180 {inputs.push((1,upgrade(slot)));}
+            d.step(&mut w,inputs).unwrap();
+            let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,t,0);
+            if tick==119 || tick==179 || tick==239 {marks.push((state(&w,1),state(&w,6)));}
+        }
+        marks
+    };
+    // Passive with ranks to buy, then the auto-learned one that has a single rank.
+    for (hero,ability,max) in [("maeda_keiji","c05_thunder_spear",4),("otani_yoshitsugu","a12_scheme",1)] {
+        let plain=run(hero,ability,false);
+        let held=run(hero,ability,true);
+        let (rank,points)=plain[0].0;
+        assert!(rank>=1,"{hero}: the birth loadout ranks it");
+        assert_eq!(held[0].0,(0,points+1),"{hero}: rank 0 and its skill point");
+        assert_eq!(held[1].0,(0,points+1),"{hero}: still unlearned, auto-learn or not");
+        assert_eq!(held[2].0,(1,points),"{hero}: learned with that point");
+        if max==1 {assert_eq!(held[3].0,(1,points),"{hero}: one rank, nothing more to buy");}
+        else {assert_eq!(held[3].0,(2,points-1),"{hero}: the next rank is an ordinary upgrade");}
+        for (mark,base) in held.iter().zip(&plain) {assert_eq!(mark.1,base.1,"{hero}: the other seat is untouched");}
+        // Without a list an auto-learned ability still cannot be bought.
+        if max==1 {assert_eq!(plain[3].0,plain[0].0,"{hero}: no list, no purchase");}
+    }
+}
+
+/// An enemy inside the hero's acquisition range but out of its attack range does not break a channel:
+/// the idle engage waits for the channel to end, and starts after it.
+#[test]
+fn a_channel_is_not_broken_by_the_heros_own_idle_engage() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::ShowcaseConfig;
+    let seat=|player_id:u32,team_id:u32,hero:&str,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role:BotRole::Mid,lane:"mid".into(),bot};
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+        players:vec![seat(1,1,"maeda_keiji",false),seat(6,2,"date_masamune",true)],
+        ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2800])].into(),
+            hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],refill_players:Default::default(),withheld_abilities:Default::default()})};
+    let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+    config.warmup=Fixed64::ZERO;
+    let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+    d.step(&mut w,[]).unwrap();
+    let of=|w:&World,id:u32|w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
+    let (hero,other)=(of(&w,1),of(&w,6));
+    let slot=w.read_storage::<Hero>().get(hero).unwrap().abilities.iter().position(|id|id=="c05_flash_thunder").unwrap() as u32;
+    let other_at=w.read_storage::<Pos>().get(other).unwrap().0;
+    let other_start=w.read_storage::<CProperty>().get(other).unwrap().hp;
+    let (mut channel_ticks,mut origin,mut after)=(0,None,None);
+    for tick in 0..4*60 {
+        let mut inputs=role_bot_inputs(&w,&bots).unwrap();
+        if tick==0 {inputs.push((1,upgrade(slot)));}
+        if tick==1 {inputs.push((1,PlayerInput {action:Some(PlayerInputEnum::CastAbility(CastAbility {ability_index:slot,target_entity:None,
+            target_pos:Some(Vec2I {x:other_at.x.raw() as i32,y:other_at.y.raw() as i32})}))}));}
+        d.step(&mut w,inputs).unwrap();
+        let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,t,0);
+        let at=w.read_storage::<Pos>().get(hero).unwrap().0;
+        if w.read_resource::<BuffStore>().has(hero,"ability_channel") {
+            channel_ticks+=1;
+            assert_eq!(*origin.get_or_insert(at),at,"the hero moved during its channel, tick {tick}");
+        } else if origin.is_some() {after=Some(at);}
+    }
+    assert!(channel_ticks>=85,"the channel ran its 1.5 s: {channel_ticks} ticks");
+    assert!(w.read_storage::<CProperty>().get(other).unwrap().hp<other_start,"its pulse landed");
+    assert_ne!(after,origin,"the hero engages once the channel is over");
+}
+
+/// A held seat does not fight back, melee or ranged: the hero attacking it from next to it takes
+/// nothing. The same seat's scheduled casts still land, and a strike seat still hits. Hold Position
+/// alone stops attacks, so `gap` runs with no order and no think at all: the moments a seat has none,
+/// arrived back at its place or done casting, before its next think.
+#[test]
+fn showcase_held_seat_does_not_fight_back_but_casts_and_a_striker_still_hit() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::{ShowcaseCast,ShowcaseCastTarget,ShowcaseConfig};
+    let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
+    // Life the hero lost in 8 s of attacking the seat, and life the seat lost.
+    let run=|stand_in:&str,strike:bool,casts:Vec<ShowcaseCast>,gap:bool| {
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+            players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,stand_in,BotRole::Mid,true)],
+            ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+            showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2500]),(6,[2300,2600])].into(),
+                hold_players:[6].into(),strike_players:if strike {[6].into()} else {Default::default()},hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts,patrols:vec![],
+                refill_players:Default::default(),withheld_abilities:Default::default()})};
+        let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;
+        let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+        assert!(w.read_resource::<MobaMatch>().config.game_rules.is_some(),"the retaliation rules are on");
+        d.step(&mut w,[]).unwrap();
+        let of=|w:&World,id:u32|w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
+        let (hero,other)=(of(&w,1),of(&w,6));
+        w.write_resource::<BuffStore>().add(hero,"test_no_regen",Fixed64::from_i32(10_000),serde_json::json!({"health_regen_percentage":-1024}));
+        w.write_resource::<BuffStore>().add(other,"test_no_regen",Fixed64::from_i32(10_000),serde_json::json!({"health_regen_percentage":-1024}));
+        {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(hero).unwrap();p.mhp=Fixed64::from_i32(500_000);p.hp=p.mhp;}
+        let hp=|w:&World,unit|w.read_storage::<CProperty>().get(unit).unwrap().hp;
+        let (hero_start,other_start)=(hp(&w,hero),hp(&w,other));
+        for tick in 0..8*60 {
+            let mut inputs=if gap {Vec::new()} else {role_bot_inputs(&w,&bots).unwrap()};
+            if tick==0 {inputs.push((1,PlayerInput {action:Some(PlayerInputEnum::AttackTarget(omoba_core::game_proto::AttackTarget {target_id:other.id(),queued:false}))}));}
+            d.step(&mut w,inputs).unwrap();
+            let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,t,0);
+            if gap {w.write_storage::<HeroCommandQueue>().get_mut(other).unwrap().active=None;}
+        }
+        (hero_start-hp(&w,hero),other_start-hp(&w,other))
+    };
+    for stand_in in ["date_masamune","saika_magoichi"] {
+        for gap in [false,true] {
+            let (taken,dealt)=run(stand_in,false,vec![],gap);
+            assert!(dealt>Fixed64::ZERO,"{stand_in}: the hero hit it");
+            assert_eq!(taken,Fixed64::ZERO,"{stand_in}: it fought back (gap {gap})");
+        }
+        let (taken,_)=run(stand_in,true,vec![],false);
+        assert!(taken>Fixed64::ZERO,"{stand_in}: a strike seat still hits");
+    }
+    let (taken,dealt)=run("date_masamune",false,vec![ShowcaseCast {player:6,ability:"b04_fire_blast".into(),rank:1,target:ShowcaseCastTarget::PlayerPoint {player:1},
+        first_seconds:1,when_near:None,every_seconds:3}],false);
+    assert!(dealt>Fixed64::ZERO);
+    assert!(taken>Fixed64::ZERO,"its casts still land");
+}
+
+/// A strike seat stays by its place, melee and ranged: it keeps hitting a hero in reach of that place,
+/// walking up if it has to; a hero out of it is let go, and the seat walks back and stops hitting.
+#[test]
+fn showcase_strike_seat_lets_a_hero_go_outside_its_place_and_walks_back() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::ShowcaseConfig;
+    let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
+    for striker in ["date_masamune","saika_magoichi"] {
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+            players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,striker,BotRole::Mid,true)],
+            ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+            showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,1800]),(6,[2300,2600])].into(),
+                hold_players:[6].into(),strike_players:[6].into(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],
+                refill_players:Default::default(),withheld_abilities:Default::default()})};
+        let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;
+        let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+        d.step(&mut w,[]).unwrap();
+        let of=|w:&World,id:u32|w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
+        let (hero,stand_in)=(of(&w,1),of(&w,6));
+        w.write_resource::<BuffStore>().add(hero,"test_no_regen",Fixed64::from_i32(10_000),serde_json::json!({"health_regen_percentage":-1024}));
+        {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(hero).unwrap();p.mhp=Fixed64::from_i32(500_000);p.hp=p.mhp;}
+        // The hero holds, so its own attacks do not walk it back in.
+        d.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::HoldPosition(omoba_core::game_proto::HoldPosition {queued:false}))})]).unwrap();
+        let hp=|w:&World|w.read_storage::<CProperty>().get(hero).unwrap().hp;
+        let place=omoba_sim::Vec2::new(Fixed64::from_i32(2300),Fixed64::from_i32(2600));
+        let off_place=|w:&World|(w.read_storage::<Pos>().get(stand_in).unwrap().0-place).length();
+        let put=|w:&mut World,y:i32|w.write_storage::<Pos>().get_mut(hero).unwrap().0=omoba_sim::Vec2::new(Fixed64::from_i32(2300),Fixed64::from_i32(y));
+        fn steps(w:&mut World,d:&mut SimulationDriver,bots:&RoleBotConfig,ticks:u32) {
+            for _ in 0..ticks {
+                let inputs=role_bot_inputs(w,bots).unwrap();
+                d.step(w,inputs).unwrap();
+                let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(w,t,0);
+            }
+        }
+        // In reach of its place, 250 off: hit, the melee seat walking up for it.
+        put(&mut w,2350);
+        let before=hp(&w);
+        steps(&mut w,&mut d,&bots,6*60);
+        assert!(hp(&w)<before,"{striker}: in reach, not hit");
+        let walked=off_place(&w);
+        if striker=="date_masamune" {assert!(walked>Fixed64::from_i32(60),"{striker}: did not walk up: {walked:?}");}
+        // Out of its reach, though within reach of where a walked-up seat stands: let go.
+        put(&mut w,2200);
+        steps(&mut w,&mut d,&bots,4*60);
+        assert!(off_place(&w)<=Fixed64::from_i32(60),"{striker}: did not walk back: {:?}",off_place(&w));
+        let before=hp(&w);
+        steps(&mut w,&mut d,&bots,5*60);
+        assert_eq!(hp(&w),before,"{striker}: still hit out of reach");
+        assert!(off_place(&w)<=Fixed64::from_i32(60),"{striker}: left its place again");
+        // Back in reach: hit again.
+        put(&mut w,2400);
+        steps(&mut w,&mut d,&bots,6*60);
+        assert!(hp(&w)<before,"{striker}: back in reach, not hit");
+    }
+}
+
+/// A refill seat: real strikes take its life and kill it once; away from the striker it is full again
+/// the moment it is out of reach; the dead stay dead until the ordinary respawn.
+#[test]
+fn showcase_refill_seat_loses_life_and_dies_in_reach_and_is_full_again_out_of_it() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::ShowcaseConfig;
+    let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
+    let plan=|refill:bool| RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+        players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)],
+        ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2000]),(6,[2300,2600])].into(),
+            hold_players:[6].into(),strike_players:[6].into(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],
+            refill_players:if refill {[1].into()} else {Default::default()},withheld_abilities:Default::default()})};
+    let top=Fixed64::from_i32(50_000);
+    let start=|refill:bool| {
+        let (mut config,bots)=plan(refill).compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;
+        let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+        d.step(&mut w,[]).unwrap();
+        let hero=w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==1).unwrap().entity.unwrap();
+        w.write_resource::<BuffStore>().add(hero,"test_no_regen",Fixed64::from_i32(10_000),serde_json::json!({"health_regen_percentage":-1024}));
+        {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(hero).unwrap();p.mhp=top;p.hp=Fixed64::from_i32(25_000);}
+        (w,d,bots,hero)
+    };
+    fn steps(w:&mut World,d:&mut SimulationDriver,bots:&RoleBotConfig,ticks:u32,each:&mut dyn FnMut(&World)) {
+        for _ in 0..ticks {
+            let inputs=role_bot_inputs(w,bots).unwrap();
+            d.step(w,inputs).unwrap();
+            let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(w,t,0);
+            each(w);
+        }
+    }
+    let hp=move |w:&World,hero:specs::Entity|w.read_storage::<CProperty>().get(hero).unwrap().hp;
+    let put=|w:&mut World,hero:specs::Entity,y:i32|w.write_storage::<Pos>().get_mut(hero).unwrap().0=omoba_sim::Vec2::new(Fixed64::from_i32(2300),Fixed64::from_i32(y));
+
+    // Not named: half life stays half, a hit stays taken.
+    let (mut w,mut d,bots,hero)=start(false);
+    steps(&mut w,&mut d,&bots,60,&mut |_|{});
+    assert_eq!(hp(&w,hero),Fixed64::from_i32(25_000),"no refill without the recipe");
+
+    // Named. Out of reach: full.
+    let (mut w,mut d,bots,hero)=start(true);
+    steps(&mut w,&mut d,&bots,3,&mut |_|{});
+    assert_eq!(hp(&w,hero),top,"out of reach");
+    // In reach: real strikes, and life only ever goes down.
+    put(&mut w,hero,2500);
+    let mut last=top;
+    steps(&mut w,&mut d,&bots,10*60,&mut |w|{let now=hp(w,hero);assert!(now<=last,"refilled in reach: {last:?} to {now:?}");last=now;});
+    assert!(last<top,"the striker hit it in 10 s");
+    // Out of reach again (a shot already flying may land first): full.
+    put(&mut w,hero,2000);
+    steps(&mut w,&mut d,&bots,60,&mut |_|{});
+    assert_eq!(hp(&w,hero),top,"out of reach again");
+    // In reach on a sliver: the strike kills it, once.
+    put(&mut w,hero,2500);
+    w.write_storage::<CProperty>().get_mut(hero).unwrap().hp=Fixed64::ONE;
+    let slot=|w:&World|{let state=w.read_resource::<MobaMatch>();let s=state.heroes.iter().find(|slot|slot.player_id==1).unwrap();(s.entity,s.deaths,s.respawn_at)};
+    let mut ticks=0;
+    while slot(&w).1==0 {
+        ticks+=1;assert!(ticks<30*60,"never died in reach");
+        steps(&mut w,&mut d,&bots,1,&mut |_|{});
+    }
+    // Dead: no life back before the ordinary respawn, then a life at the fountain, out of reach and full.
+    ticks=0;
+    while slot(&w).0.is_none()||slot(&w).2.is_some() {
+        if let Some(entity)=slot(&w).0 {assert!(hp(&w,entity)<=Fixed64::ZERO,"a life back before the respawn");}
+        assert_eq!(slot(&w).1,1,"died once");
+        ticks+=1;assert!(ticks<180*60,"never respawned");
+        steps(&mut w,&mut d,&bots,1,&mut |_|{});
+    }
+    let reborn=slot(&w).0.unwrap();
+    steps(&mut w,&mut d,&bots,5*60,&mut |_|{});
+    assert_eq!(slot(&w).1,1,"still one death");
+    assert!(hp(&w,reborn)>Fixed64::ZERO);
+}
+
+/// A patrolling stand-in walks the ordinary way, so a slow shows on it: the same leg takes longer,
+/// and it keeps going back and forth for as long as the stage runs. Without a patrol it stays put.
+#[test]
+fn showcase_stand_in_patrol_takes_longer_over_the_same_leg_when_slowed() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::{ShowcaseConfig,ShowcasePatrol};
+    let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
+    let plan=|patrols:Vec<ShowcasePatrol>| RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+        players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)],
+        ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2000,2400]),(6,[2800,1900])].into(),
+            hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols,refill_players:Default::default(),withheld_abilities:Default::default()})};
+    let walk=vec![ShowcasePatrol {player:6,a:[2800,1900],b:[2800,2500]}];
+    // Ticks at which the seat stood at b and back at a, and where it ended, over 40 s.
+    let run=|patrols:Vec<ShowcasePatrol>,slow:bool| {
+        let (mut config,bots)=plan(patrols).compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;
+        let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+        d.step(&mut w,[]).unwrap();
+        let hero=w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==6).unwrap().entity.unwrap();
+        if slow {w.write_resource::<BuffStore>().add(hero,"test_slow",Fixed64::from_i32(1000),
+            serde_json::json!({"move_speed_bonus":-512,"__aggregation_family":"generic_ability_slow"}));}
+        let at=|w:&World,y:i32| {let pos=w.read_storage::<Pos>().get(hero).unwrap().0;
+            (pos-omoba_sim::Vec2::new(Fixed64::from_i32(2800),Fixed64::from_i32(y))).length()<Fixed64::from_i32(2)};
+        let (mut turns,mut toward_b)=(Vec::new(),true);
+        for tick in 1..=(40*60) {
+            let inputs=role_bot_inputs(&w,&bots).unwrap();
+            d.step(&mut w,inputs).unwrap();
+            let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,t,0);
+            if at(&w,if toward_b {2500} else {1900}) {turns.push(tick);toward_b=!toward_b;}
+        }
+        let end=w.read_storage::<Pos>().get(hero).unwrap().0;
+        (turns,end)
+    };
+    let (plain,_)=run(walk.clone(),false);
+    let (slowed,_)=run(walk.clone(),true);
+    assert!(plain.len()>=6,"it keeps walking both ways: {plain:?}");
+    assert!(slowed.len()>=3,"{slowed:?}");
+    // Half speed: each 600 leg, first and later ones, takes nearly twice as long (the think rate
+    // adds up to one think at each turn).
+    let legs=|turns:&[i32]|turns.iter().zip(std::iter::once(&0).chain(turns)).map(|(end,start)|end-start).collect::<Vec<_>>();
+    let (plain_legs,slowed_legs)=(legs(&plain),legs(&slowed));
+    for (fast,slow) in plain_legs.iter().zip(&slowed_legs) {
+        assert!(slow*10>=fast*17,"{plain_legs:?} without, {slowed_legs:?} with the slow");
+    }
+    let (none,end)=run(vec![],false);
+    assert!(none.is_empty()||none.len()==1&&none[0]<=1,"no patrol, no walk: {none:?}");
+    assert_eq!(end,omoba_sim::Vec2::new(Fixed64::from_i32(2800),Fixed64::from_i32(1900)),"no patrol, it holds its place");
+}
+
+/// A stand-in's spell, cast while the hero stands in a circle, shows B20R's magic resistance: the
+/// same spell hurts less once learned, on a schedule shorter than its cooldown, and stops outside.
+#[test]
+fn showcase_stand_in_spell_in_a_circle_hurts_less_after_the_hero_learns_magic_resistance() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::native::moba_match::{ShowcaseCast,ShowcaseCastTarget,ShowcaseConfig};
+    let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+        players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)],
+        ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
+            hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],
+            casts:vec![ShowcaseCast {player:6,ability:"b04_fire_blast".into(),rank:1,target:ShowcaseCastTarget::PlayerPoint {player:1},
+                first_seconds:0,when_near:Some([2300,2400,100]),every_seconds:3}],patrols:vec![],refill_players:Default::default(),withheld_abilities:Default::default()})};
+    // Life lost in each window; `learn`: the hero learns B20R at 5 s. It walks out of the circle at 11 s.
+    let run=|learn:bool| {
+        let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;
+        let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);
+        d.step(&mut w,[]).unwrap();
+        let hero=w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==1).unwrap().entity.unwrap();
+        let slot=w.read_storage::<Hero>().get(hero).unwrap().abilities.iter().position(|id|id=="b20_tenacity").unwrap() as u32;
+        w.write_resource::<BuffStore>().add(hero,"test_no_regen",Fixed64::from_i32(100),serde_json::json!({"health_regen_percentage":-1024}));
+        {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(hero).unwrap();p.mhp=Fixed64::from_i32(50_000);p.hp=Fixed64::from_i32(50_000);}
+        let mut marks=vec![Fixed64::from_i32(50_000)];
+        for tick in 1..=(17*60) {
+            let mut inputs=role_bot_inputs(&w,&bots).unwrap();
+            if learn && tick==5*60 {inputs.push((1,upgrade(slot)));}
+            if tick==11*60 {w.write_storage::<Pos>().get_mut(hero).unwrap().0=omoba_sim::Vec2::new(Fixed64::from_i32(2300),Fixed64::from_i32(2000));}
+            d.step(&mut w,inputs).unwrap();
+            let t=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,t,0);
+            if [2,5,8,11,17].contains(&(tick/60)) && tick%60==0 {marks.push(w.read_storage::<CProperty>().get(hero).unwrap().hp);}
+        }
+        marks.windows(2).map(|pair|pair[0]-pair[1]).collect::<Vec<_>>()
+    };
+    let plain=run(false);
+    assert!(plain[0]>Fixed64::ZERO,"the spell did no damage: {plain:?}");
+    assert!(plain[1..4].iter().all(|taken|*taken==plain[0]),"nothing learned, the same spell every 3 s (its cooldown is 15): {plain:?}");
+    assert_eq!(plain[4],Fixed64::ZERO,"no cast once the hero left the circle: {plain:?}");
+    let learned=run(true);
+    assert_eq!(&learned[..2],&plain[..2],"before learning");
+    assert!(learned[2]*Fixed64::from_i32(100)<=plain[2]*Fixed64::from_i32(95),"{plain:?} without, {learned:?} with B20R");
+    assert_eq!(learned[3],learned[2]);
+    assert_eq!(learned[4],Fixed64::ZERO);
+}
+
 #[test]
 fn channel_bot_authored_recipe_formal_60hz_safe_start_four_ranks_and_paired_replay() {
     use omoba_core::runtime::native::moba_match::bots::*;
     use swept_dash_formal::{hp,mana};
     let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
     let output=std::process::Command::new(root.join("tools/lua/lua.exe")).current_dir(&root)
-        .args(["-e",r#"local j=require('tools.lua.lib.json');print(j.encode(assert(loadfile('scripts/lua_data/moba_channel_match.lua'))()))"#]).output().unwrap();
+        .args(["-e",r#"local j=require('tools.lua.lib.json');print(j.encode(assert(loadfile('scripts/test_fixtures/recipes/moba_channel_match.lua'))()))"#]).output().unwrap();
     assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
     let plan:RoleBotMatchPlan=serde_json::from_slice(&output.stdout).unwrap();
     assert!(plan.mana_enabled);assert_eq!(plan.players.len(),10);
@@ -749,7 +1170,7 @@ fn channel_bot_authored_recipe_formal_60hz_safe_start_four_ranks_and_paired_repl
     let run=|| {
         let mut traces=Vec::new();
         for rank in 1..=4 {
-            let (mut config,mut bots)=plan.compile(43,SimulationTickProfile::Production60Hz).unwrap();
+            let (mut config,mut bots)=plan.compile_fixture(43,SimulationTickProfile::Production60Hz).unwrap();
             config.warmup=Fixed64::ZERO;config.base_recovery_enabled=false;config.wave_interval=Fixed64::from_i32(10000);
             let (mut w,mut d)=world(config,SimulationTickProfile::Production60Hz);d.step(&mut w,[]).unwrap();
             while d.tick()%bots.think_interval_ticks!=0 {d.step(&mut w,[]).unwrap();}
@@ -816,7 +1237,7 @@ fn linear_bot_authored_recipe_formal_60hz_disclosure_resources_and_paired_replay
     // Exercise the authored Lua recipe, not a second copy of its Rust plan.
     let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
     let output=std::process::Command::new(root.join("tools/lua/lua.exe"))
-        .current_dir(&root).args(["-e",r#"local j=require('tools.lua.lib.json'); print(j.encode(assert(loadfile('scripts/lua_data/moba_line_match.lua'))()))"#])
+        .current_dir(&root).args(["-e",r#"local j=require('tools.lua.lib.json'); print(j.encode(assert(loadfile('scripts/test_fixtures/recipes/moba_line_match.lua'))()))"#])
         .output().expect("pinned clone-local Lua 5.4 must load the authored recipe");
     assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
     let plan:RoleBotMatchPlan=serde_json::from_slice(&output.stdout).unwrap();
@@ -830,7 +1251,7 @@ fn linear_bot_authored_recipe_formal_60hz_disclosure_resources_and_paired_replay
     for _replay in 0..2 {
         let mut trace=Vec::new();
         for rank in 1..=4 {
-            let (mut config,mut bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
+            let (mut config,mut bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
             config.warmup=Fixed64::ZERO;config.base_recovery_enabled=false;
             config.wave_interval=Fixed64::from_i32(10_000);
             let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
@@ -1265,7 +1686,7 @@ fn hero_shared_critical_formal_60hz_commits_amount_once_before_visual_pellets() 
 #[test]
 fn script_attack_accuracy_formal_60hz_commits_miss_samples_evasion_and_retires_after_source() {
     for mode in 0..9 {
-        let (mut w,mut driver)=world(SingleLaneConfig {heroes:["saika_magoichi".into(),"training_luminary".into()],
+        let (mut w,mut driver)=legacy_world(SingleLaneConfig {heroes:["saika_magoichi".into(),"training_luminary".into()],
             wave_interval:Fixed64::from_i32(10_000),..fast_config()},SimulationTickProfile::Production60Hz);
         driver.step(&mut w,[]).unwrap();let [caster,enemy]=hero_pair(&w);
         let origin=omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(7000));
@@ -1514,7 +1935,7 @@ fn checked_mana_modifiers_bot_budget_rejects_invalid_instead_of_planning_free_re
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Mid,lane:1,escort_player_id:None}],
         think_interval_ticks:1,sustain:None,item_builds:Vec::new(),ability_learning:Vec::new(),ability_policies:vec![BotAbilityPolicy {
-            ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfRecovery {below_hp_per_mille:600,below_mana_per_mille:500,restore_key:"mana_restore".into()}}]};
+            caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfRecovery {below_hp_per_mille:600,below_mana_per_mille:500,restore_key:"mana_restore".into()}}]};
     let has_cast=|inputs:&[(u32,PlayerInput)]|inputs.iter().any(|(_,i)|matches!(i.action,Some(PlayerInputEnum::CastAbility(_))));
     let before=w.read_storage::<Hero>().get(e).unwrap().mana_pool.clone();
     for value in [serde_json::json!("bad"),serde_json::json!(i64::MAX),serde_json::json!(u64::MAX)] {
@@ -1891,6 +2312,9 @@ mod self_transform_formal {
             // Isolate the transformation from the hero's separately tested passive proc.
             world.write_storage::<Hero>().get_mut(source).unwrap().ability_levels.insert("rain_iron_cannon".into(),0);
             let before=mana(&world,source);let level=omoba_template_ids::active_ability_const(id).unwrap().levels[rank as usize-1];
+            // The untransformed attack, attribute damage included (E172).
+            let untransformed={let attack=world.read_storage::<TAttack>().get(source).unwrap().atk_physic.v;
+                ability_runtime::UnitStats::from_refs(&world.read_resource::<BuffStore>(),false).final_atk(attack,source)};
             cast_skill(&mut world,&mut driver,source,id.as_str(),None,None);
             assert_eq!(mana(&world,source),before-level.mana_cost,"{} rank{rank}",id.as_str());
             assert_eq!(world.read_storage::<Hero>().get(source).unwrap().get_cooldown(id.as_str()),level.cooldown);
@@ -1934,7 +2358,7 @@ mod self_transform_formal {
             let remaining=world.read_resource::<BuffStore>().get(source,buff).unwrap().remaining;
             world.write_resource::<BuffStore>().tick(remaining-Fixed64::from_raw(1));
             driver.step(&mut world,[]).unwrap();assert!(!world.read_resource::<BuffStore>().has(source,buff));
-            assert_eq!(ability_runtime::UnitStats::from_refs(&world.read_resource::<BuffStore>(),false).final_atk(attack,source),attack);
+            assert_eq!(ability_runtime::UnitStats::from_refs(&world.read_resource::<BuffStore>(),false).final_atk(attack,source),untransformed);
             assert_eq!(ability_runtime::UnitStats::from_refs(&world.read_resource::<BuffStore>(),false).lifesteal(source),Fixed64::ZERO);
         }}
     }
@@ -2007,11 +2431,25 @@ mod swept_dash_formal {
         world.write_storage::<Pos>().get_mut(enemy).unwrap().0=origin+Vec2::new(Fixed64::from_i32(10_000),Fixed64::ZERO);
         world.write_storage::<MoveTarget>().remove(caster);
         {let mut heroes=world.write_storage::<Hero>();let hero=heroes.get_mut(caster).unwrap();
-            hero.level=18;hero.ability_levels.insert(id.into(),rank);
-            let max=hero.moba_mana_capacity().unwrap();hero.mana_pool=Some(ability_runtime::ManaPool::new(max,max).unwrap());}
+            pin_legacy_loadout(hero,id);
+            hero.level=18;hero.ability_levels.insert(id.into(),rank);}
+        // A full pool at the hero's real capacity: authored base and level growth plus what its
+        // attributes grant (E172: a source hero's mana is mostly intelligence).
+        omoba_core::runtime::native::attributes::settle_hero_attributes(&mut world);
+        {let max={let buffs=world.read_resource::<BuffStore>();let heroes=world.read_storage::<Hero>();
+                ability_runtime::UnitStats::from_refs(&buffs,false)
+                    .checked_mana_capacity(heroes.get(caster).unwrap().moba_mana_capacity().unwrap(),caster).unwrap()};
+            world.write_storage::<Hero>().get_mut(caster).unwrap().mana_pool=Some(ability_runtime::ManaPool::new(max,max).unwrap());}
         world.write_resource::<BuffStore>().add(caster,"dash_no_regen_fixture",Fixed64::from_i32(100),
             serde_json::json!({"mana_regen_percentage":-1024}));
         (world,driver,caster,origin)
+    }
+    /// A fixture naming a legacy ability gets that legacy kit (see legacy_world).
+    pub(super) fn pin_legacy_loadout(hero:&mut Hero,id:&str) {
+        if hero.abilities.iter().any(|ability|ability==id) {return;}
+        if let Some((_,kit))=super::LEGACY_LOADOUTS.iter().find(|(_,kit)|kit.contains(&id)) {
+            super::restore_legacy_kit(hero,kit);
+        }
     }
     pub(super) fn body(world:&mut World,at:Vec2,team:i32)->specs::Entity {
         world.create_entity().with(Pos(at)).with(Faction::new(if team==1 {FactionType::Player}else{FactionType::Enemy},team))
@@ -2042,13 +2480,16 @@ mod swept_dash_formal {
             let ally=body(&mut world,origin+Vec2::new(range/Fixed64::from_i32(2),Fixed64::ZERO),1);
             let before=mana(&world,caster);
             cast(&mut world,&mut driver,caster,origin+Vec2::new(range+Fixed64::from_i32(500),Fixed64::ZERO));
-            assert_eq!(world.read_storage::<Pos>().get(caster).unwrap().0,origin+Vec2::new(range,Fixed64::ZERO));
+            // 15c: a continuous dash over the authored 0.5 s, never a teleport.
+            assert!(world.read_storage::<Pos>().get(caster).unwrap().0.x<origin.x+range,"rank {rank}: not at the endpoint on the cast tick");
             let damage=crate::ability_builder::extra_at_id(omoba_template_ids::ABILITY_FIRE_DASH,"damage_per_tick",rank as u8)
                 *crate::ability_builder::extra_at_id(omoba_template_ids::ABILITY_FIRE_DASH,"dash_duration",rank as u8)*Fixed64::from_i32(10);
             for target in [middle,endpoint] {assert_eq!(hp(&world,target),Fixed64::from_i32(1000)-damage,"rank {rank}");}
             for target in [outside,beyond,ally] {assert_eq!(hp(&world,target),Fixed64::from_i32(1000));}
             assert_eq!(mana(&world,caster),before-cost);
             assert_eq!(world.read_storage::<Hero>().get(caster).unwrap().get_cooldown(ID),Fixed64::from_i32(30));
+            for _ in 0..31 {driver.step(&mut world,[]).unwrap();}
+            assert_eq!(world.read_storage::<Pos>().get(caster).unwrap().0,origin+Vec2::new(range,Fixed64::ZERO),"rank {rank}");
             world.write_resource::<BuffStore>().add(caster,"stun",Fixed64::from_i32(10),serde_json::json!({}));
             for _ in 0..30 {driver.step(&mut world,[]).unwrap();}
             for target in [middle,endpoint] {assert_eq!(hp(&world,target),Fixed64::from_i32(1000)-damage);}
@@ -2061,8 +2502,9 @@ mod swept_dash_formal {
         let middle=body(&mut world,origin+Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO),2);
         let behind=body(&mut world,origin+Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO),2);
         cast(&mut world,&mut driver,caster,origin+Vec2::new(Fixed64::from_i32(900),Fixed64::ZERO));
+        for _ in 0..31 {driver.step(&mut world,[]).unwrap();}
         let end=world.read_storage::<Pos>().get(caster).unwrap().0;
-        assert!(end.x>Fixed64::from_i32(200) && end.x<Fixed64::from_i32(300));assert_eq!(end.y,origin.y);
+        assert!(end.x>origin.x+Fixed64::from_i32(200) && end.x<origin.x+Fixed64::from_i32(300),"{end:?}");assert_eq!(end.y,origin.y);
         assert_eq!(hp(&world,middle),Fixed64::from_i32(750));assert_eq!(hp(&world,behind),Fixed64::from_i32(1000));
         let radius=world.read_storage::<CollisionRadius>().get(caster).unwrap().0;
         let polygon=world.read_resource::<BlockedRegions>().0.last().unwrap().points.iter()
@@ -2241,6 +2683,38 @@ mod point_blast_formal {
     }
 }
 
+/// Hand-written hero kits that authored packages (`hero_author.lua build`,
+/// update_existing) replaced in the generated content. Tests of those legacy
+/// abilities use `legacy_world` so they do not depend on a hero's current kit.
+const LEGACY_LOADOUTS:&[(&str,[&str;4])]=&[
+    ("date_masamune",["flame_blade","fire_dash","flame_assault","matchlock_gun"]),
+    ("saika_magoichi",["sniper_mode","saika_reinforcements","rain_iron_cannon","three_stage_technique"]),
+];
+
+/// Restores a hand-written kit: its slots, the legacy default birth rank 1
+/// for each, and no levels or charges left from the replaced abilities.
+fn restore_legacy_kit(hero:&mut Hero,kit:&[&str;4]) {
+    let previous=std::mem::replace(&mut hero.abilities,kit.iter().map(|ability|(*ability).to_owned()).collect());
+    for id in previous {
+        if !kit.contains(&id.as_str()) {hero.ability_levels.remove(&id);hero.ability_charges.remove(&id);}
+    }
+    for id in kit {hero.ability_levels.entry((*id).to_owned()).or_insert(1);}
+}
+
+/// `world` with every hero's hand-written kit, before the first tick.
+fn legacy_world(config: SingleLaneConfig, profile: SimulationTickProfile) -> (World, SimulationDriver) {
+    let (mut w,driver)=world(config,profile);
+    {
+        let mut heroes=w.write_storage::<Hero>();
+        for hero in (&mut heroes).join() {
+            if let Some((_,kit))=LEGACY_LOADOUTS.iter().find(|(id,_)|*id==hero.id) {
+                if !hero.abilities.iter().map(String::as_str).eq(kit.iter().copied()) {restore_legacy_kit(hero,kit);}
+            }
+        }
+    }
+    (w,driver)
+}
+
 fn world(mut config: SingleLaneConfig, profile: SimulationTickProfile) -> (World, SimulationDriver) {
     // Fixtures naming an authored map derive its redundant base scalar just as
     // the production RoleBotMatchPlan does. Explicit non-default overrides stay.
@@ -2276,7 +2750,7 @@ fn fast_config() -> SingleLaneConfig {
     }
 }
 
-fn three_lane_config() -> SingleLaneConfig {
+pub(crate) fn three_lane_config() -> SingleLaneConfig {
     SingleLaneConfig { map_id: Some("three_lane_training".into()), ..fast_config() }
 }
 
@@ -2394,14 +2868,36 @@ fn authored_minion_waves_spawn_melee_casters_periodic_siege_and_use_actual_range
         wave_interval:Fixed64::from_i32(30),..three_lane_config()},SimulationTickProfile::Production60Hz);
     driver.step(&mut w,[]).unwrap();
     let count=|w:&World,id:&str|(&w.entities(),&w.read_storage::<Unit>()).join().filter(|(_,u)|u.id==id).count();
-    assert_eq!((count(&w,"lane_melee"),count(&w,"lane_caster"),count(&w,"lane_siege")),(18,18,0));
+    let map=omoba_template_ids::moba_map_by_name("three_lane_training").unwrap();
+    let expected=|waves:u32|["lane_melee","lane_caster","lane_siege"].map(|id|{let m=map.minion_wave.iter().find(|m|m.id==id).unwrap();
+        // Both sides, each lane with its own count (E187: the original mid lane sends more).
+        (1..=waves).filter(|wave|m.spawn_index(*wave).is_some()).count()*2
+            *map.lanes.iter().map(|lane|m.count_in_lane(lane.id) as usize).sum::<usize>()});
+    let counts=|w:&World|["lane_melee","lane_caster","lane_siege"].map(|id|count(w,id));
+    assert_eq!(counts(&w),expected(1));assert_eq!(counts(&w)[2],0,"no siege in the first wave");
     w.write_resource::<DeltaTime>().0=Fixed64::from_i32(30);
     assert!(begin_moba_match_tick(&mut w));assert!(begin_moba_match_tick(&mut w));
-    assert_eq!((count(&w,"lane_melee"),count(&w,"lane_caster"),count(&w,"lane_siege")),(54,54,6));
+    assert_eq!(counts(&w),expected(3));
+    {   // Through the siege group's first wave (the original gunners from wave 6, E187), in its own world.
+        let (mut s,mut sd)=world(SingleLaneConfig {authored_minion_waves:true,
+            wave_interval:Fixed64::from_i32(30),..three_lane_config()},SimulationTickProfile::Production60Hz);
+        sd.step(&mut s,[]).unwrap();s.write_resource::<DeltaTime>().0=Fixed64::from_i32(30);
+        for _ in 1..map.minion_wave.iter().find(|m|m.id=="lane_siege").unwrap().first_wave {assert!(begin_moba_match_tick(&mut s));}
+        let waves=s.read_resource::<MobaMatch>().waves;assert_eq!(counts(&s),expected(waves));assert!(counts(&s)[2]>0);
+    }
     let find=|id:&str,team|(&w.entities(),&w.read_storage::<Unit>(),&w.read_storage::<Faction>()).join()
         .find(|(_,u,f)|u.id==id && f.team_id==team).unwrap().0;
     let caster=find("lane_caster",1);let melee=find("lane_melee",1);let target=find("lane_melee",2);
     let origin=omoba_sim::Vec2::new(Fixed64::from_i32(10_000),Fixed64::from_i32(10_000));
+    // Let earlier strikes recover apart from every enemy: the original intervals (1.58-1.67 s, E187)
+    // outlast the 1 s tick below, so a recovery in progress would hide the strike under test.
+    {let mut positions=w.write_storage::<Pos>();
+        for (_,p) in (&w.entities(),&mut positions).join() {p.0=-origin;}
+        for (e,offset) in [(caster,(0,3000)),(melee,(0,-3000)),(target,(3000,0))] {
+            positions.get_mut(e).unwrap().0=origin+omoba_sim::Vec2::new(Fixed64::from_i32(offset.0),Fixed64::from_i32(offset.1));}
+    }
+    w.write_resource::<DeltaTime>().0=Fixed64::from_raw(512);
+    for _ in 0..5 {assert!(begin_moba_match_tick(&mut w));}
     {let mut positions=w.write_storage::<Pos>();
         for (_,p) in (&w.entities(),&mut positions).join() {p.0=-origin;}
         for e in [caster,melee] {positions.get_mut(e).unwrap().0=origin;}
@@ -2789,8 +3285,9 @@ fn successful_cast_facts_keep_unique_order_across_dispatch_drains_in_one_tick() 
         process_outcomes(&mut w,&mut RuntimeEventVecSink::default()).unwrap();
         committed_visuals.extend(w.write_resource::<ScriptVisualEventQueue>().drain());
     }
+    // Ability-kind facts also carry each cast's AbilityTarget (where it landed, E295): count the casts.
     let facts: Vec<_> = w.read_resource::<ObservableFactBuffer>().drain_ordered().unwrap().into_iter()
-        .filter(|fact| fact.key.fact_kind == FactKind::Ability).collect();
+        .filter(|fact| fact.key.fact_kind == FactKind::Ability && matches!(fact.fact, ObservableFact::Ability {..})).collect();
     assert_eq!(facts.len(), 2);
     assert_eq!(facts[0].key.tick, facts[1].key.tick);
     assert_ne!(facts[0].key.local_ordinal, facts[1].key.local_ordinal);
@@ -2873,8 +3370,12 @@ fn checked_cast_rank_rejects_overflow_and_catalog_bounds_for_every_resource_path
                 let label = format!("formal={formal} managed={managed} rank={rank}");
                 assert_eq!(casts.len(), usize::from(expected), "{label}");
                 let facts = w.read_resource::<ObservableFactBuffer>().drain_ordered().unwrap();
-                let ability: Vec<_> = facts.iter().filter(|fact| fact.key.fact_kind == FactKind::Ability).collect();
+                let ability: Vec<_> = facts.iter().filter(|fact| fact.key.fact_kind == FactKind::Ability
+                    && matches!(fact.fact, ObservableFact::Ability {..})).collect();
                 assert_eq!(ability.len(), usize::from(expected), "{label}");
+                // a unit-targeted cast also says where it landed (E295)
+                let targets = facts.iter().filter(|fact| matches!(fact.fact, ObservableFact::AbilityTarget {target: Some(_), ..})).count();
+                assert_eq!(targets, usize::from(expected), "{label}");
                 if expected {
                     let published = rank.max(0) as u32;
                     assert_eq!(casts[0].ability_rank, published, "{label}");
@@ -3337,8 +3838,11 @@ fn area_effects_bot_formal_60hz_hits_multiple_enemies_not_allies_or_outside_radi
     for &(_,entity) in &entries {assert_eq!(w.read_storage::<CProperty>().get(entity).unwrap().hp,Fixed64::from_i32(1000));}
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Carry,lane:2,escort_player_id:None}],
         think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:2}}]};
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:2}}]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
+    // E596: the bot holds off the ability whose input was just rejected; once that record is gone it casts it.
+    assert!(!role_bot_inputs(&w,&bots).unwrap().iter().any(|(_,input)|matches!(&input.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==2)),"E596 backoff");
+    w.write_resource::<omoba_core::runtime::native::game_processor::FailedCasts>().0.clear();
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert_eq!(inputs.len(),1);
     assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(c)) if c.ability_index==2 && c.target_entity.is_none() && c.target_pos.is_some()));
@@ -3365,8 +3869,8 @@ fn dash_bot_public_terrain_60hz_skips_blocked_cast_for_recovery_then_relocates()
     w.write_resource::<BlockedRegions>().0.push(isolated_skill_region("bot-dash-fixture",100.0,120.0,100.0));
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Top,lane:0,escort_player_id:None}],
         think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),ability_policies:vec![
-            BotAbilityPolicy {ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300}},
-            BotAbilityPolicy {ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
         ]};
     run_committed_visibility_wave_b(&mut w,driver.tick(),0);
     let mana=w.read_storage::<Hero>().get(caster).unwrap().mana_pool.clone();
@@ -3417,8 +3921,8 @@ fn dash_effect_root_60hz_rejects_without_cost_then_bot_recovers_and_relocates() 
         if source==canonical_entity_id(caster))),"failed movement emits no successful cast cue");
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Top,lane:0,escort_player_id:None}],
         think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),ability_policies:vec![
-            BotAbilityPolicy {ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300}},
-            BotAbilityPolicy {ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
         ]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let input=role_bot_inputs(&w,&bots).unwrap();
@@ -3431,6 +3935,9 @@ fn dash_effect_root_60hz_rejects_without_cost_then_bot_recovers_and_relocates() 
     for _ in 0..25 {result=Some(driver.step(&mut w,[]).unwrap());}
     assert!(!w.read_resource::<BuffStore>().is_rooted(caster));
     run_committed_visibility_wave_b(&mut w,result.unwrap().tick,0);
+    // E596: the bot holds off the ability whose input was just rejected; once that record is gone it casts it.
+    assert!(!role_bot_inputs(&w,&bots).unwrap().iter().any(|(_,input)|matches!(&input.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==3)),"E596 backoff");
+    w.write_resource::<omoba_core::runtime::native::game_processor::FailedCasts>().0.clear();
     let input=role_bot_inputs(&w,&bots).unwrap();
     assert!(matches!(&input[0].1.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==3));
     driver.step(&mut w,input).unwrap();
@@ -3468,9 +3975,12 @@ fn dash_effect_formal_60hz_rejects_wall_and_range_then_bot_relocates() {
     *w.write_resource::<BlockedRegions>()=original;
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Top,lane:0,escort_player_id:None}],
         think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"vanguard_resolve".into(),
-            intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300}}]};
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_resolve".into(),
+            intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}}]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
+    // E596: the bot holds off the ability whose input was just rejected; once that record is gone it casts it.
+    assert!(!role_bot_inputs(&w,&bots).unwrap().iter().any(|(_,input)|matches!(&input.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==3)),"E596 backoff");
+    w.write_resource::<omoba_core::runtime::native::game_processor::FailedCasts>().0.clear();
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(c)) if c.ability_index==3 && c.target_entity.is_none() && c.target_pos.is_some()));
     assert_eq!(w.read_storage::<Pos>().get(caster).unwrap().0,source,"Bot must not move the entity itself");
@@ -3617,8 +4127,8 @@ fn role_bot_sustain_navigation_60hz_all_roles_defend_hold_and_resume() {
                 think_interval_ticks:1,ability_learning:Vec::new(),item_builds:Vec::new(),
                 sustain:Some(BotSustainPolicy {recall_below_hp_per_mille:350,leave_base_at_hp_per_mille:850,threat_radius:1000,mana:None}),
                 ability_policies:if healing {vec![
-                    BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit},
-                    BotAbilityPolicy {ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
+                    BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit},
+                    BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
                 ]} else {Vec::new()}};
             run_committed_visibility_wave_b(&mut w,driver.tick(),0);
             let escape=role_bot_inputs(&w,&bots).unwrap();
@@ -3686,8 +4196,8 @@ fn role_bot_rooted_sustain_60hz_casts_recovery_instead_of_blocked_escape() {
             think_interval_ticks:1,ability_learning:Vec::new(),item_builds:Vec::new(),
             sustain:Some(BotSustainPolicy {recall_below_hp_per_mille:350,leave_base_at_hp_per_mille:850,threat_radius:1000,mana:None}),
             ability_policies:vec![
-                BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit},
-                BotAbilityPolicy {ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
+                BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit},
+                BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
             ]};
         run_committed_visibility_wave_b(&mut w,result.tick,0);
         let escape=role_bot_inputs(&w,&bots).unwrap();
@@ -3789,7 +4299,7 @@ fn role_bot_control_state_waits_and_resumes_through_formal_60hz() {
     let mut bots=RoleBotConfig {assignments:vec![BotAssignment {
         player_id:2,role:BotRole::Mid,lane:1,escort_player_id:None,
     }],think_interval_ticks:1,sustain:None,item_builds:Vec::new(),ability_learning:Vec::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}]};
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}]};
     assert!(matches!(&role_bot_inputs(&w,&bots).unwrap()[0].1.action,
         Some(PlayerInputEnum::CastAbility(cast)) if cast.target_entity==Some(caster.id())));
     // Real generated enemy spell applies control; the bot never reads enemy Buffs.
@@ -3933,7 +4443,16 @@ fn slow_effect_formal_60hz_uses_strongest_source_and_expires_in_real_movement() 
     let ability=omoba_template_ids::active_ability_const(omoba_template_ids::ability_by_name("ranger_shot").unwrap()).unwrap();
     let rank4=ability.extras.iter().find(|(key,_)|*key=="slow_reduction").unwrap().1[3];
     let reduced=base*(Fixed64::ONE-rank4); // Use the generator's Q10 rounding.
-    assert_eq!(speed(&w),reduced,"two sources must not add to a 65% slow");
+    // 原作 dummy.lua:816-902：同一技能名稱（ranger_shot）的緩速同名覆蓋，只算最強的一筆，不疊成 65%。
+    assert_eq!(speed(&w),reduced,"the same source name keeps one slow");
+    // 不同名稱的技能緩速 1−Π(1−sᵢ) 乘法疊加（omoba-core combine_ability_slows）。
+    w.write_resource::<BuffStore>().add(victim,"generic_slow:other_skill:1:1",Fixed64::from_i32(5),
+        serde_json::json!({"move_speed_bonus":-512,"__aggregation_family":"generic_ability_slow"}));
+    let mut names=std::collections::BTreeMap::new();names.insert("other_skill",512);names.insert("ranger_shot",rank4.raw());
+    let stacked=base*Fixed64::from_raw(1024+omoba_core::runtime::native::ability_runtime::buff_store::combine_ability_slows(&names));
+    assert_eq!(speed(&w),stacked,"different source names stack multiplicatively");
+    assert!(stacked<reduced);
+    w.write_resource::<BuffStore>().remove(victim,"generic_slow:other_skill:1:1");
     let buffs=w.read_resource::<BuffStore>();
     assert_eq!(buffs.iter_for(victim).filter(|(id,_)|id.starts_with("generic_slow:")).count(),2);
     let visual=omoba_core::runtime::buff_visual_state::BuffVisualState::from_store(&buffs,victim);
@@ -4163,8 +4682,9 @@ fn bot_summoner_cleanse_formal_60hz_controls_item_priority_pause_retention_and_r
     use omoba_core::runtime::native::moba_match::bots::*;
     let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
     let output=std::process::Command::new(root.join("tools/lua/lua.exe")).current_dir(&root)
-        .args(["-e",r#"local j=require('tools.lua.lib.json');print(j.encode(assert(loadfile('scripts/lua_data/moba_archetype_match.lua'))()))"#]).output().unwrap();assert!(output.status.success());
-    let recipe:RoleBotMatchPlan=serde_json::from_slice(&output.stdout).unwrap();recipe.compile(43,SimulationTickProfile::Production60Hz).unwrap();
+        .args(["-e",r#"local j=require('tools.lua.lib.json');print(j.encode(assert(loadfile('scripts/test_fixtures/recipes/moba_training_archetype_match.lua'))()))"#]).output().unwrap();
+    assert!(output.status.success(),"the authored recipe must load (a tree without scripts/test_fixtures cannot): {}",String::from_utf8_lossy(&output.stderr));
+    let recipe:RoleBotMatchPlan=serde_json::from_slice(&output.stdout).unwrap();recipe.compile_fixture(43,SimulationTickProfile::Production60Hz).unwrap();
     for player in &recipe.players {if player.bot&&player.role==BotRole::Support {assert_eq!(recipe.summoner_loadouts.get(&player.player_id).unwrap(),&[None,Some("training_control_cleanse_v1".into())]);}else{assert!(!recipe.summoner_loadouts.contains_key(&player.player_id));}}
     fn cooldown(w:&World,slot:usize)->Fixed64 {
         let bytes=omoba_core::runtime::native::summoner_world::project_team_summoners(&w.read_resource::<MobaMatch>(),1);
@@ -4462,7 +4982,7 @@ fn role_bot_learning_rank_zero_through_formal_60hz_upgrade_and_cast() {
         think_interval_ticks:1,sustain:None,item_builds:Vec::new(),
         ability_learning:vec![BotAbilityLearningStep {ability:"apprentice_lance".into(),rank:1},
             BotAbilityLearningStep {ability:"apprentice_bolt".into(),rank:1}],
-        ability_policies:vec![BotAbilityPolicy {ability:"apprentice_bolt".into(),intent:BotAbilityIntent::EnemyUnit}]};
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"apprentice_bolt".into(),intent:BotAbilityIntent::EnemyUnit}]};
     {
         let heroes=w.read_storage::<Hero>();let hero=heroes.get(caster).unwrap();
         assert_eq!((hero.level,hero.skill_points,hero.get_ability_level("apprentice_bolt")),(1,1,0));
@@ -4512,7 +5032,7 @@ fn role_bot_abilities_cast_damage_and_heal_through_formal_60hz_pipeline() {
     w.write_storage::<Hero>().get_mut(caster).unwrap().abilities.swap(0,2);
     let player=w.read_resource::<MobaMatch>().heroes[0].player_id;
     let mut bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:player,role:BotRole::Mid,lane:1,escort_player_id:None}],
-        think_interval_ticks:1,sustain:None,item_builds:Vec::new(),ability_learning:Vec::new(),ability_policies:vec![BotAbilityPolicy {ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}]};
+        think_interval_ticks:1,sustain:None,item_builds:Vec::new(),ability_learning:Vec::new(),ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}]};
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert_eq!(inputs.len(),1);
     assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==2 && cast.target_entity==Some(target.id())));
@@ -4528,7 +5048,7 @@ fn role_bot_abilities_cast_damage_and_heal_through_formal_60hz_pipeline() {
     let canonical=((target.gen().id() as u32 as u64)<<32)|u64::from(target.id());
     w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.remove(&canonical);
     assert!(role_bot_inputs(&w,&bots).unwrap().iter().all(|(_,input)|!matches!(input.action,Some(PlayerInputEnum::CastAbility(_)))));
-    bots.ability_policies=vec![BotAbilityPolicy {ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}}];
+    bots.ability_policies=vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}}];
     w.write_storage::<CProperty>().get_mut(caster).unwrap().hp=Fixed64::from_i32(100);
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let inputs=role_bot_inputs(&w,&bots).unwrap();
@@ -4563,8 +5083,8 @@ fn mana_budget_bot_uses_script_cost_and_formal_60hz_debit_without_reservation() 
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Carry,lane:1,escort_player_id:None}],
         think_interval_ticks:1,sustain:None,item_builds:Vec::new(),ability_learning:Vec::new(),ability_policies:vec![
-            BotAbilityPolicy {ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}},
-            BotAbilityPolicy {ability:"ranger_patch".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}}]};
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_patch".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}}]};
     let mut expected=w.read_storage::<Hero>().get(caster).unwrap().mana_pool.clone().unwrap();
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert_eq!(inputs.len(),1);
@@ -4616,7 +5136,7 @@ fn mana_recovery_bot_60hz_full_health_uses_discounted_formal_cast() {
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Mid,lane:1,escort_player_id:None}],
         think_interval_ticks:1,sustain:None,item_builds:Vec::new(),ability_learning:Vec::new(),ability_policies:vec![
-            BotAbilityPolicy {ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfRecovery {
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfRecovery {
                 below_hp_per_mille:600,below_mana_per_mille:500,restore_key:"mana_restore".into()}}]};
     assert!(role_bot_inputs(&w,&bots).unwrap().iter().all(|(_,input)|
         !matches!(input.action,Some(PlayerInputEnum::CastAbility(_)))),"55 cost / 20 restore loses mana");
@@ -4659,7 +5179,7 @@ fn mana_regeneration_bot_60hz_generated_buff_blocks_recast_until_removed() {
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Carry,lane:1,escort_player_id:None}],
         think_interval_ticks:1,sustain:None,item_builds:Vec::new(),ability_learning:Vec::new(),ability_policies:vec![
-            BotAbilityPolicy {ability:"ranger_patch".into(),intent:BotAbilityIntent::SelfManaRegeneration {
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_patch".into(),intent:BotAbilityIntent::SelfManaRegeneration {
                 below_hp_per_mille:600,below_mana_per_mille:500,
                 rate_key:"mana_buff_value".into(),duration_key:"mana_buff_duration".into()}}]};
     let has_cast=|inputs:&[(u32,PlayerInput)]|inputs.iter().any(|(_,input)|matches!(input.action,Some(PlayerInputEnum::CastAbility(_))));
@@ -4700,8 +5220,8 @@ fn support_guard_focus_60hz_shares_formal_attack_and_skill_without_hidden_escort
         players:vec![player(1,1,BotRole::Support,"training_support"),player(2,2,BotRole::Mid,"training_luminary"),
             player(3,1,BotRole::Carry,"training_ranger"),player(4,2,BotRole::Top,"training_vanguard")],
         ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}]};
-    let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}], showcase: None};
+    let (mut config,bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
     let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
     let result=driver.step(&mut w,[]).unwrap();
@@ -4755,8 +5275,8 @@ fn jungle_assist_60hz_uses_committed_allies_and_formal_skill_and_attack_inputs()
     let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
         players:vec![player(1,1,BotRole::Jungle,"training_vanguard"),player(2,2,BotRole::Mid,"training_luminary"),
             player(3,1,BotRole::Mid,"training_ranger")],ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit}]};
-    let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit}], showcase: None};
+    let (mut config,bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
     let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
     let result=driver.step(&mut w,[]).unwrap();let [caster,target]=hero_pair(&w);
@@ -4815,7 +5335,7 @@ fn jungle_cone_60hz_uses_committed_direction_and_authoritative_full_range_damage
         Some(ManaPool::new(Fixed64::from_i32(280),Fixed64::from_i32(280)).unwrap());
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Jungle,lane:0,
         escort_player_id:None}],think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"ranger_scatter".into(),intent:BotAbilityIntent::EnemyCone {min_targets:2}}]};
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_scatter".into(),intent:BotAbilityIntent::EnemyCone {min_targets:2}}]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(cast))
@@ -4863,7 +5383,7 @@ fn jungle_farm_focus_60hz_area_cast_and_attack_share_disclosed_neutral_target() 
         p.def_physic=Fixed64::ZERO;p.def_magic=Fixed64::ZERO;}}
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Jungle,lane:0,
         escort_player_id:None}],think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"ranger_volley".into(),
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_volley".into(),
             intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}}]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let inputs=role_bot_inputs(&w,&bots).unwrap();
@@ -4892,8 +5412,8 @@ fn bot_cleanse_formal_60hz_healthy_ally_public_only_pause_and_replay() {
         let plan=RoleBotMatchPlan{schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,
             players:vec![player(1,1,BotRole::Support,"training_support"),player(2,2,BotRole::Mid,"training_luminary"),player(3,1,BotRole::Carry,"training_ranger")],
             ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
-            ability_policies:vec![BotAbilityPolicy{ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHealOrCleanse{below_hp_per_mille:600}}]};
-        let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
+            ability_policies:vec![BotAbilityPolicy{caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHealOrCleanse{below_hp_per_mille:600}}], showcase: None};
+        let (mut config,bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
         let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);driver.step(&mut w,[]).unwrap();let [caster,enemy]=hero_pair(&w);
         let ally=w.read_resource::<MobaMatch>().heroes.iter().find(|s|s.player_id==3).unwrap().entity.unwrap();let y=isolated_skill_origin_y();
         for (entity,x) in [(caster,0),(enemy,300),(ally,500)]{place_hero(&mut w,entity,x,y);set_hold(&mut w,entity);disarm_attack(&mut w,entity);}
@@ -4930,8 +5450,8 @@ fn ally_cleanse_formal_60hz_all_ranks_retention_cost_pause_reapplication_and_rep
         let player=|player_id,team_id,role,hero:&str|RoleBotPlayerPlan {player_id,team_id,role,hero:hero.into(),lane:"mid".into(),bot:false};
         let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,
             players:vec![player(1,1,BotRole::Support,"training_support"),player(2,2,BotRole::Mid,"training_luminary"),player(3,1,BotRole::Carry,"training_ranger")],
-            ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),ability_policies:Vec::new()};
-        let (mut config,_)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
+            ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),ability_policies:Vec::new(), showcase: None};
+        let (mut config,_)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
         let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);driver.step(&mut w,[]).unwrap();let [caster,enemy]=hero_pair(&w);
         let ally=w.read_resource::<MobaMatch>().heroes.iter().find(|s|s.player_id==3).unwrap().entity.unwrap();
         let y=isolated_skill_origin_y();
@@ -4972,8 +5492,8 @@ fn ally_heal_60hz_generated_support_rejects_enemy_and_heals_disclosed_teammate()
     let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,
         players:vec![player(1,1,BotRole::Support,"training_support"),player(2,2,BotRole::Mid,"training_luminary"),
             player(3,1,BotRole::Carry,"training_ranger")],ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
-        ability_policies:vec![BotAbilityPolicy {ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHeal {below_hp_per_mille:600}}]};
-    let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
+        ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHeal {below_hp_per_mille:600}}], showcase: None};
+    let (mut config,bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
     let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
     driver.step(&mut w,[]).unwrap();let [caster,enemy]=hero_pair(&w);
@@ -4996,6 +5516,9 @@ fn ally_heal_60hz_generated_support_rejects_enemy_and_heals_disclosed_teammate()
     assert!(!w.read_storage::<Hero>().get(caster).unwrap().is_on_cooldown("lumen_aid"));
     assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp,Fixed64::from_i32(100));
     run_committed_visibility_wave_b(&mut w,result.tick,0);
+    // E596: the bot holds off the ability whose input was just rejected; once that record is gone it casts it.
+    assert!(!role_bot_inputs(&w,&bots).unwrap().iter().any(|(_,input)|matches!(&input.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==3)),"E596 backoff");
+    w.write_resource::<omoba_core::runtime::native::game_processor::FailedCasts>().0.clear();
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(cast))
         if cast.ability_index==3 && cast.target_entity==Some(ally.id())));
@@ -5018,8 +5541,8 @@ fn support_escort_navigation_60hz_holds_on_blocked_disclosure_and_resumes() {
         hero:"training_luminary".into(),lane:"bottom".into()};
     let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
         ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
-        players:vec![player(1,1,BotRole::Carry,false),player(2,2,BotRole::Mid,false),player(3,1,BotRole::Support,true)]};
-    let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
+        players:vec![player(1,1,BotRole::Carry,false),player(2,2,BotRole::Mid,false),player(3,1,BotRole::Support,true)], showcase: None};
+    let (mut config,bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
     let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
     driver.step(&mut w,[]).unwrap();
@@ -5069,8 +5592,8 @@ fn role_bots_support_escorts_human_using_committed_position_at_60hz() {
     let player=|player_id,team_id,role,bot| RoleBotPlayerPlan {player_id,team_id,role,bot,
         hero:"training_luminary".into(),lane:"bottom".into()};
     let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
-        players:vec![player(1,1,BotRole::Carry,false),player(2,2,BotRole::Mid,false),player(3,1,BotRole::Support,true)]};
-    let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
+        players:vec![player(1,1,BotRole::Carry,false),player(2,2,BotRole::Mid,false),player(3,1,BotRole::Support,true)], showcase: None};
+    let (mut config,bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;
     let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
     let result=driver.step(&mut w,[]).unwrap();
@@ -5141,8 +5664,8 @@ fn role_bot_plan_nine_bots_leave_human_control_untouched_at_60hz() {
                 role,lane:lane.into(),bot:player_id != 1});
         }
     }
-    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new()};
-    let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(), showcase: None};
+    let (mut config,bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;
     let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
     let result=driver.step(&mut w,[]).unwrap();
@@ -5316,7 +5839,7 @@ fn npc_terrain_60hz_lane_and_camp_dual_replica_replay() {
         assert!(lane_detour && lane_crossed && camp_detour && camp_crossed && returning,
             "seed={seed} lane={lane_detour}/{lane_crossed} camp={camp_detour}/{camp_crossed} return={returning}");
         assert_eq!(a.read_storage::<Pos>().get(camp).unwrap().0,home);
-        assert_eq!(a.read_storage::<CProperty>().get(camp).unwrap().hp,Fixed64::from_i32(450));
+        assert_eq!(a.read_storage::<CProperty>().get(camp).unwrap().hp,Fixed64::from_i32(a.read_resource::<MobaMatch>().jungle_camps[0].definition.hp));
         assert!(!a.read_resource::<MobaMatch>().jungle_camps[0].returning);
         println!("NPC terrain seed={seed} ticks=900 dual_steps=1800 lane/camp detour and healed return passed");
     }
@@ -5433,8 +5956,8 @@ fn death_split_camp_formal_60hz_rewards_snapshots_full_clear_and_determinism() {
                 }
                 if population==2 || count<10 {assert!(c.respawn_at.is_none());}
             }
-            assert_eq!(count,10);assert_eq!((gold,xp),(124,193));
-            let mut expected=initial_hero;expected.add_moba_experience(xp);
+            assert_eq!(count,10);assert_eq!((gold,xp),(110,133));
+            let mut expected=initial_hero;expected.add_moba_experience(xp,w.read_resource::<MobaMatch>().config.game_rules.as_ref());
             let actual=w.read_storage::<Hero>().get(hero).unwrap().clone();
             assert_eq!((actual.level,actual.experience),(expected.level,expected.experience));
             let deadline=w.read_resource::<MobaMatch>().jungle_camps[index].respawn_at.unwrap();
@@ -5469,16 +5992,18 @@ fn grouped_camp_shares_aggro_and_respawns_only_after_last_member() {
         let visuals=w.read_resource::<MobaMatch>().disclosed_unit_attack_states(false);
         assert!(std::iter::once(leader).chain(children.iter().copied()).all(|e|visuals.get(&canonical_entity_id(e)).is_some_and(|s|s.sequence>0)));
         let gold=w.read_storage::<Gold>().get(hero).unwrap().0;
+        let (leader_gold,member_gold,respawn)={let s=w.read_resource::<MobaMatch>();let c=&s.jungle_camps[index];
+            (c.definition.gold as i32,c.members.iter().map(|m|m.definition.gold as i32).sum::<i32>(),c.definition.respawn_seconds)};
         w.write_resource::<Vec<Outcome>>().push(lethal(hero,leader));
         for _ in 0..2{process_outcomes(&mut w,&mut RuntimeEventVecSink::default()).unwrap();}w.maintain();
         assert!(w.read_resource::<MobaMatch>().jungle_camps[index].respawn_at.is_none(),"leader death does not start camp respawn");
-        assert_eq!(w.read_storage::<Gold>().get(hero).unwrap().0,gold+60);
+        assert_eq!(w.read_storage::<Gold>().get(hero).unwrap().0,gold+leader_gold);
         for entity in &children {w.write_resource::<Vec<Outcome>>().extend([lethal(hero,*entity),lethal(hero,*entity)]);}
         for _ in 0..2{process_outcomes(&mut w,&mut RuntimeEventVecSink::default()).unwrap();}w.maintain();
-        assert_eq!(w.read_storage::<Gold>().get(hero).unwrap().0,gold+80,"independent member credit is idempotent");
+        assert_eq!(w.read_storage::<Gold>().get(hero).unwrap().0,gold+leader_gold+member_gold,"independent member credit is idempotent");
         assert!(w.read_resource::<MobaMatch>().jungle_camps[index].respawn_at.is_some());
         w.write_storage::<Pos>().get_mut(hero).unwrap().0=omoba_sim::Vec2::ZERO;
-        for _ in 0..960 {driver.step(&mut w,[]).unwrap();}
+        for _ in 0..(respawn+1)*60 {driver.step(&mut w,[]).unwrap();}
         let state=w.read_resource::<MobaMatch>();let camp=&state.jungle_camps[index];
         assert_eq!(camp.respawns,1);assert_ne!(camp.entity,Some(leader));
         assert!(camp.members.iter().zip(&children).all(|(m,old)|m.entity.is_some()&&m.entity!=Some(*old)));
@@ -5521,7 +6046,7 @@ fn jungle_soft_reset_can_reengage_and_hard_reset_refuses_damage() {
     assert_eq!(w.read_storage::<CProperty>().get(camp).unwrap().hp,hp);
     for _ in 0..900{driver.step(&mut w,[]).unwrap();}
     assert_eq!(w.read_storage::<Pos>().get(camp).unwrap().0,home);
-    assert_eq!(w.read_storage::<CProperty>().get(camp).unwrap().hp,Fixed64::from_i32(450));
+    assert_eq!(w.read_storage::<CProperty>().get(camp).unwrap().hp,Fixed64::from_i32(w.read_resource::<MobaMatch>().jungle_camps[0].definition.hp));
     assert!(!w.read_resource::<MobaMatch>().jungle_camps[0].returning);
 }
 
@@ -5560,14 +6085,15 @@ fn jungle_60hz_aggro_leash_immunity_reward_and_respawn() {
         assert_eq!(w.read_storage::<CProperty>().get(camp).unwrap().hp,hp);
         for _ in 0..30 { driver.step(&mut w,[]).unwrap(); }
         assert_eq!(w.read_storage::<Pos>().get(camp).unwrap().0,home);
-        assert_eq!(w.read_storage::<CProperty>().get(camp).unwrap().hp,Fixed64::from_i32(450));
+        let definition = w.read_resource::<MobaMatch>().jungle_camps[0].definition.clone();
+        assert_eq!(w.read_storage::<CProperty>().get(camp).unwrap().hp,Fixed64::from_i32(definition.hp));
         let before = w.read_storage::<Gold>().get(hero).unwrap().0;
         let xp = w.read_storage::<Hero>().get(hero).unwrap().experience;
         w.write_resource::<Vec<Outcome>>().extend([lethal(hero,camp),lethal(hero,camp)]);
         process_outcomes(&mut w,&mut RuntimeEventVecSink::default()).unwrap();
         process_outcomes(&mut w,&mut RuntimeEventVecSink::default()).unwrap(); w.maintain();
-        assert_eq!(w.read_storage::<Gold>().get(hero).unwrap().0,before+60);
-        assert_eq!(w.read_storage::<Hero>().get(hero).unwrap().experience,xp+90);
+        assert_eq!(w.read_storage::<Gold>().get(hero).unwrap().0,before+definition.gold as i32);
+        assert_eq!(w.read_storage::<Hero>().get(hero).unwrap().experience,xp+definition.xp as i32);
         assert_eq!(w.read_resource::<MobaMatch>().heroes[0].kills,0);
         assert!(w.read_resource::<MobaMatch>().jungle_camps[0].entity.is_none());
         let elapsed = w.read_resource::<MobaMatch>().elapsed;
@@ -5575,10 +6101,10 @@ fn jungle_60hz_aggro_leash_immunity_reward_and_respawn() {
         for _ in 0..60 { driver.step(&mut w,[]).unwrap(); }
         assert_eq!(w.read_resource::<MobaMatch>().elapsed,elapsed);
         w.write_resource::<GamePause>().is_paused = false;
-        for _ in 0..960 { driver.step(&mut w,[]).unwrap(); }
+        for _ in 0..(definition.respawn_seconds+1)*60 { driver.step(&mut w,[]).unwrap(); }
         let next = w.read_resource::<MobaMatch>().jungle_camps[0].entity.unwrap();
         assert_ne!(next,camp); assert_eq!(w.read_resource::<MobaMatch>().jungle_camps[0].respawns,1);
-        assert_eq!(w.read_storage::<CProperty>().get(next).unwrap().hp,Fixed64::from_i32(450));
+        assert_eq!(w.read_storage::<CProperty>().get(next).unwrap().hp,Fixed64::from_i32(definition.hp));
         single_lane_replay_digest(&w)
     };
     assert_eq!(run(),run());
@@ -5644,8 +6170,8 @@ fn combat_navigation_60hz_lane_roles_skip_failed_chases_hold_and_reconsider() {
     for role in [BotRole::Top,BotRole::Mid,BotRole::Carry,BotRole::Support] {
         let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
             ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
-            players:vec![player(1,1,BotRole::Top),player(2,2,BotRole::Mid),player(3,2,BotRole::Support)]};
-        let (mut config,_)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
+            players:vec![player(1,1,BotRole::Top),player(2,2,BotRole::Mid),player(3,2,BotRole::Support)], showcase: None};
+        let (mut config,_)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
         config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
         let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
         driver.step(&mut w,[]).unwrap();
@@ -5808,6 +6334,13 @@ fn jungle_60hz_formal_inputs_dual_replica_and_every_tick_replay() {
         let (mut b,mut bd) = world(config,SimulationTickProfile::Production60Hz);
         for w in [&mut a,&mut b] {
             let hero = hero_pair(w)[0];
+            // The original guardian (E187: 2040 HP, 153 attack, 120 s respawn) outlasts this 50 s
+            // fixture's training hero. The protocol under test does not depend on camp scale, so
+            // both worlds get the same training-scale camp: 450 HP, 30 attack, 15 s respawn.
+            let camp = {let mut s=w.write_resource::<MobaMatch>();let c=&mut s.jungle_camps[0];
+                c.definition.hp=450;c.definition.damage=30;c.definition.respawn_seconds=15;c.entity.unwrap()};
+            {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(camp).unwrap();p.hp=Fixed64::from_i32(450);p.mhp=p.hp;}
+            {let mut units=w.write_storage::<Unit>();let u=units.get_mut(camp).unwrap();u.max_hp=450;u.current_hp=450;u.base_damage=30;}
             let d=w.read_resource::<MobaMatch>().jungle_camps[0].definition;
             w.write_storage::<Pos>().get_mut(hero).unwrap().0 = omoba_sim::Vec2::new(Fixed64::from_i32(d.position.0-200),Fixed64::from_i32(d.position.1));
         }
@@ -5924,8 +6457,9 @@ fn jungle_rewards_require_lethal_hero_provenance_and_survive_death() {
     assert!(w.read_resource::<MobaMatch>().heroes[0].entity.is_none());
     for _ in 0..130 { driver.step(&mut w,[]).unwrap(); }
     let reborn = w.read_resource::<MobaMatch>().heroes[0].entity.unwrap();
-    assert_eq!(w.read_storage::<Gold>().get(reborn).unwrap().0,60);
-    assert_eq!(w.read_storage::<Hero>().get(reborn).unwrap().experience,90);
+    let definition = w.read_resource::<MobaMatch>().jungle_camps[0].definition.clone();
+    assert_eq!(w.read_storage::<Gold>().get(reborn).unwrap().0,definition.gold as i32);
+    assert_eq!(w.read_storage::<Hero>().get(reborn).unwrap().experience,definition.xp as i32);
     assert_eq!(w.read_resource::<MobaMatch>().heroes[0].kills,0);
 }
 
@@ -5960,6 +6494,7 @@ fn three_lane_lua_map_spawns_each_route_and_replays_at_60hz() {
 }
 
 #[test]
+#[cfg_attr(debug_assertions, ignore = "release-only full-match soak (E180): run with --release")]
 fn authored_five_player_waves_60hz_dual_world_and_both_filtered_replicas() {
     use omoba_core::runtime::native::moba_match::bots::*;
     use std::collections::BTreeSet;
@@ -5972,10 +6507,15 @@ fn authored_five_player_waves_60hz_dual_world_and_both_filtered_replicas() {
         } }
         let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,
             players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
-            summoner_loadouts:std::collections::BTreeMap::new()};
-        let (mut config,_)=plan.compile(seed,SimulationTickProfile::Production60Hz).unwrap();
+            summoner_loadouts:std::collections::BTreeMap::new(), showcase: None};
+        let (mut config,_)=plan.compile_fixture(seed,SimulationTickProfile::Production60Hz).unwrap();
         config.warmup=Fixed64::ZERO;
-        assert!(config.authored_minion_waves);assert_eq!(config.wave_interval,Fixed64::from_i32(30));
+        let map=omoba_template_ids::moba_map_by_name("three_lane_training").unwrap();
+        assert!(config.authored_minion_waves);assert_eq!(config.wave_interval,Fixed64::from_i32(map.wave_interval_seconds as i32));
+        assert_eq!(config.first_wave_delay,Fixed64::from_i32(map.first_wave_seconds() as i32));
+        // Protocol fixture: waves at once and every 15 s, so the original gunners (from wave 6, E187)
+        // spawn and strike inside the run.
+        config.first_wave_delay=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(15);
         let (mut a,mut ad)=world(config.clone(),SimulationTickProfile::Production60Hz);
         let (mut b,mut bd)=world(config,SimulationTickProfile::Production60Hz);
         let first=ad.step(&mut a,[]).unwrap();bd.step(&mut b,[]).unwrap();
@@ -5989,7 +6529,7 @@ fn authored_five_player_waves_60hz_dual_world_and_both_filtered_replicas() {
             stepper.bootstrap_membership(replica.world()).unwrap();(team,replica,stepper)
         }).collect();
         let (mut caster_struck,mut siege_spawned,mut siege_struck)=(false,false,false);
-        for index in 0..4500 {
+        for index in 0..8940 {
             let result=ad.step(&mut a,[]).unwrap();bd.step(&mut b,[]).unwrap();
             run_committed_visibility_wave_b(&mut b,bd.tick(),0);
             assert_eq!(single_lane_replay_digest(&a),single_lane_replay_digest(&b),"wave seed={seed} tick={index}");
@@ -6015,8 +6555,8 @@ fn authored_five_player_waves_60hz_dual_world_and_both_filtered_replicas() {
             }
         }
         assert!(caster_struck && siege_spawned && siege_struck,"actual caster and siege strikes seed={seed}");
-        assert_eq!(a.read_resource::<MobaMatch>().waves,3);
-        println!("authored 5v5 seed={seed} ticks=4500 dual_world_steps=9000 replica_steps=9000 three waves and actual caster/siege strikes passed");
+        assert_eq!(a.read_resource::<MobaMatch>().waves,10);
+        println!("authored 5v5 seed={seed} ticks=8940 dual_world_steps=17880 replica_steps=17880 ten waves and actual caster/siege strikes passed");
     }
 }
 
@@ -6137,10 +6677,14 @@ fn layered_lane_towers_replay_deterministically_at_60hz() {
 }
 
 #[test]
+#[cfg_attr(debug_assertions, ignore = "release-only full-match soak (E180): run with --release")]
 fn three_lane_60hz_full_filtered_match_lifecycle() {
+    // The quick map (E187): the standard map now carries the original structures (2400 HP towers
+    // with 378 attack, a 10000 HP base) for a 5v5 of about half an hour, which this one-hero push
+    // fixture cannot finish inside its 20-minute bound. The lifecycle under test is the same.
     for seed in [1,42,0x20261004] {
         full_match_filtered_lifecycle_with_map(SimulationTickProfile::Production60Hz,60,24_000,
-            Some("three_lane_training"),seed);
+            Some("three_lane_quick_training"),seed);
     }
 }
 
@@ -6183,7 +6727,7 @@ fn single_lane_rank_zero_first_learning_cast_and_respawn_at_60hz() {
         {
             let mut heroes = world.write_storage::<Hero>();
             apply_moba_birth_loadout(heroes.get_mut(source).unwrap(),
-                omoba_template_ids::MobaLoadoutConst { ranks: [0;4], skill_points: 1 }).unwrap();
+                omoba_template_ids::MobaLoadoutConst { ranks: [0;omoba_template_ids::HERO_ABILITY_SLOTS], skill_points: 1 }).unwrap();
         }
         assert!(handle_ability_cast_from_input(&mut world,0,None,Some(target.id()),1)
             .unwrap_err().to_string().contains("not learned"));
@@ -6233,7 +6777,7 @@ fn single_lane_rank_zero_first_learning_cast_and_respawn_at_60hz() {
 fn single_lane_birth_loadout_rejections_do_not_partially_mutate_hero() {
     let (world,_) = world(fast_config(),SimulationTickProfile::Production60Hz);
     let mut hero = world.read_storage::<Hero>().get(hero_pair(&world)[0]).unwrap().clone();
-    for ranks in [[0,0,2,0],[0,0,0,255]] {
+    for ranks in [[0,0,2,0,0,0],[0,0,0,255,0,0]] {
         let before = serde_json::to_value(&hero).unwrap();
         assert!(apply_moba_birth_loadout(&mut hero,omoba_template_ids::MobaLoadoutConst {
             ranks,skill_points:1,
@@ -6366,7 +6910,7 @@ fn assert_upgrade_filtered_parity(initial_rank: u8) {
     let [a,b]=hero_pair(&authority);
     for (index,hero) in [a,b].into_iter().enumerate() {
         apply_moba_birth_loadout(authority.write_storage::<Hero>().get_mut(hero).unwrap(),
-            omoba_template_ids::MobaLoadoutConst {ranks:[initial_rank;4],skill_points:2}).unwrap();
+            omoba_template_ids::MobaLoadoutConst {ranks:[initial_rank,initial_rank,initial_rank,initial_rank,0,0],skill_points:2}).unwrap();
         authority.write_storage::<Pos>().get_mut(hero).unwrap().0=omoba_sim::Vec2::new(
             Fixed64::from_i32(1100+index as i32*100),Fixed64::from_i32(700));
         // Precondition fixture supplies earned-point state before bootstrap;
@@ -6410,7 +6954,7 @@ fn assert_upgrade_filtered_parity(initial_rank: u8) {
     assert_eq!((heroes.get(b).unwrap().get_ability_level("lumen_mend"),heroes.get(b).unwrap().skill_points),(i32::from(initial_rank)+2,0));
 }
 
-fn hero_pair(world: &World) -> [specs::Entity; 2] {
+pub(crate) fn hero_pair(world: &World) -> [specs::Entity; 2] {
     let state = world.read_resource::<MobaMatch>();
     std::array::from_fn(|index| state.heroes[index].entity.unwrap())
 }
@@ -6771,9 +7315,12 @@ fn siege_wave_yield_60hz_moves_behind_disclosed_creep_and_holds_without_one() {
     let base=w.read_resource::<MobaMatch>().bases[0].unwrap();
     let inward=(tower_pos-w.read_storage::<Pos>().get(base).unwrap().0).normalized();
     let along=|units:i32|tower_pos-inward*Fixed64::from_i32(units);
-    let hero_pos=along(800);
-    let creep_pos=along(700);
-    let stage=along(1400);
+    // Offsets follow the map tower's own attack range (E187: the original 800; the bot treats a
+    // creep inside that range as drawing the tower's fire).
+    let range=omoba_template_ids::moba_map_by_name("three_lane_training").unwrap().structure_stats().tower_attack_range;
+    let hero_pos=along(range+150);
+    let creep_pos=along(range+50);
+    let stage=along(range+750);
     w.write_storage::<Pos>().get_mut(owner).unwrap().0=hero_pos;
     {let mut health=w.write_storage::<CProperty>();let hero=health.get_mut(owner).unwrap();
         hero.hp=Fixed64::from_i32(10_000);hero.mhp=hero.hp;}
@@ -6805,7 +7352,7 @@ fn siege_wave_yield_60hz_moves_behind_disclosed_creep_and_holds_without_one() {
     assert!(matches!(&hidden[0].1.action,Some(PlayerInputEnum::HoldPosition(h)) if !h.queued),
         "a private creep position cannot release the tower alert: {hidden:?}");
     w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.insert(wave_key);
-    w.write_storage::<Pos>().get_mut(wave).unwrap().0=along(1600);
+    w.write_storage::<Pos>().get_mut(wave).unwrap().0=along(range+950);
     run_committed_visibility_wave_b(&mut w,driver.tick(),0);
     let far=role_bot_inputs(&w,&bots).unwrap();
     assert!(matches!(&far[0].1.action,Some(PlayerInputEnum::HoldPosition(_))),
@@ -6815,7 +7362,7 @@ fn siege_wave_yield_60hz_moves_behind_disclosed_creep_and_holds_without_one() {
     run_committed_visibility_wave_b(&mut w,driver.tick(),0);
     let attack=role_bot_inputs(&w,&bots).unwrap();
     assert!(matches!(&attack[0].1.action,Some(PlayerInputEnum::AttackTarget(a)) if a.target_id==tower.id()),
-        "attack only after the disclosed creep is inside 650: {attack:?}");
+        "attack only after the disclosed creep is inside the tower's range: {attack:?}");
 }
 
 #[test]
@@ -6910,8 +7457,8 @@ fn carry_attack_priority_60hz_preserves_farming_windup_but_not_recovery_or_backs
     w.write_storage::<CProperty>().get_mut(creep).unwrap().hp=Fixed64::from_i32(20);
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Carry,lane:0,
         escort_player_id:None}],think_interval_ticks:1,ability_policies:vec![
-            BotAbilityPolicy {ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit},
-            BotAbilityPolicy {ability:"lumen_mend".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit},
+            BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_mend".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
         ],ability_learning:Vec::new(),sustain:None,item_builds:Vec::new()};
     {let mut attacks=w.write_storage::<TAttack>();let a=attacks.get_mut(caster).unwrap();
         a.asd_count=Fixed64::from_i32(10);a.attack_phase=AttackSequencePhase::Idle;}
@@ -7178,6 +7725,8 @@ fn tower_plating_formal_60hz_skill_wallet_snapshot_native_defense_and_cutoff() {
     assert_eq!(serde_json::from_str::<serde_json::Value>(&status.payload_json).unwrap()["health_segments"]["remaining"],5-plates);
     w.write_storage::<Pos>().get_mut(hero).unwrap().0=origin+omoba_sim::Vec2::new(Fixed64::from_i32(1000),Fixed64::ZERO);
     let armor=w.read_storage::<Unit>().get(target).unwrap().base_armor+Fixed64::from_i32(20*plates);
+    // The hero's native base critical (Hero::get_crit_chance) would roll here; this checks defense only.
+    w.write_resource::<BuffStore>().add(hero,"no_critical_fixture",Fixed64::from_i32(10),serde_json::json!({"preattack_criticalstrike":-1024}));
     w.write_resource::<Vec<DamageInstance>>().push(DamageInstance::new_attack(hero,target,Fixed64::from_i32(100)));
     driver.step(&mut w,[]).unwrap();
     let expected=Fixed64::from_i32(100)-Fixed64::from_i32(100)*(armor/(armor+Fixed64::from_i32(100)));
@@ -7218,12 +7767,13 @@ fn building_rewards_formal_60hz_generated_skill_updates_team_wallets_without_her
 fn objective_buff_formal_60hz_generated_skill_grants_team_stats_and_snapshot() {
     let (mut w,mut driver)=world(SingleLaneConfig {additional_players:vec![extra_player(3,1)],
         wave_interval:Fixed64::from_i32(10_000),..three_lane_config()},SimulationTickProfile::Production60Hz);
-    driver.step(&mut w,[]).unwrap();let [caster,enemy]=hero_pair(&w);
+    driver.step(&mut w,[]).unwrap();/* E187: the bosses appear on the match clock */spawn_waiting_jungle_camps_for_test(&mut w);let [caster,enemy]=hero_pair(&w);
     let target=w.read_resource::<MobaMatch>().jungle_camps.iter().find(|c|c.definition.objective_buff
         .is_some_and(|b|b.lost_on_death)).unwrap().entity.unwrap();
     let home=w.read_storage::<Pos>().get(target).unwrap().0;
     w.write_storage::<Pos>().get_mut(caster).unwrap().0=home;
     {let mut properties=w.write_storage::<CProperty>();let prop=properties.get_mut(target).unwrap();prop.hp=Fixed64::from_i32(80);prop.def_magic=Fixed64::ZERO;}
+    w.write_storage::<Unit>().get_mut(target).unwrap().magic_resistance=Fixed64::ZERO; // the boss KV resistance (E187)
     driver.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::CastAbility(CastAbility {
         ability_index:0,target_entity:Some(target.id()),target_pos:None,
     }))})]).unwrap();
@@ -7246,7 +7796,7 @@ fn jungle_nonhero_credit_formal_60hz_outcomes_split_player_rewards_from_team_obj
     for owned in [true,false] {
         let (mut w,mut driver)=world(SingleLaneConfig {additional_players:vec![extra_player(3,1)],
             wave_interval:Fixed64::from_i32(10_000),..three_lane_config()},SimulationTickProfile::Production60Hz);
-        driver.step(&mut w,[]).unwrap();let [hero,enemy]=hero_pair(&w);
+        driver.step(&mut w,[]).unwrap();/* E187: the bosses appear on the match clock */spawn_waiting_jungle_camps_for_test(&mut w);let [hero,enemy]=hero_pair(&w);
         let target=w.read_resource::<MobaMatch>().jungle_camps.iter().find(|c|c.definition.objective_buff
             .is_some_and(|b|!b.lost_on_death)).unwrap().entity.unwrap();
         let home=w.read_storage::<Pos>().get(target).unwrap().0;
@@ -7258,7 +7808,7 @@ fn jungle_nonhero_credit_formal_60hz_outcomes_split_player_rewards_from_team_obj
             magi:Fixed64::ZERO,real:Fixed64::from_i32(100_000),damage_profile:0,predeclared:false});
         driver.step(&mut w,[]).unwrap();driver.step(&mut w,[]).unwrap();
         assert_eq!(w.read_storage::<Gold>().get(hero).unwrap().0,if owned {150}else{0});
-        assert_eq!((w.read_storage::<Hero>().get(hero).unwrap().level,w.read_storage::<Hero>().get(hero).unwrap().experience),if owned {(3,80)}else{(1,0)});
+        assert_eq!((w.read_storage::<Hero>().get(hero).unwrap().level,w.read_storage::<Hero>().get(hero).unwrap().experience),if owned {(2,50)}else{(1,0)});
         let buffs=w.read_resource::<BuffStore>();assert!(buffs.has(hero,"objective_guard"));assert!(!buffs.has(enemy,"objective_guard"));
     }
 }
@@ -7266,7 +7816,7 @@ fn jungle_nonhero_credit_formal_60hz_outcomes_split_player_rewards_from_team_obj
 #[test]
 fn objective_minion_aura_formal_60hz_changes_real_attack_defense_snapshot_and_death() {
     let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10_000),..three_lane_config()},SimulationTickProfile::Production60Hz);
-    driver.step(&mut w,[]).unwrap();let [hero,_]=hero_pair(&w);
+    driver.step(&mut w,[]).unwrap();/* E187: the bosses appear on the match clock */spawn_waiting_jungle_camps_for_test(&mut w);let [hero,_]=hero_pair(&w);
     let camp=w.read_resource::<MobaMatch>().jungle_camps.iter().find(|c|c.definition.objective_buff.is_some_and(|b|b.minion_aura.is_some())).unwrap().entity.unwrap();
     w.write_resource::<Vec<Outcome>>().push(lethal(hero,camp));
     driver.step(&mut w,[]).unwrap();driver.step(&mut w,[]).unwrap();
@@ -7301,7 +7851,7 @@ fn objective_minion_aura_formal_60hz_changes_real_attack_defense_snapshot_and_de
 #[test]
 fn permanent_objective_formal_60hz_multi_reward_snapshot_survives_time_and_respawn() {
     let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10_000),..three_lane_config()},SimulationTickProfile::Production60Hz);
-    driver.step(&mut w,[]).unwrap();let [hero,_]=hero_pair(&w);
+    driver.step(&mut w,[]).unwrap();/* E187: the bosses appear on the match clock */spawn_waiting_jungle_camps_for_test(&mut w);for c in &mut w.write_resource::<MobaMatch>().jungle_camps {if c.definition.objective_rewards().any(|r|r.max_stacks>1) {c.definition.respawn_seconds=90;}}let [hero,_]=hero_pair(&w);
     for n in 1..=3 {
         let camp=w.read_resource::<MobaMatch>().jungle_camps.iter().find(|c|!c.definition.additional_objective_buffs.is_empty()).unwrap().entity.unwrap();
         w.write_resource::<Vec<Outcome>>().push(Outcome::Damage {source:hero,target:camp,pos:omoba_sim::Vec2::ZERO,
@@ -7372,7 +7922,7 @@ fn personal_buff_formal_60hz_camp_skill_and_hero_kill_preserve_remaining_time() 
 fn objective_stacks_formal_60hz_actual_respawns_publish_multiplied_stats_and_expire() {
     let (mut w,mut driver)=world(SingleLaneConfig {additional_players:vec![extra_player(3,1)],
         wave_interval:Fixed64::from_i32(10_000),..three_lane_config()},SimulationTickProfile::Production60Hz);
-    driver.step(&mut w,[]).unwrap();let [hero,enemy]=hero_pair(&w);
+    driver.step(&mut w,[]).unwrap();/* E187: the bosses appear on the match clock */spawn_waiting_jungle_camps_for_test(&mut w);for c in &mut w.write_resource::<MobaMatch>().jungle_camps {if c.definition.objective_rewards().any(|r|r.max_stacks>1) {c.definition.respawn_seconds=90;}}let [hero,enemy]=hero_pair(&w);
     for n in 1..=3 {
         let target=w.read_resource::<MobaMatch>().jungle_camps.iter().find(|c|c.definition.objective_buff
             .is_some_and(|b|b.buff_id=="objective_guard")).unwrap().entity.unwrap();
@@ -7483,7 +8033,7 @@ fn shutdown_gold_formal_60hz_generated_skill_retires_public_bounty_once() {
 
 #[test]
 fn cast_progress_formal_60hz_publishes_preparing_cancel_release_and_dead_owner_clear() {
-    let (mut w,mut driver)=world(SingleLaneConfig {heroes:["saika_magoichi".into(),"training_luminary".into()],
+    let (mut w,mut driver)=legacy_world(SingleLaneConfig {heroes:["saika_magoichi".into(),"training_luminary".into()],
         wave_interval:Fixed64::from_i32(10_000),..fast_config()},SimulationTickProfile::Production60Hz);
     driver.step(&mut w,[]).unwrap();let [caster,enemy]=hero_pair(&w);
     let origin=omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(7000));
@@ -7513,7 +8063,7 @@ fn cast_progress_formal_60hz_publishes_preparing_cancel_release_and_dead_owner_c
 #[test]
 fn cast_windup_formal_60hz_defers_effects_and_cancels_without_resource_debit() {
     for mode in 0..5 {
-        let (mut w,mut driver)=world(SingleLaneConfig {
+        let (mut w,mut driver)=legacy_world(SingleLaneConfig {
             heroes:["saika_magoichi".into(),"training_luminary".into()],
             wave_interval:Fixed64::from_i32(10_000),..fast_config()
         },SimulationTickProfile::Production60Hz);
@@ -7555,7 +8105,7 @@ fn cast_windup_formal_60hz_defers_effects_and_cancels_without_resource_debit() {
 
 #[test]
 fn summon_formal_60hz_skill_creates_owned_combatants_then_expires_without_kill_reward() {
-    let (mut w,mut driver)=world(SingleLaneConfig {
+    let (mut w,mut driver)=legacy_world(SingleLaneConfig {
         heroes:["saika_magoichi".into(),"training_luminary".into()],
         wave_interval:Fixed64::from_i32(10_000),..fast_config()
     },SimulationTickProfile::Production60Hz);
@@ -7603,7 +8153,7 @@ fn summon_formal_60hz_skill_creates_owned_combatants_then_expires_without_kill_r
 #[test]
 fn summon_navigation_formal_60hz_places_outside_wall_and_returns_to_moving_owner() {
     let run=|| {
-        let (mut w,mut driver)=world(SingleLaneConfig {
+        let (mut w,mut driver)=legacy_world(SingleLaneConfig {
             heroes:["saika_magoichi".into(),"training_luminary".into()],
             wave_interval:Fixed64::from_i32(10_000),..fast_config()
         },SimulationTickProfile::Production60Hz);
@@ -7657,7 +8207,7 @@ fn summon_navigation_formal_60hz_places_outside_wall_and_returns_to_moving_owner
 
 #[test]
 fn summon_projectile_formal_60hz_kills_after_gunner_expiry_and_credits_caster() {
-    let (mut w,mut driver)=world(SingleLaneConfig {
+    let (mut w,mut driver)=legacy_world(SingleLaneConfig {
         heroes:["saika_magoichi".into(),"training_luminary".into()],
         wave_interval:Fixed64::from_i32(10_000),..fast_config()
     },SimulationTickProfile::Production60Hz);
@@ -7691,7 +8241,7 @@ fn summon_projectile_formal_60hz_kills_after_gunner_expiry_and_credits_caster() 
 
 #[test]
 fn summon_combat_formal_60hz_stun_root_silence_and_slow() {
-    let (mut w,mut driver)=world(SingleLaneConfig {
+    let (mut w,mut driver)=legacy_world(SingleLaneConfig {
         heroes:["saika_magoichi".into(),"training_luminary".into()],
         wave_interval:Fixed64::from_i32(10_000),..fast_config()
     },SimulationTickProfile::Production60Hz);
@@ -7865,6 +8415,33 @@ fn single_lane_creep_xp_integer_multilevel_zero_share_and_rules_validation() {
             let h=world.read_storage::<Hero>(); let h=h.get(hero).unwrap();
             assert_eq!((h.level,h.experience,h.skill_points),expected);
         }
+    }
+    // E096: the map multiplier scales the shared lane award (total first, then equal floor shares).
+    for (scale,count,expected) in [(2500,1,(3,30,2)),(2500,2,(2,25,1)),(500,1,(1,50,0)),(100,1,(1,10,0))] {
+        let (mut world, mut driver) = world(SingleLaneConfig {lane_creep_xp:100,hero_xp_scale_permille:scale,
+            additional_players:if count==2 {vec![extra_player(3,1)]} else {vec![]},..fast_config()},
+            SimulationTickProfile::Production60Hz);
+        driver.step(&mut world,[]).unwrap();
+        let creep = lane_creeps(&world,2)[0];
+        let origin = omoba_sim::Vec2::new(Fixed64::from_i32(3000),Fixed64::from_i32(7000));
+        let heroes: Vec<_> = world.read_resource::<MobaMatch>().heroes.iter().filter(|s| s.side==0).map(|s| s.entity.unwrap()).collect();
+        for hero in &heroes {world.write_storage::<Pos>().get_mut(*hero).unwrap().0=origin;}
+        world.write_storage::<Pos>().get_mut(creep).unwrap().0=origin;
+        world.write_storage::<CProperty>().get_mut(creep).unwrap().hp=Fixed64::ZERO;
+        let gold_before: Vec<i32> = heroes.iter().map(|h| world.read_storage::<Gold>().get(*h).unwrap().0).collect();
+        record_moba_death(&mut world,creep);
+        for (index,hero) in heroes.iter().enumerate() {
+            let h=world.read_storage::<Hero>(); let h=h.get(*hero).unwrap();
+            assert_eq!((h.level,h.experience,h.skill_points),expected,"scale {scale} recipients {count}");
+            assert_eq!(world.read_storage::<Gold>().get(*hero).unwrap().0,gold_before[index],"XP scale never touches gold");
+        }
+    }
+    let scaled = SingleLaneConfig {hero_xp_scale_permille:2500,..fast_config()};
+    assert_eq!((scaled.scale_hero_xp(0),scaled.scale_hero_xp(3),scaled.scale_hero_xp(u32::MAX)),(0,7,u32::MAX));
+    for scale in [99,10_001,0] {
+        let pool=StateInitializer::create_thread_pool();
+        let mut w=StateInitializer::setup_campaign_ecs_world(&pool);
+        assert!(setup_single_lane_match(&mut w,SingleLaneConfig {hero_xp_scale_permille:scale,..fast_config()}).is_err());
     }
     for (xp,radius) in [(1_000_001,1200),(25,0),(25,10_001)] {
         let pool=StateInitializer::create_thread_pool();
@@ -8258,7 +8835,7 @@ fn single_lane_recall_rejects_invalid_owner_and_cancels_on_command_damage_death(
 
 fn lethal(source: specs::Entity, target: specs::Entity) -> Outcome {
     Outcome::Damage { pos: omoba_sim::Vec2::ZERO, phys: Fixed64::ZERO,
-        magi: Fixed64::ZERO, real: Fixed64::from_i32(10_000), source, target,
+        magi: Fixed64::ZERO, real: Fixed64::from_i32(1_000_000), source, target,
         damage_profile: 0, predeclared: false }
 }
 
@@ -8272,8 +8849,8 @@ fn ground_zone_formal_60hz_earlier_source_death_retires_later_pulse_without_ghos
             hero:"training_luminary".into(),lane:"mid".into(),bot:false};
         let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
             players:vec![player(1,1,BotRole::Mid),player(2,2,BotRole::Mid),player(3,1,BotRole::Top)],
-            ability_learning:Vec::new(),ability_policies:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new()};
-        let (mut config,_)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
+            ability_learning:Vec::new(),ability_policies:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(), showcase: None};
+        let (mut config,_)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
         config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
         let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);driver.step(&mut w,[]).unwrap();
         let entity=|w:&World,id|w.read_resource::<MobaMatch>().heroes.iter().find(|s|s.player_id==id).unwrap().entity.unwrap();
@@ -8281,7 +8858,7 @@ fn ground_zone_formal_60hz_earlier_source_death_retires_later_pulse_without_ghos
         let y=isolated_skill_origin_y();for (e,x) in [(earlier,0),(later,400),(protected,1000)] {
             place_hero(&mut w,e,x,y);disarm_attack(&mut w,e);set_hold(&mut w,e);
         }
-        let make=|x|DamageZoneSpec {independent:false,center:sim_point(x,y),radius:Fixed64::from_i32(100),amount:Fixed64::from_i32(40),
+        let make=|x|DamageZoneSpec {end:None,grow:None,linger:None,independent:false,center:sim_point(x,y),radius:Fixed64::from_i32(100),amount:Fixed64::from_i32(40),
             interval:Fixed64::from_raw(512),kind:DamageKind::Magical,profile:DamageProfile::FIRE.bits()};
         let admit=|w:&mut World,source,key:&str,spec:DamageZoneSpec| {
             w.write_resource::<Vec<Outcome>>().push(Outcome::AddBuff {target:source,buff_id:key.into(),duration:Fixed64::from_i32(3),payload:spec.payload()});
@@ -8317,15 +8894,15 @@ fn ground_zone_formal_60hz_first_lethal_uses_due_time_then_canonical_source() {
             hero:"training_luminary".into(),lane:"mid".into(),bot:false};
         let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
             players:vec![player(1,1,BotRole::Mid),player(2,1,BotRole::Top),player(3,2,BotRole::Mid)],
-            ability_learning:Vec::new(),ability_policies:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new()};
-        let (mut config,_)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
+            ability_learning:Vec::new(),ability_policies:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(), showcase: None};
+        let (mut config,_)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
         config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
         let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);driver.step(&mut w,[]).unwrap();
         let entity=|w:&World,id|w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==id).unwrap().entity.unwrap();
         let low=entity(&w,1);let high=entity(&w,2);let victim=entity(&w,3);assert!(low.id()<high.id());
         let y=isolated_skill_origin_y();place_hero(&mut w,low,0,y);place_hero(&mut w,high,0,y);
         place_hero(&mut w,victim,2000,y);for e in [low,high,victim] {disarm_attack(&mut w,e);set_hold(&mut w,e);}
-        let center=sim_point(400,y);let make=|interval|DamageZoneSpec {independent:false,center,radius:Fixed64::from_i32(100),
+        let center=sim_point(400,y);let make=|interval|DamageZoneSpec {end:None,grow:None,linger:None,independent:false,center,radius:Fixed64::from_i32(100),
             amount:Fixed64::from_i32(40),interval:Fixed64::from_raw(interval),kind:DamageKind::Magical,profile:DamageProfile::FIRE.bits()};
         let admit=|w:&mut World,source,key:&str,spec:DamageZoneSpec| {
             w.write_resource::<Vec<Outcome>>().push(Outcome::AddBuff {target:source,buff_id:key.into(),duration:Fixed64::from_i32(3),payload:spec.payload()});
@@ -9188,6 +9765,7 @@ fn generated_active_shop_items_60hz_buy_use_real_catalog_without_effect_override
         assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(other), Fixed64::ZERO);
         assert_eq!(w.read_resource::<BuffStore>().sum_add(other, StatKey::MoveSpeedBonusBuff), Fixed64::ZERO);
         match cfg.active.as_ref().unwrap() {
+            ActiveEffect::Scripted {} => panic!("a scripted active has no native effect to check"),
             ActiveEffect::Shield { amount, .. } => assert_eq!(w.read_resource::<BuffStore>().shield_remaining(hero), fixed(*amount)),
             ActiveEffect::SprintBuff { ms_bonus, .. } => assert_eq!(w.read_resource::<BuffStore>().sum_add(hero, StatKey::MoveSpeedBonusBuff), fixed(*ms_bonus)),
             ActiveEffect::RestoreMana { amount } => {
@@ -9206,6 +9784,7 @@ fn generated_active_shop_items_60hz_buy_use_real_catalog_without_effect_override
             ActiveEffect::ChannelHeal { .. } => panic!("channeled recovery has dedicated formal pulse fixtures"),
             ActiveEffect::SelfControlCleanse {} => panic!("control cleanse has dedicated formal fixtures"),
             ActiveEffect::PointNova { .. } | ActiveEffect::UnitHex { .. } => panic!("targeted training items have their own fixtures"),
+            ActiveEffect::ApplyModifiers { .. } | ActiveEffect::UnitHeal { .. } | ActiveEffect::Scripted {} => panic!("source item actives have omoba-core fixtures (E160)"),
         }
         let cooldown = w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining;
         assert!(cooldown > cfg.cooldown - 1.0 && cooldown <= cfg.cooldown);
@@ -9645,6 +10224,235 @@ fn item_point_nova_60hz_damages_visible_enemies_at_explicit_point_including_orig
 }
 
 #[test]
+fn source_unit_hex_items_60hz_magical_damage_stun_and_single_use() {
+    // E176: item_blowgun (50 magical + 1 s stun, 700 range) and item_shuriken (150 magical + 0.05 s stun, single use).
+    // E184: both throw a dodgeable tracking projectile (speed 2500); the effects land on arrival.
+    for (id, damage, stun, consumable) in [("blowgun", 50, Fixed64::ONE, false), ("shuriken", 150, Fixed64::from_raw(51), true)] {
+        let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10000),..fast_config()},SimulationTickProfile::Production60Hz);
+        driver.step(&mut w,[]).unwrap();let [hero,enemy]=hero_pair(&w);
+        w.write_storage::<Gold>().get_mut(hero).unwrap().0=5000;
+        driver.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::ItemBuy(ItemBuy {item_id:id.into()}))})]).unwrap();
+        assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().item_id,id);
+        let y=isolated_skill_origin_y();place_hero(&mut w,hero,0,y);place_hero(&mut w,enemy,800,y);
+        set_hold(&mut w,hero);set_hold(&mut w,enemy);disarm_attack(&mut w,hero);disarm_attack(&mut w,enemy);
+        assert!(handle_item_use_from_input(&mut w,0,None,Some(enemy.id()),1,false).is_err(),"{id}: 800 is beyond 700");
+        place_hero(&mut w,enemy,600,y);
+        let before=w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+        // The tracking flight needs the committed team view of its target (no fog reveal).
+        let tick=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,tick,0);
+        driver.step(&mut w,[item_use(0,None,Some(enemy.id()),None)]).unwrap();
+        assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp,before,"{id}: nothing lands while the projectile flies");
+        assert!(!w.read_resource::<BuffStore>().has(enemy,"stun"),"{id}: no stun before arrival");
+        // 600 at 2500/s: 0.24 s, under 20 ticks at 60 Hz; check right on arrival (the shuriken stun is 0.05 s).
+        for _ in 0..20 {driver.step(&mut w,[]).unwrap();if w.read_storage::<CProperty>().get(enemy).unwrap().hp<before {break;}}
+        let after=w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+        // Magical damage meets the target's magic resistance: some of it lands, never more than authored.
+        assert!(after<before && before-after<=Fixed64::from_i32(damage),"{id}: {before:?} -> {after:?}");
+        let buffs=w.read_resource::<BuffStore>();
+        let remaining=buffs.get(enemy,"stun").map(|b|b.remaining);
+        assert!(remaining.is_some_and(|r|r<=stun),"{id}: stun {remaining:?}");
+        drop(buffs);
+        let slot=w.read_storage::<Inventory>().get(hero).unwrap().slots[0].clone();
+        assert_eq!(slot.is_none(),consumable,"{id}: single use");
+        if consumable {continue;}
+        // A dodge of the target (Dota ProjectileDodge) retires the flight: no damage, no stun.
+        for _ in 0..90 {driver.step(&mut w,[]).unwrap();}
+        w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().cooldown_remaining=0.;
+        if let Some(pool)=w.write_storage::<Hero>().get_mut(hero).unwrap().mana_pool.as_mut() {let _=pool.restore(Fixed64::from_i32(1000));}
+        let before=w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+        let tick=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,tick,0);
+        driver.step(&mut w,[item_use(0,None,Some(enemy.id()),None)]).unwrap();
+        assert!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining>0.,"{id}: cast again");
+        use omoba_core::runtime::native::ability_projectile as flight;
+        let retired=flight::dodge(&mut w,enemy,flight::DODGE_BUFF,&flight::dodge_payload(enemy.id(),enemy.gen().id() as u32));
+        assert_eq!(retired.len(),1,"{id}: the dodge retires the item projectile");
+        for _ in 0..30 {driver.step(&mut w,[]).unwrap();}
+        assert!(w.read_storage::<CProperty>().get(enemy).unwrap().hp>=before,"{id}: a dodged projectile deals nothing");
+        assert!(!w.read_resource::<BuffStore>().has(enemy,"stun"),"{id}: a dodged projectile does not stun");
+    }
+}
+
+#[test]
+fn source_point_nova_napalm_60hz_magical_area_skips_buildings_and_is_used_up() {
+    // E178: item_napalm_bomb, 300 magical within 300 of a point up to 600 away, never buildings, single use.
+    let napalm = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == "napalm_bomb").unwrap();
+    assert!(matches!(napalm.active, Some(omoba_template_ids::MobaItemActiveConst::PointNova {
+        damage_type: omoba_template_ids::MobaItemDamageTypeConst::Magical, skip_buildings: true, .. })) && napalm.consumable);
+    let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10000),..fast_config()},SimulationTickProfile::Production60Hz);
+    driver.step(&mut w,[]).unwrap();let [hero,enemy]=hero_pair(&w);
+    w.write_storage::<Gold>().get_mut(hero).unwrap().0=5000;
+    driver.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::ItemBuy(ItemBuy {item_id:"napalm_bomb".into()}))})]).unwrap();
+    let y=isolated_skill_origin_y();place_hero(&mut w,hero,0,y);place_hero(&mut w,enemy,500,y);
+    set_hold(&mut w,hero);set_hold(&mut w,enemy);disarm_attack(&mut w,hero);disarm_attack(&mut w,enemy);
+    assert!(handle_item_use_from_input(&mut w,0,Some(sim_point(700,y)),None,1,true).is_err(),"700 is beyond 600");
+    let before=w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    driver.step(&mut w,[item_use(0,Some(Vec2I {x:450*1024,y:y*1024}),None,Some(true))]).unwrap();
+    let after=w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    assert!(after<before && before-after<=Fixed64::from_i32(300),"magical area damage: {before:?} -> {after:?}");
+    assert!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].is_none(),"single use");
+}
+
+/// The purchases that end with `id` in the inventory: every recipe component first (the shop
+/// combines owned components only).
+pub(crate) fn purchase_order(id:&str)->Vec<String> {
+    let item=omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item|item.id==id).unwrap_or_else(||panic!("no item {id}"));
+    let mut order:Vec<String>=item.recipe.iter().flat_map(|part|purchase_order(part)).collect();
+    order.push(id.to_owned());
+    order
+}
+
+/// One fresh 60 Hz duel: `hero` holds `items` (each bought with its components, slot = index);
+/// both heroes hold still 500 apart without attacks; the enemy has 5000 HP and no magic resistance.
+fn spell_amp_duel(items:&[&str])->(World,SimulationDriver,specs::Entity,specs::Entity,i32) {
+    let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10000),..fast_config()},SimulationTickProfile::Production60Hz);
+    driver.step(&mut w,[]).unwrap();let [hero,enemy]=hero_pair(&w);
+    w.write_storage::<Gold>().get_mut(hero).unwrap().0=20000;
+    for id in items.iter().flat_map(|id|purchase_order(id)) {
+        driver.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::ItemBuy(ItemBuy {item_id:id}))})]).unwrap();
+    }
+    let held:Vec<_>=w.read_storage::<Inventory>().get(hero).unwrap().slots.iter().flatten().map(|s|s.item_id.clone()).collect();
+    assert_eq!(held,items,"bought");
+    let y=isolated_skill_origin_y();place_hero(&mut w,hero,0,y);place_hero(&mut w,enemy,500,y);
+    set_hold(&mut w,hero);set_hold(&mut w,enemy);disarm_attack(&mut w,hero);disarm_attack(&mut w,enemy);
+    {
+        let mut properties=w.write_storage::<CProperty>();let p=properties.get_mut(enemy).unwrap();
+        p.def_magic=Fixed64::ZERO;p.mhp=Fixed64::from_i32(5000);p.hp=p.mhp;
+    }
+    driver.step(&mut w,[]).unwrap();
+    let tick=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,tick,0);
+    (w,driver,hero,enemy,y)
+}
+
+#[test]
+fn spell_amplify_60hz_mana_boots_scale_inflictor_item_damage_only() {
+    // E188: 仕手能靴 +8% skill and item damage. Only damage with an inflictor is amplified: the
+    // blowgun's KV Damage is, the shuriken's AMHC:Damage (no ability) is not.
+    use omoba_core::runtime::native::spell_amplify;
+    let hit=|item:&str,boots:bool|->Fixed64 {
+        let items:Vec<&str>=if boots {vec!["mana_boots",item]} else {vec![item]};
+        let (mut w,mut driver,hero,enemy,_)=spell_amp_duel(&items);
+        let amp=spell_amplify::amplification(&w.read_resource::<BuffStore>(),hero);
+        assert_eq!(amp>Fixed64::ZERO,boots,"the boots' passive is a BuffStore stat: {amp:?}");
+        if boots {assert!((amp.to_f32_for_render()-0.08).abs()<0.002,"{amp:?}");}
+        let before=w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+        driver.step(&mut w,[item_use(items.len() as u32-1,None,Some(enemy.id()),None)]).unwrap();
+        for _ in 0..30 {driver.step(&mut w,[]).unwrap();}
+        let after=w.read_storage::<CProperty>().get(enemy).unwrap().hp;before-after
+    };
+    let (plain,amplified)=(hit("blowgun",false),hit("blowgun",true));
+    assert!(plain>Fixed64::from_i32(45),"the blowgun lands its 50: {plain:?}");
+    let gain=(amplified-plain).to_f32_for_render()/50.0;
+    assert!((gain-0.08).abs()<0.01,"+8% of the blowgun's 50: {plain:?} -> {amplified:?}");
+    let (plain,amplified)=(hit("shuriken",false),hit("shuriken",true));
+    assert!(plain>Fixed64::from_i32(140),"the shuriken lands its 150: {plain:?}");
+    assert_eq!(plain,amplified,"AMHC:Damage has no inflictor: not amplified");
+}
+
+#[test]
+fn source_spell_books_60hz_slow_stun_through_immunity_vision_burn_and_buildings() {
+    // E188: 法術書 400 KV magical (amplified by its own 4.5%) and a 30% slow for 4 s.
+    let (mut w,mut driver,hero,enemy,_)=spell_amp_duel(&["spell_book"]);
+    let before=w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    driver.step(&mut w,[item_use(0,None,Some(enemy.id()),None)]).unwrap();
+    let dealt=(before-w.read_storage::<CProperty>().get(enemy).unwrap().hp).to_f32_for_render();
+    assert!((dealt-418.0).abs()<2.0,"400 x 1.045: {dealt}");
+    {
+        let buffs=w.read_resource::<BuffStore>();
+        let caster=omb_script_abi::types::EntityHandle {id:hero.id(),gen:hero.gen().id() as u32};
+        // items.dll (M7): the generated status keeps its slow in the `<runtime id>:slow` row
+        let slow=buffs.get(enemy,&format!("{}:slow",omb_script_abi::buff_ids::generic_slow_buff_id("spell_book",caster))).expect("the slow");
+        assert_eq!(slow.payload["move_speed_bonus"],serde_json::json!(-307),"30%");
+        assert!(slow.remaining<=Fixed64::from_i32(4) && slow.remaining>Fixed64::from_raw(3*1024+900));
+    }
+    // 落石之書 + 火計之書 (amplification 9%): rockfall 500 magical (AMHC: not amplified) with a
+    // 0.1 s stun even through magic immunity and 400 sight for 3 s; ignite skips magic-immune
+    // enemies, deals 550 (not amplified) and an 80/s burn whose ticks are (KV Damage).
+    use omoba_core::runtime::native::magic_immunity;
+    let (mut w,mut driver,hero,enemy,y)=spell_amp_duel(&["rockfall_book","ignite_book"]);
+    assert!(magic_immunity::grant(&w,enemy,Fixed64::from_i32(2)),"immune enemy");
+    driver.step(&mut w,[item_use(0,Some(Vec2I {x:500*1024,y:y*1024}),None,Some(true))]).unwrap();
+    assert!(w.read_resource::<BuffStore>().is_stunned(enemy),"the rockfall stun lands through immunity");
+    {
+        let zones=w.read_resource::<omoba_core::runtime::native::reveal_zone::RevealZones>();
+        assert!(zones.zones.values().any(|z|z.radius==Fixed64::from_i32(400) && z.remaining<=Fixed64::from_i32(3)
+            && z.center==sim_point(500,y)),"caster-team sight 400 for 3 s at the point");
+    }
+    let before=w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    driver.step(&mut w,[item_use(1,Some(Vec2I {x:500*1024,y:y*1024}),None,Some(true))]).unwrap();
+    assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp,before,"ignite does not find a magic-immune enemy");
+    let caster=omb_script_abi::types::EntityHandle {id:hero.id(),gen:hero.gen().id() as u32};
+    let burn=omb_script_abi::buff_ids::generic_dot_buff_id("ignite_book",caster);
+    assert!(w.read_resource::<BuffStore>().get(enemy,&burn).is_none(),"and burns nothing");
+    let (mut w,mut driver,hero,enemy,y)=spell_amp_duel(&["rockfall_book","ignite_book"]);
+    let before=w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    driver.step(&mut w,[item_use(0,Some(Vec2I {x:500*1024,y:y*1024}),None,Some(true))]).unwrap();
+    let rock=(before-w.read_storage::<CProperty>().get(enemy).unwrap().hp).to_f32_for_render();
+    assert!((rock-500.0).abs()<2.0,"rockfall 500, not amplified: {rock}");
+    let before=w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    driver.step(&mut w,[item_use(1,Some(Vec2I {x:500*1024,y:y*1024}),None,Some(true))]).unwrap();
+    let ignite=(before-w.read_storage::<CProperty>().get(enemy).unwrap().hp).to_f32_for_render();
+    assert!((ignite-550.0).abs()<2.0,"ignite 550, not amplified: {ignite}");
+    let caster=omb_script_abi::types::EntityHandle {id:hero.id(),gen:hero.gen().id() as u32};
+    let burn=omb_script_abi::buff_ids::generic_dot_buff_id("ignite_book",caster);
+    assert!(w.read_resource::<BuffStore>().get(enemy,&burn).is_some(),"the burn");
+    let before=w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    for _ in 0..330 {driver.step(&mut w,[]).unwrap();}
+    let burned=(before-w.read_storage::<CProperty>().get(enemy).unwrap().hp).to_f32_for_render();
+    assert!((burned-5.0*80.0*1.09).abs()<6.0,"five ticks of 80 x 1.09 (KV Damage, the caster's amplification): {burned}");
+    assert!(w.read_resource::<BuffStore>().get(enemy,&burn).is_none(),"5 s");
+    // A building in the fire takes only 200 (the IsBuilding branch) and never burns.
+    let (mut w,mut driver,hero,_,_)=spell_amp_duel(&["ignite_book"]);
+    let team=w.read_storage::<Faction>().get(hero).unwrap().team_id;
+    let tower={
+        let entities=w.entities();let buildings=w.read_storage::<IsBuilding>();let factions=w.read_storage::<Faction>();
+        (&entities,&buildings,&factions).join().find(|(_,_,f)|f.team_id!=team && f.team_id>0).map(|(e,_,_)|e).expect("an enemy building")
+    };
+    let at=w.read_storage::<Pos>().get(tower).unwrap().0;
+    w.write_storage::<Pos>().get_mut(hero).unwrap().0=at+omoba_sim::Vec2::new(Fixed64::from_i32(600),Fixed64::ZERO);
+    driver.step(&mut w,[]).unwrap();
+    let tick=w.read_resource::<Tick>().0;run_committed_visibility_wave_b(&mut w,tick,0);
+    let before=w.read_storage::<CProperty>().get(tower).unwrap().hp;
+    driver.step(&mut w,[item_use(0,Some(Vec2I {x:at.x.raw() as i32,y:at.y.raw() as i32}),None,Some(true))]).unwrap();
+    let dealt=before-w.read_storage::<CProperty>().get(tower).unwrap().hp;
+    assert!(dealt>Fixed64::ZERO && dealt<=Fixed64::from_i32(200),"200 magical at most: {dealt:?}");
+    let caster=omb_script_abi::types::EntityHandle {id:hero.id(),gen:hero.gen().id() as u32};
+    assert!(w.read_resource::<BuffStore>().get(tower,&omb_script_abi::buff_ids::generic_dot_buff_id("ignite_book",caster)).is_none(),"no burn");
+}
+
+#[test]
+fn magic_immunity_item_60hz_dispels_refuses_enemy_targets_and_zeroes_magical_damage() {
+    // E179: item_perceive_wine, 3.5 s magic immunity after a strong dispel, single use.
+    use omoba_core::runtime::native::magic_immunity;
+    let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10000),..fast_config()},SimulationTickProfile::Production60Hz);
+    driver.step(&mut w,[]).unwrap();let [hero,enemy]=hero_pair(&w);
+    for (who,player,items) in [(hero,1,&["blowgun","napalm_bomb"][..]),(enemy,2,&["perceive_wine"][..])] {
+        w.write_storage::<Gold>().get_mut(who).unwrap().0=5000;
+        for id in items {driver.step(&mut w,[(player,PlayerInput {action:Some(PlayerInputEnum::ItemBuy(ItemBuy {item_id:(*id).into()}))})]).unwrap();}
+    }
+    let y=isolated_skill_origin_y();place_hero(&mut w,hero,0,y);place_hero(&mut w,enemy,500,y);
+    set_hold(&mut w,hero);set_hold(&mut w,enemy);disarm_attack(&mut w,hero);disarm_attack(&mut w,enemy);
+    w.write_resource::<BuffStore>().add(enemy,"stun",Fixed64::from_i32(5),serde_json::json!({}));
+    driver.step(&mut w,[(2,item_use(0,None,None,None).1)]).unwrap();
+    {
+        let buffs=w.read_resource::<BuffStore>();
+        assert!(magic_immunity::is_magic_immune(&buffs,enemy),"granted");
+        assert!(!buffs.is_stunned(enemy),"the strong dispel removed the enemy stun");
+        assert!(buffs.get(enemy,magic_immunity::BUFF).unwrap().remaining<=Fixed64::from_raw(3584));
+    }
+    assert!(w.read_storage::<Inventory>().get(enemy).unwrap().slots[0].is_none(),"single use");
+    assert!(handle_item_use_from_input(&mut w,0,None,Some(enemy.id()),1,false).is_err(),"an enemy-target item cannot pick the immune hero");
+    let before=w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    driver.step(&mut w,[item_use(1,Some(Vec2I {x:500*1024,y:y*1024}),None,Some(true))]).unwrap();
+    assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp,before,"magical area damage is zero on the immune hero");
+    w.write_resource::<BuffStore>().add(enemy,"stun",Fixed64::from_i32(1),serde_json::json!({}));
+    assert!(!w.read_resource::<BuffStore>().is_stunned(enemy),"a plain stun does not land");
+    w.write_resource::<BuffStore>().add(enemy,"stun",Fixed64::from_i32(1),magic_immunity::pierce_payload());
+    assert!(w.read_resource::<BuffStore>().is_stunned(enemy),"a piercing stun lands");
+    for _ in 0..240 {driver.step(&mut w,[]).unwrap();}
+    assert!(!magic_immunity::is_magic_immune(&w.read_resource::<BuffStore>(),enemy),"3.5 s only");
+}
+
+#[test]
 fn unit_hex_healing_reduction_60hz_actual_cast_healing_pause_snapshot_and_expiry() {
     let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10000),
         summoner_loadouts:std::collections::BTreeMap::from([(2,[Some("training_self_heal_v1".into()),None])]),..fast_config()},SimulationTickProfile::Production60Hz);
@@ -9905,7 +10713,8 @@ fn item_target_rejections_are_non_mutating_for_shape_range_team_fog_death_owner_
     let saved = (*w.read_resource::<ItemRegistry>()).clone();
     w.insert(ItemRegistry::from_configs(vec![ItemConfig { purchase_group: None,
         id: "moba_armor".into(), name: "Mismatched nova".into(), cost: 100, bonus: ItemBonus::default(),
-        active: Some(ActiveEffect::PointNova { damage: Fixed64::from_i32(40), radius: Fixed64::from_i32(80) }), cooldown: 8.0, recipe: vec![],
+        active: Some(ActiveEffect::PointNova { damage: Fixed64::from_i32(40), radius: Fixed64::from_i32(80),
+            damage_type: Default::default(), skip_buildings: false, control: None, hit: Default::default() }), cooldown: 8.0, recipe: vec![],
     }]));
     w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().item_id = "moba_armor".into();
     refuse(&mut w, 0, Some(sim_point(0, 7000)), None, true);
@@ -10524,7 +11333,8 @@ fn item_target_fixed_damage_keeps_fractional_and_large_raw_values() {
     let override_flare = |w: &mut World, damage: Fixed64, radius: Fixed64| {
         w.insert(ItemRegistry::from_configs(vec![ItemConfig { purchase_group: None,
             id: "moba_training_flare".into(), name: "Precision flare".into(), cost: 450,
-            bonus: ItemBonus::default(), active: Some(ActiveEffect::PointNova { damage, radius }),
+            bonus: ItemBonus::default(), active: Some(ActiveEffect::PointNova { damage, radius,
+                damage_type: Default::default(), skip_buildings: false, control: None, hit: Default::default() }),
             cooldown: 8.0, recipe: vec![],
         }]));
     };
@@ -10965,7 +11775,17 @@ fn single_lane_four_skills_use_formal_input_and_filtered_hp_settlement() {
             let step = frames[team].frame.step.as_ref().unwrap();
             assert_eq!(step.accepted_inputs.len(), usize::from(*team == 1), "enemy inputs must stay private");
             if *team == 1 {
-                assert!(!step.public_events.iter().any(|event| event.event_kind == FactKind::CommittedCooldown as u32), "owner cooldown must be predicted from accepted input, not repaired");
+                // E401: the authority discloses the owner's own cooldowns too; the one this cast
+                // started is exactly what the accepted input predicts, so applying it changes nothing.
+                for event in step.public_events.iter().filter(|event| event.event_kind == FactKind::CommittedCooldown as u32) {
+                    let payload = &event.sanitized_payload;
+                    assert_eq!(payload.len(), 12);
+                    let committed_slot = u32::from_le_bytes(payload[0..4].try_into().unwrap());
+                    let remaining = i64::from_le_bytes(payload[4..12].try_into().unwrap());
+                    let hero = world.read_storage::<Hero>().get(caster).unwrap().clone();
+                    assert_eq!(committed_slot, slot, "only the cast slot's cooldown");
+                    assert_eq!(remaining, hero.get_cooldown(&hero.abilities[slot as usize]).raw(), "the predicted cooldown");
+                }
                 // Automatic attack clocks settle against authority NPC/lifecycle
                 // outcomes; cooldown still proves the owner's accepted input.
             }
@@ -11745,13 +12565,14 @@ fn objective_comeback_60hz_actual_skill_tower_wallet_public_status_pause_and_end
 fn objective_notice_60hz_generated_tower_and_epic_casts_public_queue_pause_and_terminal() {
     let (mut w,mut driver)=world(SingleLaneConfig {map_id:Some("three_lane_training".into()),
         wave_interval:Fixed64::from_i32(10_000),..fast_config()},SimulationTickProfile::Production60Hz);
-    driver.step(&mut w,[]).unwrap();let [blue,red]=hero_pair(&w);
+    driver.step(&mut w,[]).unwrap();/* E187: the bosses appear on the match clock */spawn_waiting_jungle_camps_for_test(&mut w);let [blue,red]=hero_pair(&w);
     let (tower,epic)={let s=w.read_resource::<MobaMatch>();(s.towers[1].unwrap(),
         s.jungle_camps.iter().find(|c|c.definition.objective_rewards().next().is_some()).unwrap().entity.unwrap())};
     let y=isolated_skill_origin_y();
     for (entity,x) in [(blue,0),(red,400),(tower,200),(epic,600)] {place_hero(&mut w,entity,x,y);}
     for entity in [blue,red] {set_hold(&mut w,entity);disarm_attack(&mut w,entity);}
     {let mut props=w.write_storage::<CProperty>();for target in [tower,epic] {let p=props.get_mut(target).unwrap();p.hp=Fixed64::from_i32(40);p.def_magic=Fixed64::ZERO;}}
+    w.write_storage::<Unit>().get_mut(epic).unwrap().magic_resistance=Fixed64::ZERO; // the boss KV resistance (E187)
     let read=|result:&SimulationTickResult|->[i64;4] {
         [OBJECTIVE_TEAM_METRIC_ID,OBJECTIVE_KIND_METRIC_ID,OBJECTIVE_SEQUENCE_METRIC_ID,OBJECTIVE_REMAINING_METRIC_ID].map(|id|
             result.facts.iter().find_map(|f|match &f.fact {ObservableFact::Hud {team:0,metric_id,value} if *metric_id==id=>Some(*value),_=>None}).expect("complete public objective tuple"))
@@ -11773,7 +12594,7 @@ fn objective_notice_60hz_generated_tower_and_epic_casts_public_queue_pause_and_t
 
 #[test]
 fn cast_preparation_public_status_formal_60hz_cancels_freezes_and_releases_once() {
-    let (mut w,mut driver)=world(SingleLaneConfig {heroes:["saika_magoichi".into(),"training_luminary".into()],
+    let (mut w,mut driver)=legacy_world(SingleLaneConfig {heroes:["saika_magoichi".into(),"training_luminary".into()],
         wave_interval:Fixed64::from_i32(10_000),..fast_config()},SimulationTickProfile::Production60Hz);
     driver.step(&mut w,[]).unwrap();let [caster,enemy]=hero_pair(&w);
     place_hero(&mut w,caster,0,7000);place_hero(&mut w,enemy,4000,7000);
@@ -11801,7 +12622,7 @@ fn cast_preparation_public_status_formal_60hz_cancels_freezes_and_releases_once(
 #[test]
 fn cast_damage_interruption_formal_60hz_distinguishes_hp_loss_shields_and_release() {
     for mode in 0..7 {
-        let (mut w,mut driver)=world(SingleLaneConfig {heroes:["saika_magoichi".into(),"training_luminary".into()],
+        let (mut w,mut driver)=legacy_world(SingleLaneConfig {heroes:["saika_magoichi".into(),"training_luminary".into()],
             wave_interval:Fixed64::from_i32(10_000),..fast_config()},SimulationTickProfile::Production60Hz);
         driver.step(&mut w,[]).unwrap();let [caster,enemy]=hero_pair(&w);
         place_hero(&mut w,caster,0,7000);place_hero(&mut w,enemy,4000,7000);
@@ -11830,7 +12651,7 @@ fn cast_damage_interruption_formal_60hz_distinguishes_hp_loss_shields_and_releas
 
 #[test]
 fn summon_presentation_formal_60hz_keeps_explicit_kind_owner_and_retirement() {
-    let (mut w,mut driver)=world(SingleLaneConfig{heroes:["saika_magoichi".into(),"training_luminary".into()],wave_interval:Fixed64::from_i32(10_000),..fast_config()},SimulationTickProfile::Production60Hz);
+    let (mut w,mut driver)=legacy_world(SingleLaneConfig{heroes:["saika_magoichi".into(),"training_luminary".into()],wave_interval:Fixed64::from_i32(10_000),..fast_config()},SimulationTickProfile::Production60Hz);
     driver.step(&mut w,[]).unwrap();let [caster,enemy]=hero_pair(&w);place_hero(&mut w,caster,0,7000);place_hero(&mut w,enemy,4000,7000);
     driver.step(&mut w,[(1,PlayerInput{action:Some(PlayerInputEnum::CastAbility(CastAbility{ability_index:1,target_entity:None,target_pos:Some(Vec2I{x:0,y:7000*1024})}))})]).unwrap();
     for _ in 0..30 {driver.step(&mut w,[]).unwrap();}
@@ -11853,4 +12674,3198 @@ fn summon_presentation_formal_60hz_keeps_explicit_kind_owner_and_retirement() {
     w.write_resource::<GamePause>().is_paused=false;driver.step(&mut w,[]).unwrap();assert!(summons.iter().all(|e|!w.entities().is_alive(*e)));
     let retired=omoba_core::runtime::extract_data_for_render(&mut w,driver.tick() as u32,vec![],vec![]);
     assert!(!retired.entities.iter().any(|r|summons.iter().any(|e|e.id()==r.entity_id && e.gen().id() as u32==r.entity_gen)));
+}
+
+/// G-1 ability projectiles through the formal 60 Hz cast path (`training_frost_mage`).
+mod ability_projectile_formal {
+    use super::*;
+    use swept_dash_formal::{setup_hero_skill,body,cast_skill,hp,mana};
+    use omoba_core::runtime::native::ability_projectile::AbilityProjectiles;
+    fn live(w:&World)->usize {w.try_fetch::<AbilityProjectiles>().map_or(0,|rows|rows.0.len())}
+    /// Ticks after the cast until `target` first loses HP (None if never within `limit`).
+    fn ticks_until_hit(w:&mut World,driver:&mut SimulationDriver,target:specs::Entity,limit:u32)->Option<u32> {
+        for tick in 1..=limit {driver.step(w,[]).unwrap();if hp(w,target)<Fixed64::from_i32(1000){return Some(tick);}}
+        None
+    }
+    fn bolt_hit_after(distance:i32)->(u32,Fixed64) {
+        let (mut w,mut driver,caster,origin)=setup_hero_skill(1,"lumen_frost_bolt","training_frost_mage");set_hold(&mut w,caster);disarm_attack(&mut w,caster);
+        let target=body(&mut w,origin+omoba_sim::Vec2::new(Fixed64::from_i32(distance),Fixed64::ZERO),2);
+        let before=mana(&w,caster);
+        run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+        cast_skill(&mut w,&mut driver,caster,"lumen_frost_bolt",None,Some(target.id()));
+        assert_eq!(hp(&w,target),Fixed64::from_i32(1000),"cast tick is launch only, never instant damage");
+        assert_eq!(live(&w),1);assert_eq!(mana(&w,caster),before-Fixed64::from_i32(50));
+        assert!(w.read_storage::<Hero>().get(caster).unwrap().is_on_cooldown("lumen_frost_bolt"));
+        let tick=ticks_until_hit(&mut w,&mut driver,target,240).expect("bolt hits");
+        assert_eq!(live(&w),0);
+        let caster_handle=omb_script_abi::types::EntityHandle{id:caster.id(),gen:caster.gen().id() as u32};
+        assert!(w.read_resource::<BuffStore>().has(target,&omb_script_abi::buff_ids::generic_slow_buff_id("lumen_frost_bolt",caster_handle)));
+        (tick,hp(&w,target))
+    }
+    #[test]
+    fn frost_bolt_near_and_far_targets_land_on_flight_time_not_cast_time() {
+        let (near,near_hp)=bolt_hit_after(250);
+        let (far,far_hp)=bolt_hit_after(650);
+        // 900 u/s at 60 Hz is 15 u/tick: (250-16)/15 ~ 16 ticks vs (650-16)/15 ~ 43 ticks.
+        assert!((15..=18).contains(&near),"near {near}");assert!((41..=45).contains(&far),"far {far}");
+        assert_eq!(near_hp,Fixed64::from_i32(910));assert_eq!(far_hp,near_hp);
+        println!("frost_bolt near250_hit_tick={near} far650_hit_tick={far}");
+    }
+    #[test]
+    fn frost_lance_pierces_three_in_contact_order_and_skips_allies() {
+        let (mut w,mut driver,caster,origin)=setup_hero_skill(1,"lumen_frost_lance","training_frost_mage");set_hold(&mut w,caster);disarm_attack(&mut w,caster);
+        let p=|x:i32|origin+omoba_sim::Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO);
+        let targets:Vec<_>=[200,500,800,950].into_iter().map(|x|body(&mut w,p(x),2)).collect();
+        let ally=body(&mut w,p(350),1);
+        cast_skill(&mut w,&mut driver,caster,"lumen_frost_lance",Some(p(100)),None);
+        assert!(targets.iter().all(|t|hp(&w,*t)==Fixed64::from_i32(1000)),"no instant damage");
+        let mut first=[None;4];
+        for tick in 1..=90u32 {driver.step(&mut w,[]).unwrap();
+            for (slot,target) in targets.iter().enumerate() {if first[slot].is_none()&&hp(&w,*target)<Fixed64::from_i32(1000){first[slot]=Some(tick);}}}
+        assert!(first[0].unwrap()<first[1].unwrap()&&first[1].unwrap()<first[2].unwrap(),"contact order {first:?}");
+        assert_eq!(first[3],None,"hit budget of three ends the flight");
+        assert_eq!(hp(&w,ally),Fixed64::from_i32(1000));assert_eq!(live(&w),0);
+        println!("frost_lance hit_ticks={first:?}");
+    }
+    #[test]
+    fn frost_bolt_is_refused_at_a_target_hidden_from_the_casting_team() {
+        let (mut w,mut driver,caster,origin)=setup_hero_skill(1,"lumen_frost_bolt","training_frost_mage");set_hold(&mut w,caster);disarm_attack(&mut w,caster);
+        let target=body(&mut w,origin+omoba_sim::Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO),2);
+        // Stealth above every detection level: in range, alive, hostile, but undisclosed.
+        w.write_storage::<StealthProfile>().insert(target,StealthProfile {stealth_level:u16::MAX}).unwrap();
+        let before=mana(&w,caster);
+        run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+        cast_skill(&mut w,&mut driver,caster,"lumen_frost_bolt",None,Some(target.id()));
+        assert_eq!(live(&w),0,"no tracking flight may reveal a fogged position");
+        let _=before;
+        for _ in 0..120 {run_committed_visibility_wave_b(&mut w,driver.tick(),0);driver.step(&mut w,[]).unwrap();}
+        assert_eq!((live(&w),hp(&w,target)),(0,Fixed64::from_i32(1000)),"the undisclosed target is never tracked or hit");
+    }
+    #[test]
+    fn frost_bolt_keeps_launch_allegiance_after_caster_death_and_replays_identically() {
+        let run=|kill:bool|{
+            let (mut w,mut driver,caster,origin)=setup_hero_skill(1,"lumen_frost_bolt","training_frost_mage");set_hold(&mut w,caster);disarm_attack(&mut w,caster);
+            let target=body(&mut w,origin+omoba_sim::Vec2::new(Fixed64::from_i32(650),Fixed64::ZERO),2);
+            run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+            cast_skill(&mut w,&mut driver,caster,"lumen_frost_bolt",None,Some(target.id()));
+            let mut trace=Vec::new();
+            for tick in 0..60 {if kill&&tick==5{w.write_storage::<CProperty>().get_mut(caster).unwrap().hp=Fixed64::ZERO;}
+                driver.step(&mut w,[]).unwrap();trace.push(single_lane_replay_digest(&w));}
+            (hp(&w,target),trace)
+        };
+        let (alive_hp,trace)=run(false);
+        assert_eq!(run(false).1,trace,"deterministic replay");
+        assert_eq!(run(true).0,alive_hp,"dead caster's projectile still lands with launch allegiance");
+    }
+}
+
+/// G-2 charges + G-3 immobile summons through the formal 60 Hz cast path.
+mod charges_and_emplacement_formal {
+    use super::*;
+    use swept_dash_formal::{setup_hero_skill,body,cast_skill,hp,mana};
+    fn turrets(w:&World,owner:specs::Entity)->Vec<specs::Entity> {
+        (&w.entities(),&w.read_storage::<SummonedUnit>()).join().filter(|(_,s)|s.summoner==owner&&!s.is_expired()).map(|(e,_)|e).collect()
+    }
+    fn charges(w:&World,hero:specs::Entity)->u16 {w.read_storage::<Hero>().get(hero).unwrap().ability_charges["lumen_sentry"].charges}
+    fn steps(w:&mut World,driver:&mut SimulationDriver,n:u32) {for _ in 0..n {driver.step(w,[]).unwrap();}}
+    #[test]
+    fn sentry_spends_stored_uses_rejects_empty_and_recharges_on_the_fixed_clock() {
+        let (mut w,mut driver,caster,origin)=setup_hero_skill(1,"lumen_sentry","training_frost_mage");set_hold(&mut w,caster);disarm_attack(&mut w,caster);
+        let p=|x:i32,y:i32|origin+omoba_sim::Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        steps(&mut w,&mut driver,1);
+        assert_eq!(charges(&w,caster),2,"first learn starts full (rank 1 max 2)");
+        cast_skill(&mut w,&mut driver,caster,"lumen_sentry",Some(p(200,0)),None);
+        assert_eq!((turrets(&w,caster).len(),charges(&w,caster)),(1,1));
+        steps(&mut w,&mut driver,61);
+        cast_skill(&mut w,&mut driver,caster,"lumen_sentry",Some(p(200,100)),None);
+        assert_eq!((turrets(&w,caster).len(),charges(&w,caster)),(2,0));
+        steps(&mut w,&mut driver,61);
+        let before=mana(&w,caster);
+        cast_skill(&mut w,&mut driver,caster,"lumen_sentry",Some(p(200,-100)),None);
+        assert_eq!((turrets(&w,caster).len(),charges(&w,caster)),(2,0),"no stored use: rejected");
+        assert_eq!(mana(&w,caster),before,"rejected cast spends no mana");
+        // 15 s per use from the first spend: about 15*60-123 more ticks restore exactly one.
+        steps(&mut w,&mut driver,15*60-122);
+        assert_eq!(charges(&w,caster),1);
+        let state=w.read_storage::<Hero>().get(caster).unwrap().ability_charges["lumen_sentry"];
+        assert!(state.remaining>Fixed64::ZERO&&state.remaining<=Fixed64::from_i32(15),"next cycle armed: {state:?}");
+        cast_skill(&mut w,&mut driver,caster,"lumen_sentry",Some(p(200,-100)),None);
+        assert_eq!(charges(&w,caster),0);
+    }
+    #[test]
+    fn sentry_turret_is_immobile_scales_with_owner_level_attacks_and_expires_with_owner() {
+        let (mut w,mut driver,caster,origin)=setup_hero_skill(1,"lumen_sentry","training_frost_mage");set_hold(&mut w,caster);disarm_attack(&mut w,caster);
+        let at=origin+omoba_sim::Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO);
+        cast_skill(&mut w,&mut driver,caster,"lumen_sentry",Some(at),None);
+        let turret=turrets(&w,caster)[0];
+        let level=w.read_storage::<Hero>().get(caster).unwrap().level;
+        assert_eq!(w.read_storage::<TAttack>().get(turret).unwrap().atk_physic.v,Fixed64::from_i32(30+10*(level-1)),"attack +10 per owner level");
+        assert!(w.read_storage::<SummonedUnit>().get(turret).unwrap().immobile);
+        let start=w.read_storage::<Pos>().get(turret).unwrap().0;
+        let enemy=body(&mut w,at+omoba_sim::Vec2::new(Fixed64::from_i32(400),Fixed64::ZERO),2);
+        // The fixture driver does not run the team visibility wave; disclose like the formal loop.
+        for _ in 0..180 {run_committed_visibility_wave_b(&mut w,driver.tick(),0);driver.step(&mut w,[]).unwrap();}
+        assert!(hp(&w,enemy)<Fixed64::from_i32(1000),"emplacement shoots enemies in range");
+        assert_eq!(w.read_storage::<Pos>().get(turret).unwrap().0,start,"never moves toward targets or owner");
+        w.write_storage::<CProperty>().get_mut(caster).unwrap().hp=Fixed64::ZERO;
+        steps(&mut w,&mut driver,3);
+        assert!(turrets(&w,caster).is_empty(),"owner_death=expire removes the turret");
+    }
+}
+
+/// G-2 toggle orb (A02 W shape) through the formal 60 Hz attack path.
+mod attack_orb_formal {
+    use super::*;
+    use swept_dash_formal::{setup_hero_skill,cast_skill,hp,mana};
+    use omoba_core::runtime::ability_runtime::ManaPool;
+    /// Two identical worlds; only `toggle` differs. 25 mana pays exactly two 10-mana attacks.
+    fn run(toggle:bool)->(Fixed64,Fixed64,bool,bool,(bool,bool)) {
+        let (mut w,mut driver,caster,origin)=setup_hero_skill(1,"lumen_venom_orb","training_frost_mage");
+        let [_,enemy]=hero_pair(&w);
+        set_hold(&mut w,enemy);disarm_attack(&mut w,enemy);
+        {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(enemy).unwrap();
+            p.hp=Fixed64::from_i32(20_000);p.mhp=p.hp;p.def_physic=Fixed64::ZERO;p.def_magic=Fixed64::ZERO;}
+        if toggle {cast_skill(&mut w,&mut driver,caster,"lumen_venom_orb",None,None);} else {driver.step(&mut w,[]).unwrap();}
+        let toggled=w.read_resource::<BuffStore>().has(caster,"attack_orb:lumen_venom_orb");
+        {let mut heroes=w.write_storage::<Hero>();let hero=heroes.get_mut(caster).unwrap();
+            let max=hero.mana_pool.as_ref().unwrap().maximum();hero.mana_pool=Some(ManaPool::new(Fixed64::from_i32(25),max).unwrap());}
+        // Order first, while the enemy is far; it comes within reach only afterwards. An idle
+        // auto-attack begun in reach before the order would be interrupted by it after its start
+        // already paid (A02W OnAttackStart pays even for a cancelled windup).
+        run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+        driver.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::AttackTarget(AttackTarget {target_id:enemy.id(),queued:false}))})]).unwrap();
+        let at=w.read_storage::<Pos>().get(caster).unwrap().0;
+        w.write_storage::<Pos>().get_mut(enemy).unwrap().0=at+omoba_sim::Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO);
+        let mut slowed=(false,false);
+        for _ in 0..360 {run_committed_visibility_wave_b(&mut w,driver.tick(),0);driver.step(&mut w,[]).unwrap();
+            let buffs=w.read_resource::<BuffStore>();
+            slowed.0|=buffs.iter_for(enemy).any(|(id,_)|id.starts_with("generic_slow:lumen_venom_orb:"));
+            slowed.1|=buffs.iter_for(enemy).any(|(id,_)|id.starts_with("orb_attack_slow:lumen_venom_orb:"));}
+        let still=w.read_resource::<BuffStore>().has(caster,"attack_orb:lumen_venom_orb");
+        (hp(&w,enemy),mana(&w,caster),toggled,still,slowed)
+    }
+    #[test]
+    fn venom_orb_spends_per_attack_adds_hit_effects_and_switches_off_when_short() {
+        let (plain_hp,plain_mana,plain_toggled,_,_)=run(false);
+        let (orb_hp,orb_mana,toggled,still,slowed)=run(true);
+        assert!(!plain_toggled&&toggled,"toggle on");
+        assert!(plain_hp<Fixed64::from_i32(20_000),"the hero attacked");
+        assert_eq!(plain_hp-orb_hp,Fixed64::from_i32(60),"exactly two empowered hits of 30 magic");
+        // Regeneration is identical in both runs; the orb run paid exactly 20 more.
+        assert_eq!(plain_mana-orb_mana,Fixed64::from_i32(20));
+        assert!(!still,"third attack found 5 mana < 10 and switched the toggle off");
+        assert_eq!(slowed,(true,true),"move and attack slows applied on empowered hits");
+    }
+}
+
+/// Live desync repro (split9, tick 5520): every scripted projectile, dash and
+/// summon must keep each team's filtered replica identical to the authority.
+mod scripted_motion_replica_parity {
+    use super::*;
+    use std::collections::BTreeSet;
+    use prost::Message;
+    fn cast(slot:u32,entity:Option<specs::Entity>,point:Option<omoba_sim::Vec2>)->PlayerInput {
+        PlayerInput {action:Some(PlayerInputEnum::CastAbility(CastAbility {ability_index:slot,target_entity:entity.map(|e|e.id()),
+            target_pos:point.map(|p|Vec2I {x:p.x.raw() as i32,y:p.y.raw() as i32})}))}
+    }
+    #[test]
+    fn scripted_projectiles_dash_and_summons_keep_team_replicas_identical_every_tick() {
+        let (mut authority,mut driver)=world(SingleLaneConfig {mana_enabled:true,
+            heroes:["training_frost_mage".into(),"date_masamune".into()],wave_interval:Fixed64::from_i32(10_000),..three_lane_config()},
+            SimulationTickProfile::Production60Hz);
+        driver.step(&mut authority,[]).unwrap();
+        let [mage,date]=hero_pair(&authority);
+        let origin=omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(isolated_skill_origin_y()));
+        let at=|x:i32,y:i32|origin+omoba_sim::Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        authority.write_storage::<Pos>().get_mut(mage).unwrap().0=at(0,0);
+        authority.write_storage::<Pos>().get_mut(date).unwrap().0=at(600,0);
+        for (hero,ids) in [(mage,["lumen_frost_bolt","lumen_frost_lance","lumen_venom_orb","lumen_sentry"]),
+            (date,["b04_flame_trail_dash","b04_fire_blast","b04_flame_swiftness","b04_tanegashima"])] {
+            set_hold(&mut authority,hero);disarm_attack(&mut authority,hero);
+            let mut heroes=authority.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=18;
+            for id in ids {h.ability_levels.insert(id.into(),1);}
+        }
+        let seed=authority.read_resource::<MobaMatch>().config.seed;
+        let first=driver.step(&mut authority,[]).unwrap();project_tick(&mut authority,first);
+        let allow=TeamProjectorConfig::default().component_allowlist;
+        let starts=authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick()+1,60,seed);
+        let mut replicas:Vec<_>=starts.into_iter().map(|(team,start)|{
+            let replica=SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start,allow.clone(),BTreeSet::new()).unwrap();
+            let mut stepper=SpecsDisclosedWorldStepper::from_start(&start,allow.clone(),BTreeSet::new());
+            stepper.script_registry.insert_manifest(crate::get_manifest());
+            populate_ability_registry(&mut stepper.filtered.world,&stepper.script_registry);
+            stepper.bootstrap_membership(replica.world()).unwrap();
+            (team,replica,stepper)
+        }).collect();
+        let mut mismatches=Vec::new();
+        for tick in 0..120u32 {
+            let inputs:Vec<(u32,PlayerInput,specs::Entity,Option<specs::Entity>)>=match tick {
+                0=>vec![(1,cast(0,Some(date),None),mage,Some(date))],
+                6=>vec![(1,cast(1,None,Some(at(600,0))),mage,None)],
+                12=>vec![(2,cast(0,None,Some(at(100,200))),date,None)],
+                20=>vec![(1,cast(3,None,Some(at(200,-150))),mage,None)],
+                _=>vec![],
+            };
+            let accepted:Vec<_>=inputs.iter().map(|(player,input,actor,target)|
+                CanonicalAcceptedInput::from_authoritative_acceptance(*player,*player,1,4,canonical_entity_id(*actor),
+                    target.map(canonical_entity_id),input.encode_to_vec())).collect();
+            let result=driver.step(&mut authority,inputs.iter().map(|(p,i,_,_)|(*p,i.clone())).collect::<Vec<_>>()).unwrap();
+            authority.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+            project_tick(&mut authority,result);
+            let frames=authority.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+            let expected=authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick()+1,60,seed);
+            for (team,replica,stepper) in &mut replicas {
+                let frame=frames[team].frame.clone();
+                assert!(matches!(replica.apply_frame(frame,stepper).unwrap(),FrameApplyResult::Applied {..}),"team {team} tick {tick}");
+                let expected=SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team],allow.clone(),BTreeSet::new()).unwrap();
+                if replica.canonical_team_hash()!=expected.canonical_team_hash() {
+                    for (id,entity) in &expected.world().entities {
+                        for (schema,bytes) in &entity.components {
+                            let actual=replica.world().entities.get(id).and_then(|value|value.components.get(schema));
+                            if actual!=Some(bytes) {
+                                if *schema==omoba_core::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID && mismatches.len()<3 {
+                                    let a:serde_json::Value=serde_json::from_slice(actual.unwrap()).unwrap();let e:serde_json::Value=serde_json::from_slice(bytes).unwrap();
+                                    for (k,v) in e.as_object().unwrap() {if a.get(k)!=Some(v) {eprintln!("DIFF tick {tick} team {team} entity {id} field {k}: actual={:?} expected={:?}",a.get(k),v);}}
+                                }
+                                mismatches.push(format!("tick {tick} team {team} entity {id} schema {schema:x}"));}
+                        }
+                    }
+                    for id in replica.world().entities.keys() {
+                        if !expected.world().entities.contains_key(id) {mismatches.push(format!("tick {tick} team {team} extra replica entity {id}"));}
+                    }
+                    if !expected.world().entities.keys().all(|id|replica.world().entities.contains_key(id)) {
+                        mismatches.push(format!("tick {tick} team {team} missing entity"));
+                    }
+                }
+            }
+        }
+        let charged=authority.read_storage::<Hero>().get(mage).unwrap().ability_charges.get("lumen_sentry").map(|s|s.charges);
+        assert_eq!(charged,Some(1),"sentry cast was admitted");
+        assert!(mismatches.is_empty(),"{} divergent component rows, first: {:?}",mismatches.len(),&mismatches[..mismatches.len().min(12)]);
+    }
+}
+
+
+/// Every authored hero skill with a cast windup must settle identically in the
+/// authority and in each team-filtered replica, tick by tick. The windup itself,
+/// the cast it releases (or the rejection) and everything after must project
+/// the same team view. Enumerates the generated content, so new heroes and
+/// skills are covered without editing this test.
+mod windup_dual_replica {
+    use super::*;
+    use std::collections::BTreeSet;
+    use prost::Message;
+
+    pub(super) enum Aim {None,Point,Enemy}
+
+    /// Casts `slot` of `hero` against a training_luminary placed `distance`
+    /// along +x and compares every team replica with a fresh projection.
+    pub(super) fn run(hero:&str,slot:usize,aim:Aim,distance:i32,ticks:u32)->Result<(),String> {
+        let seed=7;
+        let config=SingleLaneConfig {seed,heroes:[hero.into(),"training_luminary".into()],mana_enabled:true,
+            base_recovery_enabled:false,wave_interval:Fixed64::from_i32(10_000),..three_lane_config()};
+        let (mut a,mut ad)=world(config,SimulationTickProfile::Production60Hz);
+        let [caster,enemy]=hero_pair(&a);
+        let origin=omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(isolated_skill_origin_y()));
+        let enemy_at=origin+omoba_sim::Vec2::new(Fixed64::from_i32(distance),Fixed64::ZERO);
+        a.write_storage::<Pos>().get_mut(caster).unwrap().0=origin;
+        a.write_storage::<Pos>().get_mut(enemy).unwrap().0=enemy_at;
+        set_hold(&mut a,caster);set_hold(&mut a,enemy);disarm_attack(&mut a,caster);disarm_attack(&mut a,enemy);
+        let skill={let mut heroes=a.write_storage::<Hero>();let h=heroes.get_mut(caster).unwrap();
+            let skill=h.abilities[slot].clone();h.level=18;h.ability_levels.insert(skill.clone(),1);skill};
+        let first=ad.step(&mut a,[]).unwrap();project_tick(&mut a,first);
+        let allow=TeamProjectorConfig::default().component_allowlist;
+        let starts=a.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(ad.tick()+1,60,seed);
+        let mut replicas:Vec<_>=starts.into_iter().map(|(team,start)| {
+            let replica=SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start,allow.clone(),BTreeSet::new()).unwrap();
+            let mut stepper=SpecsDisclosedWorldStepper::from_start(&start,allow.clone(),BTreeSet::new());
+            stepper.script_registry.insert_manifest(crate::get_manifest());
+            populate_ability_registry(&mut stepper.filtered.world,&stepper.script_registry);
+            stepper.bootstrap_membership(replica.world()).unwrap();
+            (team,replica,stepper)
+        }).collect();
+        let point=Vec2I {x:enemy_at.x.raw() as i32,y:enemy_at.y.raw() as i32};
+        let (target_pos,target_entity,target_key)=match aim {
+            Aim::None=>(None,None,None),
+            Aim::Point=>(Some(point),None,None),
+            Aim::Enemy=>(None,Some(enemy.id()),Some(canonical_entity_id(enemy))),
+        };
+        for index in 0..ticks {
+            let inputs=if index==0 {vec![(1,PlayerInput {action:Some(PlayerInputEnum::CastAbility(CastAbility {
+                ability_index:slot as u32,target_entity,target_pos:target_pos.clone()}))})]} else {vec![]};
+            let accepted=inputs.iter().map(|(player,input)| {
+                let mut safe=input.clone();
+                if let Some(PlayerInputEnum::CastAbility(cast))=safe.action.as_mut() {cast.target_entity=None;}
+                CanonicalAcceptedInput::from_authoritative_acceptance(1,*player,ad.tick()+1,4,
+                    canonical_entity_id(caster),target_key,safe.encode_to_vec())
+            }).collect::<Vec<_>>();
+            let result=ad.step(&mut a,inputs).unwrap();
+            a.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+            project_tick(&mut a,result);
+            let frames=a.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+            let expected=a.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(ad.tick()+1,60,seed);
+            for (team,replica,stepper) in &mut replicas {
+                let applied=replica.apply_frame(frames[team].frame.clone(),stepper)
+                    .map_err(|e|format!("{hero}/{skill} team {team} tick {}: apply {e:?}",ad.tick()))?;
+                if !matches!(applied,FrameApplyResult::Applied {..}) {return Err(format!("{hero}/{skill} team {team} tick {}: {applied:?}",ad.tick()));}
+                let view=SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team],allow.clone(),BTreeSet::new()).unwrap();
+                if replica.canonical_team_hash()!=view.canonical_team_hash() {
+                    let mut differs=Vec::new();
+                    for (id,entity) in &view.world().entities {
+                        for (schema,bytes) in &entity.components {
+                            if replica.world().entities.get(id).and_then(|e|e.components.get(schema))!=Some(bytes) {
+                                differs.push(format!("entity {id} schema {schema:#x}"));
+                            }
+                        }
+                    }
+                    return Err(format!("{hero}/{skill} team {team} tick {} (cast input at tick {}): {}",ad.tick(),
+                        ad.tick()-u64::from(index),differs.join(", ")));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn every_windup_skill_matches_team_filtered_replicas() {
+        let mut cases=Vec::new();
+        for &hero in omoba_template_ids::HERO_CATALOG_IDS {
+            for (slot,ability) in omoba_template_ids::active_hero_abilities(hero).iter().enumerate() {
+                let Some(def)=omoba_template_ids::active_ability_const(*ability) else {continue;};
+                if matches!(def.ability_type,omoba_template_ids::AbilityTypeC::Passive) {continue;}
+                let Some(level)=def.levels.first() else {continue;};
+                if level.cast_time<=Fixed64::ZERO {continue;}
+                let aim=match def.target_type {
+                    omoba_template_ids::TargetTypeC::None=>Aim::None,
+                    omoba_template_ids::TargetTypeC::Point=>Aim::Point,
+                    omoba_template_ids::TargetTypeC::Unit=>Aim::Enemy,
+                };
+                // Inside cast range when it has one; the windup plus one second settles the release.
+                let range=(level.range.raw()/1024) as i32;
+                let distance=if range>0 {(range/2).clamp(100,400)} else {300};
+                let ticks=(level.cast_time.raw()*60/1024) as u32+60;
+                cases.push((hero.as_str().to_owned(),slot,aim,distance,ticks,ability.as_str().to_owned()));
+            }
+        }
+        assert!(!cases.is_empty(),"authored content has no windup skill to check");
+        let mut failures=Vec::new();
+        for (hero,slot,aim,distance,ticks,ability) in cases.iter().map(|c|(c.0.as_str(),c.1,match c.2 {Aim::None=>Aim::None,Aim::Point=>Aim::Point,Aim::Enemy=>Aim::Enemy},c.3,c.4,c.5.as_str())) {
+            if let Err(error)=run(hero,slot,aim,distance,ticks) {failures.push(error);}
+            else {println!("windup dual replica ok: {hero}/{ability}");}
+        }
+        assert!(failures.is_empty(),"{} of {} windup skills diverge from team-filtered replicas:\n{}",
+            failures.len(),cases.len(),failures.join("\n"));
+    }
+
+    #[test]
+    fn instant_cast_control_matches_team_filtered_replicas() {
+        // Keeps the harness honest: an instant skill with cost and cooldown matches.
+        run("training_line_mage",0,Aim::Point,300,30).unwrap();
+    }
+}
+
+/// H01 (source B01 current, docs/character_pipeline/packages/saika_magoichi)
+/// through the formal 60 Hz cast path with real MOBA heroes, creeps and towers.
+mod h01_formal {
+    use super::*;
+    use swept_dash_formal::{setup_hero_skill,body,cast_skill,mana};
+    use abi_stable::{sabi_trait::prelude::TD_Opaque,RMut};
+    use omb_script_abi::{ability::AbilityScript,world::GameWorld_TO};
+    use omoba_core::runtime::scripting::parallel_world_adapter::{ParallelAdapterCache,ParallelWorldAdapter};
+    // M5: the generated passive (scripts/heroes/saika_magoichi), same on_attack_hit hook as the handler had
+    use hero_b01_impl::generated::b01_rain_iron_cannon::B01RainIronCannon as RainIronCannonClassHandler;
+
+    fn gunners(w:&World,owner:specs::Entity)->Vec<specs::Entity> {
+        (&w.entities(),&w.read_storage::<SummonedUnit>()).join().filter(|(_,s)|s.summoner==owner&&!s.is_expired()).map(|(e,_)|e).collect()
+    }
+    fn charges(w:&World,hero:specs::Entity)->u16 {w.read_storage::<Hero>().get(hero).unwrap().ability_charges["b01_saika_corps"].charges}
+    fn steps(w:&mut World,driver:&mut SimulationDriver,n:u32) {for _ in 0..n {driver.step(w,[]).unwrap();}}
+    const WINDUP_TICKS:u32=12;
+
+    #[test]
+    fn saika_corps_every_rank_stores_its_cap_spends_one_per_cast_and_never_moves() {
+        for (rank,cap) in [(1,2u16),(2,3),(3,4),(4,5)] {
+            let (mut w,mut driver,caster,origin)=setup_hero_skill(rank,"b01_saika_corps","saika_magoichi");
+            set_hold(&mut w,caster);disarm_attack(&mut w,caster);
+            // The fixture's mana capacity depends on attribute rules that are not ported yet;
+            // this test only needs enough mana for every cast.
+            {let mut heroes=w.write_storage::<Hero>();heroes.get_mut(caster).unwrap().mana_pool=
+                Some(omoba_core::runtime::ability_runtime::ManaPool::new(Fixed64::from_i32(1000),Fixed64::from_i32(1000)).unwrap());}
+            steps(&mut w,&mut driver,1);
+            // B01.lua:45-59: first learn stores 2; a rank-up raises the cap without adding
+            // uses and restarts the 15 s recharge (the fixture jumps from rank 1 to `rank`).
+            assert_eq!(charges(&w,caster),2,"rank {rank}: first learn stores 2, rank-ups add none");
+            let remaining=w.read_storage::<Hero>().get(caster).unwrap().ability_charges["b01_saika_corps"].remaining;
+            assert_eq!(remaining,if cap>2 {Fixed64::from_i32(15)-Fixed64::from_raw(17)}else{Fixed64::ZERO},"rank {rank}: restarted cycle");
+            steps(&mut w,&mut driver,u32::from(cap-2)*15*60);
+            assert_eq!(charges(&w,caster),cap,"rank {rank}: refilled one per 15 s");
+            let mut placed=0;let mut order=Vec::new();
+            for index in 0..i32::from(cap) {
+                let at=origin+omoba_sim::Vec2::new(Fixed64::from_i32(200),Fixed64::from_i32(index*60-120));
+                let before=mana(&w,caster);
+                cast_skill(&mut w,&mut driver,caster,"b01_saika_corps",Some(at),None);
+                // 0.15 s cast windup (source AbilityCastPoint) before the summon settles.
+                steps(&mut w,&mut driver,WINDUP_TICKS);
+                placed+=1;
+                let now=gunners(&w,caster);
+                for e in &now {if !order.contains(e) {order.push(*e);}}
+                assert_eq!((now.len(),charges(&w,caster)),(placed,cap-placed as u16),"rank {rank} cast {index}");
+                assert_eq!(before-mana(&w,caster),Fixed64::from_i32(35),"rank {rank}: 35 mana per summon");
+                steps(&mut w,&mut driver,2);
+            }
+            let before=mana(&w,caster);
+            cast_skill(&mut w,&mut driver,caster,"b01_saika_corps",Some(origin+omoba_sim::Vec2::new(Fixed64::from_i32(200),Fixed64::from_i32(300))),None);
+            steps(&mut w,&mut driver,WINDUP_TICKS);
+            assert_eq!(gunners(&w,caster).len(),placed,"rank {rank}: no stored gunner, rejected");
+            assert_eq!(mana(&w,caster),before,"rank {rank}: rejected cast spends no mana");
+            let newest=*order.last().unwrap();
+            assert!(w.read_storage::<SummonedUnit>().get(newest).unwrap().immobile,"fixed emplacement until player control (G-3)");
+            let start=w.read_storage::<Pos>().get(newest).unwrap().0;
+            steps(&mut w,&mut driver,15*60);
+            assert_eq!(charges(&w,caster),1,"rank {rank}: one stored every 15 s");
+            assert_eq!(w.read_storage::<Pos>().get(newest).unwrap().0,start,"rank {rank}: emplacement never moves");
+            // B01.lua:116-140: at the cap, the next gunner replaces the earliest one at once.
+            let gold=w.read_storage::<Gold>().get(caster).map(|g|g.0);
+            cast_skill(&mut w,&mut driver,caster,"b01_saika_corps",Some(origin+omoba_sim::Vec2::new(Fixed64::from_i32(-200),Fixed64::ZERO)),None);
+            steps(&mut w,&mut driver,WINDUP_TICKS);
+            let now=gunners(&w,caster);
+            assert_eq!(now.len(),usize::from(cap),"rank {rank}: never more than {cap} live gunners");
+            assert!(!w.entities().is_alive(order[0]),"rank {rank}: the earliest gunner left");
+            assert!(order[1..].iter().all(|e|now.contains(e)),"rank {rank}: the others stay");
+            assert_eq!(w.read_storage::<Gold>().get(caster).map(|g|g.0),gold,"rank {rank}: a replaced gunner pays no bounty");
+        }
+    }
+
+    /// Calls the passive's on-hit hook against real MOBA units and reads the bonus damage.
+    fn bonus_damage(w:&World,attacker:specs::Entity,victim:specs::Entity,rank:u8)->Option<Fixed64> {
+        let cache=ParallelAdapterCache::new(w,1);let mut adapter=ParallelWorldAdapter::new(&cache,attacker);
+        let mut dynworld=GameWorld_TO::from_ptr(RMut::new(&mut adapter),TD_Opaque);
+        let a=ParallelWorldAdapter::entity_to_handle(attacker);
+        RainIronCannonClassHandler.on_attack_hit(a,a,ParallelWorldAdapter::entity_to_handle(victim),rank,&mut dynworld);
+        drop(dynworld);
+        adapter.finish().iter().find_map(|o|match o {Outcome::RawDamage {target,phys,..} if *target==victim=>Some(*phys),_=>None})
+    }
+
+    #[test]
+    fn rain_iron_cannon_classifies_real_heroes_creeps_and_buildings_for_every_rank() {
+        let (mut w,mut driver,caster,_)=setup_hero_skill(1,"b01_rain_iron_cannon","saika_magoichi");
+        steps(&mut w,&mut driver,1);
+        let enemy_hero=hero_pair(&w)[1];
+        let tower=(&w.entities(),&w.read_storage::<IsBuilding>(),&w.read_storage::<Faction>()).join()
+            .find(|(_,_,f)|f.team_id!=w.read_storage::<Faction>().get(caster).unwrap().team_id).map(|(e,_,_)|e).expect("enemy building");
+        let creep=body(&mut w,omoba_sim::Vec2::new(Fixed64::from_i32(100),Fixed64::from_i32(100)),2);
+        // The host's final attack (base + bonuses) the handler reads.
+        let attack={let cache=ParallelAdapterCache::new(&w,1);let mut adapter=ParallelWorldAdapter::new(&cache,caster);
+            let dynworld=GameWorld_TO::from_ptr(RMut::new(&mut adapter),TD_Opaque);
+            dynworld.get_final_atk(ParallelWorldAdapter::entity_to_handle(caster))};
+        assert!(attack>Fixed64::ZERO);
+        let expect=|percent:i64|Fixed64::from_raw((i128::from(attack.raw())*i128::from(percent*1024/100)/1024) as i64);
+        for (rank,building,hero,unit) in [(1u8,10,10,50),(2,15,18,70),(3,20,24,90),(4,25,30,110)] {
+            assert_eq!(bonus_damage(&w,caster,enemy_hero,rank),Some(expect(hero)),"rank {rank} hero");
+            assert_eq!(bonus_damage(&w,caster,tower,rank),Some(expect(building)),"rank {rank} building");
+            assert_eq!(bonus_damage(&w,caster,creep,rank),Some(expect(unit)),"rank {rank} creep");
+        }
+    }
+}
+
+/// B04T 種子島 through the real attack loop: every launched ordinary attack
+/// fires the bullet (host attack launch hook) and the stun lands at launch.
+mod h04_formal {
+    use super::*;
+    use swept_dash_formal::{setup_hero_skill,cast_skill};
+    #[test]
+    fn tanegashima_attack_launches_fire_bullets_and_launch_time_stuns() {
+        let (mut w,mut driver,caster,origin)=setup_hero_skill(1,"b04_tanegashima","date_masamune");
+        {let mut heroes=w.write_storage::<Hero>();heroes.get_mut(caster).unwrap().mana_pool=
+            Some(omoba_core::runtime::ability_runtime::ManaPool::new(Fixed64::from_i32(1000),Fixed64::from_i32(1000)).unwrap());}
+        let [_,enemy]=hero_pair(&w);
+        w.write_storage::<Pos>().get_mut(enemy).unwrap().0=origin+omoba_sim::Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO);
+        set_hold(&mut w,enemy);disarm_attack(&mut w,enemy);
+        {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(enemy).unwrap();
+            p.hp=Fixed64::from_i32(50_000);p.mhp=p.hp;}
+        cast_skill(&mut w,&mut driver,caster,"b04_tanegashima",None,None);
+        for _ in 0..12 {driver.step(&mut w,[]).unwrap();}
+        assert!(w.read_resource::<BuffStore>().has(caster,"b04_tanegashima"),"gun equipped");
+        run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+        driver.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::AttackTarget(AttackTarget {target_id:enemy.id(),queued:false}))})]).unwrap();
+        let mut bullets=std::collections::BTreeSet::new();let mut stunned=false;let mut launches=0;
+        for _ in 0..600 {
+            run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+            let seq=w.read_storage::<TAttack>().get(caster).unwrap().attack_seq;
+            driver.step(&mut w,[]).unwrap();
+            if w.read_storage::<TAttack>().get(caster).unwrap().attack_seq!=seq {launches+=1;}
+            if let Some(rows)=w.try_fetch::<omoba_core::runtime::native::ability_projectile::AbilityProjectiles>() {
+                for (entity,state) in rows.0.iter() {if state.spec.ability=="b04_tanegashima" {bullets.insert(*entity);}}
+            }
+            stunned|=w.read_resource::<BuffStore>().has(enemy,"stun");
+        }
+        assert!(launches>=4,"the hero kept attacking ({launches})");
+        assert!(bullets.len()>=launches-1,"one bullet per launched attack at least ({} for {launches})",bullets.len());
+        assert!(stunned,"38% launch-time stun over {launches} attacks");
+    }
+}
+
+/// split13 desync hunt: a live-like soak (lane waves, hero fights, item
+/// actives, mana drain, self heal) with both team replicas checked every tick.
+// Hero packages carry their own parity soak (rust/parity_soak.rs, installed as
+// heroes::<Module>::parity_soak) and reach these helpers through this path.
+pub(crate) mod live_soak_replica_parity {
+    use super::*;
+    use std::collections::BTreeSet;
+    use prost::Message;
+    /// The server's admission (omb `State::tick` + `build_canonical_accepted_inputs`):
+    /// lane gate, item owner seal, the shared action sanitizer and target
+    /// resolution, then the fog rule. Inputs it refuses never execute.
+    fn admit(world:&World,inputs:Vec<(u32,PlayerInput)>,order:&mut u64)->(Vec<(u32,PlayerInput)>,Vec<CanonicalAcceptedInput>) {
+        let mut executed=Vec::new();let mut accepted=Vec::new();
+        for (player,mut input) in inputs {
+            if !world.read_resource::<MobaMatch>().allows_player_input(player,&input) {continue;}
+            if !omoba_core::runtime::seal_item_use_owner(world,player,&mut input) {continue;}
+            let Some(hero)=world.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==player).and_then(|slot|slot.entity) else {continue;};
+            let Some(team)=world.read_storage::<Faction>().get(hero).map(|faction|faction.team_id as u32) else {continue;};
+            *order+=1;
+            let actor=match &input.action {
+                Some(PlayerInputEnum::ItemUse(item))=>omoba_core::runtime::canonical_item_owner(world,player,item),
+                _=>Some(canonical_entity_id(hero)),
+            };
+            let mut sanitized=input.clone();
+            let projected=actor.and_then(|actor|{
+                let (kind,index,generation)=omoba_core::runtime::sanitize_accepted_action(sanitized.action.as_mut()?)?;
+                let target=omoba_core::runtime::resolve_accepted_target(world,index,generation)?;
+                Some((actor,kind,target))
+            });
+            match projected {
+                Some((_,_,Some(target))) if !world.read_resource::<TeamProjectionRuntime>().input_target_admissible(
+                    &world.read_resource::<omoba_core::runtime::TeamVisibilityRuntime>(),team,target)=>continue,
+                Some((actor,kind,target))=>accepted.push(CanonicalAcceptedInput::from_authoritative_acceptance(team,player,*order,kind,actor,target,sanitized.encode_to_vec())),
+                None=>{}
+            }
+            executed.push((player,input));
+        }
+        (executed,accepted)
+    }
+    pub(crate) fn soak(heroes:[&str;2],ticks:u32,schedule:&dyn Fn(u32,[specs::Entity;2],omoba_sim::Vec2,omoba_sim::Vec2)->Vec<(u32,PlayerInput)>)->Vec<String> {
+        soak_at_level(heroes,ticks,12,schedule)
+    }
+    pub(super) fn soak_at_level(heroes:[&str;2],ticks:u32,level:u32,schedule:&dyn Fn(u32,[specs::Entity;2],omoba_sim::Vec2,omoba_sim::Vec2)->Vec<(u32,PlayerInput)>)->Vec<String> {
+        let spawns=std::cell::Cell::new(None);
+        soak_match(SingleLaneConfig {mana_enabled:true,heroes:[heroes[0].into(),heroes[1].into()],..three_lane_config()},ticks,1,
+            &|authority|for hero in hero_pair(authority) {
+                authority.write_storage::<Gold>().get_mut(hero).unwrap().0=5000;
+                let learned:Vec<String>={
+                    let mut heroes=authority.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=level as _;
+                    let fresh:Vec<String>=h.abilities.iter().filter(|id|h.get_ability_level(id)==0).cloned().collect();
+                    for id in h.abilities.clone() {h.ability_levels.insert(id,1);}
+                    fresh
+                };
+                // A rank given here is learned like any other (on_learn: passive markers and stats,
+                // E268), as hero_command's level change queues it.
+                let mut queue=authority.write_resource::<ScriptEventQueue>();
+                for skill_id in learned {queue.push(ScriptEvent::SkillLearn {caster:hero,skill_id,new_level:1});}
+            },
+            &mut |authority,tick|{
+                // A respawn is a new life: actor and targets must name the current one.
+                let state=authority.read_resource::<MobaMatch>();
+                let pair=[0,1].map(|index|state.heroes[index].entity);
+                let positions=authority.read_storage::<Pos>();
+                if spawns.get().is_none() {spawns.set(Some(pair.map(|hero|positions.get(hero.unwrap()).unwrap().0)));}
+                let (Some(first),Some(second))=(pair[0],pair[1]) else {return Vec::new();};
+                let [a,b]=spawns.get().unwrap();
+                schedule(tick,[first,second],a,b)
+            })
+    }
+    /// What a soak actually exercised, so a schedule that never brings the
+    /// heroes together (or never lets a cast through) cannot pass silently.
+    pub(crate) struct SoakReport {
+        pub mismatches:Vec<String>,
+        /// "<pair index>:<ability id>" -> committed casts, counted when the
+        /// authority cooldown starts or a stored charge is spent.
+        pub casts:std::collections::BTreeMap<String,u32>,
+    }
+    impl SoakReport {
+        pub(crate) fn casts_of(&self,pair_index:usize,ability:&str)->u32 {
+            self.casts.get(&format!("{pair_index}:{ability}")).copied().unwrap_or(0)
+        }
+    }
+    /// `soak` at level 12 that also counts committed casts per hero and ability.
+    pub(crate) fn soak_report(heroes:[&str;2],ticks:u32,schedule:&dyn Fn(u32,[specs::Entity;2],omoba_sim::Vec2,omoba_sim::Vec2)->Vec<(u32,PlayerInput)>)->SoakReport {
+        let spawns=std::cell::Cell::new(None);
+        let casts=std::cell::RefCell::new(std::collections::BTreeMap::<String,u32>::new());
+        let last=std::cell::RefCell::new(std::collections::BTreeMap::<String,(bool,u16)>::new());
+        let mismatches=soak_match(SingleLaneConfig {mana_enabled:true,heroes:[heroes[0].into(),heroes[1].into()],..three_lane_config()},ticks,1,
+            &|authority|for hero in hero_pair(authority) {
+                authority.write_storage::<Gold>().get_mut(hero).unwrap().0=5000;
+                let mut heroes=authority.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=12;
+                for id in h.abilities.clone() {h.ability_levels.insert(id,1);}
+            },
+            &mut |authority,tick|{
+                let state=authority.read_resource::<MobaMatch>();
+                let pair=[0,1].map(|index|state.heroes[index].entity);
+                {
+                    let heroes=authority.read_storage::<Hero>();
+                    for (index,entity) in pair.iter().enumerate() {
+                        let Some(h)=entity.and_then(|e|heroes.get(e)) else {continue;};
+                        for id in &h.abilities {
+                            let key=format!("{index}:{id}");
+                            let cooling=h.get_cooldown(id)>Fixed64::ZERO;
+                            let charges=h.ability_charges.get(id).map_or(0,|state|state.charges);
+                            let mut seen=last.borrow_mut();
+                            let (was_cooling,was_charges)=seen.get(&key).copied().unwrap_or((false,charges));
+                            if (cooling && !was_cooling) || charges<was_charges {*casts.borrow_mut().entry(key.clone()).or_default()+=1;}
+                            seen.insert(key,(cooling,charges));
+                        }
+                    }
+                }
+                let positions=authority.read_storage::<Pos>();
+                if spawns.get().is_none() {spawns.set(Some(pair.map(|hero|positions.get(hero.unwrap()).unwrap().0)));}
+                let (Some(first),Some(second))=(pair[0],pair[1]) else {return Vec::new();};
+                let [a,b]=spawns.get().unwrap();
+                schedule(tick,[first,second],a,b)
+            });
+        SoakReport {mismatches,casts:casts.into_inner()}
+    }
+    /// Authority and both team replicas run the same match; every `compare_every`
+    /// ticks each replica must equal the authority's filtered team baseline.
+    pub(crate) fn soak_match(config:SingleLaneConfig,ticks:u32,compare_every:u32,prepare:&dyn Fn(&mut World),
+        inputs:&mut dyn FnMut(&World,u32)->Vec<(u32,PlayerInput)>)->Vec<String> {
+        let (mut authority,mut driver)=world(config,SimulationTickProfile::Production60Hz);
+        driver.step(&mut authority,[]).unwrap();
+        prepare(&mut authority);
+        let seed=authority.read_resource::<MobaMatch>().config.seed;
+        let first=driver.step(&mut authority,[]).unwrap();project_tick(&mut authority,first);
+        let allow=TeamProjectorConfig::default().component_allowlist;
+        let boot=|authority:&mut World,tick:u64|->Vec<_> {
+            let starts=authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(tick,60,seed);
+            starts.into_iter().map(|(team,start)|{
+                let replica=SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start,allow.clone(),BTreeSet::new()).unwrap();
+                let mut stepper=SpecsDisclosedWorldStepper::from_start(&start,allow.clone(),BTreeSet::new());
+                stepper.script_registry.insert_manifest(crate::get_manifest());
+                populate_ability_registry(&mut stepper.filtered.world,&stepper.script_registry);
+                stepper.bootstrap_membership(replica.world()).unwrap();
+                (team,replica,stepper)
+            }).collect()
+        };
+        let mut replicas:Vec<_>=boot(&mut authority,driver.tick()+1);
+        // SOAK_REBASE_EVERY=N rebuilds both replicas from a fresh team bootstrap every N
+        // ticks, like an observer rebase or a rejoin (split48: a rebased replica relearned
+        // its heroes' ranks and folded the max-HP bonus a second time).
+        let rebase_every=std::env::var("SOAK_REBASE_EVERY").ok().and_then(|v|v.parse::<u32>().ok()).unwrap_or(0);
+        let mut mismatches=Vec::new();
+        let mut order=1u64;
+        for tick in 0..ticks {
+            if rebase_every>0 && tick>0 && tick%rebase_every==0 {replicas=boot(&mut authority,driver.tick()+1);}
+            let requested=inputs(&authority,tick);
+            let (executed,accepted)=admit(&authority,requested,&mut order);
+            let result=driver.step(&mut authority,executed).unwrap();
+            authority.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+            project_tick(&mut authority,result);
+            let frames=authority.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+            for (team,replica,stepper) in &mut replicas {
+                if !matches!(replica.apply_frame(frames[team].frame.clone(),stepper),Ok(FrameApplyResult::Applied {..})) {
+                    mismatches.push(format!("tick {tick} team {team} frame not applied"));
+                }
+            }
+            if !mismatches.is_empty() {break;}
+            // SOAK_EVERY_TICK_FROM=N compares every tick from N on (repro narrowing).
+            let dense=std::env::var("SOAK_EVERY_TICK_FROM").ok().and_then(|v|v.parse::<u32>().ok()).is_some_and(|from|tick>=from);
+            if !dense && (tick+1)%compare_every.max(1)!=0 {continue;}
+            let expected=authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick()+1,60,seed);
+            for (team,replica,_) in &replicas {
+                let expected=SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team],allow.clone(),BTreeSet::new()).unwrap();
+                if replica.canonical_team_hash()!=expected.canonical_team_hash() {
+                    let detail=omoba_core::runtime::team_projector::describe_component_divergence(
+                        Some(&omoba_core::runtime::team_projector::component_digest_rows(&expected.world().entities)),
+                        &omoba_core::runtime::team_projector::component_digest_rows(&replica.world().entities),8);
+                    let mut fields=String::new();
+                    for (id,entity) in &expected.world().entities {
+                        for (schema,bytes) in &entity.components {
+                            let actual=replica.world().entities.get(id).and_then(|e|e.components.get(schema));
+                            if actual!=Some(bytes) && fields.len()<1500 {
+                                let property=|raw:&[u8]|(raw.len()==40).then(||(0..5).map(|i|i64::from_be_bytes(raw[i*8..i*8+8].try_into().unwrap()) as f64/1024.0).collect::<Vec<_>>());
+                                match (serde_json::from_slice::<serde_json::Value>(bytes),actual.map(|a|serde_json::from_slice::<serde_json::Value>(a))) {
+                                    (Ok(serde_json::Value::Object(e)),Some(Ok(serde_json::Value::Object(a))))=>{for (k,v) in &e {if a.get(k)!=Some(v){fields.push_str(&format!(" {id}/{schema:x}.{k}: replica={:?} authority={v}",a.get(k)));}}}
+                                    _ if *schema==omoba_core::runtime::DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID=>fields.push_str(&format!(
+                                        " {id}/property [hp,max_hp,move,armor,magic]: replica={:?} authority={:?}",actual.and_then(|a|property(a)),property(bytes))),
+                                    _=>fields.push_str(&format!(" {id}/{schema:x}: replica={:?} authority={:?}",actual.map(|a|a.len()),bytes.len())),
+                                }
+                            }
+                        }
+                    }
+                    mismatches.push(format!("tick {tick} team {team}: {detail}{fields}"));
+                }
+            }
+            if mismatches.len()>4 {break;}
+        }
+        mismatches
+    }
+    pub(crate) fn cast(slot:u32,entity:Option<specs::Entity>)->PlayerInput {
+        PlayerInput {action:Some(PlayerInputEnum::CastAbility(CastAbility {ability_index:slot,target_entity:entity.map(|e|e.id()),target_pos:None}))}
+    }
+    pub(crate) fn attack_move(to:omoba_sim::Vec2)->PlayerInput {PlayerInput {action:Some(PlayerInputEnum::AttackMove(AttackMove {target:Some(Vec2I {x:to.x.raw() as i32,y:to.y.raw() as i32}),queued:false}))}}
+    fn buy(id:&str)->PlayerInput {PlayerInput {action:Some(PlayerInputEnum::ItemBuy(ItemBuy {item_id:id.into()}))}}
+    fn use_item(slot:u32)->PlayerInput {item_use(slot,None,None,None).1}
+    /// E179: one hero keeps drinking 般若湯 (magic immunity after a strong dispel) while the
+    /// other throws frost bolts (magical damage and slow) and a blowgun at it; immune or not,
+    /// both team replicas match the authority every tick.
+    /// E188: 阿松 (p1) holds 仕手能靴 and a 法術書 (+12.5%) and casts frost bolts (KV Damage,
+    /// amplified) and the book (amplified, slows) at the luminary (p2), who sets 阿松 on fire with
+    /// 火計之書 (a 550 hit and an amplified burn). Both team replicas match the authority every tick.
+    #[test]
+    fn spell_amplified_skills_items_and_burns_keep_team_replicas_identical() {
+        use omoba_core::runtime::native::spell_amplify;
+        let (amplified,slowed,burning)=(std::cell::Cell::new(0u32),std::cell::Cell::new(0u32),std::cell::Cell::new(0u32));
+        let mismatches=soak_match(SingleLaneConfig {wave_interval:Fixed64::from_i32(10000),mana_enabled:true,
+            heroes:["omatsu".into(),"training_luminary".into()],..three_lane_config()},1200,1,
+            &|authority|{
+                let y=isolated_skill_origin_y();
+                for ((hero,x),items) in hero_pair(authority).into_iter().zip([0,500]).zip([&["mana_boots","spell_book"][..],&["ignite_book"][..]]) {
+                    place_hero(authority,hero,x,y);set_hold(authority,hero);disarm_attack(authority,hero);
+                    {let mut p=authority.write_storage::<CProperty>();let p=p.get_mut(hero).unwrap();p.mhp=Fixed64::from_i32(5000);p.hp=p.mhp;}
+                    {let mut heroes=authority.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=12;
+                        for id in h.abilities.clone() {h.ability_levels.insert(id,1);}}
+                    for (slot,id) in items.iter().enumerate() {
+                        authority.write_storage::<Inventory>().get_mut(hero).unwrap().slots[slot]=
+                            Some(ItemInstance {item_id:(*id).into(),cooldown_remaining:0.});
+                    }
+                }
+            },
+            &mut |authority,tick|{
+                let [p1,p2]=hero_pair(authority);
+                {
+                    let buffs=authority.read_resource::<BuffStore>();
+                    if spell_amplify::amplification(&buffs,p1)>Fixed64::from_raw(120) {amplified.set(amplified.get()+1);}
+                    if buffs.iter_for(p2).any(|(id,_)|id.starts_with("generic_slow:spell_book")) {slowed.set(slowed.get()+1);}
+                    if buffs.iter_for(p1).any(|(id,_)|id.starts_with("generic_dot:ignite_book")) {burning.set(burning.get()+1);}
+                }
+                let at=|e:specs::Entity|authority.read_storage::<Pos>().get(e).unwrap().0;
+                let point=|e:specs::Entity|{let p=at(e);Vec2I {x:p.x.raw() as i32,y:p.y.raw() as i32}};
+                match tick {
+                    t if t%300==20=>vec![(1,cast(0,Some(p2)))],
+                    150|750=>vec![(1,item_use(1,None,Some(p2.id()),None).1)],
+                    100=>vec![(2,item_use(0,Some(point(p1)),None,Some(true)).1)],
+                    _=>vec![],
+                }
+            });
+        eprintln!("spell amp soak: amplified {} slowed {} burning {}",amplified.get(),slowed.get(),burning.get());
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+        assert!(amplified.get()>1000,"仕手能靴 + 法術書 amplify the whole match");
+        assert!(slowed.get()>0 && burning.get()>0,"the book slowed and the fire burned");
+    }
+
+    #[test]
+    fn magic_immunity_dispel_and_refused_casts_keep_team_replicas_identical() {
+        let schedule=|tick:u32,pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            match tick {
+                0=>vec![(1,buy("blowgun"))],
+                t if t%600==6=>vec![(1,attack_move(b)),(2,attack_move(a))],
+                t if t%600==300=>vec![(1,attack_move(a)),(2,attack_move(b))],
+                t if t%300==20=>vec![(2,buy("perceive_wine"))],
+                t if t%300==24=>vec![(2,use_item(0))],
+                t if t>6 && t%120==10=>vec![(1,cast(0,Some(pair[1])))],
+                t if t>6 && t%360==40=>vec![(1,item_use(0,None,Some(pair[1].id()),None).1)],
+                _=>vec![],
+            }
+        };
+        let mismatches=soak(["omatsu","training_luminary"],3600,&schedule);
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+    }
+
+    /// E184: hero skills that pierce magic immunity. 村上義清 (p2) drinks 般若湯 and 玉子 (p1)
+    /// still casts 百箭齊發 on it (content pierces_magic_immunity) and stuns it; later 玉子 drinks
+    /// and 大地震撼's strikes still stun it while their magical damage stays 0. Both team
+    /// replicas match the authority every tick.
+    #[test]
+    fn piercing_hero_skills_on_magic_immune_heroes_keep_team_replicas_identical() {
+        use omoba_core::runtime::native::magic_immunity;
+        let (pierced_p2,pierced_p1)=(std::cell::Cell::new(0u32),std::cell::Cell::new(0u32));
+        let mismatches=soak_match(SingleLaneConfig {wave_interval:Fixed64::from_i32(10000),heroes:["tamako".into(),"murakami_yoshikiyo".into()],..three_lane_config()},900,1,
+            &|authority|{
+                let y=isolated_skill_origin_y();
+                for (hero,x) in hero_pair(authority).into_iter().zip([0,450]) {
+                    place_hero(authority,hero,x,y);set_hold(authority,hero);disarm_attack(authority,hero);
+                    {let mut heroes=authority.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=18;
+                        for id in h.abilities.clone() {h.ability_levels.insert(id,1);}}
+                    authority.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0]=
+                        Some(ItemInstance {item_id:"perceive_wine".into(),cooldown_remaining:0.});
+                    // 百矢's arrows deal physical damage, which immunity does not stop: they kill a
+                    // 2000-life hero within the soak. Both must live through it (stuns, not lethality).
+                    {let mut props=authority.write_storage::<CProperty>();let p=props.get_mut(hero).unwrap();p.mhp=Fixed64::from_i32(100000);p.hp=p.mhp;}
+                }
+            },
+            &mut |authority,tick|{
+                let [p1,p2]=hero_pair(authority);
+                let buffs=authority.read_resource::<BuffStore>();
+                if magic_immunity::is_magic_immune(&buffs,p2) && buffs.is_stunned(p2) {pierced_p2.set(pierced_p2.get()+1);}
+                if magic_immunity::is_magic_immune(&buffs,p1) && buffs.is_stunned(p1) {pierced_p1.set(pierced_p1.get()+1);}
+                drop(buffs);
+                let at=|e:specs::Entity|authority.read_storage::<Pos>().get(e).unwrap().0;
+                match tick {
+                    20=>vec![(2,use_item(0))],
+                    30=>vec![(1,cast(3,Some(p2)))],
+                    300=>vec![(1,use_item(0))],
+                    310=>vec![(2,cast_at(3,at(p1)))],
+                    _=>vec![],
+                }
+            });
+        eprintln!("pierce soak: p2 stunned while immune {} p1 {}",pierced_p2.get(),pierced_p1.get());
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+        assert!(pierced_p2.get()>0,"百箭齊發 cast on and stunned the magic-immune hero");
+        assert!(pierced_p1.get()>0,"大地震撼 stunned the magic-immune hero");
+    }
+
+    /// E185: vision sources. 淺井長政 (p1) throws 一刀．牙 (its flight gives p1's team sight,
+    /// ProvidesVision 175) and 一刀．連牙斷空 (both teams see 1000 around the target for 3 s);
+    /// 阿市 (p2) chains it with 光鍊罰則 (both teams see around both heroes, following them).
+    /// The zones open on the authority and both team replicas match it every tick.
+    #[test]
+    fn vision_sources_for_both_teams_following_and_in_flight_keep_team_replicas_identical() {
+        use omoba_core::runtime::native::reveal_zone::RevealZones;
+        let (flight,chain,fang_d)=(std::cell::Cell::new(0u32),std::cell::Cell::new(0u32),std::cell::Cell::new(0u32));
+        let mismatches=soak_match(SingleLaneConfig {wave_interval:Fixed64::from_i32(10000),heroes:["asai_nagamasa".into(),"oichi".into()],..three_lane_config()},900,1,
+            &|authority|{
+                let y=isolated_skill_origin_y();
+                for (hero,x) in hero_pair(authority).into_iter().zip([0,500]) {
+                    place_hero(authority,hero,x,y);set_hold(authority,hero);disarm_attack(authority,hero);
+                    let mut heroes=authority.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=18;
+                    for id in h.abilities.clone() {h.ability_levels.insert(id,1);}
+                }
+            },
+            &mut |authority,tick|{
+                let [p1,p2]=hero_pair(authority);
+                let team=|e:specs::Entity|authority.read_storage::<Faction>().get(e).unwrap().team_id as u32;
+                if let Some(zones)=authority.try_fetch::<RevealZones>() {
+                    for zone in zones.zones.values() {
+                        if zone.follow.is_some() && zone.radius==Fixed64::from_i32(175) && zone.team==team(p1) {flight.set(flight.get()+1);}
+                        if zone.follow==Some(p1) && zone.team==team(p1) || zone.follow==Some(p2) && zone.team==team(p1) {chain.set(chain.get()+1);}
+                        if zone.follow.is_none() && zone.radius==Fixed64::from_i32(1000) && zone.team==team(p2) {fang_d.set(fang_d.get()+1);}
+                    }
+                }
+                let at=|e:specs::Entity|authority.read_storage::<Pos>().get(e).unwrap().0;
+                match tick {
+                    20=>vec![(1,cast_at(0,at(p2)))],
+                    100=>vec![(2,cast(0,Some(p1)))],
+                    400=>vec![(1,cast(4,Some(p2)))],
+                    _=>vec![],
+                }
+            });
+        eprintln!("vision soak: flight {} chain {} fang_d {}",flight.get(),chain.get(),fang_d.get());
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+        assert!(flight.get()>0,"一刀．牙 gave its team sight in flight");
+        assert!(chain.get()>0,"光鍊罰則 gave the other team sight following both heroes");
+        assert!(fang_d.get()>0,"一刀．連牙斷空 gave the target's team sight around it");
+    }
+
+    #[test]
+    fn lane_fight_items_mana_drain_and_heal_keep_team_replicas_identical() {
+        let schedule=|tick:u32,pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            match tick {
+                0=>vec![(1,buy("moba_strike_charm")),(2,buy("moba_stride_charm"))],
+                3=>vec![(1,use_item(0)),(2,use_item(0))],
+                6=>vec![(1,attack_move(b)),(2,attack_move(a))],
+                t if t>6 && t%240==0=>vec![(1,cast(0,Some(pair[1]))),(2,cast(0,Some(pair[0])))],
+                t if t>6 && t%240==120=>vec![(1,cast(3,None)),(2,use_item(0)),(1,use_item(0))],
+                t if t>6 && t%240==130=>vec![(1,attack_move(b)),(2,attack_move(a))],
+                _=>vec![],
+            }
+        };
+        let mismatches=soak(["training_luminary","training_luminary"],2400,&schedule);
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+    }
+    /// Mixed heroes push into enemy towers so heroes die, respawn and keep
+    /// receiving hits; every slot casts both simultaneously and staggered.
+    #[test]
+    fn mixed_heroes_deaths_and_simultaneous_casts_keep_team_replicas_identical() {
+        let schedule=|tick:u32,pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            match tick {
+                0=>vec![(1,buy("moba_strike_charm")),(2,buy("moba_strike_charm"))],
+                1=>vec![(1,buy("moba_stride_charm")),(2,buy("moba_stride_charm"))],
+                t if t%300==6=>vec![(1,attack_move(b)),(2,attack_move(a))],
+                t if t>6 && t%60==0=>{let slot=(t/60)%4;vec![(1,cast(slot,Some(pair[1]))),(2,cast(slot,Some(pair[0])))]}
+                t if t>6 && t%60==31=>{let slot=(t/60+1)%4;vec![(2,cast(slot,Some(pair[0]))),(1,use_item(0)),(2,use_item(1))]}
+                t if t>6 && t%90==45=>vec![(1,use_item(1)),(2,use_item(0)),(1,cast(3,None))],
+                _=>vec![],
+            }
+        };
+        let mismatches=soak(["training_luminary","training_frost_mage"],7200,&schedule);
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+    }
+    /// H03: homing frost bolts, iceberg slows, piercing frost breath with an
+    /// on-hit DoT and the rapid-cooling cast refund (R learned), aimed at the
+    /// enemy hero while both walk in and out of each other's vision; both team
+    /// replicas are checked every tick.
+    #[test]
+    fn omatsu_homing_slow_dot_and_cast_refund_keep_team_replicas_identical() {
+        let schedule=|tick:u32,pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            match tick {
+                t if t%600==6=>vec![(1,attack_move(b)),(2,attack_move(a))],
+                t if t%600==300=>vec![(1,attack_move(a)),(2,attack_move(b))],
+                t if t>6 && t%120==10=>vec![(1,cast(0,Some(pair[1]))),(2,cast(0,Some(pair[0])))],
+                t if t>6 && t%120==50=>vec![(1,cast(1,Some(pair[1])))],
+                t if t>6 && t%120==90=>vec![(1,cast_at(2,b)),(2,cast(3,None))],
+                t if t>6 && t%1200==100=>vec![(1,cast(3,None))],
+                _=>vec![],
+            }
+        };
+        let mismatches=soak(["omatsu","training_luminary"],7200,&schedule);
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+    }
+    /// E210: a unit cast ordered beyond its range (inside vision) walks into range and is cast
+    /// there; a point cast keeps its own range behavior; the enemy then walks out of sight under
+    /// a second unit order, which stops that approach. Both team replicas are checked every tick
+    /// and the approach must end in a committed cast.
+    #[test]
+    fn approach_to_cast_keeps_team_replicas_identical() {
+        let move_to=|at:omoba_sim::Vec2|PlayerInput {action:Some(PlayerInputEnum::MoveTo(MoveTo {
+            target:Some(Vec2I {x:at.x.raw() as i32,y:at.y.raw() as i32}),queued:false}))};
+        // Points along the spawn line: the enemy waits at 55 %, the caster stops 1000 short of it,
+        // inside vision and beyond the bolt's range; later the enemy walks home out of sight.
+        let along=|a:omoba_sim::Vec2,b:omoba_sim::Vec2,permille:i64|a+(b-a)*Fixed64::from_raw(permille*1024/1000);
+        let schedule=|tick:u32,pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            let stand=along(a,b,550);
+            let short=stand+(a-stand)*(Fixed64::from_i32(1000)/(stand-a).length().max(Fixed64::ONE));
+            match tick {
+                6=>vec![(2,move_to(stand)),(1,move_to(short))],
+                900=>vec![(1,cast_at(2,along(a,b,250)))],
+                1500=>vec![(1,move_to(short))],
+                2100=>vec![(1,cast(0,Some(pair[1])))],
+                3300=>vec![(2,move_to(b))],
+                3330=>vec![(1,cast(0,Some(pair[1])))],
+                _=>vec![],
+            }
+        };
+        let report=soak_report(["omatsu","training_luminary"],4800,&schedule);
+        assert!(report.mismatches.is_empty(),"{:#?}",report.mismatches);
+        assert!(report.casts_of(0,"a34_frost_bolt")>0,
+            "approaches reached their range and cast: {:?}",report.casts);
+    }
+    /// H03 R passive: a committed basic cast takes two seconds off the other
+    /// basic cooldowns of the hero (the generated passive's on_ability_executed, E268).
+    #[test]
+    fn omatsu_basic_cast_shortens_other_basic_cooldowns() {
+        let (mut authority,mut driver)=world(SingleLaneConfig {mana_enabled:true,heroes:["omatsu".into(),"training_luminary".into()],
+            ..three_lane_config()},SimulationTickProfile::Production60Hz);
+        driver.step(&mut authority,[]).unwrap();
+        let hero=hero_pair(&authority)[0];
+        let (q,e,learned)={
+            let mut heroes=authority.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=12;
+            let learned:Vec<String>=h.abilities.iter().filter(|id|h.get_ability_level(id)==0).cloned().collect();
+            for id in h.abilities.clone() {h.ability_levels.insert(id,1);}
+            // Formal rules start a hero at its source starting mana; fill the pool so the cast is affordable.
+            if let Some(pool)=h.mana_pool.as_mut() {let max=pool.maximum();*pool=omoba_core::runtime::ability_runtime::ManaPool::new(max,max).unwrap();}
+            let (q,e)=(h.abilities[0].clone(),h.abilities[2].clone());
+            h.start_cooldown(&q,Fixed64::from_i32(10));(q,e,learned)
+        };
+        // the given ranks are learned (on_learn: the passive's marker)
+        {let mut queue=authority.write_resource::<ScriptEventQueue>();
+         for skill_id in learned {queue.push(ScriptEvent::SkillLearn {caster:hero,skill_id,new_level:1});}}
+        let at=authority.read_storage::<Pos>().get(hero).unwrap().0+omoba_sim::Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO);
+        let mut ticks=0u32;let mut sent=false;
+        while ticks<120 {
+            let inputs=if sent {vec![]} else {sent=true;vec![(1,cast_at(2,at))]};
+            driver.step(&mut authority,inputs).unwrap();ticks+=1;
+            if authority.read_storage::<Hero>().get(hero).unwrap().get_cooldown(&e)>Fixed64::ZERO {break;}
+        }
+        let heroes=authority.read_storage::<Hero>();let h=heroes.get(hero).unwrap();
+        assert!(h.get_cooldown(&e)>Fixed64::ZERO,"frost breath was cast");
+        let unrefunded=Fixed64::from_i32(10)-Fixed64::from_raw(i64::from(ticks)*1024/60);
+        let refunded=h.get_cooldown(&q);
+        assert!(refunded<=unrefunded-Fixed64::from_i32(2)+Fixed64::from_raw(64) && refunded>=unrefunded-Fixed64::from_i32(2)-Fixed64::from_raw(64),
+            "q {refunded:?} vs unrefunded {unrefunded:?}");
+        assert_eq!(h.cooldown_total(&q,Fixed64::from_i32(10)),Some(Fixed64::from_i32(10)),"admitted total kept");
+    }
+    /// A12D: the fifth cast is itself the empowered one. Its passive runs before the ability's
+    /// on_cast (E267) in the same event, and the on_cast reads what the passive just wrote: Flash
+    /// of Insight stuns for its rank's duration, and the knockback with `stun = false` keeps it.
+    #[test]
+    fn otani_fifth_cast_is_empowered_by_the_passive_it_fires() {
+        use omoba_core::runtime::native::unit_var::{Spec,VarValue};
+        let run=|count:i32| {
+            let (mut w,mut driver)=world(SingleLaneConfig {mana_enabled:true,heroes:["otani_yoshitsugu".into(),"training_luminary".into()],
+                ..three_lane_config()},SimulationTickProfile::Production60Hz);
+            driver.step(&mut w,[]).unwrap();
+            let [hero,enemy]=hero_pair(&w);
+            let slot={
+                let mut heroes=w.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=12;
+                h.ability_levels.insert("a12_insight_flash".into(),4);
+                if let Some(pool)=h.mana_pool.as_mut() {let max=pool.maximum();*pool=omoba_core::runtime::ability_runtime::ManaPool::new(max,max).unwrap();}
+                h.abilities.iter().position(|id|id=="a12_insight_flash").unwrap() as u32
+            };
+            let at=w.read_storage::<Pos>().get(hero).unwrap().0+omoba_sim::Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO);
+            w.write_storage::<Pos>().get_mut(enemy).unwrap().0=at;
+            {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(enemy).unwrap();p.mhp=Fixed64::from_i32(100000);p.hp=p.mhp;}
+            let spec=Spec {key:"a12:a12d_count".into(),value:VarValue::Num(Fixed64::from_i32(count)),hero:true};
+            w.write_resource::<BuffStore>().add(hero,&spec.buff_id(),Fixed64::from_i32(600),spec.payload());
+            let state=|w:&specs::World|w.read_resource::<BuffStore>().iter_for(hero).find_map(|(key,entry)|
+                Spec::from_buff(key,&entry.payload).filter(|s|s.key=="a12:a12d_empowered").map(|s|s.value));
+            assert_ne!(state(&w),Some(VarValue::Num(Fixed64::ONE)),"not empowered before the cast");
+            let mut sent=false;let mut stun=Fixed64::ZERO;
+            for _ in 0..60 {
+                let inputs=if sent {vec![]} else {sent=true;vec![(1,cast(slot,None))]};
+                driver.step(&mut w,inputs).unwrap();
+                if w.read_storage::<Hero>().get(hero).unwrap().get_cooldown("a12_insight_flash")>Fixed64::ZERO {
+                    stun=w.read_resource::<BuffStore>().get(enemy,"stun").map_or(Fixed64::ZERO,|b|b.remaining);break;
+                }
+            }
+            assert!(w.read_storage::<Hero>().get(hero).unwrap().get_cooldown("a12_insight_flash")>Fixed64::ZERO,"it was cast");
+            // knockback rooted it; the stun is still there one tick later
+            driver.step(&mut w,[]).unwrap();
+            let held=w.read_resource::<BuffStore>().has(enemy,"stun");
+            (stun,held,state(&w))
+        };
+        let (stun,held,left)=run(4);
+        assert!(stun>Fixed64::from_i32(2)-Fixed64::from_raw(128)&&stun<=Fixed64::from_i32(2),"rank 4 stuns for 2s: {stun:?}");
+        assert!(held,"the knockback kept the stun");
+        assert_eq!(left,Some(VarValue::Num(Fixed64::ZERO)),"the cast spent the empowerment");
+        let (stun,held,_)=run(0);
+        assert_eq!((stun,held),(Fixed64::ZERO,false),"the first cast does not stun");
+    }
+    /// A12D through whole casts, empowered ones included: both team replicas follow it.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only full-match soak (E180): run with --release")]
+    fn otani_empowered_casts_keep_team_replicas_identical() {
+        let schedule=|tick:u32,_:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            match tick {
+                t if t%600==6=>vec![(1,attack_move(b)),(2,attack_move(a))],
+                t if t>6 && t%60==10=>vec![(1,cast(0,None))],
+                t if t>6 && t%60==30=>vec![(1,cast_at(1,b)),(1,cast(1,None))],
+                t if t>6 && t%60==50=>vec![(1,cast_at(2,b)),(1,cast(2,None))],
+                _=>vec![],
+            }
+        };
+        let report=soak_report(["otani_yoshitsugu","training_luminary"],2400,&schedule);
+        assert!(report.mismatches.is_empty(),"{:#?}",report.mismatches);
+        assert!(report.casts_of(0,"a12_insight_flash")>=2,"it was cast: {:?}",report.casts);
+    }
+    /// B23T_old 心靈控制（縮小版，D22 範圍決定）：敵方英雄在狀態期間算伊勢姬的隊伍、拒絕原玩家的
+    /// 指令並原地攻擊移動，render 隊伍照舊；時間到換回原隊伍。
+    #[test]
+    fn ise_hime_old_mind_control_moves_the_target_to_her_team_until_it_ends() {
+        let (mut w,mut driver)=world(SingleLaneConfig {mana_enabled:true,heroes:["ise_hime_old".into(),"training_luminary".into()],
+            ..three_lane_config()},SimulationTickProfile::Production60Hz);
+        driver.step(&mut w,[]).unwrap();
+        let [hero,enemy]=hero_pair(&w);
+        let slot={
+            let mut heroes=w.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=12;
+            h.ability_levels.insert("b23_old_mind_control".into(),1);
+            if let Some(pool)=h.mana_pool.as_mut() {let max=pool.maximum();*pool=omoba_core::runtime::ability_runtime::ManaPool::new(max,max).unwrap();}
+            h.abilities.iter().position(|id|id=="b23_old_mind_control").unwrap() as u32
+        };
+        let at=w.read_storage::<Pos>().get(hero).unwrap().0+omoba_sim::Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO);
+        w.write_storage::<Pos>().get_mut(enemy).unwrap().0=at;
+        {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(enemy).unwrap();p.mhp=Fixed64::from_i32(100000);p.hp=p.mhp;}
+        let team=|w:&specs::World,e|w.read_storage::<omoba_core::runtime::Faction>().get(e).unwrap().team_id;
+        let (home,hers)=(team(&w,enemy),team(&w,hero));
+        assert_ne!(home,hers);
+        let mut sent=false;let mut cast_at=None;
+        for tick in 0..60 {
+            let inputs=if sent {vec![]} else {sent=true;vec![(1,live_soak_replica_parity::cast(slot,Some(enemy)))]};
+            driver.step(&mut w,inputs).unwrap();
+            if w.read_storage::<Hero>().get(hero).unwrap().get_cooldown("b23_old_mind_control")>Fixed64::ZERO {cast_at=Some(tick);break;}
+        }
+        assert!(cast_at.is_some(),"it was cast");
+        driver.step(&mut w,[]).unwrap();
+        assert_eq!(team(&w,enemy),hers,"on her team while controlled");
+        assert!(omoba_core::runtime::native::command_restriction::restricted(&w,enemy),"its own orders are refused");
+        assert_eq!(omoba_core::runtime::native::mind_control::home_team(&w,enemy),Some(home),"it renders on its own team");
+        for _ in 0..5*60+10 {driver.step(&mut w,[]).unwrap();}
+        assert_eq!(team(&w,enemy),home,"back on its own team after 5 s");
+        assert!(!omoba_core::runtime::native::command_restriction::restricted(&w,enemy));
+    }
+    /// B23T_old 心靈控制：兩隊 replica 每 tick 都和 authority 一致（受控英雄換隊再換回）。
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only full-match soak (E180): run with --release")]
+    fn ise_hime_old_mind_control_keeps_team_replicas_identical() {
+        let schedule=|tick:u32,pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            match tick {
+                t if t%600==6=>vec![(1,attack_move(b)),(2,attack_move(a))],
+                t if t>6 && t%300==20=>vec![(1,cast(3,Some(pair[1])))],
+                t if t>6 && t%60==40=>vec![(2,attack_move(a))],
+                _=>vec![],
+            }
+        };
+        let report=soak_report(["ise_hime_old","training_luminary"],3000,&schedule);
+        assert!(report.mismatches.is_empty(),"{:#?}",report.mismatches);
+        assert!(report.casts_of(0,"b23_old_mind_control")>=1,"it was cast: {:?}",report.casts);
+    }
+    /// H04/H05/H06: every built slot (tether settle, global buff, point blast,
+    /// area ally heal, toggle orb, self buffs, stealth, fang lines, blink and
+    /// cast-stacking passive) cast at or near the enemy hero; both team replicas
+    /// are checked every tick.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only full-match soak (E180): run with --release")]
+    fn h04_h05_h06_kits_keep_team_replicas_identical() {
+        for hero in ["oichi","inahime","asai_nagamasa"] {
+            let schedule=|tick:u32,pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+                let enemy_at=|_:u32|b;
+                match tick {
+                    t if t%600==6=>vec![(1,attack_move(b)),(2,attack_move(a))],
+                    t if t%600==300=>vec![(1,attack_move(a)),(2,attack_move(b))],
+                    t if t>6 && t%90==10=>vec![(1,cast(0,Some(pair[1]))),(2,cast(0,Some(pair[0])))],
+                    t if t>6 && t%90==30=>vec![(1,cast(1,Some(pair[0]))),(1,cast(1,None))],
+                    t if t>6 && t%90==50=>vec![(1,cast_at(2,enemy_at(t))),(1,cast(2,Some(pair[1])))],
+                    t if t>6 && t%90==70=>vec![(1,cast(3,None)),(1,cast_at(3,a)),(1,cast_at(3,b))],
+                    _=>vec![],
+                }
+            };
+            let mismatches=soak([hero,"training_luminary"],3600,&schedule);
+            assert!(mismatches.is_empty(),"{hero}: {:#?}",mismatches);
+        }
+    }
+    pub(crate) fn cast_at(slot:u32,at:omoba_sim::Vec2)->PlayerInput {
+        PlayerInput {action:Some(PlayerInputEnum::CastAbility(CastAbility {ability_index:slot,target_entity:None,
+            target_pos:Some(Vec2I {x:at.x.raw() as i32,y:at.y.raw() as i32})}))}
+    }
+    /// split17: neutral camps, stationary summons and item attack buffs fight
+    /// around both heroes while both team replicas are checked every tick.
+    #[test]
+    fn jungle_summons_and_strike_charm_keep_team_replicas_identical() {
+        let map=omoba_template_ids::MOBA_MAPS.iter().find(|map|map.id=="three_lane_training").expect("three lane map");
+        let camps:Vec<omoba_sim::Vec2>=map.jungle_camps.iter()
+            .map(|camp|omoba_sim::Vec2::new(Fixed64::from_i32(camp.position.0),Fixed64::from_i32(camp.position.1))).collect();
+        assert!(!camps.is_empty());
+        let schedule=move |tick:u32,pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            let camp=|index:u32|camps[(index as usize)%camps.len()];
+            match tick {
+                0=>vec![(1,buy("moba_strike_charm")),(2,buy("moba_strike_charm"))],
+                1=>vec![(1,buy("moba_stride_charm")),(2,buy("moba_stride_charm"))],
+                t if t%600==6=>vec![(1,attack_move(camp(t/600))),(2,attack_move(camp(t/600+1)))],
+                t if t%600==306=>vec![(1,attack_move(b)),(2,attack_move(a))],
+                t if t>6 && t%120==20=>vec![(2,cast_at(1,camp(t/600+1))),(1,use_item(0))],
+                t if t>6 && t%120==50=>vec![(2,use_item(0)),(1,cast(3,None)),(2,cast(0,None))],
+                t if t>6 && t%120==80=>{let slot=(t/120)%4;vec![(1,cast(slot,Some(pair[1]))),(2,cast(3,Some(pair[0])))]}
+                t if t>6 && t%120==100=>vec![(2,cast_at(1,a)),(1,use_item(1))],
+                _=>vec![],
+            }
+        };
+        let mismatches=soak(["training_luminary","saika_magoichi"],9000,&schedule);
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+    }
+    /// split17/18/20/21: a hero clears a neutral camp (one member dies while
+    /// its campmates fight back, leash and later respawn) with both team
+    /// replicas checked every tick.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only full-match soak (E180): run with --release")]
+    fn hero_clears_neutral_camps_keeps_team_replicas_identical() {
+        let map=omoba_template_ids::MOBA_MAPS.iter().find(|map|map.id=="three_lane_training").expect("three lane map");
+        let camps:Vec<omoba_sim::Vec2>=map.jungle_camps.iter()
+            .map(|camp|omoba_sim::Vec2::new(Fixed64::from_i32(camp.position.0),Fixed64::from_i32(camp.position.1))).collect();
+        let schedule=move |tick:u32,pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            // Each hero walks its own camp rotation; retreats home every few
+            // camps so damaged camps leash and reset.
+            let camp=|index:u32|camps[(index as usize)%camps.len()];
+            match tick {
+                t if t%900==6=>vec![(1,attack_move(camp(t/900))),(2,attack_move(camp(t/900+3)))],
+                t if t%900==700=>vec![(1,attack_move(a)),(2,attack_move(b))],
+                t if t>6 && t%180==90=>vec![(1,cast(0,None)),(2,cast(0,None))],
+                t if t>6 && t%240==120=>vec![(1,cast(3,None)),(2,cast(3,Some(pair[1])))],
+                _=>vec![],
+            }
+        };
+        let ticks=std::env::var("SOAK_JUNGLE_TICKS").ok().and_then(|v|v.parse().ok()).unwrap_or(10800);
+        let mut mismatches=soak(["training_luminary","training_luminary"],ticks,&schedule);
+        // Level 1: fights last, camps fight back, leash, return and split.
+        mismatches.extend(soak_at_level(["training_luminary","saika_magoichi"],ticks,1,&schedule));
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+    }
+    fn camp_bodies(camps:&[omoba_core::runtime::native::moba_match::MobaJungleCamp],out:&mut BTreeSet<specs::Entity>) {
+        for camp in camps {if let Some(entity)=camp.entity {out.insert(entity);} camp_bodies(&camp.members,out);}
+    }
+    /// split17/18/20/21: level-1 heroes jungle through the camp rotation the
+    /// way role bots do (long fights, campmates fighting back, leash, splits)
+    /// with both team replicas checked every tick. Asserts camp bodies died.
+    #[test]
+    fn level_one_heroes_kill_neutral_camps_keep_team_replicas_identical() {
+        let map=omoba_template_ids::MOBA_MAPS.iter().find(|map|map.id=="three_lane_training").expect("three lane map");
+        let camps:Vec<omoba_sim::Vec2>=map.jungle_camps.iter()
+            .map(|camp|omoba_sim::Vec2::new(Fixed64::from_i32(camp.position.0),Fixed64::from_i32(camp.position.1))).collect();
+        let ticks=std::env::var("SOAK_JUNGLE_TICKS").ok().and_then(|v|v.parse().ok()).unwrap_or(10800);
+        let mut alive=BTreeSet::new();let mut kills=0usize;
+        let config=SingleLaneConfig {mana_enabled:true,heroes:["training_luminary".into(),"saika_magoichi".into()],..three_lane_config()};
+        let mismatches=soak_match(config,ticks,1,&|world|for hero in hero_pair(world) {
+                let mut heroes=world.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();
+                for id in h.abilities.clone() {h.ability_levels.insert(id,1);}
+            },
+            &mut |world,tick|{
+                let mut now=BTreeSet::new();camp_bodies(&world.read_resource::<MobaMatch>().jungle_camps,&mut now);
+                kills+=alive.difference(&now).count();alive=now;
+                // Like role junglers: attack the nearest living camp body.
+                let _=&camps;
+                let positions=world.read_storage::<Pos>();
+                let mut inputs=Vec::new();
+                if tick%60==6 {
+                    let slots:Vec<_>=world.read_resource::<MobaMatch>().heroes.iter().filter_map(|slot|slot.entity.map(|hero|(slot.player_id,hero))).collect();
+                    for (player,hero) in slots {
+                        let Some(at)=positions.get(hero).map(|p|p.0) else {continue;};
+                        let target=alive.iter().filter_map(|body|positions.get(*body).map(|p|(*body,(p.0-at).length())))
+                            .min_by_key(|(body,distance)|(*distance,body.id())).map(|(body,_)|body);
+                        if let Some(target)=target {
+                            inputs.push((player,PlayerInput {action:Some(PlayerInputEnum::AttackTarget(AttackTarget {target_id:target.id(),queued:false}))}));
+                        }
+                    }
+                }
+                if tick>6 && tick%300==150 {inputs.extend([(1,cast(3,None)),(2,use_item(0))]);}
+                inputs
+            });
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+        assert!(kills>0,"the scenario must actually kill camp bodies");
+        println!("camp bodies killed: {kills}");
+    }
+    /// split33: a stationary gunner acquires targets while its owner keeps
+    /// ordering attacks on an enemy that walks in and out of team vision
+    /// (input grace), checked every tick on both team replicas.
+    #[test]
+    fn gunner_acquisition_with_owner_attack_orders_on_vision_edge_keeps_replicas_identical() {
+        let schedule=|tick:u32,pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            let toward=|from:omoba_sim::Vec2,to:omoba_sim::Vec2,num:i32,den:i32|from+(to-from)*(Fixed64::from_i32(num)/Fixed64::from_i32(den));
+            let mut inputs=Vec::new();
+            match tick%600 {
+                // Saika walks a quarter of the way, then plants a gunner ahead.
+                6=>inputs.push((2,attack_move(toward(b,a,1,4)))),
+                200=>inputs.push((2,cast_at(1,toward(b,a,3,10)))),
+                // The luminary oscillates around the gunner's vision edge.
+                100|340=>inputs.push((1,attack_move(toward(a,b,3,4)))),
+                260|500=>inputs.push((1,attack_move(toward(a,b,1,2)))),
+                _=>{}
+            }
+            if tick>210 && tick%7==0 {inputs.push((2,PlayerInput {action:Some(PlayerInputEnum::AttackTarget(AttackTarget {target_id:pair[0].id(),queued:false}))}));}
+            if tick%240==0 {inputs.extend((0..4).map(|slot|(2,PlayerInput {action:Some(PlayerInputEnum::UpgradeAbility(UpgradeAbility {ability_index:slot}))})));}
+            inputs
+        };
+        let mismatches=soak(["training_luminary","saika_magoichi"],
+            std::env::var("SOAK_GUNNER_TICKS").ok().and_then(|v|v.parse().ok()).unwrap_or(7200),&schedule);
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+    }
+    /// split38: move orders into terrain head for the nearest reachable point
+    /// (the order is no longer dropped), identically on both team replicas.
+    #[test]
+    fn move_orders_into_terrain_walk_to_nearest_reachable_point_on_every_replica() {
+        let map=omoba_template_ids::MOBA_MAPS.iter().find(|map|map.id=="three_lane_training").expect("three lane map");
+        let wall=map.terrain.iter().max_by_key(|r|(i64::from(r.max.0-r.min.0))*(i64::from(r.max.1-r.min.1))).expect("terrain");
+        let inside=omoba_sim::Vec2::new(Fixed64::from_i32((wall.min.0+wall.max.0)/2),Fixed64::from_i32((wall.min.1+wall.max.1)/2));
+        let start=std::cell::Cell::new(None);let closest=std::cell::Cell::new(i64::MAX);
+        let config=SingleLaneConfig {mana_enabled:true,heroes:["training_luminary".into(),"saika_magoichi".into()],..three_lane_config()};
+        let mismatches=soak_match(config,2400,1,&|_|{},&mut |world,tick|{
+            let state=world.read_resource::<MobaMatch>();
+            if let Some(hero)=state.heroes[0].entity {
+                if let Some(pos)=world.read_storage::<Pos>().get(hero).map(|p|p.0) {
+                    if start.get().is_none() {start.set(Some(pos));}
+                    closest.set(closest.get().min((pos-inside).length().raw()));
+                }
+            }
+            match tick%300 {
+                10=>vec![(1,PlayerInput {action:Some(PlayerInputEnum::MoveTo(MoveTo {target:Some(Vec2I {x:inside.x.raw() as i32,y:inside.y.raw() as i32}),queued:false}))}),
+                    (2,PlayerInput {action:Some(PlayerInputEnum::AttackMove(AttackMove {target:Some(Vec2I {x:inside.x.raw() as i32,y:inside.y.raw() as i32}),queued:false}))})],
+                _=>vec![],
+            }
+        });
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+        let start=start.get().expect("hero position");
+        assert!(closest.get()<(start-inside).length().raw()-Fixed64::from_i32(200).raw(),
+            "the hero must travel toward the walled destination instead of dropping the order");
+    }
+
+    /// split17: the live 10-player role match (lane waves, jungle camps, bot
+    /// item actives, saika summons) with every player driven by role bots.
+    /// `SOAK_BOT_TICKS` lengthens the run for live repro hunts.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only full-match soak (E180): run with --release")]
+    fn role_bot_match_keeps_team_replicas_identical() {
+        use omoba_core::runtime::native::moba_match::bots::*;
+        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
+        let output=std::process::Command::new(root.join("tools/lua/lua.exe")).current_dir(&root)
+            .args(["-e",r#"local j=require('tools.lua.lib.json');print(j.encode(assert(loadfile('scripts/lua_data/moba_role_match.lua'))()))"#]).output().unwrap();
+        assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+        let mut plan:RoleBotMatchPlan=serde_json::from_slice(&output.stdout).unwrap();
+        for player in &mut plan.players {
+            player.bot=true;
+            if player.player_id==6 {player.hero="saika_magoichi".into();}
+        }
+        // One hero per team (E164): player 6 keeps saika, the team-2 carry bot moves.
+        plan.resolve_bot_hero_conflicts();
+        let (config,bots)=plan.compile(0x5017,SimulationTickProfile::Production60Hz).unwrap();
+        let ticks=std::env::var("SOAK_BOT_TICKS").ok().and_then(|v|v.parse().ok()).unwrap_or(7200);
+        // Role bots carry no saika policies; player 6 also learns its kit and
+        // keeps placing stationary gunners and casting its other slots.
+        let mut inputs=|world:&World,tick:u32|{
+            let mut inputs=role_bot_inputs(world,&bots).unwrap();
+            let hero=world.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==6).and_then(|slot|slot.entity);
+            let at=hero.and_then(|hero|world.read_storage::<Pos>().get(hero).map(|pos|pos.0));
+            if let Some(at)=at {
+                let offset=omoba_sim::Vec2::new(Fixed64::from_i32(150),Fixed64::from_i32(100));
+                match tick%240 {
+                    0=>inputs.extend((0..4).map(|slot|(6,PlayerInput {action:Some(PlayerInputEnum::UpgradeAbility(UpgradeAbility {ability_index:slot}))}))),
+                    60=>inputs.push((6,cast_at(1,at+offset))),
+                    120=>inputs.push((6,cast(0,None))),
+                    180=>inputs.push((6,cast(3,None))),
+                    _=>{}
+                }
+            }
+            inputs
+        };
+        let mismatches=soak_match(config,ticks,60,&|_|{},&mut inputs);
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+    }
+
+    /// E096: the quick live-check map with its hero XP multiplier: scaled lane, jungle, kill
+    /// and assist XP keep levels identical on both team replicas. `SOAK_QUICK_TICKS` lengthens it.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only full-match soak (E180): run with --release")]
+    fn role_bot_quick_map_scaled_xp_keeps_team_replicas_identical() {
+        use omoba_core::runtime::native::moba_match::bots::*;
+        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
+        let output=std::process::Command::new(root.join("tools/lua/lua.exe")).current_dir(&root)
+            .args(["-e",r#"local j=require('tools.lua.lib.json');print(j.encode(assert(loadfile('scripts/lua_data/moba_role_match.lua'))()))"#]).output().unwrap();
+        assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+        let mut plan:RoleBotMatchPlan=serde_json::from_slice(&output.stdout).unwrap();
+        plan.map_id="three_lane_quick_training".into();
+        for player in &mut plan.players {player.bot=true;}
+        let (config,bots)=plan.compile(0x5095,SimulationTickProfile::Production60Hz).unwrap();
+        let quick=omoba_template_ids::moba_map_by_name("three_lane_quick_training").unwrap();
+        assert!(quick.hero_xp_scale_permille()>1000);
+        assert_eq!(config.hero_xp_scale_permille,quick.hero_xp_scale_permille());
+        let ticks=std::env::var("SOAK_QUICK_TICKS").ok().and_then(|v|v.parse().ok()).unwrap_or(7200);
+        let mut inputs=|world:&World,_tick:u32| role_bot_inputs(world,&bots).unwrap();
+        let mismatches=soak_match(config,ticks,60,&|_|{},&mut inputs);
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+    }
+
+    /// E086: offline reproduction of a live run. Replays the server's accepted-input
+    /// record (`server/accepted-inputs.jsonl`, every player and bot exactly as the
+    /// gameplay phases consumed them) against the run's role plan (`match-plan.json`)
+    /// with both team replicas. Skips unless SOAK_ACCEPTED_INPUTS and SOAK_ROLE_PLAN
+    /// are set; SOAK_REPLAY_EVERY=N compares every N ticks (default 120, the live
+    /// observer's checkpoint), SOAK_EVERY_TICK_FROM narrows a hit.
+    #[test]
+    fn replay_accepted_inputs_keeps_team_replicas_identical() {
+        use omoba_core::runtime::native::moba_match::bots::RoleBotMatchPlan;
+        let (Ok(record),Ok(plan))=(std::env::var("SOAK_ACCEPTED_INPUTS"),std::env::var("SOAK_ROLE_PLAN")) else {return;};
+        let text=std::fs::read_to_string(&record).unwrap();
+        let mut lines=text.lines();
+        let header:serde_json::Value=serde_json::from_str(lines.next().expect("header line")).unwrap();
+        assert_eq!(header["kind"],"header","{record}: first line must be the header");
+        let (seed,fps)=(header["seed"].as_u64().unwrap(),header["step_fps"].as_u64().unwrap() as u32);
+        let unhex=|text:&str|->Vec<u8> {(0..text.len()).step_by(2).map(|i|u8::from_str_radix(&text[i..i+2],16).unwrap()).collect()};
+        // Keyed by match elapsed time before the step: the server's ECS tick also
+        // counts the lobby, a soak world's does not.
+        let mut by_elapsed:std::collections::BTreeMap<i64,Vec<(u32,PlayerInput)>>=std::collections::BTreeMap::new();
+        for line in lines.filter(|line|!line.trim().is_empty()) {
+            let row:serde_json::Value=serde_json::from_str(line).unwrap();
+            let Some(elapsed)=row["elapsed_raw"].as_i64() else {continue};
+            for entry in row["inputs"].as_array().unwrap() {
+                let player=entry[0].as_u64().unwrap() as u32;
+                let input=<PlayerInput as prost::Message>::decode(unhex(entry[1].as_str().unwrap()).as_slice()).unwrap();
+                by_elapsed.entry(elapsed).or_default().push((player,input));
+            }
+        }
+        let plan:RoleBotMatchPlan=serde_json::from_slice(&std::fs::read(&plan).unwrap()).unwrap();
+        let (config,_bots)=plan.compile_with_tick_rate(seed,fps).unwrap();
+        let last=by_elapsed.keys().last().copied().unwrap_or(0);
+        let ticks=std::env::var("SOAK_REPLAY_TICKS").ok().and_then(|v|v.parse().ok())
+            .unwrap_or_else(||(last/(1024/i64::from(fps)).max(1)) as u32+600);
+        let every=std::env::var("SOAK_REPLAY_EVERY").ok().and_then(|v|v.parse().ok()).unwrap_or(120);
+        let replayed=std::cell::Cell::new(0usize);
+        let mut inputs=|world:&World,_tick:u32|{
+            let elapsed=world.read_resource::<MobaMatch>().elapsed.raw();
+            let rows=by_elapsed.get(&elapsed).cloned().unwrap_or_default();
+            replayed.set(replayed.get()+rows.len());
+            rows
+        };
+        let mismatches=soak_match(config,ticks,every,&|_|{},&mut inputs);
+        eprintln!("replay: {} recorded inputs over {} ticks, {} replayed",by_elapsed.values().map(Vec::len).sum::<usize>(),ticks,replayed.get());
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+    }
+
+    /// What a showcase stage does outside the normal rules reaches both team replicas: its casts
+    /// (the cleared cooldowns among them), refills, patrols, a strike seat, the reset input.
+    #[test]
+    fn showcase_stage_keeps_team_replicas_identical() {
+        use omoba_core::runtime::native::moba_match::bots::*;
+        use omoba_core::runtime::native::moba_match::{ShowcaseCast,ShowcaseCastTarget,ShowcaseConfig,ShowcasePatrol};
+        let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
+        let run=|full:bool| {
+            let mut players=vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)];
+            let mut stage=ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
+                hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],
+                casts:vec![ShowcaseCast {player:6,ability:"b04_fire_blast".into(),rank:1,target:ShowcaseCastTarget::PlayerPoint {player:1},
+                    first_seconds:1,when_near:None,every_seconds:3}],patrols:vec![],refill_players:Default::default(),withheld_abilities:Default::default()};
+            if full {
+                players.extend([seat(7,2,"saika_magoichi",BotRole::Top,true),seat(8,2,"akechi_mitsuhide",BotRole::Carry,true)]);
+                stage.placements.extend([(7,[2600,2400]),(8,[2800,1900])]);
+                stage.hold_players.extend([7,8]);
+                stage.strike_players=[7].into();
+                stage.refill_players=[1].into();
+                stage.patrols=vec![ShowcasePatrol {player:8,a:[2800,1900],b:[2800,2500]}];
+            }
+            let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,players,
+                ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),showcase:Some(stage)};
+            let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+            config.warmup=Fixed64::ZERO;
+            let hurt=std::cell::Cell::new(false);
+            let mut inputs=|w:&World,tick:u32| {
+                let hero=w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==1).unwrap().entity;
+                if hero.and_then(|hero|w.read_storage::<CProperty>().get(hero).map(|p|p.hp<p.mhp)).unwrap_or(true) {hurt.set(true);}
+                let mut rows=role_bot_inputs(w,&bots).unwrap();
+                if full && tick%240==200 {rows.push((1,PlayerInput {action:Some(PlayerInputEnum::ShowcaseResetHero(omoba_core::game_proto::ShowcaseResetHero {}))}));}
+                rows
+            };
+            let mismatches=soak_match(config,1500,15,&|_|{},&mut inputs);
+            assert!(hurt.get(),"the stage reached the hero");
+            mismatches
+        };
+        let only_casts=run(false);
+        assert!(only_casts.is_empty(),"casts: {only_casts:#?}");
+        let everything=run(true);
+        assert!(everything.is_empty(),"everything: {everything:#?}");
+    }
+
+    /// A withheld ability and its later upgrade stay in step with both team replicas, an
+    /// auto-learned one (which a replica would otherwise learn by itself) included.
+    #[test]
+    fn showcase_withheld_abilities_keep_team_replicas_identical() {
+        use omoba_core::runtime::native::moba_match::bots::*;
+        use omoba_core::runtime::native::moba_match::ShowcaseConfig;
+        let seat=|player_id:u32,team_id:u32,hero:&str,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role:BotRole::Mid,lane:"mid".into(),bot};
+        for (hero,ability) in [("otani_yoshitsugu","a12_scheme"),("maeda_keiji","c05_thunder_spear")] {
+            let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+                players:vec![seat(1,1,hero,false),seat(6,2,"date_masamune",true)],
+                ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
+                showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
+                    hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],refill_players:Default::default(),
+                    withheld_abilities:[ability.to_owned()].into()})};
+            let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+            config.warmup=Fixed64::ZERO;
+            let learned=std::cell::Cell::new((false,false));
+            let mut inputs=|w:&World,tick:u32| {
+                let entity=w.read_resource::<MobaMatch>().heroes.iter().find(|slot|slot.player_id==1).unwrap().entity.unwrap();
+                let heroes=w.read_storage::<Hero>();let own=heroes.get(entity).unwrap();
+                let rank=own.get_ability_level(ability);
+                if tick==299 {learned.set((rank==0,false));}
+                if tick==599 {learned.set((learned.get().0,rank==1));}
+                let mut rows=role_bot_inputs(w,&bots).unwrap();
+                if tick==300 {rows.push((1,upgrade(own.abilities.iter().position(|id|id==ability).unwrap() as u32)));}
+                rows
+            };
+            let mismatches=soak_match(config,600,15,&|_|{},&mut inputs);
+            assert!(mismatches.is_empty(),"{hero}: {mismatches:#?}");
+            assert_eq!(learned.get(),(true,true),"{hero}: unlearned, then learned");
+        }
+    }
+
+    /// Authority state that the M3 replay compares every tick: the lane replay digest plus
+    /// every body's position, vitals, hero progress (cooldowns, charges, mana) and buffs.
+    fn authority_state_digest(world:&World)->u64 {
+        use std::hash::{Hash,Hasher};
+        let mut h=std::collections::hash_map::DefaultHasher::new();
+        authority_state_lines(world).hash(&mut h);
+        h.finish()
+    }
+
+    /// The same state as readable rows (SOAK_IR_DIAG_TICK prints the rows that differ).
+    fn authority_state_lines(world:&World)->Vec<String> {
+        let mut out=vec![single_lane_replay_digest(world)];
+        let (entities,positions,properties,heroes)=(world.entities(),world.read_storage::<Pos>(),world.read_storage::<CProperty>(),world.read_storage::<Hero>());
+        let buffs=world.read_resource::<BuffStore>();
+        for entity in (&entities).join() {
+            let (id,gen)=(entity.id(),entity.gen().id());
+            if let Some(p)=properties.get(entity) {out.push(format!("{id}:{gen} hp {} {} pos {:?}",p.hp.raw(),p.mhp.raw(),positions.get(entity).map(|p|(p.0.x.raw(),p.0.y.raw()))));}
+            if let Some(hero)=heroes.get(entity) {
+                let mut cooldowns:Vec<_>=hero.ability_cooldowns.iter().map(|(k,v)|(k.clone(),v.raw())).collect();cooldowns.sort();
+                let mut levels:Vec<_>=hero.ability_levels.iter().map(|(k,v)|(k.clone(),*v)).collect();levels.sort();
+                out.push(format!("{id}:{gen} hero {} {} {} {:?} {cooldowns:?} {levels:?} {:?}",hero.level,hero.experience,hero.skill_points,
+                    hero.mana_pool.as_ref().map(|m|format!("{:?}",m.raw_state())),hero.ability_charges));
+            }
+            // Generated statuses also leave control-source rows (dispel::CONTROL_SOURCE_PREFIX) a handler never
+            // made; the comparison is of the controls themselves.
+            let mut rows:Vec<_>=buffs.iter_for(entity).filter(|(name,_)|!name.starts_with(omoba_core::runtime::native::dispel::CONTROL_SOURCE_PREFIX))
+                .map(|(name,b)|format!("{id}:{gen} buff {name} {} {}",b.remaining.raw(),b.payload)).collect();
+            rows.sort();out.extend(rows);
+        }
+        out
+    }
+
+
+
+    /// M5: B04 fire blast (W) at Oichi; flame swiftness (E) learned. Without mana, like A02.
+    #[test]
+    fn generated_scripted_b04_casts_match_rust_handlers_every_tick() {
+        // Centred on Date: the heroes fight creeps in different lanes, so his own spot has enemies in reach.
+        generated_scripted_casts_compare(["date_masamune","oichi"],false,&|tick,pair,[date,oichi]| match tick%240 {
+            5=>vec![(1,attack_move(oichi)),(2,attack_move(date))],
+            60|180=>vec![(1,cast_at(1,date))],
+            70=>vec![(2,cast(0,Some(pair[0])))],
+            110=>vec![(2,cast(1,None))],
+            _=>Vec::new(),
+        });
+    }
+
+    /// Two heroes at level 18 with every ability at rank min(3, max) cast on a fixed plan; the
+    /// authority digest of the generated Rust and of the Rust handlers must match every tick.
+    fn generated_scripted_casts_compare(heroes:[&str;2],mana:bool,plan:&dyn Fn(u32,[specs::Entity;2],[omoba_sim::Vec2;2])->Vec<(u32,PlayerInput)>) {
+        let ticks=std::env::var("SOAK_IR_SCRIPTED_TICKS").ok().and_then(|v|v.parse().ok()).unwrap_or(5400u32);
+        let config=SingleLaneConfig {mana_enabled:mana,heroes:heroes.map(String::from),..three_lane_config()};
+        let run=|handlers:bool|->Vec<u64> {
+            let (mut authority,mut driver)=world(config.clone(),SimulationTickProfile::Production60Hz);
+            if handlers {
+                for (id,script) in crate::legacy_handlers::handler_scripts() {assert!(driver.scripts_mut().replace_ability_script(id,script),"{id}");}
+                for (id,script) in crate::legacy_handlers::handler_units() {assert!(driver.scripts_mut().replace_unit_script(id,script),"{id}");}
+            }
+            driver.step(&mut authority,[]).unwrap();
+            for hero in hero_pair(&authority) {
+                let mut heroes=authority.write_storage::<Hero>();let h=heroes.get_mut(hero).unwrap();h.level=18;
+                for id in h.abilities.clone() {
+                    let max=omoba_template_ids::ability_by_name(&id).and_then(omoba_template_ids::active_ability_const).map_or(1,|c|c.max_level);
+                    h.ability_levels.insert(id,i32::from(max.min(3)));
+                }
+            }
+            // Passive markers (C17D) are placed when an ability is learned; ranks set directly never ran on_learn.
+            for hero in hero_pair(&authority) {
+                let ids=authority.read_storage::<Hero>().get(hero).unwrap().ability_levels.clone();
+                for (id,rank) in ids {
+                    let Some((_,script))=driver.scripts_mut().get_ability(&id) else {continue};
+                    let outcomes={
+                        let cache=omoba_core::runtime::scripting::parallel_world_adapter::ParallelAdapterCache::new(&authority,1);
+                        let mut adapter=omoba_core::runtime::scripting::parallel_world_adapter::ParallelWorldAdapter::new(&cache,hero);
+                        let handle=omoba_core::runtime::scripting::parallel_world_adapter::ParallelWorldAdapter::entity_to_handle(hero);
+                        {
+                            let mut w=omb_script_abi::world::GameWorld_TO::from_ptr(abi_stable::RMut::new(&mut adapter),abi_stable::sabi_trait::prelude::TD_Opaque);
+                            script.on_learn(handle,rank as u8,&mut w);
+                        }
+                        adapter.finish()
+                    };
+                    authority.write_resource::<Vec<Outcome>>().extend(outcomes);
+                }
+            }
+            let first=driver.step(&mut authority,[]).unwrap();project_tick(&mut authority,first);
+            let mut order=1u64;
+            let mut digests=Vec::with_capacity(ticks as usize);
+            for tick in 0..ticks {
+                // A dead hero has no entity until it respawns: no orders that tick.
+                let slots=[0,1].map(|i|authority.read_resource::<MobaMatch>().heroes[i].entity);
+                let (Some(first_e),Some(second_e))=(slots[0],slots[1]) else {
+                    let result=driver.step(&mut authority,[]).unwrap();project_tick(&mut authority,result);
+                    digests.push(authority_state_digest(&authority));
+                    if std::env::var("SOAK_IR_DIAG_TICK").ok().and_then(|v|v.parse::<usize>().ok())==Some(digests.len()-1) {
+                        let path=std::env::temp_dir().join(format!("ir_scripted_{}.txt",if handlers {"rust"} else {"generated"}));
+                        std::fs::write(&path,authority_state_lines(&authority).join("\n")).unwrap();
+                    }
+                    continue;
+                };
+                let pair=[first_e,second_e];
+                let pos=|e|authority.read_storage::<Pos>().get(e).map(|p|p.0).unwrap_or(omoba_sim::Vec2::ZERO);
+                let requested=plan(tick,pair,[pos(pair[0]),pos(pair[1])]);
+                let (executed,accepted)=admit(&authority,requested,&mut order);
+                let result=driver.step(&mut authority,executed).unwrap();
+                authority.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+                project_tick(&mut authority,result);
+                digests.push(authority_state_digest(&authority));
+                if std::env::var("SOAK_IR_DIAG_TICK").ok().and_then(|v|v.parse::<usize>().ok())==Some(digests.len()-1) {
+                    let path=std::env::temp_dir().join(format!("ir_scripted_{}.txt",if handlers {"rust"} else {"generated"}));
+                    std::fs::write(&path,authority_state_lines(&authority).join("\n")).unwrap();
+                }
+            }
+            digests
+        };
+        let generated=run(false);
+        let rust=run(true);
+        let first=generated.iter().zip(&rust).position(|(a,b)|a!=b);
+        eprintln!("generated scripted {heroes:?}: {} ticks, first difference {:?}",generated.len(),first);
+        assert_eq!(first,None,"generated Rust and Rust handlers diverge");
+    }
+
+}
+
+/// split16: G-2 pulse channels must keep both team replicas identical to the
+/// authority every tick, through the cast, every pulse, an interruption and
+/// the end, including a rebase while the channel is live.
+mod channel_replica_parity {
+    use super::*;
+    use std::collections::BTreeSet;
+    use prost::Message;
+
+    struct Step { player: u32, input: PlayerInput, actor: specs::Entity, target: Option<specs::Entity> }
+
+    fn step(player: u32, input: PlayerInput, actor: specs::Entity, target: Option<specs::Entity>) -> Step {
+        Step { player, input, actor, target }
+    }
+
+    fn cast(slot: u32, entity: Option<specs::Entity>, point: Option<omoba_sim::Vec2>) -> PlayerInput {
+        PlayerInput { action: Some(PlayerInputEnum::CastAbility(CastAbility { ability_index: slot, target_entity: entity.map(|e| e.id()),
+            target_pos: point.map(|p| Vec2I { x: p.x.raw() as i32, y: p.y.raw() as i32 }) })) }
+    }
+
+    fn move_to(point: omoba_sim::Vec2) -> PlayerInput {
+        PlayerInput { action: Some(PlayerInputEnum::MoveTo(MoveTo {
+            target: Some(Vec2I { x: point.x.raw() as i32, y: point.y.raw() as i32 }), queued: false })) }
+    }
+
+    struct Setup { enemy_hero: &'static str, armed_caster: bool, caster_hp: Option<i32>, rebase_at: Option<u32> }
+
+    impl Default for Setup {
+        fn default() -> Self { Self { enemy_hero: "training_luminary", armed_caster: false, caster_hp: None, rebase_at: None } }
+    }
+
+    /// Gameplay-read host state of our own heroes: the replica's specs
+    /// BuffStore must hold the authority's exact rows (team 1 owns player 1).
+    fn status_rows(stepper: &SpecsDisclosedWorldStepper, team: u32, authority: &World, heroes: [specs::Entity; 2], tick: u32) -> Vec<String> {
+        let world = &stepper.filtered.world;
+        let (owners, locals, buffs, truth) = (world.read_storage::<PlayerOwner>(), world.read_storage::<Hero>(), world.read_resource::<BuffStore>(), authority.read_resource::<BuffStore>());
+        let mut rows = Vec::new();
+        for (local, owner, _) in (&world.entities(), &owners, &locals).join() {
+            if (owner.player_id == 1) != (team == 1) { continue; }
+            let Some(actual) = heroes.into_iter().find(|hero| authority.read_storage::<PlayerOwner>().get(*hero).map(|p| p.player_id) == Some(owner.player_id)) else { continue };
+            for key in ["stun", "silence", "root", "ability_channel"] {
+                let row = |store: &BuffStore, entity| store.get(entity, key).map(|entry| (entry.remaining.raw(), entry.payload.get(key).cloned()));
+                if row(&buffs, local) != row(&truth, actual) {
+                    eprintln!("STATUS tick {tick} team {team} {key}: replica={:?} authority={:?}", row(&buffs, local), row(&truth, actual));
+                    rows.push(format!("tick {tick} team {team} status {key}"));
+                }
+            }
+        }
+        rows
+    }
+
+    struct Run { mismatches: Vec<String>, pulses: usize, channel_ticks: usize, caster_alive: bool, caster_cooldowns: Vec<String> }
+
+    /// The channeler (player 1, team 1) against an enemy hero (player 2).
+    /// `script(tick, caster, enemy, enemy_at, caster_at)` returns that tick's
+    /// inputs; `rebase_at` rebuilds both replicas from a fresh bootstrap.
+    fn run(ticks: u32, setup: Setup, script: impl Fn(u32, specs::Entity, specs::Entity, omoba_sim::Vec2, omoba_sim::Vec2) -> Vec<Step>) -> Run {
+        let seed = 11;
+        let (mut authority, mut driver) = world(SingleLaneConfig { seed, mana_enabled: true,
+            heroes: ["training_channeler".into(), setup.enemy_hero.into()], base_recovery_enabled: false,
+            wave_interval: Fixed64::from_i32(10_000), ..three_lane_config() }, SimulationTickProfile::Production60Hz);
+        driver.step(&mut authority, []).unwrap();
+        let [caster, enemy] = hero_pair(&authority);
+        let origin = omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(isolated_skill_origin_y()));
+        let enemy_at = origin + omoba_sim::Vec2::new(Fixed64::from_i32(400), Fixed64::ZERO);
+        authority.write_storage::<Pos>().get_mut(caster).unwrap().0 = origin;
+        authority.write_storage::<Pos>().get_mut(enemy).unwrap().0 = enemy_at;
+        for hero in [caster, enemy] {
+            set_hold(&mut authority, hero);
+            if hero != caster || !setup.armed_caster { disarm_attack(&mut authority, hero); }
+            let mut heroes = authority.write_storage::<Hero>(); let h = heroes.get_mut(hero).unwrap(); h.level = 18;
+            let ids = h.abilities.clone(); for id in ids { h.ability_levels.insert(id, 1); }
+        }
+        if let Some(hp) = setup.caster_hp { authority.write_storage::<CProperty>().get_mut(caster).unwrap().hp = Fixed64::from_i32(hp); }
+        let first = driver.step(&mut authority, []).unwrap(); project_tick(&mut authority, first);
+        let allow = TeamProjectorConfig::default().component_allowlist;
+        let boot = |authority: &mut World, tick: u64| {
+            let starts = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(tick, 60, seed);
+            starts.into_iter().map(|(team, start)| {
+                let replica = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start, allow.clone(), BTreeSet::new()).unwrap();
+                let mut stepper = SpecsDisclosedWorldStepper::from_start(&start, allow.clone(), BTreeSet::new());
+                stepper.script_registry.insert_manifest(crate::get_manifest());
+                populate_ability_registry(&mut stepper.filtered.world, &stepper.script_registry);
+                stepper.bootstrap_membership(replica.world()).unwrap();
+                (team, replica, stepper)
+            }).collect::<Vec<_>>()
+        };
+        let mut replicas = boot(&mut authority, driver.tick() + 1);
+        let mut mismatches = Vec::new();
+        let mut pulses = 0usize;
+        let mut channel_ticks = 0usize;
+        for tick in 0..ticks {
+            if setup.rebase_at == Some(tick) { replicas = boot(&mut authority, driver.tick() + 1);
+                // The first phases after a rebase read the seeded baseline, before any fact.
+                for (team, _, stepper) in &replicas { mismatches.extend(status_rows(stepper, *team, &authority, [caster, enemy], tick)); } }
+            let steps = script(tick, caster, enemy, enemy_at, origin);
+            let accepted: Vec<_> = steps.iter().map(|step| {
+                let mut safe = step.input.clone();
+                if let Some(PlayerInputEnum::CastAbility(cast)) = safe.action.as_mut() { cast.target_entity = None; }
+                CanonicalAcceptedInput::from_authoritative_acceptance(step.player, step.player, driver.tick() + 1, 4,
+                    canonical_entity_id(step.actor), step.target.map(canonical_entity_id), safe.encode_to_vec())
+            }).collect();
+            let before = authority.read_storage::<CProperty>().get(enemy).unwrap().hp;
+            let result = driver.step(&mut authority, steps.iter().map(|s| (s.player, s.input.clone())).collect::<Vec<_>>()).unwrap();
+            if authority.read_storage::<CProperty>().get(enemy).unwrap().hp < before { pulses += 1; }
+            if authority.read_resource::<BuffStore>().has(caster, "ability_channel") { channel_ticks += 1; }
+            authority.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+            project_tick(&mut authority, result);
+            let frames = authority.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+            let expected = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+            for (team, replica, stepper) in &mut replicas {
+                match replica.apply_frame(frames[team].frame.clone(), stepper) {
+                    Ok(FrameApplyResult::Applied { .. }) => {}
+                    other => { mismatches.push(format!("tick {tick} team {team}: apply {other:?}")); continue; }
+                }
+                mismatches.extend(status_rows(stepper, *team, &authority, [caster, enemy], tick));
+                let view = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team], allow.clone(), BTreeSet::new()).unwrap();
+                if replica.canonical_team_hash() != view.canonical_team_hash() {
+                    let before = mismatches.len();
+                    for (id, entity) in &view.world().entities {
+                        for (schema, bytes) in &entity.components {
+                            let actual = replica.world().entities.get(id).and_then(|value| value.components.get(schema));
+                            if actual == Some(bytes) { continue; }
+                            if mismatches.len() < 4 {
+                                if let Some(Ok(a)) = actual.map(|actual| serde_json::from_slice::<serde_json::Value>(actual)) {
+                                    if let Ok(serde_json::Value::Object(e)) = serde_json::from_slice::<serde_json::Value>(bytes) {
+                                        for (k, v) in &e { if a.get(k) != Some(v) { eprintln!("DIFF tick {tick} team {team} entity {id} schema {schema:#x} {k}: actual={:?} expected={v:?}", a.get(k)); } }
+                                    }
+                                }
+                            }
+                            mismatches.push(format!("tick {tick} team {team} entity {id} schema {schema:#x}"));
+                        }
+                    }
+                    if mismatches.len() == before { mismatches.push(format!("tick {tick} team {team}: hash differs outside components")); }
+                }
+            }
+        }
+        let caster_alive = authority.read_storage::<CProperty>().get(caster).is_some_and(|p| p.hp > Fixed64::ZERO);
+        let caster_cooldowns = authority.read_storage::<Hero>().get(caster).map_or_else(Vec::new, |h| h.ability_cooldowns.keys().cloned().collect());
+        Run { mismatches, pulses, channel_ticks, caster_alive, caster_cooldowns }
+    }
+
+    fn identical(run: &Run) {
+        assert!(run.mismatches.is_empty(), "{} divergent rows, first: {:?}", run.mismatches.len(), &run.mismatches[..run.mismatches.len().min(12)]);
+    }
+
+    fn tremor_at_tick_zero(tick: u32, caster: specs::Entity, at: omoba_sim::Vec2) -> Vec<Step> {
+        if tick == 0 { vec![step(1, cast(3, None, Some(at)), caster, None)] } else { vec![] }
+    }
+
+    #[test]
+    fn tremor_full_channel_keeps_team_replicas_identical_every_tick() {
+        let run = run(240, Setup::default(), |tick, caster, _, at, _| tremor_at_tick_zero(tick, caster, at));
+        assert!(run.pulses >= 12, "tremor really pulsed: {}", run.pulses);
+        identical(&run);
+    }
+
+    #[test]
+    fn tremor_with_an_armed_caster_keeps_its_attack_paused_identically() {
+        let run = run(240, Setup { armed_caster: true, ..Setup::default() }, |tick, caster, _, at, _| tremor_at_tick_zero(tick, caster, at));
+        identical(&run);
+    }
+
+    #[test]
+    fn tremor_interrupted_by_a_move_order_keeps_replicas_identical() {
+        let run = run(150, Setup::default(), |tick, caster, _, at, _| match tick {
+            0 => vec![step(1, cast(3, None, Some(at)), caster, None)],
+            40 => vec![step(1, move_to(at - omoba_sim::Vec2::new(Fixed64::from_i32(300), Fixed64::ZERO)), caster, None)],
+            _ => vec![],
+        });
+        assert!(run.pulses >= 1 && run.pulses < 12, "interrupted: {}", run.pulses);
+        identical(&run);
+    }
+
+    /// Our tremor lands 700 from the enemy (outside its 340 waves), so the
+    /// enemy stays free to answer with its own tremor on our caster.
+    fn away_from(at: omoba_sim::Vec2) -> omoba_sim::Vec2 { at - omoba_sim::Vec2::new(Fixed64::from_i32(700), Fixed64::ZERO) }
+
+    #[test]
+    fn tremor_interrupted_by_an_enemy_stun_keeps_replicas_identical() {
+        let run = run(200, Setup { enemy_hero: "training_channeler", armed_caster: true, ..Setup::default() }, |tick, caster, enemy, at, origin| match tick {
+            0 => vec![step(1, cast(3, None, Some(away_from(at))), caster, None)],
+            40 => vec![step(2, cast(3, None, Some(origin)), enemy, None)],
+            _ => vec![],
+        });
+        assert!(run.channel_ticks > 40 && run.channel_ticks < 120, "the enemy stun ended our channel early: {}", run.channel_ticks);
+        identical(&run);
+    }
+
+    #[test]
+    fn tremor_interrupted_by_the_casters_death_keeps_replicas_identical() {
+        let run = run(200, Setup { enemy_hero: "training_channeler", caster_hp: Some(5), ..Setup::default() }, |tick, caster, enemy, at, origin| match tick {
+            0 => vec![step(1, cast(3, None, Some(away_from(at))), caster, None)],
+            40 => vec![step(2, cast(3, None, Some(origin)), enemy, None)],
+            _ => vec![],
+        });
+        assert!(!run.caster_alive, "the enemy wave killed the caster");
+        assert!(run.channel_ticks > 40 && run.channel_ticks < 120, "death ended our channel: {}", run.channel_ticks);
+        identical(&run);
+    }
+
+    #[test]
+    fn an_enemy_stun_on_our_hero_rejects_its_cast_identically_in_its_replica() {
+        // No own channel: the enemy tremor stuns the caster, who casts bolt while stunned.
+        let run = run(120, Setup { enemy_hero: "training_channeler", ..Setup::default() }, |tick, caster, enemy, _, origin| match tick {
+            0 => vec![step(2, cast(3, None, Some(origin)), enemy, None)],
+            20 => vec![step(1, cast(0, Some(enemy), None), caster, Some(enemy))],
+            _ => vec![],
+        });
+        assert!(run.caster_cooldowns.is_empty(), "the stunned cast was rejected: {:?}", run.caster_cooldowns);
+        identical(&run);
+    }
+
+    #[test]
+    fn a_rebase_while_our_channeling_hero_is_stunned_restores_the_stun_and_the_end() {
+        let run = run(200, Setup { enemy_hero: "training_channeler", armed_caster: true, rebase_at: Some(58), ..Setup::default() }, |tick, caster, enemy, at, origin| match tick {
+            0 => vec![step(1, cast(3, None, Some(away_from(at))), caster, None)],
+            40 => vec![step(2, cast(3, None, Some(origin)), enemy, None)],
+            _ => vec![],
+        });
+        assert!(run.channel_ticks > 40 && run.channel_ticks < 120, "the enemy stun ended our channel early: {}", run.channel_ticks);
+        identical(&run);
+    }
+
+    #[test]
+    fn tether_full_channel_on_a_unit_keeps_replicas_identical() {
+        let run = run(300, Setup::default(), |tick, caster, enemy, _, _| if tick == 0 { vec![step(1, cast(1, Some(enemy), None), caster, Some(enemy))] } else { vec![] });
+        assert!(run.pulses >= 8, "tether really pulsed: {}", run.pulses);
+        identical(&run);
+    }
+
+    #[test]
+    fn tether_on_an_armed_caster_interrupted_by_a_move_keeps_replicas_identical() {
+        let run = run(200, Setup { armed_caster: true, ..Setup::default() }, |tick, caster, enemy, at, _| match tick {
+            0 => vec![step(1, cast(1, Some(enemy), None), caster, Some(enemy))],
+            50 => vec![step(1, move_to(at - omoba_sim::Vec2::new(Fixed64::from_i32(300), Fixed64::ZERO)), caster, None)],
+            _ => vec![],
+        });
+        identical(&run);
+    }
+
+    #[test]
+    fn a_rebase_during_a_live_channel_restores_identical_replicas() {
+        let run = run(240, Setup { rebase_at: Some(60), ..Setup::default() }, |tick, caster, _, at, _| tremor_at_tick_zero(tick, caster, at));
+        assert!(run.pulses >= 12, "tremor really pulsed: {}", run.pulses);
+        identical(&run);
+    }
+
+    #[test]
+    fn a_rebase_during_a_live_channel_keeps_an_armed_casters_attack_paused() {
+        let run = run(240, Setup { armed_caster: true, rebase_at: Some(60), ..Setup::default() }, |tick, caster, _, at, _| tremor_at_tick_zero(tick, caster, at));
+        identical(&run);
+    }
+
+    #[test]
+    fn a_rebase_during_a_live_tether_then_a_move_keeps_replicas_identical() {
+        let run = run(240, Setup { armed_caster: true, rebase_at: Some(40), ..Setup::default() }, |tick, caster, enemy, at, _| match tick {
+            0 => vec![step(1, cast(1, Some(enemy), None), caster, Some(enemy))],
+            90 => vec![step(1, move_to(at - omoba_sim::Vec2::new(Fixed64::from_i32(300), Fixed64::ZERO)), caster, None)],
+            _ => vec![],
+        });
+        identical(&run);
+    }
+}
+
+/// Lane soak: both teams channel tremor into creep fights and tether the enemy
+/// hero, among moves, attacks, deaths and respawns.
+mod channel_lane_soak {
+    use super::*;
+    use super::live_soak_replica_parity::soak;
+
+    fn cast(slot: u32, entity: Option<specs::Entity>, point: Option<omoba_sim::Vec2>) -> PlayerInput {
+        PlayerInput { action: Some(PlayerInputEnum::CastAbility(CastAbility { ability_index: slot, target_entity: entity.map(|e| e.id()),
+            target_pos: point.map(|p| Vec2I { x: p.x.raw() as i32, y: p.y.raw() as i32 }) })) }
+    }
+    fn attack_move(to: omoba_sim::Vec2) -> PlayerInput {
+        PlayerInput { action: Some(PlayerInputEnum::AttackMove(AttackMove { target: Some(Vec2I { x: to.x.raw() as i32, y: to.y.raw() as i32 }), queued: false })) }
+    }
+    fn lerp(a: omoba_sim::Vec2, b: omoba_sim::Vec2, num: i32, den: i32) -> omoba_sim::Vec2 {
+        let at = |from: Fixed64, to: Fixed64| Fixed64::from_raw(from.raw() + (to.raw() - from.raw()) * i64::from(num) / i64::from(den));
+        omoba_sim::Vec2::new(at(a.x, b.x), at(a.y, b.y))
+    }
+
+    #[test]
+    fn channel_lane_fights_keep_team_replicas_identical() {
+        let schedule = |tick: u32, pair: [specs::Entity; 2], a: omoba_sim::Vec2, b: omoba_sim::Vec2| -> Vec<(u32, PlayerInput)> {
+            match tick {
+                t if t % 360 == 6 => vec![(1, attack_move(b)), (2, attack_move(a))],
+                // Tremor along the lane: whichever point is in range hits the creep fight.
+                t if t > 6 && t % 120 == 40 => { let k = ((t / 120) % 5) as i32 + 3;
+                    vec![(1, cast(3, None, Some(lerp(a, b, k, 10)))), (2, cast(3, None, Some(lerp(b, a, k, 10))))] }
+                t if t > 6 && t % 120 == 70 => vec![(1, cast(1, Some(pair[1]), None)), (2, cast(1, Some(pair[0]), None))],
+                // A move order mid-channel on one side, staggered casts on the other.
+                t if t > 6 && t % 240 == 100 => vec![(1, attack_move(b)), (2, cast(0, Some(pair[0]), None))],
+                t if t > 6 && t % 240 == 220 => vec![(2, attack_move(a)), (1, cast(2, Some(pair[1]), None))],
+                _ => vec![],
+            }
+        };
+        let mismatches = soak(["training_channeler", "training_channeler"], 7200, &schedule);
+        assert!(mismatches.is_empty(), "{:#?}", mismatches);
+    }
+}
+
+/// work-creep-facing: every animated unit's visible front is its motion or
+/// attack direction, and both team replicas see the same facing.
+mod unit_facing_parity {
+    use super::*;
+    use super::swept_dash_formal::{setup_hero_skill,cast_skill};
+    use super::live_soak_replica_parity::soak;
+
+    fn facing(w:&World,e:specs::Entity)->Option<i32> {w.read_storage::<Facing>().get(e).map(|f|f.0.ticks())}
+    fn dir(from:omoba_sim::Vec2,to:omoba_sim::Vec2)->Option<i32> {
+        let d=to-from;(d.x!=Fixed64::ZERO||d.y!=Fixed64::ZERO).then(||omoba_sim::trig::atan2(d.y,d.x).ticks())
+    }
+
+    #[test]
+    fn a_stationary_summon_faces_the_enemy_it_shoots() {
+        let (mut w,mut driver,caster,origin)=setup_hero_skill(1,"b01_saika_corps","saika_magoichi");
+        set_hold(&mut w,caster);disarm_attack(&mut w,caster);
+        driver.step(&mut w,[]).unwrap();
+        cast_skill(&mut w,&mut driver,caster,"b01_saika_corps",Some(origin+omoba_sim::Vec2::new(Fixed64::from_i32(200),Fixed64::ZERO)),None);
+        for _ in 0..13 {driver.step(&mut w,[]).unwrap();}
+        let gunner=(&w.entities(),&w.read_storage::<SummonedUnit>()).join().find(|(_,s)|s.summoner==caster).map(|(e,_)|e).expect("gunner placed");
+        let at=w.read_storage::<Pos>().get(gunner).unwrap().0;
+        // An enemy hero beside the emplacement, off its spawn facing.
+        let enemy=hero_pair(&w)[1];
+        let enemy_at=at+omoba_sim::Vec2::new(Fixed64::from_i32(-150),Fixed64::from_i32(250));
+        w.write_storage::<Pos>().get_mut(enemy).unwrap().0=enemy_at;set_hold(&mut w,enemy);
+        let hp=w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+        // Summon combat reads the current team disclosure, so project every tick.
+        let mut shot=false;
+        for _ in 0..240 {
+            let result=driver.step(&mut w,[]).unwrap();project_tick(&mut w,result);
+            let Some(now)=w.read_storage::<CProperty>().get(enemy).map(|p|p.hp) else {break};
+            if now<hp {shot=true;break;}
+        }
+        assert!(shot,"the gunner really shot");
+        assert_eq!(facing(&w,gunner),dir(at,enemy_at),"the gunner faces its target");
+    }
+
+    #[test]
+    fn lane_fights_disclose_identical_creep_facing_to_both_teams() {
+        // Lane waves meet and fight while both heroes push: creep facing is part
+        // of every team's disclosed hash, so any replica drift is a mismatch.
+        let schedule=|tick:u32,_pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            let attack_move=|to:omoba_sim::Vec2|PlayerInput {action:Some(PlayerInputEnum::AttackMove(AttackMove {
+                target:Some(Vec2I {x:to.x.raw() as i32,y:to.y.raw() as i32}),queued:false}))};
+            if tick%600==6 {vec![(1,attack_move(b)),(2,attack_move(a))]} else {vec![]}
+        };
+        let mismatches=soak(["training_luminary","training_luminary"],3600,&schedule);
+        assert!(mismatches.is_empty(),"{:#?}",mismatches);
+    }
+}
+
+/// G-3 extra action slot (D, ability index 4): learn, level gate, cast,
+/// cooldown and disclosure work like Q-R, in the authority and in both team
+/// replicas; a Q-R hero is unaffected.
+mod extra_action_slot {
+    use super::*;
+    use std::collections::BTreeSet;
+    use prost::Message;
+
+    const D: u32 = 4;
+    /// Rank 1 requires hero level 6 (content gate on the ability itself).
+    const GATED: &str = "apprentice_lance";
+
+    fn upgrade(slot: u32) -> PlayerInput { PlayerInput { action: Some(PlayerInputEnum::UpgradeAbility(UpgradeAbility { ability_index: slot })) } }
+    fn cast(slot: u32, entity: Option<specs::Entity>) -> PlayerInput {
+        PlayerInput { action: Some(PlayerInputEnum::CastAbility(CastAbility { ability_index: slot, target_entity: entity.map(|e| e.id()), target_pos: None })) }
+    }
+
+    /// Luminary (player 1) with a fifth ability against a luminary (player 2).
+    fn fixture(fifth: &str, level: i32, skill_points: i32) -> (World, SimulationDriver, specs::Entity, specs::Entity) {
+        let (mut w, mut driver) = world(SingleLaneConfig { seed: 21, mana_enabled: true,
+            heroes: ["training_luminary".into(), "training_luminary".into()], base_recovery_enabled: false,
+            wave_interval: Fixed64::from_i32(10_000), ..three_lane_config() }, SimulationTickProfile::Production60Hz);
+        driver.step(&mut w, []).unwrap();
+        let [caster, enemy] = hero_pair(&w);
+        let origin = omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(isolated_skill_origin_y()));
+        w.write_storage::<Pos>().get_mut(caster).unwrap().0 = origin;
+        w.write_storage::<Pos>().get_mut(enemy).unwrap().0 = origin + omoba_sim::Vec2::new(Fixed64::from_i32(400), Fixed64::ZERO);
+        for hero in [caster, enemy] { set_hold(&mut w, hero); disarm_attack(&mut w, hero); }
+        {
+            let mut heroes = w.write_storage::<Hero>();
+            let hero = heroes.get_mut(caster).unwrap();
+            assert_eq!(hero.abilities.len(), 4, "fixture starts as a Q-R hero");
+            hero.abilities.push(fifth.into());
+            hero.ability_levels.insert(fifth.into(), 0);
+            hero.level = level;
+            hero.skill_points = skill_points;
+        }
+        (w, driver, caster, enemy)
+    }
+
+    fn rank(w: &World, hero: specs::Entity, id: &str) -> i32 { w.read_storage::<Hero>().get(hero).unwrap().get_ability_level(id) }
+    fn cooling(w: &World, hero: specs::Entity, id: &str) -> bool { w.read_storage::<Hero>().get(hero).unwrap().is_on_cooldown(id) }
+
+    #[test]
+    fn the_fifth_slot_obeys_its_level_gate_then_learns_and_casts() {
+        let (mut w, mut driver, caster, enemy) = fixture(GATED, 5, 2);
+        driver.step(&mut w, [(1, upgrade(D))]).unwrap();
+        assert_eq!(rank(&w, caster, GATED), 0, "level 5 cannot learn a level-6 rank");
+        assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().skill_points, 2, "a rejected learn spends nothing");
+        w.write_storage::<Hero>().get_mut(caster).unwrap().level = 6;
+        driver.step(&mut w, [(1, upgrade(D))]).unwrap();
+        assert_eq!(rank(&w, caster, GATED), 1, "slot 4 learns like Q-R");
+        assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().skill_points, 1);
+        let hp = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+        driver.step(&mut w, [(1, cast(D, Some(enemy)))]).unwrap();
+        for _ in 0..30 { driver.step(&mut w, []).unwrap(); }
+        assert!(cooling(&w, caster, GATED), "slot 4 cast starts its cooldown");
+        assert!(w.read_storage::<CProperty>().get(enemy).unwrap().hp < hp, "slot 4 cast lands");
+    }
+
+    #[test]
+    fn a_passive_fifth_slot_learns_but_never_casts() {
+        let passive = "rain_iron_cannon";
+        let (mut w, mut driver, caster, enemy) = fixture(passive, 1, 1);
+        driver.step(&mut w, [(1, upgrade(D))]).unwrap();
+        assert_eq!(rank(&w, caster, passive), 1, "a passive D is learned");
+        let mana = w.read_storage::<Hero>().get(caster).unwrap().mana_pool.clone();
+        driver.step(&mut w, [(1, cast(D, Some(enemy)))]).unwrap();
+        for _ in 0..10 { driver.step(&mut w, []).unwrap(); }
+        assert!(!cooling(&w, caster, passive), "a passive is never cast");
+        assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool, mana, "nothing was paid");
+    }
+
+    #[test]
+    fn a_four_ability_hero_ignores_slot_four() {
+        let (mut w, mut driver) = world(SingleLaneConfig { mana_enabled: true, ..three_lane_config() }, SimulationTickProfile::Production60Hz);
+        driver.step(&mut w, []).unwrap();
+        let [caster, enemy] = hero_pair(&w);
+        w.write_storage::<Hero>().get_mut(caster).unwrap().skill_points = 1;
+        let before = w.read_storage::<Hero>().get(caster).unwrap().clone();
+        driver.step(&mut w, [(1, upgrade(D)), (1, cast(D, Some(enemy)))]).unwrap();
+        let after = w.read_storage::<Hero>().get(caster).unwrap().clone();
+        assert_eq!((after.skill_points, after.ability_levels.clone(), after.ability_cooldowns.clone()),
+            (before.skill_points, before.ability_levels.clone(), before.ability_cooldowns.clone()), "slot 4 does nothing for a Q-R hero");
+        assert!(driver.step(&mut w, [(1, upgrade(5))]).is_ok(), "an out-of-range slot is a rejected command, not a failure");
+    }
+
+    /// Both team replicas match the authority every tick while slot 4 is
+    /// learned, cast and cooling down; the opponent sees five committed ranks.
+    #[test]
+    fn the_fifth_slot_keeps_both_team_replicas_identical_every_tick() {
+        let seed = 21;
+        let (mut authority, mut driver, caster, enemy) = fixture(GATED, 6, 1);
+        let first = driver.step(&mut authority, []).unwrap(); project_tick(&mut authority, first);
+        let allow = TeamProjectorConfig::default().component_allowlist;
+        let starts = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+        let mut replicas: Vec<_> = starts.into_iter().map(|(team, start)| {
+            let replica = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start, allow.clone(), BTreeSet::new()).unwrap();
+            let mut stepper = SpecsDisclosedWorldStepper::from_start(&start, allow.clone(), BTreeSet::new());
+            stepper.script_registry.insert_manifest(crate::get_manifest());
+            populate_ability_registry(&mut stepper.filtered.world, &stepper.script_registry);
+            stepper.bootstrap_membership(replica.world()).unwrap();
+            (team, replica, stepper)
+        }).collect();
+        let mut mismatches = Vec::new();
+        for tick in 0..240u32 {
+            let inputs: Vec<(u32, PlayerInput, Option<specs::Entity>)> = match tick {
+                0 => vec![(1, upgrade(D), None)],
+                3 => vec![(1, cast(D, Some(enemy)), Some(enemy))],
+                _ => vec![],
+            };
+            let accepted: Vec<_> = inputs.iter().map(|(player, input, target)| {
+                let mut safe = input.clone();
+                let kind = match safe.action.as_mut() { Some(PlayerInputEnum::CastAbility(cast)) => { cast.target_entity = None; 4 } _ => 3 };
+                CanonicalAcceptedInput::from_authoritative_acceptance(*player, *player, driver.tick() + 1, kind,
+                    canonical_entity_id(caster), target.map(canonical_entity_id), safe.encode_to_vec())
+            }).collect();
+            let result = driver.step(&mut authority, inputs.iter().map(|(p, i, _)| (*p, i.clone())).collect::<Vec<_>>()).unwrap();
+            authority.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+            project_tick(&mut authority, result);
+            let frames = authority.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+            let expected = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+            for (team, replica, stepper) in &mut replicas {
+                if !matches!(replica.apply_frame(frames[team].frame.clone(), stepper), Ok(FrameApplyResult::Applied { .. })) {
+                    mismatches.push(format!("tick {tick} team {team}: frame not applied")); continue;
+                }
+                let view = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team], allow.clone(), BTreeSet::new()).unwrap();
+                if replica.canonical_team_hash() != view.canonical_team_hash() {
+                    for (id, entity) in &view.world().entities {
+                        for (schema, bytes) in &entity.components {
+                            if replica.world().entities.get(id).and_then(|e| e.components.get(schema)) != Some(bytes) {
+                                mismatches.push(format!("tick {tick} team {team} entity {id} schema {schema:#x}"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(rank(&authority, caster, GATED), 1, "slot 4 was learned");
+        assert!(cooling(&authority, caster, GATED), "slot 4 was cast");
+        assert!(mismatches.is_empty(), "{} divergent rows, first: {:?}", mismatches.len(), &mismatches[..mismatches.len().min(12)]);
+    }
+}
+
+/// Source NOT_LEARNABLE abilities on the authored heroes (`auto_learn`):
+/// oichi is born with c17_devotion, asai_nagamasa learns b08_endless_fang at
+/// hero level 16. Neither ever costs or accepts a skill point.
+mod authored_auto_learn {
+    use super::*;
+    use std::collections::BTreeSet;
+    use prost::Message;
+
+    const D: u32 = 4;
+    const DEVOTION: &str = "c17_devotion";
+    const ENDLESS_FANG: &str = "b08_endless_fang";
+
+    fn upgrade(slot: u32) -> PlayerInput { PlayerInput { action: Some(PlayerInputEnum::UpgradeAbility(UpgradeAbility { ability_index: slot })) } }
+
+    /// `hero` for player 1 against a training luminary, both held in place.
+    fn fixture(hero: &str) -> (World, SimulationDriver, specs::Entity) {
+        let (mut w, mut driver) = world(SingleLaneConfig { seed: 23, mana_enabled: true,
+            heroes: [hero.into(), "training_luminary".into()], base_recovery_enabled: false,
+            wave_interval: Fixed64::from_i32(10_000), ..three_lane_config() }, SimulationTickProfile::Production60Hz);
+        driver.step(&mut w, []).unwrap();
+        let [owner, enemy] = hero_pair(&w);
+        for unit in [owner, enemy] { set_hold(&mut w, unit); disarm_attack(&mut w, unit); }
+        (w, driver, owner)
+    }
+
+    fn hero(w: &World, unit: specs::Entity) -> Hero { w.read_storage::<Hero>().get(unit).unwrap().clone() }
+
+    #[test]
+    fn oichi_is_born_with_devotion_without_spending_a_skill_point() {
+        let (mut w, mut driver, oichi) = fixture("oichi");
+        let born = hero(&w, oichi);
+        assert_eq!(born.abilities.get(D as usize).map(String::as_str), Some(DEVOTION), "devotion is oichi's D");
+        assert_eq!(born.get_ability_level(DEVOTION), 1, "devotion is rank 1 from birth");
+        w.write_storage::<Hero>().get_mut(oichi).unwrap().skill_points = 1;
+        driver.step(&mut w, [(1, upgrade(D))]).unwrap();
+        let after = hero(&w, oichi);
+        assert_eq!((after.get_ability_level(DEVOTION), after.skill_points), (1, 1), "a skill point never buys devotion");
+    }
+
+    #[test]
+    fn asai_nagamasa_learns_endless_fang_at_level_sixteen_for_free() {
+        let (mut w, mut driver, asai) = fixture("asai_nagamasa");
+        assert_eq!(hero(&w, asai).abilities.get(D as usize).map(String::as_str), Some(ENDLESS_FANG));
+        {
+            let mut heroes = w.write_storage::<Hero>();
+            let h = heroes.get_mut(asai).unwrap();
+            h.level = 15;
+            h.skill_points = 2;
+        }
+        driver.step(&mut w, [(1, upgrade(D))]).unwrap();
+        let at15 = hero(&w, asai);
+        assert_eq!((at15.get_ability_level(ENDLESS_FANG), at15.skill_points), (0, 2), "level 15: not learned, upgrade rejected for free");
+        w.write_storage::<Hero>().get_mut(asai).unwrap().level = 16;
+        driver.step(&mut w, []).unwrap();
+        let at16 = hero(&w, asai);
+        assert_eq!((at16.get_ability_level(ENDLESS_FANG), at16.skill_points), (1, 2), "level 16 learns it without a skill point");
+        driver.step(&mut w, [(1, upgrade(D))]).unwrap();
+        let after = hero(&w, asai);
+        assert_eq!((after.get_ability_level(ENDLESS_FANG), after.skill_points), (1, 2), "manual upgrade stays rejected");
+    }
+
+    /// Both team replicas learn endless_fang on the authority's tick and stay
+    /// identical every tick, including the rejected manual upgrade.
+    #[test]
+    fn auto_learn_keeps_both_team_replicas_identical_every_tick() {
+        let seed = 23;
+        let (mut authority, mut driver, asai) = fixture("asai_nagamasa");
+        // The test sets levels directly on the authority, before its step; with attributes that
+        // would also move max HP a tick ahead of the replicas (a real level-up comes from XP after
+        // the attribute settle). Auto-learn is the subject: no attributes, so no growth (E172).
+        { let mut heroes = authority.write_storage::<Hero>(); let h = heroes.get_mut(asai).unwrap(); h.level = 15; h.skill_points = 1;
+          (h.strength, h.agility, h.intelligence) = (0, 0, 0);
+          h.level_growth.strength_per_level = Fixed64::ZERO; h.level_growth.agility_per_level = Fixed64::ZERO;
+          h.level_growth.intelligence_per_level = Fixed64::ZERO; }
+        let first = driver.step(&mut authority, []).unwrap(); project_tick(&mut authority, first);
+        let allow = TeamProjectorConfig::default().component_allowlist;
+        let starts = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+        let mut replicas: Vec<_> = starts.into_iter().map(|(team, start)| {
+            let replica = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start, allow.clone(), BTreeSet::new()).unwrap();
+            let mut stepper = SpecsDisclosedWorldStepper::from_start(&start, allow.clone(), BTreeSet::new());
+            stepper.script_registry.insert_manifest(crate::get_manifest());
+            populate_ability_registry(&mut stepper.filtered.world, &stepper.script_registry);
+            stepper.bootstrap_membership(replica.world()).unwrap();
+            (team, replica, stepper)
+        }).collect();
+        let mut mismatches = Vec::new();
+        for tick in 0..120u32 {
+            if tick == 10 { authority.write_storage::<Hero>().get_mut(asai).unwrap().level = 16; }
+            let inputs: Vec<(u32, PlayerInput)> = if tick == 2 || tick == 30 { vec![(1, upgrade(D))] } else { vec![] };
+            let accepted: Vec<_> = inputs.iter().map(|(player, input)| CanonicalAcceptedInput::from_authoritative_acceptance(
+                *player, *player, driver.tick() + 1, 3, canonical_entity_id(asai), None, input.encode_to_vec())).collect();
+            let result = driver.step(&mut authority, inputs.clone()).unwrap();
+            authority.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+            project_tick(&mut authority, result);
+            let frames = authority.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+            let expected = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+            for (team, replica, stepper) in &mut replicas {
+                if !matches!(replica.apply_frame(frames[team].frame.clone(), stepper), Ok(FrameApplyResult::Applied { .. })) {
+                    mismatches.push(format!("tick {tick} team {team}: frame not applied")); continue;
+                }
+                let view = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team], allow.clone(), BTreeSet::new()).unwrap();
+                if replica.canonical_team_hash() != view.canonical_team_hash() {
+                    for (id, entity) in &view.world().entities {
+                        for (schema, bytes) in &entity.components {
+                            if replica.world().entities.get(id).and_then(|e| e.components.get(schema)) != Some(bytes) {
+                                mismatches.push(format!("tick {tick} team {team} entity {id} schema {schema:#x}"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let end = hero(&authority, asai);
+        assert_eq!((end.get_ability_level(ENDLESS_FANG), end.skill_points), (1, 1), "auto-learned, the skill point untouched");
+        assert!(mismatches.is_empty(), "{} divergent rows, first: {:?}", mismatches.len(), &mismatches[..mismatches.len().min(12)]);
+    }
+}
+
+/// G-4 forced displacement through real casts of the append-only demos:
+
+/// G-4 forced displacement through real casts of the append-only demos:
+/// `lumen_repulse` (unit knockback) and `lumen_hook` (linear projectile pull).
+mod forced_displacement {
+    use super::*;
+    use std::collections::BTreeSet;
+    use prost::Message;
+    use omoba_core::runtime::native::forced_motion;
+
+    const HOOK: u32 = 0;
+    const REPULSE: u32 = 1;
+
+    fn cast_unit(target: specs::Entity) -> PlayerInput {
+        PlayerInput { action: Some(PlayerInputEnum::CastAbility(CastAbility { ability_index: REPULSE, target_entity: Some(target.id()), target_pos: None })) }
+    }
+    fn cast_point(x: i32, y: i32) -> PlayerInput {
+        PlayerInput { action: Some(PlayerInputEnum::CastAbility(CastAbility { ability_index: HOOK, target_entity: None, target_pos: Some(raw_point(x, y)) })) }
+    }
+
+    /// Grappler (player 1: Q hook, W repulse) at the isolated origin, an enemy
+    /// luminary (player 2) `distance` along +x; both held, disarmed.
+    fn fixture(distance: i32) -> (World, SimulationDriver, specs::Entity, specs::Entity) {
+        let (mut w, mut driver) = world(SingleLaneConfig { seed: 31, mana_enabled: true,
+            heroes: ["training_grappler".into(), "training_luminary".into()], base_recovery_enabled: false,
+            wave_interval: Fixed64::from_i32(10_000), ..three_lane_config() }, SimulationTickProfile::Production60Hz);
+        driver.step(&mut w, []).unwrap();
+        let [caster, enemy] = hero_pair(&w);
+        place_hero(&mut w, caster, 0, isolated_skill_origin_y());
+        place_hero(&mut w, enemy, distance, isolated_skill_origin_y());
+        for hero in [caster, enemy] { set_hold(&mut w, hero); disarm_attack(&mut w, hero); }
+        {
+            let mut heroes = w.write_storage::<Hero>();
+            let hero = heroes.get_mut(caster).unwrap();
+            assert_eq!(hero.abilities[..2], ["lumen_hook".to_owned(), "lumen_repulse".to_owned()]);
+            for id in ["lumen_hook", "lumen_repulse"] { hero.ability_levels.insert(id.into(), 1); }
+            hero.level = 6;
+        }
+        (w, driver, caster, enemy)
+    }
+
+    fn x(w: &World, unit: specs::Entity) -> Fixed64 { w.read_storage::<Pos>().get(unit).unwrap().0.x }
+    fn y(w: &World, unit: specs::Entity) -> Fixed64 { w.read_storage::<Pos>().get(unit).unwrap().0.y }
+    fn displaced(w: &World, unit: specs::Entity) -> bool { w.read_resource::<BuffStore>().has(unit, forced_motion::BUFF) }
+    fn stunned(w: &World, unit: specs::Entity) -> bool { w.read_resource::<BuffStore>().is_stunned(unit) }
+
+    #[test]
+    fn repulse_pushes_the_target_away_over_its_duration_then_releases_it() {
+        let (mut w, mut driver, caster, enemy) = fixture(300);
+        let row = y(&w, enemy);
+        let hp = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+        driver.step(&mut w, [(1, cast_unit(enemy))]).unwrap();
+        driver.step(&mut w, []).unwrap();
+        // The in-flight motion is future gameplay state: it is in the desync hash.
+        let digest = single_lane_replay_digest(&w);
+        w.write_resource::<forced_motion::ForcedMotions>().0.get_mut(&enemy).expect("moving").remaining += Fixed64::from_raw(1);
+        assert_ne!(single_lane_replay_digest(&w), digest, "forced motion state is hashed");
+        w.write_resource::<forced_motion::ForcedMotions>().0.get_mut(&enemy).expect("moving").remaining -= Fixed64::from_raw(1);
+        let mut path = vec![(x(&w, enemy), displaced(&w, enemy), stunned(&w, enemy))];
+        for _ in 0..40 {
+            driver.step(&mut w, []).unwrap();
+            path.push((x(&w, enemy), displaced(&w, enemy), stunned(&w, enemy)));
+        }
+        assert!(w.read_storage::<CProperty>().get(enemy).unwrap().hp < hp, "repulse damages");
+        assert!(path.windows(2).all(|pair| pair[1].0 >= pair[0].0), "only ever pushed away: {path:?}");
+        let moving: Vec<_> = path.windows(2).filter(|pair| pair[1].0 > pair[0].0).collect();
+        assert!(moving.len() >= 15, "a 0.35 s push spans many ticks, not one jump ({} moving ticks)", moving.len());
+        assert!(path.iter().filter(|row| row.0 > Fixed64::from_i32(300)).all(|row| row.0 <= Fixed64::from_i32(650)));
+        assert_eq!(x(&w, enemy), Fixed64::from_i32(650), "exactly the authored distance");
+        assert_eq!(y(&w, enemy), row, "straight away from the caster");
+        assert!(path.iter().take(10).all(|row| row.1 && row.2), "displaced and stunned while moving");
+        assert!(!displaced(&w, enemy) && !stunned(&w, enemy), "released when the duration ends");
+        assert_eq!(x(&w, caster), Fixed64::ZERO, "the caster does not move");
+    }
+
+    #[test]
+    fn repulse_stops_at_terrain_and_ignores_move_orders_even_unstunned() {
+        // (path, collision radius) of a push into a wall, with or without the
+        // victim ordering a move back toward the caster after its stun is gone.
+        let push = |orders: bool| {
+            let (mut w, mut driver, _caster, enemy) = fixture(300);
+            w.write_resource::<BlockedRegions>().0.push(isolated_skill_region("forced-wall", 520.0, 560.0, 400.0));
+            driver.step(&mut w, [(1, cast_unit(enemy))]).unwrap();
+            driver.step(&mut w, []).unwrap();
+            assert!(displaced(&w, enemy));
+            // A cleansed stun does not free a displaced unit: the motion owns its position.
+            w.write_resource::<BuffStore>().remove(enemy, omb_script_abi::buff_ids::BuffId::Stun.as_str());
+            let back = vec![(2, PlayerInput { action: Some(PlayerInputEnum::MoveTo(MoveTo {
+                target: Some(Vec2I { x: 0, y: isolated_skill_origin_y() * 1024 }), queued: false })) })];
+            let mut path = Vec::new();
+            for _ in 0..40 {
+                let inputs = if orders && displaced(&w, enemy) { back.clone() } else { vec![] };
+                driver.step(&mut w, inputs).unwrap();
+                path.push(x(&w, enemy));
+            }
+            let radius = w.read_storage::<CollisionRadius>().get(enemy).map_or(Fixed64::ZERO, |r| r.0);
+            (path, radius)
+        };
+        let (still, radius) = push(false);
+        let (ordered, _) = push(true);
+        assert_eq!(ordered[..20], still[..20], "move orders never bend a forced path");
+        let stop = *still.iter().max().unwrap();
+        assert!(stop + radius <= Fixed64::from_i32(520) && stop + radius > Fixed64::from_i32(500),
+            "stopped flush at the wall face, not through it: x={stop:?} r={radius:?}");
+        assert!(still.iter().all(|x| *x <= stop) && still[39] == stop, "never passes the wall");
+    }
+
+    #[test]
+    fn hook_flies_then_pulls_the_first_enemy_to_the_caster() {
+        let (mut w, mut driver, caster, enemy) = fixture(800);
+        let hp = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+        driver.step(&mut w, [(1, cast_point(800, isolated_skill_origin_y()))]).unwrap();
+        driver.step(&mut w, []).unwrap();
+        assert_eq!(x(&w, enemy), Fixed64::from_i32(800), "not hit before the hook arrives");
+        let mut hit_tick = None;
+        for tick in 0..90 {
+            driver.step(&mut w, []).unwrap();
+            if hit_tick.is_none() && w.read_storage::<CProperty>().get(enemy).unwrap().hp < hp { hit_tick = Some(tick); }
+        }
+        assert!(hit_tick.is_some_and(|tick| tick >= 20), "an 800 range hook at 1600/s lands after ~0.5 s: {hit_tick:?}");
+        let radii = [caster, enemy].map(|unit| w.read_storage::<CollisionRadius>().get(unit).map_or(Fixed64::ZERO, |r| r.0));
+        assert_eq!(x(&w, enemy), radii[0] + radii[1], "pulled to body contact with the caster");
+        assert!(!displaced(&w, enemy) && !stunned(&w, enemy));
+    }
+
+    /// Both team replicas equal the authority every tick while a repulse and a
+    /// hook displace the enemy hero.
+    #[test]
+    fn forced_motion_keeps_both_team_replicas_identical_every_tick() {
+        // A lane creep victim has no post-step hero pose: only the motion's own
+        // PreStepMovement facts carry its path to the replicas.
+        for (ability, distance, creep) in [("lumen_repulse", 300, false), ("lumen_hook", 800, false), ("lumen_repulse", 300, true)] {
+            let seed = 31;
+            let (mut authority, mut driver, caster, hero) = fixture(distance);
+            let enemy = if creep {
+                let lane = (&authority.entities(), &authority.read_storage::<Creep>(), &authority.read_storage::<Faction>()).join()
+                    .filter(|(_, c, f)| f.team_id == 2 && c.path.starts_with("__moba_lane_")).min_by_key(|(e, _, _)| e.id()).map(|(e, _, _)| e)
+                    .expect("an enemy lane creep");
+                place_hero(&mut authority, hero, 3000, isolated_skill_origin_y());
+                place_hero(&mut authority, lane, distance, isolated_skill_origin_y());
+                lane
+            } else { hero };
+            let first = driver.step(&mut authority, []).unwrap(); project_tick(&mut authority, first);
+            let allow = TeamProjectorConfig::default().component_allowlist;
+            let starts = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+            let mut replicas: Vec<_> = starts.into_iter().map(|(team, start)| {
+                let replica = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start, allow.clone(), BTreeSet::new()).unwrap();
+                let mut stepper = SpecsDisclosedWorldStepper::from_start(&start, allow.clone(), BTreeSet::new());
+                stepper.script_registry.insert_manifest(crate::get_manifest());
+                populate_ability_registry(&mut stepper.filtered.world, &stepper.script_registry);
+                stepper.bootstrap_membership(replica.world()).unwrap();
+                (team, replica, stepper)
+            }).collect();
+            let start_x = x(&authority, enemy);
+            let mut mismatches = Vec::new();
+            for tick in 0..120u32 {
+                let input = (tick == 0).then(|| if ability == "lumen_hook" { cast_point(distance, isolated_skill_origin_y()) } else { cast_unit(enemy) });
+                let inputs: Vec<(u32, PlayerInput)> = input.into_iter().map(|input| (1, input)).collect();
+                let accepted: Vec<_> = inputs.iter().map(|(player, input)| {
+                    let mut safe = input.clone();
+                    let target = match safe.action.as_mut() { Some(PlayerInputEnum::CastAbility(cast)) => cast.target_entity.take(), _ => None };
+                    CanonicalAcceptedInput::from_authoritative_acceptance(*player, *player, driver.tick() + 1, 4,
+                        canonical_entity_id(caster), target.map(|_| canonical_entity_id(enemy)), safe.encode_to_vec())
+                }).collect();
+                let result = driver.step(&mut authority, inputs.clone()).unwrap();
+                authority.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+                project_tick(&mut authority, result);
+                let frames = authority.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+                let expected = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+                for (team, replica, stepper) in &mut replicas {
+                    if !matches!(replica.apply_frame(frames[team].frame.clone(), stepper), Ok(FrameApplyResult::Applied { .. })) {
+                        mismatches.push(format!("{ability} tick {tick} team {team}: frame not applied")); continue;
+                    }
+                    let view = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team], allow.clone(), BTreeSet::new()).unwrap();
+                    if replica.canonical_team_hash() != view.canonical_team_hash() {
+                        for (id, entity) in &view.world().entities {
+                            for (schema, bytes) in &entity.components {
+                                if replica.world().entities.get(id).and_then(|e| e.components.get(schema)) != Some(bytes) {
+                                    mismatches.push(format!("{ability} tick {tick} team {team} entity {id} schema {schema:#x}"));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            assert_ne!(x(&authority, enemy), start_x, "{ability} (creep: {creep}) displaced the enemy");
+            assert!(mismatches.is_empty(), "{} divergent rows, first: {:?}", mismatches.len(), &mismatches[..mismatches.len().min(12)]);
+        }
+    }
+}
+
+/// G-4 detection through a real cast of the append-only `lumen_flare`: a timed
+/// team true-sight area that discloses stealthed enemies inside it.
+mod true_sight_area {
+    use super::*;
+    use std::collections::BTreeSet;
+    use prost::Message;
+
+    const REPULSE: u32 = 1;
+    const FLARE: u32 = 2;
+
+    fn cast_flare(x: i32) -> PlayerInput {
+        PlayerInput { action: Some(PlayerInputEnum::CastAbility(CastAbility { ability_index: FLARE, target_entity: None,
+            target_pos: Some(raw_point(x, isolated_skill_origin_y())) })) }
+    }
+    fn cast_repulse(target: specs::Entity) -> PlayerInput {
+        PlayerInput { action: Some(PlayerInputEnum::CastAbility(CastAbility { ability_index: REPULSE, target_entity: Some(target.id()), target_pos: None })) }
+    }
+
+    /// Grappler (player 1, team 1) at the isolated origin and a stealthed
+    /// enemy luminary (player 2) 400 along +x (inside repulse range), well inside normal hero sight.
+    fn fixture() -> (World, SimulationDriver, specs::Entity, specs::Entity) {
+        let (mut w, mut driver) = world(SingleLaneConfig { seed: 37, mana_enabled: true,
+            heroes: ["training_grappler".into(), "training_luminary".into()], base_recovery_enabled: false,
+            wave_interval: Fixed64::from_i32(10_000), ..three_lane_config() }, SimulationTickProfile::Production60Hz);
+        driver.step(&mut w, []).unwrap();
+        let [caster, enemy] = hero_pair(&w);
+        place_hero(&mut w, caster, 0, isolated_skill_origin_y());
+        place_hero(&mut w, enemy, 400, isolated_skill_origin_y());
+        for hero in [caster, enemy] { set_hold(&mut w, hero); disarm_attack(&mut w, hero); }
+        {
+            let mut heroes = w.write_storage::<Hero>();
+            let hero = heroes.get_mut(caster).unwrap();
+            assert_eq!(hero.abilities[2], "lumen_flare");
+            for id in ["lumen_repulse", "lumen_flare"] { hero.ability_levels.insert(id.into(), 1); }
+            hero.level = 6;
+            let capacity = hero.moba_mana_capacity().unwrap();
+            hero.mana_pool = Some(ability_runtime::ManaPool::new(capacity, capacity).unwrap());
+        }
+        w.write_resource::<BuffStore>().add(enemy, "fixture_invisibility", Fixed64::from_i32(600),
+            serde_json::json!({"invisibility_level": Fixed64::ONE.raw()}));
+        (w, driver, caster, enemy)
+    }
+
+    fn sees(w: &mut World, team: u32, unit: specs::Entity) -> bool {
+        let tick = w.read_resource::<Tick>().0;
+        run_committed_visibility_wave_b(w, tick, 0);
+        w.read_resource::<TeamVisibilityRuntime>().teams.get(&team)
+            .is_some_and(|state| state.index.current.contains(&canonical_entity_id(unit)))
+    }
+
+    #[test]
+    fn flare_discloses_stealth_inside_for_its_duration_only() {
+        let (mut w, mut driver, _caster, enemy) = fixture();
+        assert!(!sees(&mut w, 1, enemy), "stealth hides the enemy from normal sight");
+        driver.step(&mut w, [(1, cast_flare(400))]).unwrap();
+        driver.step(&mut w, []).unwrap();
+        assert!(sees(&mut w, 1, enemy), "true sight discloses stealth inside the area");
+        // A live zone is future gameplay state: it is in the desync hash.
+        let digest = single_lane_replay_digest(&w);
+        let zone = |w: &mut World, delta: i64| w.write_resource::<omoba_core::runtime::native::reveal_zone::RevealZones>()
+            .zones.values_mut().next().expect("live zone").remaining += Fixed64::from_raw(delta);
+        zone(&mut w, 1);
+        assert_ne!(single_lane_replay_digest(&w), digest, "reveal zones are hashed");
+        zone(&mut w, -1);
+        // 4 s at 60 Hz; the zone closes on schedule.
+        let mut seen = 0;
+        for _ in 0..300 { driver.step(&mut w, []).unwrap(); if sees(&mut w, 1, enemy) { seen += 1; } }
+        assert!((230..=242).contains(&seen), "disclosed for the 4 s duration ({seen} ticks)");
+        assert!(!sees(&mut w, 1, enemy), "stealth returns after the area ends");
+    }
+
+    #[test]
+    fn flare_outside_reach_reveals_nothing_and_targeting_follows_disclosure() {
+        // Unit-target admission uses the team's projected disclosure, so every
+        // tick is projected like the live loop does.
+        let step = |w: &mut World, driver: &mut SimulationDriver, inputs: Vec<(u32, PlayerInput)>| {
+            let result = driver.step(w, inputs).unwrap(); project_tick(w, result);
+        };
+        for (flare_at, revealed) in [(-600, false), (400, true)] {
+            let (mut w, mut driver, _caster, enemy) = fixture();
+            step(&mut w, &mut driver, vec![]);
+            step(&mut w, &mut driver, vec![(1, cast_flare(flare_at))]);
+            step(&mut w, &mut driver, vec![]);
+            assert_eq!(sees(&mut w, 1, enemy), revealed, "an area 1000 away does not reach the enemy; one on it does");
+            // The server's input fog rule (disclosed and sighted at the latest wave B).
+            let admissible = w.read_resource::<TeamProjectionRuntime>().input_target_admissible(
+                &w.read_resource::<TeamVisibilityRuntime>(), 1, canonical_entity_id(enemy));
+            assert_eq!(admissible, revealed, "only a revealed enemy can be named as a target (flare at {flare_at})");
+            if revealed {
+                let hp = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+                step(&mut w, &mut driver, vec![(1, cast_repulse(enemy))]);
+                for _ in 0..5 { step(&mut w, &mut driver, vec![]); }
+                assert!(w.read_storage::<CProperty>().get(enemy).unwrap().hp < hp, "the revealed enemy takes the cast");
+            }
+        }
+    }
+
+    /// Both team replicas equal the authority every tick while the stealthed
+    /// enemy is disclosed by the flare and hidden again.
+    #[test]
+    fn flare_keeps_both_team_replicas_identical_every_tick() {
+        let seed = 37;
+        let (mut authority, mut driver, caster, enemy) = fixture();
+        let first = driver.step(&mut authority, []).unwrap(); project_tick(&mut authority, first);
+        let allow = TeamProjectorConfig::default().component_allowlist;
+        let starts = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+        let mut replicas: Vec<_> = starts.into_iter().map(|(team, start)| {
+            let replica = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start, allow.clone(), BTreeSet::new()).unwrap();
+            let mut stepper = SpecsDisclosedWorldStepper::from_start(&start, allow.clone(), BTreeSet::new());
+            stepper.script_registry.insert_manifest(crate::get_manifest());
+            populate_ability_registry(&mut stepper.filtered.world, &stepper.script_registry);
+            stepper.bootstrap_membership(replica.world()).unwrap();
+            (team, replica, stepper)
+        }).collect();
+        let (mut mismatches, mut disclosed) = (Vec::new(), 0);
+        for tick in 0..330u32 {
+            let inputs: Vec<(u32, PlayerInput)> = if tick == 0 { vec![(1, cast_flare(400))] } else { vec![] };
+            let accepted: Vec<_> = inputs.iter().map(|(player, input)| CanonicalAcceptedInput::from_authoritative_acceptance(
+                *player, *player, driver.tick() + 1, 4, canonical_entity_id(caster), None, input.encode_to_vec())).collect();
+            let result = driver.step(&mut authority, inputs.clone()).unwrap();
+            authority.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+            project_tick(&mut authority, result);
+            if authority.read_resource::<TeamVisibilityRuntime>().teams.get(&1)
+                .is_some_and(|state| state.index.current.contains(&canonical_entity_id(enemy))) { disclosed += 1; }
+            let frames = authority.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+            let expected = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+            for (team, replica, stepper) in &mut replicas {
+                if !matches!(replica.apply_frame(frames[team].frame.clone(), stepper), Ok(FrameApplyResult::Applied { .. })) {
+                    mismatches.push(format!("tick {tick} team {team}: frame not applied")); continue;
+                }
+                let view = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team], allow.clone(), BTreeSet::new()).unwrap();
+                if replica.canonical_team_hash() != view.canonical_team_hash() {
+                    for (id, entity) in &view.world().entities {
+                        for (schema, bytes) in &entity.components {
+                            if replica.world().entities.get(id).and_then(|e| e.components.get(schema)) != Some(bytes) {
+                                mismatches.push(format!("tick {tick} team {team} entity {id} schema {schema:#x}"));
+                            }
+                        }
+                    }
+                    if view.world().entities.len() != replica.world().entities.len() {
+                        mismatches.push(format!("tick {tick} team {team}: membership differs"));
+                    }
+                }
+            }
+        }
+        assert!((200..330).contains(&disclosed), "team 1 is disclosed the enemy only while revealed ({disclosed} ticks)");
+        assert!(mismatches.is_empty(), "{} divergent rows, first: {:?}", mismatches.len(), &mismatches[..mismatches.len().min(12)]);
+    }
+}
+
+/// Rejoin (E060 follow-up): a departed player's hero is held by one server Stop,
+/// and a team replica bootstrapped mid-match from the current team bootstrap (the
+/// rejoin TeamGameStart) matches the authority every tick, then obeys the
+/// rejoined player's next order.
+mod rejoin_replica {
+    use super::*;
+    use std::collections::BTreeSet;
+    use prost::Message;
+
+    fn move_to(x: i32, y: i32) -> PlayerInput {
+        PlayerInput { action: Some(PlayerInputEnum::MoveTo(MoveTo { target: Some(raw_point(x, y)), queued: false })) }
+    }
+    fn stop() -> PlayerInput { PlayerInput { action: Some(PlayerInputEnum::Stop(omoba_core::game_proto::Stop {})) } }
+    fn kind(input: &PlayerInput) -> u32 {
+        match input.action { Some(PlayerInputEnum::Stop(_)) => 21, _ => 2 }
+    }
+
+    #[test]
+    fn held_hero_and_mid_match_rejoin_bootstrap_keep_replicas_identical() {
+        let seed = 41;
+        let (mut authority, mut driver) = world(SingleLaneConfig { seed, mana_enabled: true, ..three_lane_config() },
+            SimulationTickProfile::Production60Hz);
+        let first = driver.step(&mut authority, []).unwrap(); project_tick(&mut authority, first);
+        let [hero, _] = hero_pair(&authority);
+        let start = authority.read_storage::<Pos>().get(hero).unwrap().0;
+        let far = |dx: i32| (start.x.to_f32_for_render() as i32 + dx, start.y.to_f32_for_render() as i32);
+        let step = |authority: &mut World, driver: &mut SimulationDriver, inputs: Vec<(u32, PlayerInput)>| {
+            let accepted: Vec<_> = inputs.iter().map(|(player, input)| CanonicalAcceptedInput::from_authoritative_acceptance(
+                *player, *player, driver.tick() + 1, kind(input), canonical_entity_id(hero), None, input.encode_to_vec())).collect();
+            let result = driver.step(authority, inputs).unwrap();
+            authority.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+            project_tick(authority, result);
+        };
+        // Playing: a long walk order.
+        let (x, y) = far(3000);
+        step(&mut authority, &mut driver, vec![(1, move_to(x, y))]);
+        for _ in 0..120 { step(&mut authority, &mut driver, vec![]); }
+        let walking = authority.read_storage::<Pos>().get(hero).unwrap().0;
+        assert_ne!(walking, start, "the order moves the hero");
+        // Link lost: the server holds the departed hero with one Stop.
+        step(&mut authority, &mut driver, vec![(1, stop())]);
+        for _ in 0..5 { step(&mut authority, &mut driver, vec![]); }
+        let held = authority.read_storage::<Pos>().get(hero).unwrap().0;
+        for _ in 0..240 { step(&mut authority, &mut driver, vec![]); }
+        assert_eq!(authority.read_storage::<Pos>().get(hero).unwrap().0, held, "a held hero no longer walks its old order");
+
+        // Rejoin: fresh team replicas from the current bootstrap, then every tick compared.
+        let allow = TeamProjectorConfig::default().component_allowlist;
+        let starts = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+        let mut replicas: Vec<_> = starts.into_iter().map(|(team, start)| {
+            let replica = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start, allow.clone(), BTreeSet::new()).unwrap();
+            let mut stepper = SpecsDisclosedWorldStepper::from_start(&start, allow.clone(), BTreeSet::new());
+            stepper.script_registry.insert_manifest(crate::get_manifest());
+            populate_ability_registry(&mut stepper.filtered.world, &stepper.script_registry);
+            stepper.bootstrap_membership(replica.world()).unwrap();
+            (team, replica, stepper)
+        }).collect();
+        let mut mismatches = Vec::new();
+        let (back_x, back_y) = far(-1500);
+        for tick in 0..300u32 {
+            // The rejoined player gives a new order: control is back.
+            let inputs = if tick == 30 { vec![(1, move_to(back_x, back_y))] } else { vec![] };
+            step(&mut authority, &mut driver, inputs);
+            let frames = authority.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+            let expected = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+            for (team, replica, stepper) in &mut replicas {
+                if !matches!(replica.apply_frame(frames[team].frame.clone(), stepper), Ok(FrameApplyResult::Applied { .. })) {
+                    mismatches.push(format!("tick {tick} team {team}: frame not applied")); continue;
+                }
+                let view = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team], allow.clone(), BTreeSet::new()).unwrap();
+                if replica.canonical_team_hash() != view.canonical_team_hash() {
+                    for (id, entity) in &view.world().entities {
+                        for (schema, bytes) in &entity.components {
+                            if replica.world().entities.get(id).and_then(|e| e.components.get(schema)) != Some(bytes) {
+                                mismatches.push(format!("tick {tick} team {team} entity {id} schema {schema:#x}"));
+                            }
+                        }
+                    }
+                    if view.world().entities.len() != replica.world().entities.len() {
+                        mismatches.push(format!("tick {tick} team {team}: membership differs"));
+                    }
+                }
+            }
+        }
+        assert_ne!(authority.read_storage::<Pos>().get(hero).unwrap().0, held, "the rejoined player's order moves the hero again");
+        assert!(mismatches.is_empty(), "{} divergent rows, first: {:?}", mismatches.len(), &mismatches[..mismatches.len().min(12)]);
+    }
+}
+
+/// split39 (team 2, tick 6120): an immobile turret turns toward its target in
+/// script dispatch, after this tick's movement. The owner team's replica never
+/// receives the enemy's orders, so an enemy that just changed direction is where
+/// the replica predicted, not where the authority moved it: the turret faces
+/// differently. Every replica takes the authority's committed summon pose.
+mod summon_facing_parity {
+    use super::*;
+    use super::swept_dash_formal::{cast_skill, setup_hero_skill};
+    use std::collections::BTreeSet;
+    use prost::Message;
+
+    fn move_to(x: Fixed64, y: Fixed64) -> PlayerInput {
+        PlayerInput { action: Some(PlayerInputEnum::MoveTo(MoveTo { target: Some(Vec2I { x: x.raw() as i32, y: y.raw() as i32 }), queued: false })) }
+    }
+
+    #[test]
+    fn a_turret_tracking_a_zigzagging_enemy_faces_the_same_in_every_replica() {
+        let seed = 21;
+        let (mut authority, mut driver, caster, origin) = setup_hero_skill(1, "lumen_sentry", "training_frost_mage");
+        let [_, enemy] = hero_pair(&authority);
+        set_hold(&mut authority, caster);
+        disarm_attack(&mut authority, caster);
+        let at = |x: i32, y: i32| origin + omoba_sim::Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y));
+        authority.write_storage::<Pos>().get_mut(enemy).unwrap().0 = at(500, 0);
+        disarm_attack(&mut authority, enemy);
+        cast_skill(&mut authority, &mut driver, caster, "lumen_sentry", Some(at(200, 0)), None);
+        let first = driver.step(&mut authority, []).unwrap(); project_tick(&mut authority, first);
+        let turret = (&authority.entities(), &authority.read_storage::<SummonedUnit>()).join()
+            .find(|(_, s)| s.summoner == caster).map(|(e, _)| e).expect("turret placed");
+        let allow = TeamProjectorConfig::default().component_allowlist;
+        let starts = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+        let mut replicas: Vec<_> = starts.into_iter().map(|(team, start)| {
+            let replica = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start, allow.clone(), BTreeSet::new()).unwrap();
+            let mut stepper = SpecsDisclosedWorldStepper::from_start(&start, allow.clone(), BTreeSet::new());
+            stepper.script_registry.insert_manifest(crate::get_manifest());
+            populate_ability_registry(&mut stepper.filtered.world, &stepper.script_registry);
+            stepper.bootstrap_membership(replica.world()).unwrap();
+            (team, replica, stepper)
+        }).collect();
+        let mut mismatches = Vec::new();
+        let mut facings = BTreeSet::new();
+        for tick in 0..240u32 {
+            // The enemy zigzags inside the turret's range with a new order every 5 ticks.
+            let inputs: Vec<(u32, PlayerInput)> = if tick % 5 == 0 {
+                let y = if (tick / 5) % 2 == 0 { 160 } else { -160 };
+                let target = at(520, y);
+                vec![(2, move_to(target.x, target.y))]
+            } else { vec![] };
+            let accepted: Vec<_> = inputs.iter().map(|(player, input)| CanonicalAcceptedInput::from_authoritative_acceptance(
+                *player, *player, driver.tick() + 1, 2, canonical_entity_id(enemy), None, input.encode_to_vec())).collect();
+            let result = driver.step(&mut authority, inputs.clone()).unwrap();
+            authority.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+            project_tick(&mut authority, result);
+            facings.insert(authority.read_storage::<Facing>().get(turret).unwrap().0.ticks());
+            let frames = authority.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+            let expected = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+            for (team, replica, stepper) in &mut replicas {
+                if !matches!(replica.apply_frame(frames[team].frame.clone(), stepper), Ok(FrameApplyResult::Applied { .. })) {
+                    mismatches.push(format!("tick {tick} team {team}: frame not applied")); continue;
+                }
+                let view = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team], allow.clone(), BTreeSet::new()).unwrap();
+                if replica.canonical_team_hash() != view.canonical_team_hash() {
+                    for (id, entity) in &view.world().entities {
+                        for (schema, bytes) in &entity.components {
+                            if replica.world().entities.get(id).and_then(|e| e.components.get(schema)) != Some(bytes) {
+                                mismatches.push(format!("tick {tick} team {team} entity {id} schema {schema:#x}"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(facings.len() >= 10, "the turret kept turning toward the moving enemy ({} facings)", facings.len());
+        assert!(mismatches.is_empty(), "{} divergent rows, first: {:?}", mismatches.len(), &mismatches[..mismatches.len().min(12)]);
+    }
+
+    /// E083: a summon's attack clock advances only while an enemy is in range.
+    /// The turret's own team predicts the enemy's position (it never receives
+    /// the enemy's orders), so an enemy at the edge of the range made the clock
+    /// count differently in that replica. The turret idles first, unseen by the
+    /// enemy team, then the enemy walks in (disclosure) and zigzags across the
+    /// range edge.
+    #[test]
+    fn a_turret_attack_clock_matches_in_every_replica_when_an_enemy_crosses_its_range_edge() {
+        let seed = 23;
+        let (mut authority, mut driver, caster, origin) = setup_hero_skill(1, "lumen_sentry", "training_frost_mage");
+        let [_, enemy] = hero_pair(&authority);
+        set_hold(&mut authority, caster);
+        disarm_attack(&mut authority, caster);
+        let at = |x: i32, y: i32| origin + omoba_sim::Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y));
+        // Far outside both teams' vision of each other.
+        authority.write_storage::<Pos>().get_mut(enemy).unwrap().0 = at(2600, 0);
+        disarm_attack(&mut authority, enemy);
+        cast_skill(&mut authority, &mut driver, caster, "lumen_sentry", Some(at(200, 0)), None);
+        let first = driver.step(&mut authority, []).unwrap(); project_tick(&mut authority, first);
+        let turret = (&authority.entities(), &authority.read_storage::<SummonedUnit>()).join()
+            .find(|(_, s)| s.summoner == caster).map(|(e, _)| e).expect("turret placed");
+        let range = (authority.read_storage::<TAttack>().get(turret).unwrap().range.v.raw() / 1024) as i32;
+        let allow = TeamProjectorConfig::default().component_allowlist;
+        let starts = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+        let mut replicas: Vec<_> = starts.into_iter().map(|(team, start)| {
+            let replica = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start, allow.clone(), BTreeSet::new()).unwrap();
+            let mut stepper = SpecsDisclosedWorldStepper::from_start(&start, allow.clone(), BTreeSet::new());
+            stepper.script_registry.insert_manifest(crate::get_manifest());
+            populate_ability_registry(&mut stepper.filtered.world, &stepper.script_registry);
+            stepper.bootstrap_membership(replica.world()).unwrap();
+            (team, replica, stepper)
+        }).collect();
+        let mut mismatches = Vec::new();
+        let mut clocks = BTreeSet::new();
+        for tick in 0..720u32 {
+            // Idle for 120 ticks, walk in, then cross the range edge every 20 ticks.
+            let inputs: Vec<(u32, PlayerInput)> = match tick {
+                120 => vec![(2, move_to(at(200 + range - 30, 0).x, origin.y))],
+                t if t >= 360 && t % 20 == 0 => {
+                    let x = if (t / 20) % 2 == 0 { 200 + range - 30 } else { 200 + range + 60 };
+                    vec![(2, move_to(at(x, 0).x, origin.y))]
+                }
+                _ => vec![],
+            };
+            let accepted: Vec<_> = inputs.iter().map(|(player, input)| CanonicalAcceptedInput::from_authoritative_acceptance(
+                *player, *player, driver.tick() + 1, 2, canonical_entity_id(enemy), None, input.encode_to_vec())).collect();
+            let result = driver.step(&mut authority, inputs.clone()).unwrap();
+            authority.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+            project_tick(&mut authority, result);
+            clocks.insert(authority.read_storage::<TAttack>().get(turret).unwrap().asd_count.raw());
+            let frames = authority.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+            let expected = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+            for (team, replica, stepper) in &mut replicas {
+                if !matches!(replica.apply_frame(frames[team].frame.clone(), stepper), Ok(FrameApplyResult::Applied { .. })) {
+                    mismatches.push(format!("tick {tick} team {team}: frame not applied")); continue;
+                }
+                let view = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team], allow.clone(), BTreeSet::new()).unwrap();
+                if replica.canonical_team_hash() != view.canonical_team_hash() {
+                    for (id, entity) in &view.world().entities {
+                        for (schema, bytes) in &entity.components {
+                            if replica.world().entities.get(id).and_then(|e| e.components.get(schema)) != Some(bytes) {
+                                mismatches.push(format!("tick {tick} team {team} entity {id} schema {schema:#x}"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(clocks.len() >= 20, "the turret's attack clock kept changing ({} values)", clocks.len());
+        assert!(mismatches.is_empty(), "{} divergent rows, first: {:?}", mismatches.len(), &mismatches[..mismatches.len().min(12)]);
+    }
+}
+
+/// autopilot-strength-after-9: the owner's replica predicts its hero's pose
+/// mid-tick (a step behind the authority when it collides with bodies it only
+/// predicts). A windup started that tick took the predicted pose as its origin;
+/// the post-step Movement fact then moved the hero to the authority's pose and
+/// the next tick cancelled the replica's windup as "moved", so it never set
+/// the cooldown the authority set (inahime's W, asai's Q).
+mod windup_parity {
+    use super::*;
+    use super::swept_dash_formal::setup_hero_skill;
+    use std::collections::BTreeSet;
+    use prost::Message;
+
+    #[test]
+    fn a_windup_started_where_the_replica_mispredicted_the_casters_pose_releases_on_every_replica() {
+        for (ability, hero) in [("a02_wind_prayer", "inahime"), ("b08_fang_slash", "asai_nagamasa")] {
+            let seed = 29;
+            let (mut authority, mut driver, caster, origin) = setup_hero_skill(1, ability, hero);
+            let slot = authority.read_storage::<Hero>().get(caster).unwrap().abilities.iter().position(|id| id == ability).unwrap() as u32;
+            let allow = TeamProjectorConfig::default().component_allowlist;
+            let first = driver.step(&mut authority, []).unwrap(); project_tick(&mut authority, first);
+            let starts = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+            let mut replicas: Vec<_> = starts.into_iter().map(|(team, start)| {
+                let replica = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start, allow.clone(), BTreeSet::new()).unwrap();
+                let mut stepper = SpecsDisclosedWorldStepper::from_start(&start, allow.clone(), BTreeSet::new());
+                stepper.script_registry.insert_manifest(crate::get_manifest());
+                populate_ability_registry(&mut stepper.filtered.world, &stepper.script_registry);
+                stepper.bootstrap_membership(replica.world()).unwrap();
+                (team, replica, stepper)
+            }).collect();
+            let mut mismatches = Vec::new();
+            for tick in 0..60u32 {
+                let inputs: Vec<(u32, PlayerInput)> = if tick == 5 {
+                    // The authority's pose this tick differs from what the
+                    // owner's replica predicts (the live case: one step, ~7 units).
+                    authority.write_storage::<Pos>().get_mut(caster).unwrap().0 =
+                        origin + omoba_sim::Vec2::new(Fixed64::from_raw(7037), Fixed64::from_raw(1499));
+                    let aim = origin + omoba_sim::Vec2::new(Fixed64::from_i32(400), Fixed64::ZERO);
+                    let target_pos = (ability == "b08_fang_slash").then(|| Vec2I { x: aim.x.raw() as i32, y: aim.y.raw() as i32 });
+                    vec![(1, PlayerInput { action: Some(PlayerInputEnum::CastAbility(CastAbility { ability_index: slot, target_entity: None, target_pos })) })]
+                } else { vec![] };
+                let accepted: Vec<_> = inputs.iter().map(|(player, input)| CanonicalAcceptedInput::from_authoritative_acceptance(
+                    *player, *player, driver.tick() + 1, 1, canonical_entity_id(caster), None, input.encode_to_vec())).collect();
+                let result = driver.step(&mut authority, inputs.clone()).unwrap();
+                authority.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+                project_tick(&mut authority, result);
+                let frames = authority.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+                let expected = authority.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(driver.tick() + 1, 60, seed);
+                for (team, replica, stepper) in &mut replicas {
+                    if !matches!(replica.apply_frame(frames[team].frame.clone(), stepper), Ok(FrameApplyResult::Applied { .. })) {
+                        mismatches.push(format!("{ability} tick {tick} team {team}: frame not applied")); continue;
+                    }
+                    let view = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team], allow.clone(), BTreeSet::new()).unwrap();
+                    if replica.canonical_team_hash() != view.canonical_team_hash() {
+                        for (id, entity) in &view.world().entities {
+                            for (schema, bytes) in &entity.components {
+                                if replica.world().entities.get(id).and_then(|e| e.components.get(schema)) != Some(bytes) {
+                                    mismatches.push(format!("{ability} tick {tick} team {team} entity {id} schema {schema:#x}"));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            assert!(authority.read_storage::<Hero>().get(caster).unwrap().get_cooldown(ability) > Fixed64::ZERO, "{ability} was cast");
+            assert!(mismatches.is_empty(), "{} divergent rows, first: {:?}", mismatches.len(), &mismatches[..mismatches.len().min(12)]);
+        }
+    }
+}
+
+/// hero-port-8 w2：B08 淺井長政與 C17 阿市照原作移植的整合驗證（實際比賽 tick、
+/// 物品使用掛點、command_restricted、兩隊 replica 一致）。
+mod hero_port8_asai_oichi {
+    use super::*;
+    use live_soak_replica_parity::{soak_at_level,cast,cast_at,attack_move};
+
+    fn buy(id:&str)->PlayerInput {PlayerInput {action:Some(PlayerInputEnum::ItemBuy(ItemBuy {item_id:id.into()}))}}
+    fn use_item(slot:u32)->PlayerInput {item_use(slot,None,None,None).1}
+
+    /// `hero` (player 1) and a training luminary held in place, away from lanes and camps.
+    fn fixture(hero:&str,level:u32)->(World,SimulationDriver,specs::Entity,specs::Entity,omoba_sim::Vec2) {fixture_with(hero,level,&[])}
+    /// `items` are bought at the spawn (shop range) before the heroes move away.
+    fn fixture_with(hero:&str,level:u32,items:&[&str])->(World,SimulationDriver,specs::Entity,specs::Entity,omoba_sim::Vec2) {
+        let (mut w,mut driver)=world(SingleLaneConfig {seed:23,mana_enabled:true,heroes:[hero.into(),"training_luminary".into()],
+            base_recovery_enabled:false,wave_interval:Fixed64::from_i32(10_000),..three_lane_config()},SimulationTickProfile::Production60Hz);
+        driver.step(&mut w,[]).unwrap();
+        let [owner,enemy]=hero_pair(&w);
+        w.write_storage::<Hero>().get_mut(owner).unwrap().level=level as _;
+        w.write_storage::<Gold>().get_mut(owner).unwrap().0=5000;
+        driver.step(&mut w,items.iter().map(|id|(1,buy(id))).collect::<Vec<_>>()).unwrap();
+        // Fixture mana independent of the hero's base/attribute mana (三圍 rules are not final).
+        w.write_resource::<BuffStore>().add(owner,"port8_fixture_mana",Fixed64::from_i32(1000),
+            serde_json::json!({"mana_bonus":Fixed64::from_i32(2000).raw()}));
+        {let mut heroes=w.write_storage::<Hero>();let h=heroes.get_mut(owner).unwrap();
+            let max=h.moba_mana_capacity().unwrap()+Fixed64::from_i32(2000);h.mana_pool=Some(ability_runtime::ManaPool::new(max,max).unwrap());}
+        let origin=omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(isolated_skill_origin_y()));
+        w.write_storage::<Pos>().get_mut(owner).unwrap().0=origin;
+        w.write_storage::<Pos>().get_mut(enemy).unwrap().0=origin+omoba_sim::Vec2::new(Fixed64::from_i32(600),Fixed64::ZERO);
+        for unit in [owner,enemy] {w.write_storage::<MoveTarget>().remove(unit);set_hold(&mut w,unit);disarm_attack(&mut w,unit);}
+        (w,driver,owner,enemy,origin)
+    }
+
+    fn slot_of(w:&World,hero:specs::Entity,id:&str)->u32 {
+        w.read_storage::<Hero>().get(hero).unwrap().abilities.iter().position(|a|a==id).unwrap() as u32
+    }
+
+    /// B08D：18 次瞬移、18 顆刀牙全部命中被暈在原地的目標（每顆同樣的傷害），1.9 秒回到目標原位置。
+    #[test]
+    fn endless_fang_cuts_the_stunned_target_eighteen_times_and_returns_to_its_point() {
+        let (mut w,mut driver,asai,enemy,_)=fixture("asai_nagamasa",16);
+        assert_eq!(w.read_storage::<Hero>().get(asai).unwrap().get_ability_level("b08_endless_fang"),1,"auto-learned at 16");
+        {let mut props=w.write_storage::<CProperty>();let p=props.get_mut(enemy).unwrap();p.mhp=Fixed64::from_i32(20_000);p.hp=Fixed64::from_i32(20_000);}
+        let center=w.read_storage::<Pos>().get(enemy).unwrap().0;
+        let slot=slot_of(&w,asai,"b08_endless_fang");
+        driver.step(&mut w,[(1,cast(slot,Some(enemy)))]).unwrap();
+        let mut drops=Vec::new();let mut last=hp_of(&w,enemy);let mut away=false;
+        for _ in 0..300 {
+            driver.step(&mut w,[]).unwrap();
+            let now=hp_of(&w,enemy);
+            if now<last {drops.push(last-now);}
+            last=now;
+            if w.read_storage::<Pos>().get(asai).unwrap().0!=w.read_storage::<Pos>().get(enemy).unwrap().0 {away=true;}
+        }
+        assert!(away,"the caster leaves for the ring");
+        assert_eq!(drops.len(),18,"eighteen blades: {drops:?}");
+        assert!(drops.iter().all(|d|*d==drops[0]),"each blade deals the same 100 magical: {drops:?}");
+        assert_eq!(w.read_storage::<Pos>().get(asai).unwrap().0,center,"back on the target's original point");
+        assert!(w.read_storage::<Hero>().get(asai).unwrap().get_cooldown("b08_endless_fang")>Fixed64::ZERO);
+    }
+
+    fn hp_of(w:&World,e:specs::Entity)->Fixed64 {w.read_storage::<CProperty>().get(e).unwrap().hp}
+
+    /// B08W：施放後 0.1 秒內新的移動指令被忽略；之後恢復。
+    #[test]
+    fn fang_slash_restricts_new_orders_for_a_tenth_of_a_second() {
+        let (mut w,mut driver,asai,_,origin)=fixture("asai_nagamasa",1);
+        let slot=slot_of(&w,asai,"b08_fang_slash");
+        let aim=origin+omoba_sim::Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO);
+        driver.step(&mut w,[(1,cast_at(slot,aim))]).unwrap();
+        let mut restricted_ticks=0;
+        for _ in 0..30 {
+            if w.read_resource::<BuffStore>().has(asai,omoba_core::runtime::native::command_restriction::BUFF) {restricted_ticks+=1;}
+            driver.step(&mut w,[]).unwrap();
+        }
+        assert!((5..=7).contains(&restricted_ticks),"about 0.1 s at 60 Hz, got {restricted_ticks}");
+        assert!(w.read_storage::<Hero>().get(asai).unwrap().get_cooldown("b08_fang_slash")>Fixed64::ZERO);
+    }
+
+    /// B08R／C17D：物品主動使用也觸發持有者的 on_skill_cast（OnAbilityExecuted）。
+    #[test]
+    fn an_item_use_triggers_living_soul_and_devotion() {
+        for hero in ["asai_nagamasa","oichi"] {
+            let (mut w,mut driver,owner,_,_)=fixture_with(hero,1,&["moba_stride_charm"]);
+            assert!(w.read_storage::<Inventory>().get(owner).unwrap().slots[0].is_some(),"{hero}: bought");
+            let mhp=w.read_storage::<CProperty>().get(owner).unwrap().mhp;
+            w.write_storage::<CProperty>().get_mut(owner).unwrap().hp=Fixed64::from_raw(mhp.raw()/2);
+            let before=hp_of(&w,owner);
+            driver.step(&mut w,[(1,use_item(0))]).unwrap();
+            driver.step(&mut w,[]).unwrap();
+            match hero {
+                "asai_nagamasa"=>assert!(w.read_resource::<BuffStore>().has(owner,"b08_living_soul_buff"),"living soul from an item"),
+                _=>assert!(hp_of(&w,owner)-before>=Fixed64::from_raw(mhp.raw()*51/1024),"devotion restores 5% max HP after an item: before {before:?} after {:?} max {mhp:?} learned {}",
+                    hp_of(&w,owner),w.read_resource::<BuffStore>().has(owner,"c17_devotion")),
+            }
+        }
+    }
+
+    /// 兩隊 replica 每 tick 一致：16 級全技能（含 D 欄連牙斷空）、光鍊結算、物品掛點。
+    #[test]
+    fn port8_kits_with_items_and_endless_fang_keep_team_replicas_identical() {
+        for hero in ["asai_nagamasa","oichi"] {
+            let schedule=|tick:u32,pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+                match tick {
+                    0=>vec![(1,buy("moba_stride_charm")),(2,buy("moba_stride_charm"))],
+                    t if t%600==6=>vec![(1,attack_move(b)),(2,attack_move(a))],
+                    t if t%600==300=>vec![(1,attack_move(a)),(2,attack_move(b))],
+                    t if t>6 && t%120==10=>vec![(1,cast(0,Some(pair[1]))),(1,cast_at(0,b))],
+                    t if t>6 && t%120==30=>vec![(1,cast(4,Some(pair[1]))),(1,use_item(0))],
+                    t if t>6 && t%120==60=>vec![(1,cast(1,Some(pair[1]))),(1,cast(1,Some(pair[0])))],
+                    t if t>6 && t%120==80=>vec![(1,cast_at(2,b)),(1,cast(3,None)),(1,cast_at(3,b))],
+                    _=>vec![],
+                }
+            };
+            let mismatches=soak_at_level([hero,"training_luminary"],2400,16,&schedule);
+            assert!(mismatches.is_empty(),"{hero}: {:#?}",mismatches);
+        }
+    }
+}
+
+/// M5 conformance baseline: v3 document scenarios against the current Rust handlers (E207).
+#[path = "v3_conformance_tests.rs"]
+mod v3_conformance;
+
+/// E242: tree cuts reach every replica on the same step.
+#[path = "tree_cut_replica_tests.rs"]
+mod tree_cut_replica;
+
+/// E243: a dropped gold bag is taken identically on every replica.
+#[path = "pickup_replica_tests.rs"]
+mod pickup_replica;
+
+/// items.dll (M7): a scripted item's use runs its generated effect and commits the cooldown with
+/// it; a use whose effect cannot run spends nothing.
+mod scripted_item_use {
+    use super::*;
+
+    fn give(w: &mut World, hero: specs::Entity, item: &str) {
+        w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0] =
+            Some(ItemInstance { item_id: item.into(), cooldown_remaining: 0.0 });
+    }
+    fn slot_cooldown(w: &World, hero: specs::Entity) -> f32 {
+        w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().map_or(-1.0, |i| i.cooldown_remaining)
+    }
+
+    #[test]
+    fn a_scripted_self_item_applies_its_status_and_starts_its_cooldown() {
+        let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+        d.step(&mut w, []).unwrap();
+        let [hero, _] = hero_pair(&w);
+        set_hold(&mut w, hero);
+        give(&mut w, hero, "the_poketto_of_meiso");
+        // the catalog's own active is gone: only the generated script can produce the status
+        { let mut reg = w.write_resource::<ItemRegistry>(); let cfg = reg.items.get_mut("the_poketto_of_meiso").unwrap();
+          let mut cfg2 = (**cfg).clone(); cfg2.active = None; *cfg = std::sync::Arc::new(cfg2); }
+        let cooldown = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|i| i.id == "the_poketto_of_meiso").unwrap().cooldown;
+        d.step(&mut w, [item_use(0, None, None, None)]).unwrap();
+        for _ in 0..3 { if w.read_resource::<BuffStore>().has(hero, "modifier_poketto_of_meiso") { break; } d.step(&mut w, []).unwrap(); }
+        assert!(w.read_resource::<BuffStore>().has(hero, "modifier_poketto_of_meiso"), "the generated effect ran");
+        assert!(slot_cooldown(&w, hero) > 0.0 && slot_cooldown(&w, hero) <= cooldown.to_f32_for_render(), "the use committed its cooldown");
+        // on cooldown: a second use is not admitted and changes nothing
+        let before = slot_cooldown(&w, hero);
+        d.step(&mut w, [item_use(0, None, None, None)]).unwrap();
+        assert!(slot_cooldown(&w, hero) < before);
+    }
+
+    fn duel(w: &mut World, d: &mut SimulationDriver) -> (specs::Entity, specs::Entity) {
+        d.step(w, []).unwrap();
+        let [hero, enemy] = hero_pair(w);
+        let y = isolated_skill_origin_y();
+        for e in [hero, enemy] { set_hold(w, e); disarm_attack(w, e); }
+        place_hero(w, hero, 0, y);
+        place_hero(w, enemy, 300, y);
+        let tick = w.read_resource::<Tick>().0;
+        run_committed_visibility_wave_b(w, tick, 0);
+        (hero, enemy)
+    }
+
+    #[test]
+    fn an_item_aura_lives_from_the_first_copy_to_the_last() {
+        const SLOW: &str = "spear_spider_slow";
+        let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+        let (hero, enemy) = duel(&mut w, &mut d);
+        let run = |w: &mut World, d: &mut SimulationDriver, ticks: u32| for _ in 0..ticks { d.step(w, []).unwrap(); };
+        give(&mut w, hero, "the_spear_of_spiders");
+        run(&mut w, &mut d, 60);
+        assert!(w.read_resource::<BuffStore>().has(enemy, SLOW), "the first copy starts the aura");
+        // a second copy: losing the first keeps the aura
+        w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[1] =
+            Some(ItemInstance { item_id: "the_spear_of_spiders".into(), cooldown_remaining: 0.0 });
+        run(&mut w, &mut d, 5);
+        w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0] = None;
+        run(&mut w, &mut d, 120);
+        assert!(w.read_resource::<BuffStore>().has(enemy, SLOW), "one copy left, the aura stays");
+        // the last copy sold: the status runs out and nothing renews it
+        w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[1] = None;
+        run(&mut w, &mut d, 120);
+        assert!(!w.read_resource::<BuffStore>().has(enemy, SLOW), "the last copy ends the aura");
+        // bought again: it starts again
+        give(&mut w, hero, "the_spear_of_spiders");
+        run(&mut w, &mut d, 60);
+        assert!(w.read_resource::<BuffStore>().has(enemy, SLOW), "a new first copy starts it again");
+    }
+
+    #[test]
+    fn an_item_instance_status_goes_with_the_last_copy_and_its_unique_speed_stays_the_catalogs() {
+        // independent: its rows are `<runtime id>#<n>`
+        fn rows(w: &World, hero: specs::Entity, status: &str) -> Vec<serde_json::Value> {
+            w.read_resource::<BuffStore>().stat_rows(hero).filter(|(id, _)| id.starts_with(status))
+                .map(|(_, entry)| entry.payload.clone()).collect()
+        }
+        const POOL: &str = "magic_defence_boots_pool";
+        const SPEED: &str = "magic_defence_boots_unique_ms";
+        let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+        let (hero, _) = duel(&mut w, &mut d);
+        give(&mut w, hero, "magic_defence_boots");
+        for _ in 0..3 { d.step(&mut w, []).unwrap(); }
+        assert!(!rows(&w, hero, POOL).is_empty(), "made with the first copy");
+        assert!(rows(&w, hero, SPEED).iter().all(|payload| payload.get("move_speed_bonus").is_none()),
+            "the catalog's unique passive holds the speed, the status adds none");
+        w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0] = None;
+        for _ in 0..3 { d.step(&mut w, []).unwrap(); }
+        assert!(rows(&w, hero, POOL).is_empty(), "gone with the last copy");
+    }
+
+    #[test]
+    fn an_item_whose_source_key_has_capitals_still_runs_its_script() {
+        let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+        let (hero, _) = duel(&mut w, &mut d);
+        give(&mut w, hero, "hannya_onimaru");
+        for _ in 0..3 { d.step(&mut w, []).unwrap(); }
+        assert!(w.read_resource::<BuffStore>().stat_rows(hero).any(|(id, _)| id.starts_with("hannya_onimaru_pool")),
+            "item_Hannya_Onimaru's script ran on equip");
+    }
+
+    /// `hero` attacks `enemy` for `ticks`, holding only `item`.
+    fn attack_with(w: &mut World, d: &mut SimulationDriver, hero: specs::Entity, enemy: specs::Entity, item: &str, ticks: u32) {
+        give(w, hero, item);
+        w.write_storage::<TAttack>().get_mut(hero).unwrap().asd_count = Fixed64::ZERO;
+        let order = PlayerInput { action: Some(PlayerInputEnum::AttackTarget(AttackTarget { target_id: enemy.id(), queued: false })) };
+        d.step(w, [(1, order)]).unwrap();
+        for _ in 0..ticks { d.step(w, []).unwrap(); }
+    }
+
+    /// `is_hero_id(self, b04)`: the spear of ghost's melee share is for a melee hero that is not B04.
+    #[test]
+    fn is_hero_id_tells_the_named_hero_from_another() {
+        fn lost(template: &str) -> Fixed64 {
+            let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+            let (hero, enemy) = duel(&mut w, &mut d);
+            w.write_storage::<Hero>().get_mut(hero).unwrap().id = template.into();
+            // both melee: only the hero's id can tell the shares apart
+            w.write_storage::<TAttack>().get_mut(hero).unwrap().range.v = Fixed64::from_i32(100);
+            place_hero(&mut w, enemy, 80, isolated_skill_origin_y());
+            { let mut props = w.write_storage::<CProperty>(); let p = props.get_mut(enemy).unwrap();
+              p.hp = Fixed64::from_i32(50000); p.mhp = p.hp; }
+            attack_with(&mut w, &mut d, hero, enemy, "the_spear_of_ghost", 600);
+            let left = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+            Fixed64::from_i32(50000) - left
+        }
+        let (other, b04) = (lost("tamako"), lost("date_masamune"));
+        assert!(other > Fixed64::ZERO && b04 > Fixed64::ZERO, "both attacked: {other:?} {b04:?}");
+        assert!(other > b04, "another melee hero takes the melee share, B04 the ranged one: {other:?} {b04:?}");
+    }
+
+    /// `when = "self.is_hero"`: sukemune's status is on every unit it hits, its resist cut only on a hero.
+    #[test]
+    fn a_status_stat_with_when_counts_only_where_it_holds() {
+        fn cut(on_hero: bool) -> Option<serde_json::Value> {
+            let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+            let (hero, enemy) = duel(&mut w, &mut d);
+            if !on_hero { w.write_storage::<Hero>().remove(enemy); }
+            attack_with(&mut w, &mut d, hero, enemy, "sukemune", 300);
+            let buffs = w.read_resource::<BuffStore>();
+            let row = buffs.get(enemy, "sukemune_resist_cut").expect("the status is on the unit it hit");
+            row.payload.get(omb_script_abi::stat_keys::StatKey::MagicResistancePool.as_str()).cloned()
+        }
+        assert!(cut(true).is_some(), "the cut is on a hero");
+        assert!(cut(false).is_none(), "no cut on a unit that is no hero");
+    }
+
+    /// outgoing_damage_pct has no catalog field: the item's script holds it, first copy to last.
+    #[test]
+    fn a_passive_stat_without_a_catalog_field_lives_on_the_items_marker() {
+        let key = omb_script_abi::stat_keys::StatKey::DamageOutgoingPercentage;
+        let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+        let (hero, _) = duel(&mut w, &mut d);
+        let held = |w: &World| w.read_resource::<BuffStore>().stat_rows(hero).any(|(_, entry)| entry.payload.get(key.as_str()).is_some());
+        assert!(!held(&w), "nothing before the item");
+        give(&mut w, hero, "true_katana");
+        for _ in 0..3 { d.step(&mut w, []).unwrap(); }
+        assert!(held(&w), "the stat is on the holder");
+        w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0] = None;
+        for _ in 0..3 { d.step(&mut w, []).unwrap(); }
+        assert!(!held(&w), "gone with the last copy");
+    }
+
+    #[test]
+    fn only_an_item_whose_target_admits_magic_immune_reaches_a_magic_immune_enemy() {
+        let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+        let (hero, enemy) = duel(&mut w, &mut d);
+        assert!(magic_immunity::grant(&w, enemy, Fixed64::from_i32(30)), "immune enemy");
+        give(&mut w, hero, "lightning_scroll");
+        d.step(&mut w, [item_use(0, None, Some(enemy.id()), None)]).unwrap();
+        d.step(&mut w, []).unwrap();
+        assert_eq!(slot_cooldown(&w, hero), 0.0, "lightning scroll refuses a magic immune target");
+        give(&mut w, hero, "the_great_sword_of_tiger");
+        d.step(&mut w, [item_use(0, None, Some(enemy.id()), None)]).unwrap();
+        for _ in 0..3 { if slot_cooldown(&w, hero) > 0.0 { break; } d.step(&mut w, []).unwrap(); }
+        assert!(slot_cooldown(&w, hero) > 0.0, "the tiger sword is admitted and committed");
+    }
+
+    #[test]
+    fn a_unit_item_without_buildings_in_its_types_does_not_work_on_a_building() {
+        let (mut w, mut d) = world(fast_config(), SimulationTickProfile::Production60Hz);
+        let (hero, enemy) = duel(&mut w, &mut d);
+        give(&mut w, hero, "lightning_scroll");
+        let hp = |w: &World| w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+        // the same use on a unit that is no building lands and commits
+        let before = hp(&w);
+        d.step(&mut w, [item_use(0, None, Some(enemy.id()), None)]).unwrap();
+        for _ in 0..30 { d.step(&mut w, []).unwrap(); }
+        assert!(hp(&w) < before, "the lightning hits a hero");
+        assert!(slot_cooldown(&w, hero) > 0.0, "the use on a hero commits");
+        w.write_storage::<IsBuilding>().insert(enemy, IsBuilding).unwrap();
+        give(&mut w, hero, "lightning_scroll");
+        let before = hp(&w);
+        d.step(&mut w, [item_use(0, None, Some(enemy.id()), None)]).unwrap();
+        for _ in 0..30 { d.step(&mut w, []).unwrap(); }
+        assert_eq!(hp(&w), before, "no damage on a building");
+        assert_eq!(slot_cooldown(&w, hero), 0.0, "a failed use spends nothing");
+    }
 }

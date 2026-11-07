@@ -24,5 +24,75 @@ return function(ctx)
       follow_stop_distance = 350.0,
       target_priority = "owner_focus",
     },
+    -- Append-only G-3 fixed emplacement: never moves; attack +10 per owner level.
+    {
+      id = "lumen_sentry_turret",
+      ue = {native_only=true,native_visual=visual},
+      display_name = "晨光哨塔",
+      hp = 350.0,
+      damage = 30.0,
+      duration = 30.0,
+      move_speed = 0.0,
+      attack_range = 600.0,
+      attack_interval = 1.0,
+      armor = 3.0,
+      magic_resistance = 0.0,
+      collision_radius = 24.0,
+      vision_radius = 700.0,
+      immobile = true,
+      damage_per_owner_level = 10.0,
+      owner_death = "expire",
+    },
+    -- Append-only v3 create_illusion body (omoba-core illusion.rs): the envelope replaces every
+    -- number below with the copied unit's in the spawn batch, so they only bound the spawn itself.
+    {
+      id = "illusion",
+      ue = {native_only=true,native_visual=visual},
+      display_name = "幻象",
+      hp = 1.0,
+      damage = 0.0,
+      duration = 0.0,
+      move_speed = 300.0,
+      attack_range = 100.0,
+      attack_interval = 1.0,
+      armor = 0.0,
+      magic_resistance = 0.0,
+      collision_radius = 24.0,
+      vision_radius = 0.0,
+      follow_start_distance = 750.0,
+      follow_stop_distance = 350.0,
+    },
+    -- Append-only shared dummy (原作 dummy／majia, omoba-core dummy_unit.rs): a status and aura
+    -- holder for every hero and item; the cast gives its lifetime. Heroes may author their own.
+    {
+      id = "dummy",
+      ue = {native_only=true,native_visual=visual},
+      display_name = "標記",
+      dummy = true,
+      immobile = true,
+    },
+    -- @hero_author:authored-include (scripts/hero_author.lua build): authored summons appended last.
+    (function()
+      local out = {}
+      local visuals = ctx.include('templates/moba_native_visuals.lua')
+      for _, summon in ipairs(ctx.include('templates/authored_heroes.lua').summons or {}) do
+        local row = {}
+        for key, value in pairs(summon) do row[key] = value end
+        local profile = row.native_visual_profile
+        row.native_visual_profile = nil
+        if profile then
+          local base = assert(visuals[profile], 'unknown native visual profile ' .. tostring(profile))
+          local visual = {}
+          for key, value in pairs(base) do visual[key] = value end
+          row.ue = { native_only = true, native_visual = visual }
+        end
+        out[#out + 1] = row
+      end
+      -- v3 unit_templates (scripts/v3_summons.lua, E326): the summons the documents declare; an id
+      -- above keeps its row. Appended here: only a table constructor's last call expands to all
+      -- its values, so a second call field would cut this one to its first row (E341)
+      for _, row in ipairs(ctx.include('templates/v3_summons.lua')) do out[#out + 1] = row end
+      return table.unpack(out)
+    end)(),
   }
 end

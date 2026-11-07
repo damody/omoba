@@ -12,14 +12,18 @@ end
 engine=p.absolute(assert(engine,'--ue-root required'),b.root)
 assert(type(id)=='string' and #id<=80 and id:match('^[%w_-]+$'),'fresh bounded --run-id required')
 local project=p.join(b.root,'omfue/om.uproject');require('ue_binary_preflight').require_ready(engine,project)
-require('moba_stage_contract').verify(require('moba_stage_contract').bindings(b.root))
+-- Bridge against its stage record, base_content as this run's own copy, Unreal from a run
+-- snapshot rather than live omfue (E116, E124, E127).
+require('ue_bridge_stage').verify_launch(b.root)
 r.supervise_workflow(source,arg)
+local staged=require('run_artifacts').stage_base_content(b.root,p.join(b.root,'target','original-audio-output',id))
+local snapshot=require('ue_run_snapshot').prepare(b.root,nil,{base_content=staged.dll})
 local evidence=p.join(b.root,'.ai-collab/original-audio-output',id)
 local output=p.join(b.root,'omfue/Saved/Automation/OriginalAudio',id)
 assert(not p.exists(evidence) and not p.exists(output),'fresh audio output evidence required');p.mkdir_p(evidence)
 local report={schema='omoba.original-audio-output-summary.v1',run_id=id,success=false,authority_games=0,no_sound_flag=false,physical_speaker_audibility_verified=false}
 local ok,err=xpcall(function()
- local args={project,'-unattended','-nop4','-nosplash','-d3d12','-AudioMixer','-NoLiveCoding',
+ local args={snapshot.uproject,'-unattended','-nop4','-nosplash','-d3d12','-AudioMixer','-NoLiveCoding',
   -- This owned realtime recorder must render while its unattended window is unfocused.
   -- Engine command-line config is process-local; preserve user focus and persistent settings.
   '-ini:Engine:[Audio]:UnfocusedVolumeMultiplier=1.0',
@@ -27,7 +31,7 @@ local ok,err=xpcall(function()
   '-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.LevelEditorMiscSettings]:EditorVolumeLevel=1.0',
   '-om-original-audio-output='..id,'-ExecCmds=Automation RunTests Om.Runtime.OriginalAudioOutput',
   '-TestExit=Automation Test Queue Empty','-ReportExportPath='..p.join(evidence,'native-report'),'-abslog='..p.join(evidence,'native-engine.log')}
- local result=r.run(p.join(engine,'Engine/Binaries/Win64/UnrealEditor-Cmd.exe'),args,{cwd=p.join(b.root,'omfue'),check=false})
+ local result=r.run(p.join(engine,'Engine/Binaries/Win64/UnrealEditor-Cmd.exe'),args,{cwd=snapshot.project_dir,check=false})
  report.process_exit=result.exit_code
  p.write(p.join(evidence,'stdout.log'),result.stdout or '',false,true);p.write(p.join(evidence,'stderr.log'),result.stderr or '',false,true)
  assert(result.exit_code==0,'audio-enabled editor failed: '..tostring(result.exit_code))
@@ -40,7 +44,8 @@ local ok,err=xpcall(function()
  local expected={['routed-mix']=true,['master-muted']=false,['ambient-restored']=true,['voice-routed']=true,['voice-muted']=false}
  local captures={}
  for _,row in ipairs(actual.recordings)do
-  local file=p.absolute(row.file,b.root);local name=assert(file:match('([^/\\]+)%.wav$'),'recording WAV name missing')
+  -- Unreal runs from a snapshot and reports the WAVs through its junctions (E137).
+  local file=require('ue_run_snapshot').live_path(b.root,row.file);local name=assert(file:match('([^/\\]+)%.wav$'),'recording WAV name missing')
   assert(expected[name]~=nil and file:gsub('\\','/'):lower()==p.join(output,name..'.wav'):gsub('\\','/'):lower(),'unexpected recording path or duplicate')
   local nonzero=expected[name];expected[name]=nil
   local data=assert(p.read(file,true));assert(#data>=48 and #data<=32*1024*1024,'recorded PCM size invalid')

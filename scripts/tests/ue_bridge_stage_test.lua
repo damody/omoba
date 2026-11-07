@@ -15,6 +15,7 @@ local function verify(built, staged, base_built, base_staged, missing_copy, biom
       is_file = function(file) return files[file] ~= nil end},
     process = {run = function() process_calls = process_calls + 1; error('unexpected process') end},
     platform = {},
+    json = {decode = function() error('no stage record fixture') end},
     hash = {sha256 = function(file)
       hash_calls = hash_calls + 1
       return assert(files[file], 'missing DLL fixture')
@@ -26,6 +27,8 @@ local function verify(built, staged, base_built, base_staged, missing_copy, biom
     require = function(name)
       if name == 'moba_stage_contract' then
         return assert(loadfile('scripts/moba_stage_contract.lua', 't', env))()
+      elseif name == 'ue_bridge_stage' then
+        return assert(loadfile('scripts/ue_bridge_stage.lua', 't', env))()
       elseif name == 'ue_engine_bootstrap' then
         return assert(loadfile('scripts/ue_engine_bootstrap.lua', 't', env))()
       elseif name == 'ue_map_biome_materials' then
@@ -45,6 +48,9 @@ local function verify(built, staged, base_built, base_staged, missing_copy, biom
           assert(root == 'fixture'); voice_calls = voice_calls + 1
           assert(voice_ready ~= false, 'voice fixture unavailable'); return 4
         end}
+      elseif name == 'build_lock' then
+        -- The repo build lock (E106) is filesystem state; verify-only needs a no-op guard.
+        return {acquire = function() return setmetatable({}, {__close = function() end}) end}
       end
       assert(name == '_bootstrap')
       return {root = 'fixture', lib = function(key) return assert(modules[key]) end}
@@ -60,10 +66,10 @@ local ok, message = verify(string.rep('a', 64), string.rep('b', 64))
 assert(not ok and message:find('staged bridge differs', 1, true))
 assert(not verify(nil, string.rep('a', 64)))
 local a, c = string.rep('a',64), string.rep('c',64)
-ok, message = verify(a,a,a,c)
-assert(not ok and message:find('staged base_content differs',1,true))
-assert(not verify(a,a,a,a,'fixture/scripts/base_content.dll'))
-assert(not verify(a,a,a,a,'fixture/omfue/Plugins/OmRuntime/Binaries/Win64/base_content.dll'))
+-- E124: a launch runs its own base_content copy, so neither shared copy is checked any more.
+assert(verify(a,a,a,c), 'a stale shared base_content no longer blocks a launch')
+assert(verify(a,a,a,a,'fixture/scripts/base_content.dll'))
+assert(verify(a,a,a,a,'fixture/omfue/Plugins/OmRuntime/Binaries/Win64/base_content.dll'))
 local calls
 ok, message, calls = verify(a,a,a,a,nil,false)
 assert(not ok and message:find('biome fixture unavailable',1,true) and calls == 1)

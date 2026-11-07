@@ -11,8 +11,8 @@ use rayon::prelude::*;
 use serde::Serialize;
 
 use crate::runtime::native::comp::{
-    line_of_sight, LosResult, RememberDisposition, ReplicationScopeKind, VisibilityOverrideKind,
-    VisionOccluder,
+    IndexedVisionOccluders, LineOfSight, LosResult, RememberDisposition, ReplicationScopeKind,
+    VisibilityOverrideKind, VisionOccluder,
 };
 use crate::runtime::{OrderedFact, OrderedOutput, StableOutputError};
 use specs::{Join, World, WorldExt};
@@ -46,6 +46,67 @@ pub const DISCLOSED_WARD_BODY_COMPONENT_SCHEMA_ID: u32 = 0x464f4714;
 /// Presentation template identity only. Does not bind or execute a script.
 /// Version, ASCII byte length, then a bounded author-defined template name.
 pub const DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID: u32 = 0x464f4715;
+
+/// Version 1, then 1 when the opposing team currently has the unit disclosed (v3 `is_visible_to`
+/// of an own unit and an enemy, E312). Kept only for the unit's own team (`team_safe_components`):
+/// the opposing team learns nothing it does not already see.
+pub const DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID: u32 = 0x464f4719;
+
+pub fn encode_disclosed_enemy_sight(seen: bool) -> Vec<u8> { vec![1, u8::from(seen)] }
+
+/// Version 1, then the unit's public targeting states (E460): every team that sees the unit sees
+/// them (原作 magic immunity, unselectable and invulnerable all show on the unit), so a bot does not
+/// aim a unit cast the authority refuses. Absent when the unit has none of them.
+pub const DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID: u32 = 0x464f471b;
+pub const TARGET_STATE_MAGIC_IMMUNE: u8 = 1;
+pub const TARGET_STATE_UNSELECTABLE: u8 = 2;
+pub const TARGET_STATE_INVULNERABLE: u8 = 4;
+
+pub fn encode_disclosed_target_state(states: u8) -> Option<Vec<u8>> { (1..=7).contains(&states).then(|| vec![1, states]) }
+
+pub fn decode_disclosed_target_state(bytes: &[u8]) -> Option<u8> {
+    match bytes { [1, states] if (1..=7).contains(states) => Some(*states), _ => None }
+}
+
+/// The unit's targeting states from the authority's BuffStore (dispatch's own predicates).
+pub fn target_states(buffs: &crate::runtime::BuffStore, entity: specs::Entity) -> u8 {
+    let mut states = 0;
+    if crate::runtime::native::magic_immunity::is_magic_immune(buffs, entity) { states |= TARGET_STATE_MAGIC_IMMUNE; }
+    if crate::runtime::native::rules::vocab::unselectable(buffs, entity) { states |= TARGET_STATE_UNSELECTABLE; }
+    if crate::runtime::native::rules::vocab::invulnerable(buffs, entity) { states |= TARGET_STATE_INVULNERABLE; }
+    states
+}
+
+pub fn decode_disclosed_enemy_sight(bytes: &[u8]) -> Option<bool> {
+    match bytes { [1, 0] => Some(false), [1, 1] => Some(true), _ => None }
+}
+
+/// Authority: the team-owned units the opposing team has disclosed after the latest Wave B
+/// (`settle_enemy_sight`). Read by scripts through the disclosed component on both sides.
+#[derive(Default)]
+pub struct EnemySight(pub BTreeSet<u64>);
+
+/// The other replica team of a team-owned unit; None for neutrals and unknown teams.
+pub fn opposing_team(team: u32) -> Option<u32> {
+    crate::runtime::SUPPORTED_REPLICA_TEAMS.contains(&team).then(|| {
+        crate::runtime::SUPPORTED_REPLICA_TEAMS.into_iter().find(|other| *other != team)
+    }).flatten()
+}
+
+/// Replaces one component of a committed baseline in place, keeping the framing order.
+fn replace_disclosed_component(baseline: &[u8], schema: u32, value: &[u8]) -> Option<Vec<u8>> {
+    let count = u32::from_be_bytes(baseline.get(..4)?.try_into().ok()?) as usize;
+    let mut rows = Vec::with_capacity(count);
+    let mut cursor = 4usize;
+    for _ in 0..count {
+        let id = u32::from_be_bytes(baseline.get(cursor..cursor + 4)?.try_into().ok()?);
+        let len = u32::from_be_bytes(baseline.get(cursor + 4..cursor + 8)?.try_into().ok()?) as usize;
+        let bytes = baseline.get(cursor + 8..cursor + 8 + len)?;
+        cursor += 8 + len;
+        rows.push((id, if id == schema { value.to_vec() } else { bytes.to_vec() }));
+    }
+    (cursor == baseline.len() && rows.iter().any(|(id, _)| *id == schema)).then(|| encode_disclosed_baseline(&rows))
+}
 
 pub fn encode_disclosed_presentation_identity(id: &str) -> Option<Vec<u8>> {
     if id.is_empty() || id.len() > 96 || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
@@ -192,26 +253,40 @@ pub(crate) fn decode_disclosed_incoming_damage(bytes: &[u8]) -> Option<Fixed64> 
 }
 
 pub(crate) fn canonical_disclosed_json<T: Serialize>(value: &T) -> Vec<u8> {
-    fn sort_objects(value: serde_json::Value) -> serde_json::Value {
-        match value {
-            serde_json::Value::Array(values) => {
-                serde_json::Value::Array(values.into_iter().map(sort_objects).collect())
-            }
-            serde_json::Value::Object(values) => {
-                let mut entries: Vec<_> = values.into_iter().collect();
-                entries.sort_by(|left, right| left.0.cmp(&right.0));
-                let mut sorted = serde_json::Map::new();
-                for (key, value) in entries {
-                    sorted.insert(key, sort_objects(value));
-                }
-                serde_json::Value::Object(sorted)
-            }
-            scalar => scalar,
-        }
-    }
-
     let value = serde_json::to_value(value).expect("safe disclosed component");
-    serde_json::to_vec(&sort_objects(value)).expect("safe disclosed component")
+    // About 160 components each tick. Without serde_json's `preserve_order` a Map already iterates
+    // in key order, so rebuilding every object changes no byte (E653).
+    let value = if json_maps_keep_keys_sorted() { value } else { sort_disclosed_objects(value) };
+    serde_json::to_vec(&value).expect("safe disclosed component")
+}
+
+/// Whether a serde_json Map iterates in key order in this build (no `preserve_order` feature).
+fn json_maps_keep_keys_sorted() -> bool {
+    static SORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SORTED.get_or_init(|| {
+        let mut probe = serde_json::Map::new();
+        probe.insert("b".to_owned(), serde_json::Value::Null);
+        probe.insert("a".to_owned(), serde_json::Value::Null);
+        probe.keys().next().is_some_and(|first| first == "a")
+    })
+}
+
+fn sort_disclosed_objects(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Array(values) => {
+            serde_json::Value::Array(values.into_iter().map(sort_disclosed_objects).collect())
+        }
+        serde_json::Value::Object(values) => {
+            let mut entries: Vec<_> = values.into_iter().collect();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            let mut sorted = serde_json::Map::new();
+            for (key, value) in entries {
+                sorted.insert(key, sort_disclosed_objects(value));
+            }
+            serde_json::Value::Object(sorted)
+        }
+        scalar => scalar,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -334,6 +409,10 @@ pub struct CommittedVisibilityOverride {
     pub stable_rule_id: u64,
 }
 
+/// The sight a [`PROVIDES_VISION`](crate::runtime::native::ability_runtime::PROVIDES_VISION) carrier
+/// gives the other teams: the carrier itself (any position within it), not the area around it.
+pub const PROVIDED_VISION_RADIUS: Fixed64 = Fixed64::from_raw(1024);
+
 #[derive(Clone, Copy, Debug)]
 pub struct CommittedVisionSource {
     pub canonical_id: u64,
@@ -341,17 +420,22 @@ pub struct CommittedVisionSource {
     pub position: Vec2,
     pub radius: Fixed64,
     pub detection_level: u16,
+    /// Sight over terrain (v3 `reveal.ignore_terrain`, 原作 flying vision): trees and cliffs do not
+    /// block it; brush still does.
+    pub ignores_terrain: bool,
 }
 
 /// Immutable, stable-sorted Wave B copy of the validated map occluder.
 pub type CommittedVisionOccluder = VisionOccluder;
+/// The committed occluder list with its broad phase (E187 §5.5: the nobu map's trees).
+pub type CommittedVisionOccluders = IndexedVisionOccluders;
 
 #[derive(Clone, Debug)]
 pub struct WaveBReadView {
     pub tick: u64,
     pub entities: Arc<[CommittedEntityView]>,
     pub vision_sources: Arc<[CommittedVisionSource]>,
-    pub vision_occluders: Arc<[CommittedVisionOccluder]>,
+    pub vision_occluders: CommittedVisionOccluders,
     pub brush_regions: crate::runtime::brush_vision::BrushVisionRegions,
 }
 
@@ -381,10 +465,14 @@ pub struct TeamVisibilityIndex {
     candidates: BTreeMap<u64, VisibilityCandidate>,
 }
 
+/// One tick's committed visible set. Entries never change after `push`, so
+/// snapshots and runtime clones share them instead of deep-copying 512 sets.
+pub type SharedVisibleSet = Arc<BTreeSet<u64>>;
+
 #[derive(Clone, Debug)]
 pub struct VisibilityHistoryEntry {
     pub tick: u64,
-    pub visible: BTreeSet<u64>,
+    pub visible: SharedVisibleSet,
 }
 
 #[derive(Clone, Debug)]
@@ -403,7 +491,7 @@ impl TeamVisibilityHistory {
     pub fn push(&mut self, tick: u64, visible: &BTreeSet<u64>) {
         self.entries.push_back(VisibilityHistoryEntry {
             tick,
-            visible: visible.clone(),
+            visible: Arc::new(visible.clone()),
         });
         while self.entries.len() > self.capacity {
             self.entries.pop_front();
@@ -416,7 +504,7 @@ impl TeamVisibilityHistory {
             .find(|entry| entry.tick <= tick)
             .is_some_and(|entry| entry.visible.contains(&entity))
     }
-    pub fn snapshot(&self) -> BTreeMap<u64, BTreeSet<u64>> {
+    pub fn snapshot(&self) -> BTreeMap<u64, SharedVisibleSet> {
         self.entries
             .iter()
             .map(|entry| (entry.tick, entry.visible.clone()))
@@ -430,6 +518,17 @@ pub struct TeamVisibilityState {
     pub index: TeamVisibilityIndex,
     pub history: TeamVisibilityHistory,
     last_remember: BTreeMap<u64, RememberDisposition>,
+    /// Entities this team's vision actually covers at the latest wave B,
+    /// before input grace. Gameplay input admission may target only these.
+    pub sighted: BTreeSet<u64>,
+    /// Targets of this tick's admitted inputs. A currently disclosed target
+    /// stays disclosed for this frame so the team's replica can resolve the
+    /// same input the authority executed; it never chains (admission needs
+    /// `sighted`, which grace does not extend). The unit targets of this
+    /// team's pending windups join it every frame (E294): the windup was judged
+    /// against a disclosed target when it began, and the team's replica must see
+    /// that target alive or dead exactly as the authority does until it releases.
+    pub input_grace: BTreeSet<u64>,
     #[cfg(test)]
     pub(crate) witness_worker_count: usize,
     #[cfg(test)]
@@ -443,6 +542,8 @@ impl TeamVisibilityState {
             index: TeamVisibilityIndex::default(),
             history: TeamVisibilityHistory::new(history_capacity),
             last_remember: BTreeMap::new(),
+            sighted: BTreeSet::new(),
+            input_grace: BTreeSet::new(),
             #[cfg(test)]
             witness_worker_count: 0,
             #[cfg(test)]
@@ -462,6 +563,8 @@ impl TeamVisibilityState {
             .copied()
             .collect();
         let mut transitions = Vec::new();
+        self.sighted.clear();
+        let grace = std::mem::take(&mut self.input_grace);
         let existing: BTreeSet<_> = view
             .entities
             .iter()
@@ -470,7 +573,12 @@ impl TeamVisibilityState {
         // Deleted/generation-replaced entities no longer occur in the view loop.
         // Retire only a previously disclosed identity, using its existing memory
         // policy; absence must not disclose a hidden death or hidden coordinates.
-        let absent: Vec<_> = self.index.current.difference(&existing).copied().collect();
+        // A target of this tick's admitted input that was deleted during the
+        // step (it died) stays disclosed for this one frame, like a target that
+        // left sight: the team's replica still holds it when it executes the
+        // same input, and it retires on the next resolve (E175).
+        let absent: Vec<_> = self.index.current.difference(&existing).copied()
+            .filter(|canonical_id| !grace.contains(canonical_id)).collect();
         for canonical_id in absent {
             self.index.current.remove(&canonical_id);
             self.index.candidates.remove(&canonical_id);
@@ -484,9 +592,11 @@ impl TeamVisibilityState {
             });
         }
         for entity in view.entities.iter() {
-            let desired =
+            let sighted =
                 entity_visible_with_brush(entity, self.team, &sources, &view.vision_occluders, &view.brush_regions);
+            if sighted { self.sighted.insert(entity.canonical_id); }
             let current = self.index.current.contains(&entity.canonical_id);
+            let desired = sighted || (current && grace.contains(&entity.canonical_id));
             if desired == current {
                 self.index.candidates.remove(&entity.canonical_id);
                 continue;
@@ -552,7 +662,7 @@ pub(crate) fn entity_visible_with_brush(
     entity: &CommittedEntityView,
     team: u32,
     sources: &[CommittedVisionSource],
-    occluders: &[CommittedVisionOccluder],
+    occluders: &(impl LineOfSight + ?Sized),
     brushes: &crate::runtime::brush_vision::BrushVisionRegions,
 ) -> bool {
     // Deny rules have absolute precedence.
@@ -577,14 +687,16 @@ pub(crate) fn entity_visible_with_brush(
         if source.team != team {
             return false;
         }
-        if source.detection_level < entity.stealth_level {
+        // Invisibility hides a unit from the other teams, never from its own (E645: A36's mine
+        // went invisible and left its own team's disclosure).
+        if entity.team != team && source.detection_level < entity.stealth_level {
             return false;
         }
         let delta = entity.position - source.position;
         delta.length_squared() <= source.radius * source.radius
             && (has_brush_reveal(entity,team)
                 || crate::runtime::brush_vision::brush_allows_vision(brushes, source.position, entity.position))
-            && line_of_sight(occluders, source.position, entity.position) == LosResult::Clear
+            && (source.ignores_terrain || occluders.line_of_sight(source.position, entity.position) == LosResult::Clear)
     })
 }
 
@@ -609,6 +721,24 @@ mod tests {
     }
     use super::*;
 
+    /// E653: the shortcut writes the same bytes the full sort does: keys in order at every depth,
+    /// a HashMap's too.
+    #[test]
+    fn canonical_json_without_the_sort_keeps_its_bytes() {
+        assert!(json_maps_keep_keys_sorted(), "this workspace does not enable preserve_order");
+        #[derive(serde::Serialize)]
+        struct Row { zebra: u32, apple: Vec<Inner>, levels: std::collections::HashMap<String, i32> }
+        #[derive(serde::Serialize)]
+        struct Inner { y: i64, x: Option<String> }
+        let levels = (0..32).map(|n| (format!("ability_{n}"), n)).collect();
+        let row = Row { zebra: 1, apple: vec![Inner { y: 2, x: None }, Inner { y: 3, x: Some("é".into()) }], levels };
+        let sorted = serde_json::to_vec(&sort_disclosed_objects(serde_json::to_value(&row).unwrap())).unwrap();
+        assert_eq!(canonical_disclosed_json(&row), sorted);
+        let text = String::from_utf8(sorted).unwrap();
+        assert!(text.find("\"apple\"").unwrap() < text.find("\"levels\"").unwrap() && text.find("\"levels\"").unwrap() < text.find("\"zebra\"").unwrap());
+        assert!(text.contains("{\"x\":null,\"y\":2}"), "{text}");
+    }
+
     fn entity(scope: ReplicationScopeKind, owner_team: Option<u32>, x: i32) -> CommittedEntityView {
         CommittedEntityView {
             canonical_id: 7,
@@ -623,6 +753,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn day_and_night_sight_bonuses_change_a_source_radius() {
+        use omb_script_abi::stat_keys::StatKey;
+        let mut world = World::new();
+        let unit = specs::Builder::build(world.create_entity());
+        let mut buffs = crate::runtime::BuffStore::new();
+        buffs.add(unit, "lantern", Fixed64::ONE, serde_json::json!({ StatKey::BonusNightVision.as_str(): 300 * 1024,
+            StatKey::BonusDayVision.as_str(): -2000 * 1024 }));
+        let base = Fixed64::from_i32(1200);
+        assert_eq!(sight_radius(base, Some(&buffs), unit, true), Fixed64::from_i32(1500));
+        assert_eq!(sight_radius(base, Some(&buffs), unit, false), Fixed64::ZERO, "never below zero");
+        assert_eq!(sight_radius(Fixed64::ZERO, Some(&buffs), unit, true), Fixed64::ZERO, "no sight stays none");
+        assert_eq!(sight_radius(base, None, unit, true), base);
+        buffs.add(unit, crate::runtime::native::rules::vocab::state::BLIND, Fixed64::ONE, serde_json::json!({}));
+        assert_eq!(sight_radius(base, Some(&buffs), unit, true), Fixed64::ZERO, "E577: blind sees nothing");
+    }
+
     fn source(team: u32, radius: i32) -> CommittedVisionSource {
         CommittedVisionSource {
             canonical_id: 1,
@@ -630,6 +777,7 @@ mod tests {
             position: Vec2::new(Fixed64::ZERO, Fixed64::ZERO),
             radius: Fixed64::from_i32(radius),
             detection_level: 0,
+            ignores_terrain: false,
         }
     }
 
@@ -669,6 +817,8 @@ mod tests {
         let occluders=crate::runtime::moba_map_layout::compiled_vision_occluders(&map);
         let target=entity(ReplicationScopeKind::Vision,Some(2),10);
         assert!(!entity_visible_to_team(&target,1,&[source(1,20)],&occluders.0));
+        // v3 reveal.ignore_terrain: the same sight over the wall.
+        assert!(entity_visible_to_team(&target,1,&[CommittedVisionSource {ignores_terrain:true,..source(1,20)}],&occluders.0));
         let mut friendly=source(1,20);friendly.position=target.position;
         assert!(entity_visible_to_team(&target,1,&[source(1,20),friendly],&occluders.0));
         friendly.team=2;
@@ -681,6 +831,120 @@ mod tests {
     fn owner_team_hero_is_visible_to_owner_outside_radius() {
         let target = entity(ReplicationScopeKind::OwnerTeam, Some(1), 100);
         assert!(entity_visible_to_team(&target, 1, &[source(1, 20)], &[]));
+    }
+
+    #[test]
+    fn input_grace_keeps_a_targeted_entity_one_frame_without_extending_sight() {
+        // split18: an admitted input's target left vision that same tick and
+        // its Forget reached the replica before the input; grace holds it once.
+        let enemy = entity(ReplicationScopeKind::Vision, Some(2), 10);
+        let mut state = TeamVisibilityState::new(1, 4);
+        let view = |tick, sources: Vec<CommittedVisionSource>| WaveBReadView { tick, entities: vec![enemy.clone()].into(),
+            vision_sources: sources.into(), brush_regions: Vec::new().into(), vision_occluders: vec![].into() };
+        assert_eq!(state.resolve(&view(1, vec![source(1, 20)]), 0).len(), 1);
+        assert!(state.sighted.contains(&7));
+        state.input_grace.insert(7);
+        assert!(state.resolve(&view(2, vec![]), 0).is_empty(), "graced target is not hidden this frame");
+        assert!(state.index.current.contains(&7) && !state.sighted.contains(&7), "grace is not sight");
+        assert!(state.input_grace.is_empty(), "grace lasts exactly one resolve");
+        assert!(matches!(state.resolve(&view(3, vec![]), 0).as_slice(), [VisibilityTransition::Hide { canonical_id: 7, .. }]));
+        state.input_grace.insert(7);
+        assert!(state.resolve(&view(4, vec![]), 0).is_empty() && !state.index.current.contains(&7), "grace never reveals");
+    }
+
+    #[test]
+    fn enemy_sight_settles_into_the_baseline_and_this_ticks_owner_fact() {
+        // E312: whether the opposing team has an own unit disclosed, after this Wave B, in the
+        // expected baseline and in the committed batch the projector reads after Wave B.
+        use specs::Builder;
+        let mut world = World::new();
+        world.register::<crate::Faction>();
+        world.register::<crate::Unit>();
+        let mut unit = |w: &mut World, team| specs::Builder::build(w.create_entity()
+            .with(crate::Faction::new(if team == 1 { crate::FactionType::Player } else { crate::FactionType::Enemy }, team))
+            .with(crate::Unit::new("u".into(), "u".into(), crate::UnitType::Creep)));
+        let (mine, theirs) = (unit(&mut world, 1), unit(&mut world, 2));
+        let neutral = specs::Builder::build(world.create_entity().with(crate::Faction::new(crate::FactionType::Neutral, 0))
+            .with(crate::Unit::new("n".into(), "n".into(), crate::UnitType::Creep)));
+        let id = crate::runtime::canonical_entity_id;
+        world.insert(crate::runtime::native::moba_match::stop_command_match(mine, crate::runtime::MobaMatchPhase::Playing));
+        let mut runtime = TeamVisibilityRuntime::default();
+        runtime.ensure_team(1);runtime.ensure_team(2);
+        runtime.teams.get_mut(&2).unwrap().index.current.extend([id(mine), id(neutral)]);
+        let baseline = encode_disclosed_baseline(&[(DEMO_RENDER_COMPONENT_SCHEMA_ID, vec![7]),
+            (DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID, encode_disclosed_enemy_sight(false))]);
+        runtime.latest_disclosed_baseline_by_canonical.insert(id(mine), baseline);
+        world.insert(runtime);
+        world.insert(CommittedProjectionBatch { tick: 5, ordered_outcome_count: 0, facts: Vec::new(), barrier_reached: true });
+        settle_enemy_sight(&mut world, 5);
+        assert_eq!(world.read_resource::<EnemySight>().0, BTreeSet::from([id(mine)]), "team-owned units only");
+        let runtime = world.read_resource::<TeamVisibilityRuntime>();
+        let components = decode_disclosed_components(&runtime.latest_disclosed_baseline_by_canonical[&id(mine)]).unwrap();
+        assert_eq!(components[&DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID], [1, 1].as_slice());
+        assert_eq!(components[&DEMO_RENDER_COMPONENT_SCHEMA_ID], [7].as_slice(), "other components untouched");
+        drop(runtime);
+        let facts = world.read_resource::<CommittedProjectionBatch>().facts.clone();
+        assert!(matches!(facts.as_slice(), [OrderedFact { audience: crate::runtime::FactAudience::Team(1),
+            fact: crate::runtime::ObservableFact::EnemySight { seen: true, .. }, .. }]), "{facts:?}");
+        // Unchanged next tick: no fact; leaving sight: one `false` fact.
+        world.write_resource::<CommittedProjectionBatch>().facts.clear();
+        settle_enemy_sight(&mut world, 5);
+        assert!(world.read_resource::<CommittedProjectionBatch>().facts.is_empty());
+        world.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&2).unwrap().index.current.clear();
+        settle_enemy_sight(&mut world, 5);
+        assert!(matches!(world.read_resource::<CommittedProjectionBatch>().facts.as_slice(),
+            [OrderedFact { fact: crate::runtime::ObservableFact::EnemySight { seen: false, .. }, .. }]));
+        assert!(!world.read_resource::<EnemySight>().0.contains(&id(theirs)));
+        assert_eq!(opposing_team(0), None);
+    }
+
+    #[test]
+    fn a_pending_windup_keeps_its_existing_unit_target_for_the_casters_team() {
+        // E294 (e187 ue-nobu9): a jungle creep left the caster team's sight during b08_flash_cut's
+        // windup; the replica deleted it and cancelled the windup while the authority released it.
+        use crate::runtime::native::{cast_windup::{AbilityWindups, Windup}, scripting::SkillTarget};
+        let mut world = World::new();
+        let [caster, creep, gone] = [(); 3].map(|_| specs::Builder::build(world.create_entity()));
+        let windup = |target| Windup { skill_id: "s".into(), target, origin: Vec2::ZERO, remaining: Fixed64::ONE,
+            rank: 1, interrupt_on_damage: false, last_tick: 0, anchored: false };
+        let mut windups = AbilityWindups::default();
+        windups.0.insert(caster, windup(SkillTarget::Entity(creep)));
+        world.insert(windups);
+        let row = |entity, team| CommittedEntityView { canonical_id: crate::runtime::canonical_entity_id(entity), team,
+            ..entity_row_template() };
+        let view = WaveBReadView { tick: 1, entities: vec![row(caster, 1), row(creep, 0)].into(),
+            vision_sources: vec![].into(), brush_regions: Vec::new().into(), vision_occluders: vec![].into() };
+        assert_eq!(windup_target_grace(&world, &view), vec![(1, crate::runtime::canonical_entity_id(creep))]);
+        // A target that died (absent from the view) is not kept: its death reaches the replica.
+        world.write_resource::<AbilityWindups>().0.insert(caster, windup(SkillTarget::Entity(gone)));
+        assert!(windup_target_grace(&world, &view).is_empty());
+        world.write_resource::<AbilityWindups>().0.insert(caster, windup(SkillTarget::None));
+        assert!(windup_target_grace(&world, &view).is_empty());
+    }
+
+    fn entity_row_template() -> CommittedEntityView { entity(ReplicationScopeKind::Vision, None, 0) }
+
+    #[test]
+    fn input_grace_keeps_a_target_deleted_during_the_step_one_frame() {
+        // E175: an admitted AttackTarget/CastAbility named a creep that died in the
+        // same step. Its immediate Hide reached the team's replica before the
+        // input, the projector dropped the input, and only the authority cleared
+        // the queue and cancelled the windup. Grace holds a deleted target once.
+        let enemy = entity(ReplicationScopeKind::Vision, Some(2), 10);
+        let mut state = TeamVisibilityState::new(1, 4);
+        let view = |tick, entities: Vec<CommittedEntityView>| WaveBReadView { tick, entities: entities.into(),
+            vision_sources: vec![source(1, 20)].into(), brush_regions: Vec::new().into(), vision_occluders: vec![].into() };
+        assert_eq!(state.resolve(&view(1, vec![enemy.clone()]), 0).len(), 1);
+        state.input_grace.insert(7);
+        assert!(state.resolve(&view(2, vec![]), 0).is_empty(), "a graced deleted target is not hidden this frame");
+        assert!(state.index.current.contains(&7));
+        assert!(matches!(state.resolve(&view(3, vec![]), 0).as_slice(), [VisibilityTransition::Hide { canonical_id: 7, .. }]),
+            "it retires on the next resolve");
+        assert!(!state.index.current.contains(&7));
+        // Without grace a deletion still hides at once.
+        let mut state = TeamVisibilityState::new(1, 4);
+        state.resolve(&view(1, vec![enemy]), 0);
+        assert!(matches!(state.resolve(&view(2, vec![]), 0).as_slice(), [VisibilityTransition::Hide { canonical_id: 7, .. }]));
     }
 
     #[test]
@@ -904,6 +1168,65 @@ mod tests {
         }
         assert!(saw_unfactioned && saw_enemy && saw_dead_ally);
     }
+
+    /// E392: `revealed` takes away the carrier's invisibility; `provides_vision` shows the carrier
+    /// to the other teams through fog, but not while it is invisible.
+    #[test]
+    fn revealed_and_provided_vision_show_the_carrier_to_the_other_team() {
+        use crate::runtime::*;
+        use crate::runtime::native::ability_runtime::{PROVIDES_VISION, REVEALED};
+        use omoba_sim::{Fixed64, Vec2};
+        use specs::{Builder, Entity, World, WorldExt};
+        let mut world = specs::World::new();
+        for register in [World::register::<Pos>, World::register::<Faction>, World::register::<ReplicationScope>,
+            World::register::<StealthProfile>, World::register::<VisibilityOverride>, World::register::<RememberPolicy>,
+            World::register::<VisionSource>, World::register::<Unit>, World::register::<Hero>,
+            World::register::<PlayerOwner>, World::register::<CProperty>, World::register::<DemoPatrol>,
+            World::register::<TAttack>, World::register::<Facing>, World::register::<TurnSpeed>,
+            World::register::<CollisionRadius>, World::register::<Inventory>, World::register::<Gold>,
+            World::register::<ItemEffects>, World::register::<Tower>, World::register::<ScriptUnitTag>,
+            World::register::<PlacedWard>] {
+            register(&mut world);
+        }
+        world.insert(VisionOccluderSet::default());
+        world.insert(BuffStore::new());
+        let place = |x: i32| Pos(Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO));
+        world.create_entity().with(place(0)).with(Faction::new(FactionType::Ally, 1))
+            .with(VisionSource { team: 1, radius: Fixed64::from_i32(1000), detection_level: 0 }).build();
+        let near = world.create_entity().with(place(500)).with(Faction::new(FactionType::Enemy, 2))
+            .with(StealthProfile { stealth_level: 1 }).build();
+        let far = world.create_entity().with(place(5000)).with(Faction::new(FactionType::Enemy, 2)).build();
+        let seen = |world: &World, unit: Entity| {
+            let view = build_wave_b_read_view(world, 1);
+            let row = view.entities.iter().find(|row| row.canonical_id == crate::runtime::canonical_entity_id(unit)).unwrap();
+            let by_view = entity_visible_with_brush(row, 1, &view.vision_sources, &view.vision_occluders, &Default::default());
+            assert_eq!(by_view, crate::runtime::native::game_processor::item_entity_visible_to_team(world, unit, 1),
+                "the ECS read agrees with the committed view");
+            by_view
+        };
+        assert!(!seen(&world, near) && !seen(&world, far), "invisible within sight; visible but out of sight");
+        world.write_resource::<BuffStore>().add(near, REVEALED, Fixed64::from_i32(3), serde_json::json!({}));
+        world.write_resource::<BuffStore>().add(far, PROVIDES_VISION, Fixed64::from_i32(3), serde_json::json!({}));
+        assert!(seen(&world, near), "revealed: no longer invisible to the other team");
+        assert!(seen(&world, far), "provides vision: seen through fog");
+        world.write_storage::<StealthProfile>().insert(far, StealthProfile { stealth_level: 1 }).unwrap();
+        assert!(!seen(&world, far), "an invisible carrier stays hidden");
+        world.write_resource::<BuffStore>().add(far, REVEALED, Fixed64::from_i32(3), serde_json::json!({}));
+        assert!(seen(&world, far), "unless it is revealed too");
+    }
+
+    /// E645: an invisible unit (A36's mine 1.5 s after it is planted) stays in its own team's
+    /// sight; only the other team's sources must detect its stealth.
+    #[test]
+    fn an_invisible_unit_is_still_seen_by_its_own_team() {
+        let mut mine = entity(ReplicationScopeKind::Vision, Some(1), 10);
+        mine.stealth_level = 1;
+        assert!(entity_visible_to_team(&mine, 1, &[source(1, 100)], &[]), "own team sees its invisible unit");
+        assert!(!entity_visible_to_team(&mine, 2, &[source(2, 100)], &[]), "the other team does not");
+        assert!(entity_visible_to_team(&mine, 2, &[CommittedVisionSource { detection_level: 1, ..source(2, 100) }], &[]),
+            "unless its source detects the stealth");
+        assert!(!entity_visible_to_team(&mine, 1, &[source(1, 5)], &[]), "own team still needs sight of it");
+    }
 }
 
 fn resolve_override(
@@ -976,6 +1299,22 @@ impl TeamVisibilityRuntime {
     }
 }
 
+/// A vision source's radius with its holder's day or night sight bonus (StatKey BonusDayVision /
+/// BonusNightVision + BonusNightVisionUnique, v3 `vision_day` / `vision_night`); never below zero.
+/// A unit without sight keeps none.
+pub fn sight_radius(base: Fixed64, buffs: Option<&crate::runtime::BuffStore>, entity: specs::Entity, night: bool) -> Fixed64 {
+    use omb_script_abi::stat_keys::StatKey;
+    let Some(buffs) = buffs.filter(|_| base > Fixed64::ZERO) else { return base };
+    // v3 state `blind` (E577): no sight of its own
+    if buffs.has(entity, crate::runtime::native::rules::vocab::state::BLIND) { return Fixed64::ZERO; }
+    let bonus = if night {
+        buffs.sum_add(entity, StatKey::BonusNightVision) + buffs.sum_add(entity, StatKey::BonusNightVisionUnique)
+    } else {
+        buffs.sum_add(entity, StatKey::BonusDayVision)
+    };
+    (base + bonus).max(Fixed64::ZERO)
+}
+
 pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     use crate::runtime::native::comp::*;
     let entities = world.entities();
@@ -992,8 +1331,12 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     let properties = world.read_storage::<CProperty>();
     let patrols = world.read_storage::<DemoPatrol>();
     let attacks = world.read_storage::<crate::runtime::TAttack>();
+    let summons = world.has_value::<specs::storage::MaskedStorage<crate::runtime::native::comp::SummonedUnit>>()
+        .then(|| world.read_storage::<crate::runtime::native::comp::SummonedUnit>());
     let facings = world.read_storage::<crate::runtime::Facing>();
     let turn_speeds = world.read_storage::<crate::runtime::TurnSpeed>();
+    let unit_manas = crate::runtime::native::unit_mana::registered(world)
+        .then(|| world.read_storage::<crate::runtime::native::unit_mana::UnitMana>());
     let collision_radii = world.read_storage::<crate::runtime::CollisionRadius>();
     let inventories = world.read_storage::<crate::runtime::Inventory>();
     let gold = world.read_storage::<crate::runtime::Gold>();
@@ -1009,15 +1352,19 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     let towers = world.read_storage::<crate::runtime::Tower>();
     let script_tags = world.read_storage::<crate::runtime::ScriptUnitTag>();
     let placed_wards = world.read_storage::<crate::runtime::PlacedWard>();
+    let ability_projectiles = world.try_fetch::<crate::runtime::native::ability_projectile::AbilityProjectiles>();
+    let enemy_sight = world.try_fetch::<EnemySight>();
 
     let mut committed_entities: Vec<_> = (&entities, &positions)
         .join()
         .map(|(entity, position)| {
             let canonical_id = ((entity.gen().id() as u32 as u64) << 32) | u64::from(entity.id());
-            let team = factions
-                .get(entity)
-                .map(|faction| faction.team_id.max(0) as u32)
-                .unwrap_or(0);
+            // Ability projectiles carry their launch team; flight state stays private.
+            let flight = ability_projectiles.as_ref().and_then(|rows| rows.0.get(&entity));
+            // A mind-controlled unit renders on its own team (mind_control.rs).
+            let team = flight.map(|state| state.team).unwrap_or_else(|| crate::runtime::native::mind_control::home_team(world, entity)
+                .or_else(|| factions.get(entity).map(|faction| faction.team_id))
+                .map_or(0, |team| team.max(0) as u32));
             let scope = scopes.get(entity).copied().unwrap_or(ReplicationScope {
                 kind: ReplicationScopeKind::Vision,
                 owner_team: Some(team),
@@ -1026,7 +1373,9 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 x_raw: position.0.x.raw(),
                 y_raw: position.0.y.raw(),
                 team_id: team,
-                kind: if heroes.get(entity).is_some() {
+                kind: if flight.is_some() {
+                    crate::runtime::native::ability_projectile::RENDER_KIND
+                } else if heroes.get(entity).is_some() {
                     1
                 } else if units.get(entity).is_some_and(|unit|matches!(unit.unit_type,UnitType::Summon)) {
                     4
@@ -1043,6 +1392,19 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             )];
             if let Some(state)=structures.get(&canonical_id) {
                 disclosed.push((DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID,state.to_vec()));
+            }
+            if let Some(state) = flight {
+                use crate::runtime::native::ability_projectile as projectile;
+                disclosed.push((projectile::DISCLOSED_SCHEMA_ID,
+                    projectile::encode_disclosed_flight(projectile::disclosed_state(state))));
+                if let Some(bytes) = encode_disclosed_presentation_identity(&state.spec.ability) {
+                    disclosed.push((DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID, bytes));
+                }
+            }
+            if moba && flight.is_none() && units.get(entity).is_some()
+                && factions.get(entity).is_some_and(|faction| opposing_team(faction.team_id.max(0) as u32).is_some()) {
+                let seen = enemy_sight.as_ref().is_some_and(|sight| sight.0.contains(&canonical_id));
+                disclosed.push((DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID, encode_disclosed_enemy_sight(seen)));
             }
             if let Some(faction) = factions.get(entity) {
                 if let Some(faction_kind) = faction_kind_discriminant(&faction.faction_id) {
@@ -1063,6 +1425,9 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                     };
                     if let Some(bytes) = encode_disclosed_combat_relation(relation) {
                         disclosed.push((DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID, bytes));
+                    }
+                    if let Some(bytes) = buffs.as_ref().and_then(|store| encode_disclosed_target_state(target_states(store, entity))) {
+                        disclosed.push((DISCLOSED_TARGET_STATE_COMPONENT_SCHEMA_ID, bytes));
                     }
                 }
             }
@@ -1095,7 +1460,7 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 ));
                 if moba {
                     if let Some(buffs) = &buffs {
-                        let bonus = buffs.sum_add(entity, omb_script_abi::stat_keys::StatKey::DamageTakenBonus);
+                        let bonus = crate::runtime::ability_runtime::unit_stats::damage_taken_bonus(buffs, entity);
                         disclosed.push((DISCLOSED_INCOMING_DAMAGE_COMPONENT_SCHEMA_ID,
                             bonus.raw().to_be_bytes().to_vec()));
                     }
@@ -1119,6 +1484,11 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             if moba {if let Some(range)=attack_ranges.get(&canonical_id){disclosed.push((crate::runtime::attack_visual_state::RANGE_SCHEMA_ID,crate::runtime::attack_visual_state::encode_range(*range).expect("bounded resolved range")));}}
             disclose_json!(facings, DISCLOSED_FACING_COMPONENT_SCHEMA_ID);
             disclose_json!(turn_speeds, DISCLOSED_TURN_SPEED_COMPONENT_SCHEMA_ID);
+            if let Some(unit_manas) = &unit_manas { disclose_json!(unit_manas, crate::runtime::native::unit_mana::SCHEMA_ID); }
+            // A non-hero's own abilities (E531), from its BuffStore rows.
+            if let Some(shown) = buffs.as_ref().and_then(|buffs| crate::runtime::native::unit_abilities::state(buffs, entity)) {
+                disclosed.push((crate::runtime::native::unit_abilities::SCHEMA_ID, canonical_disclosed_json(&shown)));
+            }
             disclose_json!(
                 collision_radii,
                 DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID
@@ -1127,12 +1497,17 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             if moba && heroes.get(entity).is_some() {
                 disclose_json!(gold, DISCLOSED_GOLD_COMPONENT_SCHEMA_ID);
                 disclose_json!(item_effects, DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID);
+            } else if inventories.get(entity).is_some() {
+                // A non-hero's bag (a summon's given items, E587) has no gold or shop; its applied
+                // item stats are public like the bag, so a replica rebuilds the same deltas.
+                disclose_json!(item_effects, DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID);
             }
             disclose_json!(script_tags, DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID);
             // Unit identity is already public for this disclosed entity. Do not
             // synthesize ScriptUnitTag: that component also enables callbacks.
-            let presentation_id = script_tags.get(entity).map(|tag| tag.unit_id.as_str())
-                .filter(|id| !id.is_empty())
+            // An illusion shows the unit it copies to every team (illusion.rs `look`).
+            let presentation_id = buffs.as_deref().and_then(|buffs| crate::runtime::native::illusion::look(buffs, entity))
+                .or_else(|| script_tags.get(entity).map(|tag| tag.unit_id.as_str()).filter(|id| !id.is_empty()))
                 .or_else(|| units.get(entity).map(|unit| unit.id.as_str()));
             if let Some(bytes) = presentation_id.and_then(encode_disclosed_presentation_identity) {
                 disclosed.push((DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID, bytes));
@@ -1143,11 +1518,25 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 disclosed.push((crate::runtime::attack_visual_state::SCHEMA_ID, state.encode().expect("bounded resolved attack timing")));
                 let channel = channels.get(&canonical_id).copied().unwrap_or_default();
                 disclosed.push((crate::runtime::channel_visual_state::SCHEMA_ID, channel.encode()));
-            }
-            if moba && heroes.get(entity).is_some() && owners.get(entity).is_some() && team != 0 {
+                // Status icons: every fighting unit shows its own (原作 a summon's or a creep's
+                // debuff is on its portrait too, E384); the team projector keeps the hidden ones
+                // to the owner team.
                 let state=buffs.as_ref().map(|store|crate::runtime::buff_visual_state::BuffVisualSnapshot::from_store(store,entity))
                     .unwrap_or(crate::runtime::buff_visual_state::BuffVisualSnapshot {buffs:crate::runtime::buff_visual_state::BuffVisualState(vec![]),channel_totals:vec![]});
                 disclosed.push((crate::runtime::buff_visual_state::SCHEMA_ID,state.encode().expect("bounded generated buff IDs")));
+            } else if moba && summons.as_ref().is_some_and(|summons| summons.get(entity).is_some()) {
+                // A summon that never attacks (a dummy: B24's stele, E597) still shows its statuses
+                // (its life countdown) like every other summon.
+                let state=buffs.as_ref().map(|store|crate::runtime::buff_visual_state::BuffVisualSnapshot::from_store(store,entity))
+                    .unwrap_or(crate::runtime::buff_visual_state::BuffVisualSnapshot {buffs:crate::runtime::buff_visual_state::BuffVisualState(vec![]),channel_totals:vec![]});
+                disclosed.push((crate::runtime::buff_visual_state::SCHEMA_ID,state.encode().expect("bounded generated buff IDs")));
+            }
+            // Ground zones, tethers and the illusion flag (runtime_fact_state); the team projector
+            // re-sends them per team and never forwards this component to a replica.
+            if moba {
+                if let Some(state)=buffs.as_ref().and_then(|store|crate::runtime::runtime_fact_state::RuntimeFactState::from_store(store,entity)) {
+                    disclosed.push((crate::runtime::runtime_fact_state::SCHEMA_ID,state.encode().expect("bounded runtime facts")));
+                }
             }
             if let Some(tower) = towers.get(entity) {
                 let mut safe = tower.clone();
@@ -1175,10 +1564,10 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 position: position.0,
                 scope: scope.kind,
                 owner_team: scope.owner_team,
-                stealth_level: stealth
-                    .get(entity)
-                    .map(|value| value.stealth_level)
-                    .unwrap_or(0),
+                stealth_level: {
+                    let profile = stealth.get(entity).map(|value| value.stealth_level).unwrap_or(0);
+                    buffs.as_ref().map_or(profile, |buffs| buffs.visible_stealth_level(entity, profile))
+                },
                 overrides: entity_overrides,
                 remember: remembers
                     .get(entity)
@@ -1190,19 +1579,43 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
         .collect();
     committed_entities.sort_by_key(|entity| entity.canonical_id);
 
+    // v3 vision_day / vision_night: a unit's statuses add to its sight in the day or at night.
+    let night = crate::runtime::native::rules::world::is_night(world);
     let mut vision_sources: Vec<_> = (&entities, &positions, &vision)
         .join()
         .map(|(entity, position, source)| CommittedVisionSource {
             canonical_id: ((entity.gen().id() as u32 as u64) << 32) | u64::from(entity.id()),
             team: source.team,
             position: position.0,
-            radius: source.radius,
+            radius: sight_radius(source.radius, buffs.as_deref(), entity, night),
             detection_level: source.detection_level,
+            // A flyer sees over terrain and trees (E397).
+            ignores_terrain: buffs.as_deref().is_some_and(|buffs| crate::runtime::native::rules::world::flying_sight(buffs, entity)),
         })
         .collect();
+    // A unit that provides vision (E392) is a sight of itself for every other team: a point
+    // source at its position that detects no stealth, so an invisible carrier stays hidden.
+    if let Some(store) = buffs.as_deref() {
+        for holder in store.holders(crate::runtime::native::ability_runtime::PROVIDES_VISION) {
+            let (Some(position), true) = (positions.get(holder), entities.is_alive(holder)) else { continue };
+            let team = factions.get(holder).map_or(0, |faction| faction.team_id.max(0) as u32);
+            let canonical_id = ((holder.gen().id() as u32 as u64) << 32) | u64::from(holder.id());
+            vision_sources.extend(crate::runtime::SUPPORTED_REPLICA_TEAMS.into_iter().filter(|viewer| *viewer != team)
+                .map(|viewer| CommittedVisionSource { canonical_id, team: viewer, position: position.0,
+                    radius: PROVIDED_VISION_RADIUS, detection_level: 0, ignores_terrain: true }));
+        }
+    }
+    // G-4 reveal zones: team sight; true sight detects every stealth level,
+    // a plain zone (原作 AddFOWViewer) detects none.
+    if let Some(zones) = world.try_fetch::<crate::runtime::native::reveal_zone::RevealZones>() {
+        vision_sources.extend(zones.sources().map(|(canonical_id, zone)| CommittedVisionSource {
+            canonical_id, team: zone.team, position: zone.center, radius: zone.radius, detection_level: zone.detection_level,
+            ignores_terrain: zone.ignores_terrain,
+        }));
+    }
     vision_sources.sort_by_key(|source| (source.team, source.canonical_id));
-    let vision_occluders: Arc<[CommittedVisionOccluder]> =
-        world.read_resource::<VisionOccluderSet>().0.clone().into();
+    // E187 §5.5: the indexed form, built once per distinct occluder set.
+    let vision_occluders = world.read_resource::<VisionOccluderSet>().committed();
     WaveBReadView {
         tick,
         entities: committed_entities.into(),
@@ -1213,9 +1626,33 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     }
 }
 
+/// (caster team, target) for every pending windup aimed at a unit that still exists (E294).
+/// Losing sight of that unit must not end the windup on the caster team's replica while the
+/// authority releases it; a target that died is absent from the view and is not kept, so its
+/// death reaches the replica as usual and ends the windup on both sides.
+fn windup_target_grace(world: &World, view: &WaveBReadView) -> Vec<(u32, u64)> {
+    let Some(windups) = world.try_fetch::<crate::runtime::native::cast_windup::AbilityWindups>() else { return Vec::new(); };
+    let team_of: BTreeMap<u64, u32> = view.entities.iter().map(|entity| (entity.canonical_id, entity.team)).collect();
+    windups.0.iter().filter_map(|(caster, cast)| {
+        let crate::runtime::native::scripting::SkillTarget::Entity(target) = &cast.target else { return None; };
+        let target = crate::runtime::canonical_entity_id(*target);
+        team_of.contains_key(&target).then_some(())?;
+        Some((*team_of.get(&crate::runtime::canonical_entity_id(*caster))?, target))
+    }).collect()
+}
+
 /// Called only after Wave A outcome/fact reduction and `World::maintain`.
 pub fn run_committed_visibility_wave_b(world: &mut World, tick: u64, delay: u64) {
     let view = build_wave_b_read_view(world, tick);
+    let mut grace: BTreeMap<u32, BTreeSet<u64>> = BTreeMap::new();
+    if let Some(projection) = world.try_fetch::<crate::runtime::TeamProjectionRuntime>() {
+        for input in &projection.pending_accepted_inputs {
+            if let Some(target) = input.target_canonical_id { grace.entry(input.team_id).or_default().insert(target); }
+        }
+    }
+    for (team, target) in windup_target_grace(world, &view) {
+        grace.entry(team).or_default().insert(target);
+    }
     let mut runtime = world.write_resource::<TeamVisibilityRuntime>();
     runtime.latest_owner_by_canonical = view
         .entities
@@ -1246,6 +1683,9 @@ pub fn run_committed_visibility_wave_b(world: &mut World, tick: u64, delay: u64)
     for team in crate::runtime::SUPPORTED_REPLICA_TEAMS {
         runtime.ensure_team(team);
     }
+    for (team, targets) in grace {
+        if let Some(state) = runtime.teams.get_mut(&team) { state.input_grace = targets; }
+    }
     let mut states: Vec<_> = std::mem::take(&mut runtime.teams).into_values().collect();
     let results = run_team_wave_b_parallel(&view, &mut states, delay);
     runtime.teams = states
@@ -1254,6 +1694,64 @@ pub fn run_committed_visibility_wave_b(world: &mut World, tick: u64, delay: u64)
         .collect();
     runtime.last_transitions = results.into_iter().collect();
     runtime.latest_read_view = Some(Arc::new(view));
+    drop(runtime);
+    settle_enemy_sight(world, tick);
+}
+
+/// E312: after this Wave B, which team-owned units the opposing team has disclosed. A change is
+/// written into this tick's baselines (the projector's expected view and any reveal) and sent to
+/// the unit's own team as an `EnemySight` fact in this tick's committed batch, so the authority's
+/// next step and the team's replica read the same answer.
+fn settle_enemy_sight(world: &mut World, tick: u64) {
+    use crate::runtime::{FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact};
+    if world.try_fetch::<crate::runtime::MobaMatch>().is_none() { return; }
+    if world.try_fetch::<EnemySight>().is_none() { world.insert(EnemySight::default()); }
+    let rows: Vec<(u64, u32, bool)> = {
+        let runtime = world.read_resource::<TeamVisibilityRuntime>();
+        let flights = world.try_fetch::<crate::runtime::native::ability_projectile::AbilityProjectiles>();
+        let (entities, factions, units) = (world.entities(), world.read_storage::<crate::Faction>(), world.read_storage::<crate::Unit>());
+        (&entities, &factions, &units).join().filter_map(|(entity, faction, _)| {
+            if flights.as_ref().is_some_and(|rows| rows.0.contains_key(&entity)) { return None; }
+            let team = faction.team_id.max(0) as u32;
+            let other = opposing_team(team)?;
+            let canonical = crate::runtime::canonical_entity_id(entity);
+            Some((canonical, team, runtime.teams.get(&other).is_some_and(|state| state.index.current.contains(&canonical))))
+        }).collect()
+    };
+    let changed: Vec<(u64, u32, bool)> = {
+        let sight = world.read_resource::<EnemySight>();
+        rows.iter().copied().filter(|(canonical, _, seen)| sight.0.contains(canonical) != *seen).collect()
+    };
+    world.write_resource::<EnemySight>().0 = rows.iter().filter(|row| row.2).map(|row| row.0).collect();
+    if changed.is_empty() { return; }
+    {
+        let mut runtime = world.write_resource::<TeamVisibilityRuntime>();
+        for (canonical, _, seen) in &changed {
+            let value = encode_disclosed_enemy_sight(*seen);
+            let patch = |baseline: &mut Vec<u8>| {
+                if let Some(next) = replace_disclosed_component(baseline, DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID, &value) { *baseline = next; }
+            };
+            if let Some(baseline) = runtime.latest_disclosed_baseline_by_canonical.get_mut(canonical) { patch(baseline); }
+            for transitions in runtime.last_transitions.values_mut() {
+                for transition in transitions.iter_mut() {
+                    if let VisibilityTransition::Reveal { canonical_id, baseline, .. } = transition {
+                        if canonical_id == canonical { patch(baseline); }
+                    }
+                }
+            }
+        }
+    }
+    let Some(mut batch) = world.try_fetch_mut::<CommittedProjectionBatch>() else { return; };
+    if batch.tick != tick { return; }
+    for (canonical, team, seen) in changed {
+        batch.facts.push(OrderedFact {
+            key: FactOrderingKey { tick, phase: FactPhase::PostStep, canonical_source_order: canonical,
+                local_ordinal: u32::MAX, fact_kind: FactKind::EnemySight },
+            audience: FactAudience::Team(team),
+            fact: ObservableFact::EnemySight { source: canonical, seen },
+        });
+    }
+    batch.facts.sort_by(|a, b| a.key.cmp(&b.key));
 }
 
 #[derive(Clone, Debug)]

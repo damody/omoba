@@ -43,8 +43,8 @@ end
 local report_args, report = batch.with_single_report(forwarded, reserve_report_dir)
 batch.assert_fresh_output(report, batch.paired_diagnostic_path(report), path.exists)
 if not plan_only then
-  run('build generated script DLL', {'build', '--manifest-path', path.join(root, 'scripts/Cargo.toml'),
-    '-p', 'base_content', '--features', 'compiled-content-only', '--release'})
+  run('build generated script DLLs', require('script_dlls').cargo_args({'build', '--manifest-path',
+    path.join(root, 'scripts/Cargo.toml')}, 'compiled-content-only', {'--release'}))
 end
 local args = {'run', '--manifest-path', path.join(root, 'omb/Cargo.toml'),
   '-p', 'omobab', '--bin', 'moba-headless', '--features', 'compiled-content-only', '--',

@@ -1,0 +1,687 @@
+-- M6 batch acceptance (E265): when line A unlocks a batch of docs/plans/2026-10-28-history-nobu-full-port/
+-- m6-waves.md, seat that batch's heroes and check them in play.
+--   * headless quick, the batch roster on team 1 and swapped to team 2, `--matches` seeds each;
+--   * teamfight stress: the same roster with every seat on the mid lane;
+--   * optionally (`--ue`) one live Unreal match of at most 10 minutes (machine lock, time box).
+-- Bots cast every ability through the derived v3 policies (scripts/lua_data/bot_auto_policies.lua);
+-- every match records per-hero, per-ability statistics (OMB_HEADLESS_HERO_STATS, E265). The report
+-- (report.md, report.json) lists, per batch hero, each ability's bot inputs, accepted casts and cast
+-- trace results, and flags the active abilities no bot ever cast.
+--
+-- Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua (--batch N [--group G] | --heroes a,b,...) [--matches 6]
+--   [--parallel 6] [--ue] [--output NEW_DIRECTORY] [--no-build] [--report-only]
+-- --report-only --output DIR writes DIR/report.md again from the match reports already in DIR.
+local source = debug.getinfo(1, 'S').source:sub(2)
+package.path = assert(source:match('^(.*)[/\\]')) .. '/?.lua;' .. package.path
+local b = require('_bootstrap')
+local path, process, json, time = b.lib('path'), b.lib('process'), b.lib('json'), b.lib('time')
+local compiled = require('moba_compiled_content')
+
+local options = { matches = 6, parallel = 6, group = 1 }
+do
+  local i = 1
+  while i <= #arg do
+    local v = arg[i]
+    if v == '--batch' then options.batch = assert(math.tointeger(tonumber(arg[i + 1])), '--batch N'); i = i + 1
+    elseif v == '--group' then options.group = assert(math.tointeger(tonumber(arg[i + 1])), '--group G'); i = i + 1
+    elseif v == '--matches' then options.matches = assert(math.tointeger(tonumber(arg[i + 1])), '--matches K'); i = i + 1
+    elseif v == '--parallel' then options.parallel = assert(math.tointeger(tonumber(arg[i + 1])), '--parallel P'); i = i + 1
+    elseif v == '--output' then options.output = arg[i + 1]; i = i + 1
+    elseif v == '--heroes' then options.heroes = arg[i + 1]; i = i + 1
+    elseif v == '--ue' then options.ue = true
+    elseif v == '--split' then options.split = true
+    elseif v == '--spotlight-observed' then options.spotlight_observed = arg[i + 1]; i = i + 1
+    elseif v == '--observer' then
+      options.observer = arg[i + 1]; i = i + 1
+      assert(options.observer == 'on' or options.observer == 'off', '--observer on|off')
+    elseif v == '--observer-note' then options.observer_note = arg[i + 1]; i = i + 1
+    elseif v == '--recipes' then options.recipes = arg[i + 1]; i = i + 1
+    elseif v == '--keep-bin' then options.keep_bin = true
+    elseif v == '--item-coverage' then options.item_coverage = true
+    elseif v == '--no-build' then options.no_build = true
+    elseif v == '--report-only' then options.report_only = true; options.no_build = true
+    elseif v == '--help' then
+      print('Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua --batch N [--group G] [--matches 6] [--parallel 6] [--ue] [--split] [--spotlight-observed a,b,...] [--observer on|off] [--observer-note TEXT] [--recipes quick,quick_swap,teamfight] [--keep-bin] [--item-coverage] [--output DIR] [--no-build] [--report-only]')
+      return
+    else error('unknown argument ' .. v) end
+    i = i + 1
+  end
+end
+assert(options.batch or options.heroes, '--batch N or --heroes a,b,... is required')
+options.batch = options.batch or 0
+assert(options.matches >= 1 and options.matches <= 100 and options.parallel >= 1 and options.parallel <= 16, 'matches 1..100, parallel 1..16')
+
+-- 1. The batch's heroes (source ids) from v3_waves, then their packages (= hero ids).
+V3_WAVES_AS_MODULE = true
+local waves = dofile(path.join(b.root, 'docs', 'character_pipeline', 'tools', 'v3_waves.lua')).build(b.root).waves
+V3_WAVES_AS_MODULE = nil
+-- `--heroes` seats those hero ids instead (re-checking shipped heroes, or a batch subset).
+local wave = { heroes = {} }
+if options.heroes then
+  for id in options.heroes:gmatch('[^,]+') do wave.heroes[#wave.heroes + 1] = { package = id } end
+else
+  wave = assert(waves[options.batch], 'no batch ' .. options.batch .. ' (1..' .. #waves .. ')')
+end
+local package_of = {}
+local lfs = require('lfs')
+local packages_dir = path.join(b.root, 'docs', 'character_pipeline', 'packages')
+for name in lfs.dir(packages_dir) do
+  local file = path.join(packages_dir, name, 'v3.lua')
+  if name:sub(1, 1) ~= '.' and path.is_file(file) then
+    -- The whole document (E339): a long header put the hero id past the first 2000 bytes.
+    local id = path.read(file):match('kind%s*=%s*"hero"%s*,%s*id%s*=%s*"([%w_]+)"')
+    if id then package_of[id] = name end
+  end
+end
+-- Playable: every hero of the content hero table (templates/heroes.lua, which merges the authored
+-- heroes and the v3 heroes of templates/v3_test_heroes.lua) that is neither test_only nor a
+-- tombstone (E363: a v3 hero marked playable is a v3_test_heroes row, not an authored one).
+local content = require('content_builder').new(path.join(b.root, 'scripts', 'lua_data'))
+local playable = {}
+for _, hero in ipairs(content.include('templates/heroes.lua')) do
+  if not hero.test_only and not hero.tombstone then playable[hero.id] = true end
+end
+local batch_heroes, missing = {}, {}
+for _, hero in ipairs(wave.heroes) do
+  local package = hero.package or package_of[hero.id]
+  if package and playable[package] then batch_heroes[#batch_heroes + 1] = package
+  else missing[#missing + 1] = (hero.id or package) .. (package and hero.id and (' (' .. package .. ')') or '') end
+end
+local first = (options.group - 1) * 10 + 1
+local group = {}
+for i = first, math.min(first + 9, #batch_heroes) do group[#group + 1] = batch_heroes[i] end
+assert(#group > 0, ('batch %d group %d has no playable hero; not yet playable: %s'):format(options.batch, options.group,
+  table.concat(missing, ', ')))
+
+-- 2. Recipes: the shipped role plan with the group seated (team 1 first, then team 2; seats the group
+-- does not fill keep the shipped heroes), on the quick map; policies re-derived for the new seats.
+-- Each team's share of the group takes the lanes its heroes fit best, derived from their data
+-- (E357, hero_lane_roles.lua: attack range, primary attribute, heal / mobility hints, control).
+local output
+if options.output then output = path.absolute(options.output, b.root)
+else output = path.join(b.root, 'target', 'm6-batch', ('batch%d-group%d-%d'):format(options.batch, options.group, os.time())) end
+-- --report-only re-reads the match reports of an earlier run in that directory.
+if options.report_only then assert(options.output and path.is_directory(output), '--report-only needs --output of an earlier run')
+else assert(not path.exists(output), 'output must be a new directory: ' .. output) end
+path.mkdir_p(output)
+local lanes = require('hero_lane_roles')
+local seating = {}
+do
+  local shipped = assert(loadfile(path.join(b.root, 'scripts', 'lua_data', 'moba_role_match.lua')))()
+  local next_hero = 1
+  for _, team in ipairs({ 1, 2 }) do
+    local roles = {}
+    for _, player in ipairs(shipped.players) do if player.team_id == team then roles[#roles + 1] = player.role end end
+    local share = {}
+    while #share < #roles and next_hero <= #group do share[#share + 1] = group[next_hero]; next_hero = next_hero + 1 end
+    seating[#seating + 1] = lanes.assign(share, roles) or {}
+    for _, role in ipairs(roles) do
+      if seating[#seating][role] then print(('seat: %s lane role %s'):format(seating[#seating][role], role)) end
+    end
+  end
+  assert(next_hero > #group, ('group of %d heroes does not fit the plan seats'):format(#group))
+end
+local function lua_role_map(map)
+  local roles = {}
+  for role in pairs(map) do roles[#roles + 1] = role end
+  table.sort(roles)
+  local parts = {}
+  for _, role in ipairs(roles) do parts[#parts + 1] = ('[%q]=%q'):format(role, map[role]) end
+  return '{' .. table.concat(parts, ',') .. '}'
+end
+-- --item-coverage (E358): the shop items no derived build reaches go into the builds
+-- (bot_item_builds.lua cover / uncovered), so every shop item is obtained in every match.
+if options.item_coverage then
+  local builds = assert(loadfile(path.join(b.root, 'scripts', 'lua_data', 'bot_item_builds.lua')))()
+  local shipped = assert(loadfile(path.join(b.root, 'scripts', 'lua_data', 'moba_role_match.lua')))()
+  local uncovered = builds.uncovered(shipped.item_builds)
+  print('item coverage: ' .. (#uncovered > 0 and table.concat(uncovered, ', ') or 'every shop item is in a build already'))
+  for _, build in ipairs(builds.cover(shipped.item_builds, uncovered)) do
+    print(('item coverage: %s builds %s'):format(build.role, table.concat(build.items, ', ')))
+  end
+end
+-- Teamfight (E396): every hero on the mid lane recalls later and leaves the fountain earlier, so a
+-- mid fight is not reset by one side walking home at 35% and back at 85%. m6a3g1 (ten M6 heroes)
+-- ran 7.0 to 14.4 minutes, median 11.9, with the shipped sustain; with these thresholds 6.8 to 9.3,
+-- median 8.0, on the same binaries and seeds. Hero values are unchanged (D13).
+local TEAMFIGHT_SUSTAIN = { recall_below_hp_per_mille = 100, leave_base_at_hp_per_mille = 500 }
+local function recipe(name, swap, teamfight, map)
+  local file = path.join(output, name .. '.lua')
+  path.write(file, ([[
+-- Generated by scripts/verify_m6_batch.lua (batch %d, group %d); recipe %s.
+-- The batch passes its snapshot tree (E665); run by hand or by --split this is live.
+local root = ... or %q
+local plan = assert(loadfile(root .. '/scripts/lua_data/moba_role_match.lua'))()
+plan.map_id = %q
+local seating, swap, teamfight = {%s, %s}, %s, %s
+-- The swap mirrors sides, not opponents (E484): the shipped heroes trade teams by role too, so a
+-- group of fewer than ten meets the same opponents on either side.
+if swap then
+  local shipped = {}
+  for _, player in ipairs(plan.players) do shipped[player.team_id .. ':' .. player.role] = player.hero end
+  for _, player in ipairs(plan.players) do player.hero = shipped[(3 - player.team_id) .. ':' .. player.role] or player.hero end
+end
+for order, team in ipairs(swap and {2, 1} or {1, 2}) do
+  for _, player in ipairs(plan.players) do
+    if player.team_id == team and seating[order][player.role] then player.hero = seating[order][player.role] end
+  end
+end
+if teamfight then
+  for _, player in ipairs(plan.players) do player.lane = 'mid' end
+  plan.sustain.recall_below_hp_per_mille = %d
+  plan.sustain.leave_base_at_hp_per_mille = %d
+end
+if %s then
+  local builds = assert(loadfile(root .. '/scripts/lua_data/bot_item_builds.lua'))()
+  plan.item_builds = builds.cover(plan.item_builds, builds.uncovered(plan.item_builds))
+end
+plan.ability_policies = assert(loadfile(root .. '/scripts/lua_data/bot_auto_policies.lua'))()(plan.ability_policies, plan.players)
+return plan
+]]):format(options.batch, options.group, name, b.root:gsub('\\', '/'), map or 'three_lane_quick_training', lua_role_map(seating[1]), lua_role_map(seating[2]), tostring(swap), tostring(teamfight),
+  TEAMFIGHT_SUSTAIN.recall_below_hp_per_mille, TEAMFIGHT_SUSTAIN.leave_base_at_hp_per_mille,
+  tostring(options.item_coverage == true)), true)
+  return file
+end
+local recipes = {
+  { name = 'quick', file = recipe('quick', false, false), group_team = 1 },
+  { name = 'quick_swap', file = recipe('quick_swap', true, false), group_team = 2 },
+  { name = 'teamfight', file = recipe('teamfight', false, true), group_team = 1 },
+  -- The original nobu map has trees (the training maps have none): a tree-target ability (B22
+  -- 自然之力、木靈展勢) is only cast by a bot here. Only with --recipes nobu; its larger map does not
+  -- end in 1200 game seconds (two of two ran out, 20261106).
+  { name = 'nobu', file = recipe('nobu', false, false, 'nobu'), group_team = 1, opt_in = true, max_game_seconds = 3600 },
+}
+-- `--recipes` keeps only the named ones, in this order (E565: a regression pass over every hero
+-- needs one quick match per group, not all three). --split runs the quick recipe, so it needs it.
+if options.recipes then
+  local wanted = {}
+  for name in options.recipes:gmatch('[^,]+') do wanted[name] = true end
+  local kept = {}
+  for _, r in ipairs(recipes) do if wanted[r.name] then kept[#kept + 1] = r; wanted[r.name] = nil end end
+  assert(next(wanted) == nil, '--recipes: unknown recipe ' .. tostring(next(wanted)))
+  assert(#kept > 0, '--recipes names no recipe')
+  assert(not options.split or kept[1].name == 'quick', '--split needs the quick recipe')
+  recipes = kept
+else
+  local kept = {}
+  for _, r in ipairs(recipes) do if not r.opt_in then kept[#kept + 1] = r end end
+  recipes = kept
+end
+
+-- 3. Build once (the script DLL set and moba-headless) from this batch's own source snapshot into
+-- its own cargo target (E347, source_snapshot.lua): no repo build lock. Both come from one snapshot
+-- and their content hashes are checked equal (E332); they run from a private copy (E125).
+local env = compiled.environment({ OMB_HEADLESS_HERO_STATS = '1' })
+local bin = path.join(output, 'bin')
+local exe = path.join(bin, 'moba-headless.exe')
+if not options.report_only then
+  require('source_snapshot').build_headless(b.root, 'verify_m6_batch',
+    { env = { OMB_HEADLESS_HERO_STATS = '1' }, into = bin, no_build = options.no_build,
+      -- The plan comes from the tree the binaries were built from: bot goals derive from the shop
+      -- catalog, so a plan read from live after a landing names items this build lacks (E665).
+      under_lock = function(tree)
+        for _, r in ipairs(recipes) do
+          require('export_moba_role_plan').export(r.file, path.join(output, r.name .. '.json'), (tree:gsub('\\', '/')))
+        end
+      end })
+end
+
+-- 4. Matches, `--parallel` at a time; never during a performance measurement (target/locks/performance).
+local function wait_performance_lock()
+  local lock = path.join(b.root, 'target', 'locks', 'performance')
+  while path.exists(lock) do print('waiting: a performance measurement holds ' .. lock); time.sleep_ms(30000) end
+end
+-- The in-process observer (E545, moba_headless `--observer on|off`): passed only when asked and
+-- when the snapshot this batch built has the flag, so an older build is not handed an unknown
+-- argument; the Acceptance line says which it was.
+local observer_args = {}
+if options.observer then
+  local source = path.join(b.root, 'target', 'snapshots', 'verify_m6_batch', 'tree', 'omb', 'src', 'bin', 'moba_headless.rs')
+  local h = io.open(source, 'rb')
+  local text = h and h:read('a') or ''
+  if h then h:close() end
+  if text:find('"--observer"', 1, true) then observer_args = { '--observer', options.observer }
+  else options.observer_unsupported = true end
+end
+local jobs = {}
+for _, r in ipairs(recipes) do
+  r.plan = path.join(output, r.name .. '.json')
+  for seed = 1, options.matches do
+    jobs[#jobs + 1] = { recipe = r, seed = seed, report = path.join(output, ('%s-%02d.json'):format(r.name, seed)),
+      log = path.join(output, ('%s-%02d.log'):format(r.name, seed)) }
+  end
+end
+local running, next_job = {}, options.report_only and #jobs + 1 or 1
+-- `--parallel` is the most at once; each one starts only while the machine has commit to spare
+-- (E441, memory_admission.lua), so a batch beside other sessions' builds does not exhaust it.
+local admission = require('memory_admission')
+local gate = admission.new(admission.HEADLESS_COMMIT_BYTES)
+while next_job <= #jobs or #running > 0 do
+  while next_job <= #jobs and #running < options.parallel and gate:admit(#running) do
+    wait_performance_lock()
+    local job = jobs[next_job]; next_job = next_job + 1
+    job.pid = process.spawn(exe, { '--role-plan', job.recipe.plan, '--profile', '60', '--seed', tostring(job.seed),
+      '--scripts-dir', bin, '--max-game-seconds', tostring(job.recipe.max_game_seconds or 1200), '--stall-game-seconds', '300', '--report', job.report, table.unpack(observer_args) },
+      { cwd = b.root, env = env, stdout = job.log, stderr = job.log .. '.err' })
+    running[#running + 1] = job
+  end
+  local still = {}
+  for _, job in ipairs(running) do
+    if process.wait(job.pid, 2000) then print(('done %s seed %d'):format(job.recipe.name, job.seed)) else still[#still + 1] = job end
+  end
+  running = still
+end
+
+-- 5. Report.
+local function median(list)
+  if #list == 0 then return 0 end
+  table.sort(list); return list[(#list + 1) // 2]
+end
+local in_group = {}
+for _, hero in ipairs(group) do in_group[hero] = true end
+local summary = { batch = options.batch, group = options.group, heroes = group, not_playable = missing, recipes = {}, abilities = {} }
+local ability_rows = {}
+local hero_games = {}
+local item_rows = {}
+-- Balance (E342): per hero over every seat, and per item over the seats that obtained it.
+local hero_rows, holder_rows = {}, {}
+for _, r in ipairs(recipes) do
+  local row = { name = r.name, matches = 0, finished = 0, group_wins = 0, minutes = {}, failures = {}, perf = {} }
+  for _, job in ipairs(jobs) do
+    if job.recipe == r then
+      row.matches = row.matches + 1
+      local ok, report = pcall(json.read, job.report)
+      -- Observer (E545): a mismatch ends the match unfinished, so it is read before `success`.
+      if ok and type(report.observer) == 'table' and report.observer.enabled then
+        local o = summary.observer or { matches = 0, mismatches = 0, checked_ticks = 0 }
+        summary.observer = o
+        o.matches = o.matches + 1
+        o.mismatches = o.mismatches + (report.observer.mismatches or 0)
+        o.checked_ticks = o.checked_ticks + (report.observer.checked_ticks or 0)
+        -- A clean match reports `first: null`, which json.read decodes to a table sentinel (E625).
+        if not o.first and (report.observer.mismatches or 0) > 0 and type(report.observer.first) == 'table' then
+          o.first = report.observer.first
+          o.first.match = ('%s-%02d'):format(r.name, job.seed)
+        end
+      end
+      if ok and report.success then
+        row.finished = row.finished + 1
+        row.minutes[#row.minutes + 1] = report.game_seconds / 60
+        if report.winner_team == r.group_team then row.group_wins = row.group_wins + 1 end
+        -- Tick cost (E512, moba_headless performance).
+        if report.performance then
+          report.performance.match = ('%s-%02d'):format(r.name, job.seed)
+          report.performance.stages = report.tick_profile and report.tick_profile.phases_ms_mean
+          -- The in-process observer's own wall time (E545 report.observer.wall_ms), outside the tick cost.
+          report.performance.observer_wall_ms = type(report.observer) == 'table' and report.observer.enabled
+            and report.observer.wall_ms or nil
+          row.perf[#row.perf + 1] = report.performance
+        end
+        -- Creep facing from the simulation data (E461, moba_headless creep_facing): accepted at 0.
+        if report.creep_facing then
+          local f = summary.creep_facing or { walk_checks = 0, attack_checks = 0, violations = 0, samples = {} }
+          summary.creep_facing = f
+          f.walk_checks = f.walk_checks + report.creep_facing.walk_checks
+          f.attack_checks = f.attack_checks + report.creep_facing.attack_checks
+          f.violations = f.violations + report.creep_facing.violations
+          for _, sample in ipairs(report.creep_facing.samples or {}) do
+            if #f.samples < 10 then sample.match = ('%s-%02d'):format(r.name, job.seed); f.samples[#f.samples + 1] = sample end
+          end
+        end
+        for _, hero in ipairs(report.hero_stats or {}) do
+          local won = hero.team ~= nil and hero.team == report.winner_team
+          local h = hero_rows[hero.hero] or { games = 0, wins = 0, kills = 0, deaths = 0, assists = 0, damage = 0, hero_damage = 0 }
+          hero_rows[hero.hero] = h
+          h.games, h.wins = h.games + 1, h.wins + (won and 1 or 0)
+          h.kills, h.deaths, h.assists = h.kills + (hero.kills or 0), h.deaths + (hero.deaths or 0), h.assists + (hero.assists or 0)
+          h.damage, h.hero_damage = h.damage + (hero.damage or 0), h.hero_damage + (hero.hero_damage or 0)
+          for id, item in pairs(hero.items or {}) do
+            if (item.obtained or 0) > 0 then
+              local holder = holder_rows[id] or { games = 0, wins = 0 }
+              holder_rows[id] = holder
+              holder.games, holder.wins = holder.games + 1, holder.wins + (won and 1 or 0)
+            end
+          end
+          -- Shop items over every seat (E336): how often each was obtained and used.
+          for id, item in pairs(hero.items or {}) do
+            local row = item_rows[id] or { obtained = 0, used = 0 }
+            item_rows[id] = row
+            row.obtained, row.used = row.obtained + (item.obtained or 0), row.used + (item.used or 0)
+          end
+          if in_group[hero.hero] then
+            for ability, cast in pairs(hero.casts) do
+              -- an empty slot (A32's D, E405) is no ability
+              if ability ~= '' then
+                local key = hero.hero .. '|' .. ability
+                local a = ability_rows[key] or { hero = hero.hero, ability = ability, slot = cast.slot, inputs = 0, accepted = 0, results = {} }
+                ability_rows[key] = a
+                a.inputs, a.accepted = a.inputs + cast.inputs, a.accepted + cast.accepted
+                for result, n in pairs(cast.results or {}) do a.results[result] = (a.results[result] or 0) + n end
+              end
+            end
+            -- Script damage by ability (E436, moba_headless DamageTrace; summons and copies count
+            -- for their summoner): a status or summon damaging under its ability's name gets a row.
+            hero_games[hero.hero] = (hero_games[hero.hero] or 0) + 1
+            for ability, dealt in pairs(hero.ability_damage or {}) do
+              local key = hero.hero .. '|' .. ability
+              local a = ability_rows[key] or { hero = hero.hero, ability = ability, slot = 99, inputs = 0, accepted = 0, results = {} }
+              ability_rows[key] = a
+              a.damage = (a.damage or 0) + (dealt.damage or 0)
+              a.hero_damage = (a.hero_damage or 0) + (dealt.hero_damage or 0)
+              a.cancelled = (a.cancelled or 0) + (dealt.cancelled or 0)
+            end
+          end
+        end
+      else
+        row.failures[#row.failures + 1] = job.seed
+      end
+    end
+  end
+  row.median_minutes = median(row.minutes)
+  summary.recipes[#summary.recipes + 1] = row
+end
+local kinds = {}
+for _, file in ipairs({ 'templates/authored_heroes.lua', 'templates/v3_test_heroes.lua' }) do
+  for _, a in ipairs(content.include(file).abilities or {}) do kinds[a.id] = a.ability_type end
+end
+for _, a in pairs(ability_rows) do a.kind = kinds[a.ability] or '?'; summary.abilities[#summary.abilities + 1] = a end
+table.sort(summary.abilities, function(x, y) return x.hero == y.hero and x.slot < y.slot or x.hero < y.hero end)
+
+-- 6. Optional live Unreal match (10 minutes at most, machine lock, autopilot screenshots).
+if options.ue then
+  local ue_out = path.join(output, 'ue')
+  local result = process.run(b.lib('platform').lua_executable, { path.join(b.root, 'scripts', 'run_moba_role_ue.lua'),
+    '--recipe', recipes[1].file, '--output', ue_out, '--wait-live-lock', '1800', '--autopilot', 'lane_v0',
+    '--autopilot-shot-interval', '45', '--finish-timeout-seconds', '540', '--round-time-box-seconds', '560' },
+    { cwd = b.root, check = false })
+  local ue_log = path.join(ue_out, 'ue-p1.log')
+  local text = path.is_file(ue_log) and path.read(ue_log) or ''
+  summary.ue = { exit_code = result.exit_code, output = ue_out,
+    result_ui = text:find('OM_MATCH_RESULT_UI', 1, true) ~= nil,
+    result_screenshot = path.is_file(path.join(ue_out, 'result-p1.png')),
+    time_boxed = path.is_file(path.join(ue_out, 'round-time-box.json')) }
+end
+
+-- 7. Optional live split match (E542): the authority, a team replica per side and the observer
+-- check run only in a split topology (omb server and transport), never headless, so an observer
+-- mismatch shows up only here. The quick recipe with one autopilot human per team (as the E396
+-- live checks), 10 minutes at most, under the machine lock; the authority log is summarized by
+-- match_summary.lua (result, structures, observer mismatches).
+if options.split then
+  local split_out = path.join(output, 'split')
+  local split_recipe = path.join(output, 'split.lua')
+  path.write(split_recipe, ([[
+-- Generated by scripts/verify_m6_batch.lua: the quick recipe with players 1 and 6 human (autopilot).
+local plan = assert(loadfile(%q))()
+for _, player in ipairs(plan.players) do
+  if player.player_id == 1 or player.player_id == 6 then player.bot = false end
+end
+return plan
+]]):format((recipes[1].file:gsub('\\', '/'))), true)
+  local result = process.run(b.lib('platform').lua_executable, { path.join(b.root, 'scripts', 'run_moba_split_local.lua'),
+    '--recipe', split_recipe, '--output', split_out, '--autopilot', 'lane_v0', '--autopilot-shot-interval', '45',
+    '--max-seconds', '600', '--wait-live-lock', '1800' }, { cwd = b.root, check = false })
+  local ok, match = pcall(require('match_summary').summary, split_out)
+  summary.split = { exit_code = result.exit_code, output = split_out, summarized = ok,
+    finished = ok and match.finished ~= nil or false, duration_seconds = ok and match.duration_seconds or nil,
+    observer_mismatches = ok and match.mismatches or nil, error = not ok and tostring(match) or nil }
+end
+
+json.write(path.join(output, 'report.json'), summary, true)
+local md = { ('# M6 batch %d, group %d'):format(options.batch, options.group), '',
+  'Heroes: ' .. table.concat(group, ', '), '' }
+if #missing > 0 then md[#md + 1] = 'Not yet playable (skipped): ' .. table.concat(missing, ', '); md[#md + 1] = '' end
+md[#md + 1] = '| recipe | finished | batch heroes win | median minutes | failed seeds |'
+md[#md + 1] = '|---|---|---|---|---|'
+for _, row in ipairs(summary.recipes) do
+  md[#md + 1] = ('| %s | %d/%d | %d | %.1f | %s |'):format(row.name, row.finished, row.matches, row.group_wins,
+    row.median_minutes, table.concat(row.failures, ' '))
+end
+md[#md + 1] = ''
+local facing = summary.creep_facing
+if facing then
+  md[#md + 1] = ('Creep facing (E461): %d violation(s) over %d walking and %d attacking checks%s'):format(facing.violations,
+    facing.walk_checks, facing.attack_checks, facing.violations == 0 and '.' or ' — FACING WRONG:')
+  for _, s in ipairs(facing.samples) do
+    md[#md + 1] = ('- %s tick %d %s #%d %s: facing %d°, expected %d° (off %d°) at (%d, %d)'):format(s.match, s.tick, s.creep,
+      s.entity, s.mode, s.facing, s.expected, s.off, s.x, s.y)
+  end
+  md[#md + 1] = ''
+end
+-- `casts` is the larger of the cast trace's accepted count and the authority's Ability facts
+-- (E316: B08 無盡牙 left Ability facts but no trace row and was reported as never cast; such a
+-- row is now NO TRACE, an anomaly to hand over, not a never-cast); `bot inputs` counts every
+-- cast order the bots sent, repeats included.
+-- `damage/game` and `hero dmg/game` are the ability's tagged script damage (E436) per game the
+-- hero played; `cancelled` counts its packets refused (invulnerable, removed target, rules).
+md[#md + 1] = '| hero | ability | kind | bot inputs | casts | trace | damage/game | hero dmg/game | cancelled | note |'
+md[#md + 1] = '|---|---|---|---|---|---|---|---|---|---|'
+local never = 0
+local refused = { settlement = 0, invalid_target = 0 }
+for _, a in ipairs(summary.abilities) do
+  local results = {}
+  for result, n in pairs(a.results) do results[#results + 1] = result .. ' ' .. n end
+  table.sort(results)
+  if (a.accepted or 0) ~= (a.results.accepted or 0) then results[#results + 1] = 'facts ' .. (a.accepted or 0) end
+  local castable = a.kind == 'active' or a.kind == 'ultimate' or a.kind == 'toggle'
+  local casts = math.max(a.results.accepted or 0, a.accepted or 0)
+  local note = castable and casts == 0 and 'NEVER CAST'
+    or castable and (a.results.accepted or 0) == 0 and 'NO TRACE' or ''
+  if note == 'NEVER CAST' then never = never + 1 end
+  for result, n in pairs(a.results) do
+    if result:find('^settlement_refused') then refused.settlement = refused.settlement + n end
+    if result == 'rejected:INVALID_TARGET' then refused.invalid_target = refused.invalid_target + n end
+  end
+  local games = math.max(hero_games[a.hero] or 1, 1)
+  md[#md + 1] = ('| %s | %s | %s | %d | %d | %s | %s | %s | %s | %s |'):format(a.hero, a.ability, a.kind, a.inputs, casts,
+    table.concat(results, ', '), a.damage and ('%.0f'):format(a.damage / games) or '',
+    a.hero_damage and ('%.0f'):format(a.hero_damage / games) or '', a.cancelled and tostring(a.cancelled) or '', note)
+end
+-- Acceptance (D21, E512): correct and complete function and performance, not balance.
+local failed_matches, total_matches = 0, 0
+for _, row in ipairs(summary.recipes) do failed_matches = failed_matches + #row.failures; total_matches = total_matches + row.matches end
+summary.acceptance = { never_cast = never, settlement_refused = refused.settlement, invalid_target = refused.invalid_target,
+  failed_matches = failed_matches, creep_facing_violations = summary.creep_facing and summary.creep_facing.violations or nil }
+md[#md + 1] = ''
+md[#md + 1] = '## Acceptance'
+md[#md + 1] = ''
+md[#md + 1] = ('- NEVER CAST: %d'):format(never)
+md[#md + 1] = ('- casts refused: settlement %d, INVALID_TARGET %d'):format(refused.settlement, refused.invalid_target)
+md[#md + 1] = ('- matches failed (error, divergence or panic): %d of %d'):format(failed_matches, total_matches)
+md[#md + 1] = ('- creep facing violations: %s'):format(summary.creep_facing and summary.creep_facing.violations or 'not measured')
+if summary.split then
+  local split = summary.split
+  md[#md + 1] = split.summarized
+    and ('- split (live, %s): observer mismatch %s; %s in %.0f s'):format(split.output, tostring(split.observer_mismatches),
+      split.finished and 'finished' or 'NOT finished', split.duration_seconds or 0)
+    or ('- split (live, %s): NO AUTHORITY LOG (exit %s): %s'):format(split.output, tostring(split.exit_code), split.error)
+end
+if summary.observer then
+  local o, first = summary.observer, summary.observer.first
+  md[#md + 1] = ('- observer (headless, %d match(es), %d tick(s) checked): mismatch %d%s'):format(o.matches, o.checked_ticks,
+    o.mismatches, first and (' (first: %s tick %s team %s schema %s entity %s)'):format(first.match, tostring(first.tick),
+      tostring(first.team), tostring(first.schema), tostring(first.entity)) or '')
+elseif options.observer == 'off' and not options.observer_unsupported then
+  md[#md + 1] = ('- observer：%s本批關閉（--observer off）'):format(options.observer_note and (options.observer_note .. '，') or '')
+elseif not summary.split then
+  -- The headless matches run no team replica or observer: say so, so a clean list above is not
+  -- read as an observer pass. Until they do, the per-hero spotlight split runs (line C) cover it;
+  -- --spotlight-observed names the heroes those runs checked.
+  md[#md + 1] = ('- observer：headless 未涵蓋；spotlight split 涵蓋 %s'):format(options.spotlight_observed
+    and options.spotlight_observed:gsub(',', ', ') or '（未提供，需 --spotlight-observed 或 --split）')
+end
+-- Performance (E512): per recipe the median p50 and p99 tick, the worst tick, ticks over the 1/hz
+-- budget and the median run wall time; then the slowest ticks of the batch with their heaviest parts.
+md[#md + 1] = ''
+md[#md + 1] = '## Performance'
+md[#md + 1] = ''
+md[#md + 1] = '| recipe | matches | p50 ms | p99 ms (median) | p99 ms (worst) | max ms | over budget | run wall s (median) |'
+md[#md + 1] = '|---|---|---|---|---|---|---|---|'
+local slowest = {}
+for _, row in ipairs(summary.recipes) do
+  local p50, p99, wall, worst, max_ms, over, ticks = {}, {}, {}, 0, 0, 0, 0
+  for _, perf in ipairs(row.perf) do
+    p50[#p50 + 1] = perf.p50_ms; p99[#p99 + 1] = perf.p99_ms; wall[#wall + 1] = perf.run_wall_seconds
+    worst = math.max(worst, perf.p99_ms); max_ms = math.max(max_ms, perf.max_ms)
+    over = over + perf.over_budget; ticks = ticks + perf.ticks
+    for _, tick in ipairs(perf.slowest or {}) do tick.match = perf.match; tick.budget_ms = perf.budget_ms; slowest[#slowest + 1] = tick end
+  end
+  if #row.perf > 0 then
+    md[#md + 1] = ('| %s | %d | %.2f | %.2f | %.2f | %.2f | %d of %d | %.1f |'):format(row.name, #row.perf, median(p50), median(p99),
+      worst, max_ms, over, ticks, median(wall))
+  end
+end
+-- The observer (E552): its wall time per match, beside the run wall time it is part of.
+for _, row in ipairs(summary.recipes) do
+  local observer, wall = {}, {}
+  for _, perf in ipairs(row.perf) do
+    if perf.observer_wall_ms then observer[#observer + 1] = perf.observer_wall_ms / 1000; wall[#wall + 1] = perf.run_wall_seconds end
+  end
+  if #observer > 0 then
+    md[#md + 1] = ('- %s observer wall s (median of %d): %.1f of %.1f run wall s'):format(row.name, #observer, median(observer), median(wall))
+  end
+end
+-- The driver's serial stages (E513, E520): mean ms per tick over the recipe's matches.
+md[#md + 1] = ''
+for _, row in ipairs(summary.recipes) do
+  local sums, n = {}, 0
+  for _, perf in ipairs(row.perf) do
+    if perf.stages then
+      n = n + 1
+      for stage, ms in pairs(perf.stages) do sums[stage] = (sums[stage] or 0) + ms end
+    end
+  end
+  if n > 0 then
+    local stages = {}
+    for stage, sum in pairs(sums) do stages[#stages + 1] = { stage, sum / n } end
+    table.sort(stages, function(x, y) return x[2] > y[2] end)
+    local parts = {}
+    for _, stage in ipairs(stages) do parts[#parts + 1] = ('%s %.2f'):format(stage[1], stage[2]) end
+    md[#md + 1] = ('- %s stages, mean ms/tick: %s'):format(row.name, table.concat(parts, ', '))
+  end
+end
+table.sort(slowest, function(x, y) return x.ms > y.ms end)
+if #slowest > 0 then
+  md[#md + 1] = ''
+  md[#md + 1] = ('Slowest ticks (budget %.2f ms):'):format(slowest[1].budget_ms)
+  for i = 1, math.min(10, #slowest) do
+    local t, parts = slowest[i], {}
+    for _, part in ipairs(t.parts or {}) do parts[#parts + 1] = ('%s %.2f'):format(part.name, part.ms) end
+    md[#md + 1] = ('- %s tick %d: %.2f ms — %s'):format(t.match, t.tick, t.ms, table.concat(parts, ', '))
+  end
+end
+-- Shop items (E336): every item the shop sells, obtained (bought or assembled) and used over all
+-- seats; an item never obtained, or an active item obtained but never used, is flagged.
+local shop_items = {}
+for _, item in ipairs(require('content_builder').new(path.join(b.root, 'scripts', 'lua_data')).include('templates/moba_items.lua')) do
+  if not item.test_only then shop_items[#shop_items + 1] = item end
+end
+table.sort(shop_items, function(x, y) return x.id < y.id end)
+summary.items = {}
+local unused_items = 0
+md[#md + 1] = ''
+md[#md + 1] = '| item | active | obtained | used | note |'
+md[#md + 1] = '|---|---|---|---|---|'
+for _, item in ipairs(shop_items) do
+  local row = item_rows[item.id] or { obtained = 0, used = 0 }
+  -- An unused active that only passed through on the way to an obtained item it builds into
+  -- (dark_boots -> dark_boots_1) was assembled, not ignored (E354).
+  local upgraded = false
+  for _, other in ipairs(shop_items) do
+    for _, part in ipairs(other.recipe or {}) do
+      if part == item.id and (item_rows[other.id] or {}).obtained then upgraded = true end
+    end
+  end
+  local note = row.obtained == 0 and 'NEVER OBTAINED'
+    or (item.active and row.used == 0) and (upgraded and 'unused, built into an upgrade' or 'NEVER USED') or ''
+  if note == 'unused, built into an upgrade' then unused_items = unused_items - 1 end
+  if note ~= '' then unused_items = unused_items + 1 end
+  summary.items[item.id] = { active = item.active ~= nil, obtained = row.obtained, used = row.used }
+  md[#md + 1] = ('| %s | %s | %d | %d | %s |'):format(item.id, item.active and item.active.kind or '', row.obtained, row.used, note)
+end
+json.write(path.join(output, 'report.json'), summary, true)
+-- Balance (E342): heroes whose win rate, KDA or damage per game sits far from the field, and
+-- items whose holders win far more or less than half. A flag is a lead to read, not a verdict:
+-- a few games per hero carry wide noise, and a bot policy can cause it as well as a value.
+local BALANCE = { min_games = 6, win_high = 0.75, win_low = 0.25, ratio_high = 1.5, ratio_low = 0.5 }
+summary.balance = { heroes = {}, items = {} }
+local heroes_sorted, total_damage, total_kda, counted = {}, 0, 0, 0
+local function kda(h) return (h.kills + h.assists) / math.max(1, h.deaths) end
+for id, h in pairs(hero_rows) do
+  heroes_sorted[#heroes_sorted + 1] = id
+  total_damage, total_kda, counted = total_damage + h.damage / h.games, total_kda + kda(h), counted + 1
+end
+table.sort(heroes_sorted)
+local mean_damage, mean_kda = total_damage / math.max(1, counted), total_kda / math.max(1, counted)
+local flagged = 0
+md[#md + 1] = ''
+md[#md + 1] = ('| hero | games | win rate | K/D/A | KDA | damage/game | hero damage/game | note |')
+md[#md + 1] = '|---|---|---|---|---|---|---|---|'
+for _, id in ipairs(heroes_sorted) do
+  local h = hero_rows[id]
+  local rate, per_game = h.wins / h.games, h.damage / h.games
+  local notes = {}
+  if h.games >= BALANCE.min_games then
+    if rate >= BALANCE.win_high then notes[#notes + 1] = 'WIN HIGH' elseif rate <= BALANCE.win_low then notes[#notes + 1] = 'WIN LOW' end
+    if mean_kda > 0 then
+      if kda(h) >= mean_kda * BALANCE.ratio_high then notes[#notes + 1] = 'KDA HIGH' elseif kda(h) <= mean_kda * BALANCE.ratio_low then notes[#notes + 1] = 'KDA LOW' end
+    end
+    -- No damage recorded at all (E352: a report without the tally) is no reading, not a balance flag.
+    if mean_damage > 0 then
+      if per_game >= mean_damage * BALANCE.ratio_high then notes[#notes + 1] = 'DAMAGE HIGH' elseif per_game <= mean_damage * BALANCE.ratio_low then notes[#notes + 1] = 'DAMAGE LOW' end
+    end
+  end
+  if #notes > 0 then flagged = flagged + 1 end
+  summary.balance.heroes[id] = { games = h.games, wins = h.wins, kills = h.kills, deaths = h.deaths, assists = h.assists,
+    damage_per_game = per_game, hero_damage_per_game = h.hero_damage / h.games, notes = notes }
+  md[#md + 1] = ('| %s | %d | %.0f%% | %d/%d/%d | %.2f | %.0f | %.0f | %s |'):format(id, h.games, rate * 100,
+    h.kills, h.deaths, h.assists, kda(h), per_game, h.hero_damage / h.games, table.concat(notes, ', '))
+end
+md[#md + 1] = ''
+md[#md + 1] = '| item | holders | holder win rate | note |'
+md[#md + 1] = '|---|---|---|---|'
+for _, item in ipairs(shop_items) do
+  local holder = holder_rows[item.id]
+  if holder then
+    local rate = holder.wins / holder.games
+    local note = holder.games >= BALANCE.min_games and (rate >= BALANCE.win_high and 'WIN HIGH' or rate <= BALANCE.win_low and 'WIN LOW') or ''
+    if note ~= '' then flagged = flagged + 1 end
+    summary.balance.items[item.id] = { holders = holder.games, wins = holder.wins, note = note }
+    md[#md + 1] = ('| %s | %d | %.0f%% | %s |'):format(item.id, holder.games, rate * 100, note)
+  end
+end
+json.write(path.join(output, 'report.json'), summary, true)
+if summary.ue then
+  md[#md + 1] = ''
+  md[#md + 1] = ('UE: exit %d, result UI %s, result screenshot %s, time-boxed %s (%s)'):format(summary.ue.exit_code,
+    tostring(summary.ue.result_ui), tostring(summary.ue.result_screenshot), tostring(summary.ue.time_boxed), summary.ue.output)
+end
+path.write(path.join(output, 'report.md'), table.concat(md, '\n') .. '\n', true)
+print(table.concat(md, '\n'))
+print(('report: %s (%d castable abilities never cast, %d shop items never obtained or never used, %d balance flags)'):format(
+  path.join(output, 'report.md'), never, unused_items, flagged))
+-- The batch's private build copy (E603: about 90 MB a batch, which filled the disk) goes once the
+-- report is written; kept with --keep-bin, or when a match failed so that it can be rerun with the
+-- same exe. The shared snapshot (target/snapshots/verify_m6_batch) stays: every batch builds into
+-- it incrementally.
+local function remove_tree(dir)
+  for name in lfs.dir(dir) do
+    if name ~= '.' and name ~= '..' then
+      local entry = path.join(dir, name)
+      if lfs.symlinkattributes(entry, 'mode') == 'directory' then remove_tree(entry) else assert(os.remove(entry)) end
+    end
+  end
+  assert(lfs.rmdir(dir))
+end
+if not options.keep_bin and not options.report_only and failed_matches == 0 and path.is_directory(bin) then
+  remove_tree(bin)
+  print('removed the batch build copy ' .. bin .. ' (--keep-bin keeps it)')
+end
+-- A batch where no match finished checked nothing (E332): fail, naming the first match's error.
+local finished = 0
+for _, row in ipairs(summary.recipes) do finished = finished + row.finished end
+if finished == 0 and #jobs > 0 then
+  local err = path.is_file(jobs[1].log .. '.err') and path.read(jobs[1].log .. '.err') or ''
+  io.stderr:write('no match finished; first match log: ' .. jobs[1].log .. '\n' .. err:sub(-1500) .. '\n')
+  os.exit(1)
+end

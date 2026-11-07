@@ -9,21 +9,30 @@ local function profile(options)
   assert(value=='debug' or value=='release','invalid server build profile')
   return value
 end
+-- The script DLL set: base_content and every hero DLL (script_dlls.lua), for profile SELECTED.
+-- SOURCE_ROOT (default the repo) is where the manifests are read: a split builds from its source
+-- snapshot (E487). `crate` names the workspace whose target directory the outputs belong to.
+function M.script_dll_command(selected,source_root)
+  return {exe='cargo',crate='scripts',args=require('script_dlls').cargo_args({'build','--manifest-path',
+    path.join(source_root or b.root,'scripts/Cargo.toml')},'compiled-content-only',selected=='release' and {'--release'} or nil,source_root)}
+end
 function M.commands(options)
   local selected=profile(options)
   local commands={}
   local function build(manifest,package_name,binary)
-    local args={'build','--manifest-path',path.join(b.root,manifest),'-p',package_name,
+    local args={'build','--manifest-path',path.join(options.root or b.root,manifest),'-p',package_name,
       '--features','compiled-content-only'}
     if binary then args[#args+1]='--bin';args[#args+1]=binary end
     if selected=='release' then args[#args+1]='--release' end
-    commands[#commands+1]={exe='cargo',args=args}
+    commands[#commands+1]={exe='cargo',crate=manifest:match('^([^/]+)/'),args=args}
   end
-  build('scripts/Cargo.toml','base_content')
+  commands[#commands+1]=M.script_dll_command(selected,options.root)
   build('omb/Cargo.toml','omobab','moba-config')
   build('omb/Cargo.toml','omobab','omobab')
-  commands[#commands+1]={exe=platform.lua_executable,args={
-    path.join(b.root,'scripts/dev_run_freshness.lua'),'--action','stage-dll','--profile',selected}}
+  -- The set staged is the set built: the source tree's hero_dlls.lua (E507).
+  local stage={path.join(b.root,'scripts/dev_run_freshness.lua'),'--action','stage-dll','--profile',selected}
+  if options.root then stage[#stage+1]='--set-root';stage[#stage+1]=options.root end
+  commands[#commands+1]={exe=platform.lua_executable,args=stage}
   return commands
 end
 function M.build(options,process)
@@ -38,13 +47,23 @@ end
 function M.verify(options,dependencies)
   local selected=profile(options)
   dependencies=dependencies or {is_file=path.is_file,sha256=b.lib('hash').sha256}
+  local artifacts=require('run_artifacts') -- OM_RUST_RUN_BINARIES aware (E125)
   for _,binary in ipairs({'omobab.exe','moba-config.exe'}) do
-    local file=path.join(b.root,'omb/target',selected,binary)
+    local file=artifacts.rust_binary(b.root,'omb',selected,binary)
     assert(dependencies.is_file(file),'missing dedicated authority executable: '..file)
   end
-  return require('moba_stage_contract').verify({{
-    role='base_content',built=path.join(b.root,'scripts/target',selected,'base_content.dll'),
-    copies={path.join(b.root,'scripts/base_content.dll')},
-  }},dependencies)
+  -- No shared staged DLL is checked: each launch copies the current base_content build into
+  -- its own run directory (run_artifacts.lua, E124), so only a build has to exist.
+  for _,candidate in ipairs({selected,selected=='release' and 'debug' or 'release'}) do
+    local built=artifacts.rust_binary(b.root,'scripts',candidate,'base_content.dll')
+    if dependencies.is_file(built) then
+      for _,module in ipairs(require('script_dlls').modules()) do
+        local file=artifacts.rust_binary(b.root,'scripts',candidate,module.file)
+        assert(dependencies.is_file(file),'missing script DLL beside base_content: '..file)
+      end
+      return {schema_version=1,scope='dedicated-authority-build',base_content_profile=candidate,base_content=built}
+    end
+  end
+  error('missing base_content build: scripts/target/{debug,release}/base_content.dll',0)
 end
 return M

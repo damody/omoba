@@ -5,7 +5,7 @@ local b=require('_bootstrap')
 local path,process,json=b.lib('path'),b.lib('process'),b.lib('json')
 local batch,compiled=require('moba_headless_batch'),require('moba_compiled_content')
 if arg[1]=='--help' then
-  print('Usage: tools/lua/lua.exe scripts/run_moba_headless_batch.lua [--matches 1..10 (default 10)] [--seed 1] [--recipe ALL_BOT.lua] [--output NEW_DIRECTORY] [--max-game-seconds 600] [--stall-game-seconds 300]')
+  print('Usage: tools/lua/lua.exe scripts/run_moba_headless_batch.lua [--matches 1..10000 (default 10)] [--seed 1] [--recipe ALL_BOT.lua] [--output NEW_DIRECTORY] [--max-game-seconds 600] [--stall-game-seconds 300]')
   return
 end
 local options=batch.options(arg,b.lib('args'))
@@ -25,23 +25,17 @@ else
 end
 local report_file=path.join(output,'batch-report.json')
 local recipe_file=path.join(output,'role-plan.json')
-local scripts_dir=path.join(b.root,'scripts','target','release')
-local executable=path.join(b.root,'omb','target','release','moba-headless.exe')
+-- Built from this batch's own source snapshot and run from a private copy (E347, E125).
+local scripts_dir=path.join(output,'bin')
+local executable=path.join(scripts_dir,'moba-headless.exe')
 local function report_path(ordinal) return path.join(output,('match-%04d.json'):format(ordinal)) end
 local env=compiled.environment()
 local report=batch.execute(options,{
   prepare=function()
     require('export_moba_role_plan').export(options.recipe,recipe_file)
-    for _,args in ipairs({
-      {'build','--manifest-path',path.join(b.root,'scripts','Cargo.toml'),'-p','base_content',
-        '--features',compiled.feature,'--release'},
-      {'build','--manifest-path',path.join(b.root,'omb','Cargo.toml'),'-p','omobab','--bin','moba-headless',
-        '--features',compiled.feature,'--release'},
-    }) do
-      local result=process.run('cargo',args,{cwd=b.root,env=env,check=false})
-      io.write(result.stdout or '');io.stderr:write(result.stderr or '')
-      assert(result.exit_code==0,'batch build failed: '..tostring(result.exit_code))
-    end
+    -- Script DLLs and moba-headless from one source snapshot, content hashes checked equal (E332,
+    -- E347); no repo build lock.
+    require('source_snapshot').build_headless(b.root,'run_moba_headless_batch',{into=scripts_dir})
   end,
   run=function(seed,ordinal)
     local result=process.run(executable,{'--role-plan',recipe_file,'--profile','60','--seed',tostring(seed),
@@ -50,7 +44,10 @@ local report=batch.execute(options,{
       {cwd=b.root,env=env,check=false})
     path.write(path.join(output,('match-%04d.log'):format(ordinal)),
       (result.stdout or '')..(result.stderr or ''))
-    assert(result.exit_code==0,'match '..ordinal..' failed: '..tostring(result.exit_code))
+    if result.exit_code~=0 then
+      local ok,failed=pcall(json.read,report_path(ordinal))
+      error(batch.match_failure(ordinal,seed,result.exit_code,ok and failed or nil,report_path(ordinal)),0)
+    end
     print(('completed match %d/%d seed=%d'):format(ordinal,options.matches,seed))
     return json.read(report_path(ordinal))
   end,

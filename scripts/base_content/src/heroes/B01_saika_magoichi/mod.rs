@@ -16,3 +16,5 @@ pub use No2_saika_reinforcements::saika_reinforcements_ffi;
 pub use No3_rain_iron_cannon::rain_iron_cannon_ffi;
 pub use No4_three_stage_technique::three_stage_ffi;
 pub use No4_three_stage_technique::three_stage_ffi as three_stage_technique_ffi;
+// M5 (2026-10-30): the b01_* abilities run generated Rust (scripts/heroes/saika_magoichi); their
+// handlers are gone. The four above are the retained legacy loadout tests pin.

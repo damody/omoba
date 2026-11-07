@@ -51,7 +51,17 @@ impl CheckpointQueue {
 
 pub struct CheckpointWriter {
     failure_rx: watch::Receiver<Option<String>>,
-    join: JoinHandle<Result<(), String>>,
+    /// `None` once `finish` took it. Dropping the writer aborts the task, so a
+    /// report stuck on a dead link cannot keep the old KCP stream alive.
+    join: Option<JoinHandle<Result<(), String>>>,
+}
+
+impl Drop for CheckpointWriter {
+    fn drop(&mut self) {
+        if let Some(join) = &self.join {
+            join.abort();
+        }
+    }
 }
 
 impl CheckpointWriter {
@@ -60,8 +70,9 @@ impl CheckpointWriter {
     }
 
     /// 呼叫端必須先 drop 最後一個 `CheckpointQueue`，讓 receiver 看見 EOF。
-    pub async fn finish(self) -> Result<(), ClientRuntimeError> {
-        self.join
+    pub async fn finish(mut self) -> Result<(), ClientRuntimeError> {
+        let join = self.join.take().expect("checkpoint writer finished once");
+        join
             .await
             .map_err(|error| ClientRuntimeError::Session(error.to_string()))?
             .map_err(ClientRuntimeError::Session)
@@ -89,7 +100,7 @@ pub fn spawn_checkpoint_writer(
             }
         },
     ));
-    (queue, CheckpointWriter { failure_rx, join })
+    (queue, CheckpointWriter { failure_rx, join: Some(join) })
 }
 
 fn checkpoint_channel(

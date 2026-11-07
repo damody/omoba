@@ -1,0 +1,24 @@
+[package]
+name = "items_impl"
+version = "0.1.0"
+edition = "2021"
+description = "Shop item scripts generated from docs/character_pipeline/items/*.lua; dll/ builds them into items.dll (M7)"
+
+[lib]
+name = "items_impl"
+# rlib only: tests link it in-process. The DLL is the separate package in dll/.
+crate-type = ["rlib"]
+
+[dependencies]
+abi_stable = "0.11"
+ability_kit = { path = "../ability_kit" }
+
+[dev-dependencies]
+omoba-core = { path = "../../omoba-core", default-features = false }
+omoba-template-ids = { path = "../../omoba-template-ids" }
+serde_json = "1.0"
+
+[features]
+default = []
+runtime-lua-content = ["ability_kit/runtime-lua-content"]
+compiled-content-only = ["ability_kit/compiled-content-only"]

@@ -45,6 +45,10 @@ fn summon_settlement_commits_once_and_duplicate_preserves_the_existing_body() {
         if source==crate::runtime::canonical_entity_id(owner)));
     assert_eq!(world.read_storage::<PlayerOwner>().get(entity).unwrap().player_id,7);
     assert_eq!(world.read_storage::<SummonedUnit>().get(entity).unwrap().summoner,owner);
+    // The body takes the template's turn speed and attack projectile speed.
+    let stats=*omoba_template_ids::summon_by_name("saika_gunner").and_then(omoba_template_ids::active_summon_stats).unwrap();
+    assert_eq!(world.read_storage::<TurnSpeed>().get(entity).unwrap().0,stats.turn_speed);
+    assert_eq!(world.read_storage::<TAttack>().get(entity).unwrap().bullet_speed,stats.projectile_speed);
     let events=world.write_resource::<ScriptEventQueue>().drain();
     assert_eq!(events.len(),1);assert!(matches!(events[0],ScriptEvent::Spawn {e} if e==entity));
     world.write_storage::<CProperty>().get_mut(entity).unwrap().hp=Fixed64::ONE;
@@ -54,6 +58,55 @@ fn summon_settlement_commits_once_and_duplicate_preserves_the_existing_body() {
     assert_eq!(world.read_storage::<CProperty>().get(entity).unwrap().hp,Fixed64::ONE);
     assert_eq!(world.read_storage::<Pos>().get(entity).unwrap().0.x,Fixed64::from_i32(500));
     assert!(world.write_resource::<ScriptEventQueue>().drain().is_empty());
+}
+
+#[test]
+fn a_dummy_summon_is_a_bodiless_holder_for_its_lifetime() {
+    let (mut world, _owner, entity, mut outcome) = fixture();
+    if let Outcome::SpawnSummoned {unit_id,duration,..}=&mut outcome {*unit_id="dummy".into();*duration=Fixed64::from_i32(4);}
+    assert_eq!(settle(&mut world, outcome).len(), 1);
+    assert!(world.read_storage::<SummonedUnit>().get(entity).is_some_and(|summon| summon.immobile));
+    assert!(world.read_storage::<TAttack>().get(entity).is_none(), "no attack");
+    assert_eq!(world.read_storage::<CollisionRadius>().get(entity).map(|r| r.0), Some(Fixed64::ZERO), "blocks nothing");
+    assert!(world.read_storage::<CProperty>().get(entity).is_some_and(|p| p.hp > Fixed64::ZERO), "a living holder");
+    let buffs = world.read_resource::<crate::runtime::BuffStore>();
+    for id in super::super::dummy_unit::STATES {
+        assert_eq!(buffs.get(entity, id).map(|row| row.remaining), Some(Fixed64::from_i32(4)), "{id} for its lifetime");
+    }
+}
+
+#[test]
+fn an_item_use_commits_its_summon_before_the_effects_on_it_and_a_refused_use_releases_it() {
+    let pool = crate::runtime::StateInitializer::create_thread_pool();
+    let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+    world.insert(crate::runtime::TowerTemplateRegistry::default());
+    crate::runtime::setup_single_lane_match(&mut world, crate::runtime::SingleLaneConfig { warmup: Fixed64::ZERO, ..Default::default() }).unwrap();
+    let (hero, pid) = { let mut state = world.write_resource::<crate::runtime::MobaMatch>();
+        state.phase = crate::runtime::MobaMatchPhase::Playing; (state.heroes[0].entity.unwrap(), state.heroes[0].player_id) };
+    if world.try_fetch::<ItemRegistry>().is_none() { world.insert(ItemRegistry::generated_moba()); }
+    let item = { let registry = world.read_resource::<ItemRegistry>(); let mut ids: Vec<_> = registry.items.keys().cloned().collect(); ids.sort(); ids[0].clone() };
+    world.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0] = Some(crate::runtime::native::comp::inventory::ItemInstance { item_id: item.clone(), cooldown_remaining: 0.0 });
+    let at = world.read_storage::<Pos>().get(hero).unwrap().0;
+    let faction = world.read_storage::<Faction>().get(hero).unwrap().clone();
+    let transaction = |world: &World| {
+        let entity = world.entities().create();
+        (entity, Outcome::ScriptItemTransaction { owner: hero, owner_pid: pid, slot: 0, item_id: item.clone(), target: None, target_point: None,
+            outcomes: vec![Outcome::SpawnSummoned { entity, pos: at, unit_id: "dummy".into(), owner: hero, faction: faction.clone(),
+                player_owner: Some(pid), duration: Fixed64::from_i32(5) },
+                Outcome::AddBuff { target: entity, buff_id: "fire_field".into(), duration: Fixed64::from_i32(5), payload: serde_json::Value::Null }] })
+    };
+    let (summon, used) = transaction(&world);
+    world.write_resource::<Vec<Outcome>>().push(used);
+    process_outcomes(&mut world, &mut crate::runtime::RuntimeEventVecSink::default()).unwrap();
+    assert!(world.read_storage::<SummonedUnit>().get(summon).is_some(), "the item's summon is committed");
+    assert!(world.read_resource::<BuffStore>().has(summon, "fire_field"), "the status after it lands on it");
+    // A use whose slot is not ready is refused and releases its summon.
+    world.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().cooldown_remaining = 9.0;
+    let (refused, used) = transaction(&world);
+    world.write_resource::<Vec<Outcome>>().push(used);
+    process_outcomes(&mut world, &mut crate::runtime::RuntimeEventVecSink::default()).unwrap();
+    world.maintain();
+    assert!(!world.entities().is_alive(refused), "a refused use releases its reservation");
 }
 
 #[test]

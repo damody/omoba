@@ -1,9 +1,12 @@
-local package_dir = arg[1]
-
-if not package_dir or package_dir == "" then
-  io.stderr:write("SchemaError: usage: lua5.4 validate_package.lua <package_dir>\n")
-  os.exit(2)
-end
+-- Usage: lua validate_package.lua <package_dir|v3_document.lua> [--catalog <source-catalog.lua>] [--requirements <file>]
+-- As a module (set the global VALIDATE_PACKAGE_AS_MODULE = true, then dofile)
+-- it returns { validate = function(dir, opts) -> errors, warnings }.
+-- schema_version 1 packages use the v1 art rules below; schema_version 2
+-- packages add the gameplay contract in package_v2.lua; schema v3 documents (a .lua
+-- file, or v3.lua in a package dir) are checked by package_v3.lua.
+local tools_dir = (debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".")
+local as_module = rawget(_G, "VALIDATE_PACKAGE_AS_MODULE") == true
+local package_dir
 
 local required_files = {
   "character.lua",
@@ -13,8 +16,8 @@ local required_files = {
   "omoba_stub.lua",
 }
 
-local errors = {}
-local warnings = {}
+local errors, warnings = {}, {}
+local opts = {}
 
 local function add_error(message)
   table.insert(errors, "SchemaError: " .. message)
@@ -62,8 +65,8 @@ local function load_lua_table(file_name)
     add_error(file_name .. " must return a table")
     return nil
   end
-  if result.schema_version ~= 1 then
-    add_error(file_name .. " must set schema_version = 1")
+  if result.schema_version ~= (opts.expected_version or 1) then
+    add_error(file_name .. " must set schema_version = " .. (opts.expected_version or 1))
   end
   return result
 end
@@ -223,6 +226,69 @@ local function validate_omoba_stub(stub)
   end
 end
 
+local function sandbox_load(file_name)
+  local chunk = loadfile(package_dir .. "/" .. file_name, "t", {})
+  if not chunk then return nil end
+  local ok, fn = pcall(chunk)
+  if not ok or type(fn) ~= "function" then return nil end
+  local ok2, v = pcall(fn, {})
+  return ok2 and type(v) == "table" and v or nil
+end
+
+-- Schema v3 (schema/v3.md): a single document file, or a package dir holding v3.lua.
+-- A shipped hero's package also carries the v2 files until M5; both are checked.
+local v3_module
+local validate_v12
+local function v3()
+  if not v3_module then
+    local prev = rawget(_G, "PACKAGE_V3_AS_MODULE")
+    PACKAGE_V3_AS_MODULE = true
+    v3_module = dofile(tools_dir .. "/package_v3.lua")
+    PACKAGE_V3_AS_MODULE = prev
+  end
+  return v3_module
+end
+
+local function validate(dir, options)
+package_dir = dir
+opts = options or {}
+errors, warnings = {}, {}
+if dir:match("%.lua$") then
+  return v3().validate_file(dir, opts)
+end
+local kit = io.open(dir .. "/v3.lua", "rb")
+if kit then
+  kit:close()
+  local e3, w3 = v3().validate_file(dir, opts)
+  local char = io.open(dir .. "/character.lua", "rb")
+  if not char then return e3, w3 end
+  char:close()
+  local e2, w2 = validate_v12(dir, options)
+  for _, m in ipairs(e3) do e2[#e2 + 1] = m end
+  for _, m in ipairs(w3) do w2[#w2 + 1] = m end
+  return e2, w2
+end
+return validate_v12(dir, options)
+end
+
+function validate_v12(dir, options)
+package_dir = dir
+opts = options or {}
+errors, warnings = {}, {}
+local probe = sandbox_load("character.lua")
+if probe and probe.schema_version == 2 then
+  opts.expected_version = 2
+  local v2 = dofile(tools_dir .. "/package_v2.lua")
+  local loaded = {}
+  for _, file_name in ipairs(v2.LUA_FILES) do loaded[file_name] = load_lua_table(file_name) end
+  if loaded["character.lua"] then
+    local e2, w2 = v2.validate(package_dir, loaded, opts)
+    for _, m in ipairs(e2) do errors[#errors + 1] = m end
+    for _, m in ipairs(w2) do warnings[#warnings + 1] = m end
+  end
+  return errors, warnings
+end
+
 local loaded = {}
 for _, file_name in ipairs(required_files) do
   loaded[file_name] = load_lua_table(file_name)
@@ -245,6 +311,26 @@ end
 if loaded["omoba_stub.lua"] then
   validate_omoba_stub(loaded["omoba_stub.lua"])
 end
+return errors, warnings
+end
+
+if as_module then return { validate = validate } end
+
+local cli_dir = arg[1]
+if not cli_dir or cli_dir == "" or cli_dir:sub(1, 2) == "--" then
+  io.stderr:write("SchemaError: usage: lua5.4 validate_package.lua <package_dir> [--catalog <file>] [--requirements <file>]\n")
+  os.exit(2)
+end
+local cli_opts = {}
+local function data_file(file)
+  local chunk = assert(loadfile(file, "t", {}))
+  return chunk()
+end
+for i = 2, #arg do
+  if arg[i] == "--catalog" then cli_opts.catalog = data_file(assert(arg[i + 1], "--catalog needs a file")) end
+  if arg[i] == "--requirements" then cli_opts.requirements = data_file(assert(arg[i + 1], "--requirements needs a file")) end
+end
+validate(cli_dir, cli_opts)
 
 for _, warning in ipairs(warnings) do
   io.stderr:write(warning .. "\n")

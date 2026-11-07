@@ -868,7 +868,7 @@ impl<'a> NativeCommunicationFacts<'a> {
         let entity = self.live_owned_entity(player_id)?;
         let heroes = self.world.read_storage::<Hero>();
         let hero = heroes.get(entity)?;
-        let ability_id = hero.abilities.get(usize::from(index))?;
+        let ability_id = hero.abilities.get(usize::from(index)).filter(|id| !id.is_empty())?;
         let remaining = hero.ability_cooldowns.get(ability_id).copied().unwrap_or(Fixed64::ZERO);
         if remaining.raw() < 0 {
             return None;

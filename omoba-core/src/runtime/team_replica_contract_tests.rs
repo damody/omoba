@@ -88,7 +88,7 @@ fn committed_actor_state_is_visible_only_and_has_no_canonical_identity_payload()
             fact: ObservableFact::CommittedProgression { source, level: 2, experience: 25, experience_to_next: 120, skill_points: 1 } },
         OrderedFact { key: FactOrderingKey {tick:1,phase:FactPhase::PostStep,canonical_source_order:source,local_ordinal:4,fact_kind:FactKind::CommittedAbilityRanks},
             audience:FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.into()),
-            fact:ObservableFact::CommittedAbilityRanks {source,ranks:[2,1,1,1]} },
+            fact:ObservableFact::CommittedAbilityRanks {source,ranks:vec![2,1,1,1]} },
     ]).collect();
     let frame = projector.build_frame(1, 1, &BTreeSet::from([10]), vec![], &facts, &ProjectionDependencyGraph::default()).unwrap().frame;
     let events = frame.step.unwrap().public_events;
@@ -105,9 +105,10 @@ fn committed_actor_state_is_visible_only_and_has_no_canonical_identity_payload()
     assert!(frame.post_step.unwrap().component_repairs.is_empty());
     let own = disclosed_projector(2, 10).build_frame(1, 1, &BTreeSet::from([10]), vec![], &facts, &ProjectionDependencyGraph::default()).unwrap().frame;
     let own_events = own.step.unwrap().public_events;
-    assert_eq!(own_events.len(), 4);
-    assert!(!own_events.iter().any(|event| event.event_kind == FactKind::CommittedCooldown as u32),
-        "owner cooldown stays deterministic, not overwritten");
+    // E401: the owner team gets its settled cooldown too (an authority-only hook may have reset it).
+    assert_eq!(own_events.len(), 5);
+    assert!(own_events.iter().any(|event| event.event_kind == FactKind::CommittedCooldown as u32),
+        "owner cooldown follows the authority's settlement");
 }
 
 #[test]
@@ -341,7 +342,7 @@ fn forget_removes_entity_before_same_tick_gameplay() {
         step: Some(Step::default()),
         post_step: Some(PostStep::default()),
         padding: vec![],
-        authoritative_mode: None, combat_preferences: None,
+        authoritative_mode: None, combat_preferences: None, script_module_swaps: Vec::new(),
     };
     runtime.apply_frame(frame, &mut noop).unwrap();
     assert!(runtime.world().entities.is_empty());
@@ -947,7 +948,7 @@ fn empty_wire_frame(tick: u64, sequence: u64) -> TeamTickFrame {
         step: Some(Step::default()),
         post_step: Some(PostStep::default()),
         padding: vec![],
-        authoritative_mode: None, combat_preferences: None,
+        authoritative_mode: None, combat_preferences: None, script_module_swaps: Vec::new(),
     }
 }
 

@@ -23,7 +23,8 @@ impl MobaMatch {
 pub(super) fn begin(world:&World,state:&mut MobaMatch) {
     if world.read_resource::<GamePause>().is_paused {return;}
     let rule=state.config.objective_comeback_rules;
-    if !rule.is_valid() || rule.activate_gap==0 || state.phase!=MobaMatchPhase::Playing
+    // A training mechanic: the original game (game_rules) has no comeback gold (E187).
+    if state.config.game_rules.is_some() || !rule.is_valid() || rule.activate_gap==0 || state.phase!=MobaMatchPhase::Playing
         || i128::from(state.elapsed.raw())-i128::from(state.config.warmup.raw())<i128::from(rule.starts_seconds)*1024 {
         state.comeback=ComebackState::default();
     } else {
@@ -100,6 +101,8 @@ mod tests {
             additional_players:vec![SingleLanePlayerConfig {player_id:3,team_id:1,hero:"training_luminary".into()}],
             ..Default::default()}).unwrap();
         {let mut s=w.write_resource::<MobaMatch>();s.phase=MobaMatchPhase::Playing;s.elapsed=Fixed64::from_i32(1);}
+        // The bosses appear on the match clock (E187); these fixtures fight them at the start.
+        spawn_waiting_jungle_camps_for_test(&mut w);
         w
     }
     fn update(w:&mut World,f:impl FnOnce(&World,&mut MobaMatch)) {let mut s=w.remove::<MobaMatch>().unwrap();f(w,&mut s);w.insert(s);}

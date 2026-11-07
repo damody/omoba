@@ -1,0 +1,24 @@
+[package]
+name = "ability_kit"
+version = "0.1.0"
+edition = "2021"
+authors = ["damody <t1238142000@gmail.com>"]
+description = "Shared library the script DLLs (base_content, hero_<id>) link statically"
+
+[lib]
+name = "ability_kit"
+crate-type = ["rlib"]
+
+[dependencies]
+abi_stable = "0.11"
+omb-script-abi = { path = "../script-abi" }
+omoba-core = { path = "../../omoba-core", default-features = false }
+omoba-content-model = { path = "../../omoba-content-model" }
+omoba-template-ids = { path = "../../omoba-template-ids" }
+omoba-sim = { path = "../../omoba-sim", features = ["abi-stable"] }
+serde_json = "1.0"
+
+[features]
+default = []
+runtime-lua-content = ["omoba-template-ids/runtime-lua-content"]
+compiled-content-only = ["omoba-template-ids/compiled-content-only", "omoba-core/compiled-content-only"]

@@ -1,0 +1,6 @@
+{
+  "schema": "v3-conformance-known/1",
+  "note": "Scenarios that fail today on purpose: class b = a listed port difference (census-v3 README), c = found by these tests. Remove an entry once it passes (the test reports it).",
+  "scenarios": {
+  }
+}

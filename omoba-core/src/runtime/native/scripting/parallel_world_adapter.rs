@@ -17,6 +17,78 @@ use crate::runtime::ability_runtime::{BuffStore, UnitStats};
 
 use super::tag::ScriptUnitTag;
 
+/// Where removed units last stood (E526, 原作 a dead unit's position stays readable in its death
+/// and later hooks: C16 鬼影 rises where its holder died, B23's channel end reads its dead caster).
+/// `EntityRemoved` records the unit before deleting it; a script's `get_pos` of a unit that is
+/// gone reads it here. Rows older than [`RetiredPositions::KEEP_TICKS`] go, and at most
+/// [`RetiredPositions::MAX`] are kept (the oldest go first).
+#[derive(Default)]
+pub struct RetiredPositions {
+    rows: std::collections::BTreeMap<Entity, (Vec2, u64)>,
+    /// The team of a removed combat unit (hero, creep, neutral, summon...; E532): what a dead
+    /// selector (`include_dead`) finds. Dummies, buildings and effects have none.
+    teams: std::collections::BTreeMap<Entity, i32>,
+}
+
+impl RetiredPositions {
+    /// How long the engine keeps a removed unit's body (its position, and its team for dead
+    /// selectors): one minute. A dead selector without its own `dead_within` uses this (E539).
+    pub const KEEP_SECONDS: i32 = 60;
+    /// [`RetiredPositions::KEEP_SECONDS`] at 60 Hz.
+    pub const KEEP_TICKS: u64 = Self::KEEP_SECONDS as u64 * 60;
+    pub const MAX: usize = 4_096;
+
+    pub fn record(&mut self, entity: Entity, at: Vec2, tick: u64) {
+        self.rows.retain(|_, (_, when)| tick.saturating_sub(*when) <= Self::KEEP_TICKS);
+        if self.rows.len() >= Self::MAX {
+            if let Some(oldest) = self.rows.iter().min_by_key(|(entity, (_, when))| (*when, entity.id(), entity.gen().id())).map(|(e, _)| *e) {
+                self.rows.remove(&oldest);
+            }
+        }
+        self.rows.insert(entity, (at, tick));
+        let rows = &self.rows;
+        self.teams.retain(|e, _| rows.contains_key(e));
+    }
+    /// [`RetiredPositions::record`] of a combat unit of `team` (E532).
+    pub fn record_unit(&mut self, entity: Entity, at: Vec2, tick: u64, team: i32) {
+        self.record(entity, at, tick);
+        self.teams.insert(entity, team);
+    }
+    pub fn get(&self, entity: Entity) -> Option<Vec2> { self.rows.get(&entity).map(|(at, _)| *at) }
+    /// Combat units removed at `since` or later within `radius` of `center`, with their team,
+    /// nearest first (then entity id).
+    pub fn units_in_range(&self, center: Vec2, radius: Fixed64, since: u64) -> Vec<(Entity, i32)> {
+        let r2 = radius * radius;
+        let mut found: Vec<_> = self.teams.iter().filter_map(|(entity, team)| {
+            let (at, when) = self.rows.get(entity)?;
+            (*when >= since && at.distance_squared(center) <= r2).then(|| (at.distance_squared(center).raw(), entity.id(), *entity, *team))
+        }).collect();
+        found.sort_by_key(|(distance, id, _, _)| (*distance, *id));
+        found.into_iter().map(|(_, _, entity, team)| (entity, team)).collect()
+    }
+}
+
+/// One generated hook's `Err` (ext SCRIPT_ERROR, E517).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScriptErrorRow { pub tick: u64, pub entity: (u32, u32), pub ability: String, pub hook: String, pub message: String }
+
+/// The hook errors since the last [`ScriptErrorLog::take`], when the world keeps this resource
+/// (a conformance harness inserts it); a diagnostic, never a simulation input.
+#[derive(Default)]
+pub struct ScriptErrorLog { rows: std::sync::Mutex<Vec<ScriptErrorRow>> }
+
+impl ScriptErrorLog {
+    /// The rows so far in tick then entity order (hooks may run in parallel), emptying the log.
+    pub fn take(&self) -> Vec<ScriptErrorRow> {
+        let mut rows = self.rows.lock().map(|mut rows| std::mem::take(&mut *rows)).unwrap_or_default();
+        rows.sort_by(|a, b| (a.tick, a.entity).cmp(&(b.tick, b.entity)));
+        rows
+    }
+    fn push(&self, row: ScriptErrorRow) {
+        if let Ok(mut rows) = self.rows.lock() { if rows.len() < 4096 { rows.push(row); } }
+    }
+}
+
 pub struct ParallelAdapterCache<'a> {
     team_keys:HashMap<i32,String>,
     pub entities: Entities<'a>,
@@ -24,12 +96,17 @@ pub struct ParallelAdapterCache<'a> {
     pub pos: ReadStorage<'a, Pos>,
     move_targets: Option<ReadStorage<'a, MoveTarget>>,
     summoned: Option<ReadStorage<'a, SummonedUnit>>,
+    unit_tags: Option<ReadStorage<'a, UnitTags>>,
     commands: Option<ReadStorage<'a, HeroCommandQueue>>,
     summon_host_movement: Option<Read<'a, super::super::tick::summon_tick::HostMovement>>,
+    script_errors: Option<Read<'a, ScriptErrorLog>>,
+    retired_positions: Option<Read<'a, RetiredPositions>>,
     pub facing: ReadStorage<'a, Facing>,
     pub cprop: ReadStorage<'a, CProperty>,
     pub unit: ReadStorage<'a, Unit>,
     pub hero: ReadStorage<'a, Hero>,
+    /// A non-hero unit's mana (unit_mana); read through [`Self::unit_mana`].
+    unit_manas: Option<ReadStorage<'a, super::super::unit_mana::UnitMana>>,
     pub faction: ReadStorage<'a, Faction>,
     pub creep: ReadStorage<'a, Creep>,
     pub tower: ReadStorage<'a, Tower>,
@@ -48,9 +125,36 @@ pub struct ParallelAdapterCache<'a> {
     attack_gate: Option<Read<'a, crate::runtime::filtered_specs::DisclosedAttackabilityGate>>,
     filtered: bool,
     summon_placements: super::super::summon_navigation::PlacementReservations,
+    /// Test worlds with a `DamageTrace`: scripts tag their damage (ext DAMAGE_TAG).
+    damage_trace: bool,
+    /// Gold pools (unit attribute `gold`, E243); absent in worlds that keep none.
+    gold: Option<ReadStorage<'a, Gold>>,
+    /// A team replica's disclosed component bytes per entity (ext IS_VISIBLE_TO reads the enemy sight).
+    filtered_components: Option<ReadStorage<'a, crate::runtime::filtered_specs::FilteredComponents>>,
+    /// Worn items (`source_passive_scripts`: their generated passives hear the owner's attacks).
+    inventories: Option<ReadStorage<'a, crate::runtime::Inventory>>,
+    /// `game.is_night` this tick (ext GAME_ATTR).
+    night: bool,
+    /// `game.dt`: this tick's match time step (ext GAME_ATTR).
+    dt: Fixed64,
+    /// Each attacker's current attack (unit attributes `attack_damage` / `attack_effect_multiplier`).
+    attacks: Option<Read<'a, super::super::rules::attack::AttackRecords>>,
+    /// This tick's scripted attack multipliers (E562).
+    scripted_multipliers: Option<Read<'a, super::super::rules::attack::ScriptedAttackMultipliers>>,
 }
 
 impl<'a> ParallelAdapterCache<'a> {
+    /// A non-hero unit's mana (unit_mana).
+    pub fn unit_mana(&self, entity: Entity) -> Option<&super::super::unit_mana::UnitMana> {
+        self.unit_manas.as_ref().and_then(|manas| manas.get(entity))
+    }
+
+    /// Undoes the reservation of a summon whose outcomes were refused after `finish`.
+    pub(crate) fn release_reserved(&self, entity: Entity) {
+        self.summon_placements.release(entity);
+        let _ = self.entities.delete(entity);
+    }
+
     pub fn new(world: &'a World, rng_seed: u64) -> Self {
         let summon_placements=world.try_fetch::<super::super::summon_navigation::PlacementReservations>()
             .map(|ledger|(*ledger).clone()).unwrap_or_default();
@@ -69,13 +173,19 @@ impl<'a> ParallelAdapterCache<'a> {
                 .then(||world.read_storage::<MoveTarget>()),
             summoned: world.has_value::<specs::storage::MaskedStorage<SummonedUnit>>()
                 .then(||world.read_storage::<SummonedUnit>()),
+            unit_tags: world.has_value::<specs::storage::MaskedStorage<UnitTags>>()
+                .then(||world.read_storage::<UnitTags>()),
             commands: world.has_value::<specs::storage::MaskedStorage<HeroCommandQueue>>()
                 .then(||world.read_storage::<HeroCommandQueue>()),
             summon_host_movement: world.try_fetch::<super::super::tick::summon_tick::HostMovement>().map(Into::into),
+            script_errors: world.try_fetch::<ScriptErrorLog>().map(Into::into),
+            retired_positions: world.try_fetch::<RetiredPositions>().map(Into::into),
             facing: world.read_storage::<Facing>(),
             cprop: world.read_storage::<CProperty>(),
             unit: world.read_storage::<Unit>(),
             hero: world.read_storage::<Hero>(),
+            unit_manas: world.has_value::<specs::storage::MaskedStorage<super::super::unit_mana::UnitMana>>()
+                .then(||world.read_storage::<super::super::unit_mana::UnitMana>()),
             faction,
             creep: world.read_storage::<Creep>(),
             tower: world.read_storage::<Tower>(),
@@ -93,6 +203,16 @@ impl<'a> ParallelAdapterCache<'a> {
             moba: world.try_fetch::<crate::runtime::MobaMatch>().map(Into::into),
             attack_gate: world.try_fetch::<crate::runtime::filtered_specs::DisclosedAttackabilityGate>().map(Into::into),
             filtered: world.try_fetch::<crate::runtime::filtered_specs::DisclosedMovementPriority>().is_some(),
+            damage_trace: super::super::damage_trace::enabled(world),
+            gold: world.has_value::<specs::storage::MaskedStorage<Gold>>().then(||world.read_storage::<Gold>()),
+            filtered_components: world.has_value::<specs::storage::MaskedStorage<crate::runtime::filtered_specs::FilteredComponents>>()
+                .then(||world.read_storage::<crate::runtime::filtered_specs::FilteredComponents>()),
+            inventories: world.has_value::<specs::storage::MaskedStorage<crate::runtime::Inventory>>()
+                .then(||world.read_storage::<crate::runtime::Inventory>()),
+            night: super::super::rules::world::is_night(world),
+            dt: world.try_fetch::<super::super::comp::DeltaTime>().map_or(Fixed64::ZERO, |dt| dt.0),
+            attacks: world.try_fetch::<super::super::rules::attack::AttackRecords>().map(Into::into),
+            scripted_multipliers: world.try_fetch::<super::super::rules::attack::ScriptedAttackMultipliers>().map(Into::into),
         }
     }
 }
@@ -103,7 +223,19 @@ pub struct ParallelWorldAdapter<'a> {
     random_request_base: u64,
     outcomes: Vec<Outcome>,
     overlay_pos: HashMap<Entity, Vec2>,
+    /// A due scheduled step: statuses that expired in this tick still count as held.
+    held_through_expiry: bool,
     cast_succeeded: bool,
+    /// v3 `refund { cooldown = true }` (ext REFUND, E455): this cast's cooldown does not start.
+    refund_cooldown: bool,
+    /// Owner-visible code for a cast handler that did not succeed.
+    cast_rejection: Option<&'static str>,
+    /// The `Err` text of a cast handler that did not succeed (test cast trace).
+    script_error: Option<String>,
+    /// The cast running now was released from a windup (ext CAST_RELEASED).
+    cast_released: bool,
+    /// The inventory slot of the item whose cast runs now (ext EVENT_ITEM_SLOT, E571).
+    event_item_slot: Option<u32>,
     hook_panicked: bool,
     mana_transaction: bool,
     mana_views: HashMap<Entity, crate::runtime::ability_runtime::ManaPool>,
@@ -112,10 +244,20 @@ pub struct ParallelWorldAdapter<'a> {
     overlay_facing: HashMap<Entity, Angle>,
     overlay_asd_count: HashMap<Entity, Fixed64>,
     projectile_hit_generation: Option<u8>,
+    /// The ability an `on_ability_executed` status event is for (ext EVENT_ABILITY_ATTR).
+    pub(crate) event_ability: Option<EventAbility>,
+    /// A landed hit's total before mitigation in a damage status event (event_ability_attr::RAW_DAMAGE, E478).
+    pub(crate) event_raw_damage: Fixed64,
+    /// A status event hearing a landed hit: its holder, and the life that hit left it (FC-031).
+    pub(crate) event_holder_life: Option<(Entity, Fixed64)>,
+    /// A serial effect hook without a cast mana ledger (a status event) may spend a hero's mana
+    /// as a one-shot relative set the host settles in order (E506; an orb's cost per attack).
+    pub(crate) relative_mana: bool,
     projectile_origin: Option<ProjectileOrigin>,
     projectile_source_buffs: Option<BuffStore>,
     projectile_team_key: Option<String>,
     capture_cast_areas: bool,
+    cues_emitted: u32,
     cast_areas: Vec<(Vec2, Fixed64, Fixed64)>,
     pub(crate) allocation_allowed: bool,
     pub(crate) allocation_requested: bool,
@@ -125,6 +267,19 @@ pub struct ParallelWorldAdapter<'a> {
 pub struct ParallelProjectileQuery<'a> {
     cache: &'a ParallelAdapterCache<'a>,
     origin: Option<&'a ProjectileOrigin>,
+}
+
+/// The ability an `on_ability_executed` status event is for: its id (`item:<id>` for an item),
+/// its cast point at the caster's rank, whether it toggles.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct EventAbility {
+    pub id: String,
+    pub cast_point: Fixed64,
+    pub toggle: bool,
+    /// Where it was cast (event_ability_attr::POINT).
+    pub point: Vec2,
+    /// Its cast range at the caster's rank (event_ability_attr::CAST_RANGE).
+    pub cast_range: Fixed64,
 }
 
 impl Drop for ParallelWorldAdapter<'_> {
@@ -197,7 +352,7 @@ impl TowerActiveAbilityAccess for ParallelTowerActiveAbilityAccess<'_> {
             self.cache.is_building.get(entity).is_some(),
         );
         let interval =
-            (base_interval / stats.final_attack_speed_mult(entity)).max(Fixed64::from_raw(1));
+            (stats.base_attack_interval(base_interval, entity) / stats.final_attack_speed_mult(entity)).max(Fixed64::from_raw(1));
         self.outcomes
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -514,7 +669,13 @@ impl<'a> ParallelWorldAdapter<'a> {
             random_request_base: stable_invocation_ordinal.saturating_mul(1024),
             outcomes: Vec::new(),
             overlay_pos: HashMap::new(),
+            held_through_expiry: false,
             cast_succeeded: false,
+            refund_cooldown: false,
+            cast_rejection: None,
+            script_error: None,
+            cast_released: false,
+            event_item_slot: None,
             hook_panicked: false,
             mana_transaction: false,
             mana_views: HashMap::new(),
@@ -527,10 +688,15 @@ impl<'a> ParallelWorldAdapter<'a> {
             projectile_source_buffs: None,
             projectile_team_key: None,
             capture_cast_areas: false,
+            cues_emitted: 0,
             cast_areas: Vec::new(),
             allocation_allowed: true,
             allocation_requested: false,
             reserved_entities: Vec::new(),
+            event_ability: None,
+            event_raw_damage: Fixed64::ZERO,
+            event_holder_life: None,
+            relative_mana: false,
         }
     }
 
@@ -541,6 +707,25 @@ impl<'a> ParallelWorldAdapter<'a> {
     }
 
     pub fn mark_cast_succeeded(&mut self) { self.cast_succeeded = true; }
+
+    /// How many outcomes this invocation has produced so far.
+    pub(crate) fn outcome_count(&self) -> usize { self.outcomes.len() }
+
+    /// Puts `outcomes` before everything produced since `at` (a rule that precedes a cast's own effects).
+    pub(crate) fn insert_outcomes(&mut self, at: usize, outcomes: Vec<Outcome>) {
+        let at = at.min(self.outcomes.len());
+        self.outcomes.splice(at..at, outcomes);
+    }
+
+    pub(crate) fn note_cast_rejection(&mut self, code: &'static str) { self.cast_rejection = Some(code); }
+
+    pub(crate) fn cast_rejection(&self) -> Option<&'static str> { self.cast_rejection }
+    pub(crate) fn note_script_error(&mut self, error: String) { self.script_error = Some(error); }
+    /// The cast about to run was released from a windup (ext CAST_RELEASED).
+    pub(crate) fn set_cast_released(&mut self, released: bool) { self.cast_released = released; }
+    /// The item cast about to run is the one in this inventory slot (ext EVENT_ITEM_SLOT).
+    pub(crate) fn set_event_item_slot(&mut self, slot: Option<u32>) { self.event_item_slot = slot; }
+    pub(crate) fn take_script_error(&mut self) -> Option<String> { self.script_error.take() }
 
     pub(crate) fn stage_recovery_channel(&mut self,caster:Entity,spec:super::super::recovery_channel::Spec)->bool {
         let Some(owner)=self.cache.player_owner.get(caster).map(|owner|owner.player_id).filter(|owner|*owner>0)else{return false;};
@@ -553,6 +738,45 @@ impl<'a> ParallelWorldAdapter<'a> {
             || self.cache.pos.get(caster).is_none_or(|pos|pos.0.x.raw().unsigned_abs()>omoba_sim::terrain::MAX_GEOMETRY_RAW as u64
                 ||pos.0.y.raw().unsigned_abs()>omoba_sim::terrain::MAX_GEOMETRY_RAW as u64) {return false;}
         self.outcomes.push(Outcome::ScriptRecoveryChannel {caster,owner,amount:spec.amount,duration:spec.duration,interval:spec.interval});true
+    }
+
+    /// G-2 pulse channel start. Range and target are checked here so the owner
+    /// sees OUT_OF_RANGE/INVALID_TARGET; settlement rechecks on live state.
+    pub(crate) fn stage_ability_channel(&mut self,caster:Entity,skill_id:&str,level:u8,target:&Target,
+        spec:super::super::ability_channel::Spec)->bool {
+        use super::super::ability_channel::Anchor;
+        use super::super::command_outcome as code;
+        use omoba_content_model::ChannelAnchor;
+        let Some(owner)=self.cache.player_owner.get(caster).map(|owner|owner.player_id).filter(|owner|*owner>0)else{return false;};
+        // A replica has no MobaMatch: it admits from the same caster state, so
+        // its own-team cooldown and channel stay deterministic (split16).
+        // A hero channels for itself; its summon channels for it (ability_channel::controller, E633).
+        let controller=if self.cache.hero.get(caster).is_some() {Some(caster)} else {
+            self.cache.summoned.as_ref().and_then(|summoned|summoned.get(caster)).filter(|summon|!summon.is_expired())
+                .map(|summon|summon.summoner).filter(|hero|self.cache.entities.is_alive(*hero)&&self.cache.hero.get(*hero).is_some())
+        };
+        let Some(controller)=controller else {return false;};
+        if !spec.valid() || !self.cache.entities.is_alive(caster)
+            || self.cache.cprop.get(caster).is_none_or(|props|props.hp<=Fixed64::ZERO)
+            || self.cache.moba.as_ref().is_some_and(|state|state.phase!=crate::runtime::MobaMatchPhase::Playing || state.is_recalling(caster)
+                || !state.heroes.iter().any(|hero|hero.player_id==owner&&hero.entity==Some(controller))) {return false;}
+        if self.cache.buffs.is_silenced(caster) {self.note_cast_rejection(code::SILENCED);return false;}
+        let Some(origin)=self.cache.pos.get(caster).map(|pos|pos.0)else{return false;};
+        let (anchor,point)=match (spec.anchor,target) {
+            (ChannelAnchor::SelfOrigin,_)=>(Anchor::Origin,origin),
+            (ChannelAnchor::Point,Target::Point(point))=>(Anchor::Point(*point),*point),
+            (ChannelAnchor::Unit,Target::Entity(handle))=>{
+                let unit=Self::handle_to_entity(*handle).filter(|unit|*unit!=caster && self.cache.entities.is_alive(*unit)
+                    && self.cache.cprop.get(*unit).is_some_and(|props|props.hp>Fixed64::ZERO)
+                    && match (self.cache.faction.get(caster),self.cache.faction.get(*unit)) {(Some(own),Some(other))=>own.is_hostile_to(other),_=>false});
+                let Some(unit)=unit else {self.note_cast_rejection(code::INVALID_TARGET);return false;};
+                let Some(point)=self.cache.pos.get(unit).map(|pos|pos.0) else {self.note_cast_rejection(code::INVALID_TARGET);return false;};
+                (Anchor::Unit(unit),point)
+            }
+            _=>{self.note_cast_rejection(code::INVALID_TARGET);return false;}
+        };
+        if anchor!=Anchor::Origin && !crate::runtime::native::ability_channel::within_range(&spec,origin,point) {self.note_cast_rejection(code::OUT_OF_RANGE);return false;}
+        self.outcomes.push(Outcome::ScriptAbilityChannel {caster,owner,skill_id:skill_id.to_owned(),level,spec,anchor});true
     }
 
     pub fn set_projectile_origin(&mut self, origin: Option<ProjectileOrigin>) {
@@ -591,6 +815,24 @@ impl<'a> ParallelWorldAdapter<'a> {
             u8::try_from(*rank).ok().filter(|rank|*rank>0).map(|rank|(id.clone(),rank))).collect();
         levels.sort();levels
     }
+    /// The scripts whose passives hear `entity`'s attacks: its learned abilities (`false`) and, once
+    /// per item kind it wears, each worn item's generated script at rank 1 (`true`; the item's own
+    /// ability id, game_processor::item_script_id). An item's passive is the item's, so a retired
+    /// source (a projectile whose owner is gone) carries only its abilities.
+    pub(crate) fn source_passive_scripts(&self,entity:Entity)->Vec<(String,u8,bool)> {
+        let mut rows:Vec<(String,u8,bool)>=self.source_ability_levels(entity).into_iter().map(|(id,rank)|(id,rank,false)).collect();
+        if self.retired_source(entity).is_none() {
+            if let Some(inventory)=self.cache.inventories.as_ref().and_then(|rows|rows.get(entity)) {
+                let mut items:Vec<&'static str>=inventory.items()
+                    .filter_map(|(_,item)|super::super::game_processor::item_script_id(&item.item_id)).collect();
+                items.sort();items.dedup();
+                for script in items {
+                    if !rows.iter().any(|(id,_,_)|id==script) {rows.push((script.to_owned(),1,true));}
+                }
+            }
+        }
+        rows
+    }
     fn source_faction(&self, entity:Entity)->Option<&Faction> {
         match self.retired_source(entity) {Some(source)=>source.faction.as_ref(),None=>self.cache.faction.get(entity)}
     }
@@ -600,9 +842,122 @@ impl<'a> ParallelWorldAdapter<'a> {
     fn source_is_building(&self, entity:Entity)->bool {
         match self.retired_source(entity) {Some(source)=>source.building,None=>self.cache.is_building.get(entity).is_some()}
     }
+    /// v3 `is_visible_to(x, u)` (E312): whether `u`'s team can see `x`, from what the authority and
+    /// the team replica both hold. A team always sees its own units. The authority reads the team's
+    /// disclosed set of the latest Wave B; a replica holds exactly its team's disclosed units, and for
+    /// its own units the disclosed enemy sight (`DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID`), written
+    /// from that same Wave B. A viewer outside the two teams sees nothing.
+    fn is_visible_to(&self, x: EntityHandle, u: EntityHandle) -> bool {
+        use crate::runtime::native::combat_acquisition::DisclosureContext;
+        let alive = |handle| Self::handle_to_entity(handle).filter(|entity| self.cache.entities.is_alive(*entity));
+        let (Some(x), Some(u)) = (alive(x), alive(u)) else { return false; };
+        let Some(viewer) = self.cache.faction.get(u) else { return false; };
+        let team = viewer.team_id.max(0) as u32;
+        if crate::runtime::opposing_team(team).is_none() { return false; }
+        if self.cache.faction.get(x).is_some_and(|faction| faction.team_id.max(0) as u32 == team) { return true; }
+        if let Some(bytes) = self.cache.filtered_components.as_ref().and_then(|rows| rows.get(x))
+            .and_then(|row| row.0.get(&crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID)) {
+            return crate::runtime::decode_disclosed_enemy_sight(bytes) == Some(true);
+        }
+        DisclosureContext::resolve(self.cache.filtered, self.cache.moba.is_some(), self.cache.visibility.as_deref())
+            .allows(Some(viewer), crate::runtime::selective::CanonicalEntityKey { id: x.id(), generation: x.gen().id() as u32 })
+    }
     fn source_buffs(&self, entity:Entity)->&BuffStore {
         if self.retired_source(entity).is_some() {self.projectile_source_buffs.as_ref().unwrap_or(&self.cache.buffs)}
         else {&self.cache.buffs}
+    }
+    /// ext UNIT_ATTR: a v3 unit attribute (omb_script_abi::ext::unit_attr); `None` for an unknown name.
+    fn unit_attr(&self, unit:EntityHandle, attr:&str)->Option<omb_script_abi::ext::ExtValue> {
+        use omb_script_abi::ext::{unit_attr as name, ExtValue as V};
+        use super::super::attributes::AttributeTotals;
+        use super::super::rules::vocab::state;
+        let entity=Self::handle_to_entity(unit).filter(|entity|self.cache.entities.is_alive(*entity));
+        let buffs=|entity:Entity|self.source_buffs(entity);
+        let has=|state:&str|entity.is_some_and(|entity|buffs(entity).has(entity,state));
+        let num=|f:&dyn Fn(Entity)->Option<Fixed64>|V::Num(entity.and_then(f).unwrap_or(Fixed64::ZERO));
+        let hero=entity.and_then(|entity|self.cache.hero.get(entity));
+        let totals=|entity:Entity|hero.map(|hero|AttributeTotals::of(hero,buffs(entity),entity));
+        let handle=|of:Option<Entity>|of.filter(|of|self.cache.entities.is_alive(*of)).map_or(V::None,|of|V::Unit(Self::entity_to_handle(of)));
+        Some(match attr {
+            name::LEVEL=>V::Num(match (entity,hero) {(Some(_),Some(hero))=>Fixed64::from_i32(hero.level),(Some(_),None)=>Fixed64::ONE,_=>Fixed64::ZERO}),
+            name::STR=>num(&|e|totals(e).map(|t|t.strength)),
+            name::AGI=>num(&|e|totals(e).map(|t|t.agility)),
+            name::INT=>num(&|e|totals(e).map(|t|t.intelligence)),
+            name::MAX_MANA=>num(&|e|self.mana_views.get(&e).map(|pool|pool.maximum())
+                .or_else(||hero.and_then(|hero|hero.mana_pool.as_ref()).map(|pool|pool.maximum()))
+                .or_else(||self.cache.unit_mana(e).map(|mana|mana.pool.maximum()))),
+            name::IS_ILLUSION=>V::Bool(has(state::ILLUSION)),
+            name::IS_CHANNELING=>V::Bool(has(super::super::ability_channel::STATUS)),
+            name::IS_INVULNERABLE=>V::Bool(has(state::INVULNERABLE)),
+            name::IS_INVISIBLE=>V::Bool(entity.is_some_and(|e|buffs(e).stealth_level(e)>0)),
+            name::IS_CREEP=>V::Bool(entity.is_some_and(|e|self.cache.creep.get(e).is_some())),
+            name::IS_NEUTRAL=>V::Bool(entity.and_then(|e|self.cache.faction.get(e)).is_some_and(|faction|
+                matches!(faction.faction_id,FactionType::Neutral|FactionType::HostileNeutral))),
+            name::IS_RANGED=>V::Bool(entity.is_some_and(|e|self.source_attack(e).is_some()
+                && super::super::rules::attack::is_ranged(buffs(e),e,true))),
+            // A dead owner stays one while its last position is kept: its own on_death finds its summons (E672, FC-107).
+            name::OWNER=>entity.and_then(|e|self.cache.summoned.as_ref()?.get(e).map(|summon|summon.summoner))
+                .filter(|of|self.cache.entities.is_alive(*of)
+                    ||self.cache.retired_positions.as_ref().is_some_and(|rows|rows.get(*of).is_some()))
+                .map_or(V::None,|of|V::Unit(Self::entity_to_handle(of))),
+            name::HERO=>handle(entity.and_then(|mut e|{
+                // a bounded walk: a summon chain is short and never a cycle, but a script cannot loop the host
+                for _ in 0..8 {
+                    if self.cache.hero.get(e).is_some() { return Some(e); }
+                    e=self.cache.summoned.as_ref()?.get(e)?.summoner;
+                }
+                None
+            })),
+            name::LOOK=>match entity.and_then(|e|self.cache.hero.get(e).map(|hero|hero.id.clone())
+                .or_else(||crate::runtime::native::illusion::look(self.source_buffs(e),e).map(str::to_owned))) {
+                Some(id)=>V::Str(id.as_str().into()),None=>V::None,
+            },
+            name::ATTACK_TARGET=>handle(entity.and_then(|e|self.source_attack(e)?.committed_target)),
+            name::ATTACK_SPEED_MULT=>num(&|e|Some(UnitStats::from_refs(buffs(e),self.source_is_building(e)).final_attack_speed_mult(e))),
+            name::PROJECTILE_SPEED=>num(&|e|self.source_attack(e).map(|attack|attack.bullet_speed)),
+            // The launch amount of rules::attack (game_processor's launch), before the critical.
+            name::AVG_ATTACK=>num(&|e|self.source_attack(e).map(|attack|
+                UnitStats::from_refs(buffs(e),self.source_is_building(e)).normal_attack_physical(attack.atk_physic.v,e))),
+            name::BONUS_ARMOR=>num(&|e|self.source_property(e).map(|property|
+                UnitStats::from_refs(buffs(e),self.source_is_building(e)).final_armor(property.def_physic,e)-property.def_physic)),
+            name::BASE_MAGIC_RESIST=>num(&|e|self.source_property(e).map(|property|property.def_magic)),
+            name::BASE_ATTACK_RANGE=>num(&|e|self.source_attack(e).map(|attack|attack.range.v)),
+            // E538: the faction's team id (LANDMARK's team).
+            name::TEAM=>num(&|e|Some(self.source_faction(e).map_or(Fixed64::ZERO,|f|Fixed64::from_i32(f.team_id)))),
+            name::COLLISION_RADIUS=>num(&|e|Some(self.cache.collision.get(e).map_or(Fixed64::ZERO,|r|r.0.max(Fixed64::ZERO)))),
+            name::CAST_RANGE_BONUS=>num(&|e|Some(buffs(e).sum_add(e,omb_script_abi::stat_keys::StatKey::CastRangeBonus)
+                +buffs(e).sum_add(e,omb_script_abi::stat_keys::StatKey::CastRangeBonusStacking))),
+            // The unit's own pool, else the pool of a unit its player owns that has one (a summon's hero).
+            name::ATTACK_DAMAGE=>num(&|e|self.cache.attacks.as_ref()?.0.get(&e).filter(|record|record.launched)
+                .map(|record|record.launch_physical*record.critical.unwrap_or(Fixed64::ONE))),
+            name::ATTACK_EFFECT_MULTIPLIER=>num(&|e|self.cache.scripted_multipliers.as_ref().and_then(|rows|rows.of(e,self.cache.tick.0))
+                .or_else(||self.cache.attacks.as_ref()?.0.get(&e).map(|record|record.effect_multiplier))),
+            name::GOLD_BOUNTY=>num(&|e|{
+                let gold=super::super::moba_match::unit_gold_bounty(self.cache.moba.as_deref()?,&self.cache.creep,self.cache.summoned.as_ref(),e);
+                Some(Fixed64::from_i32(i32::try_from(gold).unwrap_or(i32::MAX)))
+            }),
+            name::GOLD=>num(&|e|{
+                let pools=self.cache.gold.as_ref()?;
+                pools.get(e).map(|pool|pool.0).or_else(||{
+                    let player=self.cache.player_owner.get(e)?.player_id;
+                    (&self.cache.entities,&self.cache.player_owner,pools).join()
+                        .find(|(_,owner,_)|owner.player_id==player).map(|(_,_,pool)|pool.0)
+                }).map(Fixed64::from_i32)
+            }),
+            tag if tag.starts_with(name::STATUS_TAG_PREFIX)=>V::Bool(entity.is_some_and(|e|
+                crate::runtime::native::dispel::holds_tag(self.source_buffs(e),e,&tag[name::STATUS_TAG_PREFIX.len()..]))),
+            tag if tag.starts_with(name::TAG_PREFIX)=>V::Bool(entity.is_some_and(|e|match &tag[name::TAG_PREFIX.len()..] {
+                "boss"=>self.cache.unit_tags.as_ref().and_then(|tags|tags.get(e)).is_some_and(|tags|tags.has(omoba_template_ids::MobaUnitTag::Boss))
+                    || self.source_unit(e).is_some_and(|unit|matches!(unit.unit_type,UnitType::Boss)),
+                "dummy"=>self.source_unit(e).is_some_and(|unit|matches!(unit.unit_type,UnitType::TrainingDummy)),
+                "summon"=>self.is_summon(e) || self.cache.summoned.as_ref().is_some_and(|summoned|summoned.get(e).is_some()),
+                "neutral"=>self.cache.faction.get(e).is_some_and(|f|f.faction_id==FactionType::HostileNeutral),
+                // v3 tag ward (E530): a summon whose template is tagged ward
+                "ward"=>self.cache.summoned.as_ref().and_then(|summoned|summoned.get(e)).is_some_and(|s|s.ward),
+                _=>false,
+            })),
+            _=>return None,
+        })
     }
     fn attribute_projectile_outcome(&self, outcome:Outcome, source:Entity)->Outcome {
         match self.projectile_origin.as_ref().filter(|origin|origin.source==source) {
@@ -616,6 +971,9 @@ impl<'a> ParallelWorldAdapter<'a> {
 
     /// A preference from this summon owner's active command, never target admission.
     fn summon_focus_target(&self,source:Entity)->Option<Entity> {
+        // An owner script's assignment (`summon_target` buff on the summon) wins
+        // over the template priority while that exact life is alive.
+        if let Some(target)=self.summon_assigned_target(source) {return Some(target);}
         let stats=omoba_template_ids::summon_by_name(&self.source_unit(source)?.id)
             .and_then(omoba_template_ids::active_summon_stats)?;
         if stats.target_priority!=omoba_template_ids::SummonTargetPriority::OwnerFocus {return None;}
@@ -634,20 +992,37 @@ impl<'a> ParallelWorldAdapter<'a> {
         }
     }
 
-    fn summon_target_allowed(&self,source:Entity,target:Entity,center:Vec2,radius:Fixed64)->bool {
+    fn summon_assigned_target(&self,source:Entity)->Option<Entity> {
+        let row=self.cache.buffs.get(source,omb_script_abi::buff_ids::SUMMON_TARGET_BUFF)?.payload
+            .get(omb_script_abi::buff_ids::SUMMON_TARGET_BUFF)?.as_array()?;
+        if row.len()!=2 {return None;}
+        let id=u32::try_from(row[0].as_u64()?).ok()?;let generation=i32::try_from(row[1].as_i64()?).ok()?;
+        let target=self.cache.entities.entity(id);
+        (target.gen().id()==generation && self.cache.entities.is_alive(target)
+            && self.cache.cprop.get(target).is_some_and(|p|p.hp>Fixed64::ZERO)).then_some(target)
+    }
+
+    /// `attack_reach`: `radius` is the source's attack range, measured edge to edge
+    /// (E555; range 0 is melee contact). Otherwise it is a script query radius, centre to centre.
+    fn summon_target_allowed(&self,source:Entity,target:Entity,center:Vec2,radius:Fixed64,attack_reach:bool)->bool {
         use crate::runtime::native::combat_acquisition::DisclosureContext;
         // An already committed projectile is independent of its source's later
         // death/stun. Ordinary summon acquisition keeps all source admission.
         let committed=self.projectile_origin.as_ref().is_some_and(|origin|origin.source==source);
-        if radius<=Fixed64::ZERO || source==target
-            || (!committed && (!self.cache.entities.is_alive(source) || self.cache.buffs.is_stunned(source)
+        let no_reach=if attack_reach {radius<Fixed64::ZERO || self.source_attack(source).is_none()} else {radius<=Fixed64::ZERO};
+        if no_reach || source==target
+            || (!committed && (!self.cache.entities.is_alive(source) || self.cache.buffs.is_disarmed(source)
                 || !self.cache.cprop.get(source).is_some_and(|h|h.hp>Fixed64::ZERO)))
             || !self.cache.entities.is_alive(target)
             || !self.cache.cprop.get(target).is_some_and(|h|h.hp>Fixed64::ZERO) {return false;}
         let Some((faction,other))=self.source_faction(source).zip(self.cache.faction.get(target)) else {return false;};
         let Some(position)=self.cache.pos.get(target).map(|p|p.0) else {return false;};
         let disclosure=DisclosureContext::resolve(self.cache.filtered,self.cache.moba.is_some(),self.cache.visibility.as_deref());
-        if !faction.is_hostile_to(other) || position.distance_squared(center)>radius*radius
+        let radius_of=|e|self.cache.collision.get(e).map_or(Fixed64::ZERO,|r|r.0);
+        let outside=if attack_reach {
+            !crate::runtime::combat_controls::within_attack_reach(center,position,radius,radius_of(source),radius_of(target))
+        } else {position.distance_squared(center)>radius*radius};
+        if !faction.is_hostile_to(other) || outside
             || !disclosure.allows(Some(faction),crate::runtime::selective::CanonicalEntityKey {
                 id:target.id(),generation:target.gen().id() as u32}) {return false;}
         let attackable=if let Some(state)=self.cache.moba.as_deref() {
@@ -670,6 +1045,24 @@ impl<'a> ParallelWorldAdapter<'a> {
         let point = *self.overlay_pos.get(&caster)?;
         (self.cache.pos.get(caster).is_some_and(|origin| origin.0 != point)).then_some(point)
     }
+    /// A unit this event spawned has no properties until settlement: it reads as born at full
+    /// life, its template's or the `hp` its create_unit overrides set (FC-124, E675).
+    fn spawned_life(&self, ent: Entity) -> Option<Fixed64> {
+        let unit_id = self.outcomes.iter().find_map(|outcome| match outcome {
+            Outcome::SpawnSummoned { entity, unit_id, .. } if *entity == ent => Some(unit_id.as_str()),
+            _ => None,
+        })?;
+        let overridden = self.outcomes.iter().rev().find_map(|outcome| match outcome {
+            Outcome::AddBuff { target, buff_id, payload, .. } if *target == ent && buff_id == super::super::unit_overrides::BUFF =>
+                payload.get("hp")?.as_i64().map(Fixed64::from_raw),
+            _ => None,
+        });
+        overridden.or_else(|| omoba_template_ids::summon_by_name(unit_id).and_then(omoba_template_ids::active_summon_stats).map(|stats| stats.hp))
+    }
+    /// For a scheduled step due now: a status that expired in this very tick still counts as held,
+    /// so a periodic trigger whose interval divides the duration ticks once more at expiry (Dota
+    /// thinks before the modifier is destroyed; the v3 periodic contract, 火計之書 5 x 80).
+    pub fn hold_statuses_through_expiry(&mut self) { self.held_through_expiry = true; }
     pub fn mark_hook_panicked(&mut self) { self.hook_panicked = true; }
     pub fn hook_panicked(&self) -> bool { self.hook_panicked }
     pub fn has_mana_changes(&self) -> bool { !self.mana_dirty.is_empty() }
@@ -723,6 +1116,13 @@ impl<'a> ParallelWorldAdapter<'a> {
         }
         result
     }
+    /// A living summon's mana as this hook sees it: its committed pool plus this hook's own
+    /// spends and restores (unit_mana); None for a unit without mana.
+    fn unit_mana_view(&self, entity:Entity) -> Option<crate::runtime::ability_runtime::ManaPool> {
+        if !self.cache.entities.is_alive(entity) || self.cache.cprop.get(entity).is_none_or(|health|health.hp<=Fixed64::ZERO) {return None;}
+        self.mana_views.get(&entity).cloned().or_else(||self.cache.unit_mana(entity).map(|mana|mana.pool.clone()))
+    }
+
     fn managed_mana_entity(&self, e:EntityHandle) -> Option<Entity> {
         let entity=Self::handle_to_entity(e)?;
         if !self.cache.entities.is_alive(entity)
@@ -743,6 +1143,7 @@ impl<'a> ParallelWorldAdapter<'a> {
         self.overlay_facing.clear();
         self.overlay_asd_count.clear();
         self.cast_succeeded = false;
+        self.refund_cooldown = false;
         self.hook_panicked = false;
         self.mana_transaction = false;
         self.mana_views.clear();
@@ -754,12 +1155,20 @@ impl<'a> ParallelWorldAdapter<'a> {
         self.outcomes.push(Outcome::ScriptSetMana { entity, pool });
     }
 
+    /// The cast refunded its cooldown (v3 `refund cooldown`): it starts none.
+    pub(crate) fn cooldown_refunded(&self) -> bool { self.refund_cooldown }
+
     pub fn start_cooldown(&mut self, entity: Entity, ability_id: String, duration: Fixed64) {
+        if self.refund_cooldown { return; }
         self.outcomes.push(Outcome::ScriptStartCooldown {
             entity,
             ability_id,
             duration,
         });
+    }
+
+    pub fn consume_charge(&mut self, entity: Entity, ability_id: String) {
+        self.outcomes.push(Outcome::ScriptConsumeCharge { entity, ability_id });
     }
 
     pub fn set_projectile_hit_generation(&mut self, generation: u8) {
@@ -809,6 +1218,9 @@ impl<'a> ParallelWorldAdapter<'a> {
     }
 }
 
+/// Cues one adapter (one hook batch) may emit.
+const MAX_CUES_PER_HOOK: u32 = 64;
+
 impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     fn get_pos(&self, e: EntityHandle) -> ROption<Vec2> {
         let Some(ent) = Self::handle_to_entity(e) else {
@@ -818,6 +1230,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             return RSome(*p);
         }
         match self.retired_source(ent) {Some(source)=>source.pos,None=>self.cache.pos.get(ent).map(|p|p.0)}
+            // A removed unit: where it last stood (E526).
+            .or_else(|| (!self.cache.entities.is_alive(ent)).then(|| self.cache.retired_positions.as_ref().and_then(|rows| rows.get(ent))).flatten())
             .map_or(RNone, RSome)
     }
 
@@ -825,8 +1239,14 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return RNone;
         };
+        if let Some((_, life)) = self.event_holder_life.filter(|(holder, _)| *holder == ent) {
+            return RSome(life);
+        }
         if let Some(p) = self.source_property(ent) {
             return RSome(p.hp);
+        }
+        if let Some(life) = self.spawned_life(ent) {
+            return RSome(life);
         }
         self.source_unit(ent)
             .map(|u| Fixed64::from_i32(u.current_hp))
@@ -839,6 +1259,9 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         };
         if let Some(p) = self.source_property(ent) {
             return RSome(p.mhp);
+        }
+        if let Some(life) = self.spawned_life(ent) {
+            return RSome(life);
         }
         self.source_unit(ent)
             .map(|u| Fixed64::from_i32(u.max_hp))
@@ -864,6 +1287,9 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(entity)=Self::handle_to_entity(e) else {return RNone;};
         self.retired_source(entity).map(|source|source.unit_id.as_str())
             .or_else(||self.cache.tags.get(entity).map(|tag|tag.unit_id.as_str()))
+            // MOBA heroes carry no script tag: report their hero template id so
+            // scripts can identify heroes (e.g. per-target-class bonuses).
+            .or_else(||self.cache.hero.get(entity).map(|hero|hero.id.as_str()))
             .map_or(RNone,|id|RSome(RStr::from_str(id)))
     }
 
@@ -878,7 +1304,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         };
         if self.is_summon(of_ent) {
             let mut found:Vec<_>=(&self.cache.entities,&self.cache.pos).join()
-                .filter(|(e,_)|self.summon_target_allowed(of_ent,*e,center,radius))
+                .filter(|(e,_)|self.summon_target_allowed(of_ent,*e,center,radius,false))
                 .map(|(e,p)|(p.0.distance_squared(center).raw(),e)).collect();
             found.sort_by_key(|(d,e)|(*d,e.id(),e.gen().id()));
             return found.into_iter().map(|(_,e)|Self::entity_to_handle(e)).collect::<Vec<_>>().into();
@@ -1045,7 +1471,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
 
     fn has_buff(&self, target: EntityHandle, buff_id: RStr<'_>) -> bool {
         Self::handle_to_entity(target)
-            .map(|ent| self.source_buffs(ent).has(ent, buff_id.as_str()))
+            .map(|ent| self.source_buffs(ent).has(ent, buff_id.as_str())
+                || (self.held_through_expiry && self.source_buffs(ent).expired_last_tick(ent, buff_id.as_str())))
             .unwrap_or(false)
     }
 
@@ -1059,6 +1486,18 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         if let Some(ent) = Self::handle_to_entity(target) {
             let payload =
                 serde_json::from_str(modifiers_json.as_str()).unwrap_or(serde_json::Value::Null);
+            // A blink landing moves its caster at once for the rest of this event (FC-168): the
+            // same pure landing serial settlement computes, from the position the script sees.
+            if let Some(spec) = super::super::blink_landing::Spec::from_payload(buff_id.as_str(), duration, &payload)
+                .filter(|spec| spec.source_id == ent.id() && spec.source_generation == ent.gen().id() as u32) {
+                let origin = self.overlay_pos.get(&ent).copied().or_else(|| self.cache.pos.get(ent).map(|p| p.0));
+                let alive = self.cache.cprop.get(ent).is_some_and(|p| p.hp > Fixed64::ZERO);
+                if let Some(origin) = origin.filter(|o| alive && (spec.anchor - *o).length_squared() <= spec.cast_range * spec.cast_range) {
+                    let radius = self.cache.collision.get(ent).map_or(Fixed64::ZERO, |r| r.0);
+                    let at = super::super::blink_landing::landing_in(Some(&self.cache.blocked), radius, &spec).unwrap_or(origin);
+                    self.overlay_pos.insert(ent, at);
+                }
+            }
             self.outcomes.push(Outcome::AddBuff {
                 target: ent,
                 buff_id: buff_id.as_str().to_string(),
@@ -1083,8 +1522,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(faction) = self.cache.faction.get(owner).cloned() else {return EntityHandle::INVALID;};
         let Some(stats) = omoba_template_ids::summon_by_name(unit_type.as_str())
             .and_then(omoba_template_ids::active_summon_stats) else {return EntityHandle::INVALID;};
-        if duration < Fixed64::ZERO || duration > Fixed64::from_i32(3600) || stats.hp <= Fixed64::ZERO
-            || stats.attack_interval <= Fixed64::ZERO || stats.attack_range <= Fixed64::ZERO
+        if duration < Fixed64::ZERO || duration > Fixed64::from_i32(3600) || !crate::runtime::native::dummy_unit::body_valid(stats)
             || stats.move_speed < Fixed64::ZERO || stats.collision_radius < Fixed64::ZERO
             || stats.vision_radius<Fixed64::ZERO || stats.vision_radius>Fixed64::from_i32(10_000)
             || self.reserved_entities.len() >= 128 {return EntityHandle::INVALID;}
@@ -1096,7 +1534,11 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         if reservations.len()>=4096 {return EntityHandle::INVALID;}
         occupied.extend(reservations.values().filter(|(team,_,_)|*team==faction.team_id)
             .map(|(_,pos,radius)|(*pos,*radius)));
-        let anchor=self.overlay_pos.get(&owner).copied().or_else(||self.cache.pos.get(owner).map(|p|p.0));
+        // A pathing blocker stands where the script raises it, beside its siblings (原作 B22W's 16
+        // rocks overlap on their circle), as the settlement places it (E599); terrain still holds (E609).
+        if stats.blocks_pathing {occupied.clear();}
+        // ... and need not be reachable from its owner: it never walks (E620, a rock beyond a wall).
+        let anchor=if stats.blocks_pathing {None} else {self.overlay_pos.get(&owner).copied().or_else(||self.cache.pos.get(owner).map(|p|p.0))};
         let Some(pos)=crate::runtime::native::summon_navigation::placement(pos,anchor,stats.collision_radius,
             &self.cache.blocked,&occupied) else {return EntityHandle::INVALID;};
         let entity = self.cache.entities.create();
@@ -1125,16 +1567,20 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             || self.capture_cast_areas || !self.is_alive(spec.owner)
             || spec.splash_radius!=Fixed64::ZERO || spec.hit_radius!=Fixed64::ZERO
             || spec.speed<=Fixed64::ZERO || spec.damage<Fixed64::ZERO) {return EntityHandle::INVALID;}
+        // Script attackers (summons, script towers) roll by entity id (rules::chance::roll_key).
+        let roll_key=crate::runtime::native::rules::chance::roll_key(owner_ent,None);
         let missed=basic_attack && crate::runtime::native::attack_accuracy::source_misses(
-            self.cache.rng_seed,self.cache.tick.0 as u32,owner_ent,
+            self.cache.rng_seed,self.cache.tick.0 as u32,roll_key,
             UnitStats::from_refs(&self.cache.buffs,false).miss_chance(owner_ent));
         let mut critical=false;
         let mut attack_damage=if missed {Fixed64::ZERO}else{spec.damage};
         if basic_attack&&!missed {
-            let (chance,multiplier)=UnitStats::from_refs(&self.cache.buffs,false)
-                .crit_with_base(owner_ent,Fixed64::ZERO,Fixed64::from_i32(2));
-            critical=crate::runtime::native::attack_accuracy::source_crits(self.cache.rng_seed,self.cache.tick.0 as u32,owner_ent,chance);
-            if critical {
+            // Each critical source rolls; the highest multiplier wins (rules::attack).
+            let sources=crate::runtime::native::rules::attack::critical_sources(&self.cache.buffs,owner_ent,
+                Fixed64::ZERO,Fixed64::from_i32(2));
+            if let Some(multiplier)=crate::runtime::native::rules::attack::roll_critical(&sources,
+                self.cache.rng_seed,self.cache.tick.0 as u32,roll_key,owner_ent,None) {
+                critical=true;
                 attack_damage=attack_damage*multiplier;
             }
         }
@@ -1144,7 +1590,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 let Some(target_ent) = Self::handle_to_entity(target) else {
                     return EntityHandle::INVALID;
                 };
-                if basic_attack && !self.summon_target_allowed(owner_ent,target_ent,from,self.get_tower_range(spec.owner)) {
+                if basic_attack && !self.summon_target_allowed(owner_ent,target_ent,from,self.get_tower_range(spec.owner),true) {
                     return EntityHandle::INVALID;
                 }
                 let tp = self.cache.pos.get(target_ent).map(|p| p.0).unwrap_or(from);
@@ -1168,9 +1614,11 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             tpos,
             radius: spec.splash_radius,
             msd: spec.speed,
-            damage_phys: attack_damage,
-            damage_magi: Fixed64::ZERO,
-            damage_real: Fixed64::ZERO,
+            // An attack's damage goes to its type (a summon's attack.damage_type, E503); other
+            // projectiles keep their physical amount under any profile, as before.
+            damage_phys: if basic_attack && ((profile.bits() & AbiDamageProfile::ENERGY.bits() != 0) || (profile.bits() & AbiDamageProfile::TRUE.bits() != 0)) { Fixed64::ZERO } else { attack_damage },
+            damage_magi: if basic_attack && (profile.bits() & AbiDamageProfile::ENERGY.bits() != 0) { attack_damage } else { Fixed64::ZERO },
+            damage_real: if basic_attack && (profile.bits() & AbiDamageProfile::TRUE.bits() != 0) && !(profile.bits() & AbiDamageProfile::ENERGY.bits() != 0) { attack_damage } else { Fixed64::ZERO },
             damage_profile: profile.bits(),
             slow_factor: if missed {Fixed64::ZERO}else{spec.slow_factor},
             slow_duration: if missed {Fixed64::ZERO}else{spec.slow_duration},
@@ -1227,7 +1675,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         };
         let stats =
             UnitStats::from_refs(self.source_buffs(ent), self.source_is_building(ent));
-        let interval = base_interval / stats.final_attack_speed_mult(ent);
+        let interval = stats.base_attack_interval(base_interval, ent) / stats.final_attack_speed_mult(ent);
         interval.max(Fixed64::from_raw(1))
     }
 
@@ -1313,7 +1761,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         if self.is_summon(of_ent) {
             let focus=self.summon_focus_target(of_ent);
             return (&self.cache.entities,&self.cache.pos,&self.cache.faction,&self.cache.cprop).join()
-                .filter(|(e,_,_,_)|self.summon_target_allowed(of_ent,*e,center,radius))
+                .filter(|(e,_,_,_)|self.summon_target_allowed(of_ent,*e,center,radius,false))
                 .min_by_key(|(e,p,_,_)|(Some(*e)!=focus,p.0.distance_squared(center).raw(),e.id(),e.gen().id()))
                 .map(|(e,_,_,_)|RSome(Self::entity_to_handle(e))).unwrap_or(RNone);
         }
@@ -1359,12 +1807,12 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         log::debug!("[script] {}", msg.as_str());
     }
 
-    fn log_warn(&self, msg: RStr<'_>) {
-        log::warn!("[script] {}", msg.as_str());
-    }
-
-    fn log_error(&self, msg: RStr<'_>) {
-        log::error!("[script] {}", msg.as_str());
+    fn log_at(&self, level: u8, msg: RStr<'_>) {
+        match level {
+            1 => log::warn!("[script] {}", msg.as_str()),
+            2 => log::error!("[script] {}", msg.as_str()),
+            _ => log::info!("[script] {}", msg.as_str()),
+        }
     }
 
     fn sum_stat(&self, e: EntityHandle, stat_key: StatKey) -> Fixed64 {
@@ -1445,6 +1893,25 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         .final_attack_range(base, ent)
     }
 
+    fn get_buff_payload(&self, e: EntityHandle, buff_id: RStr<'_>) -> ROption<abi_stable::std_types::RString> {
+        Self::handle_to_entity(e)
+            .and_then(|ent| {
+                // A unit variable written earlier in this event reads back: a cast's passive runs
+                // before its on_cast (E267), and the on_cast acts on what the passive just set.
+                if buff_id.as_str().starts_with(super::super::unit_var::PREFIX) {
+                    for outcome in self.outcomes.iter().rev() {
+                        match outcome {
+                            Outcome::AddBuff {target,buff_id:id,payload,..} if *target==ent && id.as_str()==buff_id.as_str() => return Some(payload.to_string().into()),
+                            Outcome::ScriptRemoveBuff {target,buff_id:id} if *target==ent && id.as_str()==buff_id.as_str() => return None,
+                            _ => {}
+                        }
+                    }
+                }
+                self.source_buffs(ent).get(ent, buff_id.as_str()).map(|b| b.payload.to_string().into())
+            })
+            .into()
+    }
+
     fn get_buff_remaining(&self, e: EntityHandle, buff_id: RStr<'_>) -> Fixed64 {
         Self::handle_to_entity(e)
             .and_then(|ent| {
@@ -1460,6 +1927,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 if let Some(pool)=self.mana_views.get(&ent) {return Some(pool.current());}
                 self.cache.hero.get(ent).map(|hero| hero.mana_pool.as_ref()
                     .map(|pool| pool.current()).unwrap_or_else(|| hero.get_max_mana()))
+                    .or_else(|| self.cache.unit_mana(ent).map(|mana| mana.pool.current()))
             })
             .unwrap_or(Fixed64::ZERO)
     }
@@ -1467,8 +1935,33 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     fn spend_mana(&mut self, e: EntityHandle, amount: Fixed64, ability_id: RStr<'_>) -> bool {
         let Some(entity)=Self::handle_to_entity(e) else {return false;};
         if !self.cache.entities.is_alive(entity) {return false;}
+        // A summon with mana (unit_mana) spends from its own pool, settled as a delta.
+        if self.cache.hero.get(entity).is_none() {
+            let Some(mut pool)=self.unit_mana_view(entity) else {return false;};
+            if ability_id.len()>256 || pool.spend(amount).is_err() {return false;}
+            if amount>Fixed64::ZERO {
+                self.mana_views.insert(entity,pool);
+                self.outcomes.push(Outcome::ScriptUnitManaDelta {entity,amount:-amount});
+                self.stage_mana_spent(entity,amount,ability_id.as_str().to_owned());
+            }
+            return true;
+        }
         let Some(hero)=self.cache.hero.get(entity) else {return false;};
         if hero.mana_pool.is_none() {return amount>=Fixed64::ZERO;}
+        if !self.mana_transaction && self.relative_mana && self.managed_mana_entity(e).is_some() && ability_id.len()<=256 {
+            // No ledger (E506): the spend is the relative set `seen - amount` against the mana this
+            // hook saw (mana_burn SET_BUFF, as restore_mana, E437), so a cost paid in between stays.
+            use crate::runtime::native::mana_burn::{SetSpec, SET_BUFF};
+            let mut pool=self.mana_views.get(&entity).cloned().unwrap_or_else(||hero.mana_pool.clone().unwrap());
+            let seen=pool.current();
+            if pool.spend(amount).is_err() {return false;}
+            if amount>Fixed64::ZERO {
+                let Some(spec)=SetSpec::checked(pool.current()).and_then(|spec|spec.relative_to(seen)) else {return false;};
+                self.mana_views.insert(entity,pool);
+                self.outcomes.push(Outcome::AddBuff {target:entity,buff_id:SET_BUFF.into(),duration:Fixed64::ONE,payload:spec.payload()});
+            }
+            return true;
+        }
         if !self.mana_transaction || self.managed_mana_entity(e).is_none()
             || ability_id.len()>256 {return false;}
         let mut pool=self.mana_views.get(&entity).cloned().unwrap_or_else(||hero.mana_pool.clone().unwrap());
@@ -1481,7 +1974,27 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     }
 
     fn restore_mana(&mut self, e: EntityHandle, amount: Fixed64) {
-        if !self.mana_transaction {return;}
+        if let Some(entity)=Self::handle_to_entity(e).filter(|entity|self.cache.hero.get(*entity).is_none()) {
+            let Some(mut pool)=self.unit_mana_view(entity) else {return;};
+            let Ok(restored)=pool.restore(amount) else {return;};
+            if restored>Fixed64::ZERO {
+                self.mana_views.insert(entity,pool);
+                self.outcomes.push(Outcome::ScriptUnitManaDelta {entity,amount:restored});
+                self.outcomes.push(Outcome::ScriptManaGained {entity,amount:restored});
+            }
+            return;
+        }
+        if !self.mana_transaction {
+            // No cast mana ledger (a status event, aura or damage hook): a one-shot relative mana
+            // set the host settles serially, clamped to the pool, as v3 set_mana (E437).
+            use crate::runtime::native::mana_burn::{SetSpec, SET_BUFF};
+            let Some(entity)=Self::handle_to_entity(e) else {return;};
+            let Some(seen)=self.cache.hero.get(entity).and_then(|hero|hero.mana_pool.as_ref()).map(|pool|pool.current()) else {return;};
+            if amount<=Fixed64::ZERO {return;}
+            let Some(spec)=SetSpec::checked(seen+amount).and_then(|spec|spec.relative_to(seen)) else {return;};
+            self.outcomes.push(Outcome::AddBuff {target:entity,buff_id:SET_BUFF.into(),duration:Fixed64::ONE,payload:spec.payload()});
+            return;
+        }
         let Some(entity)=self.managed_mana_entity(e) else {return;};
         let mut pool=self.mana_views.get(&entity).cloned()
             .unwrap_or_else(||self.cache.hero.get(entity).unwrap().mana_pool.clone().unwrap());
@@ -1492,7 +2005,196 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         }
     }
 
-    fn trigger_state_changed(&mut self, _e: EntityHandle, _state_id: RStr<'_>, _active: bool) {}
+    fn ext(&mut self, op: u32, args: abi_stable::std_types::RSlice<'_, omb_script_abi::ext::ExtArg>)
+        -> abi_stable::std_types::RResult<omb_script_abi::ext::ExtValue, abi_stable::std_types::RString> {
+        use abi_stable::std_types::{RErr, ROk};
+        use omb_script_abi::ext::{op, ExtArg as A, ExtValue as V};
+        match (op, args.as_slice()) {
+            (op::DAMAGE_TRACE_ENABLED, []) => ROk(V::Bool(self.cache.damage_trace)),
+            (op::CUE, [A::Num(cue), A::Unit(source), at, to, A::Num(radius), A::Num(duration)]) => {
+                // One hook over a crowd stops here: the tick's bound would drop these anyway.
+                if self.cues_emitted >= MAX_CUES_PER_HOOK { return ROk(V::None); }
+                let (at_unit, at_point) = match at {
+                    A::Unit(unit) => match Self::handle_to_entity(*unit) {
+                        Some(entity) => (Some(entity), (0, 0)),
+                        None => return ROk(V::None),
+                    },
+                    A::Point(point) => (None, (point.x.raw(), point.y.raw())),
+                    _ => return RErr("cue: at must be a unit or a point".into()),
+                };
+                let (to_unit, to_point) = match to {
+                    A::Unit(unit) => (Self::handle_to_entity(*unit), None),
+                    A::Point(point) => (None, Some((point.x.raw(), point.y.raw()))),
+                    A::Bool(false) => (None, None),
+                    _ => return RErr("cue: to must be a unit, a point or false".into()),
+                };
+                self.cues_emitted += 1;
+                self.outcomes.push(Outcome::Cue { cue: cue.raw() as u64, source: Self::handle_to_entity(*source),
+                    at_unit, at_point, to_unit, to_point, radius_raw: radius.raw().max(0), duration_raw: duration.raw().max(0) });
+                ROk(V::None)
+            }
+            (op::END_CHANNEL, [A::Unit(unit)]) => {
+                if let Some(entity) = Self::handle_to_entity(*unit) {
+                    self.outcomes.push(Outcome::ScriptEndChannel { entity });
+                }
+                ROk(V::None)
+            }
+            (op::DAMAGE_TAG, [A::Str(ability), A::Str(path)]) => {
+                if self.cache.damage_trace {
+                    self.outcomes.push(Outcome::ScriptDamageTag { ability: ability.to_string(), path: path.to_string() });
+                }
+                ROk(V::None)
+            }
+            (op::ABILITY_LEVEL, [A::Unit(unit), A::Str(ability)]) => {
+                // A hero's rank, else the rank an illusion copied (v3 copy.abilities).
+                let level = Self::handle_to_entity(*unit).map_or(0, |entity| match self.cache.hero.get(entity) {
+                    Some(hero) => hero.get_ability_level(ability.as_str()).max(0),
+                    None => crate::runtime::native::illusion::ability_level(self.source_buffs(entity), entity, ability.as_str()),
+                });
+                ROk(V::Num(Fixed64::from_i32(level)))
+            }
+            (op::DAMAGE_CREDIT, [A::Unit(credit)]) => {
+                match Self::handle_to_entity(*credit).filter(|credit| self.cache.entities.is_alive(*credit)) {
+                    Some(credit) => { self.outcomes.push(Outcome::ScriptDamageCredit { credit }); ROk(V::None) }
+                    None => ROk(V::None),
+                }
+            }
+            (op::UNITS_IN_RANGE, [A::Point(center), A::Num(radius), A::Unit(of), A::Str(team)]) => {
+                let Some(team) = (match team.as_str() { "ally" => Some(Some(true)), "enemy" => Some(Some(false)), "both" => Some(None), _ => None })
+                    else { return RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown team {team}"))) };
+                let Some(mine) = Self::handle_to_entity(*of).and_then(|of| self.source_faction(of)).map(|f| f.team_id)
+                    else { return ROk(V::Units(abi_stable::std_types::RVec::new())) };
+                if *radius < Fixed64::ZERO { return ROk(V::Units(abi_stable::std_types::RVec::new())); }
+                let r2 = *radius * *radius;
+                let mut found: Vec<_> = (&self.cache.entities, &self.cache.pos, &self.cache.faction).join()
+                    .filter(|(_, pos, faction)| pos.0.distance_squared(*center) <= r2 && team.is_none_or(|ally| (faction.team_id == mine) == ally))
+                    .map(|(entity, pos, _)| (pos.0.distance_squared(*center).raw(), entity.id(), entity)).collect();
+                found.sort_by_key(|(distance, id, _)| (*distance, *id));
+                ROk(V::Units(found.into_iter().map(|(_, _, entity)| Self::entity_to_handle(entity)).collect()))
+            }
+            // E532: combat units removed within the last `within` seconds, for `include_dead`.
+            (op::RETIRED_IN_RANGE, [A::Point(center), A::Num(radius), A::Unit(of), A::Str(team), A::Num(within)]) => {
+                let Some(team) = (match team.as_str() { "ally" => Some(Some(true)), "enemy" => Some(Some(false)), "both" => Some(None), _ => None })
+                    else { return RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown team {team}"))) };
+                let Some(mine) = Self::handle_to_entity(*of).and_then(|of| self.source_faction(of)).map(|f| f.team_id)
+                    else { return ROk(V::Units(abi_stable::std_types::RVec::new())) };
+                let (Some(rows), true) = (self.cache.retired_positions.as_ref(), *radius >= Fixed64::ZERO && *within >= Fixed64::ZERO)
+                    else { return ROk(V::Units(abi_stable::std_types::RVec::new())) };
+                let now = self.cache.tick.0 as u64;
+                let span = u64::try_from((*within * Fixed64::from_i32(60)).raw() >> 10).unwrap_or(0);
+                let found = rows.units_in_range(omoba_sim::Vec2::new(center.x, center.y), *radius, now.saturating_sub(span));
+                ROk(V::Units(found.into_iter().filter(|(_, t)| team.is_none_or(|ally| (*t == mine) == ally))
+                    .map(|(entity, _)| Self::entity_to_handle(entity)).collect()))
+            }
+            // E534: a team's match landmark (its base for base / fort).
+            (op::LANDMARK, [A::Num(team), A::Str(kind)]) => {
+                let team = u32::try_from(team.raw() >> 10).ok();
+                let found = self.cache.moba.as_ref().zip(team).and_then(|(state, team)| {
+                    let side = state.config.teams.iter().position(|t| *t == team)?;
+                    match kind.as_str() { "base" | "fort" => state.bases[side], _ => None }
+                }).filter(|e| self.cache.entities.is_alive(*e));
+                ROk(found.map_or(V::None, |e| V::Unit(Self::entity_to_handle(e))))
+            }
+            (op::CAST_RELEASED, []) => ROk(V::Bool(self.cast_released)),
+            (op::EVENT_ITEM_SLOT, []) => ROk(self.event_item_slot.and_then(|slot| i32::try_from(slot).ok())
+                .map_or(V::None, |slot| V::Num(Fixed64::from_i32(slot)))),
+            (op::IS_VISIBLE_TO, [A::Unit(x), A::Unit(u)]) => ROk(V::Bool(self.is_visible_to(*x, *u))),
+            (op::REFUND, [A::Str(what)]) if what.as_str() == "cooldown" => { self.refund_cooldown = true; ROk(V::None) }
+            (op::STATUS_IMMUNE, [A::Unit(unit), A::Str(status), states @ ..]) => {
+                let mut held = Vec::with_capacity(states.len());
+                for state in states { let A::Str(state) = state else { return RErr("STATUS_IMMUNE: states are strings".into()) }; held.push(state.as_str()); }
+                ROk(V::Bool(Self::handle_to_entity(*unit).is_some_and(|entity|
+                    super::super::dispel::registry().immune(self.source_buffs(entity), entity, status.as_str(), &held))))
+            }
+            (op::TREE_ALIVE, [A::Point(p)]) => ROk(V::Bool(super::super::tree_cut::standing_tree_near(&self.cache.blocked,
+                omoba_sim::Vec2::new(p.x, p.y), Fixed64::ZERO).is_some())),
+            (op::STATUS_INSTANCES, [A::Unit(unit), A::Str(runtime_id)]) => {
+                let count = Self::handle_to_entity(*unit).map_or(0, |entity| self.source_buffs(entity).iter_for(entity)
+                    .filter(|(key, _)| omoba_template_ids::instance_number(key).is_some()
+                        && omoba_template_ids::instance_base(key) == runtime_id.as_str()).count());
+                ROk(V::Num(Fixed64::from_i32(i32::try_from(count).unwrap_or(i32::MAX))))
+            }
+            (op::EVENT_ABILITY_ATTR, [A::Str(attr)]) => {
+                use omb_script_abi::ext::event_ability_attr as name;
+                if attr.as_str() == name::RAW_DAMAGE { return ROk(V::Num(self.event_raw_damage)); }
+                match (&self.event_ability, attr.as_str()) {
+                    (None, name::ID | name::CAST_POINT | name::IS_TOGGLE | name::POINT | name::CAST_RANGE) => ROk(V::None),
+                    (Some(ability), name::CAST_RANGE) => ROk(V::Num(ability.cast_range)),
+                    (Some(ability), name::POINT) => ROk(V::Point(ability.point)),
+                    (Some(ability), name::ID) => ROk(V::Str(ability.id.as_str().into())),
+                    (Some(ability), name::CAST_POINT) => ROk(V::Num(ability.cast_point)),
+                    (Some(ability), name::IS_TOGGLE) => ROk(V::Bool(ability.toggle)),
+                    _ => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown event ability attribute {attr}"))),
+                }
+            }
+            (op::UNIT_ATTR, [A::Unit(unit), A::Str(attr)]) => match self.unit_attr(*unit, attr.as_str()) {
+                Some(value) => ROk(value),
+                None => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown unit attribute {attr}"))),
+            },
+            (op::UNIT_ABILITY_ATTR, [A::Unit(unit), A::Str(ability), A::Str(attr)]) => {
+                use omb_script_abi::ext::ability_attr as name;
+                let hero = Self::handle_to_entity(*unit).and_then(|entity| self.cache.hero.get(entity));
+                let ability = ability.as_str();
+                let def = omoba_template_ids::ability_by_name(ability).and_then(omoba_template_ids::ability_const);
+                let level = hero.map_or(0, |hero| hero.get_ability_level(ability).max(0));
+                match attr.as_str() {
+                    name::COOLDOWN_REMAINING => ROk(V::Num(hero.map_or(Fixed64::ZERO, |hero| hero.get_cooldown(ability)))),
+                    name::IS_READY => ROk(V::Bool(hero.is_some_and(|hero| hero.get_ability_level(ability) > 0 && hero.cast_ready(ability)))),
+                    // E497: its full cooldown at the level held, and its kind.
+                    name::COOLDOWN => ROk(V::Num(full_cooldown(ability, level))),
+                    name::IS_PASSIVE => ROk(V::Bool(def.is_some_and(|def| def.ability_type == omoba_template_ids::AbilityTypeC::Passive))),
+                    name::IS_TOGGLE => ROk(V::Bool(def.is_some_and(|def| def.ability_type == omoba_template_ids::AbilityTypeC::Toggle))),
+                    _ => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown ability attribute {attr}"))),
+                }
+            }
+            (op::SCRIPT_ERROR, [A::Unit(holder), A::Str(ability), A::Str(hook), A::Str(message)]) => {
+                log::warn!("[scripting] {} {} on {}:{}: {}", ability.as_str(), hook.as_str(), holder.id, holder.gen, message.as_str());
+                if let Some(log) = &self.cache.script_errors {
+                    let clip = |text: &str| text.chars().take(512).collect::<String>();
+                    log.push(ScriptErrorRow { tick: self.cache.tick.0, entity: (holder.id, holder.gen), ability: clip(ability.as_str()),
+                        hook: clip(hook.as_str()), message: clip(message.as_str()) });
+                }
+                ROk(V::None)
+            }
+            (op::ABILITY_IN_SLOT, [A::Unit(unit), A::Num(slot)]) => {
+                let hero = Self::handle_to_entity(*unit).and_then(|entity| self.cache.hero.get(entity));
+                let slot = usize::try_from(slot.raw() >> 10).ok().filter(|_| *slot >= Fixed64::ZERO);
+                // an empty slot ("", E578) holds nothing
+                ROk(match hero.zip(slot).and_then(|(hero, slot)| hero.abilities.get(slot)).filter(|id| !id.is_empty()) {
+                    Some(id) => V::Str(id.as_str().into()),
+                    None => V::None,
+                })
+            }
+            (op::ITEM_IN_SLOT, [A::Unit(unit), A::Num(slot)]) => {
+                let inventory = Self::handle_to_entity(*unit)
+                    .and_then(|entity| self.cache.inventories.as_ref().and_then(|rows| rows.get(entity)));
+                let slot = usize::try_from(slot.raw() >> 10).ok().filter(|_| *slot >= Fixed64::ZERO);
+                ROk(match inventory.zip(slot).and_then(|(inventory, slot)| inventory.slots.get(slot)?.as_ref()) {
+                    Some(item) => V::Str(item.item_id.as_str().into()),
+                    None => V::None,
+                })
+            }
+            (op::ITEM_COOLDOWN, [A::Unit(unit), A::Num(slot)]) => {
+                let inventory = Self::handle_to_entity(*unit)
+                    .and_then(|entity| self.cache.inventories.as_ref().and_then(|rows| rows.get(entity)));
+                let slot = usize::try_from(slot.raw() >> 10).ok().filter(|_| *slot >= Fixed64::ZERO);
+                ROk(match inventory.zip(slot).and_then(|(inventory, slot)| inventory.slots.get(slot)?.as_ref()) {
+                    Some(item) => V::Num(Fixed64::from_raw((f64::from(item.cooldown_remaining.max(0.0)) * 1024.0).round() as i64)),
+                    None => V::None,
+                })
+            }
+            (op::GAME_ATTR, [A::Str(attr)]) => {
+                use omb_script_abi::ext::game_attr as name;
+                match attr.as_str() {
+                    name::IS_NIGHT => ROk(V::Bool(self.cache.night)),
+                    name::TIME => ROk(V::Num(self.cache.moba.as_ref().map_or(Fixed64::ZERO, |state| state.elapsed))),
+                    name::DT => ROk(V::Num(self.cache.dt)),
+                    _ => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown game attribute {attr}"))),
+                }
+            }
+            (op, _) => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown op {op} or arguments"))),
+        }
+    }
 
     fn get_final_armor(&self, e: EntityHandle) -> Fixed64 {
         let Some(ent) = Self::handle_to_entity(e) else {
@@ -1679,6 +2381,14 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     }
 }
 
+/// An ability's full cooldown at `level` from the catalog (the last rank's above its ranks; 0 when
+/// not learned or unknown; E497).
+fn full_cooldown(ability: &str, level: i32) -> Fixed64 {
+    let Some(def) = omoba_template_ids::ability_by_name(ability).and_then(omoba_template_ids::ability_const) else { return Fixed64::ZERO };
+    let Some(index) = usize::try_from(level).ok().and_then(|level| level.checked_sub(1)) else { return Fixed64::ZERO };
+    def.levels.get(index.min(def.levels.len().saturating_sub(1))).map_or(Fixed64::ZERO, |row| row.cooldown)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1703,7 +2413,7 @@ mod tests {
         scripting::{dispatch::dispatch_tower_ability_callbacks, ScriptRegistry},
     };
 
-    fn world_for_adapter_tests() -> World {
+    pub(super) fn world_for_adapter_tests() -> World {
         let mut world = World::new();
         world.register::<TAttack>();
         world.register::<Pos>();
@@ -1723,6 +2433,151 @@ mod tests {
         world.insert(BlockedRegions::default());
         world.insert(Tick(42));
         world
+    }
+
+    #[test]
+    fn ext_reads_unit_ability_and_game_attributes() {
+        use omb_script_abi::ext::{ability_attr, game_attr, op, unit_attr as name, ExtArg as A, ExtValue as V};
+        use abi_stable::std_types::RSlice;
+        use omb_script_abi::stat_keys::StatKey;
+        let mut world=world_for_adapter_tests();world.register::<SummonedUnit>();
+        let mut hero=Hero::new("inahime".into(),"inahime".into(),String::new());
+        hero.strength=20;hero.level=3;hero.level_growth.strength_per_level=Fixed64::from_i32(2);
+        hero.mana_pool=Some(crate::runtime::ability_runtime::ManaPool::new(Fixed64::from_i32(50),Fixed64::from_i32(300)).unwrap());
+        hero.ability_levels.insert("a02_q".into(),2);hero.start_cooldown("a02_w",Fixed64::from_i32(4));
+        hero.ability_levels.insert("a02_w".into(),1);hero.abilities=vec!["a02_q".into(),"a02_w".into(),"a02_e".into()];
+        let me=world.create_entity().with(Pos(Vec2::ZERO)).with(Faction::new(FactionType::Player,1)).with(hero).with(TAttack::new(Fixed64::from_i32(30),Fixed64::ONE,Fixed64::from_i32(500),Fixed64::from_i32(900)))
+            .with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::from_i32(25)}).build();
+        let summon=world.create_entity().with(SummonedUnit::new_fixed(me,Some(Fixed64::from_i32(30)))).build();
+        let at=|x:i32|Pos(Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO));
+        let enemy=world.create_entity().with(at(50)).with(Faction::new(FactionType::Enemy,2)).build();
+        let ally=world.create_entity().with(at(80)).with(Faction::new(FactionType::Player,1)).build();
+        world.create_entity().with(at(500)).with(Faction::new(FactionType::Player,1)).build();
+        let camp=world.create_entity().with(at(9000)).with(Faction::new(FactionType::HostileNeutral,0)).build();
+        {
+            let mut buffs=world.write_resource::<BuffStore>();
+            buffs.add(me,"str_aura",Fixed64::from_i32(5),json!({ StatKey::StatsStrengthBonus.as_str(): 6 * 1024 }));
+            buffs.add(summon,crate::runtime::native::rules::vocab::state::ILLUSION,Fixed64::from_i32(5),json!({"look":"inahime","abilities":{"a02_q":2}}));
+            buffs.add(me,crate::runtime::native::ability_channel::STATUS,Fixed64::from_i32(5),json!({}));
+            buffs.add(me,"plate",Fixed64::from_i32(5),json!({ StatKey::PhysicalArmorBonus.as_str(): 3 * 1024, StatKey::PreattackBonusDamage.as_str(): 12 * 1024 }));
+        }
+        crate::runtime::native::rules::world::start_temporary_night(&mut world,Fixed64::from_i32(3));
+        // The hero's attack left with 40 physical and a 2x critical.
+        world.insert(crate::runtime::native::rules::attack::AttackRecords([(me,crate::runtime::native::rules::attack::AttackRecord {
+            seq:1,target:None,windup_tick:0,critical:Some(Fixed64::from_i32(2)),launched:true,missed:false,
+            launch_physical:Fixed64::from_i32(40),procs_attack_effects:true,effect_multiplier:Fixed64::ONE,cannot_miss:false,is_orb:false})].into_iter().collect()));
+        let cache=ParallelAdapterCache::new(&world,1);let mut adapter=ParallelWorldAdapter::new(&cache,me);
+        let (h,s)=(ParallelWorldAdapter::entity_to_handle(me),ParallelWorldAdapter::entity_to_handle(summon));
+        let c=ParallelWorldAdapter::entity_to_handle(camp);
+        let mut unit=|u:EntityHandle,attr:&str|adapter.ext(op::UNIT_ATTR,RSlice::from_slice(&[A::Unit(u),A::Str(attr.into())])).into_result();
+        let n=|v:i32|Ok(V::Num(Fixed64::from_i32(v)));
+        assert_eq!(unit(h,name::LEVEL),n(3));
+        assert_eq!(unit(s,name::LEVEL),n(1));
+        assert_eq!(unit(EntityHandle::INVALID,name::LEVEL),n(0));
+        assert_eq!(unit(h,name::STR),n(30),"20 + 2 per level above 1 + 6 bonus");
+        assert_eq!(unit(s,name::STR),n(0));
+        assert_eq!(unit(h,name::MAX_MANA),n(300));
+        assert_eq!(unit(s,name::IS_ILLUSION),Ok(V::Bool(true)));
+        assert_eq!(unit(h,name::IS_ILLUSION),Ok(V::Bool(false)));
+        assert_eq!((unit(c,name::IS_NEUTRAL),unit(h,name::IS_NEUTRAL)),(Ok(V::Bool(true)),Ok(V::Bool(false))),"E447: the camp has no team");
+        assert_eq!(unit(h,name::IS_CHANNELING),Ok(V::Bool(true)));
+        assert_eq!(unit(h,name::IS_RANGED),Ok(V::Bool(true)));
+        assert_eq!(unit(s,name::IS_RANGED),Ok(V::Bool(false)),"no attack");
+        assert_eq!(unit(h,name::IS_CREEP),Ok(V::Bool(false)));
+        assert_eq!(unit(s,name::OWNER),Ok(V::Unit(h)));
+        assert_eq!(unit(h,name::ATTACK_DAMAGE),n(80),"the attack as it left, critical included");
+        assert_eq!(unit(h,name::ATTACK_EFFECT_MULTIPLIER),n(1));
+        assert_eq!(unit(s,name::ATTACK_DAMAGE),n(0),"no attack");
+        assert_eq!(unit(h,name::OWNER),Ok(V::None));
+        assert_eq!((unit(h,name::HERO),unit(s,name::HERO),unit(c,name::HERO)),(Ok(V::Unit(h)),Ok(V::Unit(h)),Ok(V::None)),
+            "E575: a hero itself, its illusion its hero, a camp nobody");
+        assert_eq!(unit(h,name::PROJECTILE_SPEED),n(900));
+        assert_eq!(unit(h,name::AVG_ATTACK),n(42),"30 base + 12 bonus, no critical");
+        assert_eq!(unit(h,name::BONUS_ARMOR),n(3));
+        assert_eq!(unit(s,name::AVG_ATTACK),n(0),"no attack");
+        assert_eq!(unit(h,name::BASE_ATTACK_RANGE),n(500));
+        assert_eq!(unit(h,name::BASE_MAGIC_RESIST),n(25));
+        assert_eq!(unit(h,name::ATTACK_SPEED_MULT),n(1));
+        assert!(unit(h,"no_such_attribute").is_err());
+        assert_eq!(unit(h,"tag:boss"),Ok(V::Bool(false)));
+        assert_eq!(unit(h,"tag:fountain"),Ok(V::Bool(false)));
+        assert_eq!((unit(s,"tag:summon"),unit(h,"tag:summon")),(Ok(V::Bool(true)),Ok(V::Bool(false))));
+        // The hero a unit shows: its own id, an illusion's copied unit; nothing for others.
+        assert_eq!((unit(h,name::LOOK),unit(s,name::LOOK),unit(c,name::LOOK)),
+            (Ok(V::Str("inahime".into())),Ok(V::Str("inahime".into())),Ok(V::None)));
+        assert_eq!((unit(c,"tag:neutral"),unit(h,"tag:neutral"),unit(c,"tag:summon")),(Ok(V::Bool(true)),Ok(V::Bool(false)),Ok(V::Bool(false))));
+        let mut ability=|a:&str,attr:&str|adapter.ext(op::UNIT_ABILITY_ATTR,
+            RSlice::from_slice(&[A::Unit(h),A::Str(a.into()),A::Str(attr.into())])).into_result();
+        assert_eq!(ability("a02_q",ability_attr::IS_READY),Ok(V::Bool(true)));
+        assert_eq!(ability("a02_w",ability_attr::IS_READY),Ok(V::Bool(false)),"cooling down");
+        assert_eq!(ability("a02_e",ability_attr::IS_READY),Ok(V::Bool(false)),"not learned");
+        assert_eq!(ability("a02_w",ability_attr::COOLDOWN_REMAINING),n(4));
+        // E497: kind and full cooldown at the level held (none when not learned).
+        assert_eq!(ability("a02_e",ability_attr::COOLDOWN),n(0),"not learned");
+        assert_eq!((full_cooldown("a27_war_banner",2),full_cooldown("a27_war_banner",9),full_cooldown("a27_war_banner",0)),
+            (Fixed64::from_i32(30),Fixed64::from_i32(30),Fixed64::ZERO),"its catalog cooldown at the level, the last rank above it");
+        assert_eq!((ability("a02_q",ability_attr::IS_PASSIVE),ability("a02_q",ability_attr::IS_TOGGLE)),(Ok(V::Bool(false)),Ok(V::Bool(false))));
+        let mut slot=|u:EntityHandle,k:i32|adapter.ext(op::ABILITY_IN_SLOT,RSlice::from_slice(&[A::Unit(u),A::Num(Fixed64::from_i32(k))])).into_result();
+        assert_eq!((slot(h,0),slot(h,99),slot(c,0)),(Ok(V::Str("a02_q".into())),Ok(V::None),Ok(V::None)));
+        // An illusion reads the ranks it copied (v3 copy.abilities).
+        let rank=|adapter:&mut ParallelWorldAdapter<'_>,u:EntityHandle,a:&str|adapter.ext(op::ABILITY_LEVEL,
+            RSlice::from_slice(&[A::Unit(u),A::Str(a.into())])).into_result();
+        assert_eq!((rank(&mut adapter,s,"a02_q"),rank(&mut adapter,s,"a02_w"),rank(&mut adapter,h,"a02_q")),(n(2),n(0),n(2)));
+        let mut game=|attr:&str|adapter.ext(op::GAME_ATTR,RSlice::from_slice(&[A::Str(attr.into())])).into_result();
+        assert_eq!(game(game_attr::IS_NIGHT),Ok(V::Bool(true)));
+        assert_eq!(game(game_attr::TIME),n(0));
+        // UNITS_IN_RANGE: allies of `me` (itself included), nearest first.
+        let mut near=|team:&str|adapter.ext(op::UNITS_IN_RANGE,RSlice::from_slice(&[A::Point(omb_script_abi::types::Vec2::ZERO),
+            A::Num(Fixed64::from_i32(100)),A::Unit(h),A::Str(team.into())])).into_result();
+        let (e,a)=(ParallelWorldAdapter::entity_to_handle(enemy),ParallelWorldAdapter::entity_to_handle(ally));
+        assert_eq!(near("ally"),Ok(V::Units(vec![h,a].into())),"the far ally and the factionless summon are out");
+        assert_eq!(near("enemy"),Ok(V::Units(vec![e].into())));
+        assert_eq!(near("both"),Ok(V::Units(vec![h,e,a].into())));
+        assert!(near("nobody").is_err());
+    }
+
+    /// A summon with mana (unit_mana) spends and regains it like a hero: the hook sees its own
+    /// changes at once and settles them as deltas; a unit without mana cannot pay.
+    #[test]
+    fn a_summon_spends_and_restores_its_own_mana_as_settled_deltas() {
+        use crate::runtime::native::unit_mana::UnitMana;
+        use omb_script_abi::world::GameWorld;
+        let mut world=world_for_adapter_tests();world.register::<UnitMana>();
+        let life=CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
+        let summon=world.create_entity().with(life.clone()).with(UnitMana::of_template(Fixed64::from_i32(100),Fixed64::ZERO).unwrap()).build();
+        let plain=world.create_entity().with(life).build();
+        let cache=ParallelAdapterCache::new(&world,1);
+        let mut adapter=ParallelWorldAdapter::new(&cache,summon);
+        let (s,p)=(ParallelWorldAdapter::entity_to_handle(summon),ParallelWorldAdapter::entity_to_handle(plain));
+        assert!(adapter.spend_mana(s,Fixed64::from_i32(70),"a28_flame".into()));
+        assert_eq!(adapter.current_mana(s),Fixed64::from_i32(30),"the hook sees its own spend");
+        assert!(!adapter.spend_mana(s,Fixed64::from_i32(40),"a28_flame".into()),"not enough left");
+        adapter.restore_mana(s,Fixed64::from_i32(500));
+        assert_eq!(adapter.current_mana(s),Fixed64::from_i32(100),"capped at the maximum");
+        assert!(!adapter.spend_mana(p,Fixed64::ONE,"x".into()),"no mana, no payment");
+        let deltas:Vec<_>=adapter.finish().into_iter().filter_map(|outcome|match outcome {
+            Outcome::ScriptUnitManaDelta {entity,amount} if entity==summon=>Some(amount),_=>None}).collect();
+        assert_eq!(deltas,vec![Fixed64::from_i32(-70),Fixed64::from_i32(70)]);
+    }
+
+    /// A point channel with range 0 has no range of its own (the cast's targeting bounds it):
+    /// staging admits any distance, as the start (`ability_channel::can_start`) does.
+    #[test]
+    fn a_point_channel_of_range_zero_stages_at_any_distance() {
+        use crate::runtime::native::ability_channel::Spec;
+        let mut world=world_for_adapter_tests();
+        let caster=world.create_entity().with(Pos(Vec2::ZERO)).with(Hero::new("h".into(),"h".into(),"h".into()))
+            .with(PlayerOwner::new(1)).with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,
+                def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        let far=Target::Point(omb_script_abi::types::Vec2::new(Fixed64::from_i32(5000),Fixed64::ZERO));
+        let spec=|range:i32|Spec {anchor:omoba_content_model::ChannelAnchor::Point,interval:Fixed64::ONE,pulses:3,
+            radius:Some(Fixed64::from_i32(200)),range:Fixed64::from_i32(range)};
+        let cache=ParallelAdapterCache::new(&world,1);
+        let mut adapter=ParallelWorldAdapter::new(&cache,caster);
+        assert!(adapter.stage_ability_channel(caster,"c05_flash_thunder",1,&far,spec(0)),"range 0 is unlimited");
+        let mut adapter=ParallelWorldAdapter::new(&cache,caster);
+        assert!(!adapter.stage_ability_channel(caster,"c05_flash_thunder",1,&far,spec(600)));
+        assert_eq!(adapter.cast_rejection(),Some(crate::runtime::native::command_outcome::OUT_OF_RANGE));
     }
 
     #[test]
@@ -2434,6 +3289,45 @@ mod tests {
     }
 
     #[test]
+    fn a_unit_variable_written_in_this_event_reads_back_and_other_buffs_wait_for_settlement() {
+        let mut world=world_for_adapter_tests();
+        let (entity,other)=(world.create_entity().build(),world.create_entity().build());
+        let cache=ParallelAdapterCache::new(&world,123);
+        let mut adapter=ParallelWorldAdapter::new(&cache,entity);
+        let (handle,other_handle)=(ParallelWorldAdapter::entity_to_handle(entity),ParallelWorldAdapter::entity_to_handle(other));
+        let var=RStr::from_str("unit_var:x");
+        let plain=RStr::from_str("plain");
+        adapter.add_stat_buff(handle,var,Fixed64::ONE,RStr::from_str(r#"{"n":1}"#));
+        adapter.add_stat_buff(handle,var,Fixed64::ONE,RStr::from_str(r#"{"n":2}"#));
+        adapter.add_stat_buff(handle,plain,Fixed64::ONE,RStr::from_str(r#"{"n":3}"#));
+        assert_eq!(adapter.get_buff_payload(handle,var).into_option().map(|s|s.to_string()),Some(r#"{"n":2}"#.to_string()),"the last write");
+        assert!(adapter.get_buff_payload(other_handle,var).is_none(),"another unit's own");
+        assert!(adapter.get_buff_payload(handle,plain).is_none(),"only unit variables read back");
+        adapter.remove_buff(handle,var);
+        assert!(adapter.get_buff_payload(handle,var).is_none(),"cleared");
+    }
+
+    /// FC-168：teleport_clear 之後同一事件讀施法者位置拿到落點（原作 FindClearSpaceForUnit 立即生效），
+    /// 和結算算出的一樣；錨點超出範圍的封包結算會拒絕，位置也不變。
+    #[test]
+    fn a_blink_landing_moves_its_caster_for_the_rest_of_the_event() {
+        use crate::runtime::native::blink_landing::{Spec,BUFF};
+        let mut world=world_for_adapter_tests();
+        let property=CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
+        let caster=world.create_entity().with(Pos(Vec2::ZERO)).with(property).build();
+        let cache=ParallelAdapterCache::new(&world,1);
+        let mut adapter=ParallelWorldAdapter::new(&cache,caster);
+        let handle=ParallelWorldAdapter::entity_to_handle(caster);
+        let spec=|anchor:i32,preferred:i32,range:i32| Spec {source_id:caster.id(),source_generation:caster.gen().id() as u32,
+            anchor:Vec2::new(Fixed64::from_i32(anchor),Fixed64::ZERO),preferred:Vec2::new(Fixed64::from_i32(preferred),Fixed64::ZERO),
+            cast_range:Fixed64::from_i32(range)}.payload().to_string();
+        adapter.add_stat_buff(handle,RStr::from_str(BUFF),Fixed64::ONE,RStr::from_str(&spec(900,800,500)));
+        assert_eq!(adapter.get_pos(handle).into_option(),Some(Vec2::ZERO),"an anchor out of range: settlement refuses it");
+        adapter.add_stat_buff(handle,RStr::from_str(BUFF),Fixed64::ONE,RStr::from_str(&spec(400,300,500)));
+        assert_eq!(adapter.get_pos(handle).into_option(),Some(Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO)),"landed");
+    }
+
+    #[test]
     fn parallel_adapter_buffers_mutations_and_reads_overlay() {
         let mut world = world_for_adapter_tests();
         let entity = world
@@ -2472,6 +3366,102 @@ mod tests {
         assert!(
             matches!(outcomes[2], Outcome::ScriptSetAsdCount { entity: e, asd_count } if e == entity && asd_count == Fixed64::from_raw(321))
         );
+    }
+
+    /// E437: outside a cast's mana ledger a hero's restore is a relative mana set the host settles.
+    #[test]
+    fn a_restore_outside_a_cast_is_a_relative_mana_set_on_a_hero() {
+        use crate::runtime::ability_runtime::ManaPool;
+        use crate::runtime::native::mana_burn::{apply_set, SET_BUFF};
+        let mut world = world_for_adapter_tests();
+        let mut hero = Hero::default();
+        hero.mana_pool = Some(ManaPool::new(Fixed64::from_i32(50), Fixed64::from_i32(100)).unwrap());
+        let entity = world.create_entity().with(hero).build();
+        let handle = ParallelWorldAdapter::entity_to_handle(entity);
+        let outcomes = {
+            let cache = ParallelAdapterCache::new(&world, 123);
+            let mut adapter = ParallelWorldAdapter::new(&cache, entity);
+            adapter.restore_mana(handle, Fixed64::from_i32(30));
+            adapter.restore_mana(handle, Fixed64::ZERO);
+            adapter.finish()
+        };
+        assert_eq!(outcomes.len(), 1);
+        let Outcome::AddBuff { target, buff_id, duration, payload } = &outcomes[0] else { panic!("{outcomes:?}") };
+        assert_eq!((*target, buff_id.as_str()), (entity, SET_BUFF));
+        // The mana spent in between is kept: +30 on what the hero has at settlement, capped at the pool.
+        world.write_storage::<Hero>().get_mut(entity).unwrap().mana_pool.as_mut().unwrap().drain(Fixed64::from_i32(20)).unwrap();
+        assert_eq!(apply_set(&mut world, entity, buff_id, *duration, payload), Some(Fixed64::from_i32(60)));
+        assert_eq!(apply_set(&mut world, entity, buff_id, *duration, payload), Some(Fixed64::from_i32(90)));
+        assert_eq!(apply_set(&mut world, entity, buff_id, *duration, payload), Some(Fixed64::from_i32(100)));
+    }
+
+    /// E455: a cast that refunds its cooldown starts none; a discarded cast forgets the refund.
+    #[test]
+    fn a_refunded_cast_starts_no_cooldown() {
+        use omb_script_abi::ext::{op, ExtArg as A};
+        let mut world = world_for_adapter_tests();
+        let entity = world.create_entity().with(Hero::default()).build();
+        let cache = ParallelAdapterCache::new(&world, 123);
+        let mut adapter = ParallelWorldAdapter::new(&cache, entity);
+        assert!(adapter.ext(op::REFUND, abi_stable::std_types::RSlice::from_slice(&[A::Str("mana".into())])).into_result().is_err());
+        assert!(adapter.ext(op::REFUND, abi_stable::std_types::RSlice::from_slice(&[A::Str("cooldown".into())])).into_result().is_ok());
+        adapter.start_cooldown(entity, "test".into(), Fixed64::from_i32(5));
+        assert!(adapter.outcomes.is_empty(), "no cooldown");
+        adapter.discard_cast();
+        adapter.start_cooldown(entity, "test".into(), Fixed64::from_i32(5));
+        assert!(matches!(adapter.finish().as_slice(), [Outcome::ScriptStartCooldown { .. }]));
+    }
+
+    /// E526: a removed unit's position stays readable where it last stood.
+    #[test]
+    fn a_removed_units_last_position_stays_readable() {
+        let mut world = world_for_adapter_tests();
+        let at = Vec2::new(Fixed64::from_i32(300), Fixed64::from_i32(-40));
+        let unit = world.create_entity().with(Pos(at)).build();
+        let handle = ParallelWorldAdapter::entity_to_handle(unit);
+        world.insert(RetiredPositions::default());
+        world.write_resource::<RetiredPositions>().record(unit, at, 10);
+        world.entities().delete(unit).unwrap();
+        world.maintain();
+        let later = world.create_entity().build();
+        let cache = ParallelAdapterCache::new(&world, 1);
+        let adapter = ParallelWorldAdapter::new(&cache, unit);
+        assert_eq!(adapter.get_pos(handle), RSome(at));
+        let mut rows = RetiredPositions::default();
+        rows.record(unit, at, 10);
+        rows.record(later, at, 10 + RetiredPositions::KEEP_TICKS + 1);
+        assert_eq!(rows.get(unit), None, "an old row goes");
+        // E532: a removed combat unit is found by place, time and team.
+        let mut rows = RetiredPositions::default();
+        let (creep, effect) = (world.entities().create(), world.entities().create());
+        rows.record_unit(creep, at, 100, 2);
+        rows.record(effect, at, 100);
+        assert_eq!(rows.units_in_range(at, Fixed64::from_i32(10), 90), vec![(creep, 2)]);
+        assert!(rows.units_in_range(at, Fixed64::from_i32(10), 101).is_empty(), "too long ago");
+        let far = Vec2::new(Fixed64::from_i32(900), Fixed64::ZERO);
+        assert!(rows.units_in_range(far, Fixed64::from_i32(10), 90).is_empty(), "too far");
+    }
+
+    /// E517: a hook error is recorded when the world keeps the log, in tick then entity order.
+    #[test]
+    fn a_script_error_is_recorded_in_the_log_the_world_keeps() {
+        use omb_script_abi::ext::{op, ExtArg as A};
+        let mut world = world_for_adapter_tests();
+        let unit = world.create_entity().build();
+        let handle = ParallelWorldAdapter::entity_to_handle(unit);
+        let report = |world: &World| {
+            let cache = ParallelAdapterCache::new(world, 1);
+            let mut adapter = ParallelWorldAdapter::new(&cache, unit);
+            adapter.ext(op::SCRIPT_ERROR, abi_stable::std_types::RSlice::from_slice(&[A::Unit(handle), A::Str("a06_fury".into()), A::Str("on_attack_hit".into()),
+                A::Str("v3: invalid state".into())])).into_result().map(|_| ())
+        };
+        assert!(report(&world).is_ok(), "no log: only a warning");
+        world.insert(ScriptErrorLog::default());
+        assert!(report(&world).is_ok());
+        let rows = world.read_resource::<ScriptErrorLog>().take();
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].ability.as_str(), rows[0].hook.as_str(), rows[0].message.as_str()), ("a06_fury", "on_attack_hit", "v3: invalid state"));
+        assert!(world.read_resource::<ScriptErrorLog>().take().is_empty(), "taken");
     }
 
     #[test]
@@ -2513,6 +3503,21 @@ mod tests {
         let cache=ParallelAdapterCache::new(&world,123);
         let mut adapter=ParallelWorldAdapter::new(&cache,entity);
         assert!(!adapter.spend_mana(handle,Fixed64::ONE,"extra".into()),"parallel snapshot cannot admit a spend");
+        // E506: a status event spends as relative sets against what it saw, each after the last.
+        let mut effect=ParallelWorldAdapter::new(&cache,entity);
+        effect.relative_mana=true;
+        assert!(effect.spend_mana(handle,Fixed64::from_i32(30),"orb".into()));
+        assert!(!effect.spend_mana(handle,Fixed64::from_i32(30),"orb".into()),"only 20 left");
+        assert!(effect.spend_mana(handle,Fixed64::from_i32(5),"orb".into()));
+        assert_eq!(effect.current_mana(handle),Fixed64::from_i32(15));
+        assert!(!effect.spend_mana(ParallelWorldAdapter::entity_to_handle(dead),Fixed64::ONE,"orb".into()));
+        let set=|value:i32,seen:i32| crate::runtime::native::mana_burn::SetSpec::checked(Fixed64::from_i32(value)).unwrap()
+            .relative_to(Fixed64::from_i32(seen)).unwrap().payload();
+        let sets:Vec<_>=effect.finish().into_iter().map(|o| match o {
+            Outcome::AddBuff {target,buff_id,payload,..} if target==entity && buff_id==crate::runtime::native::mana_burn::SET_BUFF => payload,
+            other => panic!("only relative sets: {other:?}"),
+        }).collect();
+        assert_eq!(sets,vec![set(20,50),set(15,20)]);
         adapter.begin_mana_transaction(&HashMap::new());
         assert!(!adapter.spend_mana(handle,Fixed64::from_raw(-1),"extra".into()));
         assert!(!adapter.spend_mana(EntityHandle {gen:handle.gen+1,..handle},Fixed64::ONE,"extra".into()));
@@ -2829,5 +3834,114 @@ mod tests {
             ),
             candidates
         );
+    }
+}
+
+/// Cast-time disclosure query (see `omb_script_abi::world::DisclosureQuery`).
+/// Same disclosure rule as summon acquisition, so authority and team replicas
+/// select identical candidates before any handler-side cap.
+pub(crate) struct CastDisclosureQuery<'a> {
+    pub cache: &'a ParallelAdapterCache<'a>,
+}
+
+impl omb_script_abi::world::DisclosureQuery for CastDisclosureQuery<'_> {
+    fn disclosed_enemies_in_range(&self, center: Vec2, radius: Fixed64, of: EntityHandle, cap: u16) -> RVec<EntityHandle> {
+        use crate::runtime::native::combat_acquisition::DisclosureContext;
+        let Some(source) = ParallelWorldAdapter::handle_to_entity(of).filter(|e| self.cache.entities.is_alive(*e)) else { return RVec::new(); };
+        let Some(faction) = self.cache.faction.get(source) else { return RVec::new(); };
+        if radius < Fixed64::ZERO || cap == 0 { return RVec::new(); }
+        let disclosure = DisclosureContext::resolve(self.cache.filtered, self.cache.moba.is_some(), self.cache.visibility.as_deref());
+        let mut rows: Vec<Entity> = (&self.cache.entities, &self.cache.pos, &self.cache.faction, &self.cache.cprop).join()
+            .filter(|(entity, pos, other, property)| *entity != source && property.hp > Fixed64::ZERO
+                && faction.is_hostile_to(other)
+                && omoba_sim::terrain::point_in_swept_circle(pos.0, center, center, radius)
+                && disclosure.allows(Some(faction), crate::runtime::selective::CanonicalEntityKey {
+                    id: entity.id(), generation: entity.gen().id() as u32 }))
+            .map(|(entity, ..)| entity).collect();
+        rows.sort_by_key(|entity| (entity.id(), entity.gen().id()));
+        rows.truncate(usize::from(cap.min(256)));
+        rows.into_iter().map(ParallelWorldAdapter::entity_to_handle).collect()
+    }
+}
+
+#[cfg(test)]
+mod disclosure_query_tests {
+    use super::*;
+    use omb_script_abi::world::DisclosureQuery;
+    use specs::Builder;
+    fn unit(world: &mut World, x: i32, team: i32, hp: i32) -> Entity {
+        world.create_entity().with(Pos(Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO)))
+            .with(Faction::new(if team == 1 { FactionType::Player } else { FactionType::Enemy }, team))
+            .with(CProperty { hp: Fixed64::from_i32(hp), mhp: Fixed64::from_i32(100), msd: Fixed64::ZERO,
+                def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build()
+    }
+    #[test]
+    fn worn_items_join_the_passive_attack_scripts_once_per_kind() {
+        // An item's generated passive (on_attack_hit / on_attack_launch) hears its wearer's attacks
+        // like a learned passive: once per item kind it wears, at rank 1.
+        use crate::runtime::{Hero, Inventory, ItemInstance};
+        let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+            .find_map(|row| super::super::super::game_processor::item_script_id(row.id).map(|script| (row.id, script)))
+            .expect("an item with a generated script");
+        let mut world = super::tests::world_for_adapter_tests();
+        world.register::<Inventory>();
+        let wearer = unit(&mut world, 0, 1, 100);
+        let mut hero = Hero::default();hero.ability_levels.insert("b08_fang_slash".into(), 2);
+        world.write_storage::<Hero>().insert(wearer, hero).unwrap();
+        let mut inventory = Inventory::new();
+        for slot in [0, 3] { inventory.slots[slot] = Some(ItemInstance { item_id: item.0.into(), cooldown_remaining: 0.0 }); }
+        world.write_storage::<Inventory>().insert(wearer, inventory).unwrap();
+        let cache = ParallelAdapterCache::new(&world, 1);
+        let adapter = ParallelWorldAdapter::new(&cache, wearer);
+        assert_eq!(adapter.source_passive_scripts(wearer),
+            vec![("b08_fang_slash".to_owned(), 2, false), (item.1.to_owned(), 1, true)]);
+    }
+
+    #[test]
+    fn is_visible_to_reads_own_units_and_the_disclosed_enemy_sight_on_a_replica() {
+        // E312: a team replica answers v3 is_visible_to(x, u) from what it holds: its own units
+        // always, an own unit from the enemy's side through the disclosed enemy sight, anything
+        // else it holds as disclosed. A viewer outside the two teams sees nothing.
+        use crate::runtime::filtered_specs::{DisclosedMovementPriority, FilteredComponents};
+        use omb_script_abi::ext::{op, ExtArg as A, ExtValue as V};
+        let mut world = super::tests::world_for_adapter_tests();
+        world.register::<FilteredComponents>();
+        world.insert(DisclosedMovementPriority::default());
+        let (mine, seen, enemy) = (unit(&mut world, 0, 1, 100), unit(&mut world, 10, 1, 100), unit(&mut world, 20, 2, 100));
+        let neutral = world.create_entity().with(Faction::new(FactionType::Neutral, 0)).build();
+        let sight = |seen| FilteredComponents(std::collections::BTreeMap::from([(
+            crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID, crate::runtime::encode_disclosed_enemy_sight(seen))]));
+        world.write_storage::<FilteredComponents>().insert(mine, sight(false)).unwrap();
+        world.write_storage::<FilteredComponents>().insert(seen, sight(true)).unwrap();
+        let cache = ParallelAdapterCache::new(&world, 1);
+        let mut adapter = ParallelWorldAdapter::new(&cache, mine);
+        let h = ParallelWorldAdapter::entity_to_handle;
+        let mut ask = |x, u| match adapter.ext(op::IS_VISIBLE_TO, abi_stable::std_types::RSlice::from_slice(&[A::Unit(h(x)), A::Unit(h(u))])) {
+            abi_stable::std_types::RResult::ROk(V::Bool(b)) => b, other => panic!("{other:?}") };
+        assert!(ask(mine, seen) && ask(enemy, mine), "own units; a disclosed enemy");
+        assert!(!ask(mine, enemy) && ask(seen, enemy), "the enemy's sight of own units");
+        assert!(!ask(mine, neutral), "no team, no sight");
+    }
+
+    #[test]
+    fn disclosed_query_is_live_hostile_bounded_sorted_and_capped() {
+        let mut world = super::tests::world_for_adapter_tests();
+        let source = unit(&mut world, 0, 1, 100);
+        let far = unit(&mut world, 300, 2, 100);
+        let ally = unit(&mut world, 50, 1, 100);
+        let dead = unit(&mut world, 60, 2, 0);
+        let near = unit(&mut world, 100, 2, 100);
+        let edge = unit(&mut world, 200, 2, 100);
+        let cache = ParallelAdapterCache::new(&world, 1);
+        let query = CastDisclosureQuery { cache: &cache };
+        let handle = ParallelWorldAdapter::entity_to_handle;
+        let got = query.disclosed_enemies_in_range(Vec2::ZERO, Fixed64::from_i32(200), handle(source), 8);
+        // Closed disk, hostile, hp > 0, (id, gen) order; ally, dead and out-of-range rows excluded.
+        assert_eq!(got.to_vec(), vec![handle(near), handle(edge)]);
+        assert!(!got.contains(&handle(ally)) && !got.contains(&handle(dead)) && !got.contains(&handle(far)));
+        assert_eq!(query.disclosed_enemies_in_range(Vec2::ZERO, Fixed64::from_i32(400), handle(source), 1).to_vec(),
+            vec![handle(far)], "cap after canonical (id, gen) order");
+        assert!(query.disclosed_enemies_in_range(Vec2::ZERO, Fixed64::from_i32(400), EntityHandle::INVALID, 8).is_empty());
+        assert!(query.disclosed_enemies_in_range(Vec2::ZERO, Fixed64::from_raw(-1), handle(source), 8).is_empty());
     }
 }

@@ -5,22 +5,16 @@ use omoba_template_ids::*;
 
 #[test]
 fn saika_magoichi_has_4_abilities() {
+    // H01: the source B01 current kit fills the slots (the hand-written kit stays as retained_abilities).
     let abs = hero_abilities(HERO_SAIKA_MAGOICHI);
-    assert_eq!(abs.len(), 4);
-    assert_eq!(abs[0], ABILITY_SNIPER_MODE);
-    assert_eq!(abs[1], ABILITY_SAIKA_REINFORCEMENTS);
-    assert_eq!(abs[2], ABILITY_RAIN_IRON_CANNON);
-    assert_eq!(abs[3], ABILITY_THREE_STAGE_TECHNIQUE);
+    assert_eq!(abs, [ABILITY_B01_SNIPER_MODE, ABILITY_B01_SAIKA_CORPS, ABILITY_B01_RAIN_IRON_CANNON, ABILITY_B01_THREE_STAGE]);
 }
 
 #[test]
 fn date_masamune_has_4_abilities() {
+    // H02: the source B04 current kit fills the slots.
     let abs = hero_abilities(HERO_DATE_MASAMUNE);
-    assert_eq!(abs.len(), 4);
-    assert_eq!(abs[0], ABILITY_FLAME_BLADE);
-    assert_eq!(abs[1], ABILITY_FIRE_DASH);
-    assert_eq!(abs[2], ABILITY_FLAME_ASSAULT);
-    assert_eq!(abs[3], ABILITY_MATCHLOCK_GUN);
+    assert_eq!(abs, [ABILITY_B04_FLAME_TRAIL_DASH, ABILITY_B04_FIRE_BLAST, ABILITY_B04_FLAME_SWIFTNESS, ABILITY_B04_TANEGASHIMA]);
 }
 
 #[test]
@@ -67,15 +61,16 @@ fn moba_archetypes_append_ids_and_generate_distinct_four_skill_loadouts() {
 
 #[test]
 fn saika_magoichi_stats_match_json() {
+    // Playable heroes take their unit stats from the source (B01_2.txt), not from authored values.
     let s = hero_stats(HERO_SAIKA_MAGOICHI).expect("saika has stats");
-    assert_eq!(s.strength, 18);
+    assert_eq!(s.strength, 34);
     assert_eq!(s.agility, 28);
-    assert_eq!(s.intelligence, 16);
+    assert_eq!(s.intelligence, 21);
     assert_eq!(s.primary_attribute, 1); // 1 = agility
-    assert_eq!(s.base_hp, 580);
-    assert_eq!(s.base_damage, 52);
-    assert_eq!(s.attack_range, Fixed64::from_i32(900));
-    assert_eq!(s.level_growth.hp_per_level, Fixed64::from_i32(58));
+    assert_eq!(s.base_hp, 550);
+    assert_eq!(s.base_damage, 98);
+    assert_eq!(s.attack_range, Fixed64::from_i32(700));
+    assert_eq!(s.level_growth.hp_per_level, Fixed64::ZERO, "HP grows through strength, not flat");
 }
 
 #[test]

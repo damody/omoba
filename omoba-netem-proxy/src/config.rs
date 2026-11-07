@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, env, net::SocketAddr, path::PathBuf, time::Dura
 
 use serde::Serialize;
 
-use crate::{delay::auto_seed, profile::DelayProfile, NetemError, Result};
+use crate::{delay::auto_seed, outage::{self, OutageWindow}, profile::DelayProfile, NetemError, Result};
 
 pub const DEFAULT_MAX_DATAGRAMS: usize = 4096;
 pub const DEFAULT_MAX_BYTES: usize = 32 * 1024 * 1024;
@@ -43,6 +43,7 @@ pub struct ProxyConfig {
     pub max_datagrams: usize,
     pub max_bytes: usize,
     pub watchdog: Duration,
+    pub outages: Vec<OutageWindow>,
 }
 
 #[derive(Serialize)]
@@ -55,6 +56,7 @@ pub struct SanitizedConfig<'a> {
     pub max_datagrams: usize,
     pub max_bytes: usize,
     pub watchdog_ms: u128,
+    pub outages: &'a [OutageWindow],
 }
 
 impl ProxyConfig {
@@ -76,6 +78,7 @@ impl ProxyConfig {
         let mut max_datagrams = DEFAULT_MAX_DATAGRAMS;
         let mut max_bytes = DEFAULT_MAX_BYTES;
         let mut watchdog_ms = 5000_u64;
+        let mut outages = Vec::new();
         while let Some(flag) = values.next() {
             let value = |values: &mut std::vec::IntoIter<String>| {
                 values
@@ -103,6 +106,7 @@ impl ProxyConfig {
                 "--max-datagrams" => max_datagrams = parse(&value(&mut values)?, &flag)?,
                 "--max-bytes" => max_bytes = parse(&value(&mut values)?, &flag)?,
                 "--watchdog-ms" => watchdog_ms = parse(&value(&mut values)?, &flag)?,
+                "--outage" => outages.push(OutageWindow::parse(&value(&mut values)?)?),
                 _ => return Err(NetemError::Config(format!("unknown argument {flag}"))),
             }
         }
@@ -138,6 +142,7 @@ impl ProxyConfig {
                 "queue budgets and watchdog must be positive".into(),
             ));
         }
+        outage::validate(&outages)?;
         let profile = |index: usize| match (&customs[index], profiles[index].as_str()) {
             (Some(path), "custom-20-bin") => DelayProfile::load_custom(path),
             (None, name) => DelayProfile::named(name),
@@ -169,6 +174,7 @@ impl ProxyConfig {
             max_datagrams,
             max_bytes,
             watchdog: Duration::from_millis(watchdog_ms),
+            outages,
         })
     }
 
@@ -182,6 +188,7 @@ impl ProxyConfig {
             max_datagrams: self.max_datagrams,
             max_bytes: self.max_bytes,
             watchdog_ms: self.watchdog.as_millis(),
+            outages: &self.outages,
         }
     }
 }
@@ -229,6 +236,17 @@ mod tests {
         let value = ProxyConfig::parse(args()).unwrap();
         assert_eq!(value.seed, 1);
         assert_eq!(value.routes[0].team_id, 1)
+    }
+    #[test]
+    fn parses_repeatable_outages_and_rejects_overlap() {
+        let mut value = args();
+        value.extend(["--outage", "team=1,at_ms=120000,duration_ms=10000", "--outage", "team=2,at_ms=200000,duration_ms=5000"]
+            .map(str::to_string));
+        let config = ProxyConfig::parse(value.clone()).unwrap();
+        assert_eq!(config.outages.len(), 2);
+        assert_eq!(config.outages[1].team_id, 2);
+        value.extend(["--outage", "team=1,at_ms=125000,duration_ms=1000"].map(str::to_string));
+        assert!(ProxyConfig::parse(value).is_err());
     }
     #[test]
     fn rejects_unknown_remote_and_duplicate() {

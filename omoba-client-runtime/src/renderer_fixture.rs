@@ -1630,7 +1630,8 @@ impl FixtureWorld {
         }
         let ranks = self.active.ability_levels.clone();
         let threshold = u32::try_from(self.active.experience_to_next).map_err(|_| "experience_threshold")?;
-        if threshold == 0 || !self.active.add_moba_experience(threshold) {
+        // The fixture keeps the legacy experience curve (no game rules).
+        if threshold == 0 || !self.active.add_moba_experience(threshold, None) {
             return Err("experience_did_not_level");
         }
         if self.active.level != 2
@@ -2036,8 +2037,40 @@ impl FixtureWorld {
             if let Some(event) = self.recall_metric_event() {
                 snapshot.public_events.push(event);
             }
+            let tick = snapshot.replica_tick;
+            snapshot.public_events.extend(self.owner_mana_cost_events(tick));
             snapshot
         })
+    }
+
+    /// Team-scoped current ability prices, the same rows the authority publishes in
+    /// `emit_owner_mana_costs`. The owner HUD only trusts a price bound to this exact tick,
+    /// ability and rank; without these rows every slot reads "price unknown" and a short-mana
+    /// stage could never be refused before the wire. The fixture has no buffs, so the price is
+    /// the compiled rank cost. An absent or dead owner publishes binding 0 and cost -1.
+    fn owner_mana_cost_events(&self, replica_tick: u64) -> Vec<TeamPublicEvent> {
+        use omoba_core::runtime::{HERO_ABILITY_SLOTS, MANA_COST_BINDING, MANA_COST_RAW, MANA_COST_TICK};
+        let row = |namespace, value| metric(OWNER_TEAM_ID, single_lane_player_metric(namespace, OWNER_PLAYER_ID), value);
+        let live = self.source.as_ref().is_some_and(|source| source.alive)
+            && !self.suppress_owner_hero
+            && self.active.mana_pool.is_some();
+        let mut events = vec![row(MANA_COST_TICK, i64::try_from(replica_tick).unwrap_or(-1))];
+        for slot in 0..self.active.abilities.len().clamp(4, HERO_ABILITY_SLOTS) {
+            let priced = live.then(|| self.active.abilities.get(slot)).flatten().and_then(|id| {
+                let rank = u8::try_from(self.active.ability_levels.get(id).copied().unwrap_or(0)).ok().filter(|rank| *rank >= 1)?;
+                let catalog = omoba_template_ids::ability_by_name(id)?;
+                let cost = omoba_template_ids::active_ability_const(catalog)?
+                    .levels
+                    .get(usize::from(rank) - 1)?
+                    .mana_cost
+                    .raw();
+                Some(((i64::from(catalog.raw()) << 8) | i64::from(rank), cost))
+            });
+            let (binding, cost) = priced.unwrap_or((0, -1));
+            events.push(row(MANA_COST_BINDING[slot], binding));
+            events.push(row(MANA_COST_RAW[slot], cost));
+        }
+        events
     }
 
     fn owner_economy_event(&self) -> Option<TeamPublicEvent> {
@@ -2435,6 +2468,7 @@ fn intent_value(world: &FixtureWorld, intent: Option<renderer_input::Intent>) ->
         }
         renderer_input::Intent::HoldPosition(value) => json!({"kind": "HoldPosition", "queued": value.queued}),
         renderer_input::Intent::Stop(_) => json!({"kind": "Stop"}),
+        renderer_input::Intent::ShowcaseResetHero(_) => json!({"kind": "ShowcaseResetHero"}),
         renderer_input::Intent::CombatPreferences(value) => json!({"kind": "CombatPreferences",
             "schema_version": value.schema_version, "acquisition": value.acquisition, "idle_auto_attack": value.idle_auto_attack}),
         renderer_input::Intent::InputScheme(value) => json!({"kind":"InputScheme","schema_version":value.schema_version,"scheme":value.scheme}),
@@ -3670,10 +3704,13 @@ mod tests {
         assert_eq!(hero.mana_raw, cost - 1);
         assert!(hero.mana_raw < cost);
         assert!(hero.max_mana_raw > cost);
+        // The owner HUD must see the bound current price, or the frontend cannot refuse the cast.
+        assert_eq!((hero.abilities[0].mana_cost_state, hero.abilities[0].effective_mana_cost_raw), (2, cost));
 
         let cooled = apply(&mut fixture, "owner_cooldown", &mut sequence);
         let hero = cooled.moba_hud.as_ref().unwrap().hero.as_ref().unwrap();
         assert!(hero.mana_raw == hero.max_mana_raw && hero.mana_raw > 0);
+        assert_eq!((hero.abilities[0].mana_cost_state, hero.abilities[0].effective_mana_cost_raw), (1, cost));
         assert!(hero.abilities[0].cooldown_raw > 0);
         assert!(hero.abilities[0].cooldown_raw <= hero.abilities[0].total_cooldown_raw);
 
@@ -4287,21 +4324,35 @@ mod tests {
             })
             .collect();
         let projected = omoba_core::runtime::native::shop::project_catalog_recipes(&sources).unwrap();
+        // Every recipe that lists a material more than once (derived from the item catalog, however
+        // many the content has, E296) projects it as one component counting each listing.
+        let catalog_of = |id: &str| {
+            u32::from(omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == id).unwrap().catalog_id)
+        };
+        let repeats = |recipe: &[&str]| recipe.iter().enumerate().any(|(index, id)| recipe[..index].contains(id));
+        let expected: Vec<u32> = sources.iter().filter(|source| repeats(source.recipe)).map(|source| source.catalog_id).collect();
         let repeated: Vec<_> = projected
             .iter()
             .filter(|recipe| recipe.components.iter().any(|component| component.count >= 2))
             .collect();
-        assert_eq!(repeated.len(), 1);
-        assert_eq!(repeated[0].catalog_id, 4);
-        assert_eq!(repeated[0].components.len(), 1);
-        assert_eq!(repeated[0].components[0].count, 2);
-        let sword_id = u16::try_from(repeated[0].components[0].catalog_id).unwrap();
-        let sword = omoba_template_ids::MOBA_ITEM_CATALOG
+        assert!(!expected.is_empty(), "the catalog has a recipe with a repeated material");
+        assert_eq!(repeated.iter().map(|recipe| recipe.catalog_id).collect::<Vec<_>>(), expected);
+        for recipe in &repeated {
+            let source = sources.iter().find(|source| source.catalog_id == recipe.catalog_id).unwrap();
+            for component in &recipe.components {
+                let listed = source.recipe.iter().filter(|id| catalog_of(id) == component.catalog_id).count();
+                assert_eq!(component.count as usize, listed, "recipe {} component {}", source.id, component.catalog_id);
+            }
+            assert_eq!(recipe.components.iter().map(|component| component.count as usize).sum::<usize>(), source.recipe.len());
+        }
+        // The buy below: a repeated recipe whose doubled material the ready owner holds exactly once.
+        let held_once = |catalog_id: u32| {
+            u16::try_from(catalog_id).is_ok_and(|id| READY_ITEM_CATALOG.iter().filter(|ready| **ready == id).count() == 1)
+        };
+        let target = *repeated
             .iter()
-            .find(|item| item.catalog_id == sword_id)
-            .unwrap();
-        assert_eq!(sword.id, "moba_sword");
-        assert_eq!(READY_ITEM_CATALOG.iter().filter(|id| **id == sword_id).count(), 1);
+            .find(|recipe| recipe.components.iter().any(|component| component.count >= 2 && held_once(component.catalog_id)))
+            .expect("a repeated recipe whose material the ready owner holds once");
 
         let options = options();
         let mut fixture = RendererFixture::start(options.clone()).await.unwrap();
@@ -4359,12 +4410,12 @@ mod tests {
                 request_id: 41,
                 player_id: OWNER_PLAYER_ID,
                 disclosure_epoch: floor,
-                intent: Some(Intent::ItemBuy(ItemBuyIntent { catalog_id: repeated[0].catalog_id })),
+                intent: Some(Intent::ItemBuy(ItemBuyIntent { catalog_id: target.catalog_id })),
             })
             .unwrap();
         assert_eq!(buy["authority_ack"], false);
         assert_eq!(buy["intent"]["kind"], "ItemBuy");
-        assert_eq!(buy["intent"]["catalog_id"], 4);
+        assert_eq!(buy["intent"]["catalog_id"], target.catalog_id);
         assert!(buy["intent"].get("item_id").is_none());
         assert!(buy["intent"].get("item_slot").is_none());
         assert!(buy["intent"].get("queued").is_none());

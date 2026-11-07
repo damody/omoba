@@ -403,7 +403,10 @@ message AttackTarget {
 }
 
 // Distinct from hero movement. References bind the current owner and summon
-// generations; operation 1=MoveTo(point required), 2=Release(point forbidden).
+// generations; operation 1=MoveTo(point required), 2=Release(point forbidden),
+// 3=Cast(ability required: one the summon holds as a unit ability; point for a
+// point-target ability, target for a unit-target one, else neither). `ability`
+// is empty for 1 and 2; `target` is only on a cast and never with a point.
 message OwnedSummonOrder {
   uint32 owner_entity = 1;
   uint32 owner_generation = 2;
@@ -411,6 +414,15 @@ message OwnedSummonOrder {
   uint32 summon_generation = 4;
   uint32 operation = 5;
   Vec2I point = 6;
+  string ability = 7;
+  SummonOrderTarget target = 8;
+}
+
+// A unit-target summon cast's target life (D19). Zeroed with the other lives
+// in the ACK replicas receive.
+message SummonOrderTarget {
+  uint32 entity = 1;
+  uint32 generation = 2;
 }
 
 // Client-only opaque references. The authenticated edge converts this into
@@ -420,6 +432,10 @@ message SummonCommandInput {
   SecureReplicaTarget summon = 2;
   uint32 operation = 3;
   Vec2I point = 4;
+  string ability = 5;
+  // A unit-target cast's target (operation 3 only, never with a point): any
+  // unit the team sees, resolved at the edge like a hero's unit-target cast.
+  SecureReplicaTarget target = 6;
 }
 
 message AttackMove {
@@ -646,8 +662,13 @@ message PlayerInput {
     HeroDirectionInput direction = 28;
     OwnedSummonOrder owned_summon_order = 29;
     SummonCommandInput summon_command = 30;
+    ShowcaseResetHero showcase_reset_hero = 31;
   }
 }
+
+// A recorded demonstration's segment change: the sender's hero and the stage's held seats lose what
+// the last segment put on them. Refused off a showcase stage.
+message ShowcaseResetHero {}
 
 // 沙箱/測試：直接生成一隻指定種類的 creep（BTD6 沙箱「發送氣球」對應）。
 // emitter_index 是 creep_emiters BTreeMap 的排序位置（決定性順序）。
@@ -743,6 +764,14 @@ message JoinRequest {
   // stays disabled. A partial version or hash fails closed.
   uint32 ward_protocol_version = 20;
   string ward_rules_hash = 21;
+  // Rejoin: the secret the server issued to this player in its last TeamGameStart.
+  // Empty on a first join. A player that has joined before must present the
+  // latest one; any other value is refused, so nobody can claim a held hero.
+  bytes resume_token = 22;
+  // M3': SHA-256 of the script DLL set the client loaded (omoba-core scripting::loader
+  // script_modules_hash). A player must match the authority's set; empty only when the
+  // authority loaded no DLL either.
+  string script_modules_hash = 23;
 }
 
 // Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
@@ -873,6 +902,9 @@ message TeamGameStart {
   // a locally recomputed hash is not a substitute.
   OwnerWardEnvelope owner_ward_envelope = 36;
   CombatPreferencesProjection combat_preferences = 37;
+  // Unicast secret for this player's next rejoin (rotated on every join).
+  // Never logged, never part of any hash.
+  bytes resume_token = 38;
 }
 
 message RevealEntity {
@@ -1066,6 +1098,17 @@ message TeamTickFrame {
   // Never infer the mode from HUD, lives, hero presence, or map name.
   AuthoritativeModePresentation authoritative_mode = 14;
   CombatPreferencesProjection combat_preferences = 15;
+  // M3' ② dev hot reload only (authority started with OMB_SCRIPT_HOT_DIR): script DLLs the
+  // authority swapped before stepping this frame's tick. A replica swaps the same files
+  // (same machine, absolute path, digest checked) before stepping this frame. Empty otherwise.
+  repeated ScriptModuleSwap script_module_swaps = 16;
+}
+
+message ScriptModuleSwap {
+  string module = 1;
+  string file = 2;
+  string sha256 = 3;
+  uint64 generation = 4;
 }
 
 message TeamReplayRequest {
@@ -1292,6 +1335,42 @@ message TeamPresentationSnapshot {
   // An illegal row drops the whole list. It does not alter shop_receipts.
   repeated ShopTransactionCorrelation shop_transaction_correlations = 26;
   CombatPreferencesProjection combat_preferences = 27;
+  // Indices into the compiled map's trees (MobaMapConst::trees) that are down now (E242); the
+  // renderer draws the map's trees minus these. Public: every team sees the same trees.
+  repeated uint32 fallen_trees = 28;
+  // Runtime facts of the latest frame (runtime_fact_state): ground zones of disclosed casters,
+  // tethers whose two ends are both disclosed, and this team's own illusions. Replayed while listed.
+  repeated PresentationGroundZone ground_zones = 29;
+  repeated PresentationLink links = 30;
+  repeated PresentationEntityKey illusions = 31;
+  // 0 unknown, 1 day, 2 night (public temporary_night).
+  uint32 time_of_day = 32;
+}
+
+message PresentationEntityKey {
+  uint64 render_id = 1;
+  uint64 disclosure_epoch = 2;
+}
+
+// A ground zone held by a disclosed caster: the disc at (x, y), or the capsule to (end_x, end_y).
+// Q10 world coordinates. The key is stable for the zone's life and salted per team.
+message PresentationGroundZone {
+  uint64 zone_key = 1;
+  PresentationEntityKey source = 2;
+  string cue_id = 3;
+  sint64 x_raw = 4;
+  sint64 y_raw = 5;
+  sint64 end_x_raw = 6;
+  sint64 end_y_raw = 7;
+  sint64 radius_raw = 8;
+}
+
+// A tether from source to target; both ends are disclosed to this team.
+message PresentationLink {
+  uint64 link_key = 1;
+  PresentationEntityKey source = 2;
+  PresentationEntityKey target = 3;
+  string cue_id = 4;
 }
 
 // Bounded owner+epoch+actor+renderer-request+authority-input row.
@@ -1384,6 +1463,11 @@ message AbilityHudPresentation {
   AbilityCastPresentation cast = 6;
   uint32 mana_cost_state = 7; // 0 unavailable, 1 affordable, 2 short, 3 invalid
   sint64 effective_mana_cost_raw = 8;
+  // G-2 stored uses. max_charges 0 means an ordinary cooldown-only ability.
+  uint32 max_charges = 9;
+  uint32 charges = 10;
+  sint64 charge_remaining_raw = 11; // Fixed64 seconds to the next restored use; 0 when full
+  sint64 charge_total_raw = 12;     // Fixed64 seconds per restored use at the current rank
 }
 message AbilityCastPresentation {
   uint32 state = 1; // 1 preparing, 2 canceled, 3 released
@@ -1502,6 +1586,8 @@ message RuntimeSessionState {
     STALLED = 2;
     SERVER_DISCONNECTED = 3;
     TERMINATED = 4;
+    // Link lost; the runtime keeps retrying the same match until it ends or the player gives up.
+    RECONNECTING = 5;
   }
   State state = 1;
   string safe_reason = 2;
@@ -1577,6 +1663,7 @@ message RendererInput {
     InputSchemeUpdate input_scheme = 29;
     RendererDirectionIntent direction = 30;
     SummonCommandInput summon_command = 31;
+    ShowcaseResetHero showcase_reset_hero = 32;
   }
 }
 

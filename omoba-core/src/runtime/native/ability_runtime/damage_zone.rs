@@ -7,6 +7,17 @@ use specs::Entity;
 pub const KEY:&str="damage_zone";
 #[derive(Clone,Copy,Debug)]
 pub struct DamageZoneSpec {
+    /// `ground_area_line`: when set the zone covers the capsule from `center`
+    /// to `end` (segment swept by `radius`) instead of the disc at `center`.
+    pub end:Option<Vec2>,
+    /// Line zones only, independent only: the line is laid from `center` at this
+    /// speed (e.g. along a flying arrow) and reaches `end` after `length / grow`.
+    pub grow:Option<Fixed64>,
+    /// Each pulse refreshes one shared burn (DoT, rate = amount / interval) on
+    /// every target inside instead of dealing direct damage; after leaving, the
+    /// burn keeps ticking for at most this long. Touching several zones of the
+    /// same source never stacks the burn.
+    pub linger:Option<Fixed64>,
     pub independent:bool,
     pub center:Vec2,pub radius:Fixed64,pub amount:Fixed64,pub interval:Fixed64,
     pub kind:DamageKind,pub profile:u32,
@@ -21,7 +32,14 @@ pub struct DamageZonePulse {
 impl DamageZoneSpec {
     pub fn valid(&self)->bool {
         let max=omoba_sim::terrain::MAX_GEOMETRY_RAW as u64;
-        self.center.x.raw().unsigned_abs()<=max && self.center.y.raw().unsigned_abs()<=max
+        let line=self.end.is_none_or(|end|{
+            let (dx,dy)=(i128::from(end.x.raw())-i128::from(self.center.x.raw()),i128::from(end.y.raw())-i128::from(self.center.y.raw()));
+            end.x.raw().unsigned_abs()<=max && end.y.raw().unsigned_abs()<=max && dx*dx+dy*dy<=i128::from(Fixed64::from_i32(10_000).raw()).pow(2)
+        });
+        let grow=self.grow.is_none_or(|speed|self.end.is_some() && self.independent
+            && speed>=Fixed64::ONE && speed<=Fixed64::from_i32(20_000));
+        let linger=self.linger.is_none_or(|seconds|seconds>Fixed64::ZERO && seconds<=Fixed64::from_i32(10));
+        line && grow && linger && self.center.x.raw().unsigned_abs()<=max && self.center.y.raw().unsigned_abs()<=max
             && self.radius>Fixed64::ZERO && self.radius<=Fixed64::from_i32(10_000)
             && self.amount>=Fixed64::ZERO && self.amount<=Fixed64::from_i32(1_000_000)
             && self.interval>=Fixed64::from_raw(256) && self.interval<=Fixed64::from_i32(10)
@@ -32,19 +50,37 @@ impl DamageZoneSpec {
             "amount":self.amount.raw(),"interval":self.interval.raw(),"kind":match self.kind {
                 DamageKind::Physical=>"physical",DamageKind::Magical=>"magical",DamageKind::Pure=>"pure"},"profile":self.profile}});
         if self.independent {payload[KEY]["lifetime"]=json!("independent");}
+        if let Some(end)=self.end {payload[KEY]["x2"]=json!(end.x.raw());payload[KEY]["y2"]=json!(end.y.raw());}
+        if let Some(speed)=self.grow {payload[KEY]["grow"]=json!(speed.raw());}
+        if let Some(seconds)=self.linger {payload[KEY]["linger"]=json!(seconds.raw());}
         payload
     }
     pub fn from_payload(payload:&Value)->Option<Self> {
         if payload.as_object()?.len()!=1 {return None;}
         let row=payload.get(KEY)?;
-        let independent=match (row.as_object()?.len(),row.get("lifetime")) {
+        let raw=|name:&str|row.get(name)?.as_i64().map(Fixed64::from_raw);
+        let end=match (row.get("x2"),row.get("y2")) {
+            (None,None)=>None,(Some(_),Some(_))=>Some(Vec2::new(raw("x2")?,raw("y2")?)),_=>return None,
+        };
+        let grow=match row.get("grow") {None=>None,Some(_)=>Some(raw("grow")?)};
+        let linger=match row.get("linger") {None=>None,Some(_)=>Some(raw("linger")?)};
+        let fields=row.as_object()?.len()-2*usize::from(end.is_some())-usize::from(grow.is_some())-usize::from(linger.is_some());
+        let independent=match (fields,row.get("lifetime")) {
             (7,None)=>false,(8,Some(value))if value.as_str()==Some("independent")=>true,_=>return None,
         };
-        let raw=|name:&str|row.get(name)?.as_i64().map(Fixed64::from_raw);
-        let spec=Self {independent,center:Vec2::new(raw("x")?,raw("y")?),radius:raw("radius")?,amount:raw("amount")?,interval:raw("interval")?,
+        let spec=Self {end,grow,linger,independent,center:Vec2::new(raw("x")?,raw("y")?),radius:raw("radius")?,amount:raw("amount")?,interval:raw("interval")?,
             kind:match row.get("kind")?.as_str()? {"physical"=>DamageKind::Physical,"magical"=>DamageKind::Magical,"pure"=>DamageKind::Pure,_=>return None},
             profile:u32::try_from(row.get("profile")?.as_u64()?).ok()?};
         spec.valid().then_some(spec)
+    }
+    /// Far end of the line `age` after it was laid (growing lines stop at `end`).
+    pub fn reach(&self,age:Fixed64)->Option<Vec2> {
+        let end=self.end?;
+        let Some(speed)=self.grow else {return Some(end);};
+        let span=(end-self.center).length();
+        let laid=speed*age.max(Fixed64::ZERO);
+        if span<=Fixed64::ZERO || laid>=span {return Some(end);}
+        Some(Vec2::new(self.center.x+(end.x-self.center.x)*laid/span,self.center.y+(end.y-self.center.y)*laid/span))
     }
 }
 
@@ -54,6 +90,8 @@ pub const MAX_INDEPENDENT_ZONES_PER_SOURCE:usize=8;
 #[derive(Clone,Debug)]
 pub struct IndependentDamageZone {
     pub spec:DamageZoneSpec,pub remaining:Fixed64,pub clock:i64,pub lease:u64,
+    /// Time since scheduling, for growing lines.
+    pub age:Fixed64,
     pub origin:crate::runtime::comp::ProjectileOrigin,pub faction:crate::runtime::comp::Faction,
 }
 
@@ -62,7 +100,7 @@ mod tests {
     use super::*;
     use super::super::BuffStore;
     use specs::{Builder,World,WorldExt};
-    fn spec()->DamageZoneSpec {DamageZoneSpec {independent:false,center:Vec2::ZERO,radius:Fixed64::from_i32(100),amount:Fixed64::ONE,
+    fn spec()->DamageZoneSpec {DamageZoneSpec {end:None,grow:None,linger:None,independent:false,center:Vec2::ZERO,radius:Fixed64::from_i32(100),amount:Fixed64::ONE,
         interval:Fixed64::from_raw(512),kind:DamageKind::Magical,profile:DamageProfile::FIRE.bits()}}
     fn origin(source:Entity)->crate::runtime::comp::ProjectileOrigin {
         crate::runtime::comp::ProjectileOrigin {source,normal_attack:false,script_attack:false,attack_missed:false,
@@ -122,6 +160,26 @@ mod tests {
         assert_eq!(buffs.independent_zone(source,"zone",2).unwrap().spec.center,s.center);
         buffs.remove(source,"zone");assert!(buffs.independent_zone(source,"zone",2).is_none());
         assert!(buffs.drain_damage_zones(Fixed64::ONE).is_empty());
+    }
+    #[test]
+    fn line_zone_round_trips_and_rejects_half_or_oversized_segments() {
+        let mut s=spec();s.end=Some(Vec2::new(Fixed64::from_i32(600),Fixed64::ZERO));
+        let back=DamageZoneSpec::from_payload(&s.payload()).unwrap();assert_eq!(back.end,s.end);
+        s.independent=true;assert_eq!(DamageZoneSpec::from_payload(&s.payload()).unwrap().end,s.end);
+        let mut p=s.payload();p[KEY].as_object_mut().unwrap().remove("y2");assert!(DamageZoneSpec::from_payload(&p).is_none());
+        s.end=Some(Vec2::new(Fixed64::from_i32(10_001),Fixed64::ZERO));assert!(DamageZoneSpec::from_payload(&s.payload()).is_none());
+    }
+    #[test]
+    fn growing_line_is_independent_only_and_reaches_its_end_at_length_over_speed() {
+        let mut s=spec();s.end=Some(Vec2::new(Fixed64::from_i32(2000),Fixed64::ZERO));s.grow=Some(Fixed64::from_i32(1000));
+        assert!(!s.valid(),"a caster-bound zone has no age");
+        s.independent=true;s.linger=Some(Fixed64::ONE);
+        let back=DamageZoneSpec::from_payload(&s.payload()).unwrap();assert_eq!((back.grow,back.linger),(s.grow,s.linger));
+        assert_eq!(s.reach(Fixed64::ZERO),Some(Vec2::ZERO));
+        assert_eq!(s.reach(Fixed64::ONE),Some(Vec2::new(Fixed64::from_i32(1000),Fixed64::ZERO)));
+        assert_eq!(s.reach(Fixed64::from_i32(5)),s.end);
+        let mut disc=spec();disc.grow=Some(Fixed64::ONE);disc.independent=true;assert!(!disc.valid(),"growing needs a line");
+        let mut p=s.payload();p[KEY]["linger"]=json!(0);assert!(DamageZoneSpec::from_payload(&p).is_none());
     }
     #[test]
     fn checked_zone_rejects_malformed_integer_geometry_kind_and_profile() {

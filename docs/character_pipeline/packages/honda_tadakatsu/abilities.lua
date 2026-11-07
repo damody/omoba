@@ -1,0 +1,142 @@
+-- 本多忠勝 ability contract (source A07 current; behaviour and numbers from history_nobu@f966720,
+-- see source.lua assumption behavior_source). Q/W/E/R = A07W/E/R/T, extra1 = A07D.
+return function(ctx)
+  local function lifecycle(over)
+    local l = {
+      caster_death = "自身增益隨死亡移除；已結算的傷害與減速保留",
+      target_invalid = "以自身為中心或自身增益，沒有單位目標",
+      vision_lost = "只影響施放當下範圍內的單位；霧中單位照常受範圍效果（範圍以施法者為中心）",
+      cancel = "前搖內取消不扣費、不進冷卻",
+      expire = "效果到期移除",
+    }
+    for k, v in pairs(over or {}) do l[k] = v end
+    return l
+  end
+  return {
+    schema_version = 2,
+    abilities = {
+      {
+        id = "a07_unscathed", source_ability_id = "A07W", action = "Q", ability_type = "active",
+        name = "毫髮無傷", max_level = 4, status = "supported",
+        description = "持續 1.25/2.25/3.25/4.25 秒：受到的所有傷害無效，魔法與純粹傷害的 30% 回復為生命。",
+        capabilities = { "damage_kind_immunity", "damage_to_heal_conversion", "timed_stat_buff" },
+        targeting = { kind = "none", team = "self", shape = { kind = "none" }, visibility = "always_self" },
+        timing = { cast_point = 0, cooldown_starts = "on_cast" },
+        resources = { cooldown = { 13, 13, 13, 13 }, mana_cost = { 100, 110, 120, 130 } },
+        effects = {
+          { kind = "custom", note = "物理／魔法／純粹傷害無效（absolute_no_damage_*）＋魔法與純粹傷害按比例回復（absorb_*_as_heal）",
+            duration = { 1.25, 2.25, 3.25, 4.25 }, physical_immunity = 1, magical_immunity = 1, pure_immunity = 1,
+            absorb_magical_pct = 30, absorb_pure_pct = 30 },
+        },
+        lifecycle = lifecycle({ expire = "持續時間結束後恢復正常受傷", caster_death = "增益移除" }),
+        implementation = { kind = "rust_handler", module = "No1_unscathed", note = "自身 stat buff；host 於傷害結算時套用（damage_kind_immunity／damage_to_heal_conversion）" },
+        bot_usage = { target = "self", when = "附近有敵方英雄且自身生命低於 50% 或正在被集火", avoid = "附近沒有敵人" },
+        verification = { scenarios = {
+          { name = "immunity", expect = "持續期間普攻與技能都不扣血" },
+          { name = "convert", expect = "持續期間受到 200 魔法傷害時生命 +60" },
+          { name = "duration", expect = "rank 1～4 持續 1.25/2.25/3.25/4.25 秒" },
+        } },
+        assumptions = { "unscathed_history" },
+      },
+      {
+        id = "a07_red_thunder", source_ability_id = "A07E", action = "W", ability_type = "active",
+        name = "赤雷擊", max_level = 4, status = "supported",
+        description = "巨槍猛擊地面，對周圍 525 內的敵人造成 150/250/350/450 魔法傷害，並減緩 75% 移動速度 2/3/4/5 秒；1 秒後解除自身的減速。",
+        capabilities = { "aoe_circle", "unit_damage", "slow_debuff", "self_slow_cleanse", "hero_unit_hooks" },
+        targeting = { kind = "none", team = "enemy", shape = { kind = "circle", radius = { 525, 525, 525, 525 } }, visibility = "area_from_caster" },
+        timing = { cast_point = 0.2, cooldown_starts = "on_cast" },
+        resources = { cooldown = { 10, 10, 10, 10 }, mana_cost = { 100, 120, 140, 160 } },
+        effects = {
+          { kind = "damage", amount = { 150, 250, 350, 450 }, damage_kind = "magical" },
+          { kind = "slow", move_speed_pct = { 75, 75, 75, 75 }, duration = { 2, 3, 4, 5 } },
+          { kind = "custom", note = "A07E_Unslow：施放 1 秒後解除自身的移動減速（英雄 UnitScript tick 送 self_slow_cleanse 封包）",
+            self_unslow_delay = { 1, 1, 1, 1 } },
+        },
+        lifecycle = lifecycle({ caster_death = "已結算的傷害與減速保留；死亡時不再解除自身減速" }),
+        implementation = { kind = "rust_handler", module = "No2_red_thunder", note = "以施法者為中心 525 內敵方英雄與一般單位（不含建築），依 id 排序" },
+        bot_usage = { target = "self", when = "525 內有敵方英雄或 3 個以上小兵" },
+        verification = { scenarios = {
+          { name = "rank_values", expect = "525 內每個敵方英雄與小兵受 150/250/350/450 魔法傷害、移速 −75% 2/3/4/5 秒" },
+          { name = "edge", expect = "525 在內、526 在外；友軍與建築不受影響" },
+          { name = "self_unslow", expect = "施放 1 秒後本多忠勝自己身上的減速消失" },
+        } },
+        assumptions = { "red_thunder_unused_stun", "red_thunder_self_unslow" },
+      },
+      {
+        id = "a07_shattering_spear", source_ability_id = "A07R", action = "E", ability_type = "passive",
+        name = "碎擊槍", max_level = 4, status = "supported",
+        description = "被動：攻擊有 31/101 機率造成 120/140/160/180% 傷害的暴擊，連續 4 次沒有暴擊時第 5 次必定暴擊。學習時奮起升到碎擊槍等級 +1。",
+        capabilities = { "permanent_stat_bonus", "proc_chance", "hero_unit_hooks" },
+        targeting = { kind = "self", team = "self", shape = { kind = "none" }, visibility = "always_self" },
+        timing = { cast_point = 0, cooldown_starts = "on_cast" },
+        resources = { cooldown = { 0, 0, 0, 0 }, mana_cost = { 0, 0, 0, 0 } },
+        effects = {
+          { kind = "custom", note = "暴擊判定在英雄 UnitScript on_attack_hit（決定下一次普攻），以 PreattackCriticalStrike 1.0＋CritMultiplier 交給 host",
+            crit_roll_max = { 100, 100, 100, 100 }, crit_roll_at_most = { 30, 30, 30, 30 }, misses_before_guaranteed = { 4, 4, 4, 4 },
+            crit_multiplier_pct = { 120, 140, 160, 180 } },
+        },
+        lifecycle = lifecycle({ caster_death = "被動保留；死亡時待發的暴擊清除", target_invalid = "被動，沒有目標", cancel = "被動，不能取消", expire = "永久" }),
+        implementation = { kind = "rust_handler", module = "No3_shattering_spear", note = "on_learn 放 rank 標記並擲第一次；hero_unit.rs on_attack_hit 擲下一次" },
+        bot_usage = { target = "self", when = "被動" },
+        verification = { scenarios = {
+          { name = "crit", expect = "普攻約 30% 暴擊，倍率 1.2/1.4/1.6/1.8" },
+          { name = "pity", expect = "連續 4 次普攻沒暴擊後，第 5 次必定暴擊" },
+        } },
+        assumptions = { "shattering_spear_history", "rouse_follows_spear" },
+      },
+      {
+        id = "a07_strongest", source_ability_id = "A07T", action = "R", ability_type = "ultimate",
+        name = "戰國最強．啟動", max_level = 3, status = "supported",
+        required_hero_level = { 6, 12, 18 },
+        description = "立刻免費施放毫髮無傷與赤雷擊並解除身上的暈眩。持續 8/14/20 秒：基礎攻擊間隔 0.8（2.25 倍攻速）、力量 +15/25/35、魔抗 +50、受到的傷害 −50%、敵方效果持續時間減半、減速效果減半，每次攻擊對自身 365 內其他敵人造成等同攻擊力的物理傷害；期間奮起不耗法力。",
+        capabilities = { "timed_stat_buff", "damage_reduction", "status_resistance", "slow_resistance", "cleave_on_attack", "hero_unit_hooks" },
+        targeting = { kind = "none", team = "self", shape = { kind = "circle", radius = { 365, 365, 365 } }, visibility = "always_self" },
+        timing = { cast_point = 0, cooldown_starts = "on_cast" },
+        resources = { cooldown = { 100, 100, 100 }, mana_cost = { 150, 200, 250 } },
+        effects = {
+          { kind = "stat_buff", duration = { 8, 14, 20 }, stats = { attack_speed_multiplier = { 2.25, 2.25, 2.25 }, magic_resist_bonus = { 50, 50, 50 } } },
+          { kind = "custom", note = "力量（StatsStrengthBonus）、受傷 −50%（DamageTakenBonus）、狀態抗性與減速抗性（status_resistance／slow_resistance）",
+            strength_bonus = { 15, 25, 35 }, damage_taken_pct = { -50, -50, -50 }, status_resistance_pct = { 50, 50, 50 }, slow_resistance_pct = { 50, 50, 50 } },
+          { kind = "custom", note = "攻擊濺射：英雄 UnitScript on_attack_hit，自身 365 內除目標外的敵方英雄與一般單位受等同最終攻擊力的物理傷害",
+            cleave_radius = { 365, 365, 365 }, cleave_pct = { 100, 100, 100 } },
+          { kind = "custom", note = "A07T_Transform：立刻以目前等級施放毫髮無傷與赤雷擊（不耗法力、不動冷卻）、移除暈眩；大招期間奮起退還法力",
+            transform = { 1, 1, 1 } },
+        },
+        lifecycle = lifecycle({ expire = "持續時間結束後所有增益與濺射一起移除", caster_death = "所有增益隨死亡移除" }),
+        implementation = { kind = "rust_handler", module = "No4_strongest", note = "自身 stat buff＋rank 標記；W／E 依其 rank 標記直接結算；濺射由 rust/hero_unit.rs on_attack_hit" },
+        bot_usage = { target = "self", when = "附近有敵方英雄且即將交戰" },
+        verification = { scenarios = {
+          { name = "transform", expect = "施放時同時出現毫髮無傷與赤雷擊的效果，兩者冷卻不變" },
+          { name = "attack_speed", expect = "攻擊間隔變為原本的 1/2.25" },
+          { name = "defense", expect = "受到的傷害減半、魔抗 +50，暈眩與減速時間減半、減速量減半" },
+          { name = "cleave", expect = "普攻命中時自身 365 內其他敵人受等同攻擊力的物理傷害；友軍、建築不受影響" },
+        } },
+        assumptions = { "strongest_history", "strongest_attack_rate", "strongest_magic_resist_stacking", "strongest_free_rouse", "strongest_cleave_damage", "strongest_levels" },
+      },
+      {
+        id = "a07_rouse", source_ability_id = "A07D", action = "extra1", ability_type = "active",
+        name = "奮起", max_level = 1, status = "supported", auto_learn = true,
+        required_hero_level = { 1 },
+        description = "回復最大生命 3%，攻速提升 60/70/80/90/100（依碎擊槍等級 0～4），持續 3 秒。戰國最強期間不耗法力。",
+        capabilities = { "extra_action_slot", "heal", "timed_stat_buff", "hero_unit_hooks" },
+        targeting = { kind = "none", team = "self", shape = { kind = "none" }, visibility = "always_self" },
+        timing = { cast_point = 0, cooldown_starts = "on_cast" },
+        resources = { cooldown = 5, mana_cost = 70 },
+        effects = {
+          { kind = "custom", note = "回復最大生命百分比", heal_max_hp_pct = 3 },
+          { kind = "custom", note = "攻速點數依碎擊槍 rank 0～4（A07R_Learn_Skill 把奮起設為碎擊槍等級 +1）",
+            duration = 3, attack_speed_spear_0 = 60, attack_speed_spear_1 = 70, attack_speed_spear_2 = 80,
+            attack_speed_spear_3 = 90, attack_speed_spear_4 = 100 },
+        },
+        lifecycle = lifecycle({ expire = "3 秒後攻速加成移除" }),
+        implementation = { kind = "rust_handler", module = "No5_rouse", note = "D 欄 1 級自動學會；攻速依碎擊槍 rank 標記" },
+        bot_usage = { target = "self", when = "正在攻擊敵方英雄，或生命低於 70%" },
+        verification = { scenarios = {
+          { name = "values", expect = "回復最大生命 3%，攻速 +60（碎擊槍未學）～+100（碎擊槍 4 級）持續 3 秒" },
+          { name = "free_in_ultimate", expect = "戰國最強期間施放後法力不減少" },
+        } },
+        assumptions = { "rouse_follows_spear", "strongest_free_rouse" },
+      },
+    },
+  }
+end

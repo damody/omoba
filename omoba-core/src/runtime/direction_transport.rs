@@ -119,7 +119,7 @@ mod tests {
         let canonical=(2_u64<<32)|7;
         let mut view=super::super::TeamInputValidationView {view_epoch:4,..Default::default()};
         view.replicas.insert(9,super::super::ReplicaValidationRecord {canonical_id:canonical,disclosure_epoch:3,owner_team:Some(1)});
-        view.visible_by_tick.insert(10,[canonical].into_iter().collect());
+        view.visible_by_tick.insert(10,std::sync::Arc::new([canonical].into_iter().collect()));
         let mut snapshot=super::super::SecureInputValidationSnapshot::default();snapshot.teams.insert(1,view);
         for (team,epoch,tick) in [(2,4,10),(1,5,10),(1,4,9)] {
             let mut value=client();let before=value.clone();

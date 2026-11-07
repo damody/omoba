@@ -1,4 +1,6 @@
-//! Shared, instantaneous collision-constrained dash and actual-path damage.
+//! Shared collision-constrained dash and actual-path damage. The caster moves continuously along the
+//! admitted path: [`motion_packet`] / [`motion_packet_for`] + [`commit_motion`] start a host
+//! `forced_motion` dash (H02, 15c); path effects are still decided from the admitted plan at cast.
 use abi_stable::std_types::RSome;
 use omb_script_abi::{types::{EntityHandle,Fixed64,Vec2,DamageKind,DamageProfile},world::GameWorldDyn};
 
@@ -8,6 +10,8 @@ pub(crate) struct SweptDash {
     pub damage:Fixed64,
     pub damage_kind:DamageKind,
     pub damage_profile:DamageProfile,
+    /// Travel time of the continuous dash (authored, e.g. fire_dash `dash_duration`).
+    pub duration:Fixed64,
 }
 
 fn supported(p:Vec2)->bool {
@@ -15,22 +19,40 @@ fn supported(p:Vec2)->bool {
     p.x.raw().unsigned_abs()<=max && p.y.raw().unsigned_abs()<=max
 }
 
-pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,requested:Vec2,spec:SweptDash)
-    ->Result<Vec2,&'static str> {
-    if spec.range<=Fixed64::ZERO || spec.range>Fixed64::from_i32(10_000)
-        || spec.width<=Fixed64::ZERO || spec.width>Fixed64::from_i32(5_000)
-        || spec.damage<Fixed64::ZERO || spec.damage>Fixed64::from_i32(1_000_000)
+/// Admitted dash geometry. `hits` are the live enemies inside the swept
+/// circle, ordered by their projection along the actual path (first reached
+/// first), then canonical entity identity.
+pub(crate) struct DashPlan {
+    pub start:Vec2,
+    pub end:Vec2,
+    pub hits:Vec<EntityHandle>,
+}
+
+/// Collision-clipped dash admission and swept-circle selection. Queries only;
+/// the caller commits with [`commit`] after its own validation succeeds.
+pub(crate) fn plan(world:&mut GameWorldDyn<'_>,caster:EntityHandle,requested:Vec2,range:Fixed64,width:Fixed64)
+    ->Result<DashPlan,&'static str> {
+    plan_filtered(world,caster,requested,range,width,&|_|true)
+}
+
+/// [`plan`] restricted to candidates `allowed` accepts (e.g. units disclosed to
+/// the caster's team). Filtering happens before contact ordering, so any cap a
+/// caller applies afterwards sees the same set in authority and replicas.
+pub(crate) fn plan_filtered(world:&mut GameWorldDyn<'_>,caster:EntityHandle,requested:Vec2,range:Fixed64,width:Fixed64,
+    allowed:&dyn Fn(EntityHandle)->bool)->Result<DashPlan,&'static str> {
+    if range<=Fixed64::ZERO || range>Fixed64::from_i32(10_000)
+        || width<=Fixed64::ZERO || width>Fixed64::from_i32(5_000)
         || !supported(requested) || !world.is_alive(caster)
         || !world.get_hp(caster).into_option().is_some_and(|hp|hp>Fixed64::ZERO) {
         return Err("invalid dash source or budget");
     }
     let start=world.get_pos(caster).into_option().filter(|p|supported(*p)).ok_or("missing dash origin")?;
     // Validate before any Fixed64 squared distance; world coordinates are bounded.
-    let desired=omoba_sim::navigation::step_toward(start,requested,spec.range);
+    let desired=omoba_sim::navigation::step_toward(start,requested,range);
     if desired==start {return Err("dash requires displacement");}
     // A step larger than the entire requested distance makes the existing API
     // test the exact straight segment, without selecting an axis-slide fallback.
-    let check_budget=spec.range+Fixed64::ONE;
+    let check_budget=range+Fixed64::ONE;
     let mut end=desired;
     if world.advance_with_collision(caster,desired,check_budget)!=desired {
         let mut low=0;let mut high=(desired-start).length().raw();
@@ -44,20 +66,68 @@ pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,requested:
     if end==start {return Err("dash is immobilized or blocked");}
     let half=Fixed64::from_i32(2);
     let center=start+Vec2::new((end.x-start.x)/half,(end.y-start.y)/half);
-    let radius=spec.width/half;
+    let radius=width/half;
     let broad_radius=(end-start).length()/half+radius+Fixed64::ONE;
-    let mut hits:Vec<_>=world.query_enemies_in_range(center,broad_radius,caster).into_iter()
-        .filter(|entity|*entity!=caster && world.is_alive(*entity))
-        .filter(|entity|world.get_hp(*entity).into_option().is_some_and(|hp|hp>Fixed64::ZERO))
-        .filter(|entity|world.get_pos(*entity).into_option().is_some_and(|position|
-            omoba_sim::terrain::point_in_swept_circle(position,start,end,radius))).collect();
-    hits.sort_by_key(|entity|(entity.id,entity.gen));hits.dedup();
+    let candidates:Vec<_>=world.query_enemies_in_range(center,broad_radius,caster).into_iter().collect();
+    let mut hits=Vec::new();
+    for entity in candidates {
+        if entity==caster || !allowed(entity) || !world.is_alive(entity)
+            || !world.get_hp(entity).into_option().is_some_and(|hp|hp>Fixed64::ZERO) {continue;}
+        let Some(position)=world.get_pos(entity).into_option() else {continue;};
+        if !omoba_sim::terrain::point_in_swept_circle(position,start,end,radius) {continue;}
+        // Exact integer projection onto the path direction (raw Q10 coordinates).
+        let along=i128::from((position.x-start.x).raw())*i128::from((end.x-start.x).raw())
+            +i128::from((position.y-start.y).raw())*i128::from((end.y-start.y).raw());
+        hits.push((along,entity));
+    }
+    hits.sort_by_key(|(along,entity)|(*along,entity.id,entity.gen));
+    hits.dedup_by_key(|(_,entity)|*entity);
+    Ok(DashPlan {start,end,hits:hits.into_iter().map(|(_,entity)|entity).collect()})
+}
+
+/// Dash speed (world units per second) when an ability does not author `dash_speed`.
+pub(crate) const DASH_SPEED:Fixed64=Fixed64::from_raw(2_000*1024);
+
+/// Host continuous motion for an admitted plan: a `forced_motion` dash on the caster
+/// itself, travelling `plan.start -> plan.end` at `speed`. None when there is no travel.
+/// Built before any mutation so a caller can reject the cast without outcomes.
+pub(crate) fn motion_packet(caster:EntityHandle,plan:&DashPlan,speed:Fixed64)->Result<Option<(Fixed64,String)>,&'static str> {
+    let length=(plan.end-plan.start).length();
+    if length<=Fixed64::ZERO {return Ok(None);}
+    if speed<=Fixed64::ZERO {return Err("invalid dash speed");}
+    motion_packet_for(caster,plan,(length/speed).max(Fixed64::from_raw(1)))
+}
+
+/// [`motion_packet`] with an authored travel time instead of a speed.
+pub(crate) fn motion_packet_for(caster:EntityHandle,plan:&DashPlan,duration:Fixed64)->Result<Option<(Fixed64,String)>,&'static str> {
+    use omoba_core::runtime::native::forced_motion as motion;
+    let length=(plan.end-plan.start).length();
+    if length<=Fixed64::ZERO {return Ok(None);}
+    if !motion::valid_duration(duration) {return Err("invalid dash travel time");}
+    let spec=motion::Spec {source_id:caster.id,source_generation:caster.gen,mode:motion::Mode::Dash,distance:length,
+        cast_range:length+Fixed64::ONE,to:Some(plan.end)}.checked().ok_or("invalid dash motion")?;
+    Ok(Some((duration,spec.payload().to_string())))
+}
+
+/// Starts the host motion built by [`motion_packet`]; the host faces the caster along it.
+pub(crate) fn commit_motion(world:&mut GameWorldDyn<'_>,caster:EntityHandle,packet:Option<(Fixed64,String)>) {
+    if let Some((duration,payload))=packet {
+        world.add_stat_buff(caster,omoba_core::runtime::native::forced_motion::BUFF.into(),duration,payload.as_str().into());
+    }
+}
+
+pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,requested:Vec2,spec:SweptDash)
+    ->Result<Vec2,&'static str> {
+    if spec.damage<Fixed64::ZERO || spec.damage>Fixed64::from_i32(1_000_000) {return Err("invalid dash source or budget");}
+    let plan=plan(world,caster,requested,spec.range,spec.width)?;
+    // Damage keeps canonical identity order (unchanged legacy outcome order).
+    let mut hits=plan.hits.clone();
+    hits.sort_by_key(|entity|(entity.id,entity.gen));
+    let motion=motion_packet_for(caster,&plan,spec.duration)?;
     // All admission and geometry queries have completed before any mutation.
-    world.set_pos(caster,end);
-    let direction=end-start;
-    world.set_facing(caster,omoba_sim::trig::atan2(direction.y,direction.x));
+    commit_motion(world,caster,motion);
     for target in hits {world.deal_damage(target,spec.damage,spec.damage_kind,spec.damage_profile,RSome(caster));}
-    Ok(end)
+    Ok(plan.end)
 }
 
 #[cfg(test)]
@@ -81,7 +151,8 @@ mod tests {
         world.insert(TowerTemplateRegistry::default());let source=body(&mut world,p(0,0),1);(world,source)
     }
     fn spec()->SweptDash {SweptDash {range:Fixed64::from_i32(400),width:Fixed64::from_i32(150),
-        damage:Fixed64::from_i32(100),damage_kind:DamageKind::Magical,damage_profile:DamageProfile::FIRE}}
+        damage:Fixed64::from_i32(100),damage_kind:DamageKind::Magical,damage_profile:DamageProfile::FIRE,
+        duration:Fixed64::from_raw(512)}}
     #[test]
     fn swept_dash_clips_thin_terrain_and_damages_only_actual_path_once() {
         let (mut world,source)=fixture();let middle=body(&mut world,p(100,0),2);
@@ -98,6 +169,14 @@ mod tests {
         assert_eq!(damage,vec![(middle,Fixed64::from_i32(100)),(tangent,Fixed64::from_i32(100))]);
         world.write_resource::<Vec<Outcome>>().extend(outcomes);
         omoba_core::runtime::process_outcomes(&mut world,&mut omoba_core::runtime::RuntimeEventVecSink::default()).unwrap();
+        // A continuous dash: settlement starts it, the host steps it over the authored 0.5 s.
+        assert_eq!(world.read_storage::<Pos>().get(source).unwrap().0,p(0,0),"no instant teleport");
+        world.insert(omoba_core::runtime::ObservableFactBuffer::default());
+        world.insert(omoba_core::DeltaTime(Fixed64::from_raw(128)));
+        omoba_core::runtime::native::forced_motion::step(&mut world);
+        let first=world.read_storage::<Pos>().get(source).unwrap().0;
+        assert!(first.x>Fixed64::ZERO && first.x<end.x,"part of the way after the first step: {first:?}");
+        for _ in 0..4 {omoba_core::runtime::native::forced_motion::step(&mut world);}
         assert_eq!(world.read_storage::<Pos>().get(source).unwrap().0,end);
         for entity in [middle,tangent] {assert_eq!(world.read_storage::<CProperty>().get(entity).unwrap().hp,Fixed64::from_i32(900));}
         for entity in [outside,behind,ally] {assert_eq!(world.read_storage::<CProperty>().get(entity).unwrap().hp,Fixed64::from_i32(1000));}

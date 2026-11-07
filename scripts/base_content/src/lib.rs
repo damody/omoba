@@ -24,12 +24,14 @@ use omb_script_abi::{
     script::UnitScript_TO,
 };
 
-pub mod ability_builder;
+pub use ability_kit::ability_builder;
 mod generic_effects;
 mod swept_dash;
 mod point_blast;
 mod passive_cone;
 mod self_transform;
+#[cfg(test)]
+mod legacy_handlers;
 mod summon_formation;
 #[cfg(test)]
 mod summon_formation_tests;
@@ -54,15 +56,468 @@ mod mana_script_tests;
 mod ward_world_tests;
 #[cfg(test)]
 mod ward_transport_tests;
+#[cfg(test)]
+mod channel_tests;
+
+/// Module id in the manifest and in scripts-manifest.json.
+pub const MODULE_ID: &str = "base_content";
 
 #[export_root_module]
-fn get_manifest() -> Manifest_Ref {
+fn root_manifest() -> Manifest_Ref {
     Manifest {
         units,
         abilities,
         dev_reload_runtime_lua_content,
+        module_id,
+        content_marker,
+    content_identity,
     }
     .leak_into_prefix()
+}
+
+#[cfg(not(test))]
+#[allow(dead_code)]
+fn get_manifest() -> Manifest_Ref {
+    root_manifest()
+}
+
+/// Tests register what a launch loads: base_content, then every hero DLL of hero_dlls.lua
+/// (linked in-process as rlibs), in that order; then the test_only v3 heroes
+/// (scripts/v3_test_heroes.lua), which have no DLL of their own yet.
+#[cfg(test)]
+pub(crate) fn get_manifest() -> Manifest_Ref {
+    #[sabi_extern_fn]
+    fn all_units() -> RVec<UnitDef> {
+        let mut v = units();
+        v.extend(hero_a02_impl::units());
+        v.extend(hero_b04_impl::units());
+        v.extend(hero_c15_impl::units());
+        v.extend(hero_b06_impl::units());
+        v.extend(hero_a07_impl::units());
+        v.extend(hero_b01_impl::units());
+        v.extend(hero_c17_impl::units());
+        v.extend(hero_a34_impl::units());
+        v.extend(hero_a13_impl::units());
+        v.extend(hero_c05_impl::units());
+        v.extend(hero_c09_impl::units());
+        v.extend(hero_a18_impl::units());
+        v.extend(hero_b30_impl::units());
+        v.extend(hero_a16_impl::units());
+        v.extend(hero_a24_impl::units());
+        v.extend(hero_c01_impl::units());
+        v.extend(hero_a23_impl::units());
+        v.extend(hero_a35_impl::units());
+        v.extend(hero_a01_impl::units());
+        v.extend(hero_b20_impl::units());
+        v.extend(hero_b26_impl::units());
+        v.extend(hero_c22_impl::units());
+        v.extend(hero_a12_impl::units());
+        v.extend(hero_a14_impl::units());
+        v.extend(hero_a26_impl::units());
+        v.extend(hero_b27_impl::units());
+        v.extend(hero_c03_impl::units());
+        v.extend(hero_a05_impl::units());
+        v.extend(hero_a19_impl::units());
+        v.extend(hero_a30_impl::units());
+        v.extend(hero_b21_impl::units());
+        v.extend(hero_c14_impl::units());
+        v.extend(hero_c24_impl::units());
+        v.extend(hero_a22_impl::units());
+        v.extend(hero_b31_impl::units());
+        v.extend(hero_c04_impl::units());
+        v.extend(hero_c20_impl::units());
+        v.extend(hero_c25_impl::units());
+        v.extend(hero_a06_impl::units());
+        v.extend(hero_a36_impl::units());
+        v.extend(hero_b34_impl::units());
+        v.extend(hero_b02_impl::units());
+        v.extend(hero_b17_impl::units());
+        v.extend(hero_c02_impl::units());
+        v.extend(hero_a20_impl::units());
+        v.extend(hero_b14_impl::units());
+        v.extend(hero_a17_impl::units());
+        v.extend(hero_a27_impl::units());
+        v.extend(hero_a33_impl::units());
+        v.extend(hero_b03_impl::units());
+        v.extend(hero_a25_impl::units());
+        v.extend(hero_b18_impl::units());
+        v.extend(hero_b05_impl::units());
+        v.extend(hero_b19_impl::units());
+        v.extend(hero_c13_impl::units());
+        v.extend(hero_a10_impl::units());
+        v.extend(hero_a32_impl::units());
+        v.extend(hero_a29_impl::units());
+        v.extend(hero_b10_impl::units());
+        v.extend(hero_c16_impl::units());
+        v.extend(hero_c10_impl::units());
+        v.extend(hero_c11_impl::units());
+        v.extend(hero_b35_impl::units());
+        v.extend(hero_b25_impl::units());
+        v.extend(hero_a03_impl::units());
+        v.extend(hero_c12_impl::units());
+        v.extend(hero_b36_impl::units());
+        v.extend(hero_a15_impl::units());
+        v.extend(hero_a31_impl::units());
+        v.extend(hero_b32_impl::units());
+        v.extend(hero_c23_impl::units());
+        v.extend(hero_a08_impl::units());
+        v.extend(hero_c21_impl::units());
+        v.extend(hero_b12_impl::units());
+        v.extend(hero_c19_impl::units());
+        v.extend(hero_a04_impl::units());
+        v.extend(hero_b13_impl::units());
+        v.extend(hero_a09_impl::units());
+        v.extend(hero_a28_impl::units());
+        v.extend(hero_b09_impl::units());
+        v.extend(hero_b11_impl::units());
+        v.extend(hero_b23_impl::units());
+        v.extend(hero_b28_impl::units());
+        v.extend(hero_b33_impl::units());
+        v.extend(hero_b22_impl::units());
+        v.extend(hero_c07_impl::units());
+        v.extend(hero_a11_impl::units());
+        v.extend(hero_a21_impl::units());
+        v.extend(hero_b15_impl::units());
+        v.extend(hero_b07_impl::units());
+        v.extend(hero_b16_impl::units());
+        v.extend(hero_c08_impl::units());
+        v.extend(hero_c18_impl::units());
+        v.extend(hero_b24_impl::units());
+        v.extend(hero_c06_impl::units());
+        v.extend(hero_b08_impl::units());
+        v.extend(hero_b29_impl::units());
+        v.extend(hero_b08_old_impl::units());
+        v.extend(hero_a21_old_impl::units());
+        v.extend(hero_a13_old_impl::units());
+        v.extend(hero_c06_old_impl::units());
+        v.extend(hero_c02_old_impl::units());
+        v.extend(hero_c01_old_impl::units());
+        v.extend(hero_b07_old_impl::units());
+        v.extend(hero_b21_old_impl::units());
+        v.extend(hero_c25_old_impl::units());
+        v.extend(hero_c20_old_impl::units());
+        v.extend(hero_b04_old_impl::units());
+        v.extend(hero_a09_old_impl::units());
+        v.extend(hero_a28_old_impl::units());
+        v.extend(hero_a28_v20_impl::units());
+        v.extend(hero_a10_old_impl::units());
+        v.extend(hero_a33_old_impl::units());
+        v.extend(hero_a07_old_impl::units());
+        v.extend(hero_a07_v20_impl::units());
+        v.extend(hero_b25_old_impl::units());
+        v.extend(hero_a06_old_impl::units());
+        v.extend(hero_b15_old_impl::units());
+        v.extend(hero_b15_v20_impl::units());
+        v.extend(hero_a02_old_impl::units());
+        v.extend(hero_b23_old_impl::units());
+        v.extend(hero_a29_old_impl::units());
+        v.extend(hero_a03_old_impl::units());
+        v.extend(hero_c04_old_impl::units());
+        v.extend(hero_c04_v20_impl::units());
+        v.extend(hero_b30_old_impl::units());
+        v.extend(hero_b35_old_impl::units());
+        v.extend(hero_c16_old_impl::units());
+        v.extend(hero_b14_old_impl::units());
+        v.extend(hero_b02_old_impl::units());
+        v.extend(hero_c08_old_impl::units());
+        v.extend(hero_b11_old_impl::units());
+        v.extend(hero_b17_old_impl::units());
+        v.extend(hero_b18_old_impl::units());
+        v.extend(hero_b27_old_impl::units());
+        v.extend(hero_c10_old_impl::units());
+        v.extend(hero_a20_old_impl::units());
+        v.extend(hero_a19_old_impl::units());
+        v.extend(hero_a19_v20_impl::units());
+        v.extend(hero_c05_old_impl::units());
+        v.extend(hero_a14_old_impl::units());
+        v.extend(hero_c19_old_impl::units());
+        v.extend(hero_b28_old_impl::units());
+        v.extend(hero_c21_old_impl::units());
+        v.extend(hero_b10_old_impl::units());
+        v.extend(hero_b16_old_impl::units());
+        v.extend(hero_b33_old_impl::units());
+        v.extend(hero_b13_old_impl::units());
+        v.extend(hero_b05_old_impl::units());
+        v.extend(hero_a31_old_impl::units());
+        v.extend(hero_a31_v20_impl::units());
+        v.extend(hero_b29_old_impl::units());
+        v.extend(hero_b36_old_impl::units());
+        v.extend(hero_a15_old_impl::units());
+        v.extend(hero_a30_old_impl::units());
+        v.extend(hero_a26_old_impl::units());
+        v.extend(hero_a26_v20_impl::units());
+        v.extend(hero_a25_old_impl::units());
+        v.extend(hero_c17_old_impl::units());
+        v.extend(hero_a34_old_impl::units());
+        v.extend(hero_a34_v20_impl::units());
+        v.extend(hero_c13_old_impl::units());
+        v.extend(hero_b01_old_impl::units());
+        v.extend(hero_a11_old_impl::units());
+        v.extend(hero_b03_old_impl::units());
+        v.extend(hero_c14_old_impl::units());
+        v.extend(hero_a05_old_impl::units());
+        v.extend(hero_a08_old_impl::units());
+        v.extend(hero_b09_old_impl::units());
+        v.extend(hero_b06_old_impl::units());
+        v.extend(hero_c22_old_impl::units());
+        v.extend(hero_a17_old_impl::units());
+        v.extend(hero_a22_old_impl::units());
+        v.extend(hero_a27_old_impl::units());
+        v.extend(hero_a35_old_impl::units());
+        v.extend(hero_c03_old_impl::units());
+        v.extend(hero_c07_old_impl::units());
+        v.extend(hero_c09_old_impl::units());
+        v.extend(hero_c11_old_impl::units());
+        v.extend(hero_c11_v20_impl::units());
+        v.extend(hero_b22_old_impl::units());
+        v.extend(hero_b34_old_impl::units());
+        v.extend(hero_b31_old_impl::units());
+        v.extend(hero_a04_old_impl::units());
+        v.extend(hero_a32_old_impl::units());
+        v.extend(hero_c15_old_impl::units());
+        v.extend(hero_a01_old_impl::units());
+        v.extend(hero_b32_old_impl::units());
+        v.extend(hero_b32_v20_impl::units());
+        v.extend(hero_b19_old_impl::units());
+        v.extend(hero_c24_old_impl::units());
+        v.extend(hero_b20_old_impl::units());
+        v.extend(items_impl::units());
+        v
+    }
+    #[sabi_extern_fn]
+    fn all_abilities() -> RVec<AbilityDefFFI> {
+        let mut v = abilities();
+        v.extend(hero_a02_impl::abilities());
+        v.extend(hero_b04_impl::abilities());
+        v.extend(hero_c15_impl::abilities());
+        v.extend(hero_b06_impl::abilities());
+        v.extend(hero_a07_impl::abilities());
+        v.extend(hero_b01_impl::abilities());
+        v.extend(hero_c17_impl::abilities());
+        v.extend(hero_a34_impl::abilities());
+        v.extend(hero_a13_impl::abilities());
+        v.extend(hero_c05_impl::abilities());
+        v.extend(hero_c09_impl::abilities());
+        v.extend(hero_a18_impl::abilities());
+        v.extend(hero_b30_impl::abilities());
+        v.extend(hero_a16_impl::abilities());
+        v.extend(hero_a24_impl::abilities());
+        v.extend(hero_c01_impl::abilities());
+        v.extend(hero_a23_impl::abilities());
+        v.extend(hero_a35_impl::abilities());
+        v.extend(hero_a01_impl::abilities());
+        v.extend(hero_b20_impl::abilities());
+        v.extend(hero_b26_impl::abilities());
+        v.extend(hero_c22_impl::abilities());
+        v.extend(hero_a12_impl::abilities());
+        v.extend(hero_a14_impl::abilities());
+        v.extend(hero_a26_impl::abilities());
+        v.extend(hero_b27_impl::abilities());
+        v.extend(hero_c03_impl::abilities());
+        v.extend(hero_a05_impl::abilities());
+        v.extend(hero_a19_impl::abilities());
+        v.extend(hero_a30_impl::abilities());
+        v.extend(hero_b21_impl::abilities());
+        v.extend(hero_c14_impl::abilities());
+        v.extend(hero_c24_impl::abilities());
+        v.extend(hero_a22_impl::abilities());
+        v.extend(hero_b31_impl::abilities());
+        v.extend(hero_c04_impl::abilities());
+        v.extend(hero_c20_impl::abilities());
+        v.extend(hero_c25_impl::abilities());
+        v.extend(hero_a06_impl::abilities());
+        v.extend(hero_a36_impl::abilities());
+        v.extend(hero_b34_impl::abilities());
+        v.extend(hero_b02_impl::abilities());
+        v.extend(hero_b17_impl::abilities());
+        v.extend(hero_c02_impl::abilities());
+        v.extend(hero_a20_impl::abilities());
+        v.extend(hero_b14_impl::abilities());
+        v.extend(hero_a17_impl::abilities());
+        v.extend(hero_a27_impl::abilities());
+        v.extend(hero_a33_impl::abilities());
+        v.extend(hero_b03_impl::abilities());
+        v.extend(hero_a25_impl::abilities());
+        v.extend(hero_b18_impl::abilities());
+        v.extend(hero_b05_impl::abilities());
+        v.extend(hero_b19_impl::abilities());
+        v.extend(hero_c13_impl::abilities());
+        v.extend(hero_a10_impl::abilities());
+        v.extend(hero_a32_impl::abilities());
+        v.extend(hero_a29_impl::abilities());
+        v.extend(hero_b10_impl::abilities());
+        v.extend(hero_c16_impl::abilities());
+        v.extend(hero_c10_impl::abilities());
+        v.extend(hero_c11_impl::abilities());
+        v.extend(hero_b35_impl::abilities());
+        v.extend(hero_b25_impl::abilities());
+        v.extend(hero_a03_impl::abilities());
+        v.extend(hero_c12_impl::abilities());
+        v.extend(hero_b36_impl::abilities());
+        v.extend(hero_a15_impl::abilities());
+        v.extend(hero_a31_impl::abilities());
+        v.extend(hero_b32_impl::abilities());
+        v.extend(hero_c23_impl::abilities());
+        v.extend(hero_a08_impl::abilities());
+        v.extend(hero_c21_impl::abilities());
+        v.extend(hero_b12_impl::abilities());
+        v.extend(hero_c19_impl::abilities());
+        v.extend(hero_a04_impl::abilities());
+        v.extend(hero_b13_impl::abilities());
+        v.extend(hero_a09_impl::abilities());
+        v.extend(hero_a28_impl::abilities());
+        v.extend(hero_b09_impl::abilities());
+        v.extend(hero_b11_impl::abilities());
+        v.extend(hero_b23_impl::abilities());
+        v.extend(hero_b28_impl::abilities());
+        v.extend(hero_b33_impl::abilities());
+        v.extend(hero_b22_impl::abilities());
+        v.extend(hero_c07_impl::abilities());
+        v.extend(hero_a11_impl::abilities());
+        v.extend(hero_a21_impl::abilities());
+        v.extend(hero_b15_impl::abilities());
+        v.extend(hero_b07_impl::abilities());
+        v.extend(hero_b16_impl::abilities());
+        v.extend(hero_c08_impl::abilities());
+        v.extend(hero_c18_impl::abilities());
+        v.extend(hero_b24_impl::abilities());
+        v.extend(hero_c06_impl::abilities());
+        v.extend(hero_b08_impl::abilities());
+        v.extend(hero_b29_impl::abilities());
+        v.extend(hero_b08_old_impl::abilities());
+        v.extend(hero_a21_old_impl::abilities());
+        v.extend(hero_a13_old_impl::abilities());
+        v.extend(hero_c06_old_impl::abilities());
+        v.extend(hero_c02_old_impl::abilities());
+        v.extend(hero_c01_old_impl::abilities());
+        v.extend(hero_b07_old_impl::abilities());
+        v.extend(hero_b21_old_impl::abilities());
+        v.extend(hero_c25_old_impl::abilities());
+        v.extend(hero_c20_old_impl::abilities());
+        v.extend(hero_b04_old_impl::abilities());
+        v.extend(hero_a09_old_impl::abilities());
+        v.extend(hero_a28_old_impl::abilities());
+        v.extend(hero_a28_v20_impl::abilities());
+        v.extend(hero_a10_old_impl::abilities());
+        v.extend(hero_a33_old_impl::abilities());
+        v.extend(hero_a07_old_impl::abilities());
+        v.extend(hero_a07_v20_impl::abilities());
+        v.extend(hero_b25_old_impl::abilities());
+        v.extend(hero_a06_old_impl::abilities());
+        v.extend(hero_b15_old_impl::abilities());
+        v.extend(hero_b15_v20_impl::abilities());
+        v.extend(hero_a02_old_impl::abilities());
+        v.extend(hero_b23_old_impl::abilities());
+        v.extend(hero_a29_old_impl::abilities());
+        v.extend(hero_a03_old_impl::abilities());
+        v.extend(hero_c04_old_impl::abilities());
+        v.extend(hero_c04_v20_impl::abilities());
+        v.extend(hero_b30_old_impl::abilities());
+        v.extend(hero_b35_old_impl::abilities());
+        v.extend(hero_c16_old_impl::abilities());
+        v.extend(hero_b14_old_impl::abilities());
+        v.extend(hero_b02_old_impl::abilities());
+        v.extend(hero_c08_old_impl::abilities());
+        v.extend(hero_b11_old_impl::abilities());
+        v.extend(hero_b17_old_impl::abilities());
+        v.extend(hero_b18_old_impl::abilities());
+        v.extend(hero_b27_old_impl::abilities());
+        v.extend(hero_c10_old_impl::abilities());
+        v.extend(hero_a20_old_impl::abilities());
+        v.extend(hero_a19_old_impl::abilities());
+        v.extend(hero_a19_v20_impl::abilities());
+        v.extend(hero_c05_old_impl::abilities());
+        v.extend(hero_a14_old_impl::abilities());
+        v.extend(hero_c19_old_impl::abilities());
+        v.extend(hero_b28_old_impl::abilities());
+        v.extend(hero_c21_old_impl::abilities());
+        v.extend(hero_b10_old_impl::abilities());
+        v.extend(hero_b16_old_impl::abilities());
+        v.extend(hero_b33_old_impl::abilities());
+        v.extend(hero_b13_old_impl::abilities());
+        v.extend(hero_b05_old_impl::abilities());
+        v.extend(hero_a31_old_impl::abilities());
+        v.extend(hero_a31_v20_impl::abilities());
+        v.extend(hero_b29_old_impl::abilities());
+        v.extend(hero_b36_old_impl::abilities());
+        v.extend(hero_a15_old_impl::abilities());
+        v.extend(hero_a30_old_impl::abilities());
+        v.extend(hero_a26_old_impl::abilities());
+        v.extend(hero_a26_v20_impl::abilities());
+        v.extend(hero_a25_old_impl::abilities());
+        v.extend(hero_c17_old_impl::abilities());
+        v.extend(hero_a34_old_impl::abilities());
+        v.extend(hero_a34_v20_impl::abilities());
+        v.extend(hero_c13_old_impl::abilities());
+        v.extend(hero_b01_old_impl::abilities());
+        v.extend(hero_a11_old_impl::abilities());
+        v.extend(hero_b03_old_impl::abilities());
+        v.extend(hero_c14_old_impl::abilities());
+        v.extend(hero_a05_old_impl::abilities());
+        v.extend(hero_a08_old_impl::abilities());
+        v.extend(hero_b09_old_impl::abilities());
+        v.extend(hero_b06_old_impl::abilities());
+        v.extend(hero_c22_old_impl::abilities());
+        v.extend(hero_a17_old_impl::abilities());
+        v.extend(hero_a22_old_impl::abilities());
+        v.extend(hero_a27_old_impl::abilities());
+        v.extend(hero_a35_old_impl::abilities());
+        v.extend(hero_c03_old_impl::abilities());
+        v.extend(hero_c07_old_impl::abilities());
+        v.extend(hero_c09_old_impl::abilities());
+        v.extend(hero_c11_old_impl::abilities());
+        v.extend(hero_c11_v20_impl::abilities());
+        v.extend(hero_b22_old_impl::abilities());
+        v.extend(hero_b34_old_impl::abilities());
+        v.extend(hero_b31_old_impl::abilities());
+        v.extend(hero_a04_old_impl::abilities());
+        v.extend(hero_a32_old_impl::abilities());
+        v.extend(hero_c15_old_impl::abilities());
+        v.extend(hero_a01_old_impl::abilities());
+        v.extend(hero_b32_old_impl::abilities());
+        v.extend(hero_b32_v20_impl::abilities());
+        v.extend(hero_b19_old_impl::abilities());
+        v.extend(hero_c24_old_impl::abilities());
+        v.extend(hero_b20_old_impl::abilities());
+        // B01's retained legacy abilities (templates/heroes.lua retained_abilities): tests pin that
+        // loadout, and hero_b01 (its own DLL) registers only the generated b01_* ones
+        v.push(heroes::B01_saika_magoichi::sniper_mode_ffi());
+        v.push(heroes::B01_saika_magoichi::saika_reinforcements_ffi());
+        v.push(heroes::B01_saika_magoichi::rain_iron_cannon_ffi());
+        v.push(heroes::B01_saika_magoichi::three_stage_technique_ffi());
+        // B04's retained legacy abilities, like B01's
+        v.push(heroes::B02_date_masamune::flame_blade_ffi());
+        v.push(heroes::B02_date_masamune::fire_dash_ffi());
+        v.push(heroes::B02_date_masamune::flame_assault_ffi());
+        v.push(heroes::B02_date_masamune::matchlock_gun_ffi());
+        // items.dll scripts (M7), linked like a launch loads them
+        v.extend(items_impl::abilities());
+        v
+    }
+    Manifest {
+        units: all_units,
+        abilities: all_abilities,
+        dev_reload_runtime_lua_content,
+        module_id,
+        content_marker,
+    content_identity,
+    }
+    .leak_into_prefix()
+}
+
+#[sabi_extern_fn]
+fn module_id() -> RStr<'static> {
+    RStr::from_str(MODULE_ID)
+}
+
+#[sabi_extern_fn]
+fn content_marker() -> RStr<'static> {
+    ability_kit::module::content_marker()
+}
+
+#[sabi_extern_fn]
+fn content_identity() -> RStr<'static> {
+    ability_kit::module::content_identity()
 }
 
 #[sabi_extern_fn]
@@ -104,6 +559,19 @@ fn units() -> RVec<UnitDef> {
         unit_id: SUMMON_SAIKA_GUNNER.as_str().into(),
         script: UnitScript_TO::from_value(summons::SaikaGunner, TD_Opaque),
     });
+    // Heroes whose content sets `unit_script = true` (generated from templates).
+    include!(concat!(env!("OUT_DIR"), "/hero_unit_registry.rs"));
+    // G-3: every template without a dedicated script gets the generic summon AI from its stats
+    // (summons::generic; fixed emplacements never move), so summons are pure data. A dummy holds
+    // statuses only and gets none.
+    // Tombstones leave holes in the ID space; scan a bounded range, once at load.
+    for raw in 1..=4096u16 {
+        let Some(name) = omoba_template_ids::try_summon_id_str(omoba_template_ids::SummonId(raw)) else { continue; };
+        if v.iter().any(|def| def.unit_id.as_str() == name) { continue; }
+        if let Some(ai) = summons::generic::Generic::of(name) {
+            v.push(UnitDef { unit_id: name.into(), script: UnitScript_TO::from_value(ai, TD_Opaque) });
+        }
+    }
 
     v
 }
@@ -117,33 +585,7 @@ fn abilities() -> RVec<AbilityDefFFI> {
 
 #[sabi_extern_fn]
 fn dev_reload_runtime_lua_content(expected_hash: RStr<'_>) -> RuntimeLuaReloadResultFFI {
-    dev_reload_runtime_lua_content_impl(expected_hash)
-}
-
-#[cfg(feature = "runtime-lua-content")]
-fn dev_reload_runtime_lua_content_impl(expected_hash: RStr<'_>) -> RuntimeLuaReloadResultFFI {
-    let expected = if expected_hash.is_empty() {
-        None
-    } else {
-        Some(expected_hash.as_str())
-    };
-    match omoba_template_ids::reload_runtime_lua_content_dev(expected) {
-        Ok(Some(info)) => ROk(RuntimeLuaReloadInfoFFI {
-            generation: info.generation,
-            hash: info.hash.into(),
-        }),
-        Ok(None) => RErr(RString::from(
-            "runtime Lua content is not active in base_content.dll",
-        )),
-        Err(err) => RErr(err.into()),
-    }
-}
-
-#[cfg(not(feature = "runtime-lua-content"))]
-fn dev_reload_runtime_lua_content_impl(_expected_hash: RStr<'_>) -> RuntimeLuaReloadResultFFI {
-    RErr(RString::from(
-        "base_content.dll was built without runtime-lua-content",
-    ))
+    ability_kit::module::dev_reload_runtime_lua_content(MODULE_ID, expected_hash)
 }
 
 #[cfg(test)]
@@ -159,7 +601,9 @@ mod generated_registry_tests {
             .iter()
             .map(|definition| definition.script.ability_id().as_str().to_owned())
             .collect::<Vec<_>>();
-        assert_eq!(actual, EXPECTED_IDS);
+        let expected = EXPECTED_IDS.iter().map(|id| (*id).to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected);
         for (definition, expected_id) in definitions.iter().zip(EXPECTED_IDS) {
             let metadata: serde_json::Value =
                 serde_json::from_str(definition.def_json.as_str()).expect("ability metadata JSON");
@@ -178,5 +622,49 @@ mod generated_registry_tests {
                 +usize::from(!metadata["host_execution"].is_null()),1,
                 "one preview or one explicit host execution declaration per registered generic skill");
         }
+    }
+}
+
+#[cfg(test)]
+mod hot_swap_tests {
+    use abi_stable::prefix_type::PrefixTypeTrait;
+    use omb_script_abi::manifest::Manifest;
+    use omoba_core::scripting::ScriptRegistry;
+
+    fn hero_manifest() -> omb_script_abi::manifest::Manifest_Ref {
+        hero_a02_impl::get_manifest()
+    }
+
+    #[test]
+    fn a_module_is_replaced_in_place_and_only_with_the_same_registrations() {
+        let mut registry = ScriptRegistry::new();
+        registry.insert_manifest(super::root_manifest());
+        registry.insert_manifest(hero_manifest());
+        let order: Vec<String> = registry.iter_abilities().map(|(id, _, _)| id.to_owned()).collect();
+        let modules: Vec<String> = registry.modules().iter().map(|m| m.module.clone()).collect();
+        assert_eq!(modules, ["base_content", "hero_a02"]);
+        assert!(registry.modules()[1].abilities.iter().any(|id| id == "a02_wind_prayer"));
+
+        let swapped = registry.replace_module(hero_manifest()).expect("same registrations swap");
+        assert_eq!(swapped.module, "hero_a02");
+        let after: Vec<String> = registry.iter_abilities().map(|(id, _, _)| id.to_owned()).collect();
+        assert_eq!(after, order, "registration order stays");
+
+        // A build that registers other abilities, or a module that is not loaded, is refused.
+        #[abi_stable::sabi_extern_fn]
+        fn no_abilities() -> abi_stable::std_types::RVec<omb_script_abi::ability::AbilityDefFFI> {
+            abi_stable::std_types::RVec::new()
+        }
+        let fewer = Manifest {
+            units: hero_a02_impl::units,
+            abilities: no_abilities,
+            dev_reload_runtime_lua_content: super::dev_reload_runtime_lua_content,
+            module_id: super::module_id,
+            content_marker: super::content_marker,
+            content_identity: super::content_identity,
+        }
+        .leak_into_prefix();
+        assert!(registry.replace_module(fewer).unwrap_err().contains("other units or abilities"));
+        assert_eq!(registry.iter_abilities().count(), order.len());
     }
 }

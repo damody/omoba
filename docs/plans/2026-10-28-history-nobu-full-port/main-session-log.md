@@ -1,0 +1,843 @@
+# 主 session 調度紀錄
+
+排程觸發的回合不能開新 session，所以新工作改交給閒置的 session。
+
+| 時間 | 事件 |
+|---|---|
+| 2026-10-28 21:50 | M0 完成，已核對：v3.0 凍結，66 項測試通過，12 份範例 OK |
+| 2026-10-28 21:55 | M0 session 接著做 M1 資料線：content-model 加 values／text、catalog、出處比對、10 位英雄與 45 件道具改模板 |
+| 2026-10-28 21:55 | 法術增幅 session（已完成）改名為「網站產生器」，接手工作線 E |
+| 2026-10-28 21:55 | M4 普查第一波子 agent：H1～H6、I0、I1（見 census-v3/BATCHES.md） |
+| 2026-10-28 22:25 | 網站 MVP 完成並核對（29 筆共用向量、78 頁）；UE TooltipRenderer 改交給同一個 session（它寫了共用渲染向量），改名為「網站產生器與 UE 說明渲染器」 |
+| 2026-10-28 22:35 | schema v3.1 完成（70 項測試），RESULTS.md 的缺口全部處理；已通知執行中的普查子 agent |
+| 2026-10-28 22:35 | M2 第一批放回 live（E193，27 檔）。同一個 session 改名為「規則層、執行器核心（M2、M3）」，先完成 M2 剩餘項目與 v3.1 規則，再做 M3 |
+| 2026-10-28 23:00 | E187 原作塔兵野怪數值放回 live（quick 倍率 3.5，中位數 13.4／10.4 分，1/4 停在兵營前）。請它繼續修 bot 推進到中位數 ≤10 分鐘，並補原作剩下的規則（塔成長、騎兵、兵營破壞強化） |
+| 2026-10-28 23:00 | E187 後 `three_lane_60hz_full_filtered_match_lifecycle` 在 release 失敗（replica 多記 lumen_bolt 冷卻，entity id 同 tick 重用）→ 交給冷卻不同步 session |
+| 2026-10-28 23:30 | **M4 普查完成**：97 位英雄與全部商店道具共 105 份 v3 文件，全部通過驗證；614 筆中 545 筆可表達、4 筆需要 hook、65 筆待確認（見 census-v3/RESULTS.md 總計） |
+| 2026-10-28 23:45 | v3.2 完成（登錄表 v3-shared-registry.lua、chain、偷技能、chase_target AI 等，72 項測試）。開 4 個清理子 agent：道具、A、B、C；登錄表新增項目先寫到 census-v3/registry-additions-*.lua |
+| 2026-10-29 00:20 | 清理：C 完成（pending 15→0）、A 完成（17→5，剩下的要實測）、B 完成（11→3，正在收最後 3 筆）。schema 補了 chase.max_distance／anchor |
+| 2026-10-29 00:40 | 清理全部完成（A 17→5、B 11→0、C 15→0、道具 23→1；hook 全 0）。合併交給 schema 負責人（M0 session，登錄表與測試的擁有者） |
+| 2026-10-29 00:50 | **M4 完成**：登錄表合併、全檔測試打開登錄表檢查；主 session 重驗 105 份全部通過；598／614 可表達、0 hook、6 pending（5 筆要實測、1 筆 fix_candidate） |
+| 2026-10-29 00:01 | 發現兩組實機局同時在跑（ue-run/55d93… 與 44aab…）。已提醒所有 session；機器層級的「實機局鎖」交給冷卻不同步 session 做成通用機制 |
+| 2026-10-29 00:45 | **M1 工作線 A 放回 live**（116 檔，check_live_consistent --ubt 通過；實機 9/9 PASS；V3Block、V3_CATALOG_JSON）。M3 拆分：Lua IR 編譯器與全量 catalog 交給 M0 session（改名「技能 schema、說明資料與 IR 編譯器」），Rust 直譯器留在 M2／M3 session |
+| 2026-10-29 00:55 | live 編譯失敗（super_minion_replaces_siege，比賽長度那條只放回一半）→ 通知修正；01:00 一致性檢查恢復通過 |
+| 2026-10-29 01:05 | 實機局鎖完成（E197）。冷卻不同步 session：無爭用重跑阿市局、確認 lumen_bolt 測試、列出可清的 target。M0：v3 文件移成正式作者來源、測試情境產生器 |
+| 2026-10-29 01:40 | e199 live-1 渲染端消失：原以為是依名稱停程序，查明是 E201（TooltipRenderer 自行載入又釋放 bridge DLL，把遊戲中的 bridge 卸載）。有問題的版本在 live 的時間：10-28 23:52:49～10-29 01:31:49，已修好；已通知所有 session 重建 UE，並撤回指控 |
+| 2026-10-29 01:50 | E200 核對：v3.lua 成為正式作者來源（97 位英雄＋166 件道具），kit 合併，測試情境產生器（29,412 條），310 檔放回。M0 下一步：使用頻率統計與執行器元件優先序 → 交給 B；依 D13 處理 M5 前的決定；呈現 cue 目錄 |
+| 2026-10-29 02:00 | 使用頻率統計完成（usage-stats.md，308 種元件；55 個解鎖 B01＋C17，277 個解鎖 92 位英雄）並交給 B。網站 session：M1 C 收尾（全部顯示位置、截圖）→ M8 全量網站 |
+| 2026-10-29 02:15 | 冷卻不同步 session 全部完成（E196 tick_start_hp、E197／E202 鎖與異常中止標記、光鍊 mismatch 結案、可清約 184G 清單）。lifecycle 測試推不動原作塔 → 轉給比賽長度。該 session 改名「已移植英雄 conformance 測試（M5 前置）」：從情境產生 10 位已移植英雄的 Rust conformance 測試 |
+| 2026-10-29 02:25 | E187 第二批放回：quick 中位 7.5／8.1 分、24/24 結束；UE quick 實機 7:32 自然結束、mismatch 0、小兵面向正確。M0 三項完成（usage、D13 決定、cue 目錄）；下一步：以推定解開 6 筆 pending、97 位英雄全量內容管線（unlisted） |
+| 2026-10-29 02:40 | M1 C 收尾（技能欄、商店、選角接 TooltipRenderer；720p／1080p 截圖）與 **M8 全量網站**（512 頁，97 英雄＋156 道具）完成。主 session 看截圖：tooltip 下半部仍接舊 runtime 區塊（名稱重複、「L1 CD 0s」、「魔力消耗未提供」與「耗魔 140」矛盾）→ 請 C 整併。M0：6 pending 解開（FC-132～134）、全量內容管線 615 區塊；下一步 E204 狀態說明 |
+| 2026-10-29 03:05 | tooltip 整併完成（v2 截圖乾淨），網站與 UE 的 content hash 相同；E204 狀態說明放回（schema 3.3）。M2 確認完成（E198）。C：狀態圖示、召喚師技能、守衛接 TooltipRenderer。M0：M6 批次規劃、bot 使用資料 |
+| 2026-10-29 03:25 | M0：M6 批次規劃完成（m6-waves.md，9 批）、bot 施放資料（E206）。空檔任務：原作地圖 nobu.vmap 的 DMX 解析、地圖資料與比較報告（不改 live 地圖） |
+| 2026-10-29 03:35 | C：狀態說明接上 TooltipRenderer，修正道具 id 對應（網站上架數 45／111）。C 改名「UE 通用機制與呈現」，新任務：動態技能欄、向量施法、路徑投射物與連鎖、cue 通用佔位特效（依 m6-waves 順序） |
+| 2026-10-29 03:45 | conformance 基準（E207：2289 情境，560 過、38 已知差異、1691 unsupported）。下一步：host 走近再施法、harness 擴充。原作地圖解析完成（dmx.lua，32 塔、12 兵營、24 營、地形網格與 heightmap）；下一步：nobu_map template（不接線）＋ 9 項引擎能力規格 → 之後交給遊戲模式 session |
+| 2026-10-29 04:45 | C：E208 三批放回（充能 HUD、CABI 40、cue 佔位特效與 Editor 覆寫）；開關、重施放、換技能等 B 的 fact。空檔任務：原作圖示（頭像、技能、道具）匯入 UE 與網站、bridge 商店測試 45 對 64。M3 在 target/m3n 進行中（ir.rs、ir_switch.rs） |
+| 2026-10-29 05:55 | E209：原作圖示匯入（英雄 67／97、技能 303／446、道具 140／176，排除 46 張 Dota 肖像）、商店 43／45 件有圖、bridge 商店測試修好。manifest 格式改變 → 已通知 e187、conformance、B 重建影子 UE。C 可以加 JPEG 解碼 crate |
+| 2026-10-29 06:25 | **M3 第一批完成（E212）**：B01、C17 改由 IR 執行，5 場重播每 tick 相同，效能沒有退步；604 個 IR 全部可載入。E210 走近再施法、E211 狀態情境（conformance 805 過）。M0：ir-blockers.md 優先序分析；conformance：effects／可見性；B：排程器、selector、M5 切換，並送 fact 給 C |
+| 2026-10-29 06:50 | E187 第三批完成：中路加兵、兵營破後強化與追加波、大將塔加成、魔王兩隻（boss tag）、home_aura、經驗金錢規則、投降（伺服器端）；quick 中位 6.3／5.4 分，UE 實機 04:43 自然結束、mismatch 0。M0 打開 EMIT_UNIT_STATE（103 區塊帶 unit_state）；ir-blockers：604 個 IR 只有 13 個能執行。**主 session 發訊達上限（10 則），B、M0、e187、C 都閒置，要等使用者輸入才能恢復派工** |
+| 2026-10-29 07:05 | 所有 session 閒置的事件觸發後，發訊恢復。B：M3 第二批（排程器、selector、cue／toggle fact）→ M5 切換。e187：原作 nobu 地圖接線（9 項能力）＋剩餘規則。conformance：effects／可見性、E213 驅散。C、M0 等 B 的放回 |
+| 2026-10-29 10:30 | 使用者：「全部繼續」。發現 07:28～10:27 所有 session 閒置約 3 小時，各自等的背景工作中斷、沒有被喚醒（機器上沒有任何程序）。已逐一叫醒：B 重跑稻姬比對並繼續 M3／M5；e187 繼續 nobu 地圖；conformance 重跑測試；M0 做英文說明審查；C 做向量施法與預覽的 UE 端、選角自動上架。重新申請 keep-awake |
+| 2026-10-29 11:10 | M0 英文說明審查完成（100 份、en-glossary、v3_en_lint）。主 session 決定 3 項：Voodoo Power 依中文直譯、玩家說明不得含開發用語（加 lint）、羅馬字不加長音。B 稻姬 IR：omoba-core 1317 過，等重播比對；e187 nobu 地圖兩個副本已從中斷處重啟 |
+| 2026-10-29 12:15 | conformance：E213 傷害量、E214 host 驅散、E216 可見性、E217 套上狀態放回；1005 通過、17 (b)、104 (c)、1163 unsupported；IR 與 handler 無差異。請它把 104 (c) 分成 c1／c2／c3 處理。C：向量施法輸入、路徑與彈跳預覽、選角頭像放回，排隊實機確認 |
+| 2026-10-29 12:45 | C 的 720p 實機檢查通過（選角、技能欄、商店）。發現 bug：人類選到 bot 預設英雄時，選角服務依 E164 改 bot，啟動器的 selection_result 檢查過時，對局沒有開始 → 請 C 修成通用的 roster 合法性驗證 |
+| 2026-10-29 01:10 | fix_candidate 決策清單完成：`fix-candidates.md`，131 項（FC-001～FC-131），影響高 21 項；預設建議 124 修、7 不修（層數只顯示那組修了數值會倍增）。等使用者回覆，在那之前資料照原作（D13） |
+| 舊待辦 | 道具與 B 收尾完成後開「合併」子 agent：合併 4 份 additions 進登錄表；A29T、B10W、C16R 改用 chase.max_distance＋anchor；打開 census 全檔測試的登錄表檢查；105 份全部重新驗證 |
+| 待辦（原始） | 清理完成後：合併 additions 進登錄表，打開 census 全檔測試的登錄表檢查（registry = true），全部重新驗證 |
+| 舊待辦（已由上列取代） | v3.2（跨文件登錄表、chain、偷技能等）完成後，開清理子 agent：已完成批次的 pending 改用 v3.1 詞彙；修 32 筆 kv 不一致（v3_provenance.lua） |
+| 待辦 | 整理 fix_candidate 清單給使用者（M0 的 19 筆，加上普查新增的） |
+
+- 2026-10-29 13:35：M0 已完成法術增幅普查（60 份放回）。派 M0 和 B 協調，分擔 ir-blockers 裡可以獨立處理的直譯器項目（fn:*、stat:*、target.types、on_learn／on_respawn、傷害 flags），以加快 M5；B 不需要分工時改做 M7 前置（商店由 v3 values 產生）。
+- 2026-10-29 14:03：conformance 的 (c) 已清零（1117 通過、17 筆 (b)、1155 筆 unsupported），下一步派它擴充 harness，降低 unsupported。UE 已確認敵方狀態圖示不需要改；下一步派它量測狀態視覺上限（512），並準備 M6 第 1 批的呈現。
+- 2026-10-29 14:12：B 與 M0 已分好 ir.rs 的工作（M0 負責 STATS 四列、fn:direction／offset／position、target.type direction、on_learn／on_respawn）。M0 要等 B 的 m3d 放回（大約一小時），這段時間先做 M7 前置：商店價錢、配方、屬性改由 v3 values 產生。
+- 2026-10-29 14:55：M0 完成 M7 前置。商店 45 件的價錢、配方與屬性改由 v3 values 產生（`item_shop_v3.lua`，與原作的差異 0 件）；網站 45 件價錢與遊戲一致。新增 m7-items.md 道具解鎖順序：今天能載入 13 件；接下來是 stat 的 attack_damage／int／str／agi 四列，可再解鎖 15 件上架道具。修了一直失敗的 item_sources_check_test（E222）。
+- 2026-10-29 14:33：UE 完成 teamfight stress（狀態視覺峰值 23／512，沒有因為達到上限而被丟棄）與 M6 第 1 批呈現準備（兩項通用 fallback）。下一步派它做第 2～9 批的呈現覆蓋、彙整 m6-missing-art.md。conformance 已在 14:28 放回 harness 擴充。
+- 2026-10-29 16:20：M0 的 ir.rs 分工已放回（codegen＋cargo）：fn direction／offset／position、target type direction、target types hero+creep（含 BASIC 與帶 building 的組合）、on_learn 一般程式、on_respawn 被動、STATS 新增四列（attack_damage、move_speed_pct、incoming_physical_pct、lifesteal_pct）。ir.rs 新增 4 個對照 handler 的測試，runtime::native 共 946 個測試通過。可載入的條目 55→71，M5 阻擋項 66→49，道具可載入 13→30。b29_ground_slam 與 c15_precise_light 已能完整載入，是否切換由 B 決定。slow_pct 與 vision／outgoing 留給 B 和規則層。影子測試樹缺檔記為 E225。
+- 2026-10-29 15:53：UE 完成第 2～9 批的呈現報告（9 份）與通用狀態外觀；缺圖清單是 m6-missing-art.md（頭像 26、圖示 130、cue 129），待使用者決定；團戰重測峰值 50／512。下一步派 UE 做 M7 道具呈現：商店、合成樹、說明框只讀 item_shop_v3，未開放的道具通用標示。
+- 2026-10-29 16:22：使用者指示「全部停止」：已取消 cron，5 個 session 都已停止，背景程序已結束（第二次結束時被使用者中斷，留下 1 組 M0 的 debug cargo test）。16:35 寫好交接計畫 handover-2026-10-29.md。
+- 2026-10-29 16:50：使用者決定：134 項 bug 全部修、缺圖用 Grok 生成、515G 暫存檔要刪（已刪除）、要 commit；不用 IR，改成產生 Rust，每位英雄一個 DLL、可熱加載。已改 README（D13～D17、架構、M3'）、新增 m3-rust-codegen-design.md，並在 m3-ir-design、fix-candidates、m6-missing-art、v3-content-model-proposal 加上註記。
+- 2026-10-29 20:40：使用者恢復無人值守（「繼續把遊戲做完」）。決定：tmp_fix.lua 保留、184G 清單刪除（30 個目錄，釋出 178G）、產生的 Rust 不進版控。check_live_consistent --ubt 通過。舊 session 已不在，依 plan-2026-10-29-resume.md 新開五條工作線：line-b-runtime（M3' ①②④）、line-a-codegen（M3' ③）、line-c-ue（M7 呈現、Grok 美術）、line-gamemode（野怪營地、樹、加兵）、line-conformance（E226 重跑）。10 分鐘例行檢查 cron a88ef402。
+- 2026-10-29 20:56：例行檢查：五條線都在跑；line-c-ue 的截圖局 shop8-1 持鎖 14 分鐘超時，已請它照 PID 結束並在之後設時限。
+- 2026-10-29 21:06：例行檢查：shop8-1 於 21:06 釋放鎖（共約 24 分鐘，已提醒 line-c-ue 設時限）。新 land：村上義清地裂 handler（No1_ground_slam.rs），check_live_consistent 通過。五條線都在跑。
+- 2026-10-29 21:26：例行檢查：A 在影子 target/lineA/ws3 讓 97 位英雄的產生 crate 在 deny(warnings) 下編過（每英雄 rlib＋cdylib 雙 package，避開 LNK2005），等 B 放回 M3' ①；已派 A 先做 v3_codegen_coverage、第 1 批產生器寫法與資料類 fix-candidates，並刪 ws／ws2。其餘四線在跑，無鎖。
+- 2026-10-29 21:36：例行檢查：C 完成 M7 道具呈現收尾（shop8-1、roadmap 122 件「尚未開放」截圖、說明框改通用分類）與 M6 第 1、2 批 Grok 美術（E231 generated_art 索引）；已派 C 修 720p 價錢重疊、接第 2～9 批呈現與美術。B 放回 ability_kit（lib、codegen、metadata），實機局 m3p/live1 21:33 起持鎖。
+- 2026-10-29 21:46：例行檢查：B 的 m3p/live1 於 21:40 釋放（約 7 分鐘）。A 改成英雄 crate 由 build.rs 在建置時產生（$OUT_DIR，include!），97 組在 ws3 通過；已再派 coverage、第 1 批寫法、資料類 fix-candidates。conformance 放回 v3_conformance_tests.rs。C 在跑 UE build（build_ue_moba 鎖）。
+- 2026-10-29 21:55：A 問 FC-038 等 7 項「建議不修」怎麼辦。主 session 決定全修：層數類滿層總加成＝原作固定值（FC-044 上限 4 位）、A14T 改成施放才生效、B02R 改 18 枚 90/180/270/360、兩件暴擊道具各自判定。C 回報 M7 收尾與第 1、2 批美術完成，已在做下一步。
+- 2026-10-29 21:56：例行檢查：A 修好 7 項原本「不修」的 FC（v3_fixed_quirks_test 16 項），fix-candidates 已修 15 項；A 每件事做完就停，已要求一路做完清單。conformance 放回 known_differences.json。B 實機局 m3p/live2 21:48 起持鎖。
+- 2026-10-29 22:16：例行檢查：conformance 比對產生的 Rust 17 招（2289 情境），只有 C17W 自我施放不同，已回報 A；比對腳本用了 Python，已要求改 Lua 並一路做完清單。遊戲模式放回 22 檔（野怪營地 jungle.rs、nobu_neutrals、視野遮擋、bots，含 UBT）。B 的 m3p/live2 約 12 分鐘稍超時、live3 約 10 分鐘。
+- 2026-10-29 22:36：例行檢查：C 修好 720p 價錢（UiSmall），第 2 批呈現（command_restricted、no_healthbar 通用外觀）放回，第 1～9 批 Grok 美術 229 張全部補齊；已派 not_on_minimap、73 個 Niagara 特效、與 B 定 runtime 呈現介面。遊戲模式 UE 實機局 e187/ue-quick4 22:28 起持鎖。
+- 2026-10-29 22:46：例行檢查：遊戲模式 UE 局 e187/ue-quick4 持鎖約 18 分鐘超時（log 22:42 後停寫），已請 line-gamemode 照 PID 結束並設時限。conformance 再放回 v3_conformance_tests.rs。
+- 2026-10-29 22:56：e187/ue-quick4 約 28 分鐘未自然結束（tick 95592），line-gamemode 未回應，主 session 照 owned-processes.json PID 結束三個程序，鎖正常釋放；已要求設對局時限並先用 headless 確認打得完。C 放回 not_on_minimap 與狀態外觀（OmStatusLook、OmMinimapModel，UBT 通過）。
+- 2026-10-29 23:06：A 放回 B08／A07 的 FC-005／025／046（content hash 變，已通知重建），修好 C17W 產生版自我施放；FC-078 等 B 的 ①；FC-129～131 交 B。第 2～9 批剩下的寫法要 host API，主 session 決定由 A 自己實作（先跟 B 確認檔案不衝突）。
+- 2026-10-29 23:26：e187/ue-quick5 又持鎖約 18 分鐘未結束（tick 61484）；主 session 照 PID 結束被 auto mode 擋下，改請 line-gamemode 自己結束，並規定 headless 能 10 分鐘內打完前不再開 UE 局、每局帶時限。
+- 2026-10-29 23:36：例行檢查：ue-quick5 於 23:36 釋放（共約 27 分鐘）。C 閒置 18 分鐘，已催它確認背景重拍結果並繼續 Niagara 特效。其他三線在跑，無新 land。
+- 2026-10-29 23:46：line-gamemode 在 23:36 又開 e187/ue-quick6（1 人類＋9 bot、三線 quick、launch 沒有對局時限），到 23:46 約 10 分鐘。它的 turn 一直沒結束，主 session 22:46 起的三則訊息都還在佇列沒讀到；主 session 無法結束它的程序（auto mode 擋下）。launch-plan 顯示 hero_a02.dll 已在 script_modules（B 的 M3' ① 已生效）。
+- 2026-10-29 23:58：查明 e187 UE 局超時的原因：C 的 UnrealEditor-Cmd（d3d12，ue-shadow-c）同時在跑，UE 初始化要 5～15 分鐘，對局本身 3.7 分就結束。E187 headless 已放回（E234）。已協調 C 做完目前重拍後暫停開 UE 約 15 分鐘，直接通知 line-gamemode 開局。
+- 2026-10-30 00:06：例行檢查：ue-quick6 23:58 釋放。C：not_on_minimap 放回；Niagara commandlet 做法可行但第 1 批品質不夠（改 SimpleExplosion 再重拍）；runtime 呈現介面提案已送 B；已暫停開 UE 並通知 line-gamemode 開局，暫停期間做非 UE 工作。C 的 UnrealEditor-Cmd PID 42756（23:37 起）卡住無法結束，回報使用者。A 在等 omoba-core 回歸測試（23:50 起）。
+- 2026-10-30 00:16：A 放回四項 host API（unit_var、scheduled_effect、status_event、投射物命中排程；17 檔，ABI 變動需全部重建），可產生招式 50→69，修 C17W 自我施放與 require_source_alive 預設；道具 70→62 是修正誤判。已派 A 自己做 on_take_damage_pre、推 coverage、M5 比對後換 handler、開始 items.dll。卡住的 UnrealEditor-Cmd 42756 已不在。
+- 2026-10-30 00:30：e187 ue-quick7（540 秒時限）正常收尾，但 C 暫停後 UE 載入引擎仍卡 9 分鐘以上，仍無局中截圖；UnrealEditor-Cmd 42756 仍在且無法終止（主 session 00:16 誤判已消失，更正），疑 GPU 驅動層卡住，需使用者重開機。E187 其餘已放回（E234），UE 驗收擱置；C 恢復開 UE，一次一個實例。
+- 2026-10-30 00:40：e187 查到 UE 不顯示結果、不自己結束的原因（推測）：晚進場時第一幀已是 phase=2，SetMatchResultState 在面板未排版時 return、之後不再判斷。已交給 C 修成排版後再判斷一次，附 UE 測試。
+- 2026-10-30 00:45：UnrealEditor-Cmd 42756 自己結束，不需重開機。C 恢復 UE 工作；已派 line-gamemode 重拍 UE quick 驗收，再做中路加兵、兵營追加兵、建築回血、lifecycle 測試。
+- 2026-10-30 01:00：使用者決定 D7 門檻：2 招以上類似的機制做成共用（v3 詞彙＋產生器＋ability_kit），完全跟大家不同的才寫 hook（AI 實作產生的 trait，取代 stub）。已改 README D7、m3-rust-codegen-design §2.4（原 2.4 ability_kit 改為 2.5）、記憶；通知 A（trait 產生器、coverage 分類、hook 候選清單）、B、conformance。hook 實作工作線等 A 交出候選清單後再開。
+- 2026-10-30 01:05：A 查明 B01 召喚上限由 host summon_owner_cap.rs 執行（有測試）；產生器改成只在三條件下接受 limit_per_owner、其他 block；另 5 份文件原本被默默略過。destroy_trees 在 host 是空操作：產生但列入 coverage「host 沒做到」一節，host 實作交給 line-gamemode。
+- 2026-10-30 01:10：C 更正：42756 已消失、UE 啟動約 1 分鐘；73 個 cue Niagara 已全部放回（cap-all3 總表）。主 session 看總表：外觀都是同一種光球＋火花，只差顏色大小；已請 C 修完結算畫面 bug 後依 cue 種類分範本重做。
+- 2026-10-30 01:15：C 修好 UE 晚進場不顯示結算畫面（bMatchResultPresented，UE 測試 MatchResultAfterLateJoin Success，3 檔 UBT 通過放回），已請 line-gamemode 下一局實機確認。A 放回 limit_per_owner 修正前在等 omoba-core 全套測試，之後交 hook 候選清單。
+- 2026-10-30 01:20：E187 UE quick 驗收通過（ue-quick9：34 秒進場、4.0 分自然結束、13 座建築倒、結果畫面截到、mismatch 0）；中路加兵、兵營追加兵、建築回血、足輕成長已放回（E234），lifecycle 3 seed 通過。缺口：nobu 樹與 24 營 UE 沒畫（bridge driver.rs:1021 有 fog grid 就不送樹）→ 交 C；nobu 完整量測只完成 1 局（40.7 分）→ gamemode 補量測並做 destroy_trees。
+- 2026-10-30 01:30：A 放回 trait 產生器（整招 hook、沒實作編不過、不再產生 stub）與大批寫法（damage_pre、slow、疊層、modify_cooldown、teleport 等，22 檔），可產生招式 50→100；A02、B01、C17 已換成產生的 Rust 上 live。hook 候選：45 招 62 項（另 57 項產生器自補）。conformance 支援 hook 情境；已派它重跑全量確認三位英雄 0 退步。等 A 把清單放到 repo 後開 hook 工作線。
+- 2026-10-30 01:35：A 把 hook 候選清單放到 hook-candidates.md（B 類 45 招）；items.dll（66/168 件）放回中，道具使用與裝備改走 script registry 交給 B。主 session 看清單：不少項目其實是規則層狀態或類似機制（hex、taunt、dash、chain、destroy_tree），應先依「類似就共用」複核。開 hook 工作線被 auto mode 擋下，改提卡片（task_f694e9fe）等使用者啟動。
+- 2026-10-30 01:40：C 把 73 個 cue 分 6 類（ring/aura/buff/burst/trail/slash）放回；主 session 看 cap-all7 總表仍看不出環形，trail/slash 仍是一團。已請 C 用遊戲視角拍、ring/aura 用環形 emitter、trail 用 Ribbon、slash 用弧形。B 同意 runtime 呈現欄位，排在 M5 之後。
+- 2026-10-30 01:45：A 回報本輪 33 檔放回（damage_pre、hook trait、limit_per_owner、items.dll 66/168 件），A 類剩約 50 項等 B 的 ext 讀取 API；道具改走 script registry 由 B 接。已派 A 先用「類似就共用」複核 hook 清單、補不依賴 B 的共用寫法、整理 M6 第 1 批解鎖清單。C 放回 bridge lib.rs（樹／營地接線中）。
+- 2026-10-30 01:55：A 複核 hook 清單：真正獨有只剩 a13_chain_sickle、c06_grand_heist，其餘併入規則層（清單給 B）或共用；不依賴 B 的共用寫法已放回，可產生 100→106 招；M6 第 1 批解鎖清單 m6-wave1-unlock.md（44 招：已產生 16、共用待補 28、無 hook）。撤回 hook 工作線卡片，2 招 hook 由 A 直接做。B 目前是瓶頸（ext 讀取 API、規則層清單、道具路由、ability_kit）。
+- 2026-10-30 02:00：A 放回 A13E 鎖鏈鐮 hook；修投射物 profile 缺傷害類型位元；接上 B 第 1 批 give/take_gold、burn_mana、dash、teleport、dodge_projectiles 等；可產生 113 招，第 1 批 17/44。C06T 被擋：create_pickup 與讀金錢交給 line-gamemode（減輕 B），issue_order 併入規則層 taunt。A 接著做 items.dll host 接線（B 審）。
+- 2026-10-30 02:10：C 放回 nobu 靜態樹送到 UE（有迷霧也送，nobu-trees2 截圖有樹）與 cue 遊戲視角對照表（shapes4：ring／aura 是真的環）；trail／slash 仍是亮點，已請 C 查光帶並改 Ribbon／弧形。A 的 C06T 等 gamemode 與 B；items.dll 接線等 B 回設計問題。
+- 2026-10-30 02:26：B 放回 damage_from_at（傷害紀錄帶來源與路徑）與 headless 測試斷言修正後停下；已催 B 一路做，先回 A 的 items.dll 兩個設計問題與 taunt 狀態細節，再做 ext 讀取 API、remove_status、規則層清單、M3' ②④。
+- 2026-10-30 02:30：C 修好光帶（暖機沒用到 M_Ribbon、改貼地從施法者拉到目標），shapes12 對照表 6 類一眼分得開，主 session 接受此版；真正 Ribbon／弧形 emitter 排到 M8 美術打磨。C 下一步：砍樹移除、M6 各批呈現、runtime 呈現欄位。A 把 damage{source} 改產生 damage_from_at（B 要求）。
+- 2026-10-30 02:36：B 完成 M3' ② 熱加載與 ④ 刪 IR（ir.rs、ir_switch.rs、ir_probe 已不在），taunt、remove_statuses、ext 延伸點、傷害 trace 已放回；剩 run_10000 受控量測（已安排在 ext 讀取 API 後，暫停其他線 15 分鐘量）。主 session commit 並 push：主 repo 5a684594、omb a080660、omfue 9fa7a28（不含 docs/acceptance 證據、ref、安裝檔、__pycache__）。
+- 2026-10-30 02:36：gamemode 放回砍樹（E242，300 秒重生、replica 一致、可重連還原）；nobu 量測 3/3 中位 52.7 分但全是隊伍 2 勝（隊伍 1 死 71～87 次）；ue-quick10 確認結算畫面修正有效。回報 live base_content 有 26 個既有失敗測試。已派 gamemode：失敗測試分流給負責線、查隊伍 2 全勝的偏向、C06 經濟能力。
+- 2026-10-30 02:37：C 讓第 1～9 批全部視覺 cue 有特效（570 筆，原作粒子路徑依字詞決定形狀與顏色），但每 cue 一份 Niagara 共 339 MB；已要求現在就改成每形狀共用系統＋user parameter，完成前不 commit 這批 asset，並接上 E242 砍樹顯示。A 接上 remove_statuses，可產生 116 招。
+- 2026-10-30 02:38：更正：上面 02:30～02:37 四筆原本誤寫成 02:35～03:00，已依 commit 時間改正。例行檢查：A 閒置，已派 items.dll 接線、第 1 批解鎖、C06T 用 cx.taunt、A34／B08 換上 live。C 放回 DefaultGame.ini（cue 對應）。
+- 2026-10-30 02:50：C06T 強制攻擊：收回「用 taunt」的決定（taunt 會鎖玩家指令，原作是可覆蓋的單次命令），改為 host 提供不鎖定的 cx.order_attack，v3 op = order_attack。C 放回 fallen_trees（砍樹顯示）；B 放回 ext 讀取 API，check_live_consistent 通過。
+- 2026-10-30 02:58：C 把 cue 特效改成 6 個共用 Niagara 系統（User.Tint／EffectScale），339 MB→3.5 MB，已放回；舊的 570 個 asset 已進了 omfue 9fa7a28（主 session 02:36 commit 時還沒去重），下次 commit 一併刪除，是否改寫歷史待使用者決定。修好 CueCatalog 回歸。A 與 B 放回 status_event／dispatch，check_live_consistent 通過。
+- 2026-10-30 03:05：C 盤點第 2～9 批呈現：頭像 82、圖示、狀態說明、cue 都齊；direction／unit_or_point／tree 三種 target kind 轉告 A。C 手上無工作，改由 C 自己把 runtime 呈現欄位（分身、地面區域、繫繩、日夜、換模型）從 host 做到 UE，減輕 B。
+- 2026-10-30 03:46：A 放回 4 位已上架英雄的產生 crate（本多忠勝、村上義清、阿松、玉子，22 檔，M5 推進）；03:35 繫繩（tether、buff_tick、ability_kit）放回，check_live_consistent 通過。五線都在跑，無實機局。
+- 2026-10-30 04:10：B 放回 ext 讀取 API（UNIT_ATTR 等約 20 項）與規則層狀態第 1 批（disarm、mute、hex 等），修 remove_status 後共用 state 殘留。live base_content 27 項失敗（含產生碼逐 tick 比對、a02、cast_windup_formal）：產生碼相關交 A 優先修（先停 items 接線），其餘由 gamemode 分流。
+- 2026-10-30 04:15：gamemode 放回 C06T 需要的 host 能力（E243）：cx.gold_of（ext UNIT_ATTR gold，單一金錢池）、cx.create_pickup（item_money 中立單位，150 內自動撿，可被摧毀，replica 對拍）；已通知 A 寫 hook、請 C 補金袋外觀。omoba-core 1378 全過；base_content 27 失敗與基底相同（A 處理中）。
+- 2026-10-30 04:36：B 04:29 起跑 run_10000 受控量測（performance＋live_match 鎖，m3p/perf5）；C 在 04:32 放回 replica_host／OmRuntimeFacts（含 UBT），可能干擾量測，主 session 本輪不跑 check_live_consistent，量測後補跑。conformance 確認 C17W 斷鏈修正有效，已派它修情境產生器並全量重跑已換上的 7 位英雄，量測期間不跑重負載。
+- 2026-10-30 04:46：perf5 量測持鎖約 17 分鐘；04:35 起機器有 10 多個 moba-headless 同時跑，會讓量測失準。已請 gamemode、conformance 暫停 headless 批次並在開批次前檢查 performance 鎖，請 B 在負載清空後重量。conformance 放回 v3_scenarios.lua（情境產生器修正）。
+- 2026-10-30 04:50：conformance 查明 04:35 起的 10 個 moba-headless 是 gamemode 的 nobu 勝率批次（target/e187/runs/t16nobu、t16nobus，seed 1～5）；conformance 自 04:29 起已停跑等 performance 鎖。暫停請求已在 gamemode 佇列。
+- 2026-10-30 05:06：perf5 於 05:00 釋放（約 31 分鐘，期間有 gamemode 的 10 個 headless，結果待 B 判讀是否重量）。C 的 lineC-facts2/oichi-run 約 3 分鐘。補跑量測期間延後的 check_live_consistent。
+- 2026-10-30 05:20：A 查清 27 項中產生碼相關的：cast_windup_formal 等 3 項（B01 拆 DLL 後 retained handler 沒註冊）已修放回；generated_scripted_*_match 逐 tick 差異只有 applier 欄位與 A02T 手寫 handler 殘留 no_unit_collision 的舊缺陷。主 session 決定：先去掉 applier 欄位驗一次每 tick 相同、留下 M5 證據，再刪除比對與 A02／B01／C17 手寫 handler。
+- 2026-10-30 05:25：B 完成 M3' ④ 受控效能量測（交錯 5 輪，IR 中位 3.17 ms、產生 Rust 3.13 ms，沒有退步），M3' 驗收全部完成。另放回 damage flags（hp_removal、ignore_armor、damage.credit）與 3 個新 stat。live omoba-core tether 測試失敗，交 A 查（疑似 C17W 修正）；issue_order 統一為不鎖定的 order_attack，請 A、B 對齊只做一份。
+- 2026-10-30 05:46：B 05:40 起又跑 verify_moba_local_baseline（performance 鎖）；主 session 延後 check_live_consistent（C 05:39 有 UE 放回）。conformance 發現驅散退步：basic 驅散移除不了 A34W／B29W 的 basic 暈眩（控制列用 runtime id 後查到共用 key 的 strong 類別），已交 B，8 筆暫記 known_differences 並標負責線。
+- 2026-10-30 05:50：A：tether 測試是測試要更新（施法者死後的斷鏈傷害照送、帶 REQUIRE_SOURCE_ALIVE 由管線丟棄，實際傷害仍 0），等量測結束再 land；order_attack 由 A 做一份（hero_command OrderAttack，不鎖定），C06T 豪奪已能產生。conformance 存好刪除手寫 handler 前的基準（10 位 1637 通過、產生版與手寫 0 差異，target/e229/baseline-before-C）。
+- 2026-10-30 06:08：B 修好驅散回歸（__ctl 列名改回 v3 狀態 id，dispel 先查狀態 id），放回 cast_trace；B 的跨 session 訊息被轉送上限擋住，改寫共用筆記 line-b-status-2026-10-30-dawn.md，主 session 已轉達給 conformance（重跑 a34／b29）與 A（windup、order_targeted、limit）。issue_order 決定：只做 order_attack，stop／move 等 v3 有 2 招以上用到再開。
+- 2026-10-30 06:15：gamemode 二分確認 27 項失敗全由 M3'（5a684594）造成，都用到 B01／C17，已交 A。E252 修 nobu 一面倒：打野一級打烏龜營，改成只打打得過的營地；之後 10 局對調陣容勝負跟著陣容 B 走（陣容強弱）。因陣容 A 含 B01／C17，已派 gamemode 比對 M3' 前後 B01／C17 實戰的施放、拒絕碼、傷害、召喚。B 與 A 已收到效能量測結束的轉達。
+- 2026-10-30 06:27：conformance：B 的驅散修正有效，A34W／B29 8 筆通過並從 known_differences 刪除，(c) 歸零；harness 接上 CastTrace。全量 10 位 1648 通過、15 (b)、0 (c)、626 unsupported（E254）。已派它在等 A 的 M5 期間降低 unsupported。
+- 2026-10-30 06:57：C 為 4 招 direction 技能補 vector_length（B08 兩招、A34、A24），UE 以直線預覽；C 問金袋要不要花約 25 Tripo credits，主 session 決定不花，改用基本 mesh＋金色材質＋Grok 圖示。已請 C 實機驗 vector 預覽並回報 runtime 呈現欄位進度。
+- 2026-10-30 07:00：C 把 runtime 呈現欄位從 host 做到 UE 並放回（21 檔，含 UBT；E247）：地面區域、繫繩（兩端都揭露才送）、幻象（只送同隊）、日夜；實機確認阿市光鍊、玉子爆裂箭；幻象與夜晚尚無產生者。換模型未做，接著做金袋、vector 預覽實機截圖、hex 變形外觀。A：B08 投射物指定起點、remove_status tags，138 招可產生。conformance：(c) 歸零。
+- 2026-10-30 07:07：A 把產生碼 effect path 對齊情境產生器寫法（觸發不帶 .actions、狀態用 id）後又停；已催它依序做 independent 疊加、M5 驗收與刪除三位手寫 handler、items 接線、第 1 批解鎖。
+- 2026-10-30 07:15：A 完成 M5 第一批（A02、B01＋C17、B04 去掉 applier 後 5400 tick 每 tick 相同，刪三位手寫 handler 與逐 tick 比對，E250）與 items.dll 接線（16 檔，B 審），base_content 失敗 27→1（大地震撼魔免暈眩交 B）。主 session 第二次 commit 並 push：主 repo 6af08b08、omfue 48f68a5（含刪除 570 個舊 Niagara，不改寫歷史）、omb 無變更。
+- 2026-10-30 07:17：A：independent 疊加（key <runtime_id>#<n>）、set_ability_active／swap_abilities、on_attack_windup 放回，可產生 146 招，wave1 21/44；剩餘多等 B 的 host 元件。已派 A 跟 B 劃分，分擔 set_mana、友軍範圍查詢、投射物結束效果等不衝突的 host 元件。C 開 lineC-vector/asai_nagamasa 實機局驗 vector 預覽。
+- 2026-10-30 07:27：A：友軍／雙方範圍選取、set_mana、投射物結束效果、ability_of 等，可產生 153 招，wave1 24/44，A34 阿松 4 招全可產生（待 conformance 比對）。已催 A 開始 wave2。C 在跑 lineC-vector/asai_nagamasa 第二局。
+- 2026-10-30 07:35：gamemode 完成 M3' 前後實戰比較（E255）：C17 施放數相近、cast_trace 無拒絕、KDA 相近，產生的 Rust 沒變差；陣容 A 偏弱是 bot 施放政策缺雜賀孫市、村上義清，補 5 條後陣容 A 勝率 2/24→3/12。已派 gamemode 把 bot 施放意圖改成依 catalog／v3 自動推導（含召喚、直線衝刺），目標所有已上架英雄每招都會用。
+- 2026-10-30 07:47：A 把 A34 阿松換上 live；同時發現上一批產生器修改讓 items.dll 載入時 panic、base_content 測試程序中止（道具文件的子技能不在 catalog），已修（E261，查不到就不註冊）。主 session 要求改成建置期比對 catalog 並列入 coverage、FFI 邊界包 catch_unwind、改產生器後固定跑載入 manifest 的測試。conformance 閒置，已請它繼續降 unsupported。
+- 2026-10-30 07:55：A 完成 E261 三項：建置期比對 catalog（50 處列入 coverage；items.dll 實際可註冊道具 35 件，先前 60 件是虛數）、Guarded 包 catch_unwind（execute panic 轉 RErr）、每份 registry 產生 manifest_loads 測試並加進 land_to_live 檢查。A34 阿松整位改跑產生的 Rust（hero_a34），待 conformance 比對；A 繼續 wave2。
+- 2026-10-30 08:17：conformance 確認 A34 阿松換成 hero_a34 後 0 退步；10 位 1686 通過、15 (b)、0 (c)、588 unsupported。已請它持續降 unsupported。C 在跑 lineC-vector spotlight1～4（阿松、淺井長政），08:08 有一局 1 秒就釋放鎖（疑似啟動失敗），下一輪看它的紀錄。
+- 2026-10-30 08:20：gamemode 完成通用 bot 施放政策（E260）：沒手寫政策的招式自動採 v3 推導提示、新增召喚意圖、直線技讀 shape_width；quick 政策 23→32 條，陣容 A 勝率 2/24→14/24（58%）。已派 toggle 意圖、nobu UE 驗收、M6 每批驗收腳本。A：independent 實例移除與 has_status 接上 B，可產生 170 招。conformance：A34 換上 0 退步。
+- 2026-10-30 08:27：C 查 swap_abilities：UE 每 frame 重建技能欄不用改，但被換進來的子技能（如 a07_rouse_free）不在 content 目錄時那欄失效，已轉 A 補 catalog 條目（影響 6 位英雄）。C 閒置，已請它收尾 vector 預覽驗證、金袋、hex 外觀、檢查 35 件道具的 UE 呈現。gamemode 放回 v3_bot.lua。
+- 2026-10-30 08:35：C 完成 vector 預覽實機驗證（autopilot 瞄準太快沒畫出，改先瞄 0.6 秒；b08_fang_slash、a34_frost_breath、b08_sky_fang 截圖確認，a24 未上架）、金袋 SM_gold_bag（基本形狀＋麻布＋金色材質，item_money）、hex 變形成青蛙 SM_hex_critter；接著檢查 35 件道具的 UE 呈現。
+- 2026-10-30 08:40：conformance E264：10 位 1721 通過、15 (b)、0 (c)、553 unsupported（626→553）；剩下 quirk 288、非 quirk 265（255 在仍跑手寫 handler 的招式，換成產生 Rust 後預期轉通過；已換上的只剩 10 個），無需要 host 新能力的項目。分類在共用筆記 conformance-unsupported-2026-10-30.md。A 排入被換進的子技能補 content 目錄。
+- 2026-10-30 08:56 使用者指示無人值守 96 小時（到 11-03 08:56），10 分鐘例行檢查持續（cron a88ef402）
+- 2026-10-30 09:00 check_live_consistent 通過（gamemode 08:43 bot 技能施放 land 之後）
+- 2026-10-30 09:26 B set_mana 改套用變化量已 land；C lineC-itemcue2 局跑 724 秒超過 10 分鐘，已通知 C 記 errors 並設上限；C 的狀態期間 cue 決定做（英雄道具共用）；conformance 排重跑 A34T
+- 2026-10-30 09:30 check_live_consistent 通過（B set_mana land 之後）
+- 2026-10-30 09:32 conformance E267/E270：1725 通過、15 (b)、9 (c)、539 unsupported；A34T 產生碼重複觸發 on_ability_executed 與 a34t_cap 無效交 A，FC-078 交 conformance，B08R hCaster 交 A
+- 2026-10-30 09:38 gamemode e187 三項 land：toggle_engage（E263，陣容 A 7/12）、nobu UE 實機 560 秒 replica mismatch 0（野怪營地／砍樹畫面待 autopilot 指令化）、verify_m6_batch.lua；下一步 autopilot 指令化與 B29 從沒施放
+- 2026-10-30 09:45 線 A land 17 檔（E268）：A34 副本不一致與 A34T 兩個 (c) 修好（host 退冷卻拿掉、a34t_active 不再與學會標記共用一列、hero_command 冷卻進 committed_cooldowns、soak 給等級走 SkillLearn），A34 手寫 handler 刪除；產生器接上 absorb／damage source+flags／status_resistance ignore／modify_attack crit，projectile 參數遮蔽修正；FC-135（B08R hCaster）；英雄產生 188／447
+- 2026-10-30 09:46 B knockback 擴充 land（可從點推開、可不附暈眩，1399 測試全過）；下一步 on_channel_end／on_phase_start
+- 2026-10-30 10:04 check_live_consistent 通過（B knockback land 之後）
+- 2026-10-30 10:24 線 A：產生器 knockback、routine 內聯（含遞迴本地函式）、跨招式狀態模組檢查、order=random、rotate／random_int／%、技能被動 on_created、swap 子技能進 content（a07_rouse_free）、B06 crate；英雄產生 202／447；B08 整位換上與 A07／B29／B06 逐招比對交 conformance
+- 2026-10-30 11:20 線 A：產生器接上 B 的 knockback（負距離往回拉、height → knockback_arc；distance 0 的原地拋起仍擋，B36）、on_phase_start 完整程式與 cancel_cast（Cx.cancelled，hook 回 false）、routine 呼叫先綁引數（修 nene 借用衝突）；英雄產生 205／447（B05、C25 解鎖）；97 套件全量編譯通過，已 land
+- 2026-10-30 10:49 使用者新規則 D18：各工作線每完成一件事就 commit（只 commit 自己的檔案、不 push），已通知五條線；conformance 1736 通過、15 (b)、0 (c)、537 unsupported，A07 三招與 B06 兩招 0 退步可換上
+- 2026-10-30 10:54 C 的 git commit 被其 session 權限擋下，主 session 代為 commit：omfue eb3830d、主 repo 3e09865b；conformance 自行 commit 3e550cdf
+- 2026-10-30 13:10 線 A：產生器再三批 land——target unit_or_point、face、spend_mana、requires.condition、status_var、leap（knockback_arc 拉到點）、swap_positions、stacking=replace（先移除再當新狀態）、shape=global、is_template、owner_of；vocab ABSOLUTE_STATS 加 move_speed（MoveSpeedAbsolute）；英雄產生 226／447，97 套件全量編譯通過。已向 B 要：引導開始效果（on_channel_start 或 PulseChannel 也跑 execute）、magic_immune 腳本入口、on_kill 事件、一般光環、kill、has_status_tag
+- 2026-10-30 14:30 線 A：產生器再 land——clear_slow_pool（self_slow_cleanse 封包，A07 red_thunder 解鎖）、zone（cue＋repeat）、unit_state 的 point/vec、ability.mana_cost、status.stacks、status/passive periodic 的 filter、tracking 投射物飛向點；英雄產生 237／447，97 套件以 deny(warnings) 全量編譯通過；已通知 conformance 比對 a07_red_thunder、b29_quake_axe
+- 2026-10-30 11:14 使用者規則 D19：遇到問題一律用通用解修正，已通知五條線
+- 2026-10-30 11:26 各線開始照 D18 commit：A d4621c71（引導事件，250／447）、1c655563（A07、B06 換上產生 Rust）；gamemode eb9c9638（verify_m6_batch）
+- 2026-10-30 17:40 線 A：A07 碎擊槍／奮起／a07_rouse_free、B06 兩招換上產生的 Rust（1c655563）；產生器 host 引導（d4621c71）；host kill、on_kill、has_status_tag、三個狀態（1fcf988a）；英雄產生 255／447；B08 兩個退步判定為 harness 問題，conformance 已從通用處修 harness，重跑後換上
+- 2026-10-30 11:40 C 找到 split 局 25 秒就結束的根因：client 預先建置後被別人改檔弄舊；改成父程序在鎖內一次建好所有角色。另修狀態 cue 的鍵應用狀態 id（E284）
+- 2026-10-30 11:46 gamemode 693f13a5 autopilot 指令化，nobu UE 拍到營地、砍樹與重生（E280）；765bfabe 驗證局自建 script DLL（E287）；conformance ce928109（E288）
+- 2026-10-30 18:20 線 A：B08 淺井長政整位換上產生的 Rust（hero_b08 自己的 DLL），刪除手寫 handler 與只有它用的 owner_cast.rs（conformance 0 退步）
+- 2026-10-30 11:56 A：B08 淺井長政整位換上產生 Rust（c8505bbf）、A07 紅雷換上、256／447；C e3e259f1（E284、E286）
+- 2026-10-30 19:10 線 A：產生器接上一般光環（passive.aura、status.aura → B 的 emit_aura／on_aura）與 knockback 原地拋起，256→268／447
+- 2026-10-30 12:00 C 狀態 cue 實機通過、擊退拋物線完成；主 session 決定目標 cue 投影政策（看得到目標的隊伍才收到，看不到施法者時不帶施法者身分），交 C 端到端實作；gamemode 下一步是拍營地重生，並對已換上產生 Rust 的英雄跑 verify_m6_batch
+- 2026-10-30 12:16 A 286／447（toggle_ability、is_ally、edge_distance）；B 57d0e388 replica 射程只判一次（E292，A34 寒冰箭觀察者不一致）；conformance a89fa734 換上比對更新
+- 2026-10-30 12:26 A 290／447；A 的 864230c0 曾蓋掉 B 的修改，已由 91940423 補回並記 E293
+- 2026-10-30 12:36 gamemode 5d564474：nobu UE 拍到營地清空與重生（E290），nobu 實機驗收的畫面項目補齊
+- 2026-10-30 20:30 線 A：產生器 268→291／447（create_unit.control、remove_unit、set_display_stacks、is_ally／edge_distance、toggle_ability、unique_group、caster_hero、independent＋source、game.dt、circle_point、cx_call 綁參數）；B29 震地斧查明（E292＋{rank}），影子 conformance 全過，等重比；E293 誤倒退 B 的 codegen.rs 已補回
+- 2026-10-30 13:00 C 目標 cue 完成（9429001a，依可見性投影，實機 p1 28 次、p6 17 次）；B E294 replica 冷卻修正；主 session 決定 include_hidden 明確接收、is_visible_to 做通用揭露事實（只揭露自己隊單位被敵方看見）；shop 測試寫死數量交 gamemode 通用修正
+- 2026-10-30 13:16 M6 驗收 A07、B06、B08、B29 與 nobu 營地重生記錄（182a2f01）；B29 換上 0 退步；商店測試改成從目錄推導（E296）；錯誤編號撞號兩次，交 gamemode 做 error_id.lua 配號工具
+- 2026-10-30 13:26 C M6 美術補齊（d3aa6b9／321db004，只缺服部半藏載入圖已補）；C 下一步做 M6 第 2 批起的美術並在換上後檢查 UE；conformance 下一步做換上比對、擴展到第 2 批、判定 15 個 (b)
+- 2026-10-30 13:30 B E294 實機確認（replica 不一致 5→0）；conformance 修好子技能情境（靠父技能換進來的子技能先施放父技能），B06 第一勇士急件 A 已換上產生版；errors.md 又出現兩個 E297，交 gamemode 隨配號工具一起修
+- 2026-10-30 13:36 gamemode 612d3f49 取號工具 error_id.lua（重複編號已改號，E300）、d5888106 UE 驗證局建置持 repo 建置鎖（E301）；B 9a9bd537 is_visible_to 敵方視野揭露與 include_hidden（E312）；nobu10 570 秒
+- 2026-10-30 21:40 線 A：B29 村上義清整位換上產生的 Rust（hero_b29，刪 handler）；b06_first_warrior、b04_flame_trail_dash 換上（conformance 0 退步；修掉 c185371b 讓手寫第一武士壞掉的急件）；c15_burst_arrow 仍有退步待查
+- 2026-10-30 13:46 C c0688726 第 1～4 批 33 位英雄載入圖（Grok）、8167eb51 UE 呈現逐招報告；A include_hidden no-op；B 與 gamemode 閒置已催
+- 2026-10-30 13:56 C 第 5～9 批 48 位英雄載入圖（7240bed8）；A C15 爆裂箭修正、道具被動接 on_equip；B create_unit.overrides
+- 2026-10-30 14:16 M6 載入圖補齊（f79da68d，86 位缺口 0）；C15 爆裂箭產生版仍有 24 個燒傷情境退步（adbd940b）；E318、E319 修正
+- 2026-10-30 14:26 B 8a30384b hero／permanent 狀態跨死亡保留；gamemode 開 demo2（1+9 MOBA demo）；conformance 停在等 A，已催它先擴展到第 2 批
+- 2026-10-30 14:44 線 A：M6 第 2 批 9 位（C05、C09、A18、B30、A16、A24、C01、A23、A35）加入 v3_test_heroes（test_only，各自的 hero crate），供 conformance REPORT_ONLY；修 E315（direction 目標型別）、E317（來源 starting_mana -1）
+- 2026-10-30 14:46 A 2db1dabe M6 第 2 批 9 位加入 v3 測試英雄供 conformance；m6gen3 0 NEVER CAST；demo2 持鎖 609 秒略超上限，已請 gamemode 讓 role_ue 時限從取鎖起算
+- 2026-10-30 14:50 gamemode E322 UE 局時限從取 live_match 鎖起算（649c147c）；demo2 完整地圖 600 秒只倒 3 塔；決定 run_ue.bat 預設維持完整地圖（使用者入口），自動驗收用 quick recipe；C E321 負 key 狀態不顯示修正；B 7 項 host 變更 commit，下一步 create_illusion
+- 2026-10-30 15:05 線 A：產生器接上 is_visible_to、create_unit.overrides、event.instance、status.scope（hero／permanent）、獨立實例狀態的觸發；道具的狀態事件型被動改用裝備時建立 marker；307→314／447（a05_valiant_power、a23_falling_fire 等）
+- 2026-10-30 15:16 gamemode 60c07f9a 固定驗收 verify_ue_demo_finish.lua（1+9 quick，選角到結算，600 秒內，E323）；C f070f2a0 split 釋放鎖保證在時限內（E325）；conformance M6 第 2 批第一次實跑（E324）；B 道具被動攻擊迴圈
+- 2026-10-30 15:20 demo4 打到結算（430 秒，固定驗收通過）；C15 根因是 unit_templates 不在召喚物表（E326，涵蓋率 314→302 如實下修）；決定由 A 從 v3 產生 summons、由 B 做共用 dummy 單位型別；gamemode 下一步量效能基準；C 繼續逐英雄檢查 UE
+- 2026-10-30 15:36 B 3bbdbdf6 create_illusion；A 產生器 angle_between 等；gamemode 開效能比較 perfcmp（performance＋live_match 鎖）；C 已做完淺井、村上、稻姬的 UE 驗證局
+- 2026-10-30 15:46 perfcmp 持 live_match 超過 17 分鐘，已通知 gamemode；A 25359716 v3 unit_templates 成為召喚物單一來源，308／447
+- 2026-10-30 15:55 效能量測：M3' 版中位數 1.97 ms、HEAD 2.33 ms，同輪差距有正有負，在雜訊範圍內；最快一輪 1.86 對 1.99 ms（7%）待安靜時段複測；E328 measure_headless_perf.lua 每局取 live_match 鎖、600 秒上限（c4520191）
+- 2026-10-30 15:50 線 A：E326 C15 燒傷退步原因（v3 unit_templates 不在內容召喚物）＋ scripts/v3_summons.lua（37 模板全被召喚物模型缺口擋住，清單交 B）；接上 attack／force／道具 on_attack_hit，303→308；E327 v3_test_heroes 引導被寫成 instant，重產待 B 支援射程 0 引導
+- 2026-10-30 16:10 check_live_consistent 失敗：v3_test_heroes.lua 跟產生器不一致（E329 新檢查抓到），交 A 重產
+- 2026-10-30 16:15 v3_test_heroes 過期（E327）：重產檔已備妥，等 B 放回射程 0 的引導後由 A 放回；期間其他 land 只印警告不被擋
+- 2026-10-30 16:30 A 72ff5115 重產 v3_test_heroes 後 check_live_consistent 恢復通過
+- 2026-10-30 16:56 fire_blast 前搖中斷主因是 interrupted:moved（129／305），交 B；C 四局因 E333 失敗、修正後重排；gamemode 下一步做 bot 買道具與用主動道具
+- 2026-10-30 17:26 A 182e9e69 C15 爆裂箭燒傷改為一份、一個時鐘（E335：source=caster_hero、existed 以來源判斷、週期鏈 start_chain/chain_current），影子內燒傷 5 次 25 通過；287d7c68 v3_summons 把 ai owner_controlled 對應 guard、不跟隨；C05 剩 9 fail 疑為前搖未放行，等 CastTrace
+- 2026-10-30 17:35 C E337 split 先建置再取實機鎖（64f6f9a3）；B01、C17、A34 UE 呈現報告（be28bc37）；B29 拋物線高度重跑中
+- 2026-10-30 17:36 C db80a038 實機確認擊退拋物線高度（E331），已換上英雄的 UE 呈現檢查全部完成
+- 2026-10-30 17:45 gamemode E336 bot 依角色出裝與用主動道具（60cb4488），m6item1 9 局 6.3～8.1 分鐘、45 件道具取得 41 件；C15 百箭與 C05 問題經 B 二分鎖定在 A 的 a416a541／25359716／c1c6a23e 之一；C 下一步量 UE frame time 與驗證 4 件未取得道具
+- 2026-10-30 18:28 C 持 performance 鎖 40 分鐘未量測（demo2 等建置鎖與實機鎖），已釋放；E343 run_moba_split_local --performance-lock 在取得實機鎖後才取、和實機鎖一起釋放（0b649cd9）
+- 2026-10-30 18:52 build_ue_moba 鎖被停掉的 demo2 遺留 33 分鐘，C 已釋放；E346 build_lock 記錄持有程序、持有者結束即接手、verify 不取 build 鎖（302b320e）；C15 百箭根因為 host scheduled_effect 差一 tick，交 B
+- 2026-10-30 19:00 建置鎖排隊成為常態瓶頸；決定 headless 批次改從鏡像快照建在私有 target（內容 hash 保證一致），只有 stage 進 UE 的建置排鎖，交 gamemode
+- 2026-10-30 19:10 conformance E340 land（01867c7d，103 項 0 退步；A12 fail 153→36、A26 0、C05 6、C15 0）；C 道具 spotlight 支援合成道具（a8230b8c），demo3 在 tick 960 因 attribute_hp mismatch 終止交 B；gamemode 快照建置開始
+- 2026-10-30 19:09 A da93e18c 第 1 批＋A05、cde5ab49 第 2～9 批其餘 66 位 test_only（B22 樹木目標除外）；33066aef 修 E341（summons.lua 截掉 authored 召喚物，百箭前搖不釋放）；32599c22 接上 B 的 acquisition_range／idle／projectile_speed；b732b37c E344；燒傷每 14 tick 一下交 B（scheduled 少一 tick）
+- 2026-10-30 19:15 A cde5ab49 第 2～9 批 66 位英雄以 test_only 放回 live（B22 待樹木目標）；conformance 開始對 66 位做第一次實際比對，通過後轉正式英雄才能進比賽；gamemode 私有快照建置成功（9 個 binary hash 一致），m6item2 開跑
+- 2026-10-30 19:56 gamemode 7529d261 headless 批次私有快照建置（E347）、平衡表與 DamageTally（E342、E352）；B E348、E349（scheduled_effect 少一 tick，C15 百箭根因）
+- 2026-10-30 20:12 m6item3 12 局全在時限內；玉子 C15 對英雄傷害約其他 3 倍，交 A 查證灼燒是否與原作一致（一致則照 D13 保留）；決定 verify_m6_batch 依資料推導英雄定位分路、加道具覆蓋模式；C E355 UE 加 -unattended 避免 ZenServer 對話框卡住
+- 2026-10-30 20:30 B f04f942d 英雄技能欄 5→6；主 session 決定第 6 格預設鍵 C（第 5 格 X），屬性面板改 K
+- 2026-10-30 20:40 A 玉子灼燒查證（f2d8096a，E356）：live 比原作少（原作每段 dummy 各一份、同時 3～4 份），已改回原作；偏強主因是百箭在 E341 修好後恢復施放，照 D13 保留原作數值；C 4 件 bot 未取得道具實機驗證通過（edf3a983）
+- 2026-10-30 21:00 C 第 6 技能格放回（omfue c96b5da、13729f6b，ABI 42，預設鍵集中在 OmControlDefaultKeys）；決定按鍵設定檔加 schema 版本號，舊版自動遷移成屬性面板 K、第 6 格 C
+- 2026-10-30 21:22 C05 0 fail、C15 爆裂箭換上產生版（1ddfffc3）；A 開始把全招產生且 conformance 0 fail 的 test_only 英雄轉正式（hero_dlls），首批 22 位等 conformance 結果
+- 2026-10-30 21:27 A f2d8096a E356：玉子灼燒改回每段火焰一份，和原作一致；平衡偏強的原因是百箭恢復（E341），不是灼燒。13e92a17 E360：v3 列帶 charges、toggle 型別、F 欄。1ddfffc3：c15_burst_arrow 換上產生版（訂正 commit 訊息：C15 是 3 招產生，百箭仍是手寫）。下一步：0 fail 的 v3 英雄標 playable、加進 hero_dlls，可進比賽
+- 2026-10-30 21:46 A 5facff2e：M6 第一批 14 位 v3 英雄轉正式（全招產生、conformance 0 fail），可以進比賽；conformance a7719235（E359、E361、E362）
+- 2026-10-30 22:40 B no_source_bonuses 傷害旗標、observer 推導輸入日誌；conformance E367；gamemode 閒置，催它對 14 位轉正式英雄跑 verify_m6_batch
+- 2026-10-30 22:48 demo6 mismatch 根因：replica 看不到敵方道具而少算屬性加成；決定權威端揭露可見單位的最終衍生屬性、不揭露道具清單，交 B；gamemode E363 正式英雄表、E371 v3 英雄 bot 不施放修正待 land；conformance E367 A05 0 fail
+- 2026-10-30 23:45 C：14 位正式英雄的頭像、載入圖、技能圖示、cue 已接上，只有 3D 身體用共用人形（Tripo 每位 45 credits，待使用者同意）；E378 showcase 出生先 Hold Position；A E377 om_codegen 空技能欄 panic 修正中；c24_last_life 的 ally_engage 意圖 executor 沒有，交 B
+- 2026-10-30 23:55 conformance fail 418→220（a7719235 等，皆 0 退步）；C E378 showcase 出生 Hold Position（422acb68）；A 第三次重送 E377 批（影子過期導致 v3_test_heroes 不一致）
+- 2026-10-31 00:30 A 9d29384d（E365 文件層級狀態進技能區塊、E366 range 0 不限距離）、6abaf6ce（relative_to、reapply_if_removed、選取 building／英雄以外、no_source_bonuses、召喚物 mana 10→19 列、A32 F 坐第 6 欄）、omfue 6f9e723（E377 om_codegen 跳過空欄，待 C push）；涵蓋率 319→329/447（含影子中的 independent+states）。
+- 2026-10-31 00:05 C E379：B cddcb1af 的空技能欄讓 build_ue_moba HUD 同步失敗、所有 UE 建置被擋，已修；B E374 敵方衍生屬性改由權威揭露（060be56b）；conformance E372／E375（9362a5bc）0 退步
+- 2026-10-31 00:30 conformance 誤用 taskkill /IM cargo.exe 殺掉全機 cargo，已通知四條線檢查重跑；新增 D20 只停自己的程序；conformance：30 位英雄全招產生且 0 fail
+- 2026-10-31 00:45 M6 14 位驗收完成（g1、g2 各 18/18）；決定移植期間照 D13 不調數值，極端弱勢英雄（德川家康 1/113/11、長宗我部、上泉、寧寧、齋藤）先當 bug 查（gamemode 查 bot 政策、A 查技能）；teamfight 時長用 sustain 參數調 recipe；B t76 host 能力合併 commit（0cdef020）
+- 2026-10-31 01:06 C UE frame time（6b0448fb）：demo8 中位數 16.9 ms、p95 23.5 ms，團戰 cue 數量不掉幀，觀察端不一致 0；卡頓來自首次播放 cue／首次生成單位的同步載入（E389 預載處理中）
+- 2026-10-31 01:56 A 放回 c78f8fda：t76 主機能力接上產生器、bot 線寬推導、M6 第二批 6 位轉正式（共 20 位）；C demo9 效能局進行中（7 分鐘）；催促 gamemode 後已恢復。
+- 2026-10-31 02:06 B 放回 E392（revealed／provides_vision）、E393（吸收盾事件）、E395；gamemode teamfight recipe 改回城 10%／出泉 50%，中位數 11.9→8.0 分鐘（E396）；C 結案 E389。demo9 572 秒。
+- 2026-10-31 02:20 C：齋藤短局根因是等鎖期間 hero_dlls 名單變動，拿鎖後組合不同會重建（E399）；佇列：pres14 剩 4 位 → 重跑 6 位 → 第二批 6 位 → M7 剩 12 件主動道具。A 追查 r2+ 狀態仍帶 r1 數值（E388）；B E397 飛行／E398 放回中；conformance 多 3 項比對工具修正後重跑。
+- 2026-10-31 02:40 A commit 065af2ac（幻象改用 B 的 illusion v2）；gamemode 實機 split 3:06 因 c05 冷卻／c14 換技能槽 observer 不一致中止，已交 B；B 之後再做 B22 的樹木目標主機能力。gamemode 確認營地／樹／加兵／建築回血都已放回，繼續 M6 批次。
+- 2026-10-31 02:56 B 放回並 commit E397（飛行）、E398（bot 範圍技把冷卻留給英雄）；接著做 c05／c14 observer 不一致與樹木目標。
+- 2026-10-31 03:10 gamemode a4g2：18/18 局都 <10 分鐘、0 招沒放過；A：E388 是 harness 讀值時機問題，產生碼正確，conformance 改成先走 0.5 秒；revealed、飛行由 vocab 自動接上；飛行召喚物 a29、b10、c16 等 B 的 chase_target AI；C 的 restart 工具修正（E402）放回中。
+- 2026-10-31 03:16 B commit E401（自隊冷卻與敵方英雄技能槽由權威揭露，對應 c05／c14 observer 不一致）、E403（以樹為目標施放）；A commit botsub（換進槽位的 sub 技能有 bot 政策）與召喚物 flying。
+- 2026-10-31 03:40 build lock 是瓶頸：一次 3 檔 land_to_live 佔鎖 24 分鐘，C 的寧寧局與 E402 因此排隊。conformance E404：A22、B29、A33 是 harness 一次寫入被動等級、光環沒刷新，A34 是真 bug；7 項修正一起全跑。B E406 chase_target 測試通過，全套測試跑中。
+- 2026-10-31 03:45 gamemode 實機 split（E396 recipe、10 位 M6 英雄）7.1 分鐘自然結束、20 座建築倒、小兵面向正確；E401 後 c05／c14 不一致消失，剩 c14_fire_breath 龍形等級一筆非致命（rebase 修回）交 B。第一批 36/36 局完成。
+- 2026-10-31 03:56 C commit 上泉信綱、寧寧呈現報告（pres14 佇列完成），接著重跑 6 位與第二批；B commit E408（換入的子技能推導 bot 政策）。
+- 2026-10-31 04:06 C commit E402（UE 建置不重用 MSBuild 節點）、E409（spotlight 對射程外目標也下令）；A commit E388／E411（其他技能的值以施法者在該技能的等級讀取）。
+- 2026-10-31 04:16 B commit E406（chase_target 召喚物 AI、會移動的 dummy；飛行召喚物 a29、b10、c16 解除阻擋）；C 重跑佇列：稻葉一鐵已跑完。
+- 2026-10-31 04:36 A commit d031de3e：chase_target 召喚物接上產生器，兀鷹群與行空魂可以產生；C 重跑宇喜多完成。
+- 2026-10-31 04:46 conformance 放回並 commit efdc4728（7 項 harness 修正合併：E381、E382、E386、E388、E390、E391、E404）；A commit unit_or_point 的 bot 政策。
+- 2026-10-31 05:06 B commit E407（replica 先套同一 tick 的槽位再套等級，修 c14 龍形噴火等級不一致）、E410；A 把樹木目標接上產生器；C 重跑島左近完成（約 6 分鐘）。
+- 2026-10-31 05:16 conformance 新基準 fd1fe2c1：39 位英雄全部技能產生且 0 fail（原 30 位）；C 重跑鳥居元忠完成。
+- 2026-10-31 05:36 A commit fb84e896：M6 第三批 9 位轉正式（共 29 位）；gamemode split396 run3 進行中（E407 驗證）。
+- 2026-10-31 05:45 conformance 全跑 16380 pass／163 fail、0 退步；gamemode run3：E407 後 0 observer 不一致，但 600 秒內打到 9.1 分鐘未分勝負（11 座建築倒）；第二批陣容 3/18 局到 1200 秒，正在比較 return_to_shop 門檻 950→3000。C：第三批 9 位稱號、美術都齊。
+- 2026-10-31 06:00 live 曾因 C 先改套件、v3_test_heroes 未放回而不一致，C 已放回並 commit c9432f07；已提醒套件也要用 land_to_live 一起放回（E143）。B 的 E412–E416 在等建置鎖。
+- 2026-10-31 06:16 B commit E412（issue_order 對召喚物／分身／dummy 生效）、E413（光環 clock 在安靜 tick 照常前進）、E414（hero-only 目標由 host 檢查）；A commit B13 催眠醒來寬限、include_illusions。
+- 2026-10-31 06:36 B commit E416（召喚施法可在 spawn 前對他隊套狀態／造成傷害）；conformance commit E415（periodic 命中次數照該等級 duration）；A commit targets_heroes_only、periodic 共用 chain token。
+- 2026-10-31 06:45 gamemode：第二批長局根因是酒井忠次 28 局 0 死，a05_loyal_secret 免死被動疑似不進冷卻，已交 A 與 conformance；商店門檻 3000 不採用；第三批 18/18 局 <8.1 分鐘，但隊伍 1 贏 18/18，已請它對調陣容查異常。B 的 E417（會移動的 dummy）、E418、E419 在等鎖。
+- 2026-10-31 06:50 酒井根因：damage_pre.rs 把 hook 的 set_mana 與冷卻開始當成禁止結果丟掉，卻仍套用免死，所以每次致命傷都被取消；已交 B。第三批一面倒是陣容問題（地圖兩邊對調後隊伍 1 仍全勝）：隊伍 2 的明智秀滿、佐佐木小次郎有技能未完成，等 E411／E419／hint 修完重跑。
+- 2026-10-31 06:56 B commit E418（per-owner 召喚上限）、E419（summon_near_enemy 接受無目標召喚）、E421（damage hook 的效果與 edit 一起成立或一起丟棄，修酒井免死）。
+- 2026-10-31 07:30 06:56 的一致性檢查一度失敗（script DLL manifests load failed, exit 101），重跑通過、錯誤編號沒有重複，判定為暫時性；再出現就查根因。
+- 2026-10-31 07:55 Windows Defender 自 07:47 起把 tools/lua-host/target 的 omoba-lua-host.exe 誤判為 Trojan:Win32/Bearfoos.B!ml（ThreatID 2147731849）並隔離，所有經 lua-host 的工具停擺；屬安全設定，已通知使用者加排除。各線暫停 live，改做離線工作，不重建 lua-host。
+- 2026-10-31 08:06 Defender 07:49 後沒有新偵測，各線已恢復；B commit E424（status on_moved）、E428（建築召喚物）；C commit E429（spotlight 替身死亡後等復活再示範）、7 位呈現報告。
+- 2026-10-31 08:26 B commit E431（批次期間推進的 outcome 由下一批結算）；C 重跑仙石秀久 495 秒；gamemode 已恢復批次。
+- 2026-10-31 08:36 conformance commit d5e6cd75（E420、E422、E425、E430、E432：A05 假死測試等）；B commit E433（bot 不施放被停用的技能）；gamemode E434（批次快照鎖記錄持有程序）。
+- 2026-10-31 08:50 conformance：全跑 fail 163→124、0 退步；酒井 FC-024 在 E431 後通過（第一次致命傷假死，約 270 秒冷卻內第二次致命傷會死）。gamemode 第三批重跑：0 招沒放過，但隊伍 1 仍 18/18；疑似 bug：黑田孝高傷害約他人 2 倍、明智秀滿分身疑似不造成傷害、上杉謙信英雄傷害偏低，已交 A 與 conformance。
+- 2026-10-31 09:06 gamemode commit E436：headless 統計把分身與召喚物的傷害算給召喚者，並依技能加總（明智秀滿傷害偏低可能是統計問題）；C 重跑黑田 572 秒。
+- 2026-10-31 09:26 A commit 5dcf5db8：減療、光環 refresh 重新 emit、擋路與建築召喚物；B commit E437（restore_mana 送相對 mana set）。
+- 2026-10-31 09:40 C 重跑佇列 09:35 在小姬遇到 lua-host 0xC000012D（STATUS_COMMITMENT_LIMIT，系統 commit 用光，不是 Defender）；09:38 時 commit 剩 28 GB／68.7 GB，已恢復；請 gamemode 讓 batch runner 依可用 commit 節流。
+- 2026-10-31 09:45 conformance 對照三位英雄都與文件一致：B32 傷害有打到英雄（偏低來自 bot 選目標）、C02 符合；A19 burn 每 0.25 秒打完整 $damage，已請 A 回原作 KV／lua 確認是否應乘 ThinkInterval（可能是抽取錯誤）。B E439 讓 b24_earth_prison 可施放。
+- 2026-10-31 09:50 A 確認 A19 burn 不是抽取錯誤：原作 KV 每次 think 打完整 dmg，原作說明也寫每秒 320/480/640；依 D13 保留。第三批一面倒屬原作設計強度，平衡另列待使用者決定。
+- 2026-10-31 09:58 gamemode 的批次兩次在 split 開始或結束時被 lua-host 中斷，結束碼 0xC000012D（commit 用光；gamemode 原本誤判為 Ctrl+C，已更正）；請 C 取樣 split 開始與結束時的 commit 尖峰。第四批 18/18 完成，中位數 6.4–6.9 分鐘。
+- 2026-10-31 09:46 系統可用 commit 13.0 GB：5 個 cl.exe（UBT）約 10 GB、gamemode batch 平行 6；已請 gamemode 改 --parallel 3，並加 lua-host 讀可用 commit 的 op 做 batch 准入；也請 C 評估限制 UBT 平行數。B commit E438；C commit 6 位呈現報告。
+- 2026-10-31 09:58 gamemode commit E441（7889866c）：lua-host 新增 memory_status，batch 在可用 commit ≥ 2×估計值時才開下一局，host.lua 以 NTSTATUS 解碼結束碼；每局 headless 只用 28–44 MB，09:35 的尖峰來自 cargo／UBT 建置；下一步讓 snapshot cargo build 也依可用記憶體排隊。lua-host 09:52 重建，目前沒被隔離。
+- 2026-10-31 10:05 C commit E443：commit 尖峰來自建置（cargo 預設 24 個 rustc 約 30 GB，加上 23 個 link.exe 約 25 GB，到 70.2／71.0 GB）；land_to_live 與 UBT 依可用 commit 算平行數；另 commit E442（spotlight 射程外先走近、未送出就重試）。全線直接下的 cargo 指令一律 -j 8。
+- 2026-10-31 10:09 A commit 7021eb03：多段 vars／state 存取、向量運算、b22e_treant 生命值、approach 的 reach_key。
+- 2026-10-31 10:56 A commit 34256b16：B03 齋藤朝信、B36 直江兼續轉正式（共 31 位），選取旗標 exclude_illusions／exclude_invisible；B E444。
+- 2026-10-31 11:00 conformance full437 為 fail 81／pass 17225；修掉兩個退步（逐級學習把法力補滿、E440 範圍太廣），full438 跑中，0 退步就放回。B commit E444（b33_spider_attack 可施放）；A 在放回 B33 轉正式。
+- 2026-10-31 11:06 A commit B33 最上義姬轉正式（共 32 位）；B commit E445（狀態 immune_to）；gamemode commit E441 補充：快照 cargo 建置峰值 14 GB，等到可用 16 GB 才開始。
+- 2026-10-31 11:20 gamemode commit E446／E454（replay world 補上 trace 資源，quick_swap 不再在 tick 1077 分岔）；但發現 stats 開／關結果不同（damage tag 會影響模擬），已交 B 當高優先決定性問題。酒井已驗證：12 局死 62 次。上杉謙信是產生碼 bug：狀態觸發的傷害沒有來源時被算成持有者造成，受害者等於打自己，已交 A。
+- 2026-10-31 11:26 conformance 放回並 commit 20c69e59（E435、E425 第二版、E440）；B commit E438 測試補丁。
+- 2026-10-31 11:55 gamemode m6b3g5：18/18 完成（quick_swap 6/6，中位數 4.0–5.9 分鐘），隊伍 1 仍全勝；已知原因：上杉自傷（A）、bot 對魔免／不可選取／無敵目標施放（B）。live split 開始。
+- 2026-10-31 12:06 A commit 16a34749：E448（catalog 狀態 tags／immune_to）、E450（傷害來源改為施加者，修上杉自傷）、E451（狀態以目前等級跳傷）、B22 太原雪齋轉正式（共 33 位）；C commit E459（bot 無法瞄準的技能列為未示範）。可用 commit 12.8 GB（UBT 4 個 cl.exe 約 8.6 GB）。
+- 2026-10-31 12:25 gamemode live split396：539 秒自然結束、13 座建築倒、英雄死 18／38；1 筆 observer mismatch（DISCLOSED_HERO_COMPONENT，entity 332）交 B；小兵面向截圖待確認。B E460（bot 略過 server 會拒絕的目標）放回；A：B26、C07 全招產生、0 fail，待轉正式。
+- 2026-10-31 12:30 小兵面向無法從截圖確認（lane_v0 的 facing 截圖只拍到操控英雄），已請 gamemode 改用資料自動檢查：比對 facing 與移動方向或攻擊目標方向，0 violation 才算通過；UE 截圖之後再請 C 補拍。
+- 2026-10-31 12:26 A commit 84c2f423：B12 山本勘助轉正式（共 34 位），並接上 on_mana_spent、event.damage.lethal、is_neutral／team_of；B commit E460。
+- 2026-10-31 12:32 gamemode E461 放回中：moba_headless 每 30 tick 檢查小兵 facing（走路時對移動方向、攻擊時對目標方向，誤差 30° 內），驗收條件為 0 violation；m6new1 會有第一批數據，split server 端之後補。B 在追 observer mismatch（entity 332），已加診斷。
+- 2026-10-31 12:36 B commit E458（統計開關不影響模擬：damage tag 不占 fact 序號、不計入召喚上限）與 observer mismatch 診斷（6cd94071）。
+- 2026-10-31 12:46 A commit 02141778：B26 大熊朝秀、C07 立花道雪轉正式（共 36 位）；B commit E453（set_time_of_day，replica 改用公開的夜晚狀態）；C 重跑佐佐木小次郎完成。
+- 2026-10-31 12:55 gamemode m6b3g6：18/18 完成；E450 驗證（上杉神閃傷害每局 0→6679）、E460 驗證（INVALID_TARGET 553→9）；隊伍 1 勝率 94%，黑田、宇佐美的數據偏高，已依 D13 當疑似 bug 交 A／conformance。E461 commit 1e1ed6ac，m6new1 會有第一批小兵面向數據。B 的 E455 land 等了 1.5 小時，已請 B 查根因。
+- 2026-10-31 13:06 B commit E462：build 鎖改為 FIFO 排隊（E455 久等的根因是等待者被後來的建置搶走）。C 重跑三好長慶開始。
+- 2026-10-31 13:16 A commit 1596a546：set_time_of_day 接上產生器、B14 片倉景綱轉正式（共 37 位）；B commit E455（refund cooldown）。C 重跑三好長慶 350 秒。
+- 2026-10-31 13:36 B commit E463（獨立實例的狀態可帶緩速）；conformance commit E457（on_phase_start 取消施法需要的世界條件先建立）；C 重跑百地三太夫完成。
+- 2026-10-31 13:45 gamemode m6new1（B03、B36、B33、B22、B13）：5 位勝率只有 6%；原因是 b13_shukuchi 沒施放（E468）、b36 施放 97% 被拒（缺前置狀態檢查，交 B）、b22 以樹為目標的兩招沒施放（決定新增 tree_target 意圖，交 A／B）。小兵 facing 首批數據 1.3% violation（四角出生時的角度、caster 倒退走），交 B 修到 0。黑田、宇佐美確認是原作數值。
+- 2026-10-31 14:26 A commit 71217976：refund、dummy 召喚物光環、同次執行內的狀態套用（E466，修 A19 on_created 觸發 4 次）、A10 平手政秀轉正式（共 38 位）；B commit E465（on_order_targeted）；conformance commit E467。
+- 2026-10-31 14:46 B commit E469（小兵追擊越過轉角後不再倒退走回已經過的 waypoint）；gamemode commit E471（creep_facing 以上一個 tick 的位移當預期方向）；C 開始用柳生驗證 E442。
+- 2026-10-31 14:55 gamemode m6new2：E468 驗證（b13_shukuchi 0→32 次）；新英雄勝率 17%（b36 前置狀態、b22 樹木目標還沒修）。四角出生 45°／225° 是 30 tick 取樣窗造成的誤判；倒退走是真的，E469 已修。m6new3 會有第一個有效的小兵面向數字。C：5 位新正式英雄的資產與示範腳本齊全，部分特效暫用通用佔位。
+- 2026-10-31 14:56 B commit E472（bot 依技能的 requires_status 決定是否施放，修 b36_footsteps 大量被拒）。
+- 2026-10-31 15:06 A commit 1edcdd80：獨立實例緩速、ability.owner；B34 武田勝賴、A20 九鬼嘉隆轉正式（共 40 位）。
+- 2026-10-31 15:26 B commit E473（bot 以樹為目標的意圖 nearest_tree）；A commit b9fb05d7（template 輸出 requires_status，E472 生效）；conformance commit E470（逐級學習後光環以最終等級重新套上）；C 重跑仙石秀久完成（驗證 E442）。
+- 2026-10-31 15:35 conformance 全跑 fail 124→58、pass 18,050、0 退步。gamemode m6new3：小兵面向 violation 3871→81（走路 0，剩攻擊時沒轉身，交 B）；A10、C07 有 3 招沒施放（hint 編譯檢查失敗，交 A）；三批新英雄都是 17% 勝率，已請 gamemode 用老英雄做對照，確認是不是 batch 設定的系統偏差。B 做 E475（event.damage.is_attack）。
+- 2026-10-31 15:46 B commit E475（event.damage.is_attack）；gamemode commit E474（nearest_tree 意圖）、E476（creep_facing 攻擊樣本帶目標資訊，距離 0 不檢查）；C 道具呈現 m71 跑完。
+- 2026-10-31 16:15 gamemode 對照組 m6ctl1：5 位老英雄 10/18，確認 batch 有系統性偏差。quick_swap 換邊時連對手也換了：quick／teamfight 打強的 shipped 隊伍 2，quick_swap 打弱的 shipped 隊伍 1。E484 改成 shipped 英雄也依角色換隊，三種 recipe 都對同一個對手。在一致的對手下新英雄還是較弱（quick_swap 1–2/6 對比對照組 6/6），繼續逐招追查。
+- 2026-10-31 16:16 B commit E478（event.damage.raw、on_heal_received）；A commit is_attack 對應（E475）。
+- 2026-10-31 16:38 C 的 m72 split 建置佔 build lock 約 22 分鐘（16:15–16:37，只是慢、沒卡住），最近幾局也要 11–14 分鐘，成為 land 的瓶頸；已請 C 拆解耗時並修正（例如等記憶體時不要佔鎖、重用建置）。
+- 2026-10-31 16:46 A commit 72893035：A03、A29、A30、A33、B31、C04 轉正式（共 46 位），另 commit forced_move 生成（E464）；gamemode commit E484（quick_swap 只換邊不換對手）；C 道具 m72 跑完。
+- 2026-10-31 16:56 C commit E487（split 只在 build lock 下做前端建置與來源快照，cargo 改從快照建置，縮短佔鎖時間）；B commit E479（on_damage_pre 帶 is_attack）、E486（投射物形式的 action:attack）；A commit E478 接上產生器。
+- 2026-10-31 17:16 C commit 第二輪重跑 12 位英雄的呈現報告，確認 C24 神取、A22 焰心鼓動的 E442 修正有效；conformance commit 70526876（E480–E483、E485）；A commit 單位模板帶的文件層級狀態。
+- 2026-10-31 17:26 E487 生效：split 佔 build lock 從 22 分鐘降到約 7 分鐘（17:16–17:23）。B commit E488（modify_attack 的 cannot_miss、is_orb）；gamemode commit E491（creep_facing 攻擊時比對小兵當下的 lane 目標）。
+- 2026-10-31 17:40 C 實測 E487：split 佔 build lock 約 4.5 分鐘（UE 前端 238 秒＋快照 33 秒），cargo 在鎖外跑。E490（道具 showcase 改為限制購買次數）放回；第二輪報告 commit 訊息把宮本武藏誤寫成 B11（正確是 C21），沒有 amend。
+- 2026-10-31 17:46 B commit E489（issue_order follow）；C commit E490；C 開始跑新英雄佇列（齋藤朝信完成）。
+- 2026-10-31 18:06 A commit 84bfb2c9：A11、A27、B02、B09、B21、C23 轉正式（共 52 位）；d889a25b 接上 modify_attack cannot_miss／is_orb、on_refreshed、被動用學到的等級觸發；B commit E494（knockback stop_on_contact／on_end）。
+- 2026-10-31 18:12 gamemode m6new4（A03、A29、A30、A33、B31、C04）：E484 之後第一批，batch 英雄 14/18，teamfight 3/6（不再固定 0/6），所有技能都有施放；小兵 facing 剩 8 筆（舊版檢查，約 24.2 萬次檢查）。m6new5 用 E491 跑，會有正式的數字。C：6 位新英雄資產齊全。
+- 2026-10-31 18:36 B commit E496（on_attack_miss）、E497（ability_in_slot）、E499（召喚物 template 回血與負回血）；A commit E494／E489 接上產生器、升級時重套學習狀態；conformance commit E493（burn_mana 扣掉施法期間目標的回魔）；C 直江兼續完成（約 3.6 分鐘）。
+- 2026-10-31 19:10 gamemode m6new5（A11、A27、B02、B09、B21、C23）：batch 英雄 12/18，所有技能都有施放，但 a11 有 391/531、b09 有 95/470 被結算拒絕（settlement_refused:AddBuff，交 B）。小兵 facing（E491 第一版有效檢查）：約 34 萬次檢查 13 筆 violation（交 B，目標 0）。m6new6（A04、A14）跑中。
+- 2026-10-31 19:16 A commit b5670cac：A04、A14 轉正式（共 54 位）；B commit E501（道具冷卻、不帶 duration 的夜晚）；C commit E507（split 快照建置只 stage 並比對快照內的英雄 DLL 集合）。
+- 2026-10-31 19:40 使用者核准用 Tripo 產生正式英雄 3D 模型（帳號 11/1 才有點數），已交 C：11/1 先查點數，依轉正式順序做，不超支。使用者表示會把 lua-host 加入 Defender 排除（主 session 沒有權限讀排除清單，無法驗證）。
+- 2026-10-31 19:46 B commit E504（移除觸發中的獨立狀態實例）、E505；A commit E465 接上產生器；gamemode commit E510；conformance commit E502。
+- 2026-10-31 20:06 使用者指示：先不管平衡，重點是功能正確、功能完整、效能好。記為 D21（e1f282d9），已通知五條線：gamemode 改看施放被拒、從沒施放、mismatch、facing、效能；B 補 server tick 熱點；C 量 UE frame time。
+- 2026-10-31 20:15 gamemode E512 放回中：batch 報告新增 Acceptance（從沒施放、施放被拒、失敗局、facing）與 Performance（tick p50／p99、超出預算、最慢 tick 的 system）。m6new6（A04、A14）18/18、0 招沒施放，但 facing 有 228 筆（建置早於 E510）；已請它確認 caster #118 的滑動是不是 forced motion。
+- 2026-10-31 20:16 A commit E501、E503 接上產生器；C commit 68bb09f4（ue_frame_windows 列出每個 ≥100 ms 卡頓與原因）。
+- 2026-10-31 20:26 B commit E509（0676961f，持續施法可套狀態）；A commit C25 茶茶轉正式（2429b140，共 55 位）；gamemode m6acc1 等 E512 放回後開跑。
+- 2026-10-31 20:31 gamemode commit E512（4072d051／omb 7379f03，批次報告加 tick p50/p90/p99、超預算 tick、最慢 tick 與系統、Acceptance／Performance 段）；m6acc1 開跑。
+- 2026-10-31 20:42 C 放回 spotlight 樹木目標（omfue 613bf11／c2db3f34，codegen+cargo+UBT 過，未實機）；B22、C25 排下一輪 spotlight。E515（hook 錯誤回報）B/A/conformance 三方草稿就緒，待 E506 後放回。
+- 2026-10-31 20:46 B commit E508 host（bf289c67，stat when 時段列）；A commit E505/E504（55310dc2，chance prd、獨立狀態實例變數）。b-perf m2 跑 7.7 分鐘正常釋放。
+- 2026-10-31 20:56 B commit E506（6e8b7fb1，狀態事件可花魔力）；A commit C13 龍造寺隆信、A17 佐佐成政轉正式（b6633e02，共 57 位）與 3034fa44（獨立實例初始 vars 等）。
+- 2026-10-31 21:06 A 轉正式 A06 井伊直政（f6d33ed0）與 A31、B20、C03、C12、C19（111f6c6f），共 63 位；B commit E511（094c6705，召喚物 no_attack）；C commit E516（469f25d3，split 各角色啟動建置時快照的英雄 DLL 集合）。
+- 2026-10-31 21:16 A 轉正式 B05 毛利元就（b2195a2a，共 64 位）；B commit E508 kit（a2f4a0fa）。C spotlight okuma_tomohide 跑中（8.4 分鐘）。
+- 2026-10-31 21:16 m6acc1（D21 首份驗收）：NEVER CAST 0、settlement_refused 2（原 509，皆 b09_mind_burst）、INVALID_TARGET 7、失敗局 0/18、creep facing 4（已轉 B）。60 Hz tick p50 3.0–4.3 ms、p99 中位 18–24 ms、超預算 1.3–3.6%；最慢 tick 多半在 specs 系統外（driver/dispatch），待 E513 分段。
+- 2026-10-31 21:36 B commit E513/E514/E517（25bbcf71，tick 階段耗時、impulse、hook 錯誤紀錄）；E518（07a68aa4，creep facing 下一 tick 仍偏離才算 violation）。
+- 2026-10-31 21:46 gamemode commit E520（82341889，效能報告附 driver 序列階段與最慢 tick 的 stage）。b-perf m4 跑中 8.1 分鐘。
+- 2026-10-31 21:56 A 轉正式 C09 立花誾千代、C16 果心居士（a7552a0f，共 66 位）；A 接上 E517/E508/E514（8b57ba34）。b-perf m4、m5 皆正常釋放。
+- 2026-10-31 22:06 A 轉正式 C10 長宗我部元親、B25 本願寺顯如（2d5561f1，共 68 位）；C commit E522（57b6ce16，split cargo 指令由快照英雄集合產生）。
+- 2026-10-31 22:16 conformance commit E519（7717b110，trigger 回報的腳本錯誤判 fail）。B 跑 b-perf ab1/ab2 對照量測。
+- 2026-10-31 22:29 C：spotlight 佇列跑到 9/15，4 位因晉升競態失敗（E507/E516/E522 已修）排 rerun4；76 位英雄全部主動技可示範；≥100 ms 卡頓 8/15 來自截圖，PNG 編碼移到 worker thread 放回中。B 寫好 E523（modify_base_stat）。conformance 在 7717b110 跑完整一輪。gamemode m6new7–12 等 ab2 釋放效能鎖。
+- 2026-10-31 22:36 C commit E524（5b74db83，autopilot 截圖改背景執行緒編碼 PNG）。ab2 結束，C spotlight katakura_kagetsuna 開跑。
+- 2026-10-31 22:47 m6new7（C13、A17）：NEVER CAST 0、refused 0、INVALID_TARGET 2、失敗局 0/18、facing 1（E518 前快照）。conformance 全跑 17 fail 都是死者讀不到位置（C16/B23/A14/A28），B 寫 E526 RetiredPositions；B 另寫 E523/E525/E527 測試中。
+- 2026-10-31 22:56 B commit E523/E525/E526/E527（acc0507e）。C spotlight niwa_nagahide 完成。
+- 2026-10-31 23:06 A 接上 E523/E527（536cb2af）；B commit E528（ed296654，chain 每道彈跳各自命中表）。
+- 2026-10-31 23:26 B commit E529（6a4f1e49，召喚物自己的技能與施法命令）；A 轉正式 B11 菊姬（ed7505c9，共 69 位）。
+- 2026-10-31 23:30 m6new8（A06）首批功能全過：NEVER CAST 0、refused 0、失敗局 0/18、creep facing 0（E518）。p50 3.5–4.2 ms，超預算 1.7–4.9%；尖峰在 stage:systems／towers_scripts，疑為 3 局並行的執行緒競爭，B 以 --parallel 1 驗證。C bridge 召喚物施放（op 3）放回中。
+- 2026-10-31 23:36 B commit E530（8af311c5，召喚物模板 tag ward）。
+- 2026-10-31 23:46 C commit E529 bridge 召喚物施放 op 3（b2f127a5）；B commit E531（855717bb，召喚物技能與冷卻公開給 client）。C spotlight takeda_shingen 跑中 8.9 分鐘。
+- 2026-10-31 23:56 B commit E532（52104bd3，selector include_dead 找屍體）與 7507d2dc（E529 測試補欄位）。C spotlight takeda_shingen 持有 live_match 19 分鐘，已請 C 查原因。
+- 2026-11-01 23:58 takeda_shingen 持鎖 19 分鐘原因：E399 在 live_match 鎖內重建（英雄集合變了）。C 以 E533 移除鎖內重建（E516 已保證用快照英雄集合）；只停自己的 PID 184692，takeda 排 rerun4。C 另做召喚物技能 UI（bridge 介面 42→43）。gamemode m6new9 跑中。
+- 2026-11-01 00:04 C 開始 Tripo，但內建瀏覽器的 studio.tripo3d.ai 未登入，需使用者登入；C 先準備 Grok 正背面參考圖（不耗點數）。B 的 E534 放回中。
+- 2026-11-01 00:06 A commit 191a6b80（產生器接上 chain、模板技能、模板被動、on_moved 被動、pre 內 routine）。live_match 仍是 takeda 的過期鎖，待下一局接手。
+- 2026-11-01 00:16 B commit E534（b1024578，法球槽 orb_slot 與 landmark）。land 20 檔進行中。
+- 2026-11-01 01:14 決定：B23 屍體保留秒數不寫成內容數值（D13）；B 把 selector.dead_within 改選填、預設引擎屍體保留（E526 60 秒）。A09、A36、B28 轉正式；gamemode 排 m6new14/15；C 備好 A36/B28 spotlight。
+- 2026-11-01 01:18 A 轉正式 A09、A36、B28（a1a672c9、c0457056、7c301877，共 72 位）；B commit E535（15441398，死亡單位最後位置）、E538（c5972fab，unit_attr team、landmark_of）；C commit E537 召喚物技能 UE 介面（9263b8c7）。C demo10 跑完（4 分鐘）。
+- 2026-11-01 01:26 A commit 57594ca1（法球槽、include_dead、全圖移動 bot 意圖；A28 青蛙改 block_disabled）。
+- 2026-11-01 01:32 B commit E539（5427b1fd，dead_within 選填，預設 RetiredPositions::KEEP_SECONDS 60 秒）；A 可轉正式 B23。gamemode m6new11（C09、C16）跑中。
+- 2026-11-01 01:37 C demo10 跑 63 秒被 server 以 observer-mismatch-after-rebase 結束（英雄元件 schema 0x464f471b，疑為 B 新元件）；請 B 列為最高優先並查 headless 為何沒抓到；請 C 修 demo 腳本失敗仍回 0。rerun4 未停（miyamoto cargo 階段）。
+- 2026-11-01 01:38 C commit E540：run_moba_split_local 任一角色帶 errors.md 結束時 split 回非 0 並寫 lifecycle ok=false（原本被吞成 exit 0）。
+- 2026-11-01 01:43 demo10 中止原因：target state（0x464f471b，E460）與 UnitAbilityState 只在 baseline 送、沒逐步更新；B 以 E541 修（FactKind 44/45）。發現 moba_headless 沒有 observer 比對，m6 批次從未驗 observer mismatch；決定 B 接著在 headless 加 replica+observer（預設開），gamemode 先在 Acceptance 標明未涵蓋。
+- 2026-11-01 01:46 A 轉正式 B15 今川義元（8d61ff28，共 73 位）。C spotlight miyamoto_musashi 跑中。
+- 2026-11-01 01:47 決定：(1) headless observer 做 in-process 版（B+E 協調 moba_headless），E542 --split 保留為選項不預設，過渡期以 C spotlight split 實機涵蓋 observer；(2) 攻擊距離全面改邊到邊（原作 KV 語意；同一 helper；不做 a21 窄修），commit 後 gamemode 重跑 quick 做回歸。
+- 2026-11-01 01:50 C commit E544（73b9bcf4，spotlight.json 加 observer {checked, mismatch, first}；--observer-only 可回填）。demo10 驗證 mismatch=6/0x464f471b，honda_masanobu 0。gamemode E542 --split 選項已放回待 commit。
+- 2026-11-01 01:56 B commit E541（89103558，replica 逐步收到 target state 與召喚物技能）；A 轉正式 A08 榊原康政（0e2b7e72，共 74 位）。
+- 2026-11-01 02:06 gamemode commit E542（dd073146，--split 選項與 observer 涵蓋說明）；A commit 2060e8de（landmark_of、選填 dead_within、forced_move toward）。
+- 2026-11-01 02:16 B commit E546（d69d9fa3，body_valid 接受 no_attack 與近戰射程 0，邊到邊的前置；C16 鬼影、A21 鐵扇可生成）。一致性通過。
+- 2026-11-01 02:36 conformance commit E543（52160fbe，分等級模板召喚物 unit_id）。akechi_hidemitsu 7 分鐘結束。
+- 2026-11-01 02:36 B 的 headless in-process observer（E545）放回中，首跑抓到小兵 hp authority 443.25 vs replica 434.0。決定：先修此 mismatch 再做邊到邊；修好前批次 --observer off、效能量測一律 off（observer 每 tick +4 ms）。C 備好 B15、A08 排 rerun5。
+- 2026-11-01 02:46 E545 headless observer 放回（omoba-core 1383d597、omb bump 535b1f56）；gamemode commit E548（9418ce64，--observer on|off）。C demo11 開跑（E541 後重跑效能對照）。
+- 2026-11-01 02:56 A 轉正式 A21 瑞龍院日秀（c695c719，共 75 位）。C demo11 7.4 分鐘結束。
+- 2026-11-01 03:06 A 轉正式 A28 羽柴秀吉（2f7bd4f3，共 76 位）；C commit E549（17baf443，Niagara 預先編譯；demo11 卡頓逐一歸因）。
+- 2026-11-01 03:26 gamemode commit E550（2e5c1556，creep facing 略過 impulse 推動的小兵）。C spotlight shibata_katsuie 跑中。
+- 2026-11-01 03:31 B commit E551（a1606460）：範圍回復/吸血/recovery channel 改 hp 卻沒發 CommittedVitals，通用修正為 tick 結尾比對 (hp,mhp) 補發；headless 接著抓到 tick 15240 c23_malice_wall 冷卻 replica 有、authority 無，B 續查。gamemode E550 修 B25 拉動 60 筆 facing 誤判；C10、B25 功能驗收通過。C E549 Niagara 預編譯，3 個卡頓待 GC log。
+- 2026-11-01 03:46 conformance commit E547（cbfd1f4d，施法前提要屍體時先殺一隻敵方小兵）；gamemode commit E552（4af015ea，Performance 單列 observer 耗時）。C spotlight fuma_kotaro 跑中。
+- 2026-11-01 03:56 A 轉正式 B23 伊勢姬（cebbf30c，共 77 位）。
+- 2026-11-01 04:16 B commit E553（05b8f7d6，in-process observer bootstrap 補 map/阻擋區/召喚師 metadata，與 server 共用 attach_bootstrap_metadata）；quick 局 observer 0 mismatch、154 次 checkpoint PASS，開銷約 5.7 ms/tick。請 gamemode 功能批次改回 --observer on 並重驗已跑批次。m6b09 確認 E525。B 接著做邊到邊。
+- 2026-11-01 04:26 B commit E554（514d8cb2，ScriptErrorRow 改記 self_unit）。
+- 2026-11-01 04:38 C rerun4：7 位成功（0a666e11，observer 0），C21 因 E541 前跑而重排，其餘 25 位因 gamemode headless 鎖住共用 scripts/*.dll 而 stage-dll 失敗；C 以 E558（03d34a86）跳過被鎖目的地，rerun6 重跑 25+8 位。請 gamemode 讓 headless 從 run 目錄副本載入 DLL。demo11：≥100 ms 卡頓 15→8、截圖卡頓 8→2、每秒最大 p95 71.2→57.4 ms，observer 0。m6new13（B11）全過（observer off）。A 說召喚物單位目標施法不需要，B 改做道具給予/撿起/移除。
+- 2026-11-01 04:41 gamemode commit E559（5aa35b9c／omb 9038dfd）：in-process observer 的 replica 讀 OMB_SCRIPTS_DIR、沒設就退回 ./scripts 而鎖住共用 DLL；moba_headless 啟動時設成自己 --scripts-dir。new15 起生效。
+- 2026-11-01 04:56 B commit E556（914e5f33，no_attack 召喚物生成不再除以零，修 C16 panic）、E557（581c72d5，dodge_projectiles.of）、E560（150e4ed0，非英雄單位 add/remove_ability）；A 接上 E557（4408fd75）。C rerun6 kato_kiyomasa 2.8 分鐘結束。
+- 2026-11-01 05:06 A 接上 E560（49c7d9bb，add/remove_ability）。
+- 2026-11-01 05:16 B commit E561（f60fb3b1，kit 道具 give/pick/remove）。
+- 2026-11-01 05:28 conformance 全跑（含 914e5f33）：fail 0、pass 20195、0 退步、READY 89 位；剩 8 位只差 B 的 kit 能力。請 D 在邊到邊後全跑，並補「從未被觸發的 hook」測試。A：B16 差設定基礎最大生命、A13 差帶倍率攻擊、C08 差英雄版 add_ability。
+- 2026-11-01 05:36 B commit E555（61197d09，攻擊距離改成邊到邊）。請 conformance 全跑、gamemode 跑 quick 回歸。
+- 2026-11-01 05:46 gamemode commit E565（bc6e4f5c，--recipes 只跑指定 recipe）。C rerun6 maeda_toshiie 2.2 分鐘結束（已含 E555）。
+- 2026-11-01 05:56 B commit E562/E563（0004af1c，attack.effect_multiplier、set_base_max_hp）；A 接上 E562/E563/has_item（87ebb711），A13、B16 可望轉正式。
+- 2026-11-01 06:06 B commit E566（71466b04，道具冷卻讀取與 PickOrder 匯出）。
+- 2026-11-01 06:20 conformance 驗 E555：fail 2、pass 20276、0 個 pass→fail，READY 90 位；2 fail 是 b16_phase_shift 情境沒先召月亮（harness 前提，D 補）。未觸發 hook 清單寫進 conformance-unexercised-hooks.md，on_take_damage/on_death/on_kill 等 pass=0；第一批 E564 驗證中。
+- 2026-11-01 06:26 A 轉正式 A13 服部半藏（41d67625）。
+- 2026-11-01 06:56 B commit E569（ba77ab4b，道具 API 改用文件 id）、E567（d0a52f01，施法失敗時 authority 送冷卻修正）；A 接上道具 pick/give/remove（a358001d）。taigen_sessai 1.9 分鐘結束。
+- 2026-11-01 07:06 conformance commit E564（e10f43ec，狀態 on_take_damage/on_death/on_kill 開始驗證）；B commit E570（e34e903c，status_source 讀施加者）。spotlight observer：akechi、baba、fuma、saito、sanada、shibata、kato、takenaka、maeda、mogami 全 0 mismatch；taigen_sessai 失敗（runtime-p1 ready timeout），已請 C 查。
+- 2026-11-01 07:16 B commit E571（2a09b602，give_item.vars、道具施放格子、item_name 狀態）、E573（e8000582，create_unit.overrides 收 armor）、E575（588fe6d2，unit attr hero）。C spotlight chacha 3.2 分鐘結束。
+- 2026-11-01 07:16 taigen 失敗原因：ShowcaseConfig::is_valid 只收 0..=1e6，nobu 樹木舞台 (-1400,-600) 被拒、server 沒起來；C 以 E574（3cc48844）改有號座標 ±524288，taigen 排 rerun7。A 道具接線完成（a358001d），正式英雄 81 位，B07/C06/C18 還差 host 能力。gamemode 排 m6new14tf（A09 teamfight 6 局，含 E567）。
+- 2026-11-01 07:26 A commit 5e4298f5（接上 E570 status_source、E571 道具實例變數與 item_name；B07 模板宣告與 armor 覆寫）。chacha observer 0 mismatch。
+- 2026-11-01 07:46 B commit E576（2db9f3b7，selector shape segment）。
+- 2026-11-01 08:06 B commit E577（865aa888，state blind）、E578（09a8c923，英雄技能格 add/remove_ability，C08 所需）；conformance commit E568/E572（9e120627，前提先施放另一招；被動受傷/死亡/擊殺 trigger）；A 接上 E575（6146ae91）。C spotlight ryuzoji_takanobu 3.5 分鐘結束。
+- 2026-11-01 08:09 E555 回歸 observer on：9 局 quick 有 6 局 observer mismatch 提早結束（3 筆小兵位置、3 筆 Hero 元件 c19 冷卻／b26、c07 ability_levels 多 key），已轉 B 列最高優先並 bisect。決定：B 修好前功能批次 --observer off；修好後每批加 1 局 observer on 煙霧測試。E567 驗證 m6new14tf 6 局 0 mismatch。conformance 全跑 0 fail／20508 pass、READY 92。
+- 2026-11-01 08:16 B commit E579（23703a57，replica 不為未學的技能補等級 0 的 key，修 b26/c07 ability_levels mismatch）。
+- 2026-11-01 08:46 B commit E580（f8f1f343，小兵在 tick 結尾補送被移動後的位置，修小兵位置 mismatch）；A 轉正式 B16 望月千代女（a6526cac）。C spotlight sassa_narimasa 3.3 分鐘結束。
+- 2026-11-01 09:16 A commit 669eb5ce（產生器支援 C08 所需寫法；C06 英雄文件道具進入道具目錄）。
+- 2026-11-01 09:17 C 回報 rerun6 未停，ii_naomasa 在 cargo 階段（每位英雄重建 scripts 約 16 分鐘，局只要 2–4 分鐘）。決定：spotlight 改成每輪佇列只建一次 snapshot，所有英雄共用，rerun7 起生效。B16 排 rerun7／m6new21；conformance 跑 E581 全量。
+- 2026-11-01 09:19 E555 off 回歸 7/9 局：局長中位 6.6→5.6 分、0 局 >10 分、每局有塔倒、tick p99 19.15→11.80 ms、facing 0。退步：5 個 self_engage 技能（b04_tanegashima、b13_burrow、a06_red_power、a06_red_fury、c10_day_night_shift）0 inputs，轉 B 最高優先。決定：功能佇列 new15～21 放行（不含受影響英雄），b04/b13/a06/c10 等修正後重跑。
+- 2026-11-01 09:20 C commit E583（6e94b51f）：run_moba_split_local 加 --build-only／--prebuilt，spotlight 每輪只建一次；英雄不在 build 內會在取 live lock 前拒絕。rerun7 起生效。
+- 2026-11-01 09:36 A 轉正式 C08 加藤段藏（69e1306d）、C06 石川五右衛門（18e60d38）。
+- 2026-11-01 09:42 E555 off 回歸 9/9 完成：0 失敗、局長中位 6.2／最長 8.0 分（前 6.6／11.6）、0 局 >10 分、每局有塔倒、facing 0、settlement 0、tick p99 19.15→11.80 ms；僅 self_engage 5 技能退步（B 處理中）。報告 e187-e555-regression.md。C08、C06 排 rerun7／m6new22。
+- 2026-11-01 09:46 B commit E582（7d56aea6，replica 重跑 learn hook 時冷卻維持揭露值，修 c19 冷卻 mismatch）。C spotlight ii_naomasa 開跑。
+- 2026-11-01 10:13 conformance commit E581（11fdf857，on_removed 通用效果檢查，147 個情境變 pass）；全跑 fail 4、pass 20655、READY 93；4 fail 都是 b30_reverse_shield 被驅散後沒爆炸（疑 host removed 派發，轉 B）。下一批 on_attack_launch／on_expired／on_attacked_hit。
+- 2026-11-01 10:16 A 等 B 期間派 D21 建置時間效能：量每位英雄 crate 編譯時間（scripts release 960 s+），調整 v3_rust 產生輸出，目標縮短 30%。
+- 2026-11-01 10:25 更正：self_engage 0 inputs 不是 E555 退步，而是 4 位英雄被排到 jungle 位，jungle bot 只把野怪／focus 英雄當 enemy。決定（D21 功能完整）：jungle bot 打野時野怪算進 self_engage threat、gank 也觸發，並查 jungle bot 整局 hero_damage 0；B 排在 E584、b30 on_removed 之後。
+- 2026-11-01 10:36 B commit E584（6f2f2810，野怪在 tick 結尾補送被移動後的位置）。spotlight ii_naomasa、mori_ranmaru observer 0；yamagata_masakage 2.4 分鐘結束。
+- 2026-11-01 10:56 B commit E585（afa71056，jungle bot 對營地放 self_engage，並支援被攻擊的隊友與塔）。A 跑 lineA/bt/perf1 效能量測；C spotlight shimazu_yoshihiro 開跑。
+- 2026-11-01 11:26 b30_reverse_shield 4 fail 不是 host 問題：狀態在 harness dispel 前就自己到期，on_removed 已正確派發；D 改成 dispel 前先確認狀態仍在，全跑驗證中。B 開始 B24→B17→B07→E521。A 發現 kit 3411 行沒有任何 #[inline]，無 LTO 時 Cx 小方法無法跨 crate 內聯，perf2 確認中。gamemode 排 rg02～09 observer on 重跑與 jungle 重驗。
+- 2026-11-01 11:27 gamemode：observer on 重跑 rg02、rg03 PASS、0 mismatch（207、170 次檢查），rg04 跑中；m6new15（A36、B28）18 局全過（NEVER CAST 0、settlement 0、INVALID_TARGET 4、facing 0）。
+- 2026-11-01 11:36 conformance commit dc30a57b（E581 補充，dispel 前先確認狀態仍在）；B commit E586（93ce8431，redirect_motion 與只命中特定單位的直線投射物，B24 所需）。
+- 2026-11-01 11:56 conformance 全跑 fail 4、pass 20871、READY 93；b30 4 fail 仍在：dispel 移除護盾但沒有送 REMOVED 事件，證據已給 B。A perf2 剩 2 輪、約 4 分鐘結束，之後量測會限制輪數並在輪間留空檔。
+- 2026-11-01 12:03 A 建置時間量測（lineA-build-time-2026-11-01.md）：thin LTO 678 s（每個 hero DLL 約 31 s，大多花在 LTO 重新最佳化 kit/omoba-core），lto=false 445 s（−34%），再加 omoba-core cgu=16 為 227 s（−67%）；runtime 雜訊大於差異。決定：先轉正 B24、B17，再為 kit 一行轉送方法加 #[inline]，接著跑正常結束的 A/B；p99 惡化不超過 5% 就改 lto=false＋cgu16。請 gamemode 修 headless 失敗路徑不輸出 performance。
+- 2026-11-01 12:06 B commit E587（a288507f，召喚物背包：被給道具的單位拿到背包，道具效果公開；B07 所需）。A perf2 結束、live_match 空出。
+- 2026-11-01 12:06 gamemode commit E588（d7ba8ac1／omb 5767e8f）：moba_headless 在 observer_mismatch、objective_stall、execution_budget 結束時也輸出 performance＋tick_profile，加 performance.end_reason；已轉告 A、B。
+- 2026-11-01 12:26 A commit fcc12f18（產生器接上 B24、B17 所需寫法 E586、E530）、a88dee83（shop 配方測試略過 cost 0）。C spotlight 53 分鐘沒有新局，已詢問。
+- 2026-11-01 12:27 C rerun6 總結：19 位中 18 位成功、observer 全檢查 0 mismatch，失敗 1 位 taigen（E574 已修）。舊流程每位英雄重建約 25 分鐘；honganji 跑完後剩 13 位加 rerun7 的 7 位合成 rerun8，改 E583 流程（開頭建一次，每局 2–4 分鐘），最後跑道具 m71b、m73。
+- 2026-11-01 12:46 A commit 60e64c52（產生器解除召喚物 give_item 的阻擋，B07 用 E587）。
+- 2026-11-01 13:06 A 轉正式 B17 霧隱才藏（a94406bb）。C rerun8 開跑（okuma_tomohide，E583 流程）。
+- 2026-11-01 13:14 observer on 重跑 rg02～09：8 局中 5 局 0 mismatch；仍有 2 局 ability_levels 多 key（b26_release_wave、c07_storm_move，E579 未完全涵蓋）、1 局小兵位置差約 500（tick 30840），已轉 B；功能驗收維持 observer off。B24 W 12 fail：召喚交易拒絕剛生成石碑的 SetPos（SettlementRefused ScriptSetPos），host 缺口轉 B。jungle 重跑開始。
+- 2026-11-01 13:18 C rerun8 實機局 observer：okuma_tomohide 1、tachibana_dosetsu 2 筆 mismatch（schema 0x464f4705），kikuhime、takeda_shingen 0；已轉 B 與 headless 那 3 筆並列最高優先。一致性通過。
+- 2026-11-01 13:26 A 轉正式 B07 足利義昭（85b1f589），只剩 B24 等 B。A 開始 inline A/B（lineA/ab/perf）。C rerun8 已跑到 matsunaga_hisahide。
+- 2026-11-01 13:46 B commit E521（27370bd6，hero_command 路徑 memo 跨 tick 保留並改用 FxHash）。C rerun8 跑 taigen_sessai（B22 樹木舞台首次實測）。
+- 2026-11-01 13:51 B commit E589（09b08edc）：0x464f4705 是 Hero 元件；set_ability_level=0 收回技能時，authority 刪 key、replica 寫成 0，修正為權威端也保留 0 值 key；涵蓋 rg06、rg08 與 okuma、tachibana split 局。rg09 小兵位置另查；B24 的 SetPos 修正（E590）下一個放回。E521：hero_command 1.42→0.83 ms/tick，7 局 digest 一致。
+- 2026-11-01 14:08 A commit d3521e7c：scripts release 改 lto=false、omoba-core cgu=16，kit 32 個一行轉送方法加 #[inline]。乾淨建置 663→237 s（−64%）；runtime teamfight p99 19.08→16.24、quick p99 10.19→8.46 ms，沒有變差。
+- 2026-11-01 14:26 B commit E590（a4950865，召喚交易接受本次召喚物的 set_pos，B24 用）、E591（d6e0baba，驅散最後一個帶 status event 的狀態也觸發 on_removed，b30 用）。C rerun8 跑完英雄、開始跑道具 m71b。
+- 2026-11-01 14:42 E585 jungle 驗證通過（observer on，4 局 0 mismatch）：date b04 2 次、hero_damage 1846；ii a06_red_power 6 次、534；kosokabe c10 8 次、3840；momochi b13_burrow 29 次、1780。轉 B：rg04 打了 10.1 分（略超過 10 分鐘），chacha c25_falling_sakura 99% CAST_REJECTED、bot 一直重送。conformance 在 d6e0baba 全跑，驗 B24、B30。
+- 2026-11-01 14:53 C rerun8 完成（snapshot a88dee83，E583 生效）：20 位平均每位約 6 分鐘（原本 25 分鐘以上），39 份報告 commit（231ccafb）。observer 37 位 0 mismatch，okuma、立花道雪各 1、2 筆是 E589 之前的 snapshot，排下一輪重驗。B22 樹木舞台成功、自然之力有呈現。還有約 19 個技能沒呈現，分四類，優先 ②→①→③→④。
+- 2026-11-01 15:12 conformance 在 d6e0baba 全跑：0 退步、fail 4、pass 21127、READY 96（新增 B07、B17、B30）；B30、B24 W 已 pass，剩 B24 石碑生命 4 個 fail（dummy 的 replica 沒帶 buff icon），已轉 B。C commit E592（omfue 085ab52／a01b6dfa）：smart targeting、spotlight 只算同一格施放、畫面外目標先接近、返回只移動、樹木目標距離放寬；3 個玩法問題轉 B。rerun10 重驗 6 位。第 ③ 類約 2–3 小時、第 ④ 類約 4–6 小時。
+- 2026-11-01 15:26 B commit E594（7649b44d）：同一 tick 小兵先走路、再被 B20 E 拉走，replica 先套用拉走後的位置、又被走路位置蓋回，修正為同一 step 以 PostStep Movement 為準（rg09）。已知 observer mismatch 全部有修正，D、E 重跑中。
+- 2026-11-01 15:36 C commit d6bb5d09（rerun10 重驗 6 位）、12480154、8546fcd2、79482c0c（spotlight script 產生召喚物、子技能 slot）；79482c0c 誤用 B 的 E594，已請 C 重新 reserve。taigen_sessai 在 rerun10 2.6 分鐘結束。
+- 2026-11-01 15:52 gamemode：用含 E589、E594 的 build 重跑 rg08、rg09 為 0 mismatch，rg06 出現新的一筆 a12_awe_t 冷卻（authority 有、replica 沒有），已轉 B，功能驗收繼續 observer off。功能驗收 new15、c19、new16、new17、b25fix、new18 全過（NEVER CAST 0、失敗 0、facing 0）；b25fix 讓 B25 的 facing 60→0。bot 一直重送被拒的施法（c19 2388 次、c25 99%），已請 B 查原因並加退避。C rerun10 的 okuma、立花道雪 0 mismatch。
+- 2026-11-01 16:06 B commit E596（b9ada110，role bot 對失敗的施法退避，不再每次思考都重送）、E597（283c8008，不攻擊的召喚物也揭露 buff 圖示，修 B24 石碑）。C rerun11 跑到 saito_yoshitatsu。
+- 2026-11-01 16:16 B commit E598（e184c356，英雄 teleport 進地形時移到最近可站的位置，修 C08 散逃卡牆）；C commit d6c6a288（rerun11 召喚物、子技能英雄的實機呈現報告）。
+- 2026-11-01 16:26 B commit E599（cca50036，會擋路的召喚物照指定位置立起，不被同一次施放的其他岩石擠開，修 B22 自然屏障）。
+- 2026-11-01 16:36 B commit E601（d45df4c8，client 找本機英雄時排除可控制的幻象，修 A13 HUD 跳動）；C commit d6ca7e8f（omfue bump，E600 召喚物技能 log）。C 轉給 B 的 3 個玩法問題都有修正（E598、E599、E601）。
+- 2026-11-01 16:41 D: 曾經只剩約 1 GB（C 的 bridge 建置出現 os error 112），C 刪掉自己 84 局的逐幀 PNG 後回到約 32 GB；已請 A、B、D、E 清自己的暫存並回報釋放量，gamemode 加批次完成後自動清 bin、snapshot。conformance 在 283c8008 全跑：0 fail、21131 pass、READY 97，B24 可轉正。E596 讓 c25 的 inputs 從約 380 降到 17.7／局。一致性含 UBT 通過。
+- 2026-11-01 16:43 A 轉正式 B24 秋山信友（a5c11697）：所有 test_only 英雄都已轉正式。派 A 檢查被拒比例超過 50% 的技能（例如 c25 81%），讓 bot hint 和技能前置條件一致，目標 <20%。
+- 2026-11-01 16:50 磁碟清理：A 釋放約 91 GB、gamemode 釋放約 142 GB（target/e187 從 149 GB 降到 7.1 GB），D: 回到約 246 GB；E603 讓批次寫完 report 後自動刪 bin（失敗時保留，--keep-bin 可保留），共用增量 target 保留。A 分析：被拒超過 20% 的只有 c25、c19、b23，原因都是 bot hint 沒看技能前搖開始時的前提檢查；executor 參數提案已送 B。
+- 2026-11-01 16:50 D 清理釋放約 121 GB（e229-tree 誤鏡像 omfue 106 GB 和 docs/acceptance 11 GB，鏡像腳本已改成排除），D: 可用 367 GB。e203～e225 確認不了是誰建的，空間夠用，先保留不刪。
+- 2026-11-01 16:56 B commit E602（d29d9501，腳本改的英雄冷卻在 tick 結尾補送 committed cooldown，修 rg06 a12_awe_t mismatch）；gamemode commit E603（b522e354）。D: 可用 366 GB。
+- 2026-11-01 17:07 B 清理釋放約 219 GB（target/m3p 從 202 GB 降到 3.3 GB），D: 可用約 586 GB；四線合計釋放約 570 GB。rg06 在含 E602 的 build 上 a12_awe_t 冷卻 mismatch 仍在（tick 11160），A13 a13_chain_sickle 從沒施放，已轉 B、A。conformance 的 on_attack_launch 覆蓋（E604）在 shadow 全跑中。
+- 2026-11-01 17:26 A commit d8170fab（v3_bot 把 path 飛彈當成直線掃過的範圍，修 a13_chain_sickle NEVER CAST）；B commit E605（a8c13255，bot intent 新增 self_area_status、self_area_corpses、ally_anchor_point，給 c25、b23、c19 的 hint 用）。C rerun12 跑完 hattori、mochizuki。
+- 2026-11-01 17:36 A commit 6c1251ac（v3_bot 從技能的前搖守衛推導 bot 規則，修 c25、c19、b23 被拒，用 E605）。
+- 2026-11-01 17:37 a13_chain_sickle 驗證通過（m6new19b，6 局）：inputs 0→111、accepted 109、被拒 1.8%（2 次 OUT_OF_RANGE），NEVER CAST 0、失敗 0。c25、c19、b23 驗證（m6e605）進行中，之前被拒 100%、95.7%、69.4%。conformance on_attack_launch 第一輪 0 退步、24 個 unsupported 轉 pass；3 個 fail 是一級 bonus_damage 0 不留 trace，harness 改成跳過傷害 0 的效果，重跑全套中（E604）。C：A13 替身、鎖鐮、隱斬還沒呈現，原因待查。
+- 2026-11-01 17:43 C commit E607（omfue f14ce02／a67863c6）：SubmitGameplayInputEvent 判斷 presentation 模式時讀 ini 原值、沒算進 -om-presentation-only，split 和實機局裡召喚物指令、戰鬥偏好、輸入方案、方向輸入、召喚師技能一律在本地被拒，改用 ResolveRuntimeMode。rerun12：加藤段藏吞噬放出（E598 生效）但偷技能 1 筆 ability_levels mismatch、太原自然屏障仍被取消，都已轉 B；服部 observer 0。
+- 2026-11-01 17:56 B commit E606（309ab101，同一 tick 的冷卻和 charge 先套用槽位交換，可能就是 rg06 a12_awe_t 冷卻 mismatch 的根因）。C rerun13 的秋山信友 8.3 分鐘結束。
+- 2026-11-01 18:06 conformance commit E604（63a7512d，on_attack_launch 由持有者攻擊身旁的敵方英雄觸發後比對效果，0 傷害不檢查）；C commit 6258f5b5（rerun12、13 呈現報告）。
+- 2026-11-01 18:08 bot hint 驗證全部達標（observer off，12 局，失敗 0、NEVER CAST 0、facing 0）：c25 被拒 100%→0%（29/29）、c19 95.7%→0%（38/40，2 次施法者死亡中斷）、b23 69.4%→0%（323/325，2 次被沉默中斷）、a13_chain_sickle 109/111。請 gamemode 用含 E606 的 build 重跑 rg06。conformance E604：27 個情境 unsupported→pass，全跑 0 fail、21158 pass。C：施放後換進同一格的技能（B24 粉碎、A13 替身）都放不出來，疑似送到 UE 的技能格資料還是舊的那一招，已轉 B。
+- 2026-11-01 18:18 spotlight 覆蓋率：主動技 361 招已呈現 342 招（94.7%），93 位正式英雄中 85 位有 lineC 報告，其餘 8 位與舊報告排 rerun15。還沒呈現的 19 招：召喚物技能被 authority 拒（A28、B16）、換入技能 HUD 沒換（B24、A13）、B22 自然屏障仍被取消，已轉 B；C19、B23 等 props。B 確認 E606 修好 rg06（replica 同一 tick 的冷卻先於換格套用）。A 的換格清單 lineA-slot-swap-inventory.md 已交 B、D；D 的 E608 換格情境在 shadow 中。
+- 2026-11-01 18:54 observer 歸零：rg02～rg09 在修正後的 build 上全部 0 mismatch，功能驗收從 new23 起切回 observer on。conformance commit E608（6e5d4715，換格情境 B24、A13、C14 新增 10 個 pass），全跑 0 fail、21168 pass。new20（C18）全過；new21（B16）b16_summon_hound 被結算拒絕 AddBuff 461 次，轉 B；new22 c08_kite_chain NEVER CAST（hint 缺 line shape，同 a13），轉 A。
+- 2026-11-01 18:55 C rerun15 完成（72487e55），13 位 observer 全部 0。93 位正式英雄全部有報告：主動技 391 招已呈現 371 招（94.9%）。C 修 E616（c5bdda96）：產生器遇到新 bot kind 不再 assert，該招列為 unshown。未呈現 20 招：等 B 8 招、等 props 2 招、C 自己查 6 招。A 的 c08_kite_chain hint 修正（line 寬 300）放回中。
+- 2026-11-01 18:57 B 在 probe 樹修好 E609～E615（換入技能等級超過 max_level 讓 replica 判 malformed 而每幀拒收、HUD 停在舊招；被換出格的技能冷卻改用 hidden slot；client runtime 重建召喚物指令漏 ability；b16 remove_unit 舊的月被結算拒絕；adapter 放岩石參考佔位；偷技能等級殘留），observer on 驗證中。重大發現：replica 拒收時 observer 會靜默停止比對卻照樣 PASS，已請 B 改成 replica 拒收即判 fail，並加 checked_ticks，之後抽樣重驗先前 0 mismatch 的結果。
+- 2026-11-01 19:06 A commit cfe64b02（v3_bot 的直線寬度接受「值乘或除以常數」，修 c08_kite_chain NEVER CAST）。放回 10 個檔案中，應為 B 的 E609～E615。
+- 2026-11-01 19:08 B commit caeca148（omb 4f89e44）：E609～E615 加 E617。E617：server observer 遇到 replica 拒收記成 mismatch 並累加 replica_rejected_count，live 驗收新增 run:no-client-frame-rejection（akiyama rerun12 會判 FAIL，157 次）；headless 的 in-process observer 本來就把 apply 錯誤當失敗，所以 headless 結論不受影響，只有 live split 局的結論要重驗。新 mismatch：兵營陷落後敵方小兵位置差約 51，可穩定重現，B 續查。
+- 2026-11-01 19:28 例行：C 跑 lineC-pres14（hattori_hanzo），鎖正常；8ccb4310 後背景跑 --ubt 一致性檢查；A、D 閒置，已派下一步（A：剩下的 NEVER CAST 與拒收；D：on_expired、on_attacked_hit、A07/A12 換格）
+- 2026-11-01 19:45 A：v3_codegen_coverage 重跑，447/447 招都有產生，0 problems。拒收統計涵蓋 109 個 m6 批次：剩下 >20% 的大多是 E596 之前的舊批次，成因分兩類一般化問題，已提案給 B：
+  - (1) requires.has_status／not_status：a12_mystic_arrow 98.6%、b36_footsteps 95.9%。提案在 BotAbilityPolicy 層加 caster_status／caster_no_status，由產生器自動輸出。
+  - (2) 被 set_ability_active 停用的技能：a05_counter_stance 71.9%，以及 B11、B13、A17、C04、C21 同類。建議 executor 直接跳過 inactive 的格，不用動產生器。
+  - requires.condition 這類任意運算式（b16_phase_shift 78%，m6new21）暫時靠 E596 退避；長期可以讓產生器輸出沒有副作用的 can_cast 探針（要動 ABI）。
+  另外查了 C 未呈現的 A12×3、A34、A05／B36、A32：五位共 27 招在 bot_auto_policies 全部得到合格的 policy，包括 A12 換入的三招和 A32 第二斬。結論：不是 codegen 缺 hint 或缺 kind。換入招的部分是 host 的 E610／E615，a12_mystic_arrow 和 b36_footsteps 是上面的 (1)，a05_counter_stance 是 (2)。
+- 2026-11-01 19:46 C 0add33ab：rerun16 在 E617 下重驗 B 的 E609–E617（8 位英雄），observer 全部 mismatch 0；E611 吞噬 5 招都有呈現
+- 2026-11-01 20:10 使用者：Tripo 已儲值，派 C 做 10 位武將與場景元件，場景元件要低面數（建議 ≤5k，大型建築 ≤15k）；A 的 E619 產生器（施法者狀態前提）等 B 先上線；D on_expired（E618）全跑中；C rerun16 覆蓋率 95.9%（375/391）
+- 2026-11-01 20:30 A 8da7685a：bot 規則帶上施法者狀態前提（E619），影響 a12/a27/b36 三招，交給 E 驗收；B 63fb9e00：E620–E623，C rerun17 重驗中；C d2536318：場景模型盤點與面數上限（樹 800、主堡 15k）；Tripo 仍等使用者登入
+- 2026-11-01 20:25 E dd80d077（E625）：修正報告把第一筆 observer mismatch 指到錯的局；new23 的 B17 有 1/18 失敗（replica 多出 b17_tooth_poison 冷卻），已轉 B；m6e619（A12/A27/B36）已排入；B fce56861 修 live
+- 2026-11-01 20:50 使用者同意 Tripo 改用 Chrome，已通知 C 開始做 10 位武將與場景元件；C 的 props 舞台交給 subagent（E630）；B 等 E626 驗證、E627（A28 天火每一步都留 log）待 land
+- 2026-11-01 20:56 D 01db98a6：on_attacked_hit 由敵方英雄攻擊持有者觸發後比對效果（E624）；C 56d80744 rerun17：observer 0 mismatch；E620 自然屏障在權威端已執行，但岩石沒有呈現；A28 天火、A36 地雷仍在 B 那邊
+- 2026-11-01 21:00 B fb460511（E626–E628）：兵營陷落後的 mismatch 是 replica 用自家 A13 勾鎖鐮預測時勾錯敵方小兵，現在只移動本隊單位，probe 整局 0 mismatch；E628 修 B17 冷卻；A：B07 new24 18/18 通過；D：A07 換格有 3 個 fail，手寫 a07_strongest，轉給 A；rg04 10.1 分鐘是 headless 局自然打完，不處理
+- 2026-11-01 21:36 B 074ab425：授予格被換掉時保留英雄自己 kit 技能的等級（E631，A07 a07_rouse）；D 18bb4118：on_created 換格、on_removed 換回的情境（E629，A12T/A07T）；C 5e7c61ce／db620efc：rerun18 重驗 A28/A36；一致性檢查通過
+- 2026-11-01 21:46 C a4ed4817：E630 props 舞台上線（不參戰的友方小兵、整場都在的屍體），德川家康換上 Tripo 身體（第 1 位 Tripo 武將）
+- 2026-11-01 22:06 B 2876afda（E632，authority 換格時也放掉被換出 sub 技能的等級，A07 a07_rouse_free）、6a97e522（E633，玩家召喚物可以持續施法，A28 天火）；D 已派補 unsupported 類別
+- 2026-11-01 22:15 C Tripo：10 位武將完成 8 位（德川、山縣、大熊、佐佐木、大谷、前田利家、濃姬、兒玉），每位 45 點，點數 25,120→24,715，H3.1 約 9.3–9.8k tris；改寫骨鏈後 retarget 都成功；島津生成中、前田慶次未開始；C19 奇襲已呈現；B23 被 CAST_REJECTED 查原因中；E new25 有 8/18 失敗（跑在 E628 之前的 build），排 m6new25b 重跑；D 補狀態數值檢查（E634）
+- 2026-11-01 22:16 A cc2876c4：A07 戰國最強改跑產生的 Rust（換格），產生器讀其他技能的 {rank} 狀態時用那招的等級
+- 2026-11-01 22:26 C a0d43837：另外 7 位 Tripo 武將（山縣、大熊、佐佐木、大谷、前田利家、濃姬、兒玉）綁上自己的身體
+- 2026-11-01 22:45 A adc581ef：A07 parity soak 修好，期望值還停在手寫版本的 buff id，A07 的 22 個測試全過，已知差異清空；E m6new22b：C08 kite_chain 134 次施放成功 131 次，6/6 局通過；C rerun20 已開始，Tripo 頁面因建置吃滿 CPU 卡住，晚點再做島津和前田慶次
+- 2026-11-01 22:46 D ceca83a0：補上狀態 stats 檢查，涵蓋 slow_pct 與 set_absolute 類 stat（E634）；C rerun20 跑 ise_hime（props 舞台）
+- 2026-11-01 22:55 E m6new21b：B16 重驗 6 局全部失敗，replica 多出 b16_phase_shift 20 秒冷卻（build 已含 E628，不是同一條路徑），已轉 B 追查；D 全量 21388 pass，A07 0 fail；D 下一步是週期與事件觸發類
+- 2026-11-01 23:06 C 8c38636a rerun20：B23 亡靈之契在 props 舞台上第一次呈現；A28 天火已能施放但結算被拒（mana_cooldown_or_rank）；A36 地雷沒有進 bridge frame（問題在 client runtime 到 bridge 之間）；兩件都轉 B；A 60921c0b：quirk 情境帶上 covered_by（魔免）
+- 2026-11-01 23:26 C e04e92cf：Tripo 10 位武將完成（島津義弘、前田慶次綁上身體）；場景元件第一批 4 件（崖壁轉角、竹、闊葉樹、大將塔）進 omfue
+- 2026-11-01 23:36 C fcd58d7e：bridge 加上丟棄渲染實體的 log（A36 地雷）；A 4762bcd6：quirk covered_by 加入死亡類；使用者反映防火牆彈窗，原因是 kcp/grpc 綁 localhost 時改綁 0.0.0.0，加上每局執行檔都換新路徑，已派 B 改成綁 127.0.0.1
+- 2026-11-01 23:45 D 3b00c1df（E636）：quirk covered_by 判定上線，67 個轉 pass，總 pass 21476；A 6819bcbf：建築類 quirk；C dbd9c582：場景元件 7 件（崖壁直段 1,360、轉角 1,416、竹 774、闊葉 694、大將塔 4,616、泉水 7,171、商店 7,313 tris），Tripo 共用 625 點（25,120→24,495）；C 下一步：舊模型減面，再接進地圖並量效能
+- 2026-11-01 23:56 B e182c033（E639，omb 5060e73）：本機局 server 和 client 只綁 loopback，不再跳防火牆詢問
+- 2026-11-02 00:06 B 6efa0f27（E635，B16：施放被拒、失敗或退還冷卻時，authority 都送冷卻更正）、e7071efd（E637，A28 天火：非英雄施法者用自己的 unit ability 等級結算）；A 22730aea：驅散類 quirk；B 正跑 split639 驗證防火牆修正
+- 2026-11-02 00:15 E m6e619 通過：a12_mystic_arrow、a27_tyrant_hammer、b36_footsteps 被拒率都降到 0%（原本 98.6%、—、95.9%）；B 跑 split 確認 E639 綁 127.0.0.1；B16 兩局 headless PASS（E635）；C 減面完成（箭樓 4,592、鳥居 7,277、天守 14,243、燈籠 1,828），上色等舊 variant 釋放
+- 2026-11-02 00:20 E 排了 m6new23b（B17）、m6new25b（B24）、m6new21c（B16），都用含 E635/E637 的 build；A 準備 96 個 hidden_in_effect 情境；D 要求暫緩 swap_cooldown 的 covered_by，先補 cooldown_policy 驗證；D 的建築判定 E640 全跑中
+- 2026-11-02 00:26 C 9dd5bf71：減面建築上線並加 OM_RENDER_STATS 效能 log；a6231b41：大將塔改用自己的三層模型 general_tower，和箭樓分開
+- 2026-11-02 00:46 A a7593425：hidden_in_effect 情境，隱形／迷霧類 quirk 接上 covered_by；C 開跑效能基準 lineC-perf/nobu-before（拿著 performance 鎖）
+- 2026-11-02 00:56 C d0bbfef8：nobu 場景換成 Tripo 崖壁、竹、闊葉樹、泉水、商店（bridge ABI 44），基準局 nobu-before 已跑完；D fa8aa5ea：building_in_effect 判定（E640）
+- 2026-11-02 01:00 E m6new23b：B17 重驗 6/6 通過（b17_tooth_poison 79 次施放成功 78 次），E628 有效；A 2739aa06：換入的副招在情境裡帶上 swapped_in 前提（a12_awe_t）
+- 2026-11-02 01:22 C：nobu-after 沒有樣本，原因是新元件首次編 shader，載入花了 3.5 分鐘，超過 300 秒上限；cliff_modules=497 有生成；改跑 nobu-after2；已請 C 之後把新材質納入預編，cold 載入目標約 1 分鐘
+- 2026-11-02 01:40 C f4bbefc8：nobu 換 Tripo 元件前後效能對照沒有變差（frame 16.67/16.67、game 10.15→9.74、render 4.58→4.48 ms、draw call 168→183、tri 101k→109k）；熱 cache 進地圖 42 秒，cold 3 分 28 秒待預熱；UE 自動化測試還沒跑
+- 2026-11-02 01:45 更正：C 的 after 效能數字作廢，新元件缺 instanced usage，畫成灰色預設材質；改用共用 M_TripoStatic 加各元件 MI（OmSceneArtMaterials commandlet），之後重量；cold 載入 3.5 分鐘是 ue-run 副本第一次 asset registry gather（135 秒），cook 過的版本不會；D 46be7947（E641）：看不見單位的判定，pass 21601，visible_only 有 4 個 fail（A01/A21/A26/C08 打到看不見的敵人），B 確認 host 已有 is_visible_to，由 A 接上
+- 2026-11-02 01:50 E m6new25b：B24 秋山自己的技能正常，但 7/18 局 observer mismatch，來自對手 A07 本多忠勝（a07_red_thunder/unscathed/rouse 在 replica 有冷卻、authority 沒有），E635 沒涵蓋，已轉 B；B 的效能基準 3 局因路徑格式錯誤沒跑起來，已修正重跑
+- 2026-11-02 02:00 C 662ee193（omfue bf74564）：共用材質 M_TripoStatic 加 6 個 MI 建好；A28 重跑完，A36 下一個，after3 重量排在後面
+- 2026-11-02 01:55 B：A28 天火在 E637 之後重跑通過，結案；A36 這輪沒放出地雷，原因是 autopilot 沒等載入畫面關閉就施放，C 在修；after3 被 performance 鎖擋下沒有開跑（B 的 perf 3 局還在跑），before/after2 數字有效
+- 2026-11-02 01:56 A 5fc41cef（E641）：visible_only 真的會過濾掉施法方看不見的單位；C 6561d4c9：spotlight 等載入畫面關閉才開始
+- 2026-11-02 02:16 B 4f26c0ba（E643）：敵方的嘲諷／強制移動經 owner_control 同步到己方 replica，replica 不再接受 authority 拒絕的施放（A07 冷卻不一致）；D 853978eb（E642）：換格 cooldown_policy 檢查
+- 2026-11-02 02:26 A ddd4b2a4：投射物的 visible_only 不打施法方看不見的單位；cdad6b9d：接回 swap_cooldown 的 covered_by；C after4 卡在 UE 啟動、沒有樣本，改跑 after5（上限 540 秒），共用材質警告 0 筆
+- 2026-11-02 02:45 C after5（真材質）：效能變差，三角形 101k→377k，render 4.58→6.83 ms，p95 frame 16.92→19.04；after2 作廢；竹子仍是灰色（shader 沒預編）；C 計畫加 LOD、加長崖壁模組、關樹的陰影、SM5/SM6 預編，目標 ≤150k tris、p95 ≤17.5 ms；E 排 m6new25c 驗 E643（B24 taunt 造成 A07 冷卻不一致）；A b0a42a7d：hidden_in_flight 28 個情境
+- 2026-11-02 03:06 C d8c2a0fc：場景元件加 LOD mesh、樹不投影、崖壁模組加長；A 40c09e3a：reapply 情境，疊加／刷新類 quirk 接上 covered_by；C 跑了一局 A36（maeno）
+- 2026-11-02 03:26 B 624c6793（E645）：隱形只對其他隊伍有效，己方隱形單位（A36 地雷）仍揭露給自己隊伍，應是 A36 地雷沒呈現的根因；A 87a2ef84：illusion_in_effect 情境，幻象類 quirk；E m6new21c quick_swap 6 局跑完
+- 2026-11-02 03:36 D 6ec1d294（E644）：hidden_in_flight 判定；C cb2b9de9：材質工具印出 SM5 預編秒數；after6 開局約 2 分鐘就結束
+- 2026-11-02 03:45 E m6new21c：B16 18 局 0 失敗、observer 0 mismatch，E635 有效；仍有 b16_summon_hound settlement_refused:AddBuff 422 次（E612 沒修好，轉 B）、b16_phase_shift 被拒 82%（月不在範圍內，轉 A 加 bot 前提）；A 盤點的 quirk 類別全部做完（reapply 297、illusion 48）；B E646 visibility wave 改二分搜尋，前後比對跑中
+- 2026-11-02 04:16 B 9dce0276（E646）：生成的 *_by_name／status_buff_by_key 改成排序表格加二分搜尋，visibility wave 與 step 變快（某局 step 3.55→1.68 ms），digest 不變；B 47e81a25：結算拒絕時記錄位置、目標與 buff（B16 忍犬）；B e1536f1a＋A e5e6d8f1（E648）：bot 前提 caster_summon，B16 相移
+- 2026-11-02 04:55 C after6 沒有開局（重跑時輸出目錄已存在被拒，waiter 沒檢查 exit code），改跑 nobu-after7；B 找到 B16 忍犬被拒的原因：舊月死後 entity id 被重用，state 留著失效 handle，exists() 對死亡單位仍回 true，再召喚時 __script_kill 打到錯的實體（E650，待 land）；E 排 m6new21d 驗 B16 bot 前提
+- 2026-11-02 05:00 B E649（814f7f02，隱形中重放隱形技能時狀態消失）、E650（124cf224，B16 忍犬第二次召喚被拒），以及 89b1973a 補回誤刪的 errors 保留行；效能：HEAD 對 E521 沒有退步，visibility wave 是最大單項
+- 2026-11-02 05:16 A 40d48eeb：帶條件的狀態，情境 given 加上 needs（施放前要先設好的局面）；C nobu-after7 跑完（05:06–05:15）
+- 2026-11-02 05:25 C after7 有效局：三角形中位數 87.5k（達標），render thread 6.58 ms、p95 frame 18.81 未達標；載入畫面這次因 ready 正常關閉，SM5 預編有效；LoadMap 1→9.2 秒；加入 OM_SCENE_ART_AB_SECONDS 分組隱藏診斷，跑 after8；A36 地雷在 E645 之後仍在約 2 秒後消失，B 用 headless 加 log 重現；A 40d48eeb：421 個情境帶 needs，via_attack 190 個 land 中
+- 2026-11-02 05:35 E m6new25c：B24 秋山 18 局 0 失敗、observer 0 mismatch（E643 有效），B17、B24 都通過，B16 m6new21d 跑中；A 2c39646c：via_attack 190 個情境；C 貼圖上限 commandlet（樹 512、其他 1024）和 A/B 診斷排隊 land
+- 2026-11-02 05:36 D 34448ddd（E651）：幻象判定；C 424121e6：貼圖上限副本
+- 2026-11-02 after8 分組結果：隱藏全部新元件時 render thread 仍 6.78 ms，新元件不是主因；前 85 秒 4.4 ms 後跳到 6.7 ms，C 推測是機器負載（未證實），要跑 after9（--prebuilt、CPU<35% 才開跑、記錄 CPU）；貼圖原為 2048 已做上限副本；材質為 Opaque 非 two-sided；E m6new25c 18/18 通過、3834 tick 0 mismatch；B：A36 仍未解，等 C 的 frame trace
+- 2026-11-02 06:06 靜默時段：A 85ecd264（status_on_unit 帶 on_summon）已 land；C after9 用的快照建置從 06:04 開始；D 的 E652 全量還在跑；一致性檢查（a606912d、85ecd264）延到靜默時段後
+- 2026-11-02 06:36 C after9（CPU 19–43%）：render 3.86 ms（before 4.58）、frame p95 16.72、三角形中位數 120k 都達標，p95 629k 未達 605k；同內容高負載時 render 6.6 ms 以上，證實先前變差主要來自機器負載；靜默解除；已請 C 補低階模擬，這台機器達標不代表配備差的電腦沒問題
+- 2026-11-02 06:45 C 325e9acd：scene-art-perf.md 改為 after9 數字；三角形 p95 峰值不是新元件（隱藏全部仍 671k），約 58k 一階，局間差 553k–786k；決定 p95 改用固定鏡頭量；我提出的嫌疑：約 29k 接近減面前舊建築，請 C 查 runtime 實際載入的 mesh 是否仍是未減面版；E m6new21d 跑中；A after_tick/via_aura land 中；B E653 比對中
+- 2026-11-02 06:55 建築嫌疑排除（runtime 都是減面版，before 也已減面）；58k 階梯主嫌是英雄 mesh：這局 10 人各 28k–29k，和今晚 H3.1 的 9.3–9.8k 對不上，C 查實際用哪些 mesh；方向是 skeletal LOD（不花點數）；A36：地雷被敵人觸發爆炸，應符合設計，待把 W 改到離敵人 250 外驗證，未結案
+- 2026-11-02 07:05 E m6new21d：B16 18 局 0 失敗、phase_shift 142/142（原被拒 82%）、summon_hound AddBuff 拒絕 0（原 422），B17/B24/B16 三批都過；E 開始 97 位全英雄回歸（每組 10 位 1 局 quick，共 10 局，observer on）；A 3639e051：after_tick、via_aura；TripoV1 含 16 個舊模型（約 28k）與 10 個新 H3.1（約 9.5k）
+- 2026-11-02 06:46 更正：11-01 22:15 到現在這段的部分事件行（例如 06:55、07:05）時間是我估的，比實際晚最多約 25 分鐘，實際順序以 git log 和 lock history 為準；A feab972f：on_summon 的 by 也找 routine、status trigger 的 create_unit；B 32f1ac9e：更正 E638/E645，A36 地雷消失是被觸發爆炸
+- 2026-11-02 06:56 C 1354850d：效能量測開關（mesh 統計、固定鏡頭、主控台設定）；D 16ddab4a（E652）：狀態情境先設好 needs 再觀察
+- 2026-11-02 07:10 A：「施放後沒觀察到狀態」1475 個，782 個已帶前提或備援（實際 pass 待 D），693 個零碎；決定先做 routine 83 個，host buff 72 個查是否應排除，status_then_event 等 D 的結果；D 子集 55 個 unsupported→pass、0 退步，全量跑中；C fixed1 被 performance 鎖擋下沒開局，fixed2 開跑；E 回歸跑中
+- 2026-11-02 07:13 C nobu-fixed2 直接統計：峰值來自小兵（14 隻×約 29k×2 pass），舊批 16 個 skeletal 約 28–29.8k（3 小兵、3 野怪、10 英雄），新元件貢獻很小；武器約 9.5k 沒有 LOD；已定遊戲鏡頭預算：小兵/野怪 ≤3k、英雄 ≤8k、武器 ≤1.5k；B 7dce8d40（E653）：canonical_disclosed_json 略過多餘排序，digest 相同，效能幅度量不出；B 下一步修 conformance fail
+- 2026-11-02 07:16 A 3eb6a5b2：c14e_burn 帶 has_status；routine 83 個其實只有 4 個狀態；host buff 72 個是統計錯，其實是玩法狀態，仍 unsupported；D：目前沒有 runtime fail（v3c_full652 的 10 個都是 harness 問題，已修）；派 B 盤點 fix-candidates 134 項，派 A 盤點手寫 handler 與 items.dll（§1 做完的定義）
+- 2026-11-02 07:19 B fix-candidates 盤點：共 135 項都標修好，但只有 11 項驗到執行期或產生碼（9＋2），113 項只驗 v3 文件，11 項沒有專屬測試；順序：先補 11 項，再升級影響高的約 20 項（FC-133 優先），其餘比對 conformance 後補
+- 2026-11-02 07:35 A 盤點 §1：英雄 93/97 進 hero_dlls，A07/B04/B06/C15 還在 base_content（3 招手寫＋C15 副單位＋hero_unit，共約 2231 行）；道具 166 件只上架 45 件，產生 Rust 37/168，52 件只差上架，79 件有其他阻礙（status.scope:item 26、道具光環 22…）；A 順序：先上架 52 件，再搬 4 位英雄，再解共用阻礙；C LOD 預算（小兵/野怪 ≤3k、英雄 ≤8k）land 中
+- 2026-11-02 07:36 B 3496249a：補 FC-006、007、012、022、050、063、069、106、121、126、135 的專屬測試；E 回歸跑到 rg03
+- 2026-11-02 07:46 A 8e4a12d0：商店上架第一批 7 件被動道具（效果在 items.dll 的產生碼）；E 回歸到 rg06
+- 2026-11-02 07:56 C 010f7d59：角色與掛件 LOD 副本（ue_character_lods，檢查每階面數預算）；D 60cdf533（E654、E655）：判定 periodic，接上 on_summon、after_tick、via_aura；E 回歸到 rg07
+- 2026-11-02 08:06 cc182951：道具目錄加 Scripted 主動，items.dll 執行效果，host 依目錄的 target、冷卻、魔力檢查；E 回歸到 rg08
+- 2026-11-02 08:28 A：商店 45→52 件（8e4a12d0），A07 移進 hero_dlls（94/97），31 件主動道具等 C 的 UE 使用契約；D needs 備援全量 0 fail，pass 22194、unsupported 5437，新判定 E656 全量跑中；注意：cc182951（Scripted）讓測試編不過，B 的修正在 land，測試恢復前不要拿它當基準
+- 2026-11-02 08:46 C 01b89c18：道具 Scripted 的 UE 契約，A 的 31 件主動道具可以上架；C 量角色 LOD（charlod-split）中；E 回歸到最後一組 rg10
+- 2026-11-02 08:56 B：測試編譯恢復；升級 FC 測試抓到 FC-102 真的沒修好（hero scope 狀態死亡時已存起來，on_death 移除碰不到），修正在 E657 同批；E 回歸 97 位：8 組乾淨，rg04 新 mismatch（agility 32 對 30，CommittedAttributes 只帶總值，E657 修），rg05 沒開局重跑；A B06 進 hero_dlls（6c9f9ba8），95/97
+- 2026-11-02 09:06 A acbcf80b：C15 玉子進 hero_dlls，96/97（剩 B04）；D db5ce3f5（E656）：被動與狀態的普攻觸發判定；E m6r1nc 跑中；C 固定鏡頭等 split 建置
+- 2026-11-02 09:18 A 96fd55d3：25 件主動道具上架，貨架 52→77（未實機驗）；另發現來源匯出把狀態才給的數字算成被動（山之卷 +50 護甲等），舊道具待查；D E656 全量 pass 22224、unsupported 約 5400，新 fail 11 個是 host 真 bug（active 帶 passive 的普攻觸發未派送），B 找到 dispatch_passive_attack_hit 只收 Passive 類型，修正 land 中
+- 2026-11-02 09:21 C 角色 LOD 第一輪（固定鏡頭 fixed2→fixed3，未記 CPU）：三角形中位數 86,955→28,377、p95 493k→89k、峰值 830k→118k；draw call 中位數 177→189；預算達成（英雄 7,598、小兵/野怪 2,798、Quaternius 5,998、武器與頭 1,400）；約 148MB 資產未 commit，等視覺驗證；E 跑道具 spotlight；B E657 放回，E658、include_magic_immune 排隊
+- 2026-11-02 09:26 B 79364294（E657）：replica 同步基礎屬性、死亡後 on_death 移除得到 hero scope 狀態（FC-102）；A a34a5a30：道具 roadmap 改用 codegen 掃描；E 道具 spotlight（itemspot）跑中；C fixed3 量完；D 派重統計與 status_then_event
+- 2026-11-02 09:32 E 全英雄回歸 97 位 10 組跑完：rg04 agility 不一致（E657 已修，待重跑），rg05 第一次開局失敗是撞到 A 的 land，重跑通過；NEVER CAST：b08_endless_fang 偏少、a07_rouse_free 算 sub-ability、b22 兩招地圖沒樹；B ea5afba6：道具 include_magic_immune；E658 放回待重跑
+- 2026-11-02 10:06 B 02a3a4ec（E658）：active 招的 passive 區塊收得到普攻命中事件；A 43be9e94：trigger 情境加 status_then_event 的 needs，D 的 E659 可套用
+- 2026-11-02 10:18 A：貨架 83 件（Scripted 28），舊道具查完沒有狀態數字算成被動，道具被動光環和狀態的 all_stats 可產生；下一步 B04 搬移、item_instance（12 件）、unique_rule:latest；E 排第二輪全英雄回歸 m6r2（含 E657、E658），要留意 on-hit 首次觸發的影響；D 全量含 E657/E658 跑中
+- 2026-11-02 10:26 1cd419b5（道具上架到 83 件）一致性檢查通過（未跑 --ubt）；C 閒置約 65 分鐘、D 約 27 分鐘，已各給下一步；目前沒有進行中的局。
+- 2026-11-02 10:45 使用者新指示：所有招式做真特效（Grok 出圖、Tripo 低模，這項工作上限 5,000 點）。已交給 C 為最高優先，先試做 A12、C22、A26，看過再量產；現況是 cue 只對到 6 個共用 NS_shape。
+- 2026-11-02 10:50 D 全量 v3c_full658（D 回報）：0 退步、0 fail，pass 22333，unsupported 5298；FC-102 和 11 個 host fail 轉 pass。接著做 E659 與「觀察不到狀態」實際分類。C 算出招式特效規模：399 招、661 個視覺 cue（另 121 個只有道具和試做批次使用）。
+- 2026-11-02 11:16 道具 spotlight：雷之卷、山之卷、虎大劍、蛛矛有效，flash_ring 交 C；D 分類「觀察不到狀態」1106 個（無欄位 638、harness 416、host 內部 52），E659＋E660 全量跑中；B unique_latest 可用。
+- 2026-11-02 11:17 C 回報 LOD 已提交（omfue a4d64d2、main 35e47f1d），無破圖；並查到招式專屬 cue 大多到不了 UE（只有 on_cast 的 point／target 會播，projectile、on_hit、at=it 都沒路徑）。批准 C 做 runtime cue 事件（bridge ABI 升版，一次 land），B 審查；特效量產排在驗證通過之後。
+- 2026-11-02 11:36 A 2388285d：B04 移進 hero_dlls，97/97 英雄都有自己的 DLL。--ubt 一致性檢查進行中，起點早於這筆 land，下一輪再確認。
+- 2026-11-02 11:56 A 450193b2：item_instance 狀態可產生，再上架 11 件。--ubt 檢查仍在排 build lock（前面還有 land）。
+- 2026-11-02 12:25 A：貨架 108 件（450193b2、db8d19e8），item_instance、unique_rule:latest 解除；光環停止、魔免目標、對塔單元測試通過（對塔用標成建築的英雄測）。未上架 ready 15 件、blocked 46 件；新上架 36 件未跑 spotlight。
+- 2026-11-02 12:55 B：FC 補測試抓到真 bug（FC-102、FC-059、負狀態抗性），D 全量 v3c_full661 0 fail；剩 78 項無 runtime 測試。決定：先做高風險 20 項，其餘逐項對照到 runtime、D 情境或文件式＋理由。
+- 2026-11-02 13:08 B 對照表 c13e1bdd：78 項中 D 真判到 5、文件式 48、批次中 20、B 自查 5；FC-081/085/088 原稱 D 涵蓋不成立，B 自補。B 指出 D harness 4 處判定寬鬆，部分 pass 沒判到實質；已請 D 查證後優先收緊並重跑全量。
+- 2026-11-02 13:26 A 9fa88b88：貨架 120 件（含 ninja1），is_hero_id、stat.when 可產生，修掉來源 key 大寫導致部分道具沒有效果的錯誤；未上架 ready 14、blocked 35，尚未實機驗。D：E663 與收緊判定 E664 合併重跑全量。
+- 2026-11-02 13:56 C runtime cue digest A/B 通過（同 commit、同 seed，final_digest f541d1d6 相同，18122 tick 逐筆相同，observer 0）；效能交錯量測進行中，尚未放回。首批 10 張共用特效貼圖已生成並看過。
+- 2026-11-02 14:26 A：貨架 121 件（f2722d62），行為測試 47e37b92；改派 ready 14 件與網站、作者手冊。B：第三批 FC 抓到真 bug，先 ignore 放回再修，並做 5 類道具 host 缺口。C：cue 整批 dry-run 重跑中，效能比較進行中。
+- 2026-11-02 14:56 D：E664 收緊 4 處判定查證屬實，pass 22465→22509（E663 魔免事件目標 +51，修誤判 -7），收緊本身無新真 bug；E663 找到真 bug：魔免單位會被 v3 debuff 套上（22 fail，is_debuff 不認產生碼狀態），已交 B。C：TD_STRESS backend 可當回歸門檻，量測進行中。
+- 2026-11-02 15:11 C 放回前數字：digest 相同；headless 7.84 vs 8.73 ms、TD_STRESS 3.68 vs 4.19 ms，都因 CPU 100% 無法判定。決定：請 A、B、D、E 跑完手上工作後暫停，給 C 約 20 分鐘安靜窗口重量；15:50 前等不到就直接放回，事後補量。
+- 2026-11-02 15:18 E m6r2 全英雄回歸完成：10 組、97 位，settlement 拒絕、INVALID_TARGET、observer mismatch、creep facing 皆 0；rg07 局長 12.7 分超過上限，原因待查；NEVER CAST 4 招（a07_rouse_free 不計、b22 兩招無樹、c08_devour 待證）。效能非正式數字。C 停掉自己留下的 grepcold.lua（10:28 起佔一核，之後量測都受影響），B 停掉子代理舊測試。
+- 2026-11-02 15:52 C runtime cue 安靜窗口量測無退步：headless 舊 3.24 / 新 3.21 ms，TD_STRESS observer_step 舊 0.092 / 新 0.092 ms，CPU 中位約 17～21%，digest 相同；ABI 45 開始 land。teamfight_stress 放回後量。A、B、D、E 暫停至 C 通知。
+- 2026-11-02 16:01 C ABI 45 runtime cue 已落地（omfue 68563d7、main 1ab360da），A、B、D、E 解除並重建；接著跑 A12、C22、A26 驗證事件到 UE。
+- 2026-11-02 16:46 D 確認全量（含 ABI 45、E664、E673）：0 退步，pass 22617，fail 22（皆魔免 is_debuff，交 B），unsupported 4986。
+- 2026-11-02 17:26 rg07 多跑 4 局 5.2～11.6 分，無 bug 證據；決定 headless 局長偶爾超過 10 分可接受，結案。E 在 C 量產前跑一局 1+9 實機當基準。
+- 2026-11-02 18:07 C：A12、C22、A26 招式專屬 cue 都已到 UE（OM_CUE_UNKNOWN 0），只差 3 個飛行體，修正 05c7b0e6 已放回，等實機證據；通過才建共用系統族。10 張貼圖已匯入，Tripo 尚未使用。
+- 2026-11-02 18:08 A 盤點：貨架 122 件；未上架 36 件都卡 B（ready 6、blocked 30）；原作不賣 10 件 deferred；網站本機重建 516 頁。決定：playable 定義為有 hero DLL 且通過全英雄回歸（97/97）；IR 舊測試改寫；手冊清舊段落；item_instance 查原作後定。
+- 2026-11-02 18:23 使用者新指示：無人值守 96 小時（至 11-06 18:25），主目標為 10 位 Tripo 英雄演示影片（四招＋普攻＋死亡），缺動畫用 blender-skills、缺特效用 MCP。C 負責，A、B、D、E 已通知暫停。
+- 2026-11-02 18:26 待辦（恢復時優先）：B 24a8cfdc 造成退步，B24 石碑壽命狀態可能被魔免擋、不會到期（讀程式推斷，D 48 情境 pass→unsupported）；B 的修補 land 失敗未寫入，暫停中不重跑，正查是否影響 10 位。飛行體 cue 實機通過。A、B、D、E 暫停（A 尚待 3 批 land 收尾）。
+- 2026-11-02 18:55 C 放回 9480152a／omfue 52cd092：共用 Niagara 系統族、地面圖層、招式專屬 clip、演示舞台死亡段，特效配方 76 筆；佐佐木小次郎第一版錄影中，尚未出片。
+- 2026-11-02 19:05 佐佐木小次郎第一版影片出來（49 秒，observer 0），審查未過：鏡頭太遠、綠環蓋畫面、招式特效分不出、死亡未拍到；已回饋 C。
+- 2026-11-02 19:35 佐佐木小次郎第三版（52.7 秒，含死亡段）：新鏡頭清楚；仍缺招式區別、R 取景、死亡段被擋、長袍變形，已回饋 C。fca446aa 待驗。
+- 2026-11-02 20:03 使用者看 19:42 影片：「你這都沒特效啊，普攻也要有特效」。已交 C 為最高優先：查 77 筆配方看不到的根因、特效要有形體與明顯對比、10 位普攻都要有特效，以無／有特效對照幀驗收。
+- 2026-11-02 20:16 C 查到特效看不到的根因：粒子有生成，但配方 size/height 用 cm，未乘呈現比例（英雄約 ×120），小到看不見；抬升又乘比例，粒子飛到高空。佐佐木 R、X 幾乎只有音效 cue，本來就缺視覺。對照版預計 22:00 前。
+- 2026-11-02 20:21 使用者確認 Chrome 已登入 Mixamo；C 用既有登入下載武器動作（不輸入密碼、不同意新條款），先驗佐佐木。
+- 2026-11-02 20:35 使用者登入 Mixamo 後 C 已下載 5 個 FBX；路徑定為 Blender 轉動畫庫骨架，再走現有 retargeter，放新目錄。特效尺寸修正重新放回中。
+- 2026-11-02 21:05 佐佐木新版審查：Q 開始有形體但太白；普攻仍無軌跡與命中，動作不對；C 接 Mixamo 斬擊、查普攻。
+- 2026-11-02 21:29 使用者問為何一次只做一隻。決定：改 10 位並行；C 負責共用特效和配方（可用子代理），E 恢復只做 10 位動作（Mixamo、retarget、clip 指派）；每次 land 後一輪錄 10 位。A、B、D 維持暫停。
+- 2026-11-02 21:45 C 放回 fe19b65b、daac18e8（其餘 9 位逐招配方、佐佐木 Mixamo 斬擊）；佐佐木、德川已有新片；Mixamo 下載 8 檔。
+- 2026-11-02 21:55 第一輪 10 位錄影中。大熊關鍵幀審查：特效看得到了但過頭，白火蓋英雄、揮砍是米色寬帶、招式仍難分，已回饋 C 修共用配方。
+- 2026-11-02 22:11 大熊新版審查：第一版真的有特效，比例、招式區別、普攻、死亡都到位，已傳使用者；Q 範圍太小、火焰偏平面、普攻目標用估算，已回饋。其餘 9 位同版排隊錄影，約 22:50。
+- 2026-11-02 22:15 放回：accd7424（特效比例封頂）、863ef56e、663a753f（E：10 位 Mixamo 動作 clip）。前田利家那局過期鎖已接手，屬 C 主動停止。
+- 2026-11-02 22:50 使用者：先做好第一版，再優化特效；給 Tripo 3,000 點為 10 位技能特效建模（取代 5,000）。已交 C，排程提示同步更新。
+- 2026-11-02 23:05 A cue 套件 land（0ae2fbcd，omfue f704842）：不動數值，digest 測試通過但未跑實機比對；C 開錄 10 位第一版。一致性檢查（--ubt）隨後跑。
+- 2026-11-02 23:26 第一版錄影中；看過 tokugawa、sasaki 峰值幀：tokugawa 黃色圓環跨段殘留到死亡、sasaki E 幾乎無效果，已退回 C，未交付。
+- 2026-11-02 23:37 39286aea 一致性（--ubt）通過。看過 okuma、yamagata 峰值幀：okuma 缺死亡段，yamagata R 表現蓋住普攻、W 幾乎不可見，已退回 C，未交付。
+- 2026-11-02 23:56 10 位重錄中（c9bccd76、6ebccfb1 後）；一致性通過。看過新 okuma、sasaki：okuma 死亡段已有但火焰方形硬邊，sasaki 普攻、E 取樣幀無特效，已回報 C，未交付。
+- 2026-11-03 00:10 de3abe81 一致性（--ubt）通過。看過新 tokugawa、yamagata：黃環已消失、yamagata 最接近合格；tokugawa 死亡取樣未倒地、普攻無命中特效、R 貼圖模糊，yamagata 普攻被 R 脈衝蓋過，已回報 C，未交付。
+- 2026-11-03 00:26 看過 8 張取樣的 tokugawa、sasaki：死亡段皆倒地；普攻與 sasaki E 命中仍不明顯，已回報 C，未交付。
+- 2026-11-03 00:46 第一版超過 C 的 00:45 預估；決定機器鎖優先給 C，先把未錄的 6 位錄完再累積修正，E 暫停新 motion 局。
+- 2026-11-03 00:56 看過 sasaki、nohime、kojima：nohime 判定第一版合格並交付使用者（Q 偏小待優化）；sasaki 藍色碎片跨段殘留、近戰普攻命中仍弱，已回報 C。
+- 2026-11-03 01:06 看過 shimazu、keiji、otani：shimazu 判定第一版合格並交付；keiji、otani 普攻命中弱、otani R 圖形出畫面，已回報 C。
+- 2026-11-03 01:19 6 位首錄完成；2368dba9（fix17）、fde5be3d（山縣、佐佐木刀向）落地待驗證，一致性 --ubt 檢查中。
+- 2026-11-03 01:36 fix18 驗證：近戰命中弧光可見；sasaki、kojima、keiji 判定第一版合格並交付（弧光形狀與鏡頭、法陣模糊待優化；sasaki 刀向待 E 複查）。
+- 2026-11-03 01:46 看過 tokugawa、yamagata、okuma 新版：跨段殘留、死亡段、普攻命中都通過，判定第一版合格並交付；累計合格 6+2 舊版待補錄（nohime、shimazu）。
+- 2026-11-03 01:55 使用者新要求：所有特效都要長得不一樣、能識別，顏色和角度都要正確；已列入 C 的驗收標準。
+- 2026-11-03 01:56 otani、nohime 新版達第一版標準並交付；toshiie W 瞬移後鏡頭沒跟上，退回 C，是第一版最後一項。
+- 2026-11-03 01:58 shimazu 新版看過無退步並交付；第一版只剩 maeda_toshiie（鏡頭修正落地、補錄中）。
+- 2026-11-03 02:04 第一版 10 支全部錄完並交付（總表 63d835dd）；一致性 --ubt 通過（bd5d68a5）。依使用者新標準多數段仍不合格；C 開始下一批（方向機制、獨特造型、顏色），E 複查 sasaki、yamagata 刀向。Tripo 尚未動用。
+- 2026-11-03 02:17 1f4ffc46 一致性（--ubt）通過。kojima 新版弧光方向改善但變細弱、目標無爆點，已退回 C。
+- 2026-11-03 02:28 5986aa70 一致性（--ubt）通過。kojima 02:23 弧光寬度恢復；缺目標爆點、弧光未跟武器軌跡，已回報 C。
+- 2026-11-03 02:37 6a89ec31 一致性（--ubt）通過。fix22：斧直立弧加爆裂、刀橫弧加星爆，方向項目達標，kojima、sasaki 交付進度版；C 轉做招式獨特造型與 Tripo 建模。
+- 2026-11-03 02:56 特效模型流程試點完成（shimazu R 戰錘，3da8f114，1,399 面），Tripo 累計 25 點；下一批 16 件 400 點。
+- 2026-11-03 02:56 3da8f114 一致性（--ubt）通過。戰錘試點不合格（灰色、過大、輪廓像岩塊），16 件 Tripo 等試點修好再送；shimazu 斧命中墨綠色待查。
+- 2026-11-03 03:25 特效模型 16 件已全部生成（3a490c20），Tripo 累計 425 點，比我要求的暫緩早；品質待實機驗證。C 的 land 進行中。
+- 2026-11-03 03:38 0400ec12 一致性（--ubt）通過。戰錘試點顏色、大小、位置過關，輪廓像木桶待查；C 量效能後接上 16 件模型。Tripo 累計 425 點。
+- 2026-11-03 03:57 bd585952 一致性通過（含 UBT）；島津 03:49、濃姬 03:53 新錄影 complete，已看峰值幀，模型接線待 C 修正後再判定；異常局仍 10 筆；Tripo 累計 425。
+- 2026-11-03 04:07 ac8ea593 一致性通過（含 UBT）；佐佐木 03:56 新錄影 complete，已看峰值幀；C 正在量特效效能（普通與降畫質兩組）。
+- 2026-11-03 04:19 C 交 10 位全上場效能（近似）：1080p p95 11.5／p99 13.25 ms、720p p95 11.25／p99 13.5 ms，卡頓 0；18 種模型 cue 只播到鐵鐘、小炸彈 2 種，其餘 16 種待全員補錄時逐位回報。
+- 2026-11-03 04:41 44bd07d1 一致性通過（含 UBT）；島津 04:35 重錄 complete，等峰值圖更新後判定。
+- 2026-11-03 04:49 59b36792 一致性通過（含 UBT）；濃姬 04:43 重錄 complete：火團與死亡殘留已解決，小炸彈辨識、E 與普攻區分、最後一格屍體消失待 C 確認。
+- 2026-11-03 05:09 63fad306 一致性通過（含 UBT）；投射物修正在濃姬 05:01 重錄看到炸彈模型，尺寸偏大與死亡段屍體提前消失已交 C；其他英雄重錄中。
+- 2026-11-03 05:16 小島、大谷、慶次重錄 complete，已看峰值幀，都不合格：小島 R 紅色楔形擋畫面、慶次 R 深色長形物和法陣模糊、大谷各招同為紫色星芒漩渦；已交 C。
+- 2026-11-03 05:27 33539ad8 一致性檢查已跑；C 全員重錄中（濃姬 05:21、小島 05:25 已完成）。
+- 2026-11-03 05:56 10 位重錄（05:21–05:53）全部 complete，峰值幀已看：島津、德川交進度版；慶次 W/R、山縣 Q、利家 W/Q、大谷辨識度、大熊殘留、近戰命中共用、小島 R 開頭、死亡段屍體交 C；Tripo 425。
+- 2026-11-03 06:06 82d58317 一致性檢查已跑；C 再度全員重錄中（濃姬 06:01、小島 06:04）。
+- 2026-11-03 06:36 第二輪全員重錄（06:01–06:32）complete；已看大谷、慶次、山縣、德川：死亡段與德川旗已修，德川 06:21 換交進度版；慶次灰柱與牆、大谷箭與尖刺爆發共用、山縣橘色形狀交 C。
+- 2026-11-03 06:49 6bb638ba 一致性檢查已跑；C 建置下一批重錄。
+- 2026-11-03 07:26 第三輪全員重錄（06:38–07:18）complete；已看慶次、大谷、大熊、利家、小島：小島、大熊交進度版；慶次 W 灰色物、大谷箭、利家 W 構圖交 C。
+- 2026-11-03 07:39 91c2838e 一致性檢查已跑；濃姬 06:38、佐佐木 06:53、島津 07:04 峰值幀已看，島津維持可接受，濃姬炸彈顏色與佐佐木命中共用交 C；C 重錄大谷（07:35）後續中。
+- 2026-11-03 07:48 C 回報：慶次灰柱是 c05e_bolt 的 fx_thunder_spear（5 支疊在一起，疑似預設貼圖，未證實）；大谷箭有播每輪 1 次、約 0.1 秒；逐位模型段幀間隔平均 18.1–25.1 ms，全段平均 17.9–20.3 ms，視窗少，僅粗略參考；濃姬單幀 125.7 ms 待查。
+- 2026-11-03 07:59 30c09ee4 一致性檢查已跑；等 C 下批重錄。
+- 2026-11-03 08:07 C 回報：30c09ee4 的 shock_ring 重畫造成全畫面藍白回歸，之後錄的片作廢，下批重畫重錄；貼圖 log 排除 DefaultTexture 推測，灰柱原因仍未明；已交使用者的進度版都在 30c09ee4 之前，不受影響。
+- 2026-11-03 08:18 cdbec214 一致性檢查已跑；C 重錄慶次中。
+- 2026-11-03 08:26 看慶次 08:17、大谷 08:22、濃姬 08:25：大谷星芒與 R 光球可接受；濃姬子彈、火箭、炸彈在取樣中消失，疑 cdbec214 地面下實例讓模型不再顯示，灰柱消失未必是修好；已請 C 優先查。
+- 2026-11-03 08:36 濃姬 08:34（fix37，尚未 land）子彈、火箭、炸彈都回來且尺寸合適，交進度版；島津、慶次檢查點錄影中。
+- 2026-11-03 08:47 3dd968e0 模型恢復，一致性檢查已跑；慶次 W 灰色槍原因未明，C 改用錄影 pre-roll；packaged build 比對排到 10 位過關後；description unavailable 每幀警告派給 E。
+- 2026-11-03 08:49 檢視島津 08:37（可接受）、慶次 08:41（普攻命中太淡）、大谷 08:46（C 箭灰色、命中與其他招共用），已回給 C。
+- 2026-11-03 08:56 檢視利家 08:55（x 軸站位失敗：衝出地圖、普攻命中看不到，已決定改回平地站位）、佐佐木 08:50（特效可分，模型疑似沒吃到貼圖待查）。
+- 2026-11-03 08:58 佐佐木貼圖比對正常（撤回疑點），畫面洗白歸 C 限時查；利家新站位 (2800,3050) 待實錄；fix38 含 pre-roll 驗證灰色；定全員補錄順序。
+- 2026-11-03 09:10 E 修道具描述警告（80a09c1b／omfue 5634645），一致性含 UBT 通過；修正後的行數待山縣這局結束後由 E 回報。
+- 2026-11-03 09:16 山縣 09:08：Q、R 可以，W 火冠像塑膠、普攻彎月角度不對，回給 C。description unavailable 警告實測 0 行，log 3,672 行（修正前濃姬 13,411，僅參考）。
+- 2026-11-03 09:29 C land fix38 pre-roll（ab0b6df3／omfue 0e90fa7），重錄中；一致性結果見下一行回報。
+- 2026-11-03 09:36 慶次 09:30 普攻改大星芒後通過；大谷 09:33 C 取樣看不到箭、W 混入綠環，C 查 raw 幀；pre-roll 對灰色的效果待證實。一致性 ab0b6df3 含 UBT 通過。
+- 2026-11-03 09:37 pre-roll 有效：慶次槍藍、大谷箭紫（各一次證據，raw 幀 k38w、o38c2）。大谷 W 綠環是治療故保留；C 加直線光痕與穿透命中（cue 交 A）。E 警告修正：同英雄 log 13,459→約 3,670 行，幀時間無可下結論的改善。
+- 2026-11-03 09:47 大谷 C 命中與光痕 cue（A b96f91b8，只把方向存成變數、未動數值）、C 63b6a8e0／omfue a4c7a4e 一致性含 UBT 通過。利家新站位定案，W 太弱、普攻命中太淡、死亡段站位角色消失，回給 C。
+- 2026-11-03 09:56 交付進度版：大谷 09:48（C 紫箭、光痕、穿透成立）、慶次 09:30。利家 09:53 退步（缺普攻段、124 秒、站位角色消失），回給 C。
+- 2026-11-03 09:58 山縣 09:56 通過並交付。掃 10 支報告：利家 09:53、大熊 07:14 skipped=1（大熊 6 段都在，跳的 slot 待查）；要 C 修錄影報告，跳段或中途死亡不得寫 complete。
+- 2026-11-03 10:29 C 錄影報告改列未完成段落（fb45aef4），一致性含 UBT 通過。利家 10:08 局結束未產影片，要 C 查原因並重跑。
+- 2026-11-03 10:29 更正：已交付的大熊 07:14 漏了 X（b26_release_wave，Q 蓄力內才能放，輪到時已過期）。fix41 重錄利家、大熊。利家 10:08 無影片是主角載入期間死亡、全段跳過，擊殺者未查。
+- 2026-11-03 10:42 大熊 10:40 補上 X（7 段、skipped=0、died 只在死亡段），但 X 是不透明橘色團塊、目標持續變藍，未交付，回給 C。利家死因查明為 single_lane_tower，站位再移 400 重錄中。
+- 2026-11-03 11:09 C 1211281a（利家離開中路塔射程、模型可設透明度、大熊衝擊波紋理）一致性檢查已跑；利家、大熊重錄中。
+- 2026-11-03 11:16 利家 11:14 流程過關（6 段、skipped=0、died 只在死亡段），站位定案；W 無命中造型、普攻彎月平塗，未交付，回給 C。
+- 2026-11-03 11:20 交付大熊 11:18 取代 07:14（7 段、skipped=0、died 只在死亡段、X 火焰紋理半透明）。A a14e_hit（e5a397c3）後一致性含 UBT 通過。目標藍環來源仍是配方判斷。
+- 2026-11-03 11:26 交付利家 11:24 進度版（6 段、skipped=0、died 只在死亡段、W 金星命中）；普攻彎月仍偏平、與 W 同星形，留待全員一輪後處理。51b3750d／omfue 01655a9 一致性含 UBT 通過。洗白測試開始（佐佐木）。
+- 2026-11-03 11:32 洗白：高光是主因之一（ShowFlag 對照，島津明顯、佐佐木部分），fix44 Tripo 角色 Specular 降到 0.1，環境光未查。彎月 gain 改 1.0。決定 10 位全部重錄以統一材質。
+- 2026-11-03 11:36 更正：c8d8067f 訊息寫降低高光但材質未改（commandlet 失敗未停），待補 commit。C 未看 diff 就 checkout scripts/moba_role_launch.lua，當時其他 session 都閒置，推論無損失。一致性含 UBT 通過。
+- 2026-11-03 11:58 高光修正實際生效（0dccfc31／omfue 941cecf，26 個材質相關檔），一致性含 UBT 通過。佐佐木 11:53 目標變深、本人仍偏灰，C 查材質路徑。
+- 2026-11-03 11:59 佐佐木材質靜態比對正常（10 位無漏網，未做執行期驗證），記偏淡原因未查。C 試特效圖改 BC7 修波浪邊，要比對並報大小，無改善就還原。
+- 2026-11-03 12:06 BC7 已放回（476f6312／omfue f393086），慶次比對錄影中，commit 訊息寫的「不再有波浪」待比對證實。
+- 2026-11-03 12:08 BC7 比對通過（慶次 W 波浪邊消失，總量 +3.67 MB 為計算值），留下。9 位補錄開始。慶次雷矛半透明網點待修。
+- 2026-11-03 12:52 使用者回饋：山縣未面向目標、E 魔抗應演傷害差異；大谷普攻投射物未到就觸發命中、奇計應是施法時自身特效。新增審查項：位置、動作、面向、是否演出招式真實效果。
+- 2026-11-03 13:00 命中提早的原因：fx_swing 是中點生成的假飛行球（0.26 秒寫死），C 改由手部飛到目標、命中等抵達。被動段方案通過；恢復 B 只做替身施法（山縣 E）；德川試開 mana；大谷 X cue 交 A。
+- 2026-11-03 13:07 大熊 X 半透明、rock 淡出（3b525a36）、大谷奇計累層 cue（A 5ddd60d9）放回，一致性已跑。B 恢復做替身施法。D 槽剩 274G。
+- 2026-11-03 13:31 D 槽盤點完成：target 927G，舊實驗目錄 24 個約 311G（11-01 後無新檔）、舊錄影 run 約 142G；清單與指令交使用者執行，未刪任何檔案。
+- 2026-11-03 13:45 落地：命中時機 0db4aa8e、替身施法 b3330bd5、面向 eca3842d（omfue 0602c72；實機只驗山縣，9 位待 C 最終版）。一致性 --ubt 跑中，涵蓋範圍待查。fix51 建置中，尚無新影片。D 槽清理指令待使用者執行。
+- 2026-11-03 14:06 看大谷 14:05（fix51，12 fps 逐幀）：球飛向目標、抵達才星爆，主問題已修；餘球提早消失、施法手定格，已回 C。X 未修，不交付。
+- 2026-11-03 14:16 fix52 落地 84009d43（omfue d21f768）：被動段先打再學再打、岩石不隨半徑放大；C 依序錄 9 位。E 短投擲動作 land 排隊中。一致性 --ubt 跑中。
+- 2026-11-03 14:27 看佐佐木 14:19（fix52）：不交。E 被動（加距離）前後同站位看不出差別、近戰距離過遠、刀光折線粗→C；命中晚於揮擊、刀朝後→E。E 短投擲 21c20393 落地，一致性重跑中。
+- 2026-11-03 14:36 E 刀普攻命中對齊掃過目標、收勢回起手 20a900c5（omfue 214e1b0）落地，一致性重跑中；C 錄慶次中。
+- 2026-11-03 14:47 看慶次 14:37：不交。長槍槍尖朝反方向→E；E 被動未演出傷害差與減速→C。一致性通過至 20a900c5。
+- 2026-11-03 14:56 看大熊 14:54：不交。斧頭整圈旋轉、命中偏晚→E；E 被動未演受傷回復、命中毛球蓋住目標→C。長槍對調 663bb264 落地，一致性跑中；B 恢復只做 showcase.patrols。
+- 2026-11-03 15:16 E 斧普攻不繞背、命中對上斧頭揮到目標 78b53dda（omfue 7876156）落地，一致性 --ubt 排隊；land_to_live 4 檔持鎖中。
+- 2026-11-03 15:46 E 長槍拿掉手部旋轉 8c8c75e7（omfue b108549）；C fix54 land 持鎖中（9 檔），之後全部重錄。使用者要求替身 +7.5 不顯示，列 fix54 必要驗收。okuma 名稱更正為大熊朝秀。D 槽刪除指令已交使用者（未執行）。
+- 2026-11-03 16:36 C fix54 落地 a25e34e0（omfue a7d5df6）：錄影段可指定站位、受擊與巡邏處，字幕標實際等級。一致性 --ubt 排隊；待全部重錄。B FC-031 完整測試跑中（預計 17:10）。
+- 2026-11-03 17:06 B FC-031 落地 b25f46a8；E 斧第二輪 e024f37f（omfue 4795d0e）；C fix56 落地中（受擊段排最後、巡邏線移開）。一致性等這波落地完再跑。
+- 2026-11-03 17:16 C fix56 落地 cae701a1。大熊 16:28 舊順序局 R 段倒地、撞 300s time box，無影片（frames.jsonl assert）；要 C 改回報 incomplete 並重錄。E 德川、山縣 sweep 被舊 omobab 擋，請補跑。一致性 --ubt 跑中。
+- 2026-11-03 17:26 看慶次 17:25：不交。普攻槍尖朝目標、+7.5 消失已確認；E 段倒地（reason=incomplete），150 秒過長，回 C 改舞台。
+- 2026-11-03 17:46 B refill_players da327f77、C fix58 aee3ff49（omfue 1e1d973）落地：近戰不播提早新月、被動段縮短、補血舞台；開始重錄。大熊舊影片已改名 .previous。一致性 --ubt 排隊。
+- 2026-11-03 18:06 大熊 18:00、慶次 18:05 皆 incomplete（段外倒地、替身也死、146–152 秒）：補血舞台未解決，回 C 查原因。
+- 2026-11-03 18:26 B strike_target 改以 placement 為中心 4c21cd55；C fix59 b60a00ed（omfue 665954d）：巡邏線移出塔射程、大熊回復顯示「無傷」。另一筆 land 5 檔進行中，一致性等它落地再跑。
+- 2026-11-03 19:09 main 審慶次 19:03、大熊 18:57（首次 reason=complete）：不交付。待修：英雄自身常駐 +8.6、慶次跨段大藍星爆來源待查且蓋住目標、E 4 級巡邏被懸崖遮擋、普攻段替身還手、大熊片長 105.7 秒；已交 C。
+- 2026-11-03 19:36 B land dd223614：showcase hold 座位不還手（不在 strike_players 的替身不主動攻擊）；C 的 2cd400bd 修走回起點鏡頭、隱藏自然回血。大熊 19:35 開錄。
+- 2026-11-03 19:47 main 審大熊 19:40（86.4 秒）：不交付。E 段沒挨打（OM_HP 都在死亡段）、近戰站 188 打空氣、W／R buff 跨段殘留；決定換段清 buff，已交 C。
+- 2026-11-03 20:06 C land fix63 6ebb5ea2：走位鏡頭與點擊輪流送、近戰站位改到武器碰得到；大熊 20:05 開錄驗證。D 槽 201G，一小時少約 16G。
+- 2026-11-03 20:16 main 審大熊 20:09（90.2 秒）：武器接觸、E 4 級受擊回復和無傷、段外不受傷都通過；只差 B 的換段清 buff。清完後 C 直接批次錄 10 位。
+- 2026-11-03 20:56 B land 8c187f43 ShowcaseResetHero（換段清英雄與替身有時限的 buff）；開始一致性檢查 --ubt，涵蓋 b60a00ed 以來所有 land。
+- 2026-11-03 21:28 一致性檢查 --ubt 結束，涵蓋到 HEAD 4445129b。
+- 2026-11-03 21:45 C land fix65 89570113：換段送 ShowcaseResetHero；E land 18274627：刀斧槍接觸時間。下一步批次錄 10 位。
+- 2026-11-03 22:26 main 審大熊 22:20（90.6 秒，complete，只死一次）：武器接觸、E 受擊回復、換段無殘留、普攻段不還手都通過，已交使用者；R 段斧頭定住 E 修後重錄。
+- 2026-11-03 22:46 慶次 22:44 不合格：E 段 t=36 倒地、E 被拒，139 秒；推測受擊小段延長後沒補血，已交 C。
+- 2026-11-03 22:56 main 審佐佐木 22:50（72.8 秒，complete）：Q R E X 普攻通過，已交使用者；開頭 2 秒無標題交 C。C land fix67 50151970（受擊小段之間走出範圍補血），慶次重錄中。
+- 2026-11-03 22:59 main 審慶次 22:58：R 瞬雷閃引導 reason=moved，沒放完、沒瞬移；瞄準提示文字入鏡。其他段通過。交 C，並要求引導中斷列入 issues。
+- 2026-11-03 23:02 山縣 E 的 showcase.casts 觸發 observer-mismatch 中止比賽；慶次 R 引導被自動補步打斷（疑似真實 bug）。兩項交 B。C fix69 改站位 140、指定 R 落點、隱藏提示框、issues 加 channel。
+- 2026-11-03 23:08 審小島 23:04：內容合格（W 重疊是招式本身的行為），但有 fix69 前的提示框，R 遠處目標在畫面外，批次結束時隨德川重錄；E 的異常局 run-20261103-225341 已通知。
+- 2026-11-03 23:17 審島津 23:13 不通過：Q 外殼底板浮在腰部且蓋住英雄；R 爆點落在目標後方（站位太近）；被動 E 混入 Q／W／R／普攻段。已交 C，批次後修並補錄。
+- 2026-11-03 23:27 審利家 23:24 不通過：Q 擊飛與撞擊出畫面，W 瞬移後看不到結果且對空揮槍，普攻直刺配橫向彎月，W 與普攻共用金星；已交 C 與 withheld 批一起修。
+- 2026-11-03 23:33 C 批次結束（濃姬 23:28、大谷 23:32 完成），概覽看過：兩位 Q／W 開場目標在畫面邊緣；大谷 C、X 段待補錄後細審。E／B／C fix71-72 開始 land，之後跑 --ubt。Tripo 425。
+- 2026-11-03 23:56 E 的三項動作修正落地（36dbfa9d：施放動作最多占 1 秒、德川與暴擊的接觸時間）；C 的 fix71-73 在 land 佇列；--ubt 等 B、C 都落地後跑。
+- 2026-11-04 00:27 B 落地 a26ed34a（observer mismatch 修正）、f2e785e0（閒置索敵不再打斷引導）；C 落地 20541800（島津 Q 外殼）。還在佇列：4 檔 land、withheld。
+- 2026-11-04 00:35 使用者執行三條清理指令，D 槽從 100G 回到 640G（66%）。補錄等 withheld 與 fix72-73 落地。
+- 2026-11-04 01:06 審大熊 01:05（run-20261104-010028）：R 斧頭已恢復、模型留在光圈內，交付使用者取代 22:20 版；E 段受擊小段間的走動約 3-4 秒，未再調。
+- 2026-11-04 01:16 審小島 01:09、德川 01:13 通過並交付（德川 X 未演出回法力，已告知使用者）；Mx_Charge 不重新匯入，已告知 E。山縣錄製中。
+- 2026-11-04 01:26 審島津 01:21（run-20261104-011811）通過並交付：Q 外殼貼地半透明、R 首擊落在目標腳下、紫雷只在 E 段。W 與 R 之間約 2 秒無字幕的站位移動保留。
+- 2026-11-04 01:56 審利家 01:49、大谷 01:54 皆不通過：大谷 C／X 段施放者被字幕蓋住且看不到箭；利家 W 落點被地形擋住、普攻仍是橫向彎月（Q 通過）。已交 C。
+- 2026-11-04 02:09 審大谷 02:02：C 箭與穿透看得到、普攻／站位合格，X 拉近後目標名牌未見暈眩，第二替身在畫面外，待 C 查證後交付。審利家 02:06：W 落點已清楚但到達爆點比本人早約 0.2 秒；普攻仍是橫向彎月未改成直刺，不交付。已交 C。
+- 2026-11-04 02:16 審濃姬 02:10（run-20261104-020714）：Q 彈道與命中、W 炸飛、R 炸彈落地、普攻、E 暴擊（1／4 級）、死亡都看過，時機和面向合格，交付。C 暫停批次放回 fix76／77，重錄利家、大谷、山縣、慶次，佐佐木最後。
+- 2026-11-04 02:36 審利家 02:32：W 通過（爆點早約 0.1 秒不再追）；普攻已是直刺，但半透明淡金、只有約 2 幀且被身體擋住，不夠明顯，退回 C 加強，不交付。濃姬已交付。
+- 2026-11-04 02:57 審大谷 02:52：C 一線舞台、箭與雙目標合格；X 第五招大爆發與推開看得到，但名牌與 OM_BUFF 都沒有暈眩，請 C 用 server 端資料查層數、強化分支、stun，暫不交付。
+- 2026-11-04 02:58 大谷 X：C 查到層數已到、第五招施放，但客戶端無 stun（強化分支走到只是推論），已恢復 B 專查 FC-047 暈眩；修好後大谷只重錄一支，批次不停。
+- 2026-11-04 03:06 審利家 03:02：新突刺圖夠明顯，但槍頭朝向利家、方向反了，請 C 翻轉重錄，不交付。
+- 2026-11-04 03:16 審過並交付山縣 03:07、慶次 03:13（慶次普攻命中環偏細，列下一輪）。--ubt 一致性檢查失敗：v3_test_heroes.lua 過期，根因未定，已交 C 查並放回，放回後重跑。
+- 2026-11-04 03:26 審過並交付利家 03:20（普攻直刺方向正確、夠明顯）。
+- 2026-11-04 03:26 審過並交付佐佐木 03:25（Q 隱身在自己視角只見藍色漩渦，已告知使用者）。十位中只剩大谷，等 B 查 X 暈眩。
+- 2026-11-04 04:16 審過並交付利家 04:15（突刺穿過目標胸前，取代 03:20 版）。a49142a2 已補上 v3_test_heroes，開始重跑 --ubt。
+- 2026-11-04 04:22 --ubt 一致性通過（codegen、cargo、server、bridge、ubt）。B land cfe5d318（同事件 unit 變數可讀，大谷第五招強化）。
+- 2026-11-04 04:44 審過並交付大谷（X 第五招暈眩上身、名牌顯示）與慶次（藍色突刺）。十位 Tripo 英雄演示影片第一版全部交付。C 更新總表後開始第二輪特效優化，Tripo 累計 425。--ubt 重跑中；E 確認 target/e187/ue-shadow 可清，無攻擊 1 秒上限仍無畫面驗證。
+- 2026-11-04 05:16 第二輪第一波：審過並交付山縣 05:0x 版（W 火冠、R 紅尖刺）與濃姬 05:08（普攻命中加強、R 排後）。利家 E 偏淡，等第二波。Tripo 累計 425。--ubt 跑中。
+- 2026-11-04 06:57 第二波審查：利家 E、濃姬爆擊、佐佐木普攻/R/X、德川 E、大谷 X 通過並交付；大熊普攻（像火柱、與斧頭落點不符）與島津 W（裂地圖案偏離腳下）退回線 C；一致性含 UBT 通過到 19b44ead；線 C 下一波開始 Tripo 技能特效建模，先試最多 5 項，累計 425/3000。
+- 2026-11-04 07:36 大熊普攻改成沿斧頭落下的橙色弧形、島津 W 改成以腳下為中心的放射裂地，重錄後審查通過並交付；線 C 接著做 Tripo 技能特效建模。
+- 2026-11-04 07:46 Tripo 特效建模因 Chrome 未登入而等待（0 點未花，累計 425）；已選五招：德川 W、小島 E、大熊 W、慶次 Q、利家 R；已請使用者登入，線 C 期間先處理不靠 Tripo 的項目。
+- 2026-11-04 08:36 第三批：佐佐木 R 斬痕延長通過；山縣 E 回復效果實際是遮頭的大黃球、W 在 E 段溢出畫面，退回線 C；Tripo 仍等使用者登入。
+- 2026-11-04 08:37 更正：大黃球不只山縣，德川、大熊、大谷死亡段也有，大谷沒用 restore cue，判斷不是回復配方；綠色回復本身正常。已請線 C 查來源並列出受影響影片，修好前第三批暫不交付。
+- 2026-11-04 08:46 大黃球查明：b01r_hit、b04e_impact 沒有配方，落回預設大球，十位死亡段都有（已交付影片也有）；線 C 補小配方（d0b48023），重錄全部十位中，約 45 分鐘。
+- 2026-11-04 08:48 使用者已登入 Tripo；已通知線 C 開始五招模型，每件 55 點以內，放回等十位重錄結束。
+- 2026-11-04 08:50 使用者新要求：所有角色做任何動作時身體要面向前方，攻擊與施法不能歪。交線 E 量測每個片段的朝向偏差並用通用機制修正；Tripo 在 C 連線的 Chrome 仍顯示未登入，已轉告使用者。
+- 2026-11-04 09:06 線 E 量測完成：身體歪主因是動作片段本身轉動（Sword_Outward 胸口轉 207°、Sweep 198°等），de3abe81 固定 yaw 只對準接觸幀；門檻定為出手幀 ≤15°、整段 ≤45°、施法 ≤30°；通用烘製限制上半身水平轉動，修正中。
+- 2026-11-04 09:30 身體朝向修法放回（b493010c，omfue a94edd3）：引擎內出手幀骨盆與肩線 ≤15°、整段最大 43°；畫面待驗，線 C 重錄十位；一致性檢查中。
+- 2026-11-04 10:27 新動作十位重錄完成，黃球青球消失；九位交付（濃姬除外）；濃姬普攻槍口朝上退回線 E，濃姬 W 火箭與招式文字不符退回線 C。
+- 2026-11-04 10:36 濃姬重錄（run-20261104-103142）通過並交付：槍口朝目標方向，W 改成腳下火藥爆炸環；一致性檢查中。
+- 2026-11-04 10:38 線 E 發現第一下攻擊身體偏 30～40°、約 0.3 秒才轉正，疑與 15° 朝向廣播門檻有關；已請 E 查明並修，動作開始事件才額外廣播。濃姬槍口再抬 8°（cd26f2b1）重錄中。
+- 2026-11-04 10:46 濃姬再次重錄（run-20261104-103902）槍口對到目標胸口高度，子彈從槍口出，通過並交付。
+- 2026-11-04 11:09 使用者新要求：濃姬改用中世紀手槍，雙槍；造型與特效交線 C（Tripo 手槍，計入 3,000 上限），動作交線 E。Tripo 已登入成功，五招模型製作中（每件 25 點）。
+- 2026-11-04 11:10 使用者新要求：拿斧頭的角色（大熊、小島、島津）要雙手持武器，交線 E。
+- 2026-11-04 11:12 使用者指示濃姬：普攻左右交替開火、Q 連銃（四連彈）快速往四方放射開槍、W 踢擊快速轉一圈；動作交線 E，特效交線 C；皆為演出，不改傷害判定。
+- 2026-11-04 11:46 濃姬三項動作（a58da69a）與斧手雙手持斧（7b7f7c72）放回，第四波特效模型放回（96b697fe）；待錄影驗畫面。
+- 2026-11-04 13:47 手槍模型 760170ec 與爆擊火修正 6ecbdf7a 放回；濃姬 run-20261104-134249 看過：爆擊火由槍口朝目標噴，交付使用者，剩腰間細線小瑕疵交 C；大熊雙手揮斧正常，W 鬼面仍看不到，交 C 查；一致性通過到 760170ec（含 UBT）
+- 2026-11-04 13:56 bc7977be 濃姬爆擊火等開槍才噴、會發射的武器不畫揮砍軌跡；run-20261104-134907 看過，腰間細線消失，爆擊火方向正確，交付；中途放下雙手僅在 E 施放時仍可見
+- 2026-11-04 14:06 大熊 run-20261104-140032 鬼面已可見，但浮太高被畫面切掉，退回 C 調低；bc7977be 一致性通過（含 UBT）
+- 2026-11-04 14:26 大熊 run-20261104-141747 鬼面仍擋血條且上升被切，再退回 C；E 查出濃姬左右手用 tick 奇偶決定，未真正交替，改為每發換手，放回中；3a13e9b2 一致性通過（含 UBT）
+- 2026-11-04 14:41 使用者指示：動畫先不管只顧面向，特效做好看，接入 DreamFX／DreamShader 文字化特效與材質；E 接外掛（固定 f11dd7d322、d804ba9be0），C 改特效觀感；DreamFX 無授權檔，已告知使用者
+- 2026-11-04 14:46 看小島、島津新片總覽：小島 R 刃停在畫面邊緣、島津 R 巨鎚與爆炸偏離目標，不交付，列入 C 優先改善；E 執行中，外掛尚未進 omfue
+- 2026-11-04 14:46 使用者確認 DreamFX 先用（轉述作者歡迎使用，repo 仍無授權檔）並接受限制，已告知 E；Tripo 累計 575（C 帳本，餘額 20,410），未達 2,700
+- 2026-11-04 15:25 DreamFX、DreamShader 已放入 omfue/Plugins（E 仍在驗證，主線未 commit）；257 個材質反編譯成功，重建比對進行中；C 重錄已到山縣
+- 2026-11-04 15:44 E：外掛放回提交（主 repo 17ce5cad、omfue 21b0b40，未 push），自述 UBT 與一致性通過；移除 DreamShader WebSocket 記於 PROVENANCE；Niagara 12/12、材質 257/257 影子可轉換，尚未切換，畫面比對與 cook 未驗
+- 2026-11-04 16:06 大熊 run-20261104-155350 鬼面固定臉前合格，交付；裝外掛後實機局正常（大谷、大熊）
+- 2026-11-04 16:16 決定文字化分階段切換：先切 C 範圍外材質與 CueShapes，影子錄片比對後才放回，原資產不刪；C 特效觀感第一輪 58404bfc 放回（疊層、佐佐木 R、山縣、德川 R/X、三種地裂），重錄中，Tripo 575
+- 2026-11-04 16:16 濃姬 run-20261104-160630 放大四發普攻確認左右交替、火光與後座力在開火那把槍，交付
+- 2026-11-04 16:26 看 C 觀感第一輪：佐佐木 R 霧帶像高飽和藍河、山縣 Q 仍死白且岩塊像香腸，退回；不交付
+- 2026-11-04 16:36 小島 run-20261104-163146 R 熔岩地裂合格交付，定為地裂品質基準；德川 X 綠十字太實太搶，退回 C
+- 2026-11-04 16:46 島津 run-20261104-163544 R 戰鎚前進連砸與金色地裂合格，交付；bf6f3e96 佐佐木霧氣、德川 X 修正放回，一致性檢查中
+- 2026-11-04 16:56 佐佐木 run-20261104-164705 霧帶仍粗硬，請 C 拿掉改柔邊粒子；刀痕合格
+- 2026-11-04 17:06 山縣 run-20261104-165306 Q 分離岩石合格、德川 X 貼地半透明十字合格，交付；E 開始錄文字化對照片（大谷 spot-text）
+- 2026-11-04 17:16 佐佐木 run-20261104-170815 R 只留刀光刀痕合格，交付；5c2506e6 一致性檢查中
+- 2026-11-04 17:26 觀感第二輪 1420c299 放回；山縣 run-20261104-171822 R 紅色地裂合格，交付；E 用同一內容快照重錄文字化對照片
+- 2026-11-04 17:36 德川 run-20261104-172328 W 網合格，交付；慶次 run-20261104-172911 W 粗藍環與塊狀閃電退回 C
+- 2026-11-04 17:56 大谷 run-20261104-174411 總覽可接受，交付；E 正持機器鎖放回文字化第一批（dream-land-batch1，17:47 起），C 錄影暫等
+- 2026-11-04 18:01 E 第一批放回使 build_ue_moba 失敗（73 個資產雜湊鎖定不符：MapBiomes、Tripo），E 還原修復中，check_live_consistent 抓不到此類問題；已要求補雜湊預檢、暫停推進文字化，已通知 C
+- 2026-11-04 18:05 E 回報 live 修復：73 個還原，build_ue_moba exit 0；留下第一批 81 材質加 6 CueShapes；放回腳本未釋放 live_match 鎖 17:48～18:01 已解；待提交與錄片，C 匯入未實跑
+- 2026-11-04 18:16 修復後實機片正常：E 佐佐木、大谷對照無缺材質（目視抽樣），C 慶次錄製成功；慶次 W 電弧看不到，退回 C；E 第一批 130ae439 提交
+- 2026-11-04 18:27 審 8e13ee8c 後影片：慶次 W（run-20261104-181727）電弧成粗樹枝放射、未對準敵人，退回；慶次 Q 風旋通過。利家（run-20261104-182146）Q 落點金色槍尖通過；W 懸空閃電、R 地上螺旋柱退回 C。
+- 2026-11-04 18:36 慶次 W b8dec565（run-20261104-183122）仍是粗枝放射，再退回 C，請先查出是哪個 cue 產生。
+- 2026-11-04 18:46 慶次 W（run-20261104-183922）粗枝已消失，但英雄到敵人的連線看不到、周圍有散落小圓點，退回 C；利家新片錄製中；1079ecb6 一致性檢查進行中。
+- 2026-11-04 18:49 利家 run-20261104-184345 審過交付：W 懸空閃電改瞬移軌跡、R 螺旋柱移除、狀態環調淡。待查：片尾敵方身上泛白。慶次 W 連線與散點 C 處理中。E 回報 Dream 第一批已留 live，Tripo 匯入未實跑，工具重跑可能覆寫已切換資產。
+- 2026-11-04 19:16 慶次 run-20261104-190818 審過交付：W 細電弧從英雄連到每個被打到的敵人。已知問題：死亡後敵人腳環變白，C 修復中（未見生效）。敵人泛白確認是披風衣服貼圖。0940332c 一致性檢查進行中。10 位英雄本輪特效修正全數已交付至少一版。
+- 2026-11-04 19:34 利家 run-20261104-192953 特效同已交版本，不重交。死後敵方腳環變白：fix117/118 無效，紀錄顯示死後無自己英雄 source row；屬 omoba-core／bridge 層，影響僅死亡後畫面，決定不恢復 B，列入收尾清單。C 進下一輪美化。
+- 2026-11-04 19:57 大谷 R run-20261104-195210 審過交付（封印／火舌／星光，3bfa4ddc 一致性含 UBT 通過）。尚待改：普攻扁平紫橢圓。Tripo 累計 575（C 回報）。
+- 2026-11-04 20:09 島津 run-20261104-200439 審過交付（W 紅色火焰地裂、Q 盾縮小、R 碎石縮小）。C 下一項：命中淡黃環、普攻觀感。Tripo 575。
+- 2026-11-04 20:24 大谷普攻 run-20261104-201957 審過（細長紫彈、命中收小）；黃環確認是選取焦點環，不改。待確認：大谷身旁淡色大環來源。C 進刀系普攻。
+- 2026-11-04 20:40 大谷 run-20261104-203147 審過交付（W/E 修整、狀態環 3 秒淡出，f51da895 一致性含 UBT 通過）。C 下一步：其餘 6 位挑最弱招，再全 10 位統一重錄；可自行決定 Tripo 建模項目。Tripo 575。
+- 2026-11-04 21:50 統一重錄（26b414f8）審完：9 位交付；德川扣下（X 硬邊綠十字且色意錯）。退回 C：德川 X、慶次 R/E 的 L 形白線、大熊 X 火團。使用者問 Dream 進度，已如實回覆：外掛已裝，轉換完成，只切換 81 材質＋6 CueShapes，Fx/** 與 73 pinned 未切，完整 cook 未驗。Tripo 575。
+- 2026-11-04 21:59 C 回報：Tripo 試做 3 件各 25 點，帳本累計 650；餘額 20,065。開工前餘額 20,140 比帳本 20,410 少 270 點，來源不明，查證中。
+- 2026-11-04 21:59 Tripo 差額：帳本末筆餘額 20410（濃姬手槍），其後至 C 開工前少 270 點，尚未查明；已請 C 看帳號紀錄。累計以帳本為準 650。C 三項方向定案：德川 X 藍符紋、長槍關武器軌跡（慶次、利家）、大熊 X 拿掉半球；重錄 4 位。
+- 2026-11-04 22:07 使用者指示：盡量把特效與材質文字化，版控改為以文字結果為主。恢復 E：防覆寫→Fx/** 第二批→73 pinned→驗證後停止追蹤可重建的二進位→完整 cook 驗收；不改寫歷史、不刪檔。已通知 C 協調切換。
+- 2026-11-04 22:56 德川 X 藍符紋 run-20261104-224844 審過交付（e3a04146）。慶次、利家、大熊重錄中；Tripo 試做比較待 C 送審。
+- 2026-11-04 23:19 慶次 run-20261104-225315、利家 run-20261104-230846 審過交付（長槍軌跡關閉）。Tripo 試做 3 件 75 點，留濃姬火藥桶，山縣岩刺環與小島碎石不留；累計 650。fix134 重錄山縣、濃姬、小島、大熊。270 點差額未查。
+- 2026-11-04 23:20 Tripo 差額查明部分：11-04 14:54～14:57 約 9 筆、22:17 一筆，都是文字生成模型各 30 點，共 300，餘額 20,035。線 C 只用單圖生成；搜尋其他 session 紀錄未見文字生成，來源待使用者確認。累計仍 650。
+- 2026-11-04 23:22 766c3c41 一致性通過（未跑 UBT）；fix134 錄影中（山縣 run-232008）；已向使用者詢問 11-04 的 300 點 Tripo 文字生成是否本人所用；線 C 提出 M_OmFxMesh 改受光會動到 Fx/**，須與線 E 的切換協調順序。
+- 2026-11-04 23:35 a9c09f28 一致性通過；山縣 fix134（run-20261104-232008）審過交付：W 回到火焰爆發，報告無 issue，10 分鐘內結束。
+- 2026-11-04 23:37 E187 文字化第一階段（防覆寫 OmDreamGuard、dream_assets owned 87 個）核對通過，含 UBT 一致性通過；已請線 E 查 -shapes= 全跳過 exit 1 與覆寫偵測，接著比對 Niagara 54 個差異。
+- 2026-11-04 23:45 濃姬 fix134（run-20261104-232450）審過交付：W 保留 Tripo 火藥桶並放到身前，爆炸清楚，報告無 issue，局長約 3 分鐘；線 E 將 Niagara 54 個差異分類完，Fx 6 個系統待模擬。
+- 2026-11-04 23:46 小島 fix134（run-20261104-233758）審過交付：W 回到火焰衝擊，報告無 issue；R 裂地特效只亮約 1 秒，之後 6 秒畫面偏空，留待特效優化。
+- 2026-11-04 23:48 大熊 fix134（run-20261104-234212）交付：X 改火舌與火花，死亡段正常，報告無 issue；X 前的淡黃火團與超出畫面的粗環排入 fix136。C 開始 fix135：M_OmFxMesh 從文字來源改受光，新舊並排比較。
+- 2026-11-04 23:57 線 C 發現 dream_switch 影子檢查擋不住 Content 連結到 live 的影子（已查證，未發生實害），交線 E 修復並回查；M_OmFxMesh 尚非文字資產，線 C 在獨立影子由文字建受光版，比較後放回；受光改動曾提交進舊 Builder（83552033，舊工具未跑），fix136 退掉。
+- 2026-11-04 23:59 E187 回報：54 個差異不影響模擬（6 NS_shape 與 6 NS_fx 0 差異，涵蓋 60 幀內預設參數）；線 E 第一批造成 NS_shape_slash/trail ribbon 加倍（18:05～23:48，54189b41 修正，從零建）；dream_shadow 解析連結已接上；owned 87 通過、一致性通過。已請線 C 評估修正對畫面的影響。
+- 2026-11-05 00:17 76115fe1（build_ue_moba 自動重建遺失或過期的文字資產）一致性通過；山縣 fix135 W 受光岩刺環審片不採用：有體積但像奶黃黏土，已退回線 C 查 tint，再不行維持 earth_crown。
+- 2026-11-05 00:21 受光第一輪不採用（德川戰旗變奶白；岩刺被火花 tint 染色）；線 C 開 fix137 最後調整，不行就退回 Unlit。線 E 回報 87 個資產純文字重建通過；等待期間先切非 Tripo 鎖定資產並預演純文字 clone。
+- 2026-11-05 00:46 查到線 E clone UBT、線 C 錄影建置、線 E biome 放回三者互等（非死鎖，推測 UBT 同機互斥），拖慢 fix137；已要求線 E 之後不要重疊、持 live_match 時不等 build 鎖。
+- 2026-11-05 01:17 e8568f37 MapBiomes、WorldSurfaces 7 個材質切成文字來源；三方互等已解開，fix137 恢復錄影（德川）。
+- 2026-11-05 01:59 受光判定：不採用，M_OmFxMesh 退回 Unlit（仍由文字建成）；岩刺環放棄回 earth_crown；大熊新蓄力更差不交付，fix138 改深紅核心加火花細環；fix138 重錄 6 位；Tripo 累計 650。
+- 2026-11-05 02:07 421b096c M_OmFxMesh 退回 Unlit，一致性通過；大熊 fix138 蓄力火審片不合格（純紅色塊像布片），已退回線 C，再試一次不行就拿掉只留細環火花。
+- 2026-11-05 02:16 fix138 審過交付：山縣 run-20261105-020633（W 回火冠，R 紅裂紋與斬擊正常）、德川 run-20261105-021028（戰旗回 Unlit，X 藍符紋），兩支都含 54189b41，報告無 issue；小島、濃姬、佐佐木、大熊待審。
+- 2026-11-05 02:26 fix138 交付：小島 run-20261105-021446、濃姬 run-20261105-021835（總覽審片，無 issue，含 54189b41，火藥桶與金盾未變暗）；佐佐木後製中，大熊待重做蓄力火。
+- 2026-11-05 02:37 fix138 交付：佐佐木 run-20261105-022207（普攻斬擊未變弱，54189b41 結論：看到的片段無明顯影響；R 藍色飛燕刃約 1 秒；E 為被動）；大熊 Q 再試後拿掉持續火（5a99cb2e，一致性通過），錄影中。
+- 2026-11-05 02:40 大熊 run-20261105-023445 審過交付（Q 只留火花與細環）；fix138～140 六位全部交付。線 C 重錄慶次、利家、大谷、島津作為切換前基準，之後改善 R 留空等配方；線 E 接手 Fx/** 第二批，影子切換比對中；下一批 Tripo 等 E 新流程。
+- 2026-11-05 03:06 慶次 run-20261105-024320、利家 run-20261105-025058 重錄審過交付（總覽審片，無 issue，含 54189b41）；大谷、島津待重錄，因線 E 純文字 clone 建置占用 UBT 再次排隊；caef0115 等三筆提交的 --ubt 一致性檢查仍在排隊。
+- 2026-11-05 03:08 Fx 第二批已放回（omfue 21feec18：3 材質、144 instance、6 Niagara），owned 248 個，含 UBT 一致性通過；發現 omfue 有 66 個 AddedClips 動畫 uasset 自 11-04 12:06 起未提交，已請線 C 查歸屬；切換前基準需排除切換後的 run。
+- 2026-11-05 03:11 66 個 AddedClips 歸屬線 E（重存推測，位元組差 87～100，動畫資料未驗），已請線 E 做資產層級比對後還原或提交，並查其他未提交檔；線 C 給出切換前後 run 對照；線 C 接著改小島 R、佐佐木 R、濃姬 W。
+- 2026-11-05 03:16 大谷 run-20261105-025554、島津 run-20261105-031110 審過交付（Fx 第二批切換後，總覽審片，無 issue），十位統一含 54189b41；大谷 Q、R 總覽幾乎看不到特效，交線 C 查。
+- 2026-11-05 03:36 小島 fix141（run-20261105-032255）審過交付：R 裂紋留約 2.4 秒、演示段不再留空。
+- 2026-11-05 03:36 佐佐木 fix141（run-20261105-032710）審過交付：R 飛燕刃約 1.3 秒，演示段縮短。omfue 工作樹已 0 筆，66 個動畫處理結論待線 E 回報。
+- 2026-11-05 03:41 E187 第二批比對與純文字 clone 預演通過（248 個；只比對一位英雄）；66 AddedClips 位元組層級確認僅標頭差異後還原。決定：Bp Binaries 不入版控，先 cook 再 git rm --cached。濃姬 fix141 W 像穿桶不合格，退回 0.6 秒並移遠；大谷 R 改 fix142；Tripo 下批選剛性物件。
+- 2026-11-05 04:07 d26bd05c 一致性通過，owned 250；大谷 fix142 R 紫色實心大球蓋住人物，不合格，退回線 C 縮小並降低透明度（現存影片為不合格版）。
+- 2026-11-05 04:16 濃姬 fix143（run-20261105-040419）審過交付：桶子在身前、爆炸前消失。Tripo 試做累計 700：德川藥盒飄頭頂被血條擋、看不出是藥盒，再試一次；山縣胸甲半透明幾乎看不到，不留。
+- 2026-11-05 04:21 大谷 run-20261105-041555 審過交付：R 改細紫火舌，人物清楚。Tripo 下批選定佐佐木 X 野太刀、濃姬 R 大筒（累計將到 750），利家戰旗因與德川 R 重複不做；線 E 打包等 fix144 後開始。
+- 2026-11-05 04:26 德川藥盒最後一試（run-20261105-042143）大紅方錐罩住上半身，不留，配方拿掉。Tripo 累計 750（野太刀、大筒已生成未匯入）；試做成績：留火藥桶 1 件，放棄岩刺環、碎石、胸甲、藥盒。
+- 2026-11-05 04:37 德川 run-20261105-043057（Q 回綠環）、山縣 run-20261105-042541（拿掉胸甲）審過交付，一致性通過；十位目前版本齊全。下一步線 E 打包（等線 C 通知），之後匯入野太刀與大筒。
+- 2026-11-05 04:38 source-registry.json 未提交差異已查：只多 fx_armor_plate、fx_medicine_inro 兩筆（資產已在版控），交 C 提交後當 E 打包基準。
+- 2026-11-05 04:57 打包成功（E 修一個編譯錯誤 06934e31，產物 target/e187/package2，4.0G，OmGame.exe）；check_live_consistent --ubt 通過到 2896f1c0；E 接著做打包前後比對，還沒結論。
+- 2026-11-05 05:06 查到 E 的停止追蹤沒有真正提交：omfue dd3ffb84 只含 .gitignore，250 筆刪除仍在索引，deb2bd99 訊息不符，clone_build3 不能算驗證；已交 E 補提交、重新 clone，並回報打包版實局與 7 位比對。
+- 2026-11-05 05:17 E 補提交 250 筆刪除（omfue e22daa97、主 repo 53bbbdfb）；打包版實局（佐佐木 run-20261105-044926）與不含 Dream 模組通過；7 位比對強度不足，要 E 補逐招對齊；clone2 建置實錄進行中。
+- 2026-11-05 05:25 E 逐招比對 52 次施放：相同 45、無法判定 1、跳過 6、差異 0（肉眼判定，未逐像素）。C 退回 fix146（野太刀、大筒疊在英雄身上），fix147 重錄中；clone2 編譯中。
+- 2026-11-05 06:14 審過並交付濃姬 R 大筒 run-20261105-055827、佐佐木 X 野太刀 run-20261105-060546；E 回報 clone2 純文字建置與實錄通過（run-20261105-060626）；Tripo 69 個切換開始。
+- 2026-11-05 06:37 E land Tripo 73 個材質文字化（d09eb2c9、omfue 8af22ec1，尚未停止追蹤）；打包與 10 位重錄比對進行中。
+- 2026-11-05 07:16 Tripo 73 個材質停止追蹤（omfue 26e08a17，正好 73 筆刪除；主 repo 00ab9d78），打包版濃姬正常，clone 驗證進行中；一致性通過；C 恢復特效優化（慶次 E、利家 Q/W，再列 10 位弱點表）。
+- 2026-11-05 07:57 看過慶次 071849、利家 074838 總覽：慶次 E 空白已去、利家鏡頭較近，但慶次 W 鏡頭遠、Q 主體弱，利家 W 弱，回饋 C，暫不交付；一致性通過到 4f802a9d。
+- 2026-11-05 08:17 E 完成 Tripo 73 個材質停止追蹤與 clone3 驗證（共 325 個由文字建成，比對無退化，4 位 cue 無法判定）；交 E 盤點剩餘材質與 VFX 貼圖；一致性通過到 a25c2550。
+- 2026-11-05 08:22 審片：利家 081648 交付；慶次 081211 不交（E 閃電像藍色軟帶），退回 C，連 R 環一起改。
+- 2026-11-05 09:02 E 停止追蹤 89 張 VFX 貼圖（omfue 9c0e7fba、主 repo 958e8926），重新匯入只差 GUID/hash；材質與特效已無可文字化項目；clone4 全量驗證中。
+- 2026-11-05 09:14 審片交付慶次 090753、濃姬 082347；待修：慶次 E 閃電太短、R 字幕壓英雄，濃姬 W/R 末段、E 與普攻太像。C 接佐佐木。
+- 2026-11-05 09:37 佐佐木 093038 不交付：X 金色大十字可以，E 段 20 秒幾乎無展示，要求縮短、補距離與閃避展示、Q 環加爆發消散。
+- 2026-11-05 09:56 E 完成 clone4 全量驗證（958e8926，327 個由文字建成，含 89 張貼圖由 PNG 匯入；山縣畫面無差異，濃姬 W 無差異）；交 E 補防漏檢查、clone 後 24 個髒檔、D:/UE5.8 可設定。
+- 2026-11-05 10:36 E 收尾完成（未登記資產報錯、clone 後髒檔、引擎路徑可設定）；全量 clone 乾淨尚待下次驗證。佐佐木 E land 0f6b17f8，錄製審片中。
+- 2026-11-05 10:50 審片交付佐佐木 104414、小島 093858；待查：佐佐木 Q 大白環來源、新月刀光略縮。C 接大熊；一致性通過到 33081863。
+- 2026-11-05 11:03 大熊 105734 不交付：特效可辨但 E 段 31 秒、普攻空檔多；決定 E 留一段 8～10 秒、普攻約 6 秒、Q 加強，三位橘弧要區分。
+- 2026-11-05 11:25 審片交付大熊 112018、山縣 111435；待修：山縣 W/R 鏡頭遠與裂紋細、大熊寬弧蓋過 Q/W。C 接德川；一致性通過到 5ff6a90d。
+- 2026-11-05 11:35 審片交付德川 113043（Q、W 逐格、全片總覽）；待修 E 閃電細、普攻金弧共用。C 接大谷、島津；一致性通過到 df893f4d。
+- 2026-11-05 11:45 第一輪走完：交付島津 113615；大谷 114013 不交（Q 空、X/C 相似、鏡頭遠），排第二輪第一位，順序大谷、山縣、慶次、濃姬、佐佐木、大熊、德川、利家、島津；一致性通過到 86245409；Tripo 750。
+- 2026-11-05 11:59 大谷 115426 逐格審：Q、C 通過；X 平面軍配像圖示且蓋名牌，准 C 試做一個 Tripo 低面數軍配（累計 750），之後才交付；一致性通過到 3fe67aff。
+- 2026-11-05 12:28 第二輪交付山縣 115909、慶次 122213；大谷軍配像地圖圖釘，退回改半圓軍扇（最後一次）。Tripo 累計 775；頁面餘額 19,790，有 120 點非本線帳目，待使用者確認。
+- 2026-11-05 12:35 第二輪濃姬 run-20261105-122922（4b8f4a2f）審過交付：W/R 構圖完整，E 暴擊與普通飛焰可分；R 環下緣略壓字幕。Tripo 累計 800，餘額 19,765。
+- 2026-11-05 12:47 第二輪大谷 run-20261105-123618 審過交付（Tripo 軍扇可辨識，保留）；佐佐木 124151 Q 腳下白青環仍在，退回 C 查來源。一致性通過到 f2b5ded1（cpp=0）。
+- 2026-11-05 12:57 第二輪佐佐木 run-20261105-125244 審過交付（baa5dc78 引導環 110→70；一致性含 UBT 通過）；E 與普攻刀光相似，排入第二輪後處理。
+- 2026-11-05 13:01 第二輪大熊 run-20261105-125652 審過交付（Q 脈衝、E 綠箭頭、普攻橘弧逐格確認）。
+- 2026-11-05 13:15 第二輪利家 130629、島津 131031 審過交付；德川 130236 普攻奶白，退回調淡金重錄（e5eff222）。
+- 2026-11-05 13:36 佐佐木 run-20261105-132707（99fb325c）審過交付：E 新月與普攻直線斬已分開；一致性含 UBT 通過。德川普攻待重錄。
+- 2026-11-05 13:42 第二輪全部交付（德川 133727，057f7642，一致性通過）。第三輪：德川普攻、利家 Q、濃姬 R 爆炸、大熊 Q 脈衝、佐佐木近身斬。Tripo 累計 800。
+- 2026-11-05 14:00 使用者要求先看 LoL Champion Spotlight 再改特效（只管特效，不管動作）。看了 Locke、Shyvana 取樣幀；第三輪方向改為小而有層次，先做濃姬樣板。
+- 2026-11-05 14:17 濃姬 Spotlight 風格樣板第二版 141233（c2d20803）審：柔邊比貼紙好，但普攻、E 暴擊、R 爆炸與範圍標記不夠清楚或位置偏，退回做第三版（外層加深色邊）。一致性通過。
+- 2026-11-05 14:42 濃姬樣板第三版 143214（aae71df9，一致性含 UBT 通過）方向通過，已給使用者看；Q/普攻/E 暴擊命中待區分；開始推到其他九位，逐位審。
+- 2026-11-05 15:15 濃姬 Spotlight 風格版 151010（b6798d30，一致性通過）審過交付；C 開始用 Ramp 共用形狀推到德川等九位。
+- 2026-11-05 15:34 德川新風格 152844（f7762e38，一致性通過）其他招通過；普攻弧在模型後方、刀尖拖尾偏白帶鉤形，退回修普攻。
+- 2026-11-05 15:39 利家新風格 153503 審：R/普攻/E 可，Q 金槍半透明平塗、W 火翼舊平塗感，退回；揮刀拖尾共用修正待重錄。
+- 2026-11-05 15:47 德川 154133（8265ea8a，一致性含 UBT 通過）審：共用拖尾修好；普攻弧太粗不透明蓋住敵人，退回改細斬痕。
+- 2026-11-05 15:57 利家新風格 154800（3d344f4e）審過交付（Q 金色彗星、W 柔邊火翼）；一致性通過到 c6417f52。
+- 2026-11-05 15:59 德川新風格 155351（c6417f52）審過交付；斬痕偏細偏淡，ramp_slash 加厚加深，九位跑完再回頭帶上。
+- 2026-11-05 16:12 大熊新風格 160625（993496e0）審過交付，定為後續品質標準；接著佐佐木。
+- 2026-11-05 16:27 佐佐木新風格 162227（be494399）審過交付；暴擊決定統一橙色、尺寸 180；最後一輪清單：德川斬痕、佐佐木 W 飛燕平塗、暴擊縮小版。接著島津。
+- 2026-11-05 16:39 島津新風格 163449（27d00c1d）審過交付；最後一輪加：戰錘材質、拿掉落錘碎石。接著大谷。
+- 2026-11-05 16:46 大谷新風格 164114（92e520c6，一致性通過）審過交付；最後一輪加 C 大箭材質。接著山縣。
+- 2026-11-05 16:58 山縣新風格 165326（828e753d）審過交付；最後一輪加 W 岩冠材質。接著慶次、小島。
+- 2026-11-05 17:10 慶次新風格 170547（65a68eb9）審過交付；最後一輪加 R 白核、Q 旋風材質。只剩小島。
+- 2026-11-05 17:16 小島新風格 171144（01ac5ac5，一致性通過）審過交付；十位 Spotlight 新風格全部交付。C 線開始最後一輪（材質參數、斬痕、暴擊、白核、裂紋）。Tripo 累計 800。
+- 2026-11-05 17:59 最後一輪八支審過交付（dda45a74、7fdbc36f、2897a751）：德川 171903、佐佐木 172253、濃姬 172656、島津 173035、大谷 173415、山縣 175349、慶次 174202、小島 174807。十位 Spotlight 風格完成，C 做收尾檢查後等使用者回饋。Tripo 累計 800。
+- 2026-11-05 18:02 C 收尾：利家、大熊無暴擊免重錄；dream_assets 391 text-owned、0 未由文字產生；補提交火翼 Halo（9bbd0ec5）；孤兒 52 項只列未刪；C 停下等使用者回饋。
+- 2026-11-05 18:06 請 E 線對 9bbd0ec5 做乾淨 clone 重建驗證（含 git status、大熊畫面比對）；C 線閒置等使用者回饋。
+- 2026-11-05 18:56 E 全量 clone5 驗證 9bbd0ec5：build_ue_moba exit 0、391 文字建成 0 不是、git status 0 筆、大熊畫面肉眼無差（只比大熊）。
+- 2026-11-05 19:26 C 閒置，派全片複查：十位交付版每招含未改招與死亡，列最弱清單，修最弱五招，不動動作數值。
+- 2026-11-05 19:31 C 全片複查表 66 列：高 3（德川 R 旗板、利家 E 貼紙、濃姬 R 大筒）、中 15、低 39、無 9；修五招中，cast 環改細環排其後，一次重錄十位。
+- 2026-11-05 19:53 最弱五招（b6177b0b）審：可，暫不交付，併下一輪十位重錄；佐佐木 Q 試環繞燕一次。
+- 2026-11-05 20:39 使用者要求清理 D:（剩約 200G）：盤點 target 1.1T，主要是 spotlight 舊 run 379G、e187 178G；清單已給使用者，由使用者執行刪除，尚未刪。
+- 2026-11-05 21:10 十位最新版交付（細環、最弱五招、中級修正；b7d5958e，一致性通過）；C 只再修慶次 E，之後停。D: 剩約 197G，刪除指令由使用者執行。
+- 2026-11-05 21:18 慶次 E 粗雷版 211309（1f46f249）審過交付；C 歸檔後停，等使用者回饋。
+- 2026-11-06 01:50 使用者執行清理後 D: 剩 744G、live scripts 完好。新無人值守 96 小時至 11-10 01:55：先做完全部英雄，動作和特效品質不管。
+- 2026-11-06 01:59 E 線狀態表第一版（9b3d35e8、3f325239）：97 位全上架、招式全產生；模型 20、演示腳本不跳招 93、影片 10；施放欄待 headless 掃描。A、B 目前不需恢復。
+- 2026-11-06 03:15 C 線 Tripo 英雄第 2 批 8 位第一版（010c354b），每位 45 點，餘額 19285；live consistent。E 線 headless 掃描到 b7。
+- 2026-11-06 03:49 E 線掃描完成（0c9c28f5，48 局）：97 位都有施放資料，bot 未施放 2 招，演示腳本 97 位不跳招，模型綁定 28、影片 15。第 0 批十位舊影片已清，需重錄。
+- 2026-11-06 04:27 C 線 Tripo 英雄第 3 批 9 位第一版（6440e4a2），live consistent；E 線修引導段落（d234a5b0）供明智、宇喜多重錄。
+- 2026-11-06 05:06 C 線第 3 批交付 6 位；柳生、前野、風魔招式放不出來，連同明智、宇喜多共 5 位交 E 線。餘額約 17,550，第 4 批錄影中，排隊 43 位。
+- 2026-11-06 05:50 E 線 OmAutoPilot 友方目標走近修正放回 live（未提交，交 C 線），live consistent 含 UBT；5 位待 C 重錄。
+- 2026-11-06 06:51 C 線其餘 51 位 Tripo 模型全部下載（餘額約 16,160，待對帳）；第 4 批 7/9 通過。第 4 批延遲因 05:35 build 失敗（manifest 被占用 1224）。
+- 2026-11-06 06:57 C 線第 4 批 9 位全部交付（omfue abad41f2），405 點；交付累計 10+6+6+9=31 位。
+- 2026-11-06 08:29 C 線重錄第 0 批十位與 5 位修正英雄；明智、宇喜多、柳生、風魔 issues 空；前野 a36_detonate 仍 enabler_not_shown 跳過（六段齊，先交付，交 E 線）。delivered 73 支。
+- 2026-11-06 08:30 C 線重錄 15 位交付 13；阿市（光鎖、極光守護冷卻）、前野（腳本 :696 nil）交 E 線。第 5 批 13 位 land／build 中。
+- 2026-11-06 09:06 E 線找到前野引爆根因：有血量的 dummy 召喚物被 bridge 當 CUE_ONLY，玩家也點不到（陷阱、療癒圖騰、海域、毒蜘蛛、刺針 5 個）；陷阱位置 0b2f4218 已提交，bridge 修正 land 中。阿市實錄通過。
+- 2026-11-06 09:40 E 線狀態表 2d7a0ff0：97 位全部有 bot 施放紀錄（未施放 0），太原雪齋兩樹招 nobu 實放通過；Tripo 齊全 59、影片 51。前野 server 修正 0f664cfe 已提交，重錄驗證中。
+- 2026-11-06 10:18 E 線前野引爆實錄通過（e-spotlight6，skipped 0）；四層修正：0b2f4218、omfue 0a190e37、0f664cfe、25909d63（召喚物前搖技能以前全部放不出）。
+- 2026-11-06 10:22 狀態表 59c7b050：擋上架問題 0，影片 56/97，Tripo 齊全 59；剩 41 位待第 5–8 批錄影。
+- 2026-11-06 11:00 C 線第 5 批交付 11/13（585 點）；石川（port 57461 撞 E 線錄影）、本願寺待重錄；第 6 批 16 位錄影中。
+- 2026-11-06 11:04 E 線修 machine_lock 時序（3eceada0）：release 先等附掛程序結束（逾時只停自己的 PID），避免下一局撞 port；石川撞 port 根因。
+- 2026-11-06 12:19 C 線第 6 批 16 位全部交付（omfue 200ce505，740 點含石田重綁 20）；第 7 批錄影中。
+- 2026-11-06 13:49 抽查最上義姬：R 毒蜘蛛顯示成灰色 placeholder 方塊（0a190e37 取消 CUE_ONLY 的副作用），交 E 修、C 標待重錄。
+- 2026-11-06 13:51 C 線第 7 批交付 14/16（720 點）；羽柴（普攻 skipped）、服部（替身術 hero_down）交 E；抽查發現松姬、伊勢姬腳本缺普攻＋死亡段，最上義姬灰方塊，三位標待重錄。
+- 2026-11-06 15:18 重錄 3 位交付（石川、阿市、本願寺，新標準含普攻＋死亡）；石川未撞 port，3eceada0 鎖修正實錄有效。第 8 批錄影中。
+- 2026-11-06 15:20 狀態表 3a494fd2：影片 91/97、Tripo 齊全 97/97、腳本全部含普攻＋死亡；完成條件＝97 位有影片且表上無錄影問題（待重錄 6 位）。
+- 2026-11-06 15:46 C 線第 8 批交付 5/6（270 點）；Tripo 全部 77 位 3,485 點對帳完成。太原雪齋 W 樹在畫面外被拒，交 E。待重錄：最上、松姬、伊勢姬、片倉、半藏、羽柴、太原。
+- 2026-11-06 16:08 重錄交付 4 位（最上灰方塊已消失、松姬、伊勢姬、服部）；片倉死亡段仍 death_not_shown 交 E。羽柴、太原補錄中。
+- 2026-11-06 16:19 羽柴、太原交付；97/97 有模型綁定，合格影片 96/97，僅剩片倉（死亡段未倒下）待 E 修與重錄。Tripo 餘額 16,160。
+- 2026-11-06 16:39 片倉重錄通過（aa1a1f4d 修被動週期排程被重置清掉）。97/97 有 Tripo 模型綁定與合格演示影片；Tripo 77 位 3,485 點、餘額 16,160。待 E 最終狀態表確認。
+- 2026-11-06 16:40 最終狀態表 46cdf0ce：97/97 全項完成，bot 未施放 0、錄影問題 0。主目標達成。
+- 2026-11-06 23:18 使用者：舊版英雄也全部實作。D22 取代 D2：85 位 _old（367 招）＋10 位 _20（50 招）各做成獨立英雄，沿用本體模型。恢復 D（普查）、A、B 線。

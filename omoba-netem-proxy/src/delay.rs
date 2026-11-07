@@ -42,6 +42,9 @@ pub struct DelaySampler {
     route: RouteId,
     upstream_rng: ChaCha12Rng,
     downstream_rng: ChaCha12Rng,
+    // Separate streams: enabling loss never changes the delay sequence.
+    upstream_loss_rng: ChaCha12Rng,
+    downstream_loss_rng: ChaCha12Rng,
 }
 
 impl DelaySampler {
@@ -58,7 +61,21 @@ impl DelaySampler {
                 route,
                 Direction::ServerToClient,
             )),
+            upstream_loss_rng: ChaCha12Rng::from_seed(derive_loss_seed(test_seed, route, Direction::ClientToServer)),
+            downstream_loss_rng: ChaCha12Rng::from_seed(derive_loss_seed(test_seed, route, Direction::ServerToClient)),
         }
+    }
+
+    /// True when this datagram is lost under the profile's loss rate.
+    pub fn drops(&mut self, direction: Direction, profile: &DelayProfile) -> bool {
+        if profile.loss_ppm == 0 {
+            return false;
+        }
+        let rng = match direction {
+            Direction::ClientToServer => &mut self.upstream_loss_rng,
+            Direction::ServerToClient => &mut self.downstream_loss_rng,
+        };
+        rng.random_range(0..1_000_000_u32) < profile.loss_ppm
     }
 
     pub fn sample(&mut self, direction: Direction, profile: &DelayProfile) -> Result<DelaySample> {
@@ -112,6 +129,18 @@ fn derive_seed(test_seed: u64, route: RouteId, direction: Direction) -> [u8; 32]
     hash.finalize().into()
 }
 
+fn derive_loss_seed(test_seed: u64, route: RouteId, direction: Direction) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(b"omoba/netem/loss-stream/v1");
+    hash.update(test_seed.to_be_bytes());
+    hash.update(route.team_id().to_be_bytes());
+    hash.update([match direction {
+        Direction::ClientToServer => 1,
+        Direction::ServerToClient => 2,
+    }]);
+    hash.finalize().into()
+}
+
 pub fn auto_seed() -> u64 {
     let time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -141,6 +170,35 @@ mod tests {
             assert!((34..=65).contains(&ratio))
         }
     }
+    #[test]
+    fn loss_is_seeded_bounded_and_independent_of_delay() {
+        let lossy = DelayProfile::named("wan-80-20-loss1").unwrap();
+        assert_eq!(lossy.loss_ppm, 10_000);
+        let count = |seed: u64| {
+            let mut s = DelaySampler::new(seed, RouteId::Team1);
+            (0..100_000).filter(|_| s.drops(Direction::ClientToServer, &lossy)).count()
+        };
+        let dropped = count(5);
+        assert_eq!(dropped, count(5));
+        assert!((800..=1_200).contains(&dropped), "dropped {dropped}");
+        for _ in 0..1000 {
+            let sample = DelaySampler::new(3, RouteId::Team2).sample(Direction::ServerToClient, &lossy).unwrap();
+            assert!((60..=100).contains(&sample.rtt_ms));
+        }
+        // Delay draws are identical whether or not loss draws were taken.
+        let mut with_loss = DelaySampler::new(11, RouteId::Team1);
+        let mut without = DelaySampler::new(11, RouteId::Team1);
+        for _ in 0..50 {
+            with_loss.drops(Direction::ClientToServer, &lossy);
+            assert_eq!(with_loss.sample(Direction::ClientToServer, &lossy).unwrap(),
+                without.sample(Direction::ClientToServer, &lossy).unwrap());
+        }
+        let lossless = DelayProfile::named("uniform-20-100").unwrap();
+        let mut s = DelaySampler::new(1, RouteId::Team1);
+        assert!((0..10_000).all(|_| !s.drops(Direction::ServerToClient, &lossless)));
+        assert!(DelayProfile::named("fixed-20").unwrap().with_loss_ppm(200_001).is_err());
+    }
+
     #[test]
     fn route_and_direction_streams_are_isolated() {
         let p = DelayProfile::named("uniform-20-100").unwrap();

@@ -37,7 +37,7 @@ function M.decode(text)
   end
   local function object_value()
     pos=pos+1; skip(); local out={}
-    if text:sub(pos,pos)=='}' then pos=pos+1; return out end
+    if text:sub(pos,pos)=='}' then pos=pos+1; return M.object(out) end -- {} stays an object when re-encoded (E290)
     while true do
       assert(text:sub(pos,pos)=='"', "expected JSON object key"); local key=string_value(); skip()
       assert(text:sub(pos,pos)==':', "expected colon in JSON object"); pos=pos+1; skip(); out[key]=parse(); skip()

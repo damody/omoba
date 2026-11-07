@@ -121,7 +121,26 @@ pub enum ScriptEvent {
         order_kind: String,
         target: SkillTarget,
     },
+    /// The owner committed an item's active use (source OnAbilityExecuted also
+    /// fires for items). Dispatch calls the owner's `UnitScript::on_skill_cast`
+    /// with skill id `ITEM_SKILL_PREFIX + item id` and `Target::None`.
+    ItemUsed {
+        owner: Entity,
+        item_id: String,
+    },
+    /// An admitted use of a scripted item (items.dll, M7): dispatch runs its `execute` (rank 1)
+    /// and, when it succeeds, emits `Outcome::ScriptItemTransaction`; nothing is spent before.
+    ItemCast {
+        owner: Entity,
+        owner_pid: u32,
+        slot: u32,
+        item_id: String,
+        target: SkillTarget,
+    },
 }
+
+/// Skill-id prefix of an item use passed to `UnitScript::on_skill_cast`.
+pub const ITEM_SKILL_PREFIX: &str = "item:";
 
 #[derive(Clone, Debug)]
 pub enum SkillTarget {
@@ -190,6 +209,8 @@ pub struct ScriptVisualEvent {
     /// Team-scoped caster relocation: team, x raw Fixed64, y raw Fixed64.
     pub caster_relocation: Option<(u32, i64, i64)>,
     pub ability_area: Option<(u32, i64, i64, i64, i64)>,
+    /// A point-targeted cast's ground point, raw Fixed64 (a unit target is `secondary`).
+    pub target_point: Option<(i64, i64)>,
     pub state_id: Option<String>,
     pub modifier_id: Option<String>,
     pub order_id: Option<String>,
@@ -213,6 +234,7 @@ impl ScriptVisualEvent {
             ability_rank: 0,
             caster_relocation: None,
             ability_area: None,
+            target_point: None,
             state_id: None,
             modifier_id: None,
             order_id: None,

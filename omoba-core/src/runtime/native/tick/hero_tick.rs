@@ -1,7 +1,7 @@
 use crate::comp::*;
-use crate::runtime::combat_controls::AcquisitionIntent;
+use crate::runtime::combat_controls::{within_attack_reach, AcquisitionIntent};
 use crate::runtime::native::combat_acquisition::{
-    acquire, AcquisitionRequest, CombatAcquisitionView, DisclosureContext,
+    acquire, body_radius, AcquisitionRequest, CombatAcquisitionView, DisclosureContext,
 };
 use crate::tick::attack_phase::{
     advance_attack_phase, attack_phase_durations, fixed_secs_to_ms, start_attack_windup, AttackPhaseStep,
@@ -26,11 +26,13 @@ pub struct HeroRead<'a> {
     master_seed: Read<'a, MasterSeed>,
     tick: Read<'a, Tick>,
     pos: ReadStorage<'a, Pos>,
+    radii: ReadStorage<'a, CollisionRadius>,
     searcher: Read<'a, Searcher>,
     factions: ReadStorage<'a, Faction>,
     owners: ReadStorage<'a, PlayerOwner>,
     disclosed_priority: Option<Read<'a, crate::runtime::filtered_specs::DisclosedMovementPriority>>,
     moba: Option<Read<'a, crate::runtime::MobaMatch>>,
+    disclosed_recalls: Option<Read<'a, super::super::cast_windup::DisclosedRecallingOwners>>,
     casts: Option<Read<'a, super::super::cast_windup::AbilityWindups>>,
     admitted_directions: Option<Read<'a, crate::runtime::input_scheme::AdmittedDirectionalSteps>>,
     facts: Read<'a, crate::runtime::ObservableFactBuffer>,
@@ -44,6 +46,7 @@ pub struct HeroRead<'a> {
     admitted: Option<Read<'a, crate::runtime::native::combat_acquisition::AdmittedCombatPreferences>>,
     attack_gate: Option<Read<'a, crate::runtime::filtered_specs::DisclosedAttackabilityGate>>,
     disclosed_wards: Option<Read<'a, crate::runtime::filtered_specs::DisclosedWardCandidates>>,
+    retaliation: Option<Read<'a, super::super::retaliation::HeroRetaliation>>,
     replica_identities: ReadStorage<'a, crate::runtime::ReplicaIdentity>,
     ward_bodies: ReadStorage<'a, crate::runtime::DisclosedWardBody>,
 }
@@ -123,6 +126,8 @@ impl<'a> System<'a> for Sys {
         // 技能冷卻倒數 — sequential 迴圈一次刷所有 hero 的 ability_cooldowns，
         // 在 par_join 攻擊迭代之前處理，避免 borrow 衝突。
         for (_, hero) in (&tr.entities, &mut tw.heroes).join() {
+            // Rank changes (learn, loadout) take effect before this tick's recharge.
+            hero.sync_authored_charges();
             hero.tick_cooldowns(dt);
         }
 
@@ -160,7 +165,8 @@ impl<'a> System<'a> for Sys {
                     let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
 
                     // Stun 狀態：暈眩中不攻擊、不累積冷卻（asd_count 凍結）
-                    if tr.buff_store.is_stunned(e) || tr.buff_store.has(e,super::super::recovery_channel::STATUS) {
+                    if tr.buff_store.is_disarmed(e) || tr.buff_store.has(e,super::super::recovery_channel::STATUS)
+                        || tr.buff_store.has(e,super::super::ability_channel::STATUS) {
                         if let Some(timing) = atk.animation_timing.as_mut() { timing.paused = true; }
                         return (e.id(), outcomes);
                     }
@@ -191,7 +197,7 @@ impl<'a> System<'a> for Sys {
                             tr.command_queues.get(e).and_then(|queue| queue.active),
                         ));
                     if moving || tr.casts.as_ref().is_some_and(|casts|casts.0.contains_key(&e))
-                        || tr.moba.as_ref().is_some_and(|m| m.is_recalling(e)) {
+                        || super::super::cast_windup::hero_recalling(tr.moba.as_deref(),tr.disclosed_recalls.as_deref(),&tr.owners,e) {
                         return (e.id(), outcomes);
                     }
 
@@ -216,11 +222,22 @@ impl<'a> System<'a> for Sys {
                                 Some(HeroCommand::AttackMove { pos }) => {
                                     (AcquisitionIntent::AttackMove, Some(pos), None)
                                 }
-                                _ => (AcquisitionIntent::Idle, None, None),
+                                // Idle: answer a recent attacker in attack range first (authority,
+                                // retaliation.rs), otherwise the nearest enemy in range.
+                                _ => match match_state.filter(|state| state.config.game_rules.is_some()).zip(tr.retaliation.as_deref())
+                                    .filter(|(state, _)| !state.showcase_holds_fire(e))
+                                    .and_then(|(state, hits)| super::super::retaliation::attacker(hits, e, state.elapsed))
+                                    .filter(|attacker| tr.pos.get(*attacker)
+                                        .is_some_and(|at| within_attack_reach(pos.0, at.0, attack_range,
+                                            body_radius(&tr.radii, e), body_radius(&tr.radii, *attacker)))) {
+                                    Some(attacker) => (AcquisitionIntent::AttackTarget, None, Some(attacker)),
+                                    None => (AcquisitionIntent::Idle, None, None),
+                                },
                             }};
                             let view = CombatAcquisitionView {
                                 entities: &tr.entities,
                                 positions: &tr.pos,
+                                radii: &tr.radii,
                                 health: &tr.propertys,
                                 factions: &tr.factions,
                                 owners: &tr.owners,
@@ -233,6 +250,7 @@ impl<'a> System<'a> for Sys {
                                 disclosed_wards: tr.disclosed_wards.as_deref(),
                                 replica_identities: &tr.replica_identities,
                                 ward_bodies: &tr.ward_bodies,
+                                buffs: Some(&*tr.buff_store),
                             };
                             let selected = if committed_impact && explicit_target.is_none() { None } else { acquire(
                                 &view,
@@ -277,6 +295,9 @@ impl<'a> System<'a> for Sys {
                                     let angle_diff = normalize_angle(desired - new_rad).abs();
                                     if committed_impact || angle_diff < MOVE_ANGLE_THRESHOLD {
                                         if matches!(attack_phase, AttackPhaseStep::Ready) {
+                                            // This branch doesn't run again until the impact: a turn left over
+                                            // here would hold the body off target for the whole windup, then snap.
+                                            *facing = Facing::from_rad_f32(desired);
                                             let (windup, backswing) = start_attack_windup(
                                                 &mut atk.asd_count,
                                                 effective_interval,
@@ -384,6 +405,20 @@ mod explicit_target_tests {
             assert_eq!(attack_direction(delta, 1.25), 1.25);
         }
         assert_eq!(attack_direction(vek::Vec2::new(0.0, 5.0), 1.25), std::f32::consts::FRAC_PI_2);
+    }
+
+    #[test]
+    fn the_body_points_at_the_target_from_the_start_of_the_windup() {
+        use crate::comp::{Facing, TurnSpeed};
+        use specs::WorldExt;
+        let mut fix = CombatFixture::legacy();
+        let target = fix.spawn_units(IndexedBody::Creep, 1, 2, 100);
+        // 25 degrees off, inside what starts an attack without turning first, and no turn this tick.
+        fix.world.write_storage::<Facing>().insert(fix.hero, Facing::from_rad_f32(25f32.to_radians())).unwrap();
+        fix.world.write_storage::<TurnSpeed>().insert(fix.hero, TurnSpeed(omoba_sim::Fixed64::ZERO)).unwrap();
+        assert_eq!(fix.attack_targets(), vec![target]);
+        let facing = fix.world.read_storage::<Facing>().get(fix.hero).copied().unwrap();
+        assert!(facing.rad_f32().abs() < 0.01, "still {} rad off the target", facing.rad_f32());
     }
 
     #[test]

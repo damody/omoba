@@ -1,0 +1,972 @@
+//! Dispel by class (E214): what the v3 documents' `dispel` says a dispel removes.
+//!
+//! * The classes come from compiled content: every status in `V3_CATALOG_JSON` (hero abilities
+//!   and shelf items) under its `runtime_id`, else the executor's default key (its id, or
+//!   `<id>:{caster}` for a per-source status). `{caster}` in a runtime id matches the
+//!   applier's `id:gen`, `{rank}` a rank number. A key several statuses share (`stun`) takes the
+//!   strictest class among them: the BuffStore keeps one entry per key, so it cannot tell which
+//!   status applied it.
+//! * `Strength::Basic` removes class `basic`; `Strength::Strong` also `strong`. `none` and
+//!   `death_only` stay.
+//! * `Purge::Debuffs` (a dispel by the unit or an ally) removes `debuff` statuses, `Purge::Buffs`
+//!   (an enemy purge) `buff` ones, whoever applied them. A `hidden` status goes by its applier
+//!   (the key's `…:<id>:<gen>` suffix or the payload's `source_entity_id/gen`): an enemy's is a
+//!   debuff, the unit's own or an ally's a buff; with no living applier it stays.
+//! * Keys the catalog does not list keep the older strong-dispel rules (controls, the legacy slow
+//!   and healing reduction, hostile source-tagged buffs), for a strong dispel of debuffs only.
+use super::ability_runtime::BuffStore;
+use super::comp::Faction;
+use omoba_sim::Fixed64;
+use serde_json::Value;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::OnceLock;
+use specs::{Entity, World, WorldExt};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Class { Basic, Strong, DeathOnly, None }
+
+impl Class {
+    fn parse(text: &str) -> Option<Class> {
+        Some(match text { "basic" => Class::Basic, "strong" => Class::Strong, "death_only" => Class::DeathOnly, "none" => Class::None, _ => return None })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Strength { Basic, Strong }
+
+/// Which side of the unit's statuses a dispel takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Purge { Debuffs, Buffs }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rule { pub class: Class, pub side: Option<Purge> }
+
+fn side_of(visibility: &Value) -> Option<Purge> {
+    match visibility.as_str() { Some("debuff") => Some(Purge::Debuffs), Some("buff") => Some(Purge::Buffs), _ => None }
+}
+
+/// Whether a BuffStore key is an instance of a runtime id (`{caster}`, `{rank}` placeholders);
+/// shared with the buff icons' key lookup (E218).
+pub use omoba_template_ids::runtime_id_matches;
+
+fn is_pattern(runtime_id: &str) -> bool { runtime_id.contains("{caster}") || runtime_id.contains("{rank}") }
+
+/// Runtime ids to dispel rules: exact keys, then `{caster}`/`{rank}` patterns; and each status's
+/// own rule by its v3 id (for the control-source rows below).
+#[derive(Debug, Default)]
+pub struct Registry { exact: HashMap<String, Rule>, patterns: Vec<(String, Rule)>, by_status: HashMap<String, Rule>,
+    /// (runtime key or pattern, v3 status id), to find a removed status's control-source row.
+    status_of: Vec<(String, String)>,
+    /// v3 status id -> its `tags` (remove_status `tags` / `exclude_tags`).
+    tags_of: HashMap<String, Vec<String>>,
+    /// v3 status ids with `remove_on = { "owner_death" }`.
+    owner_death: std::collections::HashSet<String>,
+    /// v3 status id -> its `immune_to` entries (`tag:<tag>`, a status id or a v3 state; E445).
+    immune_of: HashMap<String, Vec<String>> }
+
+/// A status that holds a shared host control (`stun`, `root`, `silence`: one BuffStore key for
+/// every status) also leaves a row `__ctl:<status id>` with payload `{"states": [...]}` for the
+/// same time (ability_kit `apply_status`). A dispel then judges each such status by its own class:
+/// the shared key goes when every status holding it was dispelled, and stays while one survives,
+/// whatever the strictest class of the shared key is. A shared key with no such row (a hand-written
+/// handler's stun) keeps the older rule. An independent instance (v3 `stacking = "independent"`)
+/// holds its own row, `__ctl:<status id>#<n>`, so one instance's time never overwrites another's;
+/// the registry reads such a row as its status.
+pub const CONTROL_SOURCE_PREFIX: &str = "__ctl:";
+
+/// The payload of a control-source row.
+pub fn control_source_payload(states: &[&str]) -> Value {
+    serde_json::json!({ "states": states })
+}
+
+/// The shared state keys a control-source row holds (controls and other host states alike).
+fn controls_of(payload: &Value) -> Vec<&str> {
+    payload.get("states").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect()
+}
+
+/// [`controls_of`], owned (illusion: a copied status brings the controls it holds).
+pub fn control_states(payload: &Value) -> Vec<String> {
+    controls_of(payload).into_iter().map(str::to_owned).collect()
+}
+
+impl Registry {
+    /// From a V3_CATALOG_JSON document; statuses without a known class are left out.
+    pub fn from_catalog(doc: &Value) -> Registry {
+        /// The status's BuffStore keys: its `runtime_id`, else the executor's default (m3-ir-design
+        /// §7): the status id, with `:{caster}` for a per-source status. The catalog row does not
+        /// say per_source, so both are listed; a status that is not per-source never makes the second.
+        fn runtime_keys(status: &Value) -> Vec<String> {
+            match (status["runtime_id"].as_str(), status["id"].as_str()) {
+                (Some(runtime_id), _) => vec![runtime_id.to_owned()],
+                (None, Some(id)) => vec![id.to_owned(), format!("{id}:{{caster}}")],
+                (None, None) => Vec::new(),
+            }
+        }
+        let mut rules: BTreeMap<String, Rule> = BTreeMap::new();
+        let mut by_status: HashMap<String, Rule> = HashMap::new();
+        let mut status_of: Vec<(String, String)> = Vec::new();
+        let mut tags_of: HashMap<String, Vec<String>> = HashMap::new();
+        let mut owner_death = std::collections::HashSet::new();
+        let mut immune_of: HashMap<String, Vec<String>> = HashMap::new();
+        for list in ["abilities", "items"] {
+            for entry in doc[list].as_array().into_iter().flatten() {
+                for status in entry["v3"]["statuses"].as_array().into_iter().flatten() {
+                    if let (Some(id), Some(list)) = (status["id"].as_str(), status["immune_to"].as_array()) {
+                        let list: Vec<String> = list.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                        if !list.is_empty() { immune_of.insert(id.to_owned(), list); }
+                    }
+                    let Some(class) = status["dispel"].as_str().and_then(Class::parse) else { continue };
+                    let side = side_of(&status["visibility"]);
+                    if let (Some(id), Some(on)) = (status["id"].as_str(), status["remove_on"].as_array()) {
+                        if on.iter().any(|v| v.as_str() == Some("owner_death")) { owner_death.insert(id.to_owned()); }
+                    }
+                    if let (Some(id), Some(tags)) = (status["id"].as_str(), status["tags"].as_array()) {
+                        let tags: Vec<String> = tags.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                        if !tags.is_empty() { tags_of.insert(id.to_owned(), tags); }
+                    }
+                    if let Some(id) = status["id"].as_str() {
+                        by_status.entry(id.to_owned())
+                            .and_modify(|rule| { rule.class = rule.class.max(class); rule.side = rule.side.or(side); })
+                            .or_insert(Rule { class, side });
+                    }
+                    for key in runtime_keys(status) {
+                        if let Some(id) = status["id"].as_str() { status_of.push((key.clone(), id.to_owned())); }
+                        rules.entry(key)
+                            .and_modify(|rule| { rule.class = rule.class.max(class); rule.side = rule.side.or(side); })
+                            .or_insert(Rule { class, side });
+                    }
+                }
+            }
+        }
+        let mut registry = Registry { by_status, status_of, tags_of, owner_death, immune_of, ..Registry::default() };
+        for (key, rule) in rules {
+            if is_pattern(&key) { registry.patterns.push((key, rule)); } else { registry.exact.insert(key, rule); }
+        }
+        registry
+    }
+
+    /// A hostile v3 status magic immunity keeps out: a debuff row, or its control-source row.
+    /// A row of an entry that reaches magic-immune units carries PIERCE_KEY (ability_kit).
+    pub fn immunity_blocks(&self, key: &str) -> bool {
+        let status = key.strip_prefix(CONTROL_SOURCE_PREFIX).unwrap_or(key);
+        let status = omoba_template_ids::instance_base(status);
+        self.status(status).or_else(|| self.rule(status)).and_then(|rule| rule.side) == Some(Purge::Debuffs)
+    }
+
+    /// The rule for a BuffStore key.
+    pub fn rule(&self, key: &str) -> Option<Rule> {
+        let key = omoba_template_ids::instance_base(key);
+        self.exact.get(key).copied().or_else(|| self.patterns.iter().find(|(id, _)| runtime_id_matches(id, key)).map(|(_, rule)| *rule))
+    }
+
+    /// The rule of a status by its v3 id.
+    pub fn status(&self, id: &str) -> Option<Rule> { self.by_status.get(id).copied() }
+
+    /// The rule of a control-source row's status: named by its runtime id (`…:<caster>` for a
+    /// per-source status) or, as older rows were, by its v3 id.
+    /// The v3 id comes first: a row named by a shared key (`__ctl:stun`) must not take the shared
+    /// key's strictest class.
+    fn source_row(&self, status: &str) -> Option<Rule> {
+        let status = omoba_template_ids::instance_base(status);
+        self.status(status).or_else(|| self.rule(status))
+    }
+
+    /// The tags of the status a BuffStore key (or a control-source row's status) belongs to.
+    fn tags(&self, key: &str) -> Vec<&str> {
+        let key = omoba_template_ids::instance_base(key);
+        let mut ids = self.status_ids(key);
+        ids.push(key);
+        ids.into_iter().filter_map(|id| self.tags_of.get(id)).flatten().map(String::as_str).collect()
+    }
+
+    /// The v3 status ids whose runtime key is `key` (exactly or by pattern).
+    fn status_ids(&self, key: &str) -> Vec<&str> {
+        let base = omoba_template_ids::instance_base(key);
+        self.status_of.iter().filter(|(runtime, _)| runtime == base || (is_pattern(runtime) && runtime_id_matches(runtime, key)))
+            .map(|(_, id)| id.as_str()).collect()
+    }
+
+    /// The v3 status ids a BuffStore key (or a control-source row's status) belongs to.
+    pub fn statuses_of(&self, key: &str) -> Vec<&str> { self.status_ids(key) }
+
+    /// v3 `immune_to` (E445): a live status on `entity` refuses v3 status `status`, which holds
+    /// the host state buffs `states`: by one of its catalog tags (`tag:<tag>`), by its id, or by
+    /// a v3 state it holds (`stun`). The applier then applies nothing of it.
+    pub fn immune(&self, buffs: &super::BuffStore, entity: specs::Entity, status: &str, states: &[&str]) -> bool {
+        if self.immune_of.is_empty() { return false; }
+        let tags = self.tags_of.get(status);
+        buffs.iter_for(entity).filter(|(_, entry)| entry.remaining > omoba_sim::Fixed64::ZERO)
+            .flat_map(|(key, _)| self.status_ids(key)).filter(|holder| *holder != status)
+            .filter_map(|holder| self.immune_of.get(holder)).flatten()
+            .any(|entry| match entry.strip_prefix("tag:") {
+                Some(tag) => tags.is_some_and(|tags| tags.iter().any(|t| t == tag)),
+                None => entry == status || matches!(super::rules::vocab::state(entry),
+                    Some(super::rules::vocab::StateEffect::Buff(buff)) if states.contains(&buff)),
+            })
+    }
+
+    /// The catalog tags of the status a BuffStore key (or a control-source row's status) belongs to.
+    pub fn status_tags(&self, key: &str) -> Vec<&str> { self.tags(key) }
+
+    /// `key` with the applier `to` in place of `from` when it is a per-source key (`…{caster}…`
+    /// runtime id); other keys stay.
+    pub fn recast_key(&self, key: &str, from: (u32, u32), to: (u32, u32)) -> String {
+        let per_source = self.patterns.iter().any(|(id, _)| id.contains("{caster}") && runtime_id_matches(id, key));
+        let (from, to) = (format!("{}:{}", from.0, from.1), format!("{}:{}", to.0, to.1));
+        if per_source { key.replacen(&from, &to, 1) } else { key.to_owned() }
+    }
+
+    /// The rule for a runtime id as the content writes it (`…:{caster}`).
+    pub fn declared(&self, runtime_id: &str) -> Option<Rule> {
+        self.exact.get(runtime_id).copied().or_else(|| self.patterns.iter().find(|(id, _)| id == runtime_id).map(|(_, rule)| *rule))
+    }
+}
+
+/// v3 `has_status_tag(unit, tag)`: some live status on `entity` carries catalog tag `tag` (a
+/// control-source row stands for its status).
+pub fn holds_tag(buffs: &super::BuffStore, entity: specs::Entity, tag: &str) -> bool {
+    let registry = registry();
+    buffs.iter_for(entity).any(|(id, entry)| {
+        if entry.remaining <= omoba_sim::Fixed64::ZERO { return false; }
+        let status = id.strip_prefix(CONTROL_SOURCE_PREFIX).unwrap_or(id);
+        registry.tags(status).iter().any(|t| *t == tag)
+    })
+}
+
+/// The compiled content's registry, parsed once.
+pub fn registry() -> &'static Registry {
+    static REGISTRY: OnceLock<Registry> = OnceLock::new();
+    REGISTRY.get_or_init(|| serde_json::from_str::<Value>(omoba_template_ids::V3_CATALOG_JSON)
+        .map(|doc| Registry::from_catalog(&doc)).unwrap_or_default())
+}
+
+/// Whether a buff id ends in an applier `…:<id>:<gen>` suffix.
+fn id_names_applier(buff_id: &str) -> bool {
+    let mut parts = buff_id.rsplitn(3, ':');
+    parts.next().is_some_and(|gen| gen.parse::<i32>().is_ok())
+        && parts.next().is_some_and(|id| id.parse::<u32>().is_ok())
+        && parts.next().is_some()
+}
+
+/// The living caster a source-tagged buff names: `…:<id>:<gen>` ids or a `source_entity_id/gen` payload.
+fn applier(world: &World, buff_id: &str, payload: &Value) -> Option<Entity> {
+    let entities = world.entities();
+    let from = |id: u32, gen: i32| {
+        let entity = entities.entity(id);
+        (entity.gen().id() == gen && entities.is_alive(entity)).then_some(entity)
+    };
+    if let (Some(id), Some(gen)) = (payload.get("source_entity_id").and_then(Value::as_u64), payload.get("source_entity_gen").and_then(Value::as_i64)) {
+        return u32::try_from(id).ok().zip(i32::try_from(gen).ok()).and_then(|(id, gen)| from(id, gen));
+    }
+    let mut parts = buff_id.rsplitn(3, ':');
+    let gen = parts.next()?.parse::<i32>().ok()?;
+    let id = parts.next()?.parse::<u32>().ok()?;
+    parts.next()?;
+    from(id, gen)
+}
+
+fn is_control(buff_id: &str) -> bool {
+    use omb_script_abi::buff_ids::BuffId;
+    use super::rules::vocab::state;
+    [BuffId::Stun.as_str(), BuffId::Root.as_str(), BuffId::Silence.as_str(), state::DISARM, state::MUTE, state::HEX].contains(&buff_id)
+}
+
+/// A script removes one status (v3 `remove_status`): its row, its control-source row, and the
+/// shared state keys only it held (another status holding the same state keeps it).
+pub fn remove_status(world: &World, entity: Entity, id: &str) {
+    remove_status_with(registry(), world, entity, id)
+}
+
+/// The control-source row is named by the runtime id or by the v3 status id (the catalog maps a
+/// runtime id back to its status).
+pub fn remove_status_with(registry: &Registry, world: &World, entity: Entity, id: &str) {
+    // Its slow row (`<id>:slow`, ability_kit apply_status_slowed; an instance's `<id>#<n>:slow`) and
+    // its forced move row (forced_move.rs) go with it.
+    let mut doomed = vec![id.to_owned(), format!("{id}:slow"), super::forced_move::row(id)];
+    // An independent instance (`…#<n>`) takes its own row only.
+    let instance = omoba_template_ids::instance_number(id).map_or_else(String::new, |n| format!("#{n}"));
+    let rows: Vec<String> = std::iter::once(id.to_owned()).chain(registry.status_ids(id).into_iter().map(|status| format!("{status}{instance}")))
+        .map(|status| format!("{CONTROL_SOURCE_PREFIX}{status}")).collect();
+    let present: Vec<String> = { let buffs = world.read_resource::<BuffStore>(); rows.into_iter().filter(|row| buffs.has(entity, row)).collect() };
+    if !present.is_empty() {
+        doomed.extend(present);
+        doomed.sort();
+        doomed.dedup();
+        follow_controls(world, entity, &mut doomed);
+    }
+    let mut buffs = world.write_resource::<BuffStore>();
+    for id in &doomed { buffs.remove(entity, id); }
+}
+
+/// v3 `remove_on = { "owner_death" }`: when `dead` dies, the statuses it applied with that rule go
+/// (with the shared states only they held), and so does every taunt and mind control it imposed. Call while `dead`
+/// is still alive in the world (before the batch deletes it).
+pub fn remove_owned_by(world: &World, dead: Entity) {
+    remove_owned_by_with(registry(), world, dead)
+}
+
+pub fn remove_owned_by_with(registry: &Registry, world: &World, dead: Entity) {
+    use specs::Join;
+    let doomed: Vec<(Entity, String)> = {
+        let buffs = world.read_resource::<BuffStore>();
+        let entities = world.entities();
+        let mut doomed = Vec::new();
+        for entity in (&entities).join() {
+            for (id, entry) in buffs.iter_for(entity) {
+                let owned = id == super::taunt::BUFF && super::taunt::taunter(world, &entry.payload) == Some(dead)
+                    || id == super::mind_control::BUFF && super::mind_control::controller(world, &entry.payload) == Some(dead)
+                    || (!id.starts_with("__") && applier(world, id, &entry.payload) == Some(dead)
+                        && std::iter::once(id).chain(registry.status_ids(id)).any(|s| registry.owner_death.contains(s)));
+                if owned { doomed.push((entity, id.to_owned())); }
+            }
+        }
+        doomed.sort_by(|a, b| (a.0.id(), &a.1).cmp(&(b.0.id(), &b.1)));
+        doomed
+    };
+    for (entity, id) in doomed { remove_status_with(registry, world, entity, &id); }
+}
+
+/// Remove the unit's statuses the dispel takes; returns how many went.
+pub fn dispel(world: &World, entity: Entity, strength: Strength, purge: Purge) -> usize {
+    dispel_with(registry(), world, entity, strength, purge)
+}
+
+pub fn dispel_with(registry: &Registry, world: &World, entity: Entity, strength: Strength, purge: Purge) -> usize {
+    let Some(own) = world.read_storage::<Faction>().get(entity).cloned() else { return 0 };
+    let mut doomed: Vec<String> = {
+        let buffs = world.read_resource::<BuffStore>();
+        let factions = world.read_storage::<Faction>();
+        let hostile = |source: Entity| factions.get(source).is_some_and(|f| own.is_hostile_to(f));
+        buffs.iter_for(entity).filter(|(id, entry)| {
+            // A control-source row goes by its own status's class; a debuff unless the status says.
+            if let Some(status) = id.strip_prefix(CONTROL_SOURCE_PREFIX) {
+                let Some(rule) = registry.source_row(status) else { return false };
+                let removable = rule.class == Class::Basic || (rule.class == Class::Strong && strength == Strength::Strong);
+                return removable && rule.side.unwrap_or(Purge::Debuffs) == purge;
+            }
+            match registry.rule(id) {
+                Some(rule) => {
+                    let removable = rule.class == Class::Basic || (rule.class == Class::Strong && strength == Strength::Strong);
+                    let side = rule.side.or_else(|| applier(world, id, &entry.payload)
+                        .map(|source| if hostile(source) { Purge::Debuffs } else { Purge::Buffs }));
+                    removable && side == Some(purge)
+                }
+                None => {
+                    if strength != Strength::Strong || purge != Purge::Debuffs { return false; }
+                    if *id == super::magic_immunity::BUFF || id.starts_with("__") { return false; }
+                    if is_control(id) || *id == "slow" || *id == "healing_reduction" { return true; }
+                    // A `…:<id>:<gen>` id names its applier as well as a payload does (E211).
+                    let tagged = entry.payload.get("source_entity_id").is_some() || id.starts_with("generic_") || id_names_applier(id);
+                    if !tagged { return false; }
+                    match applier(world, id, &entry.payload) {
+                        Some(source) => hostile(source),
+                        None => id.starts_with("generic_"),
+                    }
+                }
+            }
+        }).map(|(id, _)| id.to_owned()).collect()
+    };
+    follow_controls(world, entity, &mut doomed);
+    doomed.sort();
+    let mut buffs = world.write_resource::<BuffStore>();
+    for id in &doomed { buffs.remove(entity, id); }
+    doomed.len()
+}
+
+/// Shared controls follow the statuses holding them (CONTROL_SOURCE_PREFIX): a control goes when
+/// every source row holding it goes, and stays while one survives, for no longer than the
+/// longest survivor holds it (原作 each modifier carries its own state: the one left ends it).
+fn follow_controls(world: &World, entity: Entity, doomed: &mut Vec<String>) {
+    let mut shortened: Vec<(String, Fixed64)> = Vec::new();
+    {
+        let buffs = world.read_resource::<BuffStore>();
+        // control -> (rows, rows surviving, a row went, the longest survivor's remaining time)
+        let mut held: BTreeMap<&str, (usize, usize, bool, Fixed64)> = BTreeMap::new();
+        for (id, entry) in buffs.iter_for(entity) {
+            if !id.starts_with(CONTROL_SOURCE_PREFIX) { continue; }
+            let survives = !doomed.iter().any(|doomed| doomed == id);
+            for control in controls_of(&entry.payload) {
+                let counts = held.entry(control).or_insert((0, 0, false, Fixed64::ZERO));
+                counts.0 += 1;
+                if survives { counts.1 += 1; counts.3 = counts.3.max(entry.remaining); } else { counts.2 = true; }
+            }
+        }
+        for (control, (_, surviving, went, longest)) in held {
+            let pos = doomed.iter().position(|id| id == control);
+            match (surviving, pos) {
+                (0, None) if buffs.has(entity, control) => doomed.push(control.to_owned()),
+                (n, Some(at)) if n > 0 => { doomed.remove(at); shortened.push((control.to_owned(), longest)); }
+                (n, None) if n > 0 && went => shortened.push((control.to_owned(), longest)),
+                _ => {}
+            }
+        }
+    }
+    if !shortened.is_empty() {
+        let mut buffs = world.write_resource::<BuffStore>();
+        for (control, longest) in shortened { buffs.shorten(entity, &control, longest); }
+    }
+}
+
+/// v3 `remove_status` by filters (not one named status): which of the unit's statuses go.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PurgeSpec {
+    /// `basic`: class basic; `strong`: basic and strong; `all`: every class.
+    pub mode: PurgeMode,
+    /// `only` / `all_debuffs` / `all_buffs`: one side; `None` both.
+    pub side: Option<Purge>,
+    /// `team_of_source`: by the applier's team relative to the unit.
+    pub team: SourceTeam,
+    /// Status ids that stay (`except`).
+    pub except: Vec<String>,
+    /// `states`: only statuses holding one of these controls (and the controls themselves).
+    pub states: Vec<String>,
+    /// `limit`: at most this many statuses (key order); `None` no limit.
+    pub limit: Option<u32>,
+    /// `tags`: only statuses carrying one of these tags; empty: any.
+    pub tags: Vec<String>,
+    /// `exclude_tags`: statuses carrying one of these tags stay.
+    pub exclude_tags: Vec<String>,
+    /// `max_elapsed`: only statuses applied less than this many seconds ago (refreshes keep the
+    /// first application); `None` any age.
+    pub max_elapsed: Option<omoba_sim::Fixed64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PurgeMode { Basic, Strong, All }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceTeam { Any, Enemy, Ally }
+
+impl PurgeSpec {
+    pub fn payload(&self) -> Value {
+        serde_json::json!({ (PURGE_KEY): {
+            "mode": match self.mode { PurgeMode::Basic => "basic", PurgeMode::Strong => "strong", PurgeMode::All => "all" },
+            "side": self.side.map(|side| match side { Purge::Debuffs => "debuffs", Purge::Buffs => "buffs" }),
+            "team": match self.team { SourceTeam::Any => "any", SourceTeam::Enemy => "enemy", SourceTeam::Ally => "ally" },
+            "except": self.except, "states": self.states, "limit": self.limit,
+            "tags": self.tags, "exclude_tags": self.exclude_tags,
+            "max_elapsed": self.max_elapsed.map(|t| t.raw()),
+        } })
+    }
+    pub fn from_payload(buff_id: &str, duration: omoba_sim::Fixed64, payload: &Value) -> Option<Self> {
+        if buff_id != PURGE_BUFF || duration != omoba_sim::Fixed64::ONE || payload.as_object()?.len() != 1 { return None; }
+        let row = payload.get(PURGE_KEY)?;
+        let strings = |key: &str| -> Option<Vec<String>> {
+            row.get(key)?.as_array()?.iter().map(|v| v.as_str().map(str::to_owned)).collect()
+        };
+        let spec = PurgeSpec {
+            mode: match row.get("mode")?.as_str()? { "basic" => PurgeMode::Basic, "strong" => PurgeMode::Strong, "all" => PurgeMode::All, _ => return None },
+            side: match row.get("side")? { Value::Null => None, side => Some(match side.as_str()? { "debuffs" => Purge::Debuffs, "buffs" => Purge::Buffs, _ => return None }) },
+            team: match row.get("team")?.as_str()? { "any" => SourceTeam::Any, "enemy" => SourceTeam::Enemy, "ally" => SourceTeam::Ally, _ => return None },
+            except: strings("except")?, states: strings("states")?,
+            limit: match row.get("limit")? { Value::Null => None, n => Some(u32::try_from(n.as_u64()?).ok()?) },
+            tags: strings("tags")?, exclude_tags: strings("exclude_tags")?,
+            max_elapsed: match row.get("max_elapsed") { None | Some(Value::Null) => None,
+                Some(n) => Some(omoba_sim::Fixed64::from_raw(n.as_i64().filter(|raw| *raw > 0)?)) },
+        };
+        (spec.except.len() <= 32 && spec.tags.len() <= 16 && spec.exclude_tags.len() <= 16 && spec.states.len() <= 8 && spec.states.iter().all(|s| is_control(s))).then_some(spec)
+    }
+}
+
+/// The one-shot packet a script sends to the unit it purges (never stored).
+pub const PURGE_KEY: &str = "__status_purge_v1";
+pub const PURGE_BUFF: &str = "__status_purge";
+
+/// Whether a BuffStore key is an instance of a status id (`id`, `id:…`).
+fn key_of_status(key: &str, status: &str) -> bool {
+    let key = omoba_template_ids::instance_base(key);
+    key == status || key.strip_prefix(status).is_some_and(|rest| rest.starts_with(':'))
+}
+
+/// v3 `remove_status` of an independent status with `limit = 1` (one instance): the packet names
+/// the runtime id; the instance with the smallest number (the earliest applied) goes.
+pub const REMOVE_INSTANCE_KEY: &str = "__status_remove_instance_v1";
+pub const REMOVE_INSTANCE_BUFF: &str = "__status_remove_instance";
+
+pub fn remove_instance_payload(runtime_id: &str) -> Value {
+    serde_json::json!({ (REMOVE_INSTANCE_KEY): { "runtime_id": runtime_id } })
+}
+
+/// The runtime id a well-formed packet names.
+pub fn remove_instance_spec(buff_id: &str, duration: omoba_sim::Fixed64, payload: &Value) -> Option<String> {
+    if buff_id != REMOVE_INSTANCE_BUFF || duration != omoba_sim::Fixed64::ONE || payload.as_object()?.len() != 1 { return None; }
+    let row = payload.get(REMOVE_INSTANCE_KEY)?.as_object()?;
+    let id = row.get("runtime_id")?.as_str()?;
+    (row.len() == 1 && !id.is_empty() && id.len() <= 128 && !id.contains('#')).then(|| id.to_owned())
+}
+
+/// Removes the earliest instance of `runtime_id` on `entity`; false when it holds none.
+pub fn remove_earliest_instance(world: &World, entity: Entity, runtime_id: &str) -> bool {
+    let earliest = world.read_resource::<BuffStore>().iter_for(entity)
+        .filter(|(key, _)| omoba_template_ids::instance_base(key) == runtime_id)
+        .filter_map(|(key, _)| omoba_template_ids::instance_number(key).map(|n| (n, key.to_owned())))
+        .min();
+    match earliest {
+        Some((_, key)) => { remove_status(world, entity, &key); true }
+        None => false,
+    }
+}
+
+/// Removes the statuses `spec` names from `entity`; returns how many went.
+pub fn purge(world: &World, entity: Entity, spec: &PurgeSpec) -> usize {
+    purge_with(registry(), world, entity, spec)
+}
+
+pub fn purge_with(registry: &Registry, world: &World, entity: Entity, spec: &PurgeSpec) -> usize {
+    let Some(own) = world.read_storage::<Faction>().get(entity).cloned() else { return 0 };
+    let mut doomed: Vec<String> = {
+        let buffs = world.read_resource::<BuffStore>();
+        let factions = world.read_storage::<Faction>();
+        let hostile = |source: Entity| factions.get(source).is_some_and(|f| own.is_hostile_to(f));
+        buffs.iter_for(entity).filter(|(id, entry)| {
+            // Controls and their source rows have no applier: a control is an enemy's debuff.
+            let control_row = id.strip_prefix(CONTROL_SOURCE_PREFIX);
+            let control = is_control(id) || control_row.is_some();
+            if id.starts_with("__") && control_row.is_none() { return false; }
+            if *id == super::magic_immunity::BUFF { return false; }
+            if spec.max_elapsed.is_some_and(|max| entry.elapsed() >= max) { return false; }
+            if !spec.states.is_empty() {
+                let holds = if is_control(id) { spec.states.iter().any(|s| s == id) }
+                    else { controls_of(&entry.payload).iter().any(|c| spec.states.iter().any(|s| s == c)) };
+                if !holds { return false; }
+            }
+            let status = control_row.unwrap_or(id);
+            if spec.except.iter().any(|except| key_of_status(status, except)) { return false; }
+            if !spec.tags.is_empty() || !spec.exclude_tags.is_empty() {
+                let tags = registry.tags(status);
+                if !spec.tags.is_empty() && !tags.iter().any(|t| spec.tags.iter().any(|s| s == t)) { return false; }
+                if tags.iter().any(|t| spec.exclude_tags.iter().any(|s| s == t)) { return false; }
+            }
+            let rule = match control_row { Some(row) => registry.source_row(row), None => registry.rule(id) };
+            let class_ok = match (spec.mode, rule) {
+                (PurgeMode::All, _) => true,
+                (PurgeMode::Basic, Some(rule)) => rule.class == Class::Basic,
+                (PurgeMode::Strong, Some(rule)) => matches!(rule.class, Class::Basic | Class::Strong),
+                (_, None) => control,
+            };
+            if !class_ok { return false; }
+            let source = if control { None } else { applier(world, id, &entry.payload) };
+            let side = rule.and_then(|rule| rule.side).or_else(|| if control { Some(Purge::Debuffs) } else {
+                source.map(|source| if hostile(source) { Purge::Debuffs } else { Purge::Buffs }) });
+            if spec.side.is_some() && side != spec.side { return false; }
+            match spec.team {
+                SourceTeam::Any => true,
+                SourceTeam::Enemy => control || source.is_some_and(|source| hostile(source)),
+                SourceTeam::Ally => !control && source.is_some_and(|source| !hostile(source)),
+            }
+        }).map(|(id, _)| id.to_owned()).collect()
+    };
+    doomed.sort();
+    if let Some(limit) = spec.limit {
+        // The limit counts statuses, not their control rows or shared controls.
+        let mut kept = 0u32;
+        doomed.retain(|id| {
+            if is_control(id) || id.starts_with(CONTROL_SOURCE_PREFIX) { return true; }
+            kept += 1;
+            kept <= limit
+        });
+    }
+    follow_controls(world, entity, &mut doomed);
+    doomed.sort();
+    doomed.dedup();
+    let mut buffs = world.write_resource::<BuffStore>();
+    for id in &doomed { buffs.remove(entity, id); }
+    doomed.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::comp::FactionType;
+    use omoba_sim::Fixed64;
+    use serde_json::json;
+    use specs::Builder;
+
+    #[test]
+    fn patterns_match_caster_and_rank_placeholders() {
+        let p = "a07_strongest_r{rank}:{caster}";
+        assert!(runtime_id_matches(p, "a07_strongest_r3:12:1") && runtime_id_matches(p, "a07_strongest_r10:7:-2"));
+        assert!(!runtime_id_matches(p, "a07_strongest_r:12:1") && !runtime_id_matches(p, "a07_strongest_r3:12") && !runtime_id_matches(p, "a07_strongest_r3:x:1"));
+        let q = "generic_slow:b29_quake_axe:{caster}";
+        assert!(runtime_id_matches(q, "generic_slow:b29_quake_axe:5:0") && !runtime_id_matches(q, "generic_slow:b29_quake_axe_x:5:0"));
+        assert!(runtime_id_matches("stun", "stun") && !runtime_id_matches("stun", "stunned"));
+    }
+
+    #[test]
+    fn compiled_content_gives_every_status_a_class_and_shared_keys_the_strictest() {
+        let registry = registry();
+        assert!(!registry.exact.is_empty() && !registry.patterns.is_empty(), "the catalog carries dispel classes");
+        assert_eq!(registry.rule("stun"), Some(Rule { class: Class::Strong, side: Some(Purge::Debuffs) }), "basic and strong stuns share one key");
+        assert_eq!(registry.rule("root"), Some(Rule { class: Class::Basic, side: Some(Purge::Debuffs) }));
+        assert_eq!(registry.rule("c17_victory_blessing:4:1"), Some(Rule { class: Class::Basic, side: Some(Purge::Buffs) }));
+        assert_eq!(registry.declared("c17_victory_blessing:{caster}"), registry.rule("c17_victory_blessing:4:1"));
+        // No runtime_id: the executor's default key, per source or not.
+        assert_eq!(registry.rule("b04w_trigger").map(|r| r.class), Some(Class::None));
+        assert_eq!(registry.rule("b04w_aura:9:1"), registry.rule("b04w_aura"));
+        assert_eq!(registry.rule("a07_strongest_r2:4:1").map(|r| r.class), Some(Class::None));
+        // Statuses sharing a key never disagree on buff against debuff.
+        let doc: Value = serde_json::from_str(omoba_template_ids::V3_CATALOG_JSON).unwrap();
+        let mut seen: BTreeMap<String, Purge> = BTreeMap::new();
+        for list in ["abilities", "items"] {
+            for entry in doc[list].as_array().into_iter().flatten() {
+                for status in entry["v3"]["statuses"].as_array().into_iter().flatten() {
+                    assert!(status["dispel"].as_str().and_then(Class::parse).is_some(), "{} has a dispel class", status["id"]);
+                    let key = status["runtime_id"].as_str().or_else(|| status["id"].as_str()).unwrap().to_owned();
+                    let Some(side) = side_of(&status["visibility"]) else { continue };
+                    assert_eq!(*seen.entry(key.clone()).or_insert(side), side, "{key}: statuses disagree on buff and debuff");
+                }
+            }
+        }
+    }
+
+    /// E445: v3 `immune_to` refuses statuses by tag, by id or by a state they hold.
+    #[test]
+    fn a_holder_immune_to_a_tag_id_or_state_refuses_those_statuses() {
+        let doc = json!({"abilities": [{"v3": {"statuses": [
+            {"id": "x_purify", "runtime_id": "x_purify", "dispel": "basic", "visibility": "buff",
+                "immune_to": ["tag:perceive_wine", "x_named", "stun"]},
+            {"id": "x_wine", "runtime_id": "x_wine:{caster}", "dispel": "basic", "visibility": "buff", "tags": ["perceive_wine"]},
+            {"id": "x_named", "runtime_id": "x_named", "dispel": "basic", "visibility": "debuff"},
+            {"id": "x_plain", "runtime_id": "x_plain", "dispel": "basic", "visibility": "debuff"}]}}]});
+        let registry = Registry::from_catalog(&doc);
+        let mut world = World::new();
+        let hero = world.create_entity().build();
+        let mut buffs = BuffStore::new();
+        let refuses = |buffs: &BuffStore, status: &str, states: &[&str]| registry.immune(buffs, hero, status, states);
+        assert!(!refuses(&buffs, "x_wine", &[]), "nothing held, nothing refused");
+        buffs.add(hero, "x_purify", Fixed64::from_i32(5), json!({}));
+        assert!(refuses(&buffs, "x_wine", &[]) && refuses(&buffs, "x_named", &[]) && refuses(&buffs, "x_plain", &["stun"]));
+        assert!(!refuses(&buffs, "x_plain", &[]) && !refuses(&buffs, "x_plain", &["root"]));
+        assert!(!refuses(&buffs, "x_purify", &[]), "never itself");
+        assert!(!Registry::from_catalog(&json!({})).immune(&buffs, hero, "x_wine", &[]));
+    }
+
+    #[test]
+    fn dispels_take_their_class_and_side() {
+        let doc = json!({"abilities": [{"v3": {"statuses": [
+            {"id": "x_slow", "runtime_id": "x_slow:{caster}", "dispel": "basic", "visibility": "debuff"},
+            {"id": "x_stun", "runtime_id": "x_stun", "dispel": "strong", "visibility": "debuff"},
+            {"id": "x_mark", "runtime_id": "x_mark:{caster}", "dispel": "none", "visibility": "debuff"},
+            {"id": "x_haste", "runtime_id": "x_haste", "dispel": "basic", "visibility": "buff"},
+            {"id": "x_shield", "runtime_id": "x_shield:{caster}", "dispel": "strong", "visibility": "buff"},
+            {"id": "x_form", "runtime_id": "x_form", "dispel": "death_only", "visibility": "buff"},
+            {"id": "x_zone", "runtime_id": "x_zone:{caster}", "dispel": "basic", "visibility": "hidden"}]}}]});
+        let registry = Registry::from_catalog(&doc);
+        let mut world = World::new();
+        world.register::<Faction>();
+        world.insert(BuffStore::new());
+        let hero = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        let enemy = world.create_entity().with(Faction::new(FactionType::Enemy, 2)).build();
+        let ally = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        let tag = |e: Entity| format!("{}:{}", e.id(), e.gen().id());
+        let put = |world: &World| {
+            let mut buffs = world.write_resource::<BuffStore>();
+            for key in [format!("x_slow:{}", tag(enemy)), "x_stun".into(), format!("x_mark:{}", tag(enemy)), "x_haste".into(),
+                        format!("x_shield:{}", tag(ally)), "x_form".into(), format!("x_slow:{}", tag(ally)),
+                        format!("x_zone:{}", tag(enemy)), format!("x_zone:{}", tag(ally))] {
+                buffs.add(hero, &key, Fixed64::from_i32(5), json!({}));
+            }
+        };
+        let left = |world: &World| { let mut v: Vec<String> = world.read_resource::<BuffStore>().iter_for(hero).map(|(k, _)| k.to_owned()).collect(); v.sort(); v };
+        put(&world);
+        assert_eq!(dispel_with(&registry, &world, hero, Strength::Basic, Purge::Debuffs), 3, "basic: both slows (a debuff whoever applied it) and the enemy's hidden zone");
+        assert!(left(&world).contains(&format!("x_zone:{}", tag(ally))), "an ally's hidden status is a buff");
+        assert_eq!(dispel_with(&registry, &world, hero, Strength::Strong, Purge::Debuffs), 1, "strong: the stun too; the none-class mark stays");
+        assert!(left(&world).contains(&format!("x_mark:{}", tag(enemy))));
+        assert_eq!(dispel_with(&registry, &world, hero, Strength::Basic, Purge::Buffs), 2, "an enemy purge: the haste and the ally's hidden zone");
+        assert_eq!(dispel_with(&registry, &world, hero, Strength::Strong, Purge::Buffs), 1, "strong purge: the shield; death_only stays");
+        assert_eq!(left(&world), vec!["x_form".to_owned(), format!("x_mark:{}", tag(enemy))]);
+        // A hidden status whose applier is gone stays; a debuff still goes.
+        for key in [format!("x_zone:{}", tag(enemy)), format!("x_slow:{}", tag(enemy))] {
+            world.write_resource::<BuffStore>().add(hero, &key, Fixed64::from_i32(5), json!({}));
+        }
+        world.delete_entity(enemy).unwrap();
+        world.maintain();
+        assert_eq!(dispel_with(&registry, &world, hero, Strength::Basic, Purge::Buffs), 0);
+        assert_eq!(dispel_with(&registry, &world, hero, Strength::Basic, Purge::Debuffs), 1);
+        assert!(left(&world).contains(&format!("x_zone:{}", tag(enemy))));
+    }
+    /// conformance：stun 是共用 key（registry 取最嚴格的 strong），但各狀態的類別不同。帶控制效果的
+    /// 狀態另記 `__ctl:<id>`，驅散依各自類別：basic 的暈眩被 basic 驅散移除；還有 strong 的暈眩時
+    /// 共用 stun 留著；沒有來源列的舊 handler 暈眩照舊規則。
+    #[test]
+    fn a_shared_control_follows_the_classes_of_the_statuses_holding_it() {
+        let doc = json!({"abilities": [{"v3": {"statuses": [
+            {"id": "a_freeze", "runtime_id": "stun", "dispel": "basic", "visibility": "debuff"},
+            {"id": "b_quake", "runtime_id": "stun", "dispel": "strong", "visibility": "debuff"}]}}]});
+        let registry = Registry::from_catalog(&doc);
+        assert_eq!(registry.rule("stun").map(|r| r.class), Some(Class::Strong));
+        let mut world = World::new();
+        world.register::<Faction>();
+        world.insert(BuffStore::new());
+        let hero = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        let hold = |world: &World, status: &str| {
+            let mut buffs = world.write_resource::<BuffStore>();
+            buffs.add(hero, "stun", Fixed64::from_i32(3), json!({}));
+            buffs.add(hero, &format!("{CONTROL_SOURCE_PREFIX}{status}"), Fixed64::from_i32(3), control_source_payload(&["stun"]));
+        };
+        let stunned = |world: &World| world.read_resource::<BuffStore>().has(hero, "stun");
+        // Independent instances: each holds its own row, read as its status.
+        hold(&world, "a_freeze#1");
+        hold(&world, "b_quake#2");
+        assert_eq!(dispel_with(&registry, &world, hero, Strength::Basic, Purge::Debuffs), 1, "only the freeze instance's row");
+        assert!(stunned(&world) && world.read_resource::<BuffStore>().has(hero, &format!("{CONTROL_SOURCE_PREFIX}b_quake#2")));
+        world.write_resource::<BuffStore>().remove_all_for(hero);
+        hold(&world, "a_freeze");
+        assert_eq!(dispel_with(&registry, &world, hero, Strength::Basic, Purge::Debuffs), 2, "the basic freeze and the shared stun");
+        assert!(!stunned(&world));
+        hold(&world, "a_freeze");
+        hold(&world, "b_quake");
+        assert_eq!(dispel_with(&registry, &world, hero, Strength::Basic, Purge::Debuffs), 1, "only the freeze's row");
+        assert!(stunned(&world), "the strong quake still stuns");
+        assert_eq!(dispel_with(&registry, &world, hero, Strength::Strong, Purge::Debuffs), 2);
+        assert!(!stunned(&world));
+        // A row named by the shared key itself must not take the shared key's strict class first.
+        assert_eq!(registry.source_row("a_freeze").map(|r| r.class), Some(Class::Basic));
+        // remove_status by the runtime id finds the row named by the v3 status id.
+        let doc = json!({"abilities": [{"v3": {"statuses": [
+            {"id": "c_guard", "runtime_id": "c_guard:{caster}", "dispel": "basic", "visibility": "buff"}]}}]});
+        let guards = Registry::from_catalog(&doc);
+        {
+            let mut buffs = world.write_resource::<BuffStore>();
+            buffs.add(hero, "c_guard:7:0", Fixed64::from_i32(3), json!({}));
+            buffs.add(hero, &format!("{CONTROL_SOURCE_PREFIX}c_guard"), Fixed64::from_i32(3), control_source_payload(&["disarm"]));
+            buffs.add(hero, "disarm", Fixed64::from_i32(3), json!({}));
+        }
+        remove_status_with(&guards, &world, hero, "c_guard:7:0");
+        assert!(!world.read_resource::<BuffStore>().has(hero, "disarm"), "the guard's disarm went with it");
+        // Independent instances: removing one takes its own row, the other keeps the disarm.
+        {
+            let mut buffs = world.write_resource::<BuffStore>();
+            for n in [1, 2] {
+                buffs.add(hero, &format!("c_guard:7:0#{n}"), Fixed64::from_i32(3), json!({}));
+                buffs.add(hero, &format!("{CONTROL_SOURCE_PREFIX}c_guard#{n}"), Fixed64::from_i32(3), control_source_payload(&["disarm"]));
+            }
+            buffs.add(hero, "disarm", Fixed64::from_i32(3), json!({}));
+        }
+        // The first instance holds the disarm longer: removing it cuts the disarm to the second's time.
+        world.write_resource::<BuffStore>().add(hero, "disarm", Fixed64::from_i32(5), json!({}));
+        world.write_resource::<BuffStore>().add(hero, &format!("{CONTROL_SOURCE_PREFIX}c_guard#1"), Fixed64::from_i32(5), control_source_payload(&["disarm"]));
+        remove_status_with(&guards, &world, hero, "c_guard:7:0#1");
+        {
+            let buffs = world.read_resource::<BuffStore>();
+            assert!(!buffs.has(hero, &format!("{CONTROL_SOURCE_PREFIX}c_guard#1")) && buffs.has(hero, &format!("{CONTROL_SOURCE_PREFIX}c_guard#2")));
+            assert_eq!(buffs.get(hero, "disarm").map(|entry| entry.remaining), Some(Fixed64::from_i32(3)),
+                "the second instance still disarms, for its own time");
+        }
+        remove_status_with(&guards, &world, hero, "c_guard:7:0#2");
+        assert!(!world.read_resource::<BuffStore>().has(hero, "disarm"), "the last instance's disarm went with it");
+        // E463: a status's slow row (ability_kit apply_status_slowed / an instance's own) goes with it.
+        {
+            let mut buffs = world.write_resource::<BuffStore>();
+            let slow = json!({"move_speed_bonus": -256, "__aggregation_family": "generic_ability_slow"});
+            for n in [1, 2] {
+                buffs.add(hero, &format!("c_guard:7:0#{n}"), Fixed64::from_i32(3), json!({}));
+                buffs.add(hero, &format!("c_guard:7:0#{n}:slow"), Fixed64::from_i32(3), slow.clone());
+            }
+            buffs.add(hero, "c_guard:7:0", Fixed64::from_i32(3), json!({}));
+            buffs.add(hero, "c_guard:7:0:slow", Fixed64::from_i32(3), slow);
+        }
+        remove_status_with(&guards, &world, hero, "c_guard:7:0#1");
+        {
+            let buffs = world.read_resource::<BuffStore>();
+            assert!(!buffs.has(hero, "c_guard:7:0#1:slow") && buffs.has(hero, "c_guard:7:0#2:slow") && buffs.has(hero, "c_guard:7:0:slow"),
+                "an instance takes its own slow row only");
+        }
+        remove_status_with(&guards, &world, hero, "c_guard:7:0");
+        assert!(!world.read_resource::<BuffStore>().has(hero, "c_guard:7:0:slow"), "the status takes its slow row");
+        // A handler's stun with no source row: a basic dispel leaves it (the strictest class).
+        world.write_resource::<BuffStore>().add(hero, "stun", Fixed64::from_i32(3), json!({}));
+        assert_eq!(dispel_with(&registry, &world, hero, Strength::Basic, Purge::Debuffs), 0);
+        assert!(stunned(&world));
+    }
+    /// v3 `remove_status` of one status takes the shared states only it held: another status holding
+    /// the same state keeps it; a status without a source row is removed alone.
+    #[test]
+    fn removing_a_status_takes_the_shared_states_only_it_held() {
+        let mut world = World::new();
+        world.register::<Faction>();
+        world.insert(BuffStore::new());
+        let hero = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        {
+            let mut buffs = world.write_resource::<BuffStore>();
+            for (status, states) in [("guard:7:0", &["physical_immune", "disarm"][..]), ("wall", &["physical_immune"][..])] {
+                buffs.add(hero, status, Fixed64::from_i32(5), json!({}));
+                buffs.add(hero, &format!("{CONTROL_SOURCE_PREFIX}{status}"), Fixed64::from_i32(5), control_source_payload(states));
+                for state in states { buffs.add(hero, state, Fixed64::from_i32(5), json!({})); }
+            }
+            buffs.add(hero, "plain", Fixed64::from_i32(5), json!({}));
+        }
+        let has = |world: &World, id: &str| world.read_resource::<BuffStore>().has(hero, id);
+        remove_status(&world, hero, "guard:7:0");
+        assert!(!has(&world, "guard:7:0") && !has(&world, &format!("{CONTROL_SOURCE_PREFIX}guard:7:0")));
+        assert!(!has(&world, "disarm"), "only the guard held disarm");
+        assert!(has(&world, "physical_immune"), "the wall still holds it");
+        remove_status(&world, hero, "wall");
+        assert!(!has(&world, "physical_immune") && !has(&world, "wall"));
+        remove_status(&world, hero, "plain");
+        assert!(!has(&world, "plain"));
+    }
+
+    /// v3 `remove_status` by filters: `dispel = "all"` with `team_of_source = "enemy"` removes every
+    /// status an enemy applied whatever its class, plus controls; `except` keeps named ones; `limit`
+    /// counts statuses; `states` takes only those controls.
+    /// Independent instances (`<rid>#<n>`): the class comes from the runtime id, and one removal
+    /// takes the earliest instance.
+    #[test]
+    fn independent_instances_keep_the_class_and_go_earliest_first() {
+        let doc = json!({"abilities": [{"v3": {"statuses": [
+            {"id": "i_guard", "runtime_id": "i_guard:{caster}", "dispel": "basic", "visibility": "debuff"}]}}]});
+        let registry = Registry::from_catalog(&doc);
+        assert_eq!(registry.rule("i_guard:4:0#2").map(|r| r.class), Some(Class::Basic));
+        assert_eq!(registry.status_ids("i_guard:4:0#2"), vec!["i_guard"]);
+        let mut world = World::new();
+        world.register::<Faction>();
+        world.insert(BuffStore::new());
+        let hero = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        for n in [3, 1, 2] { world.write_resource::<BuffStore>().add(hero, &format!("i_guard:4:0#{n}"), Fixed64::from_i32(5), json!({})); }
+        assert!(remove_earliest_instance(&world, hero, "i_guard:4:0"));
+        let left: Vec<String> = { let b = world.read_resource::<BuffStore>(); let mut v: Vec<String> = b.iter_for(hero).map(|(k, _)| k.to_owned()).collect(); v.sort(); v };
+        assert_eq!(left, vec!["i_guard:4:0#2".to_string(), "i_guard:4:0#3".to_string()]);
+        let p = remove_instance_payload("i_guard:4:0");
+        assert_eq!(remove_instance_spec(REMOVE_INSTANCE_BUFF, Fixed64::ONE, &p).as_deref(), Some("i_guard:4:0"));
+        assert!(remove_instance_spec(REMOVE_INSTANCE_BUFF, Fixed64::ONE, &remove_instance_payload("x#1")).is_none());
+    }
+
+    /// v3 `remove_on = { "owner_death" }`: the dead applier's statuses with that rule go, others stay.
+    #[test]
+    fn statuses_removed_on_their_owners_death() {
+        let doc = json!({"abilities": [{"v3": {"statuses": [
+            {"id": "o_prison", "runtime_id": "o_prison:{caster}", "dispel": "strong", "visibility": "debuff", "remove_on": ["owner_death"]},
+            {"id": "o_burn", "dispel": "basic", "visibility": "debuff"}]}}]});
+        let registry = Registry::from_catalog(&doc);
+        let mut world = World::new();
+        world.register::<Faction>();
+        world.insert(BuffStore::new());
+        let owner = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        let other = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        let victim = world.create_entity().with(Faction::new(FactionType::Enemy, 2)).build();
+        let by = |e: Entity| json!({"source_entity_id": e.id(), "source_entity_gen": e.gen().id()});
+        {
+            let mut buffs = world.write_resource::<BuffStore>();
+            let prison = format!("o_prison:{}:{}", owner.id(), owner.gen().id());
+            buffs.add(victim, &prison, Fixed64::from_i32(5), by(owner));
+            buffs.add(victim, &format!("{CONTROL_SOURCE_PREFIX}o_prison"), Fixed64::from_i32(5), control_source_payload(&["root"]));
+            buffs.add(victim, "root", Fixed64::from_i32(5), json!({}));
+            buffs.add(victim, "o_burn", Fixed64::from_i32(5), by(owner));
+            buffs.add(victim, super::super::taunt::BUFF, Fixed64::from_i32(5), super::super::taunt::payload(owner.id(), owner.gen().id()));
+        }
+        remove_owned_by_with(&registry, &world, other);
+        assert_eq!(world.read_resource::<BuffStore>().iter_for(victim).count(), 5, "another unit's death changes nothing");
+        remove_owned_by_with(&registry, &world, owner);
+        let left: Vec<String> = world.read_resource::<BuffStore>().iter_for(victim).map(|(k, _)| k.to_owned()).collect();
+        assert_eq!(left, vec!["o_burn".to_string()], "the prison, its root and the taunt went; the burn has no remove_on");
+    }
+
+    /// v3 `remove_status` `tags` / `exclude_tags`: by the catalog's status tags (per-source keys too).
+    #[test]
+    fn purges_by_tags_and_exclude_tags() {
+        let doc = json!({"abilities": [{"v3": {"statuses": [
+            {"id": "t_wine", "runtime_id": "t_wine:{caster}", "dispel": "basic", "visibility": "buff", "tags": ["perceive_wine"]},
+            {"id": "t_aura", "dispel": "basic", "visibility": "buff", "tags": ["flame_armor_aura", "keep"]},
+            {"id": "t_plain", "dispel": "basic", "visibility": "buff"}]}}]});
+        let registry = Registry::from_catalog(&doc);
+        let mut world = World::new();
+        world.register::<Faction>();
+        world.insert(BuffStore::new());
+        let hero = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        let put = |world: &World| {
+            let mut buffs = world.write_resource::<BuffStore>();
+            for id in ["t_wine:3:0", "t_aura", "t_plain"] { buffs.add(hero, id, Fixed64::from_i32(5), json!({})); }
+        };
+        let has = |world: &World, id: &str| world.read_resource::<BuffStore>().has(hero, id);
+        let spec = |tags: &[&str], exclude: &[&str]| PurgeSpec { mode: PurgeMode::All, side: None, team: SourceTeam::Any,
+            except: Vec::new(), states: Vec::new(), limit: None,
+            tags: tags.iter().map(|s| s.to_string()).collect(), exclude_tags: exclude.iter().map(|s| s.to_string()).collect(), max_elapsed: None };
+        put(&world);
+        assert_eq!(purge_with(&registry, &world, hero, &spec(&["perceive_wine"], &[])), 1);
+        assert!(!has(&world, "t_wine:3:0") && has(&world, "t_aura") && has(&world, "t_plain"));
+        put(&world);
+        assert_eq!(purge_with(&registry, &world, hero, &spec(&[], &["keep"])), 2, "everything but the kept aura");
+        assert!(has(&world, "t_aura"));
+        let round = spec(&["a"], &["b"]);
+        assert_eq!(PurgeSpec::from_payload(PURGE_BUFF, Fixed64::ONE, &round.payload()), Some(round));
+    }
+
+    /// `max_elapsed` (B27 old, GetElapsedTime() < 0.1): only statuses applied less than that long
+    /// ago go, a refresh keeping the first application; with tags, a protected one just applied
+    /// goes and an older one stays.
+    #[test]
+    fn purges_only_statuses_younger_than_max_elapsed() {
+        let doc = json!({"abilities": [{"v3": {"statuses": [
+            {"id": "z_old", "dispel": "basic", "visibility": "buff", "tags": ["guarded"]},
+            {"id": "z_new", "dispel": "basic", "visibility": "buff", "tags": ["guarded"]},
+            {"id": "z_refreshed", "dispel": "basic", "visibility": "buff", "tags": ["guarded"]}]}}]});
+        let registry = Registry::from_catalog(&doc);
+        let mut world = World::new();
+        world.register::<Faction>();
+        world.insert(BuffStore::new());
+        let hero = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        let tenth = Fixed64::from_raw(102);
+        {
+            let mut buffs = world.write_resource::<BuffStore>();
+            buffs.add(hero, "z_old", Fixed64::from_i32(5), json!({}));
+            buffs.add(hero, "z_refreshed", Fixed64::from_i32(5), json!({}));
+            buffs.tick(Fixed64::from_raw(205));
+            buffs.add(hero, "z_refreshed", Fixed64::from_i32(5), json!({}));
+            buffs.add(hero, "z_new", Fixed64::from_i32(5), json!({}));
+            buffs.tick(Fixed64::from_raw(17));
+            assert_eq!(buffs.get(hero, "z_refreshed").unwrap().elapsed(), Fixed64::from_raw(222), "a refresh keeps the age");
+        }
+        let spec = PurgeSpec { mode: PurgeMode::All, side: None, team: SourceTeam::Any, except: Vec::new(), states: Vec::new(),
+            limit: None, tags: vec!["guarded".into()], exclude_tags: Vec::new(), max_elapsed: Some(tenth) };
+        assert_eq!(purge_with(&registry, &world, hero, &spec), 1);
+        let buffs = world.read_resource::<BuffStore>();
+        assert!(!buffs.has(hero, "z_new") && buffs.has(hero, "z_old") && buffs.has(hero, "z_refreshed"));
+        assert_eq!(PurgeSpec::from_payload(PURGE_BUFF, Fixed64::ONE, &spec.payload()), Some(spec.clone()));
+        let mut bad = spec.payload();
+        bad[PURGE_KEY]["max_elapsed"] = json!(0);
+        assert_eq!(PurgeSpec::from_payload(PURGE_BUFF, Fixed64::ONE, &bad), None, "a non-positive age");
+    }
+
+    #[test]
+    fn purges_follow_mode_side_source_team_except_states_and_limit() {
+        let doc = json!({"abilities": [{"v3": {"statuses": [
+            {"id": "y_slow", "dispel": "basic", "visibility": "debuff"},
+            {"id": "y_mark", "dispel": "none", "visibility": "debuff"},
+            {"id": "y_haste", "dispel": "basic", "visibility": "buff"},
+            {"id": "y_freeze", "runtime_id": "stun", "dispel": "strong", "visibility": "debuff"}]}}]});
+        let registry = Registry::from_catalog(&doc);
+        let mut world = World::new();
+        world.register::<Faction>();
+        world.insert(BuffStore::new());
+        let hero = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        let enemy = world.create_entity().with(Faction::new(FactionType::Enemy, 2)).build();
+        let tag = |e: Entity| format!("{}:{}", e.id(), e.gen().id());
+        let put = |world: &World| {
+            let mut buffs = world.write_resource::<BuffStore>();
+            buffs.add(hero, &format!("y_slow:{}", tag(enemy)), Fixed64::from_i32(5), json!({}));
+            buffs.add(hero, &format!("y_mark:{}", tag(enemy)), Fixed64::from_i32(5), json!({}));
+            buffs.add(hero, &format!("y_haste:{}", tag(hero)), Fixed64::from_i32(5), json!({}));
+            buffs.add(hero, "stun", Fixed64::from_i32(5), json!({}));
+            buffs.add(hero, &format!("{CONTROL_SOURCE_PREFIX}y_freeze"), Fixed64::from_i32(5), control_source_payload(&["stun"]));
+        };
+        let left = |world: &World| { let mut v: Vec<String> = world.read_resource::<BuffStore>().iter_for(hero).map(|(k, _)| k.to_owned()).collect(); v.sort(); v };
+        let spec = |mode, team, except: &[&str], states: &[&str], limit| PurgeSpec { mode, side: None, team,
+            except: except.iter().map(|s| s.to_string()).collect(), states: states.iter().map(|s| s.to_string()).collect(), limit,
+            tags: Vec::new(), exclude_tags: Vec::new(), max_elapsed: None };
+        put(&world);
+        assert_eq!(purge_with(&registry, &world, hero, &spec(PurgeMode::All, SourceTeam::Enemy, &[], &[], None)), 4,
+            "enemy slow, the undispellable mark, the stun and its row; the own haste stays");
+        assert_eq!(left(&world), vec![format!("y_haste:{}", tag(hero))]);
+        world.write_resource::<BuffStore>().remove(hero, &format!("y_haste:{}", tag(hero)));
+        put(&world);
+        assert_eq!(purge_with(&registry, &world, hero, &spec(PurgeMode::All, SourceTeam::Enemy, &["y_mark"], &["stun"], None)), 2,
+            "states: only the stun and its row");
+        assert!(left(&world).contains(&format!("y_slow:{}", tag(enemy))));
+        assert_eq!(purge_with(&registry, &world, hero, &spec(PurgeMode::All, SourceTeam::Any, &["y_mark"], &[], Some(1))), 1,
+            "limit 1, the mark excepted");
+        let payload = spec(PurgeMode::Basic, SourceTeam::Ally, &["a"], &["root"], Some(2)).payload();
+        assert_eq!(PurgeSpec::from_payload(PURGE_BUFF, Fixed64::ONE, &payload), Some(spec(PurgeMode::Basic, SourceTeam::Ally, &["a"], &["root"], Some(2))));
+    }
+}

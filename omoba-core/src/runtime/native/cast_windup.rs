@@ -5,6 +5,50 @@ use specs::{Entity,World,WorldExt};
 use super::comp::*;
 use super::scripting::{ScriptEvent,SkillTarget};
 
+/// Marks a world that must follow the formal MOBA cast contract without
+/// owning a `MobaMatch`: the team-filtered replica. Windups, in-progress cast
+/// rejection and learned ranks must match the authority tick for tick, or the
+/// replica's own-hero prediction diverges (cooldown/mana one tick early).
+#[derive(Clone,Copy,Debug,Default)]
+pub struct FormalCastRules;
+
+/// Owners whose team-private recall-active fact is set this frame. The owner's
+/// replica installs it from the fact; the authority installs the same snapshot
+/// when it emits that fact, so both read one recall state for the whole tick.
+#[derive(Clone,Debug,Default)]
+pub struct DisclosedRecallingOwners(pub std::collections::BTreeSet<u32>);
+
+/// One recall predicate for the authority and the owner's filtered replica: the
+/// disclosed recall-active snapshot. A recall started and interrupted within one
+/// tick still reads as recalling for that tick on both sides (E175); the replica
+/// cannot see the interruption. `MobaMatch` answers only without a snapshot.
+pub(crate) fn hero_recalling(moba:Option<&super::MobaMatch>,disclosed:Option<&DisclosedRecallingOwners>,
+    owners:&specs::ReadStorage<'_,PlayerOwner>,entity:Entity)->bool {
+    match (disclosed,moba) {
+        (Some(recalls),_)=>owners.get(entity).is_some_and(|owner|recalls.0.contains(&owner.player_id)),
+        (None,Some(state))=>state.is_recalling(entity),
+        (None,None)=>false,
+    }
+}
+
+/// Why a windup can no longer release, in one order for [`AbilityWindups::advance`] and the
+/// projection sweep ([`synchronize_preparation`]); `None` while it may continue.
+#[allow(clippy::too_many_arguments)]
+fn interrupt_reason(entities:&specs::world::EntitiesRes,props:&specs::ReadStorage<'_,CProperty>,positions:&specs::ReadStorage<'_,Pos>,
+    heroes:&specs::ReadStorage<'_,Hero>,buffs:&super::BuffStore,recalling:impl Fn(Entity)->bool,caster:Entity,cast:&Windup)->Option<&'static str> {
+    if !entities.is_alive(caster) || props.get(caster).is_none_or(|p|p.hp<=Fixed64::ZERO) {Some("dead")}
+    else if buffs.is_silenced(caster) {Some("silenced")}
+    else if positions.get(caster).is_none_or(|p|p.0!=cast.origin) {Some("moved")}
+    else if recalling(caster) {Some("recall")}
+    // A non-hero casts at its unit ability's rank (unit_abilities, E529): a36 地刺陷阱's 引爆
+    // (cast point 0.1) was ended "rank" every time, as no Hero holds it.
+    else if heroes.get(caster).map(|h|h.get_ability_level(&cast.skill_id))
+        .or_else(||super::unit_abilities::level(buffs,caster,&cast.skill_id).map(i32::from))!=Some(i32::from(cast.rank)) {Some("rank")}
+    else if matches!(cast.target,SkillTarget::Entity(target) if !entities.is_alive(target)
+        || props.get(target).is_none_or(|p|p.hp<=Fixed64::ZERO)) {Some("target_lost")}
+    else {None}
+}
+
 #[derive(Clone,Debug)]
 pub(crate) struct Windup {
     pub skill_id:String,
@@ -14,9 +58,13 @@ pub(crate) struct Windup {
     pub rank:u8,
     pub interrupt_on_damage:bool,
     pub last_tick:u64,
+    /// Set once `origin` holds the committed pose of the start tick.
+    pub anchored:bool,
 }
 #[derive(Default)]
-pub(crate) struct AbilityWindups(pub BTreeMap<Entity,Windup>,pub BTreeMap<Entity,CastView>);
+/// The windups, their cast views, and (E567) the casts that ended unreleased or failed this tick:
+/// `(tick, caster, ability)`, rows of older ticks dropped as new ones come.
+pub(crate) struct AbilityWindups(pub BTreeMap<Entity,Windup>,pub BTreeMap<Entity,CastView>,pub Vec<(u64,Entity,String)>);
 
 #[derive(Clone,Debug)]
 pub(crate) struct CastView {
@@ -30,6 +78,29 @@ pub const CAST_TOTAL:u64=0x4d43534400000000;
 pub const CAST_INSTANCE:u64=0x4d43534900000000;
 const PREPARATION:&str="cast_preparation";
 
+/// A windup's origin is the caster's committed pose at the end of the tick the
+/// windup started, on the authority and on every replica alike. Script dispatch
+/// captures a mid-tick position; on the owner's replica that position is its
+/// own prediction (collision with predicted bodies can leave it a step behind),
+/// and the post-step Movement fact then corrects the pose. Comparing later
+/// ticks against the mid-tick capture cancelled the replica's windup while the
+/// authority's released (split autopilot-strength-after-9: inahime's W, asai's
+/// Q). Call once the tick's pose is final: the authority before it settles
+/// preparation, the replica after it applies the authoritative movement.
+pub(crate) fn anchor_started_windups(world:&World) {
+    let Some(mut windups)=world.try_fetch_mut::<AbilityWindups>() else {return;};
+    let tick=world.read_resource::<Tick>().0;
+    let positions=world.read_storage::<Pos>();
+    for (caster,cast) in windups.0.iter_mut() {
+        // `last_tick` is the start tick until the first advance; `anchored`
+        // keeps a later displacement from ever moving the origin.
+        if !cast.anchored && cast.last_tick==tick {
+            if let Some(pos)=positions.get(*caster) {cast.origin=pos.0;}
+            cast.anchored=true;
+        }
+    }
+}
+
 /// Settle a public, non-combat status after outcomes and buff timers, before projection.
 /// Only active windups create it; aim previews and a cooldown never imply a cast.
 pub(crate) fn synchronize_preparation(world:&World) {
@@ -39,23 +110,30 @@ pub(crate) fn synchronize_preparation(world:&World) {
     {
         let props=world.read_storage::<CProperty>();let positions=world.read_storage::<Pos>();
         let heroes=world.read_storage::<Hero>();let buffs=world.read_resource::<super::BuffStore>();
+        let disclosed_recalls=world.try_fetch::<DisclosedRecallingOwners>();let owners=world.read_storage::<PlayerOwner>();
+        let entities=world.entities();
         for (&entity,cast) in &windups.0 {
             let view=windups.1.get(&entity);
-            let valid=state.phase==super::MobaMatchPhase::Playing && world.entities().is_alive(entity)
-                && props.get(entity).is_some_and(|p|p.hp>Fixed64::ZERO)
-                && positions.get(entity).is_some_and(|p|p.0==cast.origin)
-                && heroes.get(entity).is_some_and(|h|h.get_ability_level(&cast.skill_id)==i32::from(cast.rank))
-                && !buffs.is_silenced(entity) && !state.is_recalling(entity)
-                && !matches!(cast.target,SkillTarget::Entity(target) if !world.entities().is_alive(target)
-                    || props.get(target).is_none_or(|p|p.hp<=Fixed64::ZERO))
-                && view.is_some_and(|v|v.state==1 && v.instance>0 && v.skill_id==cast.skill_id
+            // A rule ending (death, control, movement...) keeps its reason; "invalid" is only a
+            // view the replica cannot reconcile.
+            let reason=if state.phase!=super::MobaMatchPhase::Playing {Some("phase")}
+                else {interrupt_reason(&entities,&props,&positions,&heroes,&buffs,
+                    |caster|hero_recalling(Some(&state),disclosed_recalls.as_deref(),&owners,caster),entity,cast)}
+                .or_else(||(!view.is_some_and(|v|v.state==1 && v.instance>0 && v.skill_id==cast.skill_id
                     && v.total>Fixed64::ZERO && v.total<=Fixed64::from_i32(60)
-                    && cast.remaining>Fixed64::ZERO && cast.remaining<=v.total);
-            if valid {let v=view.unwrap();desired.push((entity,cast.remaining,v.total,v.instance));}
-            else {invalid.push(entity);}
+                    && cast.remaining>Fixed64::ZERO && cast.remaining<=v.total)).then_some("invalid"));
+            match (reason,view) {
+                (None,Some(v))=>desired.push((entity,cast.remaining,v.total,v.instance)),
+                (reason,_)=>invalid.push((entity,reason.unwrap_or("invalid"))),
+            }
         }
     }
-    for entity in invalid {windups.0.remove(&entity);windups.result(entity,false);}
+    let mut ended=Vec::new();
+    for (entity,reason) in invalid {
+        if let Some(cast)=windups.0.remove(&entity) {ended.push((entity,cast.skill_id,reason));}
+        windups.result(entity,false);
+    }
+    super::cast_trace::interrupted(world,ended);
     let mut buffs=world.write_resource::<super::BuffStore>();
     let stale:Vec<_>=buffs.entities_with_key(PREPARATION).filter(|entity|!desired.iter().any(|row|row.0==*entity)).collect();
     for entity in stale {buffs.remove(entity,PREPARATION);}
@@ -72,9 +150,11 @@ pub(crate) fn synchronize_preparation(world:&World) {
 
 pub(crate) fn clear_preparation(world:&World) {
     super::recovery_channel::clear(world);
+    super::ability_channel::clear(world);
     if let Some(mut casts)=world.try_fetch_mut::<AbilityWindups>() {
-        let pending:Vec<_>=casts.0.keys().copied().collect();casts.0.clear();
-        for entity in pending {casts.result(entity,false);}
+        let pending:Vec<_>=std::mem::take(&mut casts.0).into_iter().map(|(entity,cast)|(entity,cast.skill_id,"phase")).collect();
+        for (entity,_,_) in &pending {casts.result(*entity,false);}
+        super::cast_trace::interrupted(world,pending);
     }
     if let Some(mut buffs)=world.try_fetch_mut::<super::BuffStore>() {
         let entities:Vec<_>=buffs.entities_with_key(PREPARATION).collect();
@@ -87,16 +167,25 @@ pub(crate) fn interrupt_for_damage(world:&World,entity:Entity) {
     super::recovery_channel::cancel(world,entity);
     let interrupt=world.try_fetch::<AbilityWindups>().is_some_and(|casts|
         casts.0.get(&entity).is_some_and(|cast|cast.interrupt_on_damage));
-    if interrupt {cancel(world,entity);}
+    if interrupt {cancel_because(world,entity,"damage");}
 }
 
-pub(crate) fn cancel(world:&World,entity:Entity) {
+/// A new command (order, stop, channel, taunt) replaces the caster's windup.
+pub(crate) fn cancel(world:&World,entity:Entity) {cancel_because(world,entity,"command");}
+
+fn cancel_because(world:&World,entity:Entity,reason:&'static str) {
     super::recovery_channel::cancel(world,entity);
+    super::ability_channel::cancel(world,entity);
     if let (Some(registry),Some(mut queue))=(world.try_fetch::<super::ability_runtime::AbilityRegistry>(),world.try_fetch_mut::<super::scripting::ScriptEventQueue>()) {
         queue.discard_channels_of(entity,&registry);
     }
+    let tick=world.try_fetch::<Tick>().map_or(0,|tick|tick.0);
     if let Some(mut pending)=world.try_fetch_mut::<AbilityWindups>() {
-        if pending.0.remove(&entity).is_some() {pending.result(entity,false);}
+        if let Some(cast)=pending.0.remove(&entity) {
+            pending.result(entity,false);
+            pending.failed(tick,entity);
+            super::cast_trace::interrupted(world,[(entity,cast.skill_id,reason)]);
+        }
     }
 }
 
@@ -107,30 +196,42 @@ impl AbilityWindups {
             remaining:cast.remaining,total:cast.remaining,instance});
         self.0.insert(caster,cast);
     }
+    /// The caster's current cast ended without its effect (E567): unreleased, refused when it
+    /// released, or refused by the serial settlement. The authority commits the caster's cooldown
+    /// of it at the end of the tick, so a team replica that predicted it drops its own.
+    pub fn failed(&mut self,tick:u64,caster:Entity) {
+        let Some(ability)=self.1.get(&caster).map(|view|view.skill_id.clone()) else {return;};
+        self.failed_ability(tick,caster,ability);
+    }
+    /// [`AbilityWindups::failed`] of a named ability (a cast without a windup has no view).
+    pub fn failed_ability(&mut self,tick:u64,caster:Entity,ability:String) {
+        self.2.retain(|(at,..)|*at==tick);
+        if !self.2.iter().any(|(_,c,a)|*c==caster&&*a==ability) {self.2.push((tick,caster,ability));}
+    }
     pub fn result(&mut self,caster:Entity,success:bool) {
         if let Some(view)=self.1.get_mut(&caster) {view.state=if success {3}else{2};view.remaining=Fixed64::ZERO;}
     }
     pub fn advance(&mut self,world:&World,dt:Fixed64)->Vec<ScriptEvent> {
         let state=world.try_fetch::<super::MobaMatch>();
         if state.as_ref().is_some_and(|state|state.phase!=super::MobaMatchPhase::Playing) {
-            let canceled:Vec<_>=self.0.keys().copied().collect();
-            self.0.clear();for caster in canceled {self.result(caster,false);}return Vec::new();
+            let canceled:Vec<_>=std::mem::take(&mut self.0).into_iter().map(|(caster,cast)|(caster,cast.skill_id,"phase")).collect();
+            for (caster,_,_) in &canceled {self.result(*caster,false);}
+            super::cast_trace::interrupted(world,canceled);return Vec::new();
         }
         if world.read_resource::<GamePause>().is_paused || dt<=Fixed64::ZERO {return Vec::new();}
         let tick=world.read_resource::<Tick>().0;
         let entities=world.entities();let props=world.read_storage::<CProperty>();
         let positions=world.read_storage::<Pos>();let heroes=world.read_storage::<Hero>();
         let buffs=world.read_resource::<super::BuffStore>();let mut ready=Vec::new();
+        let disclosed_recalls=world.try_fetch::<DisclosedRecallingOwners>();let owners=world.read_storage::<PlayerOwner>();
+        let recalling=|caster:Entity|hero_recalling(state.as_deref(),disclosed_recalls.as_deref(),&owners,caster);
         self.1.retain(|entity,_|entities.is_alive(*entity));
-        let views=&mut self.1;
+        let views=&mut self.1;let mut ended=Vec::new();
         self.0.retain(|caster,cast| {
-            if !entities.is_alive(*caster) || props.get(*caster).is_none_or(|p|p.hp<=Fixed64::ZERO)
-                || buffs.is_silenced(*caster) || positions.get(*caster).is_none_or(|p|p.0!=cast.origin)
-                || state.as_ref().is_some_and(|state|state.is_recalling(*caster))
-                || heroes.get(*caster).is_none_or(|h|h.get_ability_level(&cast.skill_id)!=i32::from(cast.rank))
-                || matches!(cast.target,SkillTarget::Entity(target) if !entities.is_alive(target)
-                    || props.get(target).is_none_or(|p|p.hp<=Fixed64::ZERO)) {
+            let reason=interrupt_reason(&entities,&props,&positions,&heroes,&buffs,&recalling,*caster,cast);
+            if let Some(reason)=reason {
                 if let Some(view)=views.get_mut(caster) {view.state=2;view.remaining=Fixed64::ZERO;}
+                ended.push((*caster,cast.skill_id.clone(),reason));
                 return false;
             }
             if cast.last_tick==tick {return true;}
@@ -140,6 +241,8 @@ impl AbilityWindups {
             ready.push(ScriptEvent::SkillCast {caster:*caster,skill_id:cast.skill_id.clone(),target:cast.target.clone()});
             false
         });
+        for (caster,_,_) in &ended {self.failed(tick,*caster);}
+        super::cast_trace::interrupted(world,ended);
         ready
     }
 }
@@ -151,7 +254,7 @@ pub(crate) fn emit_progress(world:&World,state:&super::MobaMatch) {
             && world.read_storage::<CProperty>().get(*entity).is_some_and(|p|p.hp>Fixed64::ZERO))
             .filter(|_|state.phase==super::MobaMatchPhase::Playing)
             .and_then(|entity|views.as_ref()?.1.get(&entity).zip(heroes.get(entity)))
-            .and_then(|(view,hero)|hero.abilities.iter().take(4).position(|id|id==&view.skill_id).map(|slot|(view,slot)));
+            .and_then(|(view,hero)|hero.abilities.iter().take(HERO_ABILITY_SLOTS).position(|id|id==&view.skill_id).map(|slot|(view,slot)));
         let values=current.map_or([0;5],|(view,slot)|[slot as i64+1,i64::from(view.state),view.remaining.raw(),view.total.raw(),view.instance]);
         for (index,(namespace,value)) in [CAST_SLOT,CAST_STATE,CAST_REMAINING,CAST_TOTAL,CAST_INSTANCE].into_iter().zip(values).enumerate() {
             let team=state.config.teams[slot.side];
@@ -194,8 +297,108 @@ mod tests {
             .with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,
                 def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
         let mut casts=AbilityWindups::default();casts.0.insert(caster,Windup {skill_id:"fixture".into(),
-            target:SkillTarget::None,origin:Vec2::ZERO,remaining:Fixed64::from_raw(512),rank:1,interrupt_on_damage:false,last_tick:0});
+            target:SkillTarget::None,origin:Vec2::ZERO,remaining:Fixed64::from_raw(512),rank:1,interrupt_on_damage:false,last_tick:0,anchored:false});
         (world,caster,casts)
+    }
+    #[test]
+    fn a_unit_ability_windup_of_a_non_hero_releases_at_its_rank() {
+        let (mut world,_,_)=fixture();
+        let unit=world.create_entity().with(Pos(Vec2::ZERO))
+            .with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        let windup=Windup {skill_id:"a36_detonate".into(),target:SkillTarget::None,origin:Vec2::ZERO,
+            remaining:Fixed64::from_raw(102),rank:2,interrupt_on_damage:false,last_tick:0,anchored:false};
+        let run=|world:&mut World|{let mut casts=AbilityWindups::default();casts.start(unit,windup.clone());
+            world.write_resource::<Tick>().0+=1;casts.advance(world,Fixed64::ONE).len()};
+        assert_eq!(run(&mut world),0,"no unit ability held: ended");
+        world.write_resource::<super::super::BuffStore>().add(unit,&super::super::unit_abilities::row_id("a36_detonate"),
+            Fixed64::from_i32(60),super::super::unit_abilities::payload("a36_detonate",2).unwrap());
+        assert_eq!(run(&mut world),1,"held at the windup's rank: released");
+    }
+    #[test]
+    fn an_unreleased_windup_leaves_an_interrupted_trace_row_with_its_reason() {
+        use super::super::cast_trace::{CastTrace,CastTraceResult};
+        let reasons=|world:&World|world.read_resource::<CastTrace>().0.iter().map(|row|match &row.result {
+            CastTraceResult::Interrupted(reason)=>(row.ability.clone(),*reason),other=>panic!("{other:?}")}).collect::<Vec<_>>();
+        let (mut world,caster,casts)=fixture();world.insert(CastTrace::default());world.insert(casts);
+        cancel(&world,caster);cancel(&world,caster);
+        assert_eq!(reasons(&world),[("fixture".to_string(),"command")],"a new order, once");
+        let (mut world,caster,mut casts)=fixture();world.insert(CastTrace::default());
+        casts.0.get_mut(&caster).unwrap().origin=Vec2::new(Fixed64::ONE,Fixed64::ZERO);
+        world.write_resource::<Tick>().0=1;
+        assert!(casts.advance(&world,Fixed64::from_raw(17)).is_empty());
+        assert_eq!(reasons(&world),[("fixture".to_string(),"moved")]);
+    }
+    #[test]
+    fn replica_without_moba_match_cancels_windup_on_its_disclosed_recall() {
+        // split17: a bot Recall cancelled the authority windup; the owner's
+        // replica (no MobaMatch) must read the same recall from its fact.
+        for (recalling,released) in [(false,1usize),(true,0)] {
+            let (mut world,caster,mut casts)=fixture();
+let cast=casts.0.remove(&caster).unwrap();casts.start(caster,cast);
+                        world.write_storage::<PlayerOwner>().insert(caster,PlayerOwner {player_id:6}).unwrap();
+            let owners:std::collections::BTreeSet<u32>=if recalling {[6].into()} else {[7].into()};
+            world.insert(DisclosedRecallingOwners(owners));
+            world.write_resource::<Tick>().0=1;
+            assert_eq!(casts.advance(&world,Fixed64::ONE).len(),released);
+            assert!(casts.0.is_empty());
+            assert_eq!(casts.1[&caster].state,if recalling {2} else {1});
+        }
+    }
+    #[test]
+    fn authority_and_replica_read_one_disclosed_recall_snapshot() {
+        // E175: a Recall started and then interrupted by damage within one tick
+        // left the authority's MobaMatch not recalling, while the owner's replica
+        // only saw the disclosed recall-active fact and cancelled the windup, so
+        // its cooldown went missing. Both sides now read the disclosed snapshot.
+        for recalling in [false,true] {
+            let mut results=Vec::new();
+            for authority in [true,false] {
+                let (mut world,caster,mut casts)=if authority {
+                    let (mut world,caster)=public_fixture();let casts=world.remove::<AbilityWindups>().unwrap();(world,caster,casts)
+                } else {
+                    let (world,caster,mut casts)=fixture();let cast=casts.0.remove(&caster).unwrap();casts.start(caster,cast);(world,caster,casts)
+                };
+                world.write_storage::<PlayerOwner>().insert(caster,PlayerOwner {player_id:6}).unwrap();
+                assert!(world.try_fetch::<super::super::MobaMatch>().is_none_or(|state|!state.is_recalling(caster)));
+                world.insert(DisclosedRecallingOwners(if recalling {[6].into()} else {[7].into()}));
+                world.write_resource::<Tick>().0=1;
+                results.push((casts.advance(&world,Fixed64::ONE).len(),casts.1[&caster].state));
+            }
+            assert_eq!(results[0],results[1],"recalling={recalling}");
+            assert_eq!(results[0],if recalling {(0,2)} else {(1,1)});
+        }
+    }
+    #[test]
+    fn windup_origin_is_the_committed_pose_of_its_start_tick() {
+        // The owner's replica captured a predicted mid-tick position one step
+        // behind; the post-step Movement fact moved the caster to the
+        // authority's pose. Anchoring keeps the windup; without it the next
+        // advance cancelled it (autopilot-strength-after-9).
+        let committed=Vec2::new(Fixed64::from_raw(7037),Fixed64::from_raw(1499));
+        for anchored in [true,false] {
+            let (mut world,caster,mut casts)=fixture();
+            let mut cast=casts.0.remove(&caster).unwrap();cast.last_tick=5;casts.start(caster,cast);world.insert(casts);
+            world.write_resource::<Tick>().0=5;
+            world.write_storage::<Pos>().get_mut(caster).unwrap().0=committed;
+            if anchored {anchor_started_windups(&world);}
+            world.write_resource::<Tick>().0=6;
+            let mut casts=world.remove::<AbilityWindups>().unwrap();
+            assert!(casts.advance(&world,Fixed64::from_raw(17)).is_empty());
+            assert_eq!(casts.0.contains_key(&caster),anchored,"anchored={anchored}");
+            if anchored {
+                assert_eq!(casts.0[&caster].origin,committed);
+                // Only the start tick anchors: a displacement afterwards still cancels.
+                world.insert(casts);
+                world.write_storage::<Pos>().get_mut(caster).unwrap().0=Vec2::ZERO;
+                // End of tick 6: the windup was already anchored at its start tick.
+                anchor_started_windups(&world);
+                assert_eq!(world.read_resource::<AbilityWindups>().0[&caster].origin,committed);
+                world.write_resource::<Tick>().0=7;
+                let mut casts=world.remove::<AbilityWindups>().unwrap();
+                assert!(casts.advance(&world,Fixed64::from_raw(17)).is_empty());
+                assert!(casts.0.is_empty(),"moved after its start tick");
+            }
+        }
     }
     #[test]
     fn windup_uses_exact_fixed_time_and_cannot_double_advance_in_one_tick() {
@@ -244,8 +447,9 @@ mod tests {
     }
     #[test]
     fn public_preparation_settles_late_control_movement_rank_and_death_before_projection() {
-        for mode in 0..4 {
-            let (world,caster)=public_fixture();synchronize_preparation(&world);
+        for (mode,reason) in ["silenced","moved","rank","dead"].into_iter().enumerate() {
+            let (mut world,caster)=public_fixture();synchronize_preparation(&world);
+            world.insert(super::super::cast_trace::CastTrace::default());
             match mode {
                 0=>{world.write_resource::<super::super::BuffStore>().add(caster,"stun",Fixed64::ONE,serde_json::json!({}));},
                 1=>world.write_storage::<Pos>().get_mut(caster).unwrap().0.x=Fixed64::ONE,
@@ -254,6 +458,9 @@ mod tests {
             }
             synchronize_preparation(&world);let casts=world.read_resource::<AbilityWindups>();
             assert!(casts.0.is_empty());assert_eq!(casts.1[&caster].state,2);
+            // The rule's reason, not "invalid" (a caster dying in its windup read as invalid).
+            assert!(matches!(world.read_resource::<super::super::cast_trace::CastTrace>().0.last().map(|row|&row.result),
+                Some(super::super::cast_trace::CastTraceResult::Interrupted(r)) if *r==reason),"mode {mode}");
             assert!(world.read_resource::<super::super::BuffStore>().get(caster,PREPARATION).is_none());
         }
     }

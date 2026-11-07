@@ -7,14 +7,23 @@ use specs::{Component, Entity};
 #[derive(Clone,Copy,Debug,Default,Deserialize,Serialize,PartialEq,Eq)]
 pub enum DamageStage { #[default] Settled, Raw }
 
+/// The share of physical damage positive `armor` removes: armor / (armor + 100); none for armor
+/// at or below zero. The one armor rule (mitigate_base_defenses, v3 `armor_multiplier`).
+pub fn armor_reduction(armor:Fixed64)->Fixed64 {
+    if armor<=Fixed64::ZERO {return Fixed64::ZERO;}
+    Fixed64::from_raw(((i128::from(armor.raw())*1024)/(i128::from(armor.raw())+102400)) as i64)
+}
+
+/// v3 `armor_multiplier(armor)`: the share of physical damage that lands through `armor`.
+pub fn armor_multiplier(armor:Fixed64)->Fixed64 { Fixed64::ONE-armor_reduction(armor) }
+
 /// Shared existing balance policy. Preserve ratio-then-subtract fixed-point rounding.
 pub fn mitigate_base_defenses(damage:&DamageTypes,armor:Fixed64,resistance_percent:Fixed64,
     ignore_armor:bool,ignore_resistance:bool)->DamageTypes {
     let mut physical=damage.physical.max(Fixed64::ZERO);
     let mut magical=damage.magical.max(Fixed64::ZERO);
     if !ignore_armor && armor>Fixed64::ZERO {
-        let ratio=Fixed64::from_raw(((i128::from(armor.raw())*1024)/(i128::from(armor.raw())+102400)) as i64);
-        physical=physical-physical*ratio;
+        physical=physical-physical*armor_reduction(armor);
     }
     if !ignore_resistance && resistance_percent>Fixed64::ZERO {
         let ratio=Fixed64::from_raw((resistance_percent.raw()/100).min(768));
@@ -220,5 +229,22 @@ impl Default for DamageTypes {
 impl Default for DamageFlags {
     fn default() -> Self {
         DamageFlags::default_attack()
+    }
+}
+
+#[cfg(test)]
+mod armor_tests {
+    use super::*;
+
+    #[test]
+    fn armor_multiplier_is_the_mitigation_rule() {
+        for armor in [-5, 0, 3, 10, 100] {
+            let armor = Fixed64::from_i32(armor);
+            let landed = mitigate_base_defenses(&DamageTypes::physical_only(Fixed64::from_i32(100)), armor, Fixed64::ZERO, false, false).physical;
+            assert_eq!(landed, Fixed64::from_i32(100) - Fixed64::from_i32(100) * armor_reduction(armor), "{armor:?}");
+            assert_eq!(armor_multiplier(armor), Fixed64::ONE - armor_reduction(armor));
+        }
+        assert_eq!(armor_multiplier(Fixed64::from_i32(100)), Fixed64::from_raw(512), "100 armor halves it");
+        assert_eq!(armor_multiplier(Fixed64::from_i32(-5)), Fixed64::ONE, "negative armor adds nothing");
     }
 }

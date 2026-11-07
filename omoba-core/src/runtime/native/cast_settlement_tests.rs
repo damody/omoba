@@ -24,7 +24,7 @@ fn fixture()->(World,Entity,Vec<Entity>,Outcome) {
     effects.push(Outcome::ScriptSetMana {entity:caster,pool:ManaPool::new(Fixed64::from_i32(210),Fixed64::from_i32(300)).unwrap()});
     let batch=Outcome::ScriptCastTransaction {caster,skill_id:SKILL.into(),rank:1,faction:Some(faction),player_owner:Some(7),
         expected_mana:Some(ManaPool::full(Fixed64::from_i32(300)).unwrap()),outcomes:effects,
-        cues:vec![CastSettlementCue {target:None,skill_id:Some(SKILL.into()),rank:1,tick:1,relocation:None,area:None}],aggression_target:None};
+        cues:vec![CastSettlementCue {target:None,skill_id:Some(SKILL.into()),rank:1,tick:1,relocation:None,area:None,target_point:None}],aggression_target:None};
     (world,caster,children,batch)
 }
 fn mana(world:&World,caster:Entity)->Fixed64 {world.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap().current()}
@@ -128,6 +128,20 @@ fn ally_cleanse_serial_admission_is_atomic_source_bound_and_preserves_other_buff
         assert!(buffs.has(target,"self_stance"));assert!(!buffs.has(target,BUFF));assert_eq!(buffs.shield_remaining(target),Fixed64::from_i32(20));drop(buffs);
         let events=world.write_resource::<ScriptEventQueue>().drain();assert_eq!(events.iter().filter(|e|matches!(e,ScriptEvent::SpentMana {..})).count(),if case==0{1}else{0});
     }
+}
+
+#[test]
+fn cast_transaction_with_a_cue_between_its_spawns_commits_and_publishes_the_cue() {
+    let (mut world,caster,children,mut batch)=fixture();
+    let Outcome::ScriptCastTransaction {outcomes,..}=&mut batch else {panic!("a transaction")};
+    let spawn=outcomes.iter().position(|e|matches!(e,Outcome::SpawnSummoned {..})).expect("a spawn");
+    outcomes.insert(spawn+1,Outcome::Cue {cue:99,source:Some(caster),at_unit:Some(caster),at_point:(0,0),to_unit:None,to_point:None,radius_raw:0,duration_raw:0});
+    let restored:Outcome=serde_json::from_str(&serde_json::to_string(&batch).unwrap()).unwrap();
+    let facts=flush(&mut world,vec![restored]);
+    assert_eq!(facts.iter().filter(|f|matches!(f.fact,crate::runtime::ObservableFact::Spawn {..})).count(),2);
+    assert_eq!(facts.iter().filter(|f|matches!(f.fact,crate::runtime::ObservableFact::Cue {..})).count(),1);
+    assert_eq!(mana(&world,caster),Fixed64::from_i32(210));
+    for child in &children {assert!(world.read_storage::<SummonedUnit>().get(*child).is_some());}
 }
 
 #[test]

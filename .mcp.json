@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "omoba-status": {
+      "command": "D:/omoba/omb-mcp/target/release/omb-mcp.exe",
+      "args": [],
+      "env": {
+        "OMB_KCP_ADDR": "127.0.0.1:57061",
+        "OMOBA_ROOT": "D:/omoba"
+      }
+    }
+  }
+}

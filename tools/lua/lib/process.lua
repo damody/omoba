@@ -105,15 +105,16 @@ function M.poll_owned_exit(expected,waiter,receipt_file,timeout_ms)
     time.sleep_ms(20)
   end
 end
-function M.inspect_owned(pid)
-  local result=host.call('inspect_owned',{pid=pid})
+-- creation_token (optional): the recorded token; a PID now held by another process reads as not alive (E210).
+function M.inspect_owned(pid,creation_token)
+  local result=host.call('inspect_owned',{pid=pid,creation_token=creation_token})
   if result.alive==false then return nil end
   assert(result.alive==true,'invalid owned liveness response')
   return M.validate_owned(result)
 end
 function M.assert_owned(record)
   record=M.validate_owned(record)
-  local current=M.inspect_owned(record.pid)
+  local current=M.inspect_owned(record.pid,record.creation_token)
   if not current then return nil end
   assert(current.creation_token==record.creation_token and current.executable:lower()==record.executable:lower(),'owned process lifetime or executable mismatch')
   return current
@@ -124,7 +125,7 @@ function M.stop_owned(record)
 end
 function M.owned_alive(record)
   record=M.validate_owned(record)
-  local current=M.inspect_owned(record.pid)
+  local current=M.inspect_owned(record.pid,record.creation_token)
   return current~=nil and current.creation_token==record.creation_token
     and current.executable:lower()==record.executable:lower()
 end

@@ -33,37 +33,55 @@ pub fn bootstrap_metadata(map: &MobaMapConst) -> Vec<DeterministicMetadata> {
 /// and replica agreement must share corner order and float boundary conversion.
 pub fn compiled_blocked_regions(map: &MobaMapConst) -> crate::runtime::BlockedRegions {
     use crate::runtime::{BlockedRegion, BlockedRegions};
+    let rect = |name: String, min: (i32, i32), max: (i32, i32)| BlockedRegion {
+        name,
+        points: vec![
+            vek::Vec2::new(min.0 as f32, min.1 as f32),
+            vek::Vec2::new(max.0 as f32, min.1 as f32),
+            vek::Vec2::new(max.0 as f32, max.1 as f32),
+            vek::Vec2::new(min.0 as f32, max.1 as f32),
+        ],
+    };
+    // Trees follow the terrain (E187 §5.5): each blocks the square of half-extent `radius` around
+    // its point, the 2x2 gridnav cells a Dota tree holds. Maps without trees keep their regions.
+    let trees = map.trees();
     BlockedRegions(
-        map.terrain
-            .iter()
-            .map(|r| BlockedRegion {
-                name: r.id.into(),
-                points: vec![
-                    vek::Vec2::new(r.min.0 as f32, r.min.1 as f32),
-                    vek::Vec2::new(r.max.0 as f32, r.min.1 as f32),
-                    vek::Vec2::new(r.max.0 as f32, r.max.1 as f32),
-                    vek::Vec2::new(r.min.0 as f32, r.max.1 as f32),
-                ],
-            })
+        map.terrain.iter().map(|r| rect(r.id.into(), r.min, r.max))
+            .chain(trees.trees.iter().enumerate().map(|(index, tree)| {
+                let (x, y) = tree.position;
+                rect(tree_region_name(index), (x - trees.radius, y - trees.radius), (x + trees.radius, y + trees.radius))
+            }))
             .collect(),
     )
 }
 
+/// Region and occluder name of the map's tree `index` (E187 §5.5).
+pub fn tree_region_name(index: usize) -> String { format!("tree_{index:04}") }
+
 /// Same authored wall bounds as collision and presentation. IDs are local to
 /// this immutable map and assigned by name, independent of authoring order.
 pub fn compiled_vision_occluders(map: &MobaMapConst) -> crate::runtime::VisionOccluderSet {
-    use crate::runtime::{VisionAabb, VisionOccluder, VisionOccluderSet, VisionTerrainPolygon};
+    use crate::runtime::{VisionAabb, VisionOccluder, VisionOccluderSet, VisionTerrainPolygon, VisionTreeCircle};
     use omoba_sim::{Fixed64, Vec2};
     let point=|(x,y)| Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
     let mut walls:Vec<_>=map.terrain.iter().collect();
     walls.sort_by_key(|wall|wall.id);
-    VisionOccluderSet(walls.into_iter().enumerate().map(|(index,wall)| {
+    // Trees block vision as VisionTree circles (E187 §5.5), ordered first by the set's stable key
+    // (trees before terrain) and numbered by their authored order.
+    let trees=map.trees();
+    let radius=Fixed64::from_i32(trees.radius);
+    let corner=Vec2::new(radius,radius);
+    VisionOccluderSet(trees.trees.iter().enumerate().map(|(index,tree)| {
+        let center=point(tree.position);
+        VisionOccluder::Tree(VisionTreeCircle {stable_id:index as u64+1,center,radius,
+            aabb:VisionAabb {min:center-corner,max:center+corner}})
+    }).chain(walls.into_iter().enumerate().map(|(index,wall)| {
         VisionOccluder::Terrain(VisionTerrainPolygon {
             stable_id:index as u64+1,name:wall.id.into(),
             vertices:vec![point(wall.min),point((wall.max.0,wall.min.1)),point(wall.max),point((wall.min.0,wall.max.1))],
             aabb:VisionAabb {min:point(wall.min),max:point(wall.max)},
         })
-    }).collect())
+    })).collect())
 }
 
 /// A valid map ID/hash alone does not prove that navigation received the same
@@ -85,7 +103,19 @@ pub fn validate_metadata(
     }
     if region.value != crate::runtime::encode_public_blocked_regions(&compiled_blocked_regions(map))
     {
-        return Err("compiled MOBA terrain mismatch");
+        // A mid-match start carries the current terrain: the compiled map minus fallen
+        // trees (E242), then the pathing blockers standing (unit_blockers, E426). Same
+        // canonical bytes as the authority's own rebuild, nothing else.
+        use crate::runtime::native::{tree_cut, unit_blockers};
+        let canonical = crate::runtime::decode_public_blocked_regions(&region.value).and_then(|regions| {
+            let blockers = unit_blockers::current(&regions)?;
+            let fallen = tree_cut::cut_set_of(map, &regions)?;
+            if !fallen.is_empty() && map.trees().trees.is_empty() { return None; }
+            Some(crate::runtime::encode_public_blocked_regions(&unit_blockers::compose(tree_cut::regions(map, &fallen), &blockers)))
+        });
+        if canonical.as_deref() != Some(region.value.as_slice()) {
+            return Err("compiled MOBA terrain mismatch");
+        }
     }
     Ok(Some(map))
 }
@@ -125,6 +155,37 @@ pub fn decode(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// E070: every compiled map's public lane routes are walkable by a hero under
+    /// the exact runtime collision and the server's own MoveTo planner — each
+    /// point stands clear and each next point is reachable from the previous one.
+    #[test]
+    fn every_compiled_lane_route_is_reachable_by_a_hero() {
+        use omoba_sim::{Fixed64,Vec2};
+        let radius=Fixed64::from_i32(30);
+        let p=|(x,y):(i32,i32)|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        assert!(omoba_template_ids::MOBA_MAPS.len()>=3,"training, layered and quick maps are compiled");
+        for map in omoba_template_ids::MOBA_MAPS {
+            let regions=compiled_blocked_regions(map);
+            for lane in map.lanes {
+                for (index,point) in lane.waypoints.iter().enumerate() {
+                    assert!(!crate::runtime::native::tick::hero_move_tick::path_hits_regions(p(*point),p(*point),radius,&regions),
+                        "map {} lane {} point {} {:?} is inside terrain",map.id,lane.id,index,point);
+                }
+                for (index,edge) in lane.waypoints.windows(2).enumerate() {
+                    assert!(crate::runtime::native::tick::hero_command_tick::static_next_waypoint(p(edge[0]),p(edge[1]),radius,&regions).is_some(),
+                        "map {} lane {} segment {} {:?}->{:?} is unreachable for a hero",map.id,lane.id,index,edge[0],edge[1]);
+                }
+            }
+        }
+        // The check is real: a wall on a route point is caught.
+        let map=&omoba_template_ids::MOBA_MAPS[0];
+        let (x,y)=map.lanes[0].waypoints[1];
+        const WALL:[omoba_template_ids::MobaTerrainConst;1]=[omoba_template_ids::MobaTerrainConst {id:"probe",min:(0,0),max:(0,0)}];
+        let mut walled=WALL;walled[0].min=(x-50,y-50);walled[0].max=(x+50,y+50);
+        let leaked:&'static [omoba_template_ids::MobaTerrainConst]=Box::leak(Box::new(walled));
+        let regions=compiled_blocked_regions(&MobaMapConst {terrain:leaked,..*map});
+        assert!(crate::runtime::native::tick::hero_move_tick::path_hits_regions(p((x,y)),p((x,y)),radius,&regions));
+    }
     #[test]
     fn compiled_wall_vision_matches_collision_is_order_independent_and_blocks_segments() {
         use crate::runtime::{LosResult,VisionOccluder};
@@ -162,7 +223,8 @@ mod tests {
                 lane_length:omoba_sim::Fixed64::from_i32(map.lane_length),..SingleLaneConfig::default()}).unwrap();
             assert_eq!(*world.read_resource::<VisionOccluderSet>(),compiled_vision_occluders(map));
             let view=crate::runtime::build_wave_b_read_view(&world,1);
-            assert_eq!(view.vision_occluders.len(),map.terrain.len());
+            // E187 §5.5: one VisionTree per tree beside the terrain walls.
+            assert_eq!(view.vision_occluders.len(),map.terrain.len()+map.trees().trees.len());
         }
         let map=&omoba_template_ids::MOBA_MAPS[0];
         let mut legacy=StateInitializer::setup_campaign_ecs_world(&pool);
@@ -178,12 +240,17 @@ mod tests {
             minion_wave: &[],wave_interval_seconds:12,
             id: "not_a_shipped_map",
             lane_length: 900,
+            tower_hp: 1200,
+            base_hp: 1600,
             tower_offset: 100,
             tower_layers: &[100],
             lanes: &[],
             jungle_camps: &[],
             presentation_surfaces: &[],
             brushes: &[],
+            bounds: None, world_bounds: None, minimap_bounds: None,
+            towers: &[], barracks: &[], general_towers: &[], bases: &[], fountains: &[], hero_spawns: &[],
+            shops: &[], shop_radius: 0,
             terrain: &[
                 MobaTerrainConst {
                     id: "negative",

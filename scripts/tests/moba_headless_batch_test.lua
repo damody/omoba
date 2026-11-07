@@ -20,11 +20,12 @@ test('defaults and bounded unique seeds',function()
   local o=batch.options({},args)
   assert(o.matches==10 and o.seed==1 and o.max_game_seconds==600 and o.stall_game_seconds==300)
   assert(batch.options({'--matches','10'},args).matches==10)
+  assert(batch.options({'--matches','11'},args).matches==11 and batch.options({'--matches','10000'},args).matches==10000)
   local bounds=batch.options({'--max-game-seconds','60','--stall-game-seconds','60'},args)
   assert(bounds.max_game_seconds==60 and bounds.stall_game_seconds==60)
   local upper=batch.options({'--max-game-seconds','3600','--stall-game-seconds','3600'},args)
   assert(upper.max_game_seconds==3600 and upper.stall_game_seconds==3600)
-  for _,v in ipairs({{'--matches','0'},{'--matches','11'},{'--matches','100'},{'--matches','1.5'},{'--seed','4294967295','--matches','2'},
+  for _,v in ipairs({{'--matches','0'},{'--matches','10001'},{'--matches','1.5'},{'--seed','4294967295','--matches','2'},
       {'--seed','-1'},{'--seed','1','--seed','2'},{'--recipe'},{'--profile','15'},
       {'--max-game-seconds','59'},{'--max-game-seconds','3601'},{'--max-game-seconds','60.0'},
       {'--max-game-seconds','18446744073709551616'},{'--stall-game-seconds','999999999999999999999'},
@@ -34,10 +35,10 @@ test('defaults and bounded unique seeds',function()
   end
 end)
 
-test('programmatic execution cannot bypass ten-match cap or start work',function()
+test('programmatic execution cannot bypass the match sanity bound or start work',function()
   local calls=0
   local function touched() calls=calls+1;error('must reject before callbacks') end
-  for _,count in ipairs({0,11,100,1.5}) do
+  for _,count in ipairs({0,10001,1.5}) do
     rejects(function() batch.execute({matches=count,seed=1},{prepare=touched,run=touched,save=touched}) end)
   end
   assert(calls==0)
@@ -148,5 +149,11 @@ test('single report is fresh unless an explicit path is repeated or occupied',fu
   batch.assert_fresh_output('a.json','a.failure-samples.json',function() return false end)
   rejects(function() batch.assert_fresh_output('a.json','a.failure-samples.json',function(path) return path=='a.json' end) end)
   rejects(function() batch.assert_fresh_output('a.json','a.failure-samples.json',function(path) return path~='a.json' end) end)
+end)
+test('a failed match names its failure kind and report, not only the exit code (E187)',function()
+  local message=batch.match_failure(3,13,1,{failure_kind='objective_stall',error='no public tower/base objective progress'},'out/match-0003.json')
+  assert(message:find('match 3 (seed 13)',1,true) and message:find('objective_stall: no public tower',1,true))
+  assert(message:find('out/match-0003.json',1,true))
+  assert(batch.match_failure(1,1,101,nil,'m.json'):find('no report written',1,true))
 end)
 print(('batch/compiled policy: %d tests passed; no game processes launched'):format(tests))

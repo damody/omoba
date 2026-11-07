@@ -140,3 +140,13 @@ mod tests {
         }
     }
 }
+
+/// Owner-assigned summon target: a buff with this id on the summon whose
+/// payload is `{"summon_target":[id,gen]}` makes that exact life the summon's
+/// preferred target (host acquisition still checks range, vision, life and
+/// attackability). When it dies the summon falls back to its template priority.
+pub const SUMMON_TARGET_BUFF:&str="summon_target";
+
+pub fn summon_target_payload(target:crate::types::EntityHandle)->String {
+    format!("{{\"{SUMMON_TARGET_BUFF}\":[{},{}]}}",target.id,target.gen)
+}

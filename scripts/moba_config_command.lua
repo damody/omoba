@@ -7,7 +7,7 @@ local M={}
 function M.resolve(options,dependencies)
   local profile=options.profile or 'release'
   assert(profile=='debug' or profile=='release','configuration profile must be debug or release')
-  local exe=path.join(b.root,'omb/target',profile,'moba-config.exe')
+  local exe=require('run_artifacts').rust_binary(b.root,'omb',profile,'moba-config.exe')
   dependencies=dependencies or {is_file=path.is_file}
   assert(dependencies.is_file(exe),'missing compiled configuration tool: '..exe..
     '\nBuild explicitly: cargo build --manifest-path omb/Cargo.toml -p omobab --bin moba-config --features compiled-content-only'..

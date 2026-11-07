@@ -5,6 +5,13 @@ local hash = require('tools.lua.lib.hash')
 
 local M = {}
 local EXPECTED_EDGE = 1254
+-- Accepted original generators. A "mixed" manifest names the tool on every asset.
+M.tools = {['builtin-image_gen'] = true, ['grok-build-image_gen'] = true}
+
+local function check_tool(manifest, asset)
+  assert(manifest.tool ~= 'mixed' or asset.tool ~= nil, 'mixed manifest asset must name its tool')
+  assert(M.tools[asset.tool or manifest.tool], 'manifest asset tool is not an accepted original generator')
+end
 
 local function whole(value, min_value, max_value)
   return type(value) == 'number' and value == math.floor(value) and value >= min_value and value <= max_value
@@ -66,7 +73,7 @@ function M.validate(options)
   assert(not escapes(manifest_path), 'manifest path cannot contain a parent segment')
   local manifest = json.read(manifest_path)
   assert(manifest.schema == 'omoba.item-icon-assets.v1', 'unsupported item icon manifest schema')
-  assert(manifest.tool == 'builtin-image_gen', 'item icon manifest tool is not the original generator')
+  assert(manifest.tool == 'mixed' or M.tools[manifest.tool], 'item icon manifest tool is not an original generator')
   assert(type(manifest.status) == 'string' and manifest.status ~= '', 'item icon manifest status is missing')
   assert(type(manifest.assets) == 'table' and #manifest.assets > 0 and #manifest.assets <= 64, 'item icon asset list is invalid')
   local candidate_dir = path.absolute(options.candidate_dir or path.parent(manifest_path), root)
@@ -92,6 +99,7 @@ function M.validate(options)
     assert(asset.width == EXPECTED_EDGE and asset.height == EXPECTED_EDGE, 'manifest dimensions must be the actual 1254 source')
     assert(whole(asset.bytes, 1, 16 * 1024 * 1024), 'manifest byte size is invalid')
     assert(type(asset.sha256) == 'string' and asset.sha256:match('^[0-9a-f]+$') and #asset.sha256 == 64, 'manifest sha256 is invalid')
+    check_tool(manifest, asset)
     assert(type(asset.prompt) == 'string' and asset.prompt ~= '', 'manifest prompt provenance is missing')
     assert(type(asset.visual_review) == 'string' and asset.visual_review ~= '', 'manifest visual review is missing')
     assert(type(asset.source) == 'string' and asset.source ~= '', 'manifest source provenance is missing')
