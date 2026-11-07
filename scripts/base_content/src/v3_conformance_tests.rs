@@ -1151,6 +1151,15 @@ fn check_fixed_quirk(s: &Value) -> Option<Verdict> {
         "173" => fix_candidates::fc173_b36d_old_survives_a_dispel,
         "174" | "175" => fix_candidates::fc175_a15r_old_bounces_its_count_within_its_radius,
         "176" => fix_candidates::fc176_a34t_old_mana_regen_is_its_own_value,
+        "177" => fix_candidates::fc177_c13d_old_wind_chain_deals_its_damage,
+        "178" => fix_candidates::fc178_c13t_old_blows_away_after_a_full_channel,
+        "179" => fix_candidates::fc179_b01e_old_gunners_attack_by_magoichis_level,
+        "180" => fix_candidates::fc180_c14r_old_reduces_damage_taken,
+        "181" => fix_candidates::fc181_c22t_old_radius_at_its_rank,
+        "182" => fix_candidates::fc182_a35e_old_recast_adds_its_count,
+        "183" => fix_candidates::fc183_b34r_old_halved_on_spell_immune,
+        "184" | "185" => fix_candidates::fc185_a04e_old_ice_path_along_the_facing,
+        "186" => fix_candidates::fc186_c15e_old_is_off_after_a_death,
         _ => return Some(Verdict::Unsupported(format!("FC-{fc} is fixed but has no test here yet"))),
     };
     match std::panic::catch_unwind(test) {
@@ -7560,6 +7569,275 @@ mod fix_candidates {
                 Verdict::Fail(why) | Verdict::Unsupported(why) => panic!("rank {rank}: {why}"),
             }
         }
+    }
+
+    // D22 variants, third batch (fix-candidates.md §10, FC-177 to FC-186).
+
+    fn distance(run: &Run, a: specs::Entity, b: specs::Entity) -> f64 { real((pos_of(run, a) - pos_of(run, b)).length()) }
+
+    /// FC-177: C13D_old binds the target and deals it `$damage` magic damage (the source applied
+    /// the bind only: no damage).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc177_c13d_old_wind_chain_deals_its_damage() {
+        const ENTRY: &str = "c13_old_wind_chain";
+        let mut run = learned("ryuzoji_takanobu_old", ENTRY, 1, false);
+        let enemy = run.enemy;
+        let cast = run.cast("unit", value(ENTRY, 1, "cast_point").unwrap() + 0.5, None).unwrap();
+        assert!(cast.accepted, "{ENTRY} not cast{}", cast.why());
+        run.step(2);
+        assert!(holds(&run, enemy, "c13d_old_bind"), "no c13d_old_bind on the target ({})", holding(&run, enemy));
+        let damage = value(ENTRY, 1, "damage").unwrap();
+        let hits = magic_hits(&run, ENTRY, enemy);
+        assert!(hits.len() == 1 && all_near(&hits, damage), "{ENTRY}: hits {hits:?}, expected one of {damage}");
+    }
+
+    /// FC-178: a full C13T_old channel ends by blowing the enemies within `$blast_radius`
+    /// `$knockback_distance` away from Takanobu and holding them `$blast_hold` (the source's timer
+    /// outlived the channel: never). Interrupted, nothing is blown away.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc178_c13t_old_blows_away_after_a_full_channel() {
+        const ENTRY: &str = "c13_old_tornado_vortex";
+        let channeling = |run: &Run| run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().has(run.caster, "ability_channel");
+        for rank in 1..=3 {
+            let mut run = learned("ryuzoji_takanobu_old", ENTRY, rank, false);
+            let (caster, enemy) = (run.caster, run.enemy);
+            let cast = run.cast("none", value(ENTRY, rank, "cast_point").unwrap() + 0.5, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            assert!(channeling(&run), "rank {rank}: not channeling after the cast");
+            let channel = value(ENTRY, rank, "channel_time").unwrap();
+            let mut ended = None;
+            for t in 0..ticks(channel + 1.0) {
+                run.step(1);
+                if !channeling(&run) { ended = Some(t); break; }
+            }
+            assert!(ended.is_some(), "rank {rank}: still channeling after {channel} s");
+            let before = distance(&run, caster, enemy);
+            let radius = value(ENTRY, rank, "blast_radius").unwrap();
+            assert!(before <= radius, "rank {rank}: the enemy stood {before:.0} from Takanobu at the end, beyond {radius}: the pull did not hold it");
+            run.step(2);
+            let hold = value(ENTRY, rank, "blast_hold").unwrap();
+            let left = remaining(&run, enemy, "c13t_old_hold").unwrap_or(0.0);
+            assert!(left <= hold + 0.05 && left >= hold - 0.3, "rank {rank}: c13t_old_hold has {left:.2} s after the full channel, expected {hold}");
+            run.step(ticks(value(ENTRY, rank, "knockback_time").unwrap() + 0.3));
+            let after = distance(&run, caster, enemy);
+            let blown = value(ENTRY, rank, "knockback_distance").unwrap();
+            assert!(after >= blown - 50.0, "rank {rank}: the enemy stands {after:.0} from Takanobu after the full channel (was {before:.0}), expected blown {blown} away");
+        }
+        // Interrupted by a stun: nobody is blown away.
+        let mut run = learned("ryuzoji_takanobu_old", ENTRY, 1, false);
+        let (caster, enemy) = (run.caster, run.enemy);
+        let cast = run.cast("none", value(ENTRY, 1, "cast_point").unwrap() + 0.5, None).unwrap();
+        assert!(cast.accepted, "{ENTRY} not cast{}", cast.why());
+        run.step(ticks(1.0));
+        run.world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>().add(caster, "stun", Fixed64::from_i32(1),
+            json!({ (omoba_core::runtime::native::magic_immunity::PIERCE_KEY): 1 }));
+        run.step(3);
+        assert!(!channeling(&run), "still channeling under a stun");
+        let before = distance(&run, caster, enemy);
+        run.step(ticks(value(ENTRY, 1, "channel_time").unwrap()));
+        let after = distance(&run, caster, enemy);
+        assert!(after <= before + 50.0, "an interrupted channel blew the enemy from {before:.0} to {after:.0}");
+        assert!(!holds(&run, enemy, "c13t_old_hold"), "an interrupted channel left c13t_old_hold ({})", holding(&run, enemy));
+    }
+
+    /// FC-179: each B01E_old gunner attacks for `$attack_base + $attack_per_level` x Magoichi's
+    /// level, taken at the summon (the source's script errored: the template's 67 to 73).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc179_b01e_old_gunners_attack_by_magoichis_level() {
+        use specs::Join;
+        const ENTRY: &str = "b01_old_saika_corps";
+        let gunners = |run: &Run| -> Vec<specs::Entity> {
+            (&run.world.entities(), &run.world.read_storage::<ScriptUnitTag>()).join()
+                .filter(|(_, t)| of_template(&t.unit_id, "b01_old_saika_gunner")).map(|(e, _)| e).collect()
+        };
+        let attack = |run: &Run, unit: specs::Entity| run.world.read_storage::<TAttack>().get(unit).map(|a| real(a.atk_physic.bv)).unwrap();
+        for (rank, level) in [(1, 7), (4, 18), (2, 1)] {
+            let mut run = learned("saika_magoichi_old", ENTRY, rank, false);
+            let caster = run.caster;
+            run.world.write_storage::<Hero>().get_mut(caster).unwrap().level = level;
+            let cast = run.cast("none", value(ENTRY, rank, "cast_point").unwrap() + 0.5, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            run.step(2);
+            let at = run.hero(|h| h.level);
+            assert_eq!(at, level, "rank {rank}: Magoichi's level moved from {level} to {at}");
+            let made = gunners(&run);
+            let count = value(ENTRY, rank, "count").unwrap() as usize;
+            assert_eq!(made.len(), count, "rank {rank}: {} gunners, expected {count}", made.len());
+            let expected = value(ENTRY, rank, "attack_base").unwrap() + value(ENTRY, rank, "attack_per_level").unwrap() * level as f64;
+            for unit in &made {
+                let a = attack(&run, *unit);
+                assert!((a - expected).abs() < 1.0, "rank {rank}, level {level}: a gunner attacks for {a:.1}, expected {expected}");
+            }
+            // Taken at the summon: a later level does not change it.
+            run.world.write_storage::<Hero>().get_mut(caster).unwrap().level = level + 5;
+            run.step(ticks(1.0));
+            for unit in &made {
+                let a = attack(&run, *unit);
+                assert!((a - expected).abs() < 1.0, "rank {rank}: a gunner's attack moved to {a:.1} after Magoichi leveled up");
+            }
+        }
+    }
+
+    /// FC-180: C14R_old makes Yoshitatsu take `$damage_reduction` less damage (the source's
+    /// positive percentage made him take more).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc180_c14r_old_reduces_damage_taken() {
+        const ENTRY: &str = "c14_old_dragon_vein";
+        for rank in 1..=4 {
+            let mut run = learned("saito_yoshitatsu_old", ENTRY, rank, true);
+            let (caster, enemy) = (run.caster, run.enemy);
+            set_life(&mut run, caster, 40_000.0);
+            let before = life(&run, caster);
+            hit(&mut run, enemy, caster, 0, 0, 1_000);
+            let lost = before - life(&run, caster);
+            let expected = 1_000.0 * (1.0 - value(ENTRY, rank, "damage_reduction").unwrap() / 100.0);
+            assert!((lost - expected).abs() < 2.0, "rank {rank}: a 1000 pure hit took {lost:.1} life, expected {expected}");
+        }
+    }
+
+    /// FC-181: C22T_old strikes within `$radius` at each rank (the source read one rank too high:
+    /// 625/650/650). An enemy creep just inside the radius from the strike's center is hit, one just
+    /// outside is not.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc181_c22t_old_radius_at_its_rank() {
+        const ENTRY: &str = "c22_old_earth_swallow";
+        for rank in 1..=3 {
+            let mut run = learned("sasaki_kojiro_old", ENTRY, rank, false);
+            let caster = run.caster;
+            run.world.write_storage::<omoba_core::Facing>().insert(caster, omoba_core::Facing(omoba_sim::Angle::ZERO)).unwrap();
+            let center = origin() + east(value(ENTRY, rank, "front_offset").unwrap());
+            let radius = value(ENTRY, rank, "radius").unwrap();
+            let inside = enemy_creep(&mut run, center + north(radius - 12.0));
+            let outside = enemy_creep(&mut run, center - north(radius + 12.0));
+            run.step(2);
+            let cast = run.cast("none", value(ENTRY, rank, "cast_point").unwrap_or(0.0) + 0.5, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            run.step(ticks(value(ENTRY, rank, "start_delay").unwrap() + 0.5));
+            let damage = value(ENTRY, rank, "damage").unwrap();
+            let hits = magic_hits(&run, ENTRY, inside);
+            assert!(hits.iter().any(|h| (h - damage).abs() < 1.0), "rank {rank}: a creep {} from the center was not struck ({hits:?})", radius - 12.0);
+            assert!(holds(&run, inside, "c22t_old_bleed"), "rank {rank}: the creep inside does not bleed");
+            let hits = magic_hits(&run, ENTRY, outside);
+            assert!(hits.is_empty() && !holds(&run, outside, "c22t_old_bleed"), "rank {rank}: a creep {} from the center, beyond {radius}, was struck ({hits:?})", radius + 12.0);
+        }
+    }
+
+    /// FC-182: A35E_old cast again while its guardians are up adds `$count` more, at most
+    /// `$max_guardians` (the source added one too many). Every guardian flies at the enemy hero
+    /// once he comes near: one hit of `$guardian_damage` each.
+    #[test]
+    #[ignore = "FC-182 known fail: ability.cast_range reads 0 outside a cast (Cx::new has no cast_range), so the guardians never find a target; A/B fix, then remove this"]
+    pub(super) fn fc182_a35e_old_recast_adds_its_count() {
+        use omoba_core::runtime::native::unit_var::{Spec, VarValue};
+        const ENTRY: &str = "a35_old_flame_guardians";
+        for rank in 1..=4 {
+            let mut run = learned("shima_sakon_old", ENTRY, rank, false);
+            let (caster, enemy) = (run.caster, run.enemy);
+            let away = origin() + north(5000.0);
+            move_unit(&mut run, enemy, away);
+            run.target_at = away;
+            let guardians = |run: &Run| -> Option<f64> {
+                run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().iter_for(caster)
+                    .find_map(|(key, entry)| Spec::from_buff(key, &entry.payload).filter(|s| s.key.ends_with("a35_old_guardians")))
+                    .and_then(|s| match s.value { VarValue::Num(n) => Some(real(n)), _ => None })
+            };
+            let window = value(ENTRY, rank, "cast_point").unwrap() + 0.5;
+            let cast = run.cast("none", window, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            let count = value(ENTRY, rank, "count").unwrap();
+            assert_eq!(guardians(&run), Some(count), "rank {rank}: guardians after the first cast");
+            run.step(ticks(0.5));
+            ready_again(&mut run);
+            let cast = run.cast("none", window, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast again{}", cast.why());
+            let expected = (count * 2.0).min(value(ENTRY, rank, "max_guardians").unwrap());
+            assert_eq!(guardians(&run), Some(expected), "rank {rank}: guardians after a second cast with {count} up, expected {expected}");
+            // He comes near: each guardian flies at him once.
+            move_unit(&mut run, enemy, origin() + east(300.0));
+            let retarget = value(ENTRY, rank, "retarget_time").unwrap();
+            run.step(ticks(retarget * (expected + 3.0) + 2.0));
+            let damage = value(ENTRY, rank, "guardian_damage").unwrap();
+            let hits: Vec<f64> = magic_hits(&run, ENTRY, enemy).into_iter().filter(|h| (h - damage).abs() < 1.0).collect();
+            assert_eq!(hits.len(), expected as usize, "rank {rank}: {} guardian hits on the enemy hero, expected {expected} (all hits {:?}; guardians left {:?}; caster holds {}; enemy holds {})",
+                hits.len(), magic_hits_any(&run, enemy), guardians(&run), holding(&run, caster), holding(&run, enemy));
+            assert!(!holds(&run, caster, "a35e_old_guard"), "rank {rank}: a35e_old_guard still on with every guardian spent");
+        }
+    }
+
+    /// FC-183: B34R_old's extra `$damage` pure damage on each attack is `$immune_ratio` of it on a
+    /// spell-immune target (the source dealt it whole).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc183_b34r_old_halved_on_spell_immune() {
+        const ENTRY: &str = "b34_old_rending_wound";
+        for (rank, immune) in [(1, false), (1, true), (4, false), (4, true)] {
+            let mut run = learned("takeda_katsuyori_old", ENTRY, rank, true);
+            let body = enemy_creep(&mut run, origin() + east(120.0));
+            if immune { assert!(omoba_core::runtime::native::magic_immunity::grant(&run.world, body, Fixed64::from_i32(60)), "immunity not granted"); }
+            attack_order(&mut run, body);
+            run.step(ticks(4.0));
+            let damage = value(ENTRY, rank, "damage").unwrap() * if immune { value(ENTRY, rank, "immune_ratio").unwrap() } else { 1.0 };
+            let amounts: Vec<f64> = pure_hits(&run, ENTRY, body).into_iter().map(|r| r.2).collect();
+            assert!(amounts.len() >= 2 && all_near(&amounts, damage), "rank {rank}, immune {immune}: rending hits {amounts:?}, each expected {damage}");
+        }
+    }
+
+    /// FC-184/185: A04E_old lays its ice path from Takenaka along his facing when the cast began
+    /// (the source never stored it and errored: no path). Enemies within `$hit_radius` of the
+    /// points along it, `cast_range / (n - 1)` apart, are stunned `$stun` and take `$damage` once;
+    /// one off the path, beyond its end or spell immune is not.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc185_a04e_old_ice_path_along_the_facing() {
+        const ENTRY: &str = "a04_old_freezing_path";
+        let along = |d: (f64, f64), by: f64| omoba_sim::Vec2::new(fixed(d.0 * by), fixed(d.1 * by));
+        // (rank, facing in degrees, its direction)
+        for (rank, degrees, d) in [(1, 0, (1.0, 0.0)), (4, 0, (1.0, 0.0)), (2, 90, (0.0, 1.0))] {
+            let side = (-d.1, d.0);
+            let mut run = learned("takenaka_shigeharu_old", ENTRY, rank, false);
+            let (caster, enemy) = (run.caster, run.enemy);
+            let away = origin() + along(side, -3000.0);
+            move_unit(&mut run, enemy, away);
+            run.target_at = away;
+            run.aim = Some(origin() + along(d, 600.0));
+            run.world.write_storage::<omoba_core::Facing>().insert(caster, omoba_core::Facing(omoba_sim::Angle::from_degrees_i32(degrees))).unwrap();
+            let range = value(ENTRY, rank, "cast_range").unwrap();
+            let reach = value(ENTRY, rank, "hit_radius").unwrap();
+            let on_path = [enemy_creep(&mut run, origin() + along(d, range / 2.0)), enemy_creep(&mut run, origin() + along(d, range))];
+            let beyond = enemy_creep(&mut run, origin() + along(d, range + reach + 60.0));
+            let off = enemy_creep(&mut run, origin() + along(side, reach + 150.0));
+            let immune = enemy_creep(&mut run, origin() + along(d, range / 2.0) + along(side, 50.0));
+            assert!(omoba_core::runtime::native::magic_immunity::grant(&run.world, immune, Fixed64::from_i32(60)), "immunity not granted");
+            run.step(2);
+            let cast = run.cast("point", value(ENTRY, rank, "cast_point").unwrap() + 0.5, None).unwrap();
+            assert!(cast.accepted, "rank {rank}: {ENTRY} not cast{}", cast.why());
+            run.step(2);
+            let (damage, stun) = (value(ENTRY, rank, "damage").unwrap(), value(ENTRY, rank, "stun").unwrap());
+            for (i, unit) in on_path.iter().enumerate() {
+                let hits = magic_hits(&run, ENTRY, *unit);
+                assert!(hits.len() == 1 && all_near(&hits, damage), "rank {rank}, facing {degrees}: hits {hits:?} on the creep at point {} of the path, expected one of {damage}", i + 1);
+                let left = remaining(&run, *unit, "a04e_old_stun").unwrap_or(0.0);
+                assert!(left <= stun + 0.05 && left >= stun - 0.5, "rank {rank}, facing {degrees}: a04e_old_stun has {left:.2} s on the path, expected {stun}");
+            }
+            for (what, unit) in [("beyond the end", beyond), ("off the path", off), ("spell immune", immune)] {
+                let hits = magic_hits(&run, ENTRY, unit);
+                assert!(hits.is_empty() && !holds(&run, unit, "a04e_old_stun"), "rank {rank}, facing {degrees}: a creep {what} was struck ({hits:?}; {})", holding(&run, unit));
+            }
+        }
+    }
+
+    /// FC-186: C15E_old on at Tamako's death comes back off: one press turns it on (the source
+    /// left the switch lit with nothing behind it).
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn fc186_c15e_old_is_off_after_a_death() {
+        let mut run = toggled_on_dies_and_comes_back("tamako_old", "c15_old_searing_arrow", "c15e_old_orb");
+        press_turns_it_on(&mut run, "c15_old_searing_arrow", "c15e_old_orb");
     }
 }
 #[test]

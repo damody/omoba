@@ -55491,7 +55491,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_area", min_targets = 1, radius_key = "cast_range", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "cast_range" },
@@ -93108,7 +93108,7 @@ local data = {
       target_type = "none",
       ue = { native_only = true },
       v3 = {
-        bot = { kind = "self_engage", source = "derived", threat_radius = 900 },
+        bot = { kind = "self_area", min_targets = 1, radius_key = "cast_range", source = "derived" },
         coverage = "expressible",
         info = {
           { field = "aoe_radius", value = "cast_range" },
@@ -114630,7 +114630,6 @@ local data = {
         attack_per_level = { 15.0, 15.0, 15.0, 15.0 },
         cast_point = { 0.35, 0.35, 0.35, 0.35 },
         count = { 2.0, 3.0, 4.0, 5.0 },
-        lifetime = { 10000.0, 10000.0, 10000.0, 10000.0 },
       },
       id = "b01_old_saika_corps",
       levels = {
@@ -114718,13 +114717,6 @@ local data = {
             ranks = { "2", "3", "4", "5" },
             raw = { 2048, 3072, 4096, 5120 },
             unit = "count",
-          },
-          {
-            hidden = true,
-            name = "lifetime",
-            ranks = { "10000", "10000", "10000", "10000" },
-            raw = { 10240000, 10240000, 10240000, 10240000 },
-            unit = "s",
           },
           {
             name = "mana_cost",

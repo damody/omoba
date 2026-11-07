@@ -48,7 +48,7 @@ return function(ctx)
           on_cast = {
             { op = "cue", id = "b11w_old_spray", at = "caster" },
             { op = "for_each",
-              select = { from = "caster", shape = "circle", radius = "ability.cast_range", team = "enemy",
+              select = { from = "caster", shape = "circle", radius = "$cast_range", team = "enemy",
                 types = BASIC, flags = { "visible_only" } },
               actions = {
                 { op = "cue", id = "b11w_old_hit", at = "it" },
@@ -59,7 +59,7 @@ return function(ctx)
         coverage = "expressible", confidence = "high",
         quirks = {
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B11.lua:296",
-            text = "搜尋半徑是 ability:GetCastRange()（施法距離七百），不是獨立特殊值；與本體相同。" },
+            text = "搜尋半徑是 ability:GetCastRange()（施法距離七百），不是獨立特殊值；與本體相同。無目標技能的等級資料沒有 range（ability.cast_range 會是 0），所以半徑直接讀 $cast_range。" },
           { policy = "as_source", ref = "npc/B_Unified/B11.txt:596-598",
             text = "搜尋旗標只有 FOW_VISIBLE，預設排除魔免。和本體不同，舊版只有一段魔法傷害，沒有敏捷倍率的純粹傷害。" },
           { policy = "note", ref = "vscripts/heroes/B_Unified/B11.lua:290-309",

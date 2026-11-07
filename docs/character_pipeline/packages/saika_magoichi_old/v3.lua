@@ -72,7 +72,6 @@ return function(ctx)
           mana_cost = { 100, unit = "mana", source = "kv:AbilityManaCost" },
           cast_point = { 0.35, unit = "s", source = "kv:AbilityCastPoint" },
           count = { 2, 3, 4, 5, unit = "count", source = "kv:count" },
-          lifetime = { 10000, unit = "s", hidden = true, source = "kv:SpawnUnit Duration" },
           attack_base = { 70, unit = "dmg",
             source = "script:vscripts/heroes/B_Unified/B01.lua:156-157 SetBaseDamageMin/Max(70 + caster:GetLevel() * 15)",
             note = "原作腳本報錯沒有覆寫（雜賀眾保留 KV 67～73），D22 依腳本原意修正" },
@@ -90,12 +89,15 @@ return function(ctx)
         events = {
           on_cast = {
             { op = "cue", id = "b01e_summon", at = "caster" },
-            { op = "create_unit", template = "b01_old_saika_gunner", at = "caster", count = "$count",
-              lifetime = "$lifetime", control = "ai", as = "gunner",
-              overrides = {
-                attack_damage = "$attack_base + $attack_per_level * caster.level",
-                attack_damage_max = "$attack_base + $attack_per_level * caster.level",
-              } },
+            { op = "repeat", count = "$count", actions = {
+              -- KV SpawnUnit Duration 10000 s (npc/B_Unified/B01.txt:419) is past the host's 3600 s cap and
+              -- outlasts any match: the gunners stay until killed, so no lifetime is set
+              { op = "create_unit", template = "b01_old_saika_gunner", at = "caster", control = "ai",
+                overrides = {
+                  attack_damage = "$attack_base + $attack_per_level * caster.level",
+                  attack_damage_max = "$attack_base + $attack_per_level * caster.level",
+                } },
+            } },
           },
         },
         coverage = "expressible", confidence = "medium",
