@@ -92,6 +92,14 @@ local group = {}
 for i = first, math.min(first + 9, #batch_heroes) do group[#group + 1] = batch_heroes[i] end
 assert(#group > 0, ('batch %d group %d has no playable hero; not yet playable: %s'):format(options.batch, options.group,
   table.concat(missing, ', ')))
+-- The item coverage round (bot_item_builds.round): the slice of the shop no derived build reaches
+-- that this run's builds carry. Consecutive groups of a sweep take consecutive slices; a --heroes
+-- run takes one from its roster.
+local coverage_round = options.batch * 10 + options.group
+if options.heroes then
+  coverage_round = 0
+  for c in options.heroes:gmatch('.') do coverage_round = (coverage_round * 31 + c:byte()) % 1000003 end
+end
 
 -- 2. Recipes: the shipped role plan with the group seated (team 1 first, then team 2; seats the group
 -- does not fill keep the shipped heroes), on the quick map; policies re-derived for the new seats.
@@ -174,6 +182,10 @@ end
 if %s then
   local builds = assert(loadfile(root .. '/scripts/lua_data/bot_item_builds.lua'))()
   plan.item_builds = builds.cover(plan.item_builds, builds.uncovered(plan.item_builds))
+else
+  -- every run carries its round's slice of the items no derived build reaches
+  local builds = assert(loadfile(root .. '/scripts/lua_data/bot_item_builds.lua'))()
+  plan.item_builds = builds.cover(plan.item_builds, builds.round(builds.uncovered(plan.item_builds), %d))
 end
 -- A late night stage: every hero starts at level 18 (the highest level gate, A04D_old 冰雪爆 and
 -- B19D_old 駿河守 learned at 18) and the whole match is night (C06D_old 盜賊藏匿術); otherwise a
@@ -183,7 +195,7 @@ plan.ability_policies = assert(loadfile(root .. '/scripts/lua_data/bot_auto_poli
 return plan
 ]]):format(options.batch, options.group, name, b.root:gsub('\\', '/'), map or 'three_lane_quick_training', lua_role_map(seating[1]), lua_role_map(seating[2]), tostring(swap), tostring(teamfight),
   TEAMFIGHT_SUSTAIN.recall_below_hp_per_mille, TEAMFIGHT_SUSTAIN.leave_base_at_hp_per_mille,
-  tostring(options.item_coverage == true), tostring(late == true)), true)
+  tostring(options.item_coverage == true), coverage_round, tostring(late == true)), true)
   return file
 end
 local recipes = {

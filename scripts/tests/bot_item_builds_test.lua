@@ -14,8 +14,8 @@ for i, build in ipairs(derived) do before[i] = table.concat(build.items, ',') en
 
 local uncovered = builds.uncovered(derived)
 local covered = builds.cover(derived, uncovered)
-check(#builds.uncovered(covered) == 0, 'after coverage every shop item is reached: '
-  .. table.concat(builds.uncovered(covered), ', '))
+-- (all uncovered items at once no longer fit five builds of six slots: the shop outgrew it; a
+-- round's slice is reached, below)
 for i, build in ipairs(derived) do
   check(table.concat(build.items, ',') == before[i], 'the derived build of ' .. build.role .. ' is unchanged')
 end
@@ -57,4 +57,22 @@ for i, build in ipairs(covered) do
 end
 check(#builds.cover(derived, {}) == #derived, 'no ids, same builds')
 check(not pcall(builds.cover, derived, { 'no_such_item' }), 'an unknown item is refused')
+-- rounds: ROUND_SIZE uncovered items each, consecutive rounds consecutive slices, every uncovered
+-- item in some round of a sweep's worth (verify_m6_batch, a round per group)
+local seen, rounds = {}, math.ceil(#uncovered / builds.ROUND_SIZE)
+for r = 0, rounds - 1 do
+  local slice = builds.round(uncovered, r)
+  check(#slice == math.min(builds.ROUND_SIZE, #uncovered), 'round ' .. r .. ' has ROUND_SIZE items')
+  for _, id in ipairs(slice) do seen[id] = true end
+  local one = builds.cover(derived, slice)
+  local left = {}
+  for _, id in ipairs(builds.uncovered(one)) do left[id] = true end
+  for _, id in ipairs(slice) do
+    -- an item another of the slice is assembled from is reached through it
+    check(not left[id], 'round ' .. r .. ' reaches ' .. id)
+  end
+  for i, build in ipairs(one) do check(#build.items <= builds.SLOTS, 'round ' .. r .. ' ' .. build.role .. ' fits six slots') end
+end
+for _, id in ipairs(uncovered) do check(seen[id], id .. ' is in a round') end
+check(#builds.round({}, 3) == 0, 'no uncovered items, an empty round')
 print(('bot_item_builds tests passed (%d checks)'):format(checks))
