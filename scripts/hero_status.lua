@@ -186,7 +186,9 @@ function M.match_evidence(root,run)
     if group:sub(1,1)~='.' and path.is_file(path.join(dir,'report.json')) then
       out.groups=out.groups+1
       for file in lfs.dir(dir) do
-        if file:match('^quick.*%-%d+%.json$') or file:match('^nobu%-%d+%.json$') then
+        -- late, late_nobu (verify_m6_batch): the level-gated, night-only and tree-target abilities
+        -- a training match never reaches
+        if file:match('^quick.*%-%d+%.json$') or file:match('^nobu%-%d+%.json$') or file:match('^late.*%-%d+%.json$') then
           local ok,report=pcall(json.read,path.join(dir,file))
           if ok and report.success then
             out.matches=out.matches+1
