@@ -154,6 +154,12 @@ local SOURCE_ITEMS = {
   { 223, "item_the_great_sword_of_tiger", true },
   { 224, "item_the_sword_of_kaminaobi", true },
   { 225, "item_ninja2", true },
+  -- E line (2026-11-08): generator blockers cleared by line A f7b3c1aa and line B 093d1508.
+  { 226, "item_the_art_of_war_forest_chapter", true },
+  { 227, "item_forest_scroll", true },
+  { 228, "item_commander_of_fan", true },
+  { 229, "item_mana_thief", true },
+  { 230, "item_contemporary_armor", true },
 }
 
 return function(ctx)

@@ -24,6 +24,24 @@ local data = {
     numbers = { armor = 8, atk = 20, cost = 5500, ["modifiers.attackspeed_bonus_constant"] = 40, ["modifiers.mana_regen_constant"] = 7.5, ["modifiers.stats_agility_bonus"] = 20, ["modifiers.stats_intellect_bonus"] = 25, ["modifiers.stats_strength_bonus"] = 5 },
     recipe = { "sukemune", "sukezane" },
   },
+  commander_of_fan = {
+    numbers = { cost = 2600, ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_intellect_bonus"] = 20, ["modifiers.stats_strength_bonus"] = 10 },
+    recipe = { "energy_ingot", "staff" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      mana_cost = 60.0,
+      target = { out_of_range = "reject", range = 1200.0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
+  contemporary_armor = {
+    numbers = { armor = 10, cost = 4150, hp = 480, ["modifiers.mana_bonus"] = 400 },
+    recipe = { "body_wrap", "health_ingot", "mana_ingot" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 45.0,
+    },
+  },
   cursed_katana = {
     numbers = { atk = 40, cost = 1850 },
   },
@@ -82,6 +100,15 @@ local data = {
       cooldown = 20.0,
       mana_cost = 140.0,
       target = { out_of_range = "reject", range = 700.0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
+  forest_scroll = {
+    numbers = { cost = 750 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 20.0,
+      mana_cost = 75.0,
+      shares_cooldown_with = { "the_art_of_war", "the_art_of_war_forest_chapter", "the_lost_art_of_war_1" },
     },
   },
   foxfire_armor = {
@@ -298,6 +325,16 @@ local data = {
   },
   mana_ingot = {
     numbers = { cost = 650, ["modifiers.mana_bonus"] = 300 },
+  },
+  mana_thief = {
+    numbers = { cost = 4100, ["modifiers.attackspeed_bonus_constant"] = 25, ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_intellect_bonus"] = 10, ["modifiers.stats_strength_bonus"] = 10 },
+    recipe = { "energy_ingot", "speed_clothes" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 25.0,
+      mana_cost = 100.0,
+      target = { out_of_range = "reject", range = 700.0, requires_visible = true, shape = "unit", team = "enemy" },
+    },
   },
   moon_spear = {
     numbers = { atk = 21, cost = 1950, ["modifiers.stats_strength_bonus"] = 15 },
@@ -551,6 +588,18 @@ local data = {
       mana_cost = 50,
     },
     recipe = { "fire_scroll", "power_ingot", "power_ingot" },
+  },
+  the_art_of_war_forest_chapter = {
+    added = { ["modifiers.stats_intellect_bonus"] = 10 },
+    no_native_aura = true,
+    numbers = { cost = 2350, ["modifiers.stats_intellect_bonus"] = 10 },
+    recipe = { "forest_scroll", "intelligence_ingot", "intelligence_ingot" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      mana_cost = 60.0,
+      shares_cooldown_with = { "forest_scroll", "the_art_of_war", "the_lost_art_of_war_1" },
+    },
   },
   the_art_of_war_mountain_chapter = {
     not_passive = { "armor" },
