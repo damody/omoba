@@ -184,102 +184,197 @@ dependencies = [
  "abi_stable",
  "ability_kit",
  "hero_a01_impl",
+ "hero_a01_old_impl",
  "hero_a02_impl",
+ "hero_a02_old_impl",
  "hero_a03_impl",
+ "hero_a03_old_impl",
  "hero_a04_impl",
+ "hero_a04_old_impl",
  "hero_a05_impl",
+ "hero_a05_old_impl",
  "hero_a06_impl",
+ "hero_a06_old_impl",
  "hero_a07_impl",
+ "hero_a07_old_impl",
+ "hero_a07_v20_impl",
  "hero_a08_impl",
+ "hero_a08_old_impl",
  "hero_a09_impl",
+ "hero_a09_old_impl",
  "hero_a10_impl",
+ "hero_a10_old_impl",
  "hero_a11_impl",
+ "hero_a11_old_impl",
  "hero_a12_impl",
  "hero_a13_impl",
+ "hero_a13_old_impl",
  "hero_a14_impl",
+ "hero_a14_old_impl",
  "hero_a15_impl",
+ "hero_a15_old_impl",
  "hero_a16_impl",
  "hero_a17_impl",
+ "hero_a17_old_impl",
  "hero_a18_impl",
  "hero_a19_impl",
+ "hero_a19_old_impl",
+ "hero_a19_v20_impl",
  "hero_a20_impl",
+ "hero_a20_old_impl",
  "hero_a21_impl",
+ "hero_a21_old_impl",
  "hero_a22_impl",
+ "hero_a22_old_impl",
  "hero_a23_impl",
  "hero_a24_impl",
  "hero_a25_impl",
+ "hero_a25_old_impl",
  "hero_a26_impl",
+ "hero_a26_old_impl",
+ "hero_a26_v20_impl",
  "hero_a27_impl",
+ "hero_a27_old_impl",
  "hero_a28_impl",
+ "hero_a28_old_impl",
+ "hero_a28_v20_impl",
  "hero_a29_impl",
+ "hero_a29_old_impl",
  "hero_a30_impl",
+ "hero_a30_old_impl",
  "hero_a31_impl",
+ "hero_a31_old_impl",
+ "hero_a31_v20_impl",
  "hero_a32_impl",
+ "hero_a32_old_impl",
  "hero_a33_impl",
+ "hero_a33_old_impl",
  "hero_a34_impl",
+ "hero_a34_old_impl",
+ "hero_a34_v20_impl",
  "hero_a35_impl",
+ "hero_a35_old_impl",
  "hero_a36_impl",
  "hero_b01_impl",
+ "hero_b01_old_impl",
  "hero_b02_impl",
+ "hero_b02_old_impl",
  "hero_b03_impl",
+ "hero_b03_old_impl",
  "hero_b04_impl",
+ "hero_b04_old_impl",
  "hero_b05_impl",
+ "hero_b05_old_impl",
  "hero_b06_impl",
+ "hero_b06_old_impl",
  "hero_b07_impl",
+ "hero_b07_old_impl",
  "hero_b08_impl",
+ "hero_b08_old_impl",
  "hero_b09_impl",
+ "hero_b09_old_impl",
  "hero_b10_impl",
+ "hero_b10_old_impl",
  "hero_b11_impl",
+ "hero_b11_old_impl",
  "hero_b12_impl",
  "hero_b13_impl",
+ "hero_b13_old_impl",
  "hero_b14_impl",
+ "hero_b14_old_impl",
  "hero_b15_impl",
+ "hero_b15_old_impl",
+ "hero_b15_v20_impl",
  "hero_b16_impl",
+ "hero_b16_old_impl",
  "hero_b17_impl",
+ "hero_b17_old_impl",
  "hero_b18_impl",
+ "hero_b18_old_impl",
  "hero_b19_impl",
+ "hero_b19_old_impl",
  "hero_b20_impl",
+ "hero_b20_old_impl",
  "hero_b21_impl",
+ "hero_b21_old_impl",
  "hero_b22_impl",
+ "hero_b22_old_impl",
  "hero_b23_impl",
+ "hero_b23_old_impl",
  "hero_b24_impl",
  "hero_b25_impl",
+ "hero_b25_old_impl",
  "hero_b26_impl",
  "hero_b27_impl",
+ "hero_b27_old_impl",
  "hero_b28_impl",
+ "hero_b28_old_impl",
  "hero_b29_impl",
+ "hero_b29_old_impl",
  "hero_b30_impl",
+ "hero_b30_old_impl",
  "hero_b31_impl",
+ "hero_b31_old_impl",
  "hero_b32_impl",
+ "hero_b32_old_impl",
+ "hero_b32_v20_impl",
  "hero_b33_impl",
+ "hero_b33_old_impl",
  "hero_b34_impl",
+ "hero_b34_old_impl",
  "hero_b35_impl",
+ "hero_b35_old_impl",
  "hero_b36_impl",
+ "hero_b36_old_impl",
  "hero_c01_impl",
+ "hero_c01_old_impl",
  "hero_c02_impl",
+ "hero_c02_old_impl",
  "hero_c03_impl",
+ "hero_c03_old_impl",
  "hero_c04_impl",
+ "hero_c04_old_impl",
+ "hero_c04_v20_impl",
  "hero_c05_impl",
+ "hero_c05_old_impl",
  "hero_c06_impl",
+ "hero_c06_old_impl",
  "hero_c07_impl",
+ "hero_c07_old_impl",
  "hero_c08_impl",
+ "hero_c08_old_impl",
  "hero_c09_impl",
+ "hero_c09_old_impl",
  "hero_c10_impl",
+ "hero_c10_old_impl",
  "hero_c11_impl",
+ "hero_c11_old_impl",
+ "hero_c11_v20_impl",
  "hero_c12_impl",
  "hero_c13_impl",
+ "hero_c13_old_impl",
  "hero_c14_impl",
+ "hero_c14_old_impl",
  "hero_c15_impl",
+ "hero_c15_old_impl",
  "hero_c16_impl",
+ "hero_c16_old_impl",
  "hero_c17_impl",
+ "hero_c17_old_impl",
  "hero_c18_impl",
  "hero_c19_impl",
+ "hero_c19_old_impl",
  "hero_c20_impl",
+ "hero_c20_old_impl",
  "hero_c21_impl",
+ "hero_c21_old_impl",
  "hero_c22_impl",
+ "hero_c22_old_impl",
  "hero_c23_impl",
  "hero_c24_impl",
+ "hero_c24_old_impl",
  "hero_c25_impl",
+ "hero_c25_old_impl",
  "items_impl",
  "omb-script-abi",
  "omoba-content-model",
@@ -766,6 +861,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a01_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a01_old_impl",
+]
+
+[[package]]
+name = "hero_a01_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a02"
 version = "0.1.0"
 dependencies = [
@@ -785,6 +896,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a02_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a02_old_impl",
+]
+
+[[package]]
+name = "hero_a02_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a03"
 version = "0.1.0"
 dependencies = [
@@ -794,6 +921,22 @@ dependencies = [
 
 [[package]]
 name = "hero_a03_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a03_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a03_old_impl",
+]
+
+[[package]]
+name = "hero_a03_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -817,6 +960,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a04_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a04_old_impl",
+]
+
+[[package]]
+name = "hero_a04_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a05"
 version = "0.1.0"
 dependencies = [
@@ -826,6 +985,22 @@ dependencies = [
 
 [[package]]
 name = "hero_a05_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a05_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a05_old_impl",
+]
+
+[[package]]
+name = "hero_a05_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -849,6 +1024,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a06_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a06_old_impl",
+]
+
+[[package]]
+name = "hero_a06_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a07"
 version = "0.1.0"
 dependencies = [
@@ -858,6 +1049,38 @@ dependencies = [
 
 [[package]]
 name = "hero_a07_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a07_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a07_old_impl",
+]
+
+[[package]]
+name = "hero_a07_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a07_v20"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a07_v20_impl",
+]
+
+[[package]]
+name = "hero_a07_v20_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -881,6 +1104,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a08_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a08_old_impl",
+]
+
+[[package]]
+name = "hero_a08_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a09"
 version = "0.1.0"
 dependencies = [
@@ -890,6 +1129,22 @@ dependencies = [
 
 [[package]]
 name = "hero_a09_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a09_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a09_old_impl",
+]
+
+[[package]]
+name = "hero_a09_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -913,6 +1168,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a10_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a10_old_impl",
+]
+
+[[package]]
+name = "hero_a10_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a11"
 version = "0.1.0"
 dependencies = [
@@ -922,6 +1193,22 @@ dependencies = [
 
 [[package]]
 name = "hero_a11_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a11_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a11_old_impl",
+]
+
+[[package]]
+name = "hero_a11_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -961,6 +1248,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a13_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a13_old_impl",
+]
+
+[[package]]
+name = "hero_a13_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a14"
 version = "0.1.0"
 dependencies = [
@@ -977,6 +1280,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a14_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a14_old_impl",
+]
+
+[[package]]
+name = "hero_a14_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a15"
 version = "0.1.0"
 dependencies = [
@@ -986,6 +1305,22 @@ dependencies = [
 
 [[package]]
 name = "hero_a15_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a15_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a15_old_impl",
+]
+
+[[package]]
+name = "hero_a15_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1025,6 +1360,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a17_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a17_old_impl",
+]
+
+[[package]]
+name = "hero_a17_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a18"
 version = "0.1.0"
 dependencies = [
@@ -1057,6 +1408,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a19_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a19_old_impl",
+]
+
+[[package]]
+name = "hero_a19_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a19_v20"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a19_v20_impl",
+]
+
+[[package]]
+name = "hero_a19_v20_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a20"
 version = "0.1.0"
 dependencies = [
@@ -1066,6 +1449,22 @@ dependencies = [
 
 [[package]]
 name = "hero_a20_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a20_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a20_old_impl",
+]
+
+[[package]]
+name = "hero_a20_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1089,6 +1488,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a21_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a21_old_impl",
+]
+
+[[package]]
+name = "hero_a21_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a22"
 version = "0.1.0"
 dependencies = [
@@ -1098,6 +1513,22 @@ dependencies = [
 
 [[package]]
 name = "hero_a22_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a22_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a22_old_impl",
+]
+
+[[package]]
+name = "hero_a22_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1153,6 +1584,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a25_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a25_old_impl",
+]
+
+[[package]]
+name = "hero_a25_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a26"
 version = "0.1.0"
 dependencies = [
@@ -1162,6 +1609,38 @@ dependencies = [
 
 [[package]]
 name = "hero_a26_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a26_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a26_old_impl",
+]
+
+[[package]]
+name = "hero_a26_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a26_v20"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a26_v20_impl",
+]
+
+[[package]]
+name = "hero_a26_v20_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1185,6 +1664,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a27_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a27_old_impl",
+]
+
+[[package]]
+name = "hero_a27_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a28"
 version = "0.1.0"
 dependencies = [
@@ -1194,6 +1689,38 @@ dependencies = [
 
 [[package]]
 name = "hero_a28_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a28_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a28_old_impl",
+]
+
+[[package]]
+name = "hero_a28_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a28_v20"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a28_v20_impl",
+]
+
+[[package]]
+name = "hero_a28_v20_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1217,6 +1744,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a29_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a29_old_impl",
+]
+
+[[package]]
+name = "hero_a29_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a30"
 version = "0.1.0"
 dependencies = [
@@ -1226,6 +1769,22 @@ dependencies = [
 
 [[package]]
 name = "hero_a30_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a30_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a30_old_impl",
+]
+
+[[package]]
+name = "hero_a30_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1249,6 +1808,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a31_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a31_old_impl",
+]
+
+[[package]]
+name = "hero_a31_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a31_v20"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a31_v20_impl",
+]
+
+[[package]]
+name = "hero_a31_v20_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a32"
 version = "0.1.0"
 dependencies = [
@@ -1258,6 +1849,22 @@ dependencies = [
 
 [[package]]
 name = "hero_a32_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a32_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a32_old_impl",
+]
+
+[[package]]
+name = "hero_a32_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1281,6 +1888,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a33_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a33_old_impl",
+]
+
+[[package]]
+name = "hero_a33_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a34"
 version = "0.1.0"
 dependencies = [
@@ -1297,6 +1920,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_a34_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a34_old_impl",
+]
+
+[[package]]
+name = "hero_a34_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a34_v20"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a34_v20_impl",
+]
+
+[[package]]
+name = "hero_a34_v20_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_a35"
 version = "0.1.0"
 dependencies = [
@@ -1306,6 +1961,22 @@ dependencies = [
 
 [[package]]
 name = "hero_a35_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_a35_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a35_old_impl",
+]
+
+[[package]]
+name = "hero_a35_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1345,6 +2016,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b01_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b01_old_impl",
+]
+
+[[package]]
+name = "hero_b01_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b02"
 version = "0.1.0"
 dependencies = [
@@ -1354,6 +2041,22 @@ dependencies = [
 
 [[package]]
 name = "hero_b02_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b02_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b02_old_impl",
+]
+
+[[package]]
+name = "hero_b02_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1377,6 +2080,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b03_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b03_old_impl",
+]
+
+[[package]]
+name = "hero_b03_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b04"
 version = "0.1.0"
 dependencies = [
@@ -1386,6 +2105,22 @@ dependencies = [
 
 [[package]]
 name = "hero_b04_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b04_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b04_old_impl",
+]
+
+[[package]]
+name = "hero_b04_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1409,6 +2144,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b05_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b05_old_impl",
+]
+
+[[package]]
+name = "hero_b05_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b06"
 version = "0.1.0"
 dependencies = [
@@ -1418,6 +2169,22 @@ dependencies = [
 
 [[package]]
 name = "hero_b06_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b06_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b06_old_impl",
+]
+
+[[package]]
+name = "hero_b06_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1441,6 +2208,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b07_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b07_old_impl",
+]
+
+[[package]]
+name = "hero_b07_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b08"
 version = "0.1.0"
 dependencies = [
@@ -1450,6 +2233,22 @@ dependencies = [
 
 [[package]]
 name = "hero_b08_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b08_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b08_old_impl",
+]
+
+[[package]]
+name = "hero_b08_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1473,6 +2272,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b09_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b09_old_impl",
+]
+
+[[package]]
+name = "hero_b09_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b10"
 version = "0.1.0"
 dependencies = [
@@ -1489,6 +2304,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b10_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b10_old_impl",
+]
+
+[[package]]
+name = "hero_b10_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b11"
 version = "0.1.0"
 dependencies = [
@@ -1498,6 +2329,22 @@ dependencies = [
 
 [[package]]
 name = "hero_b11_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b11_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b11_old_impl",
+]
+
+[[package]]
+name = "hero_b11_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1537,6 +2384,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b13_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b13_old_impl",
+]
+
+[[package]]
+name = "hero_b13_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b14"
 version = "0.1.0"
 dependencies = [
@@ -1546,6 +2409,22 @@ dependencies = [
 
 [[package]]
 name = "hero_b14_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b14_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b14_old_impl",
+]
+
+[[package]]
+name = "hero_b14_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1569,6 +2448,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b15_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b15_old_impl",
+]
+
+[[package]]
+name = "hero_b15_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b15_v20"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b15_v20_impl",
+]
+
+[[package]]
+name = "hero_b15_v20_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b16"
 version = "0.1.0"
 dependencies = [
@@ -1578,6 +2489,22 @@ dependencies = [
 
 [[package]]
 name = "hero_b16_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b16_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b16_old_impl",
+]
+
+[[package]]
+name = "hero_b16_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1601,6 +2528,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b17_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b17_old_impl",
+]
+
+[[package]]
+name = "hero_b17_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b18"
 version = "0.1.0"
 dependencies = [
@@ -1610,6 +2553,22 @@ dependencies = [
 
 [[package]]
 name = "hero_b18_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b18_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b18_old_impl",
+]
+
+[[package]]
+name = "hero_b18_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1633,6 +2592,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b19_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b19_old_impl",
+]
+
+[[package]]
+name = "hero_b19_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b20"
 version = "0.1.0"
 dependencies = [
@@ -1642,6 +2617,22 @@ dependencies = [
 
 [[package]]
 name = "hero_b20_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b20_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b20_old_impl",
+]
+
+[[package]]
+name = "hero_b20_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1665,6 +2656,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b21_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b21_old_impl",
+]
+
+[[package]]
+name = "hero_b21_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b22"
 version = "0.1.0"
 dependencies = [
@@ -1681,6 +2688,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b22_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b22_old_impl",
+]
+
+[[package]]
+name = "hero_b22_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b23"
 version = "0.1.0"
 dependencies = [
@@ -1690,6 +2713,22 @@ dependencies = [
 
 [[package]]
 name = "hero_b23_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b23_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b23_old_impl",
+]
+
+[[package]]
+name = "hero_b23_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1729,6 +2768,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b25_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b25_old_impl",
+]
+
+[[package]]
+name = "hero_b25_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b26"
 version = "0.1.0"
 dependencies = [
@@ -1761,6 +2816,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b27_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b27_old_impl",
+]
+
+[[package]]
+name = "hero_b27_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b28"
 version = "0.1.0"
 dependencies = [
@@ -1770,6 +2841,22 @@ dependencies = [
 
 [[package]]
 name = "hero_b28_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b28_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b28_old_impl",
+]
+
+[[package]]
+name = "hero_b28_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1793,6 +2880,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b29_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b29_old_impl",
+]
+
+[[package]]
+name = "hero_b29_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b30"
 version = "0.1.0"
 dependencies = [
@@ -1802,6 +2905,22 @@ dependencies = [
 
 [[package]]
 name = "hero_b30_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b30_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b30_old_impl",
+]
+
+[[package]]
+name = "hero_b30_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1825,6 +2944,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b31_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b31_old_impl",
+]
+
+[[package]]
+name = "hero_b31_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b32"
 version = "0.1.0"
 dependencies = [
@@ -1834,6 +2969,38 @@ dependencies = [
 
 [[package]]
 name = "hero_b32_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b32_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b32_old_impl",
+]
+
+[[package]]
+name = "hero_b32_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b32_v20"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b32_v20_impl",
+]
+
+[[package]]
+name = "hero_b32_v20_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1857,6 +3024,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b33_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b33_old_impl",
+]
+
+[[package]]
+name = "hero_b33_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b34"
 version = "0.1.0"
 dependencies = [
@@ -1866,6 +3049,22 @@ dependencies = [
 
 [[package]]
 name = "hero_b34_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b34_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b34_old_impl",
+]
+
+[[package]]
+name = "hero_b34_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1889,6 +3088,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_b35_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b35_old_impl",
+]
+
+[[package]]
+name = "hero_b35_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_b36"
 version = "0.1.0"
 dependencies = [
@@ -1898,6 +3113,22 @@ dependencies = [
 
 [[package]]
 name = "hero_b36_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b36_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b36_old_impl",
+]
+
+[[package]]
+name = "hero_b36_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1921,6 +3152,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_c01_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c01_old_impl",
+]
+
+[[package]]
+name = "hero_c01_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_c02"
 version = "0.1.0"
 dependencies = [
@@ -1930,6 +3177,22 @@ dependencies = [
 
 [[package]]
 name = "hero_c02_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_c02_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c02_old_impl",
+]
+
+[[package]]
+name = "hero_c02_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1953,6 +3216,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_c03_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c03_old_impl",
+]
+
+[[package]]
+name = "hero_c03_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_c04"
 version = "0.1.0"
 dependencies = [
@@ -1962,6 +3241,38 @@ dependencies = [
 
 [[package]]
 name = "hero_c04_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_c04_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c04_old_impl",
+]
+
+[[package]]
+name = "hero_c04_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_c04_v20"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c04_v20_impl",
+]
+
+[[package]]
+name = "hero_c04_v20_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -1985,6 +3296,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_c05_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c05_old_impl",
+]
+
+[[package]]
+name = "hero_c05_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_c06"
 version = "0.1.0"
 dependencies = [
@@ -1994,6 +3321,22 @@ dependencies = [
 
 [[package]]
 name = "hero_c06_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_c06_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c06_old_impl",
+]
+
+[[package]]
+name = "hero_c06_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -2017,6 +3360,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_c07_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c07_old_impl",
+]
+
+[[package]]
+name = "hero_c07_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_c08"
 version = "0.1.0"
 dependencies = [
@@ -2026,6 +3385,22 @@ dependencies = [
 
 [[package]]
 name = "hero_c08_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_c08_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c08_old_impl",
+]
+
+[[package]]
+name = "hero_c08_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -2049,6 +3424,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_c09_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c09_old_impl",
+]
+
+[[package]]
+name = "hero_c09_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_c10"
 version = "0.1.0"
 dependencies = [
@@ -2065,6 +3456,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_c10_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c10_old_impl",
+]
+
+[[package]]
+name = "hero_c10_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_c11"
 version = "0.1.0"
 dependencies = [
@@ -2074,6 +3481,38 @@ dependencies = [
 
 [[package]]
 name = "hero_c11_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_c11_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c11_old_impl",
+]
+
+[[package]]
+name = "hero_c11_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_c11_v20"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c11_v20_impl",
+]
+
+[[package]]
+name = "hero_c11_v20_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -2113,6 +3552,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_c13_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c13_old_impl",
+]
+
+[[package]]
+name = "hero_c13_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_c14"
 version = "0.1.0"
 dependencies = [
@@ -2122,6 +3577,22 @@ dependencies = [
 
 [[package]]
 name = "hero_c14_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_c14_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c14_old_impl",
+]
+
+[[package]]
+name = "hero_c14_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -2145,6 +3616,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_c15_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c15_old_impl",
+]
+
+[[package]]
+name = "hero_c15_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_c16"
 version = "0.1.0"
 dependencies = [
@@ -2161,6 +3648,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_c16_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c16_old_impl",
+]
+
+[[package]]
+name = "hero_c16_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_c17"
 version = "0.1.0"
 dependencies = [
@@ -2170,6 +3673,22 @@ dependencies = [
 
 [[package]]
 name = "hero_c17_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_c17_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c17_old_impl",
+]
+
+[[package]]
+name = "hero_c17_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -2209,6 +3728,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_c19_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c19_old_impl",
+]
+
+[[package]]
+name = "hero_c19_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_c20"
 version = "0.1.0"
 dependencies = [
@@ -2218,6 +3753,22 @@ dependencies = [
 
 [[package]]
 name = "hero_c20_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_c20_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c20_old_impl",
+]
+
+[[package]]
+name = "hero_c20_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -2241,6 +3792,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_c21_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c21_old_impl",
+]
+
+[[package]]
+name = "hero_c21_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_c22"
 version = "0.1.0"
 dependencies = [
@@ -2250,6 +3817,22 @@ dependencies = [
 
 [[package]]
 name = "hero_c22_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_c22_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c22_old_impl",
+]
+
+[[package]]
+name = "hero_c22_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
@@ -2289,6 +3872,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hero_c24_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c24_old_impl",
+]
+
+[[package]]
+name = "hero_c24_old_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hero_c25"
 version = "0.1.0"
 dependencies = [
@@ -2298,6 +3897,22 @@ dependencies = [
 
 [[package]]
 name = "hero_c25_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_c25_old"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c25_old_impl",
+]
+
+[[package]]
+name = "hero_c25_old_impl"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
