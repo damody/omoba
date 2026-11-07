@@ -355,12 +355,15 @@ for _, r in ipairs(recipes) do
                 local key = hero.hero .. '|' .. ability
                 local a = ability_rows[key] or { hero = hero.hero, ability = ability, slot = cast.slot, inputs = 0, accepted = 0, results = {} }
                 ability_rows[key] = a
+                a.slot, a.own = cast.slot, true
                 a.inputs, a.accepted = a.inputs + cast.inputs, a.accepted + cast.accepted
                 for result, n in pairs(cast.results or {}) do a.results[result] = (a.results[result] or 0) + n end
               end
             end
             -- Script damage by ability (E436, moba_headless DamageTrace; summons and copies count
             -- for their summoner): a status or summon damaging under its ability's name gets a row.
+            -- A row only damage made is not this hero's ability (A06_old 赤鬼之力's allies deal
+            -- damage under its name): it has no kit slot and is never flagged NEVER CAST.
             hero_games[hero.hero] = (hero_games[hero.hero] or 0) + 1
             for ability, dealt in pairs(hero.ability_damage or {}) do
               local key = hero.hero .. '|' .. ability
@@ -463,9 +466,10 @@ for _, a in ipairs(summary.abilities) do
   for result, n in pairs(a.results) do results[#results + 1] = result .. ' ' .. n end
   table.sort(results)
   if (a.accepted or 0) ~= (a.results.accepted or 0) then results[#results + 1] = 'facts ' .. (a.accepted or 0) end
-  local castable = a.kind == 'active' or a.kind == 'ultimate' or a.kind == 'toggle'
+  local castable = a.own and (a.kind == 'active' or a.kind == 'ultimate' or a.kind == 'toggle')
   local casts = math.max(a.results.accepted or 0, a.accepted or 0)
-  local note = castable and casts == 0 and 'NEVER CAST'
+  local note = not a.own and 'not in kit'
+    or castable and casts == 0 and 'NEVER CAST'
     or castable and (a.results.accepted or 0) == 0 and 'NO TRACE' or ''
   if note == 'NEVER CAST' then never = never + 1 end
   for result, n in pairs(a.results) do
