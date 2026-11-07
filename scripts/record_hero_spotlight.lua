@@ -75,6 +75,11 @@ end
 -- A hero whose passive answers to a spell: the base stage plus seat 6's scheduled casts in one circle.
 M.CASTS_RECIPE='scripts/lua_data/moba_hero_spotlight_casts.lua'
 M.CASTS_HEROES={yamagata_masakage=true}
+-- A hero whose ability is learned only above the stage's start level (A04D_old, B19D_old: auto
+-- learned at hero level 18, NOT_LEARNABLE in the source): the base stage started at LATE_LEVEL.
+M.LATE_RECIPE='scripts/lua_data/moba_hero_spotlight_late.lua'
+M.START_LEVEL=16
+M.LATE_LEVEL=18
 function M.recipe_for(package)
   local tree,props=false,package.props==true
   for _,slot in ipairs(package.slots) do
@@ -87,6 +92,12 @@ function M.recipe_for(package)
     local errors=M.prop_clearance_errors(assert(loadfile(M.PROPS_RECIPE))())
     assert(#errors==0,M.PROPS_RECIPE..': '..table.concat(errors,'; '))
     return M.PROPS_RECIPE
+  end
+  if package.late then
+    local hero=package.hero or ''
+    assert(not (M.PATROL_HEROES[hero] or M.LINE_HEROES[hero] or M.CASTS_HEROES[hero] or M.LANE_HEROES[hero]),
+      hero..' needs the late stage and another one (no stage has both yet)')
+    return M.LATE_RECIPE
   end
   if M.PATROL_HEROES[package.hero or ''] then return M.PATROL_RECIPE end
   if M.LINE_HEROES[package.hero or ''] then return M.LINE_RECIPE end
@@ -196,9 +207,16 @@ function M.load_v3_package(root,hero)
   for _,ability in ipairs(ctx.include('templates/abilities.lua')) do by_id[ability.id]=ability end
   ITEM_SPOTLIGHT_AS_MODULE=true
   local aim=require('item_spotlight').AIM
-  local slots,unshown,props={},{},false
+  local slots,unshown,props,late={},{},false,false
   for index,id in ipairs(assert(row.abilities,'hero without abilities')) do
     local ability=by_id[id]
+    -- Rank 1 above the stage's start level (auto learned at 18): the late stage (recipe_for).
+    local first=ability and ability.levels and ability.levels[1]
+    local needs=first and first.required_hero_level or 1
+    if needs>M.START_LEVEL then
+      assert(needs<=M.LATE_LEVEL,id..' is learned only at hero level '..needs..', above the late stage')
+      late=true
+    end
     local bot=ability and ability.v3 and ability.v3.bot
     if bot and bot.kind=='none' and ability.ability_type~='passive' then
       unshown[#unshown+1]={slot=index-1,id=id,reason='bot kind none'}
@@ -226,7 +244,8 @@ function M.load_v3_package(root,hero)
   if doc then slots=M.with_dependents(slots,M.v3_dependents(doc,row.abilities),by_id,aim,unshown) end
   assert(#slots<=16,hero..' has more than 16 demonstrations (FOmSpotlightScript::Parse)')
   -- props: a shown slot needs the prop stage (E630, recipe_for); never part of the renderer script.
-  return {hero=hero,hero_name=row.display_name or hero,title=row.title or '',slots=slots,unshown=unshown,props=props}
+  -- late: an ability is learned only above the base stage's start level (recipe_for).
+  return {hero=hero,hero_name=row.display_name or hero,title=row.title or '',slots=slots,unshown=unshown,props=props,late=late}
 end
 
 -- E595: the hero's v3 document (docs/character_pipeline/packages/<hero>/v3.lua), loaded with only
@@ -438,7 +457,7 @@ M.STRUCK_BOTH={c05_thunder_spear=M.STRUCK_AT,a01_realm_momentum=M.STRUCK_AT,b20_
 M.HOLDS_STILL={b20_tenacity=true}
 -- b27 裂地刃 reaches 1000: the death's stand-ins are hit too, and at the usual cap (2) their ripples were cut off.
 -- a13 替身術 swaps with an illusion 影分身 left on its 900 circle (1058 from the hero): in view, nothing to walk to.
-M.VIEW_BACK={b22_force_of_nature=1.3,b22_wood_spirit=1.3,a13_substitution=2.9,c03_iron_hammer=1.3,a26_powder_kick=1.5,a26_scorching_bomb=1.7,b20_ruin_wave=1.35,b20_red_charge=1.35,a12_insight_flash=1.25,a01_tosho_gongen=1.4,a01_mikawa_valor=1.4,b27_rending_blade=2.7,a26_volley=1.45,a14_impact_spear=1.45,a14_divine_strike=1.6,c05_thunder_dance=1.4,c05_flash_thunder=1.5,a12_mystic_arrow=1.45,a12_scheme=1.45}
+M.VIEW_BACK={b22_force_of_nature=1.3,b22_old_force_of_nature=1.3,b22_wood_spirit=1.3,a13_substitution=2.9,c03_iron_hammer=1.3,a26_powder_kick=1.5,a26_scorching_bomb=1.7,b20_ruin_wave=1.35,b20_red_charge=1.35,a12_insight_flash=1.25,a01_tosho_gongen=1.4,a01_mikawa_valor=1.4,b27_rending_blade=2.7,a26_volley=1.45,a14_impact_spear=1.45,a14_divine_strike=1.6,c05_thunder_dance=1.4,c05_flash_thunder=1.5,a12_mystic_arrow=1.45,a12_scheme=1.45}
 -- Ranged: hero and stand-in stand far apart, in frame from the segment's start.
 M.FRAMED_HEROES={nohime=true,otani_yoshitsugu=true}
 -- The stage's showcase.withheld_abilities: no rank at birth, learned in their own segment.
@@ -461,7 +480,7 @@ M.VIEW_EARLY={c05_flash_thunder=true,c03_iron_hammer=true,a14_impact_spear=true,
 M.STAND_AT={b26_kozuke_valor=M.STRUCK_AT,a14_divine_strike={2765,2396}}
 -- b22 on the tree stage: the trees stand 107-235 below the hero (-1400,-600), under the caption when the
 -- view frames the hero and the stand-in (taigen_sessai 20261106-153704: 16 times outside the view).
-M.VIEW_AT={b22_force_of_nature={-1510,-540},b22_wood_spirit={-1510,-540},c05_flash_thunder={2520,2390},a14_impact_spear={2800,2075},a14_divine_strike={2870,1985},a12_mystic_arrow={2300,2550},a12_scheme={2300,2550}}
+M.VIEW_AT={b22_force_of_nature={-1510,-540},b22_old_force_of_nature={-1510,-540},b22_wood_spirit={-1510,-540},c05_flash_thunder={2520,2390},a14_impact_spear={2800,2075},a14_divine_strike={2870,1985},a12_mystic_arrow={2300,2550},a12_scheme={2300,2550}}
 -- c05 瞬雷閃: a blink the eye can follow, on screen, 368 from the stand-in (inside its 600).
 -- a36 地刺陷阱: under the stand-in it arms in 1.5 s and the stand-in sets it off (trigger 250) before
 -- 引爆's turn; here, on the hero's row toward the stand-in, it is 350 from the stand-in and 110 from
@@ -600,7 +619,7 @@ function M.script(package)
   -- Every stage shows the attacks on its enemy stand-in; the death needs the held enemies at DEATH_AT,
   -- which the prop stage keeps from the base one (c18 松姬, a19 伊勢姬 had neither) and the tree stage
   -- places at the same offsets (TREE_DEATH_AT).
-  if stage==M.RECIPE or stage==M.LANE_RECIPE or stage==M.LINE_RECIPE or stage==M.PATROL_RECIPE or stage==M.CASTS_RECIPE
+  if stage==M.RECIPE or stage==M.LANE_RECIPE or stage==M.LINE_RECIPE or stage==M.PATROL_RECIPE or stage==M.CASTS_RECIPE or stage==M.LATE_RECIPE
     or stage==M.PROPS_RECIPE or stage==M.TREE_RECIPE then
     local after_attack={}
     for index=#slots,1,-1 do
