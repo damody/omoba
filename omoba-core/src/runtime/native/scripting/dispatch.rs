@@ -1001,7 +1001,16 @@ fn dispatch_delayed_effects(world: &mut World, registry: &ScriptRegistry, rng_se
 /// One `on_scheduled` per due schedule (omoba-core `scheduled_effect`), in (owner, buff id)
 /// order. The row is removed before its hook runs, so it resolves once even if the hook
 /// reschedules the same step. Paused worlds resolve nothing; a dead owner has no rows left.
-fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, ordinal_base: u64) {
+/// A schedule's random stream comes from its own row (ability, instance, step), not from its place
+/// among this tick's due rows: a team replica holds only its own team's rows (owner_script_rows),
+/// so a positional ordinal would draw another instance for the same reschedule. In a band of its own.
+fn scheduled_random_ordinal(spec: &super::super::scheduled_effect::Spec) -> u64 {
+    let fnv = |hash: u64, bytes: &[u8]| bytes.iter().fold(hash, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3));
+    let hash = fnv(fnv(fnv(0xcbf2_9ce4_8422_2325, spec.ability.as_bytes()), &spec.instance.to_le_bytes()), &spec.step.to_le_bytes());
+    (1 << 40) + (hash & 0xffff_ffff)
+}
+
+fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, _ordinal_base: u64) {
     if world.read_resource::<crate::comp::GamePause>().is_paused { return; }
     let dt = world.read_resource::<crate::comp::DeltaTime>().0;
     let due = super::super::scheduled_effect::due(&world.read_resource::<crate::runtime::BuffStore>(), dt);
@@ -1014,13 +1023,13 @@ fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_
     }
     let cache = ParallelAdapterCache::new(&*world, rng_seed);
     let mut accepted = Vec::new();
-    for (ordinal, (owner, _, spec)) in due.into_iter().enumerate() {
+    for (owner, _, spec) in due {
         if !cache.entities.is_alive(owner) || cache.cprop.get(owner).is_none_or(|p| p.hp <= Fixed64::ZERO) {
             continue;
         }
         let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
         let handle = ParallelWorldAdapter::entity_to_handle(owner);
-        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, owner, ordinal_base + ordinal as u64);
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, owner, scheduled_random_ordinal(&spec));
         adapter.hold_statuses_through_expiry();
         let mut world_dyn = world_dyn_of(&mut adapter);
         let args: abi_stable::std_types::RVec<_> = spec.args.iter().copied().collect();

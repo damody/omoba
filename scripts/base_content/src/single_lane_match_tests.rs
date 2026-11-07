@@ -13394,9 +13394,35 @@ pub(crate) mod live_soak_replica_parity {
                     mismatches.push(format!("tick {tick} team {team}: {detail}{fields}"));
                 }
             }
+            // A team's own heroes hold the authority's script rows (owner_script_rows): their
+            // statuses with stacks, state variables and schedules with instance and phase.
+            for (team,_,stepper) in replicas.iter().filter(|_|COMPARE_SCRIPT_ROWS.with(std::cell::Cell::get)) {
+                // A hero both worlds hold alive (a respawn reaches the replica's specs world a frame later).
+                let (mut authority_rows,mut replica_rows)=(own_script_rows(&authority,*team),own_script_rows(&stepper.filtered.world,*team));
+                authority_rows.retain(|name,_|replica_rows.contains_key(name));
+                replica_rows.retain(|name,_|authority_rows.contains_key(name));
+                if authority_rows!=replica_rows {
+                    mismatches.push(format!("tick {tick} team {team} script rows: replica={replica_rows:?} authority={authority_rows:?}"));
+                }
+            }
             if mismatches.len()>4 {break;}
         }
         mismatches
+    }
+    thread_local! {
+        /// Opt-in: soak_match also compares the own heroes' script rows (owner_script_rows). Other
+        /// kits still differ in rows that no compared component reads (item passive numbering).
+        static COMPARE_SCRIPT_ROWS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    /// Living heroes of `team` by name, each with its portable script rows (owner_script_rows).
+    fn own_script_rows(world:&World,team:u32)->std::collections::BTreeMap<String,Vec<omoba_core::runtime::native::owner_script_rows::Row>> {
+        use specs::Join;
+        let buffs=world.read_resource::<omoba_core::runtime::BuffStore>();
+        let (heroes,factions,properties)=(world.read_storage::<Hero>(),world.read_storage::<omoba_core::runtime::Faction>(),world.read_storage::<omoba_core::runtime::CProperty>());
+        (&world.entities(),&heroes,&factions,&properties).join()
+            .filter(|(_,_,faction,property)|u32::try_from(faction.team_id).ok()==Some(team) && property.hp>Fixed64::ZERO)
+            .map(|(entity,hero,_,_)|(hero.name.clone(),omoba_core::runtime::native::owner_script_rows::of(&buffs,entity,&hero.abilities)))
+            .collect()
     }
     pub(crate) fn cast(slot:u32,entity:Option<specs::Entity>)->PlayerInput {
         PlayerInput {action:Some(PlayerInputEnum::CastAbility(CastAbility {ability_index:slot,target_entity:entity.map(|e|e.id()),target_pos:None}))}
@@ -13799,7 +13825,11 @@ pub(crate) mod live_soak_replica_parity {
                 _=>vec![],
             }
         };
+        // Its own rows too, also across rebases (SOAK_REBASE_EVERY): a new local life carries the
+        // shield's stacks and the passive's schedule (owner_script_rows).
+        COMPARE_SCRIPT_ROWS.with(|on|on.set(true));
         let report=soak_report(["kojima_sadaoki_old","training_luminary"],3600,&schedule);
+        COMPARE_SCRIPT_ROWS.with(|on|on.set(false));
         assert!(report.mismatches.is_empty(),"{:#?}",report.mismatches);
     }
     /// H04/H05/H06: every built slot (tether settle, global buff, point blast,

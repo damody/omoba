@@ -327,6 +327,12 @@ impl BuffStore {
         self.insert_buff(entity,buff_id,duration,payload);
     }
 
+    /// A row copied as the authority holds it (a replica's new local life, owner_script_rows):
+    /// no immunity or resistance applies again.
+    pub(crate) fn seed(&mut self, entity: Entity, buff_id: &str, duration: Fixed64, payload: Value) {
+        self.insert_buff(entity,buff_id,duration,payload);
+    }
+
     fn insert_buff(&mut self, entity: Entity, buff_id: &str, duration: Fixed64, payload: Value) {
         let applied = self.next_applied;
         self.next_applied += 1;

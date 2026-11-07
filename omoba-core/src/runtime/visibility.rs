@@ -1524,6 +1524,11 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 let state=buffs.as_ref().map(|store|crate::runtime::buff_visual_state::BuffVisualSnapshot::from_store(store,entity))
                     .unwrap_or(crate::runtime::buff_visual_state::BuffVisualSnapshot {buffs:crate::runtime::buff_visual_state::BuffVisualState(vec![]),channel_totals:vec![]});
                 disclosed.push((crate::runtime::buff_visual_state::SCHEMA_ID,state.encode().expect("bounded generated buff IDs")));
+                // A hero's own script rows seed its team replica's next local life (owner_script_rows).
+                if let (Some(store), Some(hero)) = (buffs.as_ref(), heroes.get(entity)) {
+                    use crate::runtime::native::owner_script_rows as rows;
+                    if let Some(bytes) = rows::encode(&rows::of(store, entity, &hero.abilities)) { disclosed.push((rows::SCHEMA_ID, bytes)); }
+                }
             } else if moba && summons.as_ref().is_some_and(|summons| summons.get(entity).is_some()) {
                 // A summon that never attacks (a dummy: B24's stele, E597) still shows its statuses
                 // (its life countdown) like every other summon.

@@ -1277,6 +1277,7 @@ impl TeamViewProjector {
                     let components = decode_safe_components_for_hash(&baseline);
                     let baseline = if components.contains_key(&crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID)
                         || components.contains_key(&crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID)
+                        || components.contains_key(&crate::runtime::native::owner_script_rows::SCHEMA_ID)
                     {
                         crate::runtime::visibility::encode_disclosed_baseline(
                             &team_safe_components(&baseline, self.team_id).into_iter().collect::<Vec<_>>())
@@ -2094,6 +2095,7 @@ fn expected_team_hash(
         hasher.update(epoch.to_be_bytes());
         hasher.update(entity_kind.to_be_bytes());
         for (schema_id, bytes) in components {
+            if *schema_id == crate::runtime::native::owner_script_rows::SCHEMA_ID { continue; }
             hasher.update(schema_id.to_be_bytes());
             hasher.update((bytes.len() as u64).to_be_bytes());
             hasher.update(bytes);
@@ -2118,6 +2120,7 @@ fn team_safe_components_with_facts(bytes: &[u8], team: u32) -> (BTreeMap<u32, Ve
         .is_some_and(|state|state.team_id==team && state.owner_player_id!=0);
     // Another team sees only the public statuses' icons (v3 `reveal = "public"`, E216); the owner team sees all.
     if !owns {
+        components.remove(&crate::runtime::native::owner_script_rows::SCHEMA_ID);
         let schema = crate::runtime::buff_visual_state::SCHEMA_ID;
         match components.get(&schema).map(|bytes| crate::runtime::buff_visual_state::public_snapshot(bytes)) {
             Some(Some(public)) => { components.insert(schema, public); }
@@ -2906,7 +2909,10 @@ pub type ComponentBytes = BTreeMap<(u64, u32), Vec<u8>>;
 pub fn component_bytes<E: ComponentSource>(entities: &BTreeMap<u64, E>) -> ComponentBytes {
     let mut out = BTreeMap::new();
     for (replica_id, entity) in entities {
-        for (schema_id, bytes) in entity.components() { out.insert((*replica_id, *schema_id), bytes.clone()); }
+        for (schema_id, bytes) in entity.components() {
+            if *schema_id == crate::runtime::native::owner_script_rows::SCHEMA_ID { continue; }
+            out.insert((*replica_id, *schema_id), bytes.clone());
+        }
     }
     out
 }
@@ -2925,6 +2931,8 @@ where E: ComponentSource {
     let mut rows = Vec::new();
     for (replica_id, entity) in entities {
         for (schema_id, bytes) in entity.components() {
+            // Baseline-only (owner_script_rows): a new local life reads it once, nothing compares it.
+            if *schema_id == crate::runtime::native::owner_script_rows::SCHEMA_ID { continue; }
             rows.push(ComponentDigestRow { replica_id: *replica_id, schema_id: *schema_id, digest: fnv64(bytes) });
         }
     }

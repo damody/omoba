@@ -241,7 +241,7 @@ pub fn registry() -> &'static Registry {
 }
 
 /// Whether a buff id ends in an applier `…:<id>:<gen>` suffix.
-fn id_names_applier(buff_id: &str) -> bool {
+pub(crate) fn id_names_applier(buff_id: &str) -> bool {
     let mut parts = buff_id.rsplitn(3, ':');
     parts.next().is_some_and(|gen| gen.parse::<i32>().is_ok())
         && parts.next().is_some_and(|id| id.parse::<u32>().is_ok())

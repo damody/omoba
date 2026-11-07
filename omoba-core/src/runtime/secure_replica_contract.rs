@@ -108,6 +108,7 @@ pub fn secure_replica_component_allowlist() -> BTreeSet<u32> {
         crate::runtime::DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID,
+        crate::runtime::native::owner_script_rows::SCHEMA_ID,
     ];
     let unique = schemas.into_iter().collect::<BTreeSet<_>>();
     assert_eq!(unique.len(), schemas.len(), "disclosed component schema IDs must be unique");

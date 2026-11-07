@@ -560,6 +560,13 @@ impl SpecsDisclosedWorldStepper {
                     .and_then(|bytes| crate::runtime::buff_visual_state::BuffVisualSnapshot::decode(bytes)) {
                     crate::runtime::native::owner_control::seed_from_visual(&self.filtered.world, entity, &visual);
                 }
+                // And its own script rows, before the learn replay (owner_script_rows).
+                if let Some(rows) = state.components.get(&crate::runtime::native::owner_script_rows::SCHEMA_ID)
+                    .and_then(|bytes| crate::runtime::native::owner_script_rows::decode(bytes)) {
+                    if let Some(mut buffs) = self.filtered.world.try_fetch_mut::<crate::runtime::ability_runtime::BuffStore>() {
+                        crate::runtime::native::owner_script_rows::seed(&mut buffs, entity, &rows);
+                    }
+                }
             }
             self.synchronize_gameplay_components(state)?;
         }
