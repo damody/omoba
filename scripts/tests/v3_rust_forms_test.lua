@@ -217,4 +217,49 @@ test('create_unit lifetime over an hour blocks at generation', function()
   assert(blockers and blockers:find('create_unit.lifetime over 3600 s', 1, true), 'the blocker: ' .. tostring(blockers))
 end)
 
+local function enemy_sweep()
+  for _, x in ipairs(sources.heroes(b.root)) do
+    local doc = v3.load_file(x.path)
+    for _, ab in ipairs(doc and doc.abilities or {}) do
+      for _, a in ipairs((ab.events or {}).on_cast or {}) do
+        if a.op == 'for_each' and a.select and a.select.team == 'enemy' and a.select.radius and not a.select.where then return doc, ab, a.select end
+      end
+    end
+  end
+  error('an enemy for_each')
+end
+
+test('selector exclude_types building takes every class but buildings', function()
+  local doc, ab, sel = enemy_sweep()
+  sel.types, sel.exclude_types = { 'all' }, { 'building' }
+  local files = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'x' })
+  local text = assert(files['src/generated/' .. ab.id .. '.rs'], ab.id .. ' generates')
+  assert(has(text, 'types: UnitTypes::NonBuilding'), 'non-buildings')
+end)
+
+test('selector types hero+building+tower skips every other class', function()
+  local doc, ab, sel = enemy_sweep()
+  sel.types, sel.exclude_types = { 'hero', 'building', 'tower' }, nil
+  local files = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'x' })
+  local text = assert(files['src/generated/' .. ab.id .. '.rs'], ab.id .. ' generates')
+  assert(has(text, 'types: UnitTypes::All'), 'every class')
+  assert(has(text, '!cx.is_hero(') and has(text, '!cx.is_building('), 'the others skipped')
+end)
+
+test('game.creep_wave, game.creep_armor_bonus, is_summon and illusion_damage read the host', function()
+  local doc, ab, sel = enemy_sweep()
+  sel.where = 'it.is_summon'
+  for _, x in ipairs(ab.events.on_cast) do
+    if x.select == sel then
+      x.actions = { { op = 'damage', to = 'it', type = 'magical', amount = 'game.creep_wave + game.creep_armor_bonus + it.illusion_damage' } }
+    end
+  end
+  local files = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'x' })
+  local text = assert(files['src/generated/' .. ab.id .. '.rs'], ab.id .. ' generates')
+  assert(has(text, 'cx.game_num(ability_kit::game_attr::CREEP_WAVE)'), 'the creep wave')
+  assert(has(text, 'cx.game_num(ability_kit::game_attr::CREEP_ARMOR_BONUS)'), 'the creep armor bonus')
+  assert(has(text, 'ability_kit::unit_attr::IS_SUMMON'), 'is_summon')
+  assert(has(text, 'ability_kit::unit_attr::ILLUSION_DAMAGE'), 'illusion_damage')
+end)
+
 print(('%d tests passed'):format(count))

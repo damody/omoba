@@ -33,3 +33,5 @@ pub use omoba_core::runtime::native::hero_command::OrderKind;
 pub use omoba_core::runtime::native::illusion::{Copy as IllusionCopy, Scale as IllusionScale, StatusCopy as IllusionStatusCopy};
 /// Attribute names for `Cx::unit_num` / `unit_flag` / `unit_ref`.
 pub use omb_script_abi::ext::unit_attr;
+/// Attribute names for `Cx::game_num`.
+pub use omb_script_abi::ext::game_attr;

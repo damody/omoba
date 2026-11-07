@@ -576,6 +576,9 @@ do
     gold = { "num", "unit_num", "GOLD" },
     -- armor above the base (line B ee0292ee)
     bonus_armor = { "num", "unit_num", "BONUS_ARMOR" },
+    -- a summon, not an illusion, even after its summoner died / an illusion's outgoing physical
+    -- share (1 otherwise) (line B 093d1508)
+    is_summon = { "bool", "unit_flag", "IS_SUMMON" }, illusion_damage = { "num", "unit_num", "ILLUSION_DAMAGE" },
   }
   for name, e in pairs(EXT) do
     -- the operand first: a read takes &mut cx
@@ -647,6 +650,10 @@ function Gen:expr(node, ctx)
       if parts[1] == "is_night" then return "cx.is_night()", "bool" end
       if parts[1] == "time" then return "cx.game_time()", "num" end
       if parts[1] == "dt" then return "cx.game_dt()", "num" end
+      -- the latest creep wave's index (-1 before the first) / the armor creeps spawn with above
+      -- their template (line B 093d1508)
+      if parts[1] == "creep_wave" then return "cx.game_num(ability_kit::game_attr::CREEP_WAVE)", "num" end
+      if parts[1] == "creep_armor_bonus" then return "cx.game_num(ability_kit::game_attr::CREEP_ARMOR_BONUS)", "num" end
       self:block("attr:game." .. parts[1]); return "Fixed64::ZERO", "err"
     end
     -- the running ability (v3.md §5.4: always this entry, in a trigger too): its rank is cx.rank in
@@ -1613,7 +1620,7 @@ local ACTION_FIELDS = {
   refund = set({ "op", "cooldown", "mana", "health" }),
   tether = false, -- shape-checked in Gen:tether
 }
-local SELECTOR_FIELDS = set({ "from", "radius", "shape", "team", "types", "flags", "where", "notes", "limit", "order", "exclude", "relative_to", "dead_within", "to", "width" })
+local SELECTOR_FIELDS = set({ "from", "radius", "shape", "team", "types", "exclude_types", "flags", "where", "notes", "limit", "order", "exclude", "relative_to", "dead_within", "to", "width" })
 local SELECT_TYPES = { [""] = "All", all = "All", hero = "Heroes", ["creep+hero+neutral+summon"] = "NonBuilding",
   -- every unit class, buildings included / every non-building class (couriers and wards are units too)
   ["building+creep+hero+neutral+summon"] = "All", ["courier+creep+hero+neutral+summon+ward"] = "NonBuilding",
@@ -2745,7 +2752,17 @@ function Gen:action(a, ctx, ind)
     local no_heroes = false
     local tk = types_key(s.types)
     if not types and (tk == "creep+neutral+summon" or tk == "boss+creep+neutral+summon") then types, no_heroes = "NonBuilding", true end
+    -- heroes and buildings (towers are buildings): every class, the others skipped
+    local heroes_buildings = false
+    if not types and (tk == "building+hero" or tk == "building+hero+tower") then types, heroes_buildings = "All", true end
     if not types then self:block("selector.types:" .. tk); types = "All" end
+    -- exclude_types: buildings out of every class / heroes out of every class
+    if s.exclude_types ~= nil then
+      local ek = types_key(s.exclude_types)
+      if types == "All" and not heroes_buildings and (ek == "building" or ek == "building+tower") then types = "NonBuilding"
+      elseif types == "All" and not heroes_buildings and ek == "hero" then types = "NonHero"
+      else self:block("selector.exclude_types:" .. ek .. " of " .. tk) end
+    end
     local mi, inv, hid, ill = false, false, false, false
     local dead, visible = false, false
     local skip = {}
@@ -2811,6 +2828,7 @@ function Gen:action(a, ctx, ind)
     end
     if visible then str = str .. line("        if !cx.is_visible_to(" .. it .. ", cx.caster) { continue; }") end
     if no_heroes then str = str .. line("        if cx.is_hero(" .. it .. ") { continue; }") end
+    if heroes_buildings then str = str .. line("        if !cx.is_hero(" .. it .. ") && !cx.is_building(" .. it .. ") { continue; }") end
     if s.where then
       -- the selector's `where` names the candidate `it`
       local wscope = scope_child(ctx.scope)

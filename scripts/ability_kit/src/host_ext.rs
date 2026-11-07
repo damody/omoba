@@ -1101,6 +1101,11 @@ impl Cx<'_, '_> {
     pub fn game_dt(&mut self) -> Fixed64 {
         match self.read(op::GAME_ATTR, &[ExtArg::Str(game_attr::DT.into())]) { ExtValue::Num(n) => n, _ => Fixed64::ZERO }
     }
+
+    /// A numeric match attribute, e.g. `cx.game_num(game_attr::CREEP_WAVE)` for v3 `game.creep_wave`.
+    pub fn game_num(&mut self, attr: &str) -> Fixed64 {
+        match self.read(op::GAME_ATTR, &[ExtArg::Str(attr.into())]) { ExtValue::Num(n) => n, _ => Fixed64::ZERO }
+    }
 }
 
 /// v3 `pick_item.order` (E561).
