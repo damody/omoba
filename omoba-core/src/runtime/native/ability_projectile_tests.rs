@@ -283,6 +283,21 @@ fn launch_admission_rejects_invalid_shapes_allies_and_live_budget() {
     assert_eq!(live(&w), MAX_LIVE_PER_SOURCE, "per-source budget");
 }
 
+/// B08T_old 一刀．空牙 flies 30000 (its source value): a linear flight past 10000 is admitted,
+/// one past MAX_LINEAR_DISTANCE is not.
+#[test]
+fn a_map_crossing_linear_flight_is_admitted_up_to_its_cap() {
+    let mut w = world();
+    let caster = body(&mut w, 0, 0, 1);
+    let far = Spec { distance: Fixed64::from_i32(30_000), lifetime: Fixed64::from_i32(11), speed: Fixed64::from_i32(3000),
+        ..linear(caster, at(1, 0)) };
+    assert!(far.valid());
+    assert_eq!(Spec::from_payload(BUFF, far.lifetime, &far.payload()), Some(far.clone()));
+    assert!(admitted(&w, caster, BUFF, far.lifetime, &far.payload(), None).is_some());
+    let beyond = Spec { distance: Fixed64::from_i32(MAX_LINEAR_DISTANCE) + Fixed64::from_raw(1), ..far };
+    assert!(!beyond.valid());
+}
+
 #[test]
 fn fog_projection_discloses_flight_only_through_owner_team_or_vision() {
     let mut w = world();
