@@ -28,6 +28,14 @@ pub(crate) const CONTROLS: [BuffId; 3] = [BuffId::Stun, BuffId::Silence, BuffId:
 /// Channel statuses carry `{status:{"total_raw"}}`; the replica reads their presence.
 pub(crate) const CHANNELS: [&str; 2] = [super::ability_channel::STATUS, super::recovery_channel::STATUS];
 const MAX_REMAINING_RAW: i64 = 60 * 1024;
+/// A control with no end (a status held until recast, `duration = "infinite"`): carried exactly.
+const PERMANENT_RAW: i64 = super::ability_runtime::buff_store::PERMANENT_BUFF_DURATION.raw();
+
+/// A control's remaining time on the wire: exact up to the bound, a permanent one as itself,
+/// a longer finite one at the bound (republished every batch while active).
+fn control_raw(remaining: i64) -> i64 {
+    if remaining == PERMANENT_RAW { remaining } else { remaining.clamp(0, MAX_REMAINING_RAW) }
+}
 /// The replica's copy of a restriction it cannot derive (command_restriction.rs reads it).
 pub(crate) const RESTRICTED: &str = "owner_restricted";
 /// Two batches per active tick (pre- and post-script outcomes); a bound, not a phase name.
@@ -48,7 +56,7 @@ impl OwnerControlRow {
     fn is_empty(&self) -> bool { *self == Self::default() }
 
     fn of(buffs: &BuffStore, entity: Entity) -> Self {
-        let controls = CONTROLS.map(|id| buffs.get(entity, id.as_str()).map_or(0, |entry| entry.remaining.raw().max(0)));
+        let controls = CONTROLS.map(|id| buffs.get(entity, id.as_str()).map_or(0, |entry| control_raw(entry.remaining.raw())));
         let channels = CHANNELS.map(|status| buffs.get(entity, status)
             .and_then(|entry| Some((entry.remaining.raw(), entry.payload.get(status)?.get("total_raw")?.as_i64()?)))
             .filter(|(remaining, total)| *remaining > 0 && remaining <= total && *total <= MAX_REMAINING_RAW)
@@ -80,7 +88,7 @@ impl OwnerControlRow {
         let bounded = |value: i64| (0..=MAX_REMAINING_RAW).contains(&value);
         let channel_ok = |(remaining, total): (i64, i64)| (remaining == 0 && total == 0)
             || (remaining > 0 && remaining <= total && total <= MAX_REMAINING_RAW);
-        (row.controls.iter().all(|value| bounded(*value)) && row.channels.iter().all(|value| channel_ok(*value))
+        (row.controls.iter().all(|value| bounded(*value) || *value == PERMANENT_RAW) && row.channels.iter().all(|value| channel_ok(*value))
             && bounded(row.restricted))
             .then_some((payload[0], row))
     }
@@ -190,7 +198,7 @@ fn apply(world: &mut World, batch: u8) {
 pub(crate) fn seed_from_visual(world: &World, entity: Entity, visual: &crate::runtime::buff_visual_state::BuffVisualSnapshot) {
     let raw = |name: &str| omoba_template_ids::buff_by_name(name)
         .and_then(|id| visual.buffs.0.iter().find(|row| row.0 == id.raw()).map(|row| (id.raw(), row.1)));
-    let controls = CONTROLS.map(|id| raw(id.as_str()).map_or(0, |(_, remaining)| remaining.max(0)));
+    let controls = CONTROLS.map(|id| raw(id.as_str()).map_or(0, |(_, remaining)| control_raw(remaining)));
     let channels = CHANNELS.map(|status| raw(status)
         .and_then(|(id, remaining)| visual.channel_totals.iter().find(|row| row.0 == id).map(|row| (remaining, row.1)))
         .unwrap_or((0, 0)));
@@ -253,6 +261,24 @@ mod tests {
     /// E643: an enemy's taunt or forced move is not in the hero team's replica (秋山 b24_taunt on
     /// 本多 A07): the row carries the longest one, and the replica refuses the owner's orders until
     /// the authority's row ends it.
+    /// A root held by a status until recast (百地三太夫舊版 大地隱身, `duration = "infinite"`) is
+    /// carried as permanent, and a finite control longer than the bound at the bound; both decode.
+    #[test]
+    fn a_permanent_control_is_carried_exactly() {
+        let mut authority = BuffStore::default();
+        let mut world = World::new();
+        let hero = world.create_entity().build();
+        authority.add(hero, BuffId::Root.as_str(), super::super::ability_runtime::buff_store::PERMANENT_BUFF_DURATION, serde_json::json!({}));
+        authority.add(hero, BuffId::Stun.as_str(), Fixed64::from_i32(100), serde_json::json!({}));
+        let row = OwnerControlRow::of(&authority, hero);
+        assert_eq!(row.controls[2], PERMANENT_RAW);
+        assert_eq!(row.controls[0], MAX_REMAINING_RAW);
+        assert_eq!(OwnerControlRow::decode(&row.encode(0)), Some((0, row)));
+        world.insert(BuffStore::default());
+        install(&world, hero, &row);
+        assert_eq!(world.read_resource::<BuffStore>().get(hero, BuffId::Root.as_str()).map(|e| e.remaining.raw()), Some(PERMANENT_RAW));
+    }
+
     #[test]
     fn an_enemy_taunt_or_forced_move_restricts_the_replica_hero_too() {
         let mut authority = BuffStore::default();
