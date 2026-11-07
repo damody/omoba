@@ -680,6 +680,17 @@ impl ShowcaseConfig {
     fn holds(config: &SingleLaneConfig, player_id: u32) -> bool {
         config.showcase.as_ref().is_some_and(|showcase| showcase.hold_players.contains(&player_id))
     }
+    /// A held seat struck down is back on its place after HELD_RESPAWN_SECONDS: b13_old 背刺 killed
+    /// seat 6 during its own segment, and the level table's 56 s plus a walk from the fountain
+    /// outlasted the recording's time box before the attack segment found a stand-in.
+    pub const HELD_RESPAWN_SECONDS: i32 = 2;
+    /// Where and after how long a held seat respawns; None for any other seat.
+    fn held_respawn(config: &SingleLaneConfig, player_id: u32) -> Option<(Fixed64, [i32; 2])> {
+        let showcase = config.showcase.as_ref()?;
+        if !showcase.hold_players.contains(&player_id) { return None; }
+        let place = *showcase.placements.get(&player_id)?;
+        Some((Fixed64::from_i32(Self::HELD_RESPAWN_SECONDS), place))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -2741,6 +2752,10 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
         {
             state.heroes[team].respawns = state.heroes[team].respawns.saturating_add(1);
             state.spawn_hero(world, team);
+            // A showcase stand-in comes back on its place, as at the stage's start.
+            if let (Some((_, [x, y])), Some(entity)) = (ShowcaseConfig::held_respawn(&state.config, state.heroes[team].player_id), state.heroes[team].entity) {
+                if let Some(pos) = world.write_storage::<Pos>().get_mut(entity) { pos.0 = Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y)); }
+            }
         }
     }
     objective_comeback::begin(world,&mut state);
@@ -3309,9 +3324,11 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
                 let retired_player = slot.player_id;
                 log::info!("[match] hero_death tick={} player={} side={} deaths={}", world.read_resource::<Tick>().0, retired_player, team, slot.deaths);
                 super::shop::retire_owner_shop_undo(world, retired_player);
-                // The original game's respawn table by hero level, else the fixed delay.
-                let respawn = state.config.game_rules.map_or(state.config.respawn_delay,
-                    |rules| Fixed64::from_i32(rules.respawn_seconds(slot.hero.level).min(i32::MAX as u32) as i32));
+                // The original game's respawn table by hero level, else the fixed delay; a showcase
+                // stand-in at once (ShowcaseConfig::held_respawn).
+                let respawn = ShowcaseConfig::held_respawn(&state.config, retired_player).map(|(delay, _)| delay)
+                    .unwrap_or_else(|| state.config.game_rules.map_or(state.config.respawn_delay,
+                        |rules| Fixed64::from_i32(rules.respawn_seconds(slot.hero.level).min(i32::MAX as u32) as i32)));
                 slot.respawn_at = Some(state.elapsed + respawn);
                 objective_buffs::retire_hero(&mut state,retired_player);
                 personal_buffs::retire_hero(&mut state,retired_player);

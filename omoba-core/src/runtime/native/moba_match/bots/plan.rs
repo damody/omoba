@@ -419,6 +419,37 @@ mod tests {
             hold_players:[2,6].into(), strike_players:Default::default(), hold_hp_permille:5000, start_items:Default::default(), props:Vec::new(), casts:Vec::new(), patrols:Vec::new(), refill_players:Default::default(),withheld_abilities:Default::default() });
         p
     }
+    /// A held stand-in struck down is back on its place after HELD_RESPAWN_SECONDS (b13_old 背刺
+    /// killed seat 6; the level table's respawn and a walk from the fountain outlasted the recording).
+    #[test]
+    fn showcase_held_seat_respawns_on_its_place_at_once() {
+        let (config,_) = showcase_plan().compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        setup_single_lane_match(&mut world, config).unwrap();
+        world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Playing;
+        world.write_resource::<crate::comp::DeltaTime>().0 = Fixed64::from_raw(17);
+        let seat = |world:&World,player:u32| world.read_resource::<MobaMatch>().heroes.iter().find(|s| s.player_id == player).unwrap().clone();
+        let old = seat(&world,6).entity.unwrap();
+        world.write_storage::<CProperty>().get_mut(old).unwrap().hp = Fixed64::ZERO;
+        super::super::record_moba_death(&mut world, old);
+        let died = world.read_resource::<MobaMatch>().elapsed;
+        assert_eq!(seat(&world,6).respawn_at, Some(died + Fixed64::from_i32(ShowcaseConfig::HELD_RESPAWN_SECONDS)), "a held seat respawns at once");
+        world.delete_entity(old).unwrap(); world.maintain();
+        for _ in 0..(ShowcaseConfig::HELD_RESPAWN_SECONDS * 60 + 30) {
+            super::super::begin_moba_match_tick(&mut world);
+            if seat(&world,6).entity.is_some() { break; }
+        }
+        let back = seat(&world,6).entity.expect("the stand-in respawned");
+        assert_eq!(world.read_storage::<Pos>().get(back).unwrap().0, Vec2::new(Fixed64::from_i32(2750), Fixed64::from_i32(2400)), "on its place");
+        // The demonstrator is not held: the level table's respawn.
+        let hero = seat(&world,1).entity.unwrap();
+        world.write_storage::<CProperty>().get_mut(hero).unwrap().hp = Fixed64::ZERO;
+        super::super::record_moba_death(&mut world, hero);
+        let elapsed = world.read_resource::<MobaMatch>().elapsed;
+        assert!(seat(&world,1).respawn_at.is_some_and(|at| at > elapsed + Fixed64::from_i32(ShowcaseConfig::HELD_RESPAWN_SECONDS)),
+            "the demonstrator keeps the level table's respawn");
+    }
     /// Player 6 (omatsu) learns frost bolt to rank 2 and casts it at player 1.
     fn casting_plan(first_seconds:u32,every_seconds:u32) -> RoleBotMatchPlan {
         let mut p = showcase_plan();
