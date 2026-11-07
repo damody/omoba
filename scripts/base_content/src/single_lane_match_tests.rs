@@ -396,7 +396,7 @@ mod owned_summon_orders_formal {
     fn message(owner:specs::Entity,summon:specs::Entity,operation:u32,point:Option<omoba_sim::Vec2>)->omoba_core::game_proto::OwnedSummonOrder {
         omoba_core::game_proto::OwnedSummonOrder {owner_entity:owner.id(),owner_generation:owner.gen().id()as u32,
             summon_entity:summon.id(),summon_generation:summon.gen().id()as u32,operation,
-            point:point.map(|p|Vec2I{x:p.x.raw()as i32,y:p.y.raw()as i32}),ability:String::new()}
+            point:point.map(|p|Vec2I{x:p.x.raw()as i32,y:p.y.raw()as i32}),ability:String::new(),target:None}
     }
     fn input(message:omoba_core::game_proto::OwnedSummonOrder)->(u32,PlayerInput){(1,PlayerInput {action:Some(PlayerInputEnum::OwnedSummonOrder(message))})}
     #[test]

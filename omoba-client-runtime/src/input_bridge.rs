@@ -6,7 +6,7 @@ use omoba_core::game_proto::{
 use crate::replica_host::ReplicaHost;
 
 trait InputView {
-    fn owned_summon_command(&self,_player_id:u32,_render_id:u64,_operation:u32,_point:Option<Vec2I>,_ability:&str)->Option<PlayerInput>{None}
+    fn owned_summon_command(&self,_player_id:u32,_render_id:u64,_operation:u32,_point:Option<Vec2I>,_ability:&str,_target:Option<u64>)->Option<PlayerInput>{None}
     fn combat_preferences_available(&self, player_id: u32) -> bool;
     fn input_scheme_for_owner(&self, player_id: u32) -> Option<omoba_core::runtime::input_scheme_transport::AdmittedOwnerInputScheme>;
     fn view_epoch(&self) -> u64;
@@ -20,8 +20,8 @@ trait InputView {
 }
 
 impl InputView for ReplicaHost {
-    fn owned_summon_command(&self,player_id:u32,render_id:u64,operation:u32,point:Option<Vec2I>,ability:&str)->Option<PlayerInput> {
-        self.owned_summon_command(player_id,render_id,operation,point,ability)
+    fn owned_summon_command(&self,player_id:u32,render_id:u64,operation:u32,point:Option<Vec2I>,ability:&str,target:Option<u64>)->Option<PlayerInput> {
+        self.owned_summon_command(player_id,render_id,operation,point,ability,target)
     }
     fn owned_hero_reference(&self, player_id:u32) -> Option<omoba_core::game_proto::SecureReplicaTarget> {
         ReplicaHost::owned_hero_reference(self,player_id)
@@ -237,7 +237,8 @@ impl InputBridge {
             Some(renderer_input::Intent::SummonCommand(value)) => {
                 if renderer_input.request_id==0 {return reject(0,"INVALID_SUMMON_REQUEST");}
                 let id=value.summon.as_ref().and_then(|r|r.replica_entity_id.as_ref()).map_or(0,|r|r.value);
-                let Some(expected)=replica.owned_summon_command(configured_player_id,id,value.operation,value.point,&value.ability) else {
+                let target=value.target.as_ref().map(|r|r.replica_entity_id.as_ref().map_or(0,|r|r.value));
+                let Some(expected)=replica.owned_summon_command(configured_player_id,id,value.operation,value.point,&value.ability,target) else {
                     return reject(renderer_input.request_id,"SUMMON_SOURCE_UNAVAILABLE");
                 };
                 let supplied=PlayerInput{action:Some(player_input::Action::SummonCommand(value))};

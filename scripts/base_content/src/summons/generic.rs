@@ -8,8 +8,13 @@
 //!    AttackAcquisitionRange) through the host collision step;
 //! 3. else nothing: the host follow rules (follow distances) and owner orders move it.
 //! `ai = idle` never acquires a target by itself. Fixed emplacements (immobile) never move.
+//! While it winds up a cast its owner ordered (D19, the host's `cast_preparation`) it neither
+//! attacks nor moves, as a casting hero: a moved caster's windup ends.
 use omb_script_abi::prelude::*;
 use omoba_template_ids::SummonAi;
+
+/// The host's status on a unit winding up a cast (omoba-core cast_windup).
+const CAST_PREPARATION: &str = "cast_preparation";
 
 #[derive(Clone)]
 pub struct Generic {
@@ -42,6 +47,7 @@ impl UnitScript for Generic {
 
     fn on_tick(&self, e: EntityHandle, dt: Fixed64, w: &mut GameWorldDyn<'_>) {
         if self.ai == SummonAi::Idle || self.no_attack { return; }
+        if w.has_buff(e, CAST_PREPARATION.into()) { return; }
         let RSome(pos) = w.get_pos(e) else { return; };
         let interval = w.get_asd_interval(e);
         if interval <= Fixed64::ZERO { return; }

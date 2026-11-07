@@ -4815,6 +4815,42 @@ mod fix_candidates {
         assert!(hp(&run, ally) < before - 100.0, "a far hit was negated on the ally outside the field");
     }
 
+    /// D19: a summon casts its unit-target ability at the unit its owner orders: A28R_old 火神's
+    /// A28_old 靈魂燃燒 silences an enemy hero and burns it. Without a target the order casts nothing.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only (formal match world): run with --release")]
+    pub(super) fn d19_a28_old_kagutsuchi_burns_the_ordered_units_soul() {
+        use specs::Join;
+        const ENTRY: &str = "a28_old_kagutsuchi";
+        let mut run = learned("hashiba_hideyoshi_old", ENTRY, 2, false);
+        let (caster, enemy) = (run.caster, run.enemy);
+        let cast = run.cast("none", 0.5, None).unwrap();
+        assert!(cast.accepted, "{ENTRY} not cast{}", cast.why());
+        run.step(2);
+        let god = (&run.world.entities(), &run.world.read_storage::<ScriptUnitTag>()).join()
+            .find(|(_, t)| of_template(&t.unit_id, "a28_old_kagutsuchi_unit")).map(|(e, _)| e).expect("火神 summoned");
+        // Inside 靈魂燃燒's 1000 from the god, far outside the enemy's reach of the caster.
+        let at = pos_of(&run, enemy) - east(600.0);
+        move_unit(&mut run, god, at);
+        let order = |target: Option<specs::Entity>| omoba_core::game_proto::OwnedSummonOrder { owner_entity: caster.id(),
+            owner_generation: caster.gen().id() as u32, summon_entity: god.id(), summon_generation: god.gen().id() as u32, operation: 3,
+            point: None, ability: "a28_old_soul_burn".into(),
+            target: target.map(|t| omoba_core::game_proto::SummonOrderTarget { entity: t.id(), generation: t.gen().id() as u32 }) };
+        let hp = |run: &Run| run.world.read_storage::<CProperty>().get(enemy).unwrap().hp;
+        let silenced = |run: &Run| run.world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>().is_silenced(enemy);
+        let input = PlayerInput { action: Some(PlayerInputEnum::OwnedSummonOrder(order(None))) };
+        { let result = run.driver.step(&mut run.world, [(1, input)]).unwrap(); project_tick(&mut run.world, result); }
+        run.step(ticks(1.0));
+        assert!(!silenced(&run), "a no-target order cast 靈魂燃燒");
+        let before = hp(&run);
+        let input = PlayerInput { action: Some(PlayerInputEnum::OwnedSummonOrder(order(Some(enemy)))) };
+        { let result = run.driver.step(&mut run.world, [(1, input)]).unwrap(); project_tick(&mut run.world, result); }
+        run.step(ticks(0.3 + 0.2));
+        assert!(silenced(&run), "the ordered enemy is not silenced ({})", holding(&run, enemy));
+        run.step(ticks(2.0));
+        assert!(hp(&run) < before, "the ordered enemy does not burn ({} -> {})", real(before), real(hp(&run)));
+    }
+
     /// FC-079: A04W's spirits walk at `$base_move` (the source's +370%..+460% hit the engine's cap)
     /// and attack every `$base_attack_time` seconds (the source added that as a little attack speed).
     #[test]
@@ -4841,7 +4877,7 @@ mod fix_candidates {
             let to = origin + east(1500.0);
             let order = omoba_core::game_proto::OwnedSummonOrder { owner_entity: caster.id(), owner_generation: caster.gen().id() as u32,
                 summon_entity: spirit.id(), summon_generation: spirit.gen().id() as u32, operation: 1,
-                point: Some(Vec2I { x: to.x.raw() as i32, y: to.y.raw() as i32 }), ability: String::new() };
+                point: Some(Vec2I { x: to.x.raw() as i32, y: to.y.raw() as i32 }), ability: String::new(), target: None };
             let input = PlayerInput { action: Some(PlayerInputEnum::OwnedSummonOrder(order)) };
             { let result = run.driver.step(&mut run.world, [(1, input)]).unwrap(); project_tick(&mut run.world, result); }
             run.step(ticks(0.25));
@@ -4851,7 +4887,7 @@ mod fix_candidates {
             assert!((walked - speed).abs() <= speed * 0.05, "rank {rank}: a spirit walked {walked:.1} in one second, expected {speed} ({})", holding(&run, spirit));
             // Attacking: one spirit beside the enemy, the other rooted far off, a release so it stands.
             let release = omoba_core::game_proto::OwnedSummonOrder { owner_entity: caster.id(), owner_generation: caster.gen().id() as u32,
-                summon_entity: spirit.id(), summon_generation: spirit.gen().id() as u32, operation: 2, point: None, ability: String::new() };
+                summon_entity: spirit.id(), summon_generation: spirit.gen().id() as u32, operation: 2, point: None, ability: String::new(), target: None };
             let input = PlayerInput { action: Some(PlayerInputEnum::OwnedSummonOrder(release)) };
             { let result = run.driver.step(&mut run.world, [(1, input)]).unwrap(); project_tick(&mut run.world, result); }
             move_unit(&mut run, spirit, origin + east(100.0));

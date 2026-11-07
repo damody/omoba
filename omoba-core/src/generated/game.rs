@@ -552,7 +552,8 @@ pub struct AttackTarget {
 /// Distinct from hero movement. References bind the current owner and summon
 /// generations; operation 1=MoveTo(point required), 2=Release(point forbidden),
 /// 3=Cast(ability required: one the summon holds as a unit ability; point for a
-/// point-target ability, else forbidden). `ability` is empty for 1 and 2.
+/// point-target ability, target for a unit-target one, else neither). `ability`
+/// is empty for 1 and 2; `target` is only on a cast and never with a point.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OwnedSummonOrder {
     #[prost(uint32, tag = "1")]
@@ -569,6 +570,17 @@ pub struct OwnedSummonOrder {
     pub point: ::core::option::Option<Vec2I>,
     #[prost(string, tag = "7")]
     pub ability: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "8")]
+    pub target: ::core::option::Option<SummonOrderTarget>,
+}
+/// A unit-target summon cast's target life (D19). Zeroed with the other lives
+/// in the ACK replicas receive.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct SummonOrderTarget {
+    #[prost(uint32, tag = "1")]
+    pub entity: u32,
+    #[prost(uint32, tag = "2")]
+    pub generation: u32,
 }
 /// Client-only opaque references. The authenticated edge converts this into
 /// OwnedSummonOrder; canonical lives never occur in this payload or an ACK.
@@ -584,6 +596,10 @@ pub struct SummonCommandInput {
     pub point: ::core::option::Option<Vec2I>,
     #[prost(string, tag = "5")]
     pub ability: ::prost::alloc::string::String,
+    /// A unit-target cast's target (operation 3 only, never with a point): any
+    /// unit the team sees, resolved at the edge like a hero's unit-target cast.
+    #[prost(message, optional, tag = "6")]
+    pub target: ::core::option::Option<SecureReplicaTarget>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct AttackMove {
