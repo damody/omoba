@@ -2,6 +2,24 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E678 base_content 12 個基準失敗、fc124 與 FC-168 的根因（2026-11-07，工作線 B）
+
+- **現象**：base_content 從 11-02 起有 12 個固定失敗，release 另有 fc124（國崩隊出生只剩 1 raw 生命）與 FC-168（松姬舊版傳送後緩速的位置錯誤）。
+- **程式根因（修 host／kit）**：
+  - **塔測試 3 個**（dart 2、ice 1）：`item_equip::changes` 在沒有註冊 `Inventory` 的世界直接讀 storage，因此 panic。修法：沒有 Inventory storage 就視為沒有道具。
+  - **fc124**：同一事件剛建立的單位還沒有 `CProperty`，adapter 的 `max_hp` 讀到 0，`set_health u.max_hp` 因此設成 1 raw。修法：本事件產生的單位讀模板生命，有 `overrides.hp` 時讀 override 值（`spawned_life`）。
+  - **FC-168**：`teleport_clear` 只送出 `__blink_landing` 封包，同一事件接著讀施法者位置仍是舊位置。修法：adapter 收到封包時，用和結算相同的純函式 `blink_landing::landing_in` 算出落點並放進 `overlay_pos`。
+- **測試落後於刻意的改動（修測試，保留原意）**：
+  - **successful_cast_facts、checked_cast_rank**：C 的 E295 讓施放目標事實 `AbilityTarget` 也用 `FactKind::Ability`。改成只數 `ObservableFact::Ability`，另外斷言指定單位的施放各有一筆 AbilityTarget。
+  - **ally_heal、area_effects、dash_effect 兩個**：測試先送一個會被拒的施法，同一位玩家的 bot 依 E596 對該技能退避。改成先斷言有退避，清掉 FailedCasts 後再斷言 bot 會施放。
+  - **single_lane_four_skills**：E401 讓自己隊伍也收到 CommittedCooldown。改成斷言只有施放的槽位，且值等於 replica 由輸入預測的冷卻。
+  - **piercing_hero_skills soak**：玉子 R 的致命箭矢造成物理傷害，魔免擋不住，2000 生命的英雄在 soak 內被打死，`hero_pair` 因此 panic。這個測試驗證的是暈眩能穿透魔免，所以把兩位英雄的生命設為 100000。
+- **未修，需要資料決定**：
+  - **source_spell_books**：火計之書燃燒在 v3 是 status periodic（interval 1、5 秒），到期當下不再跳，只有 4 跳；測試和 item 註記都預期 5 跳。
+  - 曾試過讓 periodic 在到期當下也跳一次（通用規則），但這會讓 FC-140（茶茶舊版放血，on_created 一跳加 periodic，作者預期 6 跳）變成 7 跳，所以撤回。兩份 package 對「到期那一刻」的預期相反，要由資料擁有者決定。
+- **另外發現（live 上就失敗，不是這批造成）**：`windup_dual_replica::every_windup_skill_matches_team_filtered_replicas`：`momochi_sandayu_old/b13_old_earth_hiding` team 1 在 tick 8 的 apply 回報 MalformedBaseline。
+- **以後如何避免**：改了投影、退避等刻意行為時，同時更新斷言舊行為的測試，不要留成「基準失敗」。新的基準失敗要當場追根因。
+
 ## E677 特效配方寫了 77 筆，畫面上幾乎看不到（2026-11-02，C）
 
 - **現象**：使用者看影片說「都沒特效」。粒子確實有生成（探針 n=1~9、材質有綁、culled=0），畫面只看得到環。

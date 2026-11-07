@@ -1042,6 +1042,20 @@ impl<'a> ParallelWorldAdapter<'a> {
         let point = *self.overlay_pos.get(&caster)?;
         (self.cache.pos.get(caster).is_some_and(|origin| origin.0 != point)).then_some(point)
     }
+    /// A unit this event spawned has no properties until settlement: it reads as born at full
+    /// life, its template's or the `hp` its create_unit overrides set (FC-124, E675).
+    fn spawned_life(&self, ent: Entity) -> Option<Fixed64> {
+        let unit_id = self.outcomes.iter().find_map(|outcome| match outcome {
+            Outcome::SpawnSummoned { entity, unit_id, .. } if *entity == ent => Some(unit_id.as_str()),
+            _ => None,
+        })?;
+        let overridden = self.outcomes.iter().rev().find_map(|outcome| match outcome {
+            Outcome::AddBuff { target, buff_id, payload, .. } if *target == ent && buff_id == super::super::unit_overrides::BUFF =>
+                payload.get("hp")?.as_i64().map(Fixed64::from_raw),
+            _ => None,
+        });
+        overridden.or_else(|| omoba_template_ids::summon_by_name(unit_id).and_then(omoba_template_ids::active_summon_stats).map(|stats| stats.hp))
+    }
     pub fn mark_hook_panicked(&mut self) { self.hook_panicked = true; }
     pub fn hook_panicked(&self) -> bool { self.hook_panicked }
     pub fn has_mana_changes(&self) -> bool { !self.mana_dirty.is_empty() }
@@ -1224,6 +1238,9 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         if let Some(p) = self.source_property(ent) {
             return RSome(p.hp);
         }
+        if let Some(life) = self.spawned_life(ent) {
+            return RSome(life);
+        }
         self.source_unit(ent)
             .map(|u| Fixed64::from_i32(u.current_hp))
             .map_or(RNone, RSome)
@@ -1235,6 +1252,9 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         };
         if let Some(p) = self.source_property(ent) {
             return RSome(p.mhp);
+        }
+        if let Some(life) = self.spawned_life(ent) {
+            return RSome(life);
         }
         self.source_unit(ent)
             .map(|u| Fixed64::from_i32(u.max_hp))
@@ -1458,6 +1478,18 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         if let Some(ent) = Self::handle_to_entity(target) {
             let payload =
                 serde_json::from_str(modifiers_json.as_str()).unwrap_or(serde_json::Value::Null);
+            // A blink landing moves its caster at once for the rest of this event (FC-168): the
+            // same pure landing serial settlement computes, from the position the script sees.
+            if let Some(spec) = super::super::blink_landing::Spec::from_payload(buff_id.as_str(), duration, &payload)
+                .filter(|spec| spec.source_id == ent.id() && spec.source_generation == ent.gen().id() as u32) {
+                let origin = self.overlay_pos.get(&ent).copied().or_else(|| self.cache.pos.get(ent).map(|p| p.0));
+                let alive = self.cache.cprop.get(ent).is_some_and(|p| p.hp > Fixed64::ZERO);
+                if let Some(origin) = origin.filter(|o| alive && (spec.anchor - *o).length_squared() <= spec.cast_range * spec.cast_range) {
+                    let radius = self.cache.collision.get(ent).map_or(Fixed64::ZERO, |r| r.0);
+                    let at = super::super::blink_landing::landing_in(Some(&self.cache.blocked), radius, &spec).unwrap_or(origin);
+                    self.overlay_pos.insert(ent, at);
+                }
+            }
             self.outcomes.push(Outcome::AddBuff {
                 target: ent,
                 buff_id: buff_id.as_str().to_string(),
@@ -3265,6 +3297,26 @@ mod tests {
         assert!(adapter.get_buff_payload(handle,plain).is_none(),"only unit variables read back");
         adapter.remove_buff(handle,var);
         assert!(adapter.get_buff_payload(handle,var).is_none(),"cleared");
+    }
+
+    /// FC-168：teleport_clear 之後同一事件讀施法者位置拿到落點（原作 FindClearSpaceForUnit 立即生效），
+    /// 和結算算出的一樣；錨點超出範圍的封包結算會拒絕，位置也不變。
+    #[test]
+    fn a_blink_landing_moves_its_caster_for_the_rest_of_the_event() {
+        use crate::runtime::native::blink_landing::{Spec,BUFF};
+        let mut world=world_for_adapter_tests();
+        let property=CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
+        let caster=world.create_entity().with(Pos(Vec2::ZERO)).with(property).build();
+        let cache=ParallelAdapterCache::new(&world,1);
+        let mut adapter=ParallelWorldAdapter::new(&cache,caster);
+        let handle=ParallelWorldAdapter::entity_to_handle(caster);
+        let spec=|anchor:i32,preferred:i32,range:i32| Spec {source_id:caster.id(),source_generation:caster.gen().id() as u32,
+            anchor:Vec2::new(Fixed64::from_i32(anchor),Fixed64::ZERO),preferred:Vec2::new(Fixed64::from_i32(preferred),Fixed64::ZERO),
+            cast_range:Fixed64::from_i32(range)}.payload().to_string();
+        adapter.add_stat_buff(handle,RStr::from_str(BUFF),Fixed64::ONE,RStr::from_str(&spec(900,800,500)));
+        assert_eq!(adapter.get_pos(handle).into_option(),Some(Vec2::ZERO),"an anchor out of range: settlement refuses it");
+        adapter.add_stat_buff(handle,RStr::from_str(BUFF),Fixed64::ONE,RStr::from_str(&spec(400,300,500)));
+        assert_eq!(adapter.get_pos(handle).into_option(),Some(Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO)),"landed");
     }
 
     #[test]

@@ -35,6 +35,8 @@ pub fn pending(world: &World) -> bool {
 
 /// The copies gained and lost since the last call, and the ledger brought up to date.
 pub fn changes(world: &mut World) -> Vec<Change> {
+    // A world without inventories (a tower or test world) holds no items.
+    if !world.has_value::<specs::storage::MaskedStorage<Inventory>>() { return Vec::new(); }
     let now: BTreeMap<Entity, BTreeMap<String, u32>> = {
         let (entities, inventories) = (world.entities(), world.read_storage::<Inventory>());
         (&entities, &inventories).join().map(|(entity, inventory)| {
@@ -74,6 +76,14 @@ mod tests {
     use super::*;
     use super::super::comp::ItemInstance;
     use specs::Builder;
+
+    /// A world that never registered inventories (tower projectile tests) has no equip changes.
+    #[test]
+    fn a_world_without_inventories_has_no_changes() {
+        let mut world = World::new();
+        world.create_entity().build();
+        assert!(changes(&mut world).is_empty());
+    }
 
     fn put(world: &mut World, owner: Entity, slot: usize, item: Option<&str>) {
         world.write_storage::<Inventory>().get_mut(owner).unwrap().slots[slot] =

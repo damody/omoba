@@ -3285,8 +3285,9 @@ fn successful_cast_facts_keep_unique_order_across_dispatch_drains_in_one_tick() 
         process_outcomes(&mut w,&mut RuntimeEventVecSink::default()).unwrap();
         committed_visuals.extend(w.write_resource::<ScriptVisualEventQueue>().drain());
     }
+    // Ability-kind facts also carry each cast's AbilityTarget (where it landed, E295): count the casts.
     let facts: Vec<_> = w.read_resource::<ObservableFactBuffer>().drain_ordered().unwrap().into_iter()
-        .filter(|fact| fact.key.fact_kind == FactKind::Ability).collect();
+        .filter(|fact| fact.key.fact_kind == FactKind::Ability && matches!(fact.fact, ObservableFact::Ability {..})).collect();
     assert_eq!(facts.len(), 2);
     assert_eq!(facts[0].key.tick, facts[1].key.tick);
     assert_ne!(facts[0].key.local_ordinal, facts[1].key.local_ordinal);
@@ -3369,8 +3370,12 @@ fn checked_cast_rank_rejects_overflow_and_catalog_bounds_for_every_resource_path
                 let label = format!("formal={formal} managed={managed} rank={rank}");
                 assert_eq!(casts.len(), usize::from(expected), "{label}");
                 let facts = w.read_resource::<ObservableFactBuffer>().drain_ordered().unwrap();
-                let ability: Vec<_> = facts.iter().filter(|fact| fact.key.fact_kind == FactKind::Ability).collect();
+                let ability: Vec<_> = facts.iter().filter(|fact| fact.key.fact_kind == FactKind::Ability
+                    && matches!(fact.fact, ObservableFact::Ability {..})).collect();
                 assert_eq!(ability.len(), usize::from(expected), "{label}");
+                // a unit-targeted cast also says where it landed (E295)
+                let targets = facts.iter().filter(|fact| matches!(fact.fact, ObservableFact::AbilityTarget {target: Some(_), ..})).count();
+                assert_eq!(targets, usize::from(expected), "{label}");
                 if expected {
                     let published = rank.max(0) as u32;
                     assert_eq!(casts[0].ability_rank, published, "{label}");
@@ -3835,6 +3840,9 @@ fn area_effects_bot_formal_60hz_hits_multiple_enemies_not_allies_or_outside_radi
         think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
         ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"ranger_volley".into(),intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:2}}]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
+    // E596: the bot holds off the ability whose input was just rejected; once that record is gone it casts it.
+    assert!(!role_bot_inputs(&w,&bots).unwrap().iter().any(|(_,input)|matches!(&input.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==2)),"E596 backoff");
+    w.write_resource::<omoba_core::runtime::native::game_processor::FailedCasts>().0.clear();
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert_eq!(inputs.len(),1);
     assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(c)) if c.ability_index==2 && c.target_entity.is_none() && c.target_pos.is_some()));
@@ -3927,6 +3935,9 @@ fn dash_effect_root_60hz_rejects_without_cost_then_bot_recovers_and_relocates() 
     for _ in 0..25 {result=Some(driver.step(&mut w,[]).unwrap());}
     assert!(!w.read_resource::<BuffStore>().is_rooted(caster));
     run_committed_visibility_wave_b(&mut w,result.unwrap().tick,0);
+    // E596: the bot holds off the ability whose input was just rejected; once that record is gone it casts it.
+    assert!(!role_bot_inputs(&w,&bots).unwrap().iter().any(|(_,input)|matches!(&input.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==3)),"E596 backoff");
+    w.write_resource::<omoba_core::runtime::native::game_processor::FailedCasts>().0.clear();
     let input=role_bot_inputs(&w,&bots).unwrap();
     assert!(matches!(&input[0].1.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==3));
     driver.step(&mut w,input).unwrap();
@@ -3967,6 +3978,9 @@ fn dash_effect_formal_60hz_rejects_wall_and_range_then_bot_relocates() {
         ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_resolve".into(),
             intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300,reach_key:None}}]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
+    // E596: the bot holds off the ability whose input was just rejected; once that record is gone it casts it.
+    assert!(!role_bot_inputs(&w,&bots).unwrap().iter().any(|(_,input)|matches!(&input.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==3)),"E596 backoff");
+    w.write_resource::<omoba_core::runtime::native::game_processor::FailedCasts>().0.clear();
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(c)) if c.ability_index==3 && c.target_entity.is_none() && c.target_pos.is_some()));
     assert_eq!(w.read_storage::<Pos>().get(caster).unwrap().0,source,"Bot must not move the entity itself");
@@ -5502,6 +5516,9 @@ fn ally_heal_60hz_generated_support_rejects_enemy_and_heals_disclosed_teammate()
     assert!(!w.read_storage::<Hero>().get(caster).unwrap().is_on_cooldown("lumen_aid"));
     assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp,Fixed64::from_i32(100));
     run_committed_visibility_wave_b(&mut w,result.tick,0);
+    // E596: the bot holds off the ability whose input was just rejected; once that record is gone it casts it.
+    assert!(!role_bot_inputs(&w,&bots).unwrap().iter().any(|(_,input)|matches!(&input.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==3)),"E596 backoff");
+    w.write_resource::<omoba_core::runtime::native::game_processor::FailedCasts>().0.clear();
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(cast))
         if cast.ability_index==3 && cast.target_entity==Some(ally.id())));
@@ -11758,7 +11775,17 @@ fn single_lane_four_skills_use_formal_input_and_filtered_hp_settlement() {
             let step = frames[team].frame.step.as_ref().unwrap();
             assert_eq!(step.accepted_inputs.len(), usize::from(*team == 1), "enemy inputs must stay private");
             if *team == 1 {
-                assert!(!step.public_events.iter().any(|event| event.event_kind == FactKind::CommittedCooldown as u32), "owner cooldown must be predicted from accepted input, not repaired");
+                // E401: the authority discloses the owner's own cooldowns too; the one this cast
+                // started is exactly what the accepted input predicts, so applying it changes nothing.
+                for event in step.public_events.iter().filter(|event| event.event_kind == FactKind::CommittedCooldown as u32) {
+                    let payload = &event.sanitized_payload;
+                    assert_eq!(payload.len(), 12);
+                    let committed_slot = u32::from_le_bytes(payload[0..4].try_into().unwrap());
+                    let remaining = i64::from_le_bytes(payload[4..12].try_into().unwrap());
+                    let hero = world.read_storage::<Hero>().get(caster).unwrap().clone();
+                    assert_eq!(committed_slot, slot, "only the cast slot's cooldown");
+                    assert_eq!(remaining, hero.get_cooldown(&hero.abilities[slot as usize]).raw(), "the predicted cooldown");
+                }
                 // Automatic attack clocks settle against authority NPC/lifecycle
                 // outcomes; cooldown still proves the owner's accepted input.
             }
@@ -13460,6 +13487,9 @@ pub(crate) mod live_soak_replica_parity {
                         for id in h.abilities.clone() {h.ability_levels.insert(id,1);}}
                     authority.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0]=
                         Some(ItemInstance {item_id:"perceive_wine".into(),cooldown_remaining:0.});
+                    // 百矢's arrows deal physical damage, which immunity does not stop: they kill a
+                    // 2000-life hero within the soak. Both must live through it (stuns, not lethality).
+                    {let mut props=authority.write_storage::<CProperty>();let p=props.get_mut(hero).unwrap();p.mhp=Fixed64::from_i32(100000);p.hp=p.mhp;}
                 }
             },
             &mut |authority,tick|{

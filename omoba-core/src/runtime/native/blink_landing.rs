@@ -90,9 +90,16 @@ fn rotate(v: Vec2, angle: Angle) -> Vec2 {
 /// Where the caster lands: the first walkable candidate, else `None` (stay).
 pub fn landing(world: &World, spec: &Spec) -> Option<Vec2> {
     let source = world.entities().entity(spec.source_id);
-    let radius = world.read_storage::<CollisionRadius>().get(source).map_or(Fixed64::ZERO, |r| r.0.max(Fixed64::ZERO));
+    let radius = world.read_storage::<CollisionRadius>().get(source).map_or(Fixed64::ZERO, |r| r.0);
     let regions = world.try_fetch::<BlockedRegions>();
-    let walkable = |p: Vec2| regions.as_ref().is_none_or(|regions| point_walkable(regions, p, radius));
+    landing_in(regions.as_deref(), radius, spec)
+}
+
+/// [`landing`] against `regions` (`None`: every point is walkable) for a body of `radius`; a
+/// script's world reads it so the caster's position after the packet is the settled one (FC-168).
+pub fn landing_in(regions: Option<&BlockedRegions>, radius: Fixed64, spec: &Spec) -> Option<Vec2> {
+    let radius = radius.max(Fixed64::ZERO);
+    let walkable = |p: Vec2| regions.is_none_or(|regions| point_walkable(regions, p, radius));
     if walkable(spec.preferred) { return Some(spec.preferred); }
     let offset = spec.preferred - spec.anchor;
     if offset == Vec2::ZERO { return None; }

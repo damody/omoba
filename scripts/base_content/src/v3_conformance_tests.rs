@@ -7301,7 +7301,6 @@ mod fix_candidates {
     /// FC-168: C19R_old, unseen long enough, teleports her to the point and slows the enemies
     /// within `$slow_radius` of it, spell-immune ones too (the source errored first: nothing).
     #[test]
-    #[ignore = "FC-168 known fail: the slow picks units around where she stood before the teleport (kit teleport_clear lands later); B fixes, then remove this"]
     pub(super) fn fc168_c19r_old_teleports_and_slows() {
         const ENTRY: &str = "c19_old_surprise_raid";
         let rank = 1;
