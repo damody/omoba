@@ -296,6 +296,9 @@ local function build(entry)
     list[i] = slots[i] or ""
     loadout[i] = slots[i] and ranks[i] or 0
   end
+  -- the loadout lists 4 to 6 ranks (omoba-content-model MobaLoadout): a three-ability skill set
+  -- (tachibana_muneshige_v20, Q W E) is padded with unlearned ranks, its row stays 3 long
+  for i = top + 1, 4 do loadout[i] = 0 end
   -- A skill-set variant (D22): its own hero, named after its base hero, wearing the base's body and
   -- art (variant_of); text the document leaves out is the base's.
   local variant, base_doc = variant_of(entry.package, doc)
