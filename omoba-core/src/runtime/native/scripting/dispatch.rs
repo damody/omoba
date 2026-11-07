@@ -391,6 +391,7 @@ fn dispatch_scripts(
                 invocation_entity,
                 event_ordinal as u64,
             );
+            if matches!(&ev, ScriptEvent::SkillCast { .. } | ScriptEvent::ItemCast { .. }) { adapter.mark_input_driven(); }
             let visual_checkpoint = visual_events.len();
             adapter.begin_mana_transaction(&cast_heroes);
             if is_cast && enforce_learned_ranks { adapter.capture_formal_cast_areas(); }
@@ -940,6 +941,7 @@ fn run_phase_start(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, 
         SkillTarget::None => Target::None,
     };
     let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(cache, caster, ordinal);
+    adapter.mark_input_driven();
     let mut world_dyn = world_dyn_of(&mut adapter);
     let result = catch_unwind(AssertUnwindSafe(|| script.on_phase_start(handle, target, level, &mut world_dyn)));
     drop(world_dyn);

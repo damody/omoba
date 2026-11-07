@@ -145,6 +145,13 @@ pub mod unit_attr {
     pub const MAX_MANA: &str = "max_mana";
     /// `Bool`: an illusion (state `illusion`).
     pub const IS_ILLUSION: &str = "is_illusion";
+    /// `Bool`: a unit some unit summoned, an illusion excepted; still one after its summoner died
+    /// (OWNER is `None` then).
+    pub const IS_SUMMON: &str = "is_summon";
+    /// `Num`: the physical damage multiplier of the unit's attacks: an illusion's 1 + its
+    /// `create_illusion.outgoing` physical fraction (原作 outgoing_damage), at least 0; 1 for any
+    /// other unit.
+    pub const ILLUSION_DAMAGE: &str = "illusion_damage";
     /// `Bool`: channelling an ability.
     pub const IS_CHANNELING: &str = "is_channeling";
     /// `Bool`: state `invulnerable`.
@@ -238,4 +245,10 @@ pub mod game_attr {
     pub const TIME: &str = "time";
     /// `Num`: seconds of match time one tick advances.
     pub const DT: &str = "dt";
+    /// `Num`: the index of the latest lane creep wave, 0 for the first (原作 `_G.A_count`); -1
+    /// before the first wave and outside a MOBA match.
+    pub const CREEP_WAVE: &str = "creep_wave";
+    /// `Num`: the armor lane creeps spawned now gain over their authored armor from match time
+    /// (原作 `_G.armor_bonus`; the map's minion growth); 0 outside a MOBA match.
+    pub const CREEP_ARMOR_BONUS: &str = "creep_armor_bonus";
 }

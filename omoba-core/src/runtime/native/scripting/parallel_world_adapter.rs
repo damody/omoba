@@ -225,6 +225,10 @@ pub struct ParallelWorldAdapter<'a> {
     overlay_pos: HashMap<Entity, Vec2>,
     /// A due scheduled step: statuses that expired in this tick still count as held.
     held_through_expiry: bool,
+    /// The invocation runs an accepted input (a cast or item use and its phase start): a team
+    /// replica predicts its cooldown changes. Any other (passive triggers, schedules, delays) takes
+    /// them from the authority's CommittedCooldown only.
+    input_driven: bool,
     cast_succeeded: bool,
     /// v3 `refund { cooldown = true }` (ext REFUND, E455): this cast's cooldown does not start.
     refund_cooldown: bool,
@@ -670,6 +674,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             outcomes: Vec::new(),
             overlay_pos: HashMap::new(),
             held_through_expiry: false,
+            input_driven: false,
             cast_succeeded: false,
             refund_cooldown: false,
             cast_rejection: None,
@@ -703,8 +708,20 @@ impl<'a> ParallelWorldAdapter<'a> {
     pub fn finish(self) -> Vec<Outcome> {
         let mut this = self;
         this.reserved_entities.clear(); // ownership transfers to outcomes
-        std::mem::take(&mut this.outcomes)
+        let mut outcomes = std::mem::take(&mut this.outcomes);
+        // A team replica does not predict a cooldown change no accepted input caused: it may lack
+        // the authority's state that decided it (a rebased replica relearns its passives without
+        // their statuses or schedule phase, 小島貞興舊版 法術護盾). The settled remaining arrives as
+        // CommittedCooldown in the same frame.
+        if this.cache.filtered && !this.input_driven {
+            outcomes.retain(|outcome| !matches!(outcome, Outcome::AddBuff { buff_id, payload, .. }
+                if super::super::hero_command::cooldown_ability(buff_id, payload).is_some()));
+        }
+        outcomes
     }
+
+    /// See `input_driven`.
+    pub(crate) fn mark_input_driven(&mut self) { self.input_driven = true; }
 
     pub fn mark_cast_succeeded(&mut self) { self.cast_succeeded = true; }
 
@@ -887,6 +904,9 @@ impl<'a> ParallelWorldAdapter<'a> {
                 .or_else(||hero.and_then(|hero|hero.mana_pool.as_ref()).map(|pool|pool.maximum()))
                 .or_else(||self.cache.unit_mana(e).map(|mana|mana.pool.maximum()))),
             name::IS_ILLUSION=>V::Bool(has(state::ILLUSION)),
+            name::IS_SUMMON=>V::Bool(!has(state::ILLUSION)
+                && entity.is_some_and(|e|self.cache.summoned.as_ref().is_some_and(|rows|rows.get(e).is_some()))),
+            name::ILLUSION_DAMAGE=>num(&|e|Some(super::super::illusion::physical_outgoing(buffs(e),e))),
             name::IS_CHANNELING=>V::Bool(has(super::super::ability_channel::STATUS)),
             name::IS_INVULNERABLE=>V::Bool(has(state::INVULNERABLE)),
             name::IS_INVISIBLE=>V::Bool(entity.is_some_and(|e|buffs(e).stealth_level(e)>0)),
@@ -2189,6 +2209,10 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                     name::IS_NIGHT => ROk(V::Bool(self.cache.night)),
                     name::TIME => ROk(V::Num(self.cache.moba.as_ref().map_or(Fixed64::ZERO, |state| state.elapsed))),
                     name::DT => ROk(V::Num(self.cache.dt)),
+                    name::CREEP_WAVE => ROk(V::Num(Fixed64::from_i32(self.cache.moba.as_ref()
+                        .map_or(-1, |state| i32::try_from(state.waves).unwrap_or(i32::MAX) - 1)))),
+                    name::CREEP_ARMOR_BONUS => ROk(V::Num(Fixed64::from_i32(self.cache.moba.as_ref()
+                        .map_or(0, |state| state.config.minion_growth_rules.armor_bonus(state.elapsed))))),
                     _ => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown game attribute {attr}"))),
                 }
             }
@@ -2449,6 +2473,7 @@ mod tests {
         let me=world.create_entity().with(Pos(Vec2::ZERO)).with(Faction::new(FactionType::Player,1)).with(hero).with(TAttack::new(Fixed64::from_i32(30),Fixed64::ONE,Fixed64::from_i32(500),Fixed64::from_i32(900)))
             .with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::from_i32(25)}).build();
         let summon=world.create_entity().with(SummonedUnit::new_fixed(me,Some(Fixed64::from_i32(30)))).build();
+        let pet=world.create_entity().with(SummonedUnit::new_fixed(me,Some(Fixed64::from_i32(30)))).build();
         let at=|x:i32|Pos(Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO));
         let enemy=world.create_entity().with(at(50)).with(Faction::new(FactionType::Enemy,2)).build();
         let ally=world.create_entity().with(at(80)).with(Faction::new(FactionType::Player,1)).build();
@@ -2457,7 +2482,7 @@ mod tests {
         {
             let mut buffs=world.write_resource::<BuffStore>();
             buffs.add(me,"str_aura",Fixed64::from_i32(5),json!({ StatKey::StatsStrengthBonus.as_str(): 6 * 1024 }));
-            buffs.add(summon,crate::runtime::native::rules::vocab::state::ILLUSION,Fixed64::from_i32(5),json!({"look":"inahime","abilities":{"a02_q":2}}));
+            buffs.add(summon,crate::runtime::native::rules::vocab::state::ILLUSION,Fixed64::from_i32(5),json!({"look":"inahime","abilities":{"a02_q":2},"outgoing":[-768,0,0]}));
             buffs.add(me,crate::runtime::native::ability_channel::STATUS,Fixed64::from_i32(5),json!({}));
             buffs.add(me,"plate",Fixed64::from_i32(5),json!({ StatKey::PhysicalArmorBonus.as_str(): 3 * 1024, StatKey::PreattackBonusDamage.as_str(): 12 * 1024 }));
         }
@@ -2485,6 +2510,11 @@ mod tests {
         assert_eq!(unit(s,name::IS_RANGED),Ok(V::Bool(false)),"no attack");
         assert_eq!(unit(h,name::IS_CREEP),Ok(V::Bool(false)));
         assert_eq!(unit(s,name::OWNER),Ok(V::Unit(h)));
+        let p=ParallelWorldAdapter::entity_to_handle(pet);
+        assert_eq!((unit(p,name::IS_SUMMON),unit(s,name::IS_SUMMON),unit(h,name::IS_SUMMON),unit(c,name::IS_SUMMON)),
+            (Ok(V::Bool(true)),Ok(V::Bool(false)),Ok(V::Bool(false)),Ok(V::Bool(false))),"a summon, not an illusion, the hero or the camp");
+        assert_eq!((unit(s,name::ILLUSION_DAMAGE),unit(p,name::ILLUSION_DAMAGE),unit(h,name::ILLUSION_DAMAGE)),
+            (Ok(V::Num(Fixed64::from_raw(256))),n(1),n(1)),"an illusion at -75% physical deals 0.25; others 1");
         assert_eq!(unit(h,name::ATTACK_DAMAGE),n(80),"the attack as it left, critical included");
         assert_eq!(unit(h,name::ATTACK_EFFECT_MULTIPLIER),n(1));
         assert_eq!(unit(s,name::ATTACK_DAMAGE),n(0),"no attack");
@@ -2526,6 +2556,7 @@ mod tests {
         let mut game=|attr:&str|adapter.ext(op::GAME_ATTR,RSlice::from_slice(&[A::Str(attr.into())])).into_result();
         assert_eq!(game(game_attr::IS_NIGHT),Ok(V::Bool(true)));
         assert_eq!(game(game_attr::TIME),n(0));
+        assert_eq!((game(game_attr::CREEP_WAVE),game(game_attr::CREEP_ARMOR_BONUS)),(n(-1),n(0)),"outside a MOBA match");
         // UNITS_IN_RANGE: allies of `me` (itself included), nearest first.
         let mut near=|team:&str|adapter.ext(op::UNITS_IN_RANGE,RSlice::from_slice(&[A::Point(omb_script_abi::types::Vec2::ZERO),
             A::Num(Fixed64::from_i32(100)),A::Unit(h),A::Str(team.into())])).into_result();

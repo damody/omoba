@@ -13787,6 +13787,21 @@ pub(crate) mod live_soak_replica_parity {
         assert!(report.mismatches.is_empty(),"{:#?}",report.mismatches);
         assert!(report.casts_of(0,"b23_old_mind_control")>=1,"it was cast: {:?}",report.casts);
     }
+    /// kojima_sadaoki_old's spell shield (a periodic passive that starts its own cooldown while
+    /// below max stacks) and enemy magic consuming the stacks: both team replicas stay identical.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only full-match soak (E180): run with --release")]
+    fn kojima_sadaoki_old_spell_shield_keeps_team_replicas_identical() {
+        let schedule=|tick:u32,pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            match tick {
+                t if t%600==6=>vec![(1,attack_move(b)),(2,attack_move(a))],
+                t if t>6 && t%400==30=>vec![(2,cast(0,Some(pair[0]))),(2,cast(1,Some(pair[0]))),(2,cast_at(2,a))],
+                _=>vec![],
+            }
+        };
+        let report=soak_report(["kojima_sadaoki_old","training_luminary"],3600,&schedule);
+        assert!(report.mismatches.is_empty(),"{:#?}",report.mismatches);
+    }
     /// H04/H05/H06: every built slot (tether settle, global buff, point blast,
     /// area ally heal, toggle orb, self buffs, stealth, fang lines, blink and
     /// cast-stacking passive) cast at or near the enemy hero; both team replicas
