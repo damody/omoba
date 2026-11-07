@@ -535,10 +535,17 @@ local function longest(value)
 end
 -- A channel runs out its whole channel time (the segment's stop order cancels it, E: c01 本能寺 and
 -- a23 落火 stopped at 4 s of 5.2 and 4): the cast point and the channel, a second to spare.
+-- A toggle lasts until it can be turned off again: its cooldown and its lock (a17_old 大筒 locks 6 s,
+-- cools 7 s; turned off at 4.5 s it stayed on, -200% move speed, and the death was never reached).
 function M.hold_seconds(doc,id)
   for _,ability in ipairs(doc and doc.abilities or {}) do
     if ability.id==id and type(ability.values)=='table' then
       local most=longest(ability.values.duration)+0.5
+      if ability.kind=='toggle' then
+        local off=math.max(longest(ability.values.cooldown),longest(ability.values.lock))
+        if off>0 then most=math.max(most,off+0.5) end
+        if most>M.BASE_HOLD then return math.min(most,M.MAX_CHANNEL_HOLD) end
+      end
       -- The channel's length is the value its cast names (b25 阿修羅地獄: "$duration").
       local named=type(ability.cast)=='table' and type(ability.cast.channel_time)=='string' and ability.cast.channel_time:match('^%$([%w_]+)$')
       local channel=longest(ability.values[named or 'channel_time'])
