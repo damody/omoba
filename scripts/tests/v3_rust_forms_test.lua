@@ -346,4 +346,19 @@ test('remove_status by source and duration, and an item passive hearing its hold
   assert(has(bizen, '("item_bizennosafunekanemitsu", 9) => {'), 'served on kind 9')
 end)
 
+test('an item hears its holder\'s death: active on_owner_death, item_count, pick_item slots all', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I1.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_insight_gem_shard' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  local shard = assert(files['src/generated/item_insight_gem_shard.rs'], 'the shard generates')
+  assert(has(shard, 'cx.passive_marker(ID, &[], 524288);'), 'the marker hears OWNER_DEATH')
+  assert(has(shard, '("item_insight_gem_shard", 22) => {'), 'served on kind 22')
+  assert(has(shard, '.filter(|&slot| cx.item_in_slot(u, slot).as_deref() == Some("item_insight_gem_hero")).count()'), 'item_count')
+  assert(has(shard, 'cx.remove_picked_item(p)?;'), 'removes what the pick found')
+end)
+
 print(('%d tests passed'):format(count))

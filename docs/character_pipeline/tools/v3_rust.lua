@@ -223,6 +223,9 @@ local STATUS_TRIGGERS = {
   on_order_filter = { 262144, { 21 } },
   -- the holder's attack missed (line B E496): event.target its target; missed at launch or evaded
   on_attack_miss = { 131072, { 20 } },
+  -- the holder is about to die (line B 7b32a3e1): before the death settles, effects only; no
+  -- event fields (the killer is not tracked)
+  on_owner_death = { 524288, { 22 } },
   -- applied again while it holds: the applying code runs it after the apply (no host event)
   on_refreshed = { 0 },
 }
@@ -805,6 +808,10 @@ function Gen:expr(node, ctx)
       if node.name == "distance" then return "cx.event_amount", "num" end
       self:block("event:" .. node.name .. " of a status on_moved"); return "Fixed64::ZERO", "err"
     end
+    -- an owner's death (line B 7b32a3e1) carries no event fields
+    if ot == "event" and ctx.event == "owner_death" then
+      self:block("event:" .. node.name .. " of an owner death"); return "Fixed64::ZERO", "err"
+    end
     -- a status's on_mana_spent / on_heal_received tells only how much (line B E449, E478)
     if ot == "event" and (ctx.event == "mana_spent" or ctx.event == "heal_received") then
       if node.name == "amount" then return "cx.event_amount", "num" end
@@ -1054,6 +1061,15 @@ function Gen:call(node, ctx)
     self.item_names = self.item_names or C.item_names(((self.opts.root or "."):gsub("\\", "/")) .. "/docs/character_pipeline/items")
     if not self.item_names[name] then self:block("fn:has_item of " .. name .. " (no such item)"); return "false", "bool" end
     return "{ let u = " .. u .. "; (0..6u8).any(|slot| cx.item_in_slot(u, slot).as_deref() == Some(" .. rust_str(name) .. ")) }", "bool"
+  elseif fn == "item_count" then
+    -- how many of the unit's inventory slots hold that catalog item (the slots has_item reads)
+    local u, t = arg(1)
+    local name = name_arg(2)
+    if t == "err" or not name then return "Fixed64::ZERO", "num" end
+    if t ~= "unit" then self:block("fn:item_count of a " .. t); return "Fixed64::ZERO", "num" end
+    self.item_names = self.item_names or C.item_names(((self.opts.root or "."):gsub("\\", "/")) .. "/docs/character_pipeline/items")
+    if not self.item_names[name] then self:block("fn:item_count of " .. name .. " (no such item)"); return "Fixed64::ZERO", "num" end
+    return "{ let u = " .. u .. "; Fixed64::from_i32((0..6u8).filter(|&slot| cx.item_in_slot(u, slot).as_deref() == Some(" .. rust_str(name) .. ")).count() as i32) }", "num"
   elseif fn == "landmark" then
     -- a team's landmark (line B E538): `landmark(team_of(u), fort|base)` is u's own team's
     local tm, kind = args[1], name_arg(2)
@@ -3393,7 +3409,8 @@ function Gen:action(a, ctx, ind)
     end
     return out .. line("}")
   elseif op == "pick_item" then
-    if a.slots ~= nil and a.slots ~= "inventory" then self:block("action:pick_item.slots:" .. tostring(a.slots)); return "" end
+    -- the host has no backpack (kit pick_item): `all` is the inventory
+    if a.slots ~= nil and a.slots ~= "inventory" and a.slots ~= "all" then self:block("action:pick_item.slots:" .. tostring(a.slots)); return "" end
     local order = ({ first = "First", last = "Last", random = "Random" })[a.order or "first"]
     if not order then self:block("action:pick_item.order:" .. tostring(a.order)); return "" end
     local from = self:value(a.from, ctx, "unit")
@@ -4237,10 +4254,12 @@ local function emit_entry(m, o, opts, status_problems)
   local events = def.events or {}
   for _, ev in ipairs(sorted_keys(events)) do
     -- an item's active on_unequip: the host calls AbilityScript::on_unequip per copy lost
-    if not ENTRY_EVENTS[ev] and not (ev == "on_unequip" and o.kind == "item") then g:block("event:" .. ev) end
+    -- an item's active on_owner_death: its marker hears the holder's death (line B 7b32a3e1)
+    if not ENTRY_EVENTS[ev] and not ((ev == "on_unequip" or ev == "on_owner_death") and o.kind == "item") then g:block("event:" .. ev) end
   end
   if o.kind == "item" and def.active ~= nil and def.active.kind == "toggle" and not events.on_toggle_on then g:block("item.active.kind:toggle without on_toggle_on") end
   if events.on_unequip then program("on_unequip_active", events.on_unequip, false) end
+  if o.kind == "item" and events.on_owner_death then program("on_owner_death", events.on_owner_death, "owner_death") end
   if events.on_toggle_on and not events.on_toggle_off or events.on_toggle_off and not events.on_toggle_on then g:block("toggle: needs both on_toggle_on and on_toggle_off") end
   if events.on_cast and events.on_toggle_on then g:block("toggle: cast and toggled") end
   local spec = target_spec(g, def.target, def.flags)
@@ -4331,6 +4350,11 @@ local function emit_entry(m, o, opts, status_problems)
   local filters = {}
   local passive_mask, passive_arms, passive_periodic, passive_created = 0, {}, nil, false
   local item_equip, item_mask, item_periodic = {}, 0, nil
+  local owner_death = STATUS_TRIGGERS.on_owner_death
+  if o.kind == "item" and events.on_owner_death then
+    item_mask = item_mask + owner_death[1]
+    passive_arms[#passive_arms + 1] = { kind = owner_death[2][1], fn = "on_owner_death" }
+  end
   local function doc_id_of(_) return (m.doc_id or "doc"):lower() end
   for _, ev in ipairs(sorted_keys(passive.triggers)) do
     local tr = passive.triggers[ev]
@@ -4344,9 +4368,12 @@ local function emit_entry(m, o, opts, status_problems)
     -- an item's on_ability_executed: its marker hears the holder's casts and item uses (status
     -- event ABILITY_EXECUTED, line B c69d3adf)
     local item_executed = item and ev == "on_ability_executed"
-    if item and ev ~= "on_created" and ev ~= "on_removed" and ev ~= "periodic" and ev ~= "on_attack_hit" and not PASSIVE_EVENTS[ev] and not item_executed then
+    -- an item's on_death: its marker hears the holder's death, before it settles (status event
+    -- OWNER_DEATH, line B 7b32a3e1)
+    local item_death = item and ev == "on_death"
+    if item and ev ~= "on_created" and ev ~= "on_removed" and ev ~= "periodic" and ev ~= "on_attack_hit" and not PASSIVE_EVENTS[ev] and not item_executed and not item_death then
       g:block("passive_trigger:" .. ev .. " of an item (no learn marker)")
-    elseif not PASSIVE_TRIGGERS[ev] and not (item and ev == "on_removed") then g:block("passive_trigger:" .. ev)
+    elseif not PASSIVE_TRIGGERS[ev] and not (item and (ev == "on_removed" or ev == "on_death")) then g:block("passive_trigger:" .. ev)
     else
       for _, k in ipairs(sorted_keys(tr)) do
         if k ~= "actions" and k ~= "filter" and k ~= "notes" and not (k == "who" and ev == "on_ability_executed")
@@ -4381,9 +4408,10 @@ local function emit_entry(m, o, opts, status_problems)
           .. "        }\n"
         if item then item_periodic = start else passive_periodic = start end
       else
-        local evt = PASSIVE_EVENTS[ev] or (item_executed and STATUS_TRIGGERS.on_ability_executed and { STATUS_TRIGGERS.on_ability_executed[1], STATUS_TRIGGERS.on_ability_executed[2][1] }) or nil
+        local evt = PASSIVE_EVENTS[ev] or (item_executed and { STATUS_TRIGGERS.on_ability_executed[1], STATUS_TRIGGERS.on_ability_executed[2][1] })
+          or (item_death and { owner_death[1], owner_death[2][1] }) or nil
         local pre = ev == "on_take_damage_pre" or ev == "on_deal_damage_pre"
-        local ctx = { owner = o, scope = scope_child(nil), event = item_executed and "ability_executed" or ev == "on_ability_executed" and "owner_cast" or (ev == "on_heal_received" and "heal_received") or (ev == "on_order_targeted" and "order_targeted") or (ev == "on_moved" and "moved") or ev ~= "on_created", pre = pre, windup = ev == "on_attack_windup" }
+        local ctx = { owner = o, scope = scope_child(nil), event = item_executed and "ability_executed" or item_death and "owner_death" or ev == "on_ability_executed" and "owner_cast" or (ev == "on_heal_received" and "heal_received") or (ev == "on_order_targeted" and "order_targeted") or (ev == "on_moved" and "moved") or ev ~= "on_created", pre = pre, windup = ev == "on_attack_windup" }
         local filter = tr.filter and g:value(tr.filter, ctx, "bool") or "true"
         filters[ev] = filter
         local body = g:actions(tr.actions, ctx, "    ")
