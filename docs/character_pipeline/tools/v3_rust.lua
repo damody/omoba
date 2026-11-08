@@ -1685,7 +1685,9 @@ local SELECT_TYPES = { [""] = "All", all = "All", hero = "Heroes", ["creep+hero+
   -- towers are buildings: every class again
   ["building+creep+hero+neutral+summon+tower"] = "All",
   -- buildings only / every class but heroes
-  building = "Buildings", ["building+creep+neutral+summon"] = "NonHero" }
+  building = "Buildings", ["building+creep+neutral+summon"] = "NonHero",
+  -- heroes and buildings only (ability_kit HeroesAndBuildings, B b743ba3b)
+  ["building+hero"] = "HeroesAndBuildings" }
 local function types_key(t)
   local names = {}
   for _, n in ipairs(type(t) == "table" and t or {}) do names[#names + 1] = n end

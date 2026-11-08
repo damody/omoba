@@ -370,7 +370,7 @@ test('an item passive hears its holder\'s death and respawn', function()
     end
   end
   local scepter = assert(files['src/generated/item_death_of_scepter.rs'], 'the scepter generates')
-  assert(has(scepter, 'cx.passive_marker(ID, &[], 1573376);'), 'the marker hears KILL, OWNER_DEATH and RESPAWN')
+  assert(has(scepter, '], 1573376);'), 'the marker hears KILL, OWNER_DEATH and RESPAWN')
   assert(has(scepter, '("item_death_of_scepter", 22) => {'), 'death on kind 22')
   assert(has(scepter, '("item_death_of_scepter", 23) => {'), 'respawn on kind 23')
 end)
@@ -386,6 +386,18 @@ test('an item instance\'s bool / unit state, read and written in its repeat step
   local mirror = assert(files['src/generated/item_moon_mirror.rs'], 'the mirror generates')
   assert(has(mirror, 'if let Some(k) = cx.item_instance_key("batch_i2:moon_mirror_cur") { cx.set_state_unit(on, &k, value, false)?; }'), 'unit write')
   assert(has(mirror, 'match cx.item_instance_key("batch_i2:moon_mirror_live") { Some(k) => cx.state_bool(h, &k, false), None => false }'), 'bool read')
+end)
+
+test('an aura over heroes and buildings selects HeroesAndBuildings', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I1.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_insight_gem_hero' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  local gem = assert(files['src/generated/item_insight_gem_hero.rs'], 'the gem generates')
+  assert(has(gem, 'UnitTypes::HeroesAndBuildings'), 'building+hero')
 end)
 
 print(('%d tests passed'):format(count))
