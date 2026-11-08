@@ -48,6 +48,116 @@ pub(super) struct ActiveItemObservation<'a> {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum ActiveItemPriority { Shield, Reduction, Escape, Recovery, ChannelRecovery, AttackPreparation, Engage }
 
+/// The v3 bot policy of a shop item's active (`V3_CATALOG_JSON` items[].v3.bot: authored or
+/// derived by v3_bot.lua, the same vocabulary as a hero ability's [`super::BotAbilityIntent`]) and
+/// the item's own values (a `radius_key` names one). A scripted active (items.dll) has no host
+/// effect to read its purpose from, so the bot uses it by this policy.
+struct ItemBotPolicy { intent: super::BotAbilityIntent, values: BTreeMap<String, omoba_sim::Fixed64> }
+
+/// Catalog item id -> its active's bot policy; items whose policy is `none` or names a kind the
+/// runtime does not know are absent.
+fn item_bot_policies() -> &'static BTreeMap<String, ItemBotPolicy> {
+    static POLICIES: std::sync::OnceLock<BTreeMap<String, ItemBotPolicy>> = std::sync::OnceLock::new();
+    POLICIES.get_or_init(|| {
+        let doc: serde_json::Value = serde_json::from_str(omoba_template_ids::V3_CATALOG_JSON).unwrap_or_default();
+        doc["items"].as_array().into_iter().flatten().filter_map(|item| {
+            let id = item["id"].as_str()?;
+            let mut bot = item["v3"]["bot"].as_object()?.clone();
+            // provenance, not part of the intent
+            bot.remove("source"); bot.remove("reason");
+            let intent = serde_json::from_value(serde_json::Value::Object(bot)).ok()?;
+            let values = item["v3"]["values"].as_array().into_iter().flatten().filter_map(|row| Some((row["name"].as_str()?.to_owned(),
+                omoba_sim::Fixed64::from_raw(row["raw"].as_array()?.first()?.as_i64()?)))).collect();
+            Some((id.to_owned(), ItemBotPolicy { intent, values }))
+        }).collect()
+    })
+}
+
+/// The bot policy of `config`'s active when it is a scripted one.
+fn scripted_bot_policy(config:&crate::runtime::native::item::ItemConfig)->Option<&'static ItemBotPolicy> {
+    matches!(config.active.as_ref()?,crate::runtime::native::item::ActiveEffect::Scripted {}).then_some(())?;
+    item_bot_policies().get(&config.id)
+}
+
+fn within(a:omoba_sim::Vec2,b:omoba_sim::Vec2,radius:omoba_sim::Fixed64)->bool {(a-b).length_squared()<=radius*radius}
+
+/// A scripted untargeted active by its bot policy: a fight buff when an enemy hero comes within
+/// its threat radius, an area when enough enemies stand in it, a recovery below its thresholds,
+/// an untargeted summon near an enemy.
+fn scripted_own_priority(bot:&ItemBotPolicy,own:omoba_sim::Vec2,team:u32,seen:&[super::SeenUnit],
+    observation:&ActiveItemObservation<'_>)->Option<ActiveItemPriority> {
+    use super::BotAbilityIntent as I;
+    use omoba_sim::Fixed64;
+    let enemy=|u:&&super::SeenUnit,kinds:&[u8],radius:Fixed64| u.team!=team && u.team!=0 && u.hp_raw>0 && kinds.contains(&u.kind) && within(u.position,own,radius);
+    let below=|per_mille:u16,current:Fixed64,maximum:Fixed64| per_mille>0 && maximum>Fixed64::ZERO
+        && i128::from(current.raw())*1000<i128::from(maximum.raw())*i128::from(per_mille);
+    if observation.attack_windup {return None;}
+    match &bot.intent {
+        I::SelfEngage {threat_radius} => seen.iter().any(|u|enemy(&u,&[1],Fixed64::from_i32(*threat_radius as i32))).then_some(ActiveItemPriority::Engage),
+        I::SummonNearEnemy {threat_radius} => seen.iter().any(|u|enemy(&u,&[1,2,3],Fixed64::from_i32(*threat_radius as i32))).then_some(ActiveItemPriority::Engage),
+        I::SelfArea {radius_key,min_targets} => {
+            let radius=*bot.values.get(radius_key)?;
+            (seen.iter().filter(|u|enemy(u,&[1,2,3],radius)).count()>=usize::from(*min_targets).max(1)).then_some(ActiveItemPriority::Engage)
+        }
+        I::SelfHeal {below_hp_per_mille} => below(*below_hp_per_mille,observation.health.hp,observation.health.mhp).then_some(ActiveItemPriority::Recovery),
+        I::SelfRecovery {below_hp_per_mille,below_mana_per_mille,..} => (below(*below_hp_per_mille,observation.health.hp,observation.health.mhp)
+            || observation.mana.is_some_and(|pool|below(*below_mana_per_mille,pool.current(),pool.maximum()))).then_some(ActiveItemPriority::Recovery),
+        _ => None,
+    }
+}
+
+/// A scripted unit or point active by its bot policy (`shape`: the catalog target rule's): an
+/// enemy unit item on the weakest enemy hero in range; an ally heal on the most hurt allied hero
+/// below its threshold; an ally engage on the allied hero nearest a fight; a point area on the
+/// enemy hero whose area covers the most enemies (at least `min_targets`); a point summon, line or
+/// approach at an enemy in range.
+fn scripted_targeted(bot:&ItemBotPolicy,shape:omoba_template_ids::MobaItemTargetShapeConst,own:omoba_sim::Vec2,team:u32,
+    seen:&[super::SeenUnit],reach:&dyn Fn(omoba_sim::Vec2)->bool)->Option<(TargetedItemPriority,ActiveItemTarget)> {
+    use super::BotAbilityIntent as I;
+    use omoba_sim::Fixed64;
+    use omoba_template_ids::MobaItemTargetShapeConst as Shape;
+    let enemy=|u:&&super::SeenUnit| u.team!=team && u.team!=0 && u.hp_raw>0;
+    let hurt=|u:&super::SeenUnit| (i128::from(u.hp_raw)*1000/i128::from(u.max_hp_raw.max(1)),u.canonical_id);
+    let weakest_hero=||seen.iter().filter(enemy).filter(|u|u.kind==1 && reach(u.position)).min_by_key(|u|(u.hp_raw,u.canonical_id));
+    match (&bot.intent,shape) {
+        (I::EnemyUnit|I::EnemyHero,Shape::Unit) => Some((TargetedItemPriority::Offense,ActiveItemTarget::Unit(weakest_hero()?.canonical_id))),
+        (I::AllyHeal {below_hp_per_mille}|I::AllyHealOrCleanse {below_hp_per_mille},Shape::Unit) => {
+            let target=seen.iter().filter(|u|u.kind==1 && u.team==team && u.hp_raw>0 && u.max_hp_raw>0 && reach(u.position)
+                && i128::from(u.hp_raw)*1000<i128::from(u.max_hp_raw)*i128::from(*below_hp_per_mille)).min_by_key(|u|hurt(u))?;
+            Some((TargetedItemPriority::AllyHeal,ActiveItemTarget::Unit(target.canonical_id)))
+        }
+        (I::AllyEngage {threat_radius},Shape::Unit) => {
+            let radius=Fixed64::from_i32(*threat_radius as i32);
+            let target=seen.iter().filter(|u|u.kind==1 && u.team==team && u.hp_raw>0 && reach(u.position) && (u.position-own).length_squared()>Fixed64::ZERO
+                && seen.iter().filter(enemy).any(|e|e.kind==1 && within(e.position,u.position,radius))).min_by_key(|u|hurt(u))?;
+            Some((TargetedItemPriority::Offense,ActiveItemTarget::Unit(target.canonical_id)))
+        }
+        (I::EnemyPoint {radius_key,min_targets}|I::GlobalEnemyPoint {radius_key,min_targets},Shape::Point) => {
+            let radius=*bot.values.get(radius_key)?;
+            let hits:Vec<_>=seen.iter().filter(enemy).filter(|u|matches!(u.kind,1|2|3)).collect();
+            let (covered,_,_,at)=hits.iter().filter(|u|u.kind==1 && reach(u.position)).map(|u|{
+                let covered=hits.iter().filter(|v|within(v.position,u.position,radius)).count();
+                (std::cmp::Reverse(covered),(u.position-own).length_squared().raw(),u.canonical_id,u.position)
+            }).min_by_key(|(covered,distance,id,_)|(*covered,*distance,*id))?;
+            (covered.0>=usize::from(*min_targets).max(1)).then_some((TargetedItemPriority::Offense,ActiveItemTarget::Point(at)))
+        }
+        (I::SummonNearEnemy {threat_radius},Shape::Point) => {
+            let radius=Fixed64::from_i32(*threat_radius as i32);
+            let target=seen.iter().filter(enemy).filter(|u|matches!(u.kind,1|2|3) && within(u.position,own,radius) && reach(u.position))
+                .min_by_key(|u|((u.position-own).length_squared().raw(),u.canonical_id))?;
+            Some((TargetedItemPriority::Offense,ActiveItemTarget::Point(target.position)))
+        }
+        (I::EnemyLine {..}|I::EnemyCone {..},Shape::Point) => Some((TargetedItemPriority::Offense,ActiveItemTarget::Point(weakest_hero()?.position))),
+        (I::ApproachEnemyPoint {min_distance,..},Shape::Point) => {
+            let target=seen.iter().filter(enemy).filter(|u|u.kind==1 && reach(u.position)
+                && (u.position-own).length_squared()>Fixed64::from_i32(*min_distance as i32)*Fixed64::from_i32(*min_distance as i32))
+                .min_by_key(|u|(u.hp_raw,u.canonical_id))?;
+            Some((TargetedItemPriority::Offense,ActiveItemTarget::Point(target.position)))
+        }
+        _ => None,
+    }
+}
+
 fn active_policy(role:BotRole,builds:&[BotItemBuild])->Option<BotActiveItemPolicy> {
     let policy=builds.iter().find(|b|b.role==role)?.active_use?;
     ((1..=10_000).contains(&policy.combat_radius) && policy.defend_below_hp_per_mille<=1000
@@ -128,6 +238,10 @@ pub(super) fn choose_active(role: BotRole, builds: &[BotItemBuild], registry: &I
                 && !observation.attack_windup=>ActiveItemPriority::Engage,
             ActiveEffect::ApplyModifiers {modifiers,heal,..} if modifiers.is_empty() && *heal>Fixed64::ZERO && defend
                 =>ActiveItemPriority::Recovery,
+            // a scripted untargeted active (items.dll) by its v3 bot policy
+            ActiveEffect::Scripted {} if omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|entry|entry.id==config.id)
+                .is_some_and(|entry|entry.target.shape==omoba_template_ids::MobaItemTargetShapeConst::Self_)
+                =>scripted_own_priority(scripted_bot_policy(&config)?,own,team,seen,observation)?,
             _=>return None,
         };
         Some((priority,slot))
@@ -195,6 +309,11 @@ pub(super) fn choose_targeted_active(role: BotRole, builds: &[BotItemBuild], reg
                     (std::cmp::Reverse(covered),(u.position-own).length_squared().raw(),u.canonical_id,u.position)
                 }).min_by_key(|(covered,distance,id,_)|(*covered,*distance,*id))?;
                 Some((TargetedItemPriority::Offense,slot,ActiveItemTarget::Point(center.3)))
+            }
+            // a scripted unit or point active (items.dll) by its v3 bot policy
+            ActiveEffect::Scripted {}=>{
+                let (priority,target)=scripted_targeted(scripted_bot_policy(&config)?,entry.target.shape,own,team,seen,&reach)?;
+                Some((priority,slot,target))
             }
             _=>None,
         }
@@ -383,6 +502,50 @@ mod tests {
         let Some(crate::runtime::PlayerInputEnum::ItemUse(item))=input.action else {panic!("item use")};
         assert_eq!((item.item_slot,item.target_entity,item.target_generation,item.point_explicit),(2,Some(17),Some(3),None));
     }
+    /// Scripted shop actives (items.dll) are used by their v3 bot policy (E: cover7's scripted
+    /// actives were never used): a self engage item when an enemy hero comes near, an enemy unit
+    /// item on the weakest enemy hero in range, a point area where it covers the most enemies.
+    #[test]
+    fn scripted_actives_follow_their_v3_bot_policy() {
+        use omoba_sim::{Fixed64,Vec2};
+        use crate::runtime::CProperty;
+        use super::super::{BotAbilityIntent as I, SeenUnit};
+        use omoba_template_ids::MobaItemTargetShapeConst as Shape;
+        let registry=ItemRegistry::generated_moba();
+        let health=CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
+        let observation=ActiveItemObservation {health:&health,mana:None,shield_raw:0,next_attack_bonus_raw:0,reduction_active:false,
+            sprint_active:false,immobilized:false,silenced:false,attack_windup:false,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO};
+        let mut builds=build(&["blowgun"]);
+        builds[0].active_use=Some(BotActiveItemPolicy {combat_radius:700,defend_below_hp_per_mille:500,restore_below_mana_per_mille:0,channel_below_hp_per_mille:0});
+        let unit=|id:u64,x:i32,team:u32,kind:u8,hp:i64|SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
+            team,kind,owner_player_id:0,hp_raw:hp,max_hp_raw:1000,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
+        // a scripted catalog item whose policy and target rule match
+        let find=|shape:Shape,kind:&dyn Fn(&I)->bool|omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|entry| entry.target.shape==shape
+            && registry.get(entry.id).and_then(|config|scripted_bot_policy(&config)).is_some_and(|bot|kind(&bot.intent))
+            && (shape==Shape::Self_ || entry.target.range>=Fixed64::from_i32(300)))
+            .map(|entry|entry.id).expect("a scripted item with this bot policy");
+        let holding=|id:&str|{let mut inventory=Inventory::new();inventory.slots[3]=Some(ItemInstance {item_id:id.into(),cooldown_remaining:0.0});inventory};
+        // self engage: only with an enemy hero within its threat radius
+        let engage=find(Shape::Self_,&|intent|matches!(intent,I::SelfEngage {..}));
+        let I::SelfEngage {threat_radius}=registry.get(engage).and_then(|config|scripted_bot_policy(&config)).unwrap().intent else {unreachable!()};
+        let own=|seen:&[SeenUnit]|choose_active(BotRole::Carry,&builds,&registry,&holding(engage),Vec2::ZERO,1,seen,&observation);
+        assert_eq!(own(&[unit(5,threat_radius as i32-10,2,1,900)]),Some(3), "{engage}");
+        assert!(own(&[unit(5,threat_radius as i32+10,2,1,900)]).is_none(), "{engage}: no hero near");
+        assert!(own(&[unit(5,10,2,2,900)]).is_none(), "{engage}: a creep is no fight");
+        // enemy unit: the weakest enemy hero in range
+        let strike=find(Shape::Unit,&|intent|matches!(intent,I::EnemyUnit|I::EnemyHero));
+        let targeted=|item:&str,seen:&[SeenUnit]|choose_targeted_active(BotRole::Carry,&builds,&registry,&holding(item),Vec2::ZERO,1,seen,&observation);
+        assert_eq!(targeted(strike,&[unit(5,200,2,1,900),unit(6,250,2,1,400),unit(7,100,2,2,10)]),Some((3,ActiveItemTarget::Unit(6))), "{strike}");
+        assert!(targeted(strike,&[unit(7,100,2,2,10)]).is_none(), "{strike}: no hero");
+        // a point area: centred where it covers the most enemies
+        if let Some(area)=omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|entry|entry.target.shape==Shape::Point && entry.target.range>=Fixed64::from_i32(300)
+            && registry.get(entry.id).and_then(|config|scripted_bot_policy(&config)).is_some_and(|bot|matches!(bot.intent,I::EnemyPoint {min_targets:1,..})))
+            .map(|entry|entry.id) {
+            assert!(matches!(targeted(area,&[unit(5,250,2,1,900)]),Some((3,ActiveItemTarget::Point(_)))), "{area}");
+            assert!(targeted(area,&[]).is_none(), "{area}: nothing to hit");
+        }
+    }
+
     #[test]
     fn bot_self_cleanse_selector_requires_opt_in_ready_typed_item_and_living_controlled_owner() {
         use omoba_sim::Fixed64;
