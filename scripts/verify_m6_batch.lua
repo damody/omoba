@@ -38,10 +38,11 @@ do
     elseif v == '--recipes' then options.recipes = arg[i + 1]; i = i + 1
     elseif v == '--keep-bin' then options.keep_bin = true
     elseif v == '--item-coverage' then options.item_coverage = true
+    elseif v == '--cover-items' then options.cover_items = arg[i + 1]; i = i + 1
     elseif v == '--no-build' then options.no_build = true
     elseif v == '--report-only' then options.report_only = true; options.no_build = true
     elseif v == '--help' then
-      print('Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua --batch N [--group G] [--matches 6] [--parallel 6] [--ue] [--split] [--spotlight-observed a,b,...] [--observer on|off] [--observer-note TEXT] [--recipes quick,quick_swap,teamfight,nobu,late,late_nobu] [--keep-bin] [--item-coverage] [--output DIR] [--no-build] [--report-only]')
+      print('Usage: tools/lua/lua.exe scripts/verify_m6_batch.lua --batch N [--group G] [--matches 6] [--parallel 6] [--ue] [--split] [--spotlight-observed a,b,...] [--observer on|off] [--observer-note TEXT] [--recipes quick,quick_swap,teamfight,nobu,late,late_nobu] [--keep-bin] [--item-coverage] [--cover-items a,b,...] [--output DIR] [--no-build] [--report-only]')
       return
     else error('unknown argument ' .. v) end
     i = i + 1
@@ -96,6 +97,17 @@ assert(#group > 0, ('batch %d group %d has no playable hero; not yet playable: %
 -- that this run's builds carry. Consecutive groups of a sweep take consecutive slices; a --heroes
 -- run takes one from its roster.
 local coverage_round = options.batch * 10 + options.group
+-- --cover-items: these shop item ids instead of the round's slice (a newly shelved item checked in
+-- play); unknown ids are refused when the recipe is loaded (bot_item_builds.cover)
+local cover_items_literal = 'nil'
+if options.cover_items then
+  local ids = {}
+  for id in options.cover_items:gmatch('[^,]+') do
+    assert(id:match('^[%w_]+$'), '--cover-items: ' .. id .. ' is not an item id')
+    ids[#ids + 1] = ('%q'):format(id)
+  end
+  cover_items_literal = '{ ' .. table.concat(ids, ', ') .. ' }'
+end
 if options.heroes then
   coverage_round = 0
   for c in options.heroes:gmatch('.') do coverage_round = (coverage_round * 31 + c:byte()) % 1000003 end
@@ -185,7 +197,8 @@ if %s then
 else
   -- every run carries its round's slice of the items no derived build reaches
   local builds = assert(loadfile(root .. '/scripts/lua_data/bot_item_builds.lua'))()
-  plan.item_builds = builds.cover(plan.item_builds, builds.round(builds.uncovered(plan.item_builds), %d))
+  local named = %s
+  plan.item_builds = builds.cover(plan.item_builds, named or builds.round(builds.uncovered(plan.item_builds), %d))
 end
 -- A late night stage: every hero starts at level 18 (the highest level gate, A04D_old 冰雪爆 and
 -- B19D_old 駿河守 learned at 18) and the whole match is night (C06D_old 盜賊藏匿術); otherwise a
@@ -195,7 +208,7 @@ plan.ability_policies = assert(loadfile(root .. '/scripts/lua_data/bot_auto_poli
 return plan
 ]]):format(options.batch, options.group, name, b.root:gsub('\\', '/'), map or 'three_lane_quick_training', lua_role_map(seating[1]), lua_role_map(seating[2]), tostring(swap), tostring(teamfight),
   TEAMFIGHT_SUSTAIN.recall_below_hp_per_mille, TEAMFIGHT_SUSTAIN.leave_base_at_hp_per_mille,
-  tostring(options.item_coverage == true), coverage_round, tostring(late == true)), true)
+  tostring(options.item_coverage == true), cover_items_literal, coverage_round, tostring(late == true)), true)
   return file
 end
 local recipes = {
