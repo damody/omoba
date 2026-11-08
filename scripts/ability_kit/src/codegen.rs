@@ -1235,13 +1235,13 @@ impl<'a, 'w> Cx<'a, 'w> {
         if let Some(only) = only { payload = ability_projectile::with_only(payload, only.id, only.gen); }
         if let Some((step, args)) = on_hit {
             let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
-            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec() }
+            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec(), item_slot: None }
                 .checked().ok_or("v3: invalid on_hit")?;
             payload = ability_projectile::with_on_hit(payload, &template);
         }
         if let Some((step, args)) = on_end {
             let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
-            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec() }
+            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec(), item_slot: None }
                 .checked().ok_or("v3: invalid on_end")?;
             payload = ability_projectile::with_on_end(payload, &template);
         }
@@ -1253,10 +1253,13 @@ impl<'a, 'w> Cx<'a, 'w> {
 
     /// Schedule `on_scheduled(step, args)` of `ability` on `owner` after `after` seconds; returns
     /// the instance (cancel with [`Cx::cancel_schedule`]). The instance comes from the host RNG.
+    /// Inside an item's cast (or a row it scheduled), a row the caster holds keeps the item's slot,
+    /// so its `on_scheduled` runs as that item instance (`item_instance` state, E571).
     pub fn schedule(&mut self, owner: EntityHandle, ability: &str, step: u16, after: Fixed64, args: &[ScheduleArg]) -> Result<u32, &'static str> {
         if !scheduled_effect::valid_delay(after) { return Err("v3: invalid schedule delay"); }
         let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
-        let spec = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank, step, instance, args: args.to_vec() }
+        let item_slot = if owner == self.caster { self.event_item_slot() } else { None };
+        let spec = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank, step, instance, args: args.to_vec(), item_slot }
             .checked().ok_or("v3: invalid schedule")?;
         self.world.add_stat_buff(owner, RStr::from_str(&spec.buff_id()), scheduled_effect::Spec::lifetime(after),
             RStr::from_str(&spec.payload().to_string()));

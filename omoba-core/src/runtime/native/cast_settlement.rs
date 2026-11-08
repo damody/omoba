@@ -277,7 +277,7 @@ fn summon_casts_admit_their_summons_setup_and_trailing_effects_but_nothing_betwe
     assert!(!accepts(&[spawn(first),Outcome::ScriptDirectDamage {target:hero,amount:Fixed64::ONE}]),"never the caster, even trailing");
     // The caster's own schedule (b13_storm: create_unit, then repeat) goes with the summons, and
     // the refusal names what it refused.
-    let spec=super::super::scheduled_effect::Spec {ability:"fixture".into(),level:1,step:1,instance:7,args:Vec::new()}.checked().unwrap();
+    let spec=super::super::scheduled_effect::Spec {ability:"fixture".into(),level:1,step:1,instance:7,args:Vec::new(),item_slot:None}.checked().unwrap();
     let repeat=Outcome::AddBuff {target:hero,buff_id:spec.buff_id(),duration:Fixed64::ONE,payload:spec.payload()};
     assert!(accepts(&[spawn(first),assign(first),repeat.clone()]),"a trailing repeat on the caster");
     assert!(accepts(&[repeat.clone(),spawn(first)]),"also before the summons: every spawn commits first");

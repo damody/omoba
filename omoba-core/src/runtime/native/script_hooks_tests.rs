@@ -36,7 +36,7 @@ impl omb_script_abi::ability::AbilityScript for Probe {
             ScheduleArg { kind: crate::runtime::native::scheduled_effect::ARG_NUM, num: Fixed64::from_i32(9), unit: EntityHandle::INVALID, point: omoba_sim::Vec2::ZERO },
             ScheduleArg { kind: crate::runtime::native::scheduled_effect::ARG_UNIT, num: Fixed64::ZERO, unit: caster, point: omoba_sim::Vec2::ZERO },
         ];
-        let spec = crate::runtime::native::scheduled_effect::Spec { ability: self.id.clone(), level, step: 7, instance: 1, args };
+        let spec = crate::runtime::native::scheduled_effect::Spec { ability: self.id.clone(), level, step: 7, instance: 1, args, item_slot: None };
         world.add_stat_buff(caster, RStr::from_str(&spec.buff_id()), crate::runtime::native::scheduled_effect::Spec::lifetime(Fixed64::from_raw(512)),
             RStr::from_str(&spec.payload().to_string()));
         let marker = crate::runtime::native::status_event::Spec { ability: self.id.clone(), level, status: "probe_mark".into(), source: caster,

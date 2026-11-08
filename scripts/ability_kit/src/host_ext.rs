@@ -166,7 +166,7 @@ impl Cx<'_, '_> {
         let mut payload = spec.payload_with(motion::Options { origin: Some(from), stun, height, contact });
         if let Some((ability, step, args)) = on_end {
             let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
-            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec() }
+            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec(), item_slot: None }
                 .checked().filter(|spec| spec.args.len() < scheduled_effect::MAX_ARGS).ok_or("v3: invalid knockback on_end")?;
             payload = motion::with_on_end(payload, &template);
         }

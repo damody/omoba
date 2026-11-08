@@ -695,7 +695,7 @@ fn on_hit_schedules_the_owner_callback_with_the_unit_hit_and_the_impact_point() 
     let spec = Spec { max_hits: 8, ..linear(caster, at(1, 0)) };
     let captured = omb_script_abi::types::ScheduleArg { kind: se::ARG_NUM, num: Fixed64::from_i32(7),
         unit: omb_script_abi::types::EntityHandle::INVALID, point: Vec2::ZERO };
-    let template = se::Spec { ability: "fixture_bolt".into(), level: 2, step: 3, instance: 5, args: vec![captured] };
+    let template = se::Spec { ability: "fixture_bolt".into(), level: 2, step: 3, instance: 5, args: vec![captured], item_slot: None };
     let payload = with_on_hit(spec.payload(), &template);
     assert_eq!(on_hit_of(&payload), Some(template.clone()));
     assert_eq!(Spec::from_payload(BUFF, spec.lifetime, &payload), Some(spec.clone()), "on_hit is an optional row");

@@ -1070,6 +1070,8 @@ fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_
         let handle = ParallelWorldAdapter::entity_to_handle(owner);
         let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, owner, scheduled_random_ordinal(&spec));
         adapter.hold_statuses_through_expiry();
+        // an item cast's row runs as that item instance (scheduled_effect::Spec::item_slot)
+        adapter.set_event_item_slot(spec.item_slot.map(u32::from));
         let mut world_dyn = world_dyn_of(&mut adapter);
         let args: abi_stable::std_types::RVec<_> = spec.args.iter().copied().collect();
         let result = catch_unwind(AssertUnwindSafe(|| script.on_scheduled(handle, spec.scheduled(), args, &mut world_dyn)));
