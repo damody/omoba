@@ -297,4 +297,15 @@ test('an on_order_targeted that cancels runs as the host order filter and refuse
   assert(has(text, 'ability_kit::item_kind_ffi(ID, "passive", '), 'registered as a passive item')
 end)
 
+test('a pre_mitigation shield on an independent status absorbs as the instance it applied', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/pilot_b.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_magic_talisman' then assert(#e.blockers == 0, e.id .. ': ' .. table.concat(e.blockers, '; ')) end
+  end
+  local text = assert(files['src/generated/item_magic_talisman.rs'], 'the talisman generates')
+  assert(has(text, 'let n = cx.apply_status_instance(to, &super::ids::status::MAGIC_TALISMAN_SHIELD, duration, stats)?;'), 'the instance applied')
+  assert(has(text, 'cx.absorb_with(to, &super::ids::status::MAGIC_TALISMAN_SHIELD, n, absorb, &["magical"], duration, true)?;'), 'its own pre-mitigation shield')
+end)
+
 print(('%d tests passed'):format(count))

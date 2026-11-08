@@ -2157,8 +2157,11 @@ function Gen:action(a, ctx, ind)
     for _, k in ipairs(sorted_keys(ab)) do
       if k ~= "amount" and k ~= "types" and k ~= "phase" and k ~= "on_absorb" and k ~= "on_broken" then self:block("status.absorb." .. k) end
     end
-    if ab.phase ~= nil and ab.phase ~= "post_mitigation" then self:block("status.absorb.phase:" .. tostring(ab.phase)) end
-    if aso.def.stacking == "independent" then self:block("status.absorb on an independent status"); return "" end
+    -- pre_mitigation: the shield takes the hit before armor / magic resistance, ahead of the other
+    -- shields (line B cx.absorb_with)
+    if ab.phase ~= nil and ab.phase ~= "post_mitigation" and ab.phase ~= "pre_mitigation" then self:block("status.absorb.phase:" .. tostring(ab.phase)) end
+    local pre = ab.phase == "pre_mitigation"
+    local independent = aso.def.stacking == "independent"
     local types = {}
     for _, t in ipairs(ab.types or {}) do
       if t == "physical" or t == "magical" or t == "pure" then types[#types + 1] = rust_str(t)
@@ -2173,11 +2176,25 @@ function Gen:action(a, ctx, ind)
     local amount = self:value(ab.amount, sctx, "num")
     local st = "&super::ids::status::" .. upper(a.status)
     local found = false
+    if independent then
+      -- an independent status: the shield of the instance this apply made (`n`, 0 when none)
+      code = code:gsub("([ \t]*)(cx%.apply_status_instance%(to, " .. st:gsub("%p", "%%%0") .. ", duration, stats%))%?;(\r?\n)", function(ws, call, eol)
+        if found then return nil end
+        found = true
+        return ws .. "let n = " .. call .. "?;" .. eol .. ws .. "if n != 0 {" .. eol
+          .. ws .. "    let absorb = " .. amount .. ";" .. eol
+          .. ws .. "    cx.absorb_with(to, " .. st .. ", n, absorb, &[" .. table.concat(types, ", ") .. "], duration, " .. tostring(pre) .. ")?;" .. eol
+          .. ws .. "}" .. eol
+      end)
+      if not found then self:block("status.absorb on this independent apply form") end
+      return code
+    end
     code = code:gsub("([ \t]*)(cx%.apply_status%(to, " .. st:gsub("%p", "%%%0") .. "[^\n]-%?;)(\r?\n)", function(ws, stmt, eol)
       if found then return nil end
       found = true
       return ws .. stmt .. eol .. ws .. "let absorb = " .. amount .. ";" .. eol
-        .. ws .. "cx.absorb(to, " .. st .. ", absorb, &[" .. table.concat(types, ", ") .. "], duration)?;" .. eol
+        .. ws .. (pre and ("cx.absorb_with(to, " .. st .. ", 0, absorb, &[" .. table.concat(types, ", ") .. "], duration, true)?;")
+          or ("cx.absorb(to, " .. st .. ", absorb, &[" .. table.concat(types, ", ") .. "], duration)?;")) .. eol
     end)
     if not found then self:block("status.absorb on this apply form") end
     return code
