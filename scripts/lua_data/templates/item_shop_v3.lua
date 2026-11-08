@@ -11,6 +11,17 @@ local data = {
     numbers = { atk = 15, cost = 2800, ["modifiers.stats_agility_bonus"] = 10 },
     recipe = { "tachi", "power_ingot", "brave_ring" },
   },
+  bizennosafunekanemitsu = {
+    not_passive = { "modifiers.basedamageoutgoing_percentage" },
+    numbers = { atk = 25, cost = 6300, ["modifiers.health_regen_constant"] = 10, ["modifiers.stats_agility_bonus"] = 30, ["modifiers.stats_intellect_bonus"] = 10, ["modifiers.stats_strength_bonus"] = 10 },
+    recipe = { "logs_big_tachi", "izuminokami_kanesada" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 45.0,
+      mana_cost = 60.0,
+      target = { include_magic_immune = true, out_of_range = "reject", range = 1000.0, requires_visible = true, shape = "unit", team = "ally" },
+    },
+  },
   blowgun = {
     numbers = { ["active.control.duration"] = 1, ["active.damage"] = 50, ["active.projectile.speed"] = 2500, ["active.projectile.vision"] = 225, cooldown = 55, cost = 1850, mana_cost = 75, ["target.range"] = 700 },
   },
@@ -125,6 +136,15 @@ local data = {
     numbers = { armor = 5, cost = 2130, ["modifiers.health_regen_constant"] = 10 },
     recipe = { "flame_armor", "regeneration_ingot", "lesser_shield" },
   },
+  frozen_book = {
+    numbers = { cost = 3000, ["modifiers.spell_amplify_percentage"] = 0.06, ["modifiers.stats_intellect_bonus"] = 20 },
+    recipe = { "spell_book", "frozen_ring" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 40.0,
+      mana_cost = 150.0,
+    },
+  },
   frozen_ring = {
     numbers = { cost = 750 },
     scripted = {
@@ -178,6 +198,15 @@ local data = {
   },
   health_ingot = {
     numbers = { cost = 900, hp = 300 },
+  },
+  ice_storm_book = {
+    numbers = { cost = 9000, ["modifiers.spell_amplify_percentage"] = 0.18, ["modifiers.stats_intellect_bonus"] = 80 },
+    recipe = { "frozen_book", "storm_book" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      mana_cost = 150.0,
+    },
   },
   ignite_book = {
     numbers = {
@@ -719,6 +748,16 @@ local data = {
       active = { kind = "scripted" },
       cooldown = 110.0,
       mana_cost = 150.0,
+    },
+  },
+  the_great_sword_of_drain = {
+    not_passive = { "armor" },
+    numbers = { atk = 75, cost = 8200, ["modifiers.stats_agility_bonus"] = 20, ["modifiers.stats_intellect_bonus"] = 20 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 65.0,
+      mana_cost = 125.0,
+      target = { include_magic_immune = true, out_of_range = "reject", range = 700.0, requires_visible = true, shape = "unit", team = "enemy" },
     },
   },
   the_great_sword_of_hurricane = {

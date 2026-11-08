@@ -175,6 +175,12 @@ local SOURCE_ITEMS = {
   -- unit_or_point item target.
   { 237, "item_devil_supressor_armor", true },
   { 238, "item_nannbann_armor", true },
+  -- E line (2026-11-08): remove_status source filters and item passive hooks (line B c69d3adf,
+  -- line A d5763558).
+  { 239, "item_frozen_book", true },
+  { 240, "item_ice_storm_book", true },
+  { 241, "item_the_great_sword_of_drain", true },
+  { 242, "item_bizennosafunekanemitsu", true },
 }
 
 return function(ctx)
