@@ -3236,6 +3236,8 @@ pub fn process_outcomes(
     // An instant attack's damage: the packet right after its InstantAttack (E475).
     let mut instant_hit: Option<(Entity, Entity)> = None;
     let mut next_ordinal = 0usize;
+    // The units whose statuses already heard their death this batch (scripting::owner_death).
+    let mut death_heard: Vec<Entity> = Vec::new();
     while let Some(outcome) = pending.pop_front() {
         // A tag only belongs to the outcome right after it.
         let tag_now = damage_tag.take();
@@ -3507,9 +3509,21 @@ pub fn process_outcomes(
                 for effect in outcomes.into_iter().filter(|o|!matches!(o,Outcome::SpawnSummoned {..})).rev() {pending.push_front(effect);}
             }
             Outcome::ProjectileContext {..} => unreachable!("nested projectile contexts are rejected"),
-            Outcome::Death { ent, .. } => {
+            Outcome::Death { ent, pos } => {
                 if remove_uids.contains(&ent) || !world.entities().is_alive(ent) {
                     continue;
+                }
+                // v3 on_owner_death / an item passive's on_death (scripting::owner_death): the
+                // dying unit's listening statuses hear it first, and their effects settle before
+                // the death does (once per unit and batch).
+                if !death_heard.contains(&ent) {
+                    death_heard.push(ent);
+                    let effects = super::scripting::owner_death::hear(world, ent);
+                    if !effects.is_empty() {
+                        pending.push_front(Outcome::Death { ent, pos });
+                        for effect in effects.into_iter().rev() { pending.push_front(effect); }
+                        continue;
+                    }
                 }
                 remove_uids.push(ent);
                 handle_death(world, &mut next_outcomes, events, ent)?;

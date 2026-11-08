@@ -3,6 +3,7 @@
 pub mod damage_pre;
 pub mod dispatch;
 pub mod event;
+pub mod owner_death;
 pub mod parallel_world_adapter;
 pub mod registry;
 pub mod tag;

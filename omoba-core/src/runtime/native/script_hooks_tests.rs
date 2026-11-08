@@ -373,10 +373,14 @@ fn a_marked_status_hears_its_holders_heal() {
 struct OrderGuard { heard: Arc<Mutex<Vec<(u32, u32)>>>, id: String, cancel: bool, extra: Extra }
 
 /// What an order-filter world adds to the plain probe and guard: a ward (the guard shields its
-/// holder, the cast is a zap) or a purge (the guard puts `purge_statuses` on its holder, the cast
-/// purges them by duration and source).
+/// holder, the cast is a zap), a purge (the guard puts `purge_statuses` on its holder, the cast
+/// purges them by duration and source) or a death (the cast is a zap, the guard's holder has
+/// little life and the guard also hears its death).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Extra { Plain, Ward, Purge }
+enum Extra { Plain, Ward, Purge, Death }
+
+/// The hero variable (kept across death) the guard writes when its holder dies.
+const DEATH_VAR: &str = "test:deaths_heard";
 
 /// Three statuses of the compiled content, by their BuffStore keys (no runtime id, no tags): two
 /// of plain abilities and one of an ultimate.
@@ -437,6 +441,18 @@ impl omb_script_abi::ability::AbilityScript for OrderGuard {
     fn ability_id(&self) -> RStr<'_> { RStr::from_str(&self.id) }
     fn execute(&self, _: EntityHandle, _: Target, _: u8, _: RStr<'_>, _: &mut GameWorldDyn<'_>) -> RResult<(), RString> { ROk(()) }
     fn on_status_event(&self, holder: EntityHandle, _: RStr<'_>, event: StatusEvent, world: &mut GameWorldDyn<'_>) {
+        use crate::runtime::native::unit_var;
+        if event.kind == crate::runtime::native::status_event::OWNER_DEATH {
+            // Heard while the holder is whole: it still reads its own variables and life.
+            self.heard.lock().unwrap().push((holder.id, u32::MAX));
+            let before = world.get_buff_payload(holder, RStr::from_str(&format!("{}{DEATH_VAR}", unit_var::PREFIX))).into_option()
+                .and_then(|row| serde_json::from_str::<serde_json::Value>(row.as_str()).ok())
+                .and_then(|row| unit_var::Spec::from_buff(&format!("{}{DEATH_VAR}", unit_var::PREFIX), &row))
+                .map_or(Fixed64::ZERO, |spec| match spec.value { unit_var::VarValue::Num(n) => n, _ => Fixed64::ZERO });
+            let spec = unit_var::Spec { key: DEATH_VAR.into(), value: unit_var::VarValue::Num(before + Fixed64::ONE), hero: true };
+            world.add_stat_buff(holder, RStr::from_str(&spec.buff_id()), Fixed64::from_raw(i64::MAX), RStr::from_str(&spec.payload().to_string()));
+            return;
+        }
         if event.kind != crate::runtime::native::status_event::ORDER_FILTER { return; }
         self.heard.lock().unwrap().push((holder.id, event.other.id));
         world.spend_mana(holder, Fixed64::from_i32(10), RStr::from_str(&self.id));
@@ -481,7 +497,7 @@ fn order_filter_scripts(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32,
     use omb_script_abi::ability::AbilityScript_TO as To;
     let mut scripts = crate::runtime::ScriptRegistry::new();
     let cast = match extra {
-        Extra::Ward => To::from_value(Zap { id: id.to_owned() }, TD_Opaque),
+        Extra::Ward | Extra::Death => To::from_value(Zap { id: id.to_owned() }, TD_Opaque),
         Extra::Purge => To::from_value(Purger { id: id.to_owned() }, TD_Opaque),
         Extra::Plain => To::from_value(Probe { calls, id: id.to_owned() }, TD_Opaque),
     };
@@ -499,7 +515,7 @@ fn order_filter_world(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u
     let pool = StateInitializer::create_thread_pool();
     let mut world = StateInitializer::setup_campaign_ecs_world(&pool);
     crate::runtime::setup_single_lane_match(&mut world, SingleLaneConfig {
-        warmup: Fixed64::ZERO, wave_interval: Fixed64::from_i32(1_000_000), ..SingleLaneConfig::default()
+        warmup: Fixed64::ZERO, wave_interval: Fixed64::from_i32(1_000_000), respawn_delay: Fixed64::from_i32(3), ..SingleLaneConfig::default()
     }).unwrap();
     let slot = |world: &specs::World, player: u32| world.read_resource::<crate::runtime::MobaMatch>().heroes.iter()
         .find(|slot| slot.player_id == player).and_then(|slot| slot.entity).unwrap();
@@ -516,7 +532,8 @@ fn order_filter_world(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u
     let mut driver = crate::runtime::SimulationDriver::from_world(&mut world, crate::runtime::SimulationTickProfile::Production60Hz).unwrap();
     driver.step(&mut world, []).unwrap();
     use crate::runtime::native::status_event as se;
-    let marker = se::Spec { ability: guard.clone(), level: 1, status: "guard".into(), source: EntityHandle { id: enemy.id(), gen: enemy.gen().id() as u32 }, mask: se::ON_ORDER_FILTER };
+    let marker = se::Spec { ability: guard.clone(), level: 1, status: "guard".into(), source: EntityHandle { id: enemy.id(), gen: enemy.gen().id() as u32 },
+        mask: if extra == Extra::Death { se::ON_ORDER_FILTER | se::ON_OWNER_DEATH } else { se::ON_ORDER_FILTER } };
     // A v3 status the holder put on itself, as the generated code writes it (owner_script_rows carries it).
     world.write_resource::<BuffStore>().add(enemy, "guard", Fixed64::from_i32(30), serde_json::json!({ (se::KEY): marker.row(),
         (crate::runtime::native::illusion::DURATION_KEY): Fixed64::from_i32(30).raw(),
@@ -533,6 +550,12 @@ fn order_filter_world(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u
         let mut props = world.write_storage::<crate::runtime::native::comp::CProperty>();
         let prop = props.get_mut(unit).unwrap();
         (prop.mhp, prop.hp) = (Fixed64::from_i32(1_000_000), Fixed64::from_i32(1_000_000));
+    }
+    // A death world: the guarded hero falls to a few zaps.
+    if extra == Extra::Death {
+        let mut props = world.write_storage::<crate::runtime::native::comp::CProperty>();
+        let prop = props.get_mut(enemy).unwrap();
+        (prop.mhp, prop.hp) = (Fixed64::from_i32(450), Fixed64::from_i32(450));
     }
     (world, driver, hero, enemy, id)
 }
@@ -624,6 +647,28 @@ fn a_purge_by_duration_and_source_keeps_every_team_replica_with_the_authority() 
     let buffs = world.read_resource::<BuffStore>();
     assert!(!buffs.has(enemy, &long), "the last purge took the long status");
     assert!(buffs.has(enemy, &short) && buffs.has(enemy, &ultimate), "the short and the ultimate's stay");
+}
+
+/// v3 on_owner_death / an item passive's on_death (scripting::owner_death): the guarded hero
+/// dies to the zaps; its guard hears the death once, before it settles, and the hero variable
+/// it writes then is on the hero's next life. Every team replica matches the authority's view
+/// each tick, through the death and the respawn.
+#[test]
+fn an_owner_death_hook_runs_before_the_death_settles_and_keeps_every_team_replica_with_the_authority() {
+    let (world, enemy, _, heard) = order_filter_soak(false, Extra::Death);
+    let deaths: Vec<(u32, u32)> = heard.lock().unwrap().iter().copied().filter(|(_, other)| *other == u32::MAX).collect();
+    assert!(!deaths.is_empty() && deaths.iter().all(|(holder, _)| *holder == enemy.id()), "the first life heard its death: {deaths:?}");
+    let state = world.read_resource::<crate::runtime::MobaMatch>();
+    let slot = state.heroes.iter().find(|slot| slot.player_id == 2).unwrap();
+    assert!(slot.deaths >= 1, "the guarded hero died");
+    let life = slot.entity.expect("the hero respawned");
+    assert_ne!(life, enemy);
+    let row = world.read_resource::<BuffStore>().get(life, &format!("{}{DEATH_VAR}", crate::runtime::native::unit_var::PREFIX))
+        .map(|row| row.payload.clone());
+    let kept = row.as_ref().and_then(|row| crate::runtime::native::unit_var::Spec::from_buff(
+        &format!("{}{DEATH_VAR}", crate::runtime::native::unit_var::PREFIX), row));
+    assert_eq!(kept.map(|spec| spec.value), Some(crate::runtime::native::unit_var::VarValue::Num(Fixed64::ONE)),
+        "the variable the hook wrote while the hero died is on its next life: {row:?}");
 }
 
 /// The authority and every team's replica (in process, through the server's projection) step
