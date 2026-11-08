@@ -2072,6 +2072,9 @@ fn scripted_item_target(world: &World, rule: omoba_template_ids::MobaItemTargetC
             if !same_live_item_target(world, target) || hp <= Fixed64::ZERO || !item_faction_matches(rule.team, &owner_faction, &faction) {
                 return Err(failure::err_msg("ItemUse: target is not a living unit of the item's team"));
             }
+            if rule.exclude_heroes && world.read_storage::<Hero>().get(target).is_some() {
+                return Err(failure::err_msg("ItemUse: target is a hero"));
+            }
             if rule.range > Fixed64::ZERO && !within_item_range(owner_pos, pos, rule.range) {
                 return Err(failure::err_msg("ItemUse: target is out of range"));
             }

@@ -438,6 +438,10 @@ pub struct MobaItemTargetEntry {
     /// A scripted unit active may aim at a magic-immune enemy (v3 flag include_magic_immune).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub include_magic_immune: bool,
+    /// A scripted unit active never aims at a hero (v3 `target.types` without `hero`: 千里大劍's
+    /// creep, neutral, summon, courier and building).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub exclude_heroes: bool,
 }
 
 impl Default for MobaItemTargetEntry {
@@ -453,6 +457,7 @@ impl MobaItemTargetEntry {
             requires_visible: false,
             out_of_range: MobaItemOutOfRange::Reject,
             include_magic_immune: false,
+            exclude_heroes: false,
         }
     }
 
@@ -467,6 +472,10 @@ impl MobaItemTargetEntry {
             && matches!(active, Some(MobaItemActiveEntry::Scripted {}))) {
             return Err("include_magic_immune is for a scripted unit active".into());
         }
+        if self.exclude_heroes && !(matches!(self.shape, MobaItemTargetShape::Unit | MobaItemTargetShape::UnitOrPoint)
+            && matches!(active, Some(MobaItemActiveEntry::Scripted {}))) {
+            return Err("exclude_heroes is for a scripted unit active".into());
+        }
         let shape_ok = match self.shape {
             MobaItemTargetShape::Self_ => legacy && matches!(active,
                 None | Some(MobaItemActiveEntry::Shield { .. } | MobaItemActiveEntry::SprintBuff { .. }
@@ -477,8 +486,9 @@ impl MobaItemTargetEntry {
             // range zero: anywhere on the map
             MobaItemTargetShape::Point if matches!(active, Some(MobaItemActiveEntry::Scripted {})) =>
                 (self.range == 0.0 || positive(self.range, 10_000.0)) && self.out_of_range == MobaItemOutOfRange::Reject,
+            // range zero: any unit on the map (千里大劍)
             MobaItemTargetShape::Unit if matches!(active, Some(MobaItemActiveEntry::Scripted {})) =>
-                positive(self.range, 10_000.0) && self.out_of_range == MobaItemOutOfRange::Reject,
+                (self.range == 0.0 || positive(self.range, 10_000.0)) && self.out_of_range == MobaItemOutOfRange::Reject,
             // a unit (checked as for `unit`) or a ground point, the script tells them apart
             MobaItemTargetShape::UnitOrPoint => matches!(active, Some(MobaItemActiveEntry::Scripted {}))
                 && positive(self.range, 10_000.0) && self.out_of_range == MobaItemOutOfRange::Reject,
@@ -512,8 +522,8 @@ impl MobaItemTargetEntry {
             MobaItemTeamFilter::Ally => "Ally",
         };
         format!(
-            "MobaItemTargetConst {{ shape: MobaItemTargetShapeConst::{shape}, range: {}, team: MobaItemTeamConst::{team}, requires_visible: {}, out_of_range: MobaItemOutOfRangeConst::Reject, include_magic_immune: {} }}",
-            fixed(self.range), self.requires_visible, self.include_magic_immune,
+            "MobaItemTargetConst {{ shape: MobaItemTargetShapeConst::{shape}, range: {}, team: MobaItemTeamConst::{team}, requires_visible: {}, out_of_range: MobaItemOutOfRangeConst::Reject, include_magic_immune: {}, exclude_heroes: {} }}",
+            fixed(self.range), self.requires_visible, self.include_magic_immune, self.exclude_heroes,
         )
     }
 }
@@ -803,7 +813,27 @@ mod scripted_active_tests {
     use super::*;
 
     fn target(shape: MobaItemTargetShape, range: f32, team: MobaItemTeamFilter, requires_visible: bool) -> MobaItemTargetEntry {
-        MobaItemTargetEntry { shape, range, team, requires_visible, out_of_range: MobaItemOutOfRange::Reject, include_magic_immune: false }
+        MobaItemTargetEntry { shape, range, team, requires_visible, out_of_range: MobaItemOutOfRange::Reject, include_magic_immune: false, exclude_heroes: false }
+    }
+
+    /// 千里大劍：an ally unit that is not a hero, anywhere on the map; only a scripted unit active
+    /// may leave heroes out.
+    #[test]
+    fn a_scripted_unit_active_may_leave_heroes_out_and_reach_anywhere() {
+        let scripted = MobaItemActiveEntry::Scripted {};
+        let sword = MobaItemTargetEntry { exclude_heroes: true, ..target(MobaItemTargetShape::Unit, 0.0, MobaItemTeamFilter::Ally, false) };
+        assert!(sword.validate(Some(&scripted)).is_ok());
+        assert!(sword.rust_literal().ends_with("include_magic_immune: false, exclude_heroes: true }"));
+        assert!(MobaItemTargetEntry { exclude_heroes: true, ..target(MobaItemTargetShape::UnitOrPoint, 600.0, MobaItemTeamFilter::Any, false) }
+            .validate(Some(&scripted)).is_ok());
+        assert!(MobaItemTargetEntry { exclude_heroes: true, ..target(MobaItemTargetShape::Point, 600.0, MobaItemTeamFilter::Any, false) }
+            .validate(Some(&scripted)).is_err(), "a point has no unit to leave out");
+        assert!(sword.validate(Some(&MobaItemActiveEntry::UnitHeal { amount: 10.0 })).is_err());
+        assert!(target(MobaItemTargetShape::Unit, 0.0, MobaItemTeamFilter::Ally, true)
+            .validate(Some(&MobaItemActiveEntry::UnitHeal { amount: 10.0 })).is_err(), "only a scripted unit active is rangeless");
+        let parsed: MobaItemTargetEntry = serde_json::from_value(serde_json::json!({"shape": "unit", "range": 0, "team": "ally",
+            "requires_visible": false, "out_of_range": "reject", "include_magic_immune": false, "exclude_heroes": true})).unwrap();
+        assert_eq!(parsed, sword);
     }
 
     #[test]
@@ -819,9 +849,10 @@ mod scripted_active_tests {
                 assert!(target(MobaItemTargetShape::Unit, 600.0, team, visible).validate(Some(&scripted)).is_ok());
             }
         }
-        // anywhere on the map is a point's; a unit keeps a range
+        // anywhere on the map: a point or a unit (千里大劍); a negative range is never one
         assert!(target(MobaItemTargetShape::Point, 0.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_ok());
-        assert!(target(MobaItemTargetShape::Unit, 0.0, MobaItemTeamFilter::Enemy, true).validate(Some(&scripted)).is_err());
+        assert!(target(MobaItemTargetShape::Unit, 0.0, MobaItemTeamFilter::Enemy, true).validate(Some(&scripted)).is_ok());
+        assert!(target(MobaItemTargetShape::Unit, -1.0, MobaItemTeamFilter::Enemy, true).validate(Some(&scripted)).is_err());
         // unit_or_point: a scripted item's only, with a range
         assert!(target(MobaItemTargetShape::UnitOrPoint, 600.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_ok());
         assert!(target(MobaItemTargetShape::UnitOrPoint, 0.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_err());

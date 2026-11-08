@@ -228,11 +228,12 @@ pub mod unit_attr {
     /// minion type's), a jungle body's or a summon's bounty; 0 for a hero (its kill gold depends on
     /// streaks and assists), for anything else and outside a MOBA match.
     pub const GOLD_BOUNTY: &str = "gold_bounty";
-    /// `Bool`: v3 `has_tag(unit, "boss" | "dummy" | "summon" | "neutral" | "fountain" | "general")`,
-    /// the name after `tag:` (e.g. `"tag:boss"`). A map boss carries the boss tag; a training dummy
-    /// is a dummy; a summon is a unit some unit summoned (an illusion included) or a summon
-    /// template; neutral is a jungle unit (faction HostileNeutral). This game has no fountain or
-    /// general units, so those are always false.
+    /// `Bool`: v3 `has_tag(unit, "boss" | "dummy" | "summon" | "neutral" | "ward" | "courier" |
+    /// "fountain" | "general")`, the name after `tag:` (e.g. `"tag:boss"`). A map boss carries the
+    /// boss tag; a training dummy is a dummy; a summon is a unit some unit summoned (an illusion
+    /// included) or a summon template; neutral is a jungle unit (faction HostileNeutral); a courier
+    /// is a unit of type courier (none on the current maps). This game has no fountain or general
+    /// units, so those are always false.
     pub const TAG_PREFIX: &str = "tag:";
     /// `Num`: v3 `event.attack.damage` in an attack trigger: the physical damage of the unit's
     /// current (or last) attack as it left, with its critical multiplier; 0 before it leaves or

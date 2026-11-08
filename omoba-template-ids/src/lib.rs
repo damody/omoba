@@ -651,6 +651,8 @@ pub struct MobaItemTargetConst {
     pub requires_visible: bool,
     pub out_of_range: MobaItemOutOfRangeConst,
     pub include_magic_immune: bool,
+    /// A unit target may not be a hero (v3 `target.types` without `hero`).
+    pub exclude_heroes: bool,
 }
 
 impl MobaItemTargetConst {
@@ -661,6 +663,7 @@ impl MobaItemTargetConst {
         requires_visible: false,
         out_of_range: MobaItemOutOfRangeConst::Reject,
         include_magic_immune: false,
+        exclude_heroes: false,
     };
 }
 

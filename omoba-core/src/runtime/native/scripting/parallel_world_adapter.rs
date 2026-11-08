@@ -987,6 +987,7 @@ impl<'a> ParallelWorldAdapter<'a> {
                 "boss"=>self.cache.unit_tags.as_ref().and_then(|tags|tags.get(e)).is_some_and(|tags|tags.has(omoba_template_ids::MobaUnitTag::Boss))
                     || self.source_unit(e).is_some_and(|unit|matches!(unit.unit_type,UnitType::Boss)),
                 "dummy"=>self.source_unit(e).is_some_and(|unit|matches!(unit.unit_type,UnitType::TrainingDummy)),
+                "courier"=>self.source_unit(e).is_some_and(|unit|matches!(unit.unit_type,UnitType::Courier)),
                 "summon"=>self.is_summon(e) || self.cache.summoned.as_ref().is_some_and(|summoned|summoned.get(e).is_some()),
                 "neutral"=>self.cache.faction.get(e).is_some_and(|f|f.faction_id==FactionType::HostileNeutral),
                 // v3 tag ward (E530): a summon whose template is tagged ward

@@ -156,7 +156,7 @@ fn a_unit_or_point_item_takes_a_unit_or_a_point() {
     let at = world.read_storage::<Pos>().get(hero).unwrap().0;
     let faction = world.read_storage::<Faction>().get(hero).unwrap().clone();
     let rule = MobaItemTargetConst { shape: Shape::UnitOrPoint, range: Fixed64::from_i32(600), team: MobaItemTeamConst::Any,
-        requires_visible: false, out_of_range: MobaItemOutOfRangeConst::Reject, include_magic_immune: true };
+        requires_visible: false, out_of_range: MobaItemOutOfRangeConst::Reject, include_magic_immune: true, exclude_heroes: false };
     let judge = |world: &World, point: Option<Vec2>, unit: Option<Entity>, explicit: bool, named: bool|
         scripted_item_target(world, rule, at, &faction, point, unit, explicit, named).ok();
     let near = at + Vec2::new(Fixed64::from_i32(300), Fixed64::ZERO);
@@ -170,6 +170,28 @@ fn a_unit_or_point_item_takes_a_unit_or_a_point() {
     assert!(scripted_item_target(&world, unit_only, at, &faction, Some(near), None, true, false).is_err());
     let point_only = MobaItemTargetConst { shape: Shape::Point, ..rule };
     assert!(scripted_item_target(&world, point_only, at, &faction, None, Some(ally), false, true).is_err());
+}
+
+/// 千里大劍 (v3 target types creep, neutral, summon, courier, building; no range): an allied unit
+/// anywhere on the map that is not a hero; its own user and other heroes are refused.
+#[test]
+fn a_non_hero_item_target_refuses_heroes_and_a_rangeless_one_reaches_anywhere() {
+    use omoba_template_ids::{MobaItemOutOfRangeConst, MobaItemTargetConst, MobaItemTargetShapeConst as Shape, MobaItemTeamConst};
+    let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+    crate::runtime::setup_single_lane_match(&mut world, crate::runtime::SingleLaneConfig::default()).unwrap();
+    let hero = world.read_resource::<crate::runtime::MobaMatch>().heroes[0].entity.unwrap();
+    let at = world.read_storage::<Pos>().get(hero).unwrap().0;
+    let faction = world.read_storage::<Faction>().get(hero).unwrap().clone();
+    let far = at + Vec2::new(Fixed64::from_i32(9000), Fixed64::ZERO);
+    let unit = world.create_entity().with(Pos(far)).with(faction.clone())
+        .with(CProperty { hp: Fixed64::ONE, mhp: Fixed64::ONE, msd: Fixed64::ZERO, def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build();
+    let rule = MobaItemTargetConst { shape: Shape::Unit, range: Fixed64::ZERO, team: MobaItemTeamConst::Ally,
+        requires_visible: false, out_of_range: MobaItemOutOfRangeConst::Reject, include_magic_immune: false, exclude_heroes: true };
+    let judge = |world: &World, rule: MobaItemTargetConst, target: Entity| scripted_item_target(world, rule, at, &faction, None, Some(target), false, true);
+    assert!(matches!(judge(&world, rule, unit), Ok(SkillTarget::Entity(target)) if target == unit), "an allied unit 9000 away");
+    assert!(judge(&world, rule, hero).is_err(), "never a hero, its user included");
+    assert!(judge(&world, MobaItemTargetConst { exclude_heroes: false, ..rule }, hero).is_ok(), "heroes allowed without the flag");
+    assert!(judge(&world, MobaItemTargetConst { range: Fixed64::from_i32(600), ..rule }, unit).is_err(), "a ranged one stays in range");
 }
 
 #[test]
