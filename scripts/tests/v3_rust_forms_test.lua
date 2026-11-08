@@ -329,4 +329,21 @@ test('the shop catalog names a source key with an apostrophe by its v3 id', func
   assert(catalog.items.item_samurais_badge, "item_samurai's_badge is item_samurais_badge")
 end)
 
+test('remove_status by source and duration, and an item passive hearing its holder\'s casts', function()
+  local function gen(file, id)
+    local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/' .. file))
+    local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+    for _, e in ipairs(report.entries) do
+      if e.id == id then assert(#e.blockers == 0, e.id .. ': ' .. table.concat(e.blockers, '; ')) end
+    end
+    return assert(files['src/generated/' .. id .. '.rs'], id .. ' generates')
+  end
+  local storm = gen('batch_I1.lua', 'item_ice_storm_book')
+  assert(has(storm, 'cx.remove_statuses_by_source(from, '), 'by source')
+  assert(has(storm, 'ability_kit::SourceFilter { min_duration, exclude_source_tags: &["ultimate"], source_is: &["has_ability", "alive"] }'), 'its source filter')
+  local bizen = gen('batch_I0.lua', 'item_bizennosafunekanemitsu')
+  assert(has(bizen, 'cx.passive_marker(ID, &[], 128);'), 'the marker hears ABILITY_EXECUTED')
+  assert(has(bizen, '("item_bizennosafunekanemitsu", 9) => {'), 'served on kind 9')
+end)
+
 print(('%d tests passed'):format(count))

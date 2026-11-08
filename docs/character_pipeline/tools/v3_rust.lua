@@ -1570,9 +1570,10 @@ local ACTION_FIELDS = {
   set_base_max_hp = set({ "op", "to", "value" }),
   remove_ability = set({ "op", "from", "ability" }),
   apply_status = set({ "op", "status", "to", "duration", "source", "stacks", "vars" }),
-  -- exclude_source_tags, source_is, source_ability, min_duration, min_remaining: the host does not
-  -- judge status sources or durations yet (line B), so they stay blocked
-  remove_status = set({ "op", "status", "from", "dispel", "only", "team_of_source", "except", "states", "limit", "tags", "exclude_tags", "max_elapsed" }),
+  -- exclude_source_tags, source_is, min_duration: the host judges a status's source and full
+  -- duration (cx.remove_statuses_by_source, line B c69d3adf); source_ability, min_remaining stay blocked
+  remove_status = set({ "op", "status", "from", "dispel", "only", "team_of_source", "except", "states", "limit", "tags", "exclude_tags", "max_elapsed",
+    "exclude_source_tags", "source_is", "min_duration" }),
   damage = set({ "op", "to", "amount", "type", "require_source_alive", "flags", "source", "credit" }),
   teleport = set({ "op", "who", "to", "find_clear_space", "max_distance" }),
   redirect_motion = set({ "op", "who", "toward", "speed" }),
@@ -2456,6 +2457,19 @@ function Gen:action(a, ctx, ind)
       .. ", team_of_source: " .. rust_str(a.team_of_source or "any") .. ", except: &[" .. table.concat(except, ", ")
       .. "], states: &[" .. table.concat(states, ", ") .. "], limit: " .. limit .. " }"
     local function list(t) local o = {} for _, x in ipairs(t or {}) do o[#o + 1] = rust_str(x) end return "&[" .. table.concat(o, ", ") .. "]" end
+    if a.min_duration ~= nil or a.exclude_source_tags ~= nil or a.source_is ~= nil then
+      -- by the statuses' sources and full durations (line B c69d3adf)
+      for _, is in ipairs(a.source_is or {}) do
+        if is ~= "has_ability" and is ~= "no_ability" and is ~= "alive" and is ~= "gone" then self:block("action:remove_status.source_is:" .. tostring(is)) end
+      end
+      local max = a.max_elapsed ~= nil and ("Some(" .. self:value(a.max_elapsed, ctx, "num") .. ")") or "None"
+      local min = a.min_duration ~= nil and ("Some(" .. self:value(a.min_duration, ctx, "num") .. ")") or "None"
+      return line("{") .. line("    let from = " .. from .. ";") .. line("    let max_elapsed = " .. max .. ";")
+        .. line("    let min_duration = " .. min .. ";")
+        .. line("    cx.remove_statuses_by_source(from, " .. filter .. ", " .. list(a.tags) .. ", " .. list(a.exclude_tags) .. ", max_elapsed, "
+          .. "ability_kit::SourceFilter { min_duration, exclude_source_tags: " .. list(a.exclude_source_tags) .. ", source_is: " .. list(a.source_is) .. " })?;")
+        .. line("}")
+    end
     if a.max_elapsed ~= nil then
       -- only statuses applied less than this many seconds ago (line B 58790026; a refresh keeps the first)
       return line("{") .. line("    let from = " .. from .. ";") .. line("    let max_elapsed = " .. self:value(a.max_elapsed, ctx, "num") .. ";")
@@ -4327,7 +4341,10 @@ local function emit_entry(m, o, opts, status_problems)
     -- marker made with the first copy and removed with the last. The host's own passive hooks
     -- (on_attack_hit, on_ability_executed, on_respawn…) walk learned abilities only, so those wait
     local item = o.kind == "item"
-    if item and ev ~= "on_created" and ev ~= "on_removed" and ev ~= "periodic" and ev ~= "on_attack_hit" and not PASSIVE_EVENTS[ev] then
+    -- an item's on_ability_executed: its marker hears the holder's casts and item uses (status
+    -- event ABILITY_EXECUTED, line B c69d3adf)
+    local item_executed = item and ev == "on_ability_executed"
+    if item and ev ~= "on_created" and ev ~= "on_removed" and ev ~= "periodic" and ev ~= "on_attack_hit" and not PASSIVE_EVENTS[ev] and not item_executed then
       g:block("passive_trigger:" .. ev .. " of an item (no learn marker)")
     elseif not PASSIVE_TRIGGERS[ev] and not (item and ev == "on_removed") then g:block("passive_trigger:" .. ev)
     else
@@ -4364,9 +4381,9 @@ local function emit_entry(m, o, opts, status_problems)
           .. "        }\n"
         if item then item_periodic = start else passive_periodic = start end
       else
-        local evt = PASSIVE_EVENTS[ev]
+        local evt = PASSIVE_EVENTS[ev] or (item_executed and STATUS_TRIGGERS.on_ability_executed and { STATUS_TRIGGERS.on_ability_executed[1], STATUS_TRIGGERS.on_ability_executed[2][1] }) or nil
         local pre = ev == "on_take_damage_pre" or ev == "on_deal_damage_pre"
-        local ctx = { owner = o, scope = scope_child(nil), event = ev == "on_ability_executed" and "owner_cast" or (ev == "on_heal_received" and "heal_received") or (ev == "on_order_targeted" and "order_targeted") or (ev == "on_moved" and "moved") or ev ~= "on_created", pre = pre, windup = ev == "on_attack_windup" }
+        local ctx = { owner = o, scope = scope_child(nil), event = item_executed and "ability_executed" or ev == "on_ability_executed" and "owner_cast" or (ev == "on_heal_received" and "heal_received") or (ev == "on_order_targeted" and "order_targeted") or (ev == "on_moved" and "moved") or ev ~= "on_created", pre = pre, windup = ev == "on_attack_windup" }
         local filter = tr.filter and g:value(tr.filter, ctx, "bool") or "true"
         filters[ev] = filter
         local body = g:actions(tr.actions, ctx, "    ")
