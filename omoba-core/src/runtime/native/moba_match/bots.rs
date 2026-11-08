@@ -843,6 +843,7 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 attack_windup:attacks.get(entity).is_some_and(|attack|attack.attack_phase==crate::runtime::AttackSequencePhase::Windup),
                 attack_range:attacks.get(entity).map(|attack|stats.final_attack_range(attack.range.v,entity)).unwrap_or(Fixed64::ZERO),
                 own_radius:own.radius,
+                hero:heroes.get(entity),
             };
             if let Some(item_slot)=items::choose_active(assignment.role,&config.item_builds,registry,inventory,
                 own.position,team,seen,&observation) {

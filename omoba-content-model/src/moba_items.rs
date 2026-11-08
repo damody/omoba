@@ -57,6 +57,10 @@ pub struct MobaItemEntry {
     /// Single use (source ItemInitialCharges 1 + SpendCharge): a committed use removes the item.
     #[serde(default, skip_serializing_if = "is_false")]
     pub consumable: bool,
+    /// Stored uses of a scripted active (v3 `cost.charges`, scope hero; 土牆之書): a use needs one
+    /// and spends it, each comes back `restore` seconds after the last, one at a time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub charges: Option<MobaItemCharges>,
     /// Items in the user's inventory that also start this item's cooldown when it is used (source
     /// AbilitySharedCooldown groups and script StartCooldown loops, E169). Not symmetric.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -135,6 +139,9 @@ pub fn validate_moba_items(items: &[MobaItemEntry]) -> Result<(), String> {
         if let Some(active) = &item.active {
             active.validate().map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
         }
+        if let Some(charges) = &item.charges {
+            charges.validate(item.active.as_ref(), item.consumable).map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
+        }
         if let Some(aura) = &item.aura {
             aura.validate().map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
         }
@@ -200,6 +207,33 @@ pub fn validate_moba_items(items: &[MobaItemEntry]) -> Result<(), String> {
 }
 
 fn is_zero(value: &f32) -> bool { *value == 0.0 }
+
+/// v3 item `cost.charges = { max, restore, initial, scope = "hero" }`: the hero holds up to `max`
+/// uses (`initial` when it first holds the item), shared by every copy it carries.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct MobaItemCharges {
+    pub max: u16,
+    /// Seconds for one use to come back.
+    pub restore: f32,
+    pub initial: u16,
+}
+
+impl MobaItemCharges {
+    /// A scripted, reusable active's only; 1..=10 uses (what a replica admits), a positive restore
+    /// of at most an hour, and no more initial uses than the maximum.
+    pub fn validate(&self, active: Option<&MobaItemActiveEntry>, consumable: bool) -> Result<(), String> {
+        let ok = matches!(active, Some(MobaItemActiveEntry::Scripted {})) && !consumable
+            && (1..=10).contains(&self.max) && self.initial <= self.max
+            && self.restore.is_finite() && self.restore >= 1.0 / 1024.0 && self.restore <= 3600.0;
+        if ok { Ok(()) } else { Err("invalid charges".into()) }
+    }
+
+    pub fn rust_literal(&self) -> String {
+        format!("MobaItemChargesConst {{ max: {}, restore: Fixed64::from_raw({}), initial: {} }}",
+            self.max, (f64::from(self.restore) * 1024.0).round() as i64, self.initial)
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -763,6 +797,25 @@ mod scripted_active_tests {
             .validate(Some(&MobaItemActiveEntry::UnitHeal { amount: 100.0 })).is_err());
         assert!(target(MobaItemTargetShape::UnitOrPoint, 600.0, MobaItemTeamFilter::Any, false).rust_literal().contains("MobaItemTargetShapeConst::UnitOrPoint"));
         assert!(target(MobaItemTargetShape::Point, -1.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_err());
+    }
+
+    /// 土牆之書：2 uses, one back every 40 s, starting full; a scripted reusable active's only.
+    #[test]
+    fn charges_belong_to_a_scripted_reusable_active() {
+        let scripted = MobaItemActiveEntry::Scripted {};
+        let wall = MobaItemCharges { max: 2, restore: 40.0, initial: 2 };
+        assert!(wall.validate(Some(&scripted), false).is_ok());
+        assert_eq!(wall.rust_literal(), "MobaItemChargesConst { max: 2, restore: Fixed64::from_raw(40960), initial: 2 }");
+        let parsed: MobaItemCharges = serde_json::from_value(serde_json::json!({"max": 2, "restore": 40, "initial": 2})).unwrap();
+        assert_eq!(parsed, wall);
+        assert!(wall.validate(None, false).is_err());
+        assert!(wall.validate(Some(&MobaItemActiveEntry::UnitHeal { amount: 100.0 }), false).is_err());
+        assert!(wall.validate(Some(&scripted), true).is_err(), "a consumable is spent whole");
+        for bad in [MobaItemCharges { max: 0, ..wall }, MobaItemCharges { max: 11, initial: 2, ..wall },
+            MobaItemCharges { initial: 3, ..wall }, MobaItemCharges { restore: 0.0, ..wall }, MobaItemCharges { restore: f32::NAN, ..wall }] {
+            assert!(bad.validate(Some(&scripted), false).is_err(), "{bad:?}");
+        }
+        assert!(MobaItemCharges { initial: 0, ..wall }.validate(Some(&scripted), false).is_ok());
     }
 
     #[test]

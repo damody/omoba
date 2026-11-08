@@ -13,6 +13,7 @@ pub struct ItemRead<'a> {
 pub struct ItemWrite<'a> {
     inventories: WriteStorage<'a, Inventory>,
     effects: WriteStorage<'a, ItemEffects>,
+    heroes: WriteStorage<'a, Hero>,
     properties: WriteStorage<'a, CProperty>,
     attacks: WriteStorage<'a, TAttack>,
 }
@@ -60,6 +61,10 @@ impl<'a> System<'a> for Sys {
             );
             if let Some(eff) = tw.effects.get_mut(e) {
                 *eff = next;
+            }
+            // a newly held charged item starts its hero-wide charges (v3 cost.charges)
+            if let (Some(inventory), Some(hero)) = (tw.inventories.get(e), tw.heroes.get_mut(e)) {
+                crate::runtime::native::game_processor::prime_inventory_charges(hero, inventory);
             }
             // The passive BuffStore entry follows on the next settle_item_passives (E162).
 

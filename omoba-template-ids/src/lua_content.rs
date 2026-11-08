@@ -3212,7 +3212,7 @@ mod tests {
             catalog_id: if id == "sword" || id == "a" { 1 } else { 2 },
             id: id.into(), name: id.into(), cost, atk: 10.0, hp: 0.0, ms: 0.0, armor: 0.0,
             active: None, cooldown: 0.0, lifesteal: 0.0, critical_chance: 0.0, unique_passive: None, purchase_group: None,
-            mana_cost: 0.0, consumable: false, shares_cooldown_with: Vec::new(), aura: None,
+            mana_cost: 0.0, consumable: false, charges: None, shares_cooldown_with: Vec::new(), aura: None,
             recipe: recipe.iter().map(|id| (*id).into()).collect(),
             target: omoba_content_model::moba_items::MobaItemTargetEntry::legacy_self(),
             source_ref: None, description: None, test_only: false, modifiers: Default::default(), v3: None,

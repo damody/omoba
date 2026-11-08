@@ -611,6 +611,15 @@ impl Hero {
         !self.is_on_cooldown(ability_id) && self.has_charge(ability_id)
     }
 
+    /// Starts a charge state no rank drives (a v3 item's `cost.charges`): `initial` of `max` uses,
+    /// recharging while not full. A state already under `key` is kept as it is.
+    pub fn prime_charges(&mut self, key: &str, max: u16, recharge: Fixed64, initial: u16) {
+        if max == 0 || recharge <= Fixed64::ZERO || self.ability_charges.contains_key(key) { return; }
+        let charges = initial.min(max);
+        let remaining = if charges < max { recharge } else { Fixed64::ZERO };
+        self.ability_charges.insert(key.to_owned(), AbilityChargeState { charges, max, recharge, remaining });
+    }
+
     /// Ordinary abilities always "have" a charge; charge abilities need one stored.
     pub fn has_charge(&self, ability_id: &str) -> bool {
         self.ability_charges.get(ability_id).is_none_or(|state| state.charges > 0)
@@ -832,6 +841,32 @@ mod charge_tests {
     use super::*;
     fn s(seconds: i32) -> Fixed64 { Fixed64::from_i32(seconds) }
     fn hero() -> Hero { let mut h = Hero::new("h".into(), "h".into(), "".into()); h.sync_charges("b", Some((2, s(15)))); h }
+
+    /// 土牆之書 (2 uses, 40 s each): primed once, spent one by one, back one at a time; priming
+    /// again keeps the running state, a rank sync leaves it alone, and fewer initial uses start
+    /// the recharge at once.
+    #[test]
+    fn primed_item_charges_spend_and_come_back_one_at_a_time() {
+        let mut h = Hero::new("h".into(), "h".into(), "".into());
+        h.prime_charges("item:wall", 2, s(40), 2);
+        assert_eq!(h.ability_charges["item:wall"], AbilityChargeState { charges: 2, max: 2, recharge: s(40), remaining: Fixed64::ZERO });
+        assert!(h.consume_charge("item:wall") && h.consume_charge("item:wall"));
+        assert!(!h.has_charge("item:wall") && !h.consume_charge("item:wall"), "no use with none stored");
+        h.prime_charges("item:wall", 2, s(40), 2);
+        assert_eq!(h.ability_charges["item:wall"].charges, 0, "priming again keeps the state");
+        h.sync_authored_charges();
+        assert!(h.ability_charges.contains_key("item:wall"), "rank sync is for ability slots only");
+        h.tick_cooldowns(s(39));
+        assert!(!h.has_charge("item:wall"));
+        h.tick_cooldowns(s(1));
+        assert_eq!((h.ability_charges["item:wall"].charges, h.ability_charges["item:wall"].remaining), (1, s(40)));
+        h.tick_cooldowns(s(40));
+        assert_eq!(h.ability_charges["item:wall"], AbilityChargeState { charges: 2, max: 2, recharge: s(40), remaining: Fixed64::ZERO });
+        h.prime_charges("item:low", 3, s(10), 1);
+        assert_eq!(h.ability_charges["item:low"], AbilityChargeState { charges: 1, max: 3, recharge: s(10), remaining: s(10) });
+        h.prime_charges("item:none", 0, s(10), 0);
+        assert!(!h.ability_charges.contains_key("item:none"));
+    }
 
     #[test]
     fn first_learn_is_full_and_spending_arms_one_recharge_cycle() {

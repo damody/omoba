@@ -41,6 +41,17 @@ pub(super) struct ActiveItemObservation<'a> {
     pub attack_range: omoba_sim::Fixed64,
     /// Own disclosed CollisionRadius; attack reach is edge to edge (E555).
     pub own_radius: omoba_sim::Fixed64,
+    /// The owner's hero state, for a charged item's stored uses (v3 `cost.charges`).
+    pub hero: Option<&'a crate::runtime::Hero>,
+}
+
+impl ActiveItemObservation<'_> {
+    /// A charged item (game_processor::item_charge_key) with none of its uses stored: the
+    /// authority would reject the use.
+    fn out_of_charges(&self, item_id: &str) -> bool {
+        self.hero.and_then(|hero| hero.ability_charges.get(&crate::runtime::native::game_processor::item_charge_key(item_id)))
+            .is_some_and(|state| state.charges == 0)
+    }
 }
 
 // ItemUse replaces the current order. Emergency defense may interrupt an
@@ -200,7 +211,7 @@ pub(super) fn choose_active(role: BotRole, builds: &[BotItemBuild], registry: &I
         matches!(u.kind,1|2|3) && u.team!=team && u.hp_raw>0
         && crate::runtime::combat_controls::within_attack_reach(own,u.position,attack_radius,observation.own_radius,u.radius));
     inventory.items().filter_map(|(slot,item)| {
-        if !item.cooldown_remaining.is_finite() || item.cooldown_remaining!=0.0 {return None;}
+        if !item.cooldown_remaining.is_finite() || item.cooldown_remaining!=0.0 || observation.out_of_charges(&item.item_id) {return None;}
         let config=registry.get(&item.item_id)?;
         let effect=config.active.as_ref()?;
         // An unaffordable mana cost would only be rejected by the authority.
@@ -284,7 +295,7 @@ pub(super) fn choose_targeted_active(role: BotRole, builds: &[BotItemBuild], reg
         && i128::from(u.hp_raw)*1000<i128::from(u.max_hp_raw)*i128::from(policy.defend_below_hp_per_mille);
     let enemy=|u:&&super::SeenUnit| u.team!=team && u.team!=0 && u.hp_raw>0;
     inventory.items().filter_map(|(slot,item)| {
-        if !item.cooldown_remaining.is_finite() || item.cooldown_remaining!=0.0 {return None;}
+        if !item.cooldown_remaining.is_finite() || item.cooldown_remaining!=0.0 || observation.out_of_charges(&item.item_id) {return None;}
         let config=registry.get(&item.item_id)?;
         let effect=config.active.as_ref()?;
         let entry=omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|entry|entry.id==config.id)?;
@@ -463,7 +474,7 @@ mod tests {
         let low=health(20);
         fn observation(health:&CProperty)->ActiveItemObservation<'_> {
             ActiveItemObservation {health,mana:None,shield_raw:0,next_attack_bonus_raw:0,reduction_active:false,
-                sprint_active:false,immobilized:false,silenced:false,attack_windup:false,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO}
+                sprint_active:false,immobilized:false,silenced:false,attack_windup:false,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO,hero:None}
         }
         let unit=|id:u64,x:i32,team:u32,kind:u8,hp:i64|SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
             team,kind,owner_player_id:0,hp_raw:hp,max_hp_raw:1000,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
@@ -514,7 +525,7 @@ mod tests {
         let registry=ItemRegistry::generated_moba();
         let health=CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
         let observation=ActiveItemObservation {health:&health,mana:None,shield_raw:0,next_attack_bonus_raw:0,reduction_active:false,
-            sprint_active:false,immobilized:false,silenced:false,attack_windup:false,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO};
+            sprint_active:false,immobilized:false,silenced:false,attack_windup:false,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO,hero:None};
         let mut builds=build(&["blowgun"]);
         builds[0].active_use=Some(BotActiveItemPolicy {combat_radius:700,defend_below_hp_per_mille:500,restore_below_mana_per_mille:0,channel_below_hp_per_mille:0});
         let unit=|id:u64,x:i32,team:u32,kind:u8,hp:i64|SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
@@ -583,7 +594,7 @@ mod tests {
         for id in ["moba_recovery_charm","moba_recovery_charm"] {buy_item(&registry,&mut inventory,&mut Gold(2000),id).unwrap();}
         let health=CProperty{hp:Fixed64::from_i32(40),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
         let boundary=CProperty{hp:Fixed64::from_i32(60),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
-        let mut observation=ActiveItemObservation{health:&health,mana:None,shield_raw:0,next_attack_bonus_raw:0,reduction_active:false,sprint_active:false,immobilized:false,silenced:false,attack_windup:false,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO};
+        let mut observation=ActiveItemObservation{health:&health,mana:None,shield_raw:0,next_attack_bonus_raw:0,reduction_active:false,sprint_active:false,immobilized:false,silenced:false,attack_windup:false,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO,hero:None};
         let mut builds=build(&["moba_recovery_charm"]);builds[0].active_use=Some(BotActiveItemPolicy{combat_radius:700,defend_below_hp_per_mille:500,restore_below_mana_per_mille:0,channel_below_hp_per_mille:0});
         let choose=|builds:&[BotItemBuild],registry:&ItemRegistry,inventory:&Inventory,observation:&ActiveItemObservation<'_>,seen:&[super::super::SeenUnit]|choose_active(BotRole::Carry,builds,registry,inventory,Vec2::ZERO,1,seen,observation);
         assert!(choose(&builds,&registry,&inventory,&observation,&[]).is_none());builds[0].active_use.as_mut().unwrap().channel_below_hp_per_mille=600;
@@ -597,6 +608,12 @@ mod tests {
         observation.health=&boundary;assert!(choose(&builds,&registry,&inventory,&observation,&[]).is_none());observation.health=&health;
         for cd in [1.0,-1.0,f32::NAN,f32::INFINITY] {inventory.slots[0].as_mut().unwrap().cooldown_remaining=cd;assert_eq!(choose(&builds,&registry,&inventory,&observation,&[]),Some(1));}
         inventory.slots[0].as_mut().unwrap().cooldown_remaining=0.0;
+        // a charged item with no use stored is skipped; one stored use is enough
+        let mut charged=crate::runtime::Hero::default();
+        charged.prime_charges(&crate::runtime::native::game_processor::item_charge_key("moba_recovery_charm"),2,Fixed64::from_i32(40),0);
+        observation.hero=Some(&charged);assert!(choose(&builds,&registry,&inventory,&observation,&[]).is_none());
+        let mut stored=charged.clone();stored.tick_cooldowns(Fixed64::from_i32(40));
+        observation.hero=Some(&stored);assert_eq!(choose(&builds,&registry,&inventory,&observation,&[]),Some(0));observation.hero=None;
         let mut arbitrary=(*registry.get("moba_recovery_charm").unwrap()).clone();arbitrary.id="arbitrary_channel".into();registry.items.insert(arbitrary.id.clone(),std::sync::Arc::new(arbitrary.clone()));
         inventory.slots[0].as_mut().unwrap().item_id=arbitrary.id.clone();assert_eq!(choose(&builds,&registry,&inventory,&observation,&[]),Some(0));
         arbitrary.active=Some(crate::runtime::native::item::ActiveEffect::ChannelHeal{amount:Fixed64::ONE,duration:Fixed64::ONE,interval:Fixed64::ZERO});registry.items.insert(arbitrary.id.clone(),std::sync::Arc::new(arbitrary));
@@ -615,7 +632,7 @@ mod tests {
             owner_player_id:2,hp_raw:1024,max_hp_raw:1024,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
         let mut observation=ActiveItemObservation {health:&health,mana:Some(&mana),shield_raw:0,
             next_attack_bonus_raw:0,reduction_active:false,sprint_active:false,immobilized:false,silenced:false,
-            attack_windup:false,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO};
+            attack_windup:false,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO,hero:None};
         for id in ["moba_guard_charm","moba_stride_charm","moba_mana_charm","moba_ward_charm","moba_strike_charm"] {
             let mut builds=build(&[id]);
             let mut inventory=Inventory::new();
@@ -668,7 +685,7 @@ mod tests {
             let before=serde_json::to_value(&inventory).unwrap();
             let mut observation=ActiveItemObservation {health:&health,mana:Some(&mana),shield_raw:0,
                 next_attack_bonus_raw:0,reduction_active:false,sprint_active:false,immobilized:false,silenced:false,
-                attack_windup:true,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO};
+                attack_windup:true,attack_range:Fixed64::from_i32(500),own_radius:Fixed64::ZERO,hero:None};
             let choose=|obs:&ActiveItemObservation<'_>,seen:&[super::super::SeenUnit]| {
                 choose_active(BotRole::Carry,&builds,&registry,&inventory,Vec2::ZERO,1,seen,obs)
                     .map(|slot|inventory.slots[slot].as_ref().unwrap().item_id.as_str())

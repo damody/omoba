@@ -602,6 +602,8 @@ pub struct MobaItemConst {
     pub mana_cost: Fixed64,
     /// Single use: a committed use removes the item.
     pub consumable: bool,
+    /// Stored uses shared by the hero's copies (v3 `cost.charges`, scope hero).
+    pub charges: Option<MobaItemChargesConst>,
     /// Inventory items that also start this item's cooldown when it is used.
     pub shares_cooldown_with: &'static [&'static str],
     /// Passive aura on allies around the holder (E173).
@@ -709,6 +711,10 @@ pub enum MobaItemActiveConst {
 /// One named timed modifier: its BuffStore stat values (StatKey name, raw Fixed64; percentages are fractions).
 #[derive(Clone, Copy, Debug)]
 pub struct MobaItemModifierConst { pub name: &'static str, pub duration: Fixed64, pub area: bool, pub stats: &'static [(&'static str, Fixed64)] }
+
+/// Stored uses of a scripted item: up to `max`, `initial` at first, one back each `restore`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MobaItemChargesConst { pub max: u16, pub restore: Fixed64, pub initial: u16 }
 
 /// A passive item aura: buff `name` with `stats` on allies within `radius` of the holder.
 #[derive(Clone, Copy, Debug)]

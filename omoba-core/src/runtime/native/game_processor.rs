@@ -1988,6 +1988,35 @@ pub(crate) fn item_script_id(item_id: &str) -> Option<&'static str> {
     }
 }
 
+/// v3 `cost.charges` (scope hero): a charged item's uses live in the hero's
+/// `Hero::ability_charges` under `item:<id>`, shared by every copy it carries and recharging with
+/// its other charges (persisting through death and selling, as the hero's own state).
+pub(crate) fn item_charge_key(item_id: &str) -> String { format!("item:{item_id}") }
+
+fn item_charges(item_id: &str) -> Option<omoba_template_ids::MobaItemChargesConst> {
+    omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == item_id).and_then(|item| item.charges)
+}
+
+/// Starts the charges of each charged item in `inventory` the hero has not held before.
+pub(crate) fn prime_inventory_charges(hero: &mut Hero, inventory: &Inventory) {
+    for instance in inventory.slots.iter().flatten() {
+        if let Some(spec) = item_charges(&instance.item_id) { item_charge_ready_with(hero, &instance.item_id, spec); }
+    }
+}
+
+/// Whether the hero holds a use of a charged item, priming its charges when it has none yet.
+fn item_charge_ready_with(hero: &mut Hero, item_id: &str, spec: omoba_template_ids::MobaItemChargesConst) -> bool {
+    let key = item_charge_key(item_id);
+    hero.prime_charges(&key, spec.max, spec.restore, spec.initial);
+    hero.has_charge(&key)
+}
+
+/// Whether the owner may use the item by its charges: always for an item without them.
+fn item_charge_ready(world: &World, owner: Entity, item_id: &str) -> bool {
+    let Some(spec) = item_charges(item_id) else { return true };
+    world.write_storage::<Hero>().get_mut(owner).is_some_and(|hero| item_charge_ready_with(hero, item_id, spec))
+}
+
 /// An item whose active is a generated script (items.dll registers it with `kind = item`).
 fn scripted_item(world: &World, item_id: &str) -> bool {
     let Some(script) = item_script_id(item_id) else { return false };
@@ -2070,6 +2099,9 @@ fn queue_scripted_item_use(
     if scripted_item_mana(world, owner, item_id).is_none() {
         return Err(failure::err_msg("ItemUse: not enough mana"));
     }
+    if !item_charge_ready(world, owner, item_id) {
+        return Err(failure::err_msg("ItemUse: no charges"));
+    }
     let mut events = world.try_fetch_mut::<ScriptEventQueue>().ok_or_else(|| failure::err_msg("ItemUse: script queue unavailable"))?;
     events.push(ScriptEvent::ItemCast { owner, owner_pid, slot: slot_i as u32, item_id: item_id.to_owned(), target });
     Ok(())
@@ -2098,7 +2130,12 @@ fn commit_scripted_item_use(world: &mut World, owner: Entity, owner_pid: u32, sl
     }
     let Some(pool) = scripted_item_mana(world, owner, item_id) else { return false };
     let Some(cooldown) = world.read_resource::<ItemRegistry>().get(item_id).map(|cfg| cfg.cooldown) else { return false };
+    if !item_charge_ready(world, owner, item_id) { return false; }
     let cooldown = if refund.cooldown { 0.0 } else { cooldown };
+    // a refunded cooldown gives the use back too
+    if !refund.cooldown && item_charges(item_id).is_some() {
+        if let Some(hero) = world.write_storage::<Hero>().get_mut(owner) { hero.consume_charge(&item_charge_key(item_id)); }
+    }
     if let Some(pool) = pool.filter(|_| !refund.mana) {
         if let Some(hero) = world.write_storage::<Hero>().get_mut(owner) { hero.mana_pool = Some(pool); }
     }
