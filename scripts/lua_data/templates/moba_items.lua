@@ -181,6 +181,11 @@ local SOURCE_ITEMS = {
   { 240, "item_ice_storm_book", true },
   { 241, "item_the_great_sword_of_drain", true },
   { 242, "item_bizennosafunekanemitsu", true },
+  -- E line (2026-11-08): owner death and respawn hooks (line B 7b32a3e1 / 82771384, line A
+  -- 57bfb4d5 / 1c37f120).
+  { 243, "item_insight_gem_ninja", true },
+  { 244, "item_death_of_scepter", true },
+  { 245, "item_muramasa_katana", true },
 }
 
 return function(ctx)

@@ -74,6 +74,14 @@ local data = {
       shares_cooldown_with = { "dark_boots", "magic_defence_boots", "magic_defence_boots_1", "mana_boots", "mana_boots_1", "perceive_wine", "ryukyu_ronin_clogs", "ryukyu_ronin_clogs_1", "swiftness_boots", "swiftness_boots_1", "the_great_silver_armor" },
     },
   },
+  death_of_scepter = {
+    not_passive = { "modifiers.spell_amplify_percentage" },
+    numbers = { cost = 2800, hp = 150, ["modifiers.mana_regen_constant"] = 5.0, ["modifiers.stats_agility_bonus"] = 9, ["modifiers.stats_intellect_bonus"] = 9 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 80.0,
+    },
+  },
   devil_supressor_armor = {
     not_passive = { "modifiers.magical_resistance_bonus" },
     numbers = { armor = 3, cost = 3000, ["modifiers.health_regen_constant"] = 20 },
@@ -224,6 +232,13 @@ local data = {
       ["target.range"] = 1000,
     },
     recipe = { "spell_book", "intelligence_ingot" },
+  },
+  insight_gem_ninja = {
+    numbers = { cost = 150 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 30.0,
+    },
   },
   intelligence_ingot = {
     numbers = { cost = 300, ["modifiers.stats_intellect_bonus"] = 5 },
@@ -395,6 +410,15 @@ local data = {
       cooldown = 80.0,
       mana_cost = 100.0,
       shares_cooldown_with = { "the_art_of_war", "the_art_of_war_mountain_chapter", "the_lost_art_of_war_2" },
+    },
+  },
+  muramasa_katana = {
+    not_passive = { "modifiers.attackspeed_bonus_constant" },
+    numbers = { atk = 30, cost = 9000 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 70.0,
+      mana_cost = 120.0,
     },
   },
   nagamaki = {
