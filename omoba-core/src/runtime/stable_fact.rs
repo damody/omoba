@@ -230,9 +230,9 @@ pub enum ObservableFact {
         to_unit: Option<u64>, to_point: Option<(i64, i64)>,
         radius_raw: i64, duration_raw: i64,
     },
-    /// The order filter of `holder`'s statuses refused `caster`'s order to use `ability`
-    /// (`item:<id>` for an item) on it, this step.
-    OrderFiltered { caster: u64, holder: u64, ability: String },
+    /// The order filters of `holder`'s statuses heard `caster`'s order to use `ability`
+    /// (`item:<id>` for an item) on it this step, and whether they refused it.
+    OrderFiltered { caster: u64, holder: u64, ability: String, refused: bool },
     Tower {
         source: u64,
         action_id: u64,

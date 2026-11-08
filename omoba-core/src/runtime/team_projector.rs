@@ -1782,14 +1782,14 @@ fn project_fact(
     // An order filter's refusal (status_event ORDER_FILTER) reaches the teams that see the caster
     // or the holder: "ORF1", both units' replica ids for this team (0 for one it does not see),
     // then the ability. The caster's team refuses the same cast; the holder's runs the same hooks.
-    if let ObservableFact::OrderFiltered { caster, holder, ability } = &ordered.fact {
+    if let ObservableFact::OrderFiltered { caster, holder, ability, refused } = &ordered.fact {
         let id = |unit: &u64| visible.contains(unit).then(|| replica_proto(identity, *unit)).flatten().map_or(0, |replica| replica.value);
         let (caster_id, holder_id) = (id(caster), id(holder));
         if caster_id == 0 && holder_id == 0 { return; }
         public.push(TeamPublicEvent {
             event_kind: ordered.key.fact_kind as u32,
             subject: None,
-            sanitized_payload: crate::runtime::native::order_filter::encode(caster_id, holder_id, ability),
+            sanitized_payload: crate::runtime::native::order_filter::encode(caster_id, holder_id, ability, *refused),
             stable_sub_index: ordered.key.local_ordinal,
         });
         return;

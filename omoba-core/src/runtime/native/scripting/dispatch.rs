@@ -253,9 +253,10 @@ fn dispatch_scripts(
         let mut visual_events = Vec::new();
         let mut targeted_aggression = Vec::new();
         let mut cast_turns: Vec<(Entity, omoba_sim::Angle)> = Vec::new();
-        // Order filters (order_filter.rs): the authority's refusals to publish; a team replica's
-        // refusals from the authority, and the hooks its own holders run for them, first.
-        let mut refused_orders: Vec<(Entity, Entity, String)> = Vec::new();
+        // Order filters (order_filter.rs): the orders the authority's filters heard, to publish
+        // (refused or not); a team replica's refusals from the authority, and the hooks its own
+        // holders run for them, first.
+        let mut filtered_orders: Vec<(Entity, Entity, String, bool)> = Vec::new();
         let filter_injections = cache.filtered.then(|| world.try_fetch_mut::<super::super::order_filter::OrderFilterInjections>()
             .map(|mut rows| std::mem::take(&mut *rows))).flatten().unwrap_or_default();
         for (holder, caster, ability) in &filter_injections.holders {
@@ -349,9 +350,9 @@ fn dispatch_scripts(
                     let refused = if cache.filtered {
                         filter_injections.refused.iter().any(|(who, what)| *who == caster && *what == ability)
                     } else {
-                        let refused = run_order_filter(&cache, registry, Some(caster), victim, &ability, &mut event_outcomes);
-                        if refused { refused_orders.push((caster, victim, ability.clone())); }
-                        refused
+                        let heard = run_order_filter(&cache, registry, Some(caster), victim, &ability, &mut event_outcomes);
+                        if let Some(refused) = heard { filtered_orders.push((caster, victim, ability.clone(), refused)); }
+                        heard == Some(true)
                     };
                     if refused { reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED); }
                 }
@@ -597,7 +598,7 @@ fn dispatch_scripts(
             crate::runtime::native::moba_match::record_moba_champion_aggression(world, attacker, victim, true);
         }
         publish_successful_cast_facts(world, &mut visual_events);
-        super::super::order_filter::publish(world, &refused_orders);
+        super::super::order_filter::publish(world, &filtered_orders);
         if !cast_turns.is_empty() {
             let mut facings = world.write_storage::<crate::comp::Facing>();
             for (caster, angle) in cast_turns {
@@ -1114,23 +1115,24 @@ fn executed_ability(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry,
 const ORDER_FILTER_ORDINAL: u64 = 1 << 42;
 
 /// `holder`'s order filters (status_event ORDER_FILTER) hear `caster`'s order to use `ability` on
-/// it, in row order; whether one refused it (ext CANCEL_ORDER). What they did is kept either way,
-/// like any status event's effects. `caster` is `None` on a holder's team replica that does not
+/// it, in row order; whether one refused it (ext CANCEL_ORDER), `None` when none heard it. What
+/// they did is kept either way, like any status event's effects. `caster` is `None` on a holder's team replica that does not
 /// see the caster (its event names no unit, its ability reads rank 1).
 fn run_order_filter(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, caster: Option<Entity>, holder: Entity, ability: &str,
-    outcomes: &mut Vec<crate::comp::Outcome>) -> bool {
+    outcomes: &mut Vec<crate::comp::Outcome>) -> Option<bool> {
     use super::super::status_event as se;
     let mut rows: Vec<(String, se::Spec)> = cache.buffs.iter_for(holder)
         .filter_map(|(id, entry)| se::Spec::from_payload(&entry.payload).filter(|spec| spec.listens(se::ORDER_FILTER)).map(|spec| (id.to_owned(), spec)))
         .collect();
-    if rows.is_empty() { return false; }
+    if rows.is_empty() { return None; }
     rows.sort_by(|a, b| a.0.cmp(&b.0));
     let base = ability.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)) & 0xff_ffff;
     let order = executed_ability(cache, registry, &caster.unwrap_or(holder), ability, cache.pos.get(holder).map(|p| p.0));
     let other = caster.map_or(EntityHandle::INVALID, ParallelWorldAdapter::entity_to_handle);
-    let mut refused = false;
+    let (mut heard, mut refused) = (false, false);
     for (index, (row, spec)) in rows.into_iter().enumerate() {
         let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
+        heard = true;
         let event = spec.event(&row, se::ORDER_FILTER, other, Fixed64::ZERO, 1);
         let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(cache, holder, ORDER_FILTER_ORDINAL + base * 64 + index as u64);
         adapter.event_ability = Some(order.clone());
@@ -1149,7 +1151,7 @@ fn run_order_filter(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry,
         if let Some(batch) = effect_batch(cache, adapter.finish()) { outcomes.extend(batch); }
         else { log::warn!("[scripting] order filter of '{}' ({}) tried to charge; dropped", spec.status, spec.ability); }
     }
-    refused
+    heard.then_some(refused)
 }
 
 /// An effect-only hook's outcomes (equip, aura, channel start/pulse/end, delayed effect, schedule,

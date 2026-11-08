@@ -539,7 +539,9 @@ fn order_filter_refusals_keep_every_team_replica_with_the_authority() {
         let (_, _, calls, heard) = order_filter_soak(cancel, false);
         let executed = executions(&calls);
         if cancel { assert_eq!(executed, 0, "refused everywhere"); } else { assert!(executed >= 10, "executed {executed}"); }
-        assert!(heard.lock().unwrap().len() >= 10, "the guard heard each order: {:?}", heard.lock().unwrap());
+        // The authority and the holder's team replica (from the published fact) both run the guard,
+        // for every order, refused or not.
+        assert!(heard.lock().unwrap().len() >= 20, "the guard heard each order twice: {:?}", heard.lock().unwrap());
     }
 }
 
@@ -549,7 +551,7 @@ fn order_filter_refusals_keep_every_team_replica_with_the_authority() {
 #[test]
 fn pre_mitigation_ward_instances_keep_every_team_replica_with_the_authority() {
     let (world, enemy, _, heard) = order_filter_soak(false, true);
-    assert!(heard.lock().unwrap().len() >= 10, "the guard heard each order: {:?}", heard.lock().unwrap());
+    assert!(heard.lock().unwrap().len() >= 20, "the authority and the holder's replica heard each order: {:?}", heard.lock().unwrap());
     let wards: Vec<i64> = world.read_resource::<BuffStore>().iter_for(enemy)
         .filter(|(id, _)| id.starts_with(&format!("__absorb:{WARD}#")))
         .filter_map(|(_, row)| row.payload.get("remaining_raw")?.as_i64()).collect();
