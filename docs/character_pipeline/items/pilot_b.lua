@@ -553,8 +553,6 @@ return function(ctx)
             source = "script:vscripts/library/events/eventfororder.lua:163-165 施法距離 0 視為 100000" },
           ready_poll = { 0.5, unit = "s", hidden = true,
             source = "script:vscripts/items/Addon_Items/item_magic_talisman.lua:106-133 計時器 1／0.5 秒" },
-          approach_tick = { 0.3, unit = "s", hidden = true, source = "script:vscripts/library/events/eventfororder.lua:239 return 0.3" },
-          stop_delay = { 0.1, unit = "s", hidden = true, source = "script:vscripts/library/events/eventfororder.lua:234-236" },
         },
         text = {
           zh_TW = { name = "御魔護符",
@@ -604,11 +602,6 @@ return function(ctx)
                       { op = "spend_mana", from = "event.issuer", amount = "event.order.ability.mana_cost", ability = "event.order.ability" },
                       { op = "remove_status", from = "event.issuer", tags = { "invisible" } },
                       { op = "cancel_cast", reason = "magic_talisman_block" },
-                    },
-                    otherwise = {
-                      { op = "apply_status", status = "magic_talisman_approach", to = "event.issuer",
-                        vars = { goal = "self", spell = "event.order.ability" } },
-                      { op = "cancel_cast", reason = "magic_talisman_approach" },
                     } },
                 } },
             },
@@ -618,32 +611,11 @@ return function(ctx)
             absorb = { amount = "$shield", types = { "magical" }, phase = "pre_mitigation" },
             text = { zh_TW = { name = "魔盾", body = "吸收 {shield} 魔法傷害。" }, en = { name = "Magic Shield", body = "Absorbs {shield} magic damage." } },
             notes = "原作 nobu_modifier_magical_shield（INCOMING_DAMAGE_PERCENTAGE 扣池）。" },
-          { id = "magic_talisman_approach", duration = "infinite", stacking = "replace", dispel = "none", visibility = "hidden",
-            reveal = "public",
-            vars = { goal = { type = "unit", reveal = "public" }, spell = { type = "ability", reveal = "public" } },
-            triggers = {
-              periodic = { interval = "$approach_tick", first = 0, actions = {
-                { op = "if", cond = "not exists(vars.goal)",
-                  actions = { { op = "remove_status", from = "self", status = "magic_talisman_approach" } },
-                  otherwise = {
-                    { op = "let", name = "reach",
-                      value = "select(vars.spell.cast_range == 0, $global_range, vars.spell.cast_range)" },
-                    { op = "if", cond = "distance(self, vars.goal) > reach",
-                      actions = { { op = "issue_order", who = "self", order = "move", at = "position(vars.goal)" } },
-                      otherwise = {
-                        { op = "remove_status", from = "self", status = "magic_talisman_approach" },
-                        { op = "issue_order", who = "self", order = "cast", target = "vars.goal", ability = "vars.spell" },
-                        { op = "delay", time = "$stop_delay", actions = { { op = "issue_order", who = "self", order = "stop" } } },
-                      } },
-                  } },
-              } },
-              on_order = { filter = "event.order.by_player", actions = {
-                { op = "remove_status", from = "self", status = "magic_talisman_approach" } } },
-            },
-            notes = "原作 caster.go_protection 計時器：每 0.3 秒走向目標，進入距離後重下施法令（會再被攔），0.1 秒後 Stop。玩家下任何命令會清掉 go_protection（eventfororder.lua:401-403），腳本自己下的命令不會。" },
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
+          { policy = "as_source", ref = "vscripts/library/events/eventfororder.lua:205-244",
+            text = "施法者在距離外時，原作以 go_protection 計時器帶他走進距離再重下施法令（會再被攔）。本作 host 的 cast_approach 先把施法者帶進施法距離，命令到 dispatch 才經 order filter（B 線 037a69cd），所以不另寫接近狀態；剛好等於施法距離時照原作放行。" },
           { policy = "no_effect", ref = "vscripts/items/Addon_Items/item_magic_talisman.lua:39",
             text = "`and false` 讓 modifier 的受傷分支永遠不執行；modifier_magic_talisman2 也因此不會出現。真正的格擋在 vscripts/library/events/eventfororder.lua:149-214。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_magic_talisman.lua:106-134",

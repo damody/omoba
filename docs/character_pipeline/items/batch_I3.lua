@@ -180,8 +180,6 @@ return function(ctx)
             source = "script:vscripts/library/events/eventfororder.lua:163-165 施法距離 0 視為 100000" },
           first_check = { 1, unit = "s", hidden = true, source = "script:vscripts/items/Addon_Items/item_protection_amulet.lua:91 Timers:CreateTimer(1, ...)" },
           ready_poll = { 0.5, unit = "s", hidden = true, source = "script:vscripts/items/Addon_Items/item_protection_amulet.lua:115-116 return 0.5" },
-          approach_tick = { 0.3, unit = "s", hidden = true, source = "script:vscripts/library/events/eventfororder.lua:239 return 0.3" },
-          stop_delay = { 0.1, unit = "s", hidden = true, source = "script:vscripts/library/events/eventfororder.lua:234-236" },
         },
         text = {
           zh_TW = { name = "御守",
@@ -231,41 +229,15 @@ return function(ctx)
                       { op = "spend_mana", from = "event.issuer", amount = "event.order.ability.mana_cost", ability = "event.order.ability" },
                       { op = "remove_status", from = "event.issuer", tags = { "invisible" } },
                       { op = "cancel_cast", reason = "protection_amulet_block" },
-                    },
-                    otherwise = {
-                      { op = "apply_status", status = "protection_amulet_approach", to = "event.issuer",
-                        vars = { goal = "self", spell = "event.order.ability" } },
-                      { op = "cancel_cast", reason = "protection_amulet_approach" },
                     } },
                 } },
             },
             notes = "原作 modifier_protection_amulet（Lua modifier，以 ApplyDataDrivenModifier 套用，與 pilot_b 御魔護符同樣推定可套上）；真正的格擋在 ExecuteOrderFilter（eventfororder.lua spell_ability）。" },
-          { id = "protection_amulet_approach", duration = "infinite", stacking = "replace", dispel = "none", visibility = "hidden",
-            reveal = "public",
-            vars = { goal = { type = "unit", reveal = "public" }, spell = { type = "ability", reveal = "public" } },
-            triggers = {
-              periodic = { interval = "$approach_tick", first = 0, actions = {
-                { op = "if", cond = "not exists(vars.goal)",
-                  actions = { { op = "remove_status", from = "self", status = "protection_amulet_approach" } },
-                  otherwise = {
-                    { op = "let", name = "reach",
-                      value = "select(vars.spell.cast_range == 0, $global_range, vars.spell.cast_range)" },
-                    { op = "if", cond = "distance(self, vars.goal) > reach",
-                      actions = { { op = "issue_order", who = "self", order = "move", at = "position(vars.goal)" } },
-                      otherwise = {
-                        { op = "remove_status", from = "self", status = "protection_amulet_approach" },
-                        { op = "issue_order", who = "self", order = "cast", target = "vars.goal", ability = "vars.spell" },
-                        { op = "delay", time = "$stop_delay", actions = { { op = "issue_order", who = "self", order = "stop" } } },
-                      } },
-                  } },
-              } },
-              on_order = { filter = "event.order.by_player", actions = {
-                { op = "remove_status", from = "self", status = "protection_amulet_approach" } } },
-            },
-            notes = "原作 caster.go_protection 計時器，與御魔護符共用 eventfororder.lua:205-244 同一段。" },
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
+          { policy = "as_source", ref = "vscripts/library/events/eventfororder.lua:205-244",
+            text = "施法者在距離外時，原作以 go_protection 計時器帶他走進距離再重下施法令（會再被攔）。本作 host 的 cast_approach 先把施法者帶進施法距離，命令到 dispatch 才經 order filter（B 線 037a69cd），所以不另寫接近狀態；剛好等於施法距離時照原作放行。" },
           { policy = "no_effect", ref = "vscripts/items/Addon_Items/item_protection_amulet.lua:36",
             text = "modifier 的 OnTakeDamage 分支寫了 `and false`，永遠不執行（裡面的回血回魔、驅散、StartCooldown(80) 都是死碼）。真正的格擋在 vscripts/library/events/eventfororder.lua:149-203。" },
           { policy = "as_source", ref = "vscripts/library/events/eventfororder.lua:189-193",

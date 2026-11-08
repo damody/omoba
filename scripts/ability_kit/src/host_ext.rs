@@ -602,6 +602,36 @@ impl Cx<'_, '_> {
         matches!(self.read(op::EVENT_ABILITY_TAG, &[ExtArg::Str(tag.into())]), ExtValue::Bool(true))
     }
 
+    /// v3 `event.order.ability.mana_cost` in an order status trigger: its mana cost at the
+    /// orderer's rank (an item's at rank 1; host ext EVENT_ABILITY_ATTR `mana_cost`).
+    pub fn event_ability_mana_cost(&mut self) -> Fixed64 {
+        match self.read(op::EVENT_ABILITY_ATTR, &[ExtArg::Str(omb_script_abi::ext::event_ability_attr::MANA_COST.into())]) {
+            ExtValue::Num(cost) => cost, _ => Fixed64::ZERO,
+        }
+    }
+
+    /// v3 `modify_cooldown { ability = event.order.ability, mode = "start" }` without an amount:
+    /// the event's ability cools down fully on `unit` (an ability at its rank; an item, `item:<id>`,
+    /// in every slot holding it for its catalog cooldown).
+    pub fn event_ability_cooldown_start(&mut self, unit: EntityHandle) -> Res {
+        let Some(id) = self.event_ability_id() else { return Ok(()) };
+        let Some(item) = id.strip_prefix("item:") else { return self.cooldown_start_own(unit, &id) };
+        let seconds = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+            .find(|row| row.id == item || row.source_ref.and_then(|r| r.rsplit_once(':')).is_some_and(|(_, source)| source == item))
+            .map_or(Fixed64::ZERO, |row| row.cooldown);
+        if seconds <= Fixed64::ZERO { return Ok(()); }
+        self.item_cooldown_start(unit, item, seconds)
+    }
+
+    /// v3 `cancel_cast` in an order filter (status event ORDER_FILTER): the order is refused before
+    /// its windup, nothing charged (host ext CANCEL_ORDER; an error outside an order filter).
+    pub fn cancel_order(&mut self) -> Res {
+        match self.world.ext(op::CANCEL_ORDER, RSlice::from_slice(&[])).into_result() {
+            Ok(_) => Ok(()),
+            Err(_) => Err("v3: cancel_cast outside an order filter"),
+        }
+    }
+
     /// v3 `event.ability.is_toggle` in an `on_ability_executed` status trigger.
     pub fn event_ability_is_toggle(&mut self) -> bool {
         matches!(self.read(op::EVENT_ABILITY_ATTR, &[ExtArg::Str(omb_script_abi::ext::event_ability_attr::IS_TOGGLE.into())]), ExtValue::Bool(true))

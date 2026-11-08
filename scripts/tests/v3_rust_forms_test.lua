@@ -278,4 +278,23 @@ test('a toggle item registers as a toggle, runs its active on_unequip and reads 
   assert(has(over, '(StatKey::CooldownPercentage, (Fixed64::ZERO - ('), 'cooldown reduction as a negative cooldown percentage')
 end)
 
+test('an on_order_targeted that cancels runs as the host order filter and refuses the order', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I3.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_protection_amulet' then assert(#e.blockers == 0, e.id .. ': ' .. table.concat(e.blockers, '; ')) end
+  end
+  local text = assert(files['src/generated/item_protection_amulet.rs'], 'the amulet generates')
+  assert(has(text, 'fn st_protection_amulet_ready_on_order_filter('), 'the order filter trigger')
+  assert(has(text, '("protection_amulet_ready", 21) =>'), 'served on status event ORDER_FILTER')
+  assert(not has(text, 'on_order_targeted('), 'not the after-windup event')
+  assert(has(text, 'cx.cancel_order()?;'), 'cancel_cast refuses the order')
+  assert(has(text, 'cx.event_ability_cooldown_start(of)?;'), "the orderer pays the ordered ability's cooldown")
+  assert(has(text, 'cx.event_ability_mana_cost()') and has(text, 'cx.burn_mana(from, amount)?;'), 'and its mana, as a burn')
+  assert(has(text, 'cx.event_ability_has_tag("ultimate")'), 'ultimates pass')
+  assert(has(text, 'cx.item_cooldown_start(of, "item_protection_amulet", amount)?;'), 'the amulet cools down in its slots')
+  assert(has(text, 'cx.item_cooldown_remaining(cx.caster, "item_protection_amulet") <= Fixed64::ZERO'), 'its readiness')
+  assert(has(text, 'ability_kit::item_kind_ffi(ID, "passive", '), 'registered as a passive item')
+end)
+
 print(('%d tests passed'):format(count))

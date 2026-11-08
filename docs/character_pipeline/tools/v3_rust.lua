@@ -218,6 +218,9 @@ local STATUS_TRIGGERS = {
   -- an enemy (or anyone) ordered an attack or a cast at the holder (line B E465): event.issuer the
   -- orderer, event.order.ability the ordered ability (none for an attack order)
   on_order_targeted = { 32768, { 18 } },
+  -- an on_order_targeted that can cancel_cast: the host's order filter, before the windup of a
+  -- single-target cast at the holder (line B 037a69cd); triggers_of names it so
+  on_order_filter = { 262144, { 21 } },
   -- the holder's attack missed (line B E496): event.target its target; missed at launch or evaded
   on_attack_miss = { 131072, { 20 } },
   -- applied again while it holds: the applying code runs it after the apply (no host event)
@@ -226,13 +229,24 @@ local STATUS_TRIGGERS = {
 -- a status's triggers with its absorb shield's on_absorb / on_broken among them
 local merged_triggers = setmetatable({}, { __mode = "k" })
 local function team_call(n) return type(n) == "table" and n.k == "call" and (n.fn == "team_of" or n.fn == "enemy_team") and #(n.args or {}) == 1 end
+-- an action list with a cancel_cast in it (branches included)
+local function cancels(list)
+  for _, a in ipairs(type(list) == "table" and list or {}) do
+    if type(a) == "table" and (a.op == "cancel_cast" or cancels(a.actions) or cancels(a.otherwise)) then return true end
+  end
+  return false
+end
 local function triggers_of(def)
   local ab = type(def.absorb) == "table" and def.absorb or nil
-  if not ab or (ab.on_absorb == nil and ab.on_broken == nil) then return def.triggers end
+  local absorb = ab and (ab.on_absorb ~= nil or ab.on_broken ~= nil)
+  local ot = (def.triggers or {}).on_order_targeted
+  local filter = type(ot) == "table" and cancels(ot.actions or ot)
+  if not absorb and not filter then return def.triggers end
   if merged_triggers[def] then return merged_triggers[def] end
   local t = {}
   for k, v in pairs(def.triggers or {}) do t[k] = v end
-  for _, k in ipairs({ "on_absorb", "on_broken" }) do
+  if filter then t.on_order_filter, t.on_order_targeted = ot, nil end
+  for _, k in ipairs(absorb and { "on_absorb", "on_broken" } or {}) do
     if ab[k] ~= nil then t[k] = t[k] == nil and ab[k] or error(tostring(def.id) .. ": " .. k .. " in both absorb and triggers") end
   end
   merged_triggers[def] = t
@@ -668,6 +682,9 @@ function Gen:expr(node, ctx)
       end
       local id = self.entry and self.entry.kind == "ability" and self.entry.def.id
       if parts[1] == "is_ready" and id then return string.format("cx.ability_ready(cx.caster, %s)", rust_str(id)), "bool" end
+      -- an item: its holder's first copy is off cooldown (E566)
+      local item_id = self.entry and self.entry.kind == "item" and self.entry.def.id
+      if parts[1] == "is_ready" and item_id then return string.format("(cx.item_cooldown_remaining(cx.caster, %s) <= Fixed64::ZERO)", rust_str(item_id)), "bool" end
       if parts[1] == "cooldown_remaining" and id then return string.format("cx.ability_cooldown(cx.caster, %s)", rust_str(id)), "num" end
       -- this rank's mana cost (`cost.mana`, GetManaCost)
       if parts[1] == "mana_cost" and id and self.entry.def.cost and self.entry.def.cost.mana ~= nil then
@@ -775,6 +792,7 @@ function Gen:expr(node, ctx)
       -- the ordered ability at the orderer's rank (line B E465)
       if node.name == "cast_point" and ctx.event == "order_targeted" then return "cx.event_ability_cast_point()", "num" end
       if node.name == "cast_range" and ctx.event == "order_targeted" then return "cx.event_ability_cast_range()", "num" end
+      if node.name == "mana_cost" and ctx.event == "order_targeted" then return "cx.event_ability_mana_cost()", "num" end
       self:block("attr:" .. node.name .. " of an ability"); return "Fixed64::ZERO", "err"
     end
     if ot == "event" and (ctx.event == "channel_tick" or ctx.event == "channel_end") then
@@ -800,6 +818,8 @@ function Gen:expr(node, ctx)
     end
     if ot == "event_order" then
       if node.name == "ability" then return "", "event_ability" end
+      -- the order is at the holder (the host raises it only for orders targeting it)
+      if node.name == "target" then return "cx.self_unit", "unit" end
       self:block("event.order." .. node.name); return "Fixed64::ZERO", "err"
     end
     -- a status's on_ability_executed tells only the skill (line B 94d609ce)
@@ -2655,6 +2675,13 @@ function Gen:action(a, ctx, ind)
   elseif op == "spend_mana" then
     -- the ability paid for: a literal id of this document, or `ability` (this one)
     local ab, abcode = a.ability, nil
+    -- the ordered ability's cost taken in an order filter: a status event may not charge a cast
+    -- (ScriptManaSpent), so the mana goes as a burn (line B 037a69cd)
+    if ab == "event.order.ability" and self.order_filter then
+      return line("{") .. line("    let from = " .. self:value(a.from, ctx, "unit") .. ";")
+        .. line("    let amount = " .. self:value(a.amount, ctx, "num") .. ";")
+        .. line("    cx.burn_mana(from, amount)?;") .. line("}")
+    end
     if ab == nil or ab == "ability" then abcode = "ID"
     elseif type(ab) == "string" and ab:match("^[%w_]+$") and self.m.abilities[ab] then abcode = rust_str(ab)
     else self:block("action:spend_mana.ability:" .. tostring(ab)); return "" end
@@ -2664,6 +2691,9 @@ function Gen:action(a, ctx, ind)
   elseif op == "cancel_cast" then
     -- on_phase_start: the cast does not go on (nothing charged); the hook's effects stand and the
     -- rest of the list still runs (every use is the last action of its branch)
+    -- an order filter (a status's on_order_targeted that cancels): the order is refused before
+    -- its windup, nothing charged (GameWorld::ext CANCEL_ORDER, line B 037a69cd)
+    if self.order_filter then return line("cx.cancel_order()?;") end
     if not self.phase then self:block("action:cancel_cast outside on_phase_start"); return "" end
     return line("cx.cancelled = true;")
   elseif op == "modify_attack" then
@@ -3409,6 +3439,12 @@ function Gen:action(a, ctx, ind)
           .. line("    if let Some(id) = a { cx.cooldown_start_own(u, &id)?; }") .. line("}")
       end
     end
+    -- the event's ability (an order's or an executed skill's) cools down fully on `of`
+    if op == "modify_cooldown" and (ab == "event.order.ability" or ab == "event.ability") and (a.mode or "start") == "start" and a.amount == nil
+      and (ctx.event == "order_targeted" or ctx.event == "ability_executed") then
+      return line("{") .. line("    let of = " .. self:value(a.of or "self", ctx, "unit") .. ";")
+        .. line("    cx.event_ability_cooldown_start(of)?;") .. line("}")
+    end
     if ab == nil or ab == "ability" then abcode = "ID"
     elseif type(ab) == "string" and ab:match("^[%w_]+$") and self.m.abilities[ab] then abcode = rust_str(ab)
     else self:block("action:" .. op .. ".ability:" .. tostring(ab)); return "" end
@@ -3430,6 +3466,14 @@ function Gen:action(a, ctx, ind)
       else self:block("action:modify_cooldown without amount"); return "" end
     end
     local amount = self:value(amount_expr, ctx, "num")
+    -- an item of this document: its inventory slots cool down (the host's hero cooldowns hold
+    -- learned abilities only; line B E501 item_cooldown_start)
+    local target_id = abcode == "ID" and (self.entry and self.entry.def.id) or ab
+    local target = target_id and self.m.abilities[target_id]
+    if target and target.kind == "item" and mode == "start" then
+      return line("{") .. line("    let of = " .. of .. ";") .. line("    let amount = " .. amount .. ";")
+        .. line("    cx.item_cooldown_start(of, " .. rust_str(target_id) .. ", amount)?;") .. line("}")
+    end
     return line("{") .. line("    let of = " .. of .. ";") .. line("    let amount = " .. amount .. ";")
       .. line(string.format("    cx.cooldown_%s(of, %s, amount)?;", mode == "reduce" and "reduce" or "start", abcode)) .. line("}")
   elseif op == "create_pickup" then
@@ -4096,7 +4140,10 @@ local function emit_entry(m, o, opts, status_problems)
     local act = def.active
     -- a toggle item: its def says so (ability_kit item_kind_ffi "toggle", line B 55577725), its
     -- events are on_toggle_on / on_toggle_off like a toggle ability's
-    if act.kind ~= "active" and act.kind ~= "toggle" then g:block("item.active.kind:" .. tostring(act.kind)) end
+    -- a passive active: nothing to use, only the catalog cooldown its passive starts and reads
+    -- (御守: ability.is_ready, modify_cooldown); registered as a passive item
+    if act.kind == "passive" and act.events ~= nil then g:block("item.active.kind:passive with events") end
+    if act.kind ~= "active" and act.kind ~= "toggle" and act.kind ~= "passive" then g:block("item.active.kind:" .. tostring(act.kind)) end
     for _, k in ipairs(sorted_keys(act)) do
       if k ~= "kind" and k ~= "target" and k ~= "cost" and k ~= "cast" and k ~= "events" and k ~= "flags" then g:block("item.active." .. k) end
     end
@@ -4408,8 +4455,8 @@ local function emit_entry(m, o, opts, status_problems)
             local evented = t[2] ~= nil and name ~= "on_removed" and name ~= "on_expired" and name ~= "on_death" and not executed
             local pre = name == "on_take_damage_pre" or name == "on_deal_damage_pre"
             local ended = name == "on_removed" or name == "on_expired" or name == "on_death"
-            local ctx = { owner = so, scope = scope_child(nil), event = executed and "ability_executed" or (name == "on_moved" and "moved") or (name == "on_mana_spent" and "mana_spent") or (name == "on_heal_received" and "heal_received") or (name == "on_order_targeted" and "order_targeted") or evented, pre = pre, ended = ended,
-              windup = name == "on_attack_windup", ended_status = ended and sd.id or nil }
+            local ctx = { owner = so, scope = scope_child(nil), event = executed and "ability_executed" or (name == "on_moved" and "moved") or (name == "on_mana_spent" and "mana_spent") or (name == "on_heal_received" and "heal_received") or (name == "on_order_targeted" and "order_targeted") or (name == "on_order_filter" and "order_targeted") or evented, pre = pre, ended = ended,
+              windup = name == "on_attack_windup", ended_status = ended and sd.id or nil, order_filter = name == "on_order_filter" }
             -- an absorb event names this hit's absorbed share `absorbed` (v3.md §4)
             if name == "on_absorb" or name == "on_broken" then
               ctx.scope.names.absorbed = { name = "absorbed", ty = "num", marker = "cx.event_amount", used = false }
@@ -4417,8 +4464,12 @@ local function emit_entry(m, o, opts, status_problems)
             local cond = filter and g:value(filter, ctx, "bool") or nil
             local fname = "st_" .. sd.id .. "_" .. name
             local guard = name == "on_death" and "    if cx.alive(cx.self_unit) { return Ok(()); }\n" or ""
+            -- cancel_cast in an order filter refuses the order (cx.cancel_order)
+            g.order_filter = name == "on_order_filter"
+            local body = g:actions(actions, ctx, "    ")
+            g.order_filter = false
             fns[#fns + 1] = string.format("#[allow(dead_code)]\npub(crate) fn %s(cx: &mut Cx<'_, '_>) -> Res {\n%s%s%s    Ok(())\n}\n", fname, guard,
-              cond and ("    if !(" .. cond .. ") { return Ok(()); }\n") or "", g:actions(actions, ctx, "    "))
+              cond and ("    if !(" .. cond .. ") { return Ok(()); }\n") or "", body)
             if name == "on_created" then begin[#begin + 1] = "    " .. fname .. "(cx)?;\n"
             else
               for _, kind in ipairs(t[2] or {}) do
@@ -4710,8 +4761,8 @@ pub fn on_owner_respawn(owner: EntityHandle, world: &mut GameWorldDyn<'_>) {
   if o.kind == "item" then
     -- a shop item: its AbilityDef is the catalog's (kind = item); passive without an active
     -- None for an item the shop catalog does not have (it does not exist in the source)
-    s[#s + 1] = (def.active ~= nil and def.active.kind == "toggle")
-      and ("\npub fn ffi() -> Option<AbilityDefFFI> { ability_kit::item_kind_ffi(ID, \"toggle\", " .. struct .. ") }\n")
+    s[#s + 1] = (def.active ~= nil and (def.active.kind == "toggle" or def.active.kind == "passive"))
+      and ("\npub fn ffi() -> Option<AbilityDefFFI> { ability_kit::item_kind_ffi(ID, " .. rust_str(def.active.kind) .. ", " .. struct .. ") }\n")
       or ("\npub fn ffi() -> Option<AbilityDefFFI> { ability_kit::item_ffi(ID, " .. tostring(def.active == nil) .. ", " .. struct .. ") }\n")
   else
     s[#s + 1] = "\npub fn ffi() -> AbilityDefFFI { ability_kit::ability_ffi(ID, " .. struct .. ") }\n"
