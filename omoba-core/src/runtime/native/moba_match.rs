@@ -2267,7 +2267,8 @@ impl MobaMatch {
         let statuses = std::mem::take(&mut self.heroes[index].hero_statuses);
         super::status_scope::restore(&mut world.write_resource::<crate::runtime::BuffStore>(), entity, &statuses, self.elapsed);
         let inactive = std::mem::take(&mut self.heroes[index].retired_inactive);
-        self.heroes[index].retired_body = None;
+        // A body after a death: the new life hears its respawn (status_event::Respawns).
+        if self.heroes[index].retired_body.take().is_some() { super::status_event::note_respawn(world, entity); }
         super::ability_slots::restore_inactive(&mut world.write_resource::<crate::runtime::BuffStore>(), entity, &inactive);
         self.heroes[index].entity = Some(entity);
         self.heroes[index].lethal_pending = false;

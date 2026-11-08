@@ -703,6 +703,13 @@ fn dispatch_scripts(
     dispatch_status_events(world, registry, rng_seed, &status_combat, &status_executed, event_count as u64 + tagged.len() as u64 + 12288, settled);
     // item_equip: each item copy gained or lost reaches its item script, same pulse rule.
     dispatch_item_equips(world, registry, rng_seed, event_count as u64 + tagged.len() as u64 + 20480);
+    // A new hero life after its equips and learn hooks ran: its UnitScript on_respawn next
+    // dispatch, with its statuses' RESPAWN (status_event::Respawns).
+    let armed = super::super::status_event::arm_respawns(world);
+    if !armed.is_empty() {
+        let mut queue = world.write_resource::<ScriptEventQueue>();
+        for e in armed { queue.push(ScriptEvent::Respawn { e }); }
+    }
     // aura: every aura::PERIOD, each emitter hears its receivers, same pulse rule.
     dispatch_auras(world, registry, rng_seed, event_count as u64 + tagged.len() as u64 + 16384);
     let on_tick_compute_ns = on_tick_compute_started.elapsed().as_nanos();
@@ -1182,8 +1189,9 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     let moves = se::take_moves(world);
     let orders = super::super::order_targets::take(world);
     let heals = se::take_heal_notes(world);
+    let respawned = se::take_armed_respawns(world);
     if combat.is_empty() && executed.is_empty() && ended.is_empty() && attacks.is_empty() && damage.is_empty() && absorbs.is_empty()
-        && moves.is_empty() && orders.is_empty() && heals.is_empty() {
+        && moves.is_empty() && orders.is_empty() && heals.is_empty() && respawned.is_empty() {
         return;
     }
     // The abilities an event names: the executed ones, then the ones cast orders name (E465).
@@ -1251,6 +1259,9 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
         for (holder, amount) in &heals { on_holder(*holder, se::HEAL_RECEIVED, None, *amount, 0); }
         // v3 on_moved (E424): `event.distance` is how far the holder moved.
         for (holder, distance) in &moves { on_holder(*holder, se::MOVED, None, *distance, 0); }
+        // v3 on_respawn / an item passive's on_respawn: a new hero life, once its items and learned
+        // passives made their statuses (status_event::Respawns).
+        for life in &respawned { on_holder(*life, se::RESPAWN, None, Fixed64::ZERO, 0); }
         // v3 on_order_targeted (E465): the target of an accepted order hears it, `event.issuer` the
         // unit ordered; a cast order carries its ability.
         for order in &orders {

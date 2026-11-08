@@ -374,10 +374,23 @@ struct OrderGuard { heard: Arc<Mutex<Vec<(u32, u32)>>>, id: String, cancel: bool
 
 /// What an order-filter world adds to the plain probe and guard: a ward (the guard shields its
 /// holder, the cast is a zap), a purge (the guard puts `purge_statuses` on its holder, the cast
-/// purges them by duration and source) or a death (the cast is a zap, the guard's holder has
-/// little life and the guard also hears its death).
+/// purges them by duration and source), a death (the cast is a zap, the guard's holder has
+/// little life and the guard also hears its death) or a respawn (a death world whose guard is a
+/// hero-scope status, kept across the death, that hears the respawn instead).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Extra { Plain, Ward, Purge, Death }
+enum Extra { Plain, Ward, Purge, Death, Respawn }
+
+/// The hero variable the guard writes when its holder respawns.
+const RESPAWN_VAR: &str = "test:respawns_heard";
+
+/// The number a hero variable of `holder` holds (zero when unset).
+fn hero_var(world: &mut GameWorldDyn<'_>, holder: EntityHandle, key: &str) -> Fixed64 {
+    use crate::runtime::native::unit_var;
+    world.get_buff_payload(holder, RStr::from_str(&format!("{}{key}", unit_var::PREFIX))).into_option()
+        .and_then(|row| serde_json::from_str::<serde_json::Value>(row.as_str()).ok())
+        .and_then(|row| unit_var::Spec::from_buff(&format!("{}{key}", unit_var::PREFIX), &row))
+        .map_or(Fixed64::ZERO, |spec| match spec.value { unit_var::VarValue::Num(n) => n, _ => Fixed64::ZERO })
+}
 
 /// The hero variable (kept across death) the guard writes when its holder dies.
 const DEATH_VAR: &str = "test:deaths_heard";
@@ -442,6 +455,12 @@ impl omb_script_abi::ability::AbilityScript for OrderGuard {
     fn execute(&self, _: EntityHandle, _: Target, _: u8, _: RStr<'_>, _: &mut GameWorldDyn<'_>) -> RResult<(), RString> { ROk(()) }
     fn on_status_event(&self, holder: EntityHandle, _: RStr<'_>, event: StatusEvent, world: &mut GameWorldDyn<'_>) {
         use crate::runtime::native::unit_var;
+        if event.kind == crate::runtime::native::status_event::RESPAWN {
+            self.heard.lock().unwrap().push((holder.id, u32::MAX - 1));
+            let spec = unit_var::Spec { key: RESPAWN_VAR.into(), value: unit_var::VarValue::Num(hero_var(world, holder, RESPAWN_VAR) + Fixed64::ONE), hero: true };
+            world.add_stat_buff(holder, RStr::from_str(&spec.buff_id()), Fixed64::from_raw(i64::MAX), RStr::from_str(&spec.payload().to_string()));
+            return;
+        }
         if event.kind == crate::runtime::native::status_event::OWNER_DEATH {
             // Heard while the holder is whole: it still reads its own variables and life.
             self.heard.lock().unwrap().push((holder.id, u32::MAX));
@@ -497,7 +516,7 @@ fn order_filter_scripts(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32,
     use omb_script_abi::ability::AbilityScript_TO as To;
     let mut scripts = crate::runtime::ScriptRegistry::new();
     let cast = match extra {
-        Extra::Ward | Extra::Death => To::from_value(Zap { id: id.to_owned() }, TD_Opaque),
+        Extra::Ward | Extra::Death | Extra::Respawn => To::from_value(Zap { id: id.to_owned() }, TD_Opaque),
         Extra::Purge => To::from_value(Purger { id: id.to_owned() }, TD_Opaque),
         Extra::Plain => To::from_value(Probe { calls, id: id.to_owned() }, TD_Opaque),
     };
@@ -533,11 +552,15 @@ fn order_filter_world(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u
     driver.step(&mut world, []).unwrap();
     use crate::runtime::native::status_event as se;
     let marker = se::Spec { ability: guard.clone(), level: 1, status: "guard".into(), source: EntityHandle { id: enemy.id(), gen: enemy.gen().id() as u32 },
-        mask: if extra == Extra::Death { se::ON_ORDER_FILTER | se::ON_OWNER_DEATH } else { se::ON_ORDER_FILTER } };
+        mask: match extra { Extra::Death => se::ON_ORDER_FILTER | se::ON_OWNER_DEATH, Extra::Respawn => se::ON_ORDER_FILTER | se::ON_RESPAWN,
+            _ => se::ON_ORDER_FILTER } };
     // A v3 status the holder put on itself, as the generated code writes it (owner_script_rows carries it).
-    world.write_resource::<BuffStore>().add(enemy, "guard", Fixed64::from_i32(30), serde_json::json!({ (se::KEY): marker.row(),
+    let mut row = serde_json::json!({ (se::KEY): marker.row(),
         (crate::runtime::native::illusion::DURATION_KEY): Fixed64::from_i32(30).raw(),
-        "source_entity_id": enemy.id(), "source_entity_gen": enemy.gen().id() as u32 }));
+        "source_entity_id": enemy.id(), "source_entity_gen": enemy.gen().id() as u32 });
+    // A respawn world's guard is kept across the death (v3 status.scope = "hero").
+    if extra == Extra::Respawn { row[crate::runtime::native::status_scope::KEY] = serde_json::json!("hero"); }
+    world.write_resource::<BuffStore>().add(enemy, "guard", Fixed64::from_i32(30), row);
     // Halfway between the two spawns, out of the structures' reach, 200 apart.
     let mut pos = world.write_storage::<crate::runtime::native::comp::Pos>();
     let (a, b) = (pos.get(hero).unwrap().0, pos.get(enemy).unwrap().0);
@@ -552,7 +575,7 @@ fn order_filter_world(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u
         (prop.mhp, prop.hp) = (Fixed64::from_i32(1_000_000), Fixed64::from_i32(1_000_000));
     }
     // A death world: the guarded hero falls to a few zaps.
-    if extra == Extra::Death {
+    if matches!(extra, Extra::Death | Extra::Respawn) {
         let mut props = world.write_storage::<crate::runtime::native::comp::CProperty>();
         let prop = props.get_mut(enemy).unwrap();
         (prop.mhp, prop.hp) = (Fixed64::from_i32(450), Fixed64::from_i32(450));
@@ -669,6 +692,28 @@ fn an_owner_death_hook_runs_before_the_death_settles_and_keeps_every_team_replic
         &format!("{}{DEATH_VAR}", crate::runtime::native::unit_var::PREFIX), row));
     assert_eq!(kept.map(|spec| spec.value), Some(crate::runtime::native::unit_var::VarValue::Num(Fixed64::ONE)),
         "the variable the hook wrote while the hero died is on its next life: {row:?}");
+}
+
+/// v3 on_respawn / an item passive's on_respawn (status_event::Respawns): the guarded hero dies
+/// to the zaps and its hero-scope guard comes back with the new life, which hears its respawn
+/// once (not the first life, which began at the match start), the dispatch after its learn hooks
+/// and equips ran; the hero variable it writes then is on that life. Every team replica matches
+/// the authority's view each tick, through the death, the respawn and the hook.
+#[test]
+fn a_respawn_hook_reaches_the_new_life_once_and_keeps_every_team_replica_with_the_authority() {
+    let (world, enemy, _, heard) = order_filter_soak(false, Extra::Respawn);
+    let state = world.read_resource::<crate::runtime::MobaMatch>();
+    let slot = state.heroes.iter().find(|slot| slot.player_id == 2).unwrap();
+    assert!(slot.deaths >= 1, "the guarded hero died");
+    let life = slot.entity.expect("the hero respawned");
+    assert_ne!(life, enemy);
+    let respawns: Vec<(u32, u32)> = heard.lock().unwrap().iter().copied().filter(|(_, other)| *other == u32::MAX - 1).collect();
+    assert_eq!(respawns, vec![(life.id(), u32::MAX - 1)], "only the new life heard its respawn, once");
+    let key = format!("{}{RESPAWN_VAR}", crate::runtime::native::unit_var::PREFIX);
+    let row = world.read_resource::<BuffStore>().get(life, &key).map(|row| row.payload.clone());
+    let kept = row.as_ref().and_then(|row| crate::runtime::native::unit_var::Spec::from_buff(&key, row));
+    assert_eq!(kept.map(|spec| spec.value), Some(crate::runtime::native::unit_var::VarValue::Num(Fixed64::ONE)),
+        "the respawn hook wrote its variable on the new life: {row:?}");
 }
 
 /// The authority and every team's replica (in process, through the server's projection) step
