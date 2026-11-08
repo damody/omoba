@@ -719,6 +719,16 @@ function Gen:expr(node, ctx)
         -- item_name var is a number the host turns back into the item's id
         if not (self.entry and self.entry.kind == "item") then self:block("state:" .. parts[1] .. " (item_instance) outside its item"); return "Fixed64::ZERO", "err" end
         local num = v.def.type == "int" or v.def.type == "fixed"
+        -- bool / unit (line B 4b32ae10; the item's delay / repeat steps carry its slot too)
+        if v.def.type == "bool" then
+          local init = v.def.init ~= nil and self:value(v.def.init, ctx, "bool") or "false"
+          return string.format("{ let h = %s; match cx.item_instance_key(%s) { Some(k) => cx.state_bool(h, &k, %s), None => %s } }",
+            holder, rust_str(v.key), init, init), "bool"
+        end
+        if v.def.type == "unit" then
+          return string.format("{ let h = %s; match cx.item_instance_key(%s) { Some(k) => cx.state_unit(h, &k), None => EntityHandle::INVALID } }",
+            holder, rust_str(v.key)), "unit"
+        end
         if not num and v.def.type ~= "item_name" then self:block("state type:" .. tostring(v.def.type) .. " (item_instance)"); return "Fixed64::ZERO", "err" end
         local init = num and v.def.init ~= nil and self:value(v.def.init, ctx, "num") or "Fixed64::ZERO"
         local raw = string.format("{ let h = %s; match cx.item_instance_key(%s) { Some(k) => cx.state_num(h, &k, %s), None => %s } }",
@@ -3938,6 +3948,17 @@ function Gen:action(a, ctx, ind)
     if not ty then self:block("state type:" .. tostring(v.def.type)); return "" end
     local on = a.on ~= nil and self:value(a.on, ctx, "unit") or self:expr({ k = "id", name = "self" }, ctx)
     local hero = v.def.scope == "hero" and "true" or "false"
+    if v.def.scope == "item_instance" then
+      -- the casting item instance's var: its slot's key on the caster (line B E571, 4b32ae10)
+      if not (self.entry and self.entry.kind == "item") then self:block("state:" .. a.var .. " (item_instance) outside its item"); return "" end
+      if ty ~= "num" and ty ~= "bool" and ty ~= "unit" then self:block("state type:" .. v.def.type .. " (item_instance)"); return "" end
+      local head = line("{") .. line("    let on = " .. on .. ";")
+      if op == "clear_state" or a.value == "none" then
+        return head .. line(string.format("    if let Some(k) = cx.item_instance_key(%s) { cx.clear_state(on, &k)?; }", rust_str(v.key))) .. line("}")
+      end
+      return head .. line("    let value = " .. self:value(a.value, ctx, ty) .. ";")
+        .. line(string.format("    if let Some(k) = cx.item_instance_key(%s) { cx.set_state_%s(on, &k, value, false)?; }", rust_str(v.key), ty)) .. line("}")
+    end
     if ty == "point" or ty == "vec" then
       if op == "clear_state" or a.value == "none" then
         return line("{") .. line("    let on = " .. on .. ";") .. line(string.format("    cx.clear_state(on, %s)?;", rust_str(v.key .. ":x")))
