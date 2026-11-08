@@ -205,6 +205,8 @@ local SOURCE_ITEMS = {
   -- E line (2026-11-09): physical block chance (line B 5c9aaa43).
   { 258, "item_prophet_armor", true },
   { 259, "item_prophet_Akazonae_armor", true },
+  -- E line (2026-11-09): item charges (line B 1f8fecee, line A 9ef90d98).
+  { 260, "item_earth_wall_book", true },
 }
 
 return function(ctx)

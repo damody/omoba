@@ -100,6 +100,15 @@ local data = {
       mana_cost = 110.0,
     },
   },
+  earth_wall_book = {
+    numbers = { cost = 1500, ["modifiers.mana_bonus"] = 5, ["modifiers.stats_intellect_bonus"] = 10 },
+    scripted = {
+      active = { kind = "scripted" },
+      charges = { initial = 2, max = 2, restore = 40.0 },
+      mana_cost = 100.0,
+      target = { out_of_range = "reject", range = 800.0, requires_visible = false, shape = "point", team = "any" },
+    },
+  },
   energy_ingot = {
     numbers = { cost = 1900, ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_intellect_bonus"] = 10, ["modifiers.stats_strength_bonus"] = 10 },
   },
