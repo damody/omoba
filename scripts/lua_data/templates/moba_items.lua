@@ -170,6 +170,11 @@ local SOURCE_ITEMS = {
   { 235, "item_protection_amulet", true },
   -- E line (2026-11-08): instance and pre-mitigation shields (line B 4dfde241, line A b58a8361).
   { 236, "item_magic_talisman", true },
+  -- E line (2026-11-08): line A inventory, only the shelf blocked (line A 60a2a725 for the armor).
+  -- Insight gem and its recipes wait for its shard (on_owner_death); great dragon waits for a
+  -- unit_or_point item target.
+  { 237, "item_devil_supressor_armor", true },
+  { 238, "item_nannbann_armor", true },
 }
 
 return function(ctx)

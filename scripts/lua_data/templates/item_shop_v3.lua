@@ -63,6 +63,16 @@ local data = {
       shares_cooldown_with = { "dark_boots", "magic_defence_boots", "magic_defence_boots_1", "mana_boots", "mana_boots_1", "perceive_wine", "ryukyu_ronin_clogs", "ryukyu_ronin_clogs_1", "swiftness_boots", "swiftness_boots_1", "the_great_silver_armor" },
     },
   },
+  devil_supressor_armor = {
+    not_passive = { "modifiers.magical_resistance_bonus" },
+    numbers = { armor = 3, cost = 3000, ["modifiers.health_regen_constant"] = 20 },
+    recipe = { "regeneration_ingot", "regeneration_ingot", "lesser_shield", "magic_resistance_ingot" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 45.0,
+      mana_cost = 110.0,
+    },
+  },
   energy_ingot = {
     numbers = { cost = 1900, ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_intellect_bonus"] = 10, ["modifiers.stats_strength_bonus"] = 10 },
   },
@@ -369,6 +379,10 @@ local data = {
   },
   naginata = {
     numbers = { cost = 700, ["modifiers.stats_strength_bonus"] = 10 },
+  },
+  nannbann_armor = {
+    numbers = { armor = 5, cost = 5500, hp = 600, ["modifiers.health_regen_constant"] = 20 },
+    recipe = { "the_hooate_of_ghost", "the_hooate_of_ghost", "protection_amulet", "stable_shield" },
   },
   napalm_bomb = {
     numbers = { ["active.damage"] = 300, ["active.radius"] = 300, cooldown = 10, cost = 150, ["target.range"] = 600 },
