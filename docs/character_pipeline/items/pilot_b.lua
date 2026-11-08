@@ -856,7 +856,8 @@ return function(ctx)
         values = {
           cost = { 8500, unit = "gold", source = "kv:ItemCost" },
           attack = { 50, unit = "dmg", source = "kv:MODIFIER_PROPERTY_PREATTACK_BONUS_DAMAGE @npc/npc_items_custom_load.txt:3376" },
-          all_stats = { 30, unit = "stat", source = "kv:MODIFIER_PROPERTY_STATS_STRENGTH_BONUS@npc/npc_items_custom_load.txt:3373", note = "MODIFIER_PROPERTY_STATS_*_BONUS @npc/npc_items_custom_load.txt:3373-3375" },
+          all_stats = { 30, unit = "stat", kv = { 45 }, source_differs = "來源目錄的 45 把非主屬性的 modifier_sword_of_invincible_str／agi／int（各 15，secondary_stat）併進三圍；KV 被動 Passive_the_great_sword_of_precision 是 30",
+            source = "kv:MODIFIER_PROPERTY_STATS_STRENGTH_BONUS@npc/npc_items_custom_load.txt:3373", note = "MODIFIER_PROPERTY_STATS_*_BONUS @npc/npc_items_custom_load.txt:3373-3375" },
           secondary_stat = { 15, unit = "stat", source = "kv:MODIFIER_PROPERTY_STATS_STRENGTH_BONUS@npc/npc_items_custom_load.txt:3422", note = "MODIFIER_PROPERTY_STATS_*_BONUS @npc/npc_items_custom_load.txt:3422,3431,3440" },
           hp_threshold = { 60, unit = "pct", source = "script:vscripts/items/Addon_Items/item_the_great_sword_of_invincible.lua:43" },
           cooldown = { 120, unit = "s", source = "kv:AbilityCooldown" },

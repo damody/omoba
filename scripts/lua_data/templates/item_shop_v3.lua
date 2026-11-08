@@ -598,6 +598,15 @@ local data = {
     },
     recipe = { "spell_book" },
   },
+  ronin_jitte = {
+    numbers = { atk = 21, cost = 3500, ["modifiers.stats_strength_bonus"] = 25 },
+    recipe = { "moon_spear", "naginata" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 35.0,
+      target = { out_of_range = "reject", range = 200.0, requires_visible = true, shape = "unit", team = "ally" },
+    },
+  },
   ryukyu_ronin_clogs = {
     numbers = { cost = 2850, hp = 300, ["unique_passive.ms"] = 70, ["unique_passive.priority"] = 70 },
     recipe = { "pleated_skirt", "health_ingot", "lesser_armor" },
@@ -807,6 +816,14 @@ local data = {
       cooldown = 36.0,
     },
   },
+  the_dark_yellow_teeth_and_zimbabwe = {
+    numbers = { armor = 4, atk = 40, cost = 3500, ["modifiers.stats_intellect_bonus"] = 10 },
+    recipe = { "cursed_katana", "lesser_shield", "staff" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 30.0,
+    },
+  },
   the_great_silver_armor = {
     numbers = { armor = 15, cost = 8000, ["unique_passive.ms"] = 105, ["unique_passive.priority"] = 105 },
     scripted = {
@@ -853,6 +870,13 @@ local data = {
       active = { kind = "scripted" },
       cooldown = 100.0,
       mana_cost = 150.0,
+    },
+  },
+  the_great_sword_of_invincible = {
+    numbers = { atk = 50, cost = 8500, ["modifiers.stats_agility_bonus"] = 30, ["modifiers.stats_intellect_bonus"] = 30, ["modifiers.stats_strength_bonus"] = 30 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 120.0,
     },
   },
   the_great_sword_of_precision = {
@@ -993,6 +1017,16 @@ local data = {
   the_spear_of_ghost = {
     numbers = { atk = 28, cost = 3650, ["modifiers.stats_agility_bonus"] = 15, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 5 },
     recipe = { "gorgeous_tachi" },
+  },
+  the_spear_of_saddle = {
+    not_passive = { "armor" },
+    numbers = { atk = 42, cost = 4150, ["modifiers.stats_agility_bonus"] = 5, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 5 },
+    recipe = { "cursed_katana", "samurais_badge" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 35.0,
+      target = { include_magic_immune = true, out_of_range = "reject", range = 600.0, requires_visible = true, shape = "unit", team = "enemy" },
+    },
   },
   the_spear_of_spiders = {
     numbers = { atk = 21, cost = 3050, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 15 },

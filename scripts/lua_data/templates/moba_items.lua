@@ -195,6 +195,11 @@ local SOURCE_ITEMS = {
   { 250, "item_insight_gem", true },
   { 251, "item_cross_spear", true },
   { 252, "item_soul_adder", true },
+  -- E line (2026-11-09): projectile lifetime (line B 341a1051, line A 1b8af10c), stat when, damage type event and item orb slot (line B 2061e821 / d0ae77e5, line A 38f10132).
+  { 253, "item_ronin_jitte", true },
+  { 254, "item_the_great_sword_of_invincible", true },
+  { 255, "item_the_dark_yellow_teeth_and_zimbabwe", true },
+  { 256, "item_the_spear_of_saddle", true },
 }
 
 return function(ctx)

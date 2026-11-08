@@ -201,6 +201,11 @@ function M.build(shelf, docs, partial, scripted)
               if v then
                 numbers[#numbers + 1] = v
                 if value.unit == "pct" then numbers[#numbers + 1] = v / 100 end
+                -- a KV number written with its sign (armor cut kv = { -6 }) sums as the source row does
+                local written = item.values and item.values[value.name]
+                for _, k in ipairs(type(written) == "table" and written.kv or {}) do
+                  if type(k) == "number" then numbers[#numbers + 1] = k end
+                end
               end
             end
             for i, a in ipairs(numbers) do
