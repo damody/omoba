@@ -2196,6 +2196,19 @@ function Gen:action(a, ctx, ind)
         .. ws .. (pre and ("cx.absorb_with(to, " .. st .. ", 0, absorb, &[" .. table.concat(types, ", ") .. "], duration, true)?;")
           or ("cx.absorb(to, " .. st .. ", absorb, &[" .. table.concat(types, ", ") .. "], duration)?;")) .. eol
     end)
+    if not found then
+      -- `source` applies it (apply_status_from): the shield is that source's, its amount read
+      -- with `source` as the caster (the status's `source`)
+      code = code:gsub("([ \t]*)(cx%.apply_status_from%(source, to, " .. st:gsub("%p", "%%%0") .. "[^\n]-%?;)(\r?\n)", function(ws, stmt, eol)
+        if found then return nil end
+        found = true
+        return ws .. stmt .. eol .. ws .. "let caster = cx.caster;" .. eol .. ws .. "cx.caster = source;" .. eol
+          .. ws .. "let absorb = " .. amount .. ";" .. eol
+          .. ws .. "let r = " .. (pre and ("cx.absorb_with(to, " .. st .. ", 0, absorb, &[" .. table.concat(types, ", ") .. "], duration, true);")
+            or ("cx.absorb(to, " .. st .. ", absorb, &[" .. table.concat(types, ", ") .. "], duration);")) .. eol
+          .. ws .. "cx.caster = caster;" .. eol .. ws .. "r?;" .. eol
+      end)
+    end
     if not found then self:block("status.absorb on this apply form") end
     return code
   end
@@ -4185,7 +4198,9 @@ local function emit_entry(m, o, opts, status_problems)
     -- on_toggle_off: other entries of the document turn the toggle off too (toggle_ability)
     fns[#fns + 1] = string.format("%sfn %s(cx: &mut Cx<'_, '_>) -> Res {\n%s    Ok(())\n}\n", name == "on_toggle_off" and "pub(crate) " or "", name, body)
   end
-  if def.coverage == "rust_handler" and not def.events and not def.passive then g:block("rust_handler without behavior") end
+  -- an item with nothing of its own (a recipe component: 破魔寶珠) is its catalog row alone
+  local bare_item = o.kind == "item" and def.active == nil and def.statuses == nil and def.unit_state == nil
+  if def.coverage == "rust_handler" and not def.events and not def.passive and not bare_item then g:block("rust_handler without behavior") end
   if def.hooks then g:block("hooks") end
   local requires_check = ""
   if def.requires then

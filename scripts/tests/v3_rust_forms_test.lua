@@ -308,4 +308,20 @@ test('a pre_mitigation shield on an independent status absorbs as the instance i
   assert(has(text, 'cx.absorb_with(to, &super::ids::status::MAGIC_TALISMAN_SHIELD, n, absorb, &["magical"], duration, true)?;'), 'its own pre-mitigation shield')
 end)
 
+test('a shield a source applies is that source\'s, and a bare item generates as its catalog row', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I0.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_devil_supressor_armor' then assert(#e.blockers == 0, e.id .. ': ' .. table.concat(e.blockers, '; ')) end
+  end
+  local text = assert(files['src/generated/item_devil_supressor_armor.rs'], 'the armor generates')
+  assert(has(text, 'cx.apply_status_from(source, to, &super::ids::status::DEVIL_SUPRESSOR_SHIELD'), 'applied by its source')
+  assert(has(text, 'cx.caster = source;') and has(text, 'cx.absorb_with(to, &super::ids::status::DEVIL_SUPRESSOR_SHIELD, 0, absorb, &["magical"], duration, true);'), 'the source\'s pre-mitigation shield')
+  local orb = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I1.lua'))
+  local _, orb_report = R.generate(orb, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(orb_report.entries) do
+    if e.id == 'item_hama_orb' then assert(#e.blockers == 0, e.id .. ': ' .. table.concat(e.blockers, '; ')) end
+  end
+end)
+
 print(('%d tests passed'):format(count))
