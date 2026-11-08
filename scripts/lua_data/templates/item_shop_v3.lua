@@ -778,6 +778,14 @@ local data = {
       shares_cooldown_with = { "mountain_scroll", "the_art_of_war", "the_art_of_war_mountain_chapter", "the_art_of_war_tornado_chapter", "wind_scroll" },
     },
   },
+  the_over_lightning_art_of_war = {
+    numbers = { cost = 8500, ["modifiers.spell_amplify_percentage"] = 0.06, ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_intellect_bonus"] = 30, ["modifiers.stats_strength_bonus"] = 10 },
+    recipe = { "energy_ingot", "thunderbolt_book" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 0.1,
+    },
+  },
   the_overflame_art_of_war = {
     numbers = { cost = 8950, ["modifiers.spell_amplify_percentage"] = 0.1, ["modifiers.stats_intellect_bonus"] = 40 },
     recipe = { "rockfall_book", "ignite_book" },
@@ -853,6 +861,14 @@ local data = {
       cooldown = 45.0,
       mana_cost = 100.0,
       target = { include_magic_immune = true, out_of_range = "reject", range = 900.0, requires_visible = true, shape = "unit", team = "any" },
+    },
+  },
+  thunderbolt_book = {
+    numbers = { cost = 3500, ["modifiers.stats_intellect_bonus"] = 20 },
+    recipe = { "thunderstorms", "lightning_scroll" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 0.1,
     },
   },
   thunderstorms = {

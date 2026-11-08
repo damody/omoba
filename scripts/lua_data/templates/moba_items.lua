@@ -163,6 +163,9 @@ local SOURCE_ITEMS = {
   -- E line (2026-11-08): combat summons carry passive.aura (line B 55577725).
   { 231, "item_the_art_of_war", true },
   { 232, "item_the_lost_art_of_war_1", true },
+  -- E line (2026-11-08): toggle items generate (line A 08d5a997).
+  { 233, "item_thunderbolt_book", true },
+  { 234, "item_the_over_lightning_art_of_war", true },
 }
 
 return function(ctx)
