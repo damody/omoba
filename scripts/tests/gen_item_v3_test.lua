@@ -47,6 +47,15 @@ for _, item in ipairs(final) do
   local s = generated[item.id]
   if s then ok(item.cost == s.numbers.cost, item.id .. ' costs what v3 says') end
 end
+-- unit_or_point (巨龍): a named unit is checked as a unit target, else a point; it needs a range
+do
+  local num = function(v) return v end
+  local fields = G.scripted_active({ id = 'item_x', active = { target = { type = 'unit_or_point', range = 600, team = 'both' }, cost = { cooldown = 30 } } }, num, {})
+  ok(fields and fields.target.shape == 'unit_or_point' and fields.target.range == 600 and fields.target.team == 'any'
+    and fields.target.out_of_range == 'reject', 'a unit_or_point active keeps its range, both teams read as any')
+  local none, why = G.scripted_active({ id = 'item_x', active = { target = { type = 'unit_or_point', team = 'both' }, cost = {} } }, num, {})
+  ok(none == nil and why:find('range'), 'a unit_or_point active without a range has no catalog target')
+end
 -- every item marked scripted has its generated script: without one its effects are simply missing
 do
   V3_CODEGEN_COVERAGE_AS_MODULE = true

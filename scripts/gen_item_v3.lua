@@ -94,6 +94,12 @@ function M.scripted_active(item, number, cooldown_groups)
     if not range then return nil, "a unit target needs a range" end
     out.target = { shape = "unit", range = range, team = target.team == "both" and "any" or target.team,
       requires_visible = true, out_of_range = "reject", include_magic_immune = include_magic_immune or nil }
+  elseif target.type == "unit_or_point" then
+    -- a named unit is checked as for `unit`, anything else as a ground point (items.dll tells them apart)
+    local range = number(target.range)
+    if not range or range <= 0 then return nil, "a unit_or_point target needs a range" end
+    out.target = { shape = "unit_or_point", range = range, team = target.team == "both" and "any" or target.team,
+      requires_visible = true, out_of_range = "reject" }
   elseif target.type ~= "none" then
     return nil, "target type " .. tostring(target.type) .. " has no catalog target"
   end

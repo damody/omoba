@@ -200,6 +200,8 @@ local SOURCE_ITEMS = {
   { 254, "item_the_great_sword_of_invincible", true },
   { 255, "item_the_dark_yellow_teeth_and_zimbabwe", true },
   { 256, "item_the_spear_of_saddle", true },
+  -- E line (2026-11-09): unit_or_point item target (line B 1fa72e69).
+  { 257, "item_great_dragon", true },
 }
 
 return function(ctx)

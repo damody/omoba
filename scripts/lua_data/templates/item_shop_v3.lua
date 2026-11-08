@@ -196,6 +196,17 @@ local data = {
     numbers = { atk = 7, cost = 1950, ["modifiers.stats_agility_bonus"] = 15, ["modifiers.stats_intellect_bonus"] = 5, ["modifiers.stats_strength_bonus"] = 5 },
     recipe = { "tachi", "strength_ingot", "agility_ingot", "intelligence_ingot" },
   },
+  great_dragon = {
+    not_passive = { "modifiers.stats_agility_bonus", "modifiers.stats_intellect_bonus", "modifiers.stats_strength_bonus" },
+    numbers = { cost = 3600, hp = 300, ["modifiers.mana_regen_constant"] = 5 },
+    recipe = { "the_club_of_nebula", "spirit_ingot", "health_ingot" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 25.0,
+      mana_cost = 75.0,
+      target = { out_of_range = "reject", range = 600.0, requires_visible = true, shape = "unit_or_point", team = "any" },
+    },
+  },
   hama_orb = {
     numbers = { cost = 2000 },
   },
