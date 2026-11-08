@@ -98,7 +98,8 @@ assert(#group > 0, ('batch %d group %d has no playable hero; not yet playable: %
 -- run takes one from its roster.
 local coverage_round = options.batch * 10 + options.group
 -- --cover-items: these shop item ids instead of the round's slice (a newly shelved item checked in
--- play); unknown ids are refused when the recipe is loaded (bot_item_builds.cover)
+-- play); unknown ids are refused when the recipe is loaded (bot_item_builds.cover). They win over
+-- --item-coverage, which would otherwise put every uncovered item in at once and drop them.
 local cover_items_literal = 'nil'
 if options.cover_items then
   local ids = {}
@@ -208,7 +209,7 @@ plan.ability_policies = assert(loadfile(root .. '/scripts/lua_data/bot_auto_poli
 return plan
 ]]):format(options.batch, options.group, name, b.root:gsub('\\', '/'), map or 'three_lane_quick_training', lua_role_map(seating[1]), lua_role_map(seating[2]), tostring(swap), tostring(teamfight),
   TEAMFIGHT_SUSTAIN.recall_below_hp_per_mille, TEAMFIGHT_SUSTAIN.leave_base_at_hp_per_mille,
-  tostring(options.item_coverage == true), cover_items_literal, coverage_round, tostring(late == true)), true)
+  tostring(options.item_coverage == true and not options.cover_items), cover_items_literal, coverage_round, tostring(late == true)), true)
   return file
 end
 local recipes = {
