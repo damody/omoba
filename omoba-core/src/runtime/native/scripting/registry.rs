@@ -27,6 +27,10 @@ pub struct ScriptRegistry {
     /// dispatch 技能施放時呼叫。
     abilities: HashMap<String, (AbilityDef, AbilityScript_TO<'static, RBox<()>>)>,
     ability_order: Vec<String>,
+    /// An item script registered under its source key (`item_insight_gem_Shard`): its v3 id
+    /// ([`ScriptRegistry::v3_item_id`]) → that key, so `get_ability` finds it by the v3 id the host
+    /// asks with (game_processor::item_script_id). Empty once every item registers its v3 id.
+    item_aliases: HashMap<String, String>,
     /// 保持清單引用處於活動狀態 → DLL 保持映射狀態。
     _manifests: Vec<Manifest_Ref>,
     /// M3'：每個 manifest 的模組 id 與它註冊的 unit／ability id（與 `_manifests` 同序）。
@@ -49,6 +53,7 @@ impl ScriptRegistry {
             order: Vec::new(),
             abilities: HashMap::new(),
             ability_order: Vec::new(),
+            item_aliases: HashMap::new(),
             _manifests: Vec::new(),
             modules: Vec::new(),
             _retired: Vec::new(),
@@ -97,6 +102,7 @@ impl ScriptRegistry {
             } else {
                 self.ability_order.push(id.clone());
             }
+            self.alias_item(&def);
             self.abilities.insert(id, (def, ability.script));
         }
 
@@ -138,6 +144,7 @@ impl ScriptRegistry {
             self.scripts.insert(id, script);
         }
         for (def, script) in abilities {
+            self.alias_item(&def);
             self.abilities.insert(def.id.clone(), (def, script));
         }
         let old = std::mem::replace(&mut self._manifests[index], manifest);
@@ -179,12 +186,26 @@ impl ScriptRegistry {
         self.abilities.len()
     }
 
-    /// 以 ability_id 直查 metadata + handler（供 SkillCast dispatch 使用）。
+    /// 以 ability_id 直查 metadata + handler（供 SkillCast dispatch 使用）。An item script also
+    /// answers to its v3 id when it registered under its source key.
     pub fn get_ability(
         &self,
         ability_id: &str,
     ) -> Option<&(AbilityDef, AbilityScript_TO<'static, RBox<()>>)> {
         self.abilities.get(ability_id)
+            .or_else(|| self.item_aliases.get(ability_id).and_then(|key| self.abilities.get(key)))
+    }
+
+    /// The v3 id of an item script id: lowercase, without apostrophes (`item_samurai's_badge` →
+    /// `item_samurais_badge`), as the catalog id is made from the source key.
+    pub fn v3_item_id(id: &str) -> String {
+        id.chars().filter(|c| *c != '\'').flat_map(char::to_lowercase).collect()
+    }
+
+    fn alias_item(&mut self, def: &AbilityDef) {
+        if def.kind != crate::ability_meta::AbilityKind::Item { return; }
+        let v3 = Self::v3_item_id(&def.id);
+        if v3 != def.id { self.item_aliases.insert(v3, def.id.clone()); }
     }
 
     pub fn get(&self, unit_id: &str) -> Option<&UnitScript_TO<'static, RBox<()>>> {
@@ -197,6 +218,7 @@ impl ScriptRegistry {
         if !self.abilities.contains_key(&id) {
             self.ability_order.push(id.clone());
         }
+        self.alias_item(&def);
         self.abilities.insert(id, (def, script));
     }
 
@@ -274,5 +296,42 @@ impl ScriptRegistry {
 impl Default for ScriptRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod item_alias_tests {
+    use super::*;
+    use abi_stable::std_types::{RResult, RStr, RString, ROk};
+    use omb_script_abi::types::{EntityHandle, Target};
+    use omb_script_abi::world::GameWorldDyn;
+
+    #[derive(Clone)]
+    struct Nothing;
+    impl omb_script_abi::ability::AbilityScript for Nothing {
+        fn ability_id(&self) -> RStr<'_> { RStr::from_str("nothing") }
+        fn execute(&self, _: EntityHandle, _: Target, _: u8, _: RStr<'_>, _: &mut GameWorldDyn<'_>) -> RResult<(), RString> { ROk(()) }
+    }
+    fn def(id: &str, kind: &str) -> AbilityDef {
+        serde_json::from_value(serde_json::json!({ "id": id, "name": id, "kind": kind, "ability_type": "active",
+            "target_type": "none", "max_level": 1, "levels": {} })).unwrap()
+    }
+
+    /// An item script registered under its source key answers to its v3 id (the id the host asks
+    /// with, game_processor::item_script_id); a hero ability never gets another name.
+    #[test]
+    fn an_item_registered_by_its_source_key_answers_to_its_v3_id() {
+        let mut registry = ScriptRegistry::new();
+        let script = || omb_script_abi::ability::AbilityScript_TO::from_value(Nothing, abi_stable::sabi_trait::prelude::TD_Opaque);
+        registry.insert_ability_for_test(def("item_samurai's_Badge", "item"), script());
+        registry.insert_ability_for_test(def("A01_Strike", "ability"), script());
+        assert_eq!(ScriptRegistry::v3_item_id("item_samurai's_Badge"), "item_samurais_badge");
+        assert_eq!(registry.get_ability("item_samurais_badge").map(|(def, _)| def.id.as_str()), Some("item_samurai's_Badge"));
+        assert!(registry.get_ability("item_samurai's_Badge").is_some(), "and to its own id");
+        assert!(registry.get_ability("a01_strike").is_none());
+        // every ported catalog item is asked for by its v3 id
+        for row in omoba_template_ids::MOBA_ITEM_CATALOG.iter().filter(|row| row.source_ref.is_some()) {
+            assert_eq!(crate::runtime::native::game_processor::item_script_id(row.id), crate::runtime::native::item_grant::source_id(row.id));
+        }
     }
 }

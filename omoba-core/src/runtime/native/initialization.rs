@@ -2099,7 +2099,8 @@ pub fn populate_ability_registry(ecs: &mut World, registry: &crate::scripting::S
     for (id, def, _script) in registry.iter_abilities() {
         // items.dll scripts are items, not hero abilities (UI, bots, casts)
         if def.kind == crate::ability_meta::AbilityKind::Item {
-            if def.ability_type != crate::ability_meta::AbilityType::Passive { items.0.insert(id.to_string()); }
+            // by its v3 id, as game_processor::item_script_id asks (a source-key id answers to it too)
+            if def.ability_type != crate::ability_meta::AbilityType::Passive { items.0.insert(crate::scripting::ScriptRegistry::v3_item_id(id)); }
             continue;
         }
         reg.register(def.clone());

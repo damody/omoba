@@ -1976,13 +1976,14 @@ fn finish_item_use(world: &mut World, hero_entity: Entity, slot_i: usize, item_i
     spend_consumable_item(world, hero_entity, slot_i, item_id);
 }
 
-/// The script id of a catalog item (items.dll registers it under its v3 id, the item's source).
-/// A hero document's item (never sold, no source) is listed under its v3 id `item_<key>` itself
-/// and its hero's DLL registers it there.
+/// The script id of a catalog item: its v3 id (item_grant::source_id, `item_<catalog id>` for a
+/// ported item). An item script still registered under its source key answers to it too
+/// (ScriptRegistry::get_ability). A hero document's item (never sold, no source) is listed under
+/// its v3 id `item_<key>` itself and its hero's DLL registers it there.
 pub(crate) fn item_script_id(item_id: &str) -> Option<&'static str> {
     let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == item_id)?;
     match item.source_ref {
-        Some(r) => r.rsplit_once(':').map(|(_, source)| source),
+        Some(_) => super::item_grant::source_id(item.id),
         None => item.id.starts_with("item_").then_some(item.id),
     }
 }
@@ -1990,7 +1991,8 @@ pub(crate) fn item_script_id(item_id: &str) -> Option<&'static str> {
 /// An item whose active is a generated script (items.dll registers it with `kind = item`).
 fn scripted_item(world: &World, item_id: &str) -> bool {
     let Some(script) = item_script_id(item_id) else { return false };
-    world.try_fetch::<super::initialization::ScriptedItems>().is_some_and(|items| items.0.contains(script))
+    let script = super::scripting::ScriptRegistry::v3_item_id(script);
+    world.try_fetch::<super::initialization::ScriptedItems>().is_some_and(|items| items.0.contains(&script))
 }
 
 /// Admits a scripted item use like `apply_resolved_item_use` admits its own effects (owner,
