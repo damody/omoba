@@ -189,6 +189,12 @@ local SOURCE_ITEMS = {
   -- E line (2026-11-08): item instance bool and unit states (line B 4b32ae10, line A 9b7bf2d8).
   { 246, "item_moon_mirror", true },
   { 247, "item_reito_lantern", true },
+  -- E line (2026-11-08): insight gem chain (line A 94f671d9) and item refund mana (line B bcac51c9, line A a9ae7133).
+  { 248, "item_insight_gem_hero", true },
+  { 249, "item_insight_gem_Shard", true },
+  { 250, "item_insight_gem", true },
+  { 251, "item_cross_spear", true },
+  { 252, "item_soul_adder", true },
 }
 
 return function(ctx)

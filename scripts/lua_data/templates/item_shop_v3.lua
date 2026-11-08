@@ -53,6 +53,14 @@ local data = {
       cooldown = 45.0,
     },
   },
+  cross_spear = {
+    numbers = { atk = 35, cost = 3955, ["modifiers.stats_strength_bonus"] = 15 },
+    recipe = { "moon_spear", "insight_gem" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 20.0,
+    },
+  },
   cursed_katana = {
     numbers = { atk = 40, cost = 1850 },
   },
@@ -233,8 +241,31 @@ local data = {
     },
     recipe = { "spell_book", "intelligence_ingot" },
   },
+  insight_gem = {
+    numbers = { cost = 2000 },
+    recipe = { "insight_gem_shard" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 30.0,
+    },
+  },
+  insight_gem_hero = {
+    numbers = { cost = 250 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 30.0,
+    },
+  },
   insight_gem_ninja = {
     numbers = { cost = 150 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 30.0,
+    },
+  },
+  insight_gem_shard = {
+    numbers = { cost = 400 },
+    recipe = { "insight_gem_hero", "insight_gem_ninja" },
     scripted = {
       active = { kind = "scripted" },
       cooldown = 30.0,
@@ -613,6 +644,16 @@ local data = {
   },
   shuriken = {
     numbers = { ["active.control.duration"] = 0.05, ["active.damage"] = 150, ["active.projectile.speed"] = 2500, ["active.projectile.vision"] = 225, cooldown = 2, cost = 40, ["target.range"] = 700 },
+  },
+  soul_adder = {
+    numbers = { atk = 14, cost = 2250, ["modifiers.attackspeed_bonus_constant"] = 20, ["modifiers.stats_intellect_bonus"] = 20 },
+    recipe = { "staff", "staff" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 50.0,
+      mana_cost = 80.0,
+      target = { out_of_range = "reject", range = 900.0, requires_visible = true, shape = "unit", team = "any" },
+    },
   },
   spear = {
     numbers = { atk = 14, cost = 700 },
