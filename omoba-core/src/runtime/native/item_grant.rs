@@ -67,14 +67,20 @@ pub fn remove_slot_payload(slot: usize) -> Value { json!({ (KEY): { "remove_slot
 /// The catalog id of an item named by its catalog id or by its v3 source id (`item_flash_ring`,
 /// the catalog row's `source_ref` tail; E569). The committed economy carries catalog ids only.
 pub fn catalog_id(id: &str) -> Option<&'static str> {
-    omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == id
+    omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == id || id.strip_prefix("item_") == Some(item.id)
         || item.source_ref.and_then(|r| r.rsplit_once(':')).is_some_and(|(_, source)| source == id)).map(|item| item.id)
 }
 
-/// The v3 source id of a catalog item (E569); the catalog id itself when it has none.
+/// The v3 id of a catalog item (E569): `item_<catalog id>` for an item ported from a source key
+/// (the catalog id is that key lowercased, without apostrophes: `item_insight_gem_shard`, not
+/// the source's `item_insight_gem_Shard`), the catalog id itself for one with no source. This is
+/// the id generated code and the kit compare (`has_item`, `is_item`, `pick_item`'s `it.item`).
 pub fn source_id(catalog: &str) -> Option<&'static str> {
-    let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == catalog)?;
-    Some(item.source_ref.and_then(|r| r.rsplit_once(':')).map_or(item.id, |(_, source)| source))
+    static V3_IDS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    let ids = V3_IDS.get_or_init(|| omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+        .map(|item| if item.source_ref.is_some() { format!("item_{}", item.id) } else { item.id.to_owned() }).collect());
+    let at = omoba_template_ids::MOBA_ITEM_CATALOG.iter().position(|item| item.id == catalog)?;
+    Some(ids[at].as_str())
 }
 
 pub fn decode(buff_id: &str, payload: &Value) -> Option<Request> {
@@ -170,10 +176,14 @@ mod tests {
         assert!(apply(&mut world, unit, BUFF, &remove_item_payload(item)));
         assert_eq!(world.read_storage::<Inventory>().get(unit).unwrap().find_item(item), Some(1));
         assert!(!apply(&mut world, unit, BUFF, &remove_slot_payload(INVENTORY_SLOTS)), "no such slot");
-        // E569: a v3 source id names the same catalog item, and maps back.
+        // E569: a v3 id names the same catalog item, and maps back; so does the source key.
+        for row in omoba_template_ids::MOBA_ITEM_CATALOG.iter().filter(|row| row.source_ref.is_some()) {
+            let key = row.source_ref.and_then(|r| r.rsplit_once(':')).unwrap().1;
+            assert_eq!(source_id(row.id), Some(format!("item_{}", row.id).as_str()), "{key}");
+            assert_eq!((catalog_id(source_id(row.id).unwrap()), catalog_id(key), catalog_id(row.id)), (Some(row.id), Some(row.id), Some(row.id)), "{key}");
+        }
         if let Some(row) = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|row| row.source_ref.is_some()) {
             let source = source_id(row.id).unwrap();
-            assert_eq!((catalog_id(source), catalog_id(row.id)), (Some(row.id), Some(row.id)));
             assert!(apply(&mut world, unit, BUFF, &give_payload(source)) || world.read_storage::<Inventory>().get(unit).unwrap().first_free_slot().is_none());
         }
         assert_eq!(catalog_id("no_such_item"), None);
