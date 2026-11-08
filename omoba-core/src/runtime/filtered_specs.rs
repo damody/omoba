@@ -253,6 +253,7 @@ impl FilteredReplicaWorldBuilder {
         world.insert(ReplicaPhaseTrace::default());
         world.insert(DisclosedMovementPriority::default());
         world.insert(crate::runtime::native::owner_control::OwnerControlInjections::default());
+        world.insert(crate::runtime::native::order_filter::OrderFilterInjections::default());
         world.insert(crate::runtime::input_scheme::DirectionalStepPlan::default());
         world.insert(crate::runtime::input_scheme::AdmittedDirectionalSteps::default());
         world.insert(DisclosedAttackabilityGate::default());
@@ -319,6 +320,12 @@ pub struct SpecsDisclosedWorldStepper {
 }
 
 impl SpecsDisclosedWorldStepper {
+    /// Test content in place of the scripts directory's.
+    #[cfg(test)]
+    pub(crate) fn replace_scripts(&mut self, registry: ScriptRegistry) {
+        install_disclosed_content(&mut self.filtered.world, &registry);
+        self.script_registry = registry;
+    }
     /// Owner inputs this replica's last steps rejected under the authority's
     /// own admission rules, as (input id, code). Drained on read.
     pub fn take_owner_command_rejections(&mut self, player_id: u32) -> Vec<(u32, &'static str)> {
@@ -1317,6 +1324,10 @@ impl SpecsDisclosedWorldStepper {
             controls.push((entity, batch, row));
         }
         self.filtered.world.write_resource::<crate::runtime::native::owner_control::OwnerControlInjections>().0 = controls;
+        // The authority's order filter refusals this tick (order_filter.rs), before the scripts run.
+        let filters = crate::runtime::native::order_filter::injections(&injections.public_events,
+            |id| self.filtered.entities.0.get(&id).map(|row| row.entity)).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+        *self.filtered.world.write_resource::<crate::runtime::native::order_filter::OrderFilterInjections>() = filters;
         self.filtered
             .world
             .write_resource::<AcceptedInputInjectionQueue>()

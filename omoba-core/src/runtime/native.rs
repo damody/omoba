@@ -72,6 +72,7 @@ pub(crate) mod tick_start_hp;
 pub(crate) mod recovery_channel;
 pub mod owner_control;
 pub mod owner_script_rows;
+pub mod order_filter;
 pub use cast_windup::{CAST_SLOT,CAST_STATE,CAST_REMAINING,CAST_TOTAL,CAST_INSTANCE};
 pub mod combat_acquisition;
 pub mod command_outcome;

@@ -69,6 +69,11 @@ pub const HEAL_RECEIVED: u8 = 19;
 /// `damage_kind` 0 when the holder missed at launch (blind, accuracy), 1 when the target evaded
 /// or was attack-immune on arrival.
 pub const ATTACK_MISS: u8 = 20;
+/// An enemy ordered `other` to use a unit ability or item on the holder, and the order has not
+/// executed yet (v3 `on_order_targeted` whose actions `cancel_cast`, 原作 ExecuteOrderFilter):
+/// the hook may refuse it (ext CANCEL_ORDER); `event.order.ability` is that ability (EVENT_ABILITY_*).
+/// The authority runs it; a team replica takes the refusal from the authority (order_filter).
+pub const ORDER_FILTER: u8 = 21;
 
 /// `Spec.mask` bits: which events the status listens to.
 pub const ON_END: u32 = 1 << 0;
@@ -89,9 +94,10 @@ pub const ON_MANA_SPENT: u32 = 1 << 14;
 pub const ON_ORDER_TARGETED: u32 = 1 << 15;
 pub const ON_HEAL_RECEIVED: u32 = 1 << 16;
 pub const ON_ATTACK_MISS: u32 = 1 << 17;
+pub const ON_ORDER_FILTER: u32 = 1 << 18;
 pub const ALL: u32 = ON_END | ON_ATTACK_HIT | ON_ATTACKED | ON_TAKE_DAMAGE | ON_DEAL_DAMAGE | ON_TAKE_DAMAGE_PRE | ON_DEAL_DAMAGE_PRE
     | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL | ON_ATTACK_LAUNCH | ON_ABSORB | ON_BROKEN | ON_MOVED | ON_MANA_SPENT
-    | ON_ORDER_TARGETED | ON_HEAL_RECEIVED | ON_ATTACK_MISS;
+    | ON_ORDER_TARGETED | ON_HEAL_RECEIVED | ON_ATTACK_MISS | ON_ORDER_FILTER;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
@@ -147,6 +153,7 @@ impl Spec {
             ORDER_TARGETED => ON_ORDER_TARGETED,
             HEAL_RECEIVED => ON_HEAL_RECEIVED,
             ATTACK_MISS => ON_ATTACK_MISS,
+            ORDER_FILTER => ON_ORDER_FILTER,
             _ => 0,
         };
         self.mask & bit != 0
@@ -367,7 +374,8 @@ mod tests {
         assert!(!s.listens(MOVED) && spec(ON_MOVED).listens(MOVED));
         assert!(!s.listens(ORDER_TARGETED) && spec(ON_ORDER_TARGETED).listens(ORDER_TARGETED), "E465");
         assert!(!s.listens(HEAL_RECEIVED) && spec(ON_HEAL_RECEIVED).listens(HEAL_RECEIVED), "E478");
-        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 18);
+        assert!(!s.listens(ORDER_FILTER) && spec(ON_ORDER_FILTER).listens(ORDER_FILTER) && !spec(ON_ORDER_FILTER).listens(ORDER_TARGETED));
+        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 19);
         assert_eq!(Spec::from_payload(&bad), None, "unknown event bits");
         let mut bad = payload.clone(); bad[KEY]["status"] = json!("B16T");
         assert_eq!(Spec::from_payload(&bad), None, "status ids are v3 ids");

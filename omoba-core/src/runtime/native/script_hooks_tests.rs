@@ -366,3 +366,172 @@ fn a_marked_status_hears_its_holders_heal() {
     assert_eq!(heard[0].0, hero.id());
     assert!(heard[0].1 > Fixed64::ZERO && heard[0].1 <= Fixed64::from_i32(25), "at most the missing health: {heard:?}");
 }
+
+/// A status script that hears the order filters on its holder, spends 10 of the holder's mana
+/// (an effect only the holder's team holds) and refuses the order when `cancel`.
+#[derive(Clone)]
+struct OrderGuard { heard: Arc<Mutex<Vec<(u32, u32)>>>, id: String, cancel: bool }
+
+impl omb_script_abi::ability::AbilityScript for OrderGuard {
+    fn ability_id(&self) -> RStr<'_> { RStr::from_str(&self.id) }
+    fn execute(&self, _: EntityHandle, _: Target, _: u8, _: RStr<'_>, _: &mut GameWorldDyn<'_>) -> RResult<(), RString> { ROk(()) }
+    fn on_status_event(&self, holder: EntityHandle, _: RStr<'_>, event: StatusEvent, world: &mut GameWorldDyn<'_>) {
+        if event.kind != crate::runtime::native::status_event::ORDER_FILTER { return; }
+        self.heard.lock().unwrap().push((holder.id, event.other.id));
+        world.spend_mana(holder, Fixed64::from_i32(10), RStr::from_str(&self.id));
+        if self.cancel {
+            assert!(world.ext(omb_script_abi::ext::op::CANCEL_ORDER, abi_stable::std_types::RSlice::from_slice(&[])).is_ok());
+        }
+    }
+}
+
+const ORDER_GUARD: &str = "test_order_guard";
+
+fn order_filter_def(id: &str, target: &str) -> crate::ability_meta::AbilityDef {
+    let level = serde_json::json!({"cooldown": 1, "mana_cost": 0, "cast_time": 0.25, "range": 300});
+    serde_json::from_value(serde_json::json!({
+        "id": id, "name": id, "ability_type": "active", "target_type": target, "max_level": 4,
+        "levels": {"1": level, "2": level, "3": level, "4": level},
+    })).unwrap()
+}
+
+/// The probe `id` (a unit-target cast) and the order guard.
+fn order_filter_scripts(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u32)>>>, cancel: bool, id: &str) -> crate::runtime::ScriptRegistry {
+    let mut scripts = crate::runtime::ScriptRegistry::new();
+    scripts.insert_ability_for_test(order_filter_def(id, "unit"), omb_script_abi::ability::AbilityScript_TO::from_value(
+        Probe { calls, id: id.to_owned() }, abi_stable::sabi_trait::prelude::TD_Opaque));
+    scripts.insert_ability_for_test(order_filter_def(ORDER_GUARD, "none"), omb_script_abi::ability::AbilityScript_TO::from_value(
+        OrderGuard { heard, id: ORDER_GUARD.to_owned(), cancel }, abi_stable::sabi_trait::prelude::TD_Opaque));
+    scripts
+}
+
+/// Player 1's hero, player 2's hero, a unit-target probe on the first and an order guard status
+/// on the second (refusing when `cancel`). `replica` marks the world as a team replica.
+fn order_filter_world(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u32)>>>, cancel: bool, replica: bool)
+    -> (specs::World, crate::runtime::SimulationDriver, Entity, Entity, String) {
+    use crate::runtime::{SingleLaneConfig, StateInitializer};
+    let pool = StateInitializer::create_thread_pool();
+    let mut world = StateInitializer::setup_campaign_ecs_world(&pool);
+    crate::runtime::setup_single_lane_match(&mut world, SingleLaneConfig {
+        warmup: Fixed64::ZERO, wave_interval: Fixed64::from_i32(1_000_000), ..SingleLaneConfig::default()
+    }).unwrap();
+    let slot = |world: &specs::World, player: u32| world.read_resource::<crate::runtime::MobaMatch>().heroes.iter()
+        .find(|slot| slot.player_id == player).and_then(|slot| slot.entity).unwrap();
+    let (hero, enemy) = (slot(&world, 1), slot(&world, 2));
+    let id = world.read_storage::<Hero>().get(hero).unwrap().abilities[0].clone();
+    let guard = ORDER_GUARD.to_owned();
+    world.insert(crate::runtime::TowerTemplateRegistry::default());
+    let mut abilities = crate::runtime::ability_runtime::AbilityRegistry::new();
+    abilities.register(order_filter_def(&id, "unit"));
+    abilities.register(order_filter_def(&guard, "none"));
+    world.insert(abilities);
+    world.insert(order_filter_scripts(calls, heard, cancel, &id));
+    if replica { world.insert(crate::runtime::filtered_specs::DisclosedMovementPriority::default()); }
+    let mut driver = crate::runtime::SimulationDriver::from_world(&mut world, crate::runtime::SimulationTickProfile::Production60Hz).unwrap();
+    driver.step(&mut world, []).unwrap();
+    use crate::runtime::native::status_event as se;
+    let marker = se::Spec { ability: guard.clone(), level: 1, status: "guard".into(), source: EntityHandle { id: enemy.id(), gen: enemy.gen().id() as u32 }, mask: se::ON_ORDER_FILTER };
+    // A v3 status the holder put on itself, as the generated code writes it (owner_script_rows carries it).
+    world.write_resource::<BuffStore>().add(enemy, "guard", Fixed64::from_i32(30), serde_json::json!({ (se::KEY): marker.row(),
+        (crate::runtime::native::illusion::DURATION_KEY): Fixed64::from_i32(30).raw(),
+        "source_entity_id": enemy.id(), "source_entity_gen": enemy.gen().id() as u32 }));
+    // Halfway between the two spawns, out of the structures' reach, 200 apart.
+    let mut pos = world.write_storage::<crate::runtime::native::comp::Pos>();
+    let (a, b) = (pos.get(hero).unwrap().0, pos.get(enemy).unwrap().0);
+    let mid = omoba_sim::Vec2::new((a.x + b.x) / Fixed64::from_i32(2), (a.y + b.y) / Fixed64::from_i32(2));
+    pos.get_mut(hero).unwrap().0 = mid;
+    pos.get_mut(enemy).unwrap().0 = mid + omoba_sim::Vec2::new(Fixed64::from_i32(200), Fixed64::ZERO);
+    drop(pos);
+    // Neither dies of the other's attacks during a soak.
+    for unit in [hero, enemy] {
+        let mut props = world.write_storage::<crate::runtime::native::comp::CProperty>();
+        let prop = props.get_mut(unit).unwrap();
+        (prop.mhp, prop.hp) = (Fixed64::from_i32(1_000_000), Fixed64::from_i32(1_000_000));
+    }
+    (world, driver, hero, enemy, id)
+}
+
+fn cast_at(world: &mut specs::World, driver: &mut crate::runtime::SimulationDriver, target: Entity) {
+    use crate::game_proto::{player_input::Action, CastAbility, PlayerInput};
+    driver.step(world, [(1, PlayerInput { action: Some(Action::CastAbility(CastAbility {
+        ability_index: 0, target_entity: Some(target.id()), ..Default::default() })) })]).unwrap();
+}
+
+fn executions(calls: &Arc<Mutex<Vec<Call>>>) -> usize { calls.lock().unwrap().iter().filter(|c| matches!(c, Call::ReadVar(_))).count() }
+
+/// An order filter (status_event ORDER_FILTER) on the target hears the enemy's cast before its
+/// windup, with the caster as `other`; refusing it means the cast never starts, and the authority
+/// publishes the refusal for the team replicas.
+#[test]
+fn an_order_filter_on_the_target_refuses_the_cast_before_its_windup() {
+    for cancel in [false, true] {
+        let (calls, heard) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
+        let (mut world, mut driver, hero, enemy, _) = order_filter_world(calls.clone(), heard.clone(), cancel, false);
+        cast_at(&mut world, &mut driver, enemy);
+        for _ in 0..30 { driver.step(&mut world, []).unwrap(); }
+        assert_eq!(*heard.lock().unwrap(), vec![(enemy.id(), hero.id())], "heard once, the caster as other (cancel {cancel})");
+        assert_eq!(executions(&calls), usize::from(!cancel), "cancel {cancel}");
+    }
+}
+
+/// A team replica never decides an order filter itself: the caster's team refuses only the casts
+/// the authority refused, and the holder's team runs the guard for each refusal it is told of.
+#[test]
+fn a_replica_follows_the_authoritys_order_filter_refusals() {
+    use crate::runtime::native::order_filter::OrderFilterInjections;
+    // The guard would refuse, but the replica was told nothing: the cast goes ahead, unheard.
+    let (calls, heard) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
+    let (mut world, mut driver, _, enemy, _) = order_filter_world(calls.clone(), heard.clone(), true, true);
+    cast_at(&mut world, &mut driver, enemy);
+    for _ in 0..30 { driver.step(&mut world, []).unwrap(); }
+    assert!(heard.lock().unwrap().is_empty());
+    assert_eq!(executions(&calls), 1);
+    // Told of the refusal: the cast is refused and the guard runs once on its holder.
+    let (calls, heard) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
+    let (mut world, mut driver, hero, enemy, id) = order_filter_world(calls.clone(), heard.clone(), false, true);
+    world.insert(OrderFilterInjections { refused: vec![(hero, id.clone())], holders: vec![(enemy, Some(hero), id)] });
+    cast_at(&mut world, &mut driver, enemy);
+    for _ in 0..30 { driver.step(&mut world, []).unwrap(); }
+    assert_eq!(*heard.lock().unwrap(), vec![(enemy.id(), hero.id())]);
+    assert_eq!(executions(&calls), 0);
+}
+
+/// Replica soak for order filters: the authority and every team's replica (in process, through
+/// the server's projection) step a match where player 1 casts at player 2's guarded hero, and
+/// every replica's team hash matches the authority's view each tick, refused or not. The caster's
+/// team cannot see the guard and the holder's team cannot see the order, so only the published
+/// refusal keeps them together.
+#[test]
+fn order_filter_refusals_keep_every_team_replica_with_the_authority() {
+    use crate::runtime::inprocess_observer::{accepted_inputs, project_tick, InProcessObserver};
+    use crate::game_proto::{player_input::Action, CastAbility, PlayerInput};
+    for cancel in [true, false] {
+        let (calls, heard) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
+        let (mut world, mut driver, _, enemy, id) = order_filter_world(calls.clone(), heard.clone(), cancel, false);
+        let step = |world: &mut specs::World, driver: &mut crate::runtime::SimulationDriver, inputs: Vec<(u32, PlayerInput)>| {
+            let accepted = accepted_inputs(world, driver.tick() + 1, &inputs);
+            let result = driver.step(world, inputs).unwrap();
+            world.write_resource::<crate::runtime::TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+            project_tick(world, &result).unwrap();
+            result.tick
+        };
+        step(&mut world, &mut driver, Vec::new());
+        let seed = world.try_fetch::<crate::runtime::MasterSeed>().map_or(0, |seed| seed.0);
+        let mut observer = InProcessObserver::start(&mut world, driver.tick() + 1, seed, 1, 60).unwrap();
+        observer.replace_scripts(|| order_filter_scripts(calls.clone(), heard.clone(), cancel, &id));
+        // The checkpoint is every 120 ticks: each order 20 ticks before one, so a refused cast, a
+        // windup, a cooldown or the guard's own effects are all live on a compared tick.
+        for at in 0..1440 {
+            let inputs = if (driver.tick() + 1) % 120 == 100 {
+                vec![(1, PlayerInput { action: Some(Action::CastAbility(CastAbility {
+                    ability_index: 0, target_entity: Some(enemy.id()), ..Default::default() })) })]
+            } else { Vec::new() };
+            let tick = step(&mut world, &mut driver, inputs);
+            assert_eq!(observer.after_projection(&mut world, tick).unwrap(), None, "cancel {cancel}, tick {tick}");
+        }
+        assert!(observer.checked_ticks >= 11, "compared {} ticks", observer.checked_ticks);
+        let executed = executions(&calls);
+        if cancel { assert_eq!(executed, 0, "refused everywhere"); } else { assert!(executed >= 10, "executed {executed}"); }
+        assert!(heard.lock().unwrap().len() >= 10, "the guard heard each order: {:?}", heard.lock().unwrap());
+    }
+}

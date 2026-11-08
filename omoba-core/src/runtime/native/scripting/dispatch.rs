@@ -185,7 +185,9 @@ fn dispatch_scripts(
     let events:Vec<_>=events.into_iter().map(|event|(event,false))
         .chain(releases.into_iter().map(|event|(event,true))).collect();
     if tagged.is_empty() && events.is_empty() && windups.0.is_empty() && windups.1.is_empty()
-        && !super::super::ability_channel::any_active(world) && !any_delayed {
+        && !super::super::ability_channel::any_active(world) && !any_delayed
+        // A replica runs the order filters the authority refused on its holders (order_filter.rs).
+        && world.try_fetch::<super::super::order_filter::OrderFilterInjections>().is_none_or(|rows| rows.holders.is_empty()) {
         return;
     }
 
@@ -251,6 +253,14 @@ fn dispatch_scripts(
         let mut visual_events = Vec::new();
         let mut targeted_aggression = Vec::new();
         let mut cast_turns: Vec<(Entity, omoba_sim::Angle)> = Vec::new();
+        // Order filters (order_filter.rs): the authority's refusals to publish; a team replica's
+        // refusals from the authority, and the hooks its own holders run for them, first.
+        let mut refused_orders: Vec<(Entity, Entity, String)> = Vec::new();
+        let filter_injections = cache.filtered.then(|| world.try_fetch_mut::<super::super::order_filter::OrderFilterInjections>()
+            .map(|mut rows| std::mem::take(&mut *rows))).flatten().unwrap_or_default();
+        for (holder, caster, ability) in &filter_injections.holders {
+            run_order_filter(&cache, registry, *caster, *holder, ability, &mut event_outcomes);
+        }
         // Only serial queue order may advance managed mana/CD state. Never use
         // parallel hook scheduling or the immutable ECS cache as a balance ledger.
         for (event_ordinal, (mut ev,releasing)) in events.into_iter().enumerate() {
@@ -324,6 +334,26 @@ fn dispatch_scripts(
                     .is_some_and(|definition| definition.targets_heroes_only)
                     && (cache.hero.get(*victim).is_none() || cache.is_building.get(*victim).is_some()) {
                     reject_cast!(cast_outcomes,ev,releasing,code::INVALID_TARGET);
+                }
+            }
+            // An order filter (status_event ORDER_FILTER, 原作 ExecuteOrderFilter): the target's
+            // statuses may refuse an enemy's unit order before it executes (order_filter.rs).
+            if !releasing {
+                let order = match &ev {
+                    ScriptEvent::SkillCast { caster, skill_id, target: SkillTarget::Entity(victim) } => Some((*caster, skill_id.clone(), *victim)),
+                    ScriptEvent::ItemCast { owner, item_id, target: SkillTarget::Entity(victim), .. } =>
+                        Some((*owner, format!("{}{item_id}", super::event::ITEM_SKILL_PREFIX), *victim)),
+                    _ => None,
+                };
+                if let Some((caster, ability, victim)) = order.filter(|(caster, _, victim)| caster != victim) {
+                    let refused = if cache.filtered {
+                        filter_injections.refused.iter().any(|(who, what)| *who == caster && *what == ability)
+                    } else {
+                        let refused = run_order_filter(&cache, registry, Some(caster), victim, &ability, &mut event_outcomes);
+                        if refused { refused_orders.push((caster, victim, ability.clone())); }
+                        refused
+                    };
+                    if refused { reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED); }
                 }
             }
             let settlement_skill = match &ev { ScriptEvent::SkillCast {skill_id,..} => Some(skill_id.clone()), _ => None };
@@ -567,6 +597,7 @@ fn dispatch_scripts(
             crate::runtime::native::moba_match::record_moba_champion_aggression(world, attacker, victim, true);
         }
         publish_successful_cast_facts(world, &mut visual_events);
+        super::super::order_filter::publish(world, &refused_orders);
         if !cast_turns.is_empty() {
             let mut facings = world.write_storage::<crate::comp::Facing>();
             for (caster, angle) in cast_turns {
@@ -1069,12 +1100,56 @@ fn executed_ability(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry,
         .map_or(Fixed64::ZERO, |value| Fixed64::from_raw((f64::from(value) * 1024.0).round() as i64));
     let cast_point = level.map_or(Fixed64::ZERO, |level| fixed(level.cast_time));
     let cast_range = level.map_or(Fixed64::ZERO, |level| fixed(level.range));
+    let mana_cost = level.or_else(|| item_def.and_then(|def| def.get_level_data(1))).map_or(Fixed64::ZERO, |level| fixed(level.mana_cost));
     let toggle = kind == Some(AbilityType::Toggle);
     let no_cast_trigger = item.is_none() && omoba_template_ids::ability_by_name(id).and_then(omoba_template_ids::ability_const)
         .is_some_and(|c| c.no_cast_trigger);
     let point = point.or_else(|| cache.pos.get(*caster).map(|p| p.0)).unwrap_or(Vec2::ZERO);
     super::parallel_world_adapter::EventAbility { id: id.to_owned(), cast_point, toggle, item: item.is_some(),
-        ultimate: kind == Some(AbilityType::Ultimate), passive: kind == Some(AbilityType::Passive), no_cast_trigger, point, cast_range }
+        ultimate: kind == Some(AbilityType::Ultimate), passive: kind == Some(AbilityType::Passive), no_cast_trigger, point, cast_range, mana_cost }
+}
+
+/// Random ordinals of order filter hooks: their own band, from the ability and the row (never the
+/// order's place in the queue, which differs between the authority and a team replica).
+const ORDER_FILTER_ORDINAL: u64 = 1 << 42;
+
+/// `holder`'s order filters (status_event ORDER_FILTER) hear `caster`'s order to use `ability` on
+/// it, in row order; whether one refused it (ext CANCEL_ORDER). What they did is kept either way,
+/// like any status event's effects. `caster` is `None` on a holder's team replica that does not
+/// see the caster (its event names no unit, its ability reads rank 1).
+fn run_order_filter(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, caster: Option<Entity>, holder: Entity, ability: &str,
+    outcomes: &mut Vec<crate::comp::Outcome>) -> bool {
+    use super::super::status_event as se;
+    let mut rows: Vec<(String, se::Spec)> = cache.buffs.iter_for(holder)
+        .filter_map(|(id, entry)| se::Spec::from_payload(&entry.payload).filter(|spec| spec.listens(se::ORDER_FILTER)).map(|spec| (id.to_owned(), spec)))
+        .collect();
+    if rows.is_empty() { return false; }
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    let base = ability.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)) & 0xff_ffff;
+    let order = executed_ability(cache, registry, &caster.unwrap_or(holder), ability, cache.pos.get(holder).map(|p| p.0));
+    let other = caster.map_or(EntityHandle::INVALID, ParallelWorldAdapter::entity_to_handle);
+    let mut refused = false;
+    for (index, (row, spec)) in rows.into_iter().enumerate() {
+        let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
+        let event = spec.event(&row, se::ORDER_FILTER, other, Fixed64::ZERO, 1);
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(cache, holder, ORDER_FILTER_ORDINAL + base * 64 + index as u64);
+        adapter.event_ability = Some(order.clone());
+        adapter.relative_mana = true;
+        adapter.mark_order_filter();
+        let mut world_dyn = world_dyn_of(&mut adapter);
+        let result = catch_unwind(AssertUnwindSafe(|| script.on_status_event(ParallelWorldAdapter::entity_to_handle(holder),
+            RStr::from_str(&spec.status), event, &mut world_dyn)));
+        drop(world_dyn);
+        if result.is_err() {
+            log::error!("[scripting] panic in the order filter of {}", spec.ability);
+            adapter.discard_cast();
+            continue;
+        }
+        refused |= adapter.order_refused();
+        if let Some(batch) = effect_batch(cache, adapter.finish()) { outcomes.extend(batch); }
+        else { log::warn!("[scripting] order filter of '{}' ({}) tried to charge; dropped", spec.status, spec.ability); }
+    }
+    refused
 }
 
 /// An effect-only hook's outcomes (equip, aura, channel start/pulse/end, delayed effect, schedule,

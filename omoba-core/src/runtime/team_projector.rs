@@ -1779,6 +1779,21 @@ fn project_fact(
         });
         return;
     }
+    // An order filter's refusal (status_event ORDER_FILTER) reaches the teams that see the caster
+    // or the holder: "ORF1", both units' replica ids for this team (0 for one it does not see),
+    // then the ability. The caster's team refuses the same cast; the holder's runs the same hooks.
+    if let ObservableFact::OrderFiltered { caster, holder, ability } = &ordered.fact {
+        let id = |unit: &u64| visible.contains(unit).then(|| replica_proto(identity, *unit)).flatten().map_or(0, |replica| replica.value);
+        let (caster_id, holder_id) = (id(caster), id(holder));
+        if caster_id == 0 && holder_id == 0 { return; }
+        public.push(TeamPublicEvent {
+            event_kind: ordered.key.fact_kind as u32,
+            subject: None,
+            sanitized_payload: crate::runtime::native::order_filter::encode(caster_id, holder_id, ability),
+            stable_sub_index: ordered.key.local_ordinal,
+        });
+        return;
+    }
     // Ability payload identifies the caster's skill, not a target-only impact.
     // A visible victim must never disclose a hidden/remembered caster's cast.
     if matches!(ordered.fact, ObservableFact::Ability { .. } | ObservableFact::AbilityArea { .. })
@@ -1958,6 +1973,7 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
         // Projected on its own (project_fact) before this table is consulted.
         ObservableFact::AbilityTarget { source, target, .. } => (Some(*source), *target, payload),
         ObservableFact::Cue { source, .. } => (*source, None, payload),
+        ObservableFact::OrderFiltered { caster, .. } => (Some(*caster), None, payload),
         ObservableFact::AbilityArea {source, team, ability_id,rank,x_raw,y_raw,radius_raw,duration_raw} => {
             if *team == 0 || *team != viewer_team {return (None,None,Vec::new());}
             payload = crate::runtime::presentation_cue::AbilityAreaPresentationCue::public_payload(

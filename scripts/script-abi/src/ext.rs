@@ -117,6 +117,9 @@ pub mod op {
     /// tag `tag` (names in [`super::ability_tag`]; an unknown name is `RErr`); `Bool(false)` in any
     /// other call.
     pub const EVENT_ABILITY_TAG: u32 = 26;
+    /// `()` -> `None`: v3 `cancel_cast` in an order filter (status event ORDER_FILTER): the order
+    /// the hook hears does not execute; what the hook did stays. `RErr` in any other call.
+    pub const CANCEL_ORDER: u32 = 27;
 }
 
 /// Tag names of [`op::EVENT_ABILITY_TAG`].
@@ -146,6 +149,8 @@ pub mod event_ability_attr {
     pub const POINT: &str = "point";
     /// `Num`: its cast range at the rank the caster holds (0 for an item); E465.
     pub const CAST_RANGE: &str = "cast_range";
+    /// `Num`: its mana cost at the rank the caster holds (an item's from its catalog row).
+    pub const MANA_COST: &str = "mana_cost";
     /// `Num`: in a damage status event (on_take_damage / on_deal_damage / on_kill), the hit's total
     /// before the target's mitigation (v3 `event.damage.raw`); 0 elsewhere. E478.
     pub const RAW_DAMAGE: &str = "raw_damage";

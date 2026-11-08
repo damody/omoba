@@ -107,6 +107,12 @@ impl InProcessObserver {
         Ok(Self { teams, seed, interval: interval.max(1), tick_rate_hz, checked_ticks: 0, divergence: None })
     }
 
+    /// Test content for every team's replica in place of the scripts directory's.
+    #[cfg(test)]
+    pub(crate) fn replace_scripts(&mut self, registry: impl Fn() -> crate::runtime::ScriptRegistry) {
+        for team in &mut self.teams { team.stepper.replace_scripts(registry()); }
+    }
+
     /// After the authority stepped and projected `tick` (with its accepted inputs queued before
     /// the projection): each replica applies its frame; on a compared tick, the first divergence.
     pub fn after_projection(&mut self, world: &mut World, tick: u64) -> Result<Option<ObserverDivergence>, String> {

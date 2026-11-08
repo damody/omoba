@@ -123,7 +123,7 @@ pub struct ParallelAdapterCache<'a> {
     visibility: Option<Read<'a, crate::runtime::TeamVisibilityRuntime>>,
     moba: Option<Read<'a, crate::runtime::MobaMatch>>,
     attack_gate: Option<Read<'a, crate::runtime::filtered_specs::DisclosedAttackabilityGate>>,
-    filtered: bool,
+    pub(crate) filtered: bool,
     summon_placements: super::super::summon_navigation::PlacementReservations,
     /// Test worlds with a `DamageTrace`: scripts tag their damage (ext DAMAGE_TAG).
     damage_trace: bool,
@@ -229,6 +229,8 @@ pub struct ParallelWorldAdapter<'a> {
     /// replica predicts its cooldown changes. Any other (passive triggers, schedules, delays) takes
     /// them from the authority's CommittedCooldown only.
     input_driven: bool,
+    /// An order filter (status event ORDER_FILTER): `Some(refused)` while one runs (ext CANCEL_ORDER).
+    order_filter: Option<bool>,
     cast_succeeded: bool,
     /// v3 `refund { cooldown = true }` (ext REFUND, E455): this cast's cooldown does not start.
     refund_cooldown: bool,
@@ -290,6 +292,8 @@ pub(crate) struct EventAbility {
     pub point: Vec2,
     /// Its cast range at the caster's rank (event_ability_attr::CAST_RANGE).
     pub cast_range: Fixed64,
+    /// Its mana cost at the caster's rank (event_ability_attr::MANA_COST).
+    pub mana_cost: Fixed64,
 }
 
 impl Drop for ParallelWorldAdapter<'_> {
@@ -681,6 +685,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             overlay_pos: HashMap::new(),
             held_through_expiry: false,
             input_driven: false,
+            order_filter: None,
             cast_succeeded: false,
             refund_cooldown: false,
             cast_rejection: None,
@@ -728,6 +733,9 @@ impl<'a> ParallelWorldAdapter<'a> {
 
     /// See `input_driven`.
     pub(crate) fn mark_input_driven(&mut self) { self.input_driven = true; }
+    /// This invocation is an order filter; [`Self::order_refused`] tells whether it refused.
+    pub(crate) fn mark_order_filter(&mut self) { self.order_filter = Some(false); }
+    pub(crate) fn order_refused(&self) -> bool { self.order_filter == Some(true) }
 
     pub fn mark_cast_succeeded(&mut self) { self.cast_succeeded = true; }
 
@@ -2059,6 +2067,10 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                     at_unit, at_point, to_unit, to_point, radius_raw: radius.raw().max(0), duration_raw: duration.raw().max(0) });
                 ROk(V::None)
             }
+            (op::CANCEL_ORDER, []) => match &mut self.order_filter {
+                Some(refused) => { *refused = true; ROk(V::None) }
+                None => RErr("GameWorld::ext: CANCEL_ORDER outside an order filter".into()),
+            },
             (op::END_CHANNEL, [A::Unit(unit)]) => {
                 if let Some(entity) = Self::handle_to_entity(*unit) {
                     self.outcomes.push(Outcome::ScriptEndChannel { entity });
@@ -2159,8 +2171,9 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 use omb_script_abi::ext::event_ability_attr as name;
                 if attr.as_str() == name::RAW_DAMAGE { return ROk(V::Num(self.event_raw_damage)); }
                 match (&self.event_ability, attr.as_str()) {
-                    (None, name::ID | name::CAST_POINT | name::IS_TOGGLE | name::POINT | name::CAST_RANGE) => ROk(V::None),
+                    (None, name::ID | name::CAST_POINT | name::IS_TOGGLE | name::POINT | name::CAST_RANGE | name::MANA_COST) => ROk(V::None),
                     (Some(ability), name::CAST_RANGE) => ROk(V::Num(ability.cast_range)),
+                    (Some(ability), name::MANA_COST) => ROk(V::Num(ability.mana_cost)),
                     (Some(ability), name::POINT) => ROk(V::Point(ability.point)),
                     (Some(ability), name::ID) => ROk(V::Str(ability.id.as_str().into())),
                     (Some(ability), name::CAST_POINT) => ROk(V::Num(ability.cast_point)),
