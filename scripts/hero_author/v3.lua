@@ -147,6 +147,9 @@ function M.ability_row(package, ab, compiled, opts)
       and target.types[1] == "hero" or nil,
     -- `requires.has_status`: the status the caster must hold; a bot casts only then (line B E472)
     requires_status = type(ab.requires) == "table" and type(ab.requires.has_status) == "string" and ab.requires.has_status or nil,
+    -- tag `no_cast_trigger`: its casts are not "an ability used" for hooks that exclude it
+    -- (the host's EVENT_ABILITY_TAG reads this row; line B 55577725)
+    no_cast_trigger = has(ab.tags, "no_cast_trigger") or nil,
     cast_type = channel and "channeled" or "instant",
     channel = channel,
     charges = charges,

@@ -60303,6 +60303,7 @@ local data = {
         { cast_time = 0, cooldown = 0, mana_cost = 0, range = 0 },
       },
       max_level = 3,
+      no_cast_trigger = true,
       target_type = "none",
       ue = { native_only = true },
       v3 = {

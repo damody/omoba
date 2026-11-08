@@ -262,4 +262,20 @@ test('game.creep_wave, game.creep_armor_bonus, is_summon and illusion_damage rea
   assert(has(text, 'ability_kit::unit_attr::ILLUSION_DAMAGE'), 'illusion_damage')
 end)
 
+test('a toggle item registers as a toggle, runs its active on_unequip and reads the host ability tags', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/pilot_b.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_thunderbolt_book' or e.id == 'item_the_over_lightning_art_of_war' then
+      assert(#e.blockers == 0, e.id .. ': ' .. table.concat(e.blockers, '; '))
+    end
+  end
+  local book = assert(files['src/generated/item_thunderbolt_book.rs'], 'the book generates')
+  assert(has(book, 'ability_kit::item_kind_ffi(ID, "toggle", '), 'registered as a toggle item')
+  assert(has(book, 'fn on_unequip_active(') and has(book, 'on_unequip_active(&mut cx)'), 'its active on_unequip')
+  assert(has(book, 'cx.event_ability_has_tag("toggle")') and has(book, 'cx.event_ability_has_tag("no_cast_trigger")'), 'the host tags')
+  local over = assert(files['src/generated/item_the_over_lightning_art_of_war.rs'], 'the art of war generates')
+  assert(has(over, '(StatKey::CooldownPercentage, (Fixed64::ZERO - ('), 'cooldown reduction as a negative cooldown percentage')
+end)
+
 print(('%d tests passed'):format(count))

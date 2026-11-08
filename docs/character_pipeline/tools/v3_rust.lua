@@ -1267,7 +1267,11 @@ function Gen:call(node, ctx)
     if fn == "is_item" then return "cx.event_is_item(" .. rust_str(n) .. ")", "bool" end
     if fn == "is_ability" then return "cx.event_is_ability(" .. rust_str(n) .. ")", "bool" end
     if n == "item" then return "cx.event_is_any_item()", "bool" end
-    if n == "toggle" then return "cx.event_is_toggle()", "bool" end
+    -- toggle (a toggle item too) / ultimate / passive / no_cast_trigger: the host reads the
+    -- catalog row or the item's script def (GameWorld::ext EVENT_ABILITY_TAG, line B 55577725)
+    if n == "toggle" or n == "ultimate" or n == "passive" or n == "no_cast_trigger" then
+      return "cx.event_ability_has_tag(" .. rust_str(n) .. ")", "bool"
+    end
     self:block("fn:has_tag:" .. n); return "false", "bool"
   end
   self:block("fn:" .. fn); return "Fixed64::ZERO", "err"
@@ -1494,6 +1498,11 @@ function Gen:stat_rows(stats, ctx)
       if type(v) == "table" then self:block("stat:heal_reduction_pct of a table")
       elseif not self.slow_ok then self:block("stat:heal_reduction_pct outside a status")
       else rows[#rows + 1] = "(StatKey::HealReceivedMultiplier, (Fixed64::ONE - (" .. self:value(expr, ctx, "num") .. ")).raw())" end
+    elseif name == "cooldown_reduction_pct" and not entry then
+      -- the host's cooldown percentage (final = base × (1 + pct), omoba-core unit_stats
+      -- cooldown_mult): a reduction is that share taken off
+      if type(v) == "table" then self:block("stat:cooldown_reduction_pct of a table")
+      else rows[#rows + 1] = "(StatKey::CooldownPercentage, (Fixed64::ZERO - (" .. self:value(expr, ctx, "num") .. ")).raw())" end
     elseif not entry then self:block("stat:" .. name)
     elseif expr ~= nil then
       local raw
@@ -4085,7 +4094,9 @@ local function emit_entry(m, o, opts, status_problems)
   -- cost from the shop catalog (cooldown, mana, cooldown groups) and uses it without a windup
   if o.kind == "item" and def.active ~= nil then
     local act = def.active
-    if act.kind ~= "active" then g:block("item.active.kind:" .. tostring(act.kind)) end
+    -- a toggle item: its def says so (ability_kit item_kind_ffi "toggle", line B 55577725), its
+    -- events are on_toggle_on / on_toggle_off like a toggle ability's
+    if act.kind ~= "active" and act.kind ~= "toggle" then g:block("item.active.kind:" .. tostring(act.kind)) end
     for _, k in ipairs(sorted_keys(act)) do
       if k ~= "kind" and k ~= "target" and k ~= "cost" and k ~= "cast" and k ~= "events" and k ~= "flags" then g:block("item.active." .. k) end
     end
@@ -4132,8 +4143,11 @@ local function emit_entry(m, o, opts, status_problems)
   end
   local events = def.events or {}
   for _, ev in ipairs(sorted_keys(events)) do
-    if not ENTRY_EVENTS[ev] then g:block("event:" .. ev) end
+    -- an item's active on_unequip: the host calls AbilityScript::on_unequip per copy lost
+    if not ENTRY_EVENTS[ev] and not (ev == "on_unequip" and o.kind == "item") then g:block("event:" .. ev) end
   end
+  if o.kind == "item" and def.active ~= nil and def.active.kind == "toggle" and not events.on_toggle_on then g:block("item.active.kind:toggle without on_toggle_on") end
+  if events.on_unequip then program("on_unequip_active", events.on_unequip, false) end
   if events.on_toggle_on and not events.on_toggle_off or events.on_toggle_off and not events.on_toggle_on then g:block("toggle: needs both on_toggle_on and on_toggle_off") end
   if events.on_cast and events.on_toggle_on then g:block("toggle: cast and toggled") end
   local spec = target_spec(g, def.target, def.flags)
@@ -4551,7 +4565,7 @@ local function emit_entry(m, o, opts, status_problems)
       .. "        let mut cx = Cx::passive(world, owner, 1);\n" .. g:finish(first)
       .. (item_equip.on_created and "        let _ = on_created(&mut cx);\n" or "") .. "    }\n"
   end
-  if item_equip.on_removed or marker then
+  if item_equip.on_removed or marker or events.on_unequip then
     local last = marker and ("        let caster = owner;\n"
       .. "        let n = cx.state_num(caster, " .. copies .. ", Fixed64::ZERO) - Fixed64::ONE;\n"
       .. "        let _ = cx.set_state_num(caster, " .. copies .. ", n.max(Fixed64::ZERO), false);\n"
@@ -4561,7 +4575,8 @@ local function emit_entry(m, o, opts, status_problems)
       .. " }\n") or ""
     impl[#impl + 1] = "\n    fn on_unequip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {\n"
       .. "        let mut cx = Cx::passive(world, owner, 1);\n" .. last
-      .. (item_equip.on_removed and "        let _ = on_removed(&mut cx);\n" or "") .. "    }\n"
+      .. (item_equip.on_removed and "        let _ = on_removed(&mut cx);\n" or "")
+      .. (events.on_unequip and "        let _ = on_unequip_active(&mut cx);\n" or "") .. "    }\n"
   end
   if #auras > 0 then
     local arms = {}
@@ -4695,7 +4710,9 @@ pub fn on_owner_respawn(owner: EntityHandle, world: &mut GameWorldDyn<'_>) {
   if o.kind == "item" then
     -- a shop item: its AbilityDef is the catalog's (kind = item); passive without an active
     -- None for an item the shop catalog does not have (it does not exist in the source)
-    s[#s + 1] = "\npub fn ffi() -> Option<AbilityDefFFI> { ability_kit::item_ffi(ID, " .. tostring(def.active == nil) .. ", " .. struct .. ") }\n"
+    s[#s + 1] = (def.active ~= nil and def.active.kind == "toggle")
+      and ("\npub fn ffi() -> Option<AbilityDefFFI> { ability_kit::item_kind_ffi(ID, \"toggle\", " .. struct .. ") }\n")
+      or ("\npub fn ffi() -> Option<AbilityDefFFI> { ability_kit::item_ffi(ID, " .. tostring(def.active == nil) .. ", " .. struct .. ") }\n")
   else
     s[#s + 1] = "\npub fn ffi() -> AbilityDefFFI { ability_kit::ability_ffi(ID, " .. struct .. ") }\n"
       .. "#[allow(dead_code)]\npub fn ffi_opt() -> Option<AbilityDefFFI> { ability_kit::ability_ffi_opt(ID, " .. struct .. ") }\n"
