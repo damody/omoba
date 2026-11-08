@@ -572,9 +572,13 @@ impl Cx<'_, '_> {
     }
 
     /// v3 `refund { cooldown = true }` in a cast: its own cooldown does not start (host ext
-    /// REFUND, E455). No other refund exists.
+    /// REFUND, E455); in an item's cast, nor do its shared cooldowns.
     #[inline]
     pub fn refund_cooldown(&mut self) { let _ = self.read(op::REFUND, &[ExtArg::Str("cooldown".into())]); }
+    /// v3 `refund { mana = true }` in an item's `on_cast`: the use spends no mana (host ext REFUND).
+    /// Only there: a hero ability's mana has no refund (the host refuses it).
+    #[inline]
+    pub fn refund_mana(&mut self) { let _ = self.read(op::REFUND, &[ExtArg::Str("mana".into())]); }
 
     /// v3 `immune_to` (E445): a status on `to` refuses `status` (host ext STATUS_IMMUNE).
     pub fn status_immune(&mut self, to: EntityHandle, status: &crate::codegen::StatusDef) -> bool {

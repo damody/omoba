@@ -2076,15 +2076,18 @@ fn scripted_item_mana(world: &World, owner: Entity, item_id: &str) -> Option<Opt
 
 /// Settles a scripted item use: the item must still be in its slot and ready and the mana still
 /// payable; then the use commits (cooldown, shared cooldowns, consumable, mana) and the owner's
-/// unit hooks see it. `false`: nothing committed, its effects are dropped.
+/// unit hooks see it. `false`: nothing committed, its effects are dropped. A `refund` (v3
+/// `refund` in the item's cast) commits the use without its mana or without its cooldowns; the
+/// mana must still be payable, as when the cast began.
 fn commit_scripted_item_use(world: &mut World, owner: Entity, owner_pid: u32, slot_i: usize, item_id: &str,
-    target: Option<Entity>, target_point: Option<(i64, i64)>) -> bool {
+    target: Option<Entity>, target_point: Option<(i64, i64)>, refund: crate::comp::ItemRefund) -> bool {
     if !owner_item_life_intact(world, owner, owner_pid) || !slot_still_ready(world, owner, slot_i, item_id) {
         return false;
     }
     let Some(pool) = scripted_item_mana(world, owner, item_id) else { return false };
     let Some(cooldown) = world.read_resource::<ItemRegistry>().get(item_id).map(|cfg| cfg.cooldown) else { return false };
-    if let Some(pool) = pool {
+    let cooldown = if refund.cooldown { 0.0 } else { cooldown };
+    if let Some(pool) = pool.filter(|_| !refund.mana) {
         if let Some(hero) = world.write_storage::<Hero>().get_mut(owner) { hero.mana_pool = Some(pool); }
     }
     if let Some(Some(instance)) = world.write_storage::<Inventory>().get_mut(owner).and_then(|inv| inv.slots.get_mut(slot_i)) {
@@ -3499,12 +3502,12 @@ pub fn process_outcomes(
                 }
             }
             Outcome::ScriptCastCommitted {caster,cues} => {cast_settlement::publish(world,caster,cues);}
-            Outcome::ScriptItemTransaction {owner,owner_pid,slot,item_id,target,target_point,outcomes} => {
+            Outcome::ScriptItemTransaction {owner,owner_pid,slot,item_id,target,target_point,outcomes,refund} => {
                 // items.dll: the use and its effects commit together, or neither (item changed).
                 // Its summons are planned like a cast's (cast_settlement plan_summons) before the use
                 // commits, and committed right after it, ahead of the effects that follow them.
                 let planned=(!remove_uids.contains(&owner)).then(||cast_settlement::plan_summons(world,&outcomes)).flatten();
-                let Some(planned)=planned.filter(|_|commit_scripted_item_use(world,owner,owner_pid,slot as usize,&item_id,target,target_point)) else {
+                let Some(planned)=planned.filter(|_|commit_scripted_item_use(world,owner,owner_pid,slot as usize,&item_id,target,target_point,refund)) else {
                     cast_settlement::release_spawns(world,&outcomes);continue;
                 };
                 for spawn in planned {spawn.commit(world,projection_tick,&mut next_ordinal)?;}

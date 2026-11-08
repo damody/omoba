@@ -91,6 +91,7 @@ fn an_item_use_commits_its_summon_before_the_effects_on_it_and_a_refused_use_rel
     let transaction = |world: &World| {
         let entity = world.entities().create();
         (entity, Outcome::ScriptItemTransaction { owner: hero, owner_pid: pid, slot: 0, item_id: item.clone(), target: None, target_point: None,
+            refund: crate::comp::ItemRefund::default(),
             outcomes: vec![Outcome::SpawnSummoned { entity, pos: at, unit_id: "dummy".into(), owner: hero, faction: faction.clone(),
                 player_owner: Some(pid), duration: Fixed64::from_i32(5) },
                 Outcome::AddBuff { target: entity, buff_id: "fire_field".into(), duration: Fixed64::from_i32(5), payload: serde_json::Value::Null }] })
@@ -107,6 +108,41 @@ fn an_item_use_commits_its_summon_before_the_effects_on_it_and_a_refused_use_rel
     process_outcomes(&mut world, &mut crate::runtime::RuntimeEventVecSink::default()).unwrap();
     world.maintain();
     assert!(!world.entities().is_alive(refused), "a refused use releases its reservation");
+}
+
+/// v3 `refund { mana, cooldown }` in an item's cast (魂蛇 soul_adder on a target it cannot put to
+/// sleep): the use commits, but spends no mana and starts no cooldown; without the refund it does.
+#[test]
+fn a_refunded_item_use_commits_without_its_mana_and_cooldown() {
+    let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+    crate::runtime::setup_single_lane_match(&mut world, crate::runtime::SingleLaneConfig::default()).unwrap();
+    let (hero, pid) = { let state = world.read_resource::<crate::runtime::MobaMatch>(); (state.heroes[0].entity.unwrap(), state.heroes[0].player_id) };
+    world.write_resource::<crate::runtime::MobaMatch>().phase = crate::runtime::MobaMatchPhase::Playing;
+    if world.try_fetch::<ItemRegistry>().is_none() { world.insert(ItemRegistry::generated_moba()); }
+    // an item with a cooldown and a mana cost
+    let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+        .filter(|row| row.mana_cost > Fixed64::ZERO && world.read_resource::<ItemRegistry>().get(row.id).is_some_and(|cfg| cfg.cooldown > 0.0))
+        .map(|row| row.id).next().expect("a catalog item with mana and a cooldown").to_owned();
+    let cooldown = world.read_resource::<ItemRegistry>().get(&item).unwrap().cooldown;
+    // a match with mana, the hero's pool full enough for two uses
+    world.write_resource::<crate::runtime::MobaMatch>().config.mana_enabled = true;
+    world.write_storage::<Hero>().get_mut(hero).unwrap().mana_pool = Some(crate::runtime::ability_runtime::ManaPool::full(Fixed64::from_i32(10_000)).unwrap());
+    let mana = |world: &World| world.read_storage::<Hero>().get(hero).unwrap().mana_pool.as_ref().map(|pool| pool.current());
+    let use_with = |world: &mut World, refund: crate::comp::ItemRefund| {
+        world.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0] =
+            Some(crate::runtime::native::comp::inventory::ItemInstance { item_id: item.clone(), cooldown_remaining: 0.0 });
+        let before = mana(world);
+        world.write_resource::<Vec<Outcome>>().push(Outcome::ScriptItemTransaction { owner: hero, owner_pid: pid, slot: 0,
+            item_id: item.clone(), target: None, target_point: None, outcomes: Vec::new(), refund });
+        process_outcomes(world, &mut crate::runtime::RuntimeEventVecSink::default()).unwrap();
+        let left = world.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().map(|slot| slot.cooldown_remaining);
+        (before, mana(world), left)
+    };
+    let (before, after, left) = use_with(&mut world, crate::comp::ItemRefund { mana: true, cooldown: true });
+    assert_eq!((after, left), (before, Some(0.0)), "a refunded use spends no mana and starts no cooldown");
+    let (before, after, left) = use_with(&mut world, crate::comp::ItemRefund::default());
+    assert_eq!(left, Some(cooldown), "an ordinary use starts its cooldown");
+    assert!(before.is_some() && after < before, "and spends its mana: {before:?} -> {after:?}");
 }
 
 #[test]

@@ -520,11 +520,12 @@ fn dispatch_scripts(
                     else { cast_outcomes.push((invocation_entity, skill_id.clone(), Some(rejection))); }
                 }
             }
+            let refund = crate::comp::ItemRefund { mana: adapter.mana_refunded(), cooldown: adapter.cooldown_refunded() };
             let produced = adapter.finish();
             if let Some((owner, owner_pid, slot, item_id, target, target_point)) = item_use {
                 if cast_ok {
                     event_outcomes.push(crate::comp::Outcome::ScriptItemTransaction { owner, owner_pid, slot, item_id,
-                        target, target_point, outcomes: produced });
+                        target, target_point, outcomes: produced, refund });
                 }
                 continue;
             }

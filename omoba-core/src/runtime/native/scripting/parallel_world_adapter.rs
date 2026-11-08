@@ -234,6 +234,8 @@ pub struct ParallelWorldAdapter<'a> {
     cast_succeeded: bool,
     /// v3 `refund { cooldown = true }` (ext REFUND, E455): this cast's cooldown does not start.
     refund_cooldown: bool,
+    /// v3 `refund { mana = true }` in an item's cast: the use commits without spending its mana.
+    refund_mana: bool,
     /// Owner-visible code for a cast handler that did not succeed.
     cast_rejection: Option<&'static str>,
     /// The `Err` text of a cast handler that did not succeed (test cast trace).
@@ -688,6 +690,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             order_filter: None,
             cast_succeeded: false,
             refund_cooldown: false,
+            refund_mana: false,
             cast_rejection: None,
             script_error: None,
             cast_released: false,
@@ -1178,6 +1181,7 @@ impl<'a> ParallelWorldAdapter<'a> {
         self.overlay_asd_count.clear();
         self.cast_succeeded = false;
         self.refund_cooldown = false;
+        self.refund_mana = false;
         self.hook_panicked = false;
         self.mana_transaction = false;
         self.mana_views.clear();
@@ -1191,6 +1195,8 @@ impl<'a> ParallelWorldAdapter<'a> {
 
     /// The cast refunded its cooldown (v3 `refund cooldown`): it starts none.
     pub(crate) fn cooldown_refunded(&self) -> bool { self.refund_cooldown }
+    /// The item cast refunded its mana (v3 `refund mana`): the use spends none.
+    pub(crate) fn mana_refunded(&self) -> bool { self.refund_mana }
 
     pub fn start_cooldown(&mut self, entity: Entity, ability_id: String, duration: Fixed64) {
         if self.refund_cooldown { return; }
@@ -2138,6 +2144,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 .map_or(V::None, |slot| V::Num(Fixed64::from_i32(slot)))),
             (op::IS_VISIBLE_TO, [A::Unit(x), A::Unit(u)]) => ROk(V::Bool(self.is_visible_to(*x, *u))),
             (op::REFUND, [A::Str(what)]) if what.as_str() == "cooldown" => { self.refund_cooldown = true; ROk(V::None) }
+            (op::REFUND, [A::Str(what)]) if what.as_str() == "mana" && self.event_item_slot.is_some() => { self.refund_mana = true; ROk(V::None) }
             (op::STATUS_IMMUNE, [A::Unit(unit), A::Str(status), states @ ..]) => {
                 let mut held = Vec::with_capacity(states.len());
                 for state in states { let A::Str(state) = state else { return RErr("STATUS_IMMUNE: states are strings".into()) }; held.push(state.as_str()); }
@@ -3468,7 +3475,13 @@ mod tests {
         let entity = world.create_entity().with(Hero::default()).build();
         let cache = ParallelAdapterCache::new(&world, 123);
         let mut adapter = ParallelWorldAdapter::new(&cache, entity);
+        // a mana refund only in an item's cast (a hero ability's mana has none)
         assert!(adapter.ext(op::REFUND, abi_stable::std_types::RSlice::from_slice(&[A::Str("mana".into())])).into_result().is_err());
+        assert!(!adapter.mana_refunded());
+        adapter.set_event_item_slot(Some(2));
+        assert!(adapter.ext(op::REFUND, abi_stable::std_types::RSlice::from_slice(&[A::Str("mana".into())])).into_result().is_ok());
+        assert!(adapter.mana_refunded());
+        adapter.set_event_item_slot(None);
         assert!(adapter.ext(op::REFUND, abi_stable::std_types::RSlice::from_slice(&[A::Str("cooldown".into())])).into_result().is_ok());
         adapter.start_cooldown(entity, "test".into(), Fixed64::from_i32(5));
         assert!(adapter.outcomes.is_empty(), "no cooldown");
