@@ -420,4 +420,16 @@ test('an item cast refunds its mana and cooldown', function()
   assert(has(adder, 'cx.refund_cooldown();'), 'cooldown')
 end)
 
+test('a projectile with a lifetime launches as projectile_expiring', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/pilot_b.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_ronin_jitte' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  local jitte = assert(files['src/generated/item_ronin_jitte.rs'], 'the jitte generates')
+  assert(has(jitte, 'cx.projectile_expiring(ID, p, '), 'its lifetime')
+end)
+
 print(('%d tests passed'):format(count))

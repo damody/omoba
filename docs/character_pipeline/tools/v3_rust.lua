@@ -1667,7 +1667,7 @@ local ACTION_FIELDS = {
   dodge_projectiles = set({ "op", "of", "from_team", "kind" }),
   set_state = set({ "op", "var", "value", "on" }),
   projectile = set({ "op", "kind", "from", "to", "direction", "speed", "radius", "distance", "pierce", "max_hits",
-    "team", "types", "flags", "dodgeable", "vision", "end_radius", "cue", "on_hit", "as", "on_end", "where" }),
+    "team", "types", "flags", "dodgeable", "vision", "end_radius", "cue", "on_hit", "as", "on_end", "where", "lifetime" }),
   clear_state = set({ "op", "var", "on" }),
   stop = set({ "op" }),
   destroy_trees = set({ "op", "at", "radius" }),
@@ -3937,11 +3937,14 @@ function Gen:action(a, ctx, ind)
       args_line = args_line .. line("    let end_args = [" .. table.concat(eargs, ", ") .. "];")
       on_end = string.format("Some((%d, &end_args[..]))", step)
     end
+    if only and a.lifetime ~= nil then self:block("action:projectile.lifetime of a flight that only hits one unit") end
     return line("{") .. args_line
       .. line(string.format("    let p = Proj { homing: %s, aim: %s, speed: %s, radius: %s, distance: %s, max_hits: %s, buildings: %s, dodgeable: %s, vision: %s, end_radius: %s, start: %s, cue: %s };",
         homing, aim, speed, radius, distance, max_hits, buildings and "true" or "false", a.dodgeable and "true" or "false", vision, end_radius, start,
         a.cue and ("Some(ability_kit::cue_hash(super::ids::Cue::" .. camel(a.cue) .. ".as_str()))") or "None"))
       .. (only and line("    let only = " .. only .. ";") .. line("    cx.projectile_only(ID, p, only, " .. on_hit .. ", " .. on_end .. ")?;")
+        -- `lifetime`: a tracking flight lives at most that long (line B 341a1051)
+        or a.lifetime ~= nil and line("    cx.projectile_expiring(ID, p, " .. self:value(a.lifetime, ctx, "num") .. ", " .. on_hit .. ", " .. on_end .. ")?;")
         or line("    cx.projectile_ended(ID, p, " .. on_hit .. ", " .. on_end .. ")?;")) .. line("}")
   elseif op == "set_state" or op == "clear_state" then
     local v = self.m.vars[a.var]
