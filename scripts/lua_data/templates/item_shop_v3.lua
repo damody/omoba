@@ -544,6 +544,22 @@ local data = {
   power_ingot = {
     numbers = { atk = 5, cost = 300 },
   },
+  prophet_akazonae_armor = {
+    numbers = { cost = 4150, hp = 300 },
+    recipe = { "prophet_armor", "health_ingot", "magic_resistance_ingot" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 20.0,
+    },
+  },
+  prophet_armor = {
+    numbers = { cost = 2550 },
+    recipe = { "lesser_armor", "insight_gem" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 20.0,
+    },
+  },
   protection_amulet = {
     numbers = { cost = 1250 },
     scripted = {

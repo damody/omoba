@@ -202,6 +202,9 @@ local SOURCE_ITEMS = {
   { 256, "item_the_spear_of_saddle", true },
   -- E line (2026-11-09): unit_or_point item target (line B 1fa72e69).
   { 257, "item_great_dragon", true },
+  -- E line (2026-11-09): physical block chance (line B 5c9aaa43).
+  { 258, "item_prophet_armor", true },
+  { 259, "item_prophet_Akazonae_armor", true },
 }
 
 return function(ctx)
