@@ -1054,20 +1054,27 @@ fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_
 }
 
 /// The ability an ABILITY_EXECUTED status event is for: its cast point at the rank `caster`
-/// holds (0 for an item or an unknown ability), whether it toggles and where it was cast (`point`,
-/// else the caster's position).
+/// holds (0 for an item or an unknown ability), its kind and tags (an item's from its generated
+/// script's definition: a toggle item toggles) and where it was cast (`point`, else the caster's
+/// position).
 fn executed_ability(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, caster: &Entity, id: &str, point: Option<Vec2>)
     -> super::parallel_world_adapter::EventAbility {
-    let def = (!id.starts_with(super::event::ITEM_SKILL_PREFIX)).then(|| registry.get_ability(id)).flatten().map(|(def, _)| def);
+    let item = id.strip_prefix(super::event::ITEM_SKILL_PREFIX);
+    let def = item.is_none().then(|| registry.get_ability(id)).flatten().map(|(def, _)| def);
+    let item_def = item.and_then(super::super::game_processor::item_script_id).and_then(|script| registry.get_ability(script)).map(|(def, _)| def);
+    let kind = def.or(item_def).map(|def| def.ability_type.clone());
     let rank = cache.hero.get(*caster).map_or(0, |hero| hero.get_ability_level(id).clamp(0, i32::from(u8::MAX)) as u8);
     let level = def.and_then(|def| def.get_level_data(rank.max(1)));
     let fixed = |value: f32| Some(value).filter(|value| value.is_finite() && *value >= 0.0 && *value <= 1_000_000.0)
         .map_or(Fixed64::ZERO, |value| Fixed64::from_raw((f64::from(value) * 1024.0).round() as i64));
     let cast_point = level.map_or(Fixed64::ZERO, |level| fixed(level.cast_time));
     let cast_range = level.map_or(Fixed64::ZERO, |level| fixed(level.range));
-    let toggle = def.is_some_and(|def| def.ability_type == AbilityType::Toggle);
+    let toggle = kind == Some(AbilityType::Toggle);
+    let no_cast_trigger = item.is_none() && omoba_template_ids::ability_by_name(id).and_then(omoba_template_ids::ability_const)
+        .is_some_and(|c| c.no_cast_trigger);
     let point = point.or_else(|| cache.pos.get(*caster).map(|p| p.0)).unwrap_or(Vec2::ZERO);
-    super::parallel_world_adapter::EventAbility { id: id.to_owned(), cast_point, toggle, point, cast_range }
+    super::parallel_world_adapter::EventAbility { id: id.to_owned(), cast_point, toggle, item: item.is_some(),
+        ultimate: kind == Some(AbilityType::Ultimate), passive: kind == Some(AbilityType::Passive), no_cast_trigger, point, cast_range }
 }
 
 /// An effect-only hook's outcomes (equip, aura, channel start/pulse/end, delayed effect, schedule,
@@ -2735,7 +2742,10 @@ mod effect_batch_tests {
             "levels": {"1": level(0.25), "2": level(0.5), "3": level(0.75)},
         })).unwrap() };
         let mut scripts = crate::runtime::ScriptRegistry::new();
-        for d in [def("strike", "active"), def("stance", "toggle")] {
+        // A catalog item with a generated script, registered as a toggle (怒雷之書's kind).
+        let (item_id, item_script) = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+            .find_map(|item| crate::runtime::game_processor::item_script_id(item.id).map(|script| (item.id, script))).unwrap();
+        for d in [def("strike", "active"), def("stance", "toggle"), def("finale", "ultimate"), def(item_script, "toggle")] {
             let script = Silent(d.id.clone());
             scripts.insert_ability_for_test(d, omb_script_abi::ability::AbilityScript_TO::from_value(
                 script, abi_stable::sabi_trait::prelude::TD_Opaque));
@@ -2763,6 +2773,23 @@ mod effect_batch_tests {
         assert_eq!(read(&mut adapter, name::IS_TOGGLE), Ok(V::Bool(false)));
         assert_eq!(read(&mut adapter, name::POINT), Ok(V::Point(Vec2::new(Fixed64::from_i32(3), Fixed64::from_i32(4)))));
         assert!(read(&mut adapter, "mana").is_err());
+        // v3 tags (op EVENT_ABILITY_TAG): an item reads its generated script's kind.
+        let tag = |adapter: &mut ParallelWorldAdapter<'_>, tag: &str|
+            adapter.ext(op::EVENT_ABILITY_TAG, RSlice::from_slice(&[A::Str(tag.into())])).into_result();
+        use omb_script_abi::ext::ability_tag as t;
+        let tags = |adapter: &mut ParallelWorldAdapter<'_>| [t::ULTIMATE, t::TOGGLE, t::PASSIVE, t::ITEM, t::NO_CAST_TRIGGER]
+            .map(|name| tag(adapter, name) == Ok(V::Bool(true)));
+        assert_eq!(tags(&mut adapter), [false; 5], "strike carries none");
+        adapter.event_ability = Some(executed_ability(&cache, &scripts, &caster, "finale", None));
+        assert_eq!(tags(&mut adapter), [true, false, false, false, false]);
+        adapter.event_ability = Some(executed_ability(&cache, &scripts, &caster, &format!("item:{item_id}"), None));
+        assert_eq!(tags(&mut adapter), [false, true, false, true, false], "a toggle item");
+        assert_eq!(read(&mut adapter, name::IS_TOGGLE), Ok(V::Bool(true)));
+        adapter.event_ability = Some(item);
+        assert_eq!(tags(&mut adapter), [false, false, false, true, false], "an item without a script");
+        assert!(tag(&mut adapter, "basic").is_err(), "an unknown tag fails loudly");
+        adapter.event_ability = None;
+        assert_eq!(tag(&mut adapter, t::ITEM), Ok(V::Bool(false)), "outside an on_ability_executed call");
     }
 
     #[test]

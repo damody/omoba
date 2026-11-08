@@ -596,6 +596,12 @@ impl Cx<'_, '_> {
         }
     }
 
+    /// v3 `has_tag(event.ability, tag)` in an `on_ability_executed` status trigger (tags in
+    /// `omb_script_abi::ext::ability_tag`; host ext EVENT_ABILITY_TAG). False in any other call.
+    pub fn event_ability_has_tag(&mut self, tag: &str) -> bool {
+        matches!(self.read(op::EVENT_ABILITY_TAG, &[ExtArg::Str(tag.into())]), ExtValue::Bool(true))
+    }
+
     /// v3 `event.ability.is_toggle` in an `on_ability_executed` status trigger.
     pub fn event_ability_is_toggle(&mut self) -> bool {
         matches!(self.read(op::EVENT_ABILITY_ATTR, &[ExtArg::Str(omb_script_abi::ext::event_ability_attr::IS_TOGGLE.into())]), ExtValue::Bool(true))

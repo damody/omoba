@@ -280,6 +280,12 @@ pub(crate) struct EventAbility {
     pub id: String,
     pub cast_point: Fixed64,
     pub toggle: bool,
+    /// Its v3 tags besides `toggle` (op::EVENT_ABILITY_TAG): an item used, an ultimate, a passive,
+    /// `no_cast_trigger`.
+    pub item: bool,
+    pub ultimate: bool,
+    pub passive: bool,
+    pub no_cast_trigger: bool,
     /// Where it was cast (event_ability_attr::POINT).
     pub point: Vec2,
     /// Its cast range at the caster's rank (event_ability_attr::CAST_RANGE).
@@ -2133,6 +2139,21 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                     .filter(|(key, _)| omoba_template_ids::instance_number(key).is_some()
                         && omoba_template_ids::instance_base(key) == runtime_id.as_str()).count());
                 ROk(V::Num(Fixed64::from_i32(i32::try_from(count).unwrap_or(i32::MAX))))
+            }
+            (op::EVENT_ABILITY_TAG, [A::Str(tag)]) => {
+                use omb_script_abi::ext::ability_tag as name;
+                let Some(ability) = &self.event_ability else {
+                    return if [name::ULTIMATE, name::TOGGLE, name::PASSIVE, name::ITEM, name::NO_CAST_TRIGGER].contains(&tag.as_str()) { ROk(V::Bool(false)) }
+                        else { RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown ability tag {tag}"))) };
+                };
+                match tag.as_str() {
+                    name::ULTIMATE => ROk(V::Bool(ability.ultimate)),
+                    name::TOGGLE => ROk(V::Bool(ability.toggle)),
+                    name::PASSIVE => ROk(V::Bool(ability.passive)),
+                    name::ITEM => ROk(V::Bool(ability.item)),
+                    name::NO_CAST_TRIGGER => ROk(V::Bool(ability.no_cast_trigger)),
+                    _ => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown ability tag {tag}"))),
+                }
             }
             (op::EVENT_ABILITY_ATTR, [A::Str(attr)]) => {
                 use omb_script_abi::ext::event_ability_attr as name;

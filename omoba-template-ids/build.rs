@@ -1962,6 +1962,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
              \ttargets_heroes_only: {},\n\
              \trequires_status: {},\n\
              \tauto_learn: {},\n\
+             \tno_cast_trigger: {},\n\
              \tability_type: AbilityTypeC::{},\n\
              \tcast_type: CastTypeC::{},\n\
              \ttarget_type: TargetTypeC::{},\n\
@@ -1988,6 +1989,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
             e.targets_heroes_only,
             e.requires_status.as_ref().map_or("None".to_owned(), |status| format!("Some(\"{}\")", escape_str_literal(status))),
             e.auto_learn,
+            e.no_cast_trigger,
             ability_type_to_variant(&e.ability_type),
             cast_type_to_variant(&e.cast_type),
             target_type_to_variant(&e.target_type),

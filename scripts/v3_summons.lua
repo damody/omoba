@@ -312,8 +312,9 @@ function M.template_rows(doc, t)
   if t.owner_death ~= nil and t.owner_death ~= "persist" and t.owner_death ~= "expire" then no("owner_death:" .. tostring(t.owner_death)) end
   local p = t.passive or {}
   -- passive.states and passive.triggers: the creating code puts them on the unit as a status
-  -- (v3_rust <template>_passive)
-  for _, k in ipairs(sorted(p)) do if k ~= "reveal" and k ~= "states" and k ~= "triggers" then no("passive." .. k) end end
+  -- (v3_rust <template>_passive); passive.aura: the creating code emits it on the new unit for as
+  -- long as it lives, as for a dummy (v3_rust create_unit; 孫子兵法's archers)
+  for _, k in ipairs(sorted(p)) do if k ~= "reveal" and k ~= "states" and k ~= "triggers" and k ~= "aura" then no("passive." .. k) end end
   if p.reveal ~= nil and p.reveal ~= "public" then no("passive.reveal:" .. tostring(p.reveal)) end
   -- tag ward: the host's SummonedUnit.ward, unit tag `ward` (line B E530)
   for _, tag in ipairs(t.tags or {}) do if tag ~= "summon" and tag ~= "ward" then no("tag:" .. tag) end end

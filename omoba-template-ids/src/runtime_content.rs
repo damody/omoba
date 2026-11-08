@@ -1509,6 +1509,7 @@ fn ability_const_from_entry(entry: &AbilityEntry) -> Result<AbilityConst, String
         targets_heroes_only: entry.targets_heroes_only,
         requires_status: entry.requires_status.clone().map(leak_str),
         auto_learn: entry.auto_learn,
+        no_cast_trigger: entry.no_cast_trigger,
         ability_type: ability_type(&entry.ability_type)?,
         cast_type: cast_type(&entry.cast_type)?,
         target_type: target_type(&entry.target_type)?,

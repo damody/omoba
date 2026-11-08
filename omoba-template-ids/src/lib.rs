@@ -1620,6 +1620,8 @@ pub struct AbilityConst {
     pub requires_status: Option<&'static str>,
     /// Learned automatically at each rank's `required_hero_level`, never with a skill point.
     pub auto_learn: bool,
+    /// v3 tag `no_cast_trigger`: its casts do not trigger "an ability used" hooks that exclude it.
+    pub no_cast_trigger: bool,
     pub ability_type: AbilityTypeC,
     pub cast_type: CastTypeC,
     pub target_type: TargetTypeC,

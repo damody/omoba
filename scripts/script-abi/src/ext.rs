@@ -113,6 +113,24 @@ pub mod op {
     /// nothing in the simulation. `cue` carries the FNV-1a of the v3 cue id in its raw bits. `at` is a
     /// Unit or a Point; `to` is a Unit, a Point, or `Bool(false)` for none.
     pub const CUE: u32 = 25;
+    /// `(Str tag)` -> `Bool`: the ability an `on_ability_executed` status event is for carries v3
+    /// tag `tag` (names in [`super::ability_tag`]; an unknown name is `RErr`); `Bool(false)` in any
+    /// other call.
+    pub const EVENT_ABILITY_TAG: u32 = 26;
+}
+
+/// Tag names of [`op::EVENT_ABILITY_TAG`].
+pub mod ability_tag {
+    /// An ultimate (catalog `ability_type = "ultimate"`).
+    pub const ULTIMATE: &str = "ultimate";
+    /// A toggle: an ability of `ability_type = "toggle"`, an item whose active is a toggle.
+    pub const TOGGLE: &str = "toggle";
+    /// A passive ability, or an item without an active.
+    pub const PASSIVE: &str = "passive";
+    /// Any item used (`item:<id>`).
+    pub const ITEM: &str = "item";
+    /// v3 `no_cast_trigger` (catalog `no_cast_trigger`): hooks that exclude it skip its casts.
+    pub const NO_CAST_TRIGGER: &str = "no_cast_trigger";
 }
 
 /// Attribute names of [`op::EVENT_ABILITY_ATTR`].

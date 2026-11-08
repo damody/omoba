@@ -1613,7 +1613,13 @@ pub fn ability_ffi_opt<S: AbilityScript + 'static>(id: &str, script: S) -> Optio
 /// The `def_json` of a generated item script: the shop catalog's item (`kind = item`); `None`
 /// for an item the catalog does not have (it registers nothing).
 pub fn item_ffi<S: AbilityScript + 'static>(id: &str, passive: bool, script: S) -> Option<AbilityDefFFI> {
-    let def = crate::metadata::item_def(id, passive)?;
+    item_kind_ffi(id, if passive { "passive" } else { "active" }, script)
+}
+
+/// [`item_ffi`] of an item whose active is v3 `kind`: `"active"`, `"passive"` or `"toggle"` (the
+/// host then reads a use of it as a toggle: `has_tag(event.ability, toggle)`, op EVENT_ABILITY_TAG).
+pub fn item_kind_ffi<S: AbilityScript + 'static>(id: &str, kind: &str, script: S) -> Option<AbilityDefFFI> {
+    let def = crate::metadata::item_def_of_kind(id, kind)?;
     let def_json = serde_json::to_string(&def).expect("AbilityDef serializes");
     Some(AbilityDefFFI { def_json: def_json.into(), script: AbilityScript_TO::from_value(Guarded(script), TD_Opaque) })
 }
@@ -1708,7 +1714,7 @@ mod projectile_tests {
     fn caster() -> EntityHandle { EntityHandle { id: 3, gen: 1 } }
     fn proj(homing: Option<EntityHandle>) -> Proj {
         Proj { homing, aim: Vec2::new(Fixed64::from_i32(600), Fixed64::ZERO), speed: Fixed64::from_i32(900), radius: Fixed64::ZERO,
-            distance: Fixed64::from_i32(600), max_hits: 1, buildings: false, dodgeable: true, vision: None, end_radius: None, start: None }
+            distance: Fixed64::from_i32(600), max_hits: 1, buildings: false, dodgeable: true, vision: None, end_radius: None, start: None, cue: None }
     }
 
     /// A tracking bolt with no radius (A34W) and a linear wave (A34R) are valid host flights.
