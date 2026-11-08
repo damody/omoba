@@ -105,6 +105,8 @@ pub enum UnitTypes {
     Buildings,
     /// Everything but heroes (`building`, `creep`, `neutral`, `summon`).
     NonHero,
+    /// Heroes and buildings (`building`, `hero`: 真視寶石's aura over towers and heroes).
+    HeroesAndBuildings,
 }
 
 /// Damage flags of a v3 `damage` action.
@@ -441,7 +443,7 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// Whether `u` is of the unit classes `types` names.
     /// `select`'s classes: its types, and an illusion for heroes with `include_illusions`.
     pub fn of_select(&self, u: EntityHandle, select: Select) -> bool {
-        self.of_types(u, select.types) || (select.include_illusions && select.types == UnitTypes::Heroes
+        self.of_types(u, select.types) || (select.include_illusions && matches!(select.types, UnitTypes::Heroes | UnitTypes::HeroesAndBuildings)
             && self.world.has_buff(u, RStr::from_str(omoba_core::runtime::native::rules::vocab::state::ILLUSION)))
     }
     pub fn of_types(&self, u: EntityHandle, types: UnitTypes) -> bool {
@@ -452,6 +454,7 @@ impl<'a, 'w> Cx<'a, 'w> {
             UnitTypes::Heroes => !building && self.is_hero(u),
             UnitTypes::Buildings => building,
             UnitTypes::NonHero => building || !self.is_hero(u),
+            UnitTypes::HeroesAndBuildings => building || self.is_hero(u),
         }
     }
     /// `exists`: a reference to a unit still in the world (dead units included).
