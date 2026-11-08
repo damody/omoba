@@ -168,6 +168,8 @@ local SOURCE_ITEMS = {
   { 234, "item_the_over_lightning_art_of_war", true },
   -- E line (2026-11-08): on_order items generate (line B 037a69cd, line A a3850a23).
   { 235, "item_protection_amulet", true },
+  -- E line (2026-11-08): instance and pre-mitigation shields (line B 4dfde241, line A b58a8361).
+  { 236, "item_magic_talisman", true },
 }
 
 return function(ctx)

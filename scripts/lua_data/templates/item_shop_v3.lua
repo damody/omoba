@@ -303,6 +303,14 @@ local data = {
   magic_resistance_ingot = {
     numbers = { cost = 650 },
   },
+  magic_talisman = {
+    numbers = { cost = 1900 },
+    recipe = { "protection_amulet" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 80.0,
+    },
+  },
   mana_boots = {
     not_passive = { "modifiers.mana_regen_constant", "modifiers.spell_amplify_percentage" },
     numbers = { cost = 2650, ["modifiers.stats_intellect_bonus"] = 5, ["unique_passive.ms"] = 60, ["unique_passive.priority"] = 60 },

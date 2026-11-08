@@ -5860,6 +5860,150 @@ local data = {
       },
     },
   },
+  magic_talisman = {
+    bot = { kind = "self_engage", source = "derived", threat_radius = 900 },
+    coverage = "expressible",
+    info = {
+      { field = "cost", value = "cost" },
+      { field = "recipe_cost", value = "recipe_cost" },
+      { field = "cooldown", value = "cooldown" },
+    },
+    kind = "item",
+    max_level = 1,
+    schema = "3.3",
+    source_id = "item_magic_talisman",
+    statuses = {
+      {
+        dispel = "none",
+        id = "magic_talisman_ready",
+        reveal = "public",
+        text = {
+          en = {
+            body = "Blocks the next non-ultimate single-target ability or item an enemy casts on you and grants a {@magic_talisman_shield}.",
+            name = "Evil Resist",
+            pieces = {
+              { text = "Blocks the next non-ultimate single-target ability or item an enemy casts on you and grants a " },
+              { name_of = "magic_talisman_shield", text = "Magic Shield" },
+              { text = "." },
+            },
+            rendered = "Blocks the next non-ultimate single-target ability or item an enemy casts on you and grants a Magic Shield.",
+          },
+          zh_TW = {
+            body = "敵人對你下達非大招的單體指定技能或道具時，攔下這次施放並獲得{@magic_talisman_shield}。",
+            name = "御魔",
+            pieces = {
+              { text = "敵人對你下達非大招的單體指定技能或道具時，攔下這次施放並獲得" },
+              { name_of = "magic_talisman_shield", text = "魔盾" },
+              { text = "。" },
+            },
+            rendered = "敵人對你下達非大招的單體指定技能或道具時，攔下這次施放並獲得魔盾。",
+          },
+        },
+        visibility = "buff",
+      },
+      {
+        dispel = "none",
+        id = "magic_talisman_shield",
+        reveal = "public",
+        text = {
+          en = {
+            body = "Absorbs {shield} magic damage.",
+            name = "Magic Shield",
+            pieces = {
+              { text = "Absorbs " },
+              { owner = "item_magic_talisman", value = "shield" },
+              { text = " magic damage." },
+            },
+            rendered = "Absorbs 500 magic damage.",
+          },
+          zh_TW = {
+            body = "吸收 {shield} 魔法傷害。",
+            name = "魔盾",
+            pieces = {
+              { text = "吸收 " },
+              { owner = "item_magic_talisman", value = "shield" },
+              { text = " 魔法傷害。" },
+            },
+            rendered = "吸收 500 魔法傷害。",
+          },
+        },
+        visibility = "buff",
+      },
+    },
+    text = {
+      en = {
+        body = "Passive: when an enemy orders a non-ultimate single-target ability or item on you, the cast is blocked once they are in cast range: the caster's ability goes on full cooldown, you gain a shield that absorbs {shield} magic damage for {shield_duration} seconds, and the amulet goes on cooldown. If the caster is out of range, they automatically move into range and cast again.",
+        name = "Amulet of Evil Resist",
+        pieces = {
+          { text = "Passive: when an enemy orders a non-ultimate single-target ability or item on you, the cast is blocked once they are in cast range: the caster's ability goes on full cooldown, you gain a shield that absorbs " },
+          { value = "shield" },
+          { text = " magic damage for " },
+          { value = "shield_duration" },
+          { text = " seconds, and the amulet goes on cooldown. If the caster is out of range, they automatically move into range and cast again." },
+        },
+        rendered = "Passive: when an enemy orders a non-ultimate single-target ability or item on you, the cast is blocked once they are in cast range: the caster's ability goes on full cooldown, you gain a shield that absorbs 500 magic damage for 5 seconds, and the amulet goes on cooldown. If the caster is out of range, they automatically move into range and cast again.",
+      },
+      zh_TW = {
+        body = "被動：敵人對你下達非大招的單體指定技能或道具時，在施法距離內就直接攔下這次施放：施法者照付該技能的冷卻，你獲得可吸收 {shield} 魔法傷害的護盾，持續 {shield_duration} 秒，護符進入冷卻。施法者在距離外時，會被自動帶到距離內再施放一次。",
+        name = "御魔護符",
+        pieces = {
+          { text = "被動：敵人對你下達非大招的單體指定技能或道具時，在施法距離內就直接攔下這次施放：施法者照付該技能的冷卻，你獲得可吸收 " },
+          { value = "shield" },
+          { text = " 魔法傷害的護盾，持續 " },
+          { value = "shield_duration" },
+          { text = " 秒，護符進入冷卻。施法者在距離外時，會被自動帶到距離內再施放一次。" },
+        },
+        rendered = "被動：敵人對你下達非大招的單體指定技能或道具時，在施法距離內就直接攔下這次施放：施法者照付該技能的冷卻，你獲得可吸收 500 魔法傷害的護盾，持續 5 秒，護符進入冷卻。施法者在距離外時，會被自動帶到距離內再施放一次。",
+      },
+    },
+    values = {
+      {
+        name = "cooldown",
+        ranks = { "80" },
+        raw = { 81920 },
+        unit = "s",
+      },
+      {
+        name = "cost",
+        ranks = { "1900" },
+        raw = { 1945600 },
+        unit = "gold",
+      },
+      {
+        hidden = true,
+        name = "global_range",
+        ranks = { "100000" },
+        raw = { 102400000 },
+        unit = "dist",
+      },
+      {
+        hidden = true,
+        name = "ready_poll",
+        ranks = { "0.5" },
+        raw = { 512 },
+        unit = "s",
+      },
+      {
+        name = "recipe_cost",
+        ranks = { "650" },
+        raw = { 665600 },
+        unit = "gold",
+      },
+      {
+        damage_type = "magical",
+        name = "shield",
+        ranks = { "500" },
+        raw = { 512000 },
+        unit = "dmg",
+      },
+      {
+        name = "shield_duration",
+        ranks = { "5" },
+        raw = { 5120 },
+        unit = "s",
+      },
+    },
+  },
   mana_boots = {
     bot = { kind = "self_engage", source = "derived", threat_radius = 900 },
     coverage = "rust_handler",
