@@ -378,7 +378,7 @@ struct OrderGuard { heard: Arc<Mutex<Vec<(u32, u32)>>>, id: String, cancel: bool
 /// little life and the guard also hears its death) or a respawn (a death world whose guard is a
 /// hero-scope status, kept across the death, that hears the respawn instead).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Extra { Plain, Ward, Purge, Death, Respawn }
+enum Extra { Plain, Ward, Purge, Death, Respawn, Block }
 
 /// The hero variable the guard writes when its holder respawns.
 const RESPAWN_VAR: &str = "test:respawns_heard";
@@ -518,7 +518,7 @@ fn order_filter_scripts(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32,
     let cast = match extra {
         Extra::Ward | Extra::Death | Extra::Respawn => To::from_value(Zap { id: id.to_owned() }, TD_Opaque),
         Extra::Purge => To::from_value(Purger { id: id.to_owned() }, TD_Opaque),
-        Extra::Plain => To::from_value(Probe { calls, id: id.to_owned() }, TD_Opaque),
+        Extra::Plain | Extra::Block => To::from_value(Probe { calls, id: id.to_owned() }, TD_Opaque),
     };
     scripts.insert_ability_for_test(order_filter_def(id, "unit"), cast);
     scripts.insert_ability_for_test(order_filter_def(ORDER_GUARD, "none"), omb_script_abi::ability::AbilityScript_TO::from_value(
@@ -573,6 +573,16 @@ fn order_filter_world(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u
         let mut props = world.write_storage::<crate::runtime::native::comp::CProperty>();
         let prop = props.get_mut(unit).unwrap();
         (prop.mhp, prop.hp) = (Fixed64::from_i32(1_000_000), Fixed64::from_i32(1_000_000));
+    }
+    // A block world: both heroes wear two 50% chance blocks of 30 (rules::damage::block_amount).
+    if extra == Extra::Block {
+        use omb_script_abi::stat_keys::StatKey;
+        for unit in [hero, enemy] {
+            for row in ["test_block_a", "test_block_b"] {
+                world.write_resource::<BuffStore>().add(unit, row, Fixed64::from_raw(i64::MAX), serde_json::json!({
+                    (StatKey::PhysicalConstantBlock.as_str()): 30 * 1024, (StatKey::PhysicalBlockChance.as_str()): 512 }));
+            }
+        }
     }
     // A death world: the guarded hero falls to a few zaps.
     if matches!(extra, Extra::Death | Extra::Respawn) {
@@ -692,6 +702,16 @@ fn an_owner_death_hook_runs_before_the_death_settles_and_keeps_every_team_replic
         &format!("{}{DEATH_VAR}", crate::runtime::native::unit_var::PREFIX), row));
     assert_eq!(kept.map(|spec| spec.value), Some(crate::runtime::native::unit_var::VarValue::Num(Fixed64::ONE)),
         "the variable the hook wrote while the hero died is on its next life: {row:?}");
+}
+
+/// FC-095／096 chance block (rules::damage::block_amount): both heroes trade attacks while each
+/// wears two 50% blocks; every team replica rolls the same blocks and keeps the authority's lives.
+#[test]
+fn a_chance_block_keeps_every_team_replica_with_the_authority() {
+    let (world, enemy, _, _) = order_filter_soak(false, Extra::Block);
+    let props = world.read_storage::<crate::runtime::native::comp::CProperty>();
+    let left = props.get(enemy).unwrap();
+    assert!(left.hp < left.mhp, "the heroes traded attacks: {:?}", left.hp);
 }
 
 /// v3 on_respawn / an item passive's on_respawn (status_event::Respawns): the guarded hero dies

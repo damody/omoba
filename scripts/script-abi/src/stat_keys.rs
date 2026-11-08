@@ -226,6 +226,10 @@ pub enum StatKey {
     /// 狀態抗性（v3 `status_resistance_pct`，比例 0～1）：與既有的 `status_resistance` 鍵相同，
     /// 控制、技能減速與技能 DoT 落地時依最強的一個縮短持續時間（omoba-core `damage_immunity::resist`，E423）。
     StatusResistance = 144,
+    /// 機率格擋（v3 `physical_block_chance`，比例 0～1）：與同一列的 `PhysicalConstantBlock`
+    /// 一起寫；那一列的格擋只在每次受到攻擊時以此機率擲中才算（omoba-core
+    /// `rules::damage::block_amount`，FC-095／096 真知短甲、真視赤備挂甲）。
+    PhysicalBlockChance = 145,
 }
 
 impl StatKey {
@@ -381,6 +385,7 @@ impl StatKey {
             StatKey::SpellLifesteal => "spell_lifesteal",
             StatKey::CastPointReduction => "cast_point_reduction",
             StatKey::StatusResistance => "status_resistance",
+            StatKey::PhysicalBlockChance => "physical_block_chance",
         }
     }
 
@@ -542,6 +547,7 @@ impl StatKey {
             "spell_lifesteal" => Some(StatKey::SpellLifesteal),
             "cast_point_reduction" => Some(StatKey::CastPointReduction),
             "status_resistance" => Some(StatKey::StatusResistance),
+            "physical_block_chance" => Some(StatKey::PhysicalBlockChance),
             _ => None,
         }
     }
@@ -694,6 +700,7 @@ impl StatKey {
             StatKey::SpellLifesteal => StatSection::All,
             StatKey::CastPointReduction => StatSection::All,
             StatKey::StatusResistance => StatSection::NonBuilding,
+            StatKey::PhysicalBlockChance => StatSection::All,
         }
     }
 
@@ -845,6 +852,8 @@ impl StatKey {
             StatKey::SpellLifesteal => Aggregation::SumAdd,
             StatKey::CastPointReduction => Aggregation::SumAdd,
             StatKey::StatusResistance => Aggregation::SumAdd,
+            // read per row with its block (never summed)
+            StatKey::PhysicalBlockChance => Aggregation::Chance,
         }
     }
 
@@ -858,7 +867,7 @@ impl StatKey {
 }
 
 /// 按 discriminant 排序的所有 `StatKey` variant — 供 gen-docs / 遍歷測試使用。
-pub const ALL: &[StatKey; 145] = &[
+pub const ALL: &[StatKey; 146] = &[
     StatKey::PreattackBonusDamage,
     StatKey::PreattackBonusDamageProc,
     StatKey::PreattackBonusDamagePostCrit,
@@ -1004,6 +1013,7 @@ pub const ALL: &[StatKey; 145] = &[
     StatKey::SpellLifesteal,
     StatKey::CastPointReduction,
     StatKey::StatusResistance,
+    StatKey::PhysicalBlockChance,
 ];
 
 #[cfg(test)]
@@ -1011,8 +1021,8 @@ mod tests {
     use super::{Aggregation, StatKey, StatSection, ALL};
 
     #[test]
-    fn all_array_length_is_145() {
-        assert_eq!(ALL.len(), 145);
+    fn all_array_length_is_146() {
+        assert_eq!(ALL.len(), 146);
     }
 
     #[test]

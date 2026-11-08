@@ -46,6 +46,8 @@ pub const STATS: &[(&str, StatKey, Unit)] = &[
     ("hp_regen_amp_pct", StatKey::HpRegenAmplifyPercentage, Unit::Fraction),
     ("mana_regen_amp_pct", StatKey::ManaRegenAmplifyPercentage, Unit::Fraction),
     ("physical_block", StatKey::PhysicalConstantBlock, Unit::Fraction),
+    // 同一列的 physical_block 只以此機率擋（rules::damage::block_amount）。
+    ("physical_block_chance", StatKey::PhysicalBlockChance, Unit::Fraction),
     ("max_hp", StatKey::HealthBonus, Unit::Fraction),
     // 白字攻擊（原作 BASEATTACK_BONUSDAMAGE）、攻擊距離、基礎傷害百分比（BASEDAMAGEOUTGOING_PERCENTAGE）。
     ("base_attack_damage", StatKey::BaseAttackBonusDamage, Unit::Fraction),
