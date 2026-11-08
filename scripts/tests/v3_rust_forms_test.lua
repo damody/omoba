@@ -361,4 +361,18 @@ test('an item hears its holder\'s death: active on_owner_death, item_count, pick
   assert(has(shard, 'cx.remove_picked_item(p)?;'), 'removes what the pick found')
 end)
 
+test('an item passive hears its holder\'s death and respawn', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/pilot_b.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_death_of_scepter' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  local scepter = assert(files['src/generated/item_death_of_scepter.rs'], 'the scepter generates')
+  assert(has(scepter, 'cx.passive_marker(ID, &[], 1573376);'), 'the marker hears KILL, OWNER_DEATH and RESPAWN')
+  assert(has(scepter, '("item_death_of_scepter", 22) => {'), 'death on kind 22')
+  assert(has(scepter, '("item_death_of_scepter", 23) => {'), 'respawn on kind 23')
+end)
+
 print(('%d tests passed'):format(count))

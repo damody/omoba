@@ -226,6 +226,8 @@ local STATUS_TRIGGERS = {
   -- the holder is about to die (line B 7b32a3e1): before the death settles, effects only; no
   -- event fields (the killer is not tracked)
   on_owner_death = { 524288, { 22 } },
+  -- the holder's new life after a respawn (line B 82771384; not the first life): no event fields
+  on_respawn = { 1048576, { 23 } },
   -- applied again while it holds: the applying code runs it after the apply (no host event)
   on_refreshed = { 0 },
 }
@@ -4371,7 +4373,9 @@ local function emit_entry(m, o, opts, status_problems)
     -- an item's on_death: its marker hears the holder's death, before it settles (status event
     -- OWNER_DEATH, line B 7b32a3e1)
     local item_death = item and ev == "on_death"
-    if item and ev ~= "on_created" and ev ~= "on_removed" and ev ~= "periodic" and ev ~= "on_attack_hit" and not PASSIVE_EVENTS[ev] and not item_executed and not item_death then
+    -- an item's on_respawn: the new life's marker hears it (status event RESPAWN, line B 82771384)
+    local item_respawn = item and ev == "on_respawn"
+    if item and ev ~= "on_created" and ev ~= "on_removed" and ev ~= "periodic" and ev ~= "on_attack_hit" and not PASSIVE_EVENTS[ev] and not item_executed and not item_death and not item_respawn then
       g:block("passive_trigger:" .. ev .. " of an item (no learn marker)")
     elseif not PASSIVE_TRIGGERS[ev] and not (item and (ev == "on_removed" or ev == "on_death")) then g:block("passive_trigger:" .. ev)
     else
@@ -4409,9 +4413,10 @@ local function emit_entry(m, o, opts, status_problems)
         if item then item_periodic = start else passive_periodic = start end
       else
         local evt = PASSIVE_EVENTS[ev] or (item_executed and { STATUS_TRIGGERS.on_ability_executed[1], STATUS_TRIGGERS.on_ability_executed[2][1] })
-          or (item_death and { owner_death[1], owner_death[2][1] }) or nil
+          or (item_death and { owner_death[1], owner_death[2][1] })
+          or (item_respawn and { STATUS_TRIGGERS.on_respawn[1], STATUS_TRIGGERS.on_respawn[2][1] }) or nil
         local pre = ev == "on_take_damage_pre" or ev == "on_deal_damage_pre"
-        local ctx = { owner = o, scope = scope_child(nil), event = item_executed and "ability_executed" or item_death and "owner_death" or ev == "on_ability_executed" and "owner_cast" or (ev == "on_heal_received" and "heal_received") or (ev == "on_order_targeted" and "order_targeted") or (ev == "on_moved" and "moved") or ev ~= "on_created", pre = pre, windup = ev == "on_attack_windup" }
+        local ctx = { owner = o, scope = scope_child(nil), event = item_executed and "ability_executed" or (item_death or item_respawn) and "owner_death" or ev == "on_ability_executed" and "owner_cast" or (ev == "on_heal_received" and "heal_received") or (ev == "on_order_targeted" and "order_targeted") or (ev == "on_moved" and "moved") or ev ~= "on_created", pre = pre, windup = ev == "on_attack_windup" }
         local filter = tr.filter and g:value(tr.filter, ctx, "bool") or "true"
         filters[ev] = filter
         local body = g:actions(tr.actions, ctx, "    ")
