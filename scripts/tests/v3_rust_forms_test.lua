@@ -400,4 +400,11 @@ test('an aura over heroes and buildings selects HeroesAndBuildings', function()
   assert(has(gem, 'UnitTypes::HeroesAndBuildings'), 'building+hero')
 end)
 
+test('an item registers under its v3 id, not its source key', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I1.lua'))
+  local files = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  local shard = assert(files['src/generated/item_insight_gem_shard.rs'], 'the shard generates')
+  assert(has(shard, 'pub const ID: &str = "item_insight_gem_shard";'), 'its v3 id')
+end)
+
 print(('%d tests passed'):format(count))

@@ -4088,10 +4088,8 @@ local function entry_head(def)
   return table.concat({ M.HEADER,
     string.format("//! %s %s（%s）\n", def.id, def.source_id or "", (def.text and def.text.zh_TW and def.text.zh_TW.name) or ""),
     "#![allow(unused_imports)]\nuse ability_kit::*;\n\n",
-    -- an item registers under its source key (the host's item_script_id reads it from source_ref);
-    -- the v3 id is that key in lower case
-    string.format("pub const ID: &str = %s;\n\npub struct %s;\n\n",
-      rust_str(def.id:find("^item_") and type(def.source_id) == "string" and def.source_id:lower() == def.id and def.source_id or def.id), camel(def.id)) })
+    -- items register under their v3 id too (the host's item_script_id returns it, B 039cc0df)
+    string.format("pub const ID: &str = %s;\n\npub struct %s;\n\n", rust_str(def.id), camel(def.id)) })
 end
 local function stub_text(def, blockers)
   local why = def.id .. " is not generated yet: " .. table.concat(blockers, ", ")
