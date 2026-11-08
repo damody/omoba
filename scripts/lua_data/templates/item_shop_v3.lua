@@ -40,6 +40,7 @@ local data = {
     recipe = { "energy_ingot", "staff" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.1 },
       cooldown = 60.0,
       mana_cost = 60.0,
       target = { out_of_range = "reject", range = 1200.0, requires_visible = false, shape = "point", team = "any" },
@@ -104,6 +105,7 @@ local data = {
     numbers = { cost = 1500, ["modifiers.mana_bonus"] = 5, ["modifiers.stats_intellect_bonus"] = 10 },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.3 },
       charges = { initial = 2, max = 2, restore = 40.0 },
       mana_cost = 100.0,
       target = { out_of_range = "reject", range = 800.0, requires_visible = false, shape = "point", team = "any" },
@@ -143,6 +145,7 @@ local data = {
     numbers = { cost = 1500, ["modifiers.mana_bonus"] = 300, ["modifiers.stats_intellect_bonus"] = 10 },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 20.0,
       mana_cost = 140.0,
       target = { out_of_range = "reject", range = 700.0, requires_visible = false, shape = "point", team = "any" },
@@ -196,6 +199,7 @@ local data = {
     recipe = { "staff", "regeneration_ingot", "mana_ingot" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 30.0,
       mana_cost = 110.0,
       target = { out_of_range = "reject", range = 800.0, requires_visible = false, shape = "point", team = "any" },
@@ -211,6 +215,7 @@ local data = {
     recipe = { "the_club_of_nebula", "spirit_ingot", "health_ingot" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.1 },
       cooldown = 25.0,
       mana_cost = 75.0,
       target = { out_of_range = "reject", range = 600.0, requires_visible = true, shape = "unit_or_point", team = "any" },
@@ -317,6 +322,7 @@ local data = {
     recipe = { "frozen_ring", "mana_ingot", "staff" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.1 },
       cooldown = 36.0,
       mana_cost = 60.0,
       target = { out_of_range = "reject", range = 1200.0, requires_visible = true, shape = "unit", team = "enemy" },
@@ -327,6 +333,7 @@ local data = {
     recipe = { "yubashiri", "tachi" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 25.0,
       mana_cost = 60.0,
       shares_cooldown_with = { "yubashiri" },
@@ -367,6 +374,7 @@ local data = {
     numbers = { cost = 750 },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.1 },
       cooldown = 20.0,
       mana_cost = 120.0,
       shares_cooldown_with = { "raikiri", "the_red_lightning_chapter", "the_red_lightning_chapter_hyper" },
@@ -382,6 +390,7 @@ local data = {
     recipe = { "gorgeous_tachi" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 30.0,
       mana_cost = 75.0,
       target = { out_of_range = "reject", range = 700.0, requires_visible = true, shape = "unit", team = "any" },
@@ -444,6 +453,7 @@ local data = {
     recipe = { "energy_ingot", "speed_clothes" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 25.0,
       mana_cost = 100.0,
       target = { out_of_range = "reject", range = 700.0, requires_visible = true, shape = "unit", team = "enemy" },
@@ -455,6 +465,7 @@ local data = {
     recipe = { "tea_bowl" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 45.0,
       mana_cost = 100.0,
       target = { include_magic_immune = true, out_of_range = "reject", range = 700.0, requires_visible = true, shape = "unit", team = "ally" },
@@ -581,6 +592,7 @@ local data = {
     recipe = { "lightning_katana", "katana" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.1 },
       cooldown = 20.0,
       mana_cost = 120.0,
       shares_cooldown_with = { "lightning_scroll", "the_red_lightning_chapter", "the_red_lightning_chapter_hyper" },
@@ -639,6 +651,7 @@ local data = {
     recipe = { "moon_spear", "naginata" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 35.0,
       target = { out_of_range = "reject", range = 200.0, requires_visible = true, shape = "unit", team = "ally" },
     },
@@ -695,6 +708,7 @@ local data = {
     recipe = { "staff", "staff" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 50.0,
       mana_cost = 80.0,
       target = { out_of_range = "reject", range = 900.0, requires_visible = true, shape = "unit", team = "any" },
@@ -724,6 +738,7 @@ local data = {
     recipe = { "spell_book", "wind_scroll" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 30.0,
       mana_cost = 100.0,
       target = { out_of_range = "reject", range = 500.0, requires_visible = false, shape = "point", team = "any" },
@@ -838,6 +853,7 @@ local data = {
     recipe = { "spear" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 25.0,
       mana_cost = 120.0,
       target = { out_of_range = "reject", range = 500.0, requires_visible = false, shape = "point", team = "any" },
@@ -857,6 +873,7 @@ local data = {
     recipe = { "cursed_katana", "lesser_shield", "staff" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 30.0,
     },
   },
@@ -876,6 +893,7 @@ local data = {
     numbers = { atk = 60, cost = 7800, ["modifiers.stats_agility_bonus"] = 20, ["modifiers.stats_intellect_bonus"] = 20 },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 40.0,
       mana_cost = 150.0,
       target = { out_of_range = "reject", range = 800.0, requires_visible = false, shape = "point", team = "any" },
@@ -886,6 +904,7 @@ local data = {
     numbers = { cost = 7200, hp = 500, ["modifiers.stats_agility_bonus"] = 20, ["modifiers.stats_intellect_bonus"] = 25 },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 110.0,
       mana_cost = 150.0,
     },
@@ -922,6 +941,7 @@ local data = {
     numbers = { atk = 50, cost = 6300, ["modifiers.stats_agility_bonus"] = 20 },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 55.0,
       mana_cost = 130.0,
       target = { include_magic_immune = true, out_of_range = "reject", range = 700.0, requires_visible = true, shape = "unit", team = "enemy" },
@@ -939,6 +959,7 @@ local data = {
     numbers = { atk = 70, cost = 8600, ["modifiers.stats_strength_bonus"] = 25 },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 45.0,
       mana_cost = 100.0,
       target = { include_magic_immune = true, out_of_range = "reject", range = 900.0, requires_visible = true, shape = "unit", team = "enemy" },
@@ -948,6 +969,7 @@ local data = {
     numbers = { atk = 35, cost = 5800, ["modifiers.stats_agility_bonus"] = 20 },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 36.0,
       mana_cost = 100.0,
       target = { out_of_range = "reject", range = 1000.0, requires_visible = true, shape = "unit", team = "enemy" },
@@ -958,6 +980,7 @@ local data = {
     numbers = { cost = 6000, ["modifiers.stats_intellect_bonus"] = 20 },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 40.0,
       mana_cost = 130.0,
       target = { out_of_range = "reject", range = 1000.0, requires_visible = true, shape = "unit", team = "enemy" },
@@ -1006,6 +1029,7 @@ local data = {
     recipe = { "rockfall_book", "ignite_book" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 80.0,
       mana_cost = 150.0,
       target = { out_of_range = "reject", range = 800.0, requires_visible = false, shape = "point", team = "any" },
@@ -1029,6 +1053,7 @@ local data = {
     recipe = { "lightning_scroll", "intelligence_ingot", "intelligence_ingot" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 25.0,
       mana_cost = 100.0,
       shares_cooldown_with = { "lightning_scroll", "raikiri", "the_red_lightning_chapter_hyper" },
@@ -1040,6 +1065,7 @@ local data = {
     recipe = { "spell_book", "the_red_lightning_chapter" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 25.0,
       mana_cost = 100.0,
       shares_cooldown_with = { "lightning_scroll", "raikiri", "the_red_lightning_chapter" },
@@ -1060,6 +1086,7 @@ local data = {
     recipe = { "cursed_katana", "samurais_badge" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 35.0,
       target = { include_magic_immune = true, out_of_range = "reject", range = 600.0, requires_visible = true, shape = "unit", team = "enemy" },
     },
@@ -1143,6 +1170,7 @@ local data = {
     recipe = { "frozen_ring", "tachi" },
     scripted = {
       active = { kind = "scripted" },
+      cast = { point = 0.2 },
       cooldown = 25.0,
       mana_cost = 60.0,
       shares_cooldown_with = { "kokumo" },

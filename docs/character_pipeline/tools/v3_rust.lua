@@ -4234,7 +4234,8 @@ local function emit_entry(m, o, opts, status_problems)
   g.status_problems = status_problems
   g.paths = effect_paths(def, "")
   -- an item's active is its cast program: its events, target and flags; the host settles its
-  -- cost from the shop catalog (cooldown, mana, cooldown groups) and uses it without a windup
+  -- cost from the shop catalog (cooldown, mana, cooldown groups, charges) and its windup
+  -- (cast_point, interruptible: the row's cast, line B 2be4ab76; on_phase_start runs at its start)
   if o.kind == "item" and def.active ~= nil then
     local act = def.active
     -- a toggle item: its def says so (ability_kit item_kind_ffi "toggle", line B 55577725), its
@@ -4252,8 +4253,7 @@ local function emit_entry(m, o, opts, status_problems)
     end
     if (act.cost or {}).cooldown_start ~= nil and act.cost.cooldown_start ~= "on_cast" then g:block("item.active.cost.cooldown_start:" .. tostring(act.cost.cooldown_start)) end
     for _, k in ipairs(sorted_keys(act.cast or {})) do
-      if k == "cast_point" then g:gap("item cast_point: the host uses items without a windup")
-      elseif k ~= "immediate" and k ~= "ignore_backswing" then g:block("item.active.cast." .. k) end
+      if k ~= "cast_point" and k ~= "interruptible" and k ~= "immediate" and k ~= "ignore_backswing" then g:block("item.active.cast." .. k) end
     end
     def = setmetatable({ events = act.events, target = act.target, flags = act.flags }, { __index = o.def })
   end

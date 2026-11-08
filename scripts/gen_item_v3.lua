@@ -103,6 +103,13 @@ function M.scripted_active(item, number, cooldown_groups)
   elseif target.type ~= "none" then
     return nil, "target type " .. tostring(target.type) .. " has no catalog target"
   end
+  -- the windup (line B 2be4ab76): on_phase_start at its start, the effect at its end; none at 0
+  local cast = active.cast or {}
+  local point = cast.cast_point == nil and 0 or number(cast.cast_point)
+  if not point then return nil, "cast_point " .. tostring(cast.cast_point) .. " is not a number" end
+  if point > 60 then return nil, "cast_point " .. point .. " over 60 s" end
+  if point > 0 then out.cast = { point = point, interruptible = cast.interruptible == true or nil }
+  elseif cast.interruptible then return nil, "an interruptible cast needs a cast_point" end
   local consumable = item.shop and item.shop.consumable
   if consumable then
     if number(consumable.charges) ~= 1 then return nil, "the catalog consumes one use, this item has charges" end

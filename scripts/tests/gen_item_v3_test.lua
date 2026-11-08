@@ -82,4 +82,16 @@ do
   ok(G.scripted_active(item, number, {}) == nil, 'at most 10')
 end
 
+-- the windup goes to the catalog row (line B 2be4ab76): none at 0, interruptible only with one
+do
+  local function number(e) if type(e) == 'number' then return e end; return e == '$cast_point' and 0.3 or nil end
+  local item = { id = 'item_x', active = { kind = 'active', target = { type = 'none' }, cast = { cast_point = '$cast_point', interruptible = true }, cost = {} } }
+  local out = assert(G.scripted_active(item, number, {}))
+  ok(out.cast and out.cast.point == 0.3 and out.cast.interruptible == true, 'cast_point and interruptible reach the row')
+  item.active.cast = { immediate = true }
+  ok(assert(G.scripted_active(item, number, {})).cast == nil, 'no windup, no cast')
+  item.active.cast = { interruptible = true }
+  ok(G.scripted_active(item, number, {}) == nil, 'interruptible needs a cast_point')
+end
+
 print('gen_item_v3 test: ' .. checks .. ' checks passed')
