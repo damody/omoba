@@ -160,6 +160,9 @@ local SOURCE_ITEMS = {
   { 228, "item_commander_of_fan", true },
   { 229, "item_mana_thief", true },
   { 230, "item_contemporary_armor", true },
+  -- E line (2026-11-08): combat summons carry passive.aura (line B 55577725).
+  { 231, "item_the_art_of_war", true },
+  { 232, "item_the_lost_art_of_war_1", true },
 }
 
 return function(ctx)

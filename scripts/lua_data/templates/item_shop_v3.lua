@@ -574,6 +574,19 @@ local data = {
   tea_bowl = {
     numbers = { cost = 1300, ["modifiers.health_regen_constant"] = 10, ["modifiers.mana_regen_constant"] = 5 },
   },
+  the_art_of_war = {
+    added = { ["modifiers.stats_agility_bonus"] = 30, ["modifiers.stats_intellect_bonus"] = 30, ["modifiers.stats_strength_bonus"] = 30 },
+    no_native_aura = true,
+    not_passive = { "armor", "modifiers.basedamageoutgoing_percentage", "modifiers.movespeed_bonus_percentage" },
+    numbers = { cost = 12135, ["modifiers.stats_agility_bonus"] = 30, ["modifiers.stats_intellect_bonus"] = 30, ["modifiers.stats_strength_bonus"] = 30 },
+    recipe = { "the_lost_art_of_war_1", "the_lost_art_of_war_2" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      mana_cost = 350.0,
+      shares_cooldown_with = { "fire_scroll", "forest_scroll", "kousetsusamonnji", "mountain_scroll", "red_spear", "the_art_of_war_flame_chapter", "the_art_of_war_forest_chapter", "the_art_of_war_mountain_chapter", "the_art_of_war_tornado_chapter", "the_lost_art_of_war_1", "the_lost_art_of_war_2", "wind_scroll" },
+    },
+  },
   the_art_of_war_flame_chapter = {
     numbers = {
       ["active.modifiers.1.duration"] = 0,
@@ -738,6 +751,19 @@ local data = {
   the_hooate_of_ghost = {
     numbers = { cost = 1350, hp = 300, ["modifiers.health_regen_constant"] = 10 },
     recipe = { "health_ingot" },
+  },
+  the_lost_art_of_war_1 = {
+    added = { ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_intellect_bonus"] = 10, ["modifiers.stats_strength_bonus"] = 10 },
+    no_native_aura = true,
+    not_passive = { "modifiers.basedamageoutgoing_percentage" },
+    numbers = { cost = 5150, ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_intellect_bonus"] = 10, ["modifiers.stats_strength_bonus"] = 10 },
+    recipe = { "the_art_of_war_forest_chapter", "the_art_of_war_flame_chapter" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 60.0,
+      mana_cost = 100.0,
+      shares_cooldown_with = { "fire_scroll", "forest_scroll", "kousetsusamonnji", "red_spear", "the_art_of_war", "the_art_of_war_flame_chapter", "the_art_of_war_forest_chapter" },
+    },
   },
   the_lost_art_of_war_2 = {
     added = { ["modifiers.stats_agility_bonus"] = 10, ["modifiers.stats_intellect_bonus"] = 10, ["modifiers.stats_strength_bonus"] = 10 },
