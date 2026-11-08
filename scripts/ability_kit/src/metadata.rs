@@ -56,7 +56,7 @@ pub fn item_def_of_kind(id: &str, kind: &str) -> Option<AbilityDef> {
     if !matches!(kind, "active" | "passive" | "toggle") { return None; }
     use omoba_template_ids::MobaItemTargetShapeConst as Shape;
     let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| catalog_item_is(item, id))?;
-    let target = match item.target.shape { Shape::Self_ => "none", Shape::Point => "point", Shape::Unit => "unit" };
+    let target = match item.target.shape { Shape::Self_ => "none", Shape::Point => "point", Shape::Unit => "unit", Shape::UnitOrPoint => "point" };
     let def = serde_json::json!({
         "id": id, "name": item.name, "kind": "item",
         "ability_type": kind, "target_type": target, "max_level": 1,

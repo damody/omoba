@@ -61,7 +61,7 @@ mod tests {
             assert_eq!(def.kind, AbilityKind::Item, "{}", def.id);
             let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
                 .find(|item| ability_kit::metadata::catalog_item_is(item, &def.id)).expect("catalog item");
-            let target = match item.target.shape { Shape::Self_ => TargetType::None, Shape::Point => TargetType::Point, Shape::Unit => TargetType::Unit };
+            let target = match item.target.shape { Shape::Self_ => TargetType::None, Shape::Point => TargetType::Point, Shape::Unit => TargetType::Unit, Shape::UnitOrPoint => TargetType::Point };
             assert_eq!(def.target_type, target, "{}", def.id);
             let rank = def.get_level_data(1).expect("rank 1");
             assert_eq!(rank.cooldown, item.cooldown.to_f32_for_render(), "{}", def.id);

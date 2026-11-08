@@ -1995,6 +1995,54 @@ fn scripted_item(world: &World, item_id: &str) -> bool {
     world.try_fetch::<super::initialization::ScriptedItems>().is_some_and(|items| items.0.contains(&script))
 }
 
+/// The target of a scripted item use by the item's catalog rule: none, an explicit point in
+/// range, a living unit of the item's team in range (visible, not magic immune unless allowed), or
+/// for `unit_or_point` either one (a named unit is checked as a unit target).
+fn scripted_item_target(world: &World, rule: omoba_template_ids::MobaItemTargetConst, owner_pos: omoba_sim::Vec2, owner_faction: &Faction,
+    target_pos: Option<omoba_sim::Vec2>, target_life: Option<Entity>, point_explicit: bool, target_named: bool,
+) -> Result<SkillTarget, failure::Error> {
+    use omoba_template_ids::MobaItemTargetShapeConst as Shape;
+    // unit_or_point: a named unit is checked as a unit target, anything else as a point
+    let shape = match rule.shape { Shape::UnitOrPoint if target_named => Shape::Unit, Shape::UnitOrPoint => Shape::Point, shape => shape };
+    Ok(match shape {
+        Shape::Self_ => SkillTarget::None,
+        Shape::Point => {
+            let Some(point) = target_pos.filter(|_| point_explicit && !target_named && target_life.is_none()) else {
+                return Err(failure::err_msg("ItemUse: point item requires an explicit point and no entity"));
+            };
+            if rule.range > Fixed64::ZERO && !within_item_range(owner_pos, point, rule.range) {
+                return Err(failure::err_msg("ItemUse: point is out of range"));
+            }
+            SkillTarget::Point { x: point.x, y: point.y }
+        }
+        Shape::Unit | Shape::UnitOrPoint => {
+            let Some(target) = target_life.filter(|_| !point_explicit && target_named) else {
+                return Err(failure::err_msg("ItemUse: unit item requires a disclosed entity and no explicit point"));
+            };
+            let hp = world.read_storage::<CProperty>().get(target).map(|p| p.hp);
+            let faction = world.read_storage::<Faction>().get(target).cloned();
+            let pos = world.read_storage::<Pos>().get(target).map(|p| p.0);
+            let (Some(hp), Some(faction), Some(pos)) = (hp, faction, pos) else {
+                return Err(failure::err_msg("ItemUse: target unavailable"));
+            };
+            if !same_live_item_target(world, target) || hp <= Fixed64::ZERO || !item_faction_matches(rule.team, &owner_faction, &faction) {
+                return Err(failure::err_msg("ItemUse: target is not a living unit of the item's team"));
+            }
+            if rule.range > Fixed64::ZERO && !within_item_range(owner_pos, pos, rule.range) {
+                return Err(failure::err_msg("ItemUse: target is out of range"));
+            }
+            let viewer = u32::try_from(owner_faction.team_id).unwrap_or(0);
+            if rule.requires_visible && !item_entity_visible_to_team(world, target, viewer) {
+                return Err(failure::err_msg("ItemUse: target is not visible"));
+            }
+            if !super::magic_immunity::admits_target(&world.read_resource::<BuffStore>(), Some(owner_faction), Some(&faction), target, rule.include_magic_immune) {
+                return Err(failure::err_msg("ItemUse: target is magic immune"));
+            }
+            SkillTarget::Entity(target)
+        }
+    })
+}
+
 /// Admits a scripted item use like `apply_resolved_item_use` admits its own effects (owner,
 /// slot, cooldown, catalog target, mana) and queues `ScriptEvent::ItemCast`; spends nothing.
 fn queue_scripted_item_use(
@@ -2017,44 +2065,8 @@ fn queue_scripted_item_use(
     let (true, Some(owner_pos), Some(owner_faction)) = (owner_alive, owner_pos, owner_faction) else {
         return Err(failure::err_msg("ItemUse: owner state unavailable"));
     };
-    let rule = catalog_item_target(item_id);
-    let target = match rule.shape {
-        Shape::Self_ => SkillTarget::None,
-        Shape::Point => {
-            let Some(point) = target_pos.filter(|_| point_explicit && !target_named && target_life.is_none()) else {
-                return Err(failure::err_msg("ItemUse: point item requires an explicit point and no entity"));
-            };
-            if rule.range > Fixed64::ZERO && !within_item_range(owner_pos, point, rule.range) {
-                return Err(failure::err_msg("ItemUse: point is out of range"));
-            }
-            SkillTarget::Point { x: point.x, y: point.y }
-        }
-        Shape::Unit => {
-            let Some(target) = target_life.filter(|_| !point_explicit && target_named) else {
-                return Err(failure::err_msg("ItemUse: unit item requires a disclosed entity and no explicit point"));
-            };
-            let hp = world.read_storage::<CProperty>().get(target).map(|p| p.hp);
-            let faction = world.read_storage::<Faction>().get(target).cloned();
-            let pos = world.read_storage::<Pos>().get(target).map(|p| p.0);
-            let (Some(hp), Some(faction), Some(pos)) = (hp, faction, pos) else {
-                return Err(failure::err_msg("ItemUse: target unavailable"));
-            };
-            if !same_live_item_target(world, target) || hp <= Fixed64::ZERO || !item_faction_matches(rule.team, &owner_faction, &faction) {
-                return Err(failure::err_msg("ItemUse: target is not a living unit of the item's team"));
-            }
-            if rule.range > Fixed64::ZERO && !within_item_range(owner_pos, pos, rule.range) {
-                return Err(failure::err_msg("ItemUse: target is out of range"));
-            }
-            let viewer = u32::try_from(owner_faction.team_id).unwrap_or(0);
-            if rule.requires_visible && !item_entity_visible_to_team(world, target, viewer) {
-                return Err(failure::err_msg("ItemUse: target is not visible"));
-            }
-            if !super::magic_immunity::admits_target(&world.read_resource::<BuffStore>(), Some(&owner_faction), Some(&faction), target, rule.include_magic_immune) {
-                return Err(failure::err_msg("ItemUse: target is magic immune"));
-            }
-            SkillTarget::Entity(target)
-        }
-    };
+    let target = scripted_item_target(world, catalog_item_target(item_id), owner_pos, &owner_faction, target_pos, target_life,
+        point_explicit, target_named)?;
     if scripted_item_mana(world, owner, item_id).is_none() {
         return Err(failure::err_msg("ItemUse: not enough mana"));
     }

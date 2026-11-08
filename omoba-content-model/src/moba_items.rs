@@ -397,7 +397,8 @@ impl MobaItemTargetEntry {
     fn validate(&self, active: Option<&MobaItemActiveEntry>) -> Result<(), String> {
         let positive = |value: f32, maximum: f32| value.is_finite() && (1.0 / 1024.0..=maximum).contains(&value);
         let legacy = self.is_legacy_self();
-        if self.include_magic_immune && !(self.shape == MobaItemTargetShape::Unit && matches!(active, Some(MobaItemActiveEntry::Scripted {}))) {
+        if self.include_magic_immune && !(matches!(self.shape, MobaItemTargetShape::Unit | MobaItemTargetShape::UnitOrPoint)
+            && matches!(active, Some(MobaItemActiveEntry::Scripted {}))) {
             return Err("include_magic_immune is for a scripted unit active".into());
         }
         let shape_ok = match self.shape {
@@ -412,6 +413,9 @@ impl MobaItemTargetEntry {
                 (self.range == 0.0 || positive(self.range, 10_000.0)) && self.out_of_range == MobaItemOutOfRange::Reject,
             MobaItemTargetShape::Unit if matches!(active, Some(MobaItemActiveEntry::Scripted {})) =>
                 positive(self.range, 10_000.0) && self.out_of_range == MobaItemOutOfRange::Reject,
+            // a unit (checked as for `unit`) or a ground point, the script tells them apart
+            MobaItemTargetShape::UnitOrPoint => matches!(active, Some(MobaItemActiveEntry::Scripted {}))
+                && positive(self.range, 10_000.0) && self.out_of_range == MobaItemOutOfRange::Reject,
             MobaItemTargetShape::Point => !legacy && positive(self.range, 10_000.0)
                 && matches!(self.team, MobaItemTeamFilter::Enemy | MobaItemTeamFilter::Hostile) && self.requires_visible
                 && self.out_of_range == MobaItemOutOfRange::Reject
@@ -433,6 +437,7 @@ impl MobaItemTargetEntry {
             MobaItemTargetShape::Self_ => "Self_",
             MobaItemTargetShape::Point => "Point",
             MobaItemTargetShape::Unit => "Unit",
+            MobaItemTargetShape::UnitOrPoint => "UnitOrPoint",
         };
         let team = match self.team {
             MobaItemTeamFilter::Any => "Any",
@@ -455,6 +460,8 @@ pub enum MobaItemTargetShape {
     Self_,
     Point,
     Unit,
+    /// v3 `target.type = "unit_or_point"` (巨龍): a unit of the item's team, or a ground point.
+    UnitOrPoint,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Default)]
@@ -749,6 +756,12 @@ mod scripted_active_tests {
         // anywhere on the map is a point's; a unit keeps a range
         assert!(target(MobaItemTargetShape::Point, 0.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_ok());
         assert!(target(MobaItemTargetShape::Unit, 0.0, MobaItemTeamFilter::Enemy, true).validate(Some(&scripted)).is_err());
+        // unit_or_point: a scripted item's only, with a range
+        assert!(target(MobaItemTargetShape::UnitOrPoint, 600.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_ok());
+        assert!(target(MobaItemTargetShape::UnitOrPoint, 0.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_err());
+        assert!(target(MobaItemTargetShape::UnitOrPoint, 600.0, MobaItemTeamFilter::Ally, true)
+            .validate(Some(&MobaItemActiveEntry::UnitHeal { amount: 100.0 })).is_err());
+        assert!(target(MobaItemTargetShape::UnitOrPoint, 600.0, MobaItemTeamFilter::Any, false).rust_literal().contains("MobaItemTargetShapeConst::UnitOrPoint"));
         assert!(target(MobaItemTargetShape::Point, -1.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_err());
     }
 

@@ -665,6 +665,8 @@ pub enum MobaItemTargetShapeConst {
     Self_,
     Point,
     Unit,
+    /// A unit (checked as for `Unit`) or a ground point (as for `Point`), scripted items only.
+    UnitOrPoint,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

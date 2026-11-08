@@ -145,6 +145,33 @@ fn a_refunded_item_use_commits_without_its_mana_and_cooldown() {
     assert!(before.is_some() && after < before, "and spends its mana: {before:?} -> {after:?}");
 }
 
+/// v3 `target.type = "unit_or_point"` (巨龍): a named unit is judged as a unit target (alive, of
+/// the item's team, in range), anything else as an explicit point in range.
+#[test]
+fn a_unit_or_point_item_takes_a_unit_or_a_point() {
+    use omoba_template_ids::{MobaItemOutOfRangeConst, MobaItemTargetConst, MobaItemTargetShapeConst as Shape, MobaItemTeamConst};
+    let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+    crate::runtime::setup_single_lane_match(&mut world, crate::runtime::SingleLaneConfig::default()).unwrap();
+    let (hero, ally) = { let state = world.read_resource::<crate::runtime::MobaMatch>(); (state.heroes[0].entity.unwrap(), state.heroes[0].entity.unwrap()) };
+    let at = world.read_storage::<Pos>().get(hero).unwrap().0;
+    let faction = world.read_storage::<Faction>().get(hero).unwrap().clone();
+    let rule = MobaItemTargetConst { shape: Shape::UnitOrPoint, range: Fixed64::from_i32(600), team: MobaItemTeamConst::Any,
+        requires_visible: false, out_of_range: MobaItemOutOfRangeConst::Reject, include_magic_immune: true };
+    let judge = |world: &World, point: Option<Vec2>, unit: Option<Entity>, explicit: bool, named: bool|
+        scripted_item_target(world, rule, at, &faction, point, unit, explicit, named).ok();
+    let near = at + Vec2::new(Fixed64::from_i32(300), Fixed64::ZERO);
+    let far = at + Vec2::new(Fixed64::from_i32(900), Fixed64::ZERO);
+    assert!(matches!(judge(&world, Some(near), None, true, false), Some(SkillTarget::Point { x, y }) if x == near.x && y == near.y), "a point in range");
+    assert!(judge(&world, Some(far), None, true, false).is_none(), "a point out of range");
+    assert!(matches!(judge(&world, None, Some(ally), false, true), Some(SkillTarget::Entity(unit)) if unit == ally), "a unit (its owner itself)");
+    assert!(judge(&world, Some(near), Some(ally), true, true).is_none(), "not both");
+    // a unit item still takes no point, a point item no unit
+    let unit_only = MobaItemTargetConst { shape: Shape::Unit, ..rule };
+    assert!(scripted_item_target(&world, unit_only, at, &faction, Some(near), None, true, false).is_err());
+    let point_only = MobaItemTargetConst { shape: Shape::Point, ..rule };
+    assert!(scripted_item_target(&world, point_only, at, &faction, None, Some(ally), false, true).is_err());
+}
+
 #[test]
 fn summon_settlement_rechecks_life_faction_and_optional_player_ownership() {
     for case in 0..7 {
