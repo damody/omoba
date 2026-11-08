@@ -617,7 +617,7 @@ impl Cx<'_, '_> {
         let Some(id) = self.event_ability_id() else { return Ok(()) };
         let Some(item) = id.strip_prefix("item:") else { return self.cooldown_start_own(unit, &id) };
         let seconds = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
-            .find(|row| row.id == item || row.source_ref.and_then(|r| r.rsplit_once(':')).is_some_and(|(_, source)| source == item))
+            .find(|row| crate::metadata::catalog_item_is(row, item))
             .map_or(Fixed64::ZERO, |row| row.cooldown);
         if seconds <= Fixed64::ZERO { return Ok(()); }
         self.item_cooldown_start(unit, item, seconds)

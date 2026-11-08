@@ -324,4 +324,9 @@ test('a shield a source applies is that source\'s, and a bare item generates as 
   end
 end)
 
+test('the shop catalog names a source key with an apostrophe by its v3 id', function()
+  local catalog = R.content_catalog(b.root)
+  assert(catalog.items.item_samurais_badge, "item_samurai's_badge is item_samurais_badge")
+end)
+
 print(('%d tests passed'):format(count))

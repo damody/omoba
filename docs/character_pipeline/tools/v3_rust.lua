@@ -5329,8 +5329,10 @@ function M.content_catalog(root)
   for _, a in ipairs(context.include("templates/abilities.lua")) do if not a.tombstone then abilities[a.id] = true end end
   local shop = context.include("templates/moba_items.lua")
   for _, it in ipairs(shop.items or shop) do
-    local source = type(it) == "table" and it.source_ref and it.source_ref:match(":([%w_]+)$")
-    if source then items[source:lower()] = true end
+    -- the v3 id of a source key, as moba_items.lua id_of: lower case, apostrophes dropped
+    -- (item_samurai's_badge -> item_samurais_badge)
+    local source = type(it) == "table" and it.source_ref and it.source_ref:match(":([%w_']+)$")
+    if source then items[(source:lower():gsub("'", ""))] = true end
   end
   catalog_cache[root] = { abilities = abilities, items = items }
   return catalog_cache[root]

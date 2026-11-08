@@ -44,11 +44,18 @@ pub fn item_def(id: &str, passive: bool) -> Option<AbilityDef> {
 
 /// [`item_def`] whose active is v3 `kind` (`"active"`, `"passive"`, `"toggle"`); `None` for any
 /// other kind.
+/// Whether the catalog `item` is the v3 item `id`: its catalog id, `item_` + its catalog id (the
+/// catalog id is the source key lower-cased without apostrophes: `item_samurai's_badge` is
+/// `samurais_badge`), or its source key itself.
+pub fn catalog_item_is(item: &omoba_template_ids::MobaItemConst, id: &str) -> bool {
+    item.id == id || id.strip_prefix("item_") == Some(item.id)
+        || item.source_ref.and_then(|r| r.rsplit_once(':')).is_some_and(|(_, source)| source == id)
+}
+
 pub fn item_def_of_kind(id: &str, kind: &str) -> Option<AbilityDef> {
     if !matches!(kind, "active" | "passive" | "toggle") { return None; }
     use omoba_template_ids::MobaItemTargetShapeConst as Shape;
-    let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
-        .find(|item| item.id == id || item.source_ref.and_then(|r| r.rsplit_once(':')).is_some_and(|(_, source)| source == id))?;
+    let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| catalog_item_is(item, id))?;
     let target = match item.target.shape { Shape::Self_ => "none", Shape::Point => "point", Shape::Unit => "unit" };
     let def = serde_json::json!({
         "id": id, "name": item.name, "kind": "item",
