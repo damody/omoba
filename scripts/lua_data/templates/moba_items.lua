@@ -186,6 +186,9 @@ local SOURCE_ITEMS = {
   { 243, "item_insight_gem_ninja", true },
   { 244, "item_death_of_scepter", true },
   { 245, "item_muramasa_katana", true },
+  -- E line (2026-11-08): item instance bool and unit states (line B 4b32ae10, line A 9b7bf2d8).
+  { 246, "item_moon_mirror", true },
+  { 247, "item_reito_lantern", true },
 }
 
 return function(ctx)

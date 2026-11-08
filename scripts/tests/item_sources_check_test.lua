@@ -51,9 +51,16 @@ end
 rejects(function(l) find(l, 'moba_sword').test_only = nil end, 'needs source_ref')
 rejects(function(l) find(l, 'moba_sword').source_ref = 'item_spear' end, 'cannot cite a source')
 rejects(function(l) find(l, 'spear').source_ref = 'item_not_in_source' end, 'is not a shop item of the source')
--- A source row with a capability gap never reaches the shop.
+-- A source row with a capability gap never reaches the shop (any such row not on the shelf yet;
+-- moon_mirror was the example until it was shelved as a scripted item).
+local gap
+for _, row in ipairs(source.items) do
+  local id = row.key:match('^item_(.+)$'):lower():gsub("'", '')
+  if not gap and #row.gaps > 0 and not find(items, id) then gap = { id = id, row = row } end
+end
+ok(gap, 'some source row with a capability gap is not on the shelf')
 rejects(function(l)
-  l[#l + 1] = {catalog_id = 900, id = 'moon_mirror', source_ref = source.name .. '@' .. source.commit .. ':item_moon_mirror', name = '短甲', cost = 400}
+  l[#l + 1] = {catalog_id = 900, id = gap.id, source_ref = gap.row.source_ref, name = gap.row.name, cost = gap.row.cost}
 end, 'needs_framework: ')
 -- E160: a source active is copied exactly, with its cooldown and mana cost.
 ok(find(items, 'fire_scroll').active.kind == 'apply_modifiers', 'fire_scroll carries its source active')

@@ -398,6 +398,17 @@ local data = {
       target = { out_of_range = "reject", range = 700.0, requires_visible = true, shape = "unit", team = "enemy" },
     },
   },
+  moon_mirror = {
+    no_native_aura = true,
+    numbers = { cost = 1800 },
+    recipe = { "tea_bowl" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 45.0,
+      mana_cost = 100.0,
+      target = { include_magic_immune = true, out_of_range = "reject", range = 700.0, requires_visible = true, shape = "unit", team = "ally" },
+    },
+  },
   moon_spear = {
     numbers = { atk = 21, cost = 1950, ["modifiers.stats_strength_bonus"] = 15 },
     recipe = { "naginata", "spear", "strength_ingot" },
@@ -528,6 +539,17 @@ local data = {
   },
   regeneration_ingot = {
     numbers = { cost = 650, ["modifiers.health_regen_constant"] = 10 },
+  },
+  reito_lantern = {
+    no_native_aura = true,
+    numbers = { armor = 4, cost = 3800, ["modifiers.health_regen_constant"] = 20, ["modifiers.mana_regen_constant"] = 5 },
+    recipe = { "moon_mirror", "stable_shield" },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 40.0,
+      mana_cost = 100.0,
+      target = { include_magic_immune = true, out_of_range = "reject", range = 1200.0, requires_visible = true, shape = "unit", team = "ally" },
+    },
   },
   rockfall_book = {
     numbers = {
