@@ -231,6 +231,14 @@ pub const STACKS_KEY: &str = "__v3_stacks";
 /// The host flight of a generated `projectile` from `caster`: no damage of its own (its effects
 /// are the `on_hit` step), so the profile is a plain magical spell packet that never lands.
 pub fn projectile_spec(caster: EntityHandle, ability: &str, p: &Proj) -> Result<ability_projectile::Spec, &'static str> {
+    projectile_spec_lasting(caster, ability, p, None)
+}
+
+/// [`projectile_spec`] whose flight lasts at most `limit` (v3 `projectile.lifetime`, 原作
+/// flExpireTime: 浪人十手's tracking bolt gives up after 10 s); without one a tracking flight lasts
+/// the host's 30 s and a linear one as long as its travel takes.
+pub fn projectile_spec_lasting(caster: EntityHandle, ability: &str, p: &Proj, limit: Option<Fixed64>) -> Result<ability_projectile::Spec, &'static str> {
+    if limit.is_some_and(|limit| limit <= Fixed64::ZERO) { return Err("v3: projectile lifetime must be positive"); }
     let (motion, distance, lifetime, max_hits) = match p.homing {
         Some(u) => (ability_projectile::Motion::Homing { target_id: u.id, target_generation: u.gen }, Fixed64::ZERO, Fixed64::from_i32(30), 1),
         None => {
@@ -238,6 +246,7 @@ pub fn projectile_spec(caster: EntityHandle, ability: &str, p: &Proj) -> Result<
             (ability_projectile::Motion::Linear { aim: p.aim }, p.distance, life, p.max_hits.clamp(1, ability_projectile::MAX_HITS))
         }
     };
+    let lifetime = limit.map_or(lifetime, |limit| limit.min(lifetime));
     let spec = ability_projectile::Spec { source_id: caster.id, source_generation: caster.gen, ability: ability.to_owned(),
         motion, speed: p.speed, radius: p.radius, distance, lifetime, max_hits,
         wall: ability_projectile::WallPolicy::Pass, target_lost: ability_projectile::TargetLostPolicy::Expire,
@@ -1210,7 +1219,14 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// appended, when the flight retires.
     pub fn projectile_ended(&mut self, ability: &str, p: Proj, on_hit: Option<(u16, &[ScheduleArg])>,
         on_end: Option<(u16, &[ScheduleArg])>) -> Res {
-        self.projectile_launch(ability, p, on_hit, on_end, None)
+        self.projectile_launch(ability, p, on_hit, on_end, None, None)
+    }
+
+    /// v3 `projectile { lifetime = T }`: [`Cx::projectile_ended`] whose flight ends after at most
+    /// `lifetime` seconds (a tracking flight gives up its target then; [`projectile_spec_lasting`]).
+    pub fn projectile_expiring(&mut self, ability: &str, p: Proj, lifetime: Fixed64, on_hit: Option<(u16, &[ScheduleArg])>,
+        on_end: Option<(u16, &[ScheduleArg])>) -> Res {
+        self.projectile_launch(ability, p, on_hit, on_end, None, Some(lifetime))
     }
 
     /// v3 `projectile { kind = "linear", team = "any", where = "it == u" }` (E586, B24R): a linear
@@ -1220,14 +1236,14 @@ impl<'a, 'w> Cx<'a, 'w> {
         on_end: Option<(u16, &[ScheduleArg])>) -> Res {
         if !only.is_valid() { return Ok(()); }
         if p.homing.is_some() { return Err("v3: projectile only is a linear flight"); }
-        self.projectile_launch(ability, p, on_hit, on_end, Some(only))
+        self.projectile_launch(ability, p, on_hit, on_end, Some(only), None)
     }
 
     fn projectile_launch(&mut self, ability: &str, p: Proj, on_hit: Option<(u16, &[ScheduleArg])>,
-        on_end: Option<(u16, &[ScheduleArg])>, only: Option<EntityHandle>) -> Res {
+        on_end: Option<(u16, &[ScheduleArg])>, only: Option<EntityHandle>, lifetime: Option<Fixed64>) -> Res {
         if p.homing.is_some_and(|u| !u.is_valid()) { return Ok(()); }
         let caster = self.caster;
-        let spec = projectile_spec(caster, ability, &p)?;
+        let spec = projectile_spec_lasting(caster, ability, &p, lifetime)?;
         let lifetime = spec.lifetime;
         let mut payload = spec.payload();
         if p.dodgeable && p.homing.is_some() { payload = ability_projectile::with_dodgeable(payload); }
@@ -1732,5 +1748,19 @@ mod projectile_tests {
         assert_eq!(linear.max_hits, 64);
         assert!(DamageProfile::from_bits(linear.profile).is_some(), "a profile with a type bit");
         assert!(projectile_spec(caster(), "a34_frost_breath", &Proj { speed: Fixed64::ZERO, ..proj(None) }).is_err(), "no speed");
+    }
+
+    /// v3 `projectile.lifetime` (浪人十手): a tracking flight lasts at most that long, never longer
+    /// than the host's own bound; a linear one no longer than its travel.
+    #[test]
+    fn a_projectile_lifetime_bounds_the_flight() {
+        let target = Some(EntityHandle { id: 9, gen: 1 });
+        let ten = Fixed64::from_i32(10);
+        assert_eq!(projectile_spec(caster(), "ronin", &proj(target)).unwrap().lifetime, Fixed64::from_i32(30));
+        assert_eq!(projectile_spec_lasting(caster(), "ronin", &proj(target), Some(ten)).unwrap().lifetime, ten);
+        assert_eq!(projectile_spec_lasting(caster(), "ronin", &proj(target), Some(Fixed64::from_i32(90))).unwrap().lifetime, Fixed64::from_i32(30));
+        let travel = projectile_spec(caster(), "wave", &proj(None)).unwrap().lifetime;
+        assert_eq!(projectile_spec_lasting(caster(), "wave", &proj(None), Some(ten)).unwrap().lifetime, travel, "a linear flight ends with its travel");
+        assert!(projectile_spec_lasting(caster(), "ronin", &proj(target), Some(Fixed64::ZERO)).is_err());
     }
 }
