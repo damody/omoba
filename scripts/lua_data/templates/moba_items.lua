@@ -166,6 +166,8 @@ local SOURCE_ITEMS = {
   -- E line (2026-11-08): toggle items generate (line A 08d5a997).
   { 233, "item_thunderbolt_book", true },
   { 234, "item_the_over_lightning_art_of_war", true },
+  -- E line (2026-11-08): on_order items generate (line B 037a69cd, line A a3850a23).
+  { 235, "item_protection_amulet", true },
 }
 
 return function(ctx)

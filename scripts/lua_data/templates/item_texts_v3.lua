@@ -7947,6 +7947,101 @@ local data = {
       },
     },
   },
+  protection_amulet = {
+    bot = { kind = "self_engage", source = "derived", threat_radius = 900 },
+    coverage = "expressible",
+    info = {
+      { field = "cost", value = "cost" },
+      { field = "cooldown", value = "cooldown" },
+    },
+    kind = "item",
+    max_level = 1,
+    schema = "3.3",
+    source_id = "item_protection_amulet",
+    statuses = {
+      {
+        dispel = "none",
+        id = "protection_amulet_ready",
+        reveal = "public",
+        text = {
+          en = {
+            body = "Blocks the next non-ultimate single-target ability or item an enemy casts on you.",
+            name = "Omamori Ward",
+            pieces = {
+              { text = "Blocks the next non-ultimate single-target ability or item an enemy casts on you." },
+            },
+            rendered = "Blocks the next non-ultimate single-target ability or item an enemy casts on you.",
+          },
+          zh_TW = {
+            body = "敵人對你下達非大招的單體指定技能或道具時，攔下這次施放。",
+            name = "御守之護",
+            pieces = {
+              { text = "敵人對你下達非大招的單體指定技能或道具時，攔下這次施放。" },
+            },
+            rendered = "敵人對你下達非大招的單體指定技能或道具時，攔下這次施放。",
+          },
+        },
+        visibility = "buff",
+      },
+    },
+    text = {
+      en = {
+        body = "Passive: when an enemy orders a non-ultimate single-target ability or item on you, the cast is blocked once they are in cast range: the caster still pays that ability's cooldown and mana, and the Omamori goes on cooldown. If the caster is out of range, they automatically move into range and cast again.",
+        name = "Omamori",
+        pieces = {
+          {
+            text = "Passive: when an enemy orders a non-ultimate single-target ability or item on you, the cast is blocked once they are in cast range: the caster still pays that ability's cooldown and mana, and the Omamori goes on cooldown. If the caster is out of range, they automatically move into range and cast again.",
+          },
+        },
+        rendered = "Passive: when an enemy orders a non-ultimate single-target ability or item on you, the cast is blocked once they are in cast range: the caster still pays that ability's cooldown and mana, and the Omamori goes on cooldown. If the caster is out of range, they automatically move into range and cast again.",
+      },
+      zh_TW = {
+        body = "被動：敵人對你下達非大招的單體指定技能或道具時，在施法距離內就直接攔下這次施放：施法者照付該技能的冷卻與法力，御守進入冷卻。施法者在距離外時，會被自動帶到距離內再施放一次。",
+        name = "御守",
+        pieces = {
+          {
+            text = "被動：敵人對你下達非大招的單體指定技能或道具時，在施法距離內就直接攔下這次施放：施法者照付該技能的冷卻與法力，御守進入冷卻。施法者在距離外時，會被自動帶到距離內再施放一次。",
+          },
+        },
+        rendered = "被動：敵人對你下達非大招的單體指定技能或道具時，在施法距離內就直接攔下這次施放：施法者照付該技能的冷卻與法力，御守進入冷卻。施法者在距離外時，會被自動帶到距離內再施放一次。",
+      },
+    },
+    values = {
+      {
+        name = "cooldown",
+        ranks = { "80" },
+        raw = { 81920 },
+        unit = "s",
+      },
+      {
+        name = "cost",
+        ranks = { "1250" },
+        raw = { 1280000 },
+        unit = "gold",
+      },
+      {
+        hidden = true,
+        name = "first_check",
+        ranks = { "1" },
+        raw = { 1024 },
+        unit = "s",
+      },
+      {
+        hidden = true,
+        name = "global_range",
+        ranks = { "100000" },
+        raw = { 102400000 },
+        unit = "dist",
+      },
+      {
+        hidden = true,
+        name = "ready_poll",
+        ranks = { "0.5" },
+        raw = { 512 },
+        unit = "s",
+      },
+    },
+  },
   raikiri = {
     bot = { kind = "enemy_unit", source = "derived" },
     coverage = "expressible",

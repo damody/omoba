@@ -416,6 +416,13 @@ local data = {
   power_ingot = {
     numbers = { atk = 5, cost = 300 },
   },
+  protection_amulet = {
+    numbers = { cost = 1250 },
+    scripted = {
+      active = { kind = "scripted" },
+      cooldown = 80.0,
+    },
+  },
   raikiri = {
     numbers = { atk = 41, cost = 4440, ["modifiers.attackspeed_bonus_constant"] = 30 },
     recipe = { "lightning_katana", "katana" },
