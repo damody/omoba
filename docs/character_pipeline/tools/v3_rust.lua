@@ -3991,12 +3991,15 @@ function Gen:action(a, ctx, ind)
     -- every fallen tree of the map stands again at the next tick (line B E403)
     return line("cx.regrow_trees()?;")
   elseif op == "refund" then
-    -- `cooldown = true` in the cast itself: its own cooldown does not start; the mana stays
-    -- spent (line B E455). A refund of mana or health has no host form.
-    if a.mana or a.health then self:block("action:refund of mana or health"); return "" end
-    if a.cooldown ~= true then self:block("action:refund without cooldown"); return "" end
+    -- `cooldown = true` in the cast itself: its own cooldown does not start (line B E455; an
+    -- item's shared cooldowns neither). `mana = true` only in an item's cast: the use spends no
+    -- mana (line B bcac51c9); a hero ability's mana and any health have no refund.
+    if a.health then self:block("action:refund of health"); return "" end
+    local item = self.entry and self.entry.kind == "item"
+    if a.mana and not item then self:block("action:refund of mana outside an item"); return "" end
+    if a.cooldown ~= true and a.mana ~= true then self:block("action:refund without cooldown or mana"); return "" end
     if not ctx.cast then self:block("action:refund outside the cast"); return "" end
-    return line("cx.refund_cooldown();")
+    return (a.mana and line("cx.refund_mana();") or "") .. (a.cooldown and line("cx.refund_cooldown();") or "")
   elseif op == "impulse" then
     -- a velocity on `who` along `direction` (per physics frame), times `decay` each frame; impulses
     -- add up and the unit still moves by itself (line B E514)

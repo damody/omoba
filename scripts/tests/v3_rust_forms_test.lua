@@ -407,4 +407,17 @@ test('an item registers under its v3 id, not its source key', function()
   assert(has(shard, 'pub const ID: &str = "item_insight_gem_shard";'), 'its v3 id')
 end)
 
+test('an item cast refunds its mana and cooldown', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I3.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_soul_adder' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  local adder = assert(files['src/generated/item_soul_adder.rs'], 'the adder generates')
+  assert(has(adder, 'cx.refund_mana();'), 'mana')
+  assert(has(adder, 'cx.refund_cooldown();'), 'cooldown')
+end)
+
 print(('%d tests passed'):format(count))
