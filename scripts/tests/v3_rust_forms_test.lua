@@ -452,4 +452,15 @@ test('not primary_is, an event-typed damage and an item orb slot released on une
   assert(has(spear, 'let _ = cx.orb_slot_release(caster, ID); }'), 'the last copy releases')
 end)
 
+test('an item with recharging uses generates (the catalog row keeps them)', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/pilot_a.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_earth_wall_book' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  assert(files['src/generated/item_earth_wall_book.rs'], 'the book generates')
+end)
+
 print(('%d tests passed'):format(count))

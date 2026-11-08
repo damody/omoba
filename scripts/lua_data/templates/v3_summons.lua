@@ -1535,6 +1535,7 @@ local rows = {
     target_priority = "nearest",
     vision_radius = 1400,
   },
+  { authored_package = "items", blocks_pathing = true, building = true, collision_radius = 80, display_name = "石牆", dummy = true, hp = 500, id = "earth_wall", immobile = true, owner_death = "persist", vision_radius = 300 },
   {
     armor = 5,
     authored_package = "items",

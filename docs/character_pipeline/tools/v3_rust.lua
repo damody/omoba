@@ -4247,7 +4247,8 @@ local function emit_entry(m, o, opts, status_problems)
       if k ~= "kind" and k ~= "target" and k ~= "cost" and k ~= "cast" and k ~= "events" and k ~= "flags" then g:block("item.active." .. k) end
     end
     for _, k in ipairs(sorted_keys(act.cost or {})) do
-      if k ~= "cooldown" and k ~= "mana" and k ~= "cooldown_groups" and k ~= "cooldown_start" then g:block("item.active.cost." .. k) end
+      -- charges: the catalog row's (gen_item_v3 scripted_active; the host keeps and spends them, line B 1f8fecee)
+      if k ~= "cooldown" and k ~= "mana" and k ~= "cooldown_groups" and k ~= "cooldown_start" and k ~= "charges" then g:block("item.active.cost." .. k) end
     end
     if (act.cost or {}).cooldown_start ~= nil and act.cost.cooldown_start ~= "on_cast" then g:block("item.active.cost.cooldown_start:" .. tostring(act.cost.cooldown_start)) end
     for _, k in ipairs(sorted_keys(act.cast or {})) do

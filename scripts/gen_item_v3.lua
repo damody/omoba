@@ -108,6 +108,22 @@ function M.scripted_active(item, number, cooldown_groups)
     if number(consumable.charges) ~= 1 then return nil, "the catalog consumes one use, this item has charges" end
     out.consumable = true
   end
+  -- recharging uses (line B 1f8fecee): the host keeps them per hero (Hero.ability_charges
+  -- "item:<id>"), refuses a use without one and spends one at the commit
+  if cost.charges ~= nil then
+    local c = cost.charges
+    if consumable then return nil, "a consumable has no recharging charges" end
+    for k in pairs(c) do
+      if k ~= "max" and k ~= "restore" and k ~= "initial" and k ~= "scope" then return nil, "charges." .. tostring(k) .. " has no catalog field" end
+    end
+    if c.scope ~= nil and c.scope ~= "hero" then return nil, "charges scope " .. tostring(c.scope) .. " (the catalog keeps them per hero)" end
+    local max, restore = number(c.max), number(c.restore)
+    local initial = c.initial == nil and max or number(c.initial)
+    if not max or max < 1 or max > 10 or max % 1 ~= 0 then return nil, "charges.max " .. tostring(max) .. " outside 1..10" end
+    if not restore or restore < 1 / 1024 or restore > 3600 then return nil, "charges.restore " .. tostring(restore) .. " outside 1/1024..3600 s" end
+    if not initial or initial < 0 or initial > max or initial % 1 ~= 0 then return nil, "charges.initial " .. tostring(initial) .. " outside 0..max" end
+    out.charges = { max = math.tointeger(max), restore = restore, initial = math.tointeger(initial) }
+  end
   local shared, seen = {}, { [item.id] = true }
   for _, group in ipairs(cost.cooldown_groups or {}) do
     for _, other in ipairs(cooldown_groups[group.group]) do

@@ -68,4 +68,18 @@ do
     ok(e and #e.blockers == 0, id .. ' is marked scripted and has no script: ' .. table.concat(e and e.blockers or {}, '; '))
   end
 end
+-- recharging uses go to the catalog row (line B 1f8fecee); scope hero only, max 1..10
+do
+  local by = { charges_max = 2, charge_restore = 40 }
+  local function number(e) if type(e) == 'number' then return e end; local n = type(e) == 'string' and e:match('^%$([%w_]+)$'); return n and by[n] end
+  local item = { id = 'item_x', active = { kind = 'active', target = { type = 'none' },
+    cost = { mana = 100, charges = { max = '$charges_max', restore = '$charge_restore', initial = '$charges_max', scope = 'hero' } } } }
+  local out = assert(G.scripted_active(item, number, {}))
+  ok(out.charges.max == 2 and math.type(out.charges.max) == 'integer' and out.charges.initial == 2 and out.charges.restore == 40, 'charges reach the row')
+  item.active.cost.charges.scope = 'ability'
+  ok(G.scripted_active(item, number, {}) == nil, 'only scope hero')
+  item.active.cost.charges.scope, item.active.cost.charges.max = 'hero', 11
+  ok(G.scripted_active(item, number, {}) == nil, 'at most 10')
+end
+
 print('gen_item_v3 test: ' .. checks .. ' checks passed')
