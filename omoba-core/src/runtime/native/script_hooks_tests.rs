@@ -370,7 +370,47 @@ fn a_marked_status_hears_its_holders_heal() {
 /// A status script that hears the order filters on its holder, spends 10 of the holder's mana
 /// (an effect only the holder's team holds) and refuses the order when `cancel`.
 #[derive(Clone)]
-struct OrderGuard { heard: Arc<Mutex<Vec<(u32, u32)>>>, id: String, cancel: bool, ward: bool }
+struct OrderGuard { heard: Arc<Mutex<Vec<(u32, u32)>>>, id: String, cancel: bool, extra: Extra }
+
+/// What an order-filter world adds to the plain probe and guard: a ward (the guard shields its
+/// holder, the cast is a zap) or a purge (the guard puts `purge_statuses` on its holder, the cast
+/// purges them by duration and source).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Extra { Plain, Ward, Purge }
+
+/// Three statuses of the compiled content, by their BuffStore keys (no runtime id, no tags): two
+/// of plain abilities and one of an ultimate.
+fn purge_statuses() -> (String, String, String) {
+    let doc: serde_json::Value = serde_json::from_str(omoba_template_ids::V3_CATALOG_JSON).unwrap();
+    let plain = |ultimate: bool| doc["abilities"].as_array().unwrap().iter()
+        .filter(move |entry| (entry["ability_type"].as_str() == Some("ultimate")) == ultimate)
+        .flat_map(|entry| entry["v3"]["statuses"].as_array().cloned().unwrap_or_default())
+        .filter(|status| status.get("runtime_id").is_none() && status.get("tags").is_none())
+        .filter_map(|status| status["id"].as_str().map(str::to_owned));
+    let mut ordinary = plain(false);
+    (ordinary.next().unwrap(), ordinary.next().unwrap(), plain(true).next().unwrap())
+}
+
+/// 冰爆之書's purge as its generated code writes it (ability_kit remove_statuses_by_source):
+/// statuses the target's own side put on it for longer than half a second, but not an
+/// ultimate's, one with no source ability or one whose applier is gone.
+#[derive(Clone)]
+struct Purger { id: String }
+
+impl omb_script_abi::ability::AbilityScript for Purger {
+    fn ability_id(&self) -> RStr<'_> { RStr::from_str(&self.id) }
+    fn execute(&self, _: EntityHandle, target: Target, _: u8, _: RStr<'_>, world: &mut GameWorldDyn<'_>) -> RResult<(), RString> {
+        use crate::runtime::native::dispel::{PurgeMode, PurgeSpec, SourceIs, SourceRule, SourceTeam, PURGE_BUFF};
+        if let Target::Entity(target) = target {
+            let spec = PurgeSpec { mode: PurgeMode::All, side: None, team: SourceTeam::Ally, except: Vec::new(), states: Vec::new(),
+                limit: None, tags: Vec::new(), exclude_tags: Vec::new(), max_elapsed: None,
+                source: SourceRule { min_duration: Some(Fixed64::from_raw(512)), exclude_source_tags: vec!["ultimate".into()],
+                    source_is: vec![SourceIs::HasAbility, SourceIs::Alive] } };
+            world.add_stat_buff(target, RStr::from_str(PURGE_BUFF), Fixed64::ONE, RStr::from_str(&spec.payload().to_string()));
+        }
+        ROk(())
+    }
+}
 
 /// The ward an order guard in `ward` mode puts on its holder for each order: a new independent
 /// instance (`test_ward#<n>`) absorbing 300 magical damage before mitigation (absorb.rs), as the
@@ -400,7 +440,16 @@ impl omb_script_abi::ability::AbilityScript for OrderGuard {
         if event.kind != crate::runtime::native::status_event::ORDER_FILTER { return; }
         self.heard.lock().unwrap().push((holder.id, event.other.id));
         world.spend_mana(holder, Fixed64::from_i32(10), RStr::from_str(&self.id));
-        if self.ward {
+        if self.extra == Extra::Purge {
+            // 8 s, 0.45 s and an ultimate's 8 s, each put there by the holder itself.
+            let (long, short, ultimate) = purge_statuses();
+            for (status, seconds) in [(long, Fixed64::from_i32(8)), (short, Fixed64::from_raw(461)), (ultimate, Fixed64::from_i32(8))] {
+                let row = serde_json::json!({ (crate::runtime::native::illusion::DURATION_KEY): seconds.raw(),
+                    "source_entity_id": holder.id, "source_entity_gen": holder.gen });
+                world.add_stat_buff(holder, RStr::from_str(&status), seconds, RStr::from_str(&row.to_string()));
+            }
+        }
+        if self.extra == Extra::Ward {
             use crate::runtime::native::absorb::{Spec, Types, BUFF};
             let instance = (1..).find(|n| !world.has_buff(holder, RStr::from_str(&format!("{WARD}#{n}")))).unwrap();
             let status = format!("{WARD}#{instance}");
@@ -426,20 +475,25 @@ fn order_filter_def(id: &str, target: &str) -> crate::ability_meta::AbilityDef {
     })).unwrap()
 }
 
-/// The probe `id` (a unit-target cast; with `ward`, a zap instead) and the order guard.
-fn order_filter_scripts(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u32)>>>, cancel: bool, ward: bool, id: &str) -> crate::runtime::ScriptRegistry {
+/// The probe `id` (a unit-target cast; a zap with a ward, a purger with a purge) and the order guard.
+fn order_filter_scripts(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u32)>>>, cancel: bool, extra: Extra, id: &str) -> crate::runtime::ScriptRegistry {
+    use abi_stable::sabi_trait::prelude::TD_Opaque;
+    use omb_script_abi::ability::AbilityScript_TO as To;
     let mut scripts = crate::runtime::ScriptRegistry::new();
-    let cast = if ward { omb_script_abi::ability::AbilityScript_TO::from_value(Zap { id: id.to_owned() }, abi_stable::sabi_trait::prelude::TD_Opaque) }
-        else { omb_script_abi::ability::AbilityScript_TO::from_value(Probe { calls, id: id.to_owned() }, abi_stable::sabi_trait::prelude::TD_Opaque) };
+    let cast = match extra {
+        Extra::Ward => To::from_value(Zap { id: id.to_owned() }, TD_Opaque),
+        Extra::Purge => To::from_value(Purger { id: id.to_owned() }, TD_Opaque),
+        Extra::Plain => To::from_value(Probe { calls, id: id.to_owned() }, TD_Opaque),
+    };
     scripts.insert_ability_for_test(order_filter_def(id, "unit"), cast);
     scripts.insert_ability_for_test(order_filter_def(ORDER_GUARD, "none"), omb_script_abi::ability::AbilityScript_TO::from_value(
-        OrderGuard { heard, id: ORDER_GUARD.to_owned(), cancel, ward }, abi_stable::sabi_trait::prelude::TD_Opaque));
+        OrderGuard { heard, id: ORDER_GUARD.to_owned(), cancel, extra }, abi_stable::sabi_trait::prelude::TD_Opaque));
     scripts
 }
 
 /// Player 1's hero, player 2's hero, a unit-target probe on the first and an order guard status
 /// on the second (refusing when `cancel`). `replica` marks the world as a team replica.
-fn order_filter_world(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u32)>>>, cancel: bool, ward: bool, replica: bool)
+fn order_filter_world(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u32)>>>, cancel: bool, extra: Extra, replica: bool)
     -> (specs::World, crate::runtime::SimulationDriver, Entity, Entity, String) {
     use crate::runtime::{SingleLaneConfig, StateInitializer};
     let pool = StateInitializer::create_thread_pool();
@@ -457,7 +511,7 @@ fn order_filter_world(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u
     abilities.register(order_filter_def(&id, "unit"));
     abilities.register(order_filter_def(&guard, "none"));
     world.insert(abilities);
-    world.insert(order_filter_scripts(calls, heard, cancel, ward, &id));
+    world.insert(order_filter_scripts(calls, heard, cancel, extra, &id));
     if replica { world.insert(crate::runtime::filtered_specs::DisclosedMovementPriority::default()); }
     let mut driver = crate::runtime::SimulationDriver::from_world(&mut world, crate::runtime::SimulationTickProfile::Production60Hz).unwrap();
     driver.step(&mut world, []).unwrap();
@@ -498,7 +552,7 @@ fn executions(calls: &Arc<Mutex<Vec<Call>>>) -> usize { calls.lock().unwrap().it
 fn an_order_filter_on_the_target_refuses_the_cast_before_its_windup() {
     for cancel in [false, true] {
         let (calls, heard) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
-        let (mut world, mut driver, hero, enemy, _) = order_filter_world(calls.clone(), heard.clone(), cancel, false, false);
+        let (mut world, mut driver, hero, enemy, _) = order_filter_world(calls.clone(), heard.clone(), cancel, Extra::Plain, false);
         cast_at(&mut world, &mut driver, enemy);
         for _ in 0..30 { driver.step(&mut world, []).unwrap(); }
         assert_eq!(*heard.lock().unwrap(), vec![(enemy.id(), hero.id())], "heard once, the caster as other (cancel {cancel})");
@@ -513,14 +567,14 @@ fn a_replica_follows_the_authoritys_order_filter_refusals() {
     use crate::runtime::native::order_filter::OrderFilterInjections;
     // The guard would refuse, but the replica was told nothing: the cast goes ahead, unheard.
     let (calls, heard) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
-    let (mut world, mut driver, _, enemy, _) = order_filter_world(calls.clone(), heard.clone(), true, false, true);
+    let (mut world, mut driver, _, enemy, _) = order_filter_world(calls.clone(), heard.clone(), true, Extra::Plain, true);
     cast_at(&mut world, &mut driver, enemy);
     for _ in 0..30 { driver.step(&mut world, []).unwrap(); }
     assert!(heard.lock().unwrap().is_empty());
     assert_eq!(executions(&calls), 1);
     // Told of the refusal: the cast is refused and the guard runs once on its holder.
     let (calls, heard) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
-    let (mut world, mut driver, hero, enemy, id) = order_filter_world(calls.clone(), heard.clone(), false, false, true);
+    let (mut world, mut driver, hero, enemy, id) = order_filter_world(calls.clone(), heard.clone(), false, Extra::Plain, true);
     world.insert(OrderFilterInjections { refused: vec![(hero, id.clone())], holders: vec![(enemy, Some(hero), id)] });
     cast_at(&mut world, &mut driver, enemy);
     for _ in 0..30 { driver.step(&mut world, []).unwrap(); }
@@ -536,7 +590,7 @@ fn a_replica_follows_the_authoritys_order_filter_refusals() {
 #[test]
 fn order_filter_refusals_keep_every_team_replica_with_the_authority() {
     for cancel in [true, false] {
-        let (_, _, calls, heard) = order_filter_soak(cancel, false);
+        let (_, _, calls, heard) = order_filter_soak(cancel, Extra::Plain);
         let executed = executions(&calls);
         if cancel { assert_eq!(executed, 0, "refused everywhere"); } else { assert!(executed >= 10, "executed {executed}"); }
         // The authority and the holder's team replica (from the published fact) both run the guard,
@@ -550,7 +604,7 @@ fn order_filter_refusals_keep_every_team_replica_with_the_authority() {
 /// 200 magical damage drains them; every team replica matches the authority's view each tick.
 #[test]
 fn pre_mitigation_ward_instances_keep_every_team_replica_with_the_authority() {
-    let (world, enemy, _, heard) = order_filter_soak(false, true);
+    let (world, enemy, _, heard) = order_filter_soak(false, Extra::Ward);
     assert!(heard.lock().unwrap().len() >= 20, "the authority and the holder's replica heard each order: {:?}", heard.lock().unwrap());
     let wards: Vec<i64> = world.read_resource::<BuffStore>().iter_for(enemy)
         .filter(|(id, _)| id.starts_with(&format!("__absorb:{WARD}#")))
@@ -558,15 +612,29 @@ fn pre_mitigation_ward_instances_keep_every_team_replica_with_the_authority() {
     assert!(wards.iter().any(|left| *left < Fixed64::from_i32(300).raw()), "the last zap drained a ward: {wards:?}");
 }
 
+/// Replica soak for a purge by duration and source (冰爆之書／吉光骨食／冰風暴之書): each order
+/// has the target's guard put an 8 s, a 0.45 s and an ultimate's 8 s status on it, then the cast
+/// purges what it put there for longer than half a second unless an ultimate put it; every team
+/// replica matches the authority's view each tick.
+#[test]
+fn a_purge_by_duration_and_source_keeps_every_team_replica_with_the_authority() {
+    let (world, enemy, _, heard) = order_filter_soak(false, Extra::Purge);
+    assert!(heard.lock().unwrap().len() >= 20, "the authority and the holder's replica heard each order: {:?}", heard.lock().unwrap());
+    let (long, short, ultimate) = purge_statuses();
+    let buffs = world.read_resource::<BuffStore>();
+    assert!(!buffs.has(enemy, &long), "the last purge took the long status");
+    assert!(buffs.has(enemy, &short) && buffs.has(enemy, &ultimate), "the short and the ultimate's stay");
+}
+
 /// The authority and every team's replica (in process, through the server's projection) step
 /// 1440 ticks of `order_filter_world`, player 1 casting at player 2's hero 20 ticks before each
 /// checkpoint; fails at the first tick a replica's team hash differs from the authority's view.
-fn order_filter_soak(cancel: bool, ward: bool) -> (specs::World, Entity, Arc<Mutex<Vec<Call>>>, Arc<Mutex<Vec<(u32, u32)>>>) {
+fn order_filter_soak(cancel: bool, extra: Extra) -> (specs::World, Entity, Arc<Mutex<Vec<Call>>>, Arc<Mutex<Vec<(u32, u32)>>>) {
     use crate::runtime::inprocess_observer::{accepted_inputs, project_tick, InProcessObserver};
     use crate::game_proto::{player_input::Action, CastAbility, PlayerInput};
     {
         let (calls, heard) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
-        let (mut world, mut driver, _, enemy, id) = order_filter_world(calls.clone(), heard.clone(), cancel, ward, false);
+        let (mut world, mut driver, _, enemy, id) = order_filter_world(calls.clone(), heard.clone(), cancel, extra, false);
         let step = |world: &mut specs::World, driver: &mut crate::runtime::SimulationDriver, inputs: Vec<(u32, PlayerInput)>| {
             let accepted = accepted_inputs(world, driver.tick() + 1, &inputs);
             let result = driver.step(world, inputs).unwrap();
@@ -577,7 +645,7 @@ fn order_filter_soak(cancel: bool, ward: bool) -> (specs::World, Entity, Arc<Mut
         step(&mut world, &mut driver, Vec::new());
         let seed = world.try_fetch::<crate::runtime::MasterSeed>().map_or(0, |seed| seed.0);
         let mut observer = InProcessObserver::start(&mut world, driver.tick() + 1, seed, 1, 60).unwrap();
-        observer.replace_scripts(|| order_filter_scripts(calls.clone(), heard.clone(), cancel, ward, &id));
+        observer.replace_scripts(|| order_filter_scripts(calls.clone(), heard.clone(), cancel, extra, &id));
         // The checkpoint is every 120 ticks: each order 20 ticks before one, so a refused cast, a
         // windup, a cooldown or the guard's own effects are all live on a compared tick.
         for at in 0..1440 {
@@ -586,7 +654,7 @@ fn order_filter_soak(cancel: bool, ward: bool) -> (specs::World, Entity, Arc<Mut
                     ability_index: 0, target_entity: Some(enemy.id()), ..Default::default() })) })]
             } else { Vec::new() };
             let tick = step(&mut world, &mut driver, inputs);
-            assert_eq!(observer.after_projection(&mut world, tick).unwrap(), None, "cancel {cancel}, ward {ward}, tick {tick}");
+            assert_eq!(observer.after_projection(&mut world, tick).unwrap(), None, "cancel {cancel}, {extra:?}, tick {tick}");
         }
         assert!(observer.checked_ticks >= 11, "compared {} ticks", observer.checked_ticks);
         (world, enemy, calls, heard)

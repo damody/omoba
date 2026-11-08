@@ -373,13 +373,14 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
 
 /// `V3_CATALOG_JSON`: the package schema v3 blocks of every live hero ability and shelf item,
 /// with the content hash, for UE tooltips and the website generator
-/// (docs/character_pipeline/schema/v3-content-model-proposal.md §2.1). Written out by
+/// (docs/character_pipeline/schema/v3-content-model-proposal.md §2.1); an ability carries its
+/// `ability_type` (the host's `ultimate` source tag, dispel::Registry). Written out by
 /// `cargo run -p omoba-template-ids --example export_content_catalog -- <out.json>`.
 fn emit_v3_catalog(out: &mut String, data_hash: &str, heroes: &[HeroEntry], abilities: &[AbilityEntry], items: &[MobaItemEntry]) {
     let heroes: Vec<_> = heroes.iter().filter(|h| !h.tombstone).map(|h| serde_json::json!({
         "id": h.id, "display_name": h.display_name, "title": h.title, "abilities": h.abilities })).collect();
     let abilities: Vec<_> = abilities.iter().filter(|a| !a.tombstone && a.v3.is_some()).map(|a| serde_json::json!({
-        "id": a.id, "display_name": a.display_name, "max_level": a.max_level, "v3": a.v3 })).collect();
+        "id": a.id, "display_name": a.display_name, "max_level": a.max_level, "ability_type": a.ability_type, "v3": a.v3 })).collect();
     let items: Vec<_> = items.iter().filter(|i| !i.test_only && i.v3.is_some()).map(|i| serde_json::json!({
         "id": i.id, "catalog_id": i.catalog_id, "name": i.name, "cost": i.cost, "recipe": i.recipe, "v3": i.v3 })).collect();
     let doc = serde_json::json!({ "schema": omoba_content_model::v3::SCHEMA, "content_data_hash": data_hash,

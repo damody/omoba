@@ -1194,6 +1194,20 @@ pub struct StatusFilter<'s> {
     pub limit: Option<Fixed64>,
 }
 
+/// The filters of a v3 `remove_status` on its statuses' duration and source (vocab:
+/// `min_duration`, `exclude_source_tags`, `source_is`); `Default` is none of them.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SourceFilter<'s> {
+    /// Only statuses whose full duration (the application that last set the remaining time) is
+    /// longer than this; a permanent status never goes.
+    pub min_duration: Option<Fixed64>,
+    /// Statuses whose source ability or item carries one of these tags stay (`ultimate`: an
+    /// ultimate ability; `item`: an item; else the entry's own `tags`).
+    pub exclude_source_tags: &'s [&'s str],
+    /// `"has_ability"`, `"no_ability"`, `"alive"`, `"gone"`: every one must hold.
+    pub source_is: &'s [&'s str],
+}
+
 impl Cx<'_, '_> {
     /// v3 `remove_status` by filters: the host removes the statuses of `from` they name
     /// (omoba-core `dispel::purge`), shared controls following the statuses holding them.
@@ -1212,8 +1226,18 @@ impl Cx<'_, '_> {
     /// many seconds ago (a refresh keeps the first application, Dota GetElapsedTime); `None` any age.
     pub fn remove_statuses_younger(&mut self, from: EntityHandle, filter: StatusFilter<'_>, tags: &[&str], exclude_tags: &[&str],
         max_elapsed: Option<Fixed64>) -> Res {
-        use omoba_core::runtime::native::dispel::{Purge, PurgeMode, PurgeSpec, SourceTeam, PURGE_BUFF};
+        self.remove_statuses_by_source(from, filter, tags, exclude_tags, max_elapsed, SourceFilter::default())
+    }
+
+    /// [`Cx::remove_statuses_younger`] with v3 `min_duration`, `exclude_source_tags` and
+    /// `source_is` (omoba-core `dispel::SourceRule`).
+    pub fn remove_statuses_by_source(&mut self, from: EntityHandle, filter: StatusFilter<'_>, tags: &[&str], exclude_tags: &[&str],
+        max_elapsed: Option<Fixed64>, source: SourceFilter<'_>) -> Res {
+        use omoba_core::runtime::native::dispel::{Purge, PurgeMode, PurgeSpec, SourceIs, SourceRule, SourceTeam, PURGE_BUFF};
         if !from.is_valid() { return Ok(()); }
+        let source_is = source.source_is.iter().map(|is| SourceIs::parse(is).ok_or("v3: unknown remove_status source_is"))
+            .collect::<Result<Vec<_>, _>>()?;
+        if source.min_duration.is_some_and(|min| min < Fixed64::ZERO) { return Err("v3: negative remove_status min_duration"); }
         let (mode, side) = match filter.dispel {
             None | Some("all") => (PurgeMode::All, None),
             Some("basic") => (PurgeMode::Basic, None),
@@ -1241,7 +1265,8 @@ impl Cx<'_, '_> {
         let spec = PurgeSpec { mode, side, team, except: filter.except.iter().map(|s| (*s).to_owned()).collect(),
             states: filter.states.iter().map(|s| (*s).to_owned()).collect(), limit,
             tags: tags.iter().map(|s| (*s).to_owned()).collect(), exclude_tags: exclude_tags.iter().map(|s| (*s).to_owned()).collect(),
-            max_elapsed };
+            max_elapsed, source: SourceRule { min_duration: source.min_duration,
+                exclude_source_tags: source.exclude_source_tags.iter().map(|s| (*s).to_owned()).collect(), source_is } };
         self.world.add_stat_buff(from, RStr::from_str(PURGE_BUFF), Fixed64::ONE, RStr::from_str(&spec.payload().to_string()));
         Ok(())
     }

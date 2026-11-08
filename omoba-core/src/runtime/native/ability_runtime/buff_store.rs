@@ -119,11 +119,18 @@ pub struct BuffEntry {
     applied: u64,
     /// Seconds since the row was created; a refresh keeps it (Dota GetElapsedTime).
     elapsed: Fixed64,
+    /// The full duration of the application that last set the remaining time (Dota
+    /// GetDuration): a refresh that extends the row sets it, one that does not keeps it.
+    duration: Fixed64,
 }
 
 impl BuffEntry {
     /// Seconds since the row was created, refreshes included.
     pub fn elapsed(&self) -> Fixed64 { self.elapsed }
+    /// The full duration of the application that last set the remaining time (refreshes that
+    /// extend the row included); [`PERMANENT_BUFF_DURATION`] for a permanent row. A row copied
+    /// as the authority holds it (`seed`) starts with its remaining time.
+    pub fn duration(&self) -> Fixed64 { self.duration }
 }
 
 /// Canonical persistent lifetime used by stat buffs and snapshots. Explicit removal still applies.
@@ -342,10 +349,12 @@ impl BuffStore {
                 e.applied = applied;
                 if payload.get(super::damage_zone::KEY).is_some() {
                     e.remaining=duration;
+                    e.duration=duration;
                     e.zone_clock=0;
                 }
                 if duration > e.remaining {
                     e.remaining = duration;
+                    e.duration = duration;
                 }
                 // payload 替換策略：
                 //   - 若雙方 payload 都帶 `slow_factor`，較小者（更強）勝出，
@@ -393,6 +402,7 @@ impl BuffStore {
                         zone_clock: 0,
                         applied,
                         elapsed: Fixed64::ZERO,
+                        duration,
                     },
                 );
                 for k in &new_keys {
