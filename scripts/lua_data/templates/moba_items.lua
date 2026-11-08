@@ -133,7 +133,7 @@ local SOURCE_ITEMS = {
   { 202, "item_samurai_cloth", true },
   { 203, "item_ninja_cloth", true },
   { 204, "item_shun_armor", true },
-  { 205, "item_samurai's_badge" },
+  { 205, "item_samurai's_badge", true },
   { 206, "item_flame_armor", true },
   { 207, "item_foxfire_armor", true },
   { 208, "item_wayumi", true },
