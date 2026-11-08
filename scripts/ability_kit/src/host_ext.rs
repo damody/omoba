@@ -997,10 +997,22 @@ impl Cx<'_, '_> {
     /// up to `amount` of the damage `types` (`"physical"`, `"magical"`, `"pure"`; empty: all) after
     /// mitigation; used up, the status is removed. `duration` is the status's.
     pub fn absorb(&mut self, to: EntityHandle, status: &crate::codegen::StatusDef, amount: Fixed64, types: &[&str], duration: Fixed64) -> Res {
+        self.absorb_with(to, status, 0, amount, types, duration, false)
+    }
+
+    /// [`Cx::absorb`] of independent instance `instance` of the status (the `n` that
+    /// `apply_status_instance` returned; 0: the plain row), each instance with its own shield;
+    /// `pre_mitigation` (v3 `absorb.phase = "pre_mitigation"`): `amount` is in damage before armor
+    /// and resistance, and the shield drains by what each hit was before them (omoba-core absorb.rs).
+    #[allow(clippy::too_many_arguments)]
+    pub fn absorb_with(&mut self, to: EntityHandle, status: &crate::codegen::StatusDef, instance: u32, amount: Fixed64, types: &[&str],
+        duration: Fixed64, pre_mitigation: bool) -> Res {
         use omoba_core::runtime::native::absorb::{Spec, Types, BUFF};
         if !to.is_valid() || amount <= Fixed64::ZERO { return Ok(()); }
         let types = Types::from_names(types).ok_or("v3: unknown absorb type")?;
-        let spec = Spec { status: self.runtime_id(status), amount: amount.min(Fixed64::from_i32(1_000_000)), types };
+        let id = self.runtime_id(status);
+        let status = if instance == 0 { id } else { format!("{id}#{instance}") };
+        let spec = Spec { status, amount: amount.min(Fixed64::from_i32(1_000_000)), types, pre_mitigation };
         self.world.add_stat_buff(to, RStr::from_str(BUFF), duration, RStr::from_str(&spec.payload().to_string()));
         Ok(())
     }

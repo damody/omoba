@@ -3367,6 +3367,8 @@ pub fn process_outcomes(
                     super::damage_trace::record(world,row);
                 }
                 let Some(damage)=settled else {continue;};
+                // Its shares before block, armor and resistance, for pre-mitigation absorbs (absorb.rs).
+                world.insert(super::absorb::RawPacket(Some((source,target,[damage.physical,damage.magical,damage.pure],[phys,magi,real]))));
                 match origin {
                     Some(origin)=>Outcome::ProjectileDamage {origin,pos,phys:damage.physical,magi:damage.magical,real:damage.pure,
                         source,target,damage_profile,predeclared:false},
@@ -7681,7 +7683,8 @@ fn handle_damage(
         // v3 status.absorb rows first (absorb.rs), then the plain damage shield; a packet a status
         // shield took whole still hit.
         let alive = world.read_storage::<CProperty>().get(target).is_some_and(|p| p.hp > Fixed64::ZERO);
-        let (shielded, absorbs) = super::absorb::absorb(world, source, target, total_damage, mitigated.by_type);
+        let raw = super::absorb::raw_shares(world, source, target, [phys, magi, real]);
+        let (shielded, absorbs) = super::absorb::absorb(world, source, target, total_damage, mitigated.by_type, raw);
         super::status_event::note_absorbs(world, absorbs);
         let (hit, dealt) = pipeline::absorb(world, target, shielded);
         (hit || (total_damage > Fixed64::ZERO && alive), dealt)

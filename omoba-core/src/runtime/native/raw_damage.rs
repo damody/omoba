@@ -112,6 +112,29 @@ mod tests {
         assert_eq!(hp(&world,source),Fixed64::from_i32(120),"a quarter of 80");
     }
 
+    /// A pre-mitigation shield (absorb.rs) on a target with 50% resistance: a raw 200 magical
+    /// packet lands as 100 and drains the shield by 200; an attack-like settled packet (no raw
+    /// packet before it) drains one for one.
+    #[test]
+    fn a_pre_mitigation_shield_drains_by_the_raw_packet() {
+        use crate::runtime::native::absorb::{Spec,Types,BUFF};
+        let (mut world,source,target)=fixture(0,50);
+        let n=Fixed64::from_i32;
+        world.write_resource::<BuffStore>().add(target,"ward",n(10),serde_json::json!({}));
+        let ward=Spec{status:"ward".into(),amount:n(300),types:Types::from_names(&["magical"]).unwrap(),pre_mitigation:true};
+        crate::runtime::native::absorb::apply(&mut world,target,BUFF,n(10),&ward.payload());
+        let left=|world:&World|world.read_resource::<BuffStore>().get(target,"__absorb:ward")
+            .and_then(|row|row.payload.get("remaining_raw")?.as_i64()).map(Fixed64::from_raw);
+        flush(&mut world,vec![raw(source,target,0,200,0)]);
+        assert_eq!(hp(&world,target),n(1000),"absorbed whole");
+        let drained=n(300)-left(&world).unwrap();
+        assert!(drained>n(150) && drained<=n(200),"drained by the packet before resistance: {drained:?}");
+        let before=left(&world).unwrap();
+        flush(&mut world,vec![Outcome::Damage{source,target,pos:Vec2::ZERO,phys:Fixed64::ZERO,magi:n(20),real:Fixed64::ZERO,
+            damage_profile:DamageProfile::NORMAL.bits(),predeclared:false}]);
+        assert_eq!(before-left(&world).unwrap(),n(20),"a settled packet drains one for one");
+    }
+
     /// v3 damage flags `ignore_armor` and `hp_removal`, and `damage.credit` (one packet only).
     #[test]
     fn ignore_armor_hp_removal_and_a_credit_for_the_next_packet() {
