@@ -228,6 +228,13 @@ pub struct Proj {
 /// The status payload key that holds a counted status' stacks (v3 `stacking = { ... }`).
 pub const STACKS_KEY: &str = "__v3_stacks";
 
+/// v3 `damage { type = "event" }` (暗黃之牙與辛巴威's reflection): the type of the hit the event
+/// names, from its `damage_kind` (the type part; a mixed hit counts as its largest share, a
+/// physical one first, as the host reports it). Outside a damage event (kind 0) it is physical.
+pub fn event_damage_type(damage_kind: u8) -> DamageKind {
+    match damage_kind & StatusEvent::DAMAGE_TYPE_MASK { 0 => DamageKind::Physical, 1 => DamageKind::Magical, _ => DamageKind::Pure }
+}
+
 /// The host flight of a generated `projectile` from `caster`: no damage of its own (its effects
 /// are the `on_hit` step), so the profile is a plain magical spell packet that never lands.
 pub fn projectile_spec(caster: EntityHandle, ability: &str, p: &Proj) -> Result<ability_projectile::Spec, &'static str> {
@@ -1732,6 +1739,17 @@ mod select_tests {
 #[cfg(test)]
 mod projectile_tests {
     use super::*;
+
+    /// `type = "event"`: the event's damage type, whatever flags ride along with it.
+    #[test]
+    fn an_event_damage_type_reads_the_type_part_of_the_kind() {
+        assert_eq!(event_damage_type(0), DamageKind::Physical);
+        assert_eq!(event_damage_type(1 | StatusEvent::REFLECTION), DamageKind::Magical);
+        assert_eq!(event_damage_type(2 | StatusEvent::LETHAL | StatusEvent::ATTACK), DamageKind::Pure);
+        // the host's encoding (status_event::damage_kind) round-trips
+        let magical = omoba_core::runtime::native::status_event::damage_kind([Fixed64::ZERO, Fixed64::ONE, Fixed64::ZERO], 0);
+        assert_eq!(event_damage_type(magical), DamageKind::Magical);
+    }
 
     fn caster() -> EntityHandle { EntityHandle { id: 3, gen: 1 } }
     fn proj(homing: Option<EntityHandle>) -> Proj {
