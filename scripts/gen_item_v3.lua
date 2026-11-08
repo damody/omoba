@@ -90,8 +90,9 @@ function M.scripted_active(item, number, cooldown_groups)
     -- no range: anywhere on the map
     out.target = { shape = "point", range = number(target.range) or 0, team = "any", requires_visible = false, out_of_range = "reject" }
   elseif target.type == "unit" then
-    local range = number(target.range)
-    if not range then return nil, "a unit target needs a range" end
+    -- no range: anywhere on the map (line B 88af54a8)
+    local range = target.range == nil and 0 or number(target.range)
+    if not range then return nil, "a unit target's range is not a number" end
     out.target = { shape = "unit", range = range, team = target.team == "both" and "any" or target.team,
       requires_visible = true, out_of_range = "reject", include_magic_immune = include_magic_immune or nil }
   elseif target.type == "unit_or_point" then
@@ -102,6 +103,12 @@ function M.scripted_active(item, number, cooldown_groups)
       requires_visible = true, out_of_range = "reject" }
   elseif target.type ~= "none" then
     return nil, "target type " .. tostring(target.type) .. " has no catalog target"
+  end
+  -- unit types without heroes: the host refuses a hero target, the user too (line B 88af54a8)
+  if out.target and (out.target.shape == "unit" or out.target.shape == "unit_or_point") and type(target.types) == "table" and #target.types > 0 then
+    local hero = false
+    for _, t in ipairs(target.types) do hero = hero or t == "hero" or t == "all" end
+    if not hero then out.target.exclude_heroes = true end
   end
   -- the windup (line B 2be4ab76): on_phase_start at its start, the effect at its end; none at 0
   local cast = active.cast or {}

@@ -463,4 +463,16 @@ test('an item with recharging uses generates (the catalog row keeps them)', func
   assert(files['src/generated/item_earth_wall_book.rs'], 'the book generates')
 end)
 
+test('an item unit target without heroes and has_tag courier', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/pilot_b.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_the_great_sword_of_teleport' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  local sword = assert(files['src/generated/item_the_great_sword_of_teleport.rs'], 'the sword generates')
+  assert(has(sword, 'cx.has_unit_tag(u, "courier")'), 'courier tag')
+end)
+
 print(('%d tests passed'):format(count))

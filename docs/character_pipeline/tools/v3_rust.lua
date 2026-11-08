@@ -1298,7 +1298,8 @@ function Gen:call(node, ctx)
       -- unit tags (GameWorld::ext TAG_PREFIX; this game has no fountain or general units)
       local reads = { building = "cx.is_building(%s)", hero = "cx.is_hero(%s)", creep = "cx.unit_flag(%s, ability_kit::unit_attr::IS_CREEP)" }
       if reads[n] then return "{ let u = " .. u .. "; " .. reads[n]:format("u") .. " }", "bool" end
-      local HOST_TAGS = { boss = true, dummy = true, fountain = true, general = true, summon = true, neutral = true }
+      -- courier: UnitType::Courier (line B 88af54a8; the map has none yet)
+      local HOST_TAGS = { boss = true, dummy = true, fountain = true, general = true, summon = true, neutral = true, courier = true }
       if HOST_TAGS[n] then return "{ let u = " .. u .. "; cx.has_unit_tag(u, " .. rust_str(n) .. ") }", "bool" end
       self:block("fn:has_tag:" .. n .. " of a unit"); return "false", "bool"
     end
@@ -4060,7 +4061,14 @@ local function target_spec(g, target, ability_flags)
   local types = ({ [""] = { false, false }, all = { false, false }, hero = { true, false }, ["creep+hero"] = { false, true },
     ["creep+hero+neutral+summon"] = { false, true }, ["building+creep+hero"] = { false, false },
     ["building+creep+hero+neutral+summon"] = { false, false } })[types_key(target.types)]
-  if not types then g:block("target.types:" .. types_key(target.types)); types = { false, false } end
+  -- an item's unit target without heroes: the catalog row's exclude_heroes refuses them
+  -- (gen_item_v3, line B 88af54a8); buildings stay allowed when the types name them
+  local key = types_key(target.types)
+  if not types and g.entry and g.entry.kind == "item" and key ~= "" and (ty == "unit" or ty == "unit_or_point")
+    and not ("+" .. key .. "+"):find("+hero+", 1, true) then
+    types = { false, not ("+" .. key .. "+"):find("+building+", 1, true) }
+  end
+  if not types then g:block("target.types:" .. key); types = { false, false } end
   local flags = {}
   for _, list in ipairs({ target.flags or {}, target.ability_flags or {}, ability_flags or {} }) do
     for _, f in ipairs(list) do

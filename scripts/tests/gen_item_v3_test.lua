@@ -94,4 +94,14 @@ do
   ok(G.scripted_active(item, number, {}) == nil, 'interruptible needs a cast_point')
 end
 
+-- a unit target without heroes refuses them (exclude_heroes), no range is the whole map (line B 88af54a8)
+do
+  local num = function(v) return v end
+  local item = { id = 'item_x', active = { target = { type = 'unit', team = 'ally', types = { 'creep', 'courier', 'building' } }, cost = {} } }
+  local out = assert(G.scripted_active(item, num, {}))
+  ok(out.target.exclude_heroes == true and out.target.range == 0, 'no heroes, the whole map')
+  item.active.target.types = { 'hero', 'creep' }
+  ok(assert(G.scripted_active(item, num, {})).target.exclude_heroes == nil, 'heroes named: no exclude_heroes')
+end
+
 print('gen_item_v3 test: ' .. checks .. ' checks passed')
