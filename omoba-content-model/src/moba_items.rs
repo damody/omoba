@@ -61,6 +61,10 @@ pub struct MobaItemEntry {
     /// and spends it, each comes back `restore` seconds after the last, one at a time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charges: Option<MobaItemCharges>,
+    /// A scripted active's cast point (v3 `cast.cast_point`, `cast.interruptible`; 千里大劍): the use
+    /// waits `point` seconds, then takes effect and commits as an instant one does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cast: Option<MobaItemCast>,
     /// Items in the user's inventory that also start this item's cooldown when it is used (source
     /// AbilitySharedCooldown groups and script StartCooldown loops, E169). Not symmetric.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -141,6 +145,9 @@ pub fn validate_moba_items(items: &[MobaItemEntry]) -> Result<(), String> {
         }
         if let Some(charges) = &item.charges {
             charges.validate(item.active.as_ref(), item.consumable).map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
+        }
+        if let Some(cast) = &item.cast {
+            cast.validate(item.active.as_ref()).map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
         }
         if let Some(aura) = &item.aura {
             aura.validate().map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
@@ -232,6 +239,31 @@ impl MobaItemCharges {
     pub fn rust_literal(&self) -> String {
         format!("MobaItemChargesConst {{ max: {}, restore: Fixed64::from_raw({}), initial: {} }}",
             self.max, (f64::from(self.restore) * 1024.0).round() as i64, self.initial)
+    }
+}
+
+/// v3 item `cast = { cast_point, interruptible }`: the use waits `point` seconds before its effect.
+/// `interruptible`: a stun, mute, command restriction, moving or a new order ends the wait (and the
+/// use, which spends nothing); otherwise only death or a lost unit target does.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct MobaItemCast {
+    pub point: f32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub interruptible: bool,
+}
+
+impl MobaItemCast {
+    /// A scripted active's only; a positive point of at most 60 s (what a hero windup admits).
+    pub fn validate(&self, active: Option<&MobaItemActiveEntry>) -> Result<(), String> {
+        let ok = matches!(active, Some(MobaItemActiveEntry::Scripted {}))
+            && self.point.is_finite() && self.point >= 1.0 / 1024.0 && self.point <= 60.0;
+        if ok { Ok(()) } else { Err("invalid cast".into()) }
+    }
+
+    pub fn rust_literal(&self) -> String {
+        format!("MobaItemCastConst {{ point: Fixed64::from_raw({}), interruptible: {} }}",
+            (f64::from(self.point) * 1024.0).round() as i64, self.interruptible)
     }
 }
 
@@ -816,6 +848,25 @@ mod scripted_active_tests {
             assert!(bad.validate(Some(&scripted), false).is_err(), "{bad:?}");
         }
         assert!(MobaItemCharges { initial: 0, ..wall }.validate(Some(&scripted), false).is_ok());
+    }
+
+    /// 千里大劍：a 4 s interruptible cast point; a scripted active's only, 0 < point <= 60.
+    #[test]
+    fn a_cast_point_belongs_to_a_scripted_active() {
+        let scripted = MobaItemActiveEntry::Scripted {};
+        let sword = MobaItemCast { point: 4.0, interruptible: true };
+        assert!(sword.validate(Some(&scripted)).is_ok());
+        assert_eq!(sword.rust_literal(), "MobaItemCastConst { point: Fixed64::from_raw(4096), interruptible: true }");
+        let parsed: MobaItemCast = serde_json::from_value(serde_json::json!({"point": 4, "interruptible": true})).unwrap();
+        assert_eq!(parsed, sword);
+        let plain: MobaItemCast = serde_json::from_value(serde_json::json!({"point": 0.3})).unwrap();
+        assert!(!plain.interruptible);
+        assert!(serde_json::from_value::<MobaItemCast>(serde_json::json!({"point": 1, "channel": true})).is_err());
+        assert!(sword.validate(None).is_err());
+        assert!(sword.validate(Some(&MobaItemActiveEntry::UnitHeal { amount: 100.0 })).is_err());
+        for point in [0.0, -1.0, 61.0, f32::NAN] {
+            assert!(MobaItemCast { point, ..sword }.validate(Some(&scripted)).is_err(), "{point}");
+        }
     }
 
     #[test]

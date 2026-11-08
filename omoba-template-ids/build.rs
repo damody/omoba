@@ -402,11 +402,12 @@ fn emit_moba_items(out: &mut String, items: &[MobaItemEntry]) {
         let active = item.active.as_ref().map(|effect| format!("Some({})", effect.rust_literal()))
             .unwrap_or_else(|| "None".into());
         out.push_str(&format!(
-            "MobaItemConst {{ catalog_id: {}, id: {:?}, name: {:?}, cost: {}, atk: {}, hp: {}, ms: {}, armor: {}, lifesteal: {}, critical_chance: {}, unique_passive: {}, purchase_group: {}, active: {}, cooldown: {}, mana_cost: {}, consumable: {}, charges: {}, shares_cooldown_with: &[{}], aura: {}, recipe: &[{}], target: {}, source_ref: {}, test_only: {}, modifiers: [{}] }},\n",
+            "MobaItemConst {{ catalog_id: {}, id: {:?}, name: {:?}, cost: {}, atk: {}, hp: {}, ms: {}, armor: {}, lifesteal: {}, critical_chance: {}, unique_passive: {}, purchase_group: {}, active: {}, cooldown: {}, mana_cost: {}, consumable: {}, charges: {}, cast: {}, shares_cooldown_with: &[{}], aura: {}, recipe: &[{}], target: {}, source_ref: {}, test_only: {}, modifiers: [{}] }},\n",
             item.catalog_id, item.id, item.name, item.cost,
             fixed64_lit(item.atk), fixed64_lit(item.hp), fixed64_lit(item.ms), fixed64_lit(item.armor),
             fixed64_lit(item.lifesteal), fixed64_lit(item.critical_chance), item.unique_passive.as_ref().map(|v|format!("Some({})",v.rust_literal())).unwrap_or_else(||"None".into()), item.purchase_group.as_ref().map(|v|format!("Some({})",v.rust_literal())).unwrap_or_else(||"None".into()), active, fixed64_lit(item.cooldown), fixed64_lit(item.mana_cost), item.consumable,
-            item.charges.as_ref().map(|c| format!("Some({})", c.rust_literal())).unwrap_or_else(|| "None".into()), item.shares_cooldown_with.iter().map(|id| format!("{id:?}")).collect::<Vec<_>>().join(", "), item.aura.as_ref().map(|a| format!("Some({})", a.rust_literal())).unwrap_or_else(|| "None".into()), recipe, item.target.rust_literal(),
+            item.charges.as_ref().map(|c| format!("Some({})", c.rust_literal())).unwrap_or_else(|| "None".into()),
+            item.cast.as_ref().map(|c| format!("Some({})", c.rust_literal())).unwrap_or_else(|| "None".into()), item.shares_cooldown_with.iter().map(|id| format!("{id:?}")).collect::<Vec<_>>().join(", "), item.aura.as_ref().map(|a| format!("Some({})", a.rust_literal())).unwrap_or_else(|| "None".into()), recipe, item.target.rust_literal(),
             item.source_ref.as_deref().map(|r| format!("Some({r:?})")).unwrap_or_else(|| "None".into()), item.test_only,
             item.modifier_values().iter().map(|v| fixed64_lit(*v)).collect::<Vec<_>>().join(", "),
         ));

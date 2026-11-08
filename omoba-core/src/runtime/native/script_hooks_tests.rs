@@ -376,9 +376,42 @@ struct OrderGuard { heard: Arc<Mutex<Vec<(u32, u32)>>>, id: String, cancel: bool
 /// holder, the cast is a zap), a purge (the guard puts `purge_statuses` on its holder, the cast
 /// purges them by duration and source), a death (the cast is a zap, the guard's holder has
 /// little life and the guard also hears its death) or a respawn (a death world whose guard is a
-/// hero-scope status, kept across the death, that hears the respawn instead).
+/// hero-scope status, kept across the death, that hears the respawn instead). An item windup
+/// world gives player 1's hero a scripted item with a 0.5 s interruptible cast point to use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Extra { Plain, Ward, Purge, Death, Respawn, Block }
+enum Extra { Plain, Ward, Purge, Death, Respawn, Block, ItemWindup }
+
+/// A scripted catalog item aimed at no one, free and without charges, with the shortest
+/// cooldown, and its script id.
+fn windup_item() -> (&'static str, &'static str) {
+    use omoba_template_ids::{MobaItemActiveConst, MobaItemTargetShapeConst};
+    omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+        .filter(|item| matches!(item.active, Some(MobaItemActiveConst::Scripted)) && matches!(item.target.shape, MobaItemTargetShapeConst::Self_)
+            && item.mana_cost == Fixed64::ZERO && item.charges.is_none() && !item.consumable)
+        .filter_map(|item| crate::runtime::game_processor::item_script_id(item.id).map(|script| (item.cooldown, item.id, script)))
+        // the shortest cooldown: used at most every 2 s in the soak
+        .min_by_key(|(cooldown, id, _)| (*cooldown, *id)).map(|(_, id, script)| (id, script))
+        .expect("a free scripted self item")
+}
+
+/// The windup item's script: marks its owner when its cast point starts, spends 10 mana when it
+/// takes effect.
+struct WindupItem { id: String, heard: Arc<Mutex<Vec<(u32, u32)>>> }
+
+impl omb_script_abi::ability::AbilityScript for WindupItem {
+    fn ability_id(&self) -> RStr<'_> { RStr::from_str(&self.id) }
+    fn execute(&self, caster: EntityHandle, _: Target, _: u8, _: RStr<'_>, world: &mut GameWorldDyn<'_>) -> RResult<(), RString> {
+        self.heard.lock().unwrap().push((caster.id, 1));
+        // mana is in the team hash: a release on another tick would show
+        world.spend_mana(caster, Fixed64::from_i32(10), RStr::from_str(&self.id));
+        ROk(())
+    }
+    fn on_phase_start(&self, caster: EntityHandle, _: Target, _: u8, world: &mut GameWorldDyn<'_>) -> bool {
+        self.heard.lock().unwrap().push((caster.id, 0));
+        world.add_stat_buff(caster, RStr::from_str("test_item_windup_start"), Fixed64::ONE, RStr::from_str("{}"));
+        true
+    }
+}
 
 /// The hero variable the guard writes when its holder respawns.
 const RESPAWN_VAR: &str = "test:respawns_heard";
@@ -518,8 +551,15 @@ fn order_filter_scripts(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32,
     let cast = match extra {
         Extra::Ward | Extra::Death | Extra::Respawn => To::from_value(Zap { id: id.to_owned() }, TD_Opaque),
         Extra::Purge => To::from_value(Purger { id: id.to_owned() }, TD_Opaque),
-        Extra::Plain | Extra::Block => To::from_value(Probe { calls, id: id.to_owned() }, TD_Opaque),
+        Extra::Plain | Extra::Block | Extra::ItemWindup => To::from_value(Probe { calls, id: id.to_owned() }, TD_Opaque),
     };
+    if extra == Extra::ItemWindup {
+        let (_, script) = windup_item();
+        let level = serde_json::json!({"cooldown": 1, "mana_cost": 0, "cast_time": 0});
+        scripts.insert_ability_for_test(serde_json::from_value(serde_json::json!({ "id": script, "name": script, "kind": "item",
+            "ability_type": "active", "target_type": "none", "max_level": 1, "levels": {"1": level} })).unwrap(),
+            To::from_value(WindupItem { id: script.to_owned(), heard: heard.clone() }, TD_Opaque));
+    }
     scripts.insert_ability_for_test(order_filter_def(id, "unit"), cast);
     scripts.insert_ability_for_test(order_filter_def(ORDER_GUARD, "none"), omb_script_abi::ability::AbilityScript_TO::from_value(
         OrderGuard { heard, id: ORDER_GUARD.to_owned(), cancel, extra }, abi_stable::sabi_trait::prelude::TD_Opaque));
@@ -583,6 +623,19 @@ fn order_filter_world(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u
                     (StatKey::PhysicalConstantBlock.as_str()): 30 * 1024, (StatKey::PhysicalBlockChance.as_str()): 512 }));
             }
         }
+    }
+    // An item windup world: player 1's hero holds the windup item, a 0.5 s interruptible cast point.
+    if extra == Extra::ItemWindup {
+        let (item, script) = windup_item();
+        crate::runtime::game_processor::TEST_ITEM_CASTS.with(|casts| casts.borrow_mut().insert(item.to_owned(),
+            omoba_template_ids::MobaItemCastConst { point: Fixed64::from_raw(512), interruptible: true }));
+        if world.try_fetch::<crate::runtime::native::item::ItemRegistry>().is_none() {
+            world.insert(crate::runtime::native::item::ItemRegistry::generated_moba());
+        }
+        world.entry::<crate::runtime::native::initialization::ScriptedItems>().or_insert_with(Default::default)
+            .0.insert(crate::runtime::ScriptRegistry::v3_item_id(script));
+        world.write_storage::<crate::runtime::native::comp::Inventory>().get_mut(hero).unwrap().slots[0] =
+            Some(crate::runtime::native::comp::inventory::ItemInstance { item_id: item.to_owned(), cooldown_remaining: 0.0 });
     }
     // A death world: the guarded hero falls to a few zaps.
     if matches!(extra, Extra::Death | Extra::Respawn) {
@@ -704,6 +757,20 @@ fn an_owner_death_hook_runs_before_the_death_settles_and_keeps_every_team_replic
         "the variable the hook wrote while the hero died is on its next life: {row:?}");
 }
 
+/// item.active.cast.interruptible（千里大劍）: player 1 uses an item with a 0.5 s cast point 20
+/// ticks before each checkpoint, so the wait is live on a compared tick; its on_phase_start and its
+/// release run on the authority and the user's team replica on the same ticks, and every team
+/// replica matches the authority's view each tick.
+#[test]
+fn an_item_cast_point_keeps_every_team_replica_with_the_authority() {
+    let (world, _, _, heard) = order_filter_soak(false, Extra::ItemWindup);
+    let heard = heard.lock().unwrap().clone();
+    let state = world.read_resource::<crate::runtime::MobaMatch>();
+    let hero = state.heroes.iter().find(|slot| slot.player_id == 1).and_then(|slot| slot.entity).unwrap();
+    let (starts, releases) = (heard.iter().filter(|row| **row == (hero.id(), 0)).count(), heard.iter().filter(|row| **row == (hero.id(), 1)).count());
+    assert!(releases >= 2 && starts >= releases, "the item waited and released on the authority and the replica: {heard:?}");
+}
+
 /// FC-095／096 chance block (rules::damage::block_amount): both heroes trade attacks while each
 /// wears two 50% blocks; every team replica rolls the same blocks and keeps the authority's lives.
 #[test]
@@ -759,7 +826,9 @@ fn order_filter_soak(cancel: bool, extra: Extra) -> (specs::World, Entity, Arc<M
         // The checkpoint is every 120 ticks: each order 20 ticks before one, so a refused cast, a
         // windup, a cooldown or the guard's own effects are all live on a compared tick.
         for at in 0..1440 {
-            let inputs = if (driver.tick() + 1) % 120 == 100 {
+            let inputs = if (driver.tick() + 1) % 120 == 100 && extra == Extra::ItemWindup {
+                vec![(1, PlayerInput { action: Some(Action::ItemUse(crate::game_proto::ItemUse { item_slot: 0, ..Default::default() })) })]
+            } else if (driver.tick() + 1) % 120 == 100 {
                 vec![(1, PlayerInput { action: Some(Action::CastAbility(CastAbility {
                     ability_index: 0, target_entity: Some(enemy.id()), ..Default::default() })) })]
             } else { Vec::new() };

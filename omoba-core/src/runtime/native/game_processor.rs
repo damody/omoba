@@ -1993,6 +1993,21 @@ pub(crate) fn item_script_id(item_id: &str) -> Option<&'static str> {
 /// its other charges (persisting through death and selling, as the hero's own state).
 pub(crate) fn item_charge_key(item_id: &str) -> String { format!("item:{item_id}") }
 
+/// A scripted item's cast point (catalog `cast`, v3 `cast.cast_point`), when it has one: dispatch
+/// holds the use in `cast_windup::ItemWindups` until it passes.
+pub(crate) fn item_cast(item_id: &str) -> Option<omoba_template_ids::MobaItemCastConst> {
+    #[cfg(test)]
+    if let Some(cast) = TEST_ITEM_CASTS.with(|casts| casts.borrow().get(item_id).copied()) { return Some(cast); }
+    omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == item_id).and_then(|item| item.cast)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Cast points a test gives catalog items (no catalog item has one yet), for every world it
+    /// steps on its thread: the authority and its in-process team replicas alike.
+    pub(crate) static TEST_ITEM_CASTS: std::cell::RefCell<BTreeMap<String, omoba_template_ids::MobaItemCastConst>> = Default::default();
+}
+
 fn item_charges(item_id: &str) -> Option<omoba_template_ids::MobaItemChargesConst> {
     omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == item_id).and_then(|item| item.charges)
 }
@@ -2102,8 +2117,11 @@ fn queue_scripted_item_use(
     if !item_charge_ready(world, owner, item_id) {
         return Err(failure::err_msg("ItemUse: no charges"));
     }
+    if world.try_fetch::<super::cast_windup::ItemWindups>().is_some_and(|items| items.0.contains_key(&owner)) {
+        return Err(failure::err_msg("ItemUse: an item cast point is in progress"));
+    }
     let mut events = world.try_fetch_mut::<ScriptEventQueue>().ok_or_else(|| failure::err_msg("ItemUse: script queue unavailable"))?;
-    events.push(ScriptEvent::ItemCast { owner, owner_pid, slot: slot_i as u32, item_id: item_id.to_owned(), target });
+    events.push(ScriptEvent::ItemCast { owner, owner_pid, slot: slot_i as u32, item_id: item_id.to_owned(), target, released: false });
     Ok(())
 }
 

@@ -167,6 +167,8 @@ fn dispatch_scripts(
 
     let mut windups=world.remove::<super::super::cast_windup::AbilityWindups>().unwrap_or_default();
     let releases=windups.advance(world,dt);
+    let mut item_windups=world.remove::<super::super::cast_windup::ItemWindups>().unwrap_or_default();
+    let item_releases=item_windups.advance(world,dt);
     let events = {
         let mut queue = world.write_resource::<ScriptEventQueue>();
         queue.drain()
@@ -183,8 +185,10 @@ fn dispatch_scripts(
     let mut status_executed: Vec<(Entity, String, Option<Vec2>)> = events.iter().filter_map(|event| match event {
         ScriptEvent::ItemUsed { owner, item_id } => Some((*owner, format!("{}{}", super::event::ITEM_SKILL_PREFIX, item_id), None)), _ => None }).collect();
     let events:Vec<_>=events.into_iter().map(|event|(event,false))
-        .chain(releases.into_iter().map(|event|(event,true))).collect();
-    if tagged.is_empty() && events.is_empty() && windups.0.is_empty() && windups.1.is_empty()
+        .chain(releases.into_iter().map(|event|(event,true)))
+        // an item's released use is admitted again by its commit (ScriptItemTransaction), not here
+        .chain(item_releases.into_iter().map(|event|(event,false))).collect();
+    if tagged.is_empty() && events.is_empty() && windups.0.is_empty() && windups.1.is_empty() && item_windups.0.is_empty()
         && !super::super::ability_channel::any_active(world) && !any_delayed
         // A replica runs the order filters the authority refused on its holders (order_filter.rs).
         && world.try_fetch::<super::super::order_filter::OrderFilterInjections>().is_none_or(|rows| rows.holders.is_empty()) {
@@ -275,7 +279,7 @@ fn dispatch_scripts(
             let is_cast = matches!(&ev, ScriptEvent::SkillCast { .. });
             // items.dll: the use commits only with a successful effect (ScriptItemTransaction)
             let item_use = match &ev {
-                ScriptEvent::ItemCast { owner, owner_pid, slot, item_id, target } =>
+                ScriptEvent::ItemCast { owner, owner_pid, slot, item_id, target, .. } =>
                     Some((*owner, *owner_pid, *slot, item_id.clone(), skill_target_entity(target), skill_target_point(target))),
                 _ => None,
             };
@@ -339,7 +343,7 @@ fn dispatch_scripts(
             }
             // An order filter (status_event ORDER_FILTER, 原作 ExecuteOrderFilter): the target's
             // statuses may refuse an enemy's unit order before it executes (order_filter.rs).
-            if !releasing {
+            if !releasing && !matches!(&ev, ScriptEvent::ItemCast { released: true, .. }) {
                 let order = match &ev {
                     ScriptEvent::SkillCast { caster, skill_id, target: SkillTarget::Entity(victim) } => Some((*caster, skill_id.clone(), *victim)),
                     ScriptEvent::ItemCast { owner, item_id, target: SkillTarget::Entity(victim), .. } =>
@@ -355,6 +359,21 @@ fn dispatch_scripts(
                         heard == Some(true)
                     };
                     if refused { reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED); }
+                }
+            }
+            // An item with a cast point (catalog `cast`, 千里大劍): its on_phase_start runs now and the
+            // use waits in ItemWindups; it comes back `released` and runs and commits then.
+            if let ScriptEvent::ItemCast { owner, owner_pid, slot, item_id, target, released: false } = &ev {
+                if let Some(cast) = super::super::game_processor::item_cast(item_id) {
+                    if item_windups.0.contains_key(owner) { continue; }
+                    let Some(origin) = cache.pos.get(*owner).map(|p| p.0) else { continue };
+                    let proceed = super::super::game_processor::item_script_id(item_id).is_none_or(|script|
+                        run_phase_start(&cache, registry, *owner, script, target, 1, PHASE_START_ORDINAL + event_ordinal as u64, &mut event_outcomes));
+                    if !proceed { continue; }
+                    item_windups.0.insert(*owner, super::super::cast_windup::ItemWindup { owner_pid: *owner_pid, slot: *slot,
+                        item_id: item_id.clone(), target: target.clone(), origin, remaining: cast.point,
+                        interruptible: cast.interruptible, last_tick: cache.tick.0, anchored: false });
+                    continue;
                 }
             }
             let settlement_skill = match &ev { ScriptEvent::SkillCast {skill_id,..} => Some(skill_id.clone()), _ => None };
@@ -625,6 +644,7 @@ fn dispatch_scripts(
     }
     // The tick's failed casts (.2) are read after this batch: they keep the resource too.
     if !windups.0.is_empty() || !windups.1.is_empty() || !windups.2.is_empty() {world.insert(windups);}
+    if !item_windups.0.is_empty() {world.insert(item_windups);}
     let event_ns = event_t.elapsed().as_nanos();
     drop(event_span);
 
@@ -2951,5 +2971,97 @@ mod effect_batch_tests {
         let mut world = world;
         world.maintain();
         assert!(world.entities().is_alive(kept) && !world.entities().is_alive(refused), "the refused reservation is released");
+    }
+}
+
+#[cfg(test)]
+mod item_windup_tests {
+    use super::*;
+    use crate::runtime::native::comp::{CProperty, Faction, FactionType, Pos};
+    use specs::{Builder, WorldExt};
+    use std::sync::{Arc, Mutex};
+
+    struct Sword(String, Arc<Mutex<Vec<(u64, &'static str)>>>, Arc<Mutex<u64>>);
+    impl omb_script_abi::ability::AbilityScript for Sword {
+        fn ability_id(&self) -> RStr<'_> { RStr::from_str(&self.0) }
+        fn execute(&self, _: EntityHandle, _: omb_script_abi::types::Target, _: u8, _: RStr<'_>,
+            _: &mut omb_script_abi::world::GameWorldDyn<'_>) -> abi_stable::std_types::RResult<(), abi_stable::std_types::RString> {
+            let tick = *self.2.lock().unwrap();
+            self.1.lock().unwrap().push((tick, "execute"));
+            abi_stable::std_types::RResult::ROk(())
+        }
+        fn on_phase_start(&self, _: EntityHandle, _: omb_script_abi::types::Target, _: u8, _: &mut omb_script_abi::world::GameWorldDyn<'_>) -> bool {
+            let tick = *self.2.lock().unwrap();
+            self.1.lock().unwrap().push((tick, "phase_start"));
+            true
+        }
+    }
+
+    /// One use of a catalog item given a 0.05 s cast point (3 ticks at 60 Hz) over ticks 1..=8:
+    /// `disturb` runs before each tick's dispatch. What the script saw, with the tick.
+    fn run(interruptible: bool, disturb: impl Fn(&mut World, Entity, u64)) -> Vec<(u64, &'static str)> {
+        let (item_id, script) = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+            .find_map(|item| crate::runtime::game_processor::item_script_id(item.id).map(|script| (item.id, script))).unwrap();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+        let dt = Fixed64::from_raw(17);
+        world.insert(crate::runtime::native::comp::DeltaTime(dt));
+        crate::runtime::game_processor::TEST_ITEM_CASTS.with(|casts| casts.borrow_mut().insert(item_id.to_owned(),
+            omoba_template_ids::MobaItemCastConst { point: Fixed64::from_raw(51), interruptible }));
+        let owner = world.create_entity().with(Pos(Vec2::ZERO))
+            .with(CProperty { hp: Fixed64::ONE, mhp: Fixed64::ONE, msd: Fixed64::ZERO, def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO })
+            .with(Faction::new(FactionType::Player, 1)).build();
+        let (seen, clock) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(0)));
+        let mut registry = crate::runtime::ScriptRegistry::new();
+        let level = serde_json::json!({"cooldown": 1, "mana_cost": 0, "cast_time": 0});
+        registry.insert_ability_for_test(serde_json::from_value(serde_json::json!({ "id": script, "name": script, "kind": "item",
+            "ability_type": "active", "target_type": "none", "max_level": 1, "levels": {"1": level} })).unwrap(),
+            omb_script_abi::ability::AbilityScript_TO::from_value(Sword(script.to_owned(), seen.clone(), clock.clone()), abi_stable::sabi_trait::prelude::TD_Opaque));
+        let cast = || ScriptEvent::ItemCast { owner, owner_pid: 1, slot: 0, item_id: item_id.to_owned(), target: SkillTarget::None, released: false };
+        world.write_resource::<ScriptEventQueue>().push(cast());
+        for tick in 1..=8u64 {
+            world.write_resource::<crate::runtime::Tick>().0 = tick;
+            *clock.lock().unwrap() = tick;
+            disturb(&mut world, owner, tick);
+            // a second use while the first waits is not started
+            if tick == 2 { world.write_resource::<ScriptEventQueue>().push(cast()); }
+            crate::runtime::run_script_dispatch(&mut world, &registry, 1, dt);
+            crate::runtime::cast_windup::anchor_started_windups(&world);
+        }
+        let seen = seen.lock().unwrap().clone();
+        seen
+    }
+
+    /// item.active.cast.interruptible（千里大劍）: an item cast point runs the item's on_phase_start
+    /// when ordered and its effect once the point has passed (51/17 = 3 ticks later), once; an
+    /// interruptible one ends unreleased on a stun, a mute, moving or a new order, a plain one
+    /// goes on through all of them; death ends either.
+    #[test]
+    fn an_item_cast_point_releases_late_and_only_an_interruptible_one_gives_way() {
+        let released = vec![(1, "phase_start"), (4, "execute")];
+        let started = vec![(1, "phase_start")];
+        let nothing = |_: &mut World, _: Entity, _: u64| {};
+        assert_eq!(run(true, nothing), released);
+        assert_eq!(run(false, nothing), released);
+        let stun = |world: &mut World, owner: Entity, tick: u64| if tick == 3 {
+            world.write_resource::<crate::runtime::BuffStore>().add(owner, "stun", Fixed64::from_i32(5), serde_json::json!({}));
+        };
+        let mute = |world: &mut World, owner: Entity, tick: u64| if tick == 3 {
+            world.write_resource::<crate::runtime::BuffStore>().add(owner, "mute", Fixed64::from_i32(5), serde_json::json!({}));
+        };
+        let step = |world: &mut World, owner: Entity, tick: u64| if tick == 3 {
+            world.write_storage::<Pos>().get_mut(owner).unwrap().0 = Vec2::new(Fixed64::ONE, Fixed64::ZERO);
+        };
+        let order = |world: &mut World, owner: Entity, tick: u64| if tick == 3 {
+            crate::runtime::cast_windup::cancel(world, owner);
+        };
+        let death = |world: &mut World, owner: Entity, tick: u64| if tick == 3 {
+            world.write_storage::<CProperty>().get_mut(owner).unwrap().hp = Fixed64::ZERO;
+        };
+        for (name, disturb) in [("stun", &stun as &dyn Fn(&mut World, Entity, u64)), ("mute", &mute), ("move", &step), ("order", &order)] {
+            assert_eq!(run(true, disturb), started, "interruptible, {name}");
+            assert_eq!(run(false, disturb), released, "plain, {name}");
+        }
+        assert_eq!(run(true, death), started);
+        assert_eq!(run(false, death), started);
     }
 }

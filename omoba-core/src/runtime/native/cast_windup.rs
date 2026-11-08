@@ -88,6 +88,7 @@ const PREPARATION:&str="cast_preparation";
 /// Q). Call once the tick's pose is final: the authority before it settles
 /// preparation, the replica after it applies the authoritative movement.
 pub(crate) fn anchor_started_windups(world:&World) {
+    anchor_started_item_windups(world);
     let Some(mut windups)=world.try_fetch_mut::<AbilityWindups>() else {return;};
     let tick=world.read_resource::<Tick>().0;
     let positions=world.read_storage::<Pos>();
@@ -150,6 +151,10 @@ pub(crate) fn synchronize_preparation(world:&World) {
 
 pub(crate) fn clear_preparation(world:&World) {
     super::recovery_channel::clear(world);
+    if let Some(mut items)=world.try_fetch_mut::<ItemWindups>() {
+        let pending:Vec<_>=std::mem::take(&mut items.0).into_iter().map(|(owner,cast)|(owner,item_trace_id(&cast.item_id),"phase")).collect();
+        super::cast_trace::interrupted(world,pending);
+    }
     super::ability_channel::clear(world);
     if let Some(mut casts)=world.try_fetch_mut::<AbilityWindups>() {
         let pending:Vec<_>=std::mem::take(&mut casts.0).into_iter().map(|(entity,cast)|(entity,cast.skill_id,"phase")).collect();
@@ -178,6 +183,13 @@ fn cancel_because(world:&World,entity:Entity,reason:&'static str) {
     super::ability_channel::cancel(world,entity);
     if let (Some(registry),Some(mut queue))=(world.try_fetch::<super::ability_runtime::AbilityRegistry>(),world.try_fetch_mut::<super::scripting::ScriptEventQueue>()) {
         queue.discard_channels_of(entity,&registry);
+    }
+    if let Some(mut items)=world.try_fetch_mut::<ItemWindups>() {
+        // only an interruptible item cast point gives way to a new order
+        if items.0.get(&entity).is_some_and(|cast|cast.interruptible) {
+            let cast=items.0.remove(&entity).expect("checked");
+            super::cast_trace::interrupted(world,[(entity,item_trace_id(&cast.item_id),reason)]);
+        }
     }
     let tick=world.try_fetch::<Tick>().map_or(0,|tick|tick.0);
     if let Some(mut pending)=world.try_fetch_mut::<AbilityWindups>() {
@@ -242,6 +254,85 @@ impl AbilityWindups {
             false
         });
         for (caster,_,_) in &ended {self.failed(tick,*caster);}
+        super::cast_trace::interrupted(world,ended);
+        ready
+    }
+}
+
+/// A scripted item's cast point in progress (catalog `cast`, v3 `cast.cast_point`; 千里大劍): the
+/// use was admitted and its `on_phase_start` ran; when `remaining` reaches zero dispatch runs its
+/// effect (`ScriptEvent::ItemCast { released: true }`) and the use commits as an instant one does,
+/// so a wait that ends early spends nothing. One per owner, apart from its ability windup.
+#[derive(Clone,Debug)]
+pub(crate) struct ItemWindup {
+    pub owner_pid:u32,
+    pub slot:u32,
+    pub item_id:String,
+    pub target:SkillTarget,
+    pub origin:Vec2,
+    pub remaining:Fixed64,
+    /// v3 `cast.interruptible`: control (stun, mute, command restriction), moving or a new order
+    /// ends the wait; otherwise only death, the match phase or a lost unit target does.
+    pub interruptible:bool,
+    pub last_tick:u64,
+    pub anchored:bool,
+}
+#[derive(Default)]
+pub(crate) struct ItemWindups(pub BTreeMap<Entity,ItemWindup>);
+
+fn item_trace_id(item_id:&str)->String {format!("{}{item_id}",super::scripting::ITEM_SKILL_PREFIX)}
+
+/// [`anchor_started_windups`] for item cast points: the origin is the owner's committed pose of
+/// the start tick, on the authority and the owner's replica alike.
+fn anchor_started_item_windups(world:&World) {
+    let Some(mut items)=world.try_fetch_mut::<ItemWindups>() else {return;};
+    let tick=world.read_resource::<Tick>().0;
+    let positions=world.read_storage::<Pos>();
+    for (owner,cast) in items.0.iter_mut() {
+        if !cast.anchored && cast.last_tick==tick {
+            if let Some(pos)=positions.get(*owner) {cast.origin=pos.0;}
+            cast.anchored=true;
+        }
+    }
+}
+
+/// Why an item cast point can no longer release; `None` while it may continue.
+fn item_interrupt_reason(world:&World,entities:&specs::world::EntitiesRes,props:&specs::ReadStorage<'_,CProperty>,
+    positions:&specs::ReadStorage<'_,Pos>,buffs:&super::BuffStore,owner:Entity,cast:&ItemWindup)->Option<&'static str> {
+    if !entities.is_alive(owner) || props.get(owner).is_none_or(|p|p.hp<=Fixed64::ZERO) {Some("dead")}
+    else if matches!(cast.target,SkillTarget::Entity(target) if !entities.is_alive(target)
+        || props.get(target).is_none_or(|p|p.hp<=Fixed64::ZERO)) {Some("target_lost")}
+    else if !cast.interruptible {None}
+    else if buffs.is_stunned(owner) || buffs.is_muted(owner) || super::command_restriction::restricted(world,owner) {Some("control")}
+    else if positions.get(owner).is_none_or(|p|p.0!=cast.origin) {Some("moved")}
+    else {None}
+}
+
+impl ItemWindups {
+    /// Counts the cast points down (once per tick, frozen while paused) and returns the uses
+    /// whose wait ended this tick; the ones that can no longer release end with their reason.
+    pub fn advance(&mut self,world:&World,dt:Fixed64)->Vec<ScriptEvent> {
+        if self.0.is_empty() {return Vec::new();}
+        if world.try_fetch::<super::MobaMatch>().is_some_and(|state|state.phase!=super::MobaMatchPhase::Playing) {
+            let canceled:Vec<_>=std::mem::take(&mut self.0).into_iter().map(|(owner,cast)|(owner,item_trace_id(&cast.item_id),"phase")).collect();
+            super::cast_trace::interrupted(world,canceled);return Vec::new();
+        }
+        if world.read_resource::<GamePause>().is_paused || dt<=Fixed64::ZERO {return Vec::new();}
+        let tick=world.read_resource::<Tick>().0;
+        let entities=world.entities();let props=world.read_storage::<CProperty>();
+        let positions=world.read_storage::<Pos>();let buffs=world.read_resource::<super::BuffStore>();
+        let mut ready=Vec::new();let mut ended=Vec::new();
+        self.0.retain(|owner,cast| {
+            if let Some(reason)=item_interrupt_reason(world,&entities,&props,&positions,&buffs,*owner,cast) {
+                ended.push((*owner,item_trace_id(&cast.item_id),reason));return false;
+            }
+            if cast.last_tick==tick {return true;}
+            cast.last_tick=tick;cast.remaining=(cast.remaining-dt).max(Fixed64::ZERO);
+            if cast.remaining>Fixed64::ZERO {return true;}
+            ready.push(ScriptEvent::ItemCast {owner:*owner,owner_pid:cast.owner_pid,slot:cast.slot,
+                item_id:cast.item_id.clone(),target:cast.target.clone(),released:true});
+            false
+        });
         super::cast_trace::interrupted(world,ended);
         ready
     }

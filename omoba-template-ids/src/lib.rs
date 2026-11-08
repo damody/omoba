@@ -604,6 +604,8 @@ pub struct MobaItemConst {
     pub consumable: bool,
     /// Stored uses shared by the hero's copies (v3 `cost.charges`, scope hero).
     pub charges: Option<MobaItemChargesConst>,
+    /// The active's cast point (v3 `cast.cast_point`, `cast.interruptible`).
+    pub cast: Option<MobaItemCastConst>,
     /// Inventory items that also start this item's cooldown when it is used.
     pub shares_cooldown_with: &'static [&'static str],
     /// Passive aura on allies around the holder (E173).
@@ -715,6 +717,11 @@ pub struct MobaItemModifierConst { pub name: &'static str, pub duration: Fixed64
 /// Stored uses of a scripted item: up to `max`, `initial` at first, one back each `restore`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MobaItemChargesConst { pub max: u16, pub restore: Fixed64, pub initial: u16 }
+
+/// A scripted item's cast point: the use takes effect `point` after it is ordered; `interruptible`
+/// lets a stun, mute, command restriction, move or new order end the wait.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MobaItemCastConst { pub point: Fixed64, pub interruptible: bool }
 
 /// A passive item aura: buff `name` with `stats` on allies within `radius` of the holder.
 #[derive(Clone, Copy, Debug)]

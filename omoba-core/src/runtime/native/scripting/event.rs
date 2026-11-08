@@ -130,12 +130,15 @@ pub enum ScriptEvent {
     },
     /// An admitted use of a scripted item (items.dll, M7): dispatch runs its `execute` (rank 1)
     /// and, when it succeeds, emits `Outcome::ScriptItemTransaction`; nothing is spent before.
+    /// An item with a cast point (catalog `cast`) first waits in `cast_windup::ItemWindups`;
+    /// `released` marks the use coming back from that wait.
     ItemCast {
         owner: Entity,
         owner_pid: u32,
         slot: u32,
         item_id: String,
         target: SkillTarget,
+        released: bool,
     },
 }
 
