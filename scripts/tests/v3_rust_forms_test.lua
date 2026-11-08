@@ -432,4 +432,24 @@ test('a projectile with a lifetime launches as projectile_expiring', function()
   assert(has(jitte, 'cx.projectile_expiring(ID, p, '), 'its lifetime')
 end)
 
+test('not primary_is, an event-typed damage and an item orb slot released on unequip', function()
+  local function gen(file, id)
+    local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/' .. file))
+    local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+    for _, e in ipairs(report.entries) do
+      if e.id == id then
+        for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+      end
+    end
+    return assert(files['src/generated/' .. id .. '.rs'], id .. ' generates')
+  end
+  local sword = gen('pilot_b.lua', 'item_the_great_sword_of_invincible')
+  assert(has(sword, 'ability_kit::When::NotPrimary(ability_kit::Attr::Agility)'), 'not primary_is')
+  local teeth = gen('pilot_a.lua', 'item_the_dark_yellow_teeth_and_zimbabwe')
+  assert(has(teeth, 'ability_kit::event_damage_type(cx.event_damage_kind), Dmg {'), 'the event hit type')
+  local spear = gen('batch_I5.lua', 'item_the_spear_of_saddle')
+  assert(has(spear, 'if cx.orb_slot_free(caster, ID) { let _ = cx.orb_slot_claim(caster, ID); }'), 'the first copy claims')
+  assert(has(spear, 'let _ = cx.orb_slot_release(caster, ID); }'), 'the last copy releases')
+end)
+
 print(('%d tests passed'):format(count))

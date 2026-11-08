@@ -1498,6 +1498,9 @@ local function when_code(w)
   if w == "self.is_hero" then return "ability_kit::When::Hero" end
   local a = w:match("^primary_is%(%s*self%s*,%s*(%a+)%s*%)$")
   if a and WHEN_ATTR[a] then return "ability_kit::When::Primary(ability_kit::Attr::" .. WHEN_ATTR[a] .. ")" end
+  -- line B 2061e821
+  a = w:match("^not%s+primary_is%(%s*self%s*,%s*(%a+)%s*%)$")
+  if a and WHEN_ATTR[a] then return "ability_kit::When::NotPrimary(ability_kit::Attr::" .. WHEN_ATTR[a] .. ")" end
   return nil
 end
 
@@ -2538,7 +2541,13 @@ function Gen:action(a, ctx, ind)
   elseif op == "damage" then
     local kinds = { physical = "Physical", magical = "Magical", pure = "Pure" }
     local kind = kinds[a.type]
-    if not kind then self:block("action:damage.type:" .. tostring(a.type)); kind = "Pure" end
+    kind = kind and ("DamageKind::" .. kind)
+    -- `event`: the type of the hit the event names (line B d0ae77e5)
+    if a.type == "event" then
+      if ctx.event then kind = "ability_kit::event_damage_type(cx.event_damage_kind)"
+      else self:block("action:damage.type:event outside an event") end
+    end
+    if not kind then self:block("action:damage.type:" .. tostring(a.type)); kind = "DamageKind::Pure" end
     local no_amp, hp_removal, ignore_armor, reflection, no_src = false, false, false, false, false
     for _, f in ipairs(a.flags or {}) do
       if f == "no_amplify" then no_amp = true
@@ -2560,18 +2569,18 @@ function Gen:action(a, ctx, ind)
       local from = a.source ~= nil and a.source ~= "self"
       local src = from and line("    let source = " .. self:value(a.source, ctx, "unit") .. ";") or ""
       return line("{") .. line("    let to = " .. to .. ";") .. line("    let amount = " .. amount .. ";") .. src .. line("    let credit = " .. credit .. ";")
-        .. line(string.format("    cx.%s(%s, %s, %sto, amount, DamageKind::%s, Dmg { require_source_alive: %s, no_amplify: %s }, ability_kit::DmgExtra { hp_removal: %s, ignore_armor: %s, no_source_bonuses: %s, credit })?;",
+        .. line(string.format("    cx.%s(%s, %s, %sto, amount, %s, Dmg { require_source_alive: %s, no_amplify: %s }, ability_kit::DmgExtra { hp_removal: %s, ignore_armor: %s, no_source_bonuses: %s, credit })?;",
           reflection and (from and "damage_reflect_from_at" or "damage_reflect_at") or (from and "damage_ex_from_at" or "damage_ex_at"), rust_str(who), rust_str(self.cur_path or "?"), from and "source, " or "", kind, a.require_source_alive ~= false and "true" or "false", no_amp and "true" or "false",
           tostring(hp_removal), tostring(ignore_armor), tostring(no_src))) .. line("}")
     end
     if a.source ~= nil and a.source ~= "self" then
       local src = self:value(a.source, ctx, "unit")
       return line("{") .. line("    let to = " .. to .. ";") .. line("    let amount = " .. amount .. ";") .. line("    let source = " .. src .. ";")
-        .. line(string.format("    cx.damage_from_at(%s, %s, source, to, amount, DamageKind::%s, Dmg { require_source_alive: %s, no_amplify: %s })?;",
+        .. line(string.format("    cx.damage_from_at(%s, %s, source, to, amount, %s, Dmg { require_source_alive: %s, no_amplify: %s })?;",
           rust_str(who), rust_str(self.cur_path or "?"), kind, a.require_source_alive ~= false and "true" or "false", no_amp and "true" or "false")) .. line("}")
     end
     return line("{") .. line("    let to = " .. to .. ";") .. line("    let amount = " .. amount .. ";")
-      .. line(string.format("    cx.damage_at(%s, %s, to, amount, DamageKind::%%s, Dmg { require_source_alive: %%s, no_amplify: %%s })?;",
+      .. line(string.format("    cx.damage_at(%s, %s, to, amount, %%s, Dmg { require_source_alive: %%s, no_amplify: %%s })?;",
         rust_str(who), rust_str(self.cur_path or "?")):format(
         kind, a.require_source_alive ~= false and "true" or "false", no_amp and "true" or "false")) .. line("}")
   elseif op == "heal" or op == "restore_mana" then
@@ -4321,6 +4330,11 @@ local function emit_entry(m, o, opts, status_problems)
   -- passive.orb_slot (line B E534): a toggle that claims the orb slot when it turns on (over an
   -- item's claim) and frees it, if still its own, when it turns off (the status it put ends)
   local orb = (def.passive or {}).orb_slot
+  -- an item's `release = "unequip"`: the first copy claims a free slot, the last one frees it if
+  -- still its own (line B: orb_slot_free / claim / release, no host change)
+  local item_orb = o.kind == "item" and type(orb) == "table" and orb.claim == true and orb.release == "unequip"
+    and not events.on_toggle_on
+  if item_orb then orb = nil end
   if orb ~= nil and (type(orb) ~= "table" or not events.on_toggle_on or orb.claim ~= true
     or (orb.release ~= nil and orb.release ~= "status_end")) then
     g:block("passive:orb_slot (only a toggle that claims and releases at status_end)"); orb = nil
@@ -4709,7 +4723,7 @@ local function emit_entry(m, o, opts, status_problems)
   -- shop catalog's, which the host applies)
   -- its aura is there from the first copy to the last, like the marker
   local item_aura = o.kind == "item" and passive_aura or nil
-  local marker = item_mask ~= 0 or item_periodic ~= nil or item_aura ~= nil or #last_copy > 0 or item_marker_stats
+  local marker = item_mask ~= 0 or item_periodic ~= nil or item_aura ~= nil or #last_copy > 0 or item_marker_stats or item_orb
   local copies = rust_str("__item_copies:" .. def.id)
   if item_equip.on_created or marker then
     local first = marker and ("        let caster = owner;\n"
@@ -4720,6 +4734,7 @@ local function emit_entry(m, o, opts, status_problems)
         or string.format("            let _ = cx.passive_marker(ID, %s, %d);\n", item_marker_stats and passive_stats or "&[]", item_mask))
       .. (item_periodic and item_periodic:gsub("\n(.)", "\n    %1"):gsub("^", "    ") or "")
       .. (item_aura and ("    " .. item_aura) or "")
+      .. (item_orb and "            if cx.orb_slot_free(caster, ID) { let _ = cx.orb_slot_claim(caster, ID); }\n" or "")
       .. "        }\n") or ""
     impl[#impl + 1] = "\n    fn on_equip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {\n"
       .. "        let mut cx = Cx::passive(world, owner, 1);\n" .. g:finish(first)
@@ -4732,6 +4747,7 @@ local function emit_entry(m, o, opts, status_problems)
       .. "        if n <= Fixed64::ZERO { cx.remove_passive_marker(ID);"
       .. (item_aura and " let aura = ability_kit::aura_key(\"passive\", cx.caster); cx.stop_aura(caster, ID, &aura);" or "")
       .. (#last_copy > 0 and " let _ = on_last_copy(&mut cx);" or "")
+      .. (item_orb and " let _ = cx.orb_slot_release(caster, ID);" or "")
       .. " }\n") or ""
     impl[#impl + 1] = "\n    fn on_unequip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {\n"
       .. "        let mut cx = Cx::passive(world, owner, 1);\n" .. last
