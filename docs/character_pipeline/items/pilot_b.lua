@@ -1199,7 +1199,63 @@ return function(ctx)
         provenance = { "npc/npc_items_custom_load.txt:6395-6574", "vscripts/items/Addon_Items/item_the_great_sword_of_teleport.lua:1-45" } },
     },
 
+    -- the courier's two orders (原作內建 courier_take_stash_and_transfer_items／courier_return_to_base):
+    -- shells the owner casts through SummonOrder; the host runs what they do by their id (line B)
+    abilities = {
+      { id = "courier_deliver", source_id = "courier_take_stash_and_transfer_items", slot = "hidden", kind = "active", max_level = 1,
+        text = {
+          zh_TW = { name = "送貨", body = "取出主人儲藏處的道具，走到主人身邊交給他。" },
+          en = { name = "Deliver", body = "Takes the items in the owner's stash and carries them to the owner." },
+        },
+        target = { type = "none" },
+        events = { on_cast = {} },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "note", ref = "npc/npc_units_custom_load.txt:3330",
+            text = "Dota 內建信使技能，原作沒有冷卻或法力數值；取貨、送達的行為由 host 依技能 id 執行（E 線 courier-spec-2026-11-09）。" },
+        },
+        provenance = { "npc/npc_units_custom_load.txt:3330", "vscripts/library/events/eventforspawned.lua:51" } },
+      { id = "courier_return", source_id = "courier_return_to_base", slot = "hidden", kind = "active", max_level = 1,
+        text = {
+          zh_TW = { name = "回家", body = "走回自家泉水。" },
+          en = { name = "Return", body = "Walks back to the home fountain." },
+        },
+        target = { type = "none" },
+        events = { on_cast = {} },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "note", ref = "npc/npc_units_custom_load.txt:3323",
+            text = "Dota 內建信使技能，原作沒有冷卻或法力數值；回家的行為由 host 依技能 id 執行（E 線 courier-spec-2026-11-09）。" },
+        },
+        provenance = { "npc/npc_units_custom_load.txt:3323", "vscripts/library/events/eventforspawned.lua:45" } },
+    },
+
     unit_templates = {
+      { id = "courier", source_id = "npc_dota_courier2",
+        values = {
+          hp = { 500, unit = "hp", source = "kv:StatusHealth @npc/npc_units_custom_load.txt:3306-3379" },
+          hp_regen = { 10, unit = "per_s", source = "kv:StatusHealthRegen" },
+          move_speed = { 550, unit = "move_speed", kv = { 750 },
+            source = "kv:courier_speed MODIFIER_PROPERTY_MOVESPEED_ABSOLUTE @npc/npc_abilities_custom_load.txt:1627-1652",
+            source_differs = "D13：KV MovementSpeed 750 是原作生成時沒把 courier_speed 設成 1 級的 bug（eventforkill.lua:540-557 重生後才 550）；照設計意圖一律 550" },
+          turn_rate = { 0.5, unit = "number", source = "kv:MovementTurnRate" },
+          vision = { 100, unit = "dist", source = "kv:VisionDaytimeRange／VisionNighttimeRange" },
+          bounty_gold = { 150, unit = "gold", source = "kv:BountyGoldMin／BountyGoldMax" },
+        },
+        text = { zh_TW = { name = "馬" }, en = { name = "Courier" } },
+        stats = { hp = "$hp", hp_regen = "$hp_regen", move_speed = "$move_speed" },
+        turn_rate = "$turn_rate",
+        -- 原作沒有攻擊能力；collision_radius 不寫即 0：for_no_collision（D13：生成起就無碰撞）
+        attack = { kind = "none" },
+        vision = { day = "$vision", night = "$vision" },
+        bounty = { gold = "$bounty_gold" },
+        ai = "owner_controlled", tags = { "courier" }, owner_death = "persist",
+        abilities = { "courier_deliver", "courier_return" },
+        -- for_magic_immune：host 生成信使時套用（summon 列 magic_immune）
+        passive = { states = { "magic_immune" } },
+        notes = "每位玩家一隻，主人是英雄，沒有存活時間；生成、立即重生、只限主人下指令與 shop_range_rule 開關由 host 做（E 線 courier-spec-2026-11-09 §1）。tag courier：host 把 UnitType 設成 Courier，has_tag(courier) 成立。",
+        provenance = { "npc/npc_units_custom_load.txt:3306-3379", "vscripts/library/events/eventforspawned.lua:38-57", "vscripts/library/events/eventforkill.lua:540-557" } },
+
       { id = "art_of_war_infantry", source_id = "oda_infantry_forest",
         values = {
           base_hp = { 650, unit = "hp", hidden = true, source = "kv:StatusHealth @npc/npc_units_custom_load.txt:3963" },

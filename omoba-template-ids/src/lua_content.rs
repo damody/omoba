@@ -1776,6 +1776,12 @@ pub(crate) struct SummonEntry {
     /// A building unit (原作 npc_dota_building, E428); immobile.
     #[serde(default)]
     pub(crate) building: bool,
+    /// A courier (原作 npc_dota_courier2): UnitType::Courier.
+    #[serde(default)]
+    pub(crate) courier: bool,
+    /// Magic immune from its spawn (a courier's for_magic_immune).
+    #[serde(default)]
+    pub(crate) magic_immune: bool,
     /// Attack damage added per owner hero level above 1, sampled at spawn.
     #[serde(default)]
     pub(crate) damage_per_owner_level: f32,

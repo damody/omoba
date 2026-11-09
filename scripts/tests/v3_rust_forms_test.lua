@@ -485,4 +485,15 @@ test('an item active may write its bot policy (no code, no blocker)', function()
   end
 end)
 
+test('the courier template is a summon row the host spawns as a courier', function()
+  package.loaded['v3_summons'] = nil
+  local S = require('v3_summons')
+  local rows = S.build(b.root, S.existing(b.root))
+  local row
+  for _, r in ipairs(rows) do if r.id == 'courier' then row = r end end
+  assert(row, 'a courier row')
+  assert(row.courier == true and row.magic_immune == true and row.no_attack == true, 'courier, magic immune, no attack')
+  assert(row.move_speed == 550 and row.turn_rate == 0.5 and row.collision_radius == 0 and row.owner_death == 'persist', 'its numbers')
+end)
+
 print(('%d tests passed'):format(count))

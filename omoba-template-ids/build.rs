@@ -1802,6 +1802,8 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \tchase: {},\n\
              \tblocks_pathing: {},\n\
              \tbuilding: {},\n\
+             \tcourier: {},\n\
+             \tmagic_immune: {},\n\
              }};\n",
             cname,
             fixed64_lit(e.hp),
@@ -1839,6 +1841,8 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             chase,
             e.blocks_pathing,
             e.building,
+            e.courier,
+            e.magic_immune,
         ));
     }
     out.push('\n');

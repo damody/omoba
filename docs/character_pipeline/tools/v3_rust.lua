@@ -4275,7 +4275,9 @@ local function emit_entry(m, o, opts, status_problems)
     local body = g:actions(list, ctx, "    ")
     g.phase = false
     -- on_toggle_off: other entries of the document turn the toggle off too (toggle_ability)
-    fns[#fns + 1] = string.format("%sfn %s(cx: &mut Cx<'_, '_>) -> Res {\n%s    Ok(())\n}\n", name == "on_toggle_off" and "pub(crate) " or "", name, body)
+    -- an empty program (a shell the host runs by its id: the courier's orders) leaves cx unused
+    local cx = body:find("%f[%w_]cx%f[^%w_]") and "cx" or "_cx"
+    fns[#fns + 1] = string.format("%sfn %s(%s: &mut Cx<'_, '_>) -> Res {\n%s    Ok(())\n}\n", name == "on_toggle_off" and "pub(crate) " or "", name, cx, body)
   end
   -- an item with nothing of its own (a recipe component: 破魔寶珠) is its catalog row alone
   local bare_item = o.kind == "item" and def.active == nil and def.statuses == nil and def.unit_state == nil

@@ -618,6 +618,8 @@ impl RuntimeContent {
                 flying: entry.flying,
                 blocks_pathing: entry.blocks_pathing,
                 building: entry.building,
+                courier: entry.courier,
+                magic_immune: entry.magic_immune,
                 chase: entry.chase.as_ref().map(|c| &*leak(crate::SummonChaseConst {
                     speed: fixed64(c.speed), max_distance: fixed64(c.max_distance),
                     teleport_back_distance: fixed64(c.teleport_back_distance), reach_radius: fixed64(c.reach_radius),

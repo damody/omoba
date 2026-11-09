@@ -133939,6 +133939,88 @@ local data = {
         },
       },
     },
+    {
+      ability_type = "active",
+      authored_package = "items",
+      cast_type = "instant",
+      description = "取出主人儲藏處的道具，走到主人身邊交給他。",
+      display_name = "送貨",
+      extras = {},
+      id = "courier_deliver",
+      levels = {
+        { cast_time = 0, cooldown = 0, mana_cost = 0, range = 0 },
+      },
+      max_level = 1,
+      target_type = "none",
+      ue = { native_only = true },
+      v3 = {
+        bot = { kind = "none", reason = "sub-ability (cast through its parent)", source = "derived" },
+        coverage = "expressible",
+        kind = "ability",
+        max_level = 1,
+        schema = "3.3",
+        source_id = "courier_take_stash_and_transfer_items",
+        text = {
+          en = {
+            body = "Takes the items in the owner's stash and carries them to the owner.",
+            name = "Deliver",
+            pieces = {
+              { text = "Takes the items in the owner's stash and carries them to the owner." },
+            },
+            rendered = "Takes the items in the owner's stash and carries them to the owner.",
+          },
+          zh_TW = {
+            body = "取出主人儲藏處的道具，走到主人身邊交給他。",
+            name = "送貨",
+            pieces = {
+              { text = "取出主人儲藏處的道具，走到主人身邊交給他。" },
+            },
+            rendered = "取出主人儲藏處的道具，走到主人身邊交給他。",
+          },
+        },
+      },
+    },
+    {
+      ability_type = "active",
+      authored_package = "items",
+      cast_type = "instant",
+      description = "走回自家泉水。",
+      display_name = "回家",
+      extras = {},
+      id = "courier_return",
+      levels = {
+        { cast_time = 0, cooldown = 0, mana_cost = 0, range = 0 },
+      },
+      max_level = 1,
+      target_type = "none",
+      ue = { native_only = true },
+      v3 = {
+        bot = { kind = "none", reason = "sub-ability (cast through its parent)", source = "derived" },
+        coverage = "expressible",
+        kind = "ability",
+        max_level = 1,
+        schema = "3.3",
+        source_id = "courier_return_to_base",
+        text = {
+          en = {
+            body = "Walks back to the home fountain.",
+            name = "Return",
+            pieces = {
+              { text = "Walks back to the home fountain." },
+            },
+            rendered = "Walks back to the home fountain.",
+          },
+          zh_TW = {
+            body = "走回自家泉水。",
+            name = "回家",
+            pieces = {
+              { text = "走回自家泉水。" },
+            },
+            rendered = "走回自家泉水。",
+          },
+        },
+      },
+    },
   },
   hero_items = {
     { cost = 0, id = "item_c06e", name = "大盜的贈禮", package = "ishikawa_goemon" },

@@ -1470,6 +1470,12 @@ pub struct SummonStats {
     /// A building (v3 unit_template `building`, 原作 npc_dota_building, E428): omoba-core
     /// `IsBuilding` on the authority and every replica; immobile.
     pub building: bool,
+    /// A courier (v3 unit_template tag `courier`, 原作 npc_dota_courier2): omoba-core spawns it
+    /// itself as UnitType::Courier (has_tag courier).
+    pub courier: bool,
+    /// Magic immune for its whole life, put on it at the spawn (a courier's passive
+    /// magic_immune, 原作 for_magic_immune).
+    pub magic_immune: bool,
     /// v3 `ai = "chase_target"` (E406): the host moves it (omoba-core summon_chase); None for
     /// every other summon.
     pub chase: Option<&'static SummonChaseConst>,
