@@ -379,7 +379,17 @@ struct OrderGuard { heard: Arc<Mutex<Vec<(u32, u32)>>>, id: String, cancel: bool
 /// hero-scope status, kept across the death, that hears the respawn instead). An item windup
 /// world gives player 1's hero a scripted item with a 0.5 s interruptible cast point to use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Extra { Plain, Ward, Purge, Death, Respawn, Block, ItemWindup }
+enum Extra { Plain, Ward, Purge, Death, Respawn, Block, ItemWindup, ItemCharges }
+
+/// A scripted catalog item with charges aimed at a point (土牆之書), and its script id.
+fn charged_item() -> (&'static str, &'static str) {
+    use omoba_template_ids::{MobaItemActiveConst, MobaItemTargetShapeConst};
+    omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+        .filter(|item| matches!(item.active, Some(MobaItemActiveConst::Scripted)) && item.charges.is_some()
+            && matches!(item.target.shape, MobaItemTargetShapeConst::Point))
+        .find_map(|item| crate::runtime::game_processor::item_script_id(item.id).map(|script| (item.id, script)))
+        .expect("a scripted point item with charges")
+}
 
 /// A scripted catalog item aimed at no one, free and without charges, with the shortest
 /// cooldown, and its script id.
@@ -551,10 +561,10 @@ fn order_filter_scripts(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32,
     let cast = match extra {
         Extra::Ward | Extra::Death | Extra::Respawn => To::from_value(Zap { id: id.to_owned() }, TD_Opaque),
         Extra::Purge => To::from_value(Purger { id: id.to_owned() }, TD_Opaque),
-        Extra::Plain | Extra::Block | Extra::ItemWindup => To::from_value(Probe { calls, id: id.to_owned() }, TD_Opaque),
+        Extra::Plain | Extra::Block | Extra::ItemWindup | Extra::ItemCharges => To::from_value(Probe { calls, id: id.to_owned() }, TD_Opaque),
     };
-    if extra == Extra::ItemWindup {
-        let (_, script) = windup_item();
+    if matches!(extra, Extra::ItemWindup | Extra::ItemCharges) {
+        let (_, script) = if extra == Extra::ItemWindup { windup_item() } else { charged_item() };
         let level = serde_json::json!({"cooldown": 1, "mana_cost": 0, "cast_time": 0});
         scripts.insert_ability_for_test(serde_json::from_value(serde_json::json!({ "id": script, "name": script, "kind": "item",
             "ability_type": "active", "target_type": "none", "max_level": 1, "levels": {"1": level} })).unwrap(),
@@ -624,11 +634,14 @@ fn order_filter_world(calls: Arc<Mutex<Vec<Call>>>, heard: Arc<Mutex<Vec<(u32, u
             }
         }
     }
-    // An item windup world: player 1's hero holds the windup item, a 0.5 s interruptible cast point.
-    if extra == Extra::ItemWindup {
-        let (item, script) = windup_item();
-        crate::runtime::game_processor::TEST_ITEM_CASTS.with(|casts| casts.borrow_mut().insert(item.to_owned(),
-            omoba_template_ids::MobaItemCastConst { point: Fixed64::from_raw(512), interruptible: true }));
+    // An item windup world: player 1's hero holds the windup item, a 0.5 s interruptible cast point;
+    // an item charges world, the charged item as the catalog has it.
+    if matches!(extra, Extra::ItemWindup | Extra::ItemCharges) {
+        let (item, script) = if extra == Extra::ItemWindup { windup_item() } else { charged_item() };
+        if extra == Extra::ItemWindup {
+            crate::runtime::game_processor::TEST_ITEM_CASTS.with(|casts| casts.borrow_mut().insert(item.to_owned(),
+                omoba_template_ids::MobaItemCastConst { point: Fixed64::from_raw(512), interruptible: true }));
+        }
         if world.try_fetch::<crate::runtime::native::item::ItemRegistry>().is_none() {
             world.insert(crate::runtime::native::item::ItemRegistry::generated_moba());
         }
@@ -771,6 +784,21 @@ fn an_item_cast_point_keeps_every_team_replica_with_the_authority() {
     assert!(releases >= 2 && starts >= releases, "the item waited and released on the authority and the replica: {heard:?}");
 }
 
+/// v3 item `cost.charges`（土牆之書）: player 1 spends both of the item's charges, then waits on
+/// its recharge; every team replica, the opponents' included (CommittedCharge with the item's
+/// catalog slot), holds the hero's `item:<id>` charges as the authority does each tick.
+#[test]
+fn spent_item_charges_keep_every_team_replica_with_the_authority() {
+    let (world, _, _, heard) = order_filter_soak(false, Extra::ItemCharges);
+    let state = world.read_resource::<crate::runtime::MobaMatch>();
+    let hero = state.heroes.iter().find(|slot| slot.player_id == 1).and_then(|slot| slot.entity).unwrap();
+    let releases = heard.lock().unwrap().iter().filter(|row| **row == (hero.id(), 1)).count();
+    assert!(releases >= 2, "both charges were used: {:?}", heard.lock().unwrap());
+    let (item, _) = charged_item();
+    let left = world.read_storage::<Hero>().get(hero).unwrap().ability_charges.get(&crate::runtime::game_processor::item_charge_key(item)).cloned();
+    assert!(left.is_some_and(|state| state.charges < state.max), "spent, still recharging: {left:?}");
+}
+
 /// FC-095／096 chance block (rules::damage::block_amount): both heroes trade attacks while each
 /// wears two 50% blocks; every team replica rolls the same blocks and keeps the authority's lives.
 #[test]
@@ -811,7 +839,7 @@ fn order_filter_soak(cancel: bool, extra: Extra) -> (specs::World, Entity, Arc<M
     use crate::game_proto::{player_input::Action, CastAbility, PlayerInput};
     {
         let (calls, heard) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
-        let (mut world, mut driver, _, enemy, id) = order_filter_world(calls.clone(), heard.clone(), cancel, extra, false);
+        let (mut world, mut driver, hero, enemy, id) = order_filter_world(calls.clone(), heard.clone(), cancel, extra, false);
         let step = |world: &mut specs::World, driver: &mut crate::runtime::SimulationDriver, inputs: Vec<(u32, PlayerInput)>| {
             let accepted = accepted_inputs(world, driver.tick() + 1, &inputs);
             let result = driver.step(world, inputs).unwrap();
@@ -828,6 +856,12 @@ fn order_filter_soak(cancel: bool, extra: Extra) -> (specs::World, Entity, Arc<M
         for at in 0..1440 {
             let inputs = if (driver.tick() + 1) % 120 == 100 && extra == Extra::ItemWindup {
                 vec![(1, PlayerInput { action: Some(Action::ItemUse(crate::game_proto::ItemUse { item_slot: 0, ..Default::default() })) })]
+            } else if (driver.tick() + 1) % 120 == 100 && extra == Extra::ItemCharges {
+                // a point 100 in front of the user
+                let at = world.read_storage::<crate::runtime::native::comp::Pos>().get(hero).unwrap().0;
+                let point = crate::game_proto::Vec2I { x: (at.x.raw() + 100 * 1024) as i32, y: at.y.raw() as i32 };
+                vec![(1, PlayerInput { action: Some(Action::ItemUse(crate::game_proto::ItemUse { item_slot: 0, target_pos: Some(point),
+                    point_explicit: Some(true), ..Default::default() })) })]
             } else if (driver.tick() + 1) % 120 == 100 {
                 vec![(1, PlayerInput { action: Some(Action::CastAbility(CastAbility {
                     ability_index: 0, target_entity: Some(enemy.id()), ..Default::default() })) })]

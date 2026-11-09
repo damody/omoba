@@ -2009,7 +2009,11 @@ fn apply_disclosed_events(
             let max = u16::from_le_bytes(p[6..8].try_into().unwrap());
             let recharge = i64::from_le_bytes(p[8..16].try_into().unwrap());
             let remaining = i64::from_le_bytes(p[16..24].try_into().unwrap());
-            if slot >= crate::runtime::HERO_ABILITY_SLOTS || max == 0 || max > 10 || charges > max || recharge <= 0 || remaining < 0 || remaining > recharge
+            // an item's charges: its catalog id past Hero::ITEM_CHARGE_SLOT
+            let item = (slot as u32 & crate::runtime::Hero::ITEM_CHARGE_SLOT != 0).then(|| u16::try_from(slot as u32 & !crate::runtime::Hero::ITEM_CHARGE_SLOT).ok()
+                .and_then(|catalog_id| omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.catalog_id == catalog_id && item.charges.is_some())));
+            if matches!(item, Some(None)) || (item.is_none() && slot >= crate::runtime::HERO_ABILITY_SLOTS)
+                || max == 0 || max > 10 || charges > max || recharge <= 0 || remaining < 0 || remaining > recharge
                 || (charges == max) != (remaining == 0) { return Err(ReplicaRuntimeError::MalformedBaseline); }
             let id = event.subject.as_ref().map_or(0, |id| id.value);
             let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
@@ -2017,7 +2021,10 @@ fn apply_disclosed_events(
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
             adopt_same_tick_slots(&mut hero, injections, id)?;
-            let ability = hero.abilities.get(slot).ok_or(ReplicaRuntimeError::MalformedBaseline)?.clone();
+            let ability = match item {
+                Some(Some(item)) => crate::runtime::native::game_processor::item_charge_key(item.id),
+                _ => hero.abilities.get(slot).ok_or(ReplicaRuntimeError::MalformedBaseline)?.clone(),
+            };
             hero.ability_charges.insert(ability, crate::runtime::comp::AbilityChargeState {
                 charges, max, recharge: omoba_sim::Fixed64::from_raw(recharge), remaining: omoba_sim::Fixed64::from_raw(remaining) });
             *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);

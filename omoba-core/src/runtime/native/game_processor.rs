@@ -3580,6 +3580,11 @@ pub fn process_outcomes(
                 let Some(planned)=planned.filter(|_|commit_scripted_item_use(world,owner,owner_pid,slot as usize,&item_id,target,target_point,refund)) else {
                     cast_settlement::release_spawns(world,&outcomes);continue;
                 };
+                // a spent item charge reaches every team that sees the user, as an ability's does
+                if let Some(catalog) = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == item_id && item.charges.is_some()) {
+                    committed_charges.insert((crate::runtime::canonical_entity_id(owner), Hero::ITEM_CHARGE_SLOT | u32::from(catalog.catalog_id)),
+                        (owner, item_charge_key(&item_id)));
+                }
                 for spawn in planned {spawn.commit(world,projection_tick,&mut next_ordinal)?;}
                 for effect in outcomes.into_iter().filter(|o|!matches!(o,Outcome::SpawnSummoned {..})).rev() {pending.push_front(effect);}
             }

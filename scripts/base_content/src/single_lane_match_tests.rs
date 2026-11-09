@@ -15889,7 +15889,8 @@ mod scripted_item_use {
         assert_eq!(slot_cooldown(&w, hero), 0.0, "lightning scroll refuses a magic immune target");
         give(&mut w, hero, "the_great_sword_of_tiger");
         d.step(&mut w, [item_use(0, None, Some(enemy.id()), None)]).unwrap();
-        for _ in 0..3 { if slot_cooldown(&w, hero) > 0.0 { break; } d.step(&mut w, []).unwrap(); }
+        // past its cast point (catalog cast, 0.2 s)
+        for _ in 0..30 { if slot_cooldown(&w, hero) > 0.0 { break; } d.step(&mut w, []).unwrap(); }
         assert!(slot_cooldown(&w, hero) > 0.0, "the tiger sword is admitted and committed");
     }
 

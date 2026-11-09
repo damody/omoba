@@ -127,6 +127,10 @@ fn scripted_targeted(bot:&ItemBotPolicy,shape:omoba_template_ids::MobaItemTarget
     use super::BotAbilityIntent as I;
     use omoba_sim::Fixed64;
     use omoba_template_ids::MobaItemTargetShapeConst as Shape;
+    // unit_or_point (巨龍): what its intent aims at, a unit or else a point
+    if shape==Shape::UnitOrPoint {
+        return scripted_targeted(bot,Shape::Unit,own,team,seen,reach).or_else(||scripted_targeted(bot,Shape::Point,own,team,seen,reach));
+    }
     let enemy=|u:&&super::SeenUnit| u.team!=team && u.team!=0 && u.hp_raw>0;
     let hurt=|u:&super::SeenUnit| (i128::from(u.hp_raw)*1000/i128::from(u.max_hp_raw.max(1)),u.canonical_id);
     let weakest_hero=||seen.iter().filter(enemy).filter(|u|u.kind==1 && reach(u.position)).min_by_key(|u|(u.hp_raw,u.canonical_id));
@@ -778,5 +782,30 @@ mod tests {
         assert!(may_recall(BotRole::Carry,&builds,&Gold(950),own,home,1,&[super::super::SeenUnit {team:1,..enemy}]));
         builds[0].return_to_shop.as_mut().unwrap().min_gold=0;
         assert!(validate(&builds).is_err());
+    }
+}
+
+#[cfg(test)]
+mod unit_or_point_tests {
+    use super::*;
+    use omoba_sim::{Fixed64, Vec2};
+
+    /// A unit_or_point active (巨龍) is aimed by its intent: an enemy unit intent at the weakest
+    /// enemy hero in range, a point intent at a point; before, no intent matched it (E: 8 bought,
+    /// 0 used).
+    #[test]
+    fn a_unit_or_point_active_is_aimed_by_its_intent() {
+        use super::super::BotAbilityIntent as I;
+        use omoba_template_ids::MobaItemTargetShapeConst as Shape;
+        let unit=|id:u64,x:i32,hp:i64|super::super::SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
+            team:2,kind:1,owner_player_id:0,hp_raw:hp,max_hp_raw:1000,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
+        let seen=[unit(5,200,900),unit(6,250,400)];
+        let reach=|at:Vec2|at.x<=Fixed64::from_i32(600);
+        let policy=|intent|ItemBotPolicy {intent,values:BTreeMap::new()};
+        assert!(matches!(scripted_targeted(&policy(I::EnemyUnit),Shape::UnitOrPoint,Vec2::ZERO,1,&seen,&reach),
+            Some((TargetedItemPriority::Offense,ActiveItemTarget::Unit(6)))));
+        assert!(matches!(scripted_targeted(&policy(I::SummonNearEnemy {threat_radius:700}),Shape::UnitOrPoint,Vec2::ZERO,1,&seen,&reach),
+            Some((TargetedItemPriority::Offense,ActiveItemTarget::Point(at))) if at==seen[0].position));
+        assert!(scripted_targeted(&policy(I::EnemyUnit),Shape::UnitOrPoint,Vec2::ZERO,1,&[],&reach).is_none(), "no one to aim at");
     }
 }

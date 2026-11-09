@@ -451,6 +451,10 @@ impl Hero {
     /// ability id past this flag (E615).
     pub const HIDDEN_ABILITY_SLOT: u32 = 1 << 16;
 
+    /// A committed charge fact's slot for an item's charges (`item:<id>`, v3 item
+    /// `cost.charges`): the item's catalog id past this flag.
+    pub const ITEM_CHARGE_SLOT: u32 = 1 << 17;
+
     /// The slot a committed cooldown fact names for `ability`: the slot it holds, or, for a ranked
     /// ability no slot holds (its own cast swapped it out: 原作 A13 影惑 → 替身), its id past
     /// [`Hero::HIDDEN_ABILITY_SLOT`], so the swapped-out ability's cooldown reaches a replica too.
