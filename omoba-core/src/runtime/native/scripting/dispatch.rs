@@ -370,6 +370,8 @@ fn dispatch_scripts(
                     let proceed = super::super::game_processor::item_script_id(item_id).is_none_or(|script|
                         run_phase_start(&cache, registry, *owner, script, target, 1, PHASE_START_ORDINAL + event_ordinal as u64, &mut event_outcomes));
                     if !proceed { continue; }
+                    // it turns to its unit or point as an ability windup does
+                    cast_turns.extend(cast_turn(&cache, *owner, item_id, target));
                     item_windups.0.insert(*owner, super::super::cast_windup::ItemWindup { owner_pid: *owner_pid, slot: *slot,
                         item_id: item_id.clone(), target: target.clone(), origin, remaining: cast.point,
                         interruptible: cast.interruptible, last_tick: cache.tick.0, anchored: false });
@@ -460,6 +462,7 @@ fn dispatch_scripts(
             };
             let turn = match &ev {
                 ScriptEvent::SkillCast { caster, skill_id, target } => cast_turn(&cache, *caster, skill_id, target),
+                ScriptEvent::ItemCast { owner, item_id, target, .. } => cast_turn(&cache, *owner, item_id, target),
                 _ => None,
             };
             adapter.set_cast_released(releasing && is_cast);
@@ -539,6 +542,8 @@ fn dispatch_scripts(
                     else { cast_outcomes.push((invocation_entity, skill_id.clone(), Some(rejection))); }
                 }
             }
+            // a used unit or point item leaves its user facing where it was used
+            if item_use.is_some() && cast_ok { cast_turns.extend(turn); }
             let refund = crate::comp::ItemRefund { mana: adapter.mana_refunded(), cooldown: adapter.cooldown_refunded() };
             let produced = adapter.finish();
             if let Some((owner, owner_pid, slot, item_id, target, target_point)) = item_use {
@@ -3063,5 +3068,56 @@ mod item_windup_tests {
         }
         assert_eq!(run(true, death), started);
         assert_eq!(run(false, death), started);
+    }
+}
+
+#[cfg(test)]
+mod item_turn_tests {
+    use super::*;
+    use crate::runtime::native::comp::{CProperty, Facing, Faction, FactionType, Pos};
+    use specs::{Builder, WorldExt};
+
+    struct Quiet(String);
+    impl omb_script_abi::ability::AbilityScript for Quiet {
+        fn ability_id(&self) -> RStr<'_> { RStr::from_str(&self.0) }
+        fn execute(&self, _: EntityHandle, _: omb_script_abi::types::Target, _: u8, _: RStr<'_>,
+            _: &mut omb_script_abi::world::GameWorldDyn<'_>) -> abi_stable::std_types::RResult<(), abi_stable::std_types::RString> {
+            abi_stable::std_types::RResult::ROk(())
+        }
+    }
+
+    /// A point item turns its user to the point when its cast point starts, as an ability windup
+    /// does (巨龍's breath leaves along the user's facing when it releases); an instant one when
+    /// its use succeeds.
+    #[test]
+    fn a_point_item_turns_its_user_to_the_point() {
+        let (item_id, script) = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+            .find_map(|item| crate::runtime::game_processor::item_script_id(item.id).map(|script| (item.id, script))).unwrap();
+        for windup in [true, false] {
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+            let dt = Fixed64::from_raw(17);
+            world.insert(crate::runtime::native::comp::DeltaTime(dt));
+            crate::runtime::game_processor::TEST_ITEM_CASTS.with(|casts| {
+                let mut casts = casts.borrow_mut();
+                if windup { casts.insert(item_id.to_owned(), omoba_template_ids::MobaItemCastConst { point: Fixed64::from_raw(512), interruptible: false }); }
+                else { casts.remove(item_id); }
+            });
+            let owner = world.create_entity().with(Pos(Vec2::ZERO)).with(Facing(omoba_sim::Angle::ZERO))
+                .with(CProperty { hp: Fixed64::ONE, mhp: Fixed64::ONE, msd: Fixed64::ZERO, def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO })
+                .with(Faction::new(FactionType::Player, 1)).build();
+            let mut registry = crate::runtime::ScriptRegistry::new();
+            let level = serde_json::json!({"cooldown": 1, "mana_cost": 0, "cast_time": 0});
+            registry.insert_ability_for_test(serde_json::from_value(serde_json::json!({ "id": script, "name": script, "kind": "item",
+                "ability_type": "active", "target_type": "point", "max_level": 1, "levels": {"1": level} })).unwrap(),
+                omb_script_abi::ability::AbilityScript_TO::from_value(Quiet(script.to_owned()), abi_stable::sabi_trait::prelude::TD_Opaque));
+            let point = Vec2::new(Fixed64::ZERO, Fixed64::from_i32(500));
+            world.write_resource::<ScriptEventQueue>().push(ScriptEvent::ItemCast { owner, owner_pid: 1, slot: 0, item_id: item_id.to_owned(),
+                target: SkillTarget::Point { x: point.x, y: point.y }, released: false });
+            world.write_resource::<crate::runtime::Tick>().0 = 1;
+            crate::runtime::run_script_dispatch(&mut world, &registry, 1, dt);
+            let facing = world.read_storage::<Facing>().get(owner).unwrap().0;
+            assert_eq!(Some(facing), crate::runtime::native::moba_match::direction_angle(Vec2::ZERO, point), "windup {windup}");
+        }
+        crate::runtime::game_processor::TEST_ITEM_CASTS.with(|casts| casts.borrow_mut().remove(item_id));
     }
 }
