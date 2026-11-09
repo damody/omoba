@@ -4253,7 +4253,8 @@ local function emit_entry(m, o, opts, status_problems)
     if act.kind == "passive" and act.events ~= nil then g:block("item.active.kind:passive with events") end
     if act.kind ~= "active" and act.kind ~= "toggle" and act.kind ~= "passive" then g:block("item.active.kind:" .. tostring(act.kind)) end
     for _, k in ipairs(sorted_keys(act)) do
-      if k ~= "kind" and k ~= "target" and k ~= "cost" and k ~= "cast" and k ~= "events" and k ~= "flags" then g:block("item.active." .. k) end
+      -- bot: the bot's use policy (v3_bot.lua, the catalog's v3.bot), no code
+      if k ~= "kind" and k ~= "target" and k ~= "cost" and k ~= "cast" and k ~= "events" and k ~= "flags" and k ~= "bot" then g:block("item.active." .. k) end
     end
     for _, k in ipairs(sorted_keys(act.cost or {})) do
       -- charges: the catalog row's (gen_item_v3 scripted_active; the host keeps and spends them, line B 1f8fecee)

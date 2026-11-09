@@ -475,4 +475,14 @@ test('an item unit target without heroes and has_tag courier', function()
   assert(has(sword, 'cx.has_unit_tag(u, "courier")'), 'courier tag')
 end)
 
+test('an item active may write its bot policy (no code, no blocker)', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I1.lua'))
+  local _, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_great_dragon' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+end)
+
 print(('%d tests passed'):format(count))

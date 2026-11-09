@@ -381,6 +381,8 @@ return function(ctx)
         active = { kind = "active",
           target = { type = "unit_or_point", range = "$cast_range", aoe_radius = "$aoe_radius", team = "both", types = BASIC },
           cast = { cast_point = "$cast_point" },
+          -- the breath is a line (aoe_radius is only the indicator): the bot aims it at an enemy hero
+          bot = { kind = "enemy_line", min_targets = 1 },
           cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
           events = { on_cast = {
             { op = "let", name = "start", value = "position(caster)" },

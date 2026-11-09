@@ -661,6 +661,8 @@ return function(ctx)
         passive = { stats = { str = "$str", agi = "$agi", int = "$int" } },
         active = { kind = "active",
           target = { type = "point", range = "$cast_range", aoe_radius = "$aoe_radius" },
+          -- the gale is a line toward the point (aoe_radius is only the indicator)
+          bot = { kind = "enemy_line", min_targets = 1 },
           cast = { cast_point = "$cast_point" },
           cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
           events = { on_cast = {

@@ -946,7 +946,7 @@ local data = {
     },
   },
   commander_of_fan = {
-    bot = { kind = "enemy_point", min_targets = 1, radius_key = "aoe_radius", source = "derived" },
+    bot = { kind = "enemy_line", min_targets = 1, source = "authored" },
     coverage = "expressible",
     info = {
       { field = "cost", value = "cost" },
@@ -4533,7 +4533,7 @@ local data = {
     },
   },
   great_dragon = {
-    bot = { kind = "enemy_point", min_targets = 1, radius_key = "aoe_radius", source = "derived" },
+    bot = { kind = "enemy_line", min_targets = 1, source = "authored" },
     coverage = "expressible",
     info = {
       { field = "cost", value = "cost" },
