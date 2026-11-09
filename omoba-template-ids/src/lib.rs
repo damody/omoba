@@ -1537,6 +1537,15 @@ pub enum TargetTypeC {
     None = 0,
     Point = 1,
     Unit = 2,
+    /// v3 `target.type = "unit_or_point"`: a unit (checked as a unit target) or a ground point.
+    UnitOrPoint = 3,
+}
+
+impl TargetTypeC {
+    /// Aimed at a unit: `unit`, or `unit_or_point` given one.
+    pub fn takes_unit(self) -> bool { matches!(self, Self::Unit | Self::UnitOrPoint) }
+    /// Aimed at a ground point: `point`, or `unit_or_point` given one.
+    pub fn takes_point(self) -> bool { matches!(self, Self::Point | Self::UnitOrPoint) }
 }
 
 /// 單一等級的核心數值 — const-friendly mirror of `AbilityLevelData`。

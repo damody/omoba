@@ -457,7 +457,7 @@ fn dispatch_scripts(
             let targeted = match &ev {
                 ScriptEvent::SkillCast { caster, skill_id, target: SkillTarget::Entity(target) }
                     if registry.get_ability(skill_id).is_some_and(|(definition, _)|
-                        definition.target_type == crate::ability_meta::TargetType::Unit) => Some((*caster, *target)),
+                        matches!(definition.target_type, crate::ability_meta::TargetType::Unit | crate::ability_meta::TargetType::UnitOrPoint)) => Some((*caster, *target)),
                 _ => None,
             };
             let turn = match &ev {
@@ -1733,8 +1733,9 @@ fn windup_target_allowed(cache:&ParallelAdapterCache<'_>,def:&crate::ability_met
     use super::super::command_outcome as code;
     let position=match (&def.target_type,target) {
         (TargetType::None,SkillTarget::None)=>return Ok(()),
-        (TargetType::Point,SkillTarget::Point {x,y})=>Some(Vec2::new(*x,*y)),
-        (TargetType::Unit,SkillTarget::Entity(entity)) if cache.entities.is_alive(*entity)
+        // unit_or_point: a point as a point cast's, a unit as a unit cast's
+        (TargetType::Point|TargetType::UnitOrPoint,SkillTarget::Point {x,y})=>Some(Vec2::new(*x,*y)),
+        (TargetType::Unit|TargetType::UnitOrPoint,SkillTarget::Entity(entity)) if cache.entities.is_alive(*entity)
             && cache.cprop.get(*entity).is_some_and(|p|p.hp>Fixed64::ZERO)=>cache.pos.get(*entity).map(|p|p.0),
         _=>None,
     };
@@ -3119,5 +3120,41 @@ mod item_turn_tests {
             assert_eq!(Some(facing), crate::runtime::native::moba_match::direction_angle(Vec2::ZERO, point), "windup {windup}");
         }
         crate::runtime::game_processor::TEST_ITEM_CASTS.with(|casts| casts.borrow_mut().remove(item_id));
+    }
+}
+
+#[cfg(test)]
+mod unit_or_point_cast_tests {
+    use super::*;
+    use crate::runtime::native::comp::{CProperty, Pos};
+    use specs::{Builder, WorldExt};
+
+    /// A hero ability with `target_type = "unit_or_point"` (A06D, C10W, A32T...): its windup takes a
+    /// ground point as a point cast does and a living unit as a unit cast does, each in range; no
+    /// target is refused.
+    #[test]
+    fn a_unit_or_point_ability_windup_takes_a_unit_or_a_point() {
+        use super::super::super::command_outcome as code;
+        let def: crate::ability_meta::AbilityDef = serde_json::from_value(serde_json::json!({
+            "id": "either", "name": "either", "ability_type": "active", "target_type": "unit_or_point", "max_level": 1,
+            "levels": {"1": {"cooldown": 0, "mana_cost": 0, "cast_time": 0.3, "range": 600}} })).unwrap();
+        assert_eq!(def.target_type, crate::ability_meta::TargetType::UnitOrPoint);
+        let level = def.get_level_data(1).unwrap().clone();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+        let body = |x: i32| (Pos(Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO)),
+            CProperty { hp: Fixed64::ONE, mhp: Fixed64::ONE, msd: Fixed64::ZERO, def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO });
+        let (pos, prop) = body(400);
+        let near = world.create_entity().with(pos).with(prop).build();
+        let (pos, prop) = body(900);
+        let far = world.create_entity().with(pos).with(prop).build();
+        let cache = ParallelAdapterCache::new(&world, 1);
+        let point = |x: i32| SkillTarget::Point { x: Fixed64::from_i32(x), y: Fixed64::ZERO };
+        let judge = |target: SkillTarget| windup_target_allowed(&cache, &def, &level, &target, Vec2::ZERO);
+        assert_eq!(judge(point(500)), Ok(()), "a point in range");
+        assert_eq!(judge(point(700)), Err(code::OUT_OF_RANGE));
+        assert_eq!(judge(SkillTarget::Entity(near)), Ok(()), "a unit in range");
+        assert_eq!(judge(SkillTarget::Entity(far)), Err(code::OUT_OF_RANGE));
+        assert_eq!(judge(SkillTarget::None), Err(code::INVALID_TARGET), "it needs one or the other");
+        assert!(omoba_template_ids::TargetTypeC::UnitOrPoint.takes_unit() && omoba_template_ids::TargetTypeC::UnitOrPoint.takes_point());
     }
 }

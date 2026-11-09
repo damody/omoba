@@ -2637,6 +2637,7 @@ fn observed_ability(world: &FixtureWorld, slot: u32) -> (Option<u16>, Option<Str
         omoba_template_ids::TargetTypeC::None => "none",
         omoba_template_ids::TargetTypeC::Point => "point",
         omoba_template_ids::TargetTypeC::Unit => "unit",
+        omoba_template_ids::TargetTypeC::UnitOrPoint => "unit_or_point",
     });
     (Some(id.raw()), Some(ability_id.clone()), kind)
 }

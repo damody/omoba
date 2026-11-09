@@ -1010,6 +1010,7 @@ fn admit_ability_cast(
         .and_then(|kind| match kind {
             crate::ability_meta::TargetType::Unit if target_entity.is_none() => Some(code::TARGET_REQUIRED),
             crate::ability_meta::TargetType::Point if target_pos.is_none() => Some(code::TARGET_REQUIRED),
+            crate::ability_meta::TargetType::UnitOrPoint if target_entity.is_none() && target_pos.is_none() => Some(code::TARGET_REQUIRED),
             _ => None,
         });
 

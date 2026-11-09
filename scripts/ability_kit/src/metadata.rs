@@ -30,6 +30,7 @@ fn target_type_from(c: TargetTypeC) -> TargetType {
         TargetTypeC::None => TargetType::None,
         TargetTypeC::Point => TargetType::Point,
         TargetTypeC::Unit => TargetType::Unit,
+        TargetTypeC::UnitOrPoint => TargetType::UnitOrPoint,
     }
 }
 

@@ -13039,6 +13039,8 @@ mod windup_dual_replica {
                     omoba_template_ids::TargetTypeC::None=>Aim::None,
                     omoba_template_ids::TargetTypeC::Point=>Aim::Point,
                     omoba_template_ids::TargetTypeC::Unit=>Aim::Enemy,
+                    // the point form: a unit one is a unit cast's, checked above
+                    omoba_template_ids::TargetTypeC::UnitOrPoint=>Aim::Point,
                 };
                 // Inside cast range when it has one; the windup plus one second settles the release.
                 let range=(level.range.raw()/1024) as i32;

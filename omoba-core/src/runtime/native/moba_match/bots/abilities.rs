@@ -234,18 +234,18 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
             BotAbilityIntent::SelfChannelRecovery {below_hp_per_mille,threat_radius}
                 if def.target_type==TargetTypeC::None && (1..=1000).contains(below_hp_per_mille)
                     && (1..=10_000).contains(threat_radius)=>{},
-            BotAbilityIntent::EnemyUnit|BotAbilityIntent::EnemyHero if def.target_type==TargetTypeC::Unit => {},
-            BotAbilityIntent::NearestTree {enemy_radius} if def.targets_tree && def.target_type==TargetTypeC::Point
+            BotAbilityIntent::EnemyUnit|BotAbilityIntent::EnemyHero if def.target_type.takes_unit() => {},
+            BotAbilityIntent::NearestTree {enemy_radius} if def.targets_tree && def.target_type.takes_point()
                 && *enemy_radius<=10_000 && def.levels.iter().all(|rank|rank.range>Fixed64::ZERO&&rank.range<=Fixed64::from_i32(10_000))=>{},
-            BotAbilityIntent::AllyHeal {below_hp_per_mille} if def.target_type==TargetTypeC::Unit
+            BotAbilityIntent::AllyHeal {below_hp_per_mille} if def.target_type.takes_unit()
                 && (1..=1000).contains(below_hp_per_mille)=>{},
-            BotAbilityIntent::AllyHealOrCleanse {below_hp_per_mille} if def.target_type==TargetTypeC::Unit
+            BotAbilityIntent::AllyHealOrCleanse {below_hp_per_mille} if def.target_type.takes_unit()
                 && def.cleanses_allies && (1..=1000).contains(below_hp_per_mille)
                 && def.levels.iter().all(|rank|rank.range>Fixed64::ZERO&&rank.range<=Fixed64::from_i32(10_000))=>{},
-            BotAbilityIntent::ApproachEnemyPoint {min_distance,reach_key:None} if def.target_type==TargetTypeC::Point
+            BotAbilityIntent::ApproachEnemyPoint {min_distance,reach_key:None} if def.target_type.takes_point()
                 && (1..=10_000).contains(min_distance)
                 && def.levels.iter().all(|level|level.range>Fixed64::from_i32(*min_distance as i32))=>{},
-            BotAbilityIntent::ApproachEnemyPoint {min_distance,reach_key:Some(reach_key)} if def.target_type==TargetTypeC::Point
+            BotAbilityIntent::ApproachEnemyPoint {min_distance,reach_key:Some(reach_key)} if def.target_type.takes_point()
                 && (1..=10_000).contains(min_distance)=>{
                 let Some((_,reach))=def.extras.iter().find(|(name,_)|*name==reach_key) else {return Err("bot approach reach_key requires compiled reach extras");};
                 if reach.len()!=def.levels.len() || reach.iter().any(|r|*r<=Fixed64::from_i32(*min_distance as i32) || *r>Fixed64::from_i32(10_000)) {
@@ -256,7 +256,7 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
                 && def.ability_type==AbilityTypeC::Toggle && (1..=10_000).contains(threat_radius)
                 && !on_status.is_empty() && on_status.len()<=128=>{},
             BotAbilityIntent::SummonNearEnemy {threat_radius} if (1..=10_000).contains(threat_radius)
-                && (def.target_type==TargetTypeC::None || def.target_type==TargetTypeC::Point
+                && (def.target_type==TargetTypeC::None || def.target_type.takes_point()
                     && def.levels.iter().all(|level|level.range>Fixed64::ZERO&&level.range<=Fixed64::from_i32(10_000)))=>{},
             BotAbilityIntent::SelfHeal {below_hp_per_mille} if def.target_type==TargetTypeC::None
                 && *below_hp_per_mille>0 && *below_hp_per_mille<=1000 => {},
@@ -277,7 +277,7 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
                     return Err("bot self-area radius must be positive bounded per-rank data");
                 }
             },
-            BotAbilityIntent::AllyAnchorPoint {radius_key,types} if def.target_type==TargetTypeC::Point
+            BotAbilityIntent::AllyAnchorPoint {radius_key,types} if def.target_type.takes_point()
                 && !types.is_empty() && types.len()<=3 && types.iter().all(|kind|matches!(kind.as_str(),"creep"|"summon"|"building"))
                 && def.levels.iter().all(|rank|rank.range>=Fixed64::ZERO&&rank.range<=Fixed64::from_i32(10_000))=>{
                 let Some((_,radii))=def.extras.iter().find(|(key,_)|*key==radius_key) else {return Err("bot anchor intent requires compiled radius extras");};
@@ -309,14 +309,14 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
                     }
                 }
             },
-            BotAbilityIntent::EnemyPoint {radius_key,min_targets} if def.target_type==TargetTypeC::Point
+            BotAbilityIntent::EnemyPoint {radius_key,min_targets} if def.target_type.takes_point()
                 && (1..=128).contains(min_targets)=>{
                 let Some((_,radii))=def.extras.iter().find(|(key,_)|*key==radius_key) else {return Err("bot point intent requires compiled radius extras");};
                 if radii.len()!=def.levels.len() || radii.iter().any(|r|*r<=Fixed64::ZERO || *r>Fixed64::from_i32(10_000)) {
                     return Err("bot point radius must be positive bounded per-rank data");
                 }
             },
-            BotAbilityIntent::LeapEnemyPoint {radius_key,reach_key,min_targets} if def.target_type==TargetTypeC::Point
+            BotAbilityIntent::LeapEnemyPoint {radius_key,reach_key,min_targets} if def.target_type.takes_point()
                 && (1..=128).contains(min_targets)=>{
                 for key in [radius_key,reach_key] {
                     let Some((_,values))=def.extras.iter().find(|(name,_)|*name==key) else {return Err("bot leap intent requires compiled radius and reach extras");};
@@ -325,20 +325,20 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
                     }
                 }
             },
-            BotAbilityIntent::GlobalEnemyPoint {radius_key,min_targets} if def.target_type==TargetTypeC::Point
+            BotAbilityIntent::GlobalEnemyPoint {radius_key,min_targets} if def.target_type.takes_point()
                 && (1..=128).contains(min_targets) && def.levels.iter().all(|rank|rank.range==Fixed64::ZERO)=>{
                 let Some((_,radii))=def.extras.iter().find(|(key,_)|*key==radius_key) else {return Err("bot global point intent requires compiled radius extras");};
                 if radii.len()!=def.levels.len() || radii.iter().any(|r|*r<=Fixed64::ZERO || *r>Fixed64::from_i32(10_000)) {
                     return Err("bot global point radius must be positive bounded per-rank data");
                 }
             },
-            BotAbilityIntent::AllyEngage {threat_radius} if def.target_type==TargetTypeC::Unit
+            BotAbilityIntent::AllyEngage {threat_radius} if def.target_type.takes_unit()
                 && (1..=10_000).contains(threat_radius)
                 && def.levels.iter().all(|rank|rank.range>=Fixed64::ZERO&&rank.range<=Fixed64::from_i32(10_000))=>{},
-            BotAbilityIntent::EnemyLine {min_targets} if def.target_type==TargetTypeC::Point
+            BotAbilityIntent::EnemyLine {min_targets} if def.target_type.takes_point()
                 && (1..=128).contains(min_targets)
                 && (0..def.levels.len()).all(|rank|line_width(def,rank).is_some_and(|width|width<=Fixed64::from_i32(5_000)))=>{},
-            BotAbilityIntent::EnemyCone {min_targets} if def.target_type==TargetTypeC::Point
+            BotAbilityIntent::EnemyCone {min_targets} if def.target_type.takes_point()
                 && (1..=128).contains(min_targets)
                 && def.cone_half_angle_ticks.len()==def.levels.len()
                 && def.cone_half_angle_ticks.iter().all(|ticks|(1..=1024).contains(ticks))
@@ -472,7 +472,7 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
         // A unit cast the authority refuses (dispatch, E460) is never aimed: the target's public
         // states rule out a hostile magic-immune or any unselectable unit, a hero-only ability anything but a hero.
         let aimable:Vec<SeenUnit>;
-        let seen:&[SeenUnit]=if def.target_type==TargetTypeC::Unit {
+        let seen:&[SeenUnit]=if def.target_type.takes_unit() {
             let pierces=crate::runtime::native::magic_immunity::ability_pierces(&policy.ability);
             aimable=seen.iter().filter(|unit|{
                 let states=target_states(unit.canonical_id);
@@ -494,7 +494,7 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
             // an item's intent (bots::items); validation admits it for no ability
             BotAbilityIntent::AllyAnchorUnit {..}=>continue,
             BotAbilityIntent::AllyHealOrCleanse {below_hp_per_mille}=>{
-                if !def.cleanses_allies || def.target_type!=TargetTypeC::Unit || !(1..=1000).contains(below_hp_per_mille)
+                if !def.cleanses_allies || !def.target_type.takes_unit() || !(1..=1000).contains(below_hp_per_mille)
                     || seen.len()>512 || level.range<=Fixed64::ZERO || level.range>Fixed64::from_i32(10_000){continue;}
                 let Some((unit,_))=seen.iter().filter(|u|u.team==team && team!=0 && u.kind==1 && u.hp_raw>0 && u.max_hp_raw>0
                     && (u.position-own).length_squared()<=level.range*level.range)

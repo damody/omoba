@@ -1568,6 +1568,7 @@ fn target_type(value: &str) -> Result<TargetTypeC, String> {
         "" | "none" => Ok(TargetTypeC::None),
         "point" => Ok(TargetTypeC::Point),
         "unit" => Ok(TargetTypeC::Unit),
+        "unit_or_point" => Ok(TargetTypeC::UnitOrPoint),
         other => Err(format!("unknown target_type '{}'", other)),
     }
 }

@@ -1883,6 +1883,7 @@ fn target_type_to_variant(s: &str) -> &'static str {
         "" | "none" => "None",
         "point" => "Point",
         "unit" => "Unit",
+        "unit_or_point" => "UnitOrPoint",
         other => panic!("unknown target_type '{}'", other),
     }
 }

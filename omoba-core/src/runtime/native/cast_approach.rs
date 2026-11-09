@@ -96,7 +96,9 @@ fn plan(world: &World, req: &PendingAbilityCast) -> Option<(Entity, ApproachTarg
     let kind = world.try_fetch::<crate::runtime::ability_runtime::AbilityRegistry>()
         .and_then(|registry| registry.get(&id).map(|def| def.target_type.clone()))?;
     let target = match kind {
-        crate::ability_meta::TargetType::Unit => ApproachTarget::Unit(super::game_processor::entity_by_id(world, req.target_entity?)?),
+        // unit_or_point given a unit approaches it as a unit cast does
+        crate::ability_meta::TargetType::Unit | crate::ability_meta::TargetType::UnitOrPoint =>
+            ApproachTarget::Unit(super::game_processor::entity_by_id(world, req.target_entity?)?),
         _ => return None,
     };
     if let ApproachTarget::Unit(entity) = target { if entity == hero { return None; } }
