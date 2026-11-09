@@ -23402,7 +23402,7 @@ local data = {
         { cast_time = 0.0, cooldown = 0, mana_cost = 0, range = 700.0 },
       },
       max_level = 4,
-      target_type = "point",
+      target_type = "unit_or_point",
       targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
@@ -37646,7 +37646,7 @@ local data = {
       },
       max_level = 3,
       pierces_magic_immunity = true,
-      target_type = "point",
+      target_type = "unit_or_point",
       targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
@@ -40473,7 +40473,7 @@ local data = {
       },
       max_level = 4,
       pierces_magic_immunity = true,
-      target_type = "point",
+      target_type = "unit_or_point",
       targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
@@ -68293,7 +68293,7 @@ local data = {
         { cast_time = 0.2, cooldown = 4.0, mana_cost = 100.0, range = 1300.0 },
       },
       max_level = 4,
-      target_type = "point",
+      target_type = "unit_or_point",
       targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
@@ -68682,7 +68682,7 @@ local data = {
         { cast_time = 0.35, cooldown = 90.0, mana_cost = 300.0, range = 10000.0, required_hero_level = 18 },
       },
       max_level = 3,
-      target_type = "point",
+      target_type = "unit_or_point",
       targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
@@ -75808,7 +75808,7 @@ local data = {
         { cast_time = 0.35, cooldown = 10.0, mana_cost = 160.0, range = 1100.0 },
       },
       max_level = 4,
-      target_type = "point",
+      target_type = "unit_or_point",
       targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {
@@ -99673,7 +99673,7 @@ local data = {
         { cast_time = 0.35, cooldown = 8.0, mana_cost = 120.0, range = 2000.0 },
       },
       max_level = 3,
-      target_type = "point",
+      target_type = "unit_or_point",
       targeting_shape = { kind = "line", width_key = "shape_width" },
       ue = { native_only = true },
       v3 = {

@@ -26,9 +26,11 @@ local function modules(repo_root)
 end
 
 -- a direction is cast at a point like a vector (the same as generate.lua's TARGET_TYPE); unit_or_point
--- too: v3_rust.lua lowers it as a point cast (`cx.target_point()`, a unit aims at its position, E338)
+-- as is (line B c38a574a: a unit clicked is checked as a unit target, anything else as a point;
+-- v3_rust.lua reads `cx.target_point()`, a unit's position, E338); its unit_target / heroes-only
+-- wait for the content model to take them on a unit_or_point
 -- a tree target is a point the host snaps to a standing tree's centre (targets_tree, line B E403)
-local V3_TARGET_TYPE = { none = "none", unit = "unit", point = "point", direction = "point", vector = "point", unit_or_point = "point", tree = "point" }
+local V3_TARGET_TYPE = { none = "none", unit = "unit", point = "point", direction = "point", vector = "point", unit_or_point = "unit_or_point", tree = "point" }
 local CHANNEL_ANCHOR = { none = "self", point = "point", vector = "point", unit = "unit" }
 
 -- A v3 channel (`cast.channel_time`) as the host's pulse channel (omoba-content-model
