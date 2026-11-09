@@ -784,9 +784,10 @@ fn an_item_cast_point_keeps_every_team_replica_with_the_authority() {
     assert!(releases >= 2 && starts >= releases, "the item waited and released on the authority and the replica: {heard:?}");
 }
 
-/// v3 item `cost.charges`（土牆之書）: player 1 spends both of the item's charges, then waits on
-/// its recharge; every team replica, the opponents' included (CommittedCharge with the item's
-/// catalog slot), holds the hero's `item:<id>` charges as the authority does each tick.
+/// v3 item `cost.charges`（土牆之書）: the hero comes to hold the item (its charges primed, E
+/// cover14), a checkpoint passes, then it spends both charges and waits on the recharge; every
+/// team replica, the opponents' included (CommittedCharge with the item's catalog slot), holds the
+/// hero's `item:<id>` charges as the authority does each tick, from the priming on.
 #[test]
 fn spent_item_charges_keep_every_team_replica_with_the_authority() {
     let (world, _, _, heard) = order_filter_soak(false, Extra::ItemCharges);
@@ -854,9 +855,17 @@ fn order_filter_soak(cancel: bool, extra: Extra) -> (specs::World, Entity, Arc<M
         // The checkpoint is every 120 ticks: each order 20 ticks before one, so a refused cast, a
         // windup, a cooldown or the guard's own effects are all live on a compared tick.
         for at in 0..1440 {
+            // an item charges world: the hero comes to hold the item now (its charges primed on the
+            // authority, as a purchase does), and uses it only after a checkpoint has compared them
+            if at == 0 && extra == Extra::ItemCharges {
+                let (item, _) = charged_item();
+                let spec = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|row| row.id == item).and_then(|row| row.charges).unwrap();
+                world.write_storage::<Hero>().get_mut(hero).unwrap()
+                    .prime_charges(&crate::runtime::game_processor::item_charge_key(item), spec.max, spec.restore, spec.initial);
+            }
             let inputs = if (driver.tick() + 1) % 120 == 100 && extra == Extra::ItemWindup {
                 vec![(1, PlayerInput { action: Some(Action::ItemUse(crate::game_proto::ItemUse { item_slot: 0, ..Default::default() })) })]
-            } else if (driver.tick() + 1) % 120 == 100 && extra == Extra::ItemCharges {
+            } else if (driver.tick() + 1) % 120 == 100 && extra == Extra::ItemCharges && driver.tick() > 240 {
                 // a point 100 in front of the user
                 let at = world.read_storage::<crate::runtime::native::comp::Pos>().get(hero).unwrap().0;
                 let point = crate::game_proto::Vec2I { x: (at.x.raw() + 100 * 1024) as i32, y: at.y.raw() as i32 };

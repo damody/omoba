@@ -141,6 +141,18 @@ fn scripted_targeted(bot:&ItemBotPolicy,shape:omoba_template_ids::MobaItemTarget
                 && i128::from(u.hp_raw)*1000<i128::from(u.max_hp_raw)*i128::from(*below_hp_per_mille)).min_by_key(|u|hurt(u))?;
             Some((TargetedItemPriority::AllyHeal,ActiveItemTarget::Unit(target.canonical_id)))
         }
+        (I::AllyAnchorUnit {types,min_distance},Shape::Unit) => {
+            // disclosed kinds as AllyAnchorPoint's: 2 lane creep, 4 summon or attacking structure, 5/6 other structures
+            let wanted=|kind:u8|types.iter().any(|name|match name.as_str() {
+                "creep"=>kind==2,"summon"=>kind==4,"building"=>matches!(kind,4|5|6),_=>false});
+            let far=Fixed64::from_i32(i32::try_from(*min_distance).ok()?);
+            let heroes:Vec<_>=seen.iter().filter(enemy).filter(|u|u.kind==1).collect();
+            let (_,target)=seen.iter().filter(|u|u.team==team && u.hp_raw>0 && u.kind!=1 && wanted(u.kind) && reach(u.position)
+                && (u.position-own).length_squared()>=far*far)
+                .filter_map(|u|heroes.iter().map(|h|(h.position-u.position).length_squared().raw()).min().map(|near|(near,u.canonical_id)))
+                .min()?;
+            Some((TargetedItemPriority::Offense,ActiveItemTarget::Unit(target)))
+        }
         (I::AllyEngage {threat_radius},Shape::Unit) => {
             let radius=Fixed64::from_i32(*threat_radius as i32);
             let target=seen.iter().filter(|u|u.kind==1 && u.team==team && u.hp_raw>0 && reach(u.position) && (u.position-own).length_squared()>Fixed64::ZERO
@@ -807,5 +819,28 @@ mod unit_or_point_tests {
         assert!(matches!(scripted_targeted(&policy(I::SummonNearEnemy {threat_radius:700}),Shape::UnitOrPoint,Vec2::ZERO,1,&seen,&reach),
             Some((TargetedItemPriority::Offense,ActiveItemTarget::Point(at))) if at==seen[0].position));
         assert!(scripted_targeted(&policy(I::EnemyUnit),Shape::UnitOrPoint,Vec2::ZERO,1,&[],&reach).is_none(), "no one to aim at");
+    }
+
+    /// 千里大劍 (ally_anchor_unit): the allied creep, summon or building nearest a disclosed enemy
+    /// hero, at least min_distance away; never a hero, never one too near to be worth it.
+    #[test]
+    fn an_ally_anchor_unit_item_goes_to_the_ally_nearest_the_enemy() {
+        use super::super::BotAbilityIntent as I;
+        use omoba_template_ids::MobaItemTargetShapeConst as Shape;
+        let at=|id:u64,x:i32,team:u32,kind:u8|super::super::SeenUnit {canonical_id:id,position:Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO),
+            team,kind,owner_player_id:0,hp_raw:500,max_hp_raw:1000,threat:Fixed64::ZERO,radius:Fixed64::ZERO};
+        let policy=ItemBotPolicy {intent:I::AllyAnchorUnit {types:vec!["creep".into(),"building".into()],min_distance:2500},values:BTreeMap::new()};
+        let anywhere=|_:Vec2|true;
+        let aim=|seen:&[super::super::SeenUnit]|match scripted_targeted(&policy,Shape::Unit,Vec2::ZERO,1,seen,&anywhere) {
+            Some((_,ActiveItemTarget::Unit(id)))=>Some(id),_=>None};
+        let enemy=at(9,8000,2,1);
+        // creep 3000 and tower 6000 away: the tower is nearer the enemy hero at 8000
+        assert_eq!(aim(&[at(1,3000,1,2),at(2,6000,1,5),enemy]),Some(2));
+        // an allied hero next to the enemy is no anchor; a creep 1000 away is too near
+        assert_eq!(aim(&[at(3,7900,1,1),at(4,1000,1,2),enemy]),None);
+        // no enemy hero seen: nowhere to go
+        assert_eq!(aim(&[at(1,3000,1,2)]),None);
+        // kind 4 is a summon or an attacking structure: a building to these types
+        assert_eq!(aim(&[at(5,7000,1,4),enemy]),Some(5),"kind 4 is an attacking structure too");
     }
 }

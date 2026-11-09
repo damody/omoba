@@ -63,6 +63,10 @@ pub enum BotAbilityIntent {
     /// never a hero) nearest the closest disclosed enemy hero; within the cast range, or anywhere
     /// when every rank's range is 0. `radius_key` is the area the script checks around the point.
     AllyAnchorPoint { radius_key:String, types:Vec<String> },
+    /// A unit move to an allied non-hero unit (an item's, 千里大劍): of the allied units of
+    /// `types` (creep, summon, building), the one nearest a disclosed enemy hero, at least
+    /// `min_distance` from the user (worth the trip).
+    AllyAnchorUnit { types:Vec<String>, min_distance:u32 },
     /// Untargeted self/ally buff for a fight (E163): cast when a disclosed enemy
     /// hero is within `threat_radius`.
     SelfEngage { threat_radius:u32 },
@@ -487,6 +491,8 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
         } else {None};
         let mut target_pos=None;
         let target=match &policy.intent {
+            // an item's intent (bots::items); validation admits it for no ability
+            BotAbilityIntent::AllyAnchorUnit {..}=>continue,
             BotAbilityIntent::AllyHealOrCleanse {below_hp_per_mille}=>{
                 if !def.cleanses_allies || def.target_type!=TargetTypeC::Unit || !(1..=1000).contains(below_hp_per_mille)
                     || seen.len()>512 || level.range<=Fixed64::ZERO || level.range>Fixed64::from_i32(10_000){continue;}

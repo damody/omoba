@@ -172,6 +172,35 @@ fn a_unit_or_point_item_takes_a_unit_or_a_point() {
     assert!(scripted_item_target(&world, point_only, at, &faction, None, Some(ally), false, true).is_err());
 }
 
+/// E cover14: a hero's charged item row that appears (primed on a purchase) is announced once as
+/// a committed charge, under the item's catalog slot; a row already announced is not again, and a
+/// row that went away and came back is.
+#[test]
+fn a_primed_item_charge_row_is_announced_once() {
+    let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+    crate::runtime::setup_single_lane_match(&mut world, crate::runtime::SingleLaneConfig::default()).unwrap();
+    let hero = world.read_resource::<crate::runtime::MobaMatch>().heroes[0].entity.unwrap();
+    let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.charges.is_some()).expect("a charged item");
+    let spec = item.charges.unwrap();
+    let key = item_charge_key(item.id);
+    let announce = |world: &mut World| { let mut rows = BTreeMap::new(); announce_primed_item_charges(world, &mut rows); rows };
+    assert!(announce(&mut world).values().all(|(_, k)| !k.starts_with("item:")), "nothing primed yet");
+    world.write_storage::<Hero>().get_mut(hero).unwrap().prime_charges(&key, spec.max, spec.restore, spec.initial);
+    let rows = announce(&mut world);
+    assert_eq!(rows.get(&(crate::runtime::canonical_entity_id(hero), Hero::ITEM_CHARGE_SLOT | u32::from(item.catalog_id))), Some(&(hero, key.clone())));
+    assert!(announce(&mut world).is_empty(), "once");
+    world.write_storage::<Hero>().get_mut(hero).unwrap().ability_charges.remove(&key);
+    assert!(announce(&mut world).is_empty());
+    world.write_storage::<Hero>().get_mut(hero).unwrap().prime_charges(&key, spec.max, spec.restore, spec.initial);
+    assert_eq!(announce(&mut world).len(), 1, "back again: announced again");
+    // a team replica announces nothing (the facts are the authority's)
+    world.write_storage::<Hero>().get_mut(hero).unwrap().ability_charges.remove(&key);
+    announce(&mut world);
+    world.insert(crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets::default());
+    world.write_storage::<Hero>().get_mut(hero).unwrap().prime_charges(&key, spec.max, spec.restore, spec.initial);
+    assert!(announce(&mut world).is_empty());
+}
+
 /// 千里大劍 (v3 target types creep, neutral, summon, courier, building; no range): an allied unit
 /// anywhere on the map that is not a hero; its own user and other heroes are refused.
 #[test]

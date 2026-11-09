@@ -2013,6 +2013,35 @@ fn item_charges(item_id: &str) -> Option<omoba_template_ids::MobaItemChargesCons
 }
 
 /// Starts the charges of each charged item in `inventory` the hero has not held before.
+/// The heroes' item charge rows (`item:<id>`) the authority has announced to the teams.
+#[derive(Default)]
+struct AnnouncedItemCharges(std::collections::BTreeSet<(Entity, String)>);
+
+/// A charged item's row that appeared since the last batch (primed when a hero came to hold the
+/// item: item_tick, or a use's admission) goes out as a committed charge, as a spent one does,
+/// so every team that sees the hero holds it (E cover14: the opponents' replica had no
+/// `item:earth_wall_book` after a purchase, the hero's baseline being older). Authority only.
+fn announce_primed_item_charges(world: &mut World, charges: &mut BTreeMap<(u64, u32), (Entity, String)>) {
+    if world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>().is_some()
+        || world.try_fetch::<specs::storage::MaskedStorage<Hero>>().is_none() { return; }
+    let mut announced = world.remove::<AnnouncedItemCharges>().unwrap_or_default();
+    {
+        let entities = world.entities();
+        let heroes = world.read_storage::<Hero>();
+        announced.0.retain(|(entity, key)| heroes.get(*entity).is_some_and(|hero| hero.ability_charges.contains_key(key)));
+        for (entity, hero) in (&entities, &heroes).join() {
+            for key in hero.ability_charges.keys().filter(|key| key.starts_with("item:")) {
+                if announced.0.contains(&(entity, key.clone())) { continue; }
+                announced.0.insert((entity, key.clone()));
+                let Some(item) = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.charges.is_some() && item_charge_key(item.id) == *key) else { continue };
+                charges.entry((crate::runtime::canonical_entity_id(entity), Hero::ITEM_CHARGE_SLOT | u32::from(item.catalog_id)))
+                    .or_insert_with(|| (entity, key.clone()));
+            }
+        }
+    }
+    world.insert(announced);
+}
+
 pub(crate) fn prime_inventory_charges(hero: &mut Hero, inventory: &Inventory) {
     for instance in inventory.slots.iter().flatten() {
         if let Some(spec) = item_charges(&instance.item_id) { item_charge_ready_with(hero, &instance.item_id, spec); }
@@ -3925,6 +3954,7 @@ pub fn process_outcomes(
             committed_cooldowns.insert((crate::runtime::canonical_entity_id(entity), slot as u32), (entity, id));
         }
     }
+    announce_primed_item_charges(world, &mut committed_charges);
     emit_committed_actor_state(world, projection_tick, committed_vitals, committed_cooldowns, committed_charges);
     super::mind_control::settle(world);
     super::owner_control::settle_batch(world);
