@@ -24,6 +24,10 @@ pub struct RoleBotMatchPlan {
     pub think_hz: u32,
     #[serde(default)]
     pub mana_enabled: bool,
+    /// Original shop rules (courier-spec §0, E line): buying outside shop reach goes to the stash and
+    /// each player has a courier. Off keeps the purchase radius check. Omitted reads as off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shop_range_rule: bool,
     pub players: Vec<RoleBotPlayerPlan>,
     #[serde(default)]
     pub ability_policies: Vec<BotAbilityPolicy>,
@@ -185,6 +189,7 @@ impl RoleBotMatchPlan {
             players:[left.player_id,right.player_id],heroes:[left.hero,right.hero],additional_players:additional,
             base_recovery_enabled:self.sustain.is_some(),
             mana_enabled:self.mana_enabled,
+            shop_range_rule:self.shop_range_rule,
             summoner_loadouts:self.summoner_loadouts.clone(),
             showcase:self.showcase.clone(),
             // A formal match plays by the original game's rules (templates/game_rules.lua), whose
@@ -230,7 +235,7 @@ mod tests {
                     hero:["murakami_yoshikiyo","date_masamune","saika_magoichi","oichi","asai_nagamasa"][index].into(),role,lane:lane.into(),bot:team != 1 || index != 0 });
             }
         }
-        RoleBotMatchPlan { schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:BTreeMap::new(),showcase:None }
+        RoleBotMatchPlan { schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:BTreeMap::new(),showcase:None }
     }
     #[test]
     fn one_hero_per_team_is_compiled_and_bot_clashes_resolve_deterministically() {
@@ -355,6 +360,19 @@ mod tests {
         let mut json=serde_json::to_value(plan()).unwrap();
         json.as_object_mut().unwrap().remove("mana_enabled");
         assert!(!serde_json::from_value::<RoleBotMatchPlan>(json).unwrap().mana_enabled);
+    }
+
+    #[test]
+    fn shop_range_rule_is_an_explicit_opt_in_that_older_plans_omit() {
+        let mut p=plan();
+        assert!(!p.compile(1,SimulationTickProfile::Production60Hz).unwrap().0.shop_range_rule);
+        // an older plan (no key) reads as off, and an off plan writes no key
+        assert!(serde_json::to_value(&p).unwrap().get("shop_range_rule").is_none());
+        p.shop_range_rule=true;
+        assert!(p.compile(1,SimulationTickProfile::Production60Hz).unwrap().0.shop_range_rule);
+        let json=serde_json::to_value(&p).unwrap();
+        assert_eq!(json["shop_range_rule"],serde_json::json!(true));
+        assert!(serde_json::from_value::<RoleBotMatchPlan>(json).unwrap().shop_range_rule);
     }
 
     #[test]

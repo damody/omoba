@@ -757,6 +757,10 @@ pub struct SingleLaneConfig {
     pub base_recovery_enabled: bool,
     /// Explicit opt-in; never inferred from legacy GameMode::Moba stories.
     pub mana_enabled: bool,
+    /// Original shop rules (courier-spec-2026-11-09 §0): a purchase outside shop reach goes to the
+    /// player's stash ([`super::comp::STASH_SLOTS`]) and each player has a courier. Off, the default, keeps the
+    /// purchase radius check that fixtures and older recipes assert.
+    pub shop_range_rule: bool,
     /// Explicit authority loadouts; absent players have no summoner spells.
     /// Selection is validated before any entities are spawned.
     pub summoner_loadouts: BTreeMap<u32, [Option<String>; 2]>,
@@ -813,6 +817,7 @@ impl Default for SingleLaneConfig {
             assist_window_seconds: omoba_template_ids::MOBA_ASSIST_WINDOW_SECONDS,
             base_recovery_enabled: false,
             mana_enabled: false,
+            shop_range_rule: false,
             summoner_loadouts: BTreeMap::new(),
             trinket_loadouts: BTreeMap::new(),
             showcase: None,
