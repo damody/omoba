@@ -6,11 +6,16 @@ local function ok(cond, name) assert(cond, name); checks = checks + 1 end
 
 local spec = M.spec()
 ok(spec.schema == "omoba.prop-mesh-spec.v1", "schema")
-ok(#spec.props >= 1 and spec.props[1].id == "gold_bag", "the gold bag is a prop")
+local byid = {}
+for _, prop in ipairs(spec.props) do byid[prop.id] = prop end
+ok(byid.gold_bag, "the gold bag is a prop")
 local slots = {}
-for _, part in ipairs(spec.props[1].parts) do slots[part.slot] = true end
+for _, part in ipairs(byid.gold_bag.parts) do slots[part.slot] = true end
 ok(slots.cloth and slots.gold, "the bag is cloth with gold coins")
-ok(spec.props[2] and spec.props[2].id == "hex_critter", "the hex critter is a prop")
+ok(byid.hex_critter, "the hex critter is a prop")
+local horse = {}
+for _, part in ipairs(byid.courier_horse and byid.courier_horse.parts or {}) do horse[part.slot] = true end
+ok(horse.horse and horse.saddle_cloth and horse.cloth, "the courier is a horse with a saddle cloth and saddlebags")
 ok(M.asset("gold_bag") == "/Game/Omoba/Props/gold_bag/SM_gold_bag.SM_gold_bag", "asset path")
 M.PROPS.bad = { { shape = "Torus", slot = "cloth", scale = { 1, 1, 1 } } }
 ok(not pcall(M.spec), "an unknown engine shape is refused")
