@@ -58,10 +58,16 @@ for _, row in ipairs(source.items) do
   local id = row.key:match('^item_(.+)$'):lower():gsub("'", '')
   if not gap and #row.gaps > 0 and not find(items, id) then gap = { id = id, row = row } end
 end
-ok(gap, 'some source row with a capability gap is not on the shelf')
-rejects(function(l)
-  l[#l + 1] = {catalog_id = 900, id = gap.id, source_ref = gap.row.source_ref, name = gap.row.name, cost = gap.row.cost}
-end, 'needs_framework: ')
+if gap then
+  rejects(function(l)
+    l[#l + 1] = {catalog_id = 900, id = gap.id, source_ref = gap.row.source_ref, name = gap.row.name, cost = gap.row.cost}
+  end, 'needs_framework: ')
+else
+  -- every gapped source row is on the shelf (the great sword of teleport was the last): without
+  -- the scripted marks one of them rejects the same way
+  local passed, err = pcall(check, items, source)
+  ok(not passed and tostring(err):find('needs_framework: ', 1, true), 'an unmarked gapped row rejects as needs_framework, got ' .. tostring(err))
+end
 -- E160: a source active is copied exactly, with its cooldown and mana cost.
 ok(find(items, 'fire_scroll').active.kind == 'apply_modifiers', 'fire_scroll carries its source active')
 rejects(function(l) find(l, 'fire_scroll').active.radius = 900 end, 'active differs from the source')

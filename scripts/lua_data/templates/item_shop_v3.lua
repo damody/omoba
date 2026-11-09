@@ -955,6 +955,16 @@ local data = {
       mana_cost = 90.0,
     },
   },
+  the_great_sword_of_teleport = {
+    numbers = { atk = 75, cost = 8500, ["modifiers.attackspeed_bonus_constant"] = 65 },
+    scripted = {
+      active = { kind = "scripted" },
+      cast = { interruptible = true, point = 4.0 },
+      cooldown = 60.0,
+      mana_cost = 60.0,
+      target = { exclude_heroes = true, out_of_range = "reject", range = 0, requires_visible = true, shape = "unit", team = "ally" },
+    },
+  },
   the_great_sword_of_tiger = {
     numbers = { atk = 70, cost = 8600, ["modifiers.stats_strength_bonus"] = 25 },
     scripted = {

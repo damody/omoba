@@ -207,6 +207,8 @@ local SOURCE_ITEMS = {
   { 259, "item_prophet_Akazonae_armor", true },
   -- E line (2026-11-09): item charges (line B 1f8fecee, line A 9ef90d98).
   { 260, "item_earth_wall_book", true },
+  -- E line (2026-11-09): item cast point, courier tag and non-hero item targets (line B 2be4ab76 / 88af54a8, line A 73478294 / e5f6446c).
+  { 261, "item_the_great_sword_of_teleport", true },
 }
 
 return function(ctx)
