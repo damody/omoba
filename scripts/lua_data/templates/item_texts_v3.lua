@@ -18765,7 +18765,12 @@ local data = {
     },
   },
   the_great_sword_of_teleport = {
-    bot = { kind = "ally_engage", source = "derived", threat_radius = 900 },
+    bot = {
+      kind = "ally_anchor_unit",
+      min_distance = 2500,
+      source = "derived",
+      types = { "creep", "summon", "building" },
+    },
     coverage = "expressible",
     info = {
       { field = "cost", value = "cost" },

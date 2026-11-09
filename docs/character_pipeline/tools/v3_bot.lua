@@ -45,11 +45,14 @@ M.KINDS = {
   self_area_corpses = { params = { radius_key = "value", min_targets = "count" } },
   ally_anchor_point = { params = { radius_key = "value", types = "types" } },
   ally_engage = { params = { threat_radius = "radius" } },
+  -- a cast on an allied non-hero unit of `types` (no heroes: the catalog's exclude_heroes, 千里大劍):
+  -- the one nearest the revealed enemy heroes, at least `min_distance` from the caster (line B)
+  ally_anchor_unit = { params = { types = "types", min_distance = "radius" } },
   -- proposed (m6-bot-intents.md): not cast until the executor has them
   escape = { params = { below_hp_per_mille = "per_mille", threat_radius = "radius" }, proposed = true },
   channel_enemy_area = { params = { radius_key = "value", min_targets = "count" }, proposed = true },
 }
-M.DEFAULTS = { heal_below = 600, threat = 900, engage = 900, min_targets = 1, mana_below = 400, escape_below = 300, approach = 300 }
+M.DEFAULTS = { heal_below = 600, threat = 900, engage = 900, min_targets = 1, mana_below = 400, escape_below = 300, approach = 300, anchor = 2500 }
 
 local function sorted_keys(t)
   local ks = {}
@@ -393,6 +396,15 @@ function M.derive(def, kind_of_entry, doc)
     end
     if f.heal_target or f.heal_self then
       return { kind = f.cleanse and "ally_heal_or_cleanse" or "ally_heal", below_hp_per_mille = D.heal_below }
+    end
+    -- allied units without heroes: an anchor near the fight (ally_engage only picks heroes)
+    if type(target.types) == "table" and #target.types > 0 then
+      local hero, anchor = false, {}
+      for _, ty in ipairs(target.types) do
+        hero = hero or ty == "hero" or ty == "all"
+        if ty == "creep" or ty == "summon" or ty == "building" then anchor[#anchor + 1] = ty end
+      end
+      if not hero and #anchor > 0 then return { kind = "ally_anchor_unit", types = anchor, min_distance = D.anchor } end
     end
     return { kind = "ally_engage", threat_radius = D.engage }
   end

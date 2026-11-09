@@ -54,6 +54,8 @@ M.AIM = {
   -- (record_hero_spotlight.PROPS_RECIPE): C19 奇襲 at an allied non-hero unit (the renderer aims
   -- at the nearest allied creep or building, "ally_anchor"); B23 亡靈之契 near a body.
   ally_anchor_point = { team = "ally_anchor", target = "point", props = true },
+  -- 千里大劍: a cast on that allied non-hero unit itself (the prop stage's creep or building)
+  ally_anchor_unit = { team = "ally_anchor", target = "unit", props = true },
   self_area_corpses = { team = "self", target = "none", props = true },
 }
 
