@@ -267,6 +267,13 @@ pub fn look(buffs: &BuffStore, entity: Entity) -> Option<&str> {
     buffs.get(entity, STATE)?.payload.get("look")?.as_str()
 }
 
+/// The physical outgoing multiplier of `entity`'s attacks: an illusion's 1 + its physical fraction
+/// (at least 0), 1 for any other unit (unit_attr ILLUSION_DAMAGE).
+pub fn physical_outgoing(buffs: &BuffStore, entity: Entity) -> Fixed64 {
+    buffs.get(entity, STATE).and_then(|row| Scale::of(row.payload.get("outgoing")))
+        .map_or(Fixed64::ONE, |scale| (Fixed64::ONE + scale.0[0]).max(Fixed64::ZERO))
+}
+
 /// rules::damage, before mitigation: an illusion's outgoing and incoming fractions per type.
 pub fn scale_damage(world: &World, packet: &mut super::rules::damage::Packet) {
     let buffs = world.read_resource::<BuffStore>();

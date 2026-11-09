@@ -45,11 +45,14 @@ M.KINDS = {
   self_area_corpses = { params = { radius_key = "value", min_targets = "count" } },
   ally_anchor_point = { params = { radius_key = "value", types = "types" } },
   ally_engage = { params = { threat_radius = "radius" } },
+  -- a cast on an allied non-hero unit of `types` (no heroes: the catalog's exclude_heroes, 千里大劍):
+  -- the one nearest the revealed enemy heroes, at least `min_distance` from the caster (line B)
+  ally_anchor_unit = { params = { types = "types", min_distance = "radius" } },
   -- proposed (m6-bot-intents.md): not cast until the executor has them
   escape = { params = { below_hp_per_mille = "per_mille", threat_radius = "radius" }, proposed = true },
   channel_enemy_area = { params = { radius_key = "value", min_targets = "count" }, proposed = true },
 }
-M.DEFAULTS = { heal_below = 600, threat = 900, engage = 900, min_targets = 1, mana_below = 400, escape_below = 300, approach = 300 }
+M.DEFAULTS = { heal_below = 600, threat = 900, engage = 900, min_targets = 1, mana_below = 400, escape_below = 300, approach = 300, anchor = 2500 }
 
 local function sorted_keys(t)
   local ks = {}
@@ -103,6 +106,17 @@ local function approach(target, def, f)
   if unranged(target, def) and not reach and f.point_radius then
     return { kind = "global_enemy_point", radius_key = f.point_radius, min_targets = M.DEFAULTS.min_targets }
   end
+  -- no cast range and no cap, and the move hits around where it lands (c19_old_surprise_raid
+  -- slows enemies around the caster after its teleport): aimed at revealed enemy heroes there;
+  -- approach_enemy_point needs a cast range
+  if unranged(target, def) and not reach then
+    for _, s in ipairs(f.selectors) do
+      local r = value_name(s.radius)
+      if s.shape == "circle" and r and (s.from == nil or s.from == "caster" or s.from == "point") and (s.team == nil or s.team == "enemy") then
+        return { kind = "global_enemy_point", radius_key = r, min_targets = M.DEFAULTS.min_targets }
+      end
+    end
+  end
   return { kind = "approach_enemy_point", min_distance = M.DEFAULTS.approach, reach_key = reach }
 end
 
@@ -112,7 +126,7 @@ end
 local function walk(t, on_action, on_selector, doc, seen, owner, args)
   if type(t) ~= "table" then return end
   if type(t.op) == "string" then on_action(t, owner, args) end
-  if type(t.shape) == "string" then on_selector(t) end
+  if type(t.shape) == "string" then on_selector(t, owner) end
   if t.op == "call" and type(t.routine) == "string" and doc and doc.routines and doc.routines[t.routine] then
     seen = seen or {}
     if not seen[t.routine] then
@@ -163,7 +177,24 @@ function M.facts(def, castable, doc)
     end
   end
   -- the cast's own selectors decide the aim; status triggers (on-hit cleaves, auras) only add facts
-  local function selector(s) f.selectors[#f.selectors + 1] = s end
+  -- a routine names this entry's own value `$<id>.<name>` (b09_old_earth_rupture's bursts): the
+  -- same value as `$<name>`, the extra the executor reads. A plain `$<name>` in a routine another
+  -- entry owns is that entry's value (a07_v20_mightiest_awakening calls a07_v20_unscathed's burst):
+  -- named `$<owner>.<name>`, it is no radius of this entry.
+  local function selector(s, by)
+    local owner, name
+    if type(s.radius) == "string" then owner, name = s.radius:match("^%s*%$([%a_][%w_]*)%.([%a_][%w_]*)%s*$") end
+    local plain = value_name(s.radius)
+    local radius = (owner and owner == def.id and "$" .. name)
+      or (plain and by and by ~= def.id and "$" .. by .. "." .. plain) or nil
+    if radius then
+      local own = {}
+      for k, v in pairs(s) do own[k] = v end
+      own.radius = radius
+      s = own
+    end
+    f.selectors[#f.selectors + 1] = s
+  end
   walk(castable.events, action, selector, doc)
   for _, s in ipairs(def.statuses or {}) do walk(s.triggers, action, function() end, doc) end
   -- a radius the cast checks around its target point (count_in_radius(point, $x, ...))
@@ -330,12 +361,16 @@ function M.derive(def, kind_of_entry, doc)
       return { kind = unranged(target, def) and "global_enemy_point" or "enemy_point", radius_key = channel_area, min_targets = D.min_targets }
     end
     if f.heal_self then return { kind = "self_channel_recovery", below_hp_per_mille = D.heal_below, threat_radius = D.threat } end
-    for _, s in ipairs(f.selectors) do
-      local r = value_name(s.radius)
-      -- a channel around the caster: the executor's self_area takes a channeled cast (line B)
-      if s.shape == "circle" and r then return { kind = "self_area", radius_key = r, min_targets = D.min_targets } end
+    -- any other channel aimed at a point (b31_old_quiet_as_forest's arrow barrage) is aimed like
+    -- a point skill below: self_area and self_engage take no target
+    if target.type ~= "point" then
+      for _, s in ipairs(f.selectors) do
+        local r = value_name(s.radius)
+        -- a channel around the caster: the executor's self_area takes a channeled cast (line B)
+        if s.shape == "circle" and r then return { kind = "self_area", radius_key = r, min_targets = D.min_targets } end
+      end
+      return { kind = "self_engage", threat_radius = D.engage, note = "channel without a recovery or area rule" }
     end
-    return { kind = "self_engage", threat_radius = D.engage, note = "channel without a recovery or area rule" }
   end
   local t = target.type or "none"
   local team = target.team or "enemy"
@@ -362,6 +397,15 @@ function M.derive(def, kind_of_entry, doc)
     if f.heal_target or f.heal_self then
       return { kind = f.cleanse and "ally_heal_or_cleanse" or "ally_heal", below_hp_per_mille = D.heal_below }
     end
+    -- allied units without heroes: an anchor near the fight (ally_engage only picks heroes)
+    if type(target.types) == "table" and #target.types > 0 then
+      local hero, anchor = false, {}
+      for _, ty in ipairs(target.types) do
+        hero = hero or ty == "hero" or ty == "all"
+        if ty == "creep" or ty == "summon" or ty == "building" then anchor[#anchor + 1] = ty end
+      end
+      if not hero and #anchor > 0 then return { kind = "ally_anchor_unit", types = anchor, min_distance = D.anchor } end
+    end
     return { kind = "ally_engage", threat_radius = D.engage }
   end
   -- unit_or_point: the row's target is a point (hero_author/v3.lua), so the bot aims at one
@@ -381,7 +425,15 @@ function M.derive(def, kind_of_entry, doc)
     end
     for _, s in ipairs(f.selectors) do
       local r = value_name(s.radius)
-      if s.shape == "circle" and r then return { kind = unranged(target, def) and "global_enemy_point" or "enemy_point", radius_key = r, min_targets = D.min_targets } end
+      -- a splash around what a linear projectile hits (from `it`) is not where the cast aims:
+      -- the projectile's line is (b31_old_quiet_as_forest)
+      local splash = s.from == "it" and #f.lines > 0
+      -- a circle wide enough for several hit points, filtered by the radius around each
+      -- (c04_old_dance_of_death: `distance(it, p1) <= $radius or ...`): that radius is the area
+      if not r and type(s.where) == "string" then
+        r = s.where:match("distance%(%s*it%s*,%s*[%a_][%w_]*%s*%)%s*<=%s*%$([%a_][%w_]*)")
+      end
+      if s.shape == "circle" and r and not splash then return { kind = unranged(target, def) and "global_enemy_point" or "enemy_point", radius_key = r, min_targets = D.min_targets } end
     end
     if f.summon then return { kind = "summon_near_enemy", threat_radius = D.threat } end
     if f.move then return approach(target, def, f) end

@@ -1776,6 +1776,12 @@ pub(crate) struct SummonEntry {
     /// A building unit (原作 npc_dota_building, E428); immobile.
     #[serde(default)]
     pub(crate) building: bool,
+    /// A courier (原作 npc_dota_courier2): UnitType::Courier.
+    #[serde(default)]
+    pub(crate) courier: bool,
+    /// Magic immune from its spawn (a courier's for_magic_immune).
+    #[serde(default)]
+    pub(crate) magic_immune: bool,
     /// Attack damage added per owner hero level above 1, sampled at spawn.
     #[serde(default)]
     pub(crate) damage_per_owner_level: f32,
@@ -3212,7 +3218,7 @@ mod tests {
             catalog_id: if id == "sword" || id == "a" { 1 } else { 2 },
             id: id.into(), name: id.into(), cost, atk: 10.0, hp: 0.0, ms: 0.0, armor: 0.0,
             active: None, cooldown: 0.0, lifesteal: 0.0, critical_chance: 0.0, unique_passive: None, purchase_group: None,
-            mana_cost: 0.0, consumable: false, shares_cooldown_with: Vec::new(), aura: None,
+            mana_cost: 0.0, consumable: false, charges: None, cast: None, shares_cooldown_with: Vec::new(), aura: None,
             recipe: recipe.iter().map(|id| (*id).into()).collect(),
             target: omoba_content_model::moba_items::MobaItemTargetEntry::legacy_self(),
             source_ref: None, description: None, test_only: false, modifiers: Default::default(), v3: None,

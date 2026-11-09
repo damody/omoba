@@ -167,6 +167,8 @@ fn dispatch_scripts(
 
     let mut windups=world.remove::<super::super::cast_windup::AbilityWindups>().unwrap_or_default();
     let releases=windups.advance(world,dt);
+    let mut item_windups=world.remove::<super::super::cast_windup::ItemWindups>().unwrap_or_default();
+    let item_releases=item_windups.advance(world,dt);
     let events = {
         let mut queue = world.write_resource::<ScriptEventQueue>();
         queue.drain()
@@ -183,9 +185,13 @@ fn dispatch_scripts(
     let mut status_executed: Vec<(Entity, String, Option<Vec2>)> = events.iter().filter_map(|event| match event {
         ScriptEvent::ItemUsed { owner, item_id } => Some((*owner, format!("{}{}", super::event::ITEM_SKILL_PREFIX, item_id), None)), _ => None }).collect();
     let events:Vec<_>=events.into_iter().map(|event|(event,false))
-        .chain(releases.into_iter().map(|event|(event,true))).collect();
-    if tagged.is_empty() && events.is_empty() && windups.0.is_empty() && windups.1.is_empty()
-        && !super::super::ability_channel::any_active(world) && !any_delayed {
+        .chain(releases.into_iter().map(|event|(event,true)))
+        // an item's released use is admitted again by its commit (ScriptItemTransaction), not here
+        .chain(item_releases.into_iter().map(|event|(event,false))).collect();
+    if tagged.is_empty() && events.is_empty() && windups.0.is_empty() && windups.1.is_empty() && item_windups.0.is_empty()
+        && !super::super::ability_channel::any_active(world) && !any_delayed
+        // A replica runs the order filters the authority refused on its holders (order_filter.rs).
+        && world.try_fetch::<super::super::order_filter::OrderFilterInjections>().is_none_or(|rows| rows.holders.is_empty()) {
         return;
     }
 
@@ -251,6 +257,15 @@ fn dispatch_scripts(
         let mut visual_events = Vec::new();
         let mut targeted_aggression = Vec::new();
         let mut cast_turns: Vec<(Entity, omoba_sim::Angle)> = Vec::new();
+        // Order filters (order_filter.rs): the orders the authority's filters heard, to publish
+        // (refused or not); a team replica's refusals from the authority, and the hooks its own
+        // holders run for them, first.
+        let mut filtered_orders: Vec<(Entity, Entity, String, bool)> = Vec::new();
+        let filter_injections = cache.filtered.then(|| world.try_fetch_mut::<super::super::order_filter::OrderFilterInjections>()
+            .map(|mut rows| std::mem::take(&mut *rows))).flatten().unwrap_or_default();
+        for (holder, caster, ability) in &filter_injections.holders {
+            run_order_filter(&cache, registry, *caster, *holder, ability, &mut event_outcomes);
+        }
         // Only serial queue order may advance managed mana/CD state. Never use
         // parallel hook scheduling or the immutable ECS cache as a balance ledger.
         for (event_ordinal, (mut ev,releasing)) in events.into_iter().enumerate() {
@@ -264,7 +279,7 @@ fn dispatch_scripts(
             let is_cast = matches!(&ev, ScriptEvent::SkillCast { .. });
             // items.dll: the use commits only with a successful effect (ScriptItemTransaction)
             let item_use = match &ev {
-                ScriptEvent::ItemCast { owner, owner_pid, slot, item_id, target } =>
+                ScriptEvent::ItemCast { owner, owner_pid, slot, item_id, target, .. } =>
                     Some((*owner, *owner_pid, *slot, item_id.clone(), skill_target_entity(target), skill_target_point(target))),
                 _ => None,
             };
@@ -324,6 +339,43 @@ fn dispatch_scripts(
                     .is_some_and(|definition| definition.targets_heroes_only)
                     && (cache.hero.get(*victim).is_none() || cache.is_building.get(*victim).is_some()) {
                     reject_cast!(cast_outcomes,ev,releasing,code::INVALID_TARGET);
+                }
+            }
+            // An order filter (status_event ORDER_FILTER, 原作 ExecuteOrderFilter): the target's
+            // statuses may refuse an enemy's unit order before it executes (order_filter.rs).
+            if !releasing && !matches!(&ev, ScriptEvent::ItemCast { released: true, .. }) {
+                let order = match &ev {
+                    ScriptEvent::SkillCast { caster, skill_id, target: SkillTarget::Entity(victim) } => Some((*caster, skill_id.clone(), *victim)),
+                    ScriptEvent::ItemCast { owner, item_id, target: SkillTarget::Entity(victim), .. } =>
+                        Some((*owner, format!("{}{item_id}", super::event::ITEM_SKILL_PREFIX), *victim)),
+                    _ => None,
+                };
+                if let Some((caster, ability, victim)) = order.filter(|(caster, _, victim)| caster != victim) {
+                    let refused = if cache.filtered {
+                        filter_injections.refused.iter().any(|(who, what)| *who == caster && *what == ability)
+                    } else {
+                        let heard = run_order_filter(&cache, registry, Some(caster), victim, &ability, &mut event_outcomes);
+                        if let Some(refused) = heard { filtered_orders.push((caster, victim, ability.clone(), refused)); }
+                        heard == Some(true)
+                    };
+                    if refused { reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED); }
+                }
+            }
+            // An item with a cast point (catalog `cast`, 千里大劍): its on_phase_start runs now and the
+            // use waits in ItemWindups; it comes back `released` and runs and commits then.
+            if let ScriptEvent::ItemCast { owner, owner_pid, slot, item_id, target, released: false } = &ev {
+                if let Some(cast) = super::super::game_processor::item_cast(item_id) {
+                    if item_windups.0.contains_key(owner) { continue; }
+                    let Some(origin) = cache.pos.get(*owner).map(|p| p.0) else { continue };
+                    let proceed = super::super::game_processor::item_script_id(item_id).is_none_or(|script|
+                        run_phase_start(&cache, registry, *owner, script, target, 1, PHASE_START_ORDINAL + event_ordinal as u64, &mut event_outcomes));
+                    if !proceed { continue; }
+                    // it turns to its unit or point as an ability windup does
+                    cast_turns.extend(cast_turn(&cache, *owner, item_id, target));
+                    item_windups.0.insert(*owner, super::super::cast_windup::ItemWindup { owner_pid: *owner_pid, slot: *slot,
+                        item_id: item_id.clone(), target: target.clone(), origin, remaining: cast.point,
+                        interruptible: cast.interruptible, last_tick: cache.tick.0, anchored: false });
+                    continue;
                 }
             }
             let settlement_skill = match &ev { ScriptEvent::SkillCast {skill_id,..} => Some(skill_id.clone()), _ => None };
@@ -391,6 +443,7 @@ fn dispatch_scripts(
                 invocation_entity,
                 event_ordinal as u64,
             );
+            if matches!(&ev, ScriptEvent::SkillCast { .. } | ScriptEvent::ItemCast { .. }) { adapter.mark_input_driven(); }
             let visual_checkpoint = visual_events.len();
             adapter.begin_mana_transaction(&cast_heroes);
             if is_cast && enforce_learned_ranks { adapter.capture_formal_cast_areas(); }
@@ -404,11 +457,12 @@ fn dispatch_scripts(
             let targeted = match &ev {
                 ScriptEvent::SkillCast { caster, skill_id, target: SkillTarget::Entity(target) }
                     if registry.get_ability(skill_id).is_some_and(|(definition, _)|
-                        definition.target_type == crate::ability_meta::TargetType::Unit) => Some((*caster, *target)),
+                        matches!(definition.target_type, crate::ability_meta::TargetType::Unit | crate::ability_meta::TargetType::UnitOrPoint)) => Some((*caster, *target)),
                 _ => None,
             };
             let turn = match &ev {
                 ScriptEvent::SkillCast { caster, skill_id, target } => cast_turn(&cache, *caster, skill_id, target),
+                ScriptEvent::ItemCast { owner, item_id, target, .. } => cast_turn(&cache, *owner, item_id, target),
                 _ => None,
             };
             adapter.set_cast_released(releasing && is_cast);
@@ -488,11 +542,14 @@ fn dispatch_scripts(
                     else { cast_outcomes.push((invocation_entity, skill_id.clone(), Some(rejection))); }
                 }
             }
+            // a used unit or point item leaves its user facing where it was used
+            if item_use.is_some() && cast_ok { cast_turns.extend(turn); }
+            let refund = crate::comp::ItemRefund { mana: adapter.mana_refunded(), cooldown: adapter.cooldown_refunded() };
             let produced = adapter.finish();
             if let Some((owner, owner_pid, slot, item_id, target, target_point)) = item_use {
                 if cast_ok {
                     event_outcomes.push(crate::comp::Outcome::ScriptItemTransaction { owner, owner_pid, slot, item_id,
-                        target, target_point, outcomes: produced });
+                        target, target_point, outcomes: produced, refund });
                 }
                 continue;
             }
@@ -566,6 +623,7 @@ fn dispatch_scripts(
             crate::runtime::native::moba_match::record_moba_champion_aggression(world, attacker, victim, true);
         }
         publish_successful_cast_facts(world, &mut visual_events);
+        super::super::order_filter::publish(world, &filtered_orders);
         if !cast_turns.is_empty() {
             let mut facings = world.write_storage::<crate::comp::Facing>();
             for (caster, angle) in cast_turns {
@@ -591,6 +649,7 @@ fn dispatch_scripts(
     }
     // The tick's failed casts (.2) are read after this batch: they keep the resource too.
     if !windups.0.is_empty() || !windups.1.is_empty() || !windups.2.is_empty() {world.insert(windups);}
+    if !item_windups.0.is_empty() {world.insert(item_windups);}
     let event_ns = event_t.elapsed().as_nanos();
     drop(event_span);
 
@@ -670,6 +729,13 @@ fn dispatch_scripts(
     dispatch_status_events(world, registry, rng_seed, &status_combat, &status_executed, event_count as u64 + tagged.len() as u64 + 12288, settled);
     // item_equip: each item copy gained or lost reaches its item script, same pulse rule.
     dispatch_item_equips(world, registry, rng_seed, event_count as u64 + tagged.len() as u64 + 20480);
+    // A new hero life after its equips and learn hooks ran: its UnitScript on_respawn next
+    // dispatch, with its statuses' RESPAWN (status_event::Respawns).
+    let armed = super::super::status_event::arm_respawns(world);
+    if !armed.is_empty() {
+        let mut queue = world.write_resource::<ScriptEventQueue>();
+        for e in armed { queue.push(ScriptEvent::Respawn { e }); }
+    }
     // aura: every aura::PERIOD, each emitter hears its receivers, same pulse rule.
     dispatch_auras(world, registry, rng_seed, event_count as u64 + tagged.len() as u64 + 16384);
     let on_tick_compute_ns = on_tick_compute_started.elapsed().as_nanos();
@@ -940,6 +1006,7 @@ fn run_phase_start(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, 
         SkillTarget::None => Target::None,
     };
     let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(cache, caster, ordinal);
+    adapter.mark_input_driven();
     let mut world_dyn = world_dyn_of(&mut adapter);
     let result = catch_unwind(AssertUnwindSafe(|| script.on_phase_start(handle, target, level, &mut world_dyn)));
     drop(world_dyn);
@@ -999,7 +1066,16 @@ fn dispatch_delayed_effects(world: &mut World, registry: &ScriptRegistry, rng_se
 /// One `on_scheduled` per due schedule (omoba-core `scheduled_effect`), in (owner, buff id)
 /// order. The row is removed before its hook runs, so it resolves once even if the hook
 /// reschedules the same step. Paused worlds resolve nothing; a dead owner has no rows left.
-fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, ordinal_base: u64) {
+/// A schedule's random stream comes from its own row (ability, instance, step), not from its place
+/// among this tick's due rows: a team replica holds only its own team's rows (owner_script_rows),
+/// so a positional ordinal would draw another instance for the same reschedule. In a band of its own.
+fn scheduled_random_ordinal(spec: &super::super::scheduled_effect::Spec) -> u64 {
+    let fnv = |hash: u64, bytes: &[u8]| bytes.iter().fold(hash, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3));
+    let hash = fnv(fnv(fnv(0xcbf2_9ce4_8422_2325, spec.ability.as_bytes()), &spec.instance.to_le_bytes()), &spec.step.to_le_bytes());
+    (1 << 40) + (hash & 0xffff_ffff)
+}
+
+fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, _ordinal_base: u64) {
     if world.read_resource::<crate::comp::GamePause>().is_paused { return; }
     let dt = world.read_resource::<crate::comp::DeltaTime>().0;
     let due = super::super::scheduled_effect::due(&world.read_resource::<crate::runtime::BuffStore>(), dt);
@@ -1012,14 +1088,16 @@ fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_
     }
     let cache = ParallelAdapterCache::new(&*world, rng_seed);
     let mut accepted = Vec::new();
-    for (ordinal, (owner, _, spec)) in due.into_iter().enumerate() {
+    for (owner, _, spec) in due {
         if !cache.entities.is_alive(owner) || cache.cprop.get(owner).is_none_or(|p| p.hp <= Fixed64::ZERO) {
             continue;
         }
         let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
         let handle = ParallelWorldAdapter::entity_to_handle(owner);
-        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, owner, ordinal_base + ordinal as u64);
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, owner, scheduled_random_ordinal(&spec));
         adapter.hold_statuses_through_expiry();
+        // an item cast's row runs as that item instance (scheduled_effect::Spec::item_slot)
+        adapter.set_event_item_slot(spec.item_slot.map(u32::from));
         let mut world_dyn = world_dyn_of(&mut adapter);
         let args: abi_stable::std_types::RVec<_> = spec.args.iter().copied().collect();
         let result = catch_unwind(AssertUnwindSafe(|| script.on_scheduled(handle, spec.scheduled(), args, &mut world_dyn)));
@@ -1043,20 +1121,72 @@ fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_
 }
 
 /// The ability an ABILITY_EXECUTED status event is for: its cast point at the rank `caster`
-/// holds (0 for an item or an unknown ability), whether it toggles and where it was cast (`point`,
-/// else the caster's position).
+/// holds (0 for an item or an unknown ability), its kind and tags (an item's from its generated
+/// script's definition: a toggle item toggles) and where it was cast (`point`, else the caster's
+/// position).
 fn executed_ability(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, caster: &Entity, id: &str, point: Option<Vec2>)
     -> super::parallel_world_adapter::EventAbility {
-    let def = (!id.starts_with(super::event::ITEM_SKILL_PREFIX)).then(|| registry.get_ability(id)).flatten().map(|(def, _)| def);
+    let item = id.strip_prefix(super::event::ITEM_SKILL_PREFIX);
+    let def = item.is_none().then(|| registry.get_ability(id)).flatten().map(|(def, _)| def);
+    let item_def = item.and_then(super::super::game_processor::item_script_id).and_then(|script| registry.get_ability(script)).map(|(def, _)| def);
+    let kind = def.or(item_def).map(|def| def.ability_type.clone());
     let rank = cache.hero.get(*caster).map_or(0, |hero| hero.get_ability_level(id).clamp(0, i32::from(u8::MAX)) as u8);
     let level = def.and_then(|def| def.get_level_data(rank.max(1)));
     let fixed = |value: f32| Some(value).filter(|value| value.is_finite() && *value >= 0.0 && *value <= 1_000_000.0)
         .map_or(Fixed64::ZERO, |value| Fixed64::from_raw((f64::from(value) * 1024.0).round() as i64));
     let cast_point = level.map_or(Fixed64::ZERO, |level| fixed(level.cast_time));
     let cast_range = level.map_or(Fixed64::ZERO, |level| fixed(level.range));
-    let toggle = def.is_some_and(|def| def.ability_type == AbilityType::Toggle);
+    let mana_cost = level.or_else(|| item_def.and_then(|def| def.get_level_data(1))).map_or(Fixed64::ZERO, |level| fixed(level.mana_cost));
+    let toggle = kind == Some(AbilityType::Toggle);
+    let no_cast_trigger = item.is_none() && omoba_template_ids::ability_by_name(id).and_then(omoba_template_ids::ability_const)
+        .is_some_and(|c| c.no_cast_trigger);
     let point = point.or_else(|| cache.pos.get(*caster).map(|p| p.0)).unwrap_or(Vec2::ZERO);
-    super::parallel_world_adapter::EventAbility { id: id.to_owned(), cast_point, toggle, point, cast_range }
+    super::parallel_world_adapter::EventAbility { id: id.to_owned(), cast_point, toggle, item: item.is_some(),
+        ultimate: kind == Some(AbilityType::Ultimate), passive: kind == Some(AbilityType::Passive), no_cast_trigger, point, cast_range, mana_cost }
+}
+
+/// Random ordinals of order filter hooks: their own band, from the ability and the row (never the
+/// order's place in the queue, which differs between the authority and a team replica).
+const ORDER_FILTER_ORDINAL: u64 = 1 << 42;
+
+/// `holder`'s order filters (status_event ORDER_FILTER) hear `caster`'s order to use `ability` on
+/// it, in row order; whether one refused it (ext CANCEL_ORDER), `None` when none heard it. What
+/// they did is kept either way, like any status event's effects. `caster` is `None` on a holder's team replica that does not
+/// see the caster (its event names no unit, its ability reads rank 1).
+fn run_order_filter(cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, caster: Option<Entity>, holder: Entity, ability: &str,
+    outcomes: &mut Vec<crate::comp::Outcome>) -> Option<bool> {
+    use super::super::status_event as se;
+    let mut rows: Vec<(String, se::Spec)> = cache.buffs.iter_for(holder)
+        .filter_map(|(id, entry)| se::Spec::from_payload(&entry.payload).filter(|spec| spec.listens(se::ORDER_FILTER)).map(|spec| (id.to_owned(), spec)))
+        .collect();
+    if rows.is_empty() { return None; }
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    let base = ability.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)) & 0xff_ffff;
+    let order = executed_ability(cache, registry, &caster.unwrap_or(holder), ability, cache.pos.get(holder).map(|p| p.0));
+    let other = caster.map_or(EntityHandle::INVALID, ParallelWorldAdapter::entity_to_handle);
+    let (mut heard, mut refused) = (false, false);
+    for (index, (row, spec)) in rows.into_iter().enumerate() {
+        let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
+        heard = true;
+        let event = spec.event(&row, se::ORDER_FILTER, other, Fixed64::ZERO, 1);
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(cache, holder, ORDER_FILTER_ORDINAL + base * 64 + index as u64);
+        adapter.event_ability = Some(order.clone());
+        adapter.relative_mana = true;
+        adapter.mark_order_filter();
+        let mut world_dyn = world_dyn_of(&mut adapter);
+        let result = catch_unwind(AssertUnwindSafe(|| script.on_status_event(ParallelWorldAdapter::entity_to_handle(holder),
+            RStr::from_str(&spec.status), event, &mut world_dyn)));
+        drop(world_dyn);
+        if result.is_err() {
+            log::error!("[scripting] panic in the order filter of {}", spec.ability);
+            adapter.discard_cast();
+            continue;
+        }
+        refused |= adapter.order_refused();
+        if let Some(batch) = effect_batch(cache, adapter.finish()) { outcomes.extend(batch); }
+        else { log::warn!("[scripting] order filter of '{}' ({}) tried to charge; dropped", spec.status, spec.ability); }
+    }
+    heard.then_some(refused)
 }
 
 /// An effect-only hook's outcomes (equip, aura, channel start/pulse/end, delayed effect, schedule,
@@ -1087,8 +1217,9 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
     let moves = se::take_moves(world);
     let orders = super::super::order_targets::take(world);
     let heals = se::take_heal_notes(world);
+    let respawned = se::take_armed_respawns(world);
     if combat.is_empty() && executed.is_empty() && ended.is_empty() && attacks.is_empty() && damage.is_empty() && absorbs.is_empty()
-        && moves.is_empty() && orders.is_empty() && heals.is_empty() {
+        && moves.is_empty() && orders.is_empty() && heals.is_empty() && respawned.is_empty() {
         return;
     }
     // The abilities an event names: the executed ones, then the ones cast orders name (E465).
@@ -1156,6 +1287,9 @@ fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed
         for (holder, amount) in &heals { on_holder(*holder, se::HEAL_RECEIVED, None, *amount, 0); }
         // v3 on_moved (E424): `event.distance` is how far the holder moved.
         for (holder, distance) in &moves { on_holder(*holder, se::MOVED, None, *distance, 0); }
+        // v3 on_respawn / an item passive's on_respawn: a new hero life, once its items and learned
+        // passives made their statuses (status_event::Respawns).
+        for life in &respawned { on_holder(*life, se::RESPAWN, None, Fixed64::ZERO, 0); }
         // v3 on_order_targeted (E465): the target of an accepted order hears it, `event.issuer` the
         // unit ordered; a cast order carries its ability.
         for order in &orders {
@@ -1599,8 +1733,9 @@ fn windup_target_allowed(cache:&ParallelAdapterCache<'_>,def:&crate::ability_met
     use super::super::command_outcome as code;
     let position=match (&def.target_type,target) {
         (TargetType::None,SkillTarget::None)=>return Ok(()),
-        (TargetType::Point,SkillTarget::Point {x,y})=>Some(Vec2::new(*x,*y)),
-        (TargetType::Unit,SkillTarget::Entity(entity)) if cache.entities.is_alive(*entity)
+        // unit_or_point: a point as a point cast's, a unit as a unit cast's
+        (TargetType::Point|TargetType::UnitOrPoint,SkillTarget::Point {x,y})=>Some(Vec2::new(*x,*y)),
+        (TargetType::Unit|TargetType::UnitOrPoint,SkillTarget::Entity(entity)) if cache.entities.is_alive(*entity)
             && cache.cprop.get(*entity).is_some_and(|p|p.hp>Fixed64::ZERO)=>cache.pos.get(*entity).map(|p|p.0),
         _=>None,
     };
@@ -2724,7 +2859,10 @@ mod effect_batch_tests {
             "levels": {"1": level(0.25), "2": level(0.5), "3": level(0.75)},
         })).unwrap() };
         let mut scripts = crate::runtime::ScriptRegistry::new();
-        for d in [def("strike", "active"), def("stance", "toggle")] {
+        // A catalog item with a generated script, registered as a toggle (怒雷之書's kind).
+        let (item_id, item_script) = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+            .find_map(|item| crate::runtime::game_processor::item_script_id(item.id).map(|script| (item.id, script))).unwrap();
+        for d in [def("strike", "active"), def("stance", "toggle"), def("finale", "ultimate"), def(item_script, "toggle")] {
             let script = Silent(d.id.clone());
             scripts.insert_ability_for_test(d, omb_script_abi::ability::AbilityScript_TO::from_value(
                 script, abi_stable::sabi_trait::prelude::TD_Opaque));
@@ -2752,6 +2890,23 @@ mod effect_batch_tests {
         assert_eq!(read(&mut adapter, name::IS_TOGGLE), Ok(V::Bool(false)));
         assert_eq!(read(&mut adapter, name::POINT), Ok(V::Point(Vec2::new(Fixed64::from_i32(3), Fixed64::from_i32(4)))));
         assert!(read(&mut adapter, "mana").is_err());
+        // v3 tags (op EVENT_ABILITY_TAG): an item reads its generated script's kind.
+        let tag = |adapter: &mut ParallelWorldAdapter<'_>, tag: &str|
+            adapter.ext(op::EVENT_ABILITY_TAG, RSlice::from_slice(&[A::Str(tag.into())])).into_result();
+        use omb_script_abi::ext::ability_tag as t;
+        let tags = |adapter: &mut ParallelWorldAdapter<'_>| [t::ULTIMATE, t::TOGGLE, t::PASSIVE, t::ITEM, t::NO_CAST_TRIGGER]
+            .map(|name| tag(adapter, name) == Ok(V::Bool(true)));
+        assert_eq!(tags(&mut adapter), [false; 5], "strike carries none");
+        adapter.event_ability = Some(executed_ability(&cache, &scripts, &caster, "finale", None));
+        assert_eq!(tags(&mut adapter), [true, false, false, false, false]);
+        adapter.event_ability = Some(executed_ability(&cache, &scripts, &caster, &format!("item:{item_id}"), None));
+        assert_eq!(tags(&mut adapter), [false, true, false, true, false], "a toggle item");
+        assert_eq!(read(&mut adapter, name::IS_TOGGLE), Ok(V::Bool(true)));
+        adapter.event_ability = Some(item);
+        assert_eq!(tags(&mut adapter), [false, false, false, true, false], "an item without a script");
+        assert!(tag(&mut adapter, "basic").is_err(), "an unknown tag fails loudly");
+        adapter.event_ability = None;
+        assert_eq!(tag(&mut adapter, t::ITEM), Ok(V::Bool(false)), "outside an on_ability_executed call");
     }
 
     #[test]
@@ -2822,5 +2977,184 @@ mod effect_batch_tests {
         let mut world = world;
         world.maintain();
         assert!(world.entities().is_alive(kept) && !world.entities().is_alive(refused), "the refused reservation is released");
+    }
+}
+
+#[cfg(test)]
+mod item_windup_tests {
+    use super::*;
+    use crate::runtime::native::comp::{CProperty, Faction, FactionType, Pos};
+    use specs::{Builder, WorldExt};
+    use std::sync::{Arc, Mutex};
+
+    struct Sword(String, Arc<Mutex<Vec<(u64, &'static str)>>>, Arc<Mutex<u64>>);
+    impl omb_script_abi::ability::AbilityScript for Sword {
+        fn ability_id(&self) -> RStr<'_> { RStr::from_str(&self.0) }
+        fn execute(&self, _: EntityHandle, _: omb_script_abi::types::Target, _: u8, _: RStr<'_>,
+            _: &mut omb_script_abi::world::GameWorldDyn<'_>) -> abi_stable::std_types::RResult<(), abi_stable::std_types::RString> {
+            let tick = *self.2.lock().unwrap();
+            self.1.lock().unwrap().push((tick, "execute"));
+            abi_stable::std_types::RResult::ROk(())
+        }
+        fn on_phase_start(&self, _: EntityHandle, _: omb_script_abi::types::Target, _: u8, _: &mut omb_script_abi::world::GameWorldDyn<'_>) -> bool {
+            let tick = *self.2.lock().unwrap();
+            self.1.lock().unwrap().push((tick, "phase_start"));
+            true
+        }
+    }
+
+    /// One use of a catalog item given a 0.05 s cast point (3 ticks at 60 Hz) over ticks 1..=8:
+    /// `disturb` runs before each tick's dispatch. What the script saw, with the tick.
+    fn run(interruptible: bool, disturb: impl Fn(&mut World, Entity, u64)) -> Vec<(u64, &'static str)> {
+        let (item_id, script) = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+            .find_map(|item| crate::runtime::game_processor::item_script_id(item.id).map(|script| (item.id, script))).unwrap();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+        let dt = Fixed64::from_raw(17);
+        world.insert(crate::runtime::native::comp::DeltaTime(dt));
+        crate::runtime::game_processor::TEST_ITEM_CASTS.with(|casts| casts.borrow_mut().insert(item_id.to_owned(),
+            omoba_template_ids::MobaItemCastConst { point: Fixed64::from_raw(51), interruptible }));
+        let owner = world.create_entity().with(Pos(Vec2::ZERO))
+            .with(CProperty { hp: Fixed64::ONE, mhp: Fixed64::ONE, msd: Fixed64::ZERO, def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO })
+            .with(Faction::new(FactionType::Player, 1)).build();
+        let (seen, clock) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(0)));
+        let mut registry = crate::runtime::ScriptRegistry::new();
+        let level = serde_json::json!({"cooldown": 1, "mana_cost": 0, "cast_time": 0});
+        registry.insert_ability_for_test(serde_json::from_value(serde_json::json!({ "id": script, "name": script, "kind": "item",
+            "ability_type": "active", "target_type": "none", "max_level": 1, "levels": {"1": level} })).unwrap(),
+            omb_script_abi::ability::AbilityScript_TO::from_value(Sword(script.to_owned(), seen.clone(), clock.clone()), abi_stable::sabi_trait::prelude::TD_Opaque));
+        let cast = || ScriptEvent::ItemCast { owner, owner_pid: 1, slot: 0, item_id: item_id.to_owned(), target: SkillTarget::None, released: false };
+        world.write_resource::<ScriptEventQueue>().push(cast());
+        for tick in 1..=8u64 {
+            world.write_resource::<crate::runtime::Tick>().0 = tick;
+            *clock.lock().unwrap() = tick;
+            disturb(&mut world, owner, tick);
+            // a second use while the first waits is not started
+            if tick == 2 { world.write_resource::<ScriptEventQueue>().push(cast()); }
+            crate::runtime::run_script_dispatch(&mut world, &registry, 1, dt);
+            crate::runtime::cast_windup::anchor_started_windups(&world);
+        }
+        let seen = seen.lock().unwrap().clone();
+        seen
+    }
+
+    /// item.active.cast.interruptible（千里大劍）: an item cast point runs the item's on_phase_start
+    /// when ordered and its effect once the point has passed (51/17 = 3 ticks later), once; an
+    /// interruptible one ends unreleased on a stun, a mute, moving or a new order, a plain one
+    /// goes on through all of them; death ends either.
+    #[test]
+    fn an_item_cast_point_releases_late_and_only_an_interruptible_one_gives_way() {
+        let released = vec![(1, "phase_start"), (4, "execute")];
+        let started = vec![(1, "phase_start")];
+        let nothing = |_: &mut World, _: Entity, _: u64| {};
+        assert_eq!(run(true, nothing), released);
+        assert_eq!(run(false, nothing), released);
+        let stun = |world: &mut World, owner: Entity, tick: u64| if tick == 3 {
+            world.write_resource::<crate::runtime::BuffStore>().add(owner, "stun", Fixed64::from_i32(5), serde_json::json!({}));
+        };
+        let mute = |world: &mut World, owner: Entity, tick: u64| if tick == 3 {
+            world.write_resource::<crate::runtime::BuffStore>().add(owner, "mute", Fixed64::from_i32(5), serde_json::json!({}));
+        };
+        let step = |world: &mut World, owner: Entity, tick: u64| if tick == 3 {
+            world.write_storage::<Pos>().get_mut(owner).unwrap().0 = Vec2::new(Fixed64::ONE, Fixed64::ZERO);
+        };
+        let order = |world: &mut World, owner: Entity, tick: u64| if tick == 3 {
+            crate::runtime::cast_windup::cancel(world, owner);
+        };
+        let death = |world: &mut World, owner: Entity, tick: u64| if tick == 3 {
+            world.write_storage::<CProperty>().get_mut(owner).unwrap().hp = Fixed64::ZERO;
+        };
+        for (name, disturb) in [("stun", &stun as &dyn Fn(&mut World, Entity, u64)), ("mute", &mute), ("move", &step), ("order", &order)] {
+            assert_eq!(run(true, disturb), started, "interruptible, {name}");
+            assert_eq!(run(false, disturb), released, "plain, {name}");
+        }
+        assert_eq!(run(true, death), started);
+        assert_eq!(run(false, death), started);
+    }
+}
+
+#[cfg(test)]
+mod item_turn_tests {
+    use super::*;
+    use crate::runtime::native::comp::{CProperty, Facing, Faction, FactionType, Pos};
+    use specs::{Builder, WorldExt};
+
+    struct Quiet(String);
+    impl omb_script_abi::ability::AbilityScript for Quiet {
+        fn ability_id(&self) -> RStr<'_> { RStr::from_str(&self.0) }
+        fn execute(&self, _: EntityHandle, _: omb_script_abi::types::Target, _: u8, _: RStr<'_>,
+            _: &mut omb_script_abi::world::GameWorldDyn<'_>) -> abi_stable::std_types::RResult<(), abi_stable::std_types::RString> {
+            abi_stable::std_types::RResult::ROk(())
+        }
+    }
+
+    /// A point item turns its user to the point when its cast point starts, as an ability windup
+    /// does (巨龍's breath leaves along the user's facing when it releases); an instant one when
+    /// its use succeeds.
+    #[test]
+    fn a_point_item_turns_its_user_to_the_point() {
+        let (item_id, script) = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+            .find_map(|item| crate::runtime::game_processor::item_script_id(item.id).map(|script| (item.id, script))).unwrap();
+        for windup in [true, false] {
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+            let dt = Fixed64::from_raw(17);
+            world.insert(crate::runtime::native::comp::DeltaTime(dt));
+            crate::runtime::game_processor::TEST_ITEM_CASTS.with(|casts| {
+                let mut casts = casts.borrow_mut();
+                if windup { casts.insert(item_id.to_owned(), omoba_template_ids::MobaItemCastConst { point: Fixed64::from_raw(512), interruptible: false }); }
+                else { casts.remove(item_id); }
+            });
+            let owner = world.create_entity().with(Pos(Vec2::ZERO)).with(Facing(omoba_sim::Angle::ZERO))
+                .with(CProperty { hp: Fixed64::ONE, mhp: Fixed64::ONE, msd: Fixed64::ZERO, def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO })
+                .with(Faction::new(FactionType::Player, 1)).build();
+            let mut registry = crate::runtime::ScriptRegistry::new();
+            let level = serde_json::json!({"cooldown": 1, "mana_cost": 0, "cast_time": 0});
+            registry.insert_ability_for_test(serde_json::from_value(serde_json::json!({ "id": script, "name": script, "kind": "item",
+                "ability_type": "active", "target_type": "point", "max_level": 1, "levels": {"1": level} })).unwrap(),
+                omb_script_abi::ability::AbilityScript_TO::from_value(Quiet(script.to_owned()), abi_stable::sabi_trait::prelude::TD_Opaque));
+            let point = Vec2::new(Fixed64::ZERO, Fixed64::from_i32(500));
+            world.write_resource::<ScriptEventQueue>().push(ScriptEvent::ItemCast { owner, owner_pid: 1, slot: 0, item_id: item_id.to_owned(),
+                target: SkillTarget::Point { x: point.x, y: point.y }, released: false });
+            world.write_resource::<crate::runtime::Tick>().0 = 1;
+            crate::runtime::run_script_dispatch(&mut world, &registry, 1, dt);
+            let facing = world.read_storage::<Facing>().get(owner).unwrap().0;
+            assert_eq!(Some(facing), crate::runtime::native::moba_match::direction_angle(Vec2::ZERO, point), "windup {windup}");
+        }
+        crate::runtime::game_processor::TEST_ITEM_CASTS.with(|casts| casts.borrow_mut().remove(item_id));
+    }
+}
+
+#[cfg(test)]
+mod unit_or_point_cast_tests {
+    use super::*;
+    use crate::runtime::native::comp::{CProperty, Pos};
+    use specs::{Builder, WorldExt};
+
+    /// A hero ability with `target_type = "unit_or_point"` (A06D, C10W, A32T...): its windup takes a
+    /// ground point as a point cast does and a living unit as a unit cast does, each in range; no
+    /// target is refused.
+    #[test]
+    fn a_unit_or_point_ability_windup_takes_a_unit_or_a_point() {
+        use super::super::super::command_outcome as code;
+        let def: crate::ability_meta::AbilityDef = serde_json::from_value(serde_json::json!({
+            "id": "either", "name": "either", "ability_type": "active", "target_type": "unit_or_point", "max_level": 1,
+            "levels": {"1": {"cooldown": 0, "mana_cost": 0, "cast_time": 0.3, "range": 600}} })).unwrap();
+        assert_eq!(def.target_type, crate::ability_meta::TargetType::UnitOrPoint);
+        let level = def.get_level_data(1).unwrap().clone();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+        let body = |x: i32| (Pos(Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO)),
+            CProperty { hp: Fixed64::ONE, mhp: Fixed64::ONE, msd: Fixed64::ZERO, def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO });
+        let (pos, prop) = body(400);
+        let near = world.create_entity().with(pos).with(prop).build();
+        let (pos, prop) = body(900);
+        let far = world.create_entity().with(pos).with(prop).build();
+        let cache = ParallelAdapterCache::new(&world, 1);
+        let point = |x: i32| SkillTarget::Point { x: Fixed64::from_i32(x), y: Fixed64::ZERO };
+        let judge = |target: SkillTarget| windup_target_allowed(&cache, &def, &level, &target, Vec2::ZERO);
+        assert_eq!(judge(point(500)), Ok(()), "a point in range");
+        assert_eq!(judge(point(700)), Err(code::OUT_OF_RANGE));
+        assert_eq!(judge(SkillTarget::Entity(near)), Ok(()), "a unit in range");
+        assert_eq!(judge(SkillTarget::Entity(far)), Err(code::OUT_OF_RANGE));
+        assert_eq!(judge(SkillTarget::None), Err(code::INVALID_TARGET), "it needs one or the other");
+        assert!(omoba_template_ids::TargetTypeC::UnitOrPoint.takes_unit() && omoba_template_ids::TargetTypeC::UnitOrPoint.takes_point());
     }
 }

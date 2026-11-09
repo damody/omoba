@@ -107,6 +107,12 @@ impl InProcessObserver {
         Ok(Self { teams, seed, interval: interval.max(1), tick_rate_hz, checked_ticks: 0, divergence: None })
     }
 
+    /// Test content for every team's replica in place of the scripts directory's.
+    #[cfg(test)]
+    pub(crate) fn replace_scripts(&mut self, registry: impl Fn() -> crate::runtime::ScriptRegistry) {
+        for team in &mut self.teams { team.stepper.replace_scripts(registry()); }
+    }
+
     /// After the authority stepped and projected `tick` (with its accepted inputs queued before
     /// the projection): each replica applies its frame; on a compared tick, the first divergence.
     pub fn after_projection(&mut self, world: &mut World, tick: u64) -> Result<Option<ObserverDivergence>, String> {
@@ -153,7 +159,8 @@ pub fn first_divergence(tick: u64, team: u32, authority: &crate::runtime::Disclo
     for id in ids {
         let (a, r) = (authority.entities.get(&id), replica.entities.get(&id));
         let schemas: BTreeSet<u32> = a.into_iter().chain(r).flat_map(|e| e.components.keys().copied()).collect();
-        for schema in schemas {
+        // Baseline-only (owner_script_rows): a replica keeps the bytes its new life read; no hash has them.
+        for schema in schemas.into_iter().filter(|schema| *schema != crate::runtime::native::owner_script_rows::SCHEMA_ID) {
             let (x, y) = (a.and_then(|e| e.components.get(&schema)), r.and_then(|e| e.components.get(&schema)));
             if x != y { return ObserverDivergence { tick, team, entity: id, schema, authority: x.is_some(), replica: y.is_some(),
                 authority_bytes: x.cloned().unwrap_or_default(), replica_bytes: y.cloned().unwrap_or_default(),

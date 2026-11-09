@@ -602,6 +602,10 @@ pub struct MobaItemConst {
     pub mana_cost: Fixed64,
     /// Single use: a committed use removes the item.
     pub consumable: bool,
+    /// Stored uses shared by the hero's copies (v3 `cost.charges`, scope hero).
+    pub charges: Option<MobaItemChargesConst>,
+    /// The active's cast point (v3 `cast.cast_point`, `cast.interruptible`).
+    pub cast: Option<MobaItemCastConst>,
     /// Inventory items that also start this item's cooldown when it is used.
     pub shares_cooldown_with: &'static [&'static str],
     /// Passive aura on allies around the holder (E173).
@@ -647,6 +651,8 @@ pub struct MobaItemTargetConst {
     pub requires_visible: bool,
     pub out_of_range: MobaItemOutOfRangeConst,
     pub include_magic_immune: bool,
+    /// A unit target may not be a hero (v3 `target.types` without `hero`).
+    pub exclude_heroes: bool,
 }
 
 impl MobaItemTargetConst {
@@ -657,6 +663,7 @@ impl MobaItemTargetConst {
         requires_visible: false,
         out_of_range: MobaItemOutOfRangeConst::Reject,
         include_magic_immune: false,
+        exclude_heroes: false,
     };
 }
 
@@ -665,6 +672,8 @@ pub enum MobaItemTargetShapeConst {
     Self_,
     Point,
     Unit,
+    /// A unit (checked as for `Unit`) or a ground point (as for `Point`), scripted items only.
+    UnitOrPoint,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -707,6 +716,15 @@ pub enum MobaItemActiveConst {
 /// One named timed modifier: its BuffStore stat values (StatKey name, raw Fixed64; percentages are fractions).
 #[derive(Clone, Copy, Debug)]
 pub struct MobaItemModifierConst { pub name: &'static str, pub duration: Fixed64, pub area: bool, pub stats: &'static [(&'static str, Fixed64)] }
+
+/// Stored uses of a scripted item: up to `max`, `initial` at first, one back each `restore`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MobaItemChargesConst { pub max: u16, pub restore: Fixed64, pub initial: u16 }
+
+/// A scripted item's cast point: the use takes effect `point` after it is ordered; `interruptible`
+/// lets a stun, mute, command restriction, move or new order end the wait.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MobaItemCastConst { pub point: Fixed64, pub interruptible: bool }
 
 /// A passive item aura: buff `name` with `stats` on allies within `radius` of the holder.
 #[derive(Clone, Copy, Debug)]
@@ -1452,6 +1470,12 @@ pub struct SummonStats {
     /// A building (v3 unit_template `building`, 原作 npc_dota_building, E428): omoba-core
     /// `IsBuilding` on the authority and every replica; immobile.
     pub building: bool,
+    /// A courier (v3 unit_template tag `courier`, 原作 npc_dota_courier2): omoba-core spawns it
+    /// itself as UnitType::Courier (has_tag courier).
+    pub courier: bool,
+    /// Magic immune for its whole life, put on it at the spawn (a courier's passive
+    /// magic_immune, 原作 for_magic_immune).
+    pub magic_immune: bool,
     /// v3 `ai = "chase_target"` (E406): the host moves it (omoba-core summon_chase); None for
     /// every other summon.
     pub chase: Option<&'static SummonChaseConst>,
@@ -1513,6 +1537,15 @@ pub enum TargetTypeC {
     None = 0,
     Point = 1,
     Unit = 2,
+    /// v3 `target.type = "unit_or_point"`: a unit (checked as a unit target) or a ground point.
+    UnitOrPoint = 3,
+}
+
+impl TargetTypeC {
+    /// Aimed at a unit: `unit`, or `unit_or_point` given one.
+    pub fn takes_unit(self) -> bool { matches!(self, Self::Unit | Self::UnitOrPoint) }
+    /// Aimed at a ground point: `point`, or `unit_or_point` given one.
+    pub fn takes_point(self) -> bool { matches!(self, Self::Point | Self::UnitOrPoint) }
 }
 
 /// 單一等級的核心數值 — const-friendly mirror of `AbilityLevelData`。
@@ -1620,6 +1653,8 @@ pub struct AbilityConst {
     pub requires_status: Option<&'static str>,
     /// Learned automatically at each rank's `required_hero_level`, never with a skill point.
     pub auto_learn: bool,
+    /// v3 tag `no_cast_trigger`: its casts do not trigger "an ability used" hooks that exclude it.
+    pub no_cast_trigger: bool,
     pub ability_type: AbilityTypeC,
     pub cast_type: CastTypeC,
     pub target_type: TargetTypeC,

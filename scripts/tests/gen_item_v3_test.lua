@@ -47,6 +47,15 @@ for _, item in ipairs(final) do
   local s = generated[item.id]
   if s then ok(item.cost == s.numbers.cost, item.id .. ' costs what v3 says') end
 end
+-- unit_or_point (巨龍): a named unit is checked as a unit target, else a point; it needs a range
+do
+  local num = function(v) return v end
+  local fields = G.scripted_active({ id = 'item_x', active = { target = { type = 'unit_or_point', range = 600, team = 'both' }, cost = { cooldown = 30 } } }, num, {})
+  ok(fields and fields.target.shape == 'unit_or_point' and fields.target.range == 600 and fields.target.team == 'any'
+    and fields.target.out_of_range == 'reject', 'a unit_or_point active keeps its range, both teams read as any')
+  local none, why = G.scripted_active({ id = 'item_x', active = { target = { type = 'unit_or_point', team = 'both' }, cost = {} } }, num, {})
+  ok(none == nil and why:find('range'), 'a unit_or_point active without a range has no catalog target')
+end
 -- every item marked scripted has its generated script: without one its effects are simply missing
 do
   V3_CODEGEN_COVERAGE_AS_MODULE = true
@@ -59,4 +68,40 @@ do
     ok(e and #e.blockers == 0, id .. ' is marked scripted and has no script: ' .. table.concat(e and e.blockers or {}, '; '))
   end
 end
+-- recharging uses go to the catalog row (line B 1f8fecee); scope hero only, max 1..10
+do
+  local by = { charges_max = 2, charge_restore = 40 }
+  local function number(e) if type(e) == 'number' then return e end; local n = type(e) == 'string' and e:match('^%$([%w_]+)$'); return n and by[n] end
+  local item = { id = 'item_x', active = { kind = 'active', target = { type = 'none' },
+    cost = { mana = 100, charges = { max = '$charges_max', restore = '$charge_restore', initial = '$charges_max', scope = 'hero' } } } }
+  local out = assert(G.scripted_active(item, number, {}))
+  ok(out.charges.max == 2 and math.type(out.charges.max) == 'integer' and out.charges.initial == 2 and out.charges.restore == 40, 'charges reach the row')
+  item.active.cost.charges.scope = 'ability'
+  ok(G.scripted_active(item, number, {}) == nil, 'only scope hero')
+  item.active.cost.charges.scope, item.active.cost.charges.max = 'hero', 11
+  ok(G.scripted_active(item, number, {}) == nil, 'at most 10')
+end
+
+-- the windup goes to the catalog row (line B 2be4ab76): none at 0, interruptible only with one
+do
+  local function number(e) if type(e) == 'number' then return e end; return e == '$cast_point' and 0.3 or nil end
+  local item = { id = 'item_x', active = { kind = 'active', target = { type = 'none' }, cast = { cast_point = '$cast_point', interruptible = true }, cost = {} } }
+  local out = assert(G.scripted_active(item, number, {}))
+  ok(out.cast and out.cast.point == 0.3 and out.cast.interruptible == true, 'cast_point and interruptible reach the row')
+  item.active.cast = { immediate = true }
+  ok(assert(G.scripted_active(item, number, {})).cast == nil, 'no windup, no cast')
+  item.active.cast = { interruptible = true }
+  ok(G.scripted_active(item, number, {}) == nil, 'interruptible needs a cast_point')
+end
+
+-- a unit target without heroes refuses them (exclude_heroes), no range is the whole map (line B 88af54a8)
+do
+  local num = function(v) return v end
+  local item = { id = 'item_x', active = { target = { type = 'unit', team = 'ally', types = { 'creep', 'courier', 'building' } }, cost = {} } }
+  local out = assert(G.scripted_active(item, num, {}))
+  ok(out.target.exclude_heroes == true and out.target.range == 0, 'no heroes, the whole map')
+  item.active.target.types = { 'hero', 'creep' }
+  ok(assert(G.scripted_active(item, num, {})).target.exclude_heroes == nil, 'heroes named: no exclude_heroes')
+end
+
 print('gen_item_v3 test: ' .. checks .. ' checks passed')

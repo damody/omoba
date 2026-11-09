@@ -69,6 +69,18 @@ pub const HEAL_RECEIVED: u8 = 19;
 /// `damage_kind` 0 when the holder missed at launch (blind, accuracy), 1 when the target evaded
 /// or was attack-immune on arrival.
 pub const ATTACK_MISS: u8 = 20;
+/// An enemy ordered `other` to use a unit ability or item on the holder, and the order has not
+/// executed yet (v3 `on_order_targeted` whose actions `cancel_cast`, 原作 ExecuteOrderFilter):
+/// the hook may refuse it (ext CANCEL_ORDER); `event.order.ability` is that ability (EVENT_ABILITY_*).
+/// The authority runs it; a team replica takes the refusal from the authority (order_filter).
+pub const ORDER_FILTER: u8 = 21;
+/// The holder is dying (v3 `on_owner_death` of an item, an item passive's `on_death`): heard
+/// before the death settles, while the holder is whole (scripting::owner_death); `other` invalid.
+pub const OWNER_DEATH: u8 = 22;
+/// The holder's hero came back to life (an item passive's / a v3 status's `on_respawn`, 原作
+/// MODIFIER_EVENT_ON_RESPAWN): heard by the new life once its items and learned passives have
+/// made their statuses again, the dispatch after they did ([`Respawns`]); `other` invalid.
+pub const RESPAWN: u8 = 23;
 
 /// `Spec.mask` bits: which events the status listens to.
 pub const ON_END: u32 = 1 << 0;
@@ -89,9 +101,12 @@ pub const ON_MANA_SPENT: u32 = 1 << 14;
 pub const ON_ORDER_TARGETED: u32 = 1 << 15;
 pub const ON_HEAL_RECEIVED: u32 = 1 << 16;
 pub const ON_ATTACK_MISS: u32 = 1 << 17;
+pub const ON_ORDER_FILTER: u32 = 1 << 18;
+pub const ON_OWNER_DEATH: u32 = 1 << 19;
+pub const ON_RESPAWN: u32 = 1 << 20;
 pub const ALL: u32 = ON_END | ON_ATTACK_HIT | ON_ATTACKED | ON_TAKE_DAMAGE | ON_DEAL_DAMAGE | ON_TAKE_DAMAGE_PRE | ON_DEAL_DAMAGE_PRE
     | ON_ABILITY_EXECUTED | ON_ATTACK_START | ON_KILL | ON_ATTACK_LAUNCH | ON_ABSORB | ON_BROKEN | ON_MOVED | ON_MANA_SPENT
-    | ON_ORDER_TARGETED | ON_HEAL_RECEIVED | ON_ATTACK_MISS;
+    | ON_ORDER_TARGETED | ON_HEAL_RECEIVED | ON_ATTACK_MISS | ON_ORDER_FILTER | ON_OWNER_DEATH | ON_RESPAWN;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
@@ -147,6 +162,9 @@ impl Spec {
             ORDER_TARGETED => ON_ORDER_TARGETED,
             HEAL_RECEIVED => ON_HEAL_RECEIVED,
             ATTACK_MISS => ON_ATTACK_MISS,
+            ORDER_FILTER => ON_ORDER_FILTER,
+            OWNER_DEATH => ON_OWNER_DEATH,
+            RESPAWN => ON_RESPAWN,
             _ => 0,
         };
         self.mask & bit != 0
@@ -190,6 +208,33 @@ pub fn note_heal(world: &mut specs::World, target: specs::Entity, amount: Fixed6
 
 pub fn take_heal_notes(world: &mut specs::World) -> Vec<(specs::Entity, Fixed64)> {
     world.try_fetch_mut::<HealNotes>().map(|mut notes| std::mem::take(&mut notes.0)).unwrap_or_default()
+}
+
+/// Hero lives that began as a respawn (moba_match spawn_hero after a death). A new life is
+/// `fresh` until the script dispatch has run its item equips and learn hooks; then it is `armed`
+/// (and its UnitScript gets `ScriptEvent::Respawn`), and the next dispatch, when the statuses
+/// those hooks made are in the store, delivers [`RESPAWN`] to the life's listening statuses.
+#[derive(Clone, Debug, Default)]
+pub struct Respawns { pub fresh: Vec<specs::Entity>, pub armed: Vec<specs::Entity> }
+
+/// `life` is a hero's new body after a death.
+pub fn note_respawn(world: &mut specs::World, life: specs::Entity) {
+    use specs::WorldExt;
+    if world.try_fetch::<Respawns>().is_none() { world.insert(Respawns::default()); }
+    world.write_resource::<Respawns>().fresh.push(life);
+}
+
+/// The fresh lives, now armed (their UnitScript respawn hook goes with this dispatch's arming).
+pub fn arm_respawns(world: &mut specs::World) -> Vec<specs::Entity> {
+    let Some(mut respawns) = world.try_fetch_mut::<Respawns>() else { return Vec::new() };
+    let fresh = std::mem::take(&mut respawns.fresh);
+    respawns.armed.extend(fresh.iter().copied());
+    fresh
+}
+
+/// The armed lives, for their statuses to hear [`RESPAWN`].
+pub fn take_armed_respawns(world: &mut specs::World) -> Vec<specs::Entity> {
+    world.try_fetch_mut::<Respawns>().map(|mut respawns| std::mem::take(&mut respawns.armed)).unwrap_or_default()
 }
 
 /// The landed hits since status events last ran.
@@ -367,7 +412,10 @@ mod tests {
         assert!(!s.listens(MOVED) && spec(ON_MOVED).listens(MOVED));
         assert!(!s.listens(ORDER_TARGETED) && spec(ON_ORDER_TARGETED).listens(ORDER_TARGETED), "E465");
         assert!(!s.listens(HEAL_RECEIVED) && spec(ON_HEAL_RECEIVED).listens(HEAL_RECEIVED), "E478");
-        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 18);
+        assert!(!s.listens(ORDER_FILTER) && spec(ON_ORDER_FILTER).listens(ORDER_FILTER) && !spec(ON_ORDER_FILTER).listens(ORDER_TARGETED));
+        assert!(spec(ON_OWNER_DEATH).listens(OWNER_DEATH) && !spec(ON_OWNER_DEATH).listens(CLEARED) && !spec(ON_END).listens(OWNER_DEATH));
+        assert!(spec(ON_RESPAWN).listens(RESPAWN) && !spec(ON_OWNER_DEATH).listens(RESPAWN));
+        let mut bad = payload.clone(); bad[KEY]["mask"] = json!(1 << 21);
         assert_eq!(Spec::from_payload(&bad), None, "unknown event bits");
         let mut bad = payload.clone(); bad[KEY]["status"] = json!("B16T");
         assert_eq!(Spec::from_payload(&bad), None, "status ids are v3 ids");

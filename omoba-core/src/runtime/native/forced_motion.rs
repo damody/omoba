@@ -514,7 +514,7 @@ mod tests {
             if blocker { body(&mut world, p(300, 0)); }
             let spec = Spec { source_id: caster.id(), source_generation: caster.gen().id() as u32, mode: Mode::Knockback,
                 distance: Fixed64::from_i32(800), cast_range: Fixed64::from_i32(600), to: None }.checked().unwrap();
-            let template = se::Spec { ability: "a14_impact_spear".into(), level: 2, step: 3, instance: 9, args: Vec::new() };
+            let template = se::Spec { ability: "a14_impact_spear".into(), level: 2, step: 3, instance: 9, args: Vec::new(), item_slot: None };
             let options = Options { origin: Some(p(-1, 0)), stun: false, height: None, contact: Some(Fixed64::from_i32(100)) };
             let payload = with_on_end(spec.payload_with(options), &template);
             assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &payload), Some(spec), "round trips");

@@ -133,7 +133,7 @@ local SOURCE_ITEMS = {
   { 202, "item_samurai_cloth", true },
   { 203, "item_ninja_cloth", true },
   { 204, "item_shun_armor", true },
-  { 205, "item_samurai's_badge" },
+  { 205, "item_samurai's_badge", true },
   { 206, "item_flame_armor", true },
   { 207, "item_foxfire_armor", true },
   { 208, "item_wayumi", true },
@@ -154,6 +154,61 @@ local SOURCE_ITEMS = {
   { 223, "item_the_great_sword_of_tiger", true },
   { 224, "item_the_sword_of_kaminaobi", true },
   { 225, "item_ninja2", true },
+  -- E line (2026-11-08): generator blockers cleared by line A f7b3c1aa and line B 093d1508.
+  { 226, "item_the_art_of_war_forest_chapter", true },
+  { 227, "item_forest_scroll", true },
+  { 228, "item_commander_of_fan", true },
+  { 229, "item_mana_thief", true },
+  { 230, "item_contemporary_armor", true },
+  -- E line (2026-11-08): combat summons carry passive.aura (line B 55577725).
+  { 231, "item_the_art_of_war", true },
+  { 232, "item_the_lost_art_of_war_1", true },
+  -- E line (2026-11-08): toggle items generate (line A 08d5a997).
+  { 233, "item_thunderbolt_book", true },
+  { 234, "item_the_over_lightning_art_of_war", true },
+  -- E line (2026-11-08): on_order items generate (line B 037a69cd, line A a3850a23).
+  { 235, "item_protection_amulet", true },
+  -- E line (2026-11-08): instance and pre-mitigation shields (line B 4dfde241, line A b58a8361).
+  { 236, "item_magic_talisman", true },
+  -- E line (2026-11-08): line A inventory, only the shelf blocked (line A 60a2a725 for the armor).
+  -- Insight gem and its recipes wait for its shard (on_owner_death); great dragon waits for a
+  -- unit_or_point item target.
+  { 237, "item_devil_supressor_armor", true },
+  { 238, "item_nannbann_armor", true },
+  -- E line (2026-11-08): remove_status source filters and item passive hooks (line B c69d3adf,
+  -- line A d5763558).
+  { 239, "item_frozen_book", true },
+  { 240, "item_ice_storm_book", true },
+  { 241, "item_the_great_sword_of_drain", true },
+  { 242, "item_bizennosafunekanemitsu", true },
+  -- E line (2026-11-08): owner death and respawn hooks (line B 7b32a3e1 / 82771384, line A
+  -- 57bfb4d5 / 1c37f120).
+  { 243, "item_insight_gem_ninja", true },
+  { 244, "item_death_of_scepter", true },
+  { 245, "item_muramasa_katana", true },
+  -- E line (2026-11-08): item instance bool and unit states (line B 4b32ae10, line A 9b7bf2d8).
+  { 246, "item_moon_mirror", true },
+  { 247, "item_reito_lantern", true },
+  -- E line (2026-11-08): insight gem chain (line A 94f671d9) and item refund mana (line B bcac51c9, line A a9ae7133).
+  { 248, "item_insight_gem_hero", true },
+  { 249, "item_insight_gem_Shard", true },
+  { 250, "item_insight_gem", true },
+  { 251, "item_cross_spear", true },
+  { 252, "item_soul_adder", true },
+  -- E line (2026-11-09): projectile lifetime (line B 341a1051, line A 1b8af10c), stat when, damage type event and item orb slot (line B 2061e821 / d0ae77e5, line A 38f10132).
+  { 253, "item_ronin_jitte", true },
+  { 254, "item_the_great_sword_of_invincible", true },
+  { 255, "item_the_dark_yellow_teeth_and_zimbabwe", true },
+  { 256, "item_the_spear_of_saddle", true },
+  -- E line (2026-11-09): unit_or_point item target (line B 1fa72e69).
+  { 257, "item_great_dragon", true },
+  -- E line (2026-11-09): physical block chance (line B 5c9aaa43).
+  { 258, "item_prophet_armor", true },
+  { 259, "item_prophet_Akazonae_armor", true },
+  -- E line (2026-11-09): item charges (line B 1f8fecee, line A 9ef90d98).
+  { 260, "item_earth_wall_book", true },
+  -- E line (2026-11-09): item cast point, courier tag and non-hero item targets (line B 2be4ab76 / 88af54a8, line A 73478294 / e5f6446c).
+  { 261, "item_the_great_sword_of_teleport", true },
 }
 
 return function(ctx)

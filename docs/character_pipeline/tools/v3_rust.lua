@@ -218,21 +218,40 @@ local STATUS_TRIGGERS = {
   -- an enemy (or anyone) ordered an attack or a cast at the holder (line B E465): event.issuer the
   -- orderer, event.order.ability the ordered ability (none for an attack order)
   on_order_targeted = { 32768, { 18 } },
+  -- an on_order_targeted that can cancel_cast: the host's order filter, before the windup of a
+  -- single-target cast at the holder (line B 037a69cd); triggers_of names it so
+  on_order_filter = { 262144, { 21 } },
   -- the holder's attack missed (line B E496): event.target its target; missed at launch or evaded
   on_attack_miss = { 131072, { 20 } },
+  -- the holder is about to die (line B 7b32a3e1): before the death settles, effects only; no
+  -- event fields (the killer is not tracked)
+  on_owner_death = { 524288, { 22 } },
+  -- the holder's new life after a respawn (line B 82771384; not the first life): no event fields
+  on_respawn = { 1048576, { 23 } },
   -- applied again while it holds: the applying code runs it after the apply (no host event)
   on_refreshed = { 0 },
 }
 -- a status's triggers with its absorb shield's on_absorb / on_broken among them
 local merged_triggers = setmetatable({}, { __mode = "k" })
 local function team_call(n) return type(n) == "table" and n.k == "call" and (n.fn == "team_of" or n.fn == "enemy_team") and #(n.args or {}) == 1 end
+-- an action list with a cancel_cast in it (branches included)
+local function cancels(list)
+  for _, a in ipairs(type(list) == "table" and list or {}) do
+    if type(a) == "table" and (a.op == "cancel_cast" or cancels(a.actions) or cancels(a.otherwise)) then return true end
+  end
+  return false
+end
 local function triggers_of(def)
   local ab = type(def.absorb) == "table" and def.absorb or nil
-  if not ab or (ab.on_absorb == nil and ab.on_broken == nil) then return def.triggers end
+  local absorb = ab and (ab.on_absorb ~= nil or ab.on_broken ~= nil)
+  local ot = (def.triggers or {}).on_order_targeted
+  local filter = type(ot) == "table" and cancels(ot.actions or ot)
+  if not absorb and not filter then return def.triggers end
   if merged_triggers[def] then return merged_triggers[def] end
   local t = {}
   for k, v in pairs(def.triggers or {}) do t[k] = v end
-  for _, k in ipairs({ "on_absorb", "on_broken" }) do
+  if filter then t.on_order_filter, t.on_order_targeted = ot, nil end
+  for _, k in ipairs(absorb and { "on_absorb", "on_broken" } or {}) do
     if ab[k] ~= nil then t[k] = t[k] == nil and ab[k] or error(tostring(def.id) .. ": " .. k .. " in both absorb and triggers") end
   end
   merged_triggers[def] = t
@@ -576,6 +595,9 @@ do
     gold = { "num", "unit_num", "GOLD" },
     -- armor above the base (line B ee0292ee)
     bonus_armor = { "num", "unit_num", "BONUS_ARMOR" },
+    -- a summon, not an illusion, even after its summoner died / an illusion's outgoing physical
+    -- share (1 otherwise) (line B 093d1508)
+    is_summon = { "bool", "unit_flag", "IS_SUMMON" }, illusion_damage = { "num", "unit_num", "ILLUSION_DAMAGE" },
   }
   for name, e in pairs(EXT) do
     -- the operand first: a read takes &mut cx
@@ -647,6 +669,10 @@ function Gen:expr(node, ctx)
       if parts[1] == "is_night" then return "cx.is_night()", "bool" end
       if parts[1] == "time" then return "cx.game_time()", "num" end
       if parts[1] == "dt" then return "cx.game_dt()", "num" end
+      -- the latest creep wave's index (-1 before the first) / the armor creeps spawn with above
+      -- their template (line B 093d1508)
+      if parts[1] == "creep_wave" then return "cx.game_num(ability_kit::game_attr::CREEP_WAVE)", "num" end
+      if parts[1] == "creep_armor_bonus" then return "cx.game_num(ability_kit::game_attr::CREEP_ARMOR_BONUS)", "num" end
       self:block("attr:game." .. parts[1]); return "Fixed64::ZERO", "err"
     end
     -- the running ability (v3.md §5.4: always this entry, in a trigger too): its rank is cx.rank in
@@ -661,6 +687,9 @@ function Gen:expr(node, ctx)
       end
       local id = self.entry and self.entry.kind == "ability" and self.entry.def.id
       if parts[1] == "is_ready" and id then return string.format("cx.ability_ready(cx.caster, %s)", rust_str(id)), "bool" end
+      -- an item: its holder's first copy is off cooldown (E566)
+      local item_id = self.entry and self.entry.kind == "item" and self.entry.def.id
+      if parts[1] == "is_ready" and item_id then return string.format("(cx.item_cooldown_remaining(cx.caster, %s) <= Fixed64::ZERO)", rust_str(item_id)), "bool" end
       if parts[1] == "cooldown_remaining" and id then return string.format("cx.ability_cooldown(cx.caster, %s)", rust_str(id)), "num" end
       -- this rank's mana cost (`cost.mana`, GetManaCost)
       if parts[1] == "mana_cost" and id and self.entry.def.cost and self.entry.def.cost.mana ~= nil then
@@ -690,6 +719,16 @@ function Gen:expr(node, ctx)
         -- item_name var is a number the host turns back into the item's id
         if not (self.entry and self.entry.kind == "item") then self:block("state:" .. parts[1] .. " (item_instance) outside its item"); return "Fixed64::ZERO", "err" end
         local num = v.def.type == "int" or v.def.type == "fixed"
+        -- bool / unit (line B 4b32ae10; the item's delay / repeat steps carry its slot too)
+        if v.def.type == "bool" then
+          local init = v.def.init ~= nil and self:value(v.def.init, ctx, "bool") or "false"
+          return string.format("{ let h = %s; match cx.item_instance_key(%s) { Some(k) => cx.state_bool(h, &k, %s), None => %s } }",
+            holder, rust_str(v.key), init, init), "bool"
+        end
+        if v.def.type == "unit" then
+          return string.format("{ let h = %s; match cx.item_instance_key(%s) { Some(k) => cx.state_unit(h, &k), None => EntityHandle::INVALID } }",
+            holder, rust_str(v.key)), "unit"
+        end
         if not num and v.def.type ~= "item_name" then self:block("state type:" .. tostring(v.def.type) .. " (item_instance)"); return "Fixed64::ZERO", "err" end
         local init = num and v.def.init ~= nil and self:value(v.def.init, ctx, "num") or "Fixed64::ZERO"
         local raw = string.format("{ let h = %s; match cx.item_instance_key(%s) { Some(k) => cx.state_num(h, &k, %s), None => %s } }",
@@ -768,6 +807,7 @@ function Gen:expr(node, ctx)
       -- the ordered ability at the orderer's rank (line B E465)
       if node.name == "cast_point" and ctx.event == "order_targeted" then return "cx.event_ability_cast_point()", "num" end
       if node.name == "cast_range" and ctx.event == "order_targeted" then return "cx.event_ability_cast_range()", "num" end
+      if node.name == "mana_cost" and ctx.event == "order_targeted" then return "cx.event_ability_mana_cost()", "num" end
       self:block("attr:" .. node.name .. " of an ability"); return "Fixed64::ZERO", "err"
     end
     if ot == "event" and (ctx.event == "channel_tick" or ctx.event == "channel_end") then
@@ -779,6 +819,10 @@ function Gen:expr(node, ctx)
     if ot == "event" and ctx.event == "moved" then
       if node.name == "distance" then return "cx.event_amount", "num" end
       self:block("event:" .. node.name .. " of a status on_moved"); return "Fixed64::ZERO", "err"
+    end
+    -- an owner's death (line B 7b32a3e1) carries no event fields
+    if ot == "event" and ctx.event == "owner_death" then
+      self:block("event:" .. node.name .. " of an owner death"); return "Fixed64::ZERO", "err"
     end
     -- a status's on_mana_spent / on_heal_received tells only how much (line B E449, E478)
     if ot == "event" and (ctx.event == "mana_spent" or ctx.event == "heal_received") then
@@ -793,6 +837,8 @@ function Gen:expr(node, ctx)
     end
     if ot == "event_order" then
       if node.name == "ability" then return "", "event_ability" end
+      -- the order is at the holder (the host raises it only for orders targeting it)
+      if node.name == "target" then return "cx.self_unit", "unit" end
       self:block("event.order." .. node.name); return "Fixed64::ZERO", "err"
     end
     -- a status's on_ability_executed tells only the skill (line B 94d609ce)
@@ -1027,6 +1073,15 @@ function Gen:call(node, ctx)
     self.item_names = self.item_names or C.item_names(((self.opts.root or "."):gsub("\\", "/")) .. "/docs/character_pipeline/items")
     if not self.item_names[name] then self:block("fn:has_item of " .. name .. " (no such item)"); return "false", "bool" end
     return "{ let u = " .. u .. "; (0..6u8).any(|slot| cx.item_in_slot(u, slot).as_deref() == Some(" .. rust_str(name) .. ")) }", "bool"
+  elseif fn == "item_count" then
+    -- how many of the unit's inventory slots hold that catalog item (the slots has_item reads)
+    local u, t = arg(1)
+    local name = name_arg(2)
+    if t == "err" or not name then return "Fixed64::ZERO", "num" end
+    if t ~= "unit" then self:block("fn:item_count of a " .. t); return "Fixed64::ZERO", "num" end
+    self.item_names = self.item_names or C.item_names(((self.opts.root or "."):gsub("\\", "/")) .. "/docs/character_pipeline/items")
+    if not self.item_names[name] then self:block("fn:item_count of " .. name .. " (no such item)"); return "Fixed64::ZERO", "num" end
+    return "{ let u = " .. u .. "; Fixed64::from_i32((0..6u8).filter(|&slot| cx.item_in_slot(u, slot).as_deref() == Some(" .. rust_str(name) .. ")).count() as i32) }", "num"
   elseif fn == "landmark" then
     -- a team's landmark (line B E538): `landmark(team_of(u), fort|base)` is u's own team's
     local tm, kind = args[1], name_arg(2)
@@ -1243,7 +1298,8 @@ function Gen:call(node, ctx)
       -- unit tags (GameWorld::ext TAG_PREFIX; this game has no fountain or general units)
       local reads = { building = "cx.is_building(%s)", hero = "cx.is_hero(%s)", creep = "cx.unit_flag(%s, ability_kit::unit_attr::IS_CREEP)" }
       if reads[n] then return "{ let u = " .. u .. "; " .. reads[n]:format("u") .. " }", "bool" end
-      local HOST_TAGS = { boss = true, dummy = true, fountain = true, general = true, summon = true, neutral = true }
+      -- courier: UnitType::Courier (line B 88af54a8; the map has none yet)
+      local HOST_TAGS = { boss = true, dummy = true, fountain = true, general = true, summon = true, neutral = true, courier = true }
       if HOST_TAGS[n] then return "{ let u = " .. u .. "; cx.has_unit_tag(u, " .. rust_str(n) .. ") }", "bool" end
       self:block("fn:has_tag:" .. n .. " of a unit"); return "false", "bool"
     end
@@ -1260,7 +1316,11 @@ function Gen:call(node, ctx)
     if fn == "is_item" then return "cx.event_is_item(" .. rust_str(n) .. ")", "bool" end
     if fn == "is_ability" then return "cx.event_is_ability(" .. rust_str(n) .. ")", "bool" end
     if n == "item" then return "cx.event_is_any_item()", "bool" end
-    if n == "toggle" then return "cx.event_is_toggle()", "bool" end
+    -- toggle (a toggle item too) / ultimate / passive / no_cast_trigger: the host reads the
+    -- catalog row or the item's script def (GameWorld::ext EVENT_ABILITY_TAG, line B 55577725)
+    if n == "toggle" or n == "ultimate" or n == "passive" or n == "no_cast_trigger" then
+      return "cx.event_ability_has_tag(" .. rust_str(n) .. ")", "bool"
+    end
     self:block("fn:has_tag:" .. n); return "false", "bool"
   end
   self:block("fn:" .. fn); return "Fixed64::ZERO", "err"
@@ -1439,6 +1499,9 @@ local function when_code(w)
   if w == "self.is_hero" then return "ability_kit::When::Hero" end
   local a = w:match("^primary_is%(%s*self%s*,%s*(%a+)%s*%)$")
   if a and WHEN_ATTR[a] then return "ability_kit::When::Primary(ability_kit::Attr::" .. WHEN_ATTR[a] .. ")" end
+  -- line B 2061e821
+  a = w:match("^not%s+primary_is%(%s*self%s*,%s*(%a+)%s*%)$")
+  if a and WHEN_ATTR[a] then return "ability_kit::When::NotPrimary(ability_kit::Attr::" .. WHEN_ATTR[a] .. ")" end
   return nil
 end
 
@@ -1487,6 +1550,11 @@ function Gen:stat_rows(stats, ctx)
       if type(v) == "table" then self:block("stat:heal_reduction_pct of a table")
       elseif not self.slow_ok then self:block("stat:heal_reduction_pct outside a status")
       else rows[#rows + 1] = "(StatKey::HealReceivedMultiplier, (Fixed64::ONE - (" .. self:value(expr, ctx, "num") .. ")).raw())" end
+    elseif name == "cooldown_reduction_pct" and not entry then
+      -- the host's cooldown percentage (final = base × (1 + pct), omoba-core unit_stats
+      -- cooldown_mult): a reduction is that share taken off
+      if type(v) == "table" then self:block("stat:cooldown_reduction_pct of a table")
+      else rows[#rows + 1] = "(StatKey::CooldownPercentage, (Fixed64::ZERO - (" .. self:value(expr, ctx, "num") .. ")).raw())" end
     elseif not entry then self:block("stat:" .. name)
     elseif expr ~= nil then
       local raw
@@ -1534,9 +1602,10 @@ local ACTION_FIELDS = {
   set_base_max_hp = set({ "op", "to", "value" }),
   remove_ability = set({ "op", "from", "ability" }),
   apply_status = set({ "op", "status", "to", "duration", "source", "stacks", "vars" }),
-  -- exclude_source_tags, source_is, source_ability, min_duration, min_remaining: the host does not
-  -- judge status sources or durations yet (line B), so they stay blocked
-  remove_status = set({ "op", "status", "from", "dispel", "only", "team_of_source", "except", "states", "limit", "tags", "exclude_tags", "max_elapsed" }),
+  -- exclude_source_tags, source_is, min_duration: the host judges a status's source and full
+  -- duration (cx.remove_statuses_by_source, line B c69d3adf); source_ability, min_remaining stay blocked
+  remove_status = set({ "op", "status", "from", "dispel", "only", "team_of_source", "except", "states", "limit", "tags", "exclude_tags", "max_elapsed",
+    "exclude_source_tags", "source_is", "min_duration" }),
   damage = set({ "op", "to", "amount", "type", "require_source_alive", "flags", "source", "credit" }),
   teleport = set({ "op", "who", "to", "find_clear_space", "max_distance" }),
   redirect_motion = set({ "op", "who", "toward", "speed" }),
@@ -1602,7 +1671,7 @@ local ACTION_FIELDS = {
   dodge_projectiles = set({ "op", "of", "from_team", "kind" }),
   set_state = set({ "op", "var", "value", "on" }),
   projectile = set({ "op", "kind", "from", "to", "direction", "speed", "radius", "distance", "pierce", "max_hits",
-    "team", "types", "flags", "dodgeable", "vision", "end_radius", "cue", "on_hit", "as", "on_end", "where" }),
+    "team", "types", "flags", "dodgeable", "vision", "end_radius", "cue", "on_hit", "as", "on_end", "where", "lifetime" }),
   clear_state = set({ "op", "var", "on" }),
   stop = set({ "op" }),
   destroy_trees = set({ "op", "at", "radius" }),
@@ -1613,14 +1682,16 @@ local ACTION_FIELDS = {
   refund = set({ "op", "cooldown", "mana", "health" }),
   tether = false, -- shape-checked in Gen:tether
 }
-local SELECTOR_FIELDS = set({ "from", "radius", "shape", "team", "types", "flags", "where", "notes", "limit", "order", "exclude", "relative_to", "dead_within", "to", "width" })
+local SELECTOR_FIELDS = set({ "from", "radius", "shape", "team", "types", "exclude_types", "flags", "where", "notes", "limit", "order", "exclude", "relative_to", "dead_within", "to", "width" })
 local SELECT_TYPES = { [""] = "All", all = "All", hero = "Heroes", ["creep+hero+neutral+summon"] = "NonBuilding",
   -- every unit class, buildings included / every non-building class (couriers and wards are units too)
   ["building+creep+hero+neutral+summon"] = "All", ["courier+creep+hero+neutral+summon+ward"] = "NonBuilding",
   -- towers are buildings: every class again
   ["building+creep+hero+neutral+summon+tower"] = "All",
   -- buildings only / every class but heroes
-  building = "Buildings", ["building+creep+neutral+summon"] = "NonHero" }
+  building = "Buildings", ["building+creep+neutral+summon"] = "NonHero",
+  -- heroes and buildings only (ability_kit HeroesAndBuildings, B b743ba3b)
+  ["building+hero"] = "HeroesAndBuildings" }
 local function types_key(t)
   local names = {}
   for _, n in ipairs(type(t) == "table" and t or {}) do names[#names + 1] = n end
@@ -2121,8 +2192,11 @@ function Gen:action(a, ctx, ind)
     for _, k in ipairs(sorted_keys(ab)) do
       if k ~= "amount" and k ~= "types" and k ~= "phase" and k ~= "on_absorb" and k ~= "on_broken" then self:block("status.absorb." .. k) end
     end
-    if ab.phase ~= nil and ab.phase ~= "post_mitigation" then self:block("status.absorb.phase:" .. tostring(ab.phase)) end
-    if aso.def.stacking == "independent" then self:block("status.absorb on an independent status"); return "" end
+    -- pre_mitigation: the shield takes the hit before armor / magic resistance, ahead of the other
+    -- shields (line B cx.absorb_with)
+    if ab.phase ~= nil and ab.phase ~= "post_mitigation" and ab.phase ~= "pre_mitigation" then self:block("status.absorb.phase:" .. tostring(ab.phase)) end
+    local pre = ab.phase == "pre_mitigation"
+    local independent = aso.def.stacking == "independent"
     local types = {}
     for _, t in ipairs(ab.types or {}) do
       if t == "physical" or t == "magical" or t == "pure" then types[#types + 1] = rust_str(t)
@@ -2137,12 +2211,39 @@ function Gen:action(a, ctx, ind)
     local amount = self:value(ab.amount, sctx, "num")
     local st = "&super::ids::status::" .. upper(a.status)
     local found = false
+    if independent then
+      -- an independent status: the shield of the instance this apply made (`n`, 0 when none)
+      code = code:gsub("([ \t]*)(cx%.apply_status_instance%(to, " .. st:gsub("%p", "%%%0") .. ", duration, stats%))%?;(\r?\n)", function(ws, call, eol)
+        if found then return nil end
+        found = true
+        return ws .. "let n = " .. call .. "?;" .. eol .. ws .. "if n != 0 {" .. eol
+          .. ws .. "    let absorb = " .. amount .. ";" .. eol
+          .. ws .. "    cx.absorb_with(to, " .. st .. ", n, absorb, &[" .. table.concat(types, ", ") .. "], duration, " .. tostring(pre) .. ")?;" .. eol
+          .. ws .. "}" .. eol
+      end)
+      if not found then self:block("status.absorb on this independent apply form") end
+      return code
+    end
     code = code:gsub("([ \t]*)(cx%.apply_status%(to, " .. st:gsub("%p", "%%%0") .. "[^\n]-%?;)(\r?\n)", function(ws, stmt, eol)
       if found then return nil end
       found = true
       return ws .. stmt .. eol .. ws .. "let absorb = " .. amount .. ";" .. eol
-        .. ws .. "cx.absorb(to, " .. st .. ", absorb, &[" .. table.concat(types, ", ") .. "], duration)?;" .. eol
+        .. ws .. (pre and ("cx.absorb_with(to, " .. st .. ", 0, absorb, &[" .. table.concat(types, ", ") .. "], duration, true)?;")
+          or ("cx.absorb(to, " .. st .. ", absorb, &[" .. table.concat(types, ", ") .. "], duration)?;")) .. eol
     end)
+    if not found then
+      -- `source` applies it (apply_status_from): the shield is that source's, its amount read
+      -- with `source` as the caster (the status's `source`)
+      code = code:gsub("([ \t]*)(cx%.apply_status_from%(source, to, " .. st:gsub("%p", "%%%0") .. "[^\n]-%?;)(\r?\n)", function(ws, stmt, eol)
+        if found then return nil end
+        found = true
+        return ws .. stmt .. eol .. ws .. "let caster = cx.caster;" .. eol .. ws .. "cx.caster = source;" .. eol
+          .. ws .. "let absorb = " .. amount .. ";" .. eol
+          .. ws .. "let r = " .. (pre and ("cx.absorb_with(to, " .. st .. ", 0, absorb, &[" .. table.concat(types, ", ") .. "], duration, true);")
+            or ("cx.absorb(to, " .. st .. ", absorb, &[" .. table.concat(types, ", ") .. "], duration);")) .. eol
+          .. ws .. "cx.caster = caster;" .. eol .. ws .. "r?;" .. eol
+      end)
+    end
     if not found then self:block("status.absorb on this apply form") end
     return code
   end
@@ -2390,6 +2491,19 @@ function Gen:action(a, ctx, ind)
       .. ", team_of_source: " .. rust_str(a.team_of_source or "any") .. ", except: &[" .. table.concat(except, ", ")
       .. "], states: &[" .. table.concat(states, ", ") .. "], limit: " .. limit .. " }"
     local function list(t) local o = {} for _, x in ipairs(t or {}) do o[#o + 1] = rust_str(x) end return "&[" .. table.concat(o, ", ") .. "]" end
+    if a.min_duration ~= nil or a.exclude_source_tags ~= nil or a.source_is ~= nil then
+      -- by the statuses' sources and full durations (line B c69d3adf)
+      for _, is in ipairs(a.source_is or {}) do
+        if is ~= "has_ability" and is ~= "no_ability" and is ~= "alive" and is ~= "gone" then self:block("action:remove_status.source_is:" .. tostring(is)) end
+      end
+      local max = a.max_elapsed ~= nil and ("Some(" .. self:value(a.max_elapsed, ctx, "num") .. ")") or "None"
+      local min = a.min_duration ~= nil and ("Some(" .. self:value(a.min_duration, ctx, "num") .. ")") or "None"
+      return line("{") .. line("    let from = " .. from .. ";") .. line("    let max_elapsed = " .. max .. ";")
+        .. line("    let min_duration = " .. min .. ";")
+        .. line("    cx.remove_statuses_by_source(from, " .. filter .. ", " .. list(a.tags) .. ", " .. list(a.exclude_tags) .. ", max_elapsed, "
+          .. "ability_kit::SourceFilter { min_duration, exclude_source_tags: " .. list(a.exclude_source_tags) .. ", source_is: " .. list(a.source_is) .. " })?;")
+        .. line("}")
+    end
     if a.max_elapsed ~= nil then
       -- only statuses applied less than this many seconds ago (line B 58790026; a refresh keeps the first)
       return line("{") .. line("    let from = " .. from .. ";") .. line("    let max_elapsed = " .. self:value(a.max_elapsed, ctx, "num") .. ";")
@@ -2428,7 +2542,13 @@ function Gen:action(a, ctx, ind)
   elseif op == "damage" then
     local kinds = { physical = "Physical", magical = "Magical", pure = "Pure" }
     local kind = kinds[a.type]
-    if not kind then self:block("action:damage.type:" .. tostring(a.type)); kind = "Pure" end
+    kind = kind and ("DamageKind::" .. kind)
+    -- `event`: the type of the hit the event names (line B d0ae77e5)
+    if a.type == "event" then
+      if ctx.event then kind = "ability_kit::event_damage_type(cx.event_damage_kind)"
+      else self:block("action:damage.type:event outside an event") end
+    end
+    if not kind then self:block("action:damage.type:" .. tostring(a.type)); kind = "DamageKind::Pure" end
     local no_amp, hp_removal, ignore_armor, reflection, no_src = false, false, false, false, false
     for _, f in ipairs(a.flags or {}) do
       if f == "no_amplify" then no_amp = true
@@ -2450,18 +2570,18 @@ function Gen:action(a, ctx, ind)
       local from = a.source ~= nil and a.source ~= "self"
       local src = from and line("    let source = " .. self:value(a.source, ctx, "unit") .. ";") or ""
       return line("{") .. line("    let to = " .. to .. ";") .. line("    let amount = " .. amount .. ";") .. src .. line("    let credit = " .. credit .. ";")
-        .. line(string.format("    cx.%s(%s, %s, %sto, amount, DamageKind::%s, Dmg { require_source_alive: %s, no_amplify: %s }, ability_kit::DmgExtra { hp_removal: %s, ignore_armor: %s, no_source_bonuses: %s, credit })?;",
+        .. line(string.format("    cx.%s(%s, %s, %sto, amount, %s, Dmg { require_source_alive: %s, no_amplify: %s }, ability_kit::DmgExtra { hp_removal: %s, ignore_armor: %s, no_source_bonuses: %s, credit })?;",
           reflection and (from and "damage_reflect_from_at" or "damage_reflect_at") or (from and "damage_ex_from_at" or "damage_ex_at"), rust_str(who), rust_str(self.cur_path or "?"), from and "source, " or "", kind, a.require_source_alive ~= false and "true" or "false", no_amp and "true" or "false",
           tostring(hp_removal), tostring(ignore_armor), tostring(no_src))) .. line("}")
     end
     if a.source ~= nil and a.source ~= "self" then
       local src = self:value(a.source, ctx, "unit")
       return line("{") .. line("    let to = " .. to .. ";") .. line("    let amount = " .. amount .. ";") .. line("    let source = " .. src .. ";")
-        .. line(string.format("    cx.damage_from_at(%s, %s, source, to, amount, DamageKind::%s, Dmg { require_source_alive: %s, no_amplify: %s })?;",
+        .. line(string.format("    cx.damage_from_at(%s, %s, source, to, amount, %s, Dmg { require_source_alive: %s, no_amplify: %s })?;",
           rust_str(who), rust_str(self.cur_path or "?"), kind, a.require_source_alive ~= false and "true" or "false", no_amp and "true" or "false")) .. line("}")
     end
     return line("{") .. line("    let to = " .. to .. ";") .. line("    let amount = " .. amount .. ";")
-      .. line(string.format("    cx.damage_at(%s, %s, to, amount, DamageKind::%%s, Dmg { require_source_alive: %%s, no_amplify: %%s })?;",
+      .. line(string.format("    cx.damage_at(%s, %s, to, amount, %%s, Dmg { require_source_alive: %%s, no_amplify: %%s })?;",
         rust_str(who), rust_str(self.cur_path or "?")):format(
         kind, a.require_source_alive ~= false and "true" or "false", no_amp and "true" or "false")) .. line("}")
   elseif op == "heal" or op == "restore_mana" then
@@ -2639,6 +2759,13 @@ function Gen:action(a, ctx, ind)
   elseif op == "spend_mana" then
     -- the ability paid for: a literal id of this document, or `ability` (this one)
     local ab, abcode = a.ability, nil
+    -- the ordered ability's cost taken in an order filter: a status event may not charge a cast
+    -- (ScriptManaSpent), so the mana goes as a burn (line B 037a69cd)
+    if ab == "event.order.ability" and self.order_filter then
+      return line("{") .. line("    let from = " .. self:value(a.from, ctx, "unit") .. ";")
+        .. line("    let amount = " .. self:value(a.amount, ctx, "num") .. ";")
+        .. line("    cx.burn_mana(from, amount)?;") .. line("}")
+    end
     if ab == nil or ab == "ability" then abcode = "ID"
     elseif type(ab) == "string" and ab:match("^[%w_]+$") and self.m.abilities[ab] then abcode = rust_str(ab)
     else self:block("action:spend_mana.ability:" .. tostring(ab)); return "" end
@@ -2648,6 +2775,9 @@ function Gen:action(a, ctx, ind)
   elseif op == "cancel_cast" then
     -- on_phase_start: the cast does not go on (nothing charged); the hook's effects stand and the
     -- rest of the list still runs (every use is the last action of its branch)
+    -- an order filter (a status's on_order_targeted that cancels): the order is refused before
+    -- its windup, nothing charged (GameWorld::ext CANCEL_ORDER, line B 037a69cd)
+    if self.order_filter then return line("cx.cancel_order()?;") end
     if not self.phase then self:block("action:cancel_cast outside on_phase_start"); return "" end
     return line("cx.cancelled = true;")
   elseif op == "modify_attack" then
@@ -2745,7 +2875,17 @@ function Gen:action(a, ctx, ind)
     local no_heroes = false
     local tk = types_key(s.types)
     if not types and (tk == "creep+neutral+summon" or tk == "boss+creep+neutral+summon") then types, no_heroes = "NonBuilding", true end
+    -- heroes and buildings (towers are buildings): every class, the others skipped
+    local heroes_buildings = false
+    if not types and (tk == "building+hero" or tk == "building+hero+tower") then types, heroes_buildings = "All", true end
     if not types then self:block("selector.types:" .. tk); types = "All" end
+    -- exclude_types: buildings out of every class / heroes out of every class
+    if s.exclude_types ~= nil then
+      local ek = types_key(s.exclude_types)
+      if types == "All" and not heroes_buildings and (ek == "building" or ek == "building+tower") then types = "NonBuilding"
+      elseif types == "All" and not heroes_buildings and ek == "hero" then types = "NonHero"
+      else self:block("selector.exclude_types:" .. ek .. " of " .. tk) end
+    end
     local mi, inv, hid, ill = false, false, false, false
     local dead, visible = false, false
     local skip = {}
@@ -2811,6 +2951,7 @@ function Gen:action(a, ctx, ind)
     end
     if visible then str = str .. line("        if !cx.is_visible_to(" .. it .. ", cx.caster) { continue; }") end
     if no_heroes then str = str .. line("        if cx.is_hero(" .. it .. ") { continue; }") end
+    if heroes_buildings then str = str .. line("        if !cx.is_hero(" .. it .. ") && !cx.is_building(" .. it .. ") { continue; }") end
     if s.where then
       -- the selector's `where` names the candidate `it`
       local wscope = scope_child(ctx.scope)
@@ -3292,7 +3433,8 @@ function Gen:action(a, ctx, ind)
     end
     return out .. line("}")
   elseif op == "pick_item" then
-    if a.slots ~= nil and a.slots ~= "inventory" then self:block("action:pick_item.slots:" .. tostring(a.slots)); return "" end
+    -- the host has no backpack (kit pick_item): `all` is the inventory
+    if a.slots ~= nil and a.slots ~= "inventory" and a.slots ~= "all" then self:block("action:pick_item.slots:" .. tostring(a.slots)); return "" end
     local order = ({ first = "First", last = "Last", random = "Random" })[a.order or "first"]
     if not order then self:block("action:pick_item.order:" .. tostring(a.order)); return "" end
     local from = self:value(a.from, ctx, "unit")
@@ -3382,6 +3524,12 @@ function Gen:action(a, ctx, ind)
           .. line("    if let Some(id) = a { cx.cooldown_start_own(u, &id)?; }") .. line("}")
       end
     end
+    -- the event's ability (an order's or an executed skill's) cools down fully on `of`
+    if op == "modify_cooldown" and (ab == "event.order.ability" or ab == "event.ability") and (a.mode or "start") == "start" and a.amount == nil
+      and (ctx.event == "order_targeted" or ctx.event == "ability_executed") then
+      return line("{") .. line("    let of = " .. self:value(a.of or "self", ctx, "unit") .. ";")
+        .. line("    cx.event_ability_cooldown_start(of)?;") .. line("}")
+    end
     if ab == nil or ab == "ability" then abcode = "ID"
     elseif type(ab) == "string" and ab:match("^[%w_]+$") and self.m.abilities[ab] then abcode = rust_str(ab)
     else self:block("action:" .. op .. ".ability:" .. tostring(ab)); return "" end
@@ -3403,6 +3551,14 @@ function Gen:action(a, ctx, ind)
       else self:block("action:modify_cooldown without amount"); return "" end
     end
     local amount = self:value(amount_expr, ctx, "num")
+    -- an item of this document: its inventory slots cool down (the host's hero cooldowns hold
+    -- learned abilities only; line B E501 item_cooldown_start)
+    local target_id = abcode == "ID" and (self.entry and self.entry.def.id) or ab
+    local target = target_id and self.m.abilities[target_id]
+    if target and target.kind == "item" and mode == "start" then
+      return line("{") .. line("    let of = " .. of .. ";") .. line("    let amount = " .. amount .. ";")
+        .. line("    cx.item_cooldown_start(of, " .. rust_str(target_id) .. ", amount)?;") .. line("}")
+    end
     return line("{") .. line("    let of = " .. of .. ";") .. line("    let amount = " .. amount .. ";")
       .. line(string.format("    cx.cooldown_%s(of, %s, amount)?;", mode == "reduce" and "reduce" or "start", abcode)) .. line("}")
   elseif op == "create_pickup" then
@@ -3791,11 +3947,14 @@ function Gen:action(a, ctx, ind)
       args_line = args_line .. line("    let end_args = [" .. table.concat(eargs, ", ") .. "];")
       on_end = string.format("Some((%d, &end_args[..]))", step)
     end
+    if only and a.lifetime ~= nil then self:block("action:projectile.lifetime of a flight that only hits one unit") end
     return line("{") .. args_line
       .. line(string.format("    let p = Proj { homing: %s, aim: %s, speed: %s, radius: %s, distance: %s, max_hits: %s, buildings: %s, dodgeable: %s, vision: %s, end_radius: %s, start: %s, cue: %s };",
         homing, aim, speed, radius, distance, max_hits, buildings and "true" or "false", a.dodgeable and "true" or "false", vision, end_radius, start,
         a.cue and ("Some(ability_kit::cue_hash(super::ids::Cue::" .. camel(a.cue) .. ".as_str()))") or "None"))
       .. (only and line("    let only = " .. only .. ";") .. line("    cx.projectile_only(ID, p, only, " .. on_hit .. ", " .. on_end .. ")?;")
+        -- `lifetime`: a tracking flight lives at most that long (line B 341a1051)
+        or a.lifetime ~= nil and line("    cx.projectile_expiring(ID, p, " .. self:value(a.lifetime, ctx, "num") .. ", " .. on_hit .. ", " .. on_end .. ")?;")
         or line("    cx.projectile_ended(ID, p, " .. on_hit .. ", " .. on_end .. ")?;")) .. line("}")
   elseif op == "set_state" or op == "clear_state" then
     local v = self.m.vars[a.var]
@@ -3804,6 +3963,17 @@ function Gen:action(a, ctx, ind)
     if not ty then self:block("state type:" .. tostring(v.def.type)); return "" end
     local on = a.on ~= nil and self:value(a.on, ctx, "unit") or self:expr({ k = "id", name = "self" }, ctx)
     local hero = v.def.scope == "hero" and "true" or "false"
+    if v.def.scope == "item_instance" then
+      -- the casting item instance's var: its slot's key on the caster (line B E571, 4b32ae10)
+      if not (self.entry and self.entry.kind == "item") then self:block("state:" .. a.var .. " (item_instance) outside its item"); return "" end
+      if ty ~= "num" and ty ~= "bool" and ty ~= "unit" then self:block("state type:" .. v.def.type .. " (item_instance)"); return "" end
+      local head = line("{") .. line("    let on = " .. on .. ";")
+      if op == "clear_state" or a.value == "none" then
+        return head .. line(string.format("    if let Some(k) = cx.item_instance_key(%s) { cx.clear_state(on, &k)?; }", rust_str(v.key))) .. line("}")
+      end
+      return head .. line("    let value = " .. self:value(a.value, ctx, ty) .. ";")
+        .. line(string.format("    if let Some(k) = cx.item_instance_key(%s) { cx.set_state_%s(on, &k, value, false)?; }", rust_str(v.key), ty)) .. line("}")
+    end
     if ty == "point" or ty == "vec" then
       if op == "clear_state" or a.value == "none" then
         return line("{") .. line("    let on = " .. on .. ";") .. line(string.format("    cx.clear_state(on, %s)?;", rust_str(v.key .. ":x")))
@@ -3834,12 +4004,15 @@ function Gen:action(a, ctx, ind)
     -- every fallen tree of the map stands again at the next tick (line B E403)
     return line("cx.regrow_trees()?;")
   elseif op == "refund" then
-    -- `cooldown = true` in the cast itself: its own cooldown does not start; the mana stays
-    -- spent (line B E455). A refund of mana or health has no host form.
-    if a.mana or a.health then self:block("action:refund of mana or health"); return "" end
-    if a.cooldown ~= true then self:block("action:refund without cooldown"); return "" end
+    -- `cooldown = true` in the cast itself: its own cooldown does not start (line B E455; an
+    -- item's shared cooldowns neither). `mana = true` only in an item's cast: the use spends no
+    -- mana (line B bcac51c9); a hero ability's mana and any health have no refund.
+    if a.health then self:block("action:refund of health"); return "" end
+    local item = self.entry and self.entry.kind == "item"
+    if a.mana and not item then self:block("action:refund of mana outside an item"); return "" end
+    if a.cooldown ~= true and a.mana ~= true then self:block("action:refund without cooldown or mana"); return "" end
     if not ctx.cast then self:block("action:refund outside the cast"); return "" end
-    return line("cx.refund_cooldown();")
+    return (a.mana and line("cx.refund_mana();") or "") .. (a.cooldown and line("cx.refund_cooldown();") or "")
   elseif op == "impulse" then
     -- a velocity on `who` along `direction` (per physics frame), times `decay` each frame; impulses
     -- add up and the unit still moves by itself (line B E514)
@@ -3888,7 +4061,14 @@ local function target_spec(g, target, ability_flags)
   local types = ({ [""] = { false, false }, all = { false, false }, hero = { true, false }, ["creep+hero"] = { false, true },
     ["creep+hero+neutral+summon"] = { false, true }, ["building+creep+hero"] = { false, false },
     ["building+creep+hero+neutral+summon"] = { false, false } })[types_key(target.types)]
-  if not types then g:block("target.types:" .. types_key(target.types)); types = { false, false } end
+  -- an item's unit target without heroes: the catalog row's exclude_heroes refuses them
+  -- (gen_item_v3, line B 88af54a8); buildings stay allowed when the types name them
+  local key = types_key(target.types)
+  if not types and g.entry and g.entry.kind == "item" and key ~= "" and (ty == "unit" or ty == "unit_or_point")
+    and not ("+" .. key .. "+"):find("+hero+", 1, true) then
+    types = { false, not ("+" .. key .. "+"):find("+building+", 1, true) }
+  end
+  if not types then g:block("target.types:" .. key); types = { false, false } end
   local flags = {}
   for _, list in ipairs({ target.flags or {}, target.ability_flags or {}, ability_flags or {} }) do
     for _, f in ipairs(list) do
@@ -3931,10 +4111,8 @@ local function entry_head(def)
   return table.concat({ M.HEADER,
     string.format("//! %s %s（%s）\n", def.id, def.source_id or "", (def.text and def.text.zh_TW and def.text.zh_TW.name) or ""),
     "#![allow(unused_imports)]\nuse ability_kit::*;\n\n",
-    -- an item registers under its source key (the host's item_script_id reads it from source_ref);
-    -- the v3 id is that key in lower case
-    string.format("pub const ID: &str = %s;\n\npub struct %s;\n\n",
-      rust_str(def.id:find("^item_") and type(def.source_id) == "string" and def.source_id:lower() == def.id and def.source_id or def.id), camel(def.id)) })
+    -- items register under their v3 id too (the host's item_script_id returns it, B 039cc0df)
+    string.format("pub const ID: &str = %s;\n\npub struct %s;\n\n", rust_str(def.id), camel(def.id)) })
 end
 local function stub_text(def, blockers)
   local why = def.id .. " is not generated yet: " .. table.concat(blockers, ", ")
@@ -4064,20 +4242,27 @@ local function emit_entry(m, o, opts, status_problems)
   g.status_problems = status_problems
   g.paths = effect_paths(def, "")
   -- an item's active is its cast program: its events, target and flags; the host settles its
-  -- cost from the shop catalog (cooldown, mana, cooldown groups) and uses it without a windup
+  -- cost from the shop catalog (cooldown, mana, cooldown groups, charges) and its windup
+  -- (cast_point, interruptible: the row's cast, line B 2be4ab76; on_phase_start runs at its start)
   if o.kind == "item" and def.active ~= nil then
     local act = def.active
-    if act.kind ~= "active" then g:block("item.active.kind:" .. tostring(act.kind)) end
+    -- a toggle item: its def says so (ability_kit item_kind_ffi "toggle", line B 55577725), its
+    -- events are on_toggle_on / on_toggle_off like a toggle ability's
+    -- a passive active: nothing to use, only the catalog cooldown its passive starts and reads
+    -- (御守: ability.is_ready, modify_cooldown); registered as a passive item
+    if act.kind == "passive" and act.events ~= nil then g:block("item.active.kind:passive with events") end
+    if act.kind ~= "active" and act.kind ~= "toggle" and act.kind ~= "passive" then g:block("item.active.kind:" .. tostring(act.kind)) end
     for _, k in ipairs(sorted_keys(act)) do
-      if k ~= "kind" and k ~= "target" and k ~= "cost" and k ~= "cast" and k ~= "events" and k ~= "flags" then g:block("item.active." .. k) end
+      -- bot: the bot's use policy (v3_bot.lua, the catalog's v3.bot), no code
+      if k ~= "kind" and k ~= "target" and k ~= "cost" and k ~= "cast" and k ~= "events" and k ~= "flags" and k ~= "bot" then g:block("item.active." .. k) end
     end
     for _, k in ipairs(sorted_keys(act.cost or {})) do
-      if k ~= "cooldown" and k ~= "mana" and k ~= "cooldown_groups" and k ~= "cooldown_start" then g:block("item.active.cost." .. k) end
+      -- charges: the catalog row's (gen_item_v3 scripted_active; the host keeps and spends them, line B 1f8fecee)
+      if k ~= "cooldown" and k ~= "mana" and k ~= "cooldown_groups" and k ~= "cooldown_start" and k ~= "charges" then g:block("item.active.cost." .. k) end
     end
     if (act.cost or {}).cooldown_start ~= nil and act.cost.cooldown_start ~= "on_cast" then g:block("item.active.cost.cooldown_start:" .. tostring(act.cost.cooldown_start)) end
     for _, k in ipairs(sorted_keys(act.cast or {})) do
-      if k == "cast_point" then g:gap("item cast_point: the host uses items without a windup")
-      elseif k ~= "immediate" and k ~= "ignore_backswing" then g:block("item.active.cast." .. k) end
+      if k ~= "cast_point" and k ~= "interruptible" and k ~= "immediate" and k ~= "ignore_backswing" then g:block("item.active.cast." .. k) end
     end
     def = setmetatable({ events = act.events, target = act.target, flags = act.flags }, { __index = o.def })
   end
@@ -4090,9 +4275,13 @@ local function emit_entry(m, o, opts, status_problems)
     local body = g:actions(list, ctx, "    ")
     g.phase = false
     -- on_toggle_off: other entries of the document turn the toggle off too (toggle_ability)
-    fns[#fns + 1] = string.format("%sfn %s(cx: &mut Cx<'_, '_>) -> Res {\n%s    Ok(())\n}\n", name == "on_toggle_off" and "pub(crate) " or "", name, body)
+    -- an empty program (a shell the host runs by its id: the courier's orders) leaves cx unused
+    local cx = body:find("%f[%w_]cx%f[^%w_]") and "cx" or "_cx"
+    fns[#fns + 1] = string.format("%sfn %s(%s: &mut Cx<'_, '_>) -> Res {\n%s    Ok(())\n}\n", name == "on_toggle_off" and "pub(crate) " or "", name, cx, body)
   end
-  if def.coverage == "rust_handler" and not def.events and not def.passive then g:block("rust_handler without behavior") end
+  -- an item with nothing of its own (a recipe component: 破魔寶珠) is its catalog row alone
+  local bare_item = o.kind == "item" and def.active == nil and def.statuses == nil and def.unit_state == nil
+  if def.coverage == "rust_handler" and not def.events and not def.passive and not bare_item then g:block("rust_handler without behavior") end
   if def.hooks then g:block("hooks") end
   local requires_check = ""
   if def.requires then
@@ -4114,8 +4303,13 @@ local function emit_entry(m, o, opts, status_problems)
   end
   local events = def.events or {}
   for _, ev in ipairs(sorted_keys(events)) do
-    if not ENTRY_EVENTS[ev] then g:block("event:" .. ev) end
+    -- an item's active on_unequip: the host calls AbilityScript::on_unequip per copy lost
+    -- an item's active on_owner_death: its marker hears the holder's death (line B 7b32a3e1)
+    if not ENTRY_EVENTS[ev] and not ((ev == "on_unequip" or ev == "on_owner_death") and o.kind == "item") then g:block("event:" .. ev) end
   end
+  if o.kind == "item" and def.active ~= nil and def.active.kind == "toggle" and not events.on_toggle_on then g:block("item.active.kind:toggle without on_toggle_on") end
+  if events.on_unequip then program("on_unequip_active", events.on_unequip, false) end
+  if o.kind == "item" and events.on_owner_death then program("on_owner_death", events.on_owner_death, "owner_death") end
   if events.on_toggle_on and not events.on_toggle_off or events.on_toggle_off and not events.on_toggle_on then g:block("toggle: needs both on_toggle_on and on_toggle_off") end
   if events.on_cast and events.on_toggle_on then g:block("toggle: cast and toggled") end
   local spec = target_spec(g, def.target, def.flags)
@@ -4148,6 +4342,11 @@ local function emit_entry(m, o, opts, status_problems)
   -- passive.orb_slot (line B E534): a toggle that claims the orb slot when it turns on (over an
   -- item's claim) and frees it, if still its own, when it turns off (the status it put ends)
   local orb = (def.passive or {}).orb_slot
+  -- an item's `release = "unequip"`: the first copy claims a free slot, the last one frees it if
+  -- still its own (line B: orb_slot_free / claim / release, no host change)
+  local item_orb = o.kind == "item" and type(orb) == "table" and orb.claim == true and orb.release == "unequip"
+    and not events.on_toggle_on
+  if item_orb then orb = nil end
   if orb ~= nil and (type(orb) ~= "table" or not events.on_toggle_on or orb.claim ~= true
     or (orb.release ~= nil and orb.release ~= "status_end")) then
     g:block("passive:orb_slot (only a toggle that claims and releases at status_end)"); orb = nil
@@ -4206,6 +4405,11 @@ local function emit_entry(m, o, opts, status_problems)
   local filters = {}
   local passive_mask, passive_arms, passive_periodic, passive_created = 0, {}, nil, false
   local item_equip, item_mask, item_periodic = {}, 0, nil
+  local owner_death = STATUS_TRIGGERS.on_owner_death
+  if o.kind == "item" and events.on_owner_death then
+    item_mask = item_mask + owner_death[1]
+    passive_arms[#passive_arms + 1] = { kind = owner_death[2][1], fn = "on_owner_death" }
+  end
   local function doc_id_of(_) return (m.doc_id or "doc"):lower() end
   for _, ev in ipairs(sorted_keys(passive.triggers)) do
     local tr = passive.triggers[ev]
@@ -4216,9 +4420,17 @@ local function emit_entry(m, o, opts, status_problems)
     -- marker made with the first copy and removed with the last. The host's own passive hooks
     -- (on_attack_hit, on_ability_executed, on_respawn…) walk learned abilities only, so those wait
     local item = o.kind == "item"
-    if item and ev ~= "on_created" and ev ~= "on_removed" and ev ~= "periodic" and ev ~= "on_attack_hit" and not PASSIVE_EVENTS[ev] then
+    -- an item's on_ability_executed: its marker hears the holder's casts and item uses (status
+    -- event ABILITY_EXECUTED, line B c69d3adf)
+    local item_executed = item and ev == "on_ability_executed"
+    -- an item's on_death: its marker hears the holder's death, before it settles (status event
+    -- OWNER_DEATH, line B 7b32a3e1)
+    local item_death = item and ev == "on_death"
+    -- an item's on_respawn: the new life's marker hears it (status event RESPAWN, line B 82771384)
+    local item_respawn = item and ev == "on_respawn"
+    if item and ev ~= "on_created" and ev ~= "on_removed" and ev ~= "periodic" and ev ~= "on_attack_hit" and not PASSIVE_EVENTS[ev] and not item_executed and not item_death and not item_respawn then
       g:block("passive_trigger:" .. ev .. " of an item (no learn marker)")
-    elseif not PASSIVE_TRIGGERS[ev] and not (item and ev == "on_removed") then g:block("passive_trigger:" .. ev)
+    elseif not PASSIVE_TRIGGERS[ev] and not (item and (ev == "on_removed" or ev == "on_death")) then g:block("passive_trigger:" .. ev)
     else
       for _, k in ipairs(sorted_keys(tr)) do
         if k ~= "actions" and k ~= "filter" and k ~= "notes" and not (k == "who" and ev == "on_ability_executed")
@@ -4253,9 +4465,11 @@ local function emit_entry(m, o, opts, status_problems)
           .. "        }\n"
         if item then item_periodic = start else passive_periodic = start end
       else
-        local evt = PASSIVE_EVENTS[ev]
+        local evt = PASSIVE_EVENTS[ev] or (item_executed and { STATUS_TRIGGERS.on_ability_executed[1], STATUS_TRIGGERS.on_ability_executed[2][1] })
+          or (item_death and { owner_death[1], owner_death[2][1] })
+          or (item_respawn and { STATUS_TRIGGERS.on_respawn[1], STATUS_TRIGGERS.on_respawn[2][1] }) or nil
         local pre = ev == "on_take_damage_pre" or ev == "on_deal_damage_pre"
-        local ctx = { owner = o, scope = scope_child(nil), event = ev == "on_ability_executed" and "owner_cast" or (ev == "on_heal_received" and "heal_received") or (ev == "on_order_targeted" and "order_targeted") or (ev == "on_moved" and "moved") or ev ~= "on_created", pre = pre, windup = ev == "on_attack_windup" }
+        local ctx = { owner = o, scope = scope_child(nil), event = item_executed and "ability_executed" or (item_death or item_respawn) and "owner_death" or ev == "on_ability_executed" and "owner_cast" or (ev == "on_heal_received" and "heal_received") or (ev == "on_order_targeted" and "order_targeted") or (ev == "on_moved" and "moved") or ev ~= "on_created", pre = pre, windup = ev == "on_attack_windup" }
         local filter = tr.filter and g:value(tr.filter, ctx, "bool") or "true"
         filters[ev] = filter
         local body = g:actions(tr.actions, ctx, "    ")
@@ -4376,8 +4590,8 @@ local function emit_entry(m, o, opts, status_problems)
             local evented = t[2] ~= nil and name ~= "on_removed" and name ~= "on_expired" and name ~= "on_death" and not executed
             local pre = name == "on_take_damage_pre" or name == "on_deal_damage_pre"
             local ended = name == "on_removed" or name == "on_expired" or name == "on_death"
-            local ctx = { owner = so, scope = scope_child(nil), event = executed and "ability_executed" or (name == "on_moved" and "moved") or (name == "on_mana_spent" and "mana_spent") or (name == "on_heal_received" and "heal_received") or (name == "on_order_targeted" and "order_targeted") or evented, pre = pre, ended = ended,
-              windup = name == "on_attack_windup", ended_status = ended and sd.id or nil }
+            local ctx = { owner = so, scope = scope_child(nil), event = executed and "ability_executed" or (name == "on_moved" and "moved") or (name == "on_mana_spent" and "mana_spent") or (name == "on_heal_received" and "heal_received") or (name == "on_order_targeted" and "order_targeted") or (name == "on_order_filter" and "order_targeted") or evented, pre = pre, ended = ended,
+              windup = name == "on_attack_windup", ended_status = ended and sd.id or nil, order_filter = name == "on_order_filter" }
             -- an absorb event names this hit's absorbed share `absorbed` (v3.md §4)
             if name == "on_absorb" or name == "on_broken" then
               ctx.scope.names.absorbed = { name = "absorbed", ty = "num", marker = "cx.event_amount", used = false }
@@ -4385,8 +4599,12 @@ local function emit_entry(m, o, opts, status_problems)
             local cond = filter and g:value(filter, ctx, "bool") or nil
             local fname = "st_" .. sd.id .. "_" .. name
             local guard = name == "on_death" and "    if cx.alive(cx.self_unit) { return Ok(()); }\n" or ""
+            -- cancel_cast in an order filter refuses the order (cx.cancel_order)
+            g.order_filter = name == "on_order_filter"
+            local body = g:actions(actions, ctx, "    ")
+            g.order_filter = false
             fns[#fns + 1] = string.format("#[allow(dead_code)]\npub(crate) fn %s(cx: &mut Cx<'_, '_>) -> Res {\n%s%s%s    Ok(())\n}\n", fname, guard,
-              cond and ("    if !(" .. cond .. ") { return Ok(()); }\n") or "", g:actions(actions, ctx, "    "))
+              cond and ("    if !(" .. cond .. ") { return Ok(()); }\n") or "", body)
             if name == "on_created" then begin[#begin + 1] = "    " .. fname .. "(cx)?;\n"
             else
               for _, kind in ipairs(t[2] or {}) do
@@ -4517,7 +4735,7 @@ local function emit_entry(m, o, opts, status_problems)
   -- shop catalog's, which the host applies)
   -- its aura is there from the first copy to the last, like the marker
   local item_aura = o.kind == "item" and passive_aura or nil
-  local marker = item_mask ~= 0 or item_periodic ~= nil or item_aura ~= nil or #last_copy > 0 or item_marker_stats
+  local marker = item_mask ~= 0 or item_periodic ~= nil or item_aura ~= nil or #last_copy > 0 or item_marker_stats or item_orb
   local copies = rust_str("__item_copies:" .. def.id)
   if item_equip.on_created or marker then
     local first = marker and ("        let caster = owner;\n"
@@ -4528,22 +4746,25 @@ local function emit_entry(m, o, opts, status_problems)
         or string.format("            let _ = cx.passive_marker(ID, %s, %d);\n", item_marker_stats and passive_stats or "&[]", item_mask))
       .. (item_periodic and item_periodic:gsub("\n(.)", "\n    %1"):gsub("^", "    ") or "")
       .. (item_aura and ("    " .. item_aura) or "")
+      .. (item_orb and "            if cx.orb_slot_free(caster, ID) { let _ = cx.orb_slot_claim(caster, ID); }\n" or "")
       .. "        }\n") or ""
     impl[#impl + 1] = "\n    fn on_equip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {\n"
       .. "        let mut cx = Cx::passive(world, owner, 1);\n" .. g:finish(first)
       .. (item_equip.on_created and "        let _ = on_created(&mut cx);\n" or "") .. "    }\n"
   end
-  if item_equip.on_removed or marker then
+  if item_equip.on_removed or marker or events.on_unequip then
     local last = marker and ("        let caster = owner;\n"
       .. "        let n = cx.state_num(caster, " .. copies .. ", Fixed64::ZERO) - Fixed64::ONE;\n"
       .. "        let _ = cx.set_state_num(caster, " .. copies .. ", n.max(Fixed64::ZERO), false);\n"
       .. "        if n <= Fixed64::ZERO { cx.remove_passive_marker(ID);"
       .. (item_aura and " let aura = ability_kit::aura_key(\"passive\", cx.caster); cx.stop_aura(caster, ID, &aura);" or "")
       .. (#last_copy > 0 and " let _ = on_last_copy(&mut cx);" or "")
+      .. (item_orb and " let _ = cx.orb_slot_release(caster, ID);" or "")
       .. " }\n") or ""
     impl[#impl + 1] = "\n    fn on_unequip(&self, owner: EntityHandle, world: &mut GameWorldDyn<'_>) {\n"
       .. "        let mut cx = Cx::passive(world, owner, 1);\n" .. last
-      .. (item_equip.on_removed and "        let _ = on_removed(&mut cx);\n" or "") .. "    }\n"
+      .. (item_equip.on_removed and "        let _ = on_removed(&mut cx);\n" or "")
+      .. (events.on_unequip and "        let _ = on_unequip_active(&mut cx);\n" or "") .. "    }\n"
   end
   if #auras > 0 then
     local arms = {}
@@ -4677,7 +4898,9 @@ pub fn on_owner_respawn(owner: EntityHandle, world: &mut GameWorldDyn<'_>) {
   if o.kind == "item" then
     -- a shop item: its AbilityDef is the catalog's (kind = item); passive without an active
     -- None for an item the shop catalog does not have (it does not exist in the source)
-    s[#s + 1] = "\npub fn ffi() -> Option<AbilityDefFFI> { ability_kit::item_ffi(ID, " .. tostring(def.active == nil) .. ", " .. struct .. ") }\n"
+    s[#s + 1] = (def.active ~= nil and (def.active.kind == "toggle" or def.active.kind == "passive"))
+      and ("\npub fn ffi() -> Option<AbilityDefFFI> { ability_kit::item_kind_ffi(ID, " .. rust_str(def.active.kind) .. ", " .. struct .. ") }\n")
+      or ("\npub fn ffi() -> Option<AbilityDefFFI> { ability_kit::item_ffi(ID, " .. tostring(def.active == nil) .. ", " .. struct .. ") }\n")
   else
     s[#s + 1] = "\npub fn ffi() -> AbilityDefFFI { ability_kit::ability_ffi(ID, " .. struct .. ") }\n"
       .. "#[allow(dead_code)]\npub fn ffi_opt() -> Option<AbilityDefFFI> { ability_kit::ability_ffi_opt(ID, " .. struct .. ") }\n"
@@ -5211,8 +5434,10 @@ function M.content_catalog(root)
   for _, a in ipairs(context.include("templates/abilities.lua")) do if not a.tombstone then abilities[a.id] = true end end
   local shop = context.include("templates/moba_items.lua")
   for _, it in ipairs(shop.items or shop) do
-    local source = type(it) == "table" and it.source_ref and it.source_ref:match(":([%w_]+)$")
-    if source then items[source:lower()] = true end
+    -- the v3 id of a source key, as moba_items.lua id_of: lower case, apostrophes dropped
+    -- (item_samurai's_badge -> item_samurais_badge)
+    local source = type(it) == "table" and it.source_ref and it.source_ref:match(":([%w_']+)$")
+    if source then items[(source:lower():gsub("'", ""))] = true end
   end
   catalog_cache[root] = { abilities = abilities, items = items }
   return catalog_cache[root]

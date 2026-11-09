@@ -341,7 +341,8 @@ return function(ctx)
       },
       -------------------------------------------------------------------------
       { id = "c07_storm_move", source_id = "C07T2", slot = "F", kind = "active", max_level = 3, learnable = false,
-        tags = { "sub" },
+        -- no_cast_trigger: 怒雷之書／無上雷暴之書 skip it by name (item_thunderbolt_book.lua:16-20)
+        tags = { "sub", "no_cast_trigger" },
         text = {
           zh_TW = { name = "移動雷雲",
             body = "命令{@c07_raijin_wrath}的雷雲以自身移動速度走到道雪目前的位置。只在雷雲存在期間有等級。" },

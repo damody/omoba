@@ -217,4 +217,283 @@ test('create_unit lifetime over an hour blocks at generation', function()
   assert(blockers and blockers:find('create_unit.lifetime over 3600 s', 1, true), 'the blocker: ' .. tostring(blockers))
 end)
 
+local function enemy_sweep()
+  for _, x in ipairs(sources.heroes(b.root)) do
+    local doc = v3.load_file(x.path)
+    for _, ab in ipairs(doc and doc.abilities or {}) do
+      for _, a in ipairs((ab.events or {}).on_cast or {}) do
+        if a.op == 'for_each' and a.select and a.select.team == 'enemy' and a.select.radius and not a.select.where then return doc, ab, a.select end
+      end
+    end
+  end
+  error('an enemy for_each')
+end
+
+test('selector exclude_types building takes every class but buildings', function()
+  local doc, ab, sel = enemy_sweep()
+  sel.types, sel.exclude_types = { 'all' }, { 'building' }
+  local files = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'x' })
+  local text = assert(files['src/generated/' .. ab.id .. '.rs'], ab.id .. ' generates')
+  assert(has(text, 'types: UnitTypes::NonBuilding'), 'non-buildings')
+end)
+
+test('selector types hero+building+tower skips every other class', function()
+  local doc, ab, sel = enemy_sweep()
+  sel.types, sel.exclude_types = { 'hero', 'building', 'tower' }, nil
+  local files = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'x' })
+  local text = assert(files['src/generated/' .. ab.id .. '.rs'], ab.id .. ' generates')
+  assert(has(text, 'types: UnitTypes::All'), 'every class')
+  assert(has(text, '!cx.is_hero(') and has(text, '!cx.is_building('), 'the others skipped')
+end)
+
+test('game.creep_wave, game.creep_armor_bonus, is_summon and illusion_damage read the host', function()
+  local doc, ab, sel = enemy_sweep()
+  sel.where = 'it.is_summon'
+  for _, x in ipairs(ab.events.on_cast) do
+    if x.select == sel then
+      x.actions = { { op = 'damage', to = 'it', type = 'magical', amount = 'game.creep_wave + game.creep_armor_bonus + it.illusion_damage' } }
+    end
+  end
+  local files = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'x' })
+  local text = assert(files['src/generated/' .. ab.id .. '.rs'], ab.id .. ' generates')
+  assert(has(text, 'cx.game_num(ability_kit::game_attr::CREEP_WAVE)'), 'the creep wave')
+  assert(has(text, 'cx.game_num(ability_kit::game_attr::CREEP_ARMOR_BONUS)'), 'the creep armor bonus')
+  assert(has(text, 'ability_kit::unit_attr::IS_SUMMON'), 'is_summon')
+  assert(has(text, 'ability_kit::unit_attr::ILLUSION_DAMAGE'), 'illusion_damage')
+end)
+
+test('a toggle item registers as a toggle, runs its active on_unequip and reads the host ability tags', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/pilot_b.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_thunderbolt_book' or e.id == 'item_the_over_lightning_art_of_war' then
+      assert(#e.blockers == 0, e.id .. ': ' .. table.concat(e.blockers, '; '))
+    end
+  end
+  local book = assert(files['src/generated/item_thunderbolt_book.rs'], 'the book generates')
+  assert(has(book, 'ability_kit::item_kind_ffi(ID, "toggle", '), 'registered as a toggle item')
+  assert(has(book, 'fn on_unequip_active(') and has(book, 'on_unequip_active(&mut cx)'), 'its active on_unequip')
+  assert(has(book, 'cx.event_ability_has_tag("toggle")') and has(book, 'cx.event_ability_has_tag("no_cast_trigger")'), 'the host tags')
+  local over = assert(files['src/generated/item_the_over_lightning_art_of_war.rs'], 'the art of war generates')
+  assert(has(over, '(StatKey::CooldownPercentage, (Fixed64::ZERO - ('), 'cooldown reduction as a negative cooldown percentage')
+end)
+
+test('an on_order_targeted that cancels runs as the host order filter and refuses the order', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I3.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_protection_amulet' then assert(#e.blockers == 0, e.id .. ': ' .. table.concat(e.blockers, '; ')) end
+  end
+  local text = assert(files['src/generated/item_protection_amulet.rs'], 'the amulet generates')
+  assert(has(text, 'fn st_protection_amulet_ready_on_order_filter('), 'the order filter trigger')
+  assert(has(text, '("protection_amulet_ready", 21) =>'), 'served on status event ORDER_FILTER')
+  assert(not has(text, 'on_order_targeted('), 'not the after-windup event')
+  assert(has(text, 'cx.cancel_order()?;'), 'cancel_cast refuses the order')
+  assert(has(text, 'cx.event_ability_cooldown_start(of)?;'), "the orderer pays the ordered ability's cooldown")
+  assert(has(text, 'cx.event_ability_mana_cost()') and has(text, 'cx.burn_mana(from, amount)?;'), 'and its mana, as a burn')
+  assert(has(text, 'cx.event_ability_has_tag("ultimate")'), 'ultimates pass')
+  assert(has(text, 'cx.item_cooldown_start(of, "item_protection_amulet", amount)?;'), 'the amulet cools down in its slots')
+  assert(has(text, 'cx.item_cooldown_remaining(cx.caster, "item_protection_amulet") <= Fixed64::ZERO'), 'its readiness')
+  assert(has(text, 'ability_kit::item_kind_ffi(ID, "passive", '), 'registered as a passive item')
+end)
+
+test('a pre_mitigation shield on an independent status absorbs as the instance it applied', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/pilot_b.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_magic_talisman' then assert(#e.blockers == 0, e.id .. ': ' .. table.concat(e.blockers, '; ')) end
+  end
+  local text = assert(files['src/generated/item_magic_talisman.rs'], 'the talisman generates')
+  assert(has(text, 'let n = cx.apply_status_instance(to, &super::ids::status::MAGIC_TALISMAN_SHIELD, duration, stats)?;'), 'the instance applied')
+  assert(has(text, 'cx.absorb_with(to, &super::ids::status::MAGIC_TALISMAN_SHIELD, n, absorb, &["magical"], duration, true)?;'), 'its own pre-mitigation shield')
+end)
+
+test('a shield a source applies is that source\'s, and a bare item generates as its catalog row', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I0.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_devil_supressor_armor' then assert(#e.blockers == 0, e.id .. ': ' .. table.concat(e.blockers, '; ')) end
+  end
+  local text = assert(files['src/generated/item_devil_supressor_armor.rs'], 'the armor generates')
+  assert(has(text, 'cx.apply_status_from(source, to, &super::ids::status::DEVIL_SUPRESSOR_SHIELD'), 'applied by its source')
+  assert(has(text, 'cx.caster = source;') and has(text, 'cx.absorb_with(to, &super::ids::status::DEVIL_SUPRESSOR_SHIELD, 0, absorb, &["magical"], duration, true);'), 'the source\'s pre-mitigation shield')
+  local orb = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I1.lua'))
+  local _, orb_report = R.generate(orb, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(orb_report.entries) do
+    if e.id == 'item_hama_orb' then assert(#e.blockers == 0, e.id .. ': ' .. table.concat(e.blockers, '; ')) end
+  end
+end)
+
+test('the shop catalog names a source key with an apostrophe by its v3 id', function()
+  local catalog = R.content_catalog(b.root)
+  assert(catalog.items.item_samurais_badge, "item_samurai's_badge is item_samurais_badge")
+end)
+
+test('remove_status by source and duration, and an item passive hearing its holder\'s casts', function()
+  local function gen(file, id)
+    local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/' .. file))
+    local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+    for _, e in ipairs(report.entries) do
+      if e.id == id then assert(#e.blockers == 0, e.id .. ': ' .. table.concat(e.blockers, '; ')) end
+    end
+    return assert(files['src/generated/' .. id .. '.rs'], id .. ' generates')
+  end
+  local storm = gen('batch_I1.lua', 'item_ice_storm_book')
+  assert(has(storm, 'cx.remove_statuses_by_source(from, '), 'by source')
+  assert(has(storm, 'ability_kit::SourceFilter { min_duration, exclude_source_tags: &["ultimate"], source_is: &["has_ability", "alive"] }'), 'its source filter')
+  local bizen = gen('batch_I0.lua', 'item_bizennosafunekanemitsu')
+  assert(has(bizen, 'cx.passive_marker(ID, &[], 128);'), 'the marker hears ABILITY_EXECUTED')
+  assert(has(bizen, '("item_bizennosafunekanemitsu", 9) => {'), 'served on kind 9')
+end)
+
+test('an item hears its holder\'s death: active on_owner_death, item_count, pick_item slots all', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I1.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_insight_gem_shard' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  local shard = assert(files['src/generated/item_insight_gem_shard.rs'], 'the shard generates')
+  assert(has(shard, 'cx.passive_marker(ID, &[], 524288);'), 'the marker hears OWNER_DEATH')
+  assert(has(shard, '("item_insight_gem_shard", 22) => {'), 'served on kind 22')
+  assert(has(shard, '.filter(|&slot| cx.item_in_slot(u, slot).as_deref() == Some("item_insight_gem_hero")).count()'), 'item_count')
+  assert(has(shard, 'cx.remove_picked_item(p)?;'), 'removes what the pick found')
+end)
+
+test('an item passive hears its holder\'s death and respawn', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/pilot_b.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_death_of_scepter' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  local scepter = assert(files['src/generated/item_death_of_scepter.rs'], 'the scepter generates')
+  assert(has(scepter, '], 1573376);'), 'the marker hears KILL, OWNER_DEATH and RESPAWN')
+  assert(has(scepter, '("item_death_of_scepter", 22) => {'), 'death on kind 22')
+  assert(has(scepter, '("item_death_of_scepter", 23) => {'), 'respawn on kind 23')
+end)
+
+test('an item instance\'s bool / unit state, read and written in its repeat steps', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I2.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_moon_mirror' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  local mirror = assert(files['src/generated/item_moon_mirror.rs'], 'the mirror generates')
+  assert(has(mirror, 'if let Some(k) = cx.item_instance_key("batch_i2:moon_mirror_cur") { cx.set_state_unit(on, &k, value, false)?; }'), 'unit write')
+  assert(has(mirror, 'match cx.item_instance_key("batch_i2:moon_mirror_live") { Some(k) => cx.state_bool(h, &k, false), None => false }'), 'bool read')
+end)
+
+test('an aura over heroes and buildings selects HeroesAndBuildings', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I1.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_insight_gem_hero' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  local gem = assert(files['src/generated/item_insight_gem_hero.rs'], 'the gem generates')
+  assert(has(gem, 'UnitTypes::HeroesAndBuildings'), 'building+hero')
+end)
+
+test('an item registers under its v3 id, not its source key', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I1.lua'))
+  local files = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  local shard = assert(files['src/generated/item_insight_gem_shard.rs'], 'the shard generates')
+  assert(has(shard, 'pub const ID: &str = "item_insight_gem_shard";'), 'its v3 id')
+end)
+
+test('an item cast refunds its mana and cooldown', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I3.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_soul_adder' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  local adder = assert(files['src/generated/item_soul_adder.rs'], 'the adder generates')
+  assert(has(adder, 'cx.refund_mana();'), 'mana')
+  assert(has(adder, 'cx.refund_cooldown();'), 'cooldown')
+end)
+
+test('a projectile with a lifetime launches as projectile_expiring', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/pilot_b.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_ronin_jitte' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  local jitte = assert(files['src/generated/item_ronin_jitte.rs'], 'the jitte generates')
+  assert(has(jitte, 'cx.projectile_expiring(ID, p, '), 'its lifetime')
+end)
+
+test('not primary_is, an event-typed damage and an item orb slot released on unequip', function()
+  local function gen(file, id)
+    local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/' .. file))
+    local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+    for _, e in ipairs(report.entries) do
+      if e.id == id then
+        for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+      end
+    end
+    return assert(files['src/generated/' .. id .. '.rs'], id .. ' generates')
+  end
+  local sword = gen('pilot_b.lua', 'item_the_great_sword_of_invincible')
+  assert(has(sword, 'ability_kit::When::NotPrimary(ability_kit::Attr::Agility)'), 'not primary_is')
+  local teeth = gen('pilot_a.lua', 'item_the_dark_yellow_teeth_and_zimbabwe')
+  assert(has(teeth, 'ability_kit::event_damage_type(cx.event_damage_kind), Dmg {'), 'the event hit type')
+  local spear = gen('batch_I5.lua', 'item_the_spear_of_saddle')
+  assert(has(spear, 'if cx.orb_slot_free(caster, ID) { let _ = cx.orb_slot_claim(caster, ID); }'), 'the first copy claims')
+  assert(has(spear, 'let _ = cx.orb_slot_release(caster, ID); }'), 'the last copy releases')
+end)
+
+test('an item with recharging uses generates (the catalog row keeps them)', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/pilot_a.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_earth_wall_book' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  assert(files['src/generated/item_earth_wall_book.rs'], 'the book generates')
+end)
+
+test('an item unit target without heroes and has_tag courier', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/pilot_b.lua'))
+  local files, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_the_great_sword_of_teleport' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+  local sword = assert(files['src/generated/item_the_great_sword_of_teleport.rs'], 'the sword generates')
+  assert(has(sword, 'cx.has_unit_tag(u, "courier")'), 'courier tag')
+end)
+
+test('an item active may write its bot policy (no code, no blocker)', function()
+  local doc = assert(v3.load_file(b.root .. '/docs/character_pipeline/items/batch_I1.lua'))
+  local _, report = R.generate(doc, { root = b.root, rules = v3.rules(), package = 'items' })
+  for _, e in ipairs(report.entries) do
+    if e.id == 'item_great_dragon' then
+      for _, x in ipairs(e.blockers) do assert(x:match('^catalog:'), e.id .. ': ' .. x) end
+    end
+  end
+end)
+
+test('the courier template is a summon row the host spawns as a courier', function()
+  package.loaded['v3_summons'] = nil
+  local S = require('v3_summons')
+  local rows = S.build(b.root, S.existing(b.root))
+  local row
+  for _, r in ipairs(rows) do if r.id == 'courier' then row = r end end
+  assert(row, 'a courier row')
+  assert(row.courier == true and row.magic_immune == true and row.no_attack == true, 'courier, magic immune, no attack')
+  assert(row.move_speed == 550 and row.turn_rate == 0.5 and row.collision_radius == 0 and row.owner_death == 'persist', 'its numbers')
+end)
+
 print(('%d tests passed'):format(count))

@@ -57,6 +57,14 @@ pub struct MobaItemEntry {
     /// Single use (source ItemInitialCharges 1 + SpendCharge): a committed use removes the item.
     #[serde(default, skip_serializing_if = "is_false")]
     pub consumable: bool,
+    /// Stored uses of a scripted active (v3 `cost.charges`, scope hero; 土牆之書): a use needs one
+    /// and spends it, each comes back `restore` seconds after the last, one at a time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub charges: Option<MobaItemCharges>,
+    /// A scripted active's cast point (v3 `cast.cast_point`, `cast.interruptible`; 千里大劍): the use
+    /// waits `point` seconds, then takes effect and commits as an instant one does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cast: Option<MobaItemCast>,
     /// Items in the user's inventory that also start this item's cooldown when it is used (source
     /// AbilitySharedCooldown groups and script StartCooldown loops, E169). Not symmetric.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -135,6 +143,12 @@ pub fn validate_moba_items(items: &[MobaItemEntry]) -> Result<(), String> {
         if let Some(active) = &item.active {
             active.validate().map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
         }
+        if let Some(charges) = &item.charges {
+            charges.validate(item.active.as_ref(), item.consumable).map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
+        }
+        if let Some(cast) = &item.cast {
+            cast.validate(item.active.as_ref()).map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
+        }
         if let Some(aura) = &item.aura {
             aura.validate().map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
         }
@@ -200,6 +214,58 @@ pub fn validate_moba_items(items: &[MobaItemEntry]) -> Result<(), String> {
 }
 
 fn is_zero(value: &f32) -> bool { *value == 0.0 }
+
+/// v3 item `cost.charges = { max, restore, initial, scope = "hero" }`: the hero holds up to `max`
+/// uses (`initial` when it first holds the item), shared by every copy it carries.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct MobaItemCharges {
+    pub max: u16,
+    /// Seconds for one use to come back.
+    pub restore: f32,
+    pub initial: u16,
+}
+
+impl MobaItemCharges {
+    /// A scripted, reusable active's only; 1..=10 uses (what a replica admits), a positive restore
+    /// of at most an hour, and no more initial uses than the maximum.
+    pub fn validate(&self, active: Option<&MobaItemActiveEntry>, consumable: bool) -> Result<(), String> {
+        let ok = matches!(active, Some(MobaItemActiveEntry::Scripted {})) && !consumable
+            && (1..=10).contains(&self.max) && self.initial <= self.max
+            && self.restore.is_finite() && self.restore >= 1.0 / 1024.0 && self.restore <= 3600.0;
+        if ok { Ok(()) } else { Err("invalid charges".into()) }
+    }
+
+    pub fn rust_literal(&self) -> String {
+        format!("MobaItemChargesConst {{ max: {}, restore: Fixed64::from_raw({}), initial: {} }}",
+            self.max, (f64::from(self.restore) * 1024.0).round() as i64, self.initial)
+    }
+}
+
+/// v3 item `cast = { cast_point, interruptible }`: the use waits `point` seconds before its effect.
+/// `interruptible`: a stun, mute, command restriction, moving or a new order ends the wait (and the
+/// use, which spends nothing); otherwise only death or a lost unit target does.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct MobaItemCast {
+    pub point: f32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub interruptible: bool,
+}
+
+impl MobaItemCast {
+    /// A scripted active's only; a positive point of at most 60 s (what a hero windup admits).
+    pub fn validate(&self, active: Option<&MobaItemActiveEntry>) -> Result<(), String> {
+        let ok = matches!(active, Some(MobaItemActiveEntry::Scripted {}))
+            && self.point.is_finite() && self.point >= 1.0 / 1024.0 && self.point <= 60.0;
+        if ok { Ok(()) } else { Err("invalid cast".into()) }
+    }
+
+    pub fn rust_literal(&self) -> String {
+        format!("MobaItemCastConst {{ point: Fixed64::from_raw({}), interruptible: {} }}",
+            (f64::from(self.point) * 1024.0).round() as i64, self.interruptible)
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -372,6 +438,10 @@ pub struct MobaItemTargetEntry {
     /// A scripted unit active may aim at a magic-immune enemy (v3 flag include_magic_immune).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub include_magic_immune: bool,
+    /// A scripted unit active never aims at a hero (v3 `target.types` without `hero`: 千里大劍's
+    /// creep, neutral, summon, courier and building).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub exclude_heroes: bool,
 }
 
 impl Default for MobaItemTargetEntry {
@@ -387,6 +457,7 @@ impl MobaItemTargetEntry {
             requires_visible: false,
             out_of_range: MobaItemOutOfRange::Reject,
             include_magic_immune: false,
+            exclude_heroes: false,
         }
     }
 
@@ -397,8 +468,13 @@ impl MobaItemTargetEntry {
     fn validate(&self, active: Option<&MobaItemActiveEntry>) -> Result<(), String> {
         let positive = |value: f32, maximum: f32| value.is_finite() && (1.0 / 1024.0..=maximum).contains(&value);
         let legacy = self.is_legacy_self();
-        if self.include_magic_immune && !(self.shape == MobaItemTargetShape::Unit && matches!(active, Some(MobaItemActiveEntry::Scripted {}))) {
+        if self.include_magic_immune && !(matches!(self.shape, MobaItemTargetShape::Unit | MobaItemTargetShape::UnitOrPoint)
+            && matches!(active, Some(MobaItemActiveEntry::Scripted {}))) {
             return Err("include_magic_immune is for a scripted unit active".into());
+        }
+        if self.exclude_heroes && !(matches!(self.shape, MobaItemTargetShape::Unit | MobaItemTargetShape::UnitOrPoint)
+            && matches!(active, Some(MobaItemActiveEntry::Scripted {}))) {
+            return Err("exclude_heroes is for a scripted unit active".into());
         }
         let shape_ok = match self.shape {
             MobaItemTargetShape::Self_ => legacy && matches!(active,
@@ -410,8 +486,12 @@ impl MobaItemTargetEntry {
             // range zero: anywhere on the map
             MobaItemTargetShape::Point if matches!(active, Some(MobaItemActiveEntry::Scripted {})) =>
                 (self.range == 0.0 || positive(self.range, 10_000.0)) && self.out_of_range == MobaItemOutOfRange::Reject,
+            // range zero: any unit on the map (千里大劍)
             MobaItemTargetShape::Unit if matches!(active, Some(MobaItemActiveEntry::Scripted {})) =>
-                positive(self.range, 10_000.0) && self.out_of_range == MobaItemOutOfRange::Reject,
+                (self.range == 0.0 || positive(self.range, 10_000.0)) && self.out_of_range == MobaItemOutOfRange::Reject,
+            // a unit (checked as for `unit`) or a ground point, the script tells them apart
+            MobaItemTargetShape::UnitOrPoint => matches!(active, Some(MobaItemActiveEntry::Scripted {}))
+                && positive(self.range, 10_000.0) && self.out_of_range == MobaItemOutOfRange::Reject,
             MobaItemTargetShape::Point => !legacy && positive(self.range, 10_000.0)
                 && matches!(self.team, MobaItemTeamFilter::Enemy | MobaItemTeamFilter::Hostile) && self.requires_visible
                 && self.out_of_range == MobaItemOutOfRange::Reject
@@ -433,6 +513,7 @@ impl MobaItemTargetEntry {
             MobaItemTargetShape::Self_ => "Self_",
             MobaItemTargetShape::Point => "Point",
             MobaItemTargetShape::Unit => "Unit",
+            MobaItemTargetShape::UnitOrPoint => "UnitOrPoint",
         };
         let team = match self.team {
             MobaItemTeamFilter::Any => "Any",
@@ -441,8 +522,8 @@ impl MobaItemTargetEntry {
             MobaItemTeamFilter::Ally => "Ally",
         };
         format!(
-            "MobaItemTargetConst {{ shape: MobaItemTargetShapeConst::{shape}, range: {}, team: MobaItemTeamConst::{team}, requires_visible: {}, out_of_range: MobaItemOutOfRangeConst::Reject, include_magic_immune: {} }}",
-            fixed(self.range), self.requires_visible, self.include_magic_immune,
+            "MobaItemTargetConst {{ shape: MobaItemTargetShapeConst::{shape}, range: {}, team: MobaItemTeamConst::{team}, requires_visible: {}, out_of_range: MobaItemOutOfRangeConst::Reject, include_magic_immune: {}, exclude_heroes: {} }}",
+            fixed(self.range), self.requires_visible, self.include_magic_immune, self.exclude_heroes,
         )
     }
 }
@@ -455,6 +536,8 @@ pub enum MobaItemTargetShape {
     Self_,
     Point,
     Unit,
+    /// v3 `target.type = "unit_or_point"` (巨龍): a unit of the item's team, or a ground point.
+    UnitOrPoint,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Default)]
@@ -730,7 +813,27 @@ mod scripted_active_tests {
     use super::*;
 
     fn target(shape: MobaItemTargetShape, range: f32, team: MobaItemTeamFilter, requires_visible: bool) -> MobaItemTargetEntry {
-        MobaItemTargetEntry { shape, range, team, requires_visible, out_of_range: MobaItemOutOfRange::Reject, include_magic_immune: false }
+        MobaItemTargetEntry { shape, range, team, requires_visible, out_of_range: MobaItemOutOfRange::Reject, include_magic_immune: false, exclude_heroes: false }
+    }
+
+    /// 千里大劍：an ally unit that is not a hero, anywhere on the map; only a scripted unit active
+    /// may leave heroes out.
+    #[test]
+    fn a_scripted_unit_active_may_leave_heroes_out_and_reach_anywhere() {
+        let scripted = MobaItemActiveEntry::Scripted {};
+        let sword = MobaItemTargetEntry { exclude_heroes: true, ..target(MobaItemTargetShape::Unit, 0.0, MobaItemTeamFilter::Ally, false) };
+        assert!(sword.validate(Some(&scripted)).is_ok());
+        assert!(sword.rust_literal().ends_with("include_magic_immune: false, exclude_heroes: true }"));
+        assert!(MobaItemTargetEntry { exclude_heroes: true, ..target(MobaItemTargetShape::UnitOrPoint, 600.0, MobaItemTeamFilter::Any, false) }
+            .validate(Some(&scripted)).is_ok());
+        assert!(MobaItemTargetEntry { exclude_heroes: true, ..target(MobaItemTargetShape::Point, 600.0, MobaItemTeamFilter::Any, false) }
+            .validate(Some(&scripted)).is_err(), "a point has no unit to leave out");
+        assert!(sword.validate(Some(&MobaItemActiveEntry::UnitHeal { amount: 10.0 })).is_err());
+        assert!(target(MobaItemTargetShape::Unit, 0.0, MobaItemTeamFilter::Ally, true)
+            .validate(Some(&MobaItemActiveEntry::UnitHeal { amount: 10.0 })).is_err(), "only a scripted unit active is rangeless");
+        let parsed: MobaItemTargetEntry = serde_json::from_value(serde_json::json!({"shape": "unit", "range": 0, "team": "ally",
+            "requires_visible": false, "out_of_range": "reject", "include_magic_immune": false, "exclude_heroes": true})).unwrap();
+        assert_eq!(parsed, sword);
     }
 
     #[test]
@@ -746,10 +849,55 @@ mod scripted_active_tests {
                 assert!(target(MobaItemTargetShape::Unit, 600.0, team, visible).validate(Some(&scripted)).is_ok());
             }
         }
-        // anywhere on the map is a point's; a unit keeps a range
+        // anywhere on the map: a point or a unit (千里大劍); a negative range is never one
         assert!(target(MobaItemTargetShape::Point, 0.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_ok());
-        assert!(target(MobaItemTargetShape::Unit, 0.0, MobaItemTeamFilter::Enemy, true).validate(Some(&scripted)).is_err());
+        assert!(target(MobaItemTargetShape::Unit, 0.0, MobaItemTeamFilter::Enemy, true).validate(Some(&scripted)).is_ok());
+        assert!(target(MobaItemTargetShape::Unit, -1.0, MobaItemTeamFilter::Enemy, true).validate(Some(&scripted)).is_err());
+        // unit_or_point: a scripted item's only, with a range
+        assert!(target(MobaItemTargetShape::UnitOrPoint, 600.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_ok());
+        assert!(target(MobaItemTargetShape::UnitOrPoint, 0.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_err());
+        assert!(target(MobaItemTargetShape::UnitOrPoint, 600.0, MobaItemTeamFilter::Ally, true)
+            .validate(Some(&MobaItemActiveEntry::UnitHeal { amount: 100.0 })).is_err());
+        assert!(target(MobaItemTargetShape::UnitOrPoint, 600.0, MobaItemTeamFilter::Any, false).rust_literal().contains("MobaItemTargetShapeConst::UnitOrPoint"));
         assert!(target(MobaItemTargetShape::Point, -1.0, MobaItemTeamFilter::Any, false).validate(Some(&scripted)).is_err());
+    }
+
+    /// 土牆之書：2 uses, one back every 40 s, starting full; a scripted reusable active's only.
+    #[test]
+    fn charges_belong_to_a_scripted_reusable_active() {
+        let scripted = MobaItemActiveEntry::Scripted {};
+        let wall = MobaItemCharges { max: 2, restore: 40.0, initial: 2 };
+        assert!(wall.validate(Some(&scripted), false).is_ok());
+        assert_eq!(wall.rust_literal(), "MobaItemChargesConst { max: 2, restore: Fixed64::from_raw(40960), initial: 2 }");
+        let parsed: MobaItemCharges = serde_json::from_value(serde_json::json!({"max": 2, "restore": 40, "initial": 2})).unwrap();
+        assert_eq!(parsed, wall);
+        assert!(wall.validate(None, false).is_err());
+        assert!(wall.validate(Some(&MobaItemActiveEntry::UnitHeal { amount: 100.0 }), false).is_err());
+        assert!(wall.validate(Some(&scripted), true).is_err(), "a consumable is spent whole");
+        for bad in [MobaItemCharges { max: 0, ..wall }, MobaItemCharges { max: 11, initial: 2, ..wall },
+            MobaItemCharges { initial: 3, ..wall }, MobaItemCharges { restore: 0.0, ..wall }, MobaItemCharges { restore: f32::NAN, ..wall }] {
+            assert!(bad.validate(Some(&scripted), false).is_err(), "{bad:?}");
+        }
+        assert!(MobaItemCharges { initial: 0, ..wall }.validate(Some(&scripted), false).is_ok());
+    }
+
+    /// 千里大劍：a 4 s interruptible cast point; a scripted active's only, 0 < point <= 60.
+    #[test]
+    fn a_cast_point_belongs_to_a_scripted_active() {
+        let scripted = MobaItemActiveEntry::Scripted {};
+        let sword = MobaItemCast { point: 4.0, interruptible: true };
+        assert!(sword.validate(Some(&scripted)).is_ok());
+        assert_eq!(sword.rust_literal(), "MobaItemCastConst { point: Fixed64::from_raw(4096), interruptible: true }");
+        let parsed: MobaItemCast = serde_json::from_value(serde_json::json!({"point": 4, "interruptible": true})).unwrap();
+        assert_eq!(parsed, sword);
+        let plain: MobaItemCast = serde_json::from_value(serde_json::json!({"point": 0.3})).unwrap();
+        assert!(!plain.interruptible);
+        assert!(serde_json::from_value::<MobaItemCast>(serde_json::json!({"point": 1, "channel": true})).is_err());
+        assert!(sword.validate(None).is_err());
+        assert!(sword.validate(Some(&MobaItemActiveEntry::UnitHeal { amount: 100.0 })).is_err());
+        for point in [0.0, -1.0, 61.0, f32::NAN] {
+            assert!(MobaItemCast { point, ..sword }.validate(Some(&scripted)).is_err(), "{point}");
+        }
     }
 
     #[test]

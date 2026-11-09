@@ -1277,6 +1277,7 @@ impl TeamViewProjector {
                     let components = decode_safe_components_for_hash(&baseline);
                     let baseline = if components.contains_key(&crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID)
                         || components.contains_key(&crate::runtime::DISCLOSED_ENEMY_SIGHT_COMPONENT_SCHEMA_ID)
+                        || components.contains_key(&crate::runtime::native::owner_script_rows::SCHEMA_ID)
                     {
                         crate::runtime::visibility::encode_disclosed_baseline(
                             &team_safe_components(&baseline, self.team_id).into_iter().collect::<Vec<_>>())
@@ -1778,6 +1779,21 @@ fn project_fact(
         });
         return;
     }
+    // An order filter's refusal (status_event ORDER_FILTER) reaches the teams that see the caster
+    // or the holder: "ORF1", both units' replica ids for this team (0 for one it does not see),
+    // then the ability. The caster's team refuses the same cast; the holder's runs the same hooks.
+    if let ObservableFact::OrderFiltered { caster, holder, ability, refused } = &ordered.fact {
+        let id = |unit: &u64| visible.contains(unit).then(|| replica_proto(identity, *unit)).flatten().map_or(0, |replica| replica.value);
+        let (caster_id, holder_id) = (id(caster), id(holder));
+        if caster_id == 0 && holder_id == 0 { return; }
+        public.push(TeamPublicEvent {
+            event_kind: ordered.key.fact_kind as u32,
+            subject: None,
+            sanitized_payload: crate::runtime::native::order_filter::encode(caster_id, holder_id, ability, *refused),
+            stable_sub_index: ordered.key.local_ordinal,
+        });
+        return;
+    }
     // Ability payload identifies the caster's skill, not a target-only impact.
     // A visible victim must never disclose a hidden/remembered caster's cast.
     if matches!(ordered.fact, ObservableFact::Ability { .. } | ObservableFact::AbilityArea { .. })
@@ -1957,6 +1973,7 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
         // Projected on its own (project_fact) before this table is consulted.
         ObservableFact::AbilityTarget { source, target, .. } => (Some(*source), *target, payload),
         ObservableFact::Cue { source, .. } => (*source, None, payload),
+        ObservableFact::OrderFiltered { caster, .. } => (Some(*caster), None, payload),
         ObservableFact::AbilityArea {source, team, ability_id,rank,x_raw,y_raw,radius_raw,duration_raw} => {
             if *team == 0 || *team != viewer_team {return (None,None,Vec::new());}
             payload = crate::runtime::presentation_cue::AbilityAreaPresentationCue::public_payload(
@@ -2094,6 +2111,7 @@ fn expected_team_hash(
         hasher.update(epoch.to_be_bytes());
         hasher.update(entity_kind.to_be_bytes());
         for (schema_id, bytes) in components {
+            if *schema_id == crate::runtime::native::owner_script_rows::SCHEMA_ID { continue; }
             hasher.update(schema_id.to_be_bytes());
             hasher.update((bytes.len() as u64).to_be_bytes());
             hasher.update(bytes);
@@ -2118,6 +2136,7 @@ fn team_safe_components_with_facts(bytes: &[u8], team: u32) -> (BTreeMap<u32, Ve
         .is_some_and(|state|state.team_id==team && state.owner_player_id!=0);
     // Another team sees only the public statuses' icons (v3 `reveal = "public"`, E216); the owner team sees all.
     if !owns {
+        components.remove(&crate::runtime::native::owner_script_rows::SCHEMA_ID);
         let schema = crate::runtime::buff_visual_state::SCHEMA_ID;
         match components.get(&schema).map(|bytes| crate::runtime::buff_visual_state::public_snapshot(bytes)) {
             Some(Some(public)) => { components.insert(schema, public); }
@@ -2906,7 +2925,10 @@ pub type ComponentBytes = BTreeMap<(u64, u32), Vec<u8>>;
 pub fn component_bytes<E: ComponentSource>(entities: &BTreeMap<u64, E>) -> ComponentBytes {
     let mut out = BTreeMap::new();
     for (replica_id, entity) in entities {
-        for (schema_id, bytes) in entity.components() { out.insert((*replica_id, *schema_id), bytes.clone()); }
+        for (schema_id, bytes) in entity.components() {
+            if *schema_id == crate::runtime::native::owner_script_rows::SCHEMA_ID { continue; }
+            out.insert((*replica_id, *schema_id), bytes.clone());
+        }
     }
     out
 }
@@ -2925,6 +2947,8 @@ where E: ComponentSource {
     let mut rows = Vec::new();
     for (replica_id, entity) in entities {
         for (schema_id, bytes) in entity.components() {
+            // Baseline-only (owner_script_rows): a new local life reads it once, nothing compares it.
+            if *schema_id == crate::runtime::native::owner_script_rows::SCHEMA_ID { continue; }
             rows.push(ComponentDigestRow { replica_id: *replica_id, schema_id: *schema_id, digest: fnv64(bytes) });
         }
     }

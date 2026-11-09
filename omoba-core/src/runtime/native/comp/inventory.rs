@@ -3,6 +3,9 @@ use specs::storage::VecStorage;
 use specs::Component;
 
 pub const INVENTORY_SLOTS: usize = 6;
+/// A player's stash under `shop_range_rule` (courier-spec-2026-11-09 §2): the engine default of
+/// the original's Dota version (rules:dota_stash_slots); the original's KV has no number for it.
+pub const STASH_SLOTS: usize = 6;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ItemInstance {

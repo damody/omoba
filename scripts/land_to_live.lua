@@ -52,6 +52,8 @@ local function deps_of(deps)
     process=deps.process or b.lib('process'),platform=deps.platform or b.lib('platform'),
     hash=deps.sha256 or b.lib('hash').sha256,json=deps.json or b.lib('json'),log=deps.log or print,
     lock=deps.lock or require('build_lock'),shadow=deps.shadow or require('stage_ue_shadow'),
+    retention=deps.retention or require('cargo_target_retention'),
+    remove_tree=deps.remove_tree or function(dir) require('ue_run_snapshot').remove_tree(dir) end,
     ue_root=deps.ue_root,cargo_jobs=deps.cargo_jobs}
   return d
 end
@@ -308,7 +310,10 @@ function M.check(plan,need,d)
   -- Cargo jobs by the commit left (E443): a rustc or link.exe here commits about 1.3 GB, 2.5 with headroom.
   local jobs=d.cargo_jobs and d.cargo_jobs() or require('memory_admission').parallel_jobs(M.CARGO_JOB_COMMIT_BYTES,24)
   d.log(('[land] cargo runs %d parallel jobs'):format(jobs))
-  local env={CARGO_TARGET_DIR=d.path.join(work,'cargo-target'),CARGO_BUILD_JOBS=tostring(jobs)}
+  -- No debug info (2026-11-08): the manifest-load tests linked a 250 MB pdb per hero DLL test, 47 GB
+  -- in all, which no check reads.
+  local env={CARGO_TARGET_DIR=d.path.join(work,'cargo-target'),CARGO_BUILD_JOBS=tostring(jobs),
+    CARGO_PROFILE_DEV_DEBUG='0',CARGO_PROFILE_TEST_DEBUG='0'}
   for _,entry in ipairs(M.TREE) do
     local from=d.path.join(d.root,entry)
     if d.path.is_directory(from) then d.shadow.mirror(from,d.path.join(tree,entry),{root=d.root},M.SKIP)
@@ -423,10 +428,34 @@ function M.run(options,deps)
   end
   d.path.mkdir_p(d.path.join(d.root,'target','land'))
   d.path.write(d.path.join(d.root,'target','land','last.json'),d.json.encode(report),true)
+  M.retain(d)
   if report.landed then d.log(('[land] landed %d file(s) into live after %s'):format(#plan,table.concat(names,', ')))
   elseif report.passed and not report.error then d.log('[land] checks passed'..(options.dry_run and ' (dry run, nothing written)' or ''))
   else d.log('[land] NOT landed: '..tostring(report.error)) end
   return report
+end
+
+-- Retention, still under the build lock (2026-11-08: target/land reached 122 GB): the cargo target
+-- loses the outputs cargo no longer uses and every pdb (cargo_target_retention.lua), and the shadow
+-- loses the build state of targets land never builds (OmGame, seeded with the shadow; only
+-- OmGameEditor is built). A failure is logged, never fails the landing.
+M.SHADOW_UNUSED={'Intermediate/Build/Win64/x64/OmGame','Intermediate/Build/Win64/OmGame'}
+function M.retain(d)
+  local ok,err=pcall(function()
+    local work=d.path.join(d.root,'target','land')
+    local stats=d.retention.prune(d.path.join(work,'cargo-target'),{drop_pdb=true})
+    local bytes,removed=stats.bytes,stats.removed
+    for _,relative in ipairs(M.SHADOW_UNUSED) do
+      local dir=d.path.join(work,'shadow',relative)
+      if d.path.is_directory(dir) then
+        local size=d.retention.prune(dir,{all=true,dry_run=true}).bytes
+        d.remove_tree(dir)
+        bytes,removed=bytes+size,removed+1
+      end
+    end
+    if removed>0 then d.log(('[land] retention freed %.1f GB (%d entries)'):format(bytes/1e9,removed)) end
+  end)
+  if not ok then d.log('[land] retention failed (nothing else affected): '..tostring(err)) end
 end
 
 function M.usage()

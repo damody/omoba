@@ -91,6 +91,7 @@ fn an_item_use_commits_its_summon_before_the_effects_on_it_and_a_refused_use_rel
     let transaction = |world: &World| {
         let entity = world.entities().create();
         (entity, Outcome::ScriptItemTransaction { owner: hero, owner_pid: pid, slot: 0, item_id: item.clone(), target: None, target_point: None,
+            refund: crate::comp::ItemRefund::default(),
             outcomes: vec![Outcome::SpawnSummoned { entity, pos: at, unit_id: "dummy".into(), owner: hero, faction: faction.clone(),
                 player_owner: Some(pid), duration: Fixed64::from_i32(5) },
                 Outcome::AddBuff { target: entity, buff_id: "fire_field".into(), duration: Fixed64::from_i32(5), payload: serde_json::Value::Null }] })
@@ -107,6 +108,125 @@ fn an_item_use_commits_its_summon_before_the_effects_on_it_and_a_refused_use_rel
     process_outcomes(&mut world, &mut crate::runtime::RuntimeEventVecSink::default()).unwrap();
     world.maintain();
     assert!(!world.entities().is_alive(refused), "a refused use releases its reservation");
+}
+
+/// v3 `refund { mana, cooldown }` in an item's cast (魂蛇 soul_adder on a target it cannot put to
+/// sleep): the use commits, but spends no mana and starts no cooldown; without the refund it does.
+#[test]
+fn a_refunded_item_use_commits_without_its_mana_and_cooldown() {
+    let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+    crate::runtime::setup_single_lane_match(&mut world, crate::runtime::SingleLaneConfig::default()).unwrap();
+    let (hero, pid) = { let state = world.read_resource::<crate::runtime::MobaMatch>(); (state.heroes[0].entity.unwrap(), state.heroes[0].player_id) };
+    world.write_resource::<crate::runtime::MobaMatch>().phase = crate::runtime::MobaMatchPhase::Playing;
+    if world.try_fetch::<ItemRegistry>().is_none() { world.insert(ItemRegistry::generated_moba()); }
+    // an item with a cooldown and a mana cost
+    let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+        .filter(|row| row.mana_cost > Fixed64::ZERO && world.read_resource::<ItemRegistry>().get(row.id).is_some_and(|cfg| cfg.cooldown > 0.0))
+        .map(|row| row.id).next().expect("a catalog item with mana and a cooldown").to_owned();
+    let cooldown = world.read_resource::<ItemRegistry>().get(&item).unwrap().cooldown;
+    // a match with mana, the hero's pool full enough for two uses
+    world.write_resource::<crate::runtime::MobaMatch>().config.mana_enabled = true;
+    world.write_storage::<Hero>().get_mut(hero).unwrap().mana_pool = Some(crate::runtime::ability_runtime::ManaPool::full(Fixed64::from_i32(10_000)).unwrap());
+    let mana = |world: &World| world.read_storage::<Hero>().get(hero).unwrap().mana_pool.as_ref().map(|pool| pool.current());
+    let use_with = |world: &mut World, refund: crate::comp::ItemRefund| {
+        world.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0] =
+            Some(crate::runtime::native::comp::inventory::ItemInstance { item_id: item.clone(), cooldown_remaining: 0.0 });
+        let before = mana(world);
+        world.write_resource::<Vec<Outcome>>().push(Outcome::ScriptItemTransaction { owner: hero, owner_pid: pid, slot: 0,
+            item_id: item.clone(), target: None, target_point: None, outcomes: Vec::new(), refund });
+        process_outcomes(world, &mut crate::runtime::RuntimeEventVecSink::default()).unwrap();
+        let left = world.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().map(|slot| slot.cooldown_remaining);
+        (before, mana(world), left)
+    };
+    let (before, after, left) = use_with(&mut world, crate::comp::ItemRefund { mana: true, cooldown: true });
+    assert_eq!((after, left), (before, Some(0.0)), "a refunded use spends no mana and starts no cooldown");
+    let (before, after, left) = use_with(&mut world, crate::comp::ItemRefund::default());
+    assert_eq!(left, Some(cooldown), "an ordinary use starts its cooldown");
+    assert!(before.is_some() && after < before, "and spends its mana: {before:?} -> {after:?}");
+}
+
+/// v3 `target.type = "unit_or_point"` (巨龍): a named unit is judged as a unit target (alive, of
+/// the item's team, in range), anything else as an explicit point in range.
+#[test]
+fn a_unit_or_point_item_takes_a_unit_or_a_point() {
+    use omoba_template_ids::{MobaItemOutOfRangeConst, MobaItemTargetConst, MobaItemTargetShapeConst as Shape, MobaItemTeamConst};
+    let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+    crate::runtime::setup_single_lane_match(&mut world, crate::runtime::SingleLaneConfig::default()).unwrap();
+    let (hero, ally) = { let state = world.read_resource::<crate::runtime::MobaMatch>(); (state.heroes[0].entity.unwrap(), state.heroes[0].entity.unwrap()) };
+    let at = world.read_storage::<Pos>().get(hero).unwrap().0;
+    let faction = world.read_storage::<Faction>().get(hero).unwrap().clone();
+    let rule = MobaItemTargetConst { shape: Shape::UnitOrPoint, range: Fixed64::from_i32(600), team: MobaItemTeamConst::Any,
+        requires_visible: false, out_of_range: MobaItemOutOfRangeConst::Reject, include_magic_immune: true, exclude_heroes: false };
+    let judge = |world: &World, point: Option<Vec2>, unit: Option<Entity>, explicit: bool, named: bool|
+        scripted_item_target(world, rule, at, &faction, point, unit, explicit, named).ok();
+    let near = at + Vec2::new(Fixed64::from_i32(300), Fixed64::ZERO);
+    let far = at + Vec2::new(Fixed64::from_i32(900), Fixed64::ZERO);
+    assert!(matches!(judge(&world, Some(near), None, true, false), Some(SkillTarget::Point { x, y }) if x == near.x && y == near.y), "a point in range");
+    assert!(judge(&world, Some(far), None, true, false).is_none(), "a point out of range");
+    assert!(matches!(judge(&world, None, Some(ally), false, true), Some(SkillTarget::Entity(unit)) if unit == ally), "a unit (its owner itself)");
+    assert!(judge(&world, Some(near), Some(ally), true, true).is_none(), "not both");
+    // a unit item still takes no point, a point item no unit
+    let unit_only = MobaItemTargetConst { shape: Shape::Unit, ..rule };
+    assert!(scripted_item_target(&world, unit_only, at, &faction, Some(near), None, true, false).is_err());
+    let point_only = MobaItemTargetConst { shape: Shape::Point, ..rule };
+    assert!(scripted_item_target(&world, point_only, at, &faction, None, Some(ally), false, true).is_err());
+}
+
+/// E cover14: a hero's charged item row that appears (primed on a purchase) is announced once as
+/// a committed charge, under the item's catalog slot; a row already announced is not again, and a
+/// row that went away and came back is.
+#[test]
+fn a_primed_item_charge_row_is_announced_once() {
+    let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+    crate::runtime::setup_single_lane_match(&mut world, crate::runtime::SingleLaneConfig::default()).unwrap();
+    let hero = world.read_resource::<crate::runtime::MobaMatch>().heroes[0].entity.unwrap();
+    let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.charges.is_some()).expect("a charged item");
+    let spec = item.charges.unwrap();
+    let key = item_charge_key(item.id);
+    let announce = |world: &mut World| { let mut rows = BTreeMap::new(); announce_primed_item_charges(world, &mut rows); rows };
+    assert!(announce(&mut world).values().all(|(_, k)| !k.starts_with("item:")), "nothing primed yet");
+    world.write_storage::<Hero>().get_mut(hero).unwrap().prime_charges(&key, spec.max, spec.restore, spec.initial);
+    let rows = announce(&mut world);
+    assert_eq!(rows.get(&(crate::runtime::canonical_entity_id(hero), Hero::ITEM_CHARGE_SLOT | u32::from(item.catalog_id))), Some(&(hero, key.clone())));
+    assert!(announce(&mut world).is_empty(), "once");
+    world.write_storage::<Hero>().get_mut(hero).unwrap().ability_charges.remove(&key);
+    assert!(announce(&mut world).is_empty());
+    world.write_storage::<Hero>().get_mut(hero).unwrap().prime_charges(&key, spec.max, spec.restore, spec.initial);
+    assert_eq!(announce(&mut world).len(), 1, "back again: announced again");
+    // a team replica announces nothing (the facts are the authority's)
+    world.write_storage::<Hero>().get_mut(hero).unwrap().ability_charges.remove(&key);
+    announce(&mut world);
+    world.insert(crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets::default());
+    world.write_storage::<Hero>().get_mut(hero).unwrap().prime_charges(&key, spec.max, spec.restore, spec.initial);
+    assert!(announce(&mut world).is_empty());
+}
+
+/// 千里大劍 (v3 target types creep, neutral, summon, courier, building; no range): an allied unit
+/// anywhere on the map that is not a hero; its own user and other heroes are refused.
+#[test]
+fn a_non_hero_item_target_refuses_heroes_and_a_rangeless_one_reaches_anywhere() {
+    use omoba_template_ids::{MobaItemOutOfRangeConst, MobaItemTargetConst, MobaItemTargetShapeConst as Shape, MobaItemTeamConst};
+    let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+    crate::runtime::setup_single_lane_match(&mut world, crate::runtime::SingleLaneConfig::default()).unwrap();
+    let hero = world.read_resource::<crate::runtime::MobaMatch>().heroes[0].entity.unwrap();
+    let at = world.read_storage::<Pos>().get(hero).unwrap().0;
+    let faction = world.read_storage::<Faction>().get(hero).unwrap().clone();
+    let far = at + Vec2::new(Fixed64::from_i32(9000), Fixed64::ZERO);
+    let unit = world.create_entity().with(Pos(far)).with(faction.clone())
+        .with(CProperty { hp: Fixed64::ONE, mhp: Fixed64::ONE, msd: Fixed64::ZERO, def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build();
+    let rule = MobaItemTargetConst { shape: Shape::Unit, range: Fixed64::ZERO, team: MobaItemTeamConst::Ally,
+        requires_visible: false, out_of_range: MobaItemOutOfRangeConst::Reject, include_magic_immune: false, exclude_heroes: true };
+    let judge = |world: &World, rule: MobaItemTargetConst, target: Entity| scripted_item_target(world, rule, at, &faction, None, Some(target), false, true);
+    assert!(matches!(judge(&world, rule, unit), Ok(SkillTarget::Entity(target)) if target == unit), "an allied unit 9000 away");
+    assert!(judge(&world, rule, hero).is_err(), "never a hero, its user included");
+    assert!(judge(&world, MobaItemTargetConst { exclude_heroes: false, ..rule }, hero).is_ok(), "heroes allowed without the flag");
+    assert!(judge(&world, MobaItemTargetConst { range: Fixed64::from_i32(600), ..rule }, unit).is_err(), "a ranged one stays in range");
+    // a visible-only rule: the authority judges by its vision (nothing sees 9000 away); a team
+    // replica runs only accepted uses and has no vision sources, so its target passes
+    let seen = MobaItemTargetConst { requires_visible: true, ..rule };
+    assert!(judge(&world, seen, unit).is_err(), "unseen on the authority");
+    world.insert(crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets::default());
+    assert!(judge(&world, seen, unit).is_ok(), "a replica follows the accepted use");
 }
 
 #[test]

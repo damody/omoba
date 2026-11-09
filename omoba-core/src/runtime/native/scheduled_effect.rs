@@ -10,6 +10,12 @@
 //! (owner, buff id) order. So it never depends on when `buff_tick` expires rows. Like a delayed
 //! effect the hook may only apply effects (no charge, cast or spawn); the owner's death clears its
 //! buffs and with them every pending row; `remove_buff(owner, id)` cancels one.
+//!
+//! A row scheduled by an item's cast (`delay`/`repeat` inside an active item's `on_cast`) keeps
+//! that item's inventory slot ([`Spec::item_slot`]): its `on_scheduled` runs as that item
+//! instance again (ext EVENT_ITEM_SLOT), so the instance's `scope = "item_instance"` state
+//! (item_grant::instance_var_key), `remove_item` of itself and the rows it schedules in turn
+//! stay with the item, as in the cast.
 use omb_script_abi::types::{EntityHandle, ScheduleArg, Scheduled};
 use omoba_sim::{Fixed64, Vec2};
 use serde_json::{json, Value};
@@ -39,6 +45,8 @@ pub struct Spec {
     /// Distinguishes concurrent schedules of one owner, ability and step.
     pub instance: u32,
     pub args: Vec<ScheduleArg>,
+    /// The inventory slot of the item whose cast scheduled it (the scheduling unit's own item).
+    pub item_slot: Option<u8>,
 }
 
 fn arg_json(a: &ScheduleArg) -> Option<Value> {
@@ -79,13 +87,16 @@ impl Spec {
     pub fn lifetime(after: Fixed64) -> Fixed64 { after + GRACE }
     pub fn payload(&self) -> Value {
         let args: Vec<Value> = self.args.iter().filter_map(arg_json).collect();
-        json!({ (KEY): { "ability": self.ability, "level": self.level, "step": self.step, "instance": self.instance, "args": args } })
+        let mut row = json!({ "ability": self.ability, "level": self.level, "step": self.step, "instance": self.instance, "args": args });
+        if let Some(slot) = self.item_slot { row["item_slot"] = json!(slot); }
+        json!({ (KEY): row })
     }
     /// Strict: only the exact id and payload this module writes.
     pub fn from_buff(buff_id: &str, payload: &Value) -> Option<Self> {
         if !buff_id.starts_with(PREFIX) || payload.as_object()?.len() != 1 { return None; }
         let row = payload.get(KEY)?.as_object()?;
-        if row.len() != 5 { return None; }
+        let item_slot = match row.get("item_slot") { Some(slot) => Some(u8::try_from(slot.as_u64()?).ok()?), None => None };
+        if row.len() != 5 + usize::from(item_slot.is_some()) { return None; }
         let args = row.get("args")?.as_array()?;
         if args.len() > MAX_ARGS { return None; }
         let spec = Self {
@@ -94,6 +105,7 @@ impl Spec {
             step: u16::try_from(row.get("step")?.as_u64()?).ok()?,
             instance: u32::try_from(row.get("instance")?.as_u64()?).ok()?,
             args: args.iter().map(arg_of).collect::<Option<Vec<_>>>()?,
+            item_slot,
         }.checked()?;
         (spec.buff_id() == buff_id).then_some(spec)
     }
@@ -150,7 +162,7 @@ mod tests {
         ScheduleArg { kind: ARG_POINT, num: Fixed64::ZERO, unit: EntityHandle::INVALID, point: Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y)) }
     }
     fn spec(instance: u32, step: u16) -> Spec {
-        Spec { ability: "c08_devour".into(), level: 3, step, instance, args: vec![unit(9), num(2048), point(300, -40)] }
+        Spec { ability: "c08_devour".into(), level: 3, step, instance, args: vec![unit(9), num(2048), point(300, -40)], item_slot: None }
     }
 
     #[test]
@@ -165,6 +177,69 @@ mod tests {
         assert_eq!(Spec::from_buff(&s.buff_id(), &bad), None, "unknown argument kind");
         let too_many = Spec { args: vec![num(1); MAX_ARGS + 1], ..spec(1, 0) };
         assert!(too_many.checked().is_none());
+        let item = Spec { item_slot: Some(4), ..spec(5, 1) };
+        assert_eq!(Spec::from_buff(&item.buff_id(), &item.payload()), Some(item.clone()), "an item cast's row keeps its slot");
+        let mut slot = item.payload(); slot[KEY]["item_slot"] = json!(300);
+        assert_eq!(Spec::from_buff(&item.buff_id(), &slot), None, "a slot is a byte");
+        let mut slot = item.payload(); slot[KEY]["item_slot"] = json!("4");
+        assert_eq!(Spec::from_buff(&item.buff_id(), &slot), None);
+    }
+
+    /// An item cast's row runs `on_scheduled` as that item instance (ext EVENT_ITEM_SLOT), and a
+    /// row it schedules from there with the slot it read keeps it; a row of no item has none.
+    #[test]
+    fn an_item_casts_rows_run_as_that_item_instance() {
+        use crate::runtime::native::comp::{CProperty, DeltaTime, Faction, Pos};
+        use abi_stable::std_types::{RResult, RStr, RString, RVec, ROk};
+        use omb_script_abi::ext::{op, ExtValue};
+        use omb_script_abi::types::Target;
+        use omb_script_abi::world::GameWorldDyn;
+        use std::sync::{Arc, Mutex};
+        #[derive(Clone)]
+        struct Item { seen: Arc<Mutex<Vec<(u16, Option<i64>)>>> }
+        impl omb_script_abi::ability::AbilityScript for Item {
+            fn ability_id(&self) -> RStr<'_> { RStr::from_str("test_item_repeat") }
+            fn execute(&self, _: EntityHandle, _: Target, _: u8, _: RStr<'_>, _: &mut GameWorldDyn<'_>) -> RResult<(), RString> { ROk(()) }
+            fn on_scheduled(&self, owner: EntityHandle, at: Scheduled, _: RVec<ScheduleArg>, world: &mut GameWorldDyn<'_>) {
+                let slot = match world.ext(op::EVENT_ITEM_SLOT, abi_stable::std_types::RSlice::from_slice(&[])).into_result() {
+                    Ok(ExtValue::Num(n)) => Some(n.raw() >> 10), _ => None,
+                };
+                self.seen.lock().unwrap().push((at.step, slot));
+                if at.step == 1 && at.instance == 1 {
+                    // the next repeat, as ability_kit `schedule` writes it inside an item cast
+                    let next = Spec { ability: "test_item_repeat".into(), level: 1, step: 2, instance: 1, args: Vec::new(),
+                        item_slot: slot.and_then(|slot| u8::try_from(slot).ok()) };
+                    world.add_stat_buff(owner, RStr::from_str(&next.buff_id()), Spec::lifetime(Fixed64::ZERO), RStr::from_str(&next.payload().to_string()));
+                }
+            }
+        }
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+        let dt = Fixed64::from_raw(17);
+        world.insert(DeltaTime(dt));
+        let owner = world.create_entity().with(Pos(Vec2::ZERO))
+            .with(CProperty { hp: Fixed64::ONE, mhp: Fixed64::ONE, msd: Fixed64::ZERO, def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO })
+            .with(Faction::new(crate::runtime::comp::FactionType::Player, 1)).build();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let mut registry = crate::runtime::ScriptRegistry::new();
+        let level = serde_json::json!({"cooldown": 1, "mana_cost": 0, "cast_time": 0, "range": 300});
+        registry.insert_ability_for_test(serde_json::from_value(serde_json::json!({ "id": "test_item_repeat", "name": "test_item_repeat",
+            "ability_type": "active", "target_type": "none", "max_level": 1, "levels": {"1": level} })).unwrap(),
+            omb_script_abi::ability::AbilityScript_TO::from_value(Item { seen: seen.clone() }, abi_stable::sabi_trait::prelude::TD_Opaque));
+        for (instance, item_slot) in [(1, Some(3)), (2, None)] {
+            let row = Spec { ability: "test_item_repeat".into(), level: 1, step: 1, instance, args: Vec::new(), item_slot };
+            world.write_resource::<BuffStore>().add(owner, &row.buff_id(), Spec::lifetime(Fixed64::ZERO), row.payload());
+        }
+        crate::runtime::run_script_dispatch(&mut world, &registry, 1, dt);
+        // what the dispatch scheduled settles as a game tick would
+        let added: Vec<_> = std::mem::take(&mut *world.write_resource::<Vec<crate::comp::Outcome>>()).into_iter()
+            .filter_map(|outcome| match outcome {
+                crate::comp::Outcome::AddBuff { target, buff_id, duration, payload, .. } if buff_id.starts_with(PREFIX) => Some((target, buff_id, duration, payload)),
+                _ => None,
+            }).collect();
+        assert_eq!(added.len(), 1, "the item row scheduled its next repeat");
+        for (target, id, duration, payload) in added { world.write_resource::<BuffStore>().add(target, &id, duration, payload); }
+        crate::runtime::run_script_dispatch(&mut world, &registry, 1, dt);
+        assert_eq!(*seen.lock().unwrap(), vec![(1, Some(3)), (1, None), (2, Some(3))]);
     }
 
     #[test]

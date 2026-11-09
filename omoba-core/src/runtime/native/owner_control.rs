@@ -150,7 +150,10 @@ fn publish(world: &mut World, tick: u64, batch: u8) {
     }
 }
 
-/// Exact remaining with the replica's own payload when it has one.
+/// Exact remaining with the replica's own payload when it has one. Written as the authority holds
+/// it: the authority's row already passed its immunity and resistance (a stun that pierced magic
+/// immunity carries no pierce mark here), so adding it again would drop or shorten it (b10g6:
+/// 上杉's stun on a 鬼柴田 hero never reached the replica, which released the cast the stun ended).
 fn set_remaining(buffs: &mut BuffStore, entity: Entity, key: &str, raw: i64, payload: impl FnOnce() -> serde_json::Value) {
     let current = buffs.get(entity, key).map(|entry| (entry.remaining.raw(), entry.payload.clone()));
     match current {
@@ -160,7 +163,7 @@ fn set_remaining(buffs: &mut BuffStore, entity: Entity, key: &str, raw: i64, pay
         current => {
             let payload = current.map_or_else(payload, |(_, payload)| payload);
             buffs.remove(entity, key);
-            buffs.add(entity, key, Fixed64::from_raw(raw), payload);
+            buffs.seed(entity, key, Fixed64::from_raw(raw), payload);
         }
     }
 }
@@ -277,6 +280,19 @@ mod tests {
         world.insert(BuffStore::default());
         install(&world, hero, &row);
         assert_eq!(world.read_resource::<BuffStore>().get(hero, BuffId::Root.as_str()).map(|e| e.remaining.raw()), Some(PERMANENT_RAW));
+    }
+
+    #[test]
+    fn a_control_reaches_a_magic_immune_replica_hero_exactly() {
+        let mut world = World::new();
+        let hero = world.create_entity().build();
+        let mut buffs = BuffStore::default();
+        buffs.add(hero, super::super::magic_immunity::BUFF, Fixed64::from_i32(5), serde_json::json!({}));
+        world.insert(buffs);
+        install(&world, hero, &OwnerControlRow { controls: [1024, 512, 0], channels: [(0, 0); 2], restricted: 0 });
+        let buffs = world.read_resource::<BuffStore>();
+        assert_eq!(buffs.get(hero, BuffId::Stun.as_str()).map(|e| e.remaining.raw()), Some(1024), "a pierced stun stays");
+        assert_eq!(buffs.get(hero, BuffId::Silence.as_str()).map(|e| e.remaining.raw()), Some(512));
     }
 
     #[test]

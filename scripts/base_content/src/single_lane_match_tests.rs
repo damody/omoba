@@ -747,10 +747,10 @@ fn showcase_reset_input_keeps_a_learned_passive_and_clears_the_last_segments_sta
     use omoba_core::runtime::native::moba_match::ShowcaseConfig;
     let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
     let run=|stage:bool| {
-        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,
             players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)],
             ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
-            showcase:stage.then(||ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2000]),(6,[2300,2600])].into(),
+            showcase:stage.then(||ShowcaseConfig {start_level:16,minion_waves:false,night:false,placements:[(1,[2300,2000]),(6,[2300,2600])].into(),
                 hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],
                 refill_players:Default::default(),withheld_abilities:Default::default()})};
         let (mut config,_)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
@@ -790,10 +790,10 @@ fn showcase_withheld_ability_starts_unlearned_for_the_demonstrator_alone_and_is_
     // The hero's rank and skill points, and the same of the enemy seat with the same hero: at the
     // start, after 2 s (auto-learn has run), after one upgrade and after a second one.
     let run=|hero:&str,ability:&str,withheld:bool| {
-        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,
             players:vec![seat(1,1,hero,false),seat(6,2,hero,true)],
             ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
-            showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
+            showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,night:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
                 hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],refill_players:Default::default(),
                 // One list for every hero of a stage: the other ids are ignored.
                 withheld_abilities:if withheld {[ability.to_owned(),"a26_twin_guns".to_owned()].into()} else {Default::default()}})};
@@ -838,10 +838,10 @@ fn a_channel_is_not_broken_by_the_heros_own_idle_engage() {
     use omoba_core::runtime::native::moba_match::bots::*;
     use omoba_core::runtime::native::moba_match::ShowcaseConfig;
     let seat=|player_id:u32,team_id:u32,hero:&str,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role:BotRole::Mid,lane:"mid".into(),bot};
-    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,
         players:vec![seat(1,1,"maeda_keiji",false),seat(6,2,"date_masamune",true)],
         ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
-        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2800])].into(),
+        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,night:false,placements:[(1,[2300,2400]),(6,[2300,2800])].into(),
             hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],refill_players:Default::default(),withheld_abilities:Default::default()})};
     let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;
@@ -882,10 +882,10 @@ fn showcase_held_seat_does_not_fight_back_but_casts_and_a_striker_still_hit() {
     let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
     // Life the hero lost in 8 s of attacking the seat, and life the seat lost.
     let run=|stand_in:&str,strike:bool,casts:Vec<ShowcaseCast>,gap:bool| {
-        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,
             players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,stand_in,BotRole::Mid,true)],
             ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
-            showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2500]),(6,[2300,2600])].into(),
+            showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,night:false,placements:[(1,[2300,2500]),(6,[2300,2600])].into(),
                 hold_players:[6].into(),strike_players:if strike {[6].into()} else {Default::default()},hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts,patrols:vec![],
                 refill_players:Default::default(),withheld_abilities:Default::default()})};
         let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
@@ -932,10 +932,10 @@ fn showcase_strike_seat_lets_a_hero_go_outside_its_place_and_walks_back() {
     use omoba_core::runtime::native::moba_match::ShowcaseConfig;
     let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
     for striker in ["date_masamune","saika_magoichi"] {
-        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,
             players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,striker,BotRole::Mid,true)],
             ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
-            showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,1800]),(6,[2300,2600])].into(),
+            showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,night:false,placements:[(1,[2300,1800]),(6,[2300,2600])].into(),
                 hold_players:[6].into(),strike_players:[6].into(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],
                 refill_players:Default::default(),withheld_abilities:Default::default()})};
         let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
@@ -988,10 +988,10 @@ fn showcase_refill_seat_loses_life_and_dies_in_reach_and_is_full_again_out_of_it
     use omoba_core::runtime::native::moba_match::bots::*;
     use omoba_core::runtime::native::moba_match::ShowcaseConfig;
     let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
-    let plan=|refill:bool| RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+    let plan=|refill:bool| RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,
         players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)],
         ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
-        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2000]),(6,[2300,2600])].into(),
+        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,night:false,placements:[(1,[2300,2000]),(6,[2300,2600])].into(),
             hold_players:[6].into(),strike_players:[6].into(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],
             refill_players:if refill {[1].into()} else {Default::default()},withheld_abilities:Default::default()})};
     let top=Fixed64::from_i32(50_000);
@@ -1064,10 +1064,10 @@ fn showcase_stand_in_patrol_takes_longer_over_the_same_leg_when_slowed() {
     use omoba_core::runtime::native::moba_match::bots::*;
     use omoba_core::runtime::native::moba_match::{ShowcaseConfig,ShowcasePatrol};
     let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
-    let plan=|patrols:Vec<ShowcasePatrol>| RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+    let plan=|patrols:Vec<ShowcasePatrol>| RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,
         players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)],
         ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
-        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2000,2400]),(6,[2800,1900])].into(),
+        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,night:false,placements:[(1,[2000,2400]),(6,[2800,1900])].into(),
             hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols,refill_players:Default::default(),withheld_abilities:Default::default()})};
     let walk=vec![ShowcasePatrol {player:6,a:[2800,1900],b:[2800,2500]}];
     // Ticks at which the seat stood at b and back at a, and where it ended, over 40 s.
@@ -1114,10 +1114,10 @@ fn showcase_stand_in_spell_in_a_circle_hurts_less_after_the_hero_learns_magic_re
     use omoba_core::runtime::native::moba_match::bots::*;
     use omoba_core::runtime::native::moba_match::{ShowcaseCast,ShowcaseCastTarget,ShowcaseConfig};
     let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
-    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,
         players:vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)],
         ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
-        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
+        showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,night:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
             hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],
             casts:vec![ShowcaseCast {player:6,ability:"b04_fire_blast".into(),rank:1,target:ShowcaseCastTarget::PlayerPoint {player:1},
                 first_seconds:0,when_near:Some([2300,2400,100]),every_seconds:3}],patrols:vec![],refill_players:Default::default(),withheld_abilities:Default::default()})};
@@ -5216,7 +5216,7 @@ fn support_guard_focus_60hz_shares_formal_attack_and_skill_without_hidden_escort
     use omoba_core::runtime::ability_runtime::ManaPool;
     let player=|player_id,team_id,role,hero:&str|RoleBotPlayerPlan {player_id,team_id,role,
         hero:hero.into(),lane:"mid".into(),bot:player_id==1};
-    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,shop_range_rule:false,
         players:vec![player(1,1,BotRole::Support,"training_support"),player(2,2,BotRole::Mid,"training_luminary"),
             player(3,1,BotRole::Carry,"training_ranger"),player(4,2,BotRole::Top,"training_vanguard")],
         ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
@@ -5272,7 +5272,7 @@ fn jungle_assist_60hz_uses_committed_allies_and_formal_skill_and_attack_inputs()
     use omoba_core::runtime::native::moba_match::bots::*;
     let player=|player_id,team_id,role,hero:&str|RoleBotPlayerPlan {player_id,team_id,role,
         hero:hero.into(),lane:"mid".into(),bot:player_id==1};
-    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,shop_range_rule:false,
         players:vec![player(1,1,BotRole::Jungle,"training_vanguard"),player(2,2,BotRole::Mid,"training_luminary"),
             player(3,1,BotRole::Mid,"training_ranger")],ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
         ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit}], showcase: None};
@@ -5409,7 +5409,7 @@ fn bot_cleanse_formal_60hz_healthy_ally_public_only_pause_and_replay() {
     use omoba_core::runtime::ability_runtime::ManaPool;
     fn run(status:&str)->String {
         let player=|player_id,team_id,role,hero:&str|RoleBotPlayerPlan{player_id,team_id,role,hero:hero.into(),lane:"mid".into(),bot:player_id==1};
-        let plan=RoleBotMatchPlan{schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,
+        let plan=RoleBotMatchPlan{schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,shop_range_rule:false,
             players:vec![player(1,1,BotRole::Support,"training_support"),player(2,2,BotRole::Mid,"training_luminary"),player(3,1,BotRole::Carry,"training_ranger")],
             ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
             ability_policies:vec![BotAbilityPolicy{caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHealOrCleanse{below_hp_per_mille:600}}], showcase: None};
@@ -5448,7 +5448,7 @@ fn ally_cleanse_formal_60hz_all_ranks_retention_cost_pause_reapplication_and_rep
     use omoba_core::runtime::ability_runtime::ManaPool;
     fn run(rank:u8)->String {
         let player=|player_id,team_id,role,hero:&str|RoleBotPlayerPlan {player_id,team_id,role,hero:hero.into(),lane:"mid".into(),bot:false};
-        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,shop_range_rule:false,
             players:vec![player(1,1,BotRole::Support,"training_support"),player(2,2,BotRole::Mid,"training_luminary"),player(3,1,BotRole::Carry,"training_ranger")],
             ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),ability_policies:Vec::new(), showcase: None};
         let (mut config,_)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
@@ -5489,7 +5489,7 @@ fn ally_heal_60hz_generated_support_rejects_enemy_and_heals_disclosed_teammate()
     use omoba_core::runtime::ability_runtime::ManaPool;
     let player=|player_id,team_id,role,hero:&str|RoleBotPlayerPlan {player_id,team_id,role,
         hero:hero.into(),lane:"mid".into(),bot:player_id==1};
-    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,shop_range_rule:false,
         players:vec![player(1,1,BotRole::Support,"training_support"),player(2,2,BotRole::Mid,"training_luminary"),
             player(3,1,BotRole::Carry,"training_ranger")],ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
         ability_policies:vec![BotAbilityPolicy {caster_status:None,caster_no_status:None,caster_summon:None,ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHeal {below_hp_per_mille:600}}], showcase: None};
@@ -5539,7 +5539,7 @@ fn support_escort_navigation_60hz_holds_on_blocked_disclosure_and_resumes() {
     use omoba_core::runtime::native::moba_match::bots::*;
     let player=|player_id,team_id,role,bot|RoleBotPlayerPlan {player_id,team_id,role,bot,
         hero:"training_luminary".into(),lane:"bottom".into()};
-    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,shop_range_rule:false,
         ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
         players:vec![player(1,1,BotRole::Carry,false),player(2,2,BotRole::Mid,false),player(3,1,BotRole::Support,true)], showcase: None};
     let (mut config,bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
@@ -5591,7 +5591,7 @@ fn role_bots_support_escorts_human_using_committed_position_at_60hz() {
     use omoba_core::runtime::native::moba_match::bots::*;
     let player=|player_id,team_id,role,bot| RoleBotPlayerPlan {player_id,team_id,role,bot,
         hero:"training_luminary".into(),lane:"bottom".into()};
-    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,shop_range_rule:false,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
         players:vec![player(1,1,BotRole::Carry,false),player(2,2,BotRole::Mid,false),player(3,1,BotRole::Support,true)], showcase: None};
     let (mut config,bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;
@@ -5664,7 +5664,7 @@ fn role_bot_plan_nine_bots_leave_human_control_untouched_at_60hz() {
                 role,lane:lane.into(),bot:player_id != 1});
         }
     }
-    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(), showcase: None};
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(), showcase: None};
     let (mut config,bots)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;
     let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
@@ -6168,7 +6168,7 @@ fn combat_navigation_60hz_lane_roles_skip_failed_chases_hold_and_reconsider() {
     let player=|player_id,team_id,role|RoleBotPlayerPlan {player_id,team_id,role,bot:false,
         hero:"training_vanguard".into(),lane:"top".into()};
     for role in [BotRole::Top,BotRole::Mid,BotRole::Carry,BotRole::Support] {
-        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,shop_range_rule:false,
             ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
             players:vec![player(1,1,BotRole::Top),player(2,2,BotRole::Mid),player(3,2,BotRole::Support)], showcase: None};
         let (mut config,_)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
@@ -6505,7 +6505,7 @@ fn authored_five_player_waves_60hz_dual_world_and_both_filtered_replicas() {
             players.push(RoleBotPlayerPlan {player_id:side*5+rank as u32+1,team_id:side+1,
                 hero:"training_luminary".into(),role,lane:lane.into(),bot:false});
         } }
-        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,
             players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
             summoner_loadouts:std::collections::BTreeMap::new(), showcase: None};
         let (mut config,_)=plan.compile_fixture(seed,SimulationTickProfile::Production60Hz).unwrap();
@@ -8847,7 +8847,7 @@ fn ground_zone_formal_60hz_earlier_source_death_retires_later_pulse_without_ghos
     for survives in [false,true] {
         let player=|player_id,team_id,role|RoleBotPlayerPlan {player_id,team_id,role,
             hero:"training_luminary".into(),lane:"mid".into(),bot:false};
-        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,shop_range_rule:false,
             players:vec![player(1,1,BotRole::Mid),player(2,2,BotRole::Mid),player(3,1,BotRole::Top)],
             ability_learning:Vec::new(),ability_policies:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(), showcase: None};
         let (mut config,_)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
@@ -8892,7 +8892,7 @@ fn ground_zone_formal_60hz_first_lethal_uses_due_time_then_canonical_source() {
     for simultaneous in [false,true] {
         let player=|player_id,team_id,role|RoleBotPlayerPlan {player_id,team_id,role,
             hero:"training_luminary".into(),lane:"mid".into(),bot:false};
-        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,shop_range_rule:false,
             players:vec![player(1,1,BotRole::Mid),player(2,1,BotRole::Top),player(3,2,BotRole::Mid)],
             ability_learning:Vec::new(),ability_policies:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(), showcase: None};
         let (mut config,_)=plan.compile_fixture(42,SimulationTickProfile::Production60Hz).unwrap();
@@ -13039,6 +13039,8 @@ mod windup_dual_replica {
                     omoba_template_ids::TargetTypeC::None=>Aim::None,
                     omoba_template_ids::TargetTypeC::Point=>Aim::Point,
                     omoba_template_ids::TargetTypeC::Unit=>Aim::Enemy,
+                    // the point form: a unit one is a unit cast's, checked above
+                    omoba_template_ids::TargetTypeC::UnitOrPoint=>Aim::Point,
                 };
                 // Inside cast range when it has one; the windup plus one second settles the release.
                 let range=(level.range.raw()/1024) as i32;
@@ -13394,9 +13396,35 @@ pub(crate) mod live_soak_replica_parity {
                     mismatches.push(format!("tick {tick} team {team}: {detail}{fields}"));
                 }
             }
+            // A team's own heroes hold the authority's script rows (owner_script_rows): their
+            // statuses with stacks, state variables and schedules with instance and phase.
+            for (team,_,stepper) in replicas.iter().filter(|_|COMPARE_SCRIPT_ROWS.with(std::cell::Cell::get)) {
+                // A hero both worlds hold alive (a respawn reaches the replica's specs world a frame later).
+                let (mut authority_rows,mut replica_rows)=(own_script_rows(&authority,*team),own_script_rows(&stepper.filtered.world,*team));
+                authority_rows.retain(|name,_|replica_rows.contains_key(name));
+                replica_rows.retain(|name,_|authority_rows.contains_key(name));
+                if authority_rows!=replica_rows {
+                    mismatches.push(format!("tick {tick} team {team} script rows: replica={replica_rows:?} authority={authority_rows:?}"));
+                }
+            }
             if mismatches.len()>4 {break;}
         }
         mismatches
+    }
+    thread_local! {
+        /// Opt-in: soak_match also compares the own heroes' script rows (owner_script_rows). Other
+        /// kits still differ in rows that no compared component reads (item passive numbering).
+        static COMPARE_SCRIPT_ROWS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    /// Living heroes of `team` by name, each with its portable script rows (owner_script_rows).
+    fn own_script_rows(world:&World,team:u32)->std::collections::BTreeMap<String,Vec<omoba_core::runtime::native::owner_script_rows::Row>> {
+        use specs::Join;
+        let buffs=world.read_resource::<omoba_core::runtime::BuffStore>();
+        let (heroes,factions,properties)=(world.read_storage::<Hero>(),world.read_storage::<omoba_core::runtime::Faction>(),world.read_storage::<omoba_core::runtime::CProperty>());
+        (&world.entities(),&heroes,&factions,&properties).join()
+            .filter(|(_,_,faction,property)|u32::try_from(faction.team_id).ok()==Some(team) && property.hp>Fixed64::ZERO)
+            .map(|(entity,hero,_,_)|(hero.name.clone(),omoba_core::runtime::native::owner_script_rows::of(&buffs,entity,&hero.abilities)))
+            .collect()
     }
     pub(crate) fn cast(slot:u32,entity:Option<specs::Entity>)->PlayerInput {
         PlayerInput {action:Some(PlayerInputEnum::CastAbility(CastAbility {ability_index:slot,target_entity:entity.map(|e|e.id()),target_pos:None}))}
@@ -13787,6 +13815,25 @@ pub(crate) mod live_soak_replica_parity {
         assert!(report.mismatches.is_empty(),"{:#?}",report.mismatches);
         assert!(report.casts_of(0,"b23_old_mind_control")>=1,"it was cast: {:?}",report.casts);
     }
+    /// kojima_sadaoki_old's spell shield (a periodic passive that starts its own cooldown while
+    /// below max stacks) and enemy magic consuming the stacks: both team replicas stay identical.
+    #[test]
+    #[cfg_attr(debug_assertions, ignore = "release-only full-match soak (E180): run with --release")]
+    fn kojima_sadaoki_old_spell_shield_keeps_team_replicas_identical() {
+        let schedule=|tick:u32,pair:[specs::Entity;2],a:omoba_sim::Vec2,b:omoba_sim::Vec2|->Vec<(u32,PlayerInput)> {
+            match tick {
+                t if t%600==6=>vec![(1,attack_move(b)),(2,attack_move(a))],
+                t if t>6 && t%400==30=>vec![(2,cast(0,Some(pair[0]))),(2,cast(1,Some(pair[0]))),(2,cast_at(2,a))],
+                _=>vec![],
+            }
+        };
+        // Its own rows too, also across rebases (SOAK_REBASE_EVERY): a new local life carries the
+        // shield's stacks and the passive's schedule (owner_script_rows).
+        COMPARE_SCRIPT_ROWS.with(|on|on.set(true));
+        let report=soak_report(["kojima_sadaoki_old","training_luminary"],3600,&schedule);
+        COMPARE_SCRIPT_ROWS.with(|on|on.set(false));
+        assert!(report.mismatches.is_empty(),"{:#?}",report.mismatches);
+    }
     /// H04/H05/H06: every built slot (tether settle, global buff, point blast,
     /// area ally heal, toggle orb, self buffs, stealth, fang lines, blink and
     /// cast-stacking passive) cast at or near the enemy hero; both team replicas
@@ -14084,7 +14131,7 @@ pub(crate) mod live_soak_replica_parity {
         let seat=|player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot};
         let run=|full:bool| {
             let mut players=vec![seat(1,1,"yamagata_masakage",BotRole::Mid,false),seat(6,2,"date_masamune",BotRole::Mid,true)];
-            let mut stage=ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
+            let mut stage=ShowcaseConfig {start_level:16,minion_waves:false,night:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
                 hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],
                 casts:vec![ShowcaseCast {player:6,ability:"b04_fire_blast".into(),rank:1,target:ShowcaseCastTarget::PlayerPoint {player:1},
                     first_seconds:1,when_near:None,every_seconds:3}],patrols:vec![],refill_players:Default::default(),withheld_abilities:Default::default()};
@@ -14096,7 +14143,7 @@ pub(crate) mod live_soak_replica_parity {
                 stage.refill_players=[1].into();
                 stage.patrols=vec![ShowcasePatrol {player:8,a:[2800,1900],b:[2800,2500]}];
             }
-            let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,players,
+            let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,players,
                 ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),showcase:Some(stage)};
             let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
             config.warmup=Fixed64::ZERO;
@@ -14126,10 +14173,10 @@ pub(crate) mod live_soak_replica_parity {
         use omoba_core::runtime::native::moba_match::ShowcaseConfig;
         let seat=|player_id:u32,team_id:u32,hero:&str,bot:bool| RoleBotPlayerPlan {player_id,team_id,hero:hero.into(),role:BotRole::Mid,lane:"mid".into(),bot};
         for (hero,ability) in [("otani_yoshitsugu","a12_scheme"),("maeda_keiji","c05_thunder_spear")] {
-            let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,
+            let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_quick_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,
                 players:vec![seat(1,1,hero,false),seat(6,2,"date_masamune",true)],
                 ability_policies:vec![],ability_learning:vec![],sustain:None,item_builds:vec![],summoner_loadouts:Default::default(),
-                showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
+                showcase:Some(ShowcaseConfig {start_level:16,minion_waves:false,night:false,placements:[(1,[2300,2400]),(6,[2300,2640])].into(),
                     hold_players:[6].into(),strike_players:Default::default(),hold_hp_permille:30000,start_items:Default::default(),props:vec![],casts:vec![],patrols:vec![],refill_players:Default::default(),
                     withheld_abilities:[ability.to_owned()].into()})};
             let (mut config,bots)=plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
@@ -15844,7 +15891,8 @@ mod scripted_item_use {
         assert_eq!(slot_cooldown(&w, hero), 0.0, "lightning scroll refuses a magic immune target");
         give(&mut w, hero, "the_great_sword_of_tiger");
         d.step(&mut w, [item_use(0, None, Some(enemy.id()), None)]).unwrap();
-        for _ in 0..3 { if slot_cooldown(&w, hero) > 0.0 { break; } d.step(&mut w, []).unwrap(); }
+        // past its cast point (catalog cast, 0.2 s)
+        for _ in 0..30 { if slot_cooldown(&w, hero) > 0.0 { break; } d.step(&mut w, []).unwrap(); }
         assert!(slot_cooldown(&w, hero) > 0.0, "the tiger sword is admitted and committed");
     }
 

@@ -135,16 +135,46 @@ pub fn before_mitigation(world: &World, packet: &mut Packet) {
 }
 
 /// ③ 物理格擋：普攻的物理傷害先減去目標的格擋（`StatKey::PhysicalConstantBlock`，Dota 在護甲之前），
-/// 不低於 0；目標帶 `block_disabled`（v3.1）時不格擋。
-pub fn physical_block(buffs: &BuffStore, target: Entity, physical: Fixed64) -> Fixed64 {
-    let block = block_amount(buffs, target);
+/// 不低於 0；目標帶 `block_disabled`（v3.1）時不格擋。`roll`：這次攻擊的擲骰（[`BlockRoll`]）。
+pub fn physical_block(buffs: &BuffStore, target: Entity, physical: Fixed64, roll: BlockRoll) -> Fixed64 {
+    let block = block_amount(buffs, target, roll);
     if physical <= Fixed64::ZERO || block <= Fixed64::ZERO { physical } else { (physical - block).max(Fixed64::ZERO) }
 }
 
-/// 目標對普攻的物理格擋量；`block_disabled` 時為 0。
-pub fn block_amount(buffs: &BuffStore, target: Entity) -> Fixed64 {
+/// 機率格擋的擲骰：`(seed, tick, 目標的擲骰鍵)`（rules::chance::unit_roll，authority 與 replica
+/// 相同）。同一 tick 對同一目標的攻擊擲出相同結果。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BlockRoll { pub seed: u64, pub tick: u32, pub key: u64 }
+
+/// 機率格擋擲骰的 op：0x200 + 列序（不與爆擊、閃避的 op 重疊）。
+const BLOCK_OP: u16 = 0x200;
+
+/// 目標對普攻的物理格擋量；`block_disabled` 時為 0。一列同時寫了 `PhysicalBlockChance`（v3
+/// `physical_block_chance`）時，那一列的格擋只在擲中時才算，各列（依 buff id 順序）各自擲
+/// （FC-095／096：每件真知短甲每次受到攻擊各自 50% 擋 50）；擲中的與固定的格擋相加。
+pub fn block_amount(buffs: &BuffStore, target: Entity, roll: BlockRoll) -> Fixed64 {
+    use crate::runtime::native::ability_runtime::buff_store::read_fixed_from_payload;
+    use omb_script_abi::stat_keys::StatKey;
     if buffs.has(target, super::vocab::state::BLOCK_DISABLED) { return Fixed64::ZERO; }
-    buffs.sum_add(target, omb_script_abi::stat_keys::StatKey::PhysicalConstantBlock).max(Fixed64::ZERO)
+    let mut block = buffs.sum_add(target, StatKey::PhysicalConstantBlock);
+    let mut chanced: Vec<(&str, Fixed64, Fixed64)> = buffs.stat_rows(target).filter_map(|(id, entry)| {
+        let chance = entry.payload.get(StatKey::PhysicalBlockChance.as_str()).map(read_fixed_from_payload)?;
+        let amount = entry.payload.get(StatKey::PhysicalConstantBlock.as_str()).map(read_fixed_from_payload)?;
+        Some((id, chance, amount))
+    }).collect();
+    chanced.sort_by(|a, b| a.0.cmp(b.0));
+    for (index, (_, chance, amount)) in chanced.into_iter().enumerate() {
+        // the row's block is in the sum: it stays only when this attack's roll hits
+        let hit = chance > Fixed64::ZERO && super::chance::unit_roll(roll.seed, roll.tick, roll.key, BLOCK_OP + index as u16) < chance;
+        if !hit { block -= amount; }
+    }
+    block.max(Fixed64::ZERO)
+}
+
+/// The [`BlockRoll`] of an attack landing on `target` now.
+pub fn block_roll(world: &World, target: Entity) -> BlockRoll {
+    BlockRoll { seed: world.try_fetch::<crate::comp::MasterSeed>().map_or(0, |seed| seed.0),
+        tick: world.try_fetch::<crate::comp::Tick>().map_or(0, |tick| tick.0 as u32), key: super::chance::roll_key_of(world, target) }
 }
 
 /// ③ 格擋、護甲與魔抗：`RawDamage` 轉成已減免封包時的結算。`attack` 表示普攻的封包（格擋只對普攻）。
@@ -168,7 +198,7 @@ pub fn defenses(world: &World, target: Entity, physical: Fixed64, magical: Fixed
         else { units.get(target).map_or((property.def_physic, property.def_magic), |unit| (unit.base_armor, unit.magic_resistance)) };
     let buffs = world.read_resource::<BuffStore>();
     let stats = UnitStats::from_refs(&buffs, world.read_storage::<IsBuilding>().get(target).is_some());
-    let physical = if attack { physical_block(&buffs, target, physical) } else { physical };
+    let physical = if attack { physical_block(&buffs, target, physical, block_roll(world, target)) } else { physical };
     let damage = DamageTypes::new(physical, magical, pure);
     // v3 `ignore_armor`: the physical part as if the target had no armor.
     let ignore_armor = profile & DamageProfile::IGNORE_ARMOR.bits() != 0;
@@ -402,9 +432,42 @@ mod tests {
         assert_eq!((attack.physical, attack.magical), (Fixed64::from_i32(30), ten));
         let spell = defenses(&w, target, Fixed64::from_i32(50), ten, Fixed64::ZERO, normal, false).unwrap();
         assert_eq!(spell.physical, Fixed64::from_i32(50), "block is for attacks");
-        assert_eq!(physical_block(&w.read_resource::<BuffStore>(), target, Fixed64::from_i32(15)), Fixed64::ZERO);
+        let roll = BlockRoll { seed: 1, tick: 1, key: 1 };
+        assert_eq!(physical_block(&w.read_resource::<BuffStore>(), target, Fixed64::from_i32(15), roll), Fixed64::ZERO);
         w.write_resource::<BuffStore>().add(target, super::super::vocab::state::BLOCK_DISABLED, Fixed64::from_i32(3), serde_json::Value::Null);
         let disabled = defenses(&w, target, Fixed64::from_i32(50), ten, Fixed64::ZERO, normal, true).unwrap();
         assert_eq!(disabled.physical, Fixed64::from_i32(50));
+    }
+
+    /// FC-095／096（D13）：a row with `physical_block_chance` blocks its amount only when this
+    /// attack's roll hits, each such row on its own; a fixed block always counts. Over many
+    /// attacks a 50% row blocks about half of them, and the same roll gives the same answer.
+    #[test]
+    fn a_chance_block_row_blocks_only_when_its_roll_hits() {
+        use omb_script_abi::stat_keys::StatKey;
+        let mut w = world();
+        let target = w.create_entity().with(property(100)).build();
+        let row = |chance: i64| serde_json::json!({ (StatKey::PhysicalConstantBlock.as_str()): 50 * 1024, (StatKey::PhysicalBlockChance.as_str()): chance });
+        w.write_resource::<BuffStore>().add(target, "prophet_armor", Fixed64::from_i32(30), row(512));
+        w.write_resource::<BuffStore>().add(target, "vanguard", Fixed64::from_i32(30), serde_json::json!({ (StatKey::PhysicalConstantBlock.as_str()): 5 * 1024 }));
+        let buffs = w.read_resource::<BuffStore>();
+        let blocks: Vec<Fixed64> = (0..400).map(|tick| block_amount(&buffs, target, BlockRoll { seed: 7, tick, key: 3 })).collect();
+        assert!(blocks.iter().all(|b| *b == Fixed64::from_i32(5) || *b == Fixed64::from_i32(55)), "the fixed 5, plus 50 when it hits");
+        let hits = blocks.iter().filter(|b| **b == Fixed64::from_i32(55)).count();
+        assert!((150..=250).contains(&hits), "about half of 400: {hits}");
+        assert_eq!(block_amount(&buffs, target, BlockRoll { seed: 7, tick: 9, key: 3 }), blocks[9], "deterministic");
+        drop(buffs);
+        // two armors roll apart: some attacks block one 50, some both
+        w.write_resource::<BuffStore>().add(target, "prophet_armor_2", Fixed64::from_i32(30), row(512));
+        let buffs = w.read_resource::<BuffStore>();
+        let blocks: std::collections::BTreeSet<i64> = (0..400).map(|tick| block_amount(&buffs, target, BlockRoll { seed: 7, tick, key: 3 }).raw() >> 10).collect();
+        assert_eq!(blocks, [5, 55, 105].into_iter().collect(), "none, one or both");
+        drop(buffs);
+        // a certain row always blocks, an impossible one never
+        w.write_resource::<BuffStore>().remove(target, "prophet_armor_2");
+        w.write_resource::<BuffStore>().add(target, "prophet_armor", Fixed64::from_i32(30), row(1024));
+        assert_eq!(block_amount(&w.read_resource::<BuffStore>(), target, BlockRoll { seed: 7, tick: 1, key: 3 }), Fixed64::from_i32(55));
+        w.write_resource::<BuffStore>().add(target, "prophet_armor", Fixed64::from_i32(30), row(0));
+        assert_eq!(block_amount(&w.read_resource::<BuffStore>(), target, BlockRoll { seed: 7, tick: 1, key: 3 }), Fixed64::from_i32(5));
     }
 }

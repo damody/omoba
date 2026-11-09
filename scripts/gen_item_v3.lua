@@ -90,17 +90,53 @@ function M.scripted_active(item, number, cooldown_groups)
     -- no range: anywhere on the map
     out.target = { shape = "point", range = number(target.range) or 0, team = "any", requires_visible = false, out_of_range = "reject" }
   elseif target.type == "unit" then
-    local range = number(target.range)
-    if not range then return nil, "a unit target needs a range" end
+    -- no range: anywhere on the map (line B 88af54a8)
+    local range = target.range == nil and 0 or number(target.range)
+    if not range then return nil, "a unit target's range is not a number" end
     out.target = { shape = "unit", range = range, team = target.team == "both" and "any" or target.team,
       requires_visible = true, out_of_range = "reject", include_magic_immune = include_magic_immune or nil }
+  elseif target.type == "unit_or_point" then
+    -- a named unit is checked as for `unit`, anything else as a ground point (items.dll tells them apart)
+    local range = number(target.range)
+    if not range or range <= 0 then return nil, "a unit_or_point target needs a range" end
+    out.target = { shape = "unit_or_point", range = range, team = target.team == "both" and "any" or target.team,
+      requires_visible = true, out_of_range = "reject" }
   elseif target.type ~= "none" then
     return nil, "target type " .. tostring(target.type) .. " has no catalog target"
   end
+  -- unit types without heroes: the host refuses a hero target, the user too (line B 88af54a8)
+  if out.target and (out.target.shape == "unit" or out.target.shape == "unit_or_point") and type(target.types) == "table" and #target.types > 0 then
+    local hero = false
+    for _, t in ipairs(target.types) do hero = hero or t == "hero" or t == "all" end
+    if not hero then out.target.exclude_heroes = true end
+  end
+  -- the windup (line B 2be4ab76): on_phase_start at its start, the effect at its end; none at 0
+  local cast = active.cast or {}
+  local point = cast.cast_point == nil and 0 or number(cast.cast_point)
+  if not point then return nil, "cast_point " .. tostring(cast.cast_point) .. " is not a number" end
+  if point > 60 then return nil, "cast_point " .. point .. " over 60 s" end
+  if point > 0 then out.cast = { point = point, interruptible = cast.interruptible == true or nil }
+  elseif cast.interruptible then return nil, "an interruptible cast needs a cast_point" end
   local consumable = item.shop and item.shop.consumable
   if consumable then
     if number(consumable.charges) ~= 1 then return nil, "the catalog consumes one use, this item has charges" end
     out.consumable = true
+  end
+  -- recharging uses (line B 1f8fecee): the host keeps them per hero (Hero.ability_charges
+  -- "item:<id>"), refuses a use without one and spends one at the commit
+  if cost.charges ~= nil then
+    local c = cost.charges
+    if consumable then return nil, "a consumable has no recharging charges" end
+    for k in pairs(c) do
+      if k ~= "max" and k ~= "restore" and k ~= "initial" and k ~= "scope" then return nil, "charges." .. tostring(k) .. " has no catalog field" end
+    end
+    if c.scope ~= nil and c.scope ~= "hero" then return nil, "charges scope " .. tostring(c.scope) .. " (the catalog keeps them per hero)" end
+    local max, restore = number(c.max), number(c.restore)
+    local initial = c.initial == nil and max or number(c.initial)
+    if not max or max < 1 or max > 10 or max % 1 ~= 0 then return nil, "charges.max " .. tostring(max) .. " outside 1..10" end
+    if not restore or restore < 1 / 1024 or restore > 3600 then return nil, "charges.restore " .. tostring(restore) .. " outside 1/1024..3600 s" end
+    if not initial or initial < 0 or initial > max or initial % 1 ~= 0 then return nil, "charges.initial " .. tostring(initial) .. " outside 0..max" end
+    out.charges = { max = math.tointeger(max), restore = restore, initial = math.tointeger(initial) }
   end
   local shared, seen = {}, { [item.id] = true }
   for _, group in ipairs(cost.cooldown_groups or {}) do
@@ -201,6 +237,11 @@ function M.build(shelf, docs, partial, scripted)
               if v then
                 numbers[#numbers + 1] = v
                 if value.unit == "pct" then numbers[#numbers + 1] = v / 100 end
+                -- a KV number written with its sign (armor cut kv = { -6 }) sums as the source row does
+                local written = item.values and item.values[value.name]
+                for _, k in ipairs(type(written) == "table" and written.kv or {}) do
+                  if type(k) == "number" then numbers[#numbers + 1] = k end
+                end
               end
             end
             for i, a in ipairs(numbers) do

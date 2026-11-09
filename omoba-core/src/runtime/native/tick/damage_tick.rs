@@ -118,7 +118,8 @@ impl<'a> System<'a> for Sys {
                 crate::runtime::native::rules::attack::roll_critical(&sources,master_seed,tick,key_of(attacker),attacker,None)
             } else {None};
             let rolls=Rolls {source_key:key_of(attacker),target_key:key_of(damage_inst.target),critical,
-                block:if damage_inst.damage_flags.can_dodge {crate::runtime::native::rules::damage::block_amount(&tr.buffs,damage_inst.target)}else{Fixed64::ZERO},
+                block:if damage_inst.damage_flags.can_dodge {crate::runtime::native::rules::damage::block_amount(&tr.buffs,damage_inst.target,
+                    crate::runtime::native::rules::damage::BlockRoll {seed:master_seed,tick,key:key_of(damage_inst.target)})}else{Fixed64::ZERO},
                 true_strike:tr.buffs.has(attacker,crate::runtime::native::rules::vocab::state::CANNOT_MISS)};
             let (result,source_missed) = calculate_damage_with(&damage_inst, &unit_stats, master_seed, tick, &rolls);
             // An ordinary instant attack (lane, jungle and lane towers) runs the attack pipeline's

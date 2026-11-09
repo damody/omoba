@@ -12,6 +12,7 @@ use crate::comp::*;
 mod jungle;
 mod jungle_credit;
 mod summon_bounty;
+pub(crate) mod courier;
 mod original_rewards;
 #[cfg(test)]
 mod projectile_credit_tests;
@@ -470,6 +471,11 @@ pub struct ShowcaseConfig {
     /// Lane minion waves; off keeps the stage clear.
     #[serde(default)]
     pub minion_waves: bool,
+    /// The whole match is night (`game.is_night`): a verification stage for the abilities only a
+    /// night allows (C06D_old 盜賊藏匿術 needs one, and the game has no day and night cycle). The
+    /// authority discloses it every tick like any night (rules::world::NIGHT_METRIC_ID).
+    #[serde(default)]
+    pub night: bool,
     /// First-life positions in world units, by player id. A respawn uses the fountain.
     #[serde(default)]
     pub placements: BTreeMap<u32, [i32; 2]>,
@@ -612,6 +618,8 @@ impl ShowcaseConfig {
     fn default_hold_hp_permille() -> u32 { 1000 }
     pub(crate) const STRIKE_REACH: i32 = 300;
     const MAX_START_PURCHASES: usize = 64;
+    /// A night stage's night: as long as the longest match (and a set_time_of_day night's cap).
+    pub const NIGHT_SECONDS: i32 = 3600;
     const MAX_PROPS: usize = 16;
     const MAX_CASTS: usize = 16;
     const MAX_CAST_SECONDS: u32 = 3600;
@@ -680,6 +688,17 @@ impl ShowcaseConfig {
     fn holds(config: &SingleLaneConfig, player_id: u32) -> bool {
         config.showcase.as_ref().is_some_and(|showcase| showcase.hold_players.contains(&player_id))
     }
+    /// A held seat struck down is back on its place after HELD_RESPAWN_SECONDS: b13_old 背刺 killed
+    /// seat 6 during its own segment, and the level table's 56 s plus a walk from the fountain
+    /// outlasted the recording's time box before the attack segment found a stand-in.
+    pub const HELD_RESPAWN_SECONDS: i32 = 2;
+    /// Where and after how long a held seat respawns; None for any other seat.
+    fn held_respawn(config: &SingleLaneConfig, player_id: u32) -> Option<(Fixed64, [i32; 2])> {
+        let showcase = config.showcase.as_ref()?;
+        if !showcase.hold_players.contains(&player_id) { return None; }
+        let place = *showcase.placements.get(&player_id)?;
+        Some((Fixed64::from_i32(Self::HELD_RESPAWN_SECONDS), place))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -739,6 +758,10 @@ pub struct SingleLaneConfig {
     pub base_recovery_enabled: bool,
     /// Explicit opt-in; never inferred from legacy GameMode::Moba stories.
     pub mana_enabled: bool,
+    /// Original shop rules (courier-spec-2026-11-09 §0): a purchase outside shop reach goes to the
+    /// player's stash ([`super::comp::STASH_SLOTS`]) and each player has a courier. Off, the default, keeps the
+    /// purchase radius check that fixtures and older recipes assert.
+    pub shop_range_rule: bool,
     /// Explicit authority loadouts; absent players have no summoner spells.
     /// Selection is validated before any entities are spawned.
     pub summoner_loadouts: BTreeMap<u32, [Option<String>; 2]>,
@@ -795,6 +818,7 @@ impl Default for SingleLaneConfig {
             assist_window_seconds: omoba_template_ids::MOBA_ASSIST_WINDOW_SECONDS,
             base_recovery_enabled: false,
             mana_enabled: false,
+            shop_range_rule: false,
             summoner_loadouts: BTreeMap::new(),
             trinket_loadouts: BTreeMap::new(),
             showcase: None,
@@ -888,6 +912,10 @@ pub struct MobaHeroSlot {
     /// The body of the last death and the abilities inactive on it (ability_slots, E670).
     retired_body: Option<specs::Entity>,
     retired_inactive: Vec<String>,
+    /// Under `shop_range_rule` (courier-spec §1): the player's courier and where it (re)spawns,
+    /// the hero's first spawn point; None until the hero first spawns.
+    pub(crate) courier: Option<Entity>,
+    courier_spawn: Option<Vec2>,
 }
 
 impl MobaHeroSlot {
@@ -1741,6 +1769,8 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         hero_statuses: Vec::new(),
         retired_body: None,
         retired_inactive: Vec::new(),
+        courier: None,
+        courier_spawn: None,
     }).collect();
     let mut state = MobaMatch {
         base_structures: Vec::new(),
@@ -1816,6 +1846,9 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
                 slot.hero.add_moba_experience(missing, state.config.game_rules.as_ref());
             }
         }
+    }
+    if state.config.showcase.as_ref().is_some_and(|showcase| showcase.night) {
+        super::rules::world::start_temporary_night(world, Fixed64::from_i32(ShowcaseConfig::NIGHT_SECONDS));
     }
     if let Some(withheld) = state.config.showcase.as_ref().map(|showcase| showcase.withheld_abilities.clone()) {
         for slot in state.heroes.iter_mut().filter(|slot| slot.player_id == ShowcaseConfig::DEMONSTRATOR) {
@@ -2246,13 +2279,15 @@ impl MobaMatch {
         let statuses = std::mem::take(&mut self.heroes[index].hero_statuses);
         super::status_scope::restore(&mut world.write_resource::<crate::runtime::BuffStore>(), entity, &statuses, self.elapsed);
         let inactive = std::mem::take(&mut self.heroes[index].retired_inactive);
-        self.heroes[index].retired_body = None;
+        // A body after a death: the new life hears its respawn (status_event::Respawns).
+        if self.heroes[index].retired_body.take().is_some() { super::status_event::note_respawn(world, entity); }
         super::ability_slots::restore_inactive(&mut world.write_resource::<crate::runtime::BuffStore>(), entity, &inactive);
         self.heroes[index].entity = Some(entity);
         self.heroes[index].lethal_pending = false;
         self.heroes[index].recall = None;
         self.heroes[index].respawn_at = None;
         self.track(entity, team, LaneRole::Hero);
+        courier::on_hero_spawn(self, world, index, spawn);
     }
 
     /// A structure `offset` along `team`'s route of `lane`.
@@ -2741,8 +2776,13 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
         {
             state.heroes[team].respawns = state.heroes[team].respawns.saturating_add(1);
             state.spawn_hero(world, team);
+            // A showcase stand-in comes back on its place, as at the stage's start.
+            if let (Some((_, [x, y])), Some(entity)) = (ShowcaseConfig::held_respawn(&state.config, state.heroes[team].player_id), state.heroes[team].entity) {
+                if let Some(pos) = world.write_storage::<Pos>().get_mut(entity) { pos.0 = Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y)); }
+            }
         }
     }
+    courier::tick(world, &mut state);
     objective_comeback::begin(world,&mut state);
     state.tick_base_structures(world);
     state.grow_tower_damage(world);
@@ -3309,9 +3349,11 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
                 let retired_player = slot.player_id;
                 log::info!("[match] hero_death tick={} player={} side={} deaths={}", world.read_resource::<Tick>().0, retired_player, team, slot.deaths);
                 super::shop::retire_owner_shop_undo(world, retired_player);
-                // The original game's respawn table by hero level, else the fixed delay.
-                let respawn = state.config.game_rules.map_or(state.config.respawn_delay,
-                    |rules| Fixed64::from_i32(rules.respawn_seconds(slot.hero.level).min(i32::MAX as u32) as i32));
+                // The original game's respawn table by hero level, else the fixed delay; a showcase
+                // stand-in at once (ShowcaseConfig::held_respawn).
+                let respawn = ShowcaseConfig::held_respawn(&state.config, retired_player).map(|(delay, _)| delay)
+                    .unwrap_or_else(|| state.config.game_rules.map_or(state.config.respawn_delay,
+                        |rules| Fixed64::from_i32(rules.respawn_seconds(slot.hero.level).min(i32::MAX as u32) as i32)));
                 slot.respawn_at = Some(state.elapsed + respawn);
                 objective_buffs::retire_hero(&mut state,retired_player);
                 personal_buffs::retire_hero(&mut state,retired_player);
@@ -4519,6 +4561,8 @@ pub(crate) fn stop_command_match(hero: Entity, phase: MobaMatchPhase) -> MobaMat
             hero_statuses: Vec::new(),
             retired_body: None,
             retired_inactive: Vec::new(),
+            courier: None,
+            courier_spawn: None,
         }],
         towers: [None, None],
         lane_towers: Vec::new(),
@@ -4638,6 +4682,8 @@ pub(crate) fn shop_fixture_slot(player_id: u32, side: usize, entity: Option<Enti
         hero_statuses: Vec::new(),
         retired_body: None,
         retired_inactive: Vec::new(),
+        courier: None,
+        courier_spawn: None,
     }
 }
 

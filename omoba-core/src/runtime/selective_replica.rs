@@ -1485,7 +1485,8 @@ impl SelectiveReplicaRuntime {
             digest.update(entity.disclosure_epoch.to_be_bytes());
             digest.update(entity.entity_kind.to_be_bytes());
             for (schema_id, bytes) in &entity.components {
-                if self.component_allowlist.contains(schema_id) {
+                // Baseline-only (owner_script_rows): kept as the new life read it, never hashed.
+                if self.component_allowlist.contains(schema_id) && *schema_id != crate::runtime::native::owner_script_rows::SCHEMA_ID {
                     digest.update(schema_id.to_be_bytes());
                     digest.update((bytes.len() as u64).to_be_bytes());
                     digest.update(bytes);

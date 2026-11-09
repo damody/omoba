@@ -113,6 +113,27 @@ pub mod op {
     /// nothing in the simulation. `cue` carries the FNV-1a of the v3 cue id in its raw bits. `at` is a
     /// Unit or a Point; `to` is a Unit, a Point, or `Bool(false)` for none.
     pub const CUE: u32 = 25;
+    /// `(Str tag)` -> `Bool`: the ability an `on_ability_executed` status event is for carries v3
+    /// tag `tag` (names in [`super::ability_tag`]; an unknown name is `RErr`); `Bool(false)` in any
+    /// other call.
+    pub const EVENT_ABILITY_TAG: u32 = 26;
+    /// `()` -> `None`: v3 `cancel_cast` in an order filter (status event ORDER_FILTER): the order
+    /// the hook hears does not execute; what the hook did stays. `RErr` in any other call.
+    pub const CANCEL_ORDER: u32 = 27;
+}
+
+/// Tag names of [`op::EVENT_ABILITY_TAG`].
+pub mod ability_tag {
+    /// An ultimate (catalog `ability_type = "ultimate"`).
+    pub const ULTIMATE: &str = "ultimate";
+    /// A toggle: an ability of `ability_type = "toggle"`, an item whose active is a toggle.
+    pub const TOGGLE: &str = "toggle";
+    /// A passive ability, or an item without an active.
+    pub const PASSIVE: &str = "passive";
+    /// Any item used (`item:<id>`).
+    pub const ITEM: &str = "item";
+    /// v3 `no_cast_trigger` (catalog `no_cast_trigger`): hooks that exclude it skip its casts.
+    pub const NO_CAST_TRIGGER: &str = "no_cast_trigger";
 }
 
 /// Attribute names of [`op::EVENT_ABILITY_ATTR`].
@@ -128,6 +149,8 @@ pub mod event_ability_attr {
     pub const POINT: &str = "point";
     /// `Num`: its cast range at the rank the caster holds (0 for an item); E465.
     pub const CAST_RANGE: &str = "cast_range";
+    /// `Num`: its mana cost at the rank the caster holds (an item's from its catalog row).
+    pub const MANA_COST: &str = "mana_cost";
     /// `Num`: in a damage status event (on_take_damage / on_deal_damage / on_kill), the hit's total
     /// before the target's mitigation (v3 `event.damage.raw`); 0 elsewhere. E478.
     pub const RAW_DAMAGE: &str = "raw_damage";
@@ -145,6 +168,13 @@ pub mod unit_attr {
     pub const MAX_MANA: &str = "max_mana";
     /// `Bool`: an illusion (state `illusion`).
     pub const IS_ILLUSION: &str = "is_illusion";
+    /// `Bool`: a unit some unit summoned, an illusion excepted; still one after its summoner died
+    /// (OWNER is `None` then).
+    pub const IS_SUMMON: &str = "is_summon";
+    /// `Num`: the physical damage multiplier of the unit's attacks: an illusion's 1 + its
+    /// `create_illusion.outgoing` physical fraction (原作 outgoing_damage), at least 0; 1 for any
+    /// other unit.
+    pub const ILLUSION_DAMAGE: &str = "illusion_damage";
     /// `Bool`: channelling an ability.
     pub const IS_CHANNELING: &str = "is_channeling";
     /// `Bool`: state `invulnerable`.
@@ -198,11 +228,12 @@ pub mod unit_attr {
     /// minion type's), a jungle body's or a summon's bounty; 0 for a hero (its kill gold depends on
     /// streaks and assists), for anything else and outside a MOBA match.
     pub const GOLD_BOUNTY: &str = "gold_bounty";
-    /// `Bool`: v3 `has_tag(unit, "boss" | "dummy" | "summon" | "neutral" | "fountain" | "general")`,
-    /// the name after `tag:` (e.g. `"tag:boss"`). A map boss carries the boss tag; a training dummy
-    /// is a dummy; a summon is a unit some unit summoned (an illusion included) or a summon
-    /// template; neutral is a jungle unit (faction HostileNeutral). This game has no fountain or
-    /// general units, so those are always false.
+    /// `Bool`: v3 `has_tag(unit, "boss" | "dummy" | "summon" | "neutral" | "ward" | "courier" |
+    /// "fountain" | "general")`, the name after `tag:` (e.g. `"tag:boss"`). A map boss carries the
+    /// boss tag; a training dummy is a dummy; a summon is a unit some unit summoned (an illusion
+    /// included) or a summon template; neutral is a jungle unit (faction HostileNeutral); a courier
+    /// is a unit of type courier (none on the current maps). This game has no fountain or general
+    /// units, so those are always false.
     pub const TAG_PREFIX: &str = "tag:";
     /// `Num`: v3 `event.attack.damage` in an attack trigger: the physical damage of the unit's
     /// current (or last) attack as it left, with its critical multiplier; 0 before it leaves or
@@ -238,4 +269,10 @@ pub mod game_attr {
     pub const TIME: &str = "time";
     /// `Num`: seconds of match time one tick advances.
     pub const DT: &str = "dt";
+    /// `Num`: the index of the latest lane creep wave, 0 for the first (原作 `_G.A_count`); -1
+    /// before the first wave and outside a MOBA match.
+    pub const CREEP_WAVE: &str = "creep_wave";
+    /// `Num`: the armor lane creeps spawned now gain over their authored armor from match time
+    /// (原作 `_G.armor_bonus`; the map's minion growth); 0 outside a MOBA match.
+    pub const CREEP_ARMOR_BONUS: &str = "creep_armor_bonus";
 }

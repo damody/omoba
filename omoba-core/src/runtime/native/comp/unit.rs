@@ -49,6 +49,8 @@ pub enum UnitType {
     Minion,        // 小怪
     TrainingDummy, // 訓練假人
     Summon,        // 召喚物
+    /// 信使（v3 unit type / tag `courier`）：GameWorld::ext `tag:courier` 認得它；地圖目前沒有信使。
+    Courier,
 }
 
 /// AI 行為類型

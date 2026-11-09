@@ -24,6 +24,10 @@ pub struct RoleBotMatchPlan {
     pub think_hz: u32,
     #[serde(default)]
     pub mana_enabled: bool,
+    /// Original shop rules (courier-spec §0, E line): buying outside shop reach goes to the stash and
+    /// each player has a courier. Off keeps the purchase radius check. Omitted reads as off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shop_range_rule: bool,
     pub players: Vec<RoleBotPlayerPlan>,
     #[serde(default)]
     pub ability_policies: Vec<BotAbilityPolicy>,
@@ -185,6 +189,7 @@ impl RoleBotMatchPlan {
             players:[left.player_id,right.player_id],heroes:[left.hero,right.hero],additional_players:additional,
             base_recovery_enabled:self.sustain.is_some(),
             mana_enabled:self.mana_enabled,
+            shop_range_rule:self.shop_range_rule,
             summoner_loadouts:self.summoner_loadouts.clone(),
             showcase:self.showcase.clone(),
             // A formal match plays by the original game's rules (templates/game_rules.lua), whose
@@ -230,7 +235,7 @@ mod tests {
                     hero:["murakami_yoshikiyo","date_masamune","saika_magoichi","oichi","asai_nagamasa"][index].into(),role,lane:lane.into(),bot:team != 1 || index != 0 });
             }
         }
-        RoleBotMatchPlan { schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:BTreeMap::new(),showcase:None }
+        RoleBotMatchPlan { schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:BTreeMap::new(),showcase:None }
     }
     #[test]
     fn one_hero_per_team_is_compiled_and_bot_clashes_resolve_deterministically() {
@@ -358,6 +363,19 @@ mod tests {
     }
 
     #[test]
+    fn shop_range_rule_is_an_explicit_opt_in_that_older_plans_omit() {
+        let mut p=plan();
+        assert!(!p.compile(1,SimulationTickProfile::Production60Hz).unwrap().0.shop_range_rule);
+        // an older plan (no key) reads as off, and an off plan writes no key
+        assert!(serde_json::to_value(&p).unwrap().get("shop_range_rule").is_none());
+        p.shop_range_rule=true;
+        assert!(p.compile(1,SimulationTickProfile::Production60Hz).unwrap().0.shop_range_rule);
+        let json=serde_json::to_value(&p).unwrap();
+        assert_eq!(json["shop_range_rule"],serde_json::json!(true));
+        assert!(serde_json::from_value::<RoleBotMatchPlan>(json).unwrap().shop_range_rule);
+    }
+
+    #[test]
     fn summoner_loadouts_compile_into_match_config_without_a_default_spell() {
         let legacy = plan();
         assert!(legacy.compile(1, SimulationTickProfile::Production60Hz).unwrap().0.summoner_loadouts.is_empty());
@@ -414,10 +432,59 @@ mod tests {
         p.map_id = "three_lane_quick_training".into();
         p.players = vec![player(1,1,"saika_magoichi",BotRole::Mid,false),player(2,1,"murakami_yoshikiyo",BotRole::Support,true),
             player(6,2,"murakami_yoshikiyo",BotRole::Mid,true)];
-        p.showcase = Some(ShowcaseConfig { start_level:6, minion_waves:false,
+        p.showcase = Some(ShowcaseConfig { start_level:6, minion_waves:false, night:false,
             placements:[(1,[2300,2400]),(2,[2050,2400]),(6,[2750,2400])].into(),
             hold_players:[2,6].into(), strike_players:Default::default(), hold_hp_permille:5000, start_items:Default::default(), props:Vec::new(), casts:Vec::new(), patrols:Vec::new(), refill_players:Default::default(),withheld_abilities:Default::default() });
         p
+    }
+    /// A held stand-in struck down is back on its place after HELD_RESPAWN_SECONDS (b13_old 背刺
+    /// killed seat 6; the level table's respawn and a walk from the fountain outlasted the recording).
+    #[test]
+    fn showcase_held_seat_respawns_on_its_place_at_once() {
+        let (config,_) = showcase_plan().compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        setup_single_lane_match(&mut world, config).unwrap();
+        world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Playing;
+        world.write_resource::<crate::comp::DeltaTime>().0 = Fixed64::from_raw(17);
+        let seat = |world:&World,player:u32| world.read_resource::<MobaMatch>().heroes.iter().find(|s| s.player_id == player).unwrap().clone();
+        let old = seat(&world,6).entity.unwrap();
+        world.write_storage::<CProperty>().get_mut(old).unwrap().hp = Fixed64::ZERO;
+        super::super::record_moba_death(&mut world, old);
+        let died = world.read_resource::<MobaMatch>().elapsed;
+        assert_eq!(seat(&world,6).respawn_at, Some(died + Fixed64::from_i32(ShowcaseConfig::HELD_RESPAWN_SECONDS)), "a held seat respawns at once");
+        world.delete_entity(old).unwrap(); world.maintain();
+        for _ in 0..(ShowcaseConfig::HELD_RESPAWN_SECONDS * 60 + 30) {
+            super::super::begin_moba_match_tick(&mut world);
+            if seat(&world,6).entity.is_some() { break; }
+        }
+        let back = seat(&world,6).entity.expect("the stand-in respawned");
+        assert_eq!(world.read_storage::<Pos>().get(back).unwrap().0, Vec2::new(Fixed64::from_i32(2750), Fixed64::from_i32(2400)), "on its place");
+        // The demonstrator is not held: the level table's respawn.
+        let hero = seat(&world,1).entity.unwrap();
+        world.write_storage::<CProperty>().get_mut(hero).unwrap().hp = Fixed64::ZERO;
+        super::super::record_moba_death(&mut world, hero);
+        let elapsed = world.read_resource::<MobaMatch>().elapsed;
+        assert!(seat(&world,1).respawn_at.is_some_and(|at| at > elapsed + Fixed64::from_i32(ShowcaseConfig::HELD_RESPAWN_SECONDS)),
+            "the demonstrator keeps the level table's respawn");
+    }
+    /// A night stage is night from the first tick to the end of the longest match; a stage without
+    /// it has no night (C06D_old 盜賊藏匿術 casts only at night, E-line variant sweep).
+    #[test]
+    fn showcase_night_stage_is_night_for_the_whole_match() {
+        let night = |on:bool| {
+            let mut plan = showcase_plan();
+            plan.showcase.as_mut().unwrap().night = on;
+            let (config,_) = plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+            let pool = crate::runtime::StateInitializer::create_thread_pool();
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+            setup_single_lane_match(&mut world, config).unwrap();
+            let start = crate::runtime::native::rules::world::is_night(&world);
+            world.write_resource::<MobaMatch>().elapsed = Fixed64::from_i32(ShowcaseConfig::NIGHT_SECONDS - 1);
+            (start, crate::runtime::native::rules::world::is_night(&world))
+        };
+        assert_eq!(night(true), (true, true));
+        assert_eq!(night(false), (false, false));
     }
     /// Player 6 (omatsu) learns frost bolt to rank 2 and casts it at player 1.
     fn casting_plan(first_seconds:u32,every_seconds:u32) -> RoleBotMatchPlan {

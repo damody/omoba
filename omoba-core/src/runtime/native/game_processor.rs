@@ -1010,6 +1010,7 @@ fn admit_ability_cast(
         .and_then(|kind| match kind {
             crate::ability_meta::TargetType::Unit if target_entity.is_none() => Some(code::TARGET_REQUIRED),
             crate::ability_meta::TargetType::Point if target_pos.is_none() => Some(code::TARGET_REQUIRED),
+            crate::ability_meta::TargetType::UnitOrPoint if target_entity.is_none() && target_pos.is_none() => Some(code::TARGET_REQUIRED),
             _ => None,
         });
 
@@ -1976,21 +1977,147 @@ fn finish_item_use(world: &mut World, hero_entity: Entity, slot_i: usize, item_i
     spend_consumable_item(world, hero_entity, slot_i, item_id);
 }
 
-/// The script id of a catalog item (items.dll registers it under its v3 id, the item's source).
-/// A hero document's item (never sold, no source) is listed under its v3 id `item_<key>` itself
-/// and its hero's DLL registers it there.
+/// The script id of a catalog item: its v3 id (item_grant::source_id, `item_<catalog id>` for a
+/// ported item). An item script still registered under its source key answers to it too
+/// (ScriptRegistry::get_ability). A hero document's item (never sold, no source) is listed under
+/// its v3 id `item_<key>` itself and its hero's DLL registers it there.
 pub(crate) fn item_script_id(item_id: &str) -> Option<&'static str> {
     let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == item_id)?;
     match item.source_ref {
-        Some(r) => r.rsplit_once(':').map(|(_, source)| source),
+        Some(_) => super::item_grant::source_id(item.id),
         None => item.id.starts_with("item_").then_some(item.id),
     }
+}
+
+/// v3 `cost.charges` (scope hero): a charged item's uses live in the hero's
+/// `Hero::ability_charges` under `item:<id>`, shared by every copy it carries and recharging with
+/// its other charges (persisting through death and selling, as the hero's own state).
+pub(crate) fn item_charge_key(item_id: &str) -> String { format!("item:{item_id}") }
+
+/// A scripted item's cast point (catalog `cast`, v3 `cast.cast_point`), when it has one: dispatch
+/// holds the use in `cast_windup::ItemWindups` until it passes.
+pub(crate) fn item_cast(item_id: &str) -> Option<omoba_template_ids::MobaItemCastConst> {
+    #[cfg(test)]
+    if let Some(cast) = TEST_ITEM_CASTS.with(|casts| casts.borrow().get(item_id).copied()) { return Some(cast); }
+    omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == item_id).and_then(|item| item.cast)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Cast points a test gives catalog items (no catalog item has one yet), for every world it
+    /// steps on its thread: the authority and its in-process team replicas alike.
+    pub(crate) static TEST_ITEM_CASTS: std::cell::RefCell<BTreeMap<String, omoba_template_ids::MobaItemCastConst>> = Default::default();
+}
+
+fn item_charges(item_id: &str) -> Option<omoba_template_ids::MobaItemChargesConst> {
+    omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == item_id).and_then(|item| item.charges)
+}
+
+/// Starts the charges of each charged item in `inventory` the hero has not held before.
+/// The heroes' item charge rows (`item:<id>`) the authority has announced to the teams.
+#[derive(Default)]
+struct AnnouncedItemCharges(std::collections::BTreeSet<(Entity, String)>);
+
+/// A charged item's row that appeared since the last batch (primed when a hero came to hold the
+/// item: item_tick, or a use's admission) goes out as a committed charge, as a spent one does,
+/// so every team that sees the hero holds it (E cover14: the opponents' replica had no
+/// `item:earth_wall_book` after a purchase, the hero's baseline being older). Authority only.
+fn announce_primed_item_charges(world: &mut World, charges: &mut BTreeMap<(u64, u32), (Entity, String)>) {
+    if world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>().is_some()
+        || world.try_fetch::<specs::storage::MaskedStorage<Hero>>().is_none() { return; }
+    let mut announced = world.remove::<AnnouncedItemCharges>().unwrap_or_default();
+    {
+        let entities = world.entities();
+        let heroes = world.read_storage::<Hero>();
+        announced.0.retain(|(entity, key)| heroes.get(*entity).is_some_and(|hero| hero.ability_charges.contains_key(key)));
+        for (entity, hero) in (&entities, &heroes).join() {
+            for key in hero.ability_charges.keys().filter(|key| key.starts_with("item:")) {
+                if announced.0.contains(&(entity, key.clone())) { continue; }
+                announced.0.insert((entity, key.clone()));
+                let Some(item) = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.charges.is_some() && item_charge_key(item.id) == *key) else { continue };
+                charges.entry((crate::runtime::canonical_entity_id(entity), Hero::ITEM_CHARGE_SLOT | u32::from(item.catalog_id)))
+                    .or_insert_with(|| (entity, key.clone()));
+            }
+        }
+    }
+    world.insert(announced);
+}
+
+pub(crate) fn prime_inventory_charges(hero: &mut Hero, inventory: &Inventory) {
+    for instance in inventory.slots.iter().flatten() {
+        if let Some(spec) = item_charges(&instance.item_id) { item_charge_ready_with(hero, &instance.item_id, spec); }
+    }
+}
+
+/// Whether the hero holds a use of a charged item, priming its charges when it has none yet.
+fn item_charge_ready_with(hero: &mut Hero, item_id: &str, spec: omoba_template_ids::MobaItemChargesConst) -> bool {
+    let key = item_charge_key(item_id);
+    hero.prime_charges(&key, spec.max, spec.restore, spec.initial);
+    hero.has_charge(&key)
+}
+
+/// Whether the owner may use the item by its charges: always for an item without them.
+fn item_charge_ready(world: &World, owner: Entity, item_id: &str) -> bool {
+    let Some(spec) = item_charges(item_id) else { return true };
+    world.write_storage::<Hero>().get_mut(owner).is_some_and(|hero| item_charge_ready_with(hero, item_id, spec))
 }
 
 /// An item whose active is a generated script (items.dll registers it with `kind = item`).
 fn scripted_item(world: &World, item_id: &str) -> bool {
     let Some(script) = item_script_id(item_id) else { return false };
-    world.try_fetch::<super::initialization::ScriptedItems>().is_some_and(|items| items.0.contains(script))
+    let script = super::scripting::ScriptRegistry::v3_item_id(script);
+    world.try_fetch::<super::initialization::ScriptedItems>().is_some_and(|items| items.0.contains(&script))
+}
+
+/// The target of a scripted item use by the item's catalog rule: none, an explicit point in
+/// range, a living unit of the item's team in range (visible, not magic immune unless allowed), or
+/// for `unit_or_point` either one (a named unit is checked as a unit target).
+fn scripted_item_target(world: &World, rule: omoba_template_ids::MobaItemTargetConst, owner_pos: omoba_sim::Vec2, owner_faction: &Faction,
+    target_pos: Option<omoba_sim::Vec2>, target_life: Option<Entity>, point_explicit: bool, target_named: bool,
+) -> Result<SkillTarget, failure::Error> {
+    use omoba_template_ids::MobaItemTargetShapeConst as Shape;
+    // unit_or_point: a named unit is checked as a unit target, anything else as a point
+    let shape = match rule.shape { Shape::UnitOrPoint if target_named => Shape::Unit, Shape::UnitOrPoint => Shape::Point, shape => shape };
+    Ok(match shape {
+        Shape::Self_ => SkillTarget::None,
+        Shape::Point => {
+            let Some(point) = target_pos.filter(|_| point_explicit && !target_named && target_life.is_none()) else {
+                return Err(failure::err_msg("ItemUse: point item requires an explicit point and no entity"));
+            };
+            if rule.range > Fixed64::ZERO && !within_item_range(owner_pos, point, rule.range) {
+                return Err(failure::err_msg("ItemUse: point is out of range"));
+            }
+            SkillTarget::Point { x: point.x, y: point.y }
+        }
+        Shape::Unit | Shape::UnitOrPoint => {
+            let Some(target) = target_life.filter(|_| !point_explicit && target_named) else {
+                return Err(failure::err_msg("ItemUse: unit item requires a disclosed entity and no explicit point"));
+            };
+            let hp = world.read_storage::<CProperty>().get(target).map(|p| p.hp);
+            let faction = world.read_storage::<Faction>().get(target).cloned();
+            let pos = world.read_storage::<Pos>().get(target).map(|p| p.0);
+            let (Some(hp), Some(faction), Some(pos)) = (hp, faction, pos) else {
+                return Err(failure::err_msg("ItemUse: target unavailable"));
+            };
+            if !same_live_item_target(world, target) || hp <= Fixed64::ZERO || !item_faction_matches(rule.team, &owner_faction, &faction) {
+                return Err(failure::err_msg("ItemUse: target is not a living unit of the item's team"));
+            }
+            if rule.exclude_heroes && world.read_storage::<Hero>().get(target).is_some() {
+                return Err(failure::err_msg("ItemUse: target is a hero"));
+            }
+            if rule.range > Fixed64::ZERO && !within_item_range(owner_pos, pos, rule.range) {
+                return Err(failure::err_msg("ItemUse: target is out of range"));
+            }
+            let viewer = u32::try_from(owner_faction.team_id).unwrap_or(0);
+            if rule.requires_visible && !item_target_seen(world, target, viewer) {
+                return Err(failure::err_msg("ItemUse: target is not visible"));
+            }
+            if !super::magic_immunity::admits_target(&world.read_resource::<BuffStore>(), Some(owner_faction), Some(&faction), target, rule.include_magic_immune) {
+                return Err(failure::err_msg("ItemUse: target is magic immune"));
+            }
+            SkillTarget::Entity(target)
+        }
+    })
 }
 
 /// Admits a scripted item use like `apply_resolved_item_use` admits its own effects (owner,
@@ -2015,49 +2142,19 @@ fn queue_scripted_item_use(
     let (true, Some(owner_pos), Some(owner_faction)) = (owner_alive, owner_pos, owner_faction) else {
         return Err(failure::err_msg("ItemUse: owner state unavailable"));
     };
-    let rule = catalog_item_target(item_id);
-    let target = match rule.shape {
-        Shape::Self_ => SkillTarget::None,
-        Shape::Point => {
-            let Some(point) = target_pos.filter(|_| point_explicit && !target_named && target_life.is_none()) else {
-                return Err(failure::err_msg("ItemUse: point item requires an explicit point and no entity"));
-            };
-            if rule.range > Fixed64::ZERO && !within_item_range(owner_pos, point, rule.range) {
-                return Err(failure::err_msg("ItemUse: point is out of range"));
-            }
-            SkillTarget::Point { x: point.x, y: point.y }
-        }
-        Shape::Unit => {
-            let Some(target) = target_life.filter(|_| !point_explicit && target_named) else {
-                return Err(failure::err_msg("ItemUse: unit item requires a disclosed entity and no explicit point"));
-            };
-            let hp = world.read_storage::<CProperty>().get(target).map(|p| p.hp);
-            let faction = world.read_storage::<Faction>().get(target).cloned();
-            let pos = world.read_storage::<Pos>().get(target).map(|p| p.0);
-            let (Some(hp), Some(faction), Some(pos)) = (hp, faction, pos) else {
-                return Err(failure::err_msg("ItemUse: target unavailable"));
-            };
-            if !same_live_item_target(world, target) || hp <= Fixed64::ZERO || !item_faction_matches(rule.team, &owner_faction, &faction) {
-                return Err(failure::err_msg("ItemUse: target is not a living unit of the item's team"));
-            }
-            if rule.range > Fixed64::ZERO && !within_item_range(owner_pos, pos, rule.range) {
-                return Err(failure::err_msg("ItemUse: target is out of range"));
-            }
-            let viewer = u32::try_from(owner_faction.team_id).unwrap_or(0);
-            if rule.requires_visible && !item_entity_visible_to_team(world, target, viewer) {
-                return Err(failure::err_msg("ItemUse: target is not visible"));
-            }
-            if !super::magic_immunity::admits_target(&world.read_resource::<BuffStore>(), Some(&owner_faction), Some(&faction), target, rule.include_magic_immune) {
-                return Err(failure::err_msg("ItemUse: target is magic immune"));
-            }
-            SkillTarget::Entity(target)
-        }
-    };
+    let target = scripted_item_target(world, catalog_item_target(item_id), owner_pos, &owner_faction, target_pos, target_life,
+        point_explicit, target_named)?;
     if scripted_item_mana(world, owner, item_id).is_none() {
         return Err(failure::err_msg("ItemUse: not enough mana"));
     }
+    if !item_charge_ready(world, owner, item_id) {
+        return Err(failure::err_msg("ItemUse: no charges"));
+    }
+    if world.try_fetch::<super::cast_windup::ItemWindups>().is_some_and(|items| items.0.contains_key(&owner)) {
+        return Err(failure::err_msg("ItemUse: an item cast point is in progress"));
+    }
     let mut events = world.try_fetch_mut::<ScriptEventQueue>().ok_or_else(|| failure::err_msg("ItemUse: script queue unavailable"))?;
-    events.push(ScriptEvent::ItemCast { owner, owner_pid, slot: slot_i as u32, item_id: item_id.to_owned(), target });
+    events.push(ScriptEvent::ItemCast { owner, owner_pid, slot: slot_i as u32, item_id: item_id.to_owned(), target, released: false });
     Ok(())
 }
 
@@ -2074,15 +2171,23 @@ fn scripted_item_mana(world: &World, owner: Entity, item_id: &str) -> Option<Opt
 
 /// Settles a scripted item use: the item must still be in its slot and ready and the mana still
 /// payable; then the use commits (cooldown, shared cooldowns, consumable, mana) and the owner's
-/// unit hooks see it. `false`: nothing committed, its effects are dropped.
+/// unit hooks see it. `false`: nothing committed, its effects are dropped. A `refund` (v3
+/// `refund` in the item's cast) commits the use without its mana or without its cooldowns; the
+/// mana must still be payable, as when the cast began.
 fn commit_scripted_item_use(world: &mut World, owner: Entity, owner_pid: u32, slot_i: usize, item_id: &str,
-    target: Option<Entity>, target_point: Option<(i64, i64)>) -> bool {
+    target: Option<Entity>, target_point: Option<(i64, i64)>, refund: crate::comp::ItemRefund) -> bool {
     if !owner_item_life_intact(world, owner, owner_pid) || !slot_still_ready(world, owner, slot_i, item_id) {
         return false;
     }
     let Some(pool) = scripted_item_mana(world, owner, item_id) else { return false };
     let Some(cooldown) = world.read_resource::<ItemRegistry>().get(item_id).map(|cfg| cfg.cooldown) else { return false };
-    if let Some(pool) = pool {
+    if !item_charge_ready(world, owner, item_id) { return false; }
+    let cooldown = if refund.cooldown { 0.0 } else { cooldown };
+    // a refunded cooldown gives the use back too
+    if !refund.cooldown && item_charges(item_id).is_some() {
+        if let Some(hero) = world.write_storage::<Hero>().get_mut(owner) { hero.consume_charge(&item_charge_key(item_id)); }
+    }
+    if let Some(pool) = pool.filter(|_| !refund.mana) {
         if let Some(hero) = world.write_storage::<Hero>().get_mut(owner) { hero.mana_pool = Some(pool); }
     }
     if let Some(Some(instance)) = world.write_storage::<Inventory>().get_mut(owner).and_then(|inv| inv.slots.get_mut(slot_i)) {
@@ -2292,6 +2397,15 @@ fn item_damage_boundary_open(world: &World, target: Entity) -> bool {
             .is_some_and(|targets| targets.0.contains(&target))
 }
 
+/// Whether a named item target passes the visibility admission: on the authority, by the team's
+/// vision. A team replica runs only the uses the authority accepted (accepted inputs) and holds
+/// none of its vision sources, so the target it is handed passes (C dragon-ally-6: the replica
+/// refused 巨龍 on an allied hero as unseen while the authority used it).
+fn item_target_seen(world: &World, target: Entity, viewer_team: u32) -> bool {
+    world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>().is_some()
+        || item_entity_visible_to_team(world, target, viewer_team)
+}
+
 fn same_live_item_target(world: &World, entity: Entity) -> bool {
     world.entities().is_alive(entity) && entity_by_id(world, entity.id()) == Some(entity)
 }
@@ -2499,7 +2613,7 @@ fn commit_targeted_item_use(
             if !within_item_range(owner_pos, pos, rule.range) {
                 return Err(failure::err_msg("ItemUse: target is out of range"));
             }
-            if !item_entity_visible_to_team(world, target, viewer_team) {
+            if !item_target_seen(world, target, viewer_team) {
                 return Err(failure::err_msg("ItemUse: target is not visible"));
             }
             if !item_damage_boundary_open(world, target) {
@@ -3236,6 +3350,8 @@ pub fn process_outcomes(
     // An instant attack's damage: the packet right after its InstantAttack (E475).
     let mut instant_hit: Option<(Entity, Entity)> = None;
     let mut next_ordinal = 0usize;
+    // The units whose statuses already heard their death this batch (scripting::owner_death).
+    let mut death_heard: Vec<Entity> = Vec::new();
     while let Some(outcome) = pending.pop_front() {
         // A tag only belongs to the outcome right after it.
         let tag_now = damage_tag.take();
@@ -3367,6 +3483,8 @@ pub fn process_outcomes(
                     super::damage_trace::record(world,row);
                 }
                 let Some(damage)=settled else {continue;};
+                // Its shares before block, armor and resistance, for pre-mitigation absorbs (absorb.rs).
+                world.insert(super::absorb::RawPacket(Some((source,target,[damage.physical,damage.magical,damage.pure],[phys,magi,real]))));
                 match origin {
                     Some(origin)=>Outcome::ProjectileDamage {origin,pos,phys:damage.physical,magi:damage.magical,real:damage.pure,
                         source,target,damage_profile,predeclared:false},
@@ -3493,21 +3611,38 @@ pub fn process_outcomes(
                 }
             }
             Outcome::ScriptCastCommitted {caster,cues} => {cast_settlement::publish(world,caster,cues);}
-            Outcome::ScriptItemTransaction {owner,owner_pid,slot,item_id,target,target_point,outcomes} => {
+            Outcome::ScriptItemTransaction {owner,owner_pid,slot,item_id,target,target_point,outcomes,refund} => {
                 // items.dll: the use and its effects commit together, or neither (item changed).
                 // Its summons are planned like a cast's (cast_settlement plan_summons) before the use
                 // commits, and committed right after it, ahead of the effects that follow them.
                 let planned=(!remove_uids.contains(&owner)).then(||cast_settlement::plan_summons(world,&outcomes)).flatten();
-                let Some(planned)=planned.filter(|_|commit_scripted_item_use(world,owner,owner_pid,slot as usize,&item_id,target,target_point)) else {
+                let Some(planned)=planned.filter(|_|commit_scripted_item_use(world,owner,owner_pid,slot as usize,&item_id,target,target_point,refund)) else {
                     cast_settlement::release_spawns(world,&outcomes);continue;
                 };
+                // a spent item charge reaches every team that sees the user, as an ability's does
+                if let Some(catalog) = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == item_id && item.charges.is_some()) {
+                    committed_charges.insert((crate::runtime::canonical_entity_id(owner), Hero::ITEM_CHARGE_SLOT | u32::from(catalog.catalog_id)),
+                        (owner, item_charge_key(&item_id)));
+                }
                 for spawn in planned {spawn.commit(world,projection_tick,&mut next_ordinal)?;}
                 for effect in outcomes.into_iter().filter(|o|!matches!(o,Outcome::SpawnSummoned {..})).rev() {pending.push_front(effect);}
             }
             Outcome::ProjectileContext {..} => unreachable!("nested projectile contexts are rejected"),
-            Outcome::Death { ent, .. } => {
+            Outcome::Death { ent, pos } => {
                 if remove_uids.contains(&ent) || !world.entities().is_alive(ent) {
                     continue;
+                }
+                // v3 on_owner_death / an item passive's on_death (scripting::owner_death): the
+                // dying unit's listening statuses hear it first, and their effects settle before
+                // the death does (once per unit and batch).
+                if !death_heard.contains(&ent) {
+                    death_heard.push(ent);
+                    let effects = super::scripting::owner_death::hear(world, ent);
+                    if !effects.is_empty() {
+                        pending.push_front(Outcome::Death { ent, pos });
+                        for effect in effects.into_iter().rev() { pending.push_front(effect); }
+                        continue;
+                    }
                 }
                 remove_uids.push(ent);
                 handle_death(world, &mut next_outcomes, events, ent)?;
@@ -3820,6 +3955,7 @@ pub fn process_outcomes(
             committed_cooldowns.insert((crate::runtime::canonical_entity_id(entity), slot as u32), (entity, id));
         }
     }
+    announce_primed_item_charges(world, &mut committed_charges);
     emit_committed_actor_state(world, projection_tick, committed_vitals, committed_cooldowns, committed_charges);
     super::mind_control::settle(world);
     super::owner_control::settle_batch(world);
@@ -4715,11 +4851,13 @@ fn handle_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     Ok(true)
 }
 
-fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit_id:&str,
+pub(crate) fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit_id:&str,
     owner:Entity,faction:Faction,player_owner:Option<u32>,duration:Fixed64,
     stats:&omoba_template_ids::SummonStats) -> Result<(),failure::Error> {
     let id=omoba_template_ids::summon_by_name(unit_id).expect("validated summon");
-    let mut unit=Unit::new(unit_id.into(),omoba_template_ids::active_summon_display(id).into(),UnitType::Summon);
+    // a courier (v3 tag courier, E courier-spec §1) is UnitType::Courier: has_tag(courier) holds
+    let kind=if stats.courier {UnitType::Courier} else {UnitType::Summon};
+    let mut unit=Unit::new(unit_id.into(),omoba_template_ids::active_summon_display(id).into(),kind);
     unit.max_hp=(stats.hp.raw()/1024) as i32;unit.current_hp=unit.max_hp;
     unit.base_damage=(stats.damage.raw()/1024) as i32;unit.base_armor=stats.armor;
     unit.magic_resistance=stats.magic_resistance;unit.attack_range=stats.attack_range;
@@ -4775,6 +4913,11 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     world.write_storage::<SummonedUnit>().insert(entity,summoned)?;
     if stats.invulnerable || (stats.dummy && !breakable) {
         if let Some(mut state)=world.try_fetch_mut::<crate::runtime::MobaMatch>() {state.add_invulnerable_summon(&world.entities(),entity);}
+    }
+    // magic immune for its whole life (a courier's passive, 原作 for_magic_immune)
+    if stats.magic_immune {
+        world.write_resource::<crate::runtime::BuffStore>().add(entity,super::magic_immunity::BUFF,
+            super::ability_runtime::buff_store::PERMANENT_BUFF_DURATION,serde_json::Value::Null);
     }
     if stats.dummy {super::dummy_unit::hold_states(&mut world.write_resource::<crate::runtime::BuffStore>(),entity,duration,breakable);}
     // A chase template (E406): the host flies it (summon_chase), never the follow rules or orders.
@@ -7681,7 +7824,8 @@ fn handle_damage(
         // v3 status.absorb rows first (absorb.rs), then the plain damage shield; a packet a status
         // shield took whole still hit.
         let alive = world.read_storage::<CProperty>().get(target).is_some_and(|p| p.hp > Fixed64::ZERO);
-        let (shielded, absorbs) = super::absorb::absorb(world, source, target, total_damage, mitigated.by_type);
+        let raw = super::absorb::raw_shares(world, source, target, [phys, magi, real]);
+        let (shielded, absorbs) = super::absorb::absorb(world, source, target, total_damage, mitigated.by_type, raw);
         super::status_event::note_absorbs(world, absorbs);
         let (hit, dealt) = pipeline::absorb(world, target, shielded);
         (hit || (total_damage > Fixed64::ZERO && alive), dealt)

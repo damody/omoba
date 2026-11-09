@@ -24,6 +24,8 @@ pub struct RegenTickData<'a> {
     summons: ReadStorage<'a, SummonedUnit>,
     positions: ReadStorage<'a, Pos>,
     outcomes: Write<'a, Vec<Outcome>>,
+    inventories: ReadStorage<'a, Inventory>,
+    replica: Option<Read<'a, crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>>,
 }
 
 #[derive(Default)]
@@ -71,6 +73,11 @@ impl<'a> System<'a> for Sys {
         let summons = &data.summons;
         let is_buildings = &data.is_buildings;
         let buffs: &BuffStore = &data.buffs;
+        // A team replica derives a hero's attribute and item regen only when it holds the hero's
+        // inventory (attributes::settle_matching); another hero's life comes with the authority's
+        // vitals. Its own partial sum (a degeneration status without the attribute regen) would
+        // kill that hero ahead of the authority (b10g6: an enemy 瀧川 under 平手's infection).
+        let held = |e: specs::Entity| data.replica.is_none() || data.inventories.get(e).is_some();
 
         let compute = |&e: &specs::Entity| -> Option<(specs::Entity, omoba_sim::Fixed64, omoba_sim::Fixed64)> {
             // 確認 entity 有 CProperty（creep / hero / 召喚物都有）
@@ -85,6 +92,7 @@ impl<'a> System<'a> for Sys {
             if !is_creep && !is_hero && summons.get(e).is_none() {
                 return None;
             }
+            if is_hero && !held(e) { return None; }
             let stats = UnitStats::from_refs(buffs, is_buildings.get(e).is_some());
             // Flat regen plus the per-second share of max HP (rules::regen).
             let regen = crate::runtime::native::rules::regen::hp_per_second(&stats, omoba_sim::Fixed64::ZERO, cp.mhp, e);
@@ -175,5 +183,38 @@ mod tests {
             if dead { break; }
         }
         assert_eq!(world.read_storage::<CProperty>().get(fading).unwrap().hp, Fixed64::ZERO);
+    }
+
+    /// A team replica leaves the life of a hero whose inventory it does not hold to the
+    /// authority's vitals; the hero it holds regenerates (or degenerates) as on the authority.
+    #[test]
+    fn a_replica_regenerates_only_the_heroes_whose_inventory_it_holds() {
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        world.insert(crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets::default());
+        let hero = |world: &mut specs::World, held: bool| {
+            let mut builder = world.create_entity().with(Hero::default()).with(Pos(omoba_sim::Vec2::ZERO))
+                .with(CProperty { hp: Fixed64::from_i32(5), mhp: Fixed64::from_i32(10), msd: Fixed64::ZERO,
+                    def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO });
+            if held { builder = builder.with(Inventory::default()); }
+            let hero = builder.build();
+            world.write_resource::<BuffStore>().add(hero, "degeneration", Fixed64::from_i32(60),
+                serde_json::json!({ "health_regen_constant": Fixed64::from_i32(-2).raw() }));
+            hero
+        };
+        let (held, other) = (hero(&mut world, true), hero(&mut world, false));
+        let mut builder = specs::DispatcherBuilder::new();
+        crate::comp::dispatch::<Sys>(&mut builder, &[]);
+        let mut dispatcher = builder.build();
+        dispatcher.setup(&mut world);
+        world.write_resource::<DeltaTime>().0 = Fixed64::from_raw(1024 / 15 + 1);
+        world.write_resource::<Tick>().0 = REGEN_TICKS;
+        dispatcher.dispatch(&world);
+        let hp = |world: &specs::World, e| world.read_storage::<CProperty>().get(e).unwrap().hp;
+        assert!(hp(&world, held) < Fixed64::from_i32(5), "the held hero degenerates");
+        assert_eq!(hp(&world, other), Fixed64::from_i32(5), "the other hero's life is the authority's");
+        world.remove::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>();
+        dispatcher.dispatch(&world);
+        assert!(hp(&world, other) < Fixed64::from_i32(5), "the authority degenerates every hero");
     }
 }

@@ -747,7 +747,8 @@ return function(ctx)
         values = {
           cost = { 4100, unit = "gold", source = "kv:ItemCost（= item_energy_ingot 1900 + item_speed_clothes 700 + 合成費）" },
           recipe_cost = { 1500, unit = "gold", source = "kv:ItemCost@npc/npc_items_custom_load.txt:8497", note = "item_recipe_mana_thief ItemCost" },
-          all_stats = { 10, unit = "stat", source = "kv:Passive_lightning_katana MODIFIER_PROPERTY_STATS_STRENGTH_BONUS", note = "力量、敏捷、智力三項同為 10" },
+          all_stats = { 10, unit = "stat", source = "kv:Passive_lightning_katana MODIFIER_PROPERTY_STATS_STRENGTH_BONUS", note = "力量、敏捷、智力三項同為 10",
+            source_differs = "來源目錄匯出列寫 25；原作 KV Passive_lightning_katana 三項都是 10（npc_items_custom_load.txt:6968-6970），說明也寫全能力+10" },
           attack_speed = { 25, unit = "atk_speed", source = "kv:Passive_lightning_katana MODIFIER_PROPERTY_ATTACKSPEED_BONUS_CONSTANT" },
           burn_base = { 30, unit = "mana", source = "script:vscripts/items/Addon_Items/item_mana_thief.lua:173 30 + GetLevel()*2" },
           burn_per_level = { 2, unit = "mana", source = "script:vscripts/items/Addon_Items/item_mana_thief.lua:173" },

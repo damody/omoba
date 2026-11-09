@@ -553,8 +553,6 @@ return function(ctx)
             source = "script:vscripts/library/events/eventfororder.lua:163-165 施法距離 0 視為 100000" },
           ready_poll = { 0.5, unit = "s", hidden = true,
             source = "script:vscripts/items/Addon_Items/item_magic_talisman.lua:106-133 計時器 1／0.5 秒" },
-          approach_tick = { 0.3, unit = "s", hidden = true, source = "script:vscripts/library/events/eventfororder.lua:239 return 0.3" },
-          stop_delay = { 0.1, unit = "s", hidden = true, source = "script:vscripts/library/events/eventfororder.lua:234-236" },
         },
         text = {
           zh_TW = { name = "御魔護符",
@@ -604,11 +602,6 @@ return function(ctx)
                       { op = "spend_mana", from = "event.issuer", amount = "event.order.ability.mana_cost", ability = "event.order.ability" },
                       { op = "remove_status", from = "event.issuer", tags = { "invisible" } },
                       { op = "cancel_cast", reason = "magic_talisman_block" },
-                    },
-                    otherwise = {
-                      { op = "apply_status", status = "magic_talisman_approach", to = "event.issuer",
-                        vars = { goal = "self", spell = "event.order.ability" } },
-                      { op = "cancel_cast", reason = "magic_talisman_approach" },
                     } },
                 } },
             },
@@ -618,32 +611,11 @@ return function(ctx)
             absorb = { amount = "$shield", types = { "magical" }, phase = "pre_mitigation" },
             text = { zh_TW = { name = "魔盾", body = "吸收 {shield} 魔法傷害。" }, en = { name = "Magic Shield", body = "Absorbs {shield} magic damage." } },
             notes = "原作 nobu_modifier_magical_shield（INCOMING_DAMAGE_PERCENTAGE 扣池）。" },
-          { id = "magic_talisman_approach", duration = "infinite", stacking = "replace", dispel = "none", visibility = "hidden",
-            reveal = "public",
-            vars = { goal = { type = "unit", reveal = "public" }, spell = { type = "ability", reveal = "public" } },
-            triggers = {
-              periodic = { interval = "$approach_tick", first = 0, actions = {
-                { op = "if", cond = "not exists(vars.goal)",
-                  actions = { { op = "remove_status", from = "self", status = "magic_talisman_approach" } },
-                  otherwise = {
-                    { op = "let", name = "reach",
-                      value = "select(vars.spell.cast_range == 0, $global_range, vars.spell.cast_range)" },
-                    { op = "if", cond = "distance(self, vars.goal) > reach",
-                      actions = { { op = "issue_order", who = "self", order = "move", at = "position(vars.goal)" } },
-                      otherwise = {
-                        { op = "remove_status", from = "self", status = "magic_talisman_approach" },
-                        { op = "issue_order", who = "self", order = "cast", target = "vars.goal", ability = "vars.spell" },
-                        { op = "delay", time = "$stop_delay", actions = { { op = "issue_order", who = "self", order = "stop" } } },
-                      } },
-                  } },
-              } },
-              on_order = { filter = "event.order.by_player", actions = {
-                { op = "remove_status", from = "self", status = "magic_talisman_approach" } } },
-            },
-            notes = "原作 caster.go_protection 計時器：每 0.3 秒走向目標，進入距離後重下施法令（會再被攔），0.1 秒後 Stop。玩家下任何命令會清掉 go_protection（eventfororder.lua:401-403），腳本自己下的命令不會。" },
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
+          { policy = "as_source", ref = "vscripts/library/events/eventfororder.lua:205-244",
+            text = "施法者在距離外時，原作以 go_protection 計時器帶他走進距離再重下施法令（會再被攔）。本作 host 的 cast_approach 先把施法者帶進施法距離，命令到 dispatch 才經 order filter（B 線 037a69cd），所以不另寫接近狀態；剛好等於施法距離時照原作放行。" },
           { policy = "no_effect", ref = "vscripts/items/Addon_Items/item_magic_talisman.lua:39",
             text = "`and false` 讓 modifier 的受傷分支永遠不執行；modifier_magic_talisman2 也因此不會出現。真正的格擋在 vscripts/library/events/eventfororder.lua:149-214。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_magic_talisman.lua:106-134",
@@ -674,7 +646,8 @@ return function(ctx)
           agi = { 9, unit = "stat", source = "kv:MODIFIER_PROPERTY_STATS_AGILITY_BONUS @npc/npc_items_custom_load.txt:17384" },
           int = { 9, unit = "stat", source = "kv:MODIFIER_PROPERTY_STATS_INTELLECT_BONUS @npc/npc_items_custom_load.txt:17385" },
           max_hp = { 150, unit = "hp", source = "kv:MODIFIER_PROPERTY_HEALTH_BONUS @npc/npc_items_custom_load.txt:17387" },
-          mana_regen = { 5, unit = "per_s", source = "kv:MODIFIER_PROPERTY_MANA_REGEN_CONSTANT @npc/npc_items_custom_load.txt:17391" },
+          mana_regen = { 5, unit = "per_s", kv = { 5.5 }, source = "kv:MODIFIER_PROPERTY_MANA_REGEN_CONSTANT @npc/npc_items_custom_load.txt:17391",
+            source_differs = "來源目錄的 5.5 把疊層 modifier_spell_amplify_stack 每層的 0.5 併進被動；KV 被動 Passive_item_death_of_scepter 是 5" },
           leech = { 10, unit = "pct", source = "script:vscripts/items/Addon_Items/item_death_of_scepter.lua:35 spell_leech + 10" },
           start_stacks = { 8, unit = "count", source = "script:vscripts/items/Addon_Items/item_death_of_scepter.lua:36" },
           stack_max = { 21, unit = "count", source = "script:vscripts/items/Addon_Items/item_death_of_scepter.lua:78-80" },
@@ -768,7 +741,8 @@ return function(ctx)
       { id = "item_muramasa_katana", source_id = "item_muramasa_katana",
         values = {
           cost = { 9000, unit = "gold", source = "kv:ItemCost" },
-          attack = { 30, unit = "dmg", source = "kv:MODIFIER_PROPERTY_PREATTACK_BONUS_DAMAGE @npc/npc_items_custom_load.txt:5555" },
+          attack = { 30, unit = "dmg", kv = { 31 }, source = "kv:MODIFIER_PROPERTY_PREATTACK_BONUS_DAMAGE @npc/npc_items_custom_load.txt:5555",
+            source_differs = "來源目錄的 31 把疊層 modifier_muramasa_atk 每層的 1 併進被動；KV 被動 modifier_Passive_muramasa_katana 是 30" },
           lifesteal = { 15, unit = "pct", source = "kv:StealPercent@npc/npc_items_custom_load.txt:5578",
             note = "原作說明寫吸血 12%，KV 與腳本是 15%，照 KV" },
           frenzy_duration = { 10, unit = "s", source = "kv:Duration @npc/npc_items_custom_load.txt:5524" },
@@ -882,7 +856,8 @@ return function(ctx)
         values = {
           cost = { 8500, unit = "gold", source = "kv:ItemCost" },
           attack = { 50, unit = "dmg", source = "kv:MODIFIER_PROPERTY_PREATTACK_BONUS_DAMAGE @npc/npc_items_custom_load.txt:3376" },
-          all_stats = { 30, unit = "stat", source = "kv:MODIFIER_PROPERTY_STATS_STRENGTH_BONUS@npc/npc_items_custom_load.txt:3373", note = "MODIFIER_PROPERTY_STATS_*_BONUS @npc/npc_items_custom_load.txt:3373-3375" },
+          all_stats = { 30, unit = "stat", kv = { 45 }, source_differs = "來源目錄的 45 把非主屬性的 modifier_sword_of_invincible_str／agi／int（各 15，secondary_stat）併進三圍；KV 被動 Passive_the_great_sword_of_precision 是 30",
+            source = "kv:MODIFIER_PROPERTY_STATS_STRENGTH_BONUS@npc/npc_items_custom_load.txt:3373", note = "MODIFIER_PROPERTY_STATS_*_BONUS @npc/npc_items_custom_load.txt:3373-3375" },
           secondary_stat = { 15, unit = "stat", source = "kv:MODIFIER_PROPERTY_STATS_STRENGTH_BONUS@npc/npc_items_custom_load.txt:3422", note = "MODIFIER_PROPERTY_STATS_*_BONUS @npc/npc_items_custom_load.txt:3422,3431,3440" },
           hp_threshold = { 60, unit = "pct", source = "script:vscripts/items/Addon_Items/item_the_great_sword_of_invincible.lua:43" },
           cooldown = { 120, unit = "s", source = "kv:AbilityCooldown" },
@@ -1224,7 +1199,63 @@ return function(ctx)
         provenance = { "npc/npc_items_custom_load.txt:6395-6574", "vscripts/items/Addon_Items/item_the_great_sword_of_teleport.lua:1-45" } },
     },
 
+    -- the courier's two orders (原作內建 courier_take_stash_and_transfer_items／courier_return_to_base):
+    -- shells the owner casts through SummonOrder; the host runs what they do by their id (line B)
+    abilities = {
+      { id = "courier_deliver", source_id = "courier_take_stash_and_transfer_items", slot = "hidden", kind = "active", max_level = 1,
+        text = {
+          zh_TW = { name = "送貨", body = "取出主人儲藏處的道具，走到主人身邊交給他。" },
+          en = { name = "Deliver", body = "Takes the items in the owner's stash and carries them to the owner." },
+        },
+        target = { type = "none" },
+        events = { on_cast = {} },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "note", ref = "npc/npc_units_custom_load.txt:3330",
+            text = "Dota 內建信使技能，原作沒有冷卻或法力數值；取貨、送達的行為由 host 依技能 id 執行（E 線 courier-spec-2026-11-09）。" },
+        },
+        provenance = { "npc/npc_units_custom_load.txt:3330", "vscripts/library/events/eventforspawned.lua:51" } },
+      { id = "courier_return", source_id = "courier_return_to_base", slot = "hidden", kind = "active", max_level = 1,
+        text = {
+          zh_TW = { name = "回家", body = "走回自家泉水。" },
+          en = { name = "Return", body = "Walks back to the home fountain." },
+        },
+        target = { type = "none" },
+        events = { on_cast = {} },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "note", ref = "npc/npc_units_custom_load.txt:3323",
+            text = "Dota 內建信使技能，原作沒有冷卻或法力數值；回家的行為由 host 依技能 id 執行（E 線 courier-spec-2026-11-09）。" },
+        },
+        provenance = { "npc/npc_units_custom_load.txt:3323", "vscripts/library/events/eventforspawned.lua:45" } },
+    },
+
     unit_templates = {
+      { id = "courier", source_id = "npc_dota_courier2",
+        values = {
+          hp = { 500, unit = "hp", source = "kv:StatusHealth @npc/npc_units_custom_load.txt:3306-3379" },
+          hp_regen = { 10, unit = "per_s", source = "kv:StatusHealthRegen" },
+          move_speed = { 550, unit = "move_speed", kv = { 750 },
+            source = "kv:courier_speed MODIFIER_PROPERTY_MOVESPEED_ABSOLUTE @npc/npc_abilities_custom_load.txt:1627-1652",
+            source_differs = "D13：KV MovementSpeed 750 是原作生成時沒把 courier_speed 設成 1 級的 bug（eventforkill.lua:540-557 重生後才 550）；照設計意圖一律 550" },
+          turn_rate = { 0.5, unit = "number", source = "kv:MovementTurnRate" },
+          vision = { 100, unit = "dist", source = "kv:VisionDaytimeRange／VisionNighttimeRange" },
+          bounty_gold = { 150, unit = "gold", source = "kv:BountyGoldMin／BountyGoldMax" },
+        },
+        text = { zh_TW = { name = "馬" }, en = { name = "Courier" } },
+        stats = { hp = "$hp", hp_regen = "$hp_regen", move_speed = "$move_speed" },
+        turn_rate = "$turn_rate",
+        -- 原作沒有攻擊能力；collision_radius 不寫即 0：for_no_collision（D13：生成起就無碰撞）
+        attack = { kind = "none" },
+        vision = { day = "$vision", night = "$vision" },
+        bounty = { gold = "$bounty_gold" },
+        ai = "owner_controlled", tags = { "courier" }, owner_death = "persist",
+        abilities = { "courier_deliver", "courier_return" },
+        -- for_magic_immune：host 生成信使時套用（summon 列 magic_immune）
+        passive = { states = { "magic_immune" } },
+        notes = "每位玩家一隻，主人是英雄，沒有存活時間；生成、立即重生、只限主人下指令與 shop_range_rule 開關由 host 做（E 線 courier-spec-2026-11-09 §1）。tag courier：host 把 UnitType 設成 Courier，has_tag(courier) 成立。",
+        provenance = { "npc/npc_units_custom_load.txt:3306-3379", "vscripts/library/events/eventforspawned.lua:38-57", "vscripts/library/events/eventforkill.lua:540-557" } },
+
       { id = "art_of_war_infantry", source_id = "oda_infantry_forest",
         values = {
           base_hp = { 650, unit = "hp", hidden = true, source = "kv:StatusHealth @npc/npc_units_custom_load.txt:3963" },

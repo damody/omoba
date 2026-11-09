@@ -284,6 +284,9 @@ function M.cover(builds, ids)
         if entry.consumable then singles[#singles + 1] = other else goals[#goals + 1] = other end
       end
     end
+    -- a coverage goal whose assembly needs every slot (chidori: sukemune and sukezane, six) is
+    -- bought without the build's single-use items, which would leave it no room
+    if not item.consumable and #singles + M.need(item, by_id) > M.SLOTS then singles = {} end
     local items, held = {}, #singles
     for k, single in ipairs(singles) do items[k] = single end
     if item.consumable then items[#items + 1] = id; held = held + 1 else table.insert(goals, 1, id) end
@@ -295,6 +298,19 @@ function M.cover(builds, ids)
     end
     build.items = items
   end end
+  return out
+end
+
+-- Coverage by rounds: a match has room for a few coverage goals, not for the whole uncovered
+-- shop (72 shop items no bot obtained over the 103 matches of hero_status run 20261106, every
+-- build the same). ROUND_SIZE of IDS (uncovered, shop order) for round ROUND, consecutive rounds
+-- taking consecutive slices, so the groups of a sweep (verify_m6_batch, a round each) reach them all.
+M.ROUND_SIZE = 5
+function M.round(ids, round)
+  local out = {}
+  if #ids == 0 then return out end
+  local start = (round * M.ROUND_SIZE) % #ids
+  for k = 0, math.min(M.ROUND_SIZE, #ids) - 1 do out[#out + 1] = ids[(start + k) % #ids + 1] end
   return out
 end
 

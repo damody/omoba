@@ -283,6 +283,21 @@ fn launch_admission_rejects_invalid_shapes_allies_and_live_budget() {
     assert_eq!(live(&w), MAX_LIVE_PER_SOURCE, "per-source budget");
 }
 
+/// B08T_old 一刀．空牙 flies 30000 (its source value): a linear flight past 10000 is admitted,
+/// one past MAX_LINEAR_DISTANCE is not.
+#[test]
+fn a_map_crossing_linear_flight_is_admitted_up_to_its_cap() {
+    let mut w = world();
+    let caster = body(&mut w, 0, 0, 1);
+    let far = Spec { distance: Fixed64::from_i32(30_000), lifetime: Fixed64::from_i32(11), speed: Fixed64::from_i32(3000),
+        ..linear(caster, at(1, 0)) };
+    assert!(far.valid());
+    assert_eq!(Spec::from_payload(BUFF, far.lifetime, &far.payload()), Some(far.clone()));
+    assert!(admitted(&w, caster, BUFF, far.lifetime, &far.payload(), None).is_some());
+    let beyond = Spec { distance: Fixed64::from_i32(MAX_LINEAR_DISTANCE) + Fixed64::from_raw(1), ..far };
+    assert!(!beyond.valid());
+}
+
 #[test]
 fn fog_projection_discloses_flight_only_through_owner_team_or_vision() {
     let mut w = world();
@@ -680,7 +695,7 @@ fn on_hit_schedules_the_owner_callback_with_the_unit_hit_and_the_impact_point() 
     let spec = Spec { max_hits: 8, ..linear(caster, at(1, 0)) };
     let captured = omb_script_abi::types::ScheduleArg { kind: se::ARG_NUM, num: Fixed64::from_i32(7),
         unit: omb_script_abi::types::EntityHandle::INVALID, point: Vec2::ZERO };
-    let template = se::Spec { ability: "fixture_bolt".into(), level: 2, step: 3, instance: 5, args: vec![captured] };
+    let template = se::Spec { ability: "fixture_bolt".into(), level: 2, step: 3, instance: 5, args: vec![captured], item_slot: None };
     let payload = with_on_hit(spec.payload(), &template);
     assert_eq!(on_hit_of(&payload), Some(template.clone()));
     assert_eq!(Spec::from_payload(BUFF, spec.lifetime, &payload), Some(spec.clone()), "on_hit is an optional row");

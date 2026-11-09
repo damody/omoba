@@ -55,13 +55,13 @@ mod tests {
             let def: AbilityDef = serde_json::from_str(ffi.def_json.as_str()).expect("def json");
             // A summon's ability from an item document: on its unit, so not a shelf item.
             if def.kind == AbilityKind::Ability {
-                assert!(["ninja1_flash", "ninja2_burrow"].contains(&def.id.as_str()), "{} is neither an item nor a known summon ability", def.id);
+                assert!(["ninja1_flash", "ninja2_burrow", "courier_deliver", "courier_return"].contains(&def.id.as_str()), "{} is neither an item nor a known summon ability", def.id);
                 continue;
             }
             assert_eq!(def.kind, AbilityKind::Item, "{}", def.id);
             let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
-                .find(|item| item.source_ref.is_some_and(|r| r.ends_with(&format!(":{}", def.id)))).expect("catalog item");
-            let target = match item.target.shape { Shape::Self_ => TargetType::None, Shape::Point => TargetType::Point, Shape::Unit => TargetType::Unit };
+                .find(|item| ability_kit::metadata::catalog_item_is(item, &def.id)).expect("catalog item");
+            let target = match item.target.shape { Shape::Self_ => TargetType::None, Shape::Point => TargetType::Point, Shape::Unit => TargetType::Unit, Shape::UnitOrPoint => TargetType::Point };
             assert_eq!(def.target_type, target, "{}", def.id);
             let rank = def.get_level_data(1).expect("rank 1");
             assert_eq!(rank.cooldown, item.cooldown.to_f32_for_render(), "{}", def.id);

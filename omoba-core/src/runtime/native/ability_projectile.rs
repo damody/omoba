@@ -54,6 +54,9 @@ pub const BUFF: &str = "ability_projectile";
 pub const MAX_LIVE: usize = 512;
 pub const MAX_LIVE_PER_SOURCE: usize = 32;
 pub const MAX_HITS: u16 = 64;
+/// Longest linear flight. A map-crossing wave is authored that way (B08T_old 一刀．空牙 flies
+/// 30000 at 3000, about ten seconds); the 30 s lifetime cap bounds the flight time anyway.
+pub const MAX_LINEAR_DISTANCE: i32 = 60_000;
 /// Bounce chains: at most this many hits in total, radius 1..=MAX_BOUNCE_RADIUS.
 pub const MAX_BOUNCE_HITS: u16 = 16;
 pub const MAX_BOUNCE_RADIUS: i32 = 2_000;
@@ -134,7 +137,7 @@ impl Spec {
         let ranged = |v: Fixed64, min: Fixed64, max: Fixed64| v >= min && v <= max;
         let motion = match self.motion {
             Motion::Linear { aim } => supported(aim)
-                && ranged(self.distance, Fixed64::from_raw(1), Fixed64::from_i32(10_000))
+                && ranged(self.distance, Fixed64::from_raw(1), Fixed64::from_i32(MAX_LINEAR_DISTANCE))
                 && (1..=MAX_HITS).contains(&self.max_hits) && !self.buildings,
             Motion::Homing { target_id, target_generation } => target_id != u32::MAX
                 && target_generation > 0 && target_generation <= i32::MAX as u32

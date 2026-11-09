@@ -93,6 +93,10 @@ pub enum FactKind {
     UnitAbilities = 45,
     /// A script's presentation cue (team_projector projects it on what the team sees).
     Cue = 46,
+    /// The authority's order filter refused a unit order (status_event ORDER_FILTER): the
+    /// caster's team replica refuses the same cast, the holder's team replica runs the same hooks
+    /// (EVENT ONLY, team_projector; order_filter in scripting dispatch).
+    OrderFiltered = 47,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -226,6 +230,9 @@ pub enum ObservableFact {
         to_unit: Option<u64>, to_point: Option<(i64, i64)>,
         radius_raw: i64, duration_raw: i64,
     },
+    /// The order filters of `holder`'s statuses heard `caster`'s order to use `ability`
+    /// (`item:<id>` for an item) on it this step, and whether they refused it.
+    OrderFiltered { caster: u64, holder: u64, ability: String, refused: bool },
     Tower {
         source: u64,
         action_id: u64,

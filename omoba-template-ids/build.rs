@@ -373,13 +373,14 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
 
 /// `V3_CATALOG_JSON`: the package schema v3 blocks of every live hero ability and shelf item,
 /// with the content hash, for UE tooltips and the website generator
-/// (docs/character_pipeline/schema/v3-content-model-proposal.md §2.1). Written out by
+/// (docs/character_pipeline/schema/v3-content-model-proposal.md §2.1); an ability carries its
+/// `ability_type` (the host's `ultimate` source tag, dispel::Registry). Written out by
 /// `cargo run -p omoba-template-ids --example export_content_catalog -- <out.json>`.
 fn emit_v3_catalog(out: &mut String, data_hash: &str, heroes: &[HeroEntry], abilities: &[AbilityEntry], items: &[MobaItemEntry]) {
     let heroes: Vec<_> = heroes.iter().filter(|h| !h.tombstone).map(|h| serde_json::json!({
         "id": h.id, "display_name": h.display_name, "title": h.title, "abilities": h.abilities })).collect();
     let abilities: Vec<_> = abilities.iter().filter(|a| !a.tombstone && a.v3.is_some()).map(|a| serde_json::json!({
-        "id": a.id, "display_name": a.display_name, "max_level": a.max_level, "v3": a.v3 })).collect();
+        "id": a.id, "display_name": a.display_name, "max_level": a.max_level, "ability_type": a.ability_type, "v3": a.v3 })).collect();
     let items: Vec<_> = items.iter().filter(|i| !i.test_only && i.v3.is_some()).map(|i| serde_json::json!({
         "id": i.id, "catalog_id": i.catalog_id, "name": i.name, "cost": i.cost, "recipe": i.recipe, "v3": i.v3 })).collect();
     let doc = serde_json::json!({ "schema": omoba_content_model::v3::SCHEMA, "content_data_hash": data_hash,
@@ -401,10 +402,12 @@ fn emit_moba_items(out: &mut String, items: &[MobaItemEntry]) {
         let active = item.active.as_ref().map(|effect| format!("Some({})", effect.rust_literal()))
             .unwrap_or_else(|| "None".into());
         out.push_str(&format!(
-            "MobaItemConst {{ catalog_id: {}, id: {:?}, name: {:?}, cost: {}, atk: {}, hp: {}, ms: {}, armor: {}, lifesteal: {}, critical_chance: {}, unique_passive: {}, purchase_group: {}, active: {}, cooldown: {}, mana_cost: {}, consumable: {}, shares_cooldown_with: &[{}], aura: {}, recipe: &[{}], target: {}, source_ref: {}, test_only: {}, modifiers: [{}] }},\n",
+            "MobaItemConst {{ catalog_id: {}, id: {:?}, name: {:?}, cost: {}, atk: {}, hp: {}, ms: {}, armor: {}, lifesteal: {}, critical_chance: {}, unique_passive: {}, purchase_group: {}, active: {}, cooldown: {}, mana_cost: {}, consumable: {}, charges: {}, cast: {}, shares_cooldown_with: &[{}], aura: {}, recipe: &[{}], target: {}, source_ref: {}, test_only: {}, modifiers: [{}] }},\n",
             item.catalog_id, item.id, item.name, item.cost,
             fixed64_lit(item.atk), fixed64_lit(item.hp), fixed64_lit(item.ms), fixed64_lit(item.armor),
-            fixed64_lit(item.lifesteal), fixed64_lit(item.critical_chance), item.unique_passive.as_ref().map(|v|format!("Some({})",v.rust_literal())).unwrap_or_else(||"None".into()), item.purchase_group.as_ref().map(|v|format!("Some({})",v.rust_literal())).unwrap_or_else(||"None".into()), active, fixed64_lit(item.cooldown), fixed64_lit(item.mana_cost), item.consumable, item.shares_cooldown_with.iter().map(|id| format!("{id:?}")).collect::<Vec<_>>().join(", "), item.aura.as_ref().map(|a| format!("Some({})", a.rust_literal())).unwrap_or_else(|| "None".into()), recipe, item.target.rust_literal(),
+            fixed64_lit(item.lifesteal), fixed64_lit(item.critical_chance), item.unique_passive.as_ref().map(|v|format!("Some({})",v.rust_literal())).unwrap_or_else(||"None".into()), item.purchase_group.as_ref().map(|v|format!("Some({})",v.rust_literal())).unwrap_or_else(||"None".into()), active, fixed64_lit(item.cooldown), fixed64_lit(item.mana_cost), item.consumable,
+            item.charges.as_ref().map(|c| format!("Some({})", c.rust_literal())).unwrap_or_else(|| "None".into()),
+            item.cast.as_ref().map(|c| format!("Some({})", c.rust_literal())).unwrap_or_else(|| "None".into()), item.shares_cooldown_with.iter().map(|id| format!("{id:?}")).collect::<Vec<_>>().join(", "), item.aura.as_ref().map(|a| format!("Some({})", a.rust_literal())).unwrap_or_else(|| "None".into()), recipe, item.target.rust_literal(),
             item.source_ref.as_deref().map(|r| format!("Some({r:?})")).unwrap_or_else(|| "None".into()), item.test_only,
             item.modifier_values().iter().map(|v| fixed64_lit(*v)).collect::<Vec<_>>().join(", "),
         ));
@@ -1799,6 +1802,8 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \tchase: {},\n\
              \tblocks_pathing: {},\n\
              \tbuilding: {},\n\
+             \tcourier: {},\n\
+             \tmagic_immune: {},\n\
              }};\n",
             cname,
             fixed64_lit(e.hp),
@@ -1836,6 +1841,8 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             chase,
             e.blocks_pathing,
             e.building,
+            e.courier,
+            e.magic_immune,
         ));
     }
     out.push('\n');
@@ -1876,6 +1883,7 @@ fn target_type_to_variant(s: &str) -> &'static str {
         "" | "none" => "None",
         "point" => "Point",
         "unit" => "Unit",
+        "unit_or_point" => "UnitOrPoint",
         other => panic!("unknown target_type '{}'", other),
     }
 }
@@ -1962,6 +1970,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
              \ttargets_heroes_only: {},\n\
              \trequires_status: {},\n\
              \tauto_learn: {},\n\
+             \tno_cast_trigger: {},\n\
              \tability_type: AbilityTypeC::{},\n\
              \tcast_type: CastTypeC::{},\n\
              \ttarget_type: TargetTypeC::{},\n\
@@ -1988,6 +1997,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
             e.targets_heroes_only,
             e.requires_status.as_ref().map_or("None".to_owned(), |status| format!("Some(\"{}\")", escape_str_literal(status))),
             e.auto_learn,
+            e.no_cast_trigger,
             ability_type_to_variant(&e.ability_type),
             cast_type_to_variant(&e.cast_type),
             target_type_to_variant(&e.target_type),

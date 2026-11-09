@@ -166,7 +166,7 @@ impl Cx<'_, '_> {
         let mut payload = spec.payload_with(motion::Options { origin: Some(from), stun, height, contact });
         if let Some((ability, step, args)) = on_end {
             let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
-            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec() }
+            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec(), item_slot: None }
                 .checked().filter(|spec| spec.args.len() < scheduled_effect::MAX_ARGS).ok_or("v3: invalid knockback on_end")?;
             payload = motion::with_on_end(payload, &template);
         }
@@ -572,9 +572,13 @@ impl Cx<'_, '_> {
     }
 
     /// v3 `refund { cooldown = true }` in a cast: its own cooldown does not start (host ext
-    /// REFUND, E455). No other refund exists.
+    /// REFUND, E455); in an item's cast, nor do its shared cooldowns.
     #[inline]
     pub fn refund_cooldown(&mut self) { let _ = self.read(op::REFUND, &[ExtArg::Str("cooldown".into())]); }
+    /// v3 `refund { mana = true }` in an item's `on_cast`: the use spends no mana (host ext REFUND).
+    /// Only there: a hero ability's mana has no refund (the host refuses it).
+    #[inline]
+    pub fn refund_mana(&mut self) { let _ = self.read(op::REFUND, &[ExtArg::Str("mana".into())]); }
 
     /// v3 `immune_to` (E445): a status on `to` refuses `status` (host ext STATUS_IMMUNE).
     pub fn status_immune(&mut self, to: EntityHandle, status: &crate::codegen::StatusDef) -> bool {
@@ -593,6 +597,42 @@ impl Cx<'_, '_> {
     pub fn event_ability_id(&mut self) -> Option<String> {
         match self.read(op::EVENT_ABILITY_ATTR, &[ExtArg::Str(omb_script_abi::ext::event_ability_attr::ID.into())]) {
             ExtValue::Str(id) => Some(id.into()), _ => None,
+        }
+    }
+
+    /// v3 `has_tag(event.ability, tag)` in an `on_ability_executed` status trigger (tags in
+    /// `omb_script_abi::ext::ability_tag`; host ext EVENT_ABILITY_TAG). False in any other call.
+    pub fn event_ability_has_tag(&mut self, tag: &str) -> bool {
+        matches!(self.read(op::EVENT_ABILITY_TAG, &[ExtArg::Str(tag.into())]), ExtValue::Bool(true))
+    }
+
+    /// v3 `event.order.ability.mana_cost` in an order status trigger: its mana cost at the
+    /// orderer's rank (an item's at rank 1; host ext EVENT_ABILITY_ATTR `mana_cost`).
+    pub fn event_ability_mana_cost(&mut self) -> Fixed64 {
+        match self.read(op::EVENT_ABILITY_ATTR, &[ExtArg::Str(omb_script_abi::ext::event_ability_attr::MANA_COST.into())]) {
+            ExtValue::Num(cost) => cost, _ => Fixed64::ZERO,
+        }
+    }
+
+    /// v3 `modify_cooldown { ability = event.order.ability, mode = "start" }` without an amount:
+    /// the event's ability cools down fully on `unit` (an ability at its rank; an item, `item:<id>`,
+    /// in every slot holding it for its catalog cooldown).
+    pub fn event_ability_cooldown_start(&mut self, unit: EntityHandle) -> Res {
+        let Some(id) = self.event_ability_id() else { return Ok(()) };
+        let Some(item) = id.strip_prefix("item:") else { return self.cooldown_start_own(unit, &id) };
+        let seconds = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+            .find(|row| crate::metadata::catalog_item_is(row, item))
+            .map_or(Fixed64::ZERO, |row| row.cooldown);
+        if seconds <= Fixed64::ZERO { return Ok(()); }
+        self.item_cooldown_start(unit, item, seconds)
+    }
+
+    /// v3 `cancel_cast` in an order filter (status event ORDER_FILTER): the order is refused before
+    /// its windup, nothing charged (host ext CANCEL_ORDER; an error outside an order filter).
+    pub fn cancel_order(&mut self) -> Res {
+        match self.world.ext(op::CANCEL_ORDER, RSlice::from_slice(&[])).into_result() {
+            Ok(_) => Ok(()),
+            Err(_) => Err("v3: cancel_cast outside an order filter"),
         }
     }
 
@@ -961,10 +1001,22 @@ impl Cx<'_, '_> {
     /// up to `amount` of the damage `types` (`"physical"`, `"magical"`, `"pure"`; empty: all) after
     /// mitigation; used up, the status is removed. `duration` is the status's.
     pub fn absorb(&mut self, to: EntityHandle, status: &crate::codegen::StatusDef, amount: Fixed64, types: &[&str], duration: Fixed64) -> Res {
+        self.absorb_with(to, status, 0, amount, types, duration, false)
+    }
+
+    /// [`Cx::absorb`] of independent instance `instance` of the status (the `n` that
+    /// `apply_status_instance` returned; 0: the plain row), each instance with its own shield;
+    /// `pre_mitigation` (v3 `absorb.phase = "pre_mitigation"`): `amount` is in damage before armor
+    /// and resistance, and the shield drains by what each hit was before them (omoba-core absorb.rs).
+    #[allow(clippy::too_many_arguments)]
+    pub fn absorb_with(&mut self, to: EntityHandle, status: &crate::codegen::StatusDef, instance: u32, amount: Fixed64, types: &[&str],
+        duration: Fixed64, pre_mitigation: bool) -> Res {
         use omoba_core::runtime::native::absorb::{Spec, Types, BUFF};
         if !to.is_valid() || amount <= Fixed64::ZERO { return Ok(()); }
         let types = Types::from_names(types).ok_or("v3: unknown absorb type")?;
-        let spec = Spec { status: self.runtime_id(status), amount: amount.min(Fixed64::from_i32(1_000_000)), types };
+        let id = self.runtime_id(status);
+        let status = if instance == 0 { id } else { format!("{id}#{instance}") };
+        let spec = Spec { status, amount: amount.min(Fixed64::from_i32(1_000_000)), types, pre_mitigation };
         self.world.add_stat_buff(to, RStr::from_str(BUFF), duration, RStr::from_str(&spec.payload().to_string()));
         Ok(())
     }
@@ -1101,6 +1153,11 @@ impl Cx<'_, '_> {
     pub fn game_dt(&mut self) -> Fixed64 {
         match self.read(op::GAME_ATTR, &[ExtArg::Str(game_attr::DT.into())]) { ExtValue::Num(n) => n, _ => Fixed64::ZERO }
     }
+
+    /// A numeric match attribute, e.g. `cx.game_num(game_attr::CREEP_WAVE)` for v3 `game.creep_wave`.
+    pub fn game_num(&mut self, attr: &str) -> Fixed64 {
+        match self.read(op::GAME_ATTR, &[ExtArg::Str(attr.into())]) { ExtValue::Num(n) => n, _ => Fixed64::ZERO }
+    }
 }
 
 /// v3 `pick_item.order` (E561).
@@ -1141,6 +1198,20 @@ pub struct StatusFilter<'s> {
     pub limit: Option<Fixed64>,
 }
 
+/// The filters of a v3 `remove_status` on its statuses' duration and source (vocab:
+/// `min_duration`, `exclude_source_tags`, `source_is`); `Default` is none of them.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SourceFilter<'s> {
+    /// Only statuses whose full duration (the application that last set the remaining time) is
+    /// longer than this; a permanent status never goes.
+    pub min_duration: Option<Fixed64>,
+    /// Statuses whose source ability or item carries one of these tags stay (`ultimate`: an
+    /// ultimate ability; `item`: an item; else the entry's own `tags`).
+    pub exclude_source_tags: &'s [&'s str],
+    /// `"has_ability"`, `"no_ability"`, `"alive"`, `"gone"`: every one must hold.
+    pub source_is: &'s [&'s str],
+}
+
 impl Cx<'_, '_> {
     /// v3 `remove_status` by filters: the host removes the statuses of `from` they name
     /// (omoba-core `dispel::purge`), shared controls following the statuses holding them.
@@ -1159,8 +1230,18 @@ impl Cx<'_, '_> {
     /// many seconds ago (a refresh keeps the first application, Dota GetElapsedTime); `None` any age.
     pub fn remove_statuses_younger(&mut self, from: EntityHandle, filter: StatusFilter<'_>, tags: &[&str], exclude_tags: &[&str],
         max_elapsed: Option<Fixed64>) -> Res {
-        use omoba_core::runtime::native::dispel::{Purge, PurgeMode, PurgeSpec, SourceTeam, PURGE_BUFF};
+        self.remove_statuses_by_source(from, filter, tags, exclude_tags, max_elapsed, SourceFilter::default())
+    }
+
+    /// [`Cx::remove_statuses_younger`] with v3 `min_duration`, `exclude_source_tags` and
+    /// `source_is` (omoba-core `dispel::SourceRule`).
+    pub fn remove_statuses_by_source(&mut self, from: EntityHandle, filter: StatusFilter<'_>, tags: &[&str], exclude_tags: &[&str],
+        max_elapsed: Option<Fixed64>, source: SourceFilter<'_>) -> Res {
+        use omoba_core::runtime::native::dispel::{Purge, PurgeMode, PurgeSpec, SourceIs, SourceRule, SourceTeam, PURGE_BUFF};
         if !from.is_valid() { return Ok(()); }
+        let source_is = source.source_is.iter().map(|is| SourceIs::parse(is).ok_or("v3: unknown remove_status source_is"))
+            .collect::<Result<Vec<_>, _>>()?;
+        if source.min_duration.is_some_and(|min| min < Fixed64::ZERO) { return Err("v3: negative remove_status min_duration"); }
         let (mode, side) = match filter.dispel {
             None | Some("all") => (PurgeMode::All, None),
             Some("basic") => (PurgeMode::Basic, None),
@@ -1188,7 +1269,8 @@ impl Cx<'_, '_> {
         let spec = PurgeSpec { mode, side, team, except: filter.except.iter().map(|s| (*s).to_owned()).collect(),
             states: filter.states.iter().map(|s| (*s).to_owned()).collect(), limit,
             tags: tags.iter().map(|s| (*s).to_owned()).collect(), exclude_tags: exclude_tags.iter().map(|s| (*s).to_owned()).collect(),
-            max_elapsed };
+            max_elapsed, source: SourceRule { min_duration: source.min_duration,
+                exclude_source_tags: source.exclude_source_tags.iter().map(|s| (*s).to_owned()).collect(), source_is } };
         self.world.add_stat_buff(from, RStr::from_str(PURGE_BUFF), Fixed64::ONE, RStr::from_str(&spec.payload().to_string()));
         Ok(())
     }

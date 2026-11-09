@@ -79,6 +79,11 @@ pub struct AbilityDefinition {
     /// Works in any slot (e.g. a level-16 extra-slot ultimate, a passive learned at birth).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub auto_learn: bool,
+    /// v3 ability tag `no_cast_trigger`: a cast of it does not count as "an ability used" for
+    /// item and status triggers that exclude it (怒雷之書: `not has_tag(event.ability,
+    /// no_cast_trigger)`; the host's EVENT_ABILITY_TAG reads it).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_cast_trigger: bool,
     /// Authored unit-target allegiance ("ally" or "enemy") for a unit-target
     /// ability whose effects do not imply one (a custom Rust handler).
     /// Declarative effects still decide when they do; a contradiction is invalid.

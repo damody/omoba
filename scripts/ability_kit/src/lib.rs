@@ -14,7 +14,7 @@ pub use codegen::*;
 
 // Host components work line B adds (M5): more `impl Cx` methods, same glob export.
 mod host_ext;
-pub use host_ext::{DmgExtra, PickOrder, PickedItem, StatusFilter};
+pub use host_ext::{DmgExtra, PickOrder, PickedItem, SourceFilter, StatusFilter};
 // v3 `chance { mode = "prd" }` (E505).
 mod prd;
 // v3 stat `when` (E508).
@@ -33,3 +33,5 @@ pub use omoba_core::runtime::native::hero_command::OrderKind;
 pub use omoba_core::runtime::native::illusion::{Copy as IllusionCopy, Scale as IllusionScale, StatusCopy as IllusionStatusCopy};
 /// Attribute names for `Cx::unit_num` / `unit_flag` / `unit_ref`.
 pub use omb_script_abi::ext::unit_attr;
+/// Attribute names for `Cx::game_num`.
+pub use omb_script_abi::ext::game_attr;

@@ -1,0 +1,102 @@
+--- a/omoba-core/src/runtime/native/moba_match/courier.rs
++++ b/omoba-core/src/runtime/native/moba_match/courier.rs
+@@ -168,4 +168,28 @@
+         let state = world.read_resource::<MobaMatch>();
+         assert!(courier_of(&world, &state, 1).is_some_and(|next| next != first), "the killed courier came back as a new body");
+     }
++    /// A courier is UnitType::Courier, yet its owner commands it as a summon (summon_orders).
++    #[test]
++    fn the_owner_moves_its_courier_like_a_summon() {
++        let (mut world, mut driver) = world(true);
++        while world.read_resource::<MobaMatch>().phase == MobaMatchPhase::Warmup { driver.step(&mut world, Vec::new()).unwrap(); }
++        let (owner, courier, spawn) = {
++            let state = world.read_resource::<MobaMatch>();
++            let slot = state.heroes.iter().find(|slot| slot.player_id == 1).unwrap();
++            (slot.entity.unwrap(), courier_of(&world, &state, 1).unwrap(), slot.courier_spawn.unwrap())
++        };
++        let to = spawn + Vec2::new(Fixed64::from_i32(200), Fixed64::ZERO);
++        let order = crate::game_proto::OwnedSummonOrder { owner_entity: owner.id(), owner_generation: owner.gen().id() as u32,
++            summon_entity: courier.id(), summon_generation: courier.gen().id() as u32, operation: 1,
++            point: Some(crate::game_proto::Vec2I { x: to.x.raw() as i32, y: to.y.raw() as i32 }), ability: String::new(), target: None };
++        assert_eq!(crate::runtime::native::summon_orders::apply(&mut world, 1, owner, &order), Ok(()), "the owner may move its courier");
++        let other = state_entity(&world, 2);
++        assert!(crate::runtime::native::summon_orders::apply(&mut world, 2, other, &crate::game_proto::OwnedSummonOrder {
++            owner_entity: other.id(), owner_generation: other.gen().id() as u32, ..order.clone() }).is_err(), "another player may not");
++
++    }
++
++    fn state_entity(world: &World, player_id: u32) -> Entity {
++        world.read_resource::<MobaMatch>().heroes.iter().find(|slot| slot.player_id == player_id).and_then(|slot| slot.entity).unwrap()
++    }
+ }
+--- a/omoba-core/src/runtime/filtered_specs.rs
++++ b/omoba-core/src/runtime/filtered_specs.rs
+@@ -840,6 +840,17 @@
+         // buildings (`is_building`, ally_area_restore exclude_buildings, point_blast) decide the
+         // same on the authority and every team replica.
+         // So is a disclosed summon whose template is a building (E428).
++        // A disclosed summon whose template is a courier is UnitType::Courier on the replica too, as
++        // the authority spawned it (has_tag courier, summon orders: E courier-spec §1).
++        let courier = self.filtered.world.read_storage::<crate::runtime::ScriptUnitTag>().get(entity)
++            .and_then(|tag| omoba_template_ids::summon_by_name(&tag.unit_id))
++            .and_then(omoba_template_ids::active_summon_stats)
++            .is_some_and(|stats| stats.courier);
++        if courier {
++            if let Some(unit) = self.filtered.world.write_storage::<Unit>().get_mut(entity) {
++                unit.unit_type = crate::runtime::UnitType::Courier;
++            }
++        }
+         let building_summon = self.filtered.world.read_storage::<crate::runtime::ScriptUnitTag>().get(entity)
+             .and_then(|tag| omoba_template_ids::summon_by_name(&tag.unit_id))
+             .and_then(omoba_template_ids::active_summon_stats)
+@@ -1040,7 +1051,7 @@
+                 let summon_id=accepted.target.as_ref().ok_or(ReplicaRuntimeError::Decode)?.value;
+                 let summon=self.filtered.entities.0.get(&summon_id).ok_or(ReplicaRuntimeError::UnknownEntity)?.entity;
+                 if !self.filtered.world.read_storage::<PlayerOwner>().get(summon).is_some_and(|owner|owner.player_id==accepted.player_id)
+-                    || !self.filtered.world.read_storage::<crate::runtime::Unit>().get(summon).is_some_and(|unit|matches!(unit.unit_type,crate::runtime::UnitType::Summon)) {
++                    || !self.filtered.world.read_storage::<crate::runtime::Unit>().get(summon).is_some_and(|unit|matches!(unit.unit_type,crate::runtime::UnitType::Summon|crate::runtime::UnitType::Courier)) {
+                     return Err(ReplicaRuntimeError::WrongTeam);
+                 }
+                 // This is a post-step ACK. SummonedUnit is private; never invent
+--- a/omoba-core/src/runtime/native/snapshot.rs
++++ b/omoba-core/src/runtime/native/snapshot.rs
+@@ -1134,7 +1134,7 @@
+             EntityKind::Tower
+         } else if proj_storage.get(entity).is_some() {
+             EntityKind::Projectile
+-        } else if unit_type_storage.as_ref().and_then(|units|units.get(entity)).is_some_and(|unit|matches!(unit.unit_type,UnitType::Summon)) {
++        } else if unit_type_storage.as_ref().and_then(|units|units.get(entity)).is_some_and(|unit|matches!(unit.unit_type,UnitType::Summon|UnitType::Courier)) {
+             EntityKind::Summon
+         } else if creep_storage.get(entity).is_some() {
+             EntityKind::Creep
+@@ -1645,7 +1645,7 @@
+             EntityKind::Tower
+         } else if proj_storage.get(entity).is_some() {
+             EntityKind::Projectile
+-        } else if unit_type_storage.as_ref().and_then(|units|units.get(entity)).is_some_and(|unit|matches!(unit.unit_type,UnitType::Summon)) {
++        } else if unit_type_storage.as_ref().and_then(|units|units.get(entity)).is_some_and(|unit|matches!(unit.unit_type,UnitType::Summon|UnitType::Courier)) {
+             EntityKind::Summon
+         } else if creep_storage.get(entity).is_some() {
+             EntityKind::Creep
+--- a/omoba-core/src/runtime/native/summon_orders.rs
++++ b/omoba-core/src/runtime/native/summon_orders.rs
+@@ -51,7 +51,7 @@
+         || world.read_storage::<CProperty>().get(owner).is_none_or(|p|p.hp<=Fixed64::ZERO) {return Err("inactive_owner");}
+     let entity=world.entities().entity(message.summon_entity);
+     if !world.entities().is_alive(entity) || entity.gen().id() as u32!=message.summon_generation {return Err("stale_summon");}
+-    if world.read_storage::<Unit>().get(entity).is_none_or(|u|!matches!(u.unit_type,UnitType::Summon))
++    if world.read_storage::<Unit>().get(entity).is_none_or(|u|!matches!(u.unit_type,UnitType::Summon|UnitType::Courier))
+         || world.read_storage::<CProperty>().get(entity).is_none_or(|p|p.hp<=Fixed64::ZERO)
+         || world.read_storage::<SummonedUnit>().get(entity).is_none_or(|s|s.summoner!=owner || s.is_expired())
+         || world.read_storage::<PlayerOwner>().get(entity).is_some_and(|p|p.player_id!=player) {return Err("unowned_or_inactive_summon");}
+--- a/omoba-core/src/runtime/visibility.rs
++++ b/omoba-core/src/runtime/visibility.rs
+@@ -1377,7 +1377,7 @@
+                     crate::runtime::native::ability_projectile::RENDER_KIND
+                 } else if heroes.get(entity).is_some() {
+                     1
+-                } else if units.get(entity).is_some_and(|unit|matches!(unit.unit_type,UnitType::Summon)) {
++                } else if units.get(entity).is_some_and(|unit|matches!(unit.unit_type,UnitType::Summon|UnitType::Courier)) {
+                     4
+                 } else if units.get(entity).is_some() {
+                     if factions.get(entity).is_some_and(|f| f.faction_id == FactionType::HostileNeutral) { 3 } else { 2 }

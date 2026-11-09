@@ -363,7 +363,8 @@ return function(ctx)
           agi = { 30, unit = "stat", source = "kv:MODIFIER_PROPERTY_STATS_AGILITY_BONUS" },
           int = { 10, unit = "stat", source = "kv:MODIFIER_PROPERTY_STATS_INTELLECT_BONUS" },
           attack = { 25, unit = "dmg", source = "kv:MODIFIER_PROPERTY_PREATTACK_BONUS_DAMAGE" },
-          hp_regen = { 10, unit = "per_s", source = "kv:Passive_bizennosafunekanemitsu MODIFIER_PROPERTY_HEALTH_REGEN_CONSTANT" },
+          hp_regen = { 10, unit = "per_s", kv = { 30 }, source = "kv:Passive_bizennosafunekanemitsu MODIFIER_PROPERTY_HEALTH_REGEN_CONSTANT",
+            source_differs = "來源目錄的 30 把限時增益 modifier_bizennosafunekanemitsu 的 20 併進被動；KV 被動 Passive_bizennosafunekanemitsu 是 10（npc/npc_items_custom_load.txt）" },
           cooldown = { 45, unit = "s", source = "kv:AbilityCooldown" },
           mana_cost = { 60, unit = "mana", source = "kv:AbilityManaCost" },
           cast_range = { 1000, unit = "dist", source = "kv:AbilityCastRange" },
@@ -660,6 +661,8 @@ return function(ctx)
         passive = { stats = { str = "$str", agi = "$agi", int = "$int" } },
         active = { kind = "active",
           target = { type = "point", range = "$cast_range", aoe_radius = "$aoe_radius" },
+          -- the gale is a line toward the point (aoe_radius is only the indicator)
+          bot = { kind = "enemy_line", min_targets = 1 },
           cast = { cast_point = "$cast_point" },
           cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
           events = { on_cast = {

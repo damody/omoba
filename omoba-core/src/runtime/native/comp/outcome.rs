@@ -4,6 +4,11 @@ use specs::Entity;
 
 use crate::runtime::comp::{CProperty, Creep, CreepStatus, Faction, TAttack, TProperty, Unit};
 
+/// What a scripted item use refunded (v3 `refund` in the item's `on_cast`): the use commits
+/// without spending its mana, or without starting its cooldown (and its shared cooldowns).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ItemRefund { pub mana: bool, pub cooldown: bool }
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Outcome {
     /// Host-owned stationary channel, admitted with its cast resource transaction.
@@ -49,6 +54,8 @@ pub enum Outcome {
         target: Option<Entity>,
         target_point: Option<(i64, i64)>,
         outcomes: Vec<Outcome>,
+        /// What the item's cast refunded (v3 `refund`): the use commits without it.
+        refund: ItemRefund,
     },
     /// Batch pre-admission result of a `ScriptCastTransaction` (host-only).
     ScriptCastPreAdmitted { transaction: Box<Outcome>, admitted: bool },

@@ -30,6 +30,7 @@ fn target_type_from(c: TargetTypeC) -> TargetType {
         TargetTypeC::None => TargetType::None,
         TargetTypeC::Point => TargetType::Point,
         TargetTypeC::Unit => TargetType::Unit,
+        TargetTypeC::UnitOrPoint => TargetType::UnitOrPoint,
     }
 }
 
@@ -39,13 +40,27 @@ fn target_type_from(c: TargetTypeC) -> TargetType {
 /// cites it as its source (`source_ref` `…:<id>`), or a hero document's item (never sold) is
 /// listed under that id itself. `passive`: an item with no active.
 pub fn item_def(id: &str, passive: bool) -> Option<AbilityDef> {
+    item_def_of_kind(id, if passive { "passive" } else { "active" })
+}
+
+/// [`item_def`] whose active is v3 `kind` (`"active"`, `"passive"`, `"toggle"`); `None` for any
+/// other kind.
+/// Whether the catalog `item` is the v3 item `id`: its catalog id, `item_` + its catalog id (the
+/// catalog id is the source key lower-cased without apostrophes: `item_samurai's_badge` is
+/// `samurais_badge`), or its source key itself.
+pub fn catalog_item_is(item: &omoba_template_ids::MobaItemConst, id: &str) -> bool {
+    item.id == id || id.strip_prefix("item_") == Some(item.id)
+        || item.source_ref.and_then(|r| r.rsplit_once(':')).is_some_and(|(_, source)| source == id)
+}
+
+pub fn item_def_of_kind(id: &str, kind: &str) -> Option<AbilityDef> {
+    if !matches!(kind, "active" | "passive" | "toggle") { return None; }
     use omoba_template_ids::MobaItemTargetShapeConst as Shape;
-    let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
-        .find(|item| item.id == id || item.source_ref.and_then(|r| r.rsplit_once(':')).is_some_and(|(_, source)| source == id))?;
-    let target = match item.target.shape { Shape::Self_ => "none", Shape::Point => "point", Shape::Unit => "unit" };
+    let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| catalog_item_is(item, id))?;
+    let target = match item.target.shape { Shape::Self_ => "none", Shape::Point => "point", Shape::Unit => "unit", Shape::UnitOrPoint => "point" };
     let def = serde_json::json!({
         "id": id, "name": item.name, "kind": "item",
-        "ability_type": if passive { "passive" } else { "active" }, "target_type": target, "max_level": 1,
+        "ability_type": kind, "target_type": target, "max_level": 1,
         "levels": { "1": { "cooldown": item.cooldown.to_f32_for_render(), "mana_cost": item.mana_cost.to_f32_for_render(),
             "cast_time": 0.0, "range": item.target.range.to_f32_for_render() } },
     });
@@ -101,4 +116,21 @@ pub fn ability_def(name: &str) -> Option<AbilityDef> {
         properties: HashMap::new(),
         kind: Default::default(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A generated item script registers its active kind: a toggle item reads as a toggle (host
+    /// EVENT_ABILITY_TAG); an unknown kind registers nothing.
+    #[test]
+    fn an_item_def_carries_its_active_kind() {
+        let id = omoba_template_ids::MOBA_ITEM_CATALOG[0].id;
+        let kind = |k: &str| item_def_of_kind(id, k).map(|def| def.ability_type);
+        assert_eq!(kind("toggle"), Some(omoba_core::ability_meta::AbilityType::Toggle));
+        assert_eq!(kind("passive"), Some(omoba_core::ability_meta::AbilityType::Passive));
+        assert_eq!(item_def(id, false).map(|def| def.ability_type), Some(omoba_core::ability_meta::AbilityType::Active));
+        assert!(kind("channel").is_none());
+    }
 }

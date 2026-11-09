@@ -312,12 +312,20 @@ function M.template_rows(doc, t)
   if t.owner_death ~= nil and t.owner_death ~= "persist" and t.owner_death ~= "expire" then no("owner_death:" .. tostring(t.owner_death)) end
   local p = t.passive or {}
   -- passive.states and passive.triggers: the creating code puts them on the unit as a status
-  -- (v3_rust <template>_passive)
-  for _, k in ipairs(sorted(p)) do if k ~= "reveal" and k ~= "states" and k ~= "triggers" then no("passive." .. k) end end
+  -- (v3_rust <template>_passive); passive.aura: the creating code emits it on the new unit for as
+  -- long as it lives, as for a dummy (v3_rust create_unit; 孫子兵法's archers)
+  for _, k in ipairs(sorted(p)) do if k ~= "reveal" and k ~= "states" and k ~= "triggers" and k ~= "aura" then no("passive." .. k) end end
   if p.reveal ~= nil and p.reveal ~= "public" then no("passive.reveal:" .. tostring(p.reveal)) end
-  -- tag ward: the host's SummonedUnit.ward, unit tag `ward` (line B E530)
-  for _, tag in ipairs(t.tags or {}) do if tag ~= "summon" and tag ~= "ward" then no("tag:" .. tag) end end
+  -- tag ward: the host's SummonedUnit.ward, unit tag `ward` (line B E530); tag courier: the
+  -- host spawns it itself as UnitType::Courier (has_tag courier, E courier spec) and puts its
+  -- passive magic_immune on it at the spawn (no creating code runs for it)
+  for _, tag in ipairs(t.tags or {}) do if tag ~= "summon" and tag ~= "ward" and tag ~= "courier" then no("tag:" .. tag) end end
   local ward = has(t.tags, "ward")
+  local courier = has(t.tags, "courier")
+  if courier then
+    for _, k in ipairs(sorted(p)) do if k ~= "states" then no("passive." .. k .. " on a courier") end end
+    for _, st in ipairs(p.states or {}) do if st ~= "magic_immune" then no("passive.states:" .. st .. " on a courier") end end
+  end
   local rows = {}
   for rank = 1, ranks do
     local function num(ref, what)
@@ -331,6 +339,8 @@ function M.template_rows(doc, t)
     row.attack_damage_type = damage_type
     row.no_attack = no_attack or nil
     row.ward = ward or nil
+    row.courier = courier or nil
+    row.magic_immune = courier and has(p.states, "magic_immune") or nil
     row.hp = num(stats.hp, "stats.hp")
     if row.hp == nil then no("stats.hp missing") end
     row.armor = num(stats.armor, "stats.armor") or 0

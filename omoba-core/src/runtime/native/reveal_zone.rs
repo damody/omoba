@@ -32,7 +32,8 @@ use super::comp::{DeltaTime, Faction};
 pub const KEY: &str = "__reveal_zone_v1";
 /// Launch envelope id; never stored as a buff.
 pub const BUFF: &str = "__reveal_zone";
-pub const MAX_RADIUS: i32 = 2_000;
+/// C21T_old 飛翔烈震斬 shows its own team 3000 around its leap (its source value).
+pub const MAX_RADIUS: i32 = 5_000;
 pub const MAX_DURATION: i32 = 30;
 /// Live zones per team; a new one past the cap replaces the oldest.
 /// (C15E alone opens 25 plain sight circles for 12 s.)
@@ -306,6 +307,12 @@ mod tests {
         // 25 segments of one C15E fit under the per-team cap.
         for x in 0..30 { assert!(apply(&mut world, caster, BUFF, Fixed64::from_i32(12), &at(200 + x).payload())); }
         assert_eq!(world.read_resource::<RevealZones>().zones.len(), 32);
+    }
+    /// A sight as wide as the source writes (C21T_old 3000) is a valid zone.
+    #[test]
+    fn a_wide_sight_from_the_source_is_admitted() {
+        assert!(sight_payload(1, 1, Vec2::new(Fixed64::ZERO, Fixed64::ZERO), Fixed64::from_i32(3_000), false, None).is_some());
+        assert!(sight_payload(1, 1, Vec2::new(Fixed64::ZERO, Fixed64::ZERO), Fixed64::from_i32(MAX_RADIUS + 1), false, None).is_none());
     }
     #[test]
     fn payload_round_trips_strictly() {

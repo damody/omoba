@@ -123,7 +123,7 @@ pub struct ParallelAdapterCache<'a> {
     visibility: Option<Read<'a, crate::runtime::TeamVisibilityRuntime>>,
     moba: Option<Read<'a, crate::runtime::MobaMatch>>,
     attack_gate: Option<Read<'a, crate::runtime::filtered_specs::DisclosedAttackabilityGate>>,
-    filtered: bool,
+    pub(crate) filtered: bool,
     summon_placements: super::super::summon_navigation::PlacementReservations,
     /// Test worlds with a `DamageTrace`: scripts tag their damage (ext DAMAGE_TAG).
     damage_trace: bool,
@@ -225,9 +225,17 @@ pub struct ParallelWorldAdapter<'a> {
     overlay_pos: HashMap<Entity, Vec2>,
     /// A due scheduled step: statuses that expired in this tick still count as held.
     held_through_expiry: bool,
+    /// The invocation runs an accepted input (a cast or item use and its phase start): a team
+    /// replica predicts its cooldown changes. Any other (passive triggers, schedules, delays) takes
+    /// them from the authority's CommittedCooldown only.
+    input_driven: bool,
+    /// An order filter (status event ORDER_FILTER): `Some(refused)` while one runs (ext CANCEL_ORDER).
+    order_filter: Option<bool>,
     cast_succeeded: bool,
     /// v3 `refund { cooldown = true }` (ext REFUND, E455): this cast's cooldown does not start.
     refund_cooldown: bool,
+    /// v3 `refund { mana = true }` in an item's cast: the use commits without spending its mana.
+    refund_mana: bool,
     /// Owner-visible code for a cast handler that did not succeed.
     cast_rejection: Option<&'static str>,
     /// The `Err` text of a cast handler that did not succeed (test cast trace).
@@ -276,10 +284,18 @@ pub(crate) struct EventAbility {
     pub id: String,
     pub cast_point: Fixed64,
     pub toggle: bool,
+    /// Its v3 tags besides `toggle` (op::EVENT_ABILITY_TAG): an item used, an ultimate, a passive,
+    /// `no_cast_trigger`.
+    pub item: bool,
+    pub ultimate: bool,
+    pub passive: bool,
+    pub no_cast_trigger: bool,
     /// Where it was cast (event_ability_attr::POINT).
     pub point: Vec2,
     /// Its cast range at the caster's rank (event_ability_attr::CAST_RANGE).
     pub cast_range: Fixed64,
+    /// Its mana cost at the caster's rank (event_ability_attr::MANA_COST).
+    pub mana_cost: Fixed64,
 }
 
 impl Drop for ParallelWorldAdapter<'_> {
@@ -670,8 +686,11 @@ impl<'a> ParallelWorldAdapter<'a> {
             outcomes: Vec::new(),
             overlay_pos: HashMap::new(),
             held_through_expiry: false,
+            input_driven: false,
+            order_filter: None,
             cast_succeeded: false,
             refund_cooldown: false,
+            refund_mana: false,
             cast_rejection: None,
             script_error: None,
             cast_released: false,
@@ -703,8 +722,23 @@ impl<'a> ParallelWorldAdapter<'a> {
     pub fn finish(self) -> Vec<Outcome> {
         let mut this = self;
         this.reserved_entities.clear(); // ownership transfers to outcomes
-        std::mem::take(&mut this.outcomes)
+        let mut outcomes = std::mem::take(&mut this.outcomes);
+        // A team replica does not predict a cooldown change no accepted input caused: it may lack
+        // the authority's state that decided it (a rebased replica relearns its passives without
+        // their statuses or schedule phase, 小島貞興舊版 法術護盾). The settled remaining arrives as
+        // CommittedCooldown in the same frame.
+        if this.cache.filtered && !this.input_driven {
+            outcomes.retain(|outcome| !matches!(outcome, Outcome::AddBuff { buff_id, payload, .. }
+                if super::super::hero_command::cooldown_ability(buff_id, payload).is_some()));
+        }
+        outcomes
     }
+
+    /// See `input_driven`.
+    pub(crate) fn mark_input_driven(&mut self) { self.input_driven = true; }
+    /// This invocation is an order filter; [`Self::order_refused`] tells whether it refused.
+    pub(crate) fn mark_order_filter(&mut self) { self.order_filter = Some(false); }
+    pub(crate) fn order_refused(&self) -> bool { self.order_filter == Some(true) }
 
     pub fn mark_cast_succeeded(&mut self) { self.cast_succeeded = true; }
 
@@ -887,6 +921,9 @@ impl<'a> ParallelWorldAdapter<'a> {
                 .or_else(||hero.and_then(|hero|hero.mana_pool.as_ref()).map(|pool|pool.maximum()))
                 .or_else(||self.cache.unit_mana(e).map(|mana|mana.pool.maximum()))),
             name::IS_ILLUSION=>V::Bool(has(state::ILLUSION)),
+            name::IS_SUMMON=>V::Bool(!has(state::ILLUSION)
+                && entity.is_some_and(|e|self.cache.summoned.as_ref().is_some_and(|rows|rows.get(e).is_some()))),
+            name::ILLUSION_DAMAGE=>num(&|e|Some(super::super::illusion::physical_outgoing(buffs(e),e))),
             name::IS_CHANNELING=>V::Bool(has(super::super::ability_channel::STATUS)),
             name::IS_INVULNERABLE=>V::Bool(has(state::INVULNERABLE)),
             name::IS_INVISIBLE=>V::Bool(entity.is_some_and(|e|buffs(e).stealth_level(e)>0)),
@@ -950,6 +987,7 @@ impl<'a> ParallelWorldAdapter<'a> {
                 "boss"=>self.cache.unit_tags.as_ref().and_then(|tags|tags.get(e)).is_some_and(|tags|tags.has(omoba_template_ids::MobaUnitTag::Boss))
                     || self.source_unit(e).is_some_and(|unit|matches!(unit.unit_type,UnitType::Boss)),
                 "dummy"=>self.source_unit(e).is_some_and(|unit|matches!(unit.unit_type,UnitType::TrainingDummy)),
+                "courier"=>self.source_unit(e).is_some_and(|unit|matches!(unit.unit_type,UnitType::Courier)),
                 "summon"=>self.is_summon(e) || self.cache.summoned.as_ref().is_some_and(|summoned|summoned.get(e).is_some()),
                 "neutral"=>self.cache.faction.get(e).is_some_and(|f|f.faction_id==FactionType::HostileNeutral),
                 // v3 tag ward (E530): a summon whose template is tagged ward
@@ -1144,6 +1182,7 @@ impl<'a> ParallelWorldAdapter<'a> {
         self.overlay_asd_count.clear();
         self.cast_succeeded = false;
         self.refund_cooldown = false;
+        self.refund_mana = false;
         self.hook_panicked = false;
         self.mana_transaction = false;
         self.mana_views.clear();
@@ -1157,6 +1196,8 @@ impl<'a> ParallelWorldAdapter<'a> {
 
     /// The cast refunded its cooldown (v3 `refund cooldown`): it starts none.
     pub(crate) fn cooldown_refunded(&self) -> bool { self.refund_cooldown }
+    /// The item cast refunded its mana (v3 `refund mana`): the use spends none.
+    pub(crate) fn mana_refunded(&self) -> bool { self.refund_mana }
 
     pub fn start_cooldown(&mut self, entity: Entity, ability_id: String, duration: Fixed64) {
         if self.refund_cooldown { return; }
@@ -2033,6 +2074,10 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                     at_unit, at_point, to_unit, to_point, radius_raw: radius.raw().max(0), duration_raw: duration.raw().max(0) });
                 ROk(V::None)
             }
+            (op::CANCEL_ORDER, []) => match &mut self.order_filter {
+                Some(refused) => { *refused = true; ROk(V::None) }
+                None => RErr("GameWorld::ext: CANCEL_ORDER outside an order filter".into()),
+            },
             (op::END_CHANNEL, [A::Unit(unit)]) => {
                 if let Some(entity) = Self::handle_to_entity(*unit) {
                     self.outcomes.push(Outcome::ScriptEndChannel { entity });
@@ -2100,6 +2145,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                 .map_or(V::None, |slot| V::Num(Fixed64::from_i32(slot)))),
             (op::IS_VISIBLE_TO, [A::Unit(x), A::Unit(u)]) => ROk(V::Bool(self.is_visible_to(*x, *u))),
             (op::REFUND, [A::Str(what)]) if what.as_str() == "cooldown" => { self.refund_cooldown = true; ROk(V::None) }
+            (op::REFUND, [A::Str(what)]) if what.as_str() == "mana" && self.event_item_slot.is_some() => { self.refund_mana = true; ROk(V::None) }
             (op::STATUS_IMMUNE, [A::Unit(unit), A::Str(status), states @ ..]) => {
                 let mut held = Vec::with_capacity(states.len());
                 for state in states { let A::Str(state) = state else { return RErr("STATUS_IMMUNE: states are strings".into()) }; held.push(state.as_str()); }
@@ -2114,12 +2160,28 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                         && omoba_template_ids::instance_base(key) == runtime_id.as_str()).count());
                 ROk(V::Num(Fixed64::from_i32(i32::try_from(count).unwrap_or(i32::MAX))))
             }
+            (op::EVENT_ABILITY_TAG, [A::Str(tag)]) => {
+                use omb_script_abi::ext::ability_tag as name;
+                let Some(ability) = &self.event_ability else {
+                    return if [name::ULTIMATE, name::TOGGLE, name::PASSIVE, name::ITEM, name::NO_CAST_TRIGGER].contains(&tag.as_str()) { ROk(V::Bool(false)) }
+                        else { RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown ability tag {tag}"))) };
+                };
+                match tag.as_str() {
+                    name::ULTIMATE => ROk(V::Bool(ability.ultimate)),
+                    name::TOGGLE => ROk(V::Bool(ability.toggle)),
+                    name::PASSIVE => ROk(V::Bool(ability.passive)),
+                    name::ITEM => ROk(V::Bool(ability.item)),
+                    name::NO_CAST_TRIGGER => ROk(V::Bool(ability.no_cast_trigger)),
+                    _ => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown ability tag {tag}"))),
+                }
+            }
             (op::EVENT_ABILITY_ATTR, [A::Str(attr)]) => {
                 use omb_script_abi::ext::event_ability_attr as name;
                 if attr.as_str() == name::RAW_DAMAGE { return ROk(V::Num(self.event_raw_damage)); }
                 match (&self.event_ability, attr.as_str()) {
-                    (None, name::ID | name::CAST_POINT | name::IS_TOGGLE | name::POINT | name::CAST_RANGE) => ROk(V::None),
+                    (None, name::ID | name::CAST_POINT | name::IS_TOGGLE | name::POINT | name::CAST_RANGE | name::MANA_COST) => ROk(V::None),
                     (Some(ability), name::CAST_RANGE) => ROk(V::Num(ability.cast_range)),
+                    (Some(ability), name::MANA_COST) => ROk(V::Num(ability.mana_cost)),
                     (Some(ability), name::POINT) => ROk(V::Point(ability.point)),
                     (Some(ability), name::ID) => ROk(V::Str(ability.id.as_str().into())),
                     (Some(ability), name::CAST_POINT) => ROk(V::Num(ability.cast_point)),
@@ -2189,6 +2251,10 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
                     name::IS_NIGHT => ROk(V::Bool(self.cache.night)),
                     name::TIME => ROk(V::Num(self.cache.moba.as_ref().map_or(Fixed64::ZERO, |state| state.elapsed))),
                     name::DT => ROk(V::Num(self.cache.dt)),
+                    name::CREEP_WAVE => ROk(V::Num(Fixed64::from_i32(self.cache.moba.as_ref()
+                        .map_or(-1, |state| i32::try_from(state.waves).unwrap_or(i32::MAX) - 1)))),
+                    name::CREEP_ARMOR_BONUS => ROk(V::Num(Fixed64::from_i32(self.cache.moba.as_ref()
+                        .map_or(0, |state| state.config.minion_growth_rules.armor_bonus(state.elapsed))))),
                     _ => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown game attribute {attr}"))),
                 }
             }
@@ -2449,6 +2515,7 @@ mod tests {
         let me=world.create_entity().with(Pos(Vec2::ZERO)).with(Faction::new(FactionType::Player,1)).with(hero).with(TAttack::new(Fixed64::from_i32(30),Fixed64::ONE,Fixed64::from_i32(500),Fixed64::from_i32(900)))
             .with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::from_i32(25)}).build();
         let summon=world.create_entity().with(SummonedUnit::new_fixed(me,Some(Fixed64::from_i32(30)))).build();
+        let pet=world.create_entity().with(SummonedUnit::new_fixed(me,Some(Fixed64::from_i32(30)))).build();
         let at=|x:i32|Pos(Vec2::new(Fixed64::from_i32(x),Fixed64::ZERO));
         let enemy=world.create_entity().with(at(50)).with(Faction::new(FactionType::Enemy,2)).build();
         let ally=world.create_entity().with(at(80)).with(Faction::new(FactionType::Player,1)).build();
@@ -2457,7 +2524,7 @@ mod tests {
         {
             let mut buffs=world.write_resource::<BuffStore>();
             buffs.add(me,"str_aura",Fixed64::from_i32(5),json!({ StatKey::StatsStrengthBonus.as_str(): 6 * 1024 }));
-            buffs.add(summon,crate::runtime::native::rules::vocab::state::ILLUSION,Fixed64::from_i32(5),json!({"look":"inahime","abilities":{"a02_q":2}}));
+            buffs.add(summon,crate::runtime::native::rules::vocab::state::ILLUSION,Fixed64::from_i32(5),json!({"look":"inahime","abilities":{"a02_q":2},"outgoing":[-768,0,0]}));
             buffs.add(me,crate::runtime::native::ability_channel::STATUS,Fixed64::from_i32(5),json!({}));
             buffs.add(me,"plate",Fixed64::from_i32(5),json!({ StatKey::PhysicalArmorBonus.as_str(): 3 * 1024, StatKey::PreattackBonusDamage.as_str(): 12 * 1024 }));
         }
@@ -2485,6 +2552,11 @@ mod tests {
         assert_eq!(unit(s,name::IS_RANGED),Ok(V::Bool(false)),"no attack");
         assert_eq!(unit(h,name::IS_CREEP),Ok(V::Bool(false)));
         assert_eq!(unit(s,name::OWNER),Ok(V::Unit(h)));
+        let p=ParallelWorldAdapter::entity_to_handle(pet);
+        assert_eq!((unit(p,name::IS_SUMMON),unit(s,name::IS_SUMMON),unit(h,name::IS_SUMMON),unit(c,name::IS_SUMMON)),
+            (Ok(V::Bool(true)),Ok(V::Bool(false)),Ok(V::Bool(false)),Ok(V::Bool(false))),"a summon, not an illusion, the hero or the camp");
+        assert_eq!((unit(s,name::ILLUSION_DAMAGE),unit(p,name::ILLUSION_DAMAGE),unit(h,name::ILLUSION_DAMAGE)),
+            (Ok(V::Num(Fixed64::from_raw(256))),n(1),n(1)),"an illusion at -75% physical deals 0.25; others 1");
         assert_eq!(unit(h,name::ATTACK_DAMAGE),n(80),"the attack as it left, critical included");
         assert_eq!(unit(h,name::ATTACK_EFFECT_MULTIPLIER),n(1));
         assert_eq!(unit(s,name::ATTACK_DAMAGE),n(0),"no attack");
@@ -2526,6 +2598,7 @@ mod tests {
         let mut game=|attr:&str|adapter.ext(op::GAME_ATTR,RSlice::from_slice(&[A::Str(attr.into())])).into_result();
         assert_eq!(game(game_attr::IS_NIGHT),Ok(V::Bool(true)));
         assert_eq!(game(game_attr::TIME),n(0));
+        assert_eq!((game(game_attr::CREEP_WAVE),game(game_attr::CREEP_ARMOR_BONUS)),(n(-1),n(0)),"outside a MOBA match");
         // UNITS_IN_RANGE: allies of `me` (itself included), nearest first.
         let mut near=|team:&str|adapter.ext(op::UNITS_IN_RANGE,RSlice::from_slice(&[A::Point(omb_script_abi::types::Vec2::ZERO),
             A::Num(Fixed64::from_i32(100)),A::Unit(h),A::Str(team.into())])).into_result();
@@ -3403,7 +3476,13 @@ mod tests {
         let entity = world.create_entity().with(Hero::default()).build();
         let cache = ParallelAdapterCache::new(&world, 123);
         let mut adapter = ParallelWorldAdapter::new(&cache, entity);
+        // a mana refund only in an item's cast (a hero ability's mana has none)
         assert!(adapter.ext(op::REFUND, abi_stable::std_types::RSlice::from_slice(&[A::Str("mana".into())])).into_result().is_err());
+        assert!(!adapter.mana_refunded());
+        adapter.set_event_item_slot(Some(2));
+        assert!(adapter.ext(op::REFUND, abi_stable::std_types::RSlice::from_slice(&[A::Str("mana".into())])).into_result().is_ok());
+        assert!(adapter.mana_refunded());
+        adapter.set_event_item_slot(None);
         assert!(adapter.ext(op::REFUND, abi_stable::std_types::RSlice::from_slice(&[A::Str("cooldown".into())])).into_result().is_ok());
         adapter.start_cooldown(entity, "test".into(), Fixed64::from_i32(5));
         assert!(adapter.outcomes.is_empty(), "no cooldown");

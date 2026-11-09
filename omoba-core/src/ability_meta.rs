@@ -26,6 +26,8 @@ pub enum TargetType {
     None,
     Point,
     Unit,
+    /// A unit (admitted as a unit target) or a ground point (as a point target).
+    UnitOrPoint,
 }
 
 /// 施法類型

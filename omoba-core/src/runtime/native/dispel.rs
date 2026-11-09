@@ -62,7 +62,11 @@ pub struct Registry { exact: HashMap<String, Rule>, patterns: Vec<(String, Rule)
     /// v3 status ids with `remove_on = { "owner_death" }`.
     owner_death: std::collections::HashSet<String>,
     /// v3 status id -> its `immune_to` entries (`tag:<tag>`, a status id or a v3 state; E445).
-    immune_of: HashMap<String, Vec<String>> }
+    immune_of: HashMap<String, Vec<String>>,
+    /// v3 status id -> the tags of the abilities and items declaring it (remove_status
+    /// `exclude_source_tags`): each entry's own `tags`, `ultimate` for an ultimate ability, `item`
+    /// for an item. Every status a catalog entry declares is listed (`source_is has_ability`).
+    source_tags_of: HashMap<String, Vec<String>> }
 
 /// A status that holds a shared host control (`stun`, `root`, `silence`: one BuffStore key for
 /// every status) also leaves a row `__ctl:<status id>` with payload `{"states": [...]}` for the
@@ -108,9 +112,18 @@ impl Registry {
         let mut tags_of: HashMap<String, Vec<String>> = HashMap::new();
         let mut owner_death = std::collections::HashSet::new();
         let mut immune_of: HashMap<String, Vec<String>> = HashMap::new();
+        let mut source_tags_of: HashMap<String, Vec<String>> = HashMap::new();
         for list in ["abilities", "items"] {
             for entry in doc[list].as_array().into_iter().flatten() {
+                let mut entry_tags: Vec<String> = entry["v3"]["tags"].as_array().into_iter().flatten()
+                    .filter_map(Value::as_str).map(str::to_owned).collect();
+                if list == "items" { entry_tags.push("item".to_owned()); }
+                if entry["ability_type"].as_str() == Some("ultimate") { entry_tags.push("ultimate".to_owned()); }
                 for status in entry["v3"]["statuses"].as_array().into_iter().flatten() {
+                    if let Some(id) = status["id"].as_str() {
+                        let tags = source_tags_of.entry(id.to_owned()).or_default();
+                        for tag in &entry_tags { if !tags.contains(tag) { tags.push(tag.clone()); } }
+                    }
                     if let (Some(id), Some(list)) = (status["id"].as_str(), status["immune_to"].as_array()) {
                         let list: Vec<String> = list.iter().filter_map(Value::as_str).map(str::to_owned).collect();
                         if !list.is_empty() { immune_of.insert(id.to_owned(), list); }
@@ -138,7 +151,7 @@ impl Registry {
                 }
             }
         }
-        let mut registry = Registry { by_status, status_of, tags_of, owner_death, immune_of, ..Registry::default() };
+        let mut registry = Registry { by_status, status_of, tags_of, owner_death, immune_of, source_tags_of, ..Registry::default() };
         for (key, rule) in rules {
             if is_pattern(&key) { registry.patterns.push((key, rule)); } else { registry.exact.insert(key, rule); }
         }
@@ -177,6 +190,23 @@ impl Registry {
         let mut ids = self.status_ids(key);
         ids.push(key);
         ids.into_iter().filter_map(|id| self.tags_of.get(id)).flatten().map(String::as_str).collect()
+    }
+
+    /// The tags of the abilities and items that declare the status a BuffStore key (or a
+    /// control-source row's status) belongs to; `None` when no catalog entry declares it (a row
+    /// the rule layer or a hand-written script put there: no source ability).
+    pub fn source_tags(&self, key: &str) -> Option<Vec<&str>> {
+        let key = omoba_template_ids::instance_base(key);
+        let mut ids = self.status_ids(key);
+        ids.push(key);
+        ids.sort_unstable();
+        ids.dedup();
+        let mut found: Option<Vec<&str>> = None;
+        for tags in ids.into_iter().filter_map(|id| self.source_tags_of.get(id)) {
+            let found = found.get_or_insert_with(Vec::new);
+            for tag in tags { if !found.contains(&tag.as_str()) { found.push(tag); } }
+        }
+        found
     }
 
     /// The v3 status ids whose runtime key is `key` (exactly or by pattern).
@@ -241,7 +271,7 @@ pub fn registry() -> &'static Registry {
 }
 
 /// Whether a buff id ends in an applier `…:<id>:<gen>` suffix.
-fn id_names_applier(buff_id: &str) -> bool {
+pub(crate) fn id_names_applier(buff_id: &str) -> bool {
     let mut parts = buff_id.rsplitn(3, ':');
     parts.next().is_some_and(|gen| gen.parse::<i32>().is_ok())
         && parts.next().is_some_and(|id| id.parse::<u32>().is_ok())
@@ -429,6 +459,44 @@ pub struct PurgeSpec {
     /// `max_elapsed`: only statuses applied less than this many seconds ago (refreshes keep the
     /// first application); `None` any age.
     pub max_elapsed: Option<omoba_sim::Fixed64>,
+    /// `min_duration`, `exclude_source_tags`, `source_is`: by the status's duration and source.
+    pub source: SourceRule,
+}
+
+/// v3 `remove_status` filters on a status's duration and where it came from.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SourceRule {
+    /// `min_duration`: only statuses whose full duration (Dota GetDuration: the application that
+    /// last set the remaining time) is longer than this; a permanent status never goes.
+    pub min_duration: Option<omoba_sim::Fixed64>,
+    /// `exclude_source_tags`: statuses whose source ability or item carries one of these tags stay
+    /// (Registry::source_tags; `ultimate` for an ultimate ability).
+    pub exclude_source_tags: Vec<String>,
+    /// `source_is`: every condition must hold.
+    pub source_is: Vec<SourceIs>,
+}
+
+/// v3 `source_is` conditions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceIs {
+    /// A catalog ability or item declares the status (Registry::source_tags).
+    HasAbility,
+    /// None does: the rule layer or a hand-written script put it there.
+    NoAbility,
+    /// Its applier (the key's `…:<id>:<gen>` or the payload's `source_entity_id/gen`) still exists.
+    Alive,
+    /// It names no applier that still exists (a control's rows name none).
+    Gone,
+}
+
+impl SourceIs {
+    pub fn parse(text: &str) -> Option<SourceIs> {
+        Some(match text { "has_ability" => SourceIs::HasAbility, "no_ability" => SourceIs::NoAbility,
+            "alive" => SourceIs::Alive, "gone" => SourceIs::Gone, _ => return None })
+    }
+    pub fn name(self) -> &'static str {
+        match self { SourceIs::HasAbility => "has_ability", SourceIs::NoAbility => "no_ability", SourceIs::Alive => "alive", SourceIs::Gone => "gone" }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -439,14 +507,22 @@ pub enum SourceTeam { Any, Enemy, Ally }
 
 impl PurgeSpec {
     pub fn payload(&self) -> Value {
-        serde_json::json!({ (PURGE_KEY): {
+        let mut payload = serde_json::json!({ (PURGE_KEY): {
             "mode": match self.mode { PurgeMode::Basic => "basic", PurgeMode::Strong => "strong", PurgeMode::All => "all" },
             "side": self.side.map(|side| match side { Purge::Debuffs => "debuffs", Purge::Buffs => "buffs" }),
             "team": match self.team { SourceTeam::Any => "any", SourceTeam::Enemy => "enemy", SourceTeam::Ally => "ally" },
             "except": self.except, "states": self.states, "limit": self.limit,
             "tags": self.tags, "exclude_tags": self.exclude_tags,
             "max_elapsed": self.max_elapsed.map(|t| t.raw()),
-        } })
+        } });
+        // The source filters only when set, so a packet without them reads as it always did.
+        let row = &mut payload[PURGE_KEY];
+        if let Some(min) = self.source.min_duration { row["min_duration"] = Value::from(min.raw()); }
+        if !self.source.exclude_source_tags.is_empty() { row["exclude_source_tags"] = serde_json::json!(self.source.exclude_source_tags); }
+        if !self.source.source_is.is_empty() {
+            row["source_is"] = Value::from(self.source.source_is.iter().map(|is| is.name()).collect::<Vec<_>>());
+        }
+        payload
     }
     pub fn from_payload(buff_id: &str, duration: omoba_sim::Fixed64, payload: &Value) -> Option<Self> {
         if buff_id != PURGE_BUFF || duration != omoba_sim::Fixed64::ONE || payload.as_object()?.len() != 1 { return None; }
@@ -463,8 +539,15 @@ impl PurgeSpec {
             tags: strings("tags")?, exclude_tags: strings("exclude_tags")?,
             max_elapsed: match row.get("max_elapsed") { None | Some(Value::Null) => None,
                 Some(n) => Some(omoba_sim::Fixed64::from_raw(n.as_i64().filter(|raw| *raw > 0)?)) },
+            source: SourceRule {
+                min_duration: match row.get("min_duration") { None => None, Some(n) => Some(omoba_sim::Fixed64::from_raw(n.as_i64()?)) },
+                exclude_source_tags: if row.get("exclude_source_tags").is_some() { strings("exclude_source_tags")? } else { Vec::new() },
+                source_is: match row.get("source_is") { None => Vec::new(),
+                    Some(list) => list.as_array()?.iter().map(|v| v.as_str().and_then(SourceIs::parse)).collect::<Option<Vec<_>>>()? },
+            },
         };
-        (spec.except.len() <= 32 && spec.tags.len() <= 16 && spec.exclude_tags.len() <= 16 && spec.states.len() <= 8 && spec.states.iter().all(|s| is_control(s))).then_some(spec)
+        (spec.except.len() <= 32 && spec.tags.len() <= 16 && spec.exclude_tags.len() <= 16 && spec.states.len() <= 8 && spec.states.iter().all(|s| is_control(s))
+            && spec.source.exclude_source_tags.len() <= 16 && spec.source.source_is.len() <= 4).then_some(spec)
     }
 }
 
@@ -525,6 +608,9 @@ pub fn purge_with(registry: &Registry, world: &World, entity: Entity, spec: &Pur
             if id.starts_with("__") && control_row.is_none() { return false; }
             if *id == super::magic_immunity::BUFF { return false; }
             if spec.max_elapsed.is_some_and(|max| entry.elapsed() >= max) { return false; }
+            if spec.source.min_duration.is_some_and(|min| entry.duration() == super::ability_runtime::buff_store::PERMANENT_BUFF_DURATION || entry.duration() <= min) {
+                return false;
+            }
             if !spec.states.is_empty() {
                 let holds = if is_control(id) { spec.states.iter().any(|s| s == id) }
                     else { controls_of(&entry.payload).iter().any(|c| spec.states.iter().any(|s| s == c)) };
@@ -536,6 +622,18 @@ pub fn purge_with(registry: &Registry, world: &World, entity: Entity, spec: &Pur
                 let tags = registry.tags(status);
                 if !spec.tags.is_empty() && !tags.iter().any(|t| spec.tags.iter().any(|s| s == t)) { return false; }
                 if tags.iter().any(|t| spec.exclude_tags.iter().any(|s| s == t)) { return false; }
+            }
+            if !spec.source.exclude_source_tags.is_empty() || !spec.source.source_is.is_empty() {
+                let source_tags = registry.source_tags(status);
+                if source_tags.as_ref().is_some_and(|tags| tags.iter().any(|t| spec.source.exclude_source_tags.iter().any(|s| s == t))) { return false; }
+                let alive = !control && applier(world, id, &entry.payload).is_some();
+                let holds = |is: &SourceIs| match is {
+                    SourceIs::HasAbility => source_tags.is_some(),
+                    SourceIs::NoAbility => source_tags.is_none(),
+                    SourceIs::Alive => alive,
+                    SourceIs::Gone => !alive,
+                };
+                if !spec.source.source_is.iter().all(holds) { return false; }
             }
             let rule = match control_row { Some(row) => registry.source_row(row), None => registry.rule(id) };
             let class_ok = match (spec.mode, rule) {
@@ -882,7 +980,8 @@ mod tests {
         let has = |world: &World, id: &str| world.read_resource::<BuffStore>().has(hero, id);
         let spec = |tags: &[&str], exclude: &[&str]| PurgeSpec { mode: PurgeMode::All, side: None, team: SourceTeam::Any,
             except: Vec::new(), states: Vec::new(), limit: None,
-            tags: tags.iter().map(|s| s.to_string()).collect(), exclude_tags: exclude.iter().map(|s| s.to_string()).collect(), max_elapsed: None };
+            tags: tags.iter().map(|s| s.to_string()).collect(), exclude_tags: exclude.iter().map(|s| s.to_string()).collect(), max_elapsed: None,
+            source: SourceRule::default() };
         put(&world);
         assert_eq!(purge_with(&registry, &world, hero, &spec(&["perceive_wine"], &[])), 1);
         assert!(!has(&world, "t_wine:3:0") && has(&world, "t_aura") && has(&world, "t_plain"));
@@ -919,7 +1018,7 @@ mod tests {
             assert_eq!(buffs.get(hero, "z_refreshed").unwrap().elapsed(), Fixed64::from_raw(222), "a refresh keeps the age");
         }
         let spec = PurgeSpec { mode: PurgeMode::All, side: None, team: SourceTeam::Any, except: Vec::new(), states: Vec::new(),
-            limit: None, tags: vec!["guarded".into()], exclude_tags: Vec::new(), max_elapsed: Some(tenth) };
+            limit: None, tags: vec!["guarded".into()], exclude_tags: Vec::new(), max_elapsed: Some(tenth), source: SourceRule::default() };
         assert_eq!(purge_with(&registry, &world, hero, &spec), 1);
         let buffs = world.read_resource::<BuffStore>();
         assert!(!buffs.has(hero, "z_new") && buffs.has(hero, "z_old") && buffs.has(hero, "z_refreshed"));
@@ -954,7 +1053,7 @@ mod tests {
         let left = |world: &World| { let mut v: Vec<String> = world.read_resource::<BuffStore>().iter_for(hero).map(|(k, _)| k.to_owned()).collect(); v.sort(); v };
         let spec = |mode, team, except: &[&str], states: &[&str], limit| PurgeSpec { mode, side: None, team,
             except: except.iter().map(|s| s.to_string()).collect(), states: states.iter().map(|s| s.to_string()).collect(), limit,
-            tags: Vec::new(), exclude_tags: Vec::new(), max_elapsed: None };
+            tags: Vec::new(), exclude_tags: Vec::new(), max_elapsed: None, source: SourceRule::default() };
         put(&world);
         assert_eq!(purge_with(&registry, &world, hero, &spec(PurgeMode::All, SourceTeam::Enemy, &[], &[], None)), 4,
             "enemy slow, the undispellable mark, the stun and its row; the own haste stays");
@@ -968,5 +1067,93 @@ mod tests {
             "limit 1, the mark excepted");
         let payload = spec(PurgeMode::Basic, SourceTeam::Ally, &["a"], &["root"], Some(2)).payload();
         assert_eq!(PurgeSpec::from_payload(PURGE_BUFF, Fixed64::ONE, &payload), Some(spec(PurgeMode::Basic, SourceTeam::Ally, &["a"], &["root"], Some(2))));
+    }
+
+    /// 冰爆之書／吉光骨食／冰風暴之書 (原作 GetDuration() > 0.5, skipping hero ultimates, statuses
+    /// with no source ability and ones whose caster no longer exists): `min_duration` keeps
+    /// short and permanent statuses, judging a refresh by the application that set the time;
+    /// `exclude_source_tags` keeps an ultimate's status; `source_is` keeps a rule-layer row and a
+    /// gone applier's status.
+    #[test]
+    fn purges_by_duration_source_tags_and_source() {
+        let doc = json!({
+            "abilities": [
+                {"id": "w_plain", "ability_type": "active", "v3": {"statuses": [
+                    {"id": "w_long", "dispel": "basic", "visibility": "buff"},
+                    {"id": "w_short", "dispel": "basic", "visibility": "buff"},
+                    {"id": "w_aura", "dispel": "basic", "visibility": "buff"},
+                    {"id": "w_forever", "dispel": "basic", "visibility": "buff"},
+                    {"id": "w_orphan", "dispel": "basic", "visibility": "buff"}]}},
+                {"id": "w_big", "ability_type": "ultimate", "v3": {"statuses": [{"id": "w_ult", "dispel": "basic", "visibility": "buff"}]}},
+                {"id": "w_tagged", "ability_type": "active", "v3": {"tags": ["signature"], "statuses": [{"id": "w_sig", "dispel": "basic", "visibility": "buff"}]}}],
+            "items": [{"id": "w_item", "v3": {"statuses": [{"id": "w_charm", "dispel": "basic", "visibility": "buff"}]}}]});
+        let registry = Registry::from_catalog(&doc);
+        assert_eq!(registry.source_tags("w_ult"), Some(vec!["ultimate"]));
+        assert_eq!(registry.source_tags("w_charm#2"), Some(vec!["item"]));
+        assert_eq!(registry.source_tags("w_sig"), Some(vec!["signature"]));
+        assert_eq!(registry.source_tags("w_long"), Some(vec![]));
+        assert_eq!(registry.source_tags("rules_row"), None);
+        // The compiled content marks its ultimates and items (the catalog carries ability_type).
+        let tagged = |tag: &str| super::registry().source_tags_of.values().filter(|tags| tags.iter().any(|t| t == tag)).count();
+        assert!(tagged("ultimate") > 0 && tagged("item") > 0, "ultimate {}, item {}", tagged("ultimate"), tagged("item"));
+        let mut world = World::new();
+        world.register::<Faction>();
+        world.insert(BuffStore::new());
+        let hero = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        let ally = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        let leaver = world.create_entity().with(Faction::new(FactionType::Player, 1)).build();
+        let by = |e: Entity| json!({ "source_entity_id": e.id(), "source_entity_gen": e.gen().id() });
+        let half = Fixed64::from_raw(512);
+        let put = |world: &World| {
+            let mut buffs = world.write_resource::<BuffStore>();
+            buffs.add(hero, "w_long", Fixed64::from_i32(5), by(ally));
+            // An aura refreshed every 0.2 s for 0.25 s: alive for longer than half a second, each
+            // application short.
+            buffs.add(hero, "w_aura", Fixed64::from_raw(256), by(ally));
+            buffs.add(hero, "w_forever", super::super::ability_runtime::buff_store::PERMANENT_BUFF_DURATION, by(ally));
+            buffs.add(hero, "w_ult", Fixed64::from_i32(5), by(ally));
+            buffs.add(hero, "w_sig", Fixed64::from_i32(5), by(ally));
+            buffs.add(hero, "w_charm#2", Fixed64::from_i32(5), by(ally));
+            buffs.add(hero, "w_orphan", Fixed64::from_i32(5), by(leaver));
+            buffs.add(hero, "rules_row", Fixed64::from_i32(5), by(ally));
+        };
+        put(&world);
+        for _ in 0..4 {
+            let mut buffs = world.write_resource::<BuffStore>();
+            buffs.tick(Fixed64::from_raw(205));
+            buffs.add(hero, "w_aura", Fixed64::from_raw(256), by(ally));
+        }
+        assert_eq!(world.read_resource::<BuffStore>().get(hero, "w_aura").unwrap().duration(), Fixed64::from_raw(256));
+        world.write_resource::<BuffStore>().add(hero, "w_short", half, by(ally));
+        world.delete_entity(leaver).unwrap();
+        world.maintain();
+        let left = |world: &World| { let mut v: Vec<String> = world.read_resource::<BuffStore>().iter_for(hero).map(|(k, _)| k.to_owned()).collect(); v.sort(); v };
+        let spec = |source: SourceRule| PurgeSpec { mode: PurgeMode::All, side: None, team: SourceTeam::Ally, except: Vec::new(),
+            states: Vec::new(), limit: None, tags: Vec::new(), exclude_tags: Vec::new(), max_elapsed: None, source };
+        let ice = spec(SourceRule { min_duration: Some(half), exclude_source_tags: vec!["ultimate".into()],
+            source_is: vec![SourceIs::HasAbility, SourceIs::Alive] });
+        assert_eq!(PurgeSpec::from_payload(PURGE_BUFF, Fixed64::ONE, &ice.payload()), Some(ice.clone()));
+        assert_eq!(purge_with(&registry, &world, hero, &ice), 3, "the long one, the tagged one and the item's");
+        assert_eq!(left(&world), vec!["rules_row", "w_aura", "w_forever", "w_orphan", "w_short", "w_ult"]);
+        // Without the source conditions the rule-layer row goes too; the gone applier's status
+        // is no ally's any more.
+        put(&world);
+        let drain = spec(SourceRule { min_duration: Some(half), exclude_source_tags: vec!["ultimate".into()], source_is: Vec::new() });
+        assert_eq!(purge_with(&registry, &world, hero, &drain), 4);
+        assert!(left(&world).iter().all(|k| k != "rules_row"));
+        // Only the gone applier's, and only rows no catalog entry declares.
+        put(&world);
+        let any = |is: Vec<SourceIs>| PurgeSpec { team: SourceTeam::Any, ..spec(SourceRule { source_is: is, ..SourceRule::default() }) };
+        assert_eq!(purge_with(&registry, &world, hero, &any(vec![SourceIs::Gone])), 1);
+        assert!(!left(&world).contains(&"w_orphan".to_owned()));
+        assert_eq!(purge_with(&registry, &world, hero, &any(vec![SourceIs::NoAbility])), 1);
+        assert!(!left(&world).contains(&"rules_row".to_owned()));
+        // An old packet (no source keys) still reads; a bad condition does not.
+        let old = spec(SourceRule::default());
+        assert!(old.payload()[PURGE_KEY].get("source_is").is_none());
+        assert_eq!(PurgeSpec::from_payload(PURGE_BUFF, Fixed64::ONE, &old.payload()), Some(old));
+        let mut bad = ice.payload();
+        bad[PURGE_KEY]["source_is"] = json!(["alive", "somewhere"]);
+        assert_eq!(PurgeSpec::from_payload(PURGE_BUFF, Fixed64::ONE, &bad), None);
     }
 }

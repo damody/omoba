@@ -91,7 +91,16 @@ return function(ctx)
       -- v3 unit_templates (scripts/v3_summons.lua, E326): the summons the documents declare; an id
       -- above keeps its row. Appended here: only a table constructor's last call expands to all
       -- its values, so a second call field would cut this one to its first row (E341)
-      for _, row in ipairs(ctx.include('templates/v3_summons.lua')) do out[#out + 1] = row end
+      -- A v3 row has no body of its own (the generator writes gameplay only); one listed here wears
+      -- this static prop (scripts/prop_meshes.lua): the courier's 「馬」 (courier-spec-2026-11-09 §1).
+      local v3_bodies = {
+        courier = { native_only = true, native_visual = {
+          static_mesh_asset = '/Game/Omoba/Props/courier_horse/SM_courier_horse.SM_courier_horse', height_world_units = 80 } },
+      }
+      for _, row in ipairs(ctx.include('templates/v3_summons.lua')) do
+        if v3_bodies[row.id] and not row.ue then row.ue = v3_bodies[row.id] end
+        out[#out + 1] = row
+      end
       return table.unpack(out)
     end)(),
   }

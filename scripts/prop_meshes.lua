@@ -15,9 +15,55 @@ M.MATERIALS = {
   { slot = "frog", color = { 0.20, 0.55, 0.12 }, roughness = 0.7 },
   { slot = "eye", color = { 0.95, 0.95, 0.90 }, roughness = 0.5 },
   { slot = "pupil", color = { 0.03, 0.03, 0.03 }, roughness = 0.5 },
+  { slot = "horse", color = { 0.20, 0.08, 0.03 }, roughness = 0.8 },
+  { slot = "mane", color = { 0.07, 0.05, 0.04 }, roughness = 0.9 },
+  { slot = "hoof", color = { 0.12, 0.10, 0.08 }, roughness = 0.7 },
+  { slot = "saddle_cloth", color = { 0.03, 0.05, 0.28 }, roughness = 0.9 },
+  { slot = "leather", color = { 0.07, 0.03, 0.01 }, roughness = 0.6 },
 }
 
+-- Parts written in cm at life size, then scaled about the origin (the game sizes a prop by its height).
+local function scaled(k, parts)
+  for _, part in ipairs(parts) do
+    for i = 1, 3 do
+      if part.location then part.location[i] = part.location[i] * k end
+      part.scale[i] = part.scale[i] * k
+    end
+  end
+  return parts
+end
+
 M.PROPS = {
+  -- The courier (原作 npc_dota_courier2 「馬」, courier-spec-2026-11-09 §1): a chestnut horse facing +X with
+  -- an indigo saddle cloth and two burlap saddlebags, so it reads as the item carrier from the game camera.
+  -- Cylinders run along Z; a negative pitch leans their top toward +X. Half size so the review capture frames it.
+  courier_horse = scaled(0.5, {
+    { shape = "Sphere", slot = "horse", location = { 0, 0, 82 }, scale = { 1.4, 0.6, 0.55 } },
+    { shape = "Sphere", slot = "horse", location = { 48, 0, 88 }, scale = { 0.65, 0.56, 0.6 } },
+    { shape = "Sphere", slot = "horse", location = { -50, 0, 90 }, scale = { 0.65, 0.58, 0.6 } },
+    { shape = "Cylinder", slot = "horse", location = { 80, 0, 118 }, scale = { 0.36, 0.3, 0.55 }, rotation = { -50, 0, 0 } },
+    { shape = "Sphere", slot = "horse", location = { 112, 0, 132 }, scale = { 0.6, 0.3, 0.32 }, rotation = { -40, 0, 0 } },
+    { shape = "Sphere", slot = "mane", location = { 132, 0, 118 }, scale = { 0.28, 0.24, 0.22 } },
+    { shape = "Cone", slot = "horse", location = { 104, 8, 150 }, scale = { 0.09, 0.07, 0.16 } },
+    { shape = "Cone", slot = "horse", location = { 104, -8, 150 }, scale = { 0.09, 0.07, 0.16 } },
+    { shape = "Sphere", slot = "pupil", location = { 118, 14, 140 }, scale = { 0.06, 0.06, 0.06 } },
+    { shape = "Sphere", slot = "pupil", location = { 118, -14, 140 }, scale = { 0.06, 0.06, 0.06 } },
+    { shape = "Cube", slot = "mane", location = { 72, 0, 128 }, scale = { 0.6, 0.06, 0.1 }, rotation = { 40, 0, 0 } },
+    { shape = "Cylinder", slot = "mane", location = { -88, 0, 78 }, scale = { 0.1, 0.1, 0.42 }, rotation = { -23, 0, 0 } },
+    { shape = "Cylinder", slot = "horse", location = { 46, 18, 33 }, scale = { 0.15, 0.15, 0.5 } },
+    { shape = "Cylinder", slot = "horse", location = { 46, -18, 33 }, scale = { 0.15, 0.15, 0.5 } },
+    { shape = "Cylinder", slot = "horse", location = { -46, 18, 33 }, scale = { 0.15, 0.15, 0.5 } },
+    { shape = "Cylinder", slot = "horse", location = { -46, -18, 33 }, scale = { 0.15, 0.15, 0.5 } },
+    { shape = "Cylinder", slot = "hoof", location = { 46, 18, 4 }, scale = { 0.18, 0.18, 0.08 } },
+    { shape = "Cylinder", slot = "hoof", location = { 46, -18, 4 }, scale = { 0.18, 0.18, 0.08 } },
+    { shape = "Cylinder", slot = "hoof", location = { -46, 18, 4 }, scale = { 0.18, 0.18, 0.08 } },
+    { shape = "Cylinder", slot = "hoof", location = { -46, -18, 4 }, scale = { 0.18, 0.18, 0.08 } },
+    { shape = "Sphere", slot = "saddle_cloth", location = { -2, 0, 104 }, scale = { 0.55, 0.64, 0.14 } },
+    { shape = "Sphere", slot = "leather", location = { -2, 0, 111 }, scale = { 0.36, 0.32, 0.1 } },
+    { shape = "Cylinder", slot = "leather", location = { 14, 0, 116 }, scale = { 0.05, 0.05, 0.1 } },
+    { shape = "Sphere", slot = "cloth", location = { -16, 32, 90 }, scale = { 0.24, 0.12, 0.22 } },
+    { shape = "Sphere", slot = "cloth", location = { -16, -32, 90 }, scale = { 0.24, 0.12, 0.22 } },
+  }),
   -- C06T 豪奪's ground gold (presentation identity item_money, 原作 models/props_gameplay/gold_bag):
   -- a plump burlap sack tied at the neck, coins at its open mouth and two beside it, as in the Grok
   -- reference omfue/SourceArt/Structures/TripoStaticV1/gold_bag/reference/gold_bag_front.jpg.

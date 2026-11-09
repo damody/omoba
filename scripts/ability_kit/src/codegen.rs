@@ -105,6 +105,8 @@ pub enum UnitTypes {
     Buildings,
     /// Everything but heroes (`building`, `creep`, `neutral`, `summon`).
     NonHero,
+    /// Heroes and buildings (`building`, `hero`: 真視寶石's aura over towers and heroes).
+    HeroesAndBuildings,
 }
 
 /// Damage flags of a v3 `damage` action.
@@ -226,9 +228,24 @@ pub struct Proj {
 /// The status payload key that holds a counted status' stacks (v3 `stacking = { ... }`).
 pub const STACKS_KEY: &str = "__v3_stacks";
 
+/// v3 `damage { type = "event" }` (暗黃之牙與辛巴威's reflection): the type of the hit the event
+/// names, from its `damage_kind` (the type part; a mixed hit counts as its largest share, a
+/// physical one first, as the host reports it). Outside a damage event (kind 0) it is physical.
+pub fn event_damage_type(damage_kind: u8) -> DamageKind {
+    match damage_kind & StatusEvent::DAMAGE_TYPE_MASK { 0 => DamageKind::Physical, 1 => DamageKind::Magical, _ => DamageKind::Pure }
+}
+
 /// The host flight of a generated `projectile` from `caster`: no damage of its own (its effects
 /// are the `on_hit` step), so the profile is a plain magical spell packet that never lands.
 pub fn projectile_spec(caster: EntityHandle, ability: &str, p: &Proj) -> Result<ability_projectile::Spec, &'static str> {
+    projectile_spec_lasting(caster, ability, p, None)
+}
+
+/// [`projectile_spec`] whose flight lasts at most `limit` (v3 `projectile.lifetime`, 原作
+/// flExpireTime: 浪人十手's tracking bolt gives up after 10 s); without one a tracking flight lasts
+/// the host's 30 s and a linear one as long as its travel takes.
+pub fn projectile_spec_lasting(caster: EntityHandle, ability: &str, p: &Proj, limit: Option<Fixed64>) -> Result<ability_projectile::Spec, &'static str> {
+    if limit.is_some_and(|limit| limit <= Fixed64::ZERO) { return Err("v3: projectile lifetime must be positive"); }
     let (motion, distance, lifetime, max_hits) = match p.homing {
         Some(u) => (ability_projectile::Motion::Homing { target_id: u.id, target_generation: u.gen }, Fixed64::ZERO, Fixed64::from_i32(30), 1),
         None => {
@@ -236,6 +253,7 @@ pub fn projectile_spec(caster: EntityHandle, ability: &str, p: &Proj) -> Result<
             (ability_projectile::Motion::Linear { aim: p.aim }, p.distance, life, p.max_hits.clamp(1, ability_projectile::MAX_HITS))
         }
     };
+    let lifetime = limit.map_or(lifetime, |limit| limit.min(lifetime));
     let spec = ability_projectile::Spec { source_id: caster.id, source_generation: caster.gen, ability: ability.to_owned(),
         motion, speed: p.speed, radius: p.radius, distance, lifetime, max_hits,
         wall: ability_projectile::WallPolicy::Pass, target_lost: ability_projectile::TargetLostPolicy::Expire,
@@ -441,7 +459,7 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// Whether `u` is of the unit classes `types` names.
     /// `select`'s classes: its types, and an illusion for heroes with `include_illusions`.
     pub fn of_select(&self, u: EntityHandle, select: Select) -> bool {
-        self.of_types(u, select.types) || (select.include_illusions && select.types == UnitTypes::Heroes
+        self.of_types(u, select.types) || (select.include_illusions && matches!(select.types, UnitTypes::Heroes | UnitTypes::HeroesAndBuildings)
             && self.world.has_buff(u, RStr::from_str(omoba_core::runtime::native::rules::vocab::state::ILLUSION)))
     }
     pub fn of_types(&self, u: EntityHandle, types: UnitTypes) -> bool {
@@ -452,6 +470,7 @@ impl<'a, 'w> Cx<'a, 'w> {
             UnitTypes::Heroes => !building && self.is_hero(u),
             UnitTypes::Buildings => building,
             UnitTypes::NonHero => building || !self.is_hero(u),
+            UnitTypes::HeroesAndBuildings => building || self.is_hero(u),
         }
     }
     /// `exists`: a reference to a unit still in the world (dead units included).
@@ -1207,7 +1226,14 @@ impl<'a, 'w> Cx<'a, 'w> {
     /// appended, when the flight retires.
     pub fn projectile_ended(&mut self, ability: &str, p: Proj, on_hit: Option<(u16, &[ScheduleArg])>,
         on_end: Option<(u16, &[ScheduleArg])>) -> Res {
-        self.projectile_launch(ability, p, on_hit, on_end, None)
+        self.projectile_launch(ability, p, on_hit, on_end, None, None)
+    }
+
+    /// v3 `projectile { lifetime = T }`: [`Cx::projectile_ended`] whose flight ends after at most
+    /// `lifetime` seconds (a tracking flight gives up its target then; [`projectile_spec_lasting`]).
+    pub fn projectile_expiring(&mut self, ability: &str, p: Proj, lifetime: Fixed64, on_hit: Option<(u16, &[ScheduleArg])>,
+        on_end: Option<(u16, &[ScheduleArg])>) -> Res {
+        self.projectile_launch(ability, p, on_hit, on_end, None, Some(lifetime))
     }
 
     /// v3 `projectile { kind = "linear", team = "any", where = "it == u" }` (E586, B24R): a linear
@@ -1217,14 +1243,14 @@ impl<'a, 'w> Cx<'a, 'w> {
         on_end: Option<(u16, &[ScheduleArg])>) -> Res {
         if !only.is_valid() { return Ok(()); }
         if p.homing.is_some() { return Err("v3: projectile only is a linear flight"); }
-        self.projectile_launch(ability, p, on_hit, on_end, Some(only))
+        self.projectile_launch(ability, p, on_hit, on_end, Some(only), None)
     }
 
     fn projectile_launch(&mut self, ability: &str, p: Proj, on_hit: Option<(u16, &[ScheduleArg])>,
-        on_end: Option<(u16, &[ScheduleArg])>, only: Option<EntityHandle>) -> Res {
+        on_end: Option<(u16, &[ScheduleArg])>, only: Option<EntityHandle>, lifetime: Option<Fixed64>) -> Res {
         if p.homing.is_some_and(|u| !u.is_valid()) { return Ok(()); }
         let caster = self.caster;
-        let spec = projectile_spec(caster, ability, &p)?;
+        let spec = projectile_spec_lasting(caster, ability, &p, lifetime)?;
         let lifetime = spec.lifetime;
         let mut payload = spec.payload();
         if p.dodgeable && p.homing.is_some() { payload = ability_projectile::with_dodgeable(payload); }
@@ -1235,13 +1261,13 @@ impl<'a, 'w> Cx<'a, 'w> {
         if let Some(only) = only { payload = ability_projectile::with_only(payload, only.id, only.gen); }
         if let Some((step, args)) = on_hit {
             let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
-            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec() }
+            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec(), item_slot: None }
                 .checked().ok_or("v3: invalid on_hit")?;
             payload = ability_projectile::with_on_hit(payload, &template);
         }
         if let Some((step, args)) = on_end {
             let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
-            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec() }
+            let template = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank.max(1), step, instance, args: args.to_vec(), item_slot: None }
                 .checked().ok_or("v3: invalid on_end")?;
             payload = ability_projectile::with_on_end(payload, &template);
         }
@@ -1253,10 +1279,13 @@ impl<'a, 'w> Cx<'a, 'w> {
 
     /// Schedule `on_scheduled(step, args)` of `ability` on `owner` after `after` seconds; returns
     /// the instance (cancel with [`Cx::cancel_schedule`]). The instance comes from the host RNG.
+    /// Inside an item's cast (or a row it scheduled), a row the caster holds keeps the item's slot,
+    /// so its `on_scheduled` runs as that item instance (`item_instance` state, E571).
     pub fn schedule(&mut self, owner: EntityHandle, ability: &str, step: u16, after: Fixed64, args: &[ScheduleArg]) -> Result<u32, &'static str> {
         if !scheduled_effect::valid_delay(after) { return Err("v3: invalid schedule delay"); }
         let instance = (0..3).fold(0u32, |acc, _| (acc << 10) ^ (self.world.rand_unit().raw() as u32 & 0x3ff));
-        let spec = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank, step, instance, args: args.to_vec() }
+        let item_slot = if owner == self.caster { self.event_item_slot() } else { None };
+        let spec = scheduled_effect::Spec { ability: ability.to_owned(), level: self.rank, step, instance, args: args.to_vec(), item_slot }
             .checked().ok_or("v3: invalid schedule")?;
         self.world.add_stat_buff(owner, RStr::from_str(&spec.buff_id()), scheduled_effect::Spec::lifetime(after),
             RStr::from_str(&spec.payload().to_string()));
@@ -1613,7 +1642,13 @@ pub fn ability_ffi_opt<S: AbilityScript + 'static>(id: &str, script: S) -> Optio
 /// The `def_json` of a generated item script: the shop catalog's item (`kind = item`); `None`
 /// for an item the catalog does not have (it registers nothing).
 pub fn item_ffi<S: AbilityScript + 'static>(id: &str, passive: bool, script: S) -> Option<AbilityDefFFI> {
-    let def = crate::metadata::item_def(id, passive)?;
+    item_kind_ffi(id, if passive { "passive" } else { "active" }, script)
+}
+
+/// [`item_ffi`] of an item whose active is v3 `kind`: `"active"`, `"passive"` or `"toggle"` (the
+/// host then reads a use of it as a toggle: `has_tag(event.ability, toggle)`, op EVENT_ABILITY_TAG).
+pub fn item_kind_ffi<S: AbilityScript + 'static>(id: &str, kind: &str, script: S) -> Option<AbilityDefFFI> {
+    let def = crate::metadata::item_def_of_kind(id, kind)?;
     let def_json = serde_json::to_string(&def).expect("AbilityDef serializes");
     Some(AbilityDefFFI { def_json: def_json.into(), script: AbilityScript_TO::from_value(Guarded(script), TD_Opaque) })
 }
@@ -1705,10 +1740,21 @@ mod select_tests {
 mod projectile_tests {
     use super::*;
 
+    /// `type = "event"`: the event's damage type, whatever flags ride along with it.
+    #[test]
+    fn an_event_damage_type_reads_the_type_part_of_the_kind() {
+        assert_eq!(event_damage_type(0), DamageKind::Physical);
+        assert_eq!(event_damage_type(1 | StatusEvent::REFLECTION), DamageKind::Magical);
+        assert_eq!(event_damage_type(2 | StatusEvent::LETHAL | StatusEvent::ATTACK), DamageKind::Pure);
+        // the host's encoding (status_event::damage_kind) round-trips
+        let magical = omoba_core::runtime::native::status_event::damage_kind([Fixed64::ZERO, Fixed64::ONE, Fixed64::ZERO], 0);
+        assert_eq!(event_damage_type(magical), DamageKind::Magical);
+    }
+
     fn caster() -> EntityHandle { EntityHandle { id: 3, gen: 1 } }
     fn proj(homing: Option<EntityHandle>) -> Proj {
         Proj { homing, aim: Vec2::new(Fixed64::from_i32(600), Fixed64::ZERO), speed: Fixed64::from_i32(900), radius: Fixed64::ZERO,
-            distance: Fixed64::from_i32(600), max_hits: 1, buildings: false, dodgeable: true, vision: None, end_radius: None, start: None }
+            distance: Fixed64::from_i32(600), max_hits: 1, buildings: false, dodgeable: true, vision: None, end_radius: None, start: None, cue: None }
     }
 
     /// A tracking bolt with no radius (A34W) and a linear wave (A34R) are valid host flights.
@@ -1720,5 +1766,19 @@ mod projectile_tests {
         assert_eq!(linear.max_hits, 64);
         assert!(DamageProfile::from_bits(linear.profile).is_some(), "a profile with a type bit");
         assert!(projectile_spec(caster(), "a34_frost_breath", &Proj { speed: Fixed64::ZERO, ..proj(None) }).is_err(), "no speed");
+    }
+
+    /// v3 `projectile.lifetime` (浪人十手): a tracking flight lasts at most that long, never longer
+    /// than the host's own bound; a linear one no longer than its travel.
+    #[test]
+    fn a_projectile_lifetime_bounds_the_flight() {
+        let target = Some(EntityHandle { id: 9, gen: 1 });
+        let ten = Fixed64::from_i32(10);
+        assert_eq!(projectile_spec(caster(), "ronin", &proj(target)).unwrap().lifetime, Fixed64::from_i32(30));
+        assert_eq!(projectile_spec_lasting(caster(), "ronin", &proj(target), Some(ten)).unwrap().lifetime, ten);
+        assert_eq!(projectile_spec_lasting(caster(), "ronin", &proj(target), Some(Fixed64::from_i32(90))).unwrap().lifetime, Fixed64::from_i32(30));
+        let travel = projectile_spec(caster(), "wave", &proj(None)).unwrap().lifetime;
+        assert_eq!(projectile_spec_lasting(caster(), "wave", &proj(None), Some(ten)).unwrap().lifetime, travel, "a linear flight ends with its travel");
+        assert!(projectile_spec_lasting(caster(), "ronin", &proj(target), Some(Fixed64::ZERO)).is_err());
     }
 }
