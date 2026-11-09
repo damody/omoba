@@ -2079,7 +2079,7 @@ fn scripted_item_target(world: &World, rule: omoba_template_ids::MobaItemTargetC
                 return Err(failure::err_msg("ItemUse: target is out of range"));
             }
             let viewer = u32::try_from(owner_faction.team_id).unwrap_or(0);
-            if rule.requires_visible && !item_entity_visible_to_team(world, target, viewer) {
+            if rule.requires_visible && !item_target_seen(world, target, viewer) {
                 return Err(failure::err_msg("ItemUse: target is not visible"));
             }
             if !super::magic_immunity::admits_target(&world.read_resource::<BuffStore>(), Some(owner_faction), Some(&faction), target, rule.include_magic_immune) {
@@ -2367,6 +2367,15 @@ fn item_damage_boundary_open(world: &World, target: Entity) -> bool {
             .is_some_and(|targets| targets.0.contains(&target))
 }
 
+/// Whether a named item target passes the visibility admission: on the authority, by the team's
+/// vision. A team replica runs only the uses the authority accepted (accepted inputs) and holds
+/// none of its vision sources, so the target it is handed passes (C dragon-ally-6: the replica
+/// refused 巨龍 on an allied hero as unseen while the authority used it).
+fn item_target_seen(world: &World, target: Entity, viewer_team: u32) -> bool {
+    world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>().is_some()
+        || item_entity_visible_to_team(world, target, viewer_team)
+}
+
 fn same_live_item_target(world: &World, entity: Entity) -> bool {
     world.entities().is_alive(entity) && entity_by_id(world, entity.id()) == Some(entity)
 }
@@ -2574,7 +2583,7 @@ fn commit_targeted_item_use(
             if !within_item_range(owner_pos, pos, rule.range) {
                 return Err(failure::err_msg("ItemUse: target is out of range"));
             }
-            if !item_entity_visible_to_team(world, target, viewer_team) {
+            if !item_target_seen(world, target, viewer_team) {
                 return Err(failure::err_msg("ItemUse: target is not visible"));
             }
             if !item_damage_boundary_open(world, target) {

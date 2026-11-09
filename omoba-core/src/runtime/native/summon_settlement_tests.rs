@@ -192,6 +192,12 @@ fn a_non_hero_item_target_refuses_heroes_and_a_rangeless_one_reaches_anywhere() 
     assert!(judge(&world, rule, hero).is_err(), "never a hero, its user included");
     assert!(judge(&world, MobaItemTargetConst { exclude_heroes: false, ..rule }, hero).is_ok(), "heroes allowed without the flag");
     assert!(judge(&world, MobaItemTargetConst { range: Fixed64::from_i32(600), ..rule }, unit).is_err(), "a ranged one stays in range");
+    // a visible-only rule: the authority judges by its vision (nothing sees 9000 away); a team
+    // replica runs only accepted uses and has no vision sources, so its target passes
+    let seen = MobaItemTargetConst { requires_visible: true, ..rule };
+    assert!(judge(&world, seen, unit).is_err(), "unseen on the authority");
+    world.insert(crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets::default());
+    assert!(judge(&world, seen, unit).is_ok(), "a replica follows the accepted use");
 }
 
 #[test]
