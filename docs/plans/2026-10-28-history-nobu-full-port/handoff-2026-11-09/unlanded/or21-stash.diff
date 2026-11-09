@@ -1,0 +1,717 @@
+--- a/omb/src/transport/kcp_transport.rs
++++ b/omb/src/transport/kcp_transport.rs
+@@ -4036,7 +4036,7 @@
+         let hash = omoba_template_ids::CONTENT_CATALOG_DATA_HASH;
+         let version = omoba_core::runtime::ward_transport::WARD_PROTOCOL_VERSION;
+         assert_eq!(version, 3);
+-        assert_eq!(omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 18);
++        assert_eq!(omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 19);
+         assert_eq!(validate_ward_join_request(&JoinRequest::default()), Ok(false));
+         let mut partial = JoinRequest::default();
+         partial.ward_protocol_version = version;
+--- a/omoba-client-runtime/src/input_bridge.rs
++++ b/omoba-client-runtime/src/input_bridge.rs
+@@ -1068,7 +1068,7 @@
+         use omoba_core::runtime::{FactKind, FilteredRenderSnapshot};
+         let absent = view_with_heroes(1, &[(10, 8)]);
+         let economy = OwnerEconomyState {
+-            player_id: 7,
++            player_id: 7, stash: omoba_core::runtime::native::economy_projection::OwnerStash::default(),
+             shop_available: true,
+             shop_reason: SHOP_REASON_AVAILABLE,
+             shield_remaining_raw: 0,
+--- a/omoba-client-runtime/src/presentation_bridge.rs
++++ b/omoba-client-runtime/src/presentation_bridge.rs
+@@ -2561,7 +2561,7 @@
+         let mut wrong = replay.clone(); wrong.player_id = 8;
+         assert!(hub.retain_shop_replay(4, &wrong).is_err());
+         hub.retain_shop_receipts(4, 90, &[]); // discarded intermediate presentation
+-        let owner = OwnerEconomyState { player_id: 7, shop_available: false,
++        let owner = OwnerEconomyState { player_id: 7, stash: omoba_core::runtime::native::economy_projection::OwnerStash::default(), shop_available: false,
+             shop_reason: omoba_core::runtime::native::economy_projection::SHOP_REASON_HERO_ABSENT,
+             shield_remaining_raw: 0,
+             economy: CommittedEconomyState { gold: 550, item_ids: [0, 3, 0, 0, 0, 0],
+--- a/omoba-client-runtime/src/renderer_fixture.rs
++++ b/omoba-client-runtime/src/renderer_fixture.rs
+@@ -2078,7 +2078,7 @@
+         let shop_open = self.shop_contract == ShopContract::Ready;
+         // The synthetic owner's funds stay 0. Opening the shop does not credit or debit gold.
+         let state = omoba_core::runtime::native::economy_projection::OwnerEconomyState {
+-            player_id: OWNER_PLAYER_ID,
++            player_id: OWNER_PLAYER_ID, stash: omoba_core::runtime::native::economy_projection::OwnerStash::default(),
+             shop_available: shop_open,
+             shop_reason: if shop_open {
+                 omoba_core::runtime::native::economy_projection::SHOP_REASON_AVAILABLE
+--- a/omoba-client-runtime/src/shop_presentation.rs
++++ b/omoba-client-runtime/src/shop_presentation.rs
+@@ -34,7 +34,12 @@
+ ) -> Option<OwnerEconomyPresentation> {
+     let state = owner_economy_state(snapshot, player_id)?;
+     Some(OwnerEconomyPresentation {
+-        schema_version: 3,
++        schema_version: 4,
++        stash_enabled: state.stash.enabled,
++        stash_slots: if state.stash.enabled {
++            (0..6).map(|slot| InventorySlotPresentation { slot: slot as u32,
++                catalog_id: u32::from(state.stash.item_ids[slot]), cooldown_seconds: 0.0 }).collect()
++        } else { Vec::new() },
+         player_id,
+         gold: state.economy.gold,
+         shop_reason: u32::from(state.shop_reason),
+@@ -842,7 +847,7 @@
+     #[test]
+     fn dead_owner_economy_does_not_require_a_live_entity_or_invent_slots() {
+         let state = OwnerEconomyState {
+-            player_id: 7,
++            player_id: 7, stash: omoba_core::runtime::native::economy_projection::OwnerStash::default(),
+             shop_available: false,
+             shop_reason: omoba_core::runtime::native::economy_projection::SHOP_REASON_HERO_ABSENT,
+             shield_remaining_raw: 0,
+@@ -873,13 +878,25 @@
+         assert_eq!(value.slots.len(), 6);
+         assert_eq!(value.slots[1].catalog_id, 3);
+         assert!(!value.shop_available);
+-        assert_eq!(value.schema_version, 3);
++        assert_eq!(value.schema_version, 4);
++        assert!(!value.stash_enabled && value.stash_slots.is_empty(), "no stash without the rule");
+         assert_eq!(value.shop_reason, u32::from(omoba_core::runtime::native::economy_projection::SHOP_REASON_HERO_ABSENT));
+         assert_eq!(value.shield_remaining_raw, 0);
+         let mut shield = state.clone();
+         shield.shield_remaining_raw = 60 * 1024;
+         snapshot.public_events[0].sanitized_payload = shield.encode();
+         assert_eq!(economy(&snapshot, 7).unwrap().shield_remaining_raw, 60 * 1024);
++        // courier spec §2: the stash, six slots, when the match runs the stash rule
++        let mut stashed = state.clone();
++        stashed.stash = omoba_core::runtime::native::economy_projection::OwnerStash { enabled: true, item_ids: [0, 3, 0, 0, 0, 0] };
++        snapshot.public_events[0].sanitized_payload = stashed.encode();
++        let value = economy(&snapshot, 7).unwrap();
++        assert!(value.stash_enabled);
++        assert_eq!(value.stash_slots.iter().map(|slot| slot.catalog_id).collect::<Vec<_>>(), [0, 3, 0, 0, 0, 0]);
++        stashed.stash.enabled = false;
++        snapshot.public_events[0].sanitized_payload = stashed.encode();
++        assert!(economy(&snapshot, 7).is_none(), "stashed items without the rule are malformed");
++        snapshot.public_events[0].sanitized_payload = shield.encode();
+         assert!(economy(&snapshot, 8).is_none());
+         snapshot.public_events[0].sanitized_payload[4..8].copy_from_slice(&(-1i32).to_le_bytes());
+         assert!(economy(&snapshot, 7).is_none());
+--- a/omoba-core/src/runtime/native/economy_projection.rs
++++ b/omoba-core/src/runtime/native/economy_projection.rs
+@@ -24,6 +24,8 @@
+ pub struct OwnerEconomyState {
+     pub player_id: u32,
+     pub economy: CommittedEconomyState,
++    /// The owner's stash (courier spec §2).
++    pub stash: OwnerStash,
+     pub shop_available: bool,
+     /// [`SHOP_REASON_AVAILABLE`] only when `shop_available` is true.
+     pub shop_reason: u8,
+@@ -32,7 +34,7 @@
+ }
+ 
+ impl OwnerEconomyState {
+-    pub const PAYLOAD_LEN: usize = 95;
++    pub const PAYLOAD_LEN: usize = 95 + OwnerStash::PAYLOAD_LEN;
+     pub fn encode(&self) -> Vec<u8> {
+         [
+             self.player_id.to_le_bytes().as_slice(),
+@@ -40,6 +42,7 @@
+             &[u8::from(self.shop_available)],
+             self.shield_remaining_raw.to_le_bytes().as_slice(),
+             &[self.shop_reason],
++            self.stash.encode().as_slice(),
+         ]
+         .concat()
+     }
+@@ -47,6 +50,7 @@
+         if bytes.len() != Self::PAYLOAD_LEN || bytes[85] > 1 || bytes[94] > SHOP_REASON_MAX {
+             return None;
+         }
++        let stash = OwnerStash::decode(&bytes[95..])?;
+         let shop_available = bytes[85] == 1;
+         let shop_reason = bytes[94];
+         if shop_available != (shop_reason == SHOP_REASON_AVAILABLE) {
+@@ -60,6 +64,7 @@
+         if !(0..=1_024_000_000).contains(&shield_remaining_raw) { return None; }
+         Some(Self {
+             player_id,
++            stash,
+             economy: CommittedEconomyState::decode(&bytes[4..85]).ok()?,
+             shop_available,
+             shop_reason,
+@@ -68,6 +73,46 @@
+     }
+ }
+ 
++/// The owner's stash in its economy (courier spec §2): whether the match runs the stash rule,
++/// and the catalog id of each stash slot (0 empty).
++#[derive(Clone, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
++pub struct OwnerStash {
++    pub enabled: bool,
++    pub item_ids: [u16; 6],
++}
++
++impl OwnerStash {
++    pub const PAYLOAD_LEN: usize = 13;
++
++    pub fn capture(enabled: bool, stash: &Inventory) -> Result<Self, &'static str> {
++        let mut state = Self { enabled, item_ids: [0; 6] };
++        for (slot, item) in stash.items() {
++            state.item_ids[slot] = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|entry| entry.id == item.item_id)
++                .ok_or("unknown MOBA catalog item")?.catalog_id;
++        }
++        Ok(state)
++    }
++
++    pub fn encode(&self) -> Vec<u8> {
++        let mut bytes = Vec::with_capacity(Self::PAYLOAD_LEN);
++        bytes.push(u8::from(self.enabled));
++        for id in self.item_ids { bytes.extend(id.to_le_bytes()); }
++        bytes
++    }
++
++    /// Only a known catalog id or 0 in each slot, and no stash without the rule.
++    pub fn decode(bytes: &[u8]) -> Option<Self> {
++        if bytes.len() != Self::PAYLOAD_LEN || bytes[0] > 1 { return None; }
++        let mut state = Self { enabled: bytes[0] == 1, item_ids: [0; 6] };
++        for slot in 0..6 {
++            let id = u16::from_le_bytes(bytes[1 + slot * 2..3 + slot * 2].try_into().ok()?);
++            if id != 0 && (!state.enabled || !omoba_template_ids::MOBA_ITEM_CATALOG.iter().any(|entry| entry.catalog_id == id)) { return None; }
++            state.item_ids[slot] = id;
++        }
++        Some(state)
++    }
++}
++
+ #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+ pub struct CommittedEconomyState {
+     pub gold: i32,
+@@ -211,7 +256,7 @@
+     #[test]
+     fn owner_codec_is_bounded_and_validates_identity_and_flag() {
+         let state = OwnerEconomyState {
+-            player_id: 7,
++            player_id: 7, stash: OwnerStash::default(),
+             shop_available: true,
+             shop_reason: SHOP_REASON_AVAILABLE,
+             shield_remaining_raw: 102400,
+--- a/omoba-core/src/runtime/native/moba_match.rs
++++ b/omoba-core/src/runtime/native/moba_match.rs
+@@ -347,6 +347,40 @@
+     }
+ }
+ 
++/// Dota's stash pickup (courier spec §2, `shop_range_rule` only): a living hero within its shop
++/// moves its stash's items into its free inventory slots, in stash order, before this tick's
++/// economy is committed; an item its equipment groups refuse stays in the stash. Its item stats
++/// follow (ItemEffects dirty).
++pub(crate) fn pick_up_stash(world: &World, state: &mut MobaMatch) {
++    if !state.config.shop_range_rule { return; }
++    let waiting: Vec<(usize, Entity)> = state.heroes.iter().enumerate()
++        .filter(|(_, slot)| slot.stash.items().next().is_some())
++        .filter_map(|(index, slot)| slot.entity.filter(|_| super::shop::in_shop_range(world, state, slot.player_id)).map(|hero| (index, hero)))
++        .collect();
++    let registry = world.read_resource::<super::item::ItemRegistry>();
++    for (index, hero) in waiting {
++        let mut inventories = world.write_storage::<Inventory>();
++        let Some(inventory) = inventories.get_mut(hero) else { continue };
++        let stash = &mut state.heroes[index].stash;
++        let mut moved = false;
++        for stash_slot in 0..stash.slots.len() {
++            let Some(free) = inventory.first_free_slot() else { break };
++            let Some(item) = stash.slots[stash_slot].clone() else { continue };
++            let mut next = inventory.clone();
++            next.slots[free] = Some(item);
++            if super::shop::inventory_purchase_groups_allow(&registry, &next) {
++                *inventory = next;
++                stash.slots[stash_slot] = None;
++                moved = true;
++            }
++        }
++        drop(inventories);
++        if moved {
++            if let Some(effects) = world.write_storage::<ItemEffects>().get_mut(hero) { effects.dirty = true; }
++        }
++    }
++}
++
+ fn emit_owner_economy(world: &World, state: &MobaMatch, phase: crate::runtime::FactPhase) {
+     use crate::runtime::native::economy_projection::{CommittedEconomyState, OwnerEconomyState};
+     let availability: Vec<_> = state
+@@ -387,6 +421,8 @@
+                     team,
+                     state: OwnerEconomyState {
+                         player_id: slot.player_id,
++                        stash: crate::runtime::native::economy_projection::OwnerStash::capture(
++                            state.config.shop_range_rule, &slot.stash).expect("valid stash"),
+                         economy,
+                         shop_available,
+                         shop_reason,
+@@ -900,6 +936,10 @@
+     hero: Hero,
+     inventory: Inventory,
+     gold: Gold,
++    /// The player's stash (Dota's, §2 of the courier spec; `shop_range_rule` only): items bought
++    /// outside the shop, or with a full inventory, wait here, across deaths, until the hero comes
++    /// to its shop ([`pick_up_stash`]) or a courier brings them.
++    pub stash: Inventory,
+     pub(crate) summoners: crate::runtime::summoner_runtime::SummonerLoadout,
+     /// Slot 0 trinket. Independent of inventory, abilities, and summoners.
+     /// Omission stays unequipped until an authoritative loadout is installed.
+@@ -930,6 +970,15 @@
+         }
+     }
+ 
++    /// [`MobaHeroSlot::admitted_dead_wallet`] with the stash.
++    pub(crate) fn admitted_dead_wallet_and_stash(&mut self) -> Option<(&mut Inventory, &mut Gold, &mut Inventory)> {
++        if self.entity.is_none() && self.respawn_at.is_some() && self.deaths > 0 {
++            Some((&mut self.inventory, &mut self.gold, &mut self.stash))
++        } else {
++            None
++        }
++    }
++
+     pub(crate) fn admitted_dead_wallet_ref(&self) -> Option<(&Inventory, Gold)> {
+         if self.entity.is_none() && self.respawn_at.is_some() && self.deaths > 0 {
+             Some((&self.inventory, self.gold))
+@@ -1756,6 +1805,7 @@
+         respawns: 0,
+         respawn_at: None,
+         hero: definitions[index].clone(),
++        stash: Inventory::default(),
+         inventory: Inventory::default(),
+         gold: Gold(config.game_rules.map_or(0, |rules| rules.gold_starting.min(i32::MAX as u32) as i32)),
+         summoners: summoner_loadouts.get(player_id).cloned().unwrap_or_default(),
+@@ -3705,6 +3755,7 @@
+             credit_moba_player(world,&mut state,index,award as u32,0);
+         }
+     }
++    pick_up_stash(world, &mut state);
+     // Hero movement can finish before the final turn/attack phase. Publish the
+     // committed visible pose, not an intermediate system pose or private target.
+     let positions = world.read_storage::<Pos>();
+@@ -4544,6 +4595,7 @@
+             respawns: 0,
+             respawn_at: None,
+             hero: Hero::default(),
++            stash: Inventory::default(),
+             inventory: Inventory::default(),
+             gold: Gold(0),
+             summoners: crate::runtime::summoner_runtime::SummonerLoadout::default(),
+@@ -4663,6 +4715,7 @@
+         respawns: 0,
+         respawn_at: None,
+         hero: Hero::default(),
++        stash: Inventory::default(),
+         inventory: Inventory::default(),
+         gold: Gold(0),
+         summoners: crate::runtime::summoner_runtime::SummonerLoadout::default(),
+--- a/omoba-core/src/runtime/native/script_hooks_tests.rs
++++ b/omoba-core/src/runtime/native/script_hooks_tests.rs
+@@ -379,7 +379,13 @@
+ /// hero-scope status, kept across the death, that hears the respawn instead). An item windup
+ /// world gives player 1's hero a scripted item with a 0.5 s interruptible cast point to use.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+-enum Extra { Plain, Ward, Purge, Death, Respawn, Block, ItemWindup, ItemCharges }
++enum Extra { Plain, Ward, Purge, Death, Respawn, Block, ItemWindup, ItemCharges, Stash }
++
++/// The cheapest shop item without a recipe or an active (a stash world buys it).
++fn cheap_item() -> &'static str {
++    omoba_template_ids::MOBA_ITEM_CATALOG.iter().filter(|item| item.in_shop() && item.recipe.is_empty() && item.active.is_none() && item.cost > 0)
++        .min_by_key(|item| (item.cost, item.catalog_id)).map(|item| item.id).expect("a plain shop item")
++}
+ 
+ /// A scripted catalog item with charges aimed at a point (土牆之書), and its script id.
+ fn charged_item() -> (&'static str, &'static str) {
+@@ -561,7 +567,7 @@
+     let cast = match extra {
+         Extra::Ward | Extra::Death | Extra::Respawn => To::from_value(Zap { id: id.to_owned() }, TD_Opaque),
+         Extra::Purge => To::from_value(Purger { id: id.to_owned() }, TD_Opaque),
+-        Extra::Plain | Extra::Block | Extra::ItemWindup | Extra::ItemCharges => To::from_value(Probe { calls, id: id.to_owned() }, TD_Opaque),
++        Extra::Plain | Extra::Block | Extra::ItemWindup | Extra::ItemCharges | Extra::Stash => To::from_value(Probe { calls, id: id.to_owned() }, TD_Opaque),
+     };
+     if matches!(extra, Extra::ItemWindup | Extra::ItemCharges) {
+         let (_, script) = if extra == Extra::ItemWindup { windup_item() } else { charged_item() };
+@@ -650,6 +656,15 @@
+         world.write_storage::<crate::runtime::native::comp::Inventory>().get_mut(hero).unwrap().slots[0] =
+             Some(crate::runtime::native::comp::inventory::ItemInstance { item_id: item.to_owned(), cooldown_remaining: 0.0 });
+     }
++    // A stash world (courier spec §2): the match runs the stash rule and player 1's hero stands in
++    // its shop with gold for every purchase.
++    if extra == Extra::Stash {
++        let base = world.read_resource::<crate::runtime::MobaMatch>().bases[0].unwrap();
++        let at = world.read_storage::<crate::runtime::native::comp::Pos>().get(base).unwrap().0;
++        world.write_storage::<crate::runtime::native::comp::Pos>().get_mut(hero).unwrap().0 = at;
++        world.write_resource::<crate::runtime::MobaMatch>().config.shop_range_rule = true;
++        world.write_storage::<crate::runtime::native::comp::Gold>().get_mut(hero).unwrap().0 = 100_000;
++    }
+     // A death world: the guarded hero falls to a few zaps.
+     if matches!(extra, Extra::Death | Extra::Respawn) {
+         let mut props = world.write_storage::<crate::runtime::native::comp::CProperty>();
+@@ -800,6 +815,21 @@
+     assert!(left.is_some_and(|state| state.charges < state.max), "spent, still recharging: {left:?}");
+ }
+ 
++/// Courier spec §2 (shop_range_rule): player 1 buys in its shop until the inventory is full, the
++/// seventh purchase waits in the stash, a sale frees a slot and the stash fills it at the end of
++/// that tick; every team replica matches the authority's view each tick (the inventory through
++/// the committed economy, the stash only in the owner's economy).
++#[test]
++fn the_stash_rule_keeps_every_team_replica_with_the_authority() {
++    let (world, _, _, _) = order_filter_soak(false, Extra::Stash);
++    let state = world.read_resource::<crate::runtime::MobaMatch>();
++    let slot = state.heroes.iter().find(|slot| slot.player_id == 1).unwrap();
++    let hero = slot.entity.unwrap();
++    let carried = world.read_storage::<crate::runtime::native::comp::Inventory>().get(hero).unwrap().items().count();
++    assert_eq!(carried, 6, "six carried after the sale and the pickup");
++    assert!(slot.stash.items().next().is_none(), "the stash emptied into the freed slot");
++}
++
+ /// FC-095／096 chance block (rules::damage::block_amount): both heroes trade attacks while each
+ /// wears two 50% blocks; every team replica rolls the same blocks and keeps the authority's lives.
+ #[test]
+@@ -871,6 +901,13 @@
+                 let point = crate::game_proto::Vec2I { x: (at.x.raw() + 100 * 1024) as i32, y: at.y.raw() as i32 };
+                 vec![(1, PlayerInput { action: Some(Action::ItemUse(crate::game_proto::ItemUse { item_slot: 0, target_pos: Some(point),
+                     point_explicit: Some(true), ..Default::default() })) })]
++            } else if (driver.tick() + 1) % 120 == 100 && extra == Extra::Stash {
++                // six purchases fill the inventory, the seventh waits in the stash; a sale then
++                // frees a slot the stash fills at the end of that tick
++                let order = (driver.tick() + 1) / 120;
++                let action = if order <= 6 { Action::ItemBuy(crate::game_proto::ItemBuy { item_id: cheap_item().into() }) }
++                    else { Action::ItemSell(crate::game_proto::ItemSell { item_slot: 0 }) };
++                if order <= 7 { vec![(1, PlayerInput { action: Some(action) })] } else { Vec::new() }
+             } else if (driver.tick() + 1) % 120 == 100 {
+                 vec![(1, PlayerInput { action: Some(Action::CastAbility(CastAbility {
+                     ability_index: 0, target_entity: Some(enemy.id()), ..Default::default() })) })]
+--- a/omoba-core/src/runtime/native/shop.rs
++++ b/omoba-core/src/runtime/native/shop.rs
+@@ -92,12 +92,17 @@
+     UndoDuplicate,
+     /// Post-recipe inventory would exceed an authored equipment group limit.
+     PurchaseGroupLimit,
++    /// `shop_range_rule`: the purchase belongs in the stash (bought outside the shop, or with a
++    /// full inventory) and the stash is full.
++    StashFull,
+ }
+ 
+ #[derive(Clone, Debug, PartialEq, Eq)]
+ pub enum ShopCommand {
+     Buy(String),
+     Sell(usize),
++    /// `shop_range_rule`: sell the item in this stash slot (within the shop only).
++    SellStash(usize),
+ }
+ 
+ /// Selects one open purchase. This is not a wire command.
+@@ -278,6 +283,7 @@
+             Self::UndoUnavailable => 14,
+             Self::UndoDuplicate => 15,
+             Self::PurchaseGroupLimit => 16,
++            Self::StashFull => 17,
+         }
+     }
+ }
+@@ -295,6 +301,10 @@
+     player_id: u32,
+     command: ShopCommand,
+ ) -> Result<(), ShopError> {
++    if world.try_fetch::<super::moba_match::MobaMatch>().is_some_and(|state| state.config.shop_range_rule) {
++        return transact_with_stash(world, player_id, command);
++    }
++    if matches!(command, ShopCommand::SellStash(_)) { return Err(ShopError::InvalidSlot); }
+     let recorded = match admit_shop(world, player_id)? {
+         ShopSeat::Live(hero) => mutate_live_shop(world, hero, command)?,
+         ShopSeat::Retained => mutate_retained_shop(world, player_id, command)?,
+@@ -576,6 +586,143 @@
+     Retained,
+ }
+ 
++/// Whether `player_id`'s living hero stands within its shop (the seat an ordinary purchase
++/// needs); a dead hero's roster wallet is not.
++pub(crate) fn in_shop_range(world: &World, state: &super::moba_match::MobaMatch, player_id: u32) -> bool {
++    matches!(classify_shop(world, state, player_id), Ok(ShopSeat::Live(_)))
++}
++
++/// Courier spec §2 (`shop_range_rule`): a purchase within the shop lands in the inventory, or the
++/// stash when the inventory is full; outside it (or while dead) in the stash; a full stash refuses
++/// ([`ShopError::StashFull`]). A recipe takes its parts from the inventory and the stash within
++/// the shop, from the stash only outside it. Selling stays within the shop (or while dead, as
++/// before), from the inventory or the stash. Only a purchase that touched neither the stash nor
++/// the stash's parts keeps its undo record; any other transaction closes the owner's undo.
++fn transact_with_stash(world: &mut World, player_id: u32, command: ShopCommand) -> Result<(), ShopError> {
++    use super::comp::ItemEffects;
++    let (seat, in_range) = {
++        let state = world.try_fetch::<super::moba_match::MobaMatch>().ok_or(ShopError::MatchUnavailable)?;
++        match classify_shop(world, &state, player_id) {
++            Ok(ShopSeat::Live(hero)) => (ShopSeat::Live(hero), true),
++            Ok(ShopSeat::Retained) => (ShopSeat::Retained, false),
++            // a living hero outside its shop (classify_shop checked the rest first)
++            Err((ShopError::OutsideShop, _)) => (ShopSeat::Live(state.heroes.iter().find(|slot| slot.player_id == player_id)
++                .and_then(|slot| slot.entity).ok_or(ShopError::HeroUnavailable)?), false),
++            Err((error, _)) => return Err(error),
++        }
++    };
++    if matches!(command, ShopCommand::Sell(_) | ShopCommand::SellStash(_)) && matches!(seat, ShopSeat::Live(_)) && !in_range {
++        return Err(ShopError::OutsideShop);
++    }
++    if let ShopCommand::Buy(id) = &command {
++        if !omoba_template_ids::MOBA_ITEM_CATALOG.iter().any(|item| item.id == *id && (item.in_shop() || SELLS_TEST_ONLY_ITEMS)) {
++            return Err(ShopError::UnknownItem);
++        }
++    }
++    let registry = (*world.read_resource::<ItemRegistry>()).clone();
++    let mut state = world.write_resource::<super::moba_match::MobaMatch>();
++    let slot = state.heroes.iter_mut().find(|slot| slot.player_id == player_id).ok_or(ShopError::UnknownPlayer)?;
++    let mut inventories = world.write_storage::<Inventory>();
++    let mut balances = world.write_storage::<Gold>();
++    let (inventory, gold, stash, source) = match seat {
++        ShopSeat::Live(hero) => (inventories.get_mut(hero).ok_or(ShopError::MissingComponents)?,
++            balances.get_mut(hero).ok_or(ShopError::MissingComponents)?, &mut slot.stash, (hero.id(), hero.gen().id())),
++        ShopSeat::Retained => {
++            let (inventory, gold, stash) = slot.admitted_dead_wallet_and_stash().ok_or(ShopError::HeroUnavailable)?;
++            (inventory, gold, stash, (SHOP_UNDO_ROSTER_INDEX, SHOP_UNDO_ROSTER_GENERATION))
++        }
++    };
++    let before_inventory = inventory.clone();
++    let before_gold = gold.0;
++    let record = match command {
++        ShopCommand::Buy(id) => {
++            let (placed, used_stash) = buy_with_stash(&registry, inventory, stash, gold, &id, in_range)?;
++            let paid = before_gold.checked_sub(gold.0).filter(|paid| *paid >= 0).ok_or(ShopError::InvalidBalance)?;
++            match placed {
++                StashPlacement::Inventory(result) if !used_stash => Some((purchase_record(
++                    &registry, &before_inventory, inventory, result, &id, paid, source.0, source.1), inventory.clone())),
++                _ => None,
++            }
++        }
++        ShopCommand::Sell(index) => {
++            let sold = inventory.slots.get(index).and_then(Option::as_ref).cloned().ok_or(ShopError::InvalidSlot)?;
++            if !sold.cooldown_remaining.is_finite() || sold.cooldown_remaining < 0.0 { return Err(ShopError::InvalidCatalog); }
++            let credit = sell_item(&registry, inventory, gold, index)?;
++            Some((ShopUndoRecord {
++                kind: ShopUndoKind::Sale, sequence: 0, item_id: sold.item_id,
++                result_slot: index as u8, result_cooldown_bits: sold.cooldown_remaining.to_bits(),
++                paid: credit, consumed: Vec::new(), benefits: BENEFIT_ATTACK | BENEFIT_HP | BENEFIT_ARMOR | BENEFIT_MOVE,
++                eligible: true, source_index: source.0, source_generation: source.1,
++            }, inventory.clone()))
++        }
++        ShopCommand::SellStash(index) => { sell_item(&registry, stash, gold, index)?; None }
++    };
++    let changed_inventory = inventory.slots.iter().zip(&before_inventory.slots)
++        .any(|(now, was)| now.as_ref().map(|item| &item.item_id) != was.as_ref().map(|item| &item.item_id));
++    drop((inventories, balances, state));
++    if let (true, ShopSeat::Live(hero)) = (changed_inventory, seat) {
++        if let Some(effects) = world.write_storage::<ItemEffects>().get_mut(hero) { effects.dirty = true; }
++    }
++    match record {
++        Some((record, inventory)) => commit_transaction(world, player_id, record, &inventory),
++        None => if let Some(mut ledger) = world.try_fetch_mut::<ShopUndoLedger>() { ledger.invalidate_player(player_id); },
++    }
++    Ok(())
++}
++
++/// Where a stash-rule purchase landed.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum StashPlacement { Inventory(usize), Stash(usize) }
++
++/// [`buy_item`] under the stash rule (courier spec §2). Within the shop (`in_range`) the parts come
++/// from the inventory first, then the stash, and the item lands in a free inventory slot, else in
++/// the stash; outside it, the parts come from the stash only and the item lands there. A full
++/// stash is [`ShopError::StashFull`]. `true` with the placement: some part came from the stash.
++pub fn buy_with_stash(registry: &ItemRegistry, inventory: &mut Inventory, stash: &mut Inventory, gold: &mut Gold,
++    item_id: &str, in_range: bool) -> Result<(StashPlacement, bool), ShopError> {
++    if gold.0 < 0 { return Err(ShopError::InvalidBalance); }
++    let item = registry.get(item_id).ok_or(ShopError::UnknownItem)?;
++    if !valid_item(&item) { return Err(ShopError::InvalidCatalog); }
++    let mut component_costs = Vec::with_capacity(item.recipe.len());
++    for id in &item.recipe {
++        if id == item_id { return Err(ShopError::InvalidCatalog); }
++        let component = registry.get(id).ok_or(ShopError::InvalidCatalog)?;
++        if !valid_item(&component) { return Err(ShopError::InvalidCatalog); }
++        component_costs.push(component.cost);
++    }
++    let price = checked_combine_price(item.cost, &component_costs)?;
++    let (mut carried, mut stored, mut used_stash) = (inventory.clone(), stash.clone(), false);
++    for id in &item.recipe {
++        if let Some(slot) = carried.find_item(id).filter(|_| in_range) { carried.slots[slot] = None; continue; }
++        let slot = stored.find_item(id).ok_or(ShopError::MissingComponent)?;
++        stored.slots[slot] = None;
++        used_stash = true;
++    }
++    if gold.0 < price { return Err(ShopError::InsufficientGold); }
++    let instance = ItemInstance { item_id: item_id.to_owned(), cooldown_remaining: 0.0 };
++    let placed = match carried.first_free_slot().filter(|_| in_range) {
++        Some(slot) => {
++            carried.slots[slot] = Some(instance);
++            validate_inventory_purchase_groups(registry, &carried)?;
++            StashPlacement::Inventory(slot)
++        }
++        None => {
++            let slot = stored.first_free_slot().ok_or(ShopError::StashFull)?;
++            stored.slots[slot] = Some(instance);
++            StashPlacement::Stash(slot)
++        }
++    };
++    *inventory = carried;
++    *stash = stored;
++    gold.0 -= price;
++    Ok((placed, used_stash))
++}
++
++/// Whether the inventory keeps within its equipment groups (a stash pickup's check).
++pub(crate) fn inventory_purchase_groups_allow(registry: &ItemRegistry, inventory: &Inventory) -> bool {
++    validate_inventory_purchase_groups(registry, inventory).is_ok()
++}
++
+ fn admit_shop(world: &World, player_id: u32) -> Result<ShopSeat, ShopError> {
+     let state = world.try_fetch::<super::moba_match::MobaMatch>().ok_or(ShopError::MatchUnavailable)?;
+     classify_shop(world, &state, player_id).map_err(|(error, _)| error)
+@@ -727,6 +874,8 @@
+             };
+             Ok(Some((record,inventory.clone())))
+         }
++        // the stash belongs to the stash rule (transact_with_stash)
++        ShopCommand::SellStash(_) => Err(ShopError::InvalidSlot),
+     }
+ }
+ 
+@@ -1751,6 +1900,71 @@
+         world.read_storage::<Gold>().get(hero).unwrap().0
+     }
+ 
++    /// Courier spec §2 (shop_range_rule): outside the shop a purchase lands in the stash and a
++    /// recipe takes its parts from the stash only; a full stash refuses; selling needs the shop;
++    /// within it a purchase lands in the inventory, the stash once the inventory is full, a recipe
++    /// takes its parts from both; the hero picks the stash up within its shop. Without the rule
++    /// nothing of it applies.
++    #[test]
++    fn the_stash_rule_routes_purchases_parts_sales_and_the_pickup() {
++        let ShopWorld { mut world, heroes } = shop_world(20_000);
++        let hero = heroes[0];
++        let stash = |world: &specs::World| world.read_resource::<MobaMatch>().heroes[0].stash.slots.iter()
++            .map(|slot| slot.as_ref().map(|item| item.item_id.clone())).collect::<Vec<_>>();
++        let carried = |world: &specs::World| world.read_storage::<Inventory>().get(hero).unwrap().items().count();
++        // without the rule: no stash sale, and outside the shop no purchase
++        assert_eq!(transact_moba_shop(&mut world, 1, ShopCommand::SellStash(0)), Err(ShopError::InvalidSlot));
++        world.write_resource::<MobaMatch>().config.shop_range_rule = true;
++        let home = world.read_storage::<Pos>().get(hero).unwrap().0;
++        world.write_storage::<Pos>().get_mut(hero).unwrap().0 = Vec2::new(Fixed64::from_i32(10_000), Fixed64::ZERO);
++        let gold = gold_of(&world, hero);
++        buy(&mut world, 1, "moba_sword");
++        buy(&mut world, 1, "moba_sword");
++        assert_eq!(gold_of(&world, hero), gold - 700);
++        assert_eq!(carried(&world), 0, "nothing reaches the inventory outside the shop");
++        assert_eq!(stash(&world)[..2], [Some("moba_sword".into()), Some("moba_sword".into())]);
++        // the recipe takes the two stashed swords and stays in the stash
++        buy(&mut world, 1, "moba_greatsword");
++        assert_eq!(stash(&world).iter().flatten().cloned().collect::<Vec<_>>(), ["moba_greatsword"]);
++        for _ in 0..5 { buy(&mut world, 1, "moba_armor"); }
++        let full = gold_of(&world, hero);
++        assert_eq!(transact_moba_shop(&mut world, 1, ShopCommand::Buy("moba_armor".into())), Err(ShopError::StashFull));
++        assert_eq!(gold_of(&world, hero), full, "a refused purchase spends nothing");
++        assert_eq!(transact_moba_shop(&mut world, 1, ShopCommand::SellStash(0)), Err(ShopError::OutsideShop));
++        // within the shop: sell from the stash, buy into the inventory; a stashed part counts
++        world.write_storage::<Pos>().get_mut(hero).unwrap().0 = home;
++        transact_moba_shop(&mut world, 1, ShopCommand::SellStash(1)).unwrap();
++        assert!(gold_of(&world, hero) > full, "the stash sale refunds");
++        assert_eq!(stash(&world)[1], None);
++        buy(&mut world, 1, "moba_sword");
++        assert_eq!(item_at(&world, hero, 0).as_deref(), Some("moba_sword"));
++        for _ in 0..5 { buy(&mut world, 1, "moba_boots"); }
++        assert_eq!(carried(&world), 6);
++        buy(&mut world, 1, "moba_sword");
++        assert_eq!(stash(&world)[1].as_deref(), Some("moba_sword"), "a full inventory buys into the stash");
++        // one sword carried, one stashed: the greatsword takes both and lands in the freed inventory slot
++        buy(&mut world, 1, "moba_greatsword");
++        assert_eq!(item_at(&world, hero, 0).as_deref(), Some("moba_greatsword"));
++        assert_eq!(stash(&world)[1], None);
++        // the pickup moves the stash into free inventory slots within the shop only
++        transact_moba_shop(&mut world, 1, ShopCommand::Sell(1)).unwrap();
++        transact_moba_shop(&mut world, 1, ShopCommand::Sell(2)).unwrap();
++        let pick = |world: &mut specs::World| {
++            let mut state = world.remove::<MobaMatch>().unwrap();
++            super::super::moba_match::pick_up_stash(world, &mut state);
++            world.insert(state);
++        };
++        world.write_storage::<Pos>().get_mut(hero).unwrap().0 = Vec2::new(Fixed64::from_i32(10_000), Fixed64::ZERO);
++        let before = stash(&world);
++        pick(&mut world);
++        assert_eq!(stash(&world), before, "no pickup outside the shop");
++        world.write_storage::<Pos>().get_mut(hero).unwrap().0 = home;
++        pick(&mut world);
++        assert_eq!(carried(&world), 6, "two slots filled from the stash");
++        assert_eq!(stash(&world).iter().flatten().count(), before.iter().flatten().count() - 2);
++        assert!(world.read_storage::<ItemEffects>().get(hero).unwrap().dirty, "its stats follow");
++    }
++
+     fn item_at(world: &specs::World, hero: Entity, slot: usize) -> Option<String> {
+         world.read_storage::<Inventory>().get(hero).unwrap().slots[slot].as_ref().map(|item| item.item_id.clone())
+     }
+--- a/omoba-core/src/runtime/shop_receipt.rs
++++ b/omoba-core/src/runtime/shop_receipt.rs
+@@ -130,6 +130,11 @@
+                 0,
+                 u32::try_from(*slot).map_err(|_| ProjectionError::MalformedDisclosedState)?,
+             ),
++            // a stash slot past the six inventory slots (courier spec §2)
++            ShopCommand::SellStash(slot) => (
++                0,
++                u32::try_from(*slot + 6).map_err(|_| ProjectionError::MalformedDisclosedState)?,
++            ),
+         };
+         let receipt = ShopReceipt {
+             player_id: input.player_id,
+@@ -354,7 +359,7 @@
+                 fact: ObservableFact::OwnerEconomy {
+                     team,
+                     state: OwnerEconomyState {
+-                        player_id: 7,
++                        player_id: 7, stash: crate::runtime::native::economy_projection::OwnerStash::default(),
+                         economy: CommittedEconomyState::capture(
+                             Gold(550),
+                             &Inventory::default(),
+--- a/omoba-core/src/runtime/ward_transport.rs
++++ b/omoba-core/src/runtime/ward_transport.rs
+@@ -807,7 +807,7 @@
+     #[test]
+     fn verified_owner_ward_receiver_rejects_unverified_order_and_restores_by_recovery() {
+         assert_eq!(WARD_PROTOCOL_VERSION, 3);
+-        assert_eq!(crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 18);
++        assert_eq!(crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 19);
+         let bytes = encode_owner_ward_projection(&equipped(1, 0, true)).unwrap();
+         let start = admitted_start(7, 3, 11, &bytes, "receiver");
+         assert_eq!(start.ward_protocol_version, 3);
+--- a/omoba-core/src/transport.rs
++++ b/omoba-core/src/transport.rs
+@@ -13,7 +13,8 @@
+ // Version 16 discloses ability projectile flight components (G-1); v15 peers cannot decode them.
+ // Version 17 discloses Hero.ability_charges (G-2 stored uses) and admits ScriptConsumeCharge.
+ // Version 18 adds the CommittedCharge fact (39) for opponents' stored uses.
+-pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 18;
++// Version 19 appends the owner's stash (OwnerStash, 13 bytes) to the OwnerEconomy fact.
++pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 19;
+ pub const SELECTIVE_LOCKSTEP_PROTOCOL_V2: u32 = SELECTIVE_LOCKSTEP_PROTOCOL_VERSION;
+ 
+ /// Only these protobuf message types may cross the secure V2 player boundary.
+@@ -99,7 +100,7 @@
+             supported_protocols: vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION],
+             secure_fog_required: true,
+         };
+-        assert_eq!(SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 18);
++        assert_eq!(SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 19);
+         assert_eq!(request.resolve(None), Ok(MatchProtocol::SelectiveV2));
+         request.requested_protocol = 7;
+         request.supported_protocols = vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION - 1];
+--- a/proto/game.proto
++++ b/proto/game.proto
+@@ -1401,6 +1401,10 @@
+   // Schema 3 copies the authority shop-reason byte. Schema 2 leaves this at the
+   // protobuf default. Consumers must not read that default as AVAILABLE.
+   uint32 shop_reason = 8;
++  // Schema 4: the owner's stash (courier spec §2). stash_enabled when the match runs the stash
++  // rule (shop_range_rule): purchases outside the shop then land in the stash.
++  bool stash_enabled = 9;
++  repeated InventorySlotPresentation stash_slots = 10; // exactly six when stash_enabled, else none
+ }
+ // Session capability plus the owner scalar. projected is false when the scalar
+ // has not arrived. can_undo is never implied by undo_supported or by reason 0.

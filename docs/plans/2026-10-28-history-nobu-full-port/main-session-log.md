@@ -861,3 +861,75 @@
 - 2026-11-07 14:10 B land 7a15392d：狀態到期那一刻的週期跳算數；base_content 基準失敗歸零。D 標記 468ea0e1：D22 FC-136～186 全部在 live 並通過。
 - 2026-11-07 16:06 E 補齊召喚物對單位施放技能（b68a9dea、omfue gitlink 9f54a047），秀吉舊版魂燒可放，排入重錄；五右衛門舊版 prop 移位 0a185766。第 3 批錄完龍造寺、雜賀舊版。
 - 2026-11-07 19:00 C 交付第 3 批：26/31 通過；95 位變體已交付 84 位。太原雪齋舊版（樹目標被拒）、竹中重治／宇佐美定滿舊版（slot4 等級 0）交 E；雜賀孫市、佐佐成政舊版 C 自行重錄。
+- 2026-11-07 20:30 事故：main 刪 target 過期影子目錄時，PowerShell Remove-Item 跟著 junction 刪到本體，8 個子模組工作目錄被清空（20:07～20:08）。已從 .git/modules 以 reset --hard 還原受版控檔案（缺檔 0）；omfue 忽略的 Binaries／DDC／Saved／VFX 與部分材質 .uasset 需重建，交 C。各線 land 暫停至 C 確認 UBT。
+- 2026-11-07 21:10 omfue 重建完成：394 個文字來源資產（381 材質、13 Niagara）全部重建、0 個無法重建；.gitignore 171 項都已重新產生；cargo、UBT 通過。check_live_consistent --ubt 執行中，之後抽一位比對、恢復錄影。
+- 2026-11-07 21:50 omfue 還原後 check_live_consistent --ubt 通過（codegen、cargo、server、bridge、UBT）；C 重錄伊達政宗比對清空前關鍵幀中。
+- 2026-11-07 22:10 誤刪事故結案：伊達政宗比對重錄 12 張關鍵幀與 11-06 一致（模型、材質、特效），無法從文字重建的資產 0。錄影恢復（百地、秀吉、雜賀、佐佐、太原、竹中、宇佐美舊版），上架恢復，B 先送小島舊版冷卻修正。
+- 2026-11-07 23:30 清空後 7 位重錄 6 位交付（百地、秀吉含魂燒、雜賀、太原、竹中、宇佐美）；95 位變體 93 位有通過影片，剩小島舊版（重錄中）、佐佐舊版（死亡段 hp 滿，大筒 toggle 未關，交 E）。
+- 2026-11-07 23:55 D22 影片里程碑：95 位變體（85 _old、10 _v20）全部有通過的演示影片，Tripo 0 點；抽查佐佐舊版死亡段有拍到。剩完成條件「bot 實際施放」待 E 的 hero_status sweep 確認。B 開始冷卻根治（A 方案）。
+- 2026-11-08 01:06 B land 112e44c0：replica 新的本地生命帶入己方 v3 script 列（狀態層數、技能排程、unit_var），小島舊版法術護盾根治。E 的含變體 hero_status sweep 仍在等記憶體（13.9／16 GB），01:30 啟用降門檻備案。
+- 2026-11-08 02:46 變體 hero_status sweep 找出 bot 從沒放出的招並通用修正：62c7a101 直線投射物上限 60000（淺井舊版空牙，已補錄交付）、6a123ad3 bot 點技能瞄準規則（地裂、徐如林、馬場／平手／本願寺舊版）。sweep 跑到 b10g6。
+- 2026-11-08 04:16 變體 hero_status sweep 完成（bc83ddf2，26 組）：bot 未施放剩 3 招（駿河守 18 級、自然之力樹目標、盜賊藏匿術夜晚），交 E 通用修；宮本武藏舊版因 8d193f29 視野上限交 C 補錄。
+- 2026-11-08 06:46 D22 完成：狀態表 2f02243b——192 位（97 本體＋95 變體）全部完成，bot 未施放 0（含 late／late_nobu 驗證 18 級、夜晚、樹目標技能；b10g6、teamfight 在 81328760、b66bad9f 後通過），95 位變體都有通過的演示影片，Tripo 0 點。下一步：E 上架 5 個道具，B 補戰鬥召喚物光環與 on_order／toggle／on_unequip。
+- 2026-11-08 07:36 E 上架 5 件道具（81d676b4）：林之章、林之書、軍配團扇、大俱利伽羅、當世具足（catalog 226–230）；大俱利伽羅屬性依原作 KV 為 10（來源目錄匯出 25 有誤，標 source_differs）。
+- 2026-11-08 08:16 B land 55577725：戰鬥召喚物可帶 passive.aura（孫子兵法兩件只剩上架）、事件技能 tag 讀值、道具 def 可標 toggle；E 53a0c11f bot 道具覆蓋分輪。B 接著做 on_order。
+- 2026-11-08 08:47 E 上架孫子兵法、失傳的孫子兵法（一）71c11582（7 件待上架道具全部上架）；E 另一個 5 檔 land 進行中；A 接標籤／toggle 產生器、B 接 on_order。
+- 2026-11-08 09:0x A 技能標籤／開關道具產生器 land 08d5a997（codegen、cargo、UBT 過）；E 接著上架怒雷之書、無上雷暴之書；B on_order 設計中。
+- 2026-11-08 09:36 E 上架怒雷之書、無上雷暴之書 0943c6c7（catalog 233、234）；verify_m6_batch --cover-items 4e95e502，準備實機驗新道具。
+- 2026-11-08 10:2x B 道具 on_order（ORDER_FILTER／CANCEL_ORDER）land 037a69cd，replica soak 1440 tick 不分歧；A 接產生器端，之後 E 上架護身御守、御魔護符。
+- 2026-11-08 10:5x A on_order 產生器 land a3850a23；E 接著上架御守；御魔護符等 B 補吸收盾（獨立狀態 absorb、pre_mitigation）。
+- 2026-11-08 11:5x B 吸收盾擴充 land 4dfde241（pre_mitigation、獨立狀態實例 absorb、absorb_with）；A 接著 land 御魔護符產生器；B 接 on_order 不拒絕 filter 的同步缺口。
+- 2026-11-08 12:16 E 上架御守 644b893d（catalog 235）；剩御魔護符等 A 產生器 land。
+- 2026-11-08 12:4x A 御魔護符吸收盾產生器 land b58a8361；E 實機道具演示：新上架 4 件 observer mismatch 0，3 件主動被接受、1 件處於共用冷卻；E 接著上架御魔護符，B 接著 land on_order 缺口修正。
+- 2026-11-08 13:0x B on_order 不拒絕 filter 同步修正 land 28a0b9c8（反向驗證：舊版 soak 失敗）；E 上架御魔護符並跑實機演示中。
+- 2026-11-08 13:26 E 上架御魔護符 3b147d1a（catalog 236）；lineA 待上架清單 7 件＋2 件雷書全部上架（catalog 226–236）。
+- 2026-11-08 14:2x A 道具盤點 lineA-items-inventory-2026-11-08.md：170 件文件、134 件可產生，產生器層清空（60a2a725）；18 件只差上架（E）、18 件卡 ability_kit／host（B，先做解開最多件的四項）。
+- 2026-11-08 15:16 E 上架制魔腹卷、南蠻胴具足 ef43cfab（catalog 237、238）；其餘 16 件：10 件 D13 不移植、5 件等 B（on_owner_death、unit_or_point）、侍的徽章等 A 修撇號比對。
+- 2026-11-08 15:56 B 第 1 項 remove_status 來源篩選（exclude_source_tags／min_duration）land c69d3adf；E spotlight4 演示 237、238 進行中。
+- 2026-11-08 16:2x A 撇號比對修正 land a7aa5fbd（侍的徽章可上架）；A 接 remove_status 來源篩選產生器端與 on_ability_executed；B 死亡路徑（OWNER_DEATH）影子驗證中。
+- 2026-11-08 17:26 E 侍的徽章改由道具腳本執行 0a760ee9；cover4 實機覆蓋局正常結束。
+- 2026-11-08 17:36 A remove_status 來源篩選產生器端 land d5763558（可解開 3 件，待 E 上架）。
+- 2026-11-08 17:46 B 死亡路徑 on_owner_death／道具被動 on_death land 7b32a3e1（解開 insight_gem 鏈，待 A 產生器）。
+- 2026-11-08 18:06 E 上架冰爆之書、冰風暴之書、吉光骨食．銘刀、備前兼光 27a06364。
+- 2026-11-08 19:16 B 道具被動／狀態 on_respawn land 82771384；E verify_m6_batch --cover-items 優先 23f20603；cover6 實機局正常結束。
+- 2026-11-08 19:26 A 道具聽持有者死亡產生器 land 57bfb4d5；D 查證真視／真知碎片原作有 KV、資料已在，碎片只差零件上架；E 修 cover-items bug，cover4–6 道具結果作廢，cover7 重跑中。
+- 2026-11-08 20:26 B item_grant 回傳 v3 id e2965050；A 道具被動 on_respawn 產生器 1c37f120（死亡權杖、村正可上架，待 E）。
+- 2026-11-08 21:06 B 道具施放 delay／repeat 內的 item_instance 狀態 land 4b32ae10；main 批准 B 補 bot 使用 scripted 主動道具（通用缺口）。
+- 2026-11-08 21:2x D: 198G（10 分鐘掉 17G）；target/land 122G 會累積。E 寫 cargo_target_retention.lua 並讓 land_to_live 每次結束清理（預估回收約 105G），land 中。
+- 2026-11-08 21:36 E 上架真知碎片、逝者之笏、妖刀．村正 cb098644（catalog 243–245，未實機）；D: 182G，要求 E 先 land 保留策略並清理，暫停新的實機局。
+- 2026-11-08 22:16 A item_instance 狀態 bool／unit 讀寫產生器 9b7bf2d8（月輪鏡、靈都宮燈可產生，待上架）。
+- 2026-11-08 22:26 E land_to_live 保留策略 18c7db80；B aura／select types building+hero b743ba3b（真視碎片鏈）；spotlight8 結束。
+- 2026-11-08 22:46 B 道具腳本以 v3 id 查找 039cc0df、bot 使用 scripted 主動道具 86af5444；land 保留策略生效，D: 回到 261G。
+- 2026-11-08 23:16 B 道具 refund mana／cooldown（魂蛇）bcac51c9；main 決定 C 做 UE EntityOrPoint 目標（巨龍）。
+- 2026-11-08 23:46 E 上架月輪鏡、靈都宮燈 a2b5e61d（catalog 246–247）；A 道具一律以 v3 id 註冊 c38bd3db。
+- 2026-11-09 00:06 B projectile.lifetime（浪人十手）341a1051；A refund mana 產生器 a9ae7133（魂蛇）；一致性檢查（至 c38bd3db）通過。
+- 2026-11-09 00:26 警報：D: 10 分鐘內 201G→124G，低於 150G；來源主要是 B 的 target/m3p 影子 cargo test（debug pdb）。已請 A、B、E 用 cargo_target_retention.lua 清已結束影子、影子測試關 debug、暫停新實機局。
+- 2026-11-09 00:4x B 清 target/m3p/sc3/cargo 釋放 607G，D: 回到 671G；A 浪人十手 lifetime 1b8af10c；B event_damage_type d0ae77e5。
+- 2026-11-09 01:16 E 上架真視碎片、洞察碎片、洞察寶石、十字槍、御魂 4bbb5203（洞察寶石鏈）。
+- 2026-11-09 02:16 E 上架浪人十手、葵紋越前康繼．禦神刀、闇牙黃泉津、鞍切．一階 e7d5544e；cover9 實機局正常結束。
+- 2026-11-09 02:36 B 道具目標 unit_or_point（巨龍）land 1fa72e69；C 接 UE EntityOrPoint。
+- 2026-11-09 02:46 B physical_block_chance 5c9aaa43（真知短甲、真視赤備挂甲可上架）；C 代 commit omfue UnitOrPoint 4878fd06。
+- 2026-11-09 03:2x C UE EntityOrPoint land（omfue 36ad47f3、gitlink bf3ab9fc），codegen／cargo／UBT 過；CombatAim UE 測試背景跑；巨龍等 E 上架後驗證。
+- 2026-11-09 03:46 E 上架巨龍 88b0a753（catalog 257）；C 可驗證巨龍兩條分支。
+- 2026-11-09 04:56 B 道具充能 item.active.cost.charges（土牆之書）land 1f8fecee；04:36 停掉自己佔 build 鎖 51 分鐘的 --ubt 檢查（在等 C 影子 UBT 互斥），不再於他人 UBT 進行時跑 --ubt。
+- 2026-11-09 05:16 E 上架真知短甲、真視赤備挂甲 9c6ec3e3（catalog 258–259）。
+- 2026-11-09 05:46 A／E 道具充能接上產生器 9ef90d98（土牆之書待上架）；一致性檢查（至 9c6ec3e3）通過。
+- 2026-11-09 06:16 E 上架忍法．土遁（土牆之書）c6b1807d（catalog 260）；C 巨龍 dragon-ally 實機局完成（約 4 分鐘）。只剩千里大劍等 B。
+- 2026-11-09 06:26 B 道具前搖可打斷 item.active.cast 2be4ab76（千里大劍，剩信使 tag／目標類型）。
+- 2026-11-09 07:16 B 信使 UnitType／非英雄＋信使道具目標 88af54a8（千里大劍底層支援齊，待 A 產生器、E 上架）；B 底層清單全部完成。
+- 2026-11-09 07:4x 底層支援全部完成：B 1f8fecee／2be4ab76／88af54a8，A 9ef90d98／73478294／e5f6446c；live 盤點 170 件道具無產生器／B 層阻擋，英雄 192 個 868 條目阻擋 0；剩 E 上架千里大劍等。
+- 2026-11-09 08:0x E 上架陸奧守吉行．銘刀（千里大劍）80906d0e：source_items 158 件原作道具全部上架（另 10 件無 KV 依 D13 不移植）。cover13 抓到道具充能 replica mismatch、巨龍 bot 不用；B 修正 or16 測試中，A 補巨龍 bot 區塊，之後 E 重跑 split。
+- 2026-11-09 08:46 B 道具充能同步給對手隊 replica 50423af0（修 cover13 mismatch）。
+- 2026-11-09 09:46 B 道具施放轉向目標 9ceb5d9e；C 巨龍 dragon-ally-5 跑完（約 7 分鐘），A 暫緩 land 等 C 驗證。
+- 2026-11-09 10:16 C omfue EntityOrPoint CommandBar 補齊 88591f8e（巨龍 hotbar 可用）；C 重跑巨龍兩局。
+- 2026-11-09 10:3x C 巨龍兩條分支實機驗證通過（點友方衝刺 600＋龍息、點地面只龍息），CombatAim 24/24；待處理：同一 ItemUse server 處理兩次（交 B）、英雄技能 unit_or_point 仍發布為 point（交 A）。
+- 2026-11-09 10:46 A 巨龍、扇子 bot 改作者指定 enemy_line 8c11d5ca。
+- 2026-11-09 11:26 A v3_bot 新 intent ally_anchor_unit b8e4f3c0（友方單位錨點，千里大劍類）。
+- 2026-11-09 11:36 B replica 端道具目標可見性放行 01913839（修 C 回報同一 ItemUse 處理兩次、其一 target not visible）。
+- 2026-11-09 11:5x 使用者指示實作信使單位；E 主導（查原作規格→分派 B／A／C），完成後驗證千里大劍傳送到信使與 bot 使用信使。
+- 2026-11-09 12:2x 信使開工：C 信使模型 courier_horse（基本形狀，0 Tripo，omfue d88e98b4／84e8fb33）；A 信使模板、E shop_range_rule 開關、B or19（初始充能同步＋ally_anchor_unit）land 中。
+- 2026-11-09 12:3x B or19（初始充能同步＋ally_anchor_unit）land 07fa0d1e；E cover17 重驗中；A 信使模板第三次 land。
+- 2026-11-09 13:16 A 信使 summon 模板 5f232ab3（第四次 land 成功）。
+- 2026-11-09 13:26 B 英雄技能 target_type unit_or_point c38a574a（A 接 hero_author 6 技能）。
+- 2026-11-09 14:1x 信使：規格 courier-spec（每玩家一匹馬，移速 550、生命 500、魔免、賞金 150、立即重生；stash 6 格；原作千里大劍點信使為中止）；E 信使生成與重生 f8fecbbb（含 soak）、FC-187 ef0b7593；C 信使外觀／bridge 標記／小地圖 land；B 做 stash、送貨回家、同步、bot。
+- 2026-11-09 14:3x A 英雄技能照實發布 unit_or_point a1b7a6a0（7 技能；C 補錄 a06、c10）；E 修信使在 UE 被當 courier summon 的 5 處（land 中）；B stash 第一部分 or21 land 中。

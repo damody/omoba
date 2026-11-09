@@ -1,0 +1,5 @@
+信使視同召喚物（C 線回報）：UnitType::Courier 在 render kind（snapshot 兩處、visibility）、主人的 SummonOrder（summon_orders、replica 的 filtered_specs）都和 Summon 一樣處理；replica 依 ScriptUnitTag 的 summon courier 旗標，把揭露的信使還原成 UnitType::Courier
+
+UE 用 (Summon, "courier") 查外觀與小地圖標記；送貨、回家可以走 SummonOrder operation 3。測試 the_owner_moves_its_courier_like_a_summon；回歸 summon 126、snapshot 18、filtered_specs 41、visibility 26、courier 4 全部通過。
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

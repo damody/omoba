@@ -1,0 +1,24 @@
+--- a/omoba-content-model/src/lib.rs
++++ b/omoba-content-model/src/lib.rs
+@@ -864,8 +864,9 @@
+         Some("enemy") => Some(UnitTargetAllegiance::Enemy),
+         Some(other) => return Err(format!("ability '{}': unit_target '{other}' must be ally or enemy", ability.id)),
+     };
+-    if authored.is_some() && ability.target_type != "unit" {
+-        return Err(format!("ability '{}': unit_target requires a unit target_type", ability.id));
++    // a unit_or_point ability given a unit is checked as a unit target (host TargetType::UnitOrPoint)
++    if authored.is_some() && ability.target_type != "unit" && ability.target_type != "unit_or_point" {
++        return Err(format!("ability '{}': unit_target requires a unit or unit_or_point target_type", ability.id));
+     }
+     match (derived, authored) {
+         (UnitTargetAllegiance::Unspecified, Some(authored)) => Ok(authored),
+@@ -887,6 +888,9 @@
+     assert_eq!(ability_unit_allegiance(&ability(Some("ally"),"unit",none.clone())).unwrap(),UnitTargetAllegiance::Ally);
+     assert_eq!(ability_unit_allegiance(&ability(Some("enemy"),"unit",none.clone())).unwrap(),UnitTargetAllegiance::Enemy);
+     assert_eq!(ability_unit_allegiance(&ability(None,"unit",none.clone())).unwrap(),UnitTargetAllegiance::Unspecified);
++    assert_eq!(ability_unit_allegiance(&ability(Some("enemy"),"unit_or_point",none.clone())).unwrap(),UnitTargetAllegiance::Enemy,
++        "a unit_or_point ability given a unit");
++    assert!(ability_unit_allegiance(&ability(Some("enemy"),"point",none.clone())).is_err());
+     assert_eq!(ability_unit_allegiance(&ability(Some("ally"),"unit",heal.clone())).unwrap(),UnitTargetAllegiance::Ally);
+     assert!(ability_unit_allegiance(&ability(Some("enemy"),"unit",heal)).is_err(),"contradiction");
+     assert!(ability_unit_allegiance(&ability(Some("ally"),"point",none.clone())).is_err(),"unit targets only");
