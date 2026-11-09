@@ -12,6 +12,7 @@ use crate::comp::*;
 mod jungle;
 mod jungle_credit;
 mod summon_bounty;
+pub(crate) mod courier;
 mod original_rewards;
 #[cfg(test)]
 mod projectile_credit_tests;
@@ -911,6 +912,10 @@ pub struct MobaHeroSlot {
     /// The body of the last death and the abilities inactive on it (ability_slots, E670).
     retired_body: Option<specs::Entity>,
     retired_inactive: Vec<String>,
+    /// Under `shop_range_rule` (courier-spec §1): the player's courier and where it (re)spawns,
+    /// the hero's first spawn point; None until the hero first spawns.
+    pub(crate) courier: Option<Entity>,
+    courier_spawn: Option<Vec2>,
 }
 
 impl MobaHeroSlot {
@@ -1764,6 +1769,8 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         hero_statuses: Vec::new(),
         retired_body: None,
         retired_inactive: Vec::new(),
+        courier: None,
+        courier_spawn: None,
     }).collect();
     let mut state = MobaMatch {
         base_structures: Vec::new(),
@@ -2280,6 +2287,7 @@ impl MobaMatch {
         self.heroes[index].recall = None;
         self.heroes[index].respawn_at = None;
         self.track(entity, team, LaneRole::Hero);
+        courier::on_hero_spawn(self, world, index, spawn);
     }
 
     /// A structure `offset` along `team`'s route of `lane`.
@@ -2774,6 +2782,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
             }
         }
     }
+    courier::tick(world, &mut state);
     objective_comeback::begin(world,&mut state);
     state.tick_base_structures(world);
     state.grow_tower_damage(world);
@@ -4552,6 +4561,8 @@ pub(crate) fn stop_command_match(hero: Entity, phase: MobaMatchPhase) -> MobaMat
             hero_statuses: Vec::new(),
             retired_body: None,
             retired_inactive: Vec::new(),
+            courier: None,
+            courier_spawn: None,
         }],
         towers: [None, None],
         lane_towers: Vec::new(),
@@ -4671,6 +4682,8 @@ pub(crate) fn shop_fixture_slot(player_id: u32, side: usize, entity: Option<Enti
         hero_statuses: Vec::new(),
         retired_body: None,
         retired_inactive: Vec::new(),
+        courier: None,
+        courier_spawn: None,
     }
 }
 

@@ -4851,11 +4851,13 @@ fn handle_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     Ok(true)
 }
 
-fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit_id:&str,
+pub(crate) fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit_id:&str,
     owner:Entity,faction:Faction,player_owner:Option<u32>,duration:Fixed64,
     stats:&omoba_template_ids::SummonStats) -> Result<(),failure::Error> {
     let id=omoba_template_ids::summon_by_name(unit_id).expect("validated summon");
-    let mut unit=Unit::new(unit_id.into(),omoba_template_ids::active_summon_display(id).into(),UnitType::Summon);
+    // a courier (v3 tag courier, E courier-spec §1) is UnitType::Courier: has_tag(courier) holds
+    let kind=if stats.courier {UnitType::Courier} else {UnitType::Summon};
+    let mut unit=Unit::new(unit_id.into(),omoba_template_ids::active_summon_display(id).into(),kind);
     unit.max_hp=(stats.hp.raw()/1024) as i32;unit.current_hp=unit.max_hp;
     unit.base_damage=(stats.damage.raw()/1024) as i32;unit.base_armor=stats.armor;
     unit.magic_resistance=stats.magic_resistance;unit.attack_range=stats.attack_range;
@@ -4911,6 +4913,11 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     world.write_storage::<SummonedUnit>().insert(entity,summoned)?;
     if stats.invulnerable || (stats.dummy && !breakable) {
         if let Some(mut state)=world.try_fetch_mut::<crate::runtime::MobaMatch>() {state.add_invulnerable_summon(&world.entities(),entity);}
+    }
+    // magic immune for its whole life (a courier's passive, 原作 for_magic_immune)
+    if stats.magic_immune {
+        world.write_resource::<crate::runtime::BuffStore>().add(entity,super::magic_immunity::BUFF,
+            super::ability_runtime::buff_store::PERMANENT_BUFF_DURATION,serde_json::Value::Null);
     }
     if stats.dummy {super::dummy_unit::hold_states(&mut world.write_resource::<crate::runtime::BuffStore>(),entity,duration,breakable);}
     // A chase template (E406): the host flies it (summon_chase), never the follow rules or orders.
